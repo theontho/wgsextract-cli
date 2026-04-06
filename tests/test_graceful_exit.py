@@ -2,7 +2,7 @@ import os
 import sys
 import unittest
 
-# Ensure cli/src is in sys.path
+# Ensure src is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 
@@ -20,7 +20,7 @@ class TestGracefulExit(unittest.TestCase):
         """Helper to run a command as a subprocess and verify it exits fast and gracefully."""
         import subprocess
 
-        # Ensure cli/src is in PYTHONPATH for the subprocess
+        # Ensure src is in PYTHONPATH for the subprocess
         env = os.environ.copy()
         env["PYTHONPATH"] = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "../src")
