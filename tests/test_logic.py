@@ -4,7 +4,7 @@ import sys
 import tempfile
 import unittest
 
-# Ensure cli/src is in sys.path
+# Ensure src is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 from wgsextract_cli.core.gene_map import GeneMap
