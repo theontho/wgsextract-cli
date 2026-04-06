@@ -51,8 +51,6 @@ def get_repo_root():
             os.path.join(probe, ".git")
         ):
             # If we found it in 'cli/', the real repo root is one level up
-            if os.path.basename(probe) == "cli":
-                return os.path.dirname(probe)
             return probe
         probe = os.path.dirname(probe)
 
