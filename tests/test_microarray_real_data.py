@@ -10,14 +10,14 @@ from unittest.mock import patch
 
 from dotenv import load_dotenv
 
-# Path to the directory where this test is located (cli/tests/)
+# Path to the directory where this test is located (tests/)
 this_dir = Path(__file__).resolve().parent
-# cli/ root (parent of tests/)
+# root (parent of tests/)
 cli_root = this_dir.parent
-# repo root (parent of cli/)
-repo_root = cli_root.parent
+# repo root (parent of repo root)
+repo_root = cli_root
 
-# Ensure cli/src is in sys.path
+# Ensure src is in sys.path
 cli_src = cli_root / "src"
 if str(cli_src) not in sys.path:
     sys.path.insert(0, str(cli_src))

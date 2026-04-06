@@ -4,7 +4,7 @@ import unittest
 from io import StringIO
 from unittest.mock import MagicMock, patch
 
-# Ensure cli/src is in sys.path
+# Ensure src is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 from wgsextract_cli.core.dependencies import verify_dependencies  # noqa: E402

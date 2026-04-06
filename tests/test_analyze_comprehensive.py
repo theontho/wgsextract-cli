@@ -51,8 +51,8 @@ class TestAnalyzeComprehensive(unittest.TestCase):
         print(stderr)
 
         # Basic check: did it run 'info' and 'qc'?
-        self.assertIn("Step 1: Running BAM/CRAM basic metrics and QC...", stderr)
-        self.assertIn("Starting comprehensive analysis", stderr)
+        self.assertIn("🚀 STAGE: BAM/CRAM Metrics & Lineage", stdout)
+        self.assertIn("Starting Comprehensive Analysis", stdout)
 
     def test_analyze_comprehensive_vcf_inputs(self):
         """Test analyze comprehensive with multiple VCF inputs."""
@@ -77,9 +77,9 @@ class TestAnalyzeComprehensive(unittest.TestCase):
         print(stdout)
         print(stderr)
 
-        self.assertIn("Merging 2 VCF files", stderr)
+        self.assertIn("Processing Input VCFs (2 files)", stdout)
         # It should produce merged.vcf.gz
-        self.assertTrue(os.path.exists(os.path.join(self.outdir, "merged.vcf.gz")))
+        self.assertTrue(os.path.exists(os.path.join(self.outdir, "significant_snp-indel_fake.vcf.gz")))
 
 
 if __name__ == "__main__":

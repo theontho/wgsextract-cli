@@ -1,0 +1,19 @@
+{
+  "filename": "sample.bam",
+  "md5_signature": "bd894134bddba260df88a90123a2ee9c",
+  "file_stats": {
+    "sorted": true,
+    "indexed": true,
+    "size_gb": 50.0,
+    "version": "Unknown"
+  },
+  "ref_model_str": "hg38 (Chr), rCRS, 1 SNs",
+  "suggested_ref_file": "hg38.fa.gz",
+  "avg_read_len": 150.0,
+  "std_read_len": 2.0,
+  "is_paired": true,
+  "avg_insert_size": 300.0,
+  "std_insert_size": 50.0,
+  "sequencer": "Illumina NS 6000 (Dante)",
+  "first_qname": "A00910:1:ABCDEFGHI:1:1:1:1"
+}

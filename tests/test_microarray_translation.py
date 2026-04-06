@@ -1,7 +1,7 @@
 import os
 import shutil
 
-# Ensure cli/src is in sys.path
+# Ensure src is in sys.path
 import sys
 import tempfile
 import unittest
