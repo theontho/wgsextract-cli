@@ -299,7 +299,7 @@ def check_all_dependencies(mandatory=None, optional=None):
         {
             "name": "Python Runtime",
             "path": sys.executable,
-            "version": f"Python {py_version} (Required >= 3.11)",
+            "version": f"Python {py_version} (Required >= 3.10)",
         }
     )
 
