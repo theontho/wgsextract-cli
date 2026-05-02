@@ -57,7 +57,7 @@ We performed a comparison to see if compressing raw (un-gzipped) data with 7z wo
 
 | Archive Type | Content State | Size |
 | :--- | :--- | :--- |
-| `wgsextract-reference-bootstrap.7z` | Gzipped (.gz) | **105 MB** |
+| `wgsextract-reference-bootstrap.tar.gz` | BGZIP (.tar.gz) | **167 MB** |
 | `wgsextract-reference-raw.7z` | Raw (uncompressed) | **92 MB** |
 
-**Conclusion:** Although compressing raw data yields a **~13% (13MB) smaller** archive, we have chosen the **105MB (Gzipped)** version for distribution. This ensures that essential files (like VCFs and Liftover chains) are in their expected `.gz` state immediately upon extraction, avoiding a manual re-compression step for the end-user.
+**Conclusion:** Although compressing raw data yields a smaller archive, we have chosen the **167MB (BGZIP)** version for distribution. This ensures that essential files (like VCFs and Liftover chains) are in their expected `.gz` state immediately upon extraction and that the archive can be handled by standard tools without 7z.
