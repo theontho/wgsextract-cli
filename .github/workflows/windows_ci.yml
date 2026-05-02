@@ -21,7 +21,12 @@ jobs:
         shell: powershell
         env:
           USERPROFILE: ${{ github.workspace }}\.tmp_home
+          LOCALAPPDATA: ${{ github.workspace }}\.tmp_home\AppData\Local
+          APPDATA: ${{ github.workspace }}\.tmp_home\AppData\Roaming
+          PIXI_CACHE_DIR: ${{ github.workspace }}\.tmp_home\.pixi_cache
         run: |
+          mkdir .tmp_home\AppData\Local -Force
+          mkdir .tmp_home\AppData\Roaming -Force
           mkdir .tmp_home\.config\wgsextract -Force
           pixi run python -c "from wgsextract_cli.core.config import save_config; save_config({'reference_library': 'reference'})"
           pixi run python -m wgsextract_cli.main ref bootstrap --ref reference
@@ -29,6 +34,9 @@ jobs:
         shell: powershell
         env:
           USERPROFILE: ${{ github.workspace }}\.tmp_home
+          LOCALAPPDATA: ${{ github.workspace }}\.tmp_home\AppData\Local
+          APPDATA: ${{ github.workspace }}\.tmp_home\AppData\Roaming
+          PIXI_CACHE_DIR: ${{ github.workspace }}\.tmp_home\.pixi_cache
         run: pixi run python -m wgsextract_cli.main ref library --install hs38 --ref reference
       - name: Run Basic Tests
         shell: powershell
