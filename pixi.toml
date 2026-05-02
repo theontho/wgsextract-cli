@@ -11,6 +11,14 @@ python = "3.10.*"
 
 [feature.gatk.dependencies]
 openjdk = "17.*"
+
+[feature.gatk.target.osx-arm64.dependencies]
+gatk4 = ">=4.5.0.0"
+
+[feature.gatk.target.osx-64.dependencies]
+gatk4 = ">=4.5.0.0"
+
+[feature.gatk.target.linux-64.dependencies]
 gatk4 = ">=4.5.0.0"
 
 [feature.bio-tools.target.osx-arm64.dependencies]
