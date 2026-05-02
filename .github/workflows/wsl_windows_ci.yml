@@ -1,0 +1,46 @@
+name: CI Windows (WSL2)
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test-wsl:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up WSL
+        shell: powershell
+        run: |
+          wsl --update
+          wsl --status
+          
+      - name: Install Pixi in WSL
+        shell: powershell
+        run: |
+          wsl bash -c "curl -fsSL https://pixi.sh/install.sh | bash"
+          
+      - name: Initialize Project in WSL
+        shell: powershell
+        run: |
+          $wslPath = wsl wslpath "${{ github.workspace }}"
+          wsl bash -c "cd '$wslPath' && ~/.pixi/bin/pixi install"
+          
+      - name: Bootstrap Reference Library in WSL
+        shell: powershell
+        run: |
+          $wslPath = wsl wslpath "${{ github.workspace }}"
+          # Save config and bootstrap
+          wsl bash -c "cd '$wslPath' && ~/.pixi/bin/pixi run python -c 'from wgsextract_cli.core.config import save_config; save_config({\"reference_library\": \"reference\"})'"
+          wsl bash -c "cd '$wslPath' && ~/.pixi/bin/pixi run python -m wgsextract_cli.main ref bootstrap --ref reference"
+
+      - name: Run Basic Tests in WSL
+        shell: powershell
+        run: |
+          $wslPath = wsl wslpath "${{ github.workspace }}"
+          wsl bash -c "cd '$wslPath' && ~/.pixi/bin/pixi run pytest tests/test_smoke.py"

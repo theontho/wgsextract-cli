@@ -34,13 +34,19 @@ uv tool install .
 ### 2. Install External Dependencies
 `wgsextract-cli` relies on standard bioinformatics tools. We provide automated scripts for common platforms to verify and set these up.
 
+#### Windows (Recommended: WSL2)
+```powershell
+# Run the WSL2 bootstrap script
+powershell ./bootstrap_wsl.ps1
+```
+
 #### macOS
 ```bash
 # Using Homebrew
 bash dep_scripts/install_macos.sh
 ```
 
-#### Linux / WSL2
+#### Linux
 ```bash
 # Using Conda/Mamba
 bash dep_scripts/install_linux_conda.sh
