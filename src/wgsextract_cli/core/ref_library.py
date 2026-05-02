@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 import time
 from collections.abc import Callable
 from typing import Any
@@ -741,6 +742,12 @@ def process_reference_file(
             return False
 
     except Exception as e:
+        if sys.platform == "win32" and isinstance(e, FileNotFoundError):
+            logging.warning(
+                f"Warning: Could not index reference on Windows (missing tools): {e}"
+            )
+            logging.warning("Reference is downloaded but remains unindexed.")
+            return True
         logging.error(f"Indexing failed: {e}")
         return False
 
@@ -812,6 +819,11 @@ def ensure_bgzf(
             logging.info(f"Recompression to {new_path} complete.")
             return new_path
     except Exception as e:
+        if sys.platform == "win32" and isinstance(e, FileNotFoundError):
+            logging.warning(
+                f"Warning: Could not recompress to BGZF on Windows (missing tools): {e}"
+            )
+            return path
         logging.error(f"Recompression failed: {e}")
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
