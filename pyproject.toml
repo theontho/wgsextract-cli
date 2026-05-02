@@ -18,6 +18,7 @@ dependencies = [
     "nicegui",       # Web-based GUI framework
     "platformdirs",  # For cross-platform configuration directories
     "tomli; python_version < '3.11'", # TOML parser for Python < 3.11
+    "tomli-w",       # TOML writer
 ]
 
 [project.scripts]
