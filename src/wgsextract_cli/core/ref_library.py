@@ -819,3 +819,36 @@ class ReferenceCataloger:
     def update_catalog(self):
         # Simplified for now
         pass
+
+
+def download_bootstrap(
+    reflib_dir: str,
+    cancel_event: Any | None = None,
+    progress_callback: Callable[[int, int, float], None] | None = None,
+) -> bool:
+    """Downloads and extracts the reference library bootstrap."""
+    from wgsextract_cli.core.constants import BOOTSTRAP_FILENAME, BOOTSTRAP_URL
+
+    if not os.path.exists(reflib_dir):
+        os.makedirs(reflib_dir, exist_ok=True)
+
+    dest_path = os.path.join(reflib_dir, BOOTSTRAP_FILENAME)
+    logging.info(f"Downloading bootstrap from {BOOTSTRAP_URL}...")
+
+    if not download_file(BOOTSTRAP_URL, dest_path, progress_callback, cancel_event):
+        return False
+
+    logging.info(f"Extracting bootstrap to {reflib_dir}...")
+    try:
+        # Use tar -xvf -z (or bgzip -d | tar)
+        # Since we use bgzip, we can pipe bgzip -d to tar -xf -
+        cmd = ["tar", "-xkf", dest_path, "-C", reflib_dir]
+        subprocess.run(cmd, check=True)
+
+        # Cleanup the archive after successful extraction
+        os.remove(dest_path)
+        logging.info("Bootstrap extraction complete.")
+        return True
+    except Exception as e:
+        logging.error(f"Failed to extract bootstrap: {e}")
+        return False

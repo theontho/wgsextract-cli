@@ -381,3 +381,7 @@ N_ADJUST = {
         "M": 0,
     },
 }
+
+# Reference Library Bootstrap
+BOOTSTRAP_URL = "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/wgsextract-reference-bootstrap.tar.gz"
+BOOTSTRAP_FILENAME = "wgsextract-reference-bootstrap.tar.gz"
