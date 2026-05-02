@@ -2,12 +2,30 @@
 
 from nicegui import ui
 
-from .common import save_env, ui_row_dir, ui_row_input
+from wgsextract_cli.core.config import save_config
+
+from .common import ui_row_dir, ui_row_input
+from .state import state
+
+
+async def handle_save_config():
+    """Save current state to config.toml."""
+    updates = {
+        "output_directory": state.out_dir,
+        "reference_library": state.ref_path,
+        "yleaf_executable": state.yleaf_path,
+        "haplogrep_executable": state.haplogrep_path,
+    }
+    try:
+        save_config(updates)
+        ui.notify("Settings saved to config.toml", type="positive")
+    except Exception as e:
+        ui.notify(f"Failed to save settings: {e}", type="negative")
 
 
 def frame_settings():
     ui.label("Settings").classes("text-h5 mb-2")
-    ui.markdown("Configure environment variables and global paths.").classes(
+    ui.markdown("Configure global paths and application settings.").classes(
         "text-slate-400 mb-4"
     )
 
@@ -19,4 +37,4 @@ def frame_settings():
 
         ui.separator()
         with ui.row().classes("w-full justify-end"):
-            ui.button("Save to .env.local", on_click=save_env).props("primary")
+            ui.button("Save Settings", on_click=handle_save_config).props("primary")
