@@ -279,6 +279,11 @@ UI_METADATA: dict[str, dict[str, Any]] = {
                 "cmd": "ref-gene-map",
                 "help": GUI_TOOLTIPS["ref-gene-map"],
             },
+            {
+                "label": "Bootstrap",
+                "cmd": "ref-bootstrap",
+                "help": GUI_TOOLTIPS["ref-bootstrap"],
+            },
         ],
         "vep_commands": [
             {

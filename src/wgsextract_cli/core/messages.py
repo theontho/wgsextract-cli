@@ -116,6 +116,7 @@ Available formats:
     "arg_r2": "Read 2 FASTQ file (optional)",
     "arg_se": "Single-End FASTQ file",
     "arg_long_read": "Use minimap2 for long-read alignment",
+    "cmd_ref-bootstrap": "Download and initialize the reference library bootstrap (VCFs, chains, etc.). (Time: 5-10 mins, Space: 1-2 GB)",
     "cmd_bam_mgmt": "BAM/CRAM management commands.",
     "cmd_deps": "Manage system dependencies.",
 }
@@ -204,6 +205,7 @@ GUI_LABELS = {
     "btn_generate_ck": "Generate CombinedKit",
     "btn_download_gm": "Download Gene Map",
     "btn_delete_gm": "Delete Gene Map",
+    "btn_ref_bootstrap": "Bootstrap Library",
     "btn_vep_dl": "Download VEP Cache",
     "btn_vep_verify": "Verify VEP Cache",
     "fastq_bam": "FASTQ / BAM:",

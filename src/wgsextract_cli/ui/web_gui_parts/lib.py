@@ -177,5 +177,20 @@ def frame_lib():
                             on_click=lambda c=gene_cmd: run_generic_cmd(c),
                         ).props("outline color=secondary")
 
+                # Bootstrap
+                with ui.card().classes("w-full p-3"):
+                    ui.label("Bootstrap Reference Library").classes(
+                        "font-bold mb-2 text-sm"
+                    )
+                    ui.markdown(
+                        "Download all standard VCFs, liftover chains, and small reference assets at once."
+                    ).classes("text-xs text-slate-400 mb-2")
+                    with ui.row().classes("w-full gap-2"):
+                        boot_cmd = UI_METADATA["lib"]["commands"][1]  # Bootstrap
+                        ui.button(
+                            boot_cmd["label"],
+                            on_click=lambda c=boot_cmd: run_generic_cmd(c),
+                        ).props("outline color=warning")
+
     # Refresh timer to update progress bars and status
     ui.timer(1.0, ui.update)
