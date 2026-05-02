@@ -367,12 +367,14 @@ def cmd_library_list(args):
     """Non-interactive library status list."""
     from wgsextract_cli.core.config import settings
 
-    reflib_dir = settings.get("reference_library")
+    reflib_dir = args.ref
+    if not reflib_dir:
+        reflib_dir = settings.get("reference_library")
     if not reflib_dir:
         prog_root = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "../../../..")
         )
-        reflib_dir = args.ref if args.ref else os.path.join(prog_root, "reference")
+        reflib_dir = os.path.join(prog_root, "reference")
 
     reflib_dir = os.path.abspath(reflib_dir)
 
@@ -475,12 +477,14 @@ def cmd_library(args):
     genomes = get_available_genomes()
 
     # Determine reference library directory
-    reflib_dir = settings.get("reference_library")
+    reflib_dir = args.ref
+    if not reflib_dir:
+        reflib_dir = settings.get("reference_library")
     if not reflib_dir:
         prog_root = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "../../../..")
         )
-        reflib_dir = args.ref if args.ref else os.path.join(prog_root, "reference")
+        reflib_dir = os.path.join(prog_root, "reference")
 
     reflib_dir = os.path.abspath(reflib_dir)
 
@@ -722,10 +726,14 @@ def cmd_bootstrap(args):
     from wgsextract_cli.core.config import settings
     from wgsextract_cli.core.ref_library import download_bootstrap
 
-    prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    reflib = settings.get("reference_library")
+    reflib = args.ref
     if not reflib:
-        reflib = args.ref if args.ref else os.path.join(prog_root, "reference")
+        reflib = settings.get("reference_library")
+    if not reflib:
+        prog_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "../../../..")
+        )
+        reflib = os.path.join(prog_root, "reference")
 
     logging.info("Starting reference library bootstrap...")
     if download_bootstrap(reflib):
