@@ -365,8 +365,15 @@ def cmd_ref_verify(args):
 
 def cmd_library_list(args):
     """Non-interactive library status list."""
-    prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    reflib_dir = args.ref if args.ref else os.path.join(prog_root, "reference")
+    from wgsextract_cli.core.config import settings
+
+    reflib_dir = settings.get("reference_library")
+    if not reflib_dir:
+        prog_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "../../../..")
+        )
+        reflib_dir = args.ref if args.ref else os.path.join(prog_root, "reference")
+
     reflib_dir = os.path.abspath(reflib_dir)
 
     genomes = get_available_genomes()
@@ -459,6 +466,8 @@ def cmd_library_list(args):
 
 def cmd_library(args):
     """Interactive library manager."""
+    from wgsextract_cli.core.config import settings
+
     deps = ["curl", "samtools", "bcftools", "tabix", "bgzip", "htsfile"]
     verify_dependencies(deps)
     log_dependency_info(deps)
@@ -466,8 +475,13 @@ def cmd_library(args):
     genomes = get_available_genomes()
 
     # Determine reference library directory
-    prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    reflib_dir = args.ref if args.ref else os.path.join(prog_root, "reference")
+    reflib_dir = settings.get("reference_library")
+    if not reflib_dir:
+        prog_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "../../../..")
+        )
+        reflib_dir = args.ref if args.ref else os.path.join(prog_root, "reference")
+
     reflib_dir = os.path.abspath(reflib_dir)
 
     print("\n" + "=" * 80)
