@@ -993,7 +993,7 @@ class GUIController:
             else (fastq_r1_path.get() if fastq_r1_path else "")
         )
 
-        ref_path = getattr(frame, "ref_entry", None)
+        ref_path = getattr(frame, "ref_entry", None) or getattr(frame, "lib_dest", None)
         ref_val = ref_path.get() if ref_path else ""
 
         # Validate inputs before proceeding
