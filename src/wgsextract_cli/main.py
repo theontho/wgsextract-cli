@@ -5,7 +5,6 @@ import logging
 import os
 import sys
 
-
 from .commands import (
     align,
     analyze,
@@ -100,7 +99,7 @@ def main():
         "--quiet",
         action="store_true",
         default=settings.get("quiet_mode", False),
-        help="Suppress all informational logs. (Env: WGSE_QUIET_MODE=1)",
+        help="Suppress all informational logs.",
     )
     base_parser.add_argument(
         "--input",
