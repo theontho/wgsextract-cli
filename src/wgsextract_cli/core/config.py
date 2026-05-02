@@ -140,6 +140,41 @@ def reload_settings() -> None:
     settings.update(new_settings)
 
 
+def save_config(updates: dict[str, Any]) -> None:
+    """Save configuration updates to the config.toml file."""
+    import tomli_w
+
+    config_path = get_config_path()
+
+    # Load existing config to merge
+    current_config = {}
+    if config_path.exists():
+        try:
+            with open(config_path, "rb") as f:
+                current_config = tomllib.load(f)
+        except Exception:
+            pass
+
+    # Update with new values
+    for key, value in updates.items():
+        if key in KNOWN_SETTINGS:
+            if value is None or value == "":
+                current_config.pop(key, None)
+            else:
+                current_config[key] = value
+
+    # Write back
+    try:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "wb") as f:
+            tomli_w.dump(current_config, f)
+        # Refresh global settings
+        reload_settings()
+    except Exception as e:
+        print(f"Error saving config to {config_path}: {e}", file=sys.stderr)
+        raise
+
+
 def get(key: str, default: Any = None) -> Any:
     """Get a configuration value with an optional default."""
     return settings.get(key, default)
