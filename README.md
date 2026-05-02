@@ -1,6 +1,7 @@
-# 🧬 WGS Extract CLI (`wgsextract-cli`)
+> [!WARNING]
+> A bit rough around the edges but I use it locally myself.  An AI agent can probably patch over any rough spots for you.
 
-> ⚠️ A bit rough around the edges but I use it locally myself
+# 🧬 WGS Extract CLI (`wgsextract-cli`)
 
 ![GUI Screenshot](docs/gui-screenshot.jpg)
 
