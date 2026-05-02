@@ -203,11 +203,18 @@ def cmd_mito_fasta(args):
         # 3. Generate Consensus
         logging.info(LOG_MESSAGES["generating_consensus"].format(output=out_fasta))
         with open(out_fasta, "w") as f:
+            p_faidx = subprocess.Popen(
+                ["samtools", "faidx", resolved_ref, chr_m], stdout=subprocess.PIPE
+            )
             subprocess.run(
-                ["bcftools", "consensus", "-f", resolved_ref, "-H", "1", out_vcf],
+                ["bcftools", "consensus", "-f", "-", "-H", "1", out_vcf],
+                stdin=p_faidx.stdout,
                 stdout=f,
                 check=True,
             )
+            if p_faidx.stdout:
+                p_faidx.stdout.close()
+            p_faidx.wait()
 
         # Cleanup
         os.remove(out_bam)
