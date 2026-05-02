@@ -25,6 +25,23 @@ def download_file(
 ) -> bool:
     """Downloads a file with progress reporting, optional cancellation, and resume support."""
     partial_dest = dest + ".partial"
+
+    # Try curl first
+    try:
+        # Use -L to follow redirects, -C - for resume
+        cmd = ["curl", "-L", "-o", dest, url]
+        if os.path.exists(dest):
+            cmd.insert(3, "-C")
+            cmd.insert(4, "-")
+
+        # Note: we don't use progress_callback with curl easily here without parsing output
+        # For simplicity in CLI, we'll just run it.
+        subprocess.run(cmd, check=True, capture_output=True)
+        return True
+    except Exception:
+        # Fallback to urllib
+        pass
+
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     }
@@ -838,7 +855,9 @@ def download_bootstrap(
     # Try curl first if available, then fallback to download_file (urllib)
     try:
         subprocess.run(
-            ["curl", "-L", "-o", dest_path, BOOTSTRAP_URL], check=True, capture_output=True
+            ["curl", "-L", "-o", dest_path, BOOTSTRAP_URL],
+            check=True,
+            capture_output=True,
         )
     except Exception:
         if not download_file(BOOTSTRAP_URL, dest_path, progress_callback, cancel_event):
