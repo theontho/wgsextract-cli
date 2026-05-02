@@ -167,3 +167,4 @@ cython_debug/
 out/
 tmp/
 temp/
+reference_bootstrap/
