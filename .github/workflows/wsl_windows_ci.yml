@@ -15,32 +15,29 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Set up WSL
-        shell: powershell
-        run: |
-          wsl --update
-          wsl --status
+        uses: Vampire/setup-wsl@v3
+        with:
+          distribution: Ubuntu-24.04
+          use-shell: true
+          set-as-default: true
           
       - name: Install Pixi in WSL
-        shell: powershell
+        shell: wsl-bash {0}
         run: |
-          wsl bash -c "curl -fsSL https://pixi.sh/install.sh | bash"
+          curl -fsSL https://pixi.sh/install.sh | bash
           
       - name: Initialize Project in WSL
-        shell: powershell
+        shell: wsl-bash {0}
         run: |
-          $wslPath = wsl wslpath "${{ github.workspace }}"
-          wsl bash -c "cd '$wslPath' && ~/.pixi/bin/pixi install"
+          ~/.pixi/bin/pixi install
           
       - name: Bootstrap Reference Library in WSL
-        shell: powershell
+        shell: wsl-bash {0}
         run: |
-          $wslPath = wsl wslpath "${{ github.workspace }}"
-          # Save config and bootstrap
-          wsl bash -c "cd '$wslPath' && ~/.pixi/bin/pixi run python -c 'from wgsextract_cli.core.config import save_config; save_config({\"reference_library\": \"reference\"})'"
-          wsl bash -c "cd '$wslPath' && ~/.pixi/bin/pixi run python -m wgsextract_cli.main ref bootstrap --ref reference"
+          ~/.pixi/bin/pixi run python -c 'from wgsextract_cli.core.config import save_config; save_config({"reference_library": "reference"})'
+          ~/.pixi/bin/pixi run python -m wgsextract_cli.main ref bootstrap --ref reference
 
       - name: Run Basic Tests in WSL
-        shell: powershell
+        shell: wsl-bash {0}
         run: |
-          $wslPath = wsl wslpath "${{ github.workspace }}"
-          wsl bash -c "cd '$wslPath' && ~/.pixi/bin/pixi run pytest tests/test_smoke.py"
+          ~/.pixi/bin/pixi run pytest tests/test_smoke.py
