@@ -835,8 +835,14 @@ def download_bootstrap(
     dest_path = os.path.join(reflib_dir, BOOTSTRAP_FILENAME)
     logging.info(f"Downloading bootstrap from {BOOTSTRAP_URL}...")
 
-    if not download_file(BOOTSTRAP_URL, dest_path, progress_callback, cancel_event):
-        return False
+    # Try curl first if available, then fallback to download_file (urllib)
+    try:
+        subprocess.run(
+            ["curl", "-L", "-o", dest_path, BOOTSTRAP_URL], check=True, capture_output=True
+        )
+    except Exception:
+        if not download_file(BOOTSTRAP_URL, dest_path, progress_callback, cancel_event):
+            return False
 
     logging.info(f"Extracting bootstrap to {reflib_dir}...")
     try:
