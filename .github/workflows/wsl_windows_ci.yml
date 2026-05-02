@@ -12,35 +12,33 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Set up WSL
-        uses: Vampire/setup-wsl@v3
+        uses: Vampire/setup-wsl@v7
         with:
           distribution: Ubuntu-24.04
-          use-shell: true
           set-as-default: true
           
       - name: Install Pixi in WSL
-        shell: wsl-bash {0}
+        shell: wsl-shell {0}
         run: |
           curl -fsSL https://pixi.sh/install.sh | bash
           
       - name: Initialize Project in WSL
-        shell: wsl-bash {0}
+        shell: wsl-shell {0}
         run: |
           ~/.pixi/bin/pixi install
           
       - name: Bootstrap Reference Library in WSL
-        shell: wsl-bash {0}
+        shell: wsl-shell {0}
         run: |
           ~/.pixi/bin/pixi run python -c 'from wgsextract_cli.core.config import save_config; save_config({"reference_library": "reference"})'
           ~/.pixi/bin/pixi run python -m wgsextract_cli.main ref bootstrap --ref reference
 
       - name: Install Reference Genome in WSL
-        shell: wsl-bash {0}
+        shell: wsl-shell {0}
         run: |
-          # Install a small reference or hs38
           ~/.pixi/bin/pixi run python -m wgsextract_cli.main ref library --install hs38 --ref reference
 
       - name: Run Basic Tests in WSL
-        shell: wsl-bash {0}
+        shell: wsl-shell {0}
         run: |
           ~/.pixi/bin/pixi run pytest tests/test_smoke.py
