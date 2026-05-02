@@ -30,7 +30,6 @@ OPTIONAL_TOOLS = [
     "run_deepvariant",
     "dv_call_variants.py",
     "curl",
-    "wget",
     "java",
     "yleaf",
     "haplogrep",
