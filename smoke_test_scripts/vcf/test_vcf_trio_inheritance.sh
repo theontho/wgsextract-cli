@@ -58,7 +58,7 @@ echo "--------------------------------------------------------"
 
 # 2. Run Trio Analysis
 echo ":: Running trio analysis (mode: all)..."
-if uv run wgsextract vcf trio \
+if pixi run wgsextract vcf trio \
     --proband "$OUTDIR/proband.vcf.gz" \
     --mother "$OUTDIR/mother.vcf.gz" \
     --father "$OUTDIR/father.vcf.gz" \
@@ -100,7 +100,7 @@ fi
 
 # 4. Run individual modes
 echo ":: Testing 'vcf trio' with --mode recessive..."
-if uv run wgsextract vcf trio \
+if pixi run wgsextract vcf trio \
     --proband "$OUTDIR/proband.vcf.gz" \
     --mother "$OUTDIR/mother.vcf.gz" \
     --father "$OUTDIR/father.vcf.gz" \
@@ -113,7 +113,7 @@ else
 fi
 
 echo ":: Testing 'vcf trio' with --mode comphet..."
-if uv run wgsextract vcf trio \
+if pixi run wgsextract vcf trio \
     --proband "$OUTDIR/proband.vcf.gz" \
     --mother "$OUTDIR/mother.vcf.gz" \
     --father "$OUTDIR/father.vcf.gz" \

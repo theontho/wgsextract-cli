@@ -26,7 +26,7 @@ echo "--------------------------------------------------------"
 
 # 1. Test 'bam unalign' (BAM to FASTQ)
 echo ":: Testing 'bam unalign'..."
-if uv run wgsextract bam unalign \
+if pixi run wgsextract bam unalign \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR" \
     --r1 "unaligned_R1.fastq.gz" \
@@ -43,10 +43,10 @@ fi
 echo ":: Testing 'bam unindex'..."
 cp "$FAKEDATA/fake.bam" "$OUTDIR/test_unindex.bam"
 # Create index first
-uv run wgsextract bam index --input "$OUTDIR/test_unindex.bam"
+pixi run wgsextract bam index --input "$OUTDIR/test_unindex.bam"
 if [ -f "$OUTDIR/test_unindex.bam.bai" ]; then
     echo "   Index created. Now removing..."
-    if uv run wgsextract bam unindex --input "$OUTDIR/test_unindex.bam" && [ ! -f "$OUTDIR/test_unindex.bam.bai" ]; then
+    if pixi run wgsextract bam unindex --input "$OUTDIR/test_unindex.bam" && [ ! -f "$OUTDIR/test_unindex.bam.bai" ]; then
         echo "✅ Success: bam unindex completed."
     else
         echo "❌ Failure: bam unindex failed to remove index."
@@ -59,7 +59,7 @@ fi
 
 # 3. Test 'bam unsort'
 echo ":: Testing 'bam unsort'..."
-if uv run wgsextract bam unsort \
+if pixi run wgsextract bam unsort \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR" && \
     [ -f "$OUTDIR/fake_unsorted.bam" ]; then
@@ -82,7 +82,7 @@ mkdir -p "$OUTDIR/ref"
 echo -e "symbol\tchrom\tstart\tend" > "$OUTDIR/ref/genes_hg38.tsv"
 echo -e "GENE1\tchr1\t1\t10000" >> "$OUTDIR/ref/genes_hg38.tsv"
 
-if WGSE_REFLIB="$OUTDIR" uv run wgsextract bam unalign \
+if WGSE_REFLIB="$OUTDIR" pixi run wgsextract bam unalign \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR/unalign_gene" \
     --gene "GENE1" \
@@ -98,7 +98,7 @@ fi
 
 # 5. Test --gene for bam sort (which acts as a regional extractor + sorter)
 echo ":: Testing 'bam sort' with --gene..."
-if WGSE_REFLIB="$OUTDIR" uv run wgsextract bam sort \
+if WGSE_REFLIB="$OUTDIR" pixi run wgsextract bam sort \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR/sort_gene" \
     --gene "GENE1" \

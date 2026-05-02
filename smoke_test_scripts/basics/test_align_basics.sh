@@ -23,7 +23,7 @@ echo "--------------------------------------------------------"
 
 # 1. Generate small FASTQ for hg38
 echo ":: Generating small hg38 FASTQ..."
-STDOUT=$(uv run wgsextract qc fake-data \
+STDOUT=$(pixi run wgsextract qc fake-data \
     --outdir "$FASTQDIR" \
     --build hg38 \
     --type fastq \
@@ -43,7 +43,7 @@ echo ":: Using reference: $REF"
 
 # 2. Align to BAM
 echo ":: Testing 'align' to BAM..."
-STDOUT=$(uv run wgsextract align \
+STDOUT=$(pixi run wgsextract align \
     --r1 "$FASTQDIR/fake_R1.fastq.gz" \
     --r2 "$FASTQDIR/fake_R2.fastq.gz" \
     --ref "$REF" \
@@ -59,7 +59,7 @@ fi
 
 # 3. Align to CRAM
 echo ":: Testing 'align' to CRAM..."
-STDOUT=$(uv run wgsextract align \
+STDOUT=$(pixi run wgsextract align \
     --r1 "$FASTQDIR/fake_R1.fastq.gz" \
     --r2 "$FASTQDIR/fake_R2.fastq.gz" \
     --ref "$REF" \
@@ -76,7 +76,7 @@ fi
 # 4. Align with Minimap2 (Long Read/SR mode)
 if command -v minimap2 >/dev/null 2>&1; then
     echo ":: Testing 'align' with Minimap2 (--long-read)..."
-    STDOUT=$(uv run wgsextract align \
+    STDOUT=$(pixi run wgsextract align \
         --r1 "$FASTQDIR/fake_R1.fastq.gz" \
         --r2 "$FASTQDIR/fake_R2.fastq.gz" \
         --ref "$REF" \

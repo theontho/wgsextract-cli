@@ -52,7 +52,7 @@ echo "Ref Genome Chrom: 1"
 
 # 2. Run microarray extraction
 echo ":: Running Microarray extraction (should normalize chr1 to 1 or vice-versa)..."
-if uv run wgsextract microarray \
+if pixi run wgsextract microarray \
     --input "$INPUT_VCF" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR" \

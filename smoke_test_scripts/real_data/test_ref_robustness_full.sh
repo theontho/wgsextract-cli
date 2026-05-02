@@ -31,7 +31,7 @@ echo "Input: $INPUT_FILE"
 
 # 1. Reference Library Management
 echo ":: Listing Reference Library..."
-if ! uv run wgsextract ref library-list --ref "$REF_DIR" | grep -qE "hg38|hg19"; then
+if ! pixi run wgsextract ref library-list --ref "$REF_DIR" | grep -qE "hg38|hg19"; then
     echo "⚠️  Warning: Reference library seems empty or missing standard builds."
 fi
 
@@ -39,7 +39,7 @@ fi
 echo ":: Testing Build Auto-Detection on real BAM/CRAM..."
 # We use 'info' command which triggers build detection
 DETECTION_LOG="$OUT_DIR/detection_info.txt"
-uv run wgsextract info \
+pixi run wgsextract info \
     --input "$INPUT_FILE" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR" > "$DETECTION_LOG" 2>&1
@@ -54,11 +54,11 @@ fi
 
 # 3. Reference Integrity Verification
 echo ":: Verifying Reference Integrity..."
-uv run wgsextract ref verify --ref "$REF_DIR" --build "$BUILD"
+pixi run wgsextract ref verify --ref "$REF_DIR" --build "$BUILD"
 
 echo ">>> Verifying reference verification logs..."
 # Ref verify outputs to stdout
-if uv run wgsextract ref verify --ref "$REF_DIR" --build "$BUILD" | grep -q "Integrity: OK"; then
+if pixi run wgsextract ref verify --ref "$REF_DIR" --build "$BUILD" | grep -q "Integrity: OK"; then
     echo "   ✅ Reference Integrity: OK"
 else
     echo "   ⚠️ Warning: Reference integrity check did not explicitly report OK (may be expected if files are missing)."

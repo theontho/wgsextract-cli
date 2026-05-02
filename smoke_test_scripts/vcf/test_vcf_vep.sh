@@ -39,7 +39,7 @@ EOF
 # bgzip and index
 if ! command -v bgzip &> /dev/null; then
     # In case run outside of dev environment, fallback to raw gzip for dummy creation, but tabix needs bgzip
-    uv run wgsextract deps check > /dev/null
+    pixi run wgsextract deps check > /dev/null
     eval "$(pixi env shell -e bio-tools)"
 fi
 
@@ -50,7 +50,7 @@ tabix -p vcf "$INPUT_VCF"
 # Note: Since there is no local cache configured, wgsextract will warn and fallback to --database.
 # This requires an internet connection and might take a few extra seconds.
 echo ":: Running 'wgsextract vep'..."
-if uv run wgsextract vep \
+if pixi run wgsextract vep \
     --input "$INPUT_VCF" \
     --outdir "$OUTDIR" \
     --vep-cache "$HOME/.vep" \

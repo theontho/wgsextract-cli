@@ -11,7 +11,7 @@ if [[ "$1" == "--describe" ]]; then
 fi
 
 # Ensure we're using the correct entry point
-WGSE_CMD="uv run wgsextract"
+WGSE_CMD="pixi run wgsextract"
 
 OUTDIR="out/smoke_test_vcf_pathogenicity_new"
 # Ensure output directory is clean

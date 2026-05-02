@@ -37,7 +37,7 @@ if command -v vep >/dev/null 2>&1; then
     echo ":: Running 'vep'..."
     REF=$(find "$FAKEDATA" -name "fake_ref_hg38_*.fa" | head -n 1)
     # We use --debug to see the constructed command even if it fails later
-    STDOUT=$(uv run wgsextract vep \
+    STDOUT=$(pixi run wgsextract vep \
         --input "$FAKEDATA/fake.vcf.gz" \
         --outdir "$OUTDIR" \
         --ref "$REF" \
@@ -55,7 +55,7 @@ if command -v vep >/dev/null 2>&1; then
     fi
 else
     echo ":: VEP not installed, skipping execution test but verifying argument parsing via --help."
-    if uv run wgsextract vep --help > /dev/null; then
+    if pixi run wgsextract vep --help > /dev/null; then
         echo "✅ Success: 'vep --help' works."
     else
         echo "❌ Failure: 'vep --help' failed."

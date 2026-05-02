@@ -11,70 +11,67 @@
 
 A completely independent, modern, AI-optimized command-line recreation of the [WGS (Whole Genome Sequencing) Extract](https://github.com/WGSExtract/WGSExtract-Dev/) application. 
 
-A goal of this reimplemenation was to make it cli driven first to make it more friendly to use with AIs, and to break the gordian knot of multi-platform end user dependency management by making dependency management a separate decoupled step from the application itself, and make the application partially runnable when dependencies are missing.  Pixi is looking like a potential winner for this 'second step'.
+Designed to be CLI-first for AI-friendliness, `wgsextract-cli` leverages [**Pixi**](https://pixi.sh) to provide a consistent, cross-platform environment for both Python and external bioinformatics tools (like samtools and bcftools).
 
----
+
 
 ## ⚙️ Installation & Setup Guide
 
-Getting `wgsextract-cli` running involves three main steps: installing the tool, ensuring external bioinformatics dependencies are present, and initializing your local reference library.
+`wgsextract-cli` uses [**Pixi**](https://pixi.sh) to manage its entire environment, including Python, standard bioinformatics tools (samtools, bcftools, etc.), and the application itself. This ensures a consistent, reproducible setup across all platforms.
 
-### 1. Install the CLI
-The recommended way to install is using [**uv**](https://github.com/astral-sh/uv).
-
+### 1. Install Pixi
+If you don't have Pixi installed, run:
 ```bash
-# Clone and enter the repository
+# macOS / Linux / WSL2
+curl -fsSL https://pixi.sh/install.sh | bash
+
+# Windows (PowerShell)
+iwr -useb https://pixi.sh/install.ps1 | iex
+```
+*Restart your terminal after installation.*
+
+### 2. Clone and Setup
+```bash
 git clone https://github.com/theontho/wgsextract-cli.git
 cd wgsextract-cli
 
-# Install as a tool (recommended)
-uv tool install .
+# Install all dependencies and the CLI tool
+pixi install
 ```
 
-### 2. Install External Dependencies
-`wgsextract-cli` relies on standard bioinformatics tools. We recommend using [**Pixi**](https://pixi.sh) to manage these automatically in a portable environment.
-
-#### Automated (Recommended)
-If you have [**Pixi**](https://pixi.sh) installed, it will automatically manage all dependencies.
-
-- **macOS / Linux**: Full support. Pixi installs all bioinformatics tools automatically.
-- **Windows**: Use **WSL2** (recommended) for full support. On native Windows, Pixi will manage Python and core utilities, but some bioinformatics tools (like `samtools`) must be installed manually or run via WSL2.
-
-#### Windows (Recommended: WSL2)
-To use the full bioinformatics suite on Windows, we recommend using WSL2. You can use our bootstrap script to set it up:
-
-```powershell
-# Run the WSL2 bootstrap script
-powershell ./bootstrap_wsl.ps1
-```
-
-#### Verification
+### 3. Global Install (Optional)
+To make the `wgsextract` command available everywhere on your system without needing to prefix it with `pixi run`:
 ```bash
-# Verify tools via Pixi (Mac/Linux/WSL2)
-pixi run wgsextract info --detailed
+# From within the cloned directory
+pixi global install --path .
 ```
+*Note: This will add `wgsextract` to your Pixi global binary path.*
 
-### 3. Initialize Reference Library
+### 4. Platform Support
+- **macOS (Intel/Apple Silicon)**: Fully supported. Pixi installs all bioinformatics tools automatically.
+- **Linux**: Fully supported. Pixi installs all bioinformatics tools automatically.
+- **Windows**:
+    - **WSL2 (Recommended)**: Follow the Linux instructions within a WSL2 terminal for full support.
+    - **Native Windows**: Pixi will manage Python and core utilities, but many bioinformatics tools (like `samtools`) are not natively available via Conda on Windows. For a full experience, use WSL2.
+
+### 5. Initialize Reference Library
 Before running extraction tools, you must initialize the reference library (VCFs, liftover chains, metadata).
 
 ```bash
 # Initialize library in the default 'reference/' folder
-wgsextract ref bootstrap
+pixi run wgsextract ref bootstrap
 
 # List available genomes
-wgsextract ref library --list
+pixi run wgsextract ref library --list
 
 # Install a genome (e.g., hs38)
-wgsextract ref library --install hs38
+pixi run wgsextract ref library --install hs38
 ```
 
-### 4. Basic Usage Verification
+### 6. Verification
 ```bash
-# Run info to verify setup
-wgsextract info --detailed
-
-# If not installed globally, you can run via uv:
-uv run wgsextract info --detailed
+# Verify tools and environment
+pixi run wgsextract info --detailed
 ```
 
 ---
@@ -134,13 +131,13 @@ haplogrep_path = "/usr/local/bin/haplogrep"
 ### Common Commands
 ```bash
 # Identify BAM/CRAM file properties
-uv run wgsextract bam identify
+pixi run wgsextract bam identify
 
 # Calculate mitochondrial coverage
-uv run wgsextract extract mito-vcf --region chrM
+pixi run wgsextract extract mito-vcf --region chrM
 
 # Generate a microarray simulation
-uv run wgsextract microarray --kit 23andme_v5
+pixi run wgsextract microarray --kit 23andme_v5
 ```
 
 ### Available Subcommand Groups
@@ -160,28 +157,28 @@ While primarily a CLI tool, `wgsextract-cli` includes modern GUI options:
 
 1.  **Web GUI (Recommended)**: A modern, reactive interface built with `NiceGUI`.
     ```bash
-    uv run wgsextract gui --web
+    pixi run wgsextract gui --web
     ```
 2.  **Desktop GUI**: A classic desktop experience built with `CustomTkinter`.
     ```bash
-    uv run wgsextract gui --desktop
+    pixi run wgsextract gui --desktop
     ```
 
 ---
 
 ## 🧪 Testing
 
-We maintain high standards for code quality. You can run the test suite using `uv`:
+We maintain high standards for code quality. You can run the test suite using `pixi`:
 
 ```bash
 # Smoke Tests (Fast, verifies CLI plumbing)
-uv run python tests/test_smoke.py
+pixi run python tests/test_smoke.py
 
 # Robustness Tests (Ensures stability with bad inputs)
-uv run python tests/test_robustness.py
+pixi run python tests/test_robustness.py
 
 # End-to-End Tests (Requires real data)
-uv run python tests/test_e2e_fast_chrM.py
+pixi run python tests/test_e2e_fast_chrM.py
 ```
 
 ---
@@ -190,16 +187,16 @@ uv run python tests/test_e2e_fast_chrM.py
 
 ### Setup Environment
 ```bash
-# Install development dependencies
-uv sync --group dev
+# Install all dependencies
+pixi install
 ```
 
 ### Code Quality
 Always run linting and formatting before submitting changes:
 ```bash
-uv run ruff check --fix .
-uv run ruff format .
-uv run mypy src/wgsextract_cli
+pixi run ruff check --fix .
+pixi run ruff format .
+pixi run mypy src/wgsextract_cli
 ```
 
 ---

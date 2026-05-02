@@ -57,7 +57,7 @@ echo "--------------------------------------------------------"
 
 # 4. Run clinvar command
 # We need to point --ref to our fake ref dir so it finds the clinvar vcf
-if uv run wgsextract vcf clinvar \
+if pixi run wgsextract vcf clinvar \
     --input "$INPUT_VCF" \
     --ref "$REFDIR" \
     --outdir "$OUTDIR" && verify_vcf "$OUTDIR/clinvar_annotated.vcf.gz"; then

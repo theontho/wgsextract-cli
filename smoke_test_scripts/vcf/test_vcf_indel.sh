@@ -30,7 +30,7 @@ echo "--------------------------------------------------------"
 check_mandatory_deps
 ensure_fake_data
 
-if uv run wgsextract vcf indel \
+if pixi run wgsextract vcf indel \
     --input "$INPUT_BAM" \
     --ref "$REF_FASTA" \
     --outdir "$OUTDIR" \
@@ -55,7 +55,7 @@ fi
 # 2. Test Indel calling on a different region
 REGION2="chr1:20000-21000"
 echo ":: Testing 'vcf indel' on region $REGION2..."
-if uv run wgsextract vcf indel \
+if pixi run wgsextract vcf indel \
     --input "$INPUT_BAM" \
     --ref "$REF_FASTA" \
     --outdir "$OUTDIR/region2" \

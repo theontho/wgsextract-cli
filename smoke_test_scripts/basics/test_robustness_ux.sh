@@ -21,7 +21,7 @@ echo "--------------------------------------------------------"
 # 1. Test Traceback Cleanliness (Missing File)
 echo ":: Testing Error UX (Missing Input)..."
 # We expect a clean error message, NOT a Python traceback
-STDOUT=$(uv run wgsextract info --input "nonexistent_file.bam" 2>&1)
+STDOUT=$(pixi run wgsextract info --input "nonexistent_file.bam" 2>&1)
 echo "$STDOUT"
 if echo "$STDOUT" | grep -q "Traceback"; then
     echo "❌ Failure: Python traceback found in output. Error should be handled gracefully."
@@ -51,7 +51,7 @@ BAM="$FAKEDATA/fake.bam"
 
 echo "   Scenario: WGSE_REFLIB set to 'env_ref', but --ref set to 'cli_ref'"
 # We use --debug to see the resolved path in logs
-STDOUT=$(WGSE_REFLIB="$OUTDIR/env_ref" uv run wgsextract info \
+STDOUT=$(WGSE_REFLIB="$OUTDIR/env_ref" pixi run wgsextract info \
     --input "$BAM" \
     --ref "$OUTDIR/cli_ref" \
     --debug 2>&1)
@@ -86,7 +86,7 @@ fi
 echo ":: Testing Resource Warning Logic (ref count-ns)..."
 # count-ns is a safe way to trigger the warning logic for large genomes
 # We use a small one, but we check if the code paths for warnings are hit
-STDOUT=$(uv run wgsextract ref count-ns --ref "$OUTDIR/cli_ref/genomes/hg38.fa" 2>&1)
+STDOUT=$(pixi run wgsextract ref count-ns --ref "$OUTDIR/cli_ref/genomes/hg38.fa" 2>&1)
 # The output usually contains "Processing"
 if echo "$STDOUT" | grep -q "Processing"; then
     echo "✅ Success: ref count-ns executed correctly."

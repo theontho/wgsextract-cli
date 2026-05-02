@@ -31,7 +31,7 @@ echo "Input: $INPUT_FILE"
 
 # 1. Run Microarray
 echo ":: Running Microarray extraction (low-coverage optimized mode)..."
-if ! uv run wgsextract microarray \
+if ! pixi run wgsextract microarray \
     --input "$INPUT_FILE" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR" \

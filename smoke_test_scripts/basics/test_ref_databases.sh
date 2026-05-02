@@ -21,7 +21,7 @@ DB_CMDS=("clinvar" "revel" "phylop" "gnomad" "spliceai" "alphamissense" "pharmgk
 
 for cmd in "${DB_CMDS[@]}"; do
     echo ":: Testing 'ref $cmd --help'..."
-    if uv run wgsextract ref "$cmd" --help > "$OUTDIR/ref_${cmd}_help.stdout" 2>&1; then
+    if pixi run wgsextract ref "$cmd" --help > "$OUTDIR/ref_${cmd}_help.stdout" 2>&1; then
         echo "✅ Success: 'ref $cmd --help' completed."
     else
         echo "❌ Failure: 'ref $cmd --help' failed."

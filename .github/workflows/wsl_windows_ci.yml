@@ -46,6 +46,12 @@ jobs:
         run: |
           ~/.pixi/bin/pixi run python -m wgsextract_cli.main ref library --install hs38 --ref reference
 
+      - name: Lint and Type Check in WSL
+        shell: wsl-bash {0}
+        run: |
+          ~/.pixi/bin/pixi run ruff check .
+          ~/.pixi/bin/pixi run mypy src/wgsextract_cli
+
       - name: Run Basic Tests in WSL
         shell: wsl-bash {0}
         run: |

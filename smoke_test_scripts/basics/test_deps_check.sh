@@ -16,7 +16,7 @@ echo "--------------------------------------------------------"
 
 # 1. Check dependencies
 echo ":: Running 'deps check'..."
-OUTPUT=$(uv run wgsextract deps check 2>&1)
+OUTPUT=$(pixi run wgsextract deps check 2>&1)
 echo "$OUTPUT"
 
 if echo "$OUTPUT" | grep -qi "verified"; then

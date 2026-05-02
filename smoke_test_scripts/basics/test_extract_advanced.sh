@@ -28,7 +28,7 @@ REF=$(find "$FAKEDATA" -name "fake_ref_hg38_*.fa" | head -n 1)
 
 # 1. Test 'extract mito-fasta'
 echo ":: Testing 'extract mito-fasta'..."
-if uv run wgsextract extract mito-fasta \
+if pixi run wgsextract extract mito-fasta \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR" \
     --ref "$REF" && \
@@ -42,7 +42,7 @@ fi
 
 # 2. Test 'extract mito-vcf'
 echo ":: Testing 'extract mito-vcf'..."
-if uv run wgsextract extract mito-vcf \
+if pixi run wgsextract extract mito-vcf \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR" \
     --ref "$REF" && \
@@ -55,7 +55,7 @@ fi
 
 # 3. Test 'extract custom' (Region)
 echo ":: Testing 'extract custom' (region chr1:800-2000)..."
-if uv run wgsextract extract custom \
+if pixi run wgsextract extract custom \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR" \
     --region "chr1:800-2000" && \
@@ -70,7 +70,7 @@ fi
 echo ":: Testing 'extract custom' with a BED file..."
 echo -e "chr1\t800\t2000" > "$OUTDIR/test.bed"
 # The filename logic in extract.py now uses basename of the region file
-if uv run wgsextract extract custom \
+if pixi run wgsextract extract custom \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR" \
     --region "$OUTDIR/test.bed" && \
@@ -92,7 +92,7 @@ echo -e "GENE1\tchr1\t1\t2000" >> "$OUTDIR/ref/genes_hg38.tsv"
 
 # We need to point WGSE_REFLIB or similar to this directory
 # Or just use --ref as it often points to the library root
-if WGSE_REFLIB="$OUTDIR" uv run wgsextract extract custom \
+if WGSE_REFLIB="$OUTDIR" pixi run wgsextract extract custom \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR" \
     --gene "GENE1" \

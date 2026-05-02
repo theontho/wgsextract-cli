@@ -30,7 +30,7 @@ echo "--------------------------------------------------------"
 check_mandatory_deps
 ensure_fake_data
 
-if uv run wgsextract vcf snp \
+if pixi run wgsextract vcf snp \
     --input "$INPUT_BAM" \
     --ref "$REF_FASTA" \
     --outdir "$OUTDIR" \
@@ -55,7 +55,7 @@ fi
 # 2. Test SNP calling on a different region
 REGION2="chr1:100-2000"
 echo ":: Testing 'vcf snp' on region $REGION2..."
-if uv run wgsextract vcf snp \
+if pixi run wgsextract vcf snp \
     --input "$INPUT_BAM" \
     --ref "$REF_FASTA" \
     --outdir "$OUTDIR/region2" \

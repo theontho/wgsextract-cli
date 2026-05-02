@@ -30,7 +30,7 @@ echo "--------------------------------------------------------"
 check_deps freebayes
 ensure_fake_data
 
-if uv run wgsextract vcf freebayes \
+if pixi run wgsextract vcf freebayes \
     --input "$INPUT_BAM" \
     --ref "$REF_FASTA" \
     --outdir "$OUTDIR" \

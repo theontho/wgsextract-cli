@@ -29,7 +29,7 @@ echo "--------------------------------------------------------"
 
 # Note: Annotate requires --ann-vcf.
 # We use the same VCF as annotation source for testing connectivity.
-if uv run wgsextract vcf annotate \
+if pixi run wgsextract vcf annotate \
     --input "$INPUT_VCF" \
     --ann-vcf "$INPUT_VCF" \
     --cols "ID,QUAL" \

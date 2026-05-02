@@ -8,7 +8,6 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-
 # Path to the directory where this test is located (tests/)
 this_dir = Path(__file__).resolve().parent
 # root (parent of tests/)

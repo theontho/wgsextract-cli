@@ -31,7 +31,7 @@ samtools view -H "$BAM" -b > "$OUTDIR/empty/header_only.bam"
 samtools index "$OUTDIR/empty/header_only.bam"
 
 # info should handle it
-STDOUT=$(uv run wgsextract info --input "$OUTDIR/empty/header_only.bam" 2>&1)
+STDOUT=$(pixi run wgsextract info --input "$OUTDIR/empty/header_only.bam" 2>&1)
 if echo "$STDOUT" | grep -qiE "error|traceback"; then
     echo "❌ Failure: 'info' crashed on header-only BAM."
     echo "$STDOUT"
@@ -41,7 +41,7 @@ else
 fi
 
 # vcf snp should handle it (probably empty VCF)
-if uv run wgsextract vcf snp \
+if pixi run wgsextract vcf snp \
     --input "$OUTDIR/empty/header_only.bam" \
     --ref "$REF" \
     --outdir "$OUTDIR/empty" \
@@ -63,7 +63,7 @@ echo ">cli_ref" > "$OUTDIR/ref_cli/genomes/hg38.fa"
 echo ">env_ref" > "$OUTDIR/ref_env/genomes/hg38.fa"
 
 # Scenario: Both exist, Env is set, CLI is used
-STDOUT=$(WGSE_REFLIB="$OUTDIR/ref_env" uv run wgsextract info \
+STDOUT=$(WGSE_REFLIB="$OUTDIR/ref_env" pixi run wgsextract info \
     --input "$BAM" \
     --ref "$OUTDIR/ref_cli" \
     --debug 2>&1)
@@ -79,7 +79,7 @@ fi
 echo ":: Testing Signal Handling (SIGINT/Ctrl+C)..."
 # Start a long-running command in background
 # We'll use a larger region to ensure it takes a few seconds
-uv run wgsextract vcf snp \
+pixi run wgsextract vcf snp \
     --input "$BAM" \
     --ref "$REF" \
     --outdir "$OUTDIR/signal" \

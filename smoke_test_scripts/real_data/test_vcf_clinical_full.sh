@@ -31,35 +31,35 @@ echo "Input: $INPUT_VCF"
 
 # 1. ClinVar
 echo ":: Running ClinVar Annotation..."
-uv run wgsextract vcf clinvar \
+pixi run wgsextract vcf clinvar \
     --input "$INPUT_VCF" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR"
 
 # 2. gnomAD
 echo ":: Running gnomAD Annotation..."
-uv run wgsextract vcf gnomad \
+pixi run wgsextract vcf gnomad \
     --input "$OUT_DIR/clinvar_annotated.vcf.gz" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR"
 
 # 3. REVEL
 echo ":: Running REVEL Annotation..."
-uv run wgsextract vcf revel \
+pixi run wgsextract vcf revel \
     --input "$OUT_DIR/gnomad_annotated.vcf.gz" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR"
 
 # 4. AlphaMissense
 echo ":: Running AlphaMissense Annotation..."
-uv run wgsextract vcf alphamissense \
+pixi run wgsextract vcf alphamissense \
     --input "$OUT_DIR/revel_annotated.vcf.gz" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR"
 
 # 5. PharmGKB
 echo ":: Running PharmGKB Annotation..."
-uv run wgsextract vcf pharmgkb \
+pixi run wgsextract vcf pharmgkb \
     --input "$OUT_DIR/alphamissense_annotated.vcf.gz" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR"

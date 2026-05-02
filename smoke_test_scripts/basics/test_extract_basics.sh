@@ -31,7 +31,7 @@ echo "--------------------------------------------------------"
 
 # 1. Extract Mitochondrial BAM
 echo ":: Testing 'extract mt-bam'..."
-STDOUT=$(uv run wgsextract extract mt-bam \
+STDOUT=$(pixi run wgsextract extract mt-bam \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR" \
     --ref "$FAKEDATA/fake_ref_hg38_scaled.fa" 2>&1)
@@ -45,7 +45,7 @@ fi
 
 # 2. Extract Y-DNA BAM
 echo ":: Testing 'extract ydna-bam'..."
-STDOUT=$(uv run wgsextract extract ydna-bam \
+STDOUT=$(pixi run wgsextract extract ydna-bam \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR" \
     --ref "$FAKEDATA/fake_ref_hg38_scaled.fa" 2>&1)
@@ -59,7 +59,7 @@ fi
 
 # 3. Extract Unmapped Reads
 echo ":: Testing 'extract unmapped'..."
-STDOUT=$(uv run wgsextract extract unmapped \
+STDOUT=$(pixi run wgsextract extract unmapped \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR" 2>&1)
 echo "$STDOUT"
@@ -72,7 +72,7 @@ fi
 
 # 4. Extract Subset (Region)
 echo ":: Testing 'extract bam-subset' (region chr1)..."
-STDOUT=$(uv run wgsextract extract bam-subset \
+STDOUT=$(pixi run wgsextract extract bam-subset \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR" \
     --region "chr1" \
@@ -91,7 +91,7 @@ mkdir -p "$OUTDIR/ref"
 echo -e "symbol\tchrom\tstart\tend" > "$OUTDIR/ref/genes_hg38.tsv"
 echo -e "GENE1\tchr1\t1\t10000" >> "$OUTDIR/ref/genes_hg38.tsv"
 
-STDOUT=$(WGSE_REFLIB="$OUTDIR" uv run wgsextract extract bam-subset \
+STDOUT=$(WGSE_REFLIB="$OUTDIR" pixi run wgsextract extract bam-subset \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR/gene_subset" \
     --gene "GENE1" \
@@ -107,7 +107,7 @@ fi
 
 # 6. Extract Y-DNA VCF
 echo ":: Testing 'extract ydna-vcf'..."
-STDOUT=$(uv run wgsextract extract ydna-vcf \
+STDOUT=$(pixi run wgsextract extract ydna-vcf \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR" \
     --ref "$FAKEDATA/fake_ref_hg38_scaled.fa" 2>&1)
@@ -121,7 +121,7 @@ fi
 
 # 7. Combined Y-MT Extraction
 echo ":: Testing 'extract y-mt-extract'..."
-STDOUT=$(uv run wgsextract extract y-mt-extract \
+STDOUT=$(pixi run wgsextract extract y-mt-extract \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR/y_mt" \
     --ref "$FAKEDATA/fake_ref_hg38_scaled.fa" 2>&1)
@@ -137,7 +137,7 @@ fi
 echo ":: Testing 'extract mt-bam' with hg19 CRAM..."
 # We need to find the correct hg19 ref name
 HG19_REF=$(find "$HG19DATA" -name "fake_ref_hg19_*.fa" | head -n 1)
-STDOUT=$(uv run wgsextract extract mt-bam \
+STDOUT=$(pixi run wgsextract extract mt-bam \
     --input "$HG19DATA/fake.cram" \
     --outdir "$OUTDIR/hg19" \
     --ref "$HG19_REF" 2>&1)

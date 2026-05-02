@@ -25,7 +25,7 @@ BAM="$FAKEDATA/fake.bam"
 REF="$FAKEDATA/fake_ref.fa"
 
 echo ":: Running 'vcf snp'..."
-if uv run wgsextract vcf snp \
+if pixi run wgsextract vcf snp \
     --input "$BAM" \
     --ref "$REF" \
     --outdir "$OUTDIR" \

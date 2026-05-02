@@ -89,11 +89,15 @@ class WebController:
             command.extend(["--parent-pid", str(os.getpid())])
 
             # Use process groups for cancellation on Unix
+            preexec = None
+            if sys.platform != "win32":
+                preexec = getattr(os, "setpgrp", None)
+
             process = await asyncio.create_subprocess_exec(
                 *command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                preexec_fn=os.setpgrp if sys.platform != "win32" else None,
+                preexec_fn=preexec,
             )
 
             if cmd_key:

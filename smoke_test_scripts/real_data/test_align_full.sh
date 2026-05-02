@@ -38,7 +38,7 @@ echo ":: Aligning FASTQ reads..."
 # it's recommended to use a small subset (e.g., first 100k reads).
 # The CLI doesn't have a subset flag, so we rely on the input being small
 # OR we let it run if the user provides it.
-if ! uv run wgsextract align \
+if ! pixi run wgsextract align \
     --input "$FASTQ_R1" \
     --input-r2 "$FASTQ_R2" \
     --ref "$REF_DIR" \

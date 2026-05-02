@@ -30,7 +30,7 @@ echo "--------------------------------------------------------"
 
 # 1. Base info command
 echo ":: Testing 'info'..."
-STDOUT=$(uv run wgsextract info --input "$FAKEDATA/fake.bam" 2>&1)
+STDOUT=$(pixi run wgsextract info --input "$FAKEDATA/fake.bam" 2>&1)
 echo "$STDOUT"
 if echo "$STDOUT" | grep -q "Avg Read Length" && echo "$STDOUT" | grep -q "Reference Genome"; then
     echo "✅ Success: base info verified."
@@ -41,7 +41,7 @@ fi
 
 # 2. Coverage sampling
 echo ":: Testing 'info coverage-sample'..."
-STDOUT=$(uv run wgsextract info coverage-sample \
+STDOUT=$(pixi run wgsextract info coverage-sample \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR" 2>&1)
 echo "$STDOUT"
@@ -54,7 +54,7 @@ fi
 
 # 3. Calculate full coverage (small region to be fast)
 echo ":: Testing 'info calculate-coverage' (region chr1)..."
-STDOUT=$(uv run wgsextract info calculate-coverage \
+STDOUT=$(pixi run wgsextract info calculate-coverage \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR" \
     --region "chr1" 2>&1)

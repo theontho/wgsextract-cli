@@ -29,7 +29,7 @@ echo "Input: $STRIPPED_BAM (Stripped of AS: tags)"
 
 # 2. Run 'info' to trigger detection
 DETECTION_LOG="$OUT_DIR/detection_info.txt"
-uv run wgsextract info \
+pixi run wgsextract info \
     --input "$STRIPPED_BAM" \
     --ref out/fake_30x \
     --outdir "$OUT_DIR" > "$DETECTION_LOG" 2>&1

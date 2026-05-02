@@ -28,7 +28,7 @@ cp "$FAKEDATA/fake.bam" "$SPECIAL_BAM"
 cp "$FAKEDATA/fake.bam.bai" "$SPECIAL_BAM.bai"
 
 echo ":: Testing 'bam identify' with spaces in path..."
-if uv run wgsextract bam identify --input "$SPECIAL_BAM" > "$SPECIAL_DIR/identify.log" 2>&1; then
+if pixi run wgsextract bam identify --input "$SPECIAL_BAM" > "$SPECIAL_DIR/identify.log" 2>&1; then
     if grep -q "MD5 Signature" "$SPECIAL_DIR/identify.log"; then
         echo "✅ Success: 'bam identify' worked with spaces."
     else
@@ -44,7 +44,7 @@ fi
 
 # 2. Test 'info' command
 echo ":: Testing 'info' with spaces in path..."
-if uv run wgsextract info --input "$SPECIAL_BAM" --outdir "$SPECIAL_DIR/info out" > "$SPECIAL_DIR/info.log" 2>&1; then
+if pixi run wgsextract info --input "$SPECIAL_BAM" --outdir "$SPECIAL_DIR/info out" > "$SPECIAL_DIR/info.log" 2>&1; then
     echo "✅ Success: 'info' worked with spaces."
 else
     echo "❌ Failure: 'info' failed with spaces."
@@ -54,7 +54,7 @@ fi
 
 # 3. Test 'extract custom' (simplest subprocess pipe test)
 echo ":: Testing 'extract custom' with spaces in path..."
-if uv run wgsextract extract custom \
+if pixi run wgsextract extract custom \
     --input "$SPECIAL_BAM" \
     --outdir "$SPECIAL_DIR/extract out" \
     --region "chr1:1-1000" > "$SPECIAL_DIR/extract.log" 2>&1; then

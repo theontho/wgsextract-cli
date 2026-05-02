@@ -33,7 +33,7 @@ echo ">>> Starting FULL GENOME VCF VEP Smoke Test..."
 echo "Input: $INPUT_FILE"
 echo "Mode: VEP Annotation"
 
-uv run wgsextract vep \
+pixi run wgsextract vep \
     --input "$INPUT_FILE" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR" \

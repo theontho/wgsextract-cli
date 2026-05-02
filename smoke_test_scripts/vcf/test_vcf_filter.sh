@@ -27,7 +27,7 @@ echo "--------------------------------------------------------"
 check_mandatory_deps
 ensure_fake_data
 
-if uv run wgsextract vcf filter \
+if pixi run wgsextract vcf filter \
     --input "$INPUT_VCF" \
     --expr 'QUAL>10' \
     --outdir "$OUTDIR" > "$OUTDIR/filter_expr.stdout" 2>&1 && verify_vcf "$OUTDIR/filtered.vcf.gz" 1; then
@@ -47,7 +47,7 @@ mkdir -p "$OUTDIR/ref"
 echo -e "symbol\tchrom\tstart\tend" > "$OUTDIR/ref/genes_hg38.tsv"
 echo -e "BRCA1\tchr1\t1\t1000000" >> "$OUTDIR/ref/genes_hg38.tsv"
 
-if uv run wgsextract vcf filter \
+if pixi run wgsextract vcf filter \
     --input "$INPUT_VCF" \
     --gene "BRCA1" \
     --ref "$OUTDIR" \

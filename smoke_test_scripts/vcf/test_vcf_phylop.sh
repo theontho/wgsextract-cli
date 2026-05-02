@@ -54,7 +54,7 @@ echo "--------------------------------------------------------"
 
 # 4. Run phylop command (Annotation only)
 echo ":: Running PhyloP annotation..."
-if uv run wgsextract vcf phylop \
+if pixi run wgsextract vcf phylop \
     --input "$INPUT_VCF" \
     --ref "$REFDIR" \
     --outdir "$OUTDIR" && [ -f "$OUTDIR/phylop_annotated.vcf.gz" ]; then
@@ -74,7 +74,7 @@ fi
 
 # 5. Run phylop command (with Filtering)
 echo ":: Running PhyloP annotation + filtering (score >= 2.0)..."
-if uv run wgsextract vcf phylop \
+if pixi run wgsextract vcf phylop \
     --input "$INPUT_VCF" \
     --ref "$REFDIR" \
     --outdir "$OUTDIR" \

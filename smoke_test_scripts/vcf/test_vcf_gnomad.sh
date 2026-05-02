@@ -11,7 +11,7 @@ if [[ "$1" == "--describe" ]]; then
 fi
 
 # Ensure we're using the correct entry point
-WGSE_CMD="uv run wgsextract"
+WGSE_CMD="pixi run wgsextract"
 
 OUTDIR="out/vcf_gnomad_out"
 # Ensure output directory is clean

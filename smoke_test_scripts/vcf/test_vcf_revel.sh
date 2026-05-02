@@ -54,7 +54,7 @@ echo "--------------------------------------------------------"
 
 # 4. Run revel command (Annotation only)
 echo ":: Running REVEL annotation..."
-if uv run wgsextract vcf revel \
+if pixi run wgsextract vcf revel \
     --input "$INPUT_VCF" \
     --ref "$REFDIR" \
     --outdir "$OUTDIR" && [ -f "$OUTDIR/revel_annotated.vcf.gz" ]; then
@@ -74,7 +74,7 @@ fi
 
 # 5. Run revel command (with Filtering)
 echo ":: Running REVEL annotation + filtering (score >= 0.5)..."
-if uv run wgsextract vcf revel \
+if pixi run wgsextract vcf revel \
     --input "$INPUT_VCF" \
     --ref "$REFDIR" \
     --outdir "$OUTDIR" \

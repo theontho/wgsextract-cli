@@ -4,9 +4,8 @@ import os
 import pytest
 
 from tests.smoke_utils import check_tool, run_cli, verify_bam, verify_vcf
-
-
 from wgsextract_cli.core.config import settings
+
 
 @pytest.mark.skipif(
     not settings.get("pet_r1_fastq")

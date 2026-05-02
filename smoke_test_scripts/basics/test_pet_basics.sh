@@ -41,7 +41,7 @@ echo ":: Generating small fake reference..."
 
 # 2. Test 'pet-align'
 echo ":: Testing 'pet-align' for dog..."
-if uv run wgsextract pet-align \
+if pixi run wgsextract pet-align \
     --r1 "$OUTDIR/dog_R1.fastq" \
     --r2 "$OUTDIR/dog_R2.fastq" \
     --species dog \

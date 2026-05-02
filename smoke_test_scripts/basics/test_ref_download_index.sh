@@ -30,7 +30,7 @@ echo "URL: $TEST_URL"
 
 # 1. Download
 echo ":: Downloading reference..."
-if ! uv run wgsextract ref download \
+if ! pixi run wgsextract ref download \
     --url "$TEST_URL" \
     --out "$OUTPUT_FA"; then
     echo "❌ Failure: 'ref download' command failed."
@@ -39,7 +39,7 @@ fi
 
 # 2. Index
 echo ":: Indexing reference..."
-if ! uv run wgsextract ref index \
+if ! pixi run wgsextract ref index \
     --ref "$OUTPUT_FA"; then
     echo "❌ Failure: 'ref index' command failed."
     exit 1

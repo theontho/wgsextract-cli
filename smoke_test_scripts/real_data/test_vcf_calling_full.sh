@@ -33,7 +33,7 @@ echo "Input: $INPUT_FILE"
 # 1. DeepVariant
 echo ":: Running DeepVariant..."
 # We skip if no model or if docker/singularity/pixi can't find it, handled by CLI
-uv run wgsextract vcf deepvariant \
+pixi run wgsextract vcf deepvariant \
     --input "$INPUT_FILE" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR" \
@@ -41,7 +41,7 @@ uv run wgsextract vcf deepvariant \
 
 # 2. GATK HaplotypeCaller
 echo ":: Running GATK HaplotypeCaller..."
-uv run wgsextract vcf gatk \
+pixi run wgsextract vcf gatk \
     --input "$INPUT_FILE" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR" \
@@ -49,7 +49,7 @@ uv run wgsextract vcf gatk \
 
 # 3. FreeBayes
 echo ":: Running FreeBayes..."
-uv run wgsextract vcf freebayes \
+pixi run wgsextract vcf freebayes \
     --input "$INPUT_FILE" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR" \

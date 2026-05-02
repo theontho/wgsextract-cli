@@ -131,6 +131,7 @@ ruff = "*"
 mypy = "*"
 pre-commit = "*"
 selenium = "*"
+uv = "*"
 # Local projects
 wgsextract-cli = { path = ".", editable = true }
 

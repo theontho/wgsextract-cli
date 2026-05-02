@@ -31,7 +31,7 @@ echo "Input: $INPUT_FILE"
 
 # 1. MT-DNA Extraction
 echo ":: Extracting Mitochondrial DNA..."
-if ! uv run wgsextract extract mito \
+if ! pixi run wgsextract extract mito \
     --input "$INPUT_FILE" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR"; then
@@ -41,7 +41,7 @@ fi
 
 # 2. Y-DNA Extraction
 echo ":: Extracting Y-Chromosome DNA..."
-if ! uv run wgsextract extract ydna \
+if ! pixi run wgsextract extract ydna \
     --input "$INPUT_FILE" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR"; then

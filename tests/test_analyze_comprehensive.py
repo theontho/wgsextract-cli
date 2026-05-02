@@ -79,7 +79,11 @@ class TestAnalyzeComprehensive(unittest.TestCase):
 
         self.assertIn("Processing Input VCFs (2 files)", stdout)
         # It should produce merged.vcf.gz
-        self.assertTrue(os.path.exists(os.path.join(self.outdir, "significant_snp-indel_fake.vcf.gz")))
+        self.assertTrue(
+            os.path.exists(
+                os.path.join(self.outdir, "significant_snp-indel_fake.vcf.gz")
+            )
+        )
 
 
 if __name__ == "__main__":
