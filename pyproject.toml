@@ -11,21 +11,13 @@ requires-python = ">=3.10"
 license = "GPL-3.0-or-later"
 authors = [{ name = "WGS Extract Contributors" }]
 dependencies = [
-    "python-dotenv", # Loads environment variables (e.g., WGSE_REF) from .env files
     "pyliftover",    # Performs hg38 to hg19 coordinate liftover for microarray simulations
     "psutil",        # Detects system RAM/CPU for automatic resource tuning (e.g., samtools memory)
     "customtkinter", # Modern GUI framework
     "Pillow",        # Image processing (needed by customtkinter)
     "nicegui",       # Web-based GUI framework
-    # Unused dependencies (currently delegated to external binaries or not yet implemented):
-    # "wakepy",    # Intended to prevent system sleep during long operations (not yet implemented in CLI)
-    # "pandas",    # Data analysis/manipulation (CLI currently uses awk and subprocess)
-    # "numpy",     # Numerical calculations (CLI currently uses awk and subprocess)
-    # "biopython", # Bioinformatic file parsing (CLI delegates to samtools/bcftools)
-    # "pyfaidx",   # Efficient FASTA indexing/access (CLI delegates to samtools)
-    # "openpyxl",  # Excel file support (used by GUI for language.xlsx; not needed by CLI)
-    # "requests",  # HTTP library (CLI currently uses wget via subprocess)
-    # "urllib3"    # HTTP client (CLI currently uses wget via subprocess)
+    "platformdirs",  # For cross-platform configuration directories
+    "tomli; python_version < '3.11'", # TOML parser for Python < 3.11
 ]
 
 [project.scripts]
@@ -89,3 +81,5 @@ packages = ["src/wgsextract_cli"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+pythonpath = [".", "src", "tests"]
+testpaths = ["tests"]

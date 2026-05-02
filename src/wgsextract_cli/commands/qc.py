@@ -30,12 +30,14 @@ def register(subparsers, base_parser):
     )
     fastqc_parser.set_defaults(func=cmd_fastqc)
 
+    from wgsextract_cli.core.config import settings
+
     vcf_parser = qc_subs.add_parser(
         "vcf", parents=[base_parser], help=CLI_HELP["cmd_vcf-qc"]
     )
     vcf_parser.add_argument(
         "--vcf-input",
-        default=os.environ.get("WGSE_INPUT_VCF"),
+        default=settings.get("default_input_vcf"),
         help=CLI_HELP["arg_vcf_input"],
     )
     vcf_parser.set_defaults(func=cmd_vcf_qc)
@@ -211,7 +213,9 @@ def cmd_fake_data(args):
             if target_md5:
                 logging.debug(f"Found target MD5 for {args.build}: {target_md5}")
             # See if it's installed
-            reflib_dir = os.environ.get("WGSE_REFLIB")
+            from wgsextract_cli.core.config import settings
+
+            reflib_dir = settings.get("reference_library")
             if reflib_dir:
                 candidate = os.path.join(reflib_dir, "genomes", genome_info["final"])
                 if os.path.exists(candidate):

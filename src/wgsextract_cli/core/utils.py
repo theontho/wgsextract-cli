@@ -255,36 +255,41 @@ class ReferenceLibrary:
     """Helper to manage and resolve reference genome paths."""
 
     def __init__(
-        self, root_path, md5_sig=None, skip_full_search=False, input_path=None
+        self,
+        root_path: str | None,
+        md5_sig: str | None = None,
+        skip_full_search: bool = False,
+        input_path: str | None = None,
     ):
-        self.root = root_path
-        self.md5 = md5_sig
-        self.input_path = input_path
-        self.fasta = None
-        self.dict_file = None
-        self.fai = None
-        self.liftover_chain = None
-        self.ref_vcf_tab = None
-        self.clinvar_vcf = None
-        self.revel_file = None
-        self.phylop_file = None
-        self.gnomad_vcf = None
-        self.spliceai_vcf = None
-        self.alphamissense_vcf = None
-        self.pharmgkb_vcf = None
-        self.ploidy_file = None
-        self.vep_cache = None
-        self.build = None
+        from wgsextract_cli.core.config import settings
 
-        if not root_path:
+        self.root: str | None = root_path or settings.get("reference_library")
+        self.md5: str | None = md5_sig
+        self.input_path: str | None = input_path
+        self.fasta: str | None = None
+        self.dict_file: str | None = None
+        self.fai: str | None = None
+        self.liftover_chain: str | None = None
+        self.ref_vcf_tab: str | None = None
+        self.clinvar_vcf: str | None = None
+        self.revel_file: str | None = None
+        self.phylop_file: str | None = None
+        self.gnomad_vcf: str | None = None
+        self.spliceai_vcf: str | None = None
+        self.alphamissense_vcf: str | None = None
+        self.pharmgkb_vcf: str | None = None
+        self.ploidy_file: str | None = None
+        self.vep_cache: str | None = None
+        self.build: str | None = None
+
+        if not self.root:
             return
 
-        if os.path.isfile(root_path):
-            self.fasta = root_path
-            d = os.path.dirname(root_path)
-            self.root = d
-        else:
-            d = root_path
+        if os.path.isfile(self.root):
+            self.fasta = self.root
+            self.root = os.path.dirname(self.root)
+
+        d = self.root
 
         # Look for Fasta
         if not self.fasta:
@@ -326,7 +331,7 @@ class ReferenceLibrary:
         target_for_header = (
             input_path
             if input_path
-            else (root_path if os.path.isfile(root_path) else None)
+            else (root_path if root_path and os.path.isfile(root_path) else None)
         )
         if not self.build and target_for_header:
             if target_for_header.lower().endswith((".vcf", ".vcf.gz", ".bcf")):
@@ -489,7 +494,9 @@ class ReferenceLibrary:
                     break
 
         # Look for vep cache
-        env_vep_cache = os.environ.get("WGSE_VEP_CACHE")
+        from wgsextract_cli.core.config import settings
+
+        env_vep_cache = settings.get("vep_cache_directory")
         if env_vep_cache and os.path.isdir(env_vep_cache):
             self.vep_cache = env_vep_cache
         else:
@@ -574,7 +581,10 @@ class ReferenceLibrary:
                 break
 
         # Look for ClinVar VCF
-        if self.build:
+        env_clinvar = settings.get("clinvar_vcf_path")
+        if env_clinvar and os.path.exists(env_clinvar):
+            self.clinvar_vcf = env_clinvar
+        elif self.build:
             for search_dir in [self.root, os.path.join(self.root, "ref")]:
                 if not os.path.isdir(search_dir):
                     continue
@@ -601,7 +611,10 @@ class ReferenceLibrary:
                     break
 
         # Look for REVEL data
-        if self.build:
+        env_revel = settings.get("revel_tsv_path")
+        if env_revel and os.path.exists(env_revel):
+            self.revel_file = env_revel
+        elif self.build:
             for search_dir in [self.root, os.path.join(self.root, "ref")]:
                 if not os.path.isdir(search_dir):
                     continue
@@ -628,7 +641,10 @@ class ReferenceLibrary:
                     break
 
         # Look for PhyloP data
-        if self.build:
+        env_phylop = settings.get("phylop_tsv_path")
+        if env_phylop and os.path.exists(env_phylop):
+            self.phylop_file = env_phylop
+        elif self.build:
             for search_dir in [self.root, os.path.join(self.root, "ref")]:
                 if not os.path.isdir(search_dir):
                     continue
@@ -654,7 +670,10 @@ class ReferenceLibrary:
                     break
 
         # Look for gnomAD VCF
-        if self.build:
+        env_gnomad = settings.get("gnomad_vcf_path")
+        if env_gnomad and os.path.exists(env_gnomad):
+            self.gnomad_vcf = env_gnomad
+        elif self.build:
             for search_dir in [self.root, os.path.join(self.root, "ref")]:
                 if not os.path.isdir(search_dir):
                     continue
@@ -681,7 +700,10 @@ class ReferenceLibrary:
                     break
 
         # Look for SpliceAI VCF
-        if self.build:
+        env_spliceai = settings.get("spliceai_vcf_path")
+        if env_spliceai and os.path.exists(env_spliceai):
+            self.spliceai_vcf = env_spliceai
+        elif self.build:
             for search_dir in [self.root, os.path.join(self.root, "ref")]:
                 if not os.path.isdir(search_dir):
                     continue
@@ -707,7 +729,10 @@ class ReferenceLibrary:
                     break
 
         # Look for AlphaMissense VCF
-        if self.build:
+        env_am = settings.get("alphamissense_vcf_path")
+        if env_am and os.path.exists(env_am):
+            self.alphamissense_vcf = env_am
+        elif self.build:
             for search_dir in [self.root, os.path.join(self.root, "ref")]:
                 if not os.path.isdir(search_dir):
                     continue
@@ -735,7 +760,10 @@ class ReferenceLibrary:
                     break
 
         # Look for PharmGKB VCF
-        if self.build:
+        env_pharmgkb = settings.get("pharmgkb_vcf_path")
+        if env_pharmgkb and os.path.exists(env_pharmgkb):
+            self.pharmgkb_vcf = env_pharmgkb
+        elif self.build:
             for search_dir in [self.root, os.path.join(self.root, "ref")]:
                 if not os.path.isdir(search_dir):
                     continue

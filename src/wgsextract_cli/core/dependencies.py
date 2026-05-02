@@ -60,8 +60,10 @@ def get_repo_root():
 
 def get_jar_dir():
     """Returns the directory where JAR tools are expected to live."""
-    # Allow override via environment variable
-    env_path = os.environ.get("WGSE_JAR_DIR")
+    # Allow override via environment variable or config
+    from wgsextract_cli.core.config import settings
+
+    env_path = settings.get("jar_directory")
     if env_path and os.path.isdir(env_path):
         return env_path
 

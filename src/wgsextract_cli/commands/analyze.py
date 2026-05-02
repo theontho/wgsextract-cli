@@ -67,19 +67,24 @@ def register(subparsers, base_parser):
 
 
 def cmd_comprehensive(args):
+    from wgsextract_cli.core.config import settings
+
     verify_dependencies(["bcftools", "samtools", "tabix"])
     log_dependency_info(["bcftools", "samtools", "tabix"])
 
-    batch_file = args.batch if args.batch else os.environ.get("WGSE_BATCH")
+    batch_file = args.batch if args.batch else settings.get("batch_file_path")
     if batch_file:
         run_batch_comprehensive(args, batch_file)
         return
 
     input_file = args.input
     vcf_inputs = args.vcf_inputs if args.vcf_inputs else []
-    env_vcf = os.environ.get("WGSE_VCF_INPUTS")
+    env_vcf = settings.get("vcf_input_paths")
     if not vcf_inputs and env_vcf:
-        vcf_inputs = env_vcf.split()
+        if isinstance(env_vcf, list):
+            vcf_inputs = env_vcf
+        else:
+            vcf_inputs = env_vcf.split()
 
     if not input_file and not vcf_inputs:
         logging.error(LOG_MESSAGES["input_required"])

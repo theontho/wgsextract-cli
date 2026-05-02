@@ -1,6 +1,8 @@
 import logging
 import os
 import subprocess
+ 
+from wgsextract_cli.core.config import settings
 
 from wgsextract_cli.core.dependencies import (
     get_tool_path,
@@ -29,7 +31,9 @@ def register(subparsers, base_parser):
         "y-haplogroup", parents=[base_parser], help=CLI_HELP["cmd_lineage-y-haplogroup"]
     )
     ydna_parser.add_argument(
-        "--yleaf-path", help="Path to yleaf.py (optional if in PATH)"
+        "--yleaf-path",
+        default=settings.get("yleaf_executable"),
+        help="Path to yleaf.py (optional if in PATH)",
     )
     ydna_parser.add_argument("--pos-file", help="Yleaf position file (optional)")
     ydna_parser.add_argument(
@@ -44,6 +48,7 @@ def register(subparsers, base_parser):
     )
     mtdna_parser.add_argument(
         "--haplogrep-path",
+        default=settings.get("haplogrep_executable"),
         help="Path to haplogrep executable or JAR (optional if in PATH)",
     )
     mtdna_parser.set_defaults(func=cmd_mtdna)
