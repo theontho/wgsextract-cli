@@ -15,6 +15,10 @@ A goal of this reimplemenation was to make it cli driven first to make it more f
 
 ---
 
+> [!NOTE]
+> **Pixi handles everything.** You no longer need to install `uv` or manage system-wide bioinformatics tools manually. Pixi creates a self-contained environment for the project.
+
+
 ## ⚙️ Installation & Setup Guide
 
 `wgsextract-cli` uses [**Pixi**](https://pixi.sh) to manage its entire environment, including Python, standard bioinformatics tools (samtools, bcftools, etc.), and the application itself. This ensures a consistent, reproducible setup across all platforms.
