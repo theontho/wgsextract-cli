@@ -1,0 +1,40 @@
+name: CI macOS
+
+on:
+  push:
+    branches: [ main, feature/* ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache Homebrew
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: ${{ runner.os }}-homebrew-${{ hashFiles('.github/workflows/macos_ci.yml') }}
+      - name: Install Dependencies
+        run: |
+          brew install samtools bcftools htslib bwa minimap2 fastp fastqc delly freebayes gatk openjdk
+      - name: Verify Tools
+        run: chmod +x dep_scripts/verify_tools.sh && ./dep_scripts/verify_tools.sh
+      - name: Set up Pixi
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: latest
+      - name: Configure and Bootstrap Library
+        env:
+          HOME: ${{ github.workspace }}/.tmp_home
+        run: |
+          mkdir -p .tmp_home/.config/wgsextract
+          pixi run python -c "from wgsextract_cli.core.config import save_config; save_config({'reference_library': 'reference'})"
+          pixi run python -m wgsextract_cli.main ref bootstrap --ref reference
+      - name: Install Reference Genome
+        env:
+          HOME: ${{ github.workspace }}/.tmp_home
+        run: pixi run python -m wgsextract_cli.main ref library --install hs38 --ref reference
+      - name: Run Basic Tests
+        run: pixi run pytest tests/test_smoke.py
