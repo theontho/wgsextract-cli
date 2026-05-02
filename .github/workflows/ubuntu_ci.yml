@@ -9,8 +9,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch Yleaf
-        run: git clone https://github.com/genid/Yleaf.git external/yleaf
       - uses: awalsh128/cache-apt-pkgs-action@latest
         with:
           packages: samtools bcftools tabix bwa minimap2 fastp fastqc openjdk-17-jre

@@ -9,9 +9,6 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch Yleaf
-        shell: powershell
-        run: git clone https://github.com/genid/Yleaf.git external/yleaf
       - name: Install Dependencies
         shell: powershell
         run: choco install -y wget curl gzip

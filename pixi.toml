@@ -84,24 +84,10 @@ ensembl-vep = ">=110"
 [feature.vep.target.linux-64.dependencies]
 ensembl-vep = ">=110"
 
-[feature.yleaf.dependencies]
-python = "3.10.*"
-
-[feature.yleaf.pypi-dependencies]
-yleaf = { path = "external/yleaf", editable = true }
-pandas = "*"
-numpy = "*"
-graphviz = "*"
-networkx = "*"
-python-dateutil = "*"
-pytz = "*"
-six = "*"
-
 [environments]
 default = { features = ["gatk", "bio-tools"] }
 deepvariant = { features = ["deepvariant"], no-default-feature = true }
 vep = { features = ["vep"], no-default-feature = true }
-yleaf = { features = ["yleaf"], no-default-feature = true }
 
 [pypi-dependencies]
 python-dotenv = "*"
@@ -130,7 +116,6 @@ test-e2e-fake = "WGSE_USE_FAKE_DATA=1 pytest tests/test_e2e_fast_chrM.py tests/t
 lint = "ruff check ."
 format = "ruff format ."
 typecheck = "mypy src/wgsextract_cli"
-yleaf = "yleaf"
 stats = "./scripts/project_stats.sh"
 smoke-test = "./smoke_test_scripts/run_all_smoke_tests.sh"
 smoke-test-full = "./smoke_test_scripts/run_all_smoke_tests.sh --real-data"
