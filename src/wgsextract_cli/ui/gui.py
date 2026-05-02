@@ -129,29 +129,26 @@ class WGSExtractGUI(ctk.CTk):
         logger.debug(
             f"[{time.time() - start_time:.3f}s] Initializing shared variables..."
         )
-        self.bam_path_var = ctk.StringVar(value=os.environ.get("WGSE_INPUT", ""))
-        self.vcf_path_var = ctk.StringVar(value=os.environ.get("WGSE_INPUT_VCF", ""))
-        self.vcf_mother_var = ctk.StringVar(value=os.environ.get("WGSE_MOTHER_VCF", ""))
-        self.vcf_father_var = ctk.StringVar(value=os.environ.get("WGSE_FATHER_VCF", ""))
+        from wgsextract_cli.core.config import settings
+
+        self.bam_path_var = ctk.StringVar(value=settings.get("input_path", ""))
+        self.vcf_path_var = ctk.StringVar(value=settings.get("default_input_vcf", ""))
+        self.vcf_mother_var = ctk.StringVar(value=settings.get("mother_vcf_path", ""))
+        self.vcf_father_var = ctk.StringVar(value=settings.get("father_vcf_path", ""))
         self.fastq_path_var = ctk.StringVar()
-        self.ref_path_var = ctk.StringVar(value=os.environ.get("WGSE_REF", ""))
+        self.ref_path_var = ctk.StringVar(value=settings.get("reference_fasta", ""))
         self.fastq_ref_fasta_var = ctk.StringVar()
         self.pet_ref_fasta_var = ctk.StringVar()
-        self.out_dir_var = ctk.StringVar(value=os.environ.get("WGSE_OUTDIR", ""))
+        self.out_dir_var = ctk.StringVar(value=settings.get("output_directory", ""))
         self.vep_cache_var = ctk.StringVar()
         self.vcf_exclude_gaps_var = ctk.BooleanVar(value=False)
-        self.yleaf_path_var = ctk.StringVar(value=os.environ.get("WGSE_YLEAF_PATH", ""))
+        self.yleaf_path_var = ctk.StringVar(value=settings.get("yleaf_executable", ""))
         self.haplogrep_path_var = ctk.StringVar(
-            value=os.environ.get("WGSE_HAPLOGREP_PATH", "")
+            value=settings.get("haplogrep_executable", "")
         )
 
-        cli_root = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "..", "..")
-        )
-        self.env_local_var = ctk.StringVar(value=os.path.join(cli_root, ".env.local"))
-
-        # Handle initial VCF value if WGSE_INPUT looks like VCF and WGSE_INPUT_VCF not set
-        init_input = os.environ.get("WGSE_INPUT", "")
+        # Handle initial VCF value if input looks like VCF and VCF path not set
+        init_input = settings.get("input_path", "")
         if not self.vcf_path_var.get() and init_input.lower().endswith(
             (".vcf", ".vcf.gz", ".bcf")
         ):

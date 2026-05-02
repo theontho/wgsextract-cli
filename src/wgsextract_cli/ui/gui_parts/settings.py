@@ -355,13 +355,13 @@ class SettingsFrame(ScrollableBaseFrame):
         # Update or append variables
         new_lines = []
         updates = {
-            "WGSE_REF": ref_path,
-            "WGSE_OUTDIR": out_dir,
-            "WGSE_YLEAF_PATH": yleaf_path,
-            "WGSE_HAPLOGREP_PATH": haplogrep_path,
-            "WGSE_INPUT_VCF": vcf_path,
-            "WGSE_MOTHER_VCF": mother_vcf,
-            "WGSE_FATHER_VCF": father_vcf,
+            "WGSE_REFERENCE_LIBRARY": ref_path,
+            "WGSE_OUTPUT_DIRECTORY": out_dir,
+            "WGSE_YLEAF_EXECUTABLE": yleaf_path,
+            "WGSE_HAPLOGREP_EXECUTABLE": haplogrep_path,
+            "WGSE_DEFAULT_INPUT_VCF": vcf_path,
+            "WGSE_MOTHER_VCF_PATH": mother_vcf,
+            "WGSE_FATHER_VCF_PATH": father_vcf,
         }
         updated_keys = set()
 

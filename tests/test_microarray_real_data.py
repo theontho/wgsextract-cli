@@ -8,7 +8,6 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from dotenv import load_dotenv
 
 # Path to the directory where this test is located (tests/)
 this_dir = Path(__file__).resolve().parent
@@ -25,18 +24,9 @@ if str(cli_src) not in sys.path:
 from wgsextract_cli.core.utils import ReferenceLibrary, calculate_bam_md5  # noqa: E402
 from wgsextract_cli.main import main  # noqa: E402
 
-# Load environment variables
-env_local = cli_root / ".env.local"
-env_std = cli_root / ".env"
-
-if env_local.exists():
-    load_dotenv(dotenv_path=env_local)
-elif env_std.exists():
-    load_dotenv(dotenv_path=env_std)
-
 # Get paths from environment
-REF_PATH = os.environ.get("WGSE_REF")
-INPUT_PATH = os.environ.get("WGSE_INPUT")
+REF_PATH = os.environ.get("WGSE_REFERENCE_FASTA")
+INPUT_PATH = os.environ.get("WGSE_INPUT_PATH")
 
 # Check for --full-data flag in sys.argv
 FULL_DATA = "--full-data" in sys.argv

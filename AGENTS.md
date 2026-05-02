@@ -1,4 +1,4 @@
-We do not want to manage installing dependencies for users, just validate that they are installed before running the feature. You can add library dependencies as part of the pyproject.toml file.
+We do not want to manage installing dependencies for users, just validate that they are installed before running the feature. You can add library dependencies as part of the pyproject.toml / pixi.toml file.
 
 In general, test and run the code you write.  You are not done if all you do is edit code.  Make sure to test small test genome extraction versions and then full genome versions once the small extraction works. Issues often pop up in full genome runs that don't show up in small test data runs.
 

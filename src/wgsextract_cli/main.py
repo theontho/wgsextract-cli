@@ -5,7 +5,6 @@ import logging
 import os
 import sys
 
-from dotenv import load_dotenv
 
 from .commands import (
     align,
@@ -23,6 +22,7 @@ from .commands import (
     vcf,
     vep,
 )
+from .core.config import KNOWN_SETTINGS, get_config_path, reload_settings, settings
 from .core.messages import CLI_HELP
 
 
@@ -77,15 +77,8 @@ def _print_tree_recursive(parser, indent):
 
 
 def main():
-    # Load environment variables
-    if os.environ.get("WGSE_SKIP_DOTENV") != "1":
-        cli_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-        env_local = os.path.join(cli_root, ".env.local")
-        env_std = os.path.join(cli_root, ".env")
-        if os.path.exists(env_local):
-            load_dotenv(dotenv_path=env_local)
-        if os.path.exists(env_std):
-            load_dotenv(dotenv_path=env_std)
+    # Re-load config to pick up any environment changes made before calling main (useful for tests)
+    reload_settings()
 
     handler = logging.StreamHandler()
     handler.setFormatter(
@@ -100,43 +93,43 @@ def main():
     base_parser.add_argument(
         "--debug",
         action="store_true",
-        default=os.environ.get("WGSE_DEBUG") == "1",
+        default=settings.get("debug_mode", False),
         help=CLI_HELP["arg_debug"],
     )
     base_parser.add_argument(
         "--quiet",
         action="store_true",
-        default=os.environ.get("WGSE_QUIET") == "1",
-        help="Suppress all informational logs. (Env: WGSE_QUIET=1)",
+        default=settings.get("quiet_mode", False),
+        help="Suppress all informational logs. (Env: WGSE_QUIET_MODE=1)",
     )
     base_parser.add_argument(
         "--input",
         "-i",
-        default=os.environ.get("WGSE_INPUT"),
+        default=settings.get("input_path"),
         help=CLI_HELP["arg_input"],
     )
     base_parser.add_argument(
         "--outdir",
         "-o",
-        default=os.environ.get("WGSE_OUTDIR"),
+        default=settings.get("output_directory"),
         help=CLI_HELP["arg_outdir"],
     )
     base_parser.add_argument(
         "--ref",
-        default=os.environ.get("WGSE_REF"),
+        default=settings.get("reference_fasta"),
         help=CLI_HELP["arg_ref"],
     )
     base_parser.add_argument(
         "--threads",
         "-t",
         type=int,
-        default=os.environ.get("WGSE_THREADS"),
+        default=settings.get("cpu_threads"),
         help=CLI_HELP["arg_threads"],
     )
     base_parser.add_argument(
         "--memory",
         "-m",
-        default=os.environ.get("WGSE_MEMORY"),
+        default=settings.get("memory_limit"),
         help=CLI_HELP["arg_memory"],
     )
     base_parser.add_argument(
@@ -181,6 +174,83 @@ def main():
 
     help_parser = subparsers.add_parser("help", help="Show this concise command tree.")
     help_parser.set_defaults(func=lambda args: print_full_help(parser))
+
+    config_parser = subparsers.add_parser(
+        "config", help="Show configuration information."
+    )
+
+    def run_config(args):
+        config_path = get_config_path()
+        print(f"Config Directory: {config_path.parent}")
+        print(f"Config File:      {config_path}")
+
+        print("\nConfiguration Settings:")
+        print(f"{'Variable':<20} {'Value':<30} {'Status'}")
+        print("-" * 65)
+
+        for key, (default, _desc) in KNOWN_SETTINGS.items():
+            current_val = settings.get(key)
+            if current_val is not None:
+                status = "[SET]"
+                val_str = str(current_val)
+            else:
+                status = "[DEFAULT/UNSET]"
+                val_str = str(default) if default is not None else "None"
+
+            print(f"{key:<20} {val_str:<30} {status}")
+
+        if not config_path.exists():
+            print("\nConfig file does not exist yet.")
+            try:
+                choice = (
+                    input("Would you like to bootstrap a default config.toml? [y/N]: ")
+                    .strip()
+                    .lower()
+                )
+                if choice == "y":
+                    config_path.parent.mkdir(parents=True, exist_ok=True)
+                    default_config = """# WGS Extract Configuration
+
+# --- Path Configuration ---
+# Default input and output paths
+# input = "~/my_genome.bam"
+# outdir = "~/wgse_output"
+
+# Path to a specific reference genome FASTA
+# ref = "~/my_genome.fa"
+
+# Reference library directory (where multiple genomes are stored)
+# reflib = "~/wgse_reference"
+
+# --- Analysis Settings ---
+# System resources
+# threads = 8
+# memory = "16G"
+
+# --- External Tools ---
+# Paths to specific tool executables or directories
+# yleaf_path = "/path/to/yleaf"
+# haplogrep_path = "/path/to/haplogrep"
+# jar_dir = "/path/to/jars"
+
+# --- Variant Processing ---
+# Default VEP cache location
+# vep_cache = "~/vep_cache"
+
+# Default VCF inputs for trio or batch analysis
+# input_vcf = "/path/to/sample.vcf.gz"
+# mother_vcf = "/path/to/mother.vcf.gz"
+# father_vcf = "/path/to/father.vcf.gz"
+"""
+                    config_path.write_text(default_config)
+                    print(f"\n✅ Created default config at {config_path}")
+                    print("You can now edit this file to persist your settings.")
+                else:
+                    print("\nSkipping bootstrap.")
+            except (EOFError, KeyboardInterrupt):
+                print("\nBootstrap cancelled.")
+
+    config_parser.set_defaults(func=run_config)
 
     # 3. Register all subcommands, passing the base_parser as a parent
     for cmd_module in [

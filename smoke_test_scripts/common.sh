@@ -2,11 +2,7 @@
 
 # common.sh: Shared functions for WGS Extract CLI smoke tests
 
-# Load environment variables for data paths
-if [ -f .env.local ]; then
-    # shellcheck disable=SC2046
-    export $(grep -v '^#' .env.local | xargs)
-fi
+# Dependencies are now handled via the config.toml or direct environment variables.
 
 # Add common system paths for bioinformatics tools
 NEW_PATH="/opt/homebrew/bin:/usr/local/bin:/opt/homebrew/Caskroom/miniconda/base/bin:/opt/homebrew/Caskroom/miniconda/base/envs/wgse/bin:/opt/homebrew/Caskroom/miniconda/base/envs/yleaf_env/bin:$PATH"

@@ -11,22 +11,13 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 # Load environment variables
-from dotenv import load_dotenv  # noqa: E402
-
 cli_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-env_local = os.path.join(cli_root, ".env.local")
-env_std = os.path.join(cli_root, ".env")
-
-if os.path.exists(env_local):
-    load_dotenv(dotenv_path=env_local)
-if os.path.exists(env_std):
-    load_dotenv(dotenv_path=env_std)
 
 from wgsextract_cli.main import main  # noqa: E402
 
-# Paths for smoke tests (using placeholders or env)
-REF_PATH = os.environ.get("WGSE_REF", "/tmp")
-INPUT_PATH = os.environ.get("WGSE_INPUT", "/tmp/fake.bam")
+from wgsextract_cli.core.config import settings
+REF_PATH = settings.get("reference_fasta", "/tmp")
+INPUT_PATH = settings.get("input_path", "/tmp/fake.bam")
 
 
 class TestCLISmoke(unittest.TestCase):
@@ -159,10 +150,11 @@ class TestCLISmoke(unittest.TestCase):
             patch("wgsextract_cli.core.dependencies.verify_dependencies"),
             patch("wgsextract_cli.commands.info.run_full_coverage"),
             patch("wgsextract_cli.commands.info.run_sampled_coverage"),
-            patch(
-                "wgsextract_cli.commands.info.calculate_bam_md5",
+            patch("wgsextract_cli.commands.info.calculate_bam_md5",
                 return_value="dummy_md5",
             ),
+            patch("wgsextract_cli.core.ref_library.urlopen"),
+            patch("wgsextract_cli.core.ref_library.download_file", return_value=True),
         ):
             # Activate sub-module patches
             for p in patches:

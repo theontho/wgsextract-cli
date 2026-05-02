@@ -135,17 +135,18 @@ def resolve_region_or_gene(args, resolved_ref):
         return args.region
 
     if hasattr(args, "gene") and args.gene:
+        # Determine reference library directory
+        from wgsextract_cli.core.config import settings
         from wgsextract_cli.core.gene_map import GeneMap
 
-        # Determine reference library directory
-        reflib_dir = os.environ.get("WGSE_REFLIB")
+        reflib_dir = settings.get("reference_library")
         if not reflib_dir and resolved_ref:
             # resolved_ref is usually path/to/reflib/ref/genome.fa
             reflib_dir = os.path.dirname(os.path.dirname(resolved_ref))
 
         if not reflib_dir:
             logging.error(
-                "Reference library not found. Please set WGSE_REFLIB or provide a --ref."
+                "Reference library not found. Please set WGSE_REFERENCE_LIBRARY or provide a --ref."
             )
             return None
 

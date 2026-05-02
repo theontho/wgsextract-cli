@@ -19,7 +19,7 @@ The fastest way to get started is using [**uv**](https://github.com/astral-sh/uv
 ### 1. Installation
 ```bash
 # Clone and enter the repository
-git clone https://github.com/WGS-Extract/wgsextract-cli.git
+git clone https://github.com/theontho/wgsextract-cli.git
 cd wgsextract-cli
 
 # Install as a global tool (Recommended)
@@ -39,7 +39,7 @@ uv run wgsextract info --detailed
 
 ## ✨ Key Features
 
-- **🎯 Zero-Config Startup**: Use `.env.local` to set global defaults for your reference library (`WGSE_REF`) and input files (`WGSE_INPUT`).
+- **🎯 Persistent Configuration**: Use a standard `config.toml` in your user directory to set global defaults for your reference library (`ref`) and input files (`input`).
 - **📂 Smart Resource Resolution**: The `ReferenceLibrary` engine automatically locates genomes, ploidy files, and SNP tables.
 - **⚡ Performance Optimized**: Native support for `--region` (e.g., `chrM`) allows rapid processing of specific chromosomal areas.
 - **🛡️ Robust Testing**: A comprehensive four-tier test suite (130+ tests) ensures reliability and behavioral correctness.
@@ -58,7 +58,7 @@ uv run wgsextract info --detailed
 *   **QC**: `fastp`, `fastqc`
 
 ### 📦 Dependency Management
-We recommend using **Homebrew** (macOS) or **Conda/Pixi** (Linux/WSL2) to manage these tools.
+We recommend using **Homebrew** (macOS) or **Conda/Pixi** (Linux/WSL2) to manage these tools.  Some of them wont work well with homebrew, so for some more specialized tools we suggest Pixi.
 
 #### macOS (Homebrew)
 ```bash
@@ -76,14 +76,39 @@ bash dep_scripts/install_linux_conda.sh
 
 ## ⚙️ Configuration
 
-Copy the example environment file and customize it:
+`wgsextract-cli` uses a cross-platform configuration system. Settings are stored in a `config.toml` file in your standard user configuration directory.
+
+### Config Locations:
+- **macOS**: `~/.config/wgsextract/config.toml` (Used if `~/.config/` exists) or `~/Library/Application Support/wgsextract/config.toml`
+- **Linux**: `~/.config/wgsextract/config.toml`
+- **Windows**: `%AppData%\wgsextract\wgsextract\config.toml`
+
+### View Your Config:
+Run the following command to see your active configuration path and settings:
 ```bash
-cp .env.example .env.local
+wgsextract config
 ```
 
-**Key variables in `.env.local`:**
-- `WGSE_REF`: Path to your reference genome directory.
-- `WGSE_INPUT`: Default BAM/CRAM file path.
+### Example `config.toml`:
+```toml
+# Default input and output paths
+input = "/path/to/my/genome.bam"
+outdir = "/path/to/output"
+
+# Reference library location
+ref = "/path/to/reference/genomes"
+
+# System resources
+threads = 8
+memory = "16G"
+
+# External tool paths
+yleaf_path = "/usr/local/bin/yleaf"
+haplogrep_path = "/usr/local/bin/haplogrep"
+```
+
+> [!TIP]
+> Environment variables (e.g., `WGSE_REF`, `WGSE_INPUT`) still work and will override settings in the `config.toml` file.
 
 ---
 
@@ -162,7 +187,7 @@ uv run mypy src/wgsextract_cli
 
 ---
 
-## 📊 Project Stats
+## 📊 Project Code Stats
 
 Visualize the codebase complexity:
 ```bash
@@ -171,6 +196,66 @@ pixi run stats
 
 # Or directly
 ./scripts/project_stats.sh
+```
+
+Last stats run:
+```
+========================================================
+  WGS Extract CLI: Project Statistics
+========================================================
+
+--- Full Project (Excluding generated data and external deps) ---
+     185 text files.
+     179 unique files.                                          
+      11 files ignored.
+
+github.com/AlDanial/cloc v 2.06  T=0.42 s (430.3 files/s, 78153.9 lines/s)
+-------------------------------------------------------------------------------
+Language                     files          blank        comment           code
+-------------------------------------------------------------------------------
+Python                          82           3478           1771          20029
+Bourne Shell                    87            929            798           4916
+Markdown                         3             73              0            196
+TOML                             2             24             11            192
+PowerShell                       2             10              3             28
+YAML                             1              0              0             25
+SVG                              1              3              4             17
+INI                              1              0              0              5
+-------------------------------------------------------------------------------
+SUM:                           179           4517           2587          25408
+-------------------------------------------------------------------------------
+
+--- Production Code (src/wgsextract_cli) ---
+      53 text files.
+      53 unique files.                              
+       3 files ignored.
+
+github.com/AlDanial/cloc v 2.06  T=0.29 s (184.1 files/s, 70679.4 lines/s)
+-------------------------------------------------------------------------------
+Language                     files          blank        comment           code
+-------------------------------------------------------------------------------
+Python                          52           2699           1379          16248
+SVG                              1              3              4             17
+-------------------------------------------------------------------------------
+SUM:                            53           2702           1383          16265
+-------------------------------------------------------------------------------
+
+--- Test Code (tests/ and smoke_test_scripts/) ---
+      96 text files.
+      96 unique files.                              
+       1 file ignored.
+
+github.com/AlDanial/cloc v 2.06  T=0.38 s (254.5 files/s, 29160.1 lines/s)
+-------------------------------------------------------------------------------
+Language                     files          blank        comment           code
+-------------------------------------------------------------------------------
+Bourne Shell                    69            836            765           4543
+Python                          27            762            383           3710
+-------------------------------------------------------------------------------
+SUM:                            96           1598           1148           8253
+-------------------------------------------------------------------------------
+
+========================================================
 ```
 
 ---

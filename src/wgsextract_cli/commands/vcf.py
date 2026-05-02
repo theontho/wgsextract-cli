@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import sys
 
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import (
     get_tool_path,
     log_dependency_info,
@@ -65,7 +66,7 @@ def register(subparsers, base_parser):
     )
     annotate_parser.add_argument(
         "--vcf-input",
-        default=os.environ.get("WGSE_INPUT_VCF"),
+        default=settings.get("default_input_vcf"),
         help=CLI_HELP["arg_vcf_input"],
     )
     annotate_parser.add_argument(
@@ -79,7 +80,7 @@ def register(subparsers, base_parser):
     )
     filter_parser.add_argument(
         "--vcf-input",
-        default=os.environ.get("WGSE_INPUT_VCF"),
+        default=settings.get("default_input_vcf"),
         help=CLI_HELP["arg_vcf_input"],
     )
     filter_parser.add_argument(
@@ -99,17 +100,17 @@ def register(subparsers, base_parser):
     )
     trio_parser.add_argument(
         "--vcf-input",
-        default=os.environ.get("WGSE_INPUT_VCF"),
+        default=settings.get("default_input_vcf"),
         help=CLI_HELP["arg_vcf_input"],
     )
     trio_parser.add_argument(
         "--mother",
-        default=os.environ.get("WGSE_MOTHER_VCF"),
+        default=settings.get("mother_vcf_path"),
         help=CLI_HELP["arg_mother"],
     )
     trio_parser.add_argument(
         "--father",
-        default=os.environ.get("WGSE_FATHER_VCF"),
+        default=settings.get("father_vcf_path"),
         help=CLI_HELP["arg_father"],
     )
     trio_parser.add_argument("--proband", help="VCF file for the child")
@@ -172,9 +173,15 @@ def register(subparsers, base_parser):
         help="Annotate VCF with ClinVar pathogenicity data.",
     )
     clinvar_parser.add_argument(
-        "--vcf-input", help="Optional override for VCF input file."
+        "--vcf-input",
+        default=settings.get("default_input_vcf"),
+        help="Optional override for VCF input file.",
     )
-    clinvar_parser.add_argument("--clinvar-file", help="Path to ClinVar VCF data file.")
+    clinvar_parser.add_argument(
+        "--clinvar-file",
+        default=settings.get("clinvar_vcf_path"),
+        help="Path to ClinVar VCF data file.",
+    )
     clinvar_parser.set_defaults(func=cmd_clinvar)
 
     revel_parser = vcf_subs.add_parser(
@@ -183,10 +190,14 @@ def register(subparsers, base_parser):
         help="Annotate VCF with REVEL pathogenicity scores.",
     )
     revel_parser.add_argument(
-        "--vcf-input", help="Optional override for VCF input file."
+        "--vcf-input",
+        default=settings.get("default_input_vcf"),
+        help="Optional override for VCF input file.",
     )
     revel_parser.add_argument(
-        "--revel-file", help="Path to REVEL TSV or VCF data file."
+        "--revel-file",
+        default=settings.get("revel_tsv_path"),
+        help="Path to REVEL TSV or VCF data file.",
     )
     revel_parser.add_argument(
         "--min-score",
@@ -201,10 +212,14 @@ def register(subparsers, base_parser):
         help="Annotate VCF with PhyloP conservation scores.",
     )
     phylop_parser.add_argument(
-        "--vcf-input", help="Optional override for VCF input file."
+        "--vcf-input",
+        default=settings.get("default_input_vcf"),
+        help="Optional override for VCF input file.",
     )
     phylop_parser.add_argument(
-        "--phylop-file", help="Path to PhyloP TSV or VCF data file."
+        "--phylop-file",
+        default=settings.get("phylop_tsv_path"),
+        help="Path to PhyloP TSV or VCF data file.",
     )
     phylop_parser.add_argument(
         "--min-score",
@@ -219,9 +234,15 @@ def register(subparsers, base_parser):
         help="Annotate VCF with gnomAD population frequencies.",
     )
     gnomad_parser.add_argument(
-        "--vcf-input", help="Optional override for VCF input file."
+        "--vcf-input",
+        default=settings.get("default_input_vcf"),
+        help="Optional override for VCF input file.",
     )
-    gnomad_parser.add_argument("--gnomad-file", help="Path to gnomAD VCF data file.")
+    gnomad_parser.add_argument(
+        "--gnomad-file",
+        default=settings.get("gnomad_vcf_path"),
+        help="Path to gnomAD VCF data file.",
+    )
     gnomad_parser.add_argument(
         "--max-af",
         type=float,
@@ -235,10 +256,14 @@ def register(subparsers, base_parser):
         help="Annotate VCF with SpliceAI splicing scores.",
     )
     spliceai_parser.add_argument(
-        "--vcf-input", help="Optional override for VCF input file."
+        "--vcf-input",
+        default=settings.get("default_input_vcf"),
+        help="Optional override for VCF input file.",
     )
     spliceai_parser.add_argument(
-        "--spliceai-file", help="Path to SpliceAI VCF data file."
+        "--spliceai-file",
+        default=settings.get("spliceai_vcf_path"),
+        help="Path to SpliceAI VCF data file.",
     )
     spliceai_parser.set_defaults(func=cmd_spliceai)
 
@@ -248,10 +273,14 @@ def register(subparsers, base_parser):
         help="Annotate VCF with AlphaMissense pathogenicity scores.",
     )
     alphamissense_parser.add_argument(
-        "--vcf-input", help="Optional override for VCF input file."
+        "--vcf-input",
+        default=settings.get("default_input_vcf"),
+        help="Optional override for VCF input file.",
     )
     alphamissense_parser.add_argument(
-        "--am-file", help="Path to AlphaMissense VCF data file."
+        "--am-file",
+        default=settings.get("alphamissense_vcf_path"),
+        help="Path to AlphaMissense VCF data file.",
     )
     alphamissense_parser.add_argument(
         "--min-score",
@@ -266,10 +295,14 @@ def register(subparsers, base_parser):
         help="Annotate VCF with PharmGKB drug metabolism data.",
     )
     pharmgkb_parser.add_argument(
-        "--vcf-input", help="Optional override for VCF input file."
+        "--vcf-input",
+        default=settings.get("default_input_vcf"),
+        help="Optional override for VCF input file.",
     )
     pharmgkb_parser.add_argument(
-        "--pharmgkb-file", help="Path to PharmGKB VCF or data file."
+        "--pharmgkb-file",
+        default=settings.get("pharmgkb_vcf_path"),
+        help="Path to PharmGKB VCF or data file.",
     )
     pharmgkb_parser.set_defaults(func=cmd_pharmgkb)
 
@@ -279,7 +312,9 @@ def register(subparsers, base_parser):
         help="Sequentially apply multiple annotations to a single VCF.",
     )
     chain_annotate_parser.add_argument(
-        "--vcf-input", help="Optional override for VCF input file."
+        "--vcf-input",
+        default=settings.get("default_input_vcf"),
+        help="Optional override for VCF input file.",
     )
     chain_annotate_parser.add_argument(
         "--annotations",

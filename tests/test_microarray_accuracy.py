@@ -4,17 +4,15 @@ import subprocess
 import unittest
 from pathlib import Path
 
-from dotenv import load_dotenv
 
 # Path setup
 this_dir = Path(__file__).resolve().parent
 cli_root = this_dir.parent
-load_dotenv(dotenv_path=cli_root / ".env.local")
 
 # Get paths from environment
-REF_PATH = os.environ.get("WGSE_REF")
-INPUT_PATH = os.environ.get("WGSE_INPUT")
-OUT_DIR = os.environ.get("WGSE_OUTDIR", "/tmp/wgse_tests")
+REF_PATH = os.environ.get("WGSE_REFERENCE_FASTA")
+INPUT_PATH = os.environ.get("WGSE_INPUT_PATH")
+OUT_DIR = os.environ.get("WGSE_OUTPUT_DIRECTORY", "/tmp/wgse_tests")
 
 
 class TestMicroarrayAccuracy(unittest.TestCase):

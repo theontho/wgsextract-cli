@@ -20,11 +20,11 @@ class TestInfoCommand(unittest.TestCase):
         os.environ["WGSE_SKIP_DOTENV"] = "1"
         # Clear any other potentially interfering env vars
         self.env_vars = [
-            "WGSE_INPUT",
-            "WGSE_OUTDIR",
-            "WGSE_REF",
-            "WGSE_THREADS",
-            "WGSE_MEMORY",
+            "WGSE_INPUT_PATH",
+            "WGSE_OUTPUT_DIRECTORY",
+            "WGSE_REFERENCE_FASTA",
+            "WGSE_CPU_THREADS",
+            "WGSE_MEMORY_LIMIT",
         ]
         self.old_env = {v: os.environ.get(v) for v in self.env_vars}
         for v in self.env_vars:

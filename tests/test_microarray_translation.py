@@ -28,7 +28,7 @@ class TestMicroarrayTranslation(unittest.TestCase):
 
         # We need a real chain file for pyliftover to work.
         # We'll try to find it in the environment or workspace.
-        self.chain_file = os.environ.get("WGSE_REF", "")
+        self.chain_file = os.environ.get("WGSE_REFERENCE_FASTA", "")
         if self.chain_file:
             self.chain_file = os.path.join(self.chain_file, "hg38ToHg19.over.chain.gz")
 
@@ -43,7 +43,7 @@ class TestMicroarrayTranslation(unittest.TestCase):
             )
 
         # Templates dir for vendor formatting
-        self.templates_dir = os.environ.get("WGSE_REF", "")
+        self.templates_dir = os.environ.get("WGSE_REFERENCE_FASTA", "")
         if self.templates_dir:
             if not os.path.exists(
                 os.path.join(self.templates_dir, "microarray", "raw_file_templates")
