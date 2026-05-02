@@ -28,7 +28,21 @@ cd wgsextract-cli
 uv tool install .
 ```
 
-### 2. Basic Usage
+### 2. Initialize Reference Library
+Before running extraction tools, you need to initialize the reference library with VCFs, liftover chains, and small metadata files:
+
+```bash
+# Initialize library in the default 'reference/' folder
+wgsextract ref bootstrap
+
+# List available genomes
+wgsextract ref library --list
+
+# Install a genome (e.g., hs38)
+wgsextract ref library --install hs38
+```
+
+### 3. Basic Usage
 ```bash
 # Run directly if installed as a tool
 wgsextract info --detailed
@@ -110,7 +124,7 @@ haplogrep_path = "/usr/local/bin/haplogrep"
 ```
 
 > [!TIP]
-> Environment variables (e.g., `WGSE_REF`, `WGSE_INPUT`) still work and will override settings in the `config.toml` file.
+> Use `config.toml` (e.g., `~/.config/wgsextract/config.toml`) to set global paths and resource limits.
 
 ---
 
