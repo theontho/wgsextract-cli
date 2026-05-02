@@ -146,7 +146,7 @@ def resolve_region_or_gene(args, resolved_ref):
 
         if not reflib_dir:
             logging.error(
-                "Reference library not found. Please set WGSE_REFERENCE_LIBRARY or provide a --ref."
+                "Reference library not found. Please provide a --ref or set reference_library in config.toml."
             )
             return None
 

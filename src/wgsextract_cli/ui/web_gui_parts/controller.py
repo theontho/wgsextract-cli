@@ -194,9 +194,7 @@ class WebController:
 
             # Run in a separate thread to not block the loop for fast info
             def run():
-                env = os.environ.copy()
-                env["WGSE_SKIP_DOTENV"] = "1"
-                subprocess.run(command, capture_output=True, text=True, env=env)
+                subprocess.run(command, capture_output=True, text=True)
 
                 # Load from json cache
                 out_dir = state.out_dir or os.path.dirname(os.path.abspath(input_path))

@@ -42,7 +42,6 @@ KNOWN_SETTINGS = {
     "pet_r1_fastq": (None, "Test: Path to PET R1 reads"),
     "pet_r2_fastq": (None, "Test: Path to PET R2 reads"),
     "pet_reference_fasta": (None, "Test: Path to PET reference genome"),
-    "skip_dotenv": (False, "Skip loading .env files (Internal/Test use)"),
 }
 
 
@@ -65,11 +64,10 @@ def get_config_path() -> Path:
 def load_config() -> dict[str, Any]:
     """
     Load configuration from the standard config file.
-    Also handles merging with environment variables.
     """
     config = {}
 
-    # 1. Load from config.toml
+    # Load from config.toml
     config_path = get_config_path()
     if config_path.exists():
         try:
@@ -77,53 +75,6 @@ def load_config() -> dict[str, Any]:
                 config = tomllib.load(f)
         except Exception as e:
             print(f"Error loading config from {config_path}: {e}", file=sys.stderr)
-
-    # 2. Merge with environment variables (env vars take precedence)
-    # Mapping of ENV_VAR to config key
-    env_mapping = {
-        "WGSE_INPUT_PATH": "input_path",
-        "WGSE_OUTPUT_DIRECTORY": "output_directory",
-        "WGSE_REFERENCE_FASTA": "reference_fasta",
-        "WGSE_REFERENCE_LIBRARY": "reference_library",
-        "WGSE_CPU_THREADS": "cpu_threads",
-        "WGSE_MEMORY_LIMIT": "memory_limit",
-        "WGSE_DEBUG_MODE": "debug_mode",
-        "WGSE_QUIET_MODE": "quiet_mode",
-        "WGSE_YLEAF_EXECUTABLE": "yleaf_executable",
-        "WGSE_HAPLOGREP_EXECUTABLE": "haplogrep_executable",
-        "WGSE_VEP_CACHE_DIRECTORY": "vep_cache_directory",
-        "WGSE_BATCH_FILE_PATH": "batch_file_path",
-        "WGSE_VCF_INPUT_PATHS": "vcf_input_paths",
-        "WGSE_DEFAULT_INPUT_VCF": "default_input_vcf",
-        "WGSE_MOTHER_VCF_PATH": "mother_vcf_path",
-        "WGSE_FATHER_VCF_PATH": "father_vcf_path",
-        "WGSE_JAR_DIRECTORY": "jar_directory",
-        "WGSE_CLINVAR_VCF_PATH": "clinvar_vcf_path",
-        "WGSE_REVEL_TSV_PATH": "revel_tsv_path",
-        "WGSE_PHYLOP_TSV_PATH": "phylop_tsv_path",
-        "WGSE_GNOMAD_VCF_PATH": "gnomad_vcf_path",
-        "WGSE_SPLICEAI_VCF_PATH": "spliceai_vcf_path",
-        "WGSE_ALPHAMISSENSE_VCF_PATH": "alphamissense_vcf_path",
-        "WGSE_PHARMGKB_VCF_PATH": "pharmgkb_vcf_path",
-        "WGSE_PET_R1_FASTQ": "pet_r1_fastq",
-        "WGSE_PET_R2_FASTQ": "pet_r2_fastq",
-        "WGSE_PET_REFERENCE_FASTA": "pet_reference_fasta",
-        "WGSE_SKIP_DOTENV": "skip_dotenv",
-    }
-
-    for env_var, config_key in env_mapping.items():
-        val = os.environ.get(env_var)
-        if val is not None:
-            # Type conversion for common types
-            if config_key == "cpu_threads" and val:
-                try:
-                    config[config_key] = int(val)
-                except ValueError:
-                    pass
-            elif config_key in ("debug_mode", "quiet_mode", "skip_dotenv"):
-                config[config_key] = val == "1" or val.lower() == "true"
-            else:
-                config[config_key] = val
 
     return config
 

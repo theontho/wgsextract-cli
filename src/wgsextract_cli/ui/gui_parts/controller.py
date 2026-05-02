@@ -263,7 +263,6 @@ class GUIController:
         def run() -> None:
             # Skip environment variables for stability
             env = os.environ.copy()
-            env["WGSE_SKIP_DOTENV"] = "1"
             cmd = [
                 sys.executable,
                 "-m",
@@ -393,7 +392,6 @@ class GUIController:
         def run() -> None:
             # Skip environment variables for stability
             env = os.environ.copy()
-            env["WGSE_SKIP_DOTENV"] = "1"
             cmd = [
                 sys.executable,
                 "-m",

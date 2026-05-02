@@ -121,31 +121,6 @@ def add_tooltip(text: str):
         ui.label(text)
 
 
-async def save_env():
-    """Save current state to .env.local file."""
-    cli_root = Path(__file__).parent.parent.parent.parent.parent
-    env_path = cli_root / ".env.local"
-
-    content = [
-        f'WGSE_INPUT_PATH="{state.bam_path}"',
-        f'WGSE_DEFAULT_INPUT_VCF="{state.vcf_path}"',
-        f'WGSE_MOTHER_VCF_PATH="{state.vcf_mother}"',
-        f'WGSE_FATHER_VCF_PATH="{state.vcf_father}"',
-        f'WGSE_REFERENCE_FASTA="{state.ref_path}"',
-        f'WGSE_OUTPUT_DIRECTORY="{state.out_dir}"',
-        f'WGSE_YLEAF_EXECUTABLE="{state.yleaf_path}"',
-        f'WGSE_HAPLOGREP_EXECUTABLE="{state.haplogrep_path}"',
-        f'WGSE_VEP_CACHE_DIRECTORY="{state.vep_cache_path}"',
-    ]
-
-    try:
-        with open(env_path, "w") as f:
-            f.write("\n".join(content) + "\n")
-        ui.notify("Settings saved to .env.local", type="positive")
-    except Exception as e:
-        ui.notify(f"Failed to save settings: {e}", type="negative")
-
-
 def ui_row_input(
     label: str, value_attr: str, placeholder: str = "", info_text: str | None = None
 ):
