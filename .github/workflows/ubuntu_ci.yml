@@ -1,8 +1,6 @@
 name: CI Ubuntu
 
 on:
-  push:
-    branches: [ main, feature/* ]
   pull_request:
     branches: [ main ]
 
@@ -13,12 +11,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: awalsh128/cache-apt-pkgs-action@latest
         with:
-          packages: samtools bcftools tabix bwa minimap2 fastp fastqc delly freebayes libensembl-vep-perl openjdk-17-jre
+          packages: samtools bcftools tabix bwa minimap2 fastp fastqc openjdk-17-jre
           version: 1.0
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y samtools bcftools tabix bwa minimap2 fastp fastqc delly freebayes libensembl-vep-perl openjdk-17-jre
+          sudo apt-get install -y samtools bcftools tabix bwa minimap2 fastp fastqc openjdk-17-jre
       - name: Verify Tools
         run: chmod +x dep_scripts/verify_tools.sh && ./dep_scripts/verify_tools.sh
       - name: Set up Pixi
