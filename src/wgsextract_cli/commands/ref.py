@@ -137,10 +137,10 @@ def register(subparsers, base_parser):
 
 
 def cmd_download(args):
-    verify_dependencies(["wget"])
+    verify_dependencies(["curl"])
     logging.info(LOG_MESSAGES["ref_downloading"].format(url=args.url, path=args.out))
     try:
-        subprocess.run(["wget", "-O", args.out, args.url], check=True)
+        subprocess.run(["curl", "-L", "-o", args.out, args.url], check=True)
     except subprocess.CalledProcessError as e:
         logging.error(f"Download failed: {e}")
         sys.exit(1)
