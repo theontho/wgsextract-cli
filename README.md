@@ -11,12 +11,8 @@
 
 A completely independent, modern, AI-optimized command-line recreation of the [WGS (Whole Genome Sequencing) Extract](https://github.com/WGSExtract/WGSExtract-Dev/) application. 
 
-A goal of this reimplemenation was to make it cli driven first to make it more friendly to use with AIs, and to break the gordian knot of multi-platform end user dependency management by making dependency management a separate decoupled step from the application itself, and make the application partially runnable when dependencies are missing.  Pixi is looking like a potential winner for this 'second step'.
+Designed to be CLI-first for AI-friendliness, `wgsextract-cli` leverages [**Pixi**](https://pixi.sh) to provide a consistent, cross-platform environment for both Python and external bioinformatics tools (like samtools and bcftools).
 
----
-
-> [!NOTE]
-> **Pixi handles everything.** You no longer need to install `uv` or manage system-wide bioinformatics tools manually. Pixi creates a self-contained environment for the project.
 
 
 ## ⚙️ Installation & Setup Guide
@@ -164,7 +160,7 @@ While primarily a CLI tool, `wgsextract-cli` includes modern GUI options:
 
 ## 🧪 Testing
 
-We maintain high standards for code quality. You can run the test suite using `uv`:
+We maintain high standards for code quality. You can run the test suite using `pixi`:
 
 ```bash
 # Smoke Tests (Fast, verifies CLI plumbing)
@@ -183,8 +179,8 @@ pixi run python tests/test_e2e_fast_chrM.py
 
 ### Setup Environment
 ```bash
-# Install development dependencies
-uv sync --group dev
+# Install all dependencies
+pixi install
 ```
 
 ### Code Quality

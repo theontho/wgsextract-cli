@@ -32,7 +32,7 @@ echo "Mode: Optimized VCF Extraction + Gap Filling"
 # 5. Chromosome Normalization: Should handle 'chr1' in VCF/TAB vs '1' in FASTA.
 
 # Run the command
-uv run wgsextract microarray \
+pixi run wgsextract microarray \
     --input "$INPUT_FILE" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR" \

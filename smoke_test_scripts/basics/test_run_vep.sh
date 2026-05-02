@@ -31,7 +31,7 @@ check_deps vep
 # Using the new batch-aware wgsextract vep command
 # --vcf-type auto will detect snp-indel, sv, or cnv from filenames
 # --add-chr handles the chromosome prefixing automatically
-uv run wgsextract vep \
+pixi run wgsextract vep \
   --input "$INPUT_DIR" \
   --outdir "$OUTPUT_DIR" \
   --ref "$FASTA" \

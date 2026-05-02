@@ -59,7 +59,7 @@ echo "  WGS Extract CLI: Microarray Basics Smoke Test"
 echo "--------------------------------------------------------"
 
 # 4. Run microarray command
-if uv run wgsextract microarray \
+if pixi run wgsextract microarray \
     --input "$INPUT_VCF" \
     --ref "$REFDIR" \
     --outdir "$OUTDIR" \
@@ -86,7 +86,7 @@ fi
 echo ":: Testing 'microarray' with --parallel..."
 OUTDIR_PARALLEL="$OUTDIR/parallel"
 mkdir -p "$OUTDIR_PARALLEL"
-if uv run wgsextract microarray \
+if pixi run wgsextract microarray \
     --input "$INPUT_VCF" \
     --ref "$REFDIR" \
     --outdir "$OUTDIR_PARALLEL" \

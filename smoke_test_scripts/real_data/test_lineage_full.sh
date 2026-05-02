@@ -32,14 +32,14 @@ echo "Input: $INPUT_FILE"
 
 # 1. MT Lineage
 echo ":: Running MT Haplogroup Assignment (Haplogrep)..."
-uv run wgsextract lineage mt-haplogroup \
+pixi run wgsextract lineage mt-haplogroup \
     --input "$INPUT_FILE" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR/mt"
 
 # 2. Y Lineage
 echo ":: Running Y Haplogroup Assignment (Yleaf)..."
-uv run wgsextract lineage y-haplogroup \
+pixi run wgsextract lineage y-haplogroup \
     --input "$INPUT_FILE" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR/y" \

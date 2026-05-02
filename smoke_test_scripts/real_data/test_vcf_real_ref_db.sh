@@ -11,7 +11,7 @@ if [[ "$1" == "--describe" ]]; then
 fi
 
 # Configuration
-WGSE_CMD=${WGSE_CMD:-"uv run python -m wgsextract_cli.main"}
+WGSE_CMD=${WGSE_CMD:-"pixi run python -m wgsextract_cli.main"}
 OUTDIR="out/smoke_test_vcf_real_ref_db"
 REFDIR="reference"
 mkdir -p "$OUTDIR"

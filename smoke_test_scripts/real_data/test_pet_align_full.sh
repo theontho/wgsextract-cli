@@ -35,7 +35,7 @@ echo "Ref:      $PET_REF"
 
 # 1. Pet Align
 echo ":: Aligning Pet reads and calling variants..."
-if ! uv run wgsextract pet-align \
+if ! pixi run wgsextract pet-align \
     --input "$PET_R1" \
     --input-r2 "$PET_R2" \
     --ref "$PET_REF" \

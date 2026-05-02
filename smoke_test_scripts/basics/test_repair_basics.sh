@@ -27,7 +27,7 @@ read 1	99	chr1	100	60	100M	=	200	100	AAAAAAAAAA	##########
 EOF
 
 # Run repair. Input is stdin, output is stdout.
-if uv run wgsextract repair ftdna-bam < "$OUTDIR/test.sam" > "$OUTDIR/repaired.sam" 2> "$OUTDIR/repair_bam.stderr"; then
+if pixi run wgsextract repair ftdna-bam < "$OUTDIR/test.sam" > "$OUTDIR/repaired.sam" 2> "$OUTDIR/repair_bam.stderr"; then
     if grep -q "read:1" "$OUTDIR/repaired.sam"; then
         echo "✅ Success: 'repair ftdna-bam' completed and fixed QNAME."
     else
@@ -54,7 +54,7 @@ echo ":: Testing 'repair ftdna-vcf'..."
 } > "$OUTDIR/test.vcf"
 
 # Run repair.
-if uv run wgsextract repair ftdna-vcf < "$OUTDIR/test.vcf" > "$OUTDIR/repaired.vcf" 2> "$OUTDIR/repair_vcf.stderr"; then
+if pixi run wgsextract repair ftdna-vcf < "$OUTDIR/test.vcf" > "$OUTDIR/repaired.vcf" 2> "$OUTDIR/repair_vcf.stderr"; then
     if grep -q "DP1" "$OUTDIR/repaired.vcf"; then
         echo "✅ Success: 'repair ftdna-vcf' completed and fixed FILTER."
         # Verify it's still a valid VCF (even if small)
