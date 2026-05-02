@@ -126,6 +126,13 @@ def register(subparsers, base_parser):
     )
     pharmgkb_dl_parser.set_defaults(func=cmd_pharmgkb_dl)
 
+    bootstrap_parser = ref_subs.add_parser(
+        "bootstrap",
+        parents=[base_parser],
+        help="Download and initialize the reference library bootstrap (VCFs, chains, etc.).",
+    )
+    bootstrap_parser.set_defaults(func=cmd_bootstrap)
+
 
 def cmd_download(args):
     verify_dependencies(["wget"])
@@ -694,4 +701,23 @@ def cmd_pharmgkb_dl(args):
         logging.info("PharmGKB setup complete.")
     else:
         logging.error("PharmGKB setup failed.")
+        sys.exit(1)
+
+
+def cmd_bootstrap(args):
+    from wgsextract_cli.core.config import settings
+    from wgsextract_cli.core.ref_library import download_bootstrap
+
+    prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
+    reflib = settings.get("reference_library")
+    if not reflib:
+        reflib = args.ref if args.ref else os.path.join(prog_root, "reference")
+
+    logging.info("Starting reference library bootstrap...")
+    if download_bootstrap(reflib):
+        logging.info(
+            "Bootstrap complete. You can now install genomes via 'wgsextract ref library'."
+        )
+    else:
+        logging.error("Bootstrap failed.")
         sys.exit(1)
