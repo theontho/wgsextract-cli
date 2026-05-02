@@ -29,7 +29,7 @@ dependencies = [
 ]
 
 [project.scripts]
-wgsextract-cli = "wgsextract_cli.main:main"
+wgsextract = "wgsextract_cli.main:main"
 
 [dependency-groups]
 dev = [

@@ -160,16 +160,24 @@ def main():
 
     # UI Commands
     gui_parser = subparsers.add_parser("gui", help=CLI_HELP["cmd_gui"])
-    gui_parser.set_defaults(
-        func=lambda args: __import__("wgsextract_cli.ui.gui", fromlist=["main"]).main()
+    gui_group = gui_parser.add_mutually_exclusive_group()
+    gui_group.add_argument(
+        "--web", action="store_true", help="Start the Web-based GUI (NiceGUI)."
+    )
+    gui_group.add_argument(
+        "--desktop",
+        action="store_true",
+        default=True,
+        help="Start the Desktop GUI (CustomTkinter).",
     )
 
-    webgui_parser = subparsers.add_parser("web-gui", help="Start the Web-based GUI.")
-    webgui_parser.set_defaults(
-        func=lambda args: __import__(
-            "wgsextract_cli.ui.web_gui", fromlist=["main"]
-        ).main()
-    )
+    def run_gui(args):
+        if args.web:
+            __import__("wgsextract_cli.ui.web_gui", fromlist=["main"]).main()
+        else:
+            __import__("wgsextract_cli.ui.gui", fromlist=["main"]).main()
+
+    gui_parser.set_defaults(func=run_gui)
 
     help_parser = subparsers.add_parser("help", help="Show this concise command tree.")
     help_parser.set_defaults(func=lambda args: print_full_help(parser))

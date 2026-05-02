@@ -1,216 +1,179 @@
-# WGS Extract CLI (`wgsextract-cli`)
+# 🧬 WGS Extract CLI (`wgsextract-cli`)
 
-A completely independent, modern command-line interface for the WGS Extract application. This tool allows users to perform bioinformatics workflows (BAM/CRAM management, extraction, variant calling, microarray simulation, and lineage evaluation) directly from the terminal without relying on the legacy GUI environment.
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-## Key Features
+A completely independent, modern, AI-optimized command-line recreation of the [WGS (Whole Genome Sequencing) Extract](https://github.com/WGSExtract/WGSExtract-Dev/) application. 
 
-*   **Zero-Config Startup**: Support for `cli/.env.local` allows you to set global defaults for your reference library and input files.
-*   **Automatic Resource Resolution**: The `ReferenceLibrary` engine automatically finds genomes, ploidy files, and microarray SNP tables from a single `--ref` directory.
-*   **Synchronized Testing**: A robust four-tier test suite (136 tests total) ensures plumbing, error handling, robustness, and E2E behavioral correctness.
-*   **Optimized for Speed**: Built-in `--region` support for heavy commands (sort, convert, coverage, variant calling) enables rapid processing of specific chromosomal regions like `chrM`.
+A goal of this reimplemenation was to make it cli driven first to make it more friendly to use with AIs, and to break the gordian knot of dependency management by making dependency management a separate decoupled step from the application itself, and make the application partially runnable when dependencies are missing.  Pixi is looking like a potential winner for this 'second step'.
 
-## Dependencies
 
-The `wgsextract-cli` relies on several industry-standard bioinformatics tools.
+---
 
-> ⚠️ **Platform Support Note**: macOS instructions have been verified on Apple Silicon. Windows (WSL2/Conda) and Linux instructions are currently **unverified** and provided as a best-effort guide.
+## 🚀 Quick Start
 
-### Required Tools
-*   **Core:** `samtools`, `bcftools`, `htslib` (tabix/bgzip), `delly`, `freebayes`, `ensembl-vep`
-*   **Aligners:** `bwa`, `minimap2`
-*   **QC & Utils:** `fastp`, `fastqc`, `openjdk` (Java), `python3`, `pip`, `uv`
+The fastest way to get started is using [**uv**](https://github.com/astral-sh/uv).
 
-### 🛠️ Installation Scripts
-
-You can find pre-written install/uninstall scripts for each platform in the [cli/dep_scripts/](dep_scripts/) directory.
-
-#### macOS (using Homebrew) — ✅ Verified
+### 1. Installation
 ```bash
-# Install (Note: VEP not available via brew, manual install required)
-bash cli/dep_scripts/install_macos.sh
+# Clone and enter the repository
+git clone https://github.com/WGS-Extract/wgsextract-cli.git
+cd wgsextract-cli
 
-# Uninstall
-bash cli/dep_scripts/uninstall_macos.sh
+# Install as a global tool (Recommended)
+uv tool install .
 ```
 
-#### macOS / Linux (using Conda/Mamba) — ⚠️ Unverified
-This is the recommended method for getting **Ensembl VEP** easily.
+### 2. Basic Usage
 ```bash
-# Install (macOS)
-bash cli/dep_scripts/install_macos_conda.sh
+# Run directly if installed as a tool
+wgsextract info --detailed
 
-# Install (Linux)
-bash cli/dep_scripts/install_linux_conda.sh
-
-# Uninstall (macOS)
-bash cli/dep_scripts/uninstall_macos_conda.sh
-
-# Uninstall (Linux)
-bash cli/dep_scripts/uninstall_linux_conda.sh
-```
-
-#### Ubuntu / Debian / Mint — ⚠️ Unverified
-```bash
-# Install
-bash cli/dep_scripts/install_ubuntu.sh
-
-# Uninstall
-bash cli/dep_scripts/uninstall_ubuntu.sh
-```
-
-#### Fedora / RHEL / CentOS — ⚠️ Unverified
-```bash
-# Install
-bash cli/dep_scripts/install_fedora.sh
-
-# Uninstall
-bash cli/dep_scripts/uninstall_fedora.sh
-```
-
-#### Arch Linux / Manjaro — ⚠️ Unverified
-```bash
-# Install
-bash cli/dep_scripts/install_arch.sh
-
-# Uninstall
-bash cli/dep_scripts/uninstall_arch.sh
-```
-
-#### Windows (WSL2 / PowerShell) — ⚠️ Unverified
-We strongly recommend using **WSL2 (Ubuntu)** for the best experience. If using native Windows, you can use **Conda/Mamba**:
-
-```powershell
-# Install via Conda (PowerShell)
-./cli/dep_scripts/install_windows_conda.ps1
-
-# Uninstall
-./cli/dep_scripts/uninstall_windows_conda.ps1
+# Or run without installing using uv
+uv run wgsextract info --detailed
 ```
 
 ---
 
-## Installation
+## ✨ Key Features
 
+- **🎯 Zero-Config Startup**: Use `.env.local` to set global defaults for your reference library (`WGSE_REF`) and input files (`WGSE_INPUT`).
+- **📂 Smart Resource Resolution**: The `ReferenceLibrary` engine automatically locates genomes, ploidy files, and SNP tables.
+- **⚡ Performance Optimized**: Native support for `--region` (e.g., `chrM`) allows rapid processing of specific chromosomal areas.
+- **🛡️ Robust Testing**: A comprehensive four-tier test suite (130+ tests) ensures reliability and behavioral correctness.
+- **🤖 AI-Ready**: Designed with a clean CLI interface that is easy for LLMs and automated scripts to interact with.
+
+---
+
+## 🛠️ Installation & Dependencies
+
+`wgsextract-cli` orchestrates several industry-standard bioinformatics tools.
+
+### Required External Tools
+*   **Core**: `samtools`, `bcftools`, `htslib`
+*   **Callers**: `delly`, `freebayes`, `ensembl-vep`
+*   **Aligners**: `bwa`, `minimap2`
+*   **QC**: `fastp`, `fastqc`
+
+### 📦 Dependency Management
+We recommend using **Homebrew** (macOS) or **Conda/Pixi** (Linux/WSL2) to manage these tools.
+
+#### macOS (Homebrew)
 ```bash
-# Clone the repository and navigate into the CLI directory
-cd cli
-
-# Install using uv (Recommended)
-uv pip install -e .
-
-# Or using standard pip
-pip install -e .
+# Run the verified installation script
+bash dep_scripts/install_macos.sh
 ```
 
-## Environment Configuration
-
-Copy the template to create your local configuration:
+#### Linux / WSL2 (Conda/Mamba)
 ```bash
-cp cli/.env.example cli/.env.local
-```
-Edit `cli/.env.local` to set your paths:
-*   `WGSE_REF`: Path to your reference genome folder.
-*   `WGSE_INPUT`: Default BAM/CRAM file for testing/identification.
-
-Once set, global arguments like `--ref` and `--input` become optional for many commands.
-
-## UI Wrapper
-
-For non-technical users or those who prefer a more interactive experience, the CLI tool includes a modern UI wrapper.
-
-### 🎨 Graphical User Interface (GUI)
-A modern desktop application built with `CustomTkinter`. It provides file browsers and intuitive forms for common tasks.
-```bash
-wgsextract-cli gui
+# Recommended for easy Ensembl VEP installation
+bash dep_scripts/install_linux_conda.sh
 ```
 
-## Usage
+---
 
-### Direct Command
+## ⚙️ Configuration
+
+Copy the example environment file and customize it:
 ```bash
-wgsextract-cli info --detailed
+cp .env.example .env.local
 ```
 
-### Wrapper Script (Recommended for development)
+**Key variables in `.env.local`:**
+- `WGSE_REF`: Path to your reference genome directory.
+- `WGSE_INPUT`: Default BAM/CRAM file path.
+
+---
+
+## 📖 Usage Guide
+
+### Common Commands
 ```bash
-# From within the cli directory
-./wgsextract info --detailed
+# Identify BAM/CRAM file properties
+uv run wgsextract bam identify
+
+# Calculate mitochondrial coverage
+uv run wgsextract extract mito-vcf --region chrM
+
+# Generate a microarray simulation
+uv run wgsextract microarray --kit 23andme_v5
 ```
 
-### Module Mode (Advanced)
+### Available Subcommand Groups
+| Category | Commands |
+| :--- | :--- |
+| **BAM/CRAM** | `sort`, `index`, `to-cram`, `to-bam`, `unalign`, `identify` |
+| **Extraction** | `mito-vcf`, `ydna-vcf`, `y-mt-extract`, `bam-subset` |
+| **VCF/Variant** | `snp`, `indel`, `annotate`, `filter`, `freebayes`, `vep-run` |
+| **Analysis** | `microarray`, `lineage`, `qc`, `pet-align` |
+| **System** | `info`, `ref download`, `ref index` |
+
+---
+
+## 🎨 UI Interfaces
+
+While primarily a CLI tool, `wgsextract-cli` includes modern GUI options:
+
+1.  **Web GUI (Recommended)**: A modern, reactive interface built with `NiceGUI`.
+    ```bash
+    uv run wgsextract gui --web
+    ```
+2.  **Desktop GUI**: A classic desktop experience built with `CustomTkinter`.
+    ```bash
+    uv run wgsextract gui --desktop
+    ```
+
+---
+
+## 🧪 Testing
+
+We maintain high standards for code quality. You can run the test suite using `uv`:
+
 ```bash
-# From project root
-PYTHONPATH=cli/src uv run python -m wgsextract_cli.main bam identify
+# Smoke Tests (Fast, verifies CLI plumbing)
+uv run python tests/test_smoke.py
+
+# Robustness Tests (Ensures stability with bad inputs)
+uv run python tests/test_robustness.py
+
+# End-to-End Tests (Requires real data)
+uv run python tests/test_e2e_fast_chrM.py
 ```
 
-### All Subcommands (34 Combinations)
-*   `info`: plain, `--detailed`, `calculate-coverage`, `coverage-sample`
-*   `bam`: `sort`, `index`, `unindex`, `unsort`, `to-cram`, `to-bam`, `unalign`, `identify`
-*   `extract`: `mt-bam`, `mito-fasta`, `mito-vcf`, `ydna-bam`, `ydna-vcf`, `y-mt-extract`, `bam-subset`, `unmapped`, `custom`
-*   `vcf`: `snp`, `indel`, `annotate`, `filter`, `sv`, `cnv`, `freebayes`, `gatk`, `deepvariant`, `trio`, `vep-run`
-*   `microarray`: Generate simulation kit
-*   `lineage`: `mt-haplogroup` (Haplogrep), `y-haplogroup` (Yleaf)
-*   `repair`: `ftdna-bam`, `ftdna-vcf`
-*   `qc`: `fastp`, `fastqc`, `vcf`, `coverage-wgs`, `coverage-wes`
-*   `pet-align`: Species-specific alignment and calling
-*   `ref`: `download`, `index`
-*   `align`: FASTQ to BAM/CRAM alignment
+---
 
-## Testing Suite
+## 🛠️ Development
 
-All tests are synchronized to cover the same 34 command combinations.
-
-### 1. Smoke Tests (Mocked Plumbing)
-Verifies subcommand registration and argument parsing in milliseconds.
+### Setup Environment
 ```bash
-uv run python cli/tests/test_smoke.py
+# Install development dependencies
+uv sync --group dev
 ```
 
-### 2. Graceful Exit Tests (Resilience)
-Ensures immediate exit (3s timeout) and informative errors for missing arguments.
+### Code Quality
+Always run linting and formatting before submitting changes:
 ```bash
-uv run python cli/tests/test_graceful_exit.py
+uv run ruff check --fix .
+uv run ruff format .
+uv run mypy src/wgsextract_cli
 ```
 
-### 3. Robustness Tests (Stability)
-Verifies no tracebacks are generated when provided with invalid path types (e.g. directories instead of files).
+---
+
+## 📊 Project Stats
+
+Visualize the codebase complexity:
 ```bash
-uv run python cli/tests/test_robustness.py
-```
-
-### 4. E2E Tests (Real Data & Benchmarks)
-
-Real-world verification using a sorted BAM/CRAM and a reference genome:
-
-1. **Configure Paths**: Create a `cli/.env.local` file:
-   ```env
-   WGSE_REF="/path/to/reference/folder"
-   WGSE_INPUT="/path/to/sample.cram"
-   ```
-
-2. **Run Focused Tests (Fast)**: Target `chrM` to verify tool logic in minutes.
-   ```bash
-   uv run python cli/tests/test_e2e_fast_chrM.py
-   ```
-
-3. **Run Full Genome (Rigorous)**: Process the entire file for final validation.
-   ```bash
-   uv run python cli/tests/test_e2e_full_genome.py
-   ```
-
-### 5. Unit Tests
-Specific logic for metrics and formatting.
-*   `cli/tests/test_info.py`
-*   `cli/tests/test_warnings.py`
-
-## Project Statistics
-
-You can view the code line count and project breakdown using the included stats script (requires `cloc` to be installed on your system).
-
-```bash
-# Run via pixi
+# Via Pixi (if installed)
 pixi run stats
 
 # Or directly
 ./scripts/project_stats.sh
 ```
+
+---
+
+## 📄 License
+
+Distributed under the **GPL-3.0 License**. See `LICENSE` for more information.
