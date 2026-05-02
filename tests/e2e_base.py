@@ -19,11 +19,10 @@ from wgsextract_cli.main import main  # noqa: E402
 
 cli_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
-if os.path.exists(env_local):
-if os.path.exists(env_std):
 
 # Get paths from settings
 from wgsextract_cli.core.config import settings
+
 REF_PATH = settings.get("reference_fasta")
 INPUT_PATH = settings.get("input_path")
 

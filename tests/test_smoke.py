@@ -13,9 +13,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../s
 # Load environment variables
 cli_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.main import main  # noqa: E402
 
-from wgsextract_cli.core.config import settings
 REF_PATH = settings.get("reference_fasta", "/tmp")
 INPUT_PATH = settings.get("input_path", "/tmp/fake.bam")
 

@@ -1,9 +1,8 @@
 import logging
 import os
 import subprocess
- 
-from wgsextract_cli.core.config import settings
 
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import (
     get_tool_path,
     log_dependency_info,
