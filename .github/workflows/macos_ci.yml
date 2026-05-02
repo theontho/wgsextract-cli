@@ -9,6 +9,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch Yleaf
+        run: git clone https://github.com/genid/Yleaf.git external/yleaf
       - name: Cache Homebrew
         uses: actions/cache@v4
         with:
