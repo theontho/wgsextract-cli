@@ -3,7 +3,7 @@ import shutil
 import subprocess
 from typing import Optional
 
-_TOOL_CACHE = {}
+_TOOL_CACHE: dict[str, bool] = {}
 
 
 def check_tool(tool_name: str) -> bool:

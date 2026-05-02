@@ -39,14 +39,22 @@ cd wgsextract-cli
 pixi install
 ```
 
-### 3. Platform Support
+### 3. Global Install (Optional)
+To make the `wgsextract` command available everywhere on your system without needing to prefix it with `pixi run`:
+```bash
+# From within the cloned directory
+pixi global install --path .
+```
+*Note: This will add `wgsextract` to your Pixi global binary path.*
+
+### 4. Platform Support
 - **macOS (Intel/Apple Silicon)**: Fully supported. Pixi installs all bioinformatics tools automatically.
 - **Linux**: Fully supported. Pixi installs all bioinformatics tools automatically.
 - **Windows**:
     - **WSL2 (Recommended)**: Follow the Linux instructions within a WSL2 terminal for full support.
     - **Native Windows**: Pixi will manage Python and core utilities, but many bioinformatics tools (like `samtools`) are not natively available via Conda on Windows. For a full experience, use WSL2.
 
-### 4. Initialize Reference Library
+### 5. Initialize Reference Library
 Before running extraction tools, you must initialize the reference library (VCFs, liftover chains, metadata).
 
 ```bash
@@ -60,7 +68,7 @@ pixi run wgsextract ref library --list
 pixi run wgsextract ref library --install hs38
 ```
 
-### 5. Verification
+### 6. Verification
 ```bash
 # Verify tools and environment
 pixi run wgsextract info --detailed
