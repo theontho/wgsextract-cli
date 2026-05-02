@@ -11,6 +11,14 @@ python = "3.10.*"
 
 [feature.gatk.dependencies]
 openjdk = "17.*"
+
+[feature.gatk.target.osx-arm64.dependencies]
+gatk4 = ">=4.5.0.0"
+
+[feature.gatk.target.osx-64.dependencies]
+gatk4 = ">=4.5.0.0"
+
+[feature.gatk.target.linux-64.dependencies]
 gatk4 = ">=4.5.0.0"
 
 [feature.bio-tools.target.osx-arm64.dependencies]
@@ -84,24 +92,17 @@ ensembl-vep = ">=110"
 [feature.vep.target.linux-64.dependencies]
 ensembl-vep = ">=110"
 
-[feature.yleaf.dependencies]
-python = "3.10.*"
-
-[feature.yleaf.pypi-dependencies]
-yleaf = { path = "external/yleaf", editable = true }
-pandas = "*"
-numpy = "*"
-graphviz = "*"
-networkx = "*"
-python-dateutil = "*"
-pytz = "*"
-six = "*"
+[feature.pysam.target.osx-arm64.pypi-dependencies]
+pysam = "*"
+[feature.pysam.target.osx-64.pypi-dependencies]
+pysam = "*"
+[feature.pysam.target.linux-64.pypi-dependencies]
+pysam = "*"
 
 [environments]
-default = { features = ["gatk", "bio-tools"] }
+default = { features = ["gatk", "bio-tools", "pysam"] }
 deepvariant = { features = ["deepvariant"], no-default-feature = true }
 vep = { features = ["vep"], no-default-feature = true }
-yleaf = { features = ["yleaf"], no-default-feature = true }
 
 [pypi-dependencies]
 python-dotenv = "*"
@@ -110,7 +111,7 @@ psutil = "*"
 customtkinter = "*"
 Pillow = "*"
 nicegui = "*"
-pysam = "*"
+# pysam = "*" (fails on Windows, added to platform-specific features below)
 # Dev tools
 pytest = "*"
 pytest-asyncio = "*"
@@ -130,7 +131,6 @@ test-e2e-fake = "WGSE_USE_FAKE_DATA=1 pytest tests/test_e2e_fast_chrM.py tests/t
 lint = "ruff check ."
 format = "ruff format ."
 typecheck = "mypy src/wgsextract_cli"
-yleaf = "yleaf"
 stats = "./scripts/project_stats.sh"
 smoke-test = "./smoke_test_scripts/run_all_smoke_tests.sh"
 smoke-test-full = "./smoke_test_scripts/run_all_smoke_tests.sh --real-data"

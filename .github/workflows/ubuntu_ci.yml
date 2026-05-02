@@ -1,0 +1,43 @@
+name: CI Ubuntu
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: samtools bcftools tabix bwa minimap2 fastp fastqc openjdk-17-jre
+          version: 1.0
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y samtools bcftools tabix bwa minimap2 fastp fastqc openjdk-17-jre
+      - name: Verify Tools
+        run: chmod +x dep_scripts/verify_tools.sh && ./dep_scripts/verify_tools.sh
+      - name: Set up Pixi
+        uses: prefix-dev/setup-pixi@v0.9.5
+        with:
+          pixi-version: latest
+          locked: false
+      - name: Configure and Bootstrap Library
+        env:
+          HOME: ${{ github.workspace }}/.tmp_home
+        run: |
+          mkdir -p .tmp_home/.config/wgsextract
+          pixi run python -c "from wgsextract_cli.core.config import save_config; save_config({'reference_library': 'reference'})"
+          pixi run python -m wgsextract_cli.main ref bootstrap --ref reference
+      - name: Install Reference Genome
+        env:
+          HOME: ${{ github.workspace }}/.tmp_home
+        run: pixi run python -m wgsextract_cli.main ref library --install hs38 --ref reference
+      - name: Run Basic Tests
+        run: pixi run pytest tests/test_smoke.py
