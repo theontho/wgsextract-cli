@@ -293,6 +293,10 @@ UI_METADATA: dict[str, dict[str, Any]] = {
             },
         ],
     },
+    "deps": {
+        "title": "Dependencies",
+        "help": "Check if required external tools are functional on your system.",
+    },
     "settings": {
         "title": "Settings",
         "help": "Configure application paths and settings cache.",

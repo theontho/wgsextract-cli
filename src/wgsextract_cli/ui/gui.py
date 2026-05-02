@@ -15,6 +15,7 @@ from wgsextract_cli.core.dependencies import check_dependencies
 from wgsextract_cli.core.messages import GUI_LABELS
 from wgsextract_cli.ui.constants import BUTTON_FONT, UI_METADATA
 from wgsextract_cli.ui.gui_parts.controller import GUIController
+from wgsextract_cli.ui.gui_parts.deps import DepsFrame
 from wgsextract_cli.ui.gui_parts.fastq import FastqFrame
 from wgsextract_cli.ui.gui_parts.flow import FlowFrame
 from wgsextract_cli.ui.gui_parts.gen import GenericFrame
@@ -129,14 +130,17 @@ class WGSExtractGUI(ctk.CTk):
         logger.debug(
             f"[{time.time() - start_time:.3f}s] Initializing shared variables..."
         )
-        from wgsextract_cli.core.config import settings
+        from wgsextract_cli.core.config import get_config_path, settings
 
         self.bam_path_var = ctk.StringVar(value=settings.get("input_path", ""))
         self.vcf_path_var = ctk.StringVar(value=settings.get("default_input_vcf", ""))
         self.vcf_mother_var = ctk.StringVar(value=settings.get("mother_vcf_path", ""))
         self.vcf_father_var = ctk.StringVar(value=settings.get("father_vcf_path", ""))
         self.fastq_path_var = ctk.StringVar()
-        self.ref_path_var = ctk.StringVar(value=settings.get("reference_fasta", ""))
+        self.ref_path_var = ctk.StringVar(
+            value=settings.get("reference_library")
+            or settings.get("reference_fasta", "")
+        )
         self.fastq_ref_fasta_var = ctk.StringVar()
         self.pet_ref_fasta_var = ctk.StringVar()
         self.out_dir_var = ctk.StringVar(value=settings.get("output_directory", ""))
@@ -146,6 +150,7 @@ class WGSExtractGUI(ctk.CTk):
         self.haplogrep_path_var = ctk.StringVar(
             value=settings.get("haplogrep_executable", "")
         )
+        self.config_path_var = ctk.StringVar(value=str(get_config_path()))
 
         # Handle initial VCF value if input looks like VCF and VCF path not set
         init_input = settings.get("input_path", "")
@@ -262,7 +267,7 @@ class WGSExtractGUI(ctk.CTk):
 
         row_idx = 2
         for key, meta in UI_METADATA.items():
-            if key == "settings":
+            if key == "deps":
                 self.sidebar_frame.grid_rowconfigure(row_idx, weight=1)
                 spacer = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent")
                 spacer.grid(row=row_idx, column=0, sticky="nsew")
@@ -490,6 +495,8 @@ class WGSExtractGUI(ctk.CTk):
             frame = PetFrame(self.main_content, self, key, meta)
         elif key == "flow":
             frame = FlowFrame(self.main_content, self, key, meta)
+        elif key == "deps":
+            frame = DepsFrame(self.main_content, self, key, meta)
         elif key == "settings":
             frame = SettingsFrame(self.main_content, self, key, meta)
         else:
