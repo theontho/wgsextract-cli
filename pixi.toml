@@ -92,8 +92,15 @@ ensembl-vep = ">=110"
 [feature.vep.target.linux-64.dependencies]
 ensembl-vep = ">=110"
 
+[feature.pysam.target.osx-arm64.pypi-dependencies]
+pysam = "*"
+[feature.pysam.target.osx-64.pypi-dependencies]
+pysam = "*"
+[feature.pysam.target.linux-64.pypi-dependencies]
+pysam = "*"
+
 [environments]
-default = { features = ["gatk", "bio-tools"] }
+default = { features = ["gatk", "bio-tools", "pysam"] }
 deepvariant = { features = ["deepvariant"], no-default-feature = true }
 vep = { features = ["vep"], no-default-feature = true }
 
@@ -104,7 +111,7 @@ psutil = "*"
 customtkinter = "*"
 Pillow = "*"
 nicegui = "*"
-pysam = "*"
+# pysam = "*" (fails on Windows, added to platform-specific features below)
 # Dev tools
 pytest = "*"
 pytest-asyncio = "*"

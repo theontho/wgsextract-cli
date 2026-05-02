@@ -1,7 +1,20 @@
+# all the temp / data / log dirs that ais tend to make
+log/
 out/
 external/
 tmp/
-local_bin/
+local_bin/     
+reference_bootstrap/
+reference/
+.tmp_home/
+*.log
+*.log.txt
+*.out
+
+
+# we dont want to commit genome data by mistake
+*.fa
+*.fa.gz
 *.fq
 *.fq.gz
 *.bam
@@ -16,7 +29,6 @@ __pycache__/
 
 # C extensions
 *.so
-
 
 # Distribution / packaging
 .Python
@@ -162,9 +174,3 @@ cython_debug/
 #  JetBrains specific template is usually in a separate gitignore section
 # .idea/
 
-# temporary / os / dev files
-.DS_Store
-out/
-tmp/
-temp/
-reference_bootstrap/

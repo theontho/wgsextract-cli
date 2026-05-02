@@ -101,25 +101,41 @@ def verify_dependencies(tool_list, optional_list=None):
 
     if missing:
         is_optional = all(tool in optional_list for tool in missing)
+        is_windows = sys.platform == "win32"
+
         if is_optional:
             logging.error("Required optional tool(s) missing for this feature:")
         else:
-            logging.error("Fatal Error: Missing required core tools or JAR files.")
+            if is_windows:
+                logging.warning(
+                    "Warning: Missing required core tools on Windows. Some features may not work."
+                )
+                logging.warning(
+                    "On Windows, we recommend using WSL2 for full bio-tools support."
+                )
+            else:
+                logging.error("Fatal Error: Missing required core tools or JAR files.")
 
         for t in missing:
-            logging.error(f" - {t}")
+            if is_windows and not is_optional:
+                logging.warning(f" - {t} (Missing)")
+            else:
+                logging.error(f" - {t}")
 
         if is_optional:
             logging.info(
                 "\nPlease install the missing tools using your system package manager "
                 "(e.g., brew, apt, conda) or follow the project installation guide."
             )
-        else:
+        elif not is_windows:
             logging.error(
                 "\nPlease ensure all mandatory tools are installed and in your PATH."
             )
-
-        sys.exit(1)
+            sys.exit(1)
+        else:
+            logging.warning(
+                "\nProceeding anyway, but expect failures in bio-tool commands."
+            )
 
     # Version Validation for critical tools
     for tool in ["bcftools", "samtools"]:
@@ -135,15 +151,24 @@ def verify_dependencies(tool_list, optional_list=None):
             if match:
                 major = int(match.group(1))
                 if major < 1:
-                    logging.error(
-                        f"Fatal Error: {tool} version {version_str} is too old."
-                    )
-                    logging.error(f"This tool requires {tool} version 1.0 or newer.")
-                    logging.info(
-                        f"\nYour current path for {tool} is: {shutil.which(tool)}"
-                    )
-                    logging.info("Please update your conda environment or system path.")
-                    sys.exit(1)
+                    if sys.platform == "win32":
+                        logging.warning(
+                            f"Warning: {tool} version {version_str} is too old or unsupported on Windows."
+                        )
+                    else:
+                        logging.error(
+                            f"Fatal Error: {tool} version {version_str} is too old."
+                        )
+                        logging.error(
+                            f"This tool requires {tool} version 1.0 or newer."
+                        )
+                        logging.info(
+                            f"\nYour current path for {tool} is: {shutil.which(tool)}"
+                        )
+                        logging.info(
+                            "Please update your conda environment or system path."
+                        )
+                        sys.exit(1)
 
 
 def get_jar_path(jar_name):
