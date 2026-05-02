@@ -13,8 +13,6 @@ tools=(
     "minimap2"
     "fastp"
     "fastqc"
-    "delly"
-    "freebayes"
 )
 
 # Optional but supported tools
@@ -23,6 +21,8 @@ optional_tools=(
     "gatk"
     "run_deepvariant"
     "dv_call_variants.py"
+    "delly"
+    "freebayes"
 )
 
 for tool in "${tools[@]}"; do

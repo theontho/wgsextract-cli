@@ -14,22 +14,39 @@ A goal of this reimplemenation was to make it cli driven first to make it more f
 
 ---
 
-## 🚀 Quick Start
+## ⚙️ Installation & Setup Guide
 
-The fastest way to get started is using [**uv**](https://github.com/astral-sh/uv).
+Getting `wgsextract-cli` running involves three main steps: installing the tool, ensuring external bioinformatics dependencies are present, and initializing your local reference library.
 
-### 1. Installation
+### 1. Install the CLI
+The recommended way to install is using [**uv**](https://github.com/astral-sh/uv).
+
 ```bash
 # Clone and enter the repository
 git clone https://github.com/theontho/wgsextract-cli.git
 cd wgsextract-cli
 
-# Install as a global tool (Recommended)
+# Install as a tool (recommended)
 uv tool install .
 ```
 
-### 2. Initialize Reference Library
-Before running extraction tools, you need to initialize the reference library with VCFs, liftover chains, and small metadata files:
+### 2. Install External Dependencies
+`wgsextract-cli` relies on standard bioinformatics tools. We provide automated scripts for common platforms to verify and set these up.
+
+#### macOS
+```bash
+# Using Homebrew
+bash dep_scripts/install_macos.sh
+```
+
+#### Linux / WSL2
+```bash
+# Using Conda/Mamba
+bash dep_scripts/install_linux_conda.sh
+```
+
+### 3. Initialize Reference Library
+Before running extraction tools, you must initialize the reference library (VCFs, liftover chains, metadata).
 
 ```bash
 # Initialize library in the default 'reference/' folder
@@ -42,12 +59,12 @@ wgsextract ref library --list
 wgsextract ref library --install hs38
 ```
 
-### 3. Basic Usage
+### 4. Basic Usage Verification
 ```bash
-# Run directly if installed as a tool
+# Run info to verify setup
 wgsextract info --detailed
 
-# Or run without installing using uv
+# If not installed globally, you can run via uv:
 uv run wgsextract info --detailed
 ```
 
@@ -63,32 +80,7 @@ uv run wgsextract info --detailed
 
 ---
 
-## 🛠️ Installation & Dependencies
 
-`wgsextract-cli` orchestrates several industry-standard bioinformatics tools.
-
-### Required External Tools
-*   **Core**: `samtools`, `bcftools`, `htslib`
-*   **Callers**: `delly`, `freebayes`, `ensembl-vep`
-*   **Aligners**: `bwa`, `minimap2`
-*   **QC**: `fastp`, `fastqc`
-
-### 📦 Dependency Management
-We recommend using **Homebrew** (macOS) or **Conda/Pixi** (Linux/WSL2) to manage these tools.  Some of them wont work well with homebrew, so for some more specialized tools we suggest Pixi.
-
-#### macOS (Homebrew)
-```bash
-# Run the verified installation script
-bash dep_scripts/install_macos.sh
-```
-
-#### Linux / WSL2 (Conda/Mamba)
-```bash
-# Recommended for easy Ensembl VEP installation
-bash dep_scripts/install_linux_conda.sh
-```
-
----
 
 ## ⚙️ Configuration
 
