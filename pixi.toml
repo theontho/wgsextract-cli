@@ -9,6 +9,24 @@ platforms = ["osx-arm64", "osx-64", "linux-64", "win-64"]
 [dependencies]
 python = "3.10.*"
 
+[target.osx-arm64.dependencies]
+curl = ">=8.0"
+gzip = "*"
+tar = "*"
+
+[target.osx-64.dependencies]
+curl = ">=8.0"
+gzip = "*"
+tar = "*"
+
+[target.linux-64.dependencies]
+curl = ">=8.0"
+gzip = "*"
+tar = "*"
+
+[target.win-64.dependencies]
+curl = ">=8.0"
+
 [feature.gatk.dependencies]
 openjdk = "17.*"
 
@@ -20,6 +38,8 @@ gatk4 = ">=4.5.0.0"
 
 [feature.gatk.target.linux-64.dependencies]
 gatk4 = ">=4.5.0.0"
+
+[feature.bio-tools]
 
 [feature.bio-tools.target.osx-arm64.dependencies]
 samtools = ">=1.20"
@@ -34,9 +54,6 @@ haplogrep = ">=2.4.0"
 delly = ">=1.1.6"
 sambamba = ">=1.0"
 samblaster = ">=0.1.26"
-curl = ">=8.0"
-gzip = "*"
-tar = "*"
 
 [feature.bio-tools.target.osx-64.dependencies]
 samtools = ">=1.20"
@@ -51,9 +68,6 @@ haplogrep = ">=2.4.0"
 delly = ">=1.1.6"
 sambamba = ">=1.0"
 samblaster = ">=0.1.26"
-curl = ">=8.0"
-gzip = "*"
-tar = "*"
 
 [feature.bio-tools.target.linux-64.dependencies]
 samtools = ">=1.20"
@@ -68,10 +82,8 @@ haplogrep = ">=2.4.0"
 delly = ">=1.1.6"
 sambamba = ">=1.0"
 samblaster = ">=0.1.26"
-curl = ">=8.0"
 wget = ">=1.21"
-gzip = "*"
-tar = "*"
+
 
 [feature.deepvariant.target.linux-64.dependencies]
 deepvariant = ">=1.6.0"
@@ -82,7 +94,6 @@ deepvariant = ">=1.6.0"
 openjdk = "11.*"
 
 [feature.vep]
-platforms = ["osx-64", "linux-64"]
 
 [feature.vep.target.osx-64.dependencies]
 ensembl-vep = ">=110"
@@ -96,6 +107,8 @@ pysam = "*"
 pysam = "*"
 [feature.pysam.target.linux-64.pypi-dependencies]
 pysam = "*"
+[feature.pysam.target.win-64.pypi-dependencies]
+# pysam is not supported on native Windows
 
 [environments]
 default = { features = ["gatk", "bio-tools", "pysam"] }

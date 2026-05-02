@@ -32,24 +32,26 @@ uv tool install .
 ```
 
 ### 2. Install External Dependencies
-`wgsextract-cli` relies on standard bioinformatics tools. We provide automated scripts for common platforms to verify and set these up.
+`wgsextract-cli` relies on standard bioinformatics tools. We recommend using [**Pixi**](https://pixi.sh) to manage these automatically in a portable environment.
+
+#### Automated (Recommended)
+If you have [**Pixi**](https://pixi.sh) installed, it will automatically manage all dependencies.
+
+- **macOS / Linux**: Full support. Pixi installs all bioinformatics tools automatically.
+- **Windows**: Use **WSL2** (recommended) for full support. On native Windows, Pixi will manage Python and core utilities, but some bioinformatics tools (like `samtools`) must be installed manually or run via WSL2.
 
 #### Windows (Recommended: WSL2)
+To use the full bioinformatics suite on Windows, we recommend using WSL2. You can use our bootstrap script to set it up:
+
 ```powershell
 # Run the WSL2 bootstrap script
 powershell ./bootstrap_wsl.ps1
 ```
 
-#### macOS
+#### Verification
 ```bash
-# Using Homebrew
-bash dep_scripts/install_macos.sh
-```
-
-#### Linux
-```bash
-# Using Conda/Mamba
-bash dep_scripts/install_linux_conda.sh
+# Verify tools via Pixi (Mac/Linux/WSL2)
+pixi run wgsextract info --detailed
 ```
 
 ### 3. Initialize Reference Library

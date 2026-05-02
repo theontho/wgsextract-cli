@@ -29,6 +29,12 @@ jobs:
         run: |
           ~/.pixi/bin/pixi install
           
+      - name: Verify Tools in WSL
+        shell: wsl-bash {0}
+        run: |
+          chmod +x ./scripts/verify_tools.sh
+          ~/.pixi/bin/pixi run ./scripts/verify_tools.sh
+          
       - name: Bootstrap Reference Library in WSL
         shell: wsl-bash {0}
         run: |
