@@ -5,47 +5,35 @@ import os
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
+from ...core.config import settings
 
 
 class State:
     def __init__(self):
-        # Load environment variables
-        cli_root = Path(__file__).parent.parent.parent.parent.parent
-        env_local = cli_root / ".env.local"
-        env_std = cli_root / ".env"
-        if env_local.exists():
-            load_dotenv(dotenv_path=env_local)
-        if env_std.exists():
-            load_dotenv(dotenv_path=env_std)
-
         # Paths
-        init_input = os.environ.get("WGSE_INPUT", "")
-        init_vcf = os.environ.get("WGSE_INPUT_VCF", "")
-
-        self.bam_path = init_input
-        self.vcf_path = init_vcf
+        self.bam_path = settings.get("input_path", "")
+        self.vcf_path = settings.get("default_input_vcf", "")
         self.fastq_path = ""
 
         # Auto-detect input types if VCF not set but input looks like VCF
-        if not self.vcf_path and init_input.lower().endswith(
+        if not self.vcf_path and self.bam_path.lower().endswith(
             (".vcf", ".vcf.gz", ".bcf")
         ):
-            self.vcf_path = init_input
+            self.vcf_path = self.bam_path
             self.bam_path = ""
-        elif not self.fastq_path and init_input.lower().endswith(
+        elif not self.fastq_path and self.bam_path.lower().endswith(
             (".fastq", ".fq", ".fastq.gz", ".fq.gz")
         ):
-            self.fastq_path = init_input
+            self.fastq_path = self.bam_path
             self.bam_path = ""
 
-        self.vcf_mother = os.environ.get("WGSE_MOTHER_VCF", "")
-        self.vcf_father = os.environ.get("WGSE_FATHER_VCF", "")
-        self.ref_path = os.environ.get("WGSE_REF", "")
-        self.out_dir = os.environ.get("WGSE_OUTDIR", "")
-        self.yleaf_path = os.environ.get("WGSE_YLEAF_PATH", "")
+        self.vcf_mother = settings.get("mother_vcf_path", "")
+        self.vcf_father = settings.get("father_vcf_path", "")
+        self.ref_path = settings.get("reference_fasta", "")
+        self.out_dir = settings.get("output_directory", "")
+        self.yleaf_path = settings.get("yleaf_executable", "")
         self.yleaf_pos = ""
-        self.haplogrep_path = os.environ.get("WGSE_HAPLOGREP_PATH", "")
+        self.haplogrep_path = settings.get("haplogrep_executable", "")
 
         # VCF Advanced
         self.vcf_ann_vcf = ""
@@ -53,7 +41,7 @@ class State:
         self.vcf_gene = ""
         self.vcf_region = ""
         self.vcf_vep_args = ""
-        self.vep_cache_path = os.environ.get("WGSE_VEP_CACHE", "")
+        self.vep_cache_path = settings.get("vep_cache_directory", "")
 
         # Extract Advanced
         self.extract_region = ""

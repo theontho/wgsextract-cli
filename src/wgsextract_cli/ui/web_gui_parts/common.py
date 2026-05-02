@@ -127,15 +127,15 @@ async def save_env():
     env_path = cli_root / ".env.local"
 
     content = [
-        f'WGSE_INPUT="{state.bam_path}"',
-        f'WGSE_INPUT_VCF="{state.vcf_path}"',
-        f'WGSE_MOTHER_VCF="{state.vcf_mother}"',
-        f'WGSE_FATHER_VCF="{state.vcf_father}"',
-        f'WGSE_REF="{state.ref_path}"',
-        f'WGSE_OUTDIR="{state.out_dir}"',
-        f'WGSE_YLEAF_PATH="{state.yleaf_path}"',
-        f'WGSE_HAPLOGREP_PATH="{state.haplogrep_path}"',
-        f'WGSE_VEP_CACHE="{state.vep_cache_path}"',
+        f'WGSE_INPUT_PATH="{state.bam_path}"',
+        f'WGSE_DEFAULT_INPUT_VCF="{state.vcf_path}"',
+        f'WGSE_MOTHER_VCF_PATH="{state.vcf_mother}"',
+        f'WGSE_FATHER_VCF_PATH="{state.vcf_father}"',
+        f'WGSE_REFERENCE_FASTA="{state.ref_path}"',
+        f'WGSE_OUTPUT_DIRECTORY="{state.out_dir}"',
+        f'WGSE_YLEAF_EXECUTABLE="{state.yleaf_path}"',
+        f'WGSE_HAPLOGREP_EXECUTABLE="{state.haplogrep_path}"',
+        f'WGSE_VEP_CACHE_DIRECTORY="{state.vep_cache_path}"',
     ]
 
     try:

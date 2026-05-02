@@ -586,8 +586,10 @@ def cmd_gene_map(args):
 
 
 def cmd_clinvar_dl(args):
+    from wgsextract_cli.core.config import settings
+
     prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    reflib = os.environ.get("WGSE_REFLIB")
+    reflib = settings.get("reference_library")
     if not reflib:
         reflib = args.ref if args.ref else os.path.join(prog_root, "reference")
 
@@ -600,8 +602,10 @@ def cmd_clinvar_dl(args):
 
 
 def cmd_revel_dl(args):
+    from wgsextract_cli.core.config import settings
+
     prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    reflib = os.environ.get("WGSE_REFLIB")
+    reflib = settings.get("reference_library")
     if not reflib:
         reflib = args.ref if args.ref else os.path.join(prog_root, "reference")
 
@@ -614,8 +618,10 @@ def cmd_revel_dl(args):
 
 
 def cmd_phylop_dl(args):
+    from wgsextract_cli.core.config import settings
+
     prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    reflib = os.environ.get("WGSE_REFLIB")
+    reflib = settings.get("reference_library")
     if not reflib:
         reflib = args.ref if args.ref else os.path.join(prog_root, "reference")
 
@@ -628,8 +634,10 @@ def cmd_phylop_dl(args):
 
 
 def cmd_gnomad_dl(args):
+    from wgsextract_cli.core.config import settings
+
     prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    reflib = os.environ.get("WGSE_REFLIB")
+    reflib = settings.get("reference_library")
     if not reflib:
         reflib = args.ref if args.ref else os.path.join(prog_root, "reference")
 
@@ -642,8 +650,10 @@ def cmd_gnomad_dl(args):
 
 
 def cmd_spliceai_dl(args):
+    from wgsextract_cli.core.config import settings
+
     prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    reflib = os.environ.get("WGSE_REFLIB")
+    reflib = settings.get("reference_library")
     if not reflib:
         reflib = args.ref if args.ref else os.path.join(prog_root, "reference")
 
@@ -656,8 +666,10 @@ def cmd_spliceai_dl(args):
 
 
 def cmd_alphamissense_dl(args):
+    from wgsextract_cli.core.config import settings
+
     prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    reflib = os.environ.get("WGSE_REFLIB")
+    reflib = settings.get("reference_library")
     if not reflib:
         reflib = args.ref if args.ref else os.path.join(prog_root, "reference")
 
@@ -670,8 +682,10 @@ def cmd_alphamissense_dl(args):
 
 
 def cmd_pharmgkb_dl(args):
+    from wgsextract_cli.core.config import settings
+
     prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    reflib = os.environ.get("WGSE_REFLIB")
+    reflib = settings.get("reference_library")
     if not reflib:
         reflib = args.ref if args.ref else os.path.join(prog_root, "reference")
 

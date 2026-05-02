@@ -190,9 +190,9 @@ class GenericFrame(ScrollableBaseFrame):
                 command=lambda: self.handle_button_click("lineage-mt-haplogroup"),
                 info_text="Path to the Haplogrep jar or executable for mitochondrial lineage.",
             )
-            self.cmd_buttons[
-                "lineage-mt-haplogroup"
-            ] = self.haplogrep_path.action_button
+            self.cmd_buttons["lineage-mt-haplogroup"] = (
+                self.haplogrep_path.action_button
+            )
             ToolTip(self.cmd_buttons["lineage-mt-haplogroup"], mt_cmd["help"])
             cmds_to_hide.add("lineage-mt-haplogroup")
 

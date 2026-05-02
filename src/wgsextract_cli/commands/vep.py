@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import (
     get_tool_path,
     log_dependency_info,
@@ -79,7 +80,7 @@ def register(subparsers, base_parser):
     # Main run arguments
     parser.add_argument(
         "--vep-cache",
-        default=os.environ.get("WGSE_VEP_CACHE"),
+        default=settings.get("vep_cache_directory"),
         help="Path to VEP cache directory (e.g., $HOME/.vep)",
     )
 
@@ -138,7 +139,7 @@ def register(subparsers, base_parser):
         if p == run_parser:
             p.add_argument(
                 "--vep-cache",
-                default=os.environ.get("WGSE_VEP_CACHE"),
+                default=settings.get("vep_cache_directory"),
                 help="Path to VEP cache directory (e.g., $HOME/.vep)",
             )
 
