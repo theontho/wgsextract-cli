@@ -215,7 +215,9 @@ if __name__ == "__main__":
         default="reference/microarray/raw_file_templates",
         help="Source directory to compress",
     )
-    parser.add_argument("--output", default="advanced_benchmark_results.md", help="Results file")
+    parser.add_argument(
+        "--output", default="advanced_benchmark_results.md", help="Results file"
+    )
     args = parser.parse_args()
 
     benchmark(args.source, args.output)

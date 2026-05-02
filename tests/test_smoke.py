@@ -4,8 +4,8 @@ import shutil
 import sys
 import tempfile
 import unittest
-from typing import Any
 from contextlib import redirect_stderr, redirect_stdout
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 # Ensure src is in sys.path
@@ -158,7 +158,8 @@ class TestCLISmoke(unittest.TestCase):
             patch("wgsextract_cli.core.dependencies.verify_dependencies"),
             patch("wgsextract_cli.commands.info.run_full_coverage"),
             patch("wgsextract_cli.commands.info.run_sampled_coverage"),
-            patch("wgsextract_cli.commands.info.calculate_bam_md5",
+            patch(
+                "wgsextract_cli.commands.info.calculate_bam_md5",
                 return_value="dummy_md5",
             ),
             patch("wgsextract_cli.core.ref_library.urlopen"),
