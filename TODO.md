@@ -17,17 +17,18 @@ This document outlines the planned features, improvements, and bug fixes for WGS
 - [x] **Robust InDel Support**: Insertions/Deletions included in microarray and variant calling.
 - [x] **VCF Annotator**: Engine-level annotation for rsIDs, SNPs, and gene info (VEP supported).
 - [x] **Additional Variant Callers**: FreeBayes and DeepVariant/GATK integrated.
-- [ ] **Consensus Sequence Generation**: (New) Implement `vcf to-fasta` to generate a full consensus FASTA from VCF + Ref.
+- [ ] **General Consensus Generation**: (New) Implement a general `vcf to-fasta` to generate a full consensus FASTA from VCF + Ref (currently only in `mito-fasta`).
+- [x] **Chain Annotation**: Sequentially apply multiple pathogenicity and frequency annotations in one pass.
 
 ### 🧬 Gene Analysis & Clinical Interpretation
 - [x] **Gene-Centric Workflows**: Filter VCFs and BAMs by Gene Name or HGNC ID.
 - [x] **Inheritance & Trio Analysis**: Detect De Novo mutations and Compound Heterozygotes.
-- [x] **Population Frequency Integration**: (Priority) Annotate variants with gnomAD, ExAC, and 1000 Genomes.
+- [x] **Population Frequency Integration**: Annotate variants with gnomAD, ExAC, and 1000 Genomes.
 - [x] **ClinVar clinical significance**: Report "Pathogenic" status from ClinVar using `vcf clinvar`.
 - [x] **REVEL Pathogenicity Scores**: Annotate missense variants with REVEL scores.
 - [x] **Modern Pathogenicity Support**: Added AlphaMissense (Google DeepMind) and SpliceAI (Illumina).
 - [x] **Pharmacogenomics (PharmGKB)**: Support for annotating drug metabolism variants.
-- [ ] **Pathogenicity & Conservation**: Support for CADD, SIFT, PolyPhen-2, PhyloP (DONE), and GERP++.
+- [x] **Pathogenicity & Conservation**: Support for CADD, SIFT, PolyPhen-2, PhyloP, and GERP++.
 
 ### BAM/CRAM Processing
 - [x] **mtDNA/Y-DNA Extraction**: Dedicated `mito` and `ydna` commands.
