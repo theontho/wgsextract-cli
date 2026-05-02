@@ -85,6 +85,8 @@ class LibFrame(ScrollableBaseFrame):
                     hover_color = "#CC4444"
                 else:
                     label = GUI_LABELS["btn_download_gm"]
+            elif cmd == "ref-bootstrap":
+                label = GUI_LABELS["btn_ref_bootstrap"]
 
             r, c = divmod(i, 3)
             gf.grid_columnconfigure(c, weight=1)
