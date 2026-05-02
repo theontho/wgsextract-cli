@@ -12,7 +12,7 @@ jobs:
   test-ubuntu:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: awalsh128/cache-apt-pkgs-action@latest
         with:
           packages: samtools bcftools tabix bwa minimap2 fastp fastqc openjdk-17-jre

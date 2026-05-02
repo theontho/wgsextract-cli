@@ -879,8 +879,14 @@ def download_bootstrap(
     try:
         # Use tar -xvf -z (or bgzip -d | tar)
         # Since we use bgzip, we can pipe bgzip -d to tar -xf -
-        cmd = ["tar", "-xkf", dest_path, "-C", reflib_dir]
-        subprocess.run(cmd, check=True)
+        # Use tar -xkf (keep existing files) and --no-xattrs to avoid macOS metadata warnings
+        cmd = ["tar", "-xkf", dest_path, "--no-xattrs", "-C", reflib_dir]
+        # Fallback if --no-xattrs is not supported (e.g. on very old tar)
+        try:
+            subprocess.run(cmd, check=True, stderr=subprocess.PIPE)
+        except subprocess.CalledProcessError:
+            cmd = ["tar", "-xkf", dest_path, "-C", reflib_dir]
+            subprocess.run(cmd, check=True)
 
         # Cleanup the archive after successful extraction
         os.remove(dest_path)
