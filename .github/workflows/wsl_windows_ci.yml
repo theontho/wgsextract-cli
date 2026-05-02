@@ -50,7 +50,7 @@ jobs:
         shell: wsl-bash {0}
         run: |
           ~/.pixi/bin/pixi run ruff check .
-          ~/.pixi/bin/pixi run mypy src/wgsextract_cli tests/test_systematic_genomics.py
+          ~/.pixi/bin/pixi run mypy src/wgsextract_cli
 
       - name: Run Basic Tests in WSL
         shell: wsl-bash {0}
