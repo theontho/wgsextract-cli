@@ -15,9 +15,13 @@ $env:USERPROFILE = $tmpHome
 
 # Pixi needs a cache directory. On Windows it usually looks for AppData.
 # If we override USERPROFILE, we should probably set PIXI_CACHE_DIR.
-$pixiCache = Join-Path $tmpHome ".pixi_cache"
-New-Item -ItemType Directory -Path $pixiCache -Force
-$env:PIXI_CACHE_DIR = $pixiCache
+$env:LOCALAPPDATA = Join-Path $tmpHome "AppData\Local"
+$env:APPDATA = Join-Path $tmpHome "AppData\Roaming"
+$env:PIXI_CACHE_DIR = Join-Path $tmpHome ".pixi_cache"
+
+New-Item -ItemType Directory -Path $env:LOCALAPPDATA -Force
+New-Item -ItemType Directory -Path $env:APPDATA -Force
+New-Item -ItemType Directory -Path $env:PIXI_CACHE_DIR -Force
 
 # Mocking the config directory setup
 $configDir = Join-Path $tmpHome ".config\wgsextract"
