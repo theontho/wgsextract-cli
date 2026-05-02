@@ -3,6 +3,7 @@ from unittest.mock import patch
 import pytest
 from nicegui import ui
 from nicegui.testing import User
+
 from wgsextract_cli.core.messages import GUI_LABELS
 from wgsextract_cli.ui.web_gui_parts.controller import controller
 from wgsextract_cli.ui.web_gui_parts.state import state

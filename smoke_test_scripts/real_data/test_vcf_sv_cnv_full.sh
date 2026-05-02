@@ -33,7 +33,7 @@ echo "Input: $INPUT_FILE"
 
 # 1. Structural Variants (SVs)
 echo ":: Running SV Calling (Delly)..."
-uv run wgsextract vcf sv \
+pixi run wgsextract vcf sv \
     --input "$INPUT_FILE" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR/sv" \
@@ -41,7 +41,7 @@ uv run wgsextract vcf sv \
 
 # 2. Copy-Number Variations (CNVs)
 echo ":: Running CNV Calling (Delly/bcftools)..."
-uv run wgsextract vcf cnv \
+pixi run wgsextract vcf cnv \
     --input "$INPUT_FILE" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR/cnv" \

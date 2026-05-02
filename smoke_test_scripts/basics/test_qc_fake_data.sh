@@ -22,7 +22,7 @@ echo "--------------------------------------------------------"
 
 # 1. Generate small fake BAM and VCF for hg38
 echo ":: Generating small hg38 BAM and VCF..."
-if uv run wgsextract qc fake-data \
+if pixi run wgsextract qc fake-data \
     --outdir "$OUTDIR/hg38" \
     --build hg38 \
     --type bam,vcf \
@@ -42,7 +42,7 @@ fi
 
 # 2. Generate small fake CRAM for hg19
 echo ":: Generating small hg19 CRAM..."
-if uv run wgsextract qc fake-data \
+if pixi run wgsextract qc fake-data \
     --outdir "$OUTDIR/hg19" \
     --build hg19 \
     --type cram \
@@ -55,7 +55,7 @@ fi
 
 # 3. Generate small FASTQ
 echo ":: Generating small FASTQ..."
-if uv run wgsextract qc fake-data \
+if pixi run wgsextract qc fake-data \
     --outdir "$OUTDIR/fastq" \
     --type fastq \
     --coverage 0.01 && verify_fastq "$OUTDIR/fastq/fake_R1.fastq.gz"; then

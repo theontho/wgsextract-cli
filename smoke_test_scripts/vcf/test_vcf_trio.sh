@@ -39,7 +39,7 @@ echo "  WGS Extract CLI: VCF Trio Smoke Test"
 echo "  Mode: denovo"
 echo "--------------------------------------------------------"
 
-if uv run wgsextract vcf trio \
+if pixi run wgsextract vcf trio \
     --proband "$OUTDIR/child.vcf.gz" \
     --mother "$OUTDIR/mom.vcf.gz" \
     --father "$OUTDIR/dad.vcf.gz" \

@@ -34,7 +34,7 @@ echo "Father VCF: $VCF_FATHER"
 
 # 1. Trio Analysis
 echo ":: Running Trio Analysis..."
-if ! uv run wgsextract vcf trio \
+if ! pixi run wgsextract vcf trio \
     --input "$VCF_CHILD" \
     --mother "$VCF_MOTHER" \
     --father "$VCF_FATHER" \

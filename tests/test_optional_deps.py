@@ -22,8 +22,8 @@ class TestOptionalDependencies(unittest.TestCase):
         self, mock_info, mock_error, mock_exit, mock_jar, mock_tool_path
     ):
         # Simulate 'minimap2' (optional) is missing
-        mock_tool_path.side_effect = (
-            lambda x: None if x == "minimap2" else "/usr/bin/" + x
+        mock_tool_path.side_effect = lambda x: (
+            None if x == "minimap2" else "/usr/bin/" + x
         )
 
         try:
@@ -52,8 +52,8 @@ class TestOptionalDependencies(unittest.TestCase):
         self, mock_error, mock_exit, mock_jar, mock_tool_path
     ):
         # Simulate 'samtools' (mandatory) is missing
-        mock_tool_path.side_effect = (
-            lambda x: None if x == "samtools" else "/usr/bin/" + x
+        mock_tool_path.side_effect = lambda x: (
+            None if x == "samtools" else "/usr/bin/" + x
         )
 
         try:
@@ -76,8 +76,8 @@ class TestOptionalDependencies(unittest.TestCase):
         from wgsextract_cli.commands.deps import run
 
         # samtools present, minimap2 missing
-        mock_tool_path.side_effect = (
-            lambda x: "/usr/bin/" + x if x == "samtools" else None
+        mock_tool_path.side_effect = lambda x: (
+            "/usr/bin/" + x if x == "samtools" else None
         )
 
         with patch("sys.stdout", new=StringIO()) as fake_out:

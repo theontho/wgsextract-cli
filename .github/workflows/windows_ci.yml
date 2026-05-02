@@ -39,6 +39,11 @@ jobs:
           APPDATA: ${{ github.workspace }}\.tmp_home\AppData\Roaming
           PIXI_CACHE_DIR: ${{ github.workspace }}\.tmp_home\.pixi_cache
         run: pixi run python -m wgsextract_cli.main ref library --install hs38 --ref reference
+      - name: Lint and Type Check
+        shell: powershell
+        run: |
+          pixi run ruff check .
+          pixi run mypy src/wgsextract_cli
       - name: Run Basic Tests
         shell: powershell
         run: pixi run pytest tests/test_smoke.py

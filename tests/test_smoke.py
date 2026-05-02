@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 # Ensure src is in sys.path
@@ -13,9 +14,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../s
 # Load environment variables
 cli_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.main import main  # noqa: E402
 
-from wgsextract_cli.core.config import settings
 REF_PATH = settings.get("reference_fasta", "/tmp")
 INPUT_PATH = settings.get("input_path", "/tmp/fake.bam")
 
@@ -24,6 +25,13 @@ class TestCLISmoke(unittest.TestCase):
     """
     Rapid plumbing verification using mocked tool execution.
     """
+
+    results: list[dict[str, Any]] = []
+    test_dir: str = ""
+    dummy_fastq: str = ""
+    dummy_vcf: str = ""
+    dummy_bed: str = ""
+    dummy_ploidy: str = ""
 
     @classmethod
     def setUpClass(cls):
@@ -150,7 +158,8 @@ class TestCLISmoke(unittest.TestCase):
             patch("wgsextract_cli.core.dependencies.verify_dependencies"),
             patch("wgsextract_cli.commands.info.run_full_coverage"),
             patch("wgsextract_cli.commands.info.run_sampled_coverage"),
-            patch("wgsextract_cli.commands.info.calculate_bam_md5",
+            patch(
+                "wgsextract_cli.commands.info.calculate_bam_md5",
                 return_value="dummy_md5",
             ),
             patch("wgsextract_cli.core.ref_library.urlopen"),

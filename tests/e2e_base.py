@@ -19,11 +19,10 @@ from wgsextract_cli.main import main  # noqa: E402
 
 cli_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
-if os.path.exists(env_local):
-if os.path.exists(env_std):
 
 # Get paths from settings
 from wgsextract_cli.core.config import settings
+
 REF_PATH = settings.get("reference_fasta")
 INPUT_PATH = settings.get("input_path")
 
@@ -123,7 +122,10 @@ class TestE2EBase(unittest.TestCase):
         global REF_PATH, INPUT_PATH
         cls.results = []
 
-        force_fake = settings.get("use_fake_data") == "1" or os.environ.get("WGSE_USE_FAKE_DATA") == "1"
+        force_fake = (
+            settings.get("use_fake_data") == "1"
+            or os.environ.get("WGSE_USE_FAKE_DATA") == "1"
+        )
 
         # If not configured or forced, use fake data
         if (
@@ -287,8 +289,9 @@ class TestE2EBase(unittest.TestCase):
             if settings.get("reference_library"):
                 env_patch["WGSE_REFERENCE_LIBRARY"] = settings.get("reference_library")
 
-            with patch.object(sys, "argv", full_args), patch.dict(
-                os.environ, env_patch
+            with (
+                patch.object(sys, "argv", full_args),
+                patch.dict(os.environ, env_patch),
             ):
                 main()
                 duration = time.perf_counter() - start_time

@@ -31,7 +31,7 @@ echo "Mode: Parallel Variant Calling"
 # 4. Correctness: CombinedKit.txt should contain valid genotypes (non-NN).
 
 # Run the command
-uv run wgsextract microarray \
+pixi run wgsextract microarray \
     --input "$INPUT_FILE" \
     --ref "$REF_DIR" \
     --outdir "$OUT_DIR" \

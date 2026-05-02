@@ -30,7 +30,7 @@ echo "--------------------------------------------------------"
 check_deps gatk
 ensure_fake_data
 
-if uv run wgsextract vcf gatk \
+if pixi run wgsextract vcf gatk \
     --input "$INPUT_BAM" \
     --ref "$REF_FASTA" \
     --outdir "$OUTDIR" \

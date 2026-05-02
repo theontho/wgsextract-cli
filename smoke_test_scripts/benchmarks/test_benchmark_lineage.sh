@@ -45,7 +45,7 @@ echo "--------------------------------------------------------"
 # 1. MT-DNA Benchmark (Haplogrep)
 echo ":: Running mt-haplogroup Lineage (Haplogrep)..."
 start_mt=$(date +%s)
-if ! uv run wgsextract lineage mt-haplogroup \
+if ! pixi run wgsextract lineage mt-haplogroup \
     --input "$INPUT_CRAM" \
     --ref "$REF_PATH" \
     --outdir "$OUTDIR/mt_dna" \
@@ -63,7 +63,7 @@ cat "$OUTDIR/mt_dna/stdout_mt"
 # 2. Y-DNA Benchmark (Yleaf)
 echo ":: Running Y-haplogroup Lineage (Yleaf)..."
 start_y=$(date +%s)
-if ! uv run wgsextract lineage y-haplogroup \
+if ! pixi run wgsextract lineage y-haplogroup \
     --input "$INPUT_CRAM" \
     --ref "$REF_PATH" \
     --outdir "$OUTDIR/y_dna" \

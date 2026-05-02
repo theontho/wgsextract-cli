@@ -26,7 +26,7 @@ echo "--------------------------------------------------------"
 
 # 1. Identify BAM build
 echo ":: Testing 'bam identify'..."
-if uv run wgsextract bam identify --input "$FAKEDATA/fake.bam"; then
+if pixi run wgsextract bam identify --input "$FAKEDATA/fake.bam"; then
     echo "✅ Success: bam identify completed."
 else
     echo "❌ Failure: bam identify failed."
@@ -37,7 +37,7 @@ fi
 echo ":: Testing 'bam index'..."
 # Create a copy to avoid modifying the fake data source
 cp "$FAKEDATA/fake.bam" "$OUTDIR/test.bam"
-if uv run wgsextract bam index --input "$OUTDIR/test.bam" && [ -f "$OUTDIR/test.bam.bai" ] && verify_bam "$OUTDIR/test.bam"; then
+if pixi run wgsextract bam index --input "$OUTDIR/test.bam" && [ -f "$OUTDIR/test.bam.bai" ] && verify_bam "$OUTDIR/test.bam"; then
     echo "✅ Success: bam index completed and verified."
 else
     echo "❌ Failure: bam index failed or verification failed."
@@ -47,7 +47,7 @@ fi
 # 3. Convert to CRAM
 echo ":: Testing 'bam to-cram'..."
 REF=$(find "$FAKEDATA" -name "fake_ref_hg38_*.fa" | head -n 1)
-if uv run wgsextract bam to-cram \
+if pixi run wgsextract bam to-cram \
     --input "$OUTDIR/test.bam" \
     --outdir "$OUTDIR" \
     --ref "$REF" && verify_bam "$OUTDIR/test.cram"; then
@@ -59,7 +59,7 @@ fi
 
 # 4. Convert back to BAM
 # 4. Convert back to BAM
-if uv run wgsextract bam to-bam \
+if pixi run wgsextract bam to-bam \
     --input "$OUTDIR/test.cram" \
     --outdir "$OUTDIR" \
     --ref "$REF" && verify_bam "$OUTDIR/test.bam"; then
@@ -76,7 +76,7 @@ mkdir -p "$OUTDIR/ref"
 echo -e "symbol\tchrom\tstart\tend" > "$OUTDIR/ref/genes_hg38.tsv"
 echo -e "GENE1\tchr1\t1\t5000" >> "$OUTDIR/ref/genes_hg38.tsv"
 
-if WGSE_REFLIB="$OUTDIR" uv run wgsextract bam to-cram \
+if WGSE_REFLIB="$OUTDIR" pixi run wgsextract bam to-cram \
     --input "$OUTDIR/test.bam" \
     --outdir "$OUTDIR/gene_test" \
     --gene "GENE1" \

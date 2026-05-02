@@ -1,4 +1,5 @@
 from nicegui import ui
+
 from wgsextract_cli.ui.web_gui import main_page
 
 

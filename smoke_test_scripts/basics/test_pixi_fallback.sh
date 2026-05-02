@@ -40,7 +40,7 @@ export PATH="$ORIG_PATH"
 # To truly test fallback, we need shutil.which to fail but pixi to succeed.
 
 # We'll run a small python snippet to test the core logic directly
-uv run python3 -c "
+pixi run python3 -c "
 from wgsextract_cli.core.dependencies import get_tool_path
 path = get_tool_path('yleaf')
 print(f'Resolved yleaf to: {path}')
@@ -70,7 +70,7 @@ CLEAN_PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PIXI_PATH:$UV_PATH:$PY_PATH"
 echo ":: Running 'lineage y-haplogroup' with hidden system tools..."
 # We use a real input file if possible, or just check help
 # Help is safer as it doesn't need data.
-if PATH="$CLEAN_PATH" uv run python3 -m wgsextract_cli.main lineage y-haplogroup --help > "$OUTDIR/y_help_fallback.stdout" 2>&1; then
+if PATH="$CLEAN_PATH" pixi run python3 -m wgsextract_cli.main lineage y-haplogroup --help > "$OUTDIR/y_help_fallback.stdout" 2>&1; then
     if grep -qE "yleaf-path|--help" "$OUTDIR/y_help_fallback.stdout"; then
         echo "✅ SUCCESS: CLI command worked with tool hidden from PATH (via Pixi fallback)."
     else

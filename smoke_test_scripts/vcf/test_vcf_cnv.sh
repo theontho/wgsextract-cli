@@ -32,7 +32,7 @@ echo "--------------------------------------------------------"
 check_deps delly
 ensure_fake_data
 
-uv run wgsextract vcf cnv \
+pixi run wgsextract vcf cnv \
     --input "$INPUT_BAM" \
     --ref "$REF_FASTA" \
     --map "$MAP_FILE" \

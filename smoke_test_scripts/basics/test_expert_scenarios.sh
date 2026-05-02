@@ -25,7 +25,7 @@ echo "--------------------------------------------------------"
 
 # 1. Test Quiet Mode
 echo ":: Testing --quiet mode..."
-STDOUT=$(uv run wgsextract info --input "$BAM" --quiet 2>&1)
+STDOUT=$(pixi run wgsextract info --input "$BAM" --quiet 2>&1)
 if echo "$STDOUT" | grep -q "ℹ️"; then
     echo "❌ Failure: Informational logs found in quiet mode output."
     echo "$STDOUT"
@@ -39,7 +39,7 @@ echo ":: Testing 'extract custom' with multiple regions..."
 # We try to extract two non-contiguous regions
 REGION="chr1:1-1000,chr1:5000-6000"
 EXPECTED_BAM="$OUTDIR/multi_region/fake_chr1_1-1000_chr1_5000-6000.bam"
-if uv run wgsextract extract custom \
+if pixi run wgsextract extract custom \
     --input "$BAM" \
     --outdir "$OUTDIR/multi_region" \
     --region "$REGION" \
@@ -56,7 +56,7 @@ echo ":: Testing 'vcf filter' with complex boolean expression..."
 VCF="$FAKEDATA/fake.vcf.gz"
 # Expression: QUAL > 10 AND (POS < 5000 OR POS > 10000)
 EXPR="QUAL>10 && (POS<5000 || POS>10000)"
-if uv run wgsextract vcf filter \
+if pixi run wgsextract vcf filter \
     --input "$VCF" \
     --outdir "$OUTDIR/complex_filter" \
     --expr "$EXPR" && verify_vcf "$OUTDIR/complex_filter/filtered.vcf.gz"; then
@@ -70,13 +70,13 @@ fi
 echo ":: Testing BAM vs CRAM Analysis Consistency (info)..."
 # Convert to CRAM first if needed (usually exists from other tests, but let's be sure)
 CRAM="$OUTDIR/consistency.cram"
-uv run wgsextract bam to-cram --input "$BAM" --ref "$REF" --outdir "$OUTDIR" > /dev/null 2>&1
+pixi run wgsextract bam to-cram --input "$BAM" --ref "$REF" --outdir "$OUTDIR" > /dev/null 2>&1
 mv "$OUTDIR/fake.cram" "$CRAM"
 
 # Run info on both and compare key metrics (MD5, Build)
 # info prints to stdout, we capture it.
-INFO_BAM=$(uv run wgsextract info --input "$BAM" --quiet 2>&1)
-INFO_CRAM=$(uv run wgsextract info --input "$CRAM" --ref "$REF" --quiet 2>&1)
+INFO_BAM=$(pixi run wgsextract info --input "$BAM" --quiet 2>&1)
+INFO_CRAM=$(pixi run wgsextract info --input "$CRAM" --ref "$REF" --quiet 2>&1)
 
 # Key check: MD5 Signature should be identical
 MD5_BAM=$(echo "$INFO_BAM" | grep "MD5 Signature" | head -n 1 | awk '{print $NF}')
