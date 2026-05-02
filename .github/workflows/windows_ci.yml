@@ -43,7 +43,7 @@ jobs:
         shell: powershell
         run: |
           pixi run ruff check .
-          pixi run mypy src/wgsextract_cli
+          pixi run mypy src/wgsextract_cli tests/test_systematic_genomics.py
       - name: Run Basic Tests
         shell: powershell
         run: pixi run pytest tests/test_smoke.py
