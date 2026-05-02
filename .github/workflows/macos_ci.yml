@@ -3,6 +3,10 @@ name: CI macOS
 on:
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   test-macos:
@@ -16,11 +20,13 @@ jobs:
           key: ${{ runner.os }}-homebrew-${{ hashFiles('.github/workflows/macos_ci.yml') }}
       - name: Install Dependencies
         run: |
-          brew install samtools bcftools htslib bwa minimap2 fastp fastqc openjdk
+          brew update
+          brew install samtools bcftools htslib bwa minimap2 fastp fastqc || true
+          brew list openjdk || brew install openjdk
       - name: Verify Tools
         run: chmod +x dep_scripts/verify_tools.sh && ./dep_scripts/verify_tools.sh
       - name: Set up Pixi
-        uses: prefix-dev/setup-pixi@v0.8.1
+        uses: prefix-dev/setup-pixi@v0.9.5
         with:
           pixi-version: latest
           locked: false

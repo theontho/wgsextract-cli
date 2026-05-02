@@ -10,7 +10,7 @@ reference/
 *.log
 *.log.txt
 *.out
-
+.DS_Store
 
 # we dont want to commit genome data by mistake
 *.fa
