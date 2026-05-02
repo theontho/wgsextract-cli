@@ -1,5 +1,7 @@
 # 🧬 WGS Extract CLI (`wgsextract-cli`)
 
+> ⚠️ A bit rough around the edges but I use it locally myself
+
 ![GUI Screenshot](docs/gui-screenshot.jpg)
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
