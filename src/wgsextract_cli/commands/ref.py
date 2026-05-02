@@ -60,14 +60,16 @@ def register(subparsers, base_parser):
         parents=[base_parser],
         help=CLI_HELP["cmd_ref-library"],
     )
-    lib_parser.set_defaults(func=cmd_library)
-
-    liblist_parser = ref_subs.add_parser(
-        "library-list",
-        parents=[base_parser],
-        help="List all available reference genomes and their current status.",
+    lib_parser.add_argument(
+        "--install",
+        help="Non-interactively install a genome by its code (e.g., hs38) or index (e.g., 9).",
     )
-    liblist_parser.set_defaults(func=cmd_library_list)
+    lib_parser.add_argument(
+        "--list",
+        action="store_true",
+        help="Non-interactively list all available genomes and their status.",
+    )
+    lib_parser.set_defaults(func=cmd_library)
 
     genemap_parser = ref_subs.add_parser(
         "gene-map", parents=[base_parser], help=CLI_HELP["cmd_ref-gene-map"]
@@ -467,8 +469,11 @@ def cmd_library_list(args):
 
 
 def cmd_library(args):
-    """Interactive library manager."""
+    """Interactive or non-interactive library manager."""
     from wgsextract_cli.core.config import settings
+
+    if args.list:
+        return cmd_library_list(args)
 
     deps = ["curl", "samtools", "bcftools", "tabix", "bgzip", "htsfile"]
     verify_dependencies(deps)
@@ -488,6 +493,36 @@ def cmd_library(args):
 
     reflib_dir = os.path.abspath(reflib_dir)
 
+    # Non-interactive install
+    if args.install:
+        choice = args.install.upper()
+        target_idx = -1
+        target_genome = None
+
+        # Try to find by code first
+        for i, g in enumerate(genomes):
+            if g["code"].upper() == choice:
+                target_idx = i
+                target_genome = g
+                break
+
+        # Then try by index
+        if target_idx == -1 and choice.isdigit():
+            idx = int(choice) - 1
+            if 0 <= idx < len(genomes):
+                target_idx = idx
+                target_genome = genomes[idx]
+
+        if target_genome:
+            from wgsextract_cli.core.ref_library import download_and_process_genome
+
+            download_and_process_genome(target_genome, reflib_dir, interactive=False)
+            return
+        else:
+            logging.error(f"Genome '{args.install}' not found in library.")
+            sys.exit(1)
+
+    # Interactive menu
     print("\n" + "=" * 80)
     print("WGS Extract Reference Library Manager")
     print(f"Library Path: {reflib_dir}")
