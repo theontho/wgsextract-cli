@@ -8,6 +8,8 @@ on:
 jobs:
   test-wsl:
     runs-on: windows-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
       
@@ -18,27 +20,27 @@ jobs:
           set-as-default: true
           
       - name: Install Pixi in WSL
-        shell: wsl-shell {0}
+        shell: wsl-bash {0}
         run: |
           curl -fsSL https://pixi.sh/install.sh | bash
           
       - name: Initialize Project in WSL
-        shell: wsl-shell {0}
+        shell: wsl-bash {0}
         run: |
           ~/.pixi/bin/pixi install
           
       - name: Bootstrap Reference Library in WSL
-        shell: wsl-shell {0}
+        shell: wsl-bash {0}
         run: |
           ~/.pixi/bin/pixi run python -c 'from wgsextract_cli.core.config import save_config; save_config({"reference_library": "reference"})'
           ~/.pixi/bin/pixi run python -m wgsextract_cli.main ref bootstrap --ref reference
 
       - name: Install Reference Genome in WSL
-        shell: wsl-shell {0}
+        shell: wsl-bash {0}
         run: |
           ~/.pixi/bin/pixi run python -m wgsextract_cli.main ref library --install hs38 --ref reference
 
       - name: Run Basic Tests in WSL
-        shell: wsl-shell {0}
+        shell: wsl-bash {0}
         run: |
           ~/.pixi/bin/pixi run pytest tests/test_smoke.py
