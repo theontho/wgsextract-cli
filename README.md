@@ -1,13 +1,14 @@
 # 🧬 WGS Extract CLI (`wgsextract-cli`)
 
+[![GUI Screenshot](docs/gui-screenshot.jpg)]
+
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 A completely independent, modern, AI-optimized command-line recreation of the [WGS (Whole Genome Sequencing) Extract](https://github.com/WGSExtract/WGSExtract-Dev/) application. 
 
-A goal of this reimplemenation was to make it cli driven first to make it more friendly to use with AIs, and to break the gordian knot of dependency management by making dependency management a separate decoupled step from the application itself, and make the application partially runnable when dependencies are missing.  Pixi is looking like a potential winner for this 'second step'.
-
+A goal of this reimplemenation was to make it cli driven first to make it more friendly to use with AIs, and to break the gordian knot of multi-platform end user dependency management by making dependency management a separate decoupled step from the application itself, and make the application partially runnable when dependencies are missing.  Pixi is looking like a potential winner for this 'second step'.
 
 ---
 
