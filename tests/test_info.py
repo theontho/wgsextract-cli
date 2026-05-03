@@ -1,6 +1,7 @@
 import io
 import os
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
@@ -95,6 +96,28 @@ class TestInfoCommand(unittest.TestCase):
         self.assertIn("Avg Read Length             150 bp", output)
         self.assertIn("Avg Insert Size             300 bp", output)
         self.assertIn("Sequencer                   Illumina NS 6000 (Dante)", output)
+
+    @patch("wgsextract_cli.commands.info.run")
+    def test_global_options_before_subcommand_are_preserved(self, mock_run):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_args = [
+                "wgsextract-cli",
+                "--input",
+                "sample.bam",
+                "--outdir",
+                tmpdir,
+                "--ref",
+                "reference",
+                "info",
+            ]
+
+            with patch.object(sys, "argv", test_args):
+                main()
+
+        args = mock_run.call_args.args[0]
+        self.assertEqual(args.input, "sample.bam")
+        self.assertEqual(args.outdir, tmpdir)
+        self.assertEqual(args.ref, "reference")
 
     @patch("wgsextract_cli.commands.info.verify_dependencies")
     @patch("wgsextract_cli.commands.info.get_bam_header")

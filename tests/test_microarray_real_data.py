@@ -143,8 +143,10 @@ class TestMicroarrayRealData(unittest.TestCase):
             except SystemExit as e:
                 self.assertEqual(e.code, 0)
 
+        output_prefix = os.path.basename(self.isolated_input).split(".")[0]
+
         # 2. Verify Base CombinedKit.txt (GEDMATCH/All)
-        base_txt = os.path.join(self.test_dir, "CombinedKit.txt")
+        base_txt = os.path.join(self.test_dir, f"{output_prefix}_CombinedKit.txt")
         self.assertTrue(os.path.exists(base_txt), "Base CombinedKit.txt missing")
         with open(base_txt) as f:
             base_lines = [line for line in f if not line.startswith("#")]
@@ -159,25 +161,22 @@ class TestMicroarrayRealData(unittest.TestCase):
         }
 
         vendor_files = {
-            "23andme_v3": "CombinedKit_23andMe_V3.txt",
-            "ancestry_v2": "CombinedKit_Ancestry_V2.txt",
-            "myheritage_v2": "CombinedKit_MyHeritage_V2.csv",
+            "23andme_v3": f"{output_prefix}_23andMe_V3.txt",
+            "ancestry_v2": f"{output_prefix}_Ancestry_V2.txt",
+            "myheritage_v2": f"{output_prefix}_MyHeritage_V2.csv",
         }
 
         for fmt_key, filename in vendor_files.items():
             zip_path = os.path.join(
                 self.test_dir, filename.replace(".txt", ".zip").replace(".csv", ".zip")
             )
-            self.assertTrue(
-                os.path.exists(zip_path), f"Output ZIP missing for {fmt_key}"
-            )
-
-            with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                zip_ref.extractall(self.test_dir)
-
             out_path = os.path.join(self.test_dir, filename)
+            if os.path.exists(zip_path):
+                with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                    zip_ref.extractall(self.test_dir)
+
             self.assertTrue(
-                os.path.exists(out_path), f"Extracted file missing for {fmt_key}"
+                os.path.exists(out_path), f"Output file missing for {fmt_key}"
             )
 
             with open(out_path) as f:

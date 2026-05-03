@@ -377,6 +377,11 @@ def run(args):
             if p1.stdout:
                 p1.stdout.close()
             p2.communicate()
+            p1_returncode = p1.wait()
+            if p1_returncode != 0 or p2.returncode != 0:
+                raise RuntimeError(
+                    f"bcftools variant calling failed: mpileup={p1_returncode}, call={p2.returncode}"
+                )
 
             ensure_vcf_indexed(out_vcf)
             vcf_duration = time.time() - start_vcf
@@ -428,13 +433,12 @@ def run(args):
             # Load hits into a lookup dict (CHROM, POS) -> Genotype
             variant_calls = {}
             cmd = ["bcftools", "query", "-f", "%CHROM\t%POS\t[%TGT]\n", out_vcf]
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
-            if proc.stdout:
-                for line in proc.stdout:
-                    parts = line.strip().split("\t")
-                    if len(parts) >= 3:
-                        variant_calls[(parts[0], parts[1])] = parts[2]
-            proc.wait()
+            with popen(cmd, stdout=subprocess.PIPE, text=True) as proc:
+                if proc.stdout:
+                    for line in proc.stdout:
+                        parts = line.strip().split("\t")
+                        if len(parts) >= 3:
+                            variant_calls[(parts[0], parts[1])] = parts[2]
 
             logging.info(
                 f"Found {len(variant_calls)} variants in input VCF matching targets."
@@ -507,31 +511,29 @@ def run(args):
                     region_file,
                     ref_fasta,
                 ]
-                proc_ref = popen(faidx_cmd, stdout=subprocess.PIPE, text=True)
-
-                curr_region = None
-                if proc_ref.stdout:
-                    for line in proc_ref.stdout:
-                        if line.startswith(">"):
-                            curr_region = line.strip()[1:]
-                        else:
-                            if curr_region:
-                                base = line.strip().upper()
-                                # Map back to ORIGINAL chromosome name from the region string
-                                if curr_region in norm_to_orig:
-                                    orig_c, orig_p = norm_to_orig[curr_region]
-                                    ref_alleles[(orig_c, orig_p)] = base
-                                elif ":" in curr_region:
-                                    # Fallback parsing
-                                    c_norm, p_range = curr_region.split(":", 1)
-                                    p = p_range.split("-")[0]
-                                    ref_alleles[(c_norm, p)] = base
-                                    # Also store variations to be safe
-                                    if not c_norm.startswith("chr"):
-                                        ref_alleles[(f"chr{c_norm}", p)] = base
-                                    elif c_norm.startswith("chr"):
-                                        ref_alleles[(c_norm[3:], p)] = base
-                proc_ref.wait()
+                with popen(faidx_cmd, stdout=subprocess.PIPE, text=True) as proc_ref:
+                    curr_region = None
+                    if proc_ref.stdout:
+                        for line in proc_ref.stdout:
+                            if line.startswith(">"):
+                                curr_region = line.strip()[1:]
+                            else:
+                                if curr_region:
+                                    base = line.strip().upper()
+                                    # Map back to ORIGINAL chromosome name from the region string
+                                    if curr_region in norm_to_orig:
+                                        orig_c, orig_p = norm_to_orig[curr_region]
+                                        ref_alleles[(orig_c, orig_p)] = base
+                                    elif ":" in curr_region:
+                                        # Fallback parsing
+                                        c_norm, p_range = curr_region.split(":", 1)
+                                        p = p_range.split("-")[0]
+                                        ref_alleles[(c_norm, p)] = base
+                                        # Also store variations to be safe
+                                        if not c_norm.startswith("chr"):
+                                            ref_alleles[(f"chr{c_norm}", p)] = base
+                                        elif c_norm.startswith("chr"):
+                                            ref_alleles[(c_norm[3:], p)] = base
                 logging.info(f"Pre-fetched {len(ref_alleles)} reference alleles.")
                 if os.path.exists(region_file):
                     os.remove(region_file)
@@ -621,27 +623,31 @@ def run(args):
                     "%ID\t%CHROM\t%POS\t[%TGT]\n",
                     out_vcf,
                 ]
-                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
-                if proc.stdout:
-                    for line in proc.stdout:
-                        parts = line.strip().split("\t")
-                        if len(parts) < 4:
-                            continue
+                with popen(cmd, stdout=subprocess.PIPE, text=True) as proc:
+                    if proc.stdout:
+                        for line in proc.stdout:
+                            parts = line.strip().split("\t")
+                            if len(parts) < 4:
+                                continue
 
-                        snp_id, chrom, pos, tgt = parts[0], parts[1], parts[2], parts[3]
+                            snp_id, chrom, pos, tgt = (
+                                parts[0],
+                                parts[1],
+                                parts[2],
+                                parts[3],
+                            )
 
-                        if snp_id == ".":
-                            snp_id = f"pos_{chrom}_{pos}"
+                            if snp_id == ".":
+                                snp_id = f"pos_{chrom}_{pos}"
 
-                        genotype = (
-                            tgt.replace("/", "").replace("|", "").replace(".", "-")
-                        )
-                        if not genotype:
-                            genotype = "--"
+                            genotype = (
+                                tgt.replace("/", "").replace("|", "").replace(".", "-")
+                            )
+                            if not genotype:
+                                genotype = "--"
 
-                        chrom_norm = chrom.replace("chr", "").replace("M", "MT")
-                        f_out.write(f"{snp_id}\t{chrom_norm}\t{pos}\t{genotype}\n")
-                proc.wait()
+                            chrom_norm = chrom.replace("chr", "").replace("M", "MT")
+                            f_out.write(f"{snp_id}\t{chrom_norm}\t{pos}\t{genotype}\n")
 
         ext_duration = time.time() - start_ext
         logging.info(f"Extraction took {ext_duration:.2f}s")
