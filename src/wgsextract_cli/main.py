@@ -22,6 +22,7 @@ from .commands import (
     vep,
 )
 from .core.config import KNOWN_SETTINGS, get_config_path, reload_settings, settings
+from .core.genome_library import apply_genome_selection
 from .core.messages import CLI_HELP
 from .core.utils import WGSExtractError, cleanup_processes
 
@@ -172,6 +173,11 @@ def main():
         help=CLI_HELP["arg_outdir"],
     )
     base_parser.add_argument(
+        "--genome",
+        default=argparse.SUPPRESS,
+        help="Genome ID from genome_library. Uses that folder for inputs and outputs.",
+    )
+    base_parser.add_argument(
         "--ref",
         default=argparse.SUPPRESS,
         help=CLI_HELP["arg_ref"],
@@ -204,6 +210,7 @@ def main():
         quiet=settings.get("quiet_mode", False),
         input=settings.get("input_path"),
         outdir=settings.get("output_directory"),
+        genome=None,
         ref=settings.get("reference_fasta"),
         threads=settings.get("cpu_threads"),
         memory=settings.get("memory_limit"),
@@ -289,6 +296,9 @@ def main():
 # Reference library directory (where multiple genomes are stored)
 # reflib = "~/wgse_reference"
 
+# Genome library directory, with one subfolder per person/sample.
+# genome_library = "~/wgse_genomes"
+
 # --- Analysis Settings ---
 # System resources
 # threads = 8
@@ -361,6 +371,10 @@ def main():
             if dest not in post_subcommand_dests:
                 setattr(args, dest, value)
 
+        explicit_dests = set(pre_subcommand_args) | set(post_subcommand_args)
+    else:
+        explicit_dests = set(_extract_shared_options(raw_argv, option_map))
+
     if args.full_help:
         print_full_help(parser)
         sys.exit(0)
@@ -404,11 +418,11 @@ def main():
         monitor_thread = threading.Thread(target=monitor_parent, daemon=True)
         monitor_thread.start()
 
-    if args.outdir:
-        os.makedirs(args.outdir, exist_ok=True)
-
     if hasattr(args, "func"):
         try:
+            apply_genome_selection(args, set(explicit_dests))
+            if args.outdir:
+                os.makedirs(args.outdir, exist_ok=True)
             args.func(args)
         except WGSExtractError as e:
             logging.error(str(e))

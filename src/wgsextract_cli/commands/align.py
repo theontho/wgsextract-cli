@@ -25,7 +25,7 @@ def register(subparsers, base_parser):
     parser = subparsers.add_parser(
         "align", parents=[base_parser], help=CLI_HELP["cmd_align"]
     )
-    parser.add_argument("--r1", required=True, help=CLI_HELP["arg_r1"])
+    parser.add_argument("--r1", help=CLI_HELP["arg_r1"])
     parser.add_argument("--r2", help=CLI_HELP["arg_r2"])
     parser.add_argument(
         "--long-read", action="store_true", help=CLI_HELP["arg_long_read"]
@@ -48,6 +48,10 @@ def align_bwa(args):
     verify_dependencies(["bwa", "samtools"])
     log_dependency_info(["bwa", "samtools"])
     threads, memory = get_resource_defaults(args.threads, args.memory)
+
+    if not args.r1:
+        logging.error("--r1 is required unless --genome resolves FASTQ inputs.")
+        return
 
     # Use --input's path if outdir not set, or r1's path
     input_path = args.input if args.input else args.r1
@@ -144,6 +148,10 @@ def align_minimap2(args):
     verify_dependencies(["minimap2", "samtools"])
     log_dependency_info(["minimap2", "samtools"])
     threads, memory = get_resource_defaults(args.threads, args.memory)
+
+    if not args.r1:
+        logging.error("--r1 is required unless --genome resolves FASTQ inputs.")
+        return
 
     input_path = args.input if args.input else args.r1
     paths_to_check = {"--r1": args.r1}

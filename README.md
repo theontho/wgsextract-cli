@@ -112,6 +112,9 @@ outdir = "/path/to/output"
 # Reference library location
 ref = "/path/to/reference/genomes"
 
+# Per-person/sample genome folders
+genome_library = "/path/to/genome-library"
+
 # System resources
 threads = 8
 memory = "16G"
@@ -123,6 +126,40 @@ haplogrep_path = "/usr/local/bin/haplogrep"
 
 > [!TIP]
 > Use `config.toml` (e.g., `~/.config/wgsextract/config.toml`) to set global paths and resource limits.
+
+### Genome Library
+Set `genome_library` to a directory containing one subfolder per person or sample. The subfolder name is the `--genome` ID.
+
+```text
+/path/to/genome-library/
+  joe/
+    genome-config.toml
+    joe.cram
+    joe.vcf.gz
+    raw-fastqs/
+      joe_R1.fastq.gz
+      joe_R2.fastq.gz
+  ken mcdonald/
+    bam files/
+      sample.bam
+```
+
+When `--genome <genome_id>` is supplied, the CLI recursively resolves common inputs from that folder and writes outputs there unless `--outdir` is explicitly provided. A `genome-config.toml` file is created in the genome folder during discovery, even when there is no ambiguity.
+
+If multiple BAM/CRAM files, VCF files, or FASTQ sets are found, the command fails instead of guessing. Edit that genome's `genome-config.toml` to choose the intended files:
+
+```toml
+alignment = "bam files/sample.bam"
+vcf = "variants/sample.vcf.gz"
+fastq_r1 = "raw-fastqs/sample_R1.fastq.gz"
+fastq_r2 = "raw-fastqs/sample_R2.fastq.gz"
+```
+
+```bash
+pixi run wgsextract --genome joe info
+pixi run wgsextract --genome "ken mcdonald" microarray --formats 23andme_v5
+pixi run wgsextract --genome joe vcf filter --expr 'QUAL>30'
+```
 
 ---
 

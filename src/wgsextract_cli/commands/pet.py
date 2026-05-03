@@ -21,7 +21,7 @@ def register(subparsers, base_parser):
     parser = subparsers.add_parser(
         "pet-align", parents=[base_parser], help=CLI_HELP["cmd_pet-align"]
     )
-    parser.add_argument("--r1", required=True, help=CLI_HELP["arg_r1"])
+    parser.add_argument("--r1", help=CLI_HELP["arg_r1"])
     parser.add_argument("--r2", help=CLI_HELP["arg_r2"])
     parser.add_argument(
         "--species", choices=["dog", "cat"], required=True, help="Species for analysis"
@@ -35,6 +35,10 @@ def register(subparsers, base_parser):
 def run(args):
     verify_dependencies(["bwa", "samtools", "bcftools"])
     log_dependency_info(["bwa", "samtools", "bcftools"])
+
+    if not args.r1:
+        logging.error("--r1 is required unless --genome resolves FASTQ inputs.")
+        return
 
     logging.debug(f"Input file (R1): {os.path.abspath(args.r1)}")
     if args.r2:
