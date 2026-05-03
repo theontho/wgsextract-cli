@@ -21,7 +21,7 @@ def register(subparsers, base_parser):
     fastp_parser = qc_subs.add_parser(
         "fastp", parents=[base_parser], help=CLI_HELP["cmd_fastp"]
     )
-    fastp_parser.add_argument("--r1", required=True, help=CLI_HELP["arg_r1"])
+    fastp_parser.add_argument("--r1", help=CLI_HELP["arg_r1"])
     fastp_parser.add_argument("--r2", help=CLI_HELP["arg_r2"])
     fastp_parser.set_defaults(func=cmd_fastp)
 
@@ -73,6 +73,9 @@ def register(subparsers, base_parser):
 def cmd_fastp(args):
     verify_dependencies(["fastp"])
     log_dependency_info(["fastp"])
+
+    if not args.r1:
+        raise WGSExtractError("--r1 is required unless --genome resolves FASTQ inputs.")
 
     from wgsextract_cli.core.utils import verify_paths_exist
 
