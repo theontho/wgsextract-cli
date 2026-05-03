@@ -13,12 +13,18 @@ authors = [{ name = "WGS Extract Contributors" }]
 dependencies = [
     "pyliftover",    # Performs hg38 to hg19 coordinate liftover for microarray simulations
     "psutil",        # Detects system RAM/CPU for automatic resource tuning (e.g., samtools memory)
-    "customtkinter", # Modern GUI framework
-    "Pillow",        # Image processing (needed by customtkinter)
-    "nicegui",       # Web-based GUI framework
     "platformdirs",  # For cross-platform configuration directories
     "tomli; python_version < '3.11'", # TOML parser for Python < 3.11
     "tomli-w",       # TOML writer
+]
+
+[project.optional-dependencies]
+gui = [
+    "customtkinter", # Modern GUI framework
+    "Pillow",        # Image processing (needed by customtkinter)
+]
+web = [
+    "nicegui",       # Web-based GUI framework
 ]
 
 [project.scripts]
@@ -29,6 +35,7 @@ dev = [
     "pytest>=7.0",
     "pytest-asyncio",
     "playwright",
+    "python-dotenv",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
     "pre-commit>=3.0.0",
@@ -51,14 +58,7 @@ select = [
 ]
 ignore = [
     "E501",
-    "E402",
-    "F841",
-    "E741",
-    "E722",
-    "F403",
-    "F821",
-    "F401",
-] # Ignore long lines and legacy code issues
+] # Allow long lines
 
 [tool.ruff.format]
 quote-style = "double"
@@ -74,6 +74,15 @@ disallow_untyped_defs = false
 check_untyped_defs = true
 ignore_missing_imports = true
 files = "src/wgsextract_cli"
+
+[[tool.mypy.overrides]]
+module = [
+    "wgsextract_cli.core.config",
+    "wgsextract_cli.core.dependencies",
+    "wgsextract_cli.core.microarray_utils",
+    "wgsextract_cli.core.warnings",
+]
+disallow_untyped_defs = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/wgsextract_cli"]

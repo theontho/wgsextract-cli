@@ -1,6 +1,9 @@
 from unittest.mock import patch
 
 import pytest
+
+pytest.importorskip("nicegui")
+
 from nicegui import ui
 from nicegui.testing import User
 

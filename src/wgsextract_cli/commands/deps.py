@@ -2,6 +2,7 @@ import logging
 
 from wgsextract_cli.core.dependencies import check_all_dependencies
 from wgsextract_cli.core.messages import CLI_HELP
+from wgsextract_cli.core.utils import WGSExtractError
 
 
 def register(subparsers, base_parser):
@@ -31,11 +32,7 @@ def run(args):
                 logging.debug(f"Found {args.tool} at {path}")
             return
         else:
-            if not args.debug:
-                logging.error(f"Tool not found: {args.tool}")
-            import sys
-
-            sys.exit(1)
+            raise WGSExtractError(f"Tool not found: {args.tool}")
 
     logging.info("Verifying bioinformatics tool installations...")
     results = check_all_dependencies()

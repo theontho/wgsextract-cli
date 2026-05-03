@@ -1,8 +1,7 @@
+import gzip
 import hashlib
 import logging
 import os
-import subprocess
-import sys
 
 from wgsextract_cli.core.dependencies import log_dependency_info, verify_dependencies
 from wgsextract_cli.core.gene_map import are_gene_maps_installed
@@ -23,8 +22,9 @@ from wgsextract_cli.core.ref_library import (
     has_ref_ns,
 )
 from wgsextract_cli.core.utils import (
-    calculate_bam_md5,
+    WGSExtractError,
     resolve_reference,
+    run_command,
     verify_paths_exist,
 )
 
@@ -70,6 +70,13 @@ def register(subparsers, base_parser):
         help="Non-interactively list all available genomes and their status.",
     )
     lib_parser.set_defaults(func=cmd_library)
+
+    lib_list_parser = ref_subs.add_parser(
+        "library-list",
+        parents=[base_parser],
+        help="List installed and available reference library assets.",
+    )
+    lib_list_parser.set_defaults(func=cmd_library_list)
 
     genemap_parser = ref_subs.add_parser(
         "gene-map", parents=[base_parser], help=CLI_HELP["cmd_ref-gene-map"]
@@ -140,10 +147,9 @@ def cmd_download(args):
     verify_dependencies(["curl"])
     logging.info(LOG_MESSAGES["ref_downloading"].format(url=args.url, path=args.out))
     try:
-        subprocess.run(["curl", "-L", "-o", args.out, args.url], check=True)
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Download failed: {e}")
-        sys.exit(1)
+        run_command(["curl", "-L", "-o", args.out, args.url])
+    except Exception as e:
+        raise WGSExtractError(f"Download failed: {e}") from e
 
 
 def cmd_index(args):
@@ -161,7 +167,7 @@ def cmd_index(args):
     try:
         # 1. samtools faidx
         logging.info("Indexing FASTA with samtools faidx...")
-        subprocess.run(["samtools", "faidx", args.ref], check=True)
+        run_command(["samtools", "faidx", args.ref])
 
         # 2. samtools dict
         out_dict = args.ref + ".dict"
@@ -171,7 +177,7 @@ def cmd_index(args):
             out_dict_short = os.path.splitext(out_dict_short)[0] + ".dict"
 
         logging.info(LOG_MESSAGES["ref_creating_dict"].format(path=out_dict))
-        subprocess.run(["samtools", "dict", args.ref, "-o", out_dict], check=True)
+        run_command(["samtools", "dict", args.ref, "-o", out_dict])
 
         if out_dict != out_dict_short:
             import shutil
@@ -180,125 +186,78 @@ def cmd_index(args):
 
         # 3. bwa index
         logging.info("Indexing FASTA with bwa index (required for alignment)...")
-        subprocess.run(["bwa", "index", args.ref], check=True)
+        run_command(["bwa", "index", args.ref])
 
         logging.info("Indexing complete.")
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Indexing failed: {e}")
-        sys.exit(1)
+    except Exception as e:
+        raise WGSExtractError(f"Indexing failed: {e}") from e
 
 
 def cmd_count_ns(args):
-    verify_dependencies(["python3"])
     if not args.ref:
         logging.error("--ref is required.")
-        sys.exit(1)
+        raise WGSExtractError("Ref library installation failed.")
 
     if not verify_paths_exist({"--ref": args.ref}):
-        sys.exit(1)
-
-    prog_dir = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "../../../../program")
-    )
-    script = os.path.join(prog_dir, "countingNs.py")
-    if not os.path.exists(script):
-        logging.error("countingNs.py script not found.")
-        sys.exit(1)
+        raise WGSExtractError("Ref library installation failed.")
 
     logging.info(LOG_MESSAGES["analyzing_ns"].format(path=args.ref))
     try:
-        temp_gz = None
-        # Check if file is gzipped by looking at magic bytes
-        is_gzipped = False
+        logging.info(f"Processing {args.ref} for N-base counts...")
         with open(args.ref, "rb") as f:
-            if f.read(2) == b"\x1f\x8b":
-                is_gzipped = True
+            is_gzipped = f.read(2) == b"\x1f\x8b"
 
-        script_ref = args.ref
-        if not is_gzipped:
-            import tempfile
+        opener = gzip.open if is_gzipped else open
+        contig = None
+        length = 0
+        n_count = 0
+        total_length = 0
+        total_n = 0
 
-            logging.info(
-                "Input is not gzipped. Creating temporary gzipped version for analysis..."
-            )
-            # We need the .fa.gz extension for some scripts to be happy, but mostly we just need it gzipped
-            temp_gz = tempfile.NamedTemporaryFile(suffix=".fa.gz", delete=False)
-            temp_gz_path = temp_gz.name
-            temp_gz.close()
+        print("contig\tlength\tn_count\tn_percent")
+        with opener(args.ref, "rt") as f:
+            for raw_line in f:
+                line = raw_line.strip()
+                if not line:
+                    continue
+                if line.startswith(">"):
+                    if contig is not None:
+                        pct = (n_count / length * 100) if length else 0.0
+                        print(f"{contig}\t{length}\t{n_count}\t{pct:.4f}")
+                    contig = line[1:].split()[0]
+                    total_length += length
+                    total_n += n_count
+                    length = 0
+                    n_count = 0
+                    continue
+                seq = line.upper()
+                length += len(seq)
+                n_count += seq.count("N")
 
-            # Use bgzip if available, otherwise gzip
-            try:
-                subprocess.run(
-                    ["bgzip", "-c", args.ref],
-                    stdout=open(temp_gz_path, "wb"),
-                    check=True,
-                )
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                subprocess.run(
-                    ["gzip", "-c", args.ref],
-                    stdout=open(temp_gz_path, "wb"),
-                    check=True,
-                )
+        if contig is not None:
+            pct = (n_count / length * 100) if length else 0.0
+            print(f"{contig}\t{length}\t{n_count}\t{pct:.4f}")
+            total_length += length
+            total_n += n_count
 
-            script_ref = temp_gz_path
-            # Match countingNs.py logic for dict file naming
-            temp_dict = (
-                script_ref.replace(".fasta.gz", "")
-                .replace(".fna.gz", "")
-                .replace(".fa.gz", "")
-                + ".dict"
-            )
-            orig_dict = args.ref + ".dict"
-            if not os.path.exists(orig_dict):
-                orig_dict = os.path.splitext(args.ref)[0] + ".dict"
+        total_pct = (total_n / total_length * 100) if total_length else 0.0
+        print(f"TOTAL\t{total_length}\t{total_n}\t{total_pct:.4f}")
 
-            if os.path.exists(orig_dict):
-                import shutil
-
-                shutil.copy2(orig_dict, temp_dict)
-
-        subprocess.run([sys.executable, script, script_ref], check=True)
-
-        if temp_gz:
-            os.remove(temp_gz_path)
-            # Clean up the temp dict we created
-            temp_dict_to_remove = (
-                script_ref.replace(".fasta.gz", "")
-                .replace(".fna.gz", "")
-                .replace(".fa.gz", "")
-                + ".dict"
-            )
-            if os.path.exists(temp_dict_to_remove):
-                os.remove(temp_dict_to_remove)
-            # Also clean up outputs generated by countingNs.py in the temp dir
-            for suffix in ["_ncnt.csv", "_nbin.csv"]:
-                out_file = (
-                    script_ref.replace(".fasta.gz", "")
-                    .replace(".fna.gz", "")
-                    .replace(".fa.gz", "")
-                    + suffix
-                )
-                if os.path.exists(out_file):
-                    os.remove(out_file)
-
-    except subprocess.CalledProcessError as e:
-        logging.error(f"N-counting failed: {e}")
-        sys.exit(1)
+    except Exception as e:
+        raise WGSExtractError(f"N-counting failed: {e}") from e
 
 
 def cmd_ref_verify(args):
     verify_dependencies(["gzip", "samtools"])
     log_dependency_info(["gzip", "samtools"])
     if not args.ref:
-        logging.error("--ref is required.")
-        sys.exit(1)
+        raise WGSExtractError("--ref is required.")
 
     # Auto-resolve ref if a directory was provided
     resolved_ref = resolve_reference(args.ref, "")
     logging.debug(f"Resolved reference: {resolved_ref}")
     if not os.path.exists(resolved_ref):
-        logging.error(f"Reference file not found: {resolved_ref}")
-        sys.exit(1)
+        raise WGSExtractError(f"Reference file not found: {resolved_ref}")
 
     logging.info(LOG_MESSAGES["ref_verifying"].format(path=resolved_ref))
 
@@ -332,25 +291,17 @@ def cmd_ref_verify(args):
     if resolved_ref.endswith(".gz"):
         logging.info(LOG_MESSAGES["ref_gzip_test"])
         try:
-            subprocess.run(
-                ["gzip", "-t", resolved_ref], check=True, stderr=subprocess.PIPE
-            )
+            run_command(["gzip", "-t", resolved_ref])
             logging.info(LOG_MESSAGES["ref_gzip_ok"])
-        except subprocess.CalledProcessError as e:
-            msg = e.stderr.decode() if e.stderr else "Unexpected end of file"
-            logging.error(f"Gzip integrity FAILED: {msg}")
-            return
         except Exception as e:
-            logging.error(f"Gzip test failed: {e}")
+            logging.error(f"Gzip integrity FAILED: {e}")
             return
 
     # 2. Check samtools faidx
     logging.info(LOG_MESSAGES["ref_faidx_check"])
     try:
         # Check if index exists, if not try to create/verify
-        res = subprocess.run(
-            ["samtools", "faidx", resolved_ref], capture_output=True, text=True
-        )
+        res = run_command(["samtools", "faidx", resolved_ref], capture_output=True)
         if res.returncode == 0:
             logging.info(LOG_MESSAGES["ref_faidx_ok"])
         else:
@@ -514,13 +465,11 @@ def cmd_library(args):
                 target_genome = genomes[idx]
 
         if target_genome:
-            from wgsextract_cli.core.ref_library import download_and_process_genome
-
             download_and_process_genome(target_genome, reflib_dir, interactive=False)
             return
         else:
             logging.error(f"Genome '{args.install}' not found in library.")
-            sys.exit(1)
+            raise WGSExtractError("Ref library installation failed.")
 
     # Interactive menu
     print("\n" + "=" * 80)
@@ -658,7 +607,7 @@ def cmd_clinvar_dl(args):
         logging.info("ClinVar setup complete.")
     else:
         logging.error("ClinVar setup failed.")
-        sys.exit(1)
+        raise WGSExtractError("Ref library installation failed.")
 
 
 def cmd_revel_dl(args):
@@ -674,7 +623,7 @@ def cmd_revel_dl(args):
         logging.info("REVEL setup complete.")
     else:
         logging.error("REVEL setup failed.")
-        sys.exit(1)
+        raise WGSExtractError("Ref library installation failed.")
 
 
 def cmd_phylop_dl(args):
@@ -690,7 +639,7 @@ def cmd_phylop_dl(args):
         logging.info("PhyloP setup complete.")
     else:
         logging.error("PhyloP setup failed.")
-        sys.exit(1)
+        raise WGSExtractError("Ref library installation failed.")
 
 
 def cmd_gnomad_dl(args):
@@ -706,7 +655,7 @@ def cmd_gnomad_dl(args):
         logging.info("gnomAD setup complete.")
     else:
         logging.error("gnomAD setup failed.")
-        sys.exit(1)
+        raise WGSExtractError("Ref library installation failed.")
 
 
 def cmd_spliceai_dl(args):
@@ -722,7 +671,7 @@ def cmd_spliceai_dl(args):
         logging.info("SpliceAI setup complete.")
     else:
         logging.error("SpliceAI setup failed.")
-        sys.exit(1)
+        raise WGSExtractError("Ref library installation failed.")
 
 
 def cmd_alphamissense_dl(args):
@@ -738,7 +687,7 @@ def cmd_alphamissense_dl(args):
         logging.info("AlphaMissense setup complete.")
     else:
         logging.error("AlphaMissense setup failed.")
-        sys.exit(1)
+        raise WGSExtractError("Ref library installation failed.")
 
 
 def cmd_pharmgkb_dl(args):
@@ -754,7 +703,7 @@ def cmd_pharmgkb_dl(args):
         logging.info("PharmGKB setup complete.")
     else:
         logging.error("PharmGKB setup failed.")
-        sys.exit(1)
+        raise WGSExtractError("Ref library installation failed.")
 
 
 def cmd_bootstrap(args):
@@ -777,4 +726,4 @@ def cmd_bootstrap(args):
         )
     else:
         logging.error("Bootstrap failed.")
-        sys.exit(1)
+        raise WGSExtractError("Ref library installation failed.")

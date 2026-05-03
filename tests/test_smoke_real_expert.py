@@ -5,7 +5,6 @@ import subprocess
 import pytest
 
 from tests.smoke_utils import (
-    assert_log_contains,
     check_tool,
     ensure_fake_data,
     run_cli,
@@ -218,9 +217,6 @@ class TestMixedNamingSmoke:
             shell=True,
         )
         subprocess.run(["samtools", "index", alt_bam])
-
-        # Reference still uses 'chr1'
-        ref = os.path.join(FAKE_DIR, "fake_ref.fa")
 
         # Test if extract handles the mismatch (it should normalize)
         rc, stdout, stderr = run_cli(

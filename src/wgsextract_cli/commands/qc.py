@@ -1,10 +1,10 @@
 import logging
 import os
-import subprocess
 
 from wgsextract_cli.core.dependencies import log_dependency_info, verify_dependencies
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
+    WGSExtractError,
     get_resource_defaults,
     get_sam_index_cmd,
     get_sam_view_cmd,
@@ -172,12 +172,9 @@ def cmd_vcf_qc(args):
     logging.info(LOG_MESSAGES["vcf_stats"].format(input=input_file, output=out_stats))
     try:
         with open(out_stats, "w") as f:
-            subprocess.run(["bcftools", "stats", input_file], stdout=f, check=True)
-    except subprocess.CalledProcessError as e:
-        logging.error(f"VCF stats failed: {e}")
-        import sys
-
-        sys.exit(1)
+            run_command(["bcftools", "stats", input_file], stdout=f)
+    except Exception as e:
+        raise WGSExtractError(f"VCF stats failed: {e}") from e
 
 
 def cmd_fake_data(args):
@@ -644,7 +641,7 @@ def generate_fake_genomics_data(
 
         vcf_gz = vcf_path + ".gz"
         with open(vcf_gz, "wb") as f_gz:
-            subprocess.run(["bgzip", "-c", vcf_path], stdout=f_gz, check=True)
+            run_command(["bgzip", "-c", vcf_path], stdout=f_gz)
         run_command(["tabix", "-p", "vcf", vcf_gz])
         os.remove(vcf_path)
         logging.info(f"Created {vcf_gz}")

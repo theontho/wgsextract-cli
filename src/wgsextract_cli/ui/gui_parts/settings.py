@@ -1,12 +1,8 @@
 """Settings frame for configuring application paths, cache, and tool dependencies."""
 
-import os
-import shutil
-
 import customtkinter as ctk
 
-from wgsextract_cli.core.dependencies import get_jar_path
-from wgsextract_cli.ui.gui_parts.common import ScrollableBaseFrame, ToolTip
+from wgsextract_cli.ui.gui_parts.common import ScrollableBaseFrame
 
 
 class SettingsFrame(ScrollableBaseFrame):

@@ -3,7 +3,6 @@ import os
 import shlex
 import shutil
 import subprocess
-import sys
 import tempfile
 
 from wgsextract_cli.core.config import settings
@@ -16,13 +15,13 @@ from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.ref_library import download_file
 from wgsextract_cli.core.utils import (
     ReferenceLibrary,
+    WGSExtractError,
     calculate_bam_md5,
     calculate_bsd_sum,
     ensure_vcf_indexed,
     get_resource_defaults,
     popen,
     run_command,
-    verify_paths_exist,
 )
 
 
@@ -240,9 +239,7 @@ def cmd_vep_download(args):
         logging.info(LOG_MESSAGES["vep_verifying_checksums"])
 
         try:
-            subprocess.run(
-                ["curl", "-s", "-L", "-o", checksum_path, checksum_url], check=True
-            )
+            run_command(["curl", "-s", "-L", "-o", checksum_path, checksum_url])
             found_sum = None
             found_blocks = None
             with open(checksum_path) as f:
@@ -315,10 +312,9 @@ def cmd_vep_verify(args):
     logging.info(LOG_MESSAGES["vep_location"].format(path=version_dir))
 
     if not os.path.exists(version_dir):
-        logging.error(LOG_MESSAGES["vep_cache_missing"].format(path=version_dir))
-        import sys
-
-        sys.exit(1)
+        msg = LOG_MESSAGES["vep_cache_missing"].format(path=version_dir)
+        logging.error(msg)
+        raise WGSExtractError(msg)
 
     # Check for basic files
     info_file = os.path.join(version_dir, "info.txt")
@@ -660,9 +656,6 @@ def cmd_vep(args):
             )
         print("-" * 60)
 
-    # Exit with error if all failed or if it was a single file and it failed
-    if all(s == "FAILED" for _, s, _ in batch_stats):
-        sys.exit(1)
-    elif any(s == "FAILED" for _, s, _ in batch_stats):
-        # Optional: Exit with 1 if ANY failed? For chain-annotate, yes, probably better.
-        sys.exit(1)
+    # Exit with error if any task failed
+    if any(s == "FAILED" for _, s, _ in batch_stats):
+        raise WGSExtractError("One or more VEP tasks failed.")

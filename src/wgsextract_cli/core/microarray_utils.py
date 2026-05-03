@@ -1,10 +1,11 @@
 import logging
 import os
+from typing import Any
 
 from pyliftover import LiftOver
 
 
-def chr_to_int(chrom):
+def chr_to_int(chrom: Any) -> int:
     """
     Converts chromosome name to an integer for sorting.
     M/MT -> 23, X -> 24, Y -> 25.
@@ -23,7 +24,7 @@ def chr_to_int(chrom):
         return 99  # Unknown
 
 
-def sort_microarray_file(input_file, output_file):
+def sort_microarray_file(input_file: str, output_file: str) -> None:
     """
     Sorts a microarray TSV file by chromosome and position.
     """
@@ -48,7 +49,9 @@ def sort_microarray_file(input_file, output_file):
             f.write("\t".join(parts) + "\n")
 
 
-def liftover_hg38_to_hg19(input_txt, output_txt, chain_file, templates_dir=None):
+def liftover_hg38_to_hg19(
+    input_txt: str, output_txt: str, chain_file: str, templates_dir: str | None = None
+) -> None:
     """
     Performs liftover from hg38 to hg19 using pyliftover.
     Ported from legacy program/hg38tohg19.py.
@@ -147,7 +150,7 @@ def liftover_hg38_to_hg19(input_txt, output_txt, chain_file, templates_dir=None)
         os.remove(tmp_txt)
 
 
-def get_template_format(format_name):
+def get_template_format(format_name: str) -> dict[str, Any] | None:
     """Returns metadata for known microarray formats."""
     # Ported from legacy program/aconv.py logic
     formats = {
@@ -168,7 +171,9 @@ def get_template_format(format_name):
     return formats.get(format_name)
 
 
-def write_formatted_line(f, format_name, snp_id, chrom, pos, result):
+def write_formatted_line(
+    f: Any, format_name: str, snp_id: str, chrom: str, pos: str, result: str
+) -> None:
     """Writes a line in the specific vendor format. Ported from aconv.py."""
 
     if "Ancestry" in format_name:
@@ -205,7 +210,9 @@ def write_formatted_line(f, format_name, snp_id, chrom, pos, result):
         f.write(f"{snp_id}\t{chrom}\t{pos}\t{result}\n")
 
 
-def convert_to_vendor_format(format_name, combined_kit_txt, output_path, templates_dir):
+def convert_to_vendor_format(
+    format_name: str, combined_kit_txt: str, output_path: str, templates_dir: str
+) -> None:
     """
     Converts a CombinedKit.txt to a vendor-specific format using templates.
     Ported from legacy program/aconv.py.
@@ -226,7 +233,7 @@ def convert_to_vendor_format(format_name, combined_kit_txt, output_path, templat
         templates_root = templates_dir  # Fallback
 
     # Load all called variants into memory for fast lookup
-    called_variants = {}
+    called_variants: dict[tuple[str, str], str] = {}
     with open(combined_kit_txt) as f:
         for line in f:
             if line.startswith("#"):
@@ -237,7 +244,7 @@ def convert_to_vendor_format(format_name, combined_kit_txt, output_path, templat
                 called_variants[(str(parts[1]), str(parts[2]))] = parts[3]
 
     # Handle multiple parts (concatenated at the end)
-    temp_files = []
+    temp_files: list[str] = []
     for i in range(1, fmt_info["parts"] + 1):
         part_suffix = f"_{i}" if fmt_info["parts"] > 1 else ""
         template_name = f"{format_name}{part_suffix}{fmt_info['suffix']}"

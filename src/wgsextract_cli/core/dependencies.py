@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -37,7 +38,7 @@ OPTIONAL_TOOLS = [
 ]
 
 
-def get_repo_root():
+def get_repo_root() -> str:
     """
     Attempts to find the repository root by looking for common markers.
     Defaults to 4 levels up from this file if no markers are found.
@@ -57,19 +58,20 @@ def get_repo_root():
     return os.path.abspath(os.path.join(current_dir, "../../../.."))
 
 
-def get_jar_dir():
+def get_jar_dir() -> str:
     """Returns the directory where JAR tools are expected to live."""
     # Allow override via environment variable or config
     from wgsextract_cli.core.config import settings
 
     env_path = settings.get("jar_directory")
-    if env_path and os.path.isdir(env_path):
-        return env_path
+    if env_path and isinstance(env_path, str) and os.path.isdir(env_path):
+        return str(env_path)
 
-    return os.path.join(get_repo_root(), "jartools")
+    path: str = os.path.join(str(get_repo_root()), "jartools")
+    return path
 
 
-def check_dependencies(tool_list, jar_dir=None):
+def check_dependencies(tool_list: list[str], jar_dir: str | None = None) -> list[str]:
     """
     Checks if all required tools or JAR files are available in the PATH or Pixi.
     Returns a list of missing tools.
@@ -88,7 +90,9 @@ def check_dependencies(tool_list, jar_dir=None):
     return missing
 
 
-def verify_dependencies(tool_list, optional_list=None):
+def verify_dependencies(
+    tool_list: list[str], optional_list: list[str] | None = None
+) -> None:
     """
     Checks if all required tools or JAR files are available.
     Exits gracefully if a tool is missing or version is too old.
@@ -126,6 +130,7 @@ def verify_dependencies(tool_list, optional_list=None):
                 "\nPlease install the missing tools using your system package manager "
                 "(e.g., brew, apt, conda) or follow the project installation guide."
             )
+            sys.exit(1)
         elif not is_windows:
             logging.error(
                 "\nPlease ensure all mandatory tools are installed and in your PATH."
@@ -144,7 +149,6 @@ def verify_dependencies(tool_list, optional_list=None):
                 continue
 
             # Handle version strings like "bcftools 1.12" or "Version: 0.1.19"
-            import re
 
             match = re.search(r"(\d+)\.(\d+)", version_str)
             if match:
@@ -170,7 +174,7 @@ def verify_dependencies(tool_list, optional_list=None):
                         sys.exit(1)
 
 
-def get_jar_path(jar_name):
+def get_jar_path(jar_name: str) -> str | None:
     """Returns absolute path to a JAR file in jartools/."""
     path = os.path.join(get_jar_dir(), jar_name)
     if os.path.exists(path):
@@ -178,7 +182,7 @@ def get_jar_path(jar_name):
     return None
 
 
-def get_tool_version(tool):
+def get_tool_version(tool: str) -> str | None:
     """Attempt to get the version of a tool by running it."""
     # Use the path/command from get_tool_path to handle pixi correctly
     cmd_base = get_tool_path(tool)
@@ -247,7 +251,7 @@ def get_tool_version(tool):
         return f"Error: {str(e)}"
 
 
-def get_tool_path(tool):
+def get_tool_path(tool: str) -> str | None:
     """Returns the path to a tool if it exists in the system PATH or pixi environments."""
     path = shutil.which(tool)
     if path:
@@ -306,7 +310,9 @@ def get_tool_path(tool):
     return None
 
 
-def check_all_dependencies(mandatory=None, optional=None):
+def check_all_dependencies(
+    mandatory: list[str] | None = None, optional: list[str] | None = None
+) -> dict[str, list[dict[str, Any]]]:
     """
     Performs a simple dependency check and returns results.
     """
@@ -367,7 +373,7 @@ def check_all_dependencies(mandatory=None, optional=None):
     return results
 
 
-def log_dependency_info(tool_list):
+def log_dependency_info(tool_list: list[str]) -> None:
     """Logs the path and version for a list of tools for diagnostic purposes."""
     for tool in tool_list:
         path = get_tool_path(tool)

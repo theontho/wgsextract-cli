@@ -13,11 +13,11 @@ from wgsextract_cli.core.dependencies import (
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
     ReferenceLibrary,
+    WGSExtractError,
     calculate_bam_md5,
     ensure_vcf_indexed,
     ensure_vcf_prepared,
     get_resource_defaults,
-    get_sam_view_cmd,
     popen,
     run_command,
     verify_paths_exist,
@@ -514,8 +514,9 @@ def cmd_annotate(args):
     log_dependency_info(["bcftools", "tabix"])
     input_file = args.input if args.input else args.vcf_input
     if not input_file:
-        logging.error(LOG_MESSAGES["input_required"])
-        sys.exit(1)
+        msg = LOG_MESSAGES["input_required"]
+        logging.error(msg)
+        raise WGSExtractError(msg)
 
     logging.debug(f"Input file: {os.path.abspath(input_file)}")
 
@@ -556,7 +557,6 @@ def cmd_annotate(args):
                     header = f.readline().strip()
                     if header.startswith("#"):
                         header = header[1:]
-                    cols_in_file = [c.upper() for c in header.split()]
                     # Map common names to bcftools expected names
                     col_map = {
                         "CHROM": "CHROM",
@@ -584,9 +584,7 @@ def cmd_annotate(args):
         if not cols and ann_vcf.lower().endswith((".vcf", ".vcf.gz")):
             # For VCFs, default to ID and HG if present in header
             try:
-                res = subprocess.run(
-                    ["bcftools", "view", "-h", ann_vcf], capture_output=True, text=True
-                )
+                res = run_command(["bcftools", "view", "-h", ann_vcf])
                 found_cols = ["ID"]
                 if "ID=HG" in res.stdout:
                     found_cols.append("INFO/HG")
@@ -609,7 +607,7 @@ def cmd_annotate(args):
 
     logging.info(LOG_MESSAGES["vcf_annotating"].format(input=input_vcf, output=out_vcf))
     try:
-        subprocess.run(
+        run_command(
             [
                 "bcftools",
                 "annotate",
@@ -621,12 +619,12 @@ def cmd_annotate(args):
                 "-o",
                 out_vcf,
                 input_vcf,
-            ],
-            check=True,
+            ]
         )
         ensure_vcf_indexed(out_vcf)
-    except subprocess.CalledProcessError as e:
+    except Exception as e:
         logging.error(f"❌: Annotation failed: {e}")
+        raise WGSExtractError("VCF processing failed.") from None
 
 
 def cmd_filter(args):
@@ -634,8 +632,9 @@ def cmd_filter(args):
     log_dependency_info(["bcftools", "tabix"])
     input_file = args.input if args.input else args.vcf_input
     if not input_file:
-        logging.error(LOG_MESSAGES["input_required"])
-        sys.exit(1)
+        msg = LOG_MESSAGES["input_required"]
+        logging.error(msg)
+        raise WGSExtractError(msg) from None
 
     if not verify_paths_exist({"--input": input_file}):
         return
@@ -694,16 +693,15 @@ def cmd_filter(args):
     input_vcf = ensure_vcf_prepared(input_file)
     logging.info(LOG_MESSAGES["vcf_filtering"].format(input=input_vcf, output=out_vcf))
     try:
-        subprocess.run(
+        run_command(
             ["bcftools", "view"]
             + region_args
             + expr_args
             + exclude_args
-            + ["-Oz", "-o", out_vcf, input_vcf],
-            check=True,
+            + ["-Oz", "-o", out_vcf, input_vcf]
         )
         ensure_vcf_indexed(out_vcf)
-    except subprocess.CalledProcessError as e:
+    except Exception as e:
         logging.error(f"❌: Filtering failed: {e}")
     finally:
         if gaps_bed and os.path.exists(gaps_bed):
@@ -773,10 +771,8 @@ def cmd_trio(args):
 
     # Get chrom style from proband
     try:
-        res = subprocess.run(
-            ["bcftools", "index", "-s", p_vcf], capture_output=True, text=True
-        )
-        target_chroms = [l.split("\t")[0] for l in res.stdout.strip().split("\n")]
+        res = run_command(["bcftools", "index", "-s", p_vcf])
+        target_chroms = [line.split("\t")[0] for line in res.stdout.strip().split("\n")]
     except Exception:
         target_chroms = ["chr1"]  # Default to chr
 
@@ -787,7 +783,7 @@ def cmd_trio(args):
     merged_vcf = os.path.join(outdir, "merged_trio_tmp.vcf.gz")
     region_args = ["-r", args.region] if getattr(args, "region", None) else []
     try:
-        subprocess.run(
+        run_command(
             [
                 "bcftools",
                 "merge",
@@ -801,11 +797,10 @@ def cmd_trio(args):
                 p_vcf,
                 m_vcf_norm,
                 f_vcf_norm,
-            ],
-            check=True,
+            ]
         )
         ensure_vcf_indexed(merged_vcf)
-    except subprocess.CalledProcessError as e:
+    except Exception as e:
         logging.error(f"❌: VCF merge failed: {e}")
         return
 
@@ -852,7 +847,7 @@ def cmd_trio(args):
             filter_expr = f'GT[{p_idx}]="het" && ( (GT[{m_idx}]="het" && (GT[{f_idx}]="ref" || GT[{f_idx}]=".")) || ((GT[{m_idx}]="ref" || GT[{m_idx}]=".") && GT[{f_idx}]="het") )'
 
         try:
-            subprocess.run(
+            run_command(
                 [
                     "bcftools",
                     "view",
@@ -862,8 +857,7 @@ def cmd_trio(args):
                     "-o",
                     out_vcf,
                     merged_vcf,
-                ],
-                check=True,
+                ]
             )
             ensure_vcf_indexed(out_vcf)
             logging.info(LOG_MESSAGES["vcf_trio_complete"].format(output=out_vcf))
@@ -871,16 +865,12 @@ def cmd_trio(args):
             # Basic summary
             try:
                 # Count total
-                total_res = subprocess.run(
-                    ["bcftools", "view", "-H", out_vcf], capture_output=True, text=True
-                )
+                total_res = run_command(["bcftools", "view", "-H", out_vcf])
                 total_count = total_res.stdout.count("\n")
 
                 # Check if CSQ exists in header
                 has_csq = False
-                header_res = subprocess.run(
-                    ["bcftools", "view", "-h", out_vcf], capture_output=True, text=True
-                )
+                header_res = run_command(["bcftools", "view", "-h", out_vcf])
                 if "ID=CSQ" in header_res.stdout:
                     has_csq = True
 
@@ -890,10 +880,8 @@ def cmd_trio(args):
 
                 if has_csq:
                     # Count high impact
-                    high_res = subprocess.run(
-                        ["bcftools", "view", "-H", "-i", 'CSQ~"HIGH"', out_vcf],
-                        capture_output=True,
-                        text=True,
+                    high_res = run_command(
+                        ["bcftools", "view", "-H", "-i", 'CSQ~"HIGH"', out_vcf]
                     )
                     high_count = high_res.stdout.count("\n")
                     summary_msg += f", {high_count} HIGH impact"
@@ -902,7 +890,7 @@ def cmd_trio(args):
             except Exception:
                 pass
 
-        except subprocess.CalledProcessError as e:
+        except Exception as e:
             logging.error(f"❌: Filtering for {mode} failed: {e}")
 
     # Cleanup
@@ -943,11 +931,9 @@ def cmd_cnv(args):
     )
 
     if not map_file or not os.path.exists(map_file):
-        logging.error("❌: Mappability map (-M/--map) is required for delly cnv.")
-        logging.error("     You can download standard maps (e.g., hg38.map.gz) from:")
-        logging.error("     https://github.com/dellytools/delly/tree/master/exclude")
-        logging.error("     Or provide a custom .map file.")
-        sys.exit(1)
+        msg = "Mappability map (-M/--map) is required for delly cnv.\nYou can download standard maps (e.g., hg38.map.gz) from:\nhttps://github.com/dellytools/delly/tree/master/exclude\nOr provide a custom .map file."
+        logging.error(f"❌: {msg}")
+        raise WGSExtractError(msg) from None
 
     map_args = ["-m", map_file]
     if getattr(args, "ploidy", None):
@@ -1017,7 +1003,9 @@ def cmd_cnv(args):
             logging.error(
                 "Hint: If using macOS, ensure 'delly' and 'boost' are correctly installed via Homebrew."
             )
-        sys.exit(e.returncode)
+        raise WGSExtractError(
+            f"CNV calling failed with exit code {e.returncode}"
+        ) from e
     finally:
         if temp_bam and os.path.exists(temp_bam):
             os.remove(temp_bam)
@@ -1089,7 +1077,7 @@ def cmd_sv(args):
         logging.error(
             "Hint: If using macOS, ensure 'delly' and 'boost' are correctly installed via Homebrew."
         )
-        sys.exit(e.returncode)
+        raise WGSExtractError(f"SV calling failed with exit code {e.returncode}") from e
     finally:
         if temp_bam and os.path.exists(temp_bam):
             os.remove(temp_bam)
@@ -1113,7 +1101,7 @@ def cmd_clinvar(args):
     input_file = args.input if args.input else args.vcf_input
     if not input_file:
         logging.error(LOG_MESSAGES["input_required"])
-        sys.exit(1)
+        raise WGSExtractError("VCF processing failed.")
 
     outdir = (
         args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_file))
@@ -1141,12 +1129,11 @@ def cmd_clinvar(args):
     from wgsextract_cli.core.utils import normalize_vcf_chromosomes
 
     try:
-        res_c = subprocess.run(
+        res_c = run_command(
             ["bcftools", "index", "-s", clinvar_prepared],
             capture_output=True,
-            text=True,
         )
-        c_chroms = [l.split("\t")[0] for l in res_c.stdout.strip().split("\n")]
+        c_chroms = [line.split("\t")[0] for line in res_c.stdout.strip().split("\n")]
         normalized_input = normalize_vcf_chromosomes(input_vcf, c_chroms)
     except Exception:
         normalized_input = input_vcf
@@ -1173,7 +1160,7 @@ def cmd_clinvar(args):
         ensure_vcf_indexed(ann_out)
     except Exception as e:
         logging.error(f"ClinVar annotation failed: {e}")
-        sys.exit(1)
+        raise WGSExtractError("VCF processing failed.") from None
     finally:
         if normalized_input != input_vcf and os.path.exists(normalized_input):
             os.remove(normalized_input)
@@ -1201,7 +1188,7 @@ def cmd_revel(args):
     input_file = args.input if args.input else args.vcf_input
     if not input_file:
         logging.error(LOG_MESSAGES["input_required"])
-        sys.exit(1)
+        raise WGSExtractError("VCF processing failed.") from None
 
     outdir = (
         args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_file))
@@ -1229,20 +1216,18 @@ def cmd_revel(args):
     normalized_input = input_vcf
     needs_cleanup = False
     try:
-        res_v = subprocess.run(
-            ["bcftools", "index", "-s", input_vcf], capture_output=True, text=True
-        )
-        v_chroms = [l.split("\t")[0] for l in res_v.stdout.strip().split("\n")]
+        res_v = run_command(["bcftools", "index", "-s", input_vcf], capture_output=True)
+        v_chroms = [line.split("\t")[0] for line in res_v.stdout.strip().split("\n")]
 
         if revel_vcf.lower().endswith((".vcf", ".vcf.gz")):
-            res_r = subprocess.run(
-                ["bcftools", "index", "-s", revel_vcf], capture_output=True, text=True
+            res_r = run_command(
+                ["bcftools", "index", "-s", revel_vcf], capture_output=True
             )
-            r_chroms = [l.split("\t")[0] for l in res_r.stdout.strip().split("\n")]
+            r_chroms = [
+                line.split("\t")[0] for line in res_r.stdout.strip().split("\n")
+            ]
         else:
-            res_r = subprocess.run(
-                ["tabix", "-l", revel_vcf], capture_output=True, text=True
-            )
+            res_r = run_command(["tabix", "-l", revel_vcf], capture_output=True)
             r_chroms = res_r.stdout.strip().split("\n")
 
         v_has_chr = any(c.startswith("chr") for c in v_chroms)
@@ -1269,7 +1254,7 @@ def cmd_revel(args):
             logging.info(
                 f"Normalizing chromosome naming for REVEL: {'chr1 -> 1' if v_has_chr else '1 -> chr1'}"
             )
-            subprocess.run(
+            run_command(
                 [
                     "bcftools",
                     "annotate",
@@ -1322,7 +1307,7 @@ def cmd_revel(args):
         ensure_vcf_indexed(ann_out)
     except Exception as e:
         logging.error(f"REVEL annotation failed: {e}")
-        sys.exit(1)
+        raise WGSExtractError("VCF processing failed.") from None
     finally:
         if header_tmp and os.path.exists(header_tmp):
             os.remove(header_tmp)
@@ -1368,7 +1353,7 @@ def cmd_phylop(args):
     input_file = args.input if args.input else args.vcf_input
     if not input_file:
         logging.error(LOG_MESSAGES["input_required"])
-        sys.exit(1)
+        raise WGSExtractError("VCF processing failed.") from None
 
     outdir = (
         args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_file))
@@ -1396,20 +1381,18 @@ def cmd_phylop(args):
     normalized_input = input_vcf
     needs_cleanup = False
     try:
-        res_v = subprocess.run(
-            ["bcftools", "index", "-s", input_vcf], capture_output=True, text=True
-        )
-        v_chroms = [l.split("\t")[0] for l in res_v.stdout.strip().split("\n")]
+        res_v = run_command(["bcftools", "index", "-s", input_vcf], capture_output=True)
+        v_chroms = [line.split("\t")[0] for line in res_v.stdout.strip().split("\n")]
 
         if phylop_vcf.lower().endswith((".vcf", ".vcf.gz")):
-            res_p = subprocess.run(
-                ["bcftools", "index", "-s", phylop_vcf], capture_output=True, text=True
+            res_p = run_command(
+                ["bcftools", "index", "-s", phylop_vcf], capture_output=True
             )
-            p_chroms = [l.split("\t")[0] for l in res_p.stdout.strip().split("\n")]
+            p_chroms = [
+                line.split("\t")[0] for line in res_p.stdout.strip().split("\n")
+            ]
         else:
-            res_p = subprocess.run(
-                ["tabix", "-l", phylop_vcf], capture_output=True, text=True
-            )
+            res_p = run_command(["tabix", "-l", phylop_vcf], capture_output=True)
             p_chroms = res_p.stdout.strip().split("\n")
 
         v_has_chr = any(c.startswith("chr") for c in v_chroms)
@@ -1436,7 +1419,7 @@ def cmd_phylop(args):
             logging.info(
                 f"Normalizing chromosome naming for PhyloP: {'chr1 -> 1' if v_has_chr else '1 -> chr1'}"
             )
-            subprocess.run(
+            run_command(
                 [
                     "bcftools",
                     "annotate",
@@ -1490,7 +1473,7 @@ def cmd_phylop(args):
         ensure_vcf_indexed(ann_out)
     except Exception as e:
         logging.error(f"PhyloP annotation failed: {e}")
-        sys.exit(1)
+        raise WGSExtractError("VCF processing failed.") from None
     finally:
         if header_tmp and os.path.exists(header_tmp):
             os.remove(header_tmp)
@@ -1536,7 +1519,7 @@ def cmd_gnomad(args):
     input_file = args.input if args.input else args.vcf_input
     if not input_file:
         logging.error(LOG_MESSAGES["input_required"])
-        sys.exit(1)
+        raise WGSExtractError("VCF processing failed.") from None
 
     outdir = (
         args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_file))
@@ -1565,10 +1548,10 @@ def cmd_gnomad(args):
     from wgsextract_cli.core.utils import normalize_vcf_chromosomes
 
     try:
-        res_g = subprocess.run(
-            ["bcftools", "index", "-s", gnomad_vcf], capture_output=True, text=True
+        res_g = run_command(
+            ["bcftools", "index", "-s", gnomad_vcf], capture_output=True
         )
-        g_chroms = [l.split("\t")[0] for l in res_g.stdout.strip().split("\n")]
+        g_chroms = [line.split("\t")[0] for line in res_g.stdout.strip().split("\n")]
         normalized_input = normalize_vcf_chromosomes(input_vcf, g_chroms)
     except Exception as e:
         logging.debug(f"Chromosome normalization check failed: {e}")
@@ -1607,7 +1590,7 @@ def cmd_gnomad(args):
         ensure_vcf_indexed(ann_out)
     except Exception as e:
         logging.error(f"gnomAD annotation failed: {e}")
-        sys.exit(1)
+        raise WGSExtractError("VCF processing failed.") from None
     finally:
         if header_tmp and os.path.exists(header_tmp):
             os.remove(header_tmp)
@@ -1654,7 +1637,7 @@ def cmd_spliceai(args):
     input_file = args.input if args.input else args.vcf_input
     if not input_file:
         logging.error(LOG_MESSAGES["input_required"])
-        sys.exit(1)
+        raise WGSExtractError("VCF processing failed.") from None
 
     outdir = (
         args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_file))
@@ -1680,10 +1663,10 @@ def cmd_spliceai(args):
     from wgsextract_cli.core.utils import normalize_vcf_chromosomes
 
     try:
-        res_s = subprocess.run(
-            ["bcftools", "index", "-s", spliceai_vcf], capture_output=True, text=True
+        res_s = run_command(
+            ["bcftools", "index", "-s", spliceai_vcf], capture_output=True
         )
-        s_chroms = [l.split("\t")[0] for l in res_s.stdout.strip().split("\n")]
+        s_chroms = [line.split("\t")[0] for line in res_s.stdout.strip().split("\n")]
         normalized_input = normalize_vcf_chromosomes(input_vcf, s_chroms)
     except Exception:
         normalized_input = input_vcf
@@ -1709,7 +1692,7 @@ def cmd_spliceai(args):
         ensure_vcf_indexed(ann_out)
     except Exception as e:
         logging.error(f"SpliceAI annotation failed: {e}")
-        sys.exit(1)
+        raise WGSExtractError("VCF processing failed.") from None
     finally:
         if normalized_input != input_vcf and os.path.exists(normalized_input):
             os.remove(normalized_input)
@@ -1724,7 +1707,7 @@ def cmd_alphamissense(args):
     input_file = args.input if args.input else args.vcf_input
     if not input_file:
         logging.error(LOG_MESSAGES["input_required"])
-        sys.exit(1)
+        raise WGSExtractError("VCF processing failed.")
 
     outdir = (
         args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_file))
@@ -1750,10 +1733,8 @@ def cmd_alphamissense(args):
     from wgsextract_cli.core.utils import normalize_vcf_chromosomes
 
     try:
-        res_a = subprocess.run(
-            ["bcftools", "index", "-s", am_vcf], capture_output=True, text=True
-        )
-        a_chroms = [l.split("\t")[0] for l in res_a.stdout.strip().split("\n")]
+        res_a = run_command(["bcftools", "index", "-s", am_vcf], capture_output=True)
+        a_chroms = [line.split("\t")[0] for line in res_a.stdout.strip().split("\n")]
         normalized_input = normalize_vcf_chromosomes(input_vcf, a_chroms)
     except Exception:
         normalized_input = input_vcf
@@ -1801,7 +1782,7 @@ def cmd_alphamissense(args):
         ensure_vcf_indexed(ann_out)
     except Exception as e:
         logging.error(f"AlphaMissense annotation failed: {e}")
-        sys.exit(1)
+        raise WGSExtractError("VCF processing failed.") from None
     finally:
         if header_tmp and os.path.exists(header_tmp):
             os.remove(header_tmp)
@@ -1839,7 +1820,7 @@ def cmd_pharmgkb(args):
     input_file = args.input if args.input else args.vcf_input
     if not input_file:
         logging.error(LOG_MESSAGES["input_required"])
-        sys.exit(1)
+        raise WGSExtractError("VCF processing failed.") from None
 
     outdir = (
         args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_file))
@@ -1865,10 +1846,10 @@ def cmd_pharmgkb(args):
     from wgsextract_cli.core.utils import normalize_vcf_chromosomes
 
     try:
-        res_p = subprocess.run(
-            ["bcftools", "index", "-s", pharmgkb_vcf], capture_output=True, text=True
+        res_p = run_command(
+            ["bcftools", "index", "-s", pharmgkb_vcf], capture_output=True
         )
-        p_chroms = [l.split("\t")[0] for l in res_p.stdout.strip().split("\n")]
+        p_chroms = [line.split("\t")[0] for line in res_p.stdout.strip().split("\n")]
         normalized_input = normalize_vcf_chromosomes(input_vcf, p_chroms)
     except Exception:
         normalized_input = input_vcf
@@ -1896,7 +1877,7 @@ def cmd_pharmgkb(args):
         ensure_vcf_indexed(ann_out)
     except Exception as e:
         logging.error(f"PharmGKB annotation failed: {e}")
-        sys.exit(1)
+        raise WGSExtractError("VCF processing failed.") from None
     finally:
         if normalized_input != input_vcf and os.path.exists(normalized_input):
             os.remove(normalized_input)
@@ -1932,10 +1913,10 @@ def cmd_freebayes(args):
         os.close(fd)
         try:
             with open(temp_ref, "wb") as f_out:
-                subprocess.run(["gunzip", "-c", ref], stdout=f_out, check=True)
+                run_command(["gunzip", "-c", ref], stdout=f_out, check=True)
             # Index the temp ref
             logging.info("Indexing temporary reference...")
-            subprocess.run(["samtools", "faidx", temp_ref], check=True)
+            run_command(["samtools", "faidx", temp_ref], check=True)
             use_ref = temp_ref
         except Exception as e:
             logging.error(f"Failed to prepare uncompressed reference: {e}")
@@ -2034,7 +2015,7 @@ def cmd_gatk(args):
             .replace(".fasta", ".dict")
         )
         try:
-            subprocess.run(["samtools", "dict", "-o", dict_file, ref], check=True)
+            run_command(["samtools", "dict", "-o", dict_file, ref], check=True)
             lib.dict_file = dict_file
         except Exception as e:
             logging.error(f"Failed to generate .dict file: {e}")
@@ -2124,10 +2105,9 @@ def cmd_deepvariant(args):
             # Get sample name from BAM
             sample_name = "sample"
             try:
-                res = subprocess.run(
+                res = run_command(
                     ["samtools", "view", "-H", args.input],
                     capture_output=True,
-                    text=True,
                     env=clean_env,
                 )
                 for line in res.stdout.splitlines():
@@ -2157,7 +2137,7 @@ def cmd_deepvariant(args):
                 log_dir,
             ] + region_args
 
-            subprocess.run(
+            run_command(
                 [
                     "conda",
                     "run",
@@ -2189,7 +2169,7 @@ def cmd_deepvariant(args):
             if args.checkpoint:
                 call_cmd_inner.extend(["--checkpoint", args.checkpoint])
 
-            subprocess.run(
+            run_command(
                 [
                     "conda",
                     "run",
@@ -2214,7 +2194,7 @@ def cmd_deepvariant(args):
                 "--outfile",
                 intermediate_vcf,
             ]
-            subprocess.run(
+            run_command(
                 [
                     "conda",
                     "run",
@@ -2250,18 +2230,18 @@ def cmd_deepvariant(args):
                 "--num_shards",
                 threads,
             ] + region_args
-            subprocess.run(cmd, check=True)
+            run_command(cmd, check=True)
 
         # DeepVariant outputs plain VCF, we compress it
         if os.path.exists(intermediate_vcf):
-            subprocess.run(["bgzip", "-f", intermediate_vcf], check=True)
+            run_command(["bgzip", "-f", intermediate_vcf], check=True)
             ensure_vcf_indexed(out_vcf)
         else:
             logging.error("DeepVariant failed to produce output VCF.")
 
     except Exception as e:
         logging.error(f"DeepVariant failed: {e}")
-        sys.exit(1)
+        raise WGSExtractError("VCF processing failed.") from None
 
 
 def cmd_chain_annotate(args):
@@ -2271,7 +2251,7 @@ def cmd_chain_annotate(args):
     input_file = args.input if args.input else args.vcf_input
     if not input_file:
         logging.error(LOG_MESSAGES["input_required"])
-        sys.exit(1)
+        raise WGSExtractError("VCF processing failed.")
 
     outdir = (
         args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_file))
@@ -2370,7 +2350,7 @@ def cmd_chain_annotate(args):
 
             try:
                 # Capture output to prevent spam during chained annotation
-                res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                res = run_command(cmd, capture_output=True, check=True)
             except subprocess.CalledProcessError as e:
                 logging.warning(f"Annotation step '{ann}' failed. Skipping.")
                 if e.stderr:

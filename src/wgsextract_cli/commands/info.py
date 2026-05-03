@@ -6,7 +6,6 @@ import math
 import os
 import re
 import subprocess
-import sys
 import time
 from typing import Any
 
@@ -22,6 +21,8 @@ from wgsextract_cli.core.utils import (
     calculate_bam_md5,
     get_bam_header,
     is_sorted,
+    popen,
+    run_command,
     verify_paths_exist,
 )
 
@@ -56,8 +57,6 @@ def register(subparsers, base_parser):
     )
 
     info_subs = parser.add_subparsers(dest="info_cmd", required=False)
-    # DISCONTINUED: coverage-sample is disabled as it is not working correctly.
-
     calc_cov = info_subs.add_parser(
         "calculate-coverage",
         parents=[base_parser],
@@ -66,11 +65,11 @@ def register(subparsers, base_parser):
     calc_cov.add_argument("-r", "--region", help=CLI_HELP["arg_region"])
     calc_cov.set_defaults(func=run)
 
-    # samp_cov = info_subs.add_parser(
-    #     "coverage-sample", parents=[base_parser], help=CLI_HELP["cmd_coverage-sample"]
-    # )
-    # samp_cov.add_argument("-r", "--region", help=CLI_HELP["arg_region"])
-    # samp_cov.set_defaults(func=run)
+    samp_cov = info_subs.add_parser(
+        "coverage-sample", parents=[base_parser], help=CLI_HELP["cmd_coverage-sample"]
+    )
+    samp_cov.add_argument("-r", "--region", help=CLI_HELP["arg_region"])
+    samp_cov.set_defaults(func=run)
 
     parser.set_defaults(func=run)
 
@@ -109,9 +108,7 @@ def run_body_sample(filepath, cram_opt):
     first_qname = None
 
     try:
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, text=True, stderr=subprocess.DEVNULL
-        )
+        proc = popen(cmd, stdout=subprocess.PIPE, text=True, stderr=subprocess.DEVNULL)
         assert proc.stdout is not None
         for _ in range(20000):
             line = proc.stdout.readline()
@@ -220,9 +217,7 @@ def load_n_counts(ref_path):
 
 def parse_idxstats(filepath):
     """Parse samtools idxstats for mapped/unmapped counts."""
-    idx = subprocess.run(
-        ["samtools", "idxstats", filepath], capture_output=True, text=True
-    )
+    idx = run_command(["samtools", "idxstats", filepath], capture_output=True)
     stats, genome_len, total_mapped, total_unmapped = [], 0, 0, 0
 
     for line in idx.stdout.splitlines():
@@ -523,8 +518,8 @@ def run_full_coverage(input_p, ref_p, out_p, region=None):
         region_args = ["-r", region] if region else []
         cmd = ["samtools", "depth", "-aa"] + region_args + opts + [input_p]
         cmd = [x for x in cmd if x is not None]
-        p1 = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-        p2 = subprocess.Popen(["awk", awk], stdin=p1.stdout, stdout=open(out_p, "w"))
+        p1 = popen(cmd, stdout=subprocess.PIPE)
+        p2 = popen(["awk", awk], stdin=p1.stdout, stdout=open(out_p, "w"))
         if p1.stdout:
             p1.stdout.close()
         p2.communicate()
@@ -592,7 +587,7 @@ def run_sampled_coverage(input_p, ref_p, idx_stats, out_p, region=None):
             + [input_p]
         )
         cmd = [x for x in cmd if x is not None]
-        res = subprocess.run(cmd, capture_output=True, text=True)
+        res = run_command(cmd, capture_output=True)
         win_total = win_covered = 0
         if res.stdout:
             for line in res.stdout.splitlines():
@@ -662,13 +657,6 @@ def run(args):
     t0 = time.time()
     resolved_ref = resolve_reference(args.ref, md5_sig)
     logging.debug(f"Resolved reference: {resolved_ref} (took {time.time() - t0:.3f}s)")
-
-    if getattr(args, "info_cmd", None) == "coverage-sample":
-        logging.error(
-            "The 'coverage-sample' command is discontinued as it does not work correctly. "
-            "Please use 'wgsextract info --detailed' for general metrics."
-        )
-        sys.exit(1)
 
     if getattr(args, "info_cmd", None) in ["calculate-coverage", "coverage-sample"]:
         args.detailed = True
