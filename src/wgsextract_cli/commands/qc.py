@@ -75,8 +75,7 @@ def cmd_fastp(args):
     log_dependency_info(["fastp"])
 
     if not args.r1:
-        logging.error("--r1 is required unless --genome resolves FASTQ inputs.")
-        return
+        raise WGSExtractError("--r1 is required unless --genome resolves FASTQ inputs.")
 
     from wgsextract_cli.core.utils import verify_paths_exist
 

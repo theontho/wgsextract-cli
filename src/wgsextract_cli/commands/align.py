@@ -9,6 +9,7 @@ from wgsextract_cli.core.dependencies import (
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
+    WGSExtractError,
     calculate_bam_md5,
     get_resource_defaults,
     get_sam_index_cmd,
@@ -50,8 +51,7 @@ def align_bwa(args):
     threads, memory = get_resource_defaults(args.threads, args.memory)
 
     if not args.r1:
-        logging.error("--r1 is required unless --genome resolves FASTQ inputs.")
-        return
+        raise WGSExtractError("--r1 is required unless --genome resolves FASTQ inputs.")
 
     # Use --input's path if outdir not set, or r1's path
     input_path = args.input if args.input else args.r1
@@ -150,8 +150,7 @@ def align_minimap2(args):
     threads, memory = get_resource_defaults(args.threads, args.memory)
 
     if not args.r1:
-        logging.error("--r1 is required unless --genome resolves FASTQ inputs.")
-        return
+        raise WGSExtractError("--r1 is required unless --genome resolves FASTQ inputs.")
 
     input_path = args.input if args.input else args.r1
     paths_to_check = {"--r1": args.r1}

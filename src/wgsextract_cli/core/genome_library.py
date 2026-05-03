@@ -42,7 +42,10 @@ def apply_genome_selection(args: Namespace, explicit_dests: set[str]) -> None:
             "--genome requires genome_library to be set in config.toml."
         )
 
-    genome_dir = Path(root).expanduser() / str(genome_id)
+    root_dir = Path(root).expanduser()
+    genome_dir = root_dir / str(genome_id)
+    if not _is_relative_to(genome_dir.resolve(), root_dir.resolve()):
+        raise WGSExtractError(f"Genome ID cannot escape genome_library: {genome_id}")
     if not genome_dir.is_dir():
         raise WGSExtractError(
             f"Genome '{genome_id}' not found in genome_library: {genome_dir}"
@@ -153,12 +156,13 @@ def _set_vcf_input(
 ) -> None:
     if getattr(args, "vcf_cmd", None) == "trio":
         return
+    if "vcf_input" in explicit_dests and getattr(args, "vcf_input", None):
+        return
     vcf_cmd = getattr(args, "vcf_cmd", None)
-    if (
-        "vcf_input" not in explicit_dests
-        and hasattr(args, "vcf_input")
-        and vcf_cmd in VCF_FILE_COMMANDS
-    ):
+    should_resolve_vcf = getattr(args, "qc_cmd", None) == "vcf" or (
+        vcf_cmd in VCF_FILE_COMMANDS and "vcf_input" not in explicit_dests
+    )
+    if should_resolve_vcf and hasattr(args, "vcf_input"):
         args.vcf_input = str(_resolve_category(genome_dir, config, "vcf", VCF_SUFFIXES))
         if "input" not in explicit_dests and hasattr(args, "input"):
             args.input = None
@@ -173,6 +177,24 @@ def _set_fastq_inputs(
     explicit_dests: set[str],
 ) -> None:
     if "r1" in explicit_dests and "r2" in explicit_dests:
+        return
+
+    if "r1" in explicit_dests and getattr(args, "r1", None):
+        r2 = _matching_r2(
+            Path(args.r1).expanduser().resolve(),
+            _find_files(genome_dir, FASTQ_SUFFIXES),
+        )
+        if r2 and "r2" not in explicit_dests and hasattr(args, "r2"):
+            args.r2 = str(r2)
+        return
+
+    if "r2" in explicit_dests and getattr(args, "r2", None):
+        r1 = _matching_r1(
+            Path(args.r2).expanduser().resolve(),
+            _find_files(genome_dir, FASTQ_SUFFIXES),
+        )
+        if r1 and "r1" not in explicit_dests and hasattr(args, "r1"):
+            args.r1 = str(r1)
         return
 
     r1_config = config.get("fastq_r1")
@@ -263,9 +285,17 @@ def _find_fastq_sets(folder: Path) -> list[tuple[Path, Path | None]]:
 def _matching_r2(r1: Path, r2s: list[Path]) -> Path | None:
     stem = _fastq_pair_key(r1)
     for r2 in r2s:
-        if _fastq_pair_key(r2) == stem:
+        if _fastq_rank(r2) == 1 and _fastq_pair_key(r2) == stem:
             return r2
-    return r2s[0] if len(r2s) == 1 else None
+    return None
+
+
+def _matching_r1(r2: Path, fastqs: list[Path]) -> Path | None:
+    stem = _fastq_pair_key(r2)
+    for r1 in fastqs:
+        if _fastq_rank(r1) == 0 and _fastq_pair_key(r1) == stem:
+            return r1
+    return None
 
 
 def _fastq_pair_key(path: Path) -> str:
@@ -279,7 +309,7 @@ def _fastq_pair_key(path: Path) -> str:
         (".r2", ".r"),
     ]:
         name = name.replace(old, new)
-    return str(path.parent / name)
+    return str(path.parent.resolve() / name)
 
 
 def _is_data_file(path: Path) -> bool:
@@ -305,8 +335,8 @@ def _suffix_rank(path: Path, suffixes: tuple[str, ...]) -> int:
 
 def _fastq_rank(path: Path) -> int:
     name = path.name.lower()
-    r1_markers = ("_r1", "_1", ".r1", ".1", "read1", "r1")
-    r2_markers = ("_r2", "_2", ".r2", ".2", "read2", "r2")
+    r1_markers = ("_r1", "_1", ".r1", ".1", "read1")
+    r2_markers = ("_r2", "_2", ".r2", ".2", "read2")
     if any(marker in name for marker in r1_markers):
         return 0
     if any(marker in name for marker in r2_markers):
@@ -316,6 +346,14 @@ def _fastq_rank(path: Path) -> int:
 
 def _relative(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
 
 
 def _escape_toml_string(value: str) -> str:

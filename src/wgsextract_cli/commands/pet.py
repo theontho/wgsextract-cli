@@ -37,8 +37,7 @@ def run(args):
     log_dependency_info(["bwa", "samtools", "bcftools"])
 
     if not args.r1:
-        logging.error("--r1 is required unless --genome resolves FASTQ inputs.")
-        return
+        raise WGSExtractError("--r1 is required unless --genome resolves FASTQ inputs.")
 
     logging.debug(f"Input file (R1): {os.path.abspath(args.r1)}")
     if args.r2:

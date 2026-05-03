@@ -184,6 +184,61 @@ class TestCLILogic(unittest.TestCase):
         self.assertEqual(args.vcf_input, vcf_path)
         self.assertEqual(args.outdir, genome_dir)
 
+    def test_genome_library_resolves_vcf_input_for_qc_vcf(self):
+        genome_root = os.path.join(self.test_dir, "genomes")
+        genome_dir = os.path.join(genome_root, "qc-vcf")
+        os.makedirs(genome_dir)
+        vcf_path = os.path.join(genome_dir, "sample.vcf.gz")
+        with open(vcf_path, "w") as f:
+            f.write("vcf")
+
+        from wgsextract_cli.core.config import settings
+
+        old_value = settings.get("genome_library")
+        settings["genome_library"] = genome_root
+        try:
+            args = Namespace(
+                command="qc",
+                qc_cmd="vcf",
+                genome="qc-vcf",
+                input=None,
+                vcf_input=None,
+                outdir=None,
+            )
+            apply_genome_selection(args, explicit_dests=set())
+        finally:
+            if old_value is None:
+                settings.pop("genome_library", None)
+            else:
+                settings["genome_library"] = old_value
+
+        self.assertEqual(args.vcf_input, vcf_path)
+        self.assertIsNone(args.input)
+
+    def test_genome_library_rejects_path_escape(self):
+        genome_root = os.path.join(self.test_dir, "genomes")
+        os.makedirs(genome_root)
+        outside_dir = os.path.join(self.test_dir, "outside")
+        os.makedirs(outside_dir)
+
+        from wgsextract_cli.core.config import settings
+
+        old_value = settings.get("genome_library")
+        settings["genome_library"] = genome_root
+        try:
+            args = Namespace(
+                command="info", genome="../outside", input=None, outdir=None
+            )
+            with self.assertRaises(WGSExtractError) as ctx:
+                apply_genome_selection(args, explicit_dests=set())
+        finally:
+            if old_value is None:
+                settings.pop("genome_library", None)
+            else:
+                settings["genome_library"] = old_value
+
+        self.assertIn("cannot escape", str(ctx.exception))
+
     def test_genome_library_raises_on_ambiguous_alignment(self):
         genome_root = os.path.join(self.test_dir, "genomes")
         genome_dir = os.path.join(genome_root, "ambiguous")
@@ -278,6 +333,100 @@ class TestCLILogic(unittest.TestCase):
 
         self.assertIn("Ambiguous FASTQ set", str(ctx.exception))
         self.assertIn("fastq_r1 and fastq_r2", str(ctx.exception))
+
+    def test_genome_library_resolves_missing_mate_from_explicit_r1(self):
+        genome_root = os.path.join(self.test_dir, "genomes")
+        genome_dir = os.path.join(genome_root, "explicit-r1")
+        os.makedirs(genome_dir)
+        r1 = os.path.join(genome_dir, "sample_R1.fastq.gz")
+        r2 = os.path.join(genome_dir, "sample_R2.fastq.gz")
+        with open(r1, "w") as f:
+            f.write("r1")
+        with open(r2, "w") as f:
+            f.write("r2")
+
+        from wgsextract_cli.core.config import settings
+
+        old_value = settings.get("genome_library")
+        settings["genome_library"] = genome_root
+        try:
+            args = Namespace(
+                command="align",
+                genome="explicit-r1",
+                input=None,
+                outdir=None,
+                r1=r1,
+                r2=None,
+            )
+            apply_genome_selection(args, explicit_dests={"r1"})
+        finally:
+            if old_value is None:
+                settings.pop("genome_library", None)
+            else:
+                settings["genome_library"] = old_value
+
+        self.assertEqual(args.r1, r1)
+        self.assertEqual(args.r2, r2)
+
+    def test_genome_library_does_not_pair_unmatched_single_r2(self):
+        genome_root = os.path.join(self.test_dir, "genomes")
+        genome_dir = os.path.join(genome_root, "mismatch")
+        os.makedirs(genome_dir)
+        r1 = os.path.join(genome_dir, "sampleA_R1.fastq.gz")
+        r2 = os.path.join(genome_dir, "sampleB_R2.fastq.gz")
+        with open(r1, "w") as f:
+            f.write("r1")
+        with open(r2, "w") as f:
+            f.write("r2")
+
+        from wgsextract_cli.core.config import settings
+
+        old_value = settings.get("genome_library")
+        settings["genome_library"] = genome_root
+        try:
+            args = Namespace(
+                command="align",
+                genome="mismatch",
+                input=None,
+                outdir=None,
+                r1=None,
+                r2=None,
+            )
+            with self.assertRaises(WGSExtractError) as ctx:
+                apply_genome_selection(args, explicit_dests=set())
+        finally:
+            if old_value is None:
+                settings.pop("genome_library", None)
+            else:
+                settings["genome_library"] = old_value
+
+        self.assertIn("Ambiguous FASTQ set", str(ctx.exception))
+
+    def test_genome_library_does_not_classify_srr_as_r1(self):
+        genome_root = os.path.join(self.test_dir, "genomes")
+        genome_dir = os.path.join(genome_root, "srr")
+        os.makedirs(genome_dir)
+        fastq = os.path.join(genome_dir, "SRR123.fastq.gz")
+        with open(fastq, "w") as f:
+            f.write("single")
+
+        from wgsextract_cli.core.config import settings
+
+        old_value = settings.get("genome_library")
+        settings["genome_library"] = genome_root
+        try:
+            args = Namespace(
+                command="align", genome="srr", input=None, outdir=None, r1=None, r2=None
+            )
+            apply_genome_selection(args, explicit_dests=set())
+        finally:
+            if old_value is None:
+                settings.pop("genome_library", None)
+            else:
+                settings["genome_library"] = old_value
+
+        self.assertEqual(args.r1, fastq)
+        self.assertIsNone(args.r2)
 
 
 if __name__ == "__main__":
