@@ -8,9 +8,11 @@ import subprocess
 from wgsextract_cli.core.dependencies import log_dependency_info, verify_dependencies
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
+    WGSExtractError,
     get_resource_defaults,
     get_sam_index_cmd,
     get_sam_sort_cmd,
+    popen,
     run_command,
 )
 
@@ -100,47 +102,41 @@ def run(args):
             out_bam, threads, memory, fmt=args.format, reference=ref_file
         )
 
-        p1 = subprocess.Popen(
+        p1 = popen(
             ["bwa", "mem", "-t", threads, ref_file, args.r1] + r2_args,
             stdout=subprocess.PIPE,
         )
 
         if use_blaster:
-            p_blaster = subprocess.Popen(
-                ["samblaster"], stdin=p1.stdout, stdout=subprocess.PIPE
-            )
+            p_blaster = popen(["samblaster"], stdin=p1.stdout, stdout=subprocess.PIPE)
             if p1.stdout:
                 p1.stdout.close()
-            p2 = subprocess.Popen(sam_args, stdin=p_blaster.stdout)
+            p2 = popen(sam_args, stdin=p_blaster.stdout)
             if p_blaster.stdout:
                 p_blaster.stdout.close()
         else:
-            p2 = subprocess.Popen(sam_args, stdin=p1.stdout)
+            p2 = popen(sam_args, stdin=p1.stdout)
             if p1.stdout:
                 p1.stdout.close()
 
         p2.communicate()
 
         if p2.returncode != 0:
-            logging.error("Alignment failed.")
-            import sys
-
-            sys.exit(1)
+            raise WGSExtractError("Alignment failed.")
 
         logging.info(LOG_MESSAGES["pet_indexing"].format(format=args.format))
         run_command(get_sam_index_cmd(out_bam, threads=threads))
 
     except Exception as e:
-        logging.error(f"Alignment error: {e}")
-        import sys
-
-        sys.exit(1)
+        if isinstance(e, WGSExtractError):
+            raise
+        raise WGSExtractError(f"Alignment error: {e}") from e
 
     # 2. Variant Calling (Simple MPileup + BCFTools)
     logging.info(LOG_MESSAGES["pet_calling"])
     try:
         # bcftools mpileup | bcftools call -mv -Oz -o out.vcf.gz
-        p1 = subprocess.Popen(
+        p1 = popen(
             [
                 "bcftools",
                 "mpileup",
@@ -152,7 +148,7 @@ def run(args):
             ],
             stdout=subprocess.PIPE,
         )
-        p2 = subprocess.Popen(
+        p2 = popen(
             [
                 "bcftools",
                 "call",
@@ -170,10 +166,7 @@ def run(args):
         p2.communicate()
 
         if p2.returncode != 0:
-            logging.error("Variant calling failed.")
-            import sys
-
-            sys.exit(1)
+            raise WGSExtractError("Variant calling failed.")
 
         logging.info("Indexing VCF...")
         run_command(["bcftools", "index", out_vcf])
@@ -182,7 +175,6 @@ def run(args):
         logging.info(LOG_MESSAGES["pet_results"].format(bam=out_bam, vcf=out_vcf))
 
     except Exception as e:
-        logging.error(f"Variant calling error: {e}")
-        import sys
-
-        sys.exit(1)
+        if isinstance(e, WGSExtractError):
+            raise
+        raise WGSExtractError(f"Variant calling error: {e}") from e

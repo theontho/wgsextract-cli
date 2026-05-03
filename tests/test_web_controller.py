@@ -3,8 +3,12 @@ import sys
 import unittest
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 # Ensure src is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
+
+pytest.importorskip("nicegui")
 
 from wgsextract_cli.ui.web_gui_parts.controller import WebController
 from wgsextract_cli.ui.web_gui_parts.state import state

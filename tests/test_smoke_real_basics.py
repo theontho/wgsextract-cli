@@ -4,7 +4,6 @@ import pytest
 
 from tests.smoke_utils import (
     assert_file_contains,
-    assert_log_contains,
     check_tool,
     ensure_fake_data,
     run_cli,

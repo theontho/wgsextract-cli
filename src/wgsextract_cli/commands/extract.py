@@ -10,6 +10,7 @@ from wgsextract_cli.core.utils import (
     get_chr_name,
     get_resource_defaults,
     get_sam_index_cmd,
+    popen,
     resolve_reference,
     run_command,
     verify_paths_exist,
@@ -188,13 +189,11 @@ def cmd_mito_fasta(args):
         run_command(get_sam_index_cmd(out_bam, threads=threads))
 
         # 2. Call variants
-        p1 = subprocess.Popen(
+        p1 = popen(
             ["bcftools", "mpileup", "-Ou", "-f", resolved_ref, out_bam],
             stdout=subprocess.PIPE,
         )
-        p2 = subprocess.Popen(
-            ["bcftools", "call", "-mv", "-Oz", "-o", out_vcf], stdin=p1.stdout
-        )
+        p2 = popen(["bcftools", "call", "-mv", "-Oz", "-o", out_vcf], stdin=p1.stdout)
         if p1.stdout:
             p1.stdout.close()
         p2.communicate()
@@ -203,14 +202,13 @@ def cmd_mito_fasta(args):
         # 3. Generate Consensus
         logging.info(LOG_MESSAGES["generating_consensus"].format(output=out_fasta))
         with open(out_fasta, "w") as f:
-            p_faidx = subprocess.Popen(
+            p_faidx = popen(
                 ["samtools", "faidx", resolved_ref, chr_m], stdout=subprocess.PIPE
             )
-            subprocess.run(
+            run_command(
                 ["bcftools", "consensus", "-f", "-", "-H", "1", out_vcf],
                 stdin=p_faidx.stdout,
                 stdout=f,
-                check=True,
             )
             if p_faidx.stdout:
                 p_faidx.stdout.close()
@@ -255,13 +253,11 @@ def cmd_mito_vcf(args):
         run_command(get_sam_index_cmd(out_bam, threads=threads))
 
         logging.info(LOG_MESSAGES["calling_mito_variants"].format(output=out_vcf))
-        p1 = subprocess.Popen(
+        p1 = popen(
             ["bcftools", "mpileup", "-Ou", "-f", resolved_ref, out_bam],
             stdout=subprocess.PIPE,
         )
-        p2 = subprocess.Popen(
-            ["bcftools", "call", "-mv", "-Oz", "-o", out_vcf], stdin=p1.stdout
-        )
+        p2 = popen(["bcftools", "call", "-mv", "-Oz", "-o", out_vcf], stdin=p1.stdout)
         if p1.stdout:
             p1.stdout.close()
         p2.communicate()
@@ -384,13 +380,11 @@ def cmd_ydna_vcf(args):
         run_command(get_sam_index_cmd(out_bam, threads=threads))
 
         logging.info(LOG_MESSAGES["calling_y_variants"].format(output=out_vcf))
-        p1 = subprocess.Popen(
+        p1 = popen(
             ["bcftools", "mpileup", "-Ou", "-f", resolved_ref, out_bam],
             stdout=subprocess.PIPE,
         )
-        p2 = subprocess.Popen(
-            ["bcftools", "call", "-mv", "-Oz", "-o", out_vcf], stdin=p1.stdout
-        )
+        p2 = popen(["bcftools", "call", "-mv", "-Oz", "-o", out_vcf], stdin=p1.stdout)
         if p1.stdout:
             p1.stdout.close()
         p2.communicate()

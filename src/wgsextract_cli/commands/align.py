@@ -1,6 +1,5 @@
 import logging
 import os
-import shutil
 import subprocess
 
 from wgsextract_cli.core.dependencies import (
@@ -17,6 +16,7 @@ from wgsextract_cli.core.utils import (
     popen,
     resolve_reference,
     run_command,
+    verify_paths_exist,
 )
 from wgsextract_cli.core.warnings import print_warning
 
@@ -52,6 +52,12 @@ def align_bwa(args):
     # Use --input's path if outdir not set, or r1's path
     input_path = args.input if args.input else args.r1
     logging.debug(f"Input file: {os.path.abspath(input_path)}")
+
+    paths_to_check = {"--r1": args.r1}
+    if args.r2:
+        paths_to_check["--r2"] = args.r2
+    if not verify_paths_exist(paths_to_check):
+        return
 
     outdir = (
         args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_path))
@@ -140,6 +146,12 @@ def align_minimap2(args):
     threads, memory = get_resource_defaults(args.threads, args.memory)
 
     input_path = args.input if args.input else args.r1
+    paths_to_check = {"--r1": args.r1}
+    if args.r2:
+        paths_to_check["--r2"] = args.r2
+    if not verify_paths_exist(paths_to_check):
+        return
+
     outdir = (
         args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_path))
     )

@@ -1,9 +1,8 @@
 import logging
 import os
 import subprocess
- 
-from wgsextract_cli.core.config import settings
 
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import (
     get_tool_path,
     log_dependency_info,
@@ -12,6 +11,7 @@ from wgsextract_cli.core.dependencies import (
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
     ReferenceLibrary,
+    WGSExtractError,
     calculate_bam_md5,
     get_chr_name,
     get_resource_defaults,
@@ -152,10 +152,10 @@ def cmd_ydna(args):
         if resolved:
             yleaf_path = resolved
 
-    if not verify_paths_exist({"--input": args.input, "--yleaf-path": yleaf_path}):
-        import sys
-
-        sys.exit(1)
+    if not yleaf_path or not verify_paths_exist(
+        {"--input": args.input, "--yleaf-path": yleaf_path}
+    ):
+        raise WGSExtractError("Input or Yleaf path missing.")
 
     logging.debug(f"Input file: {os.path.abspath(args.input)}")
     logging.debug(f"Output directory: {os.path.abspath(args.outdir)}")
@@ -221,7 +221,6 @@ def cmd_ydna(args):
             import shlex
 
             bgzip_list = shlex.split(bgzip)
-            bgzip_bin = bgzip_list[0]
             # If bgzip is 'pixi run -e default bgzip', we need to be careful with redirection
             # But run_command handles it if we pass it as a list.
             # For shell=True pipes, it's harder. Let's use a more robust way.
@@ -323,10 +322,9 @@ def cmd_ydna(args):
             print("-" * 30 + "\n")
 
     except Exception as e:
-        logging.error(f"Yleaf failed: {e}")
-        import sys
-
-        sys.exit(1)
+        if isinstance(e, WGSExtractError):
+            raise
+        raise WGSExtractError(f"Yleaf failed: {e}") from e
     finally:
         if temp_vcf and os.path.exists(temp_vcf):
             try:
@@ -369,12 +367,10 @@ def cmd_mtdna(args):
         if resolved:
             haplogrep_path = resolved
 
-    if not verify_paths_exist(
+    if not haplogrep_path or not verify_paths_exist(
         {"--input": args.input, "--haplogrep-path": haplogrep_path}
     ):
-        import sys
-
-        sys.exit(1)
+        raise WGSExtractError("Input or Haplogrep path missing.")
 
     outdir = (
         args.outdir if args.outdir else os.path.dirname(os.path.abspath(args.input))
@@ -457,6 +453,8 @@ def cmd_mtdna(args):
         if haplogrep_path.endswith(".jar"):
             verify_dependencies(["java"])
             java = get_tool_path("java")
+            if not java:
+                raise WGSExtractError("Java is required to run Haplogrep JAR.")
             cmd = [java, "-jar", haplogrep_path]
         else:
             # haplogrep_path might already be a 'pixi run' string
@@ -498,10 +496,9 @@ def cmd_mtdna(args):
             print("-" * 30 + "\n")
 
     except Exception as e:
-        logging.error(f"Haplogrep failed: {e}")
-        import sys
-
-        sys.exit(1)
+        if isinstance(e, WGSExtractError):
+            raise
+        raise WGSExtractError(f"Haplogrep failed: {e}") from e
     finally:
         if temp_vcf and os.path.exists(temp_vcf):
             try:

@@ -23,6 +23,7 @@ from .commands import (
 )
 from .core.config import KNOWN_SETTINGS, get_config_path, reload_settings, settings
 from .core.messages import CLI_HELP
+from .core.utils import WGSExtractError, cleanup_processes
 
 
 class EmojiFormatter(logging.Formatter):
@@ -284,8 +285,6 @@ def main():
     # Handle signals for clean exit (allows finally blocks to run)
     import signal
 
-    from .core.utils import cleanup_processes
-
     def signal_handler(signum, frame):
         logging.info(f"Received signal {signum}, cleaning up...")
         cleanup_processes()
@@ -321,7 +320,20 @@ def main():
         os.makedirs(args.outdir, exist_ok=True)
 
     if hasattr(args, "func"):
-        args.func(args)
+        try:
+            args.func(args)
+        except WGSExtractError as e:
+            logging.error(str(e))
+            sys.exit(1)
+        except KeyboardInterrupt:
+            logging.info("Interrupted by user.")
+            sys.exit(130)
+        except Exception as e:
+            if args.debug:
+                logging.exception("An unexpected error occurred:")
+            else:
+                logging.error(f"An unexpected error occurred: {e}")
+            sys.exit(1)
     else:
         parser.print_help()
 

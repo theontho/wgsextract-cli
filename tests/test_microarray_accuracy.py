@@ -4,7 +4,6 @@ import subprocess
 import unittest
 from pathlib import Path
 
-
 # Path setup
 this_dir = Path(__file__).resolve().parent
 cli_root = this_dir.parent

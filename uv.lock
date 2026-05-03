@@ -2473,14 +2473,20 @@ name = "wgsextract-cli"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "customtkinter" },
-    { name = "nicegui" },
-    { name = "pillow" },
     { name = "platformdirs" },
     { name = "psutil" },
     { name = "pyliftover" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "tomli-w" },
+]
+
+[package.optional-dependencies]
+gui = [
+    { name = "customtkinter" },
+    { name = "pillow" },
+]
+web = [
+    { name = "nicegui" },
 ]
 
 [package.dev-dependencies]
@@ -2490,21 +2496,23 @@ dev = [
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "python-dotenv" },
     { name = "ruff" },
     { name = "selenium" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "customtkinter" },
-    { name = "nicegui" },
-    { name = "pillow" },
+    { name = "customtkinter", marker = "extra == 'gui'" },
+    { name = "nicegui", marker = "extra == 'web'" },
+    { name = "pillow", marker = "extra == 'gui'" },
     { name = "platformdirs" },
     { name = "psutil" },
     { name = "pyliftover" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "tomli-w" },
 ]
+provides-extras = ["gui", "web"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -2513,6 +2521,7 @@ dev = [
     { name = "pre-commit", specifier = ">=3.0.0" },
     { name = "pytest", specifier = ">=7.0" },
     { name = "pytest-asyncio" },
+    { name = "python-dotenv" },
     { name = "ruff", specifier = ">=0.1.0" },
     { name = "selenium", specifier = ">=4.41.0" },
 ]

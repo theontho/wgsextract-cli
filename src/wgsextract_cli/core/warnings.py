@@ -78,7 +78,7 @@ EXPECTED_TIME = {
 }
 
 
-def format_time(seconds):
+def format_time(seconds: int) -> str:
     if seconds < 60:
         return f"{seconds} seconds"
     elif seconds < 3600:
@@ -87,7 +87,9 @@ def format_time(seconds):
         return f"{seconds / 3600:.1f} hours"
 
 
-def get_free_space_needed(file_size_bytes, sort_type="Coord", is_cram=False):
+def get_free_space_needed(
+    file_size_bytes: int, sort_type: str = "Coord", is_cram: bool = False
+) -> tuple[int, int]:
     """
     Calculates the free space needed based on the logic in program/mainwindow.py:Adjust_Mem
     """
@@ -102,14 +104,14 @@ def get_free_space_needed(file_size_bytes, sort_type="Coord", is_cram=False):
 
 
 def print_warning(
-    action_key,
-    app_name=None,
-    size_gb=None,
-    final_gb=None,
-    threads=None,
-    file_size=None,
-    is_cram=False,
-):
+    action_key: str,
+    app_name: str | None = None,
+    size_gb: int | None = None,
+    final_gb: int | None = None,
+    threads: str | None = None,
+    file_size: int | None = None,
+    is_cram: bool = False,
+) -> None:
     """Prints a warning message and expected time for a given action."""
 
     # 1. Expected Time
@@ -167,7 +169,7 @@ def print_warning(
         logging.warning(f"!!! {MESSAGES[action_key]} !!!")
 
 
-def check_free_space(path, required_gb):
+def check_free_space(path: str, required_gb: int) -> bool:
     """Helper to check if a path has enough free space."""
     if not os.path.exists(path):
         return True  # Can't check if path doesn't exist yet

@@ -4,18 +4,15 @@ import json
 import logging
 import os
 import subprocess
-import sys
 from datetime import datetime
 
 from wgsextract_cli.core.dependencies import log_dependency_info, verify_dependencies
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
     ReferenceLibrary,
+    WGSExtractError,
     calculate_bam_md5,
     ensure_vcf_indexed,
-    ensure_vcf_prepared,
-    get_resource_defaults,
-    resolve_reference,
     run_command,
     verify_paths_exist,
 )
@@ -87,8 +84,7 @@ def cmd_comprehensive(args):
             vcf_inputs = env_vcf.split()
 
     if not input_file and not vcf_inputs:
-        logging.error(LOG_MESSAGES["input_required"])
-        sys.exit(1)
+        raise WGSExtractError(LOG_MESSAGES["input_required"])
 
     # Pre-flight Validation
     paths_to_verify = {}
@@ -98,7 +94,7 @@ def cmd_comprehensive(args):
         paths_to_verify[f"vcf-input-{i}"] = v
 
     if not verify_paths_exist(paths_to_verify):
-        sys.exit(1)
+        raise WGSExtractError("Input path verification failed.")
 
     outdir = args.outdir if args.outdir else os.getcwd()
     os.makedirs(outdir, exist_ok=True)
@@ -110,9 +106,8 @@ def cmd_comprehensive(args):
     print("-" * 60)
 
     # 1. BAM/CRAM Analysis (Info, QC, Lineage)
-    gender = "Unknown"
     if input_file:
-        gender = run_bam_chain(args, input_file, outdir)
+        run_bam_chain(args, input_file, outdir)
 
     # 2. VCF Processing (Independently per type)
     results = []
@@ -150,8 +145,7 @@ def run_batch_comprehensive(args, batch_file):
     """Runs comprehensive analysis for multiple samples defined in batch_file."""
 
     if not os.path.exists(batch_file):
-        logging.error(f"Batch file not found: {batch_file}")
-        sys.exit(1)
+        raise WGSExtractError(f"Batch file not found: {batch_file}")
 
     with open(batch_file) as f:
         # Detect delimiter (CSV or TSV)
@@ -210,8 +204,7 @@ def cmd_batch_gen(args):
     """Generates a batch file by scanning a directory."""
     scan_dir = args.directory
     if not os.path.exists(scan_dir):
-        logging.error(f"Directory not found: {scan_dir}")
-        sys.exit(1)
+        raise WGSExtractError(f"Directory not found: {scan_dir}")
 
     print(f"🔍 Scanning directory: {scan_dir}")
 
@@ -351,11 +344,9 @@ def run_vcf_workflow(args, vcf_path, v_type, outdir):
 def run_discovery_filter(args, ann_vcf, v_type, out_vcf):
     """Dynamically builds filter based on type and headers."""
     try:
-        res_h = subprocess.run(
+        res_h = run_command(
             ["bcftools", "view", "-h", ann_vcf],
             capture_output=True,
-            text=True,
-            check=True,
         )
         header = res_h.stdout
     except Exception:
@@ -391,16 +382,12 @@ def run_discovery_filter(args, ann_vcf, v_type, out_vcf):
     print(f"🔍 Applying Discovery Filter: {filter_expr}")
 
     try:
-        subprocess.run(
+        run_command(
             ["bcftools", "filter", "-i", filter_expr, "-Oz", "-o", out_vcf, ann_vcf],
             capture_output=True,
-            text=True,
-            check=True,
         )
         ensure_vcf_indexed(out_vcf)
-        res = subprocess.run(
-            ["bcftools", "view", "-H", out_vcf], capture_output=True, text=True
-        )
+        res = run_command(["bcftools", "view", "-H", out_vcf], capture_output=True)
         count = len(res.stdout.strip().split("\n")) if res.stdout.strip() else 0
         print(f"✅ Found {count} significant variants.")
         return count
@@ -500,11 +487,9 @@ def run_cli_subcommand(cmd_args, args):
         if should_stream:
             # Run without capturing to allow real-time progress updates to reach the terminal.
             # Internal sub-sub-commands (like bcftools) are still captured at their level.
-            subprocess.run(cmd, check=True)
+            run_command(cmd)
         else:
-            subprocess.run(cmd, capture_output=True, text=True, check=True)
+            run_command(cmd, capture_output=True)
 
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, Exception) as e:
         logging.warning(f"Subcommand failed: {' '.join(cmd)}. Error: {e}")
-        if e.stderr:
-            logging.error(e.stderr)

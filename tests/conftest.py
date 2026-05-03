@@ -1,13 +1,20 @@
+import importlib.util
 from pathlib import Path
 
 import pytest
 
-# Provide the plugin
-pytest_plugins = ["nicegui.testing.plugin"]
+try:
+    _HAS_NICEGUI_TESTING = importlib.util.find_spec("nicegui.testing.plugin") is not None
+except ModuleNotFoundError:
+    _HAS_NICEGUI_TESTING = False
+pytest_plugins = ["nicegui.testing.plugin"] if _HAS_NICEGUI_TESTING else []
 
 
 @pytest.fixture(autouse=True)
 def mock_get_path_to_main_file(monkeypatch):
+    if not _HAS_NICEGUI_TESTING:
+        return
+
     # This is a bit of a hack to satisfy the plugin's requirement for a main_file
     # while our app is actually a package.
     # We point it to a dummy file that just imports our app.

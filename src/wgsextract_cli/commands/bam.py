@@ -1,17 +1,17 @@
 import logging
 import os
-import shutil
 import subprocess
 import tempfile
 
 from wgsextract_cli.core.dependencies import log_dependency_info, verify_dependencies
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
+    WGSExtractError,
     calculate_bam_md5,
-    get_chr_name,
     get_resource_defaults,
     get_sam_index_cmd,
     get_sam_sort_cmd,
+    popen,
     resolve_reference,
     run_command,
     verify_paths_exist,
@@ -241,28 +241,21 @@ def cmd_sort(args):
             LOG_MESSAGES["sorting_file"].format(input=args.input, output=out_file)
         )
         try:
-            p1 = subprocess.Popen(
-                view_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            p2 = subprocess.Popen(sort_cmd, stdin=p1.stdout, stderr=subprocess.PIPE)
+            p1 = popen(view_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            p2 = popen(sort_cmd, stdin=p1.stdout, stderr=subprocess.PIPE)
             if p1.stdout:
                 p1.stdout.close()
             _, stderr2 = p2.communicate()
             _, stderr1 = p1.communicate()
             if p2.returncode != 0:
-                logging.error(
-                    f"Sort failed: {stderr2.decode() if stderr2 else 'Unknown error'}"
-                )
+                err_msg = stderr2.decode() if stderr2 else "Unknown error"
                 if stderr1:
-                    logging.error(f"View error: {stderr1.decode()}")
-                import sys
-
-                sys.exit(1)
+                    err_msg += f" | View error: {stderr1.decode()}"
+                raise WGSExtractError(f"Sort failed: {err_msg}")
         except Exception as e:
-            logging.error(f"Execution failed: {e}")
-            import sys
-
-            sys.exit(1)
+            if isinstance(e, WGSExtractError):
+                raise
+            raise WGSExtractError(f"Execution failed: {e}") from e
 
 
 def cmd_index(args):
@@ -281,10 +274,7 @@ def cmd_index(args):
     try:
         run_command(get_sam_index_cmd(args.input))
     except Exception as e:
-        logging.error(f"Indexing failed: {e}")
-        import sys
-
-        sys.exit(1)
+        raise WGSExtractError(f"Indexing failed: {e}") from e
 
 
 def cmd_unindex(args):
@@ -328,7 +318,7 @@ def cmd_unsort(args):
 
         view_cmd = ["samtools", "view", "-H"] + cram_opt + [args.input]
         try:
-            res = subprocess.run(view_cmd, capture_output=True, text=True, check=True)
+            res = run_command(view_cmd, capture_output=True)
             header = res.stdout
             header = header.replace("SO:coordinate", "SO:unsorted")
 
@@ -340,17 +330,14 @@ def cmd_unsort(args):
                     input=args.input, output=out_file
                 )
             )
-            with open(out_file, "w") as f_out:
-                subprocess.run(
-                    ["samtools", "reheader", newhead, args.input],
-                    stdout=f_out,
-                    check=True,
-                )
-        except (subprocess.CalledProcessError, Exception) as e:
-            logging.error(f"Failed to unsort {args.input}: {e}")
-            import sys
+            with open(out_file, "wb") as f_out:
+                p = popen(["samtools", "reheader", newhead, args.input], stdout=f_out)
+                p.communicate()
+                if p.returncode != 0:
+                    raise WGSExtractError(f"Reheader failed for {args.input}")
 
-            sys.exit(1)
+        except Exception as e:
+            raise WGSExtractError(f"Failed to unsort {args.input}: {e}") from e
 
 
 def cmd_tocram(args):
@@ -389,10 +376,7 @@ def cmd_tocram(args):
         )
         run_command(get_sam_index_cmd(out_file))
     except Exception as e:
-        logging.error(f"Conversion to CRAM failed: {e}")
-        import sys
-
-        sys.exit(1)
+        raise WGSExtractError(f"Conversion to CRAM failed: {e}") from e
 
 
 def cmd_tobam(args):
@@ -425,10 +409,7 @@ def cmd_tobam(args):
         )
         run_command(get_sam_index_cmd(out_file))
     except Exception as e:
-        logging.error(f"Conversion to BAM failed: {e}")
-        import sys
-
-        sys.exit(1)
+        raise WGSExtractError(f"Conversion to BAM failed: {e}") from e
 
 
 def cmd_unalign(args):
@@ -490,21 +471,17 @@ def cmd_unalign(args):
 
         logging.info(LOG_MESSAGES["unaligning_reads"])
         try:
-            p1 = subprocess.Popen(view_cmd, stdout=subprocess.PIPE)
-            p2 = subprocess.Popen(sort_cmd, stdin=p1.stdout, stdout=subprocess.PIPE)
+            p1 = popen(view_cmd, stdout=subprocess.PIPE)
+            p2 = popen(sort_cmd, stdin=p1.stdout, stdout=subprocess.PIPE)
             if p1.stdout:
                 p1.stdout.close()
-            p3 = subprocess.Popen(fastq_cmd, stdin=p2.stdout)
+            p3 = popen(fastq_cmd, stdin=p2.stdout)
             if p2.stdout:
                 p2.stdout.close()
             p3.communicate()
             if p3.returncode != 0:
-                logging.error("Unalign failed.")
-                import sys
-
-                sys.exit(1)
+                raise WGSExtractError("Unalign failed.")
         except Exception as e:
-            logging.error(f"Unalign failed: {e}")
-            import sys
-
-            sys.exit(1)
+            if isinstance(e, WGSExtractError):
+                raise
+            raise WGSExtractError(f"Unalign failed: {e}") from e

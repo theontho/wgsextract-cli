@@ -1,4 +1,5 @@
 import argparse
+import gzip
 import logging
 import os
 import subprocess
@@ -11,6 +12,8 @@ from wgsextract_cli.core.utils import (
     calculate_bam_md5,
     ensure_vcf_indexed,
     get_resource_defaults,
+    popen,
+    run_command,
     verify_paths_exist,
 )
 from wgsextract_cli.core.warnings import print_warning
@@ -48,16 +51,14 @@ def split_snps_by_chrom(ref_vcf_tab, outdir):
     # We use tabix to list chromosomes efficiently if possible
     try:
         # Get list of chromosomes from the index
-        res = subprocess.run(
-            ["tabix", "-l", ref_vcf_tab], capture_output=True, text=True, check=True
-        )
+        res = run_command(["tabix", "-l", ref_vcf_tab], capture_output=True)
         chroms = res.stdout.strip().splitlines()
 
         for chrom in chroms:
             chrom_out = os.path.join(outdir, f"snps_{chrom}.tab")
             # tabix extraction is very fast
             with open(chrom_out, "w") as f:
-                subprocess.run(["tabix", ref_vcf_tab, chrom], stdout=f, check=True)
+                run_command(["tabix", ref_vcf_tab, chrom], stdout=f)
             chrom_files[chrom] = chrom_out
 
     except Exception as e:
@@ -65,21 +66,24 @@ def split_snps_by_chrom(ref_vcf_tab, outdir):
             f"Failed to split SNPs using tabix: {e}. Falling back to linear scan."
         )
         # Fallback: slow linear scan if tabix fails
-        with subprocess.Popen(
-            ["gzcat", ref_vcf_tab], stdout=subprocess.PIPE, text=True
-        ) as proc:
-            if proc.stdout:
-                for line in proc.stdout:
-                    if line.startswith("#"):
-                        continue
-                    parts = line.split("\t", 2)
-                    if len(parts) < 2:
-                        continue
-                    chrom = parts[0]
-                    if chrom not in chrom_files:
-                        chrom_files[chrom] = os.path.join(outdir, f"snps_{chrom}.tab")
-                    with open(chrom_files[chrom], "a") as f:
-                        f.write(line)
+        # Use gzip.open if compressed, else regular open
+        if ref_vcf_tab.endswith((".gz", ".bgz")):
+            f_in = gzip.open(ref_vcf_tab, "rt")
+        else:
+            f_in = open(ref_vcf_tab)
+
+        with f_in:
+            for line in f_in:
+                if line.startswith("#"):
+                    continue
+                parts = line.split("\t", 2)
+                if len(parts) < 2:
+                    continue
+                chrom = parts[0]
+                if chrom not in chrom_files:
+                    chrom_files[chrom] = os.path.join(outdir, f"snps_{chrom}.tab")
+                with open(chrom_files[chrom], "a") as f:
+                    f.write(line)
 
     return chrom_files
 
@@ -445,10 +449,9 @@ def run(args):
                     logging.warning(f"Failed to read .fai file: {e}")
 
             if not fasta_chroms:
-                res_l = subprocess.run(
+                res_l = run_command(
                     ["samtools", "faidx", "-l", ref_fasta],
                     capture_output=True,
-                    text=True,
                 )
                 if res_l.returncode == 0:
                     fasta_chroms = set(res_l.stdout.splitlines())
@@ -460,32 +463,33 @@ def run(args):
 
                 with open(region_file, "w") as f_reg:
                     # Use a stream that handles both compressed and uncompressed
-                    cat_cmd = ["gzcat"] if ref_vcf_tab.endswith(".gz") else ["cat"]
-                    with subprocess.Popen(
-                        cat_cmd + [ref_vcf_tab], stdout=subprocess.PIPE, text=True
-                    ) as proc_tab:
-                        if proc_tab.stdout:
-                            for line in proc_tab.stdout:
-                                if line.startswith("#"):
-                                    continue
-                                parts = line.strip().split("\t")
-                                if len(parts) < 2:
-                                    continue
-                                c, p = parts[0], parts[1]
-                                # Normalize for FASTA
-                                fc = c
-                                if fc not in fasta_chroms:
-                                    if fc.startswith("chr") and fc[3:] in fasta_chroms:
-                                        fc = fc[3:]
-                                    elif (
-                                        not fc.startswith("chr")
-                                        and f"chr{fc}" in fasta_chroms
-                                    ):
-                                        fc = f"chr{fc}"
+                    if ref_vcf_tab.endswith((".gz", ".bgz")):
+                        f_in = gzip.open(ref_vcf_tab, "rt")
+                    else:
+                        f_in = open(ref_vcf_tab)
 
-                                if fc in fasta_chroms:
-                                    f_reg.write(f"{fc}:{p}-{p}\n")
-                                    norm_to_orig[f"{fc}:{p}-{p}"] = (c, p)
+                    with f_in:
+                        for line in f_in:
+                            if line.startswith("#"):
+                                continue
+                            parts = line.strip().split("\t")
+                            if len(parts) < 2:
+                                continue
+                            c, p = parts[0], parts[1]
+                            # Normalize for FASTA
+                            fc = c
+                            if fc not in fasta_chroms:
+                                if fc.startswith("chr") and fc[3:] in fasta_chroms:
+                                    fc = fc[3:]
+                                elif (
+                                    not fc.startswith("chr")
+                                    and f"chr{fc}" in fasta_chroms
+                                ):
+                                    fc = f"chr{fc}"
+
+                            if fc in fasta_chroms:
+                                f_reg.write(f"{fc}:{p}-{p}\n")
+                                norm_to_orig[f"{fc}:{p}-{p}"] = (c, p)
 
                 # 3. Run samtools faidx --region-file
                 faidx_cmd = [
@@ -495,9 +499,7 @@ def run(args):
                     region_file,
                     ref_fasta,
                 ]
-                proc_ref = subprocess.Popen(
-                    faidx_cmd, stdout=subprocess.PIPE, text=True
-                )
+                proc_ref = popen(faidx_cmd, stdout=subprocess.PIPE, text=True)
 
                 curr_region = None
                 if proc_ref.stdout:
@@ -536,14 +538,26 @@ def run(args):
                 f_out.write("# RSID\tCHROM\tPOS\tRESULT\n")
 
                 if args.region:
-                    stream_cmd = ["tabix", ref_vcf_tab, args.region]
+                    # Use popen for tabix streaming
+                    proc = popen(
+                        ["tabix", ref_vcf_tab, args.region],
+                        stdout=subprocess.PIPE,
+                        text=True,
+                    )
                 else:
-                    cat_cmd = ["gzcat"] if ref_vcf_tab.endswith(".gz") else ["cat"]
-                    stream_cmd = cat_cmd + [ref_vcf_tab]
+                    # Use gzip.open for streaming if possible, but popen is easier for unified loop below
+                    if ref_vcf_tab.endswith((".gz", ".bgz")):
+                        proc = popen(
+                            ["gzip", "-dc", ref_vcf_tab],
+                            stdout=subprocess.PIPE,
+                            text=True,
+                        )
+                    else:
+                        proc = popen(
+                            ["cat", ref_vcf_tab], stdout=subprocess.PIPE, text=True
+                        )
 
-                with subprocess.Popen(
-                    stream_cmd, stdout=subprocess.PIPE, text=True
-                ) as proc:
+                with proc:
                     if proc.stdout:
                         ref_col_idx = -1
                         for line in proc.stdout:
@@ -699,7 +713,8 @@ def run(args):
             output_file = output_file.replace(".txt", ".csv")
 
         try:
-            convert_to_vendor_format(real_fmt, final_txt, output_file, lib.root)
+            templates_dir = lib.root or os.path.dirname(ref_fasta)
+            convert_to_vendor_format(real_fmt, final_txt, output_file, templates_dir)
             logging.info(f"Generated {output_file}")
         except Exception as e:
             logging.error(f"Failed to generate {real_fmt}: {e}")

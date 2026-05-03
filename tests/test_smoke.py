@@ -13,9 +13,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../s
 # Load environment variables
 cli_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
+from wgsextract_cli.core.config import settings  # noqa: E402
 from wgsextract_cli.main import main  # noqa: E402
 
-from wgsextract_cli.core.config import settings
 REF_PATH = settings.get("reference_fasta", "/tmp")
 INPUT_PATH = settings.get("input_path", "/tmp/fake.bam")
 
@@ -150,7 +150,8 @@ class TestCLISmoke(unittest.TestCase):
             patch("wgsextract_cli.core.dependencies.verify_dependencies"),
             patch("wgsextract_cli.commands.info.run_full_coverage"),
             patch("wgsextract_cli.commands.info.run_sampled_coverage"),
-            patch("wgsextract_cli.commands.info.calculate_bam_md5",
+            patch(
+                "wgsextract_cli.commands.info.calculate_bam_md5",
                 return_value="dummy_md5",
             ),
             patch("wgsextract_cli.core.ref_library.urlopen"),
