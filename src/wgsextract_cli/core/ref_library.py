@@ -12,7 +12,6 @@ from typing import Any
 from urllib.request import Request, urlopen
 
 from wgsextract_cli.core.dependencies import verify_dependencies
-from wgsextract_cli.core.utils import run_command
 
 # Global cache for genome data
 _GENOME_DATA_CACHE: list[dict[str, Any]] = []

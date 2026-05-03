@@ -23,6 +23,7 @@ from .commands import (
 )
 from .core.config import KNOWN_SETTINGS, get_config_path, reload_settings, settings
 from .core.messages import CLI_HELP
+from .core.utils import WGSExtractError, cleanup_processes
 
 
 class EmojiFormatter(logging.Formatter):
@@ -75,6 +76,60 @@ def _print_tree_recursive(parser, indent):
                 _print_tree_recursive(subparser, indent + 1)
 
 
+def _find_subcommand_index(
+    argv: list[str],
+    command_names: set[str],
+    option_map: dict[str, argparse.Action],
+) -> int | None:
+    """Return the index of the first real subcommand in argv."""
+    i = 0
+    while i < len(argv):
+        token = argv[i]
+        if token in command_names:
+            return i
+
+        option_name = token.split("=", 1)[0]
+        action = option_map.get(option_name)
+        if action is None:
+            i += 1
+            continue
+
+        if action.nargs == 0 or "=" in token:
+            i += 1
+        else:
+            i += 2
+
+    return None
+
+
+def _extract_shared_options(
+    argv: list[str],
+    option_map: dict[str, argparse.Action],
+) -> dict[str, object]:
+    values: dict[str, object] = {}
+    i = 0
+    while i < len(argv):
+        token = argv[i]
+        option_name, has_inline_value, inline_value = token.partition("=")
+        action = option_map.get(option_name)
+        if action is None:
+            i += 1
+            continue
+
+        if action.nargs == 0:
+            values[action.dest] = True
+            i += 1
+            continue
+
+        raw_value = inline_value if has_inline_value else argv[i + 1]
+        values[action.dest] = (
+            action.type(raw_value) if callable(action.type) else raw_value
+        )
+        i += 1 if has_inline_value else 2
+
+    return values
+
+
 def main():
     # Re-load config to pick up any environment changes made before calling main (useful for tests)
     reload_settings()
@@ -86,49 +141,52 @@ def main():
     # Use force=True to ensure our handler replaces any existing ones
     logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
 
-    # 1. Create a parent parser for shared arguments
-    # This allows arguments like --input to be placed AFTER the subcommand
-    base_parser = argparse.ArgumentParser(add_help=False)
+    # 1. Create a parent parser for shared arguments.
+    # Suppressed defaults prevent a subparser from overwriting values that were
+    # supplied before the subcommand (for example: --input sample.bam info).
+    base_parser = argparse.ArgumentParser(
+        add_help=False, argument_default=argparse.SUPPRESS
+    )
     base_parser.add_argument(
         "--debug",
         action="store_true",
-        default=settings.get("debug_mode", False),
+        default=argparse.SUPPRESS,
         help=CLI_HELP["arg_debug"],
     )
     base_parser.add_argument(
         "--quiet",
         action="store_true",
-        default=settings.get("quiet_mode", False),
+        default=argparse.SUPPRESS,
         help="Suppress all informational logs.",
     )
     base_parser.add_argument(
         "--input",
         "-i",
-        default=settings.get("input_path"),
+        default=argparse.SUPPRESS,
         help=CLI_HELP["arg_input"],
     )
     base_parser.add_argument(
         "--outdir",
         "-o",
-        default=settings.get("output_directory"),
+        default=argparse.SUPPRESS,
         help=CLI_HELP["arg_outdir"],
     )
     base_parser.add_argument(
         "--ref",
-        default=settings.get("reference_fasta"),
+        default=argparse.SUPPRESS,
         help=CLI_HELP["arg_ref"],
     )
     base_parser.add_argument(
         "--threads",
         "-t",
         type=int,
-        default=settings.get("cpu_threads"),
+        default=argparse.SUPPRESS,
         help=CLI_HELP["arg_threads"],
     )
     base_parser.add_argument(
         "--memory",
         "-m",
-        default=settings.get("memory_limit"),
+        default=argparse.SUPPRESS,
         help=CLI_HELP["arg_memory"],
     )
     base_parser.add_argument(
@@ -140,6 +198,16 @@ def main():
     # 2. Main parser
     parser = argparse.ArgumentParser(
         description=CLI_HELP["description"], parents=[base_parser]
+    )
+    parser.set_defaults(
+        debug=settings.get("debug_mode", False),
+        quiet=settings.get("quiet_mode", False),
+        input=settings.get("input_path"),
+        outdir=settings.get("output_directory"),
+        ref=settings.get("reference_fasta"),
+        threads=settings.get("cpu_threads"),
+        memory=settings.get("memory_limit"),
+        parent_pid=None,
     )
     parser.add_argument(
         "--full-help",
@@ -270,7 +338,28 @@ def main():
     ]:
         cmd_module.register(subparsers, base_parser)
 
+    command_names = set(subparsers.choices)
+    option_map = {
+        option: action
+        for action in base_parser._actions
+        for option in action.option_strings
+    }
+    raw_argv = sys.argv[1:]
+    command_index = _find_subcommand_index(raw_argv, command_names, option_map)
+
     args = parser.parse_args()
+
+    if command_index is not None:
+        pre_subcommand_args = _extract_shared_options(
+            raw_argv[:command_index], option_map
+        )
+        post_subcommand_args = _extract_shared_options(
+            raw_argv[command_index + 1 :], option_map
+        )
+        post_subcommand_dests = post_subcommand_args
+        for dest, value in pre_subcommand_args.items():
+            if dest not in post_subcommand_dests:
+                setattr(args, dest, value)
 
     if args.full_help:
         print_full_help(parser)
@@ -283,8 +372,6 @@ def main():
 
     # Handle signals for clean exit (allows finally blocks to run)
     import signal
-
-    from .core.utils import cleanup_processes
 
     def signal_handler(signum, frame):
         logging.info(f"Received signal {signum}, cleaning up...")
@@ -321,7 +408,20 @@ def main():
         os.makedirs(args.outdir, exist_ok=True)
 
     if hasattr(args, "func"):
-        args.func(args)
+        try:
+            args.func(args)
+        except WGSExtractError as e:
+            logging.error(str(e))
+            sys.exit(1)
+        except KeyboardInterrupt:
+            logging.info("Interrupted by user.")
+            sys.exit(130)
+        except Exception as e:
+            if args.debug:
+                logging.exception("An unexpected error occurred:")
+            else:
+                logging.error(f"An unexpected error occurred: {e}")
+            sys.exit(1)
     else:
         parser.print_help()
 

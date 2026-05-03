@@ -2,7 +2,7 @@ import os
 import shutil
 import unittest
 
-from tests.smoke_utils import ensure_fake_data, run_cli, verify_bam, verify_vcf
+from tests.smoke_utils import ensure_fake_data, run_cli
 
 
 class TestAnalyzeComprehensive(unittest.TestCase):

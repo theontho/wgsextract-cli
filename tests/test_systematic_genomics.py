@@ -1,10 +1,9 @@
 import os
-import shutil
 import subprocess
 
 import pytest
 
-from tests.smoke_utils import assert_log_contains, run_cli, verify_bam, verify_vcf
+from tests.smoke_utils import run_cli, verify_vcf
 
 
 @pytest.fixture(scope="module")

@@ -2,7 +2,6 @@
 
 import asyncio
 import os
-from pathlib import Path
 from typing import Any
 
 from ...core.config import settings

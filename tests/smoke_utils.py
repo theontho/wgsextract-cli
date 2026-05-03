@@ -1,7 +1,6 @@
 import os
 import shutil
 import subprocess
-from typing import Optional
 
 _TOOL_CACHE: dict[str, bool] = {}
 
@@ -23,13 +22,15 @@ def check_tool(tool_name: str) -> bool:
     return False
 
 
-def verify_bam(file_path: str) -> bool:
+def verify_bam(file_path: str, allow_empty: bool = False) -> bool:
     """Verifies that a BAM file exists and is valid using samtools quickcheck."""
     if not os.path.exists(file_path):
         print(f"File missing: {file_path}")
         return False
+    if allow_empty and os.path.getsize(file_path) == 0:
+        return True
     if not check_tool("samtools"):
-        return os.path.getsize(file_path) > 0
+        return allow_empty or os.path.getsize(file_path) > 0
 
     result = subprocess.run(["samtools", "quickcheck", file_path])
     return result.returncode == 0

@@ -12500,16 +12500,16 @@ packages:
 - pypi: ./
   name: wgsextract-cli
   version: 0.1.0
-  sha256: 791864445c0b238de9dfd18432ed9de521c59c5c4cd2cf6b3f0569803af21f97
+  sha256: 5ad8e8e36b5dbbb46322e3a571b44e12a7f054fbcdabe39f501967b2fcc0b2d6
   requires_dist:
   - pyliftover
   - psutil
-  - customtkinter
-  - pillow
-  - nicegui
   - platformdirs
   - tomli ; python_full_version < '3.11'
   - tomli-w
+  - customtkinter ; extra == 'gui'
+  - pillow ; extra == 'gui'
+  - nicegui ; extra == 'web'
   requires_python: '>=3.10'
 - conda: https://conda.anaconda.org/conda-forge/noarch/wheel-0.46.3-pyhd8ed1ab_0.conda
   sha256: d6cf2f0ebd5e09120c28ecba450556ce553752652d91795442f0e70f837126ae

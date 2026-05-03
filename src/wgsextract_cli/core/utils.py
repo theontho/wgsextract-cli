@@ -20,6 +20,12 @@ import threading
 import time
 
 
+class WGSExtractError(Exception):
+    """Base exception for wgsextract-cli errors."""
+
+    pass
+
+
 class ProcessRegistry:
     """
     Central registry for tracking sub-processes and cancel events.
@@ -60,21 +66,8 @@ class ProcessRegistry:
             if not self.processes:
                 return
 
-            # Safety check: if streams are already closed (atexit), skip logging
-            try:
-                import sys
-
-                if not sys.stderr or sys.stderr.closed:
-                    pass
-                else:
-                    logging.info(
-                        f"Cleanup: Terminating {len(self.processes)} active processes..."
-                    )
-            except (AttributeError, ValueError):
-                pass
-
             # Send termination signals
-            for key, proc in self.processes.items():
+            for _key, proc in self.processes.items():
                 if proc.poll() is None:
                     try:
                         if sys.platform == "win32":
@@ -86,8 +79,8 @@ class ProcessRegistry:
                         else:
                             # Unix: kill the process group
                             os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                    except Exception as e:
-                        logging.debug(f"Failed to term process {key}: {e}")
+                    except Exception:
+                        pass
 
             # Brief wait for graceful exit
             time.sleep(0.5)
@@ -584,206 +577,77 @@ class ReferenceLibrary:
                 break
 
         # Look for ClinVar VCF
-        env_clinvar = settings.get("clinvar_vcf_path")
-        if env_clinvar and os.path.exists(env_clinvar):
-            self.clinvar_vcf = env_clinvar
-        elif self.build:
-            for search_dir in [self.root, os.path.join(self.root, "ref")]:
-                if not os.path.isdir(search_dir):
-                    continue
-                potential = os.path.join(search_dir, f"clinvar_{self.build}.vcf.gz")
-                if os.path.exists(potential):
-                    self.clinvar_vcf = potential
-                    break
-                # Fallback check for alternate build names (e.g. hg38 vs grch38)
-                alt_names = ["hg38", "hg19", "grch38", "grch37"]
-                for alt in alt_names:
-                    # Only check if it's potentially compatible
-                    is_hg38_alt = self.build == "hg38" and (
-                        alt == "hg38" or alt == "grch38"
-                    )
-                    is_hg19_alt = self.build == "hg19" and (
-                        alt == "hg19" or alt == "grch37"
-                    )
-                    if is_hg38_alt or is_hg19_alt:
-                        potential = os.path.join(search_dir, f"clinvar_{alt}.vcf.gz")
-                        if os.path.exists(potential):
-                            self.clinvar_vcf = potential
-                            break
-                if self.clinvar_vcf:
-                    break
+        self.clinvar_vcf = self._resolve_annotation_file(
+            settings.get("clinvar_vcf_path"),
+            "clinvar",
+            [".vcf.gz"],
+            [self.root, os.path.join(self.root, "ref")],
+        )
 
         # Look for REVEL data
-        env_revel = settings.get("revel_tsv_path")
-        if env_revel and os.path.exists(env_revel):
-            self.revel_file = env_revel
-        elif self.build:
-            for search_dir in [self.root, os.path.join(self.root, "ref")]:
-                if not os.path.isdir(search_dir):
-                    continue
-                # Support .tsv.gz or .vcf.gz
-                found = False
-                for alt in [self.build, "hg38", "hg19", "grch38", "grch37"]:
-                    is_hg38_alt = self.build == "hg38" and (
-                        alt == "hg38" or alt == "grch38"
-                    )
-                    is_hg19_alt = self.build == "hg19" and (
-                        alt == "hg19" or alt == "grch37"
-                    )
-                    if not (is_hg38_alt or is_hg19_alt):
-                        continue
-                    for ext in [".tsv.gz", ".vcf.gz"]:
-                        potential = os.path.join(search_dir, f"revel_{alt}{ext}")
-                        if os.path.exists(potential):
-                            self.revel_file = potential
-                            found = True
-                            break
-                    if found:
-                        break
-                if found:
-                    break
+        self.revel_file = self._resolve_annotation_file(
+            settings.get("revel_tsv_path"),
+            "revel",
+            [".tsv.gz", ".vcf.gz"],
+            [self.root, os.path.join(self.root, "ref")],
+        )
 
         # Look for PhyloP data
-        env_phylop = settings.get("phylop_tsv_path")
-        if env_phylop and os.path.exists(env_phylop):
-            self.phylop_file = env_phylop
-        elif self.build:
-            for search_dir in [self.root, os.path.join(self.root, "ref")]:
-                if not os.path.isdir(search_dir):
-                    continue
-                found = False
-                for alt in [self.build, "hg38", "hg19", "grch38", "grch37"]:
-                    is_hg38_alt = self.build == "hg38" and (
-                        alt == "hg38" or alt == "grch38"
-                    )
-                    is_hg19_alt = self.build == "hg19" and (
-                        alt == "hg19" or alt == "grch37"
-                    )
-                    if not (is_hg38_alt or is_hg19_alt):
-                        continue
-                    for ext in [".tsv.gz", ".vcf.gz"]:
-                        potential = os.path.join(search_dir, f"phylop_{alt}{ext}")
-                        if os.path.exists(potential):
-                            self.phylop_file = potential
-                            found = True
-                            break
-                    if found:
-                        break
-                if found:
-                    break
+        self.phylop_file = self._resolve_annotation_file(
+            settings.get("phylop_tsv_path"),
+            "phylop",
+            [".tsv.gz", ".vcf.gz"],
+            [self.root, os.path.join(self.root, "ref")],
+        )
 
         # Look for gnomAD VCF
-        env_gnomad = settings.get("gnomad_vcf_path")
-        if env_gnomad and os.path.exists(env_gnomad):
-            self.gnomad_vcf = env_gnomad
-        elif self.build:
-            for search_dir in [self.root, os.path.join(self.root, "ref")]:
-                if not os.path.isdir(search_dir):
-                    continue
-                found = False
-                for alt in [self.build, "hg38", "hg19", "grch38", "grch37"]:
-                    is_hg38_alt = self.build == "hg38" and (
-                        alt == "hg38" or alt == "grch38"
-                    )
-                    is_hg19_alt = self.build == "hg19" and (
-                        alt == "hg19" or alt == "grch37"
-                    )
-                    if not (is_hg38_alt or is_hg19_alt):
-                        continue
-                    # Support .vcf.bgz or .vcf.gz
-                    for ext in [".vcf.bgz", ".vcf.gz"]:
-                        potential = os.path.join(search_dir, f"gnomad_{alt}{ext}")
-                        if os.path.exists(potential):
-                            self.gnomad_vcf = potential
-                            found = True
-                            break
-                    if found:
-                        break
-                if found:
-                    break
+        self.gnomad_vcf = self._resolve_annotation_file(
+            settings.get("gnomad_vcf_path"),
+            "gnomad",
+            [".vcf.bgz", ".vcf.gz"],
+            [self.root, os.path.join(self.root, "ref")],
+        )
 
         # Look for SpliceAI VCF
-        env_spliceai = settings.get("spliceai_vcf_path")
-        if env_spliceai and os.path.exists(env_spliceai):
-            self.spliceai_vcf = env_spliceai
-        elif self.build:
-            for search_dir in [self.root, os.path.join(self.root, "ref")]:
-                if not os.path.isdir(search_dir):
-                    continue
-                found = False
-                for alt in [self.build, "hg38", "hg19", "grch38", "grch37"]:
-                    is_hg38_alt = self.build == "hg38" and (
-                        alt == "hg38" or alt == "grch38"
-                    )
-                    is_hg19_alt = self.build == "hg19" and (
-                        alt == "hg19" or alt == "grch37"
-                    )
-                    if not (is_hg38_alt or is_hg19_alt):
-                        continue
-                    for ext in [".vcf.gz", ".vcf.bgz"]:
-                        potential = os.path.join(search_dir, f"spliceai_{alt}{ext}")
-                        if os.path.exists(potential):
-                            self.spliceai_vcf = potential
-                            found = True
-                            break
-                    if found:
-                        break
-                if found:
-                    break
+        self.spliceai_vcf = self._resolve_annotation_file(
+            settings.get("spliceai_vcf_path"),
+            "spliceai",
+            [".vcf.gz", ".vcf.bgz"],
+            [self.root, os.path.join(self.root, "ref")],
+        )
 
         # Look for AlphaMissense VCF
-        env_am = settings.get("alphamissense_vcf_path")
-        if env_am and os.path.exists(env_am):
-            self.alphamissense_vcf = env_am
-        elif self.build:
-            for search_dir in [self.root, os.path.join(self.root, "ref")]:
-                if not os.path.isdir(search_dir):
-                    continue
-                found = False
-                for alt in [self.build, "hg38", "hg19", "grch38", "grch37"]:
-                    is_hg38_alt = self.build == "hg38" and (
-                        alt == "hg38" or alt == "grch38"
-                    )
-                    is_hg19_alt = self.build == "hg19" and (
-                        alt == "hg19" or alt == "grch37"
-                    )
-                    if not (is_hg38_alt or is_hg19_alt):
-                        continue
-                    for ext in [".vcf.gz", ".vcf.bgz"]:
-                        potential = os.path.join(
-                            search_dir, f"alphamissense_{alt}{ext}"
-                        )
-                        if os.path.exists(potential):
-                            self.alphamissense_vcf = potential
-                            found = True
-                            break
-                    if found:
-                        break
-                if found:
-                    break
+        self.alphamissense_vcf = self._resolve_annotation_file(
+            settings.get("alphamissense_vcf_path"),
+            "alphamissense",
+            [".vcf.gz", ".vcf.bgz"],
+            [self.root, os.path.join(self.root, "ref")],
+        )
 
         # Look for PharmGKB VCF
         env_pharmgkb = settings.get("pharmgkb_vcf_path")
         if env_pharmgkb and os.path.exists(env_pharmgkb):
             self.pharmgkb_vcf = env_pharmgkb
         elif self.build:
-            for search_dir in [self.root, os.path.join(self.root, "ref")]:
-                if not os.path.isdir(search_dir):
-                    continue
-                found = False
-                # PharmGKB is often build-independent or named simply pharmgkb.vcf.gz
-                for alt in [self.build, "hg38", "hg19", "grch38", "grch37", ""]:
-                    name = f"pharmgkb_{alt}" if alt else "pharmgkb"
+            # PharmGKB has slightly different naming (can be prefix only)
+            self.pharmgkb_vcf = self._resolve_annotation_file(
+                None,
+                "pharmgkb",
+                [".vcf.gz", ".vcf.bgz", ".tsv.gz"],
+                [self.root, os.path.join(self.root, "ref")],
+            )
+            if not self.pharmgkb_vcf:
+                # Try prefix only
+                for search_dir in [self.root, os.path.join(self.root, "ref")]:
+                    if not os.path.isdir(search_dir):
+                        continue
                     for ext in [".vcf.gz", ".vcf.bgz", ".tsv.gz"]:
-                        potential = os.path.join(search_dir, f"{name}{ext}")
+                        potential = os.path.join(search_dir, f"pharmgkb{ext}")
                         if os.path.exists(potential):
                             self.pharmgkb_vcf = potential
-                            found = True
                             break
-                    if found:
+                    if self.pharmgkb_vcf:
                         break
-                if found:
-                    break
 
         # Look for Liftover Chain (hg38 -> hg19)
         if self.build == "hg38":
@@ -798,6 +662,49 @@ class ReferenceLibrary:
                 if os.path.exists(potential):
                     self.liftover_chain = potential
                     break
+
+    def _resolve_annotation_file(
+        self,
+        env_path: str | None,
+        prefix: str,
+        extensions: list[str],
+        search_dirs: list[str],
+    ) -> str | None:
+        """Helper to resolve a specific annotation file across multiple directories and build aliases."""
+        if env_path and os.path.exists(env_path):
+            return env_path
+
+        if not self.build:
+            return None
+
+        for search_dir in search_dirs:
+            if not os.path.isdir(search_dir):
+                continue
+
+            # Check direct build name and aliases
+            aliases = [self.build, "hg38", "hg19", "grch38", "grch37", ""]
+            for alt in aliases:
+                # Only check if it's potentially compatible with current build
+                is_hg38_compatible = self.build == "hg38" and (
+                    alt == "hg38" or alt == "grch38"
+                )
+                is_hg19_compatible = self.build == "hg19" and (
+                    alt == "hg19" or alt == "grch37"
+                )
+
+                if is_hg38_compatible or is_hg19_compatible:
+                    for ext in extensions:
+                        potential = os.path.join(search_dir, f"{prefix}_{alt}{ext}")
+                        if os.path.exists(potential):
+                            return potential
+                # Handle cases without build suffix in filename (e.g. prefix.vcf.gz)
+                if alt == "":
+                    for ext in extensions:
+                        potential = os.path.join(search_dir, f"{prefix}{ext}")
+                        if os.path.exists(potential):
+                            return potential
+
+        return None
 
 
 def resolve_reference(ref_path, md5_sig, input_path=None):
@@ -825,11 +732,8 @@ def calculate_bsd_sum(file_path):
     return checksum, blocks
 
 
-def popen(cmd, stdout=None, stderr=None, stdin=None, text=False, env=None):
-    """
-    Helper to run subprocess.Popen with shlex splitting and registry.
-    Default text=False to allow binary pipes (BAM/BCF).
-    """
+def _normalize_subprocess_cmd(cmd):
+    """Expand shell-style command strings and configured Pixi tool wrappers."""
     import shlex
 
     if isinstance(cmd, str):
@@ -844,6 +748,29 @@ def popen(cmd, stdout=None, stderr=None, stdin=None, text=False, env=None):
                     cmd_list.append(item)
             else:
                 cmd_list.append(item)
+
+    if cmd_list and isinstance(cmd_list[0], str):
+        executable = cmd_list[0]
+        if (
+            executable
+            and os.path.basename(executable) == executable
+            and shutil.which(executable) is None
+        ):
+            from wgsextract_cli.core.dependencies import get_tool_path
+
+            resolved = get_tool_path(executable)
+            if resolved:
+                cmd_list = shlex.split(resolved) + cmd_list[1:]
+
+    return cmd_list
+
+
+def popen(cmd, stdout=None, stderr=None, stdin=None, text=False, env=None):
+    """
+    Helper to run subprocess.Popen with shlex splitting and registry.
+    Default text=False to allow binary pipes (BAM/BCF).
+    """
+    cmd_list = _normalize_subprocess_cmd(cmd)
 
     cmd_str = " ".join(cmd_list)
     logging.debug(f"Popen: {cmd_str}")
@@ -855,43 +782,43 @@ def popen(cmd, stdout=None, stderr=None, stdin=None, text=False, env=None):
     return process
 
 
-def run_command(cmd, capture_output=False, check=True, env=None):
+def run_command(
+    cmd, capture_output=False, check=True, env=None, stdin=None, stdout=None
+):
     """Helper to run subprocess with logging and registry."""
-    import shlex
-
-    if isinstance(cmd, str):
-        cmd_list = shlex.split(cmd)
-    else:
-        cmd_list = []
-        for item in cmd:
-            if isinstance(item, str) and ("pixi run" in item or " " in item):
-                if item == cmd[0]:
-                    cmd_list.extend(shlex.split(item))
-                else:
-                    cmd_list.append(item)
-            else:
-                cmd_list.append(item)
+    cmd_list = _normalize_subprocess_cmd(cmd)
 
     cmd_str = " ".join(cmd_list)
     logging.debug(f"Running: {cmd_str}")
 
+    # If stdout/stdin are provided, they take precedence over capture_output
+    proc_stdout = (
+        stdout if stdout is not None else (subprocess.PIPE if capture_output else None)
+    )
+    proc_stderr = subprocess.PIPE if capture_output else None
+
     process = subprocess.Popen(
         cmd_list,
-        stdout=subprocess.PIPE if capture_output else None,
-        stderr=subprocess.PIPE if capture_output else None,
-        text=True,
+        stdout=proc_stdout,
+        stderr=proc_stderr,
+        stdin=stdin,
+        text=True if capture_output or (stdout is None) else False,
         env=env,
     )
 
     proc_registry.register_process(cmd_str, process)
     try:
-        stdout, stderr = process.communicate()
+        res_stdout, res_stderr = process.communicate()
         if check and process.returncode != 0:
             logging.error(f"Command failed: {cmd_str}")
-            if stderr:
-                logging.error(stderr)
-            raise subprocess.CalledProcessError(process.returncode, cmd, stdout, stderr)
-        return subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
+            if res_stderr:
+                logging.error(res_stderr)
+            raise subprocess.CalledProcessError(
+                process.returncode, cmd, res_stdout, res_stderr
+            )
+        return subprocess.CompletedProcess(
+            cmd, process.returncode, res_stdout, res_stderr
+        )
     finally:
         proc_registry.unregister_process(cmd_str)
 
@@ -989,7 +916,7 @@ def normalize_vcf_chromosomes(vcf_path, target_chroms):
         res = subprocess.run(
             ["bcftools", "index", "-s", vcf_path], capture_output=True, text=True
         )
-        v_chroms = [l.split("\t")[0] for l in res.stdout.strip().split("\n")]
+        v_chroms = [line.split("\t")[0] for line in res.stdout.strip().split("\n")]
     except Exception:
         return vcf_path
 
@@ -1291,7 +1218,7 @@ def get_vcf_chr_name(vcf_path, target_chr):
 
         cmd = shlex.split(bcftools) + ["index", "-s", vcf_path]
         res = subprocess.run(cmd, capture_output=True, text=True)
-        v_chroms = [l.split("\t")[0] for l in res.stdout.strip().split("\n")]
+        v_chroms = [line.split("\t")[0] for line in res.stdout.strip().split("\n")]
 
         if target_chr.upper() in ["M", "MT", "CHRM", "CHRMT"]:
             for c in ["chrM", "chrMT", "MT", "M"]:

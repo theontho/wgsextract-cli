@@ -1,6 +1,7 @@
 import io
 import os
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
@@ -61,7 +62,9 @@ class TestInfoCommand(unittest.TestCase):
         mock_md5.return_value = "bd894134bddba260df88a90123a2ee9c"  # hg38
         mock_sorted.return_value = True
         mock_stats.return_value = (50.0, True)  # 50GB, Indexed
-        mock_exists.side_effect = lambda p: False if ".wgse_info.json" in p else True
+        mock_exists.side_effect = lambda p: (
+            False if ".wgse_info.json" in str(p) else True
+        )
         mock_body.return_value = (
             1000,
             150.0,
@@ -94,6 +97,28 @@ class TestInfoCommand(unittest.TestCase):
         self.assertIn("Avg Insert Size             300 bp", output)
         self.assertIn("Sequencer                   Illumina NS 6000 (Dante)", output)
 
+    @patch("wgsextract_cli.commands.info.run")
+    def test_global_options_before_subcommand_are_preserved(self, mock_run):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_args = [
+                "wgsextract-cli",
+                "--input",
+                "sample.bam",
+                "--outdir",
+                tmpdir,
+                "--ref",
+                "reference",
+                "info",
+            ]
+
+            with patch.object(sys, "argv", test_args):
+                main()
+
+        args = mock_run.call_args.args[0]
+        self.assertEqual(args.input, "sample.bam")
+        self.assertEqual(args.outdir, tmpdir)
+        self.assertEqual(args.ref, "reference")
+
     @patch("wgsextract_cli.commands.info.verify_dependencies")
     @patch("wgsextract_cli.commands.info.get_bam_header")
     @patch("wgsextract_cli.commands.info.calculate_bam_md5")
@@ -121,7 +146,9 @@ class TestInfoCommand(unittest.TestCase):
         mock_md5.return_value = "bd894134bddba260df88a90123a2ee9c"  # hg38
         mock_sorted.return_value = True
         mock_stats.return_value = (50.0, True)
-        mock_exists.side_effect = lambda p: False if ".wgse_info.json" in p else True
+        mock_exists.side_effect = lambda p: (
+            False if ".wgse_info.json" in str(p) else True
+        )
         mock_getsize.return_value = 0  # So it doesn't try to read CSV
 
         # count, avg_len, std_len, avg_tlen, std_tlen, is_paired, first_qname
@@ -192,7 +219,9 @@ class TestInfoCommand(unittest.TestCase):
         mock_md5.return_value = "bd894134bddba260df88a90123a2ee9c"
         mock_sorted.return_value = True
         mock_stats.return_value = (50.0, True)
-        mock_exists.side_effect = lambda p: False if ".wgse_info.json" in p else True
+        mock_exists.side_effect = lambda p: (
+            False if ".wgse_info.json" in str(p) else True
+        )
         mock_getsize.return_value = 0
         mock_body.return_value = (1000, 150.0, 2.0, 300.0, 50.0, True, "QNAME")
         mock_idxstats.return_value = (
