@@ -121,7 +121,7 @@ echo "--------------------------------------------------------"
 
 # 4. Run chain-annotate command
 echo ":: Running chained annotation (clinvar,revel,phylop,gnomad,spliceai,alphamissense,pharmgkb)..."
-if uv run wgsextract vcf chain-annotate \
+if pixi run wgsextract vcf chain-annotate \
     --input "$INPUT_VCF" \
     --ref "$REFDIR" \
     --outdir "$OUTDIR" \
@@ -154,7 +154,7 @@ fi
 echo ":: Testing 'vcf chain-annotate' with --keep-intermediates..."
 OUTDIR_KEEP="$OUTDIR/keep_intermediates"
 mkdir -p "$OUTDIR_KEEP"
-if uv run wgsextract vcf chain-annotate \
+if pixi run wgsextract vcf chain-annotate \
     --input "$INPUT_VCF" \
     --ref "$REFDIR" \
     --outdir "$OUTDIR_KEEP" \

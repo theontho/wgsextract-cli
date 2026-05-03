@@ -54,7 +54,7 @@ start_time=$(date +%s)
 INPUT_ABS=$(realpath "$INPUT_VCF")
 OUTDIR_ABS=$(realpath "$OUTDIR")
 
-if ! uv run wgsextract lineage y-haplogroup \
+if ! pixi run wgsextract lineage y-haplogroup \
     --input "$INPUT_ABS" \
     --ref "$REF_ROOT" \
     --outdir "$OUTDIR_ABS" \

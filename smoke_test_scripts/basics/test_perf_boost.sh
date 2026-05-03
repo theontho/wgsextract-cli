@@ -21,7 +21,7 @@ R1="$OUTDIR/fake_R1.fastq.gz"
 R2="$OUTDIR/fake_R2.fastq.gz"
 
 echo ":: Generating fake data for performance boost test..."
-uv run wgsextract qc fake-data --type fastq --outdir "$OUTDIR" --coverage 0.1 --seed 42 --build hg38 --ref "$OUTDIR"
+pixi run wgsextract qc fake-data --type fastq --outdir "$OUTDIR" --coverage 0.1 --seed 42 --build hg38 --ref "$OUTDIR"
 REF_FILE=$(find "$OUTDIR" -name "fake_ref_hg38_*.fa" | head -n 1)
 
 echo "--------------------------------------------------------"
@@ -30,12 +30,12 @@ echo "--------------------------------------------------------"
 
 # Check if sambamba and samblaster are available (includes Pixi fallback)
 HAS_SAMBAMBA=""
-if uv run wgsextract deps check --tool sambamba &> /dev/null; then
+if pixi run wgsextract deps check --tool sambamba &> /dev/null; then
     HAS_SAMBAMBA="YES"
 fi
 
 HAS_SAMBLASTER=""
-if uv run wgsextract deps check --tool samblaster &> /dev/null; then
+if pixi run wgsextract deps check --tool samblaster &> /dev/null; then
     HAS_SAMBLASTER="YES"
 fi
 
@@ -45,7 +45,7 @@ if [ -n "$HAS_SAMBLASTER" ]; then echo "  - samblaster: FOUND"; else echo "  - s
 
 # 2. Run alignment with BWA
 echo ":: Running BWA alignment with potential performance boosts..."
-STDOUT=$(uv run wgsextract align --r1 "$R1" --r2 "$R2" --ref "$REF_FILE" --outdir "$OUTDIR" --debug 2>&1)
+STDOUT=$(pixi run wgsextract align --r1 "$R1" --r2 "$R2" --ref "$REF_FILE" --outdir "$OUTDIR" --debug 2>&1)
 echo "$STDOUT"
 
 # 3. Verify output

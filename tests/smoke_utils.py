@@ -2,7 +2,7 @@ import os
 import shutil
 import subprocess
 
-_TOOL_CACHE = {}
+_TOOL_CACHE: dict[str, bool] = {}
 
 
 def check_tool(tool_name: str) -> bool:
@@ -16,7 +16,7 @@ def check_tool(tool_name: str) -> bool:
         _TOOL_CACHE[tool_name] = True
         return True
 
-    # Check common locations or via 'uv run' if needed
+    # Check common locations or via 'pixi run' if needed
     # (Simplified for now)
     _TOOL_CACHE[tool_name] = False
     return False
@@ -105,8 +105,8 @@ def assert_file_contains(file_path: str, pattern: str) -> bool:
 
 def get_cli_command() -> list[str]:
     """Returns the base command for running the CLI as a subprocess."""
-    # Using 'uv run python3 -m wgsextract_cli.main' ensures we use the project's env
-    return ["uv", "run", "python3", "-m", "wgsextract_cli.main"]
+    # Using 'pixi run python3 -m wgsextract_cli.main' ensures we use the project's env
+    return ["pixi", "run", "python3", "-m", "wgsextract_cli.main"]
 
 
 def run_cli(args: list[str], env: dict | None = None) -> tuple[int, str, str]:

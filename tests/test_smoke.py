@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 # Ensure src is in sys.path
@@ -24,6 +25,13 @@ class TestCLISmoke(unittest.TestCase):
     """
     Rapid plumbing verification using mocked tool execution.
     """
+
+    results: list[dict[str, Any]] = []
+    test_dir: str = ""
+    dummy_fastq: str = ""
+    dummy_vcf: str = ""
+    dummy_bed: str = ""
+    dummy_ploidy: str = ""
 
     @classmethod
     def setUpClass(cls):

@@ -31,5 +31,9 @@ jobs:
         env:
           HOME: ${{ github.workspace }}/.tmp_home
         run: pixi run python -m wgsextract_cli.main ref library --install hs38 --ref reference
+      - name: Lint and Type Check
+        run: |
+          pixi run ruff check .
+          pixi run mypy src/wgsextract_cli
       - name: Run Basic Tests
         run: pixi run pytest tests/test_smoke.py

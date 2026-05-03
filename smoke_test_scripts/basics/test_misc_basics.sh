@@ -27,7 +27,7 @@ echo "--------------------------------------------------------"
 # 1. BAM Sort
 echo ":: Testing 'bam sort'..."
 REF=$(find "$FAKEDATA" -name "fake_ref_hg38_*.fa" | head -n 1)
-if uv run wgsextract bam sort \
+if pixi run wgsextract bam sort \
     --input "$FAKEDATA/fake.bam" \
     --ref "$REF" \
     --outdir "$OUTDIR" > "$OUTDIR/bam_sort.stdout" 2>&1 && [ -f "$OUTDIR/fake_sorted.bam" ]; then
@@ -47,7 +47,7 @@ fi
 echo ":: Testing 'bam unindex'..."
 cp "$OUTDIR/fake_sorted.bam" "$OUTDIR/test_unindex.bam"
 touch "$OUTDIR/test_unindex.bam.bai"
-if uv run wgsextract bam unindex --input "$OUTDIR/test_unindex.bam" && [ ! -f "$OUTDIR/test_unindex.bam.bai" ]; then
+if pixi run wgsextract bam unindex --input "$OUTDIR/test_unindex.bam" && [ ! -f "$OUTDIR/test_unindex.bam.bai" ]; then
     echo "✅ Success: bam unindex completed."
 else
     echo "❌ Failure: bam unindex failed or file still exists."
@@ -56,7 +56,7 @@ fi
 
 # 3. BAM Unsort (Name sort)
 echo ":: Testing 'bam unsort'..."
-if uv run wgsextract bam unsort \
+if pixi run wgsextract bam unsort \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR" > "$OUTDIR/bam_unsort.stdout" 2>&1 && [ -f "$OUTDIR/fake_unsorted.bam" ]; then
     if verify_bam "$OUTDIR/fake_unsorted.bam"; then
@@ -73,7 +73,7 @@ fi
 
 # 4. BAM Unalign (BAM to FASTQ)
 echo ":: Testing 'bam unalign'..."
-if uv run wgsextract bam unalign \
+if pixi run wgsextract bam unalign \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR/unaligned" \
     --r1 "R1.fastq.gz" \
@@ -92,7 +92,7 @@ fi
 
 # 5. QC VCF
 echo ":: Testing 'qc vcf'..."
-if uv run wgsextract qc vcf --vcf-input "$FAKEDATA/fake.vcf.gz" --outdir "$OUTDIR" > "$OUTDIR/qc_vcf.stdout" 2>&1 && [ -f "$OUTDIR/fake.vcf.gz.vcfstats.txt" ]; then
+if pixi run wgsextract qc vcf --vcf-input "$FAKEDATA/fake.vcf.gz" --outdir "$OUTDIR" > "$OUTDIR/qc_vcf.stdout" 2>&1 && [ -f "$OUTDIR/fake.vcf.gz.vcfstats.txt" ]; then
     if grep -q "number of SNPs:" "$OUTDIR/fake.vcf.gz.vcfstats.txt"; then
         echo "✅ Success: qc vcf completed and produced valid stats file."
     else
@@ -109,7 +109,7 @@ fi
 
 # 6. BAM Identify
 echo ":: Testing 'bam identify'..."
-if uv run wgsextract bam identify --input "$FAKEDATA/fake.bam" > "$OUTDIR/bam_identify.stdout" 2>&1; then
+if pixi run wgsextract bam identify --input "$FAKEDATA/fake.bam" > "$OUTDIR/bam_identify.stdout" 2>&1; then
     if grep -q "MD5 Signature" "$OUTDIR/bam_identify.stdout"; then
         echo "✅ Success: bam identify completed and reported info."
     else
@@ -127,7 +127,7 @@ fi
 # 7. Optional QC tools (fastp/fastqc)
 if command -v fastp >/dev/null 2>&1; then
     echo ":: Testing 'qc fastp'..."
-    if uv run wgsextract qc fastp \
+    if pixi run wgsextract qc fastp \
         --r1 "$OUTDIR/unaligned/R1.fastq.gz" \
         --r2 "$OUTDIR/unaligned/R2.fastq.gz" \
         --outdir "$OUTDIR/fastp"; then
@@ -137,7 +137,7 @@ fi
 
 if command -v fastqc >/dev/null 2>&1; then
     echo ":: Testing 'qc fastqc'..."
-    if uv run wgsextract qc fastqc \
+    if pixi run wgsextract qc fastqc \
         --input "$OUTDIR/unaligned/R1.fastq.gz" \
         --outdir "$OUTDIR/fastqc"; then
         echo "✅ Success: qc fastqc completed."

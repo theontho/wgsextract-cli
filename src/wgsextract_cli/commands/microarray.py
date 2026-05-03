@@ -225,8 +225,16 @@ def run(args):
     is_vcf = args.input.endswith((".vcf", ".vcf.gz", ".bcf"))
 
     region_args = ["-r", args.region] if args.region else []
+
+    # Resolve ploidy alias from build if no file provided
+    ploidy_val = "1"  # Default to haploid if unknown
+    if lib.build == "hg38":
+        ploidy_val = "GRCh38"
+    elif lib.build == "hg19" or lib.build == "hs37d5":
+        ploidy_val = "GRCh37"
+
     ploidy_args = (
-        ["--ploidy-file", ploidy_file] if ploidy_file else ["--ploidy", "human"]
+        ["--ploidy-file", ploidy_file] if ploidy_file else ["--ploidy", ploidy_val]
     )
 
     start_vcf = time.time()

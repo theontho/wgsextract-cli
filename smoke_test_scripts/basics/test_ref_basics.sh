@@ -23,7 +23,7 @@ echo "--------------------------------------------------------"
 
 # 1. Generate small fake reference
 echo ":: Generating small fake reference..."
-uv run wgsextract qc fake-data \
+pixi run wgsextract qc fake-data \
     --outdir "$FAKEREFDIR" \
     --build hg38 \
     --type fastq \
@@ -48,7 +48,7 @@ HTTP_PID=$!
 # Give it a moment to start
 sleep 2
 
-if uv run wgsextract ref download \
+if pixi run wgsextract ref download \
     --url "http://localhost:8080/$(basename "$REF_PATH")" \
     --out "$OUTDIR/downloaded.fa" > "$OUTDIR/download.stdout" 2>&1 && [ -f "$OUTDIR/downloaded.fa" ]; then
     kill "$HTTP_PID"
@@ -62,7 +62,7 @@ fi
 
 # 3. Test 'ref index'
 echo ":: Testing 'ref index'..."
-if uv run wgsextract ref index \
+if pixi run wgsextract ref index \
     --ref "$OUTDIR/downloaded.fa" > "$OUTDIR/index.stdout" 2>&1 && [ -f "$OUTDIR/downloaded.fa.fai" ]; then
     echo "✅ Success: 'ref index' completed."
 else
@@ -73,7 +73,7 @@ fi
 
 # 4. Test 'ref count-ns'
 echo ":: Testing 'ref count-ns'..."
-if uv run wgsextract ref count-ns \
+if pixi run wgsextract ref count-ns \
     --ref "$OUTDIR/downloaded.fa" > "$OUTDIR/count_ns.stdout" 2>&1 && grep -q "Processing" "$OUTDIR/count_ns.stdout"; then
     echo "✅ Success: 'ref count-ns' completed and reported counts."
 else
@@ -84,7 +84,7 @@ fi
 
 # 5. Test 'ref verify'
 echo ":: Testing 'ref verify'..."
-if uv run wgsextract ref verify \
+if pixi run wgsextract ref verify \
     --ref "$OUTDIR/downloaded.fa" > "$OUTDIR/verify.stdout" 2>&1 && grep -q "appears to be valid" "$OUTDIR/verify.stdout"; then
     echo "✅ Success: 'ref verify' completed and confirmed validity."
 else

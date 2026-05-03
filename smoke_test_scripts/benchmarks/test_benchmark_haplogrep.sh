@@ -42,7 +42,7 @@ verify_bam "$INPUT_CRAM"
 start_time=$(date +%s)
 
 # Run the mt-dna command
-uv run wgsextract lineage mt-haplogroup \
+pixi run wgsextract lineage mt-haplogroup \
     --input "$INPUT_CRAM" \
     --ref "$REF_PATH" \
     --outdir "$OUTDIR" \

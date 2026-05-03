@@ -22,7 +22,7 @@ check_deps() {
             continue
         fi
 
-        if ! uv run python3 -m wgsextract_cli.main deps check --tool "$tool" &> /dev/null; then
+        if ! pixi run python3 -m wgsextract_cli.main deps check --tool "$tool" &> /dev/null; then
             missing+=("$tool")
         fi
     done
@@ -46,7 +46,7 @@ ensure_fake_data() {
 
     if [ ! -f "$FAKE_DIR/fake.bam" ] || [ ! -f "$FAKE_DIR/fake_ref.fa" ]; then
         echo ":: [Common] Shared fake data missing or incomplete. Generating (10x scaled hg38)..."
-        uv run wgsextract qc fake-data \
+        pixi run wgsextract qc fake-data \
             --outdir "$FAKE_DIR" \
             --build hg38 \
             --type bam,vcf,fastq \
@@ -83,7 +83,7 @@ ensure_fake_data() {
 
     if [ -f "$FAKE_DIR/fake_ref.fa" ] && [ ! -f "$FAKE_DIR/fake_ref.fa.fai" ]; then
         echo ":: [Common] Indexing fake reference..."
-        uv run wgsextract ref index --ref "$FAKE_DIR/fake_ref.fa"
+        pixi run wgsextract ref index --ref "$FAKE_DIR/fake_ref.fa"
     fi
 }
 

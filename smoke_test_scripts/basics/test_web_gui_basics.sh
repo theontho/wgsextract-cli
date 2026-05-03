@@ -19,7 +19,7 @@ echo "--------------------------------------------------------"
 
 # 1. Test 'web-gui --help'
 echo ":: Testing 'web-gui --help'..."
-if uv run wgsextract web-gui --help > "$OUTDIR/web_gui_help.stdout" 2>&1; then
+if pixi run wgsextract web-gui --help > "$OUTDIR/web_gui_help.stdout" 2>&1; then
     echo "✅ Success: 'web-gui --help' completed."
 else
     echo "❌ Failure: 'web-gui --help' failed."
@@ -30,7 +30,7 @@ fi
 echo ":: Starting Web GUI in background..."
 # We use a different port if needed, but the default is 8081.
 # NiceGUI might take a while to start.
-uv run wgsextract web-gui > "$OUTDIR/web_gui.log" 2>&1 &
+pixi run wgsextract web-gui > "$OUTDIR/web_gui.log" 2>&1 &
 GUI_PID=$!
 
 # Cleanup function to kill the GUI on exit

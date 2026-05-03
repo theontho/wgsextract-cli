@@ -15,6 +15,7 @@ except ImportError:
 
 import atexit
 import signal
+import sys
 import threading
 import time
 
@@ -69,7 +70,7 @@ class ProcessRegistry:
             for _key, proc in self.processes.items():
                 if proc.poll() is None:
                     try:
-                        if os.name == "nt":
+                        if sys.platform == "win32":
                             # Windows: send CTRL_BREAK_EVENT to process group
                             # Use getattr to avoid MyPy error on non-Windows
                             proc.send_signal(
@@ -88,10 +89,12 @@ class ProcessRegistry:
             for _key, proc in self.processes.items():
                 if proc.poll() is None:
                     try:
-                        if os.name == "nt":
+                        if sys.platform == "win32":
                             proc.kill()
                         else:
-                            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                            os.killpg(
+                                os.getpgid(proc.pid), getattr(signal, "SIGKILL", 9)
+                            )
                     except Exception:
                         pass
 

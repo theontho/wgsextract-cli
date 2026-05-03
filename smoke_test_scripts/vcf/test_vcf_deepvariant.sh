@@ -30,7 +30,7 @@ echo "--------------------------------------------------------"
 check_deps run_deepvariant
 ensure_fake_data
 
-if uv run wgsextract vcf deepvariant \
+if pixi run wgsextract vcf deepvariant \
     --input "$INPUT_BAM" \
     --ref "$REF_FASTA" \
     --outdir "$OUTDIR" \
@@ -52,7 +52,7 @@ fi
 
 # 2. Test --wes flag (parsing/help)
 echo ":: Testing vcf deepvariant --wes (argument parsing)..."
-if uv run wgsextract vcf deepvariant --wes --help > /dev/null 2>&1; then
+if pixi run wgsextract vcf deepvariant --wes --help > /dev/null 2>&1; then
     echo "✅ Success: --wes flag accepted."
 else
     echo "❌ Failure: --wes flag rejected."

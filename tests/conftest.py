@@ -4,7 +4,9 @@ from pathlib import Path
 import pytest
 
 try:
-    _HAS_NICEGUI_TESTING = importlib.util.find_spec("nicegui.testing.plugin") is not None
+    _HAS_NICEGUI_TESTING = (
+        importlib.util.find_spec("nicegui.testing.plugin") is not None
+    )
 except ModuleNotFoundError:
     _HAS_NICEGUI_TESTING = False
 pytest_plugins = ["nicegui.testing.plugin"] if _HAS_NICEGUI_TESTING else []

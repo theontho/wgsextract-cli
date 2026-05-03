@@ -28,7 +28,9 @@ class State:
 
         self.vcf_mother = settings.get("mother_vcf_path", "")
         self.vcf_father = settings.get("father_vcf_path", "")
-        self.ref_path = settings.get("reference_library") or settings.get("reference_fasta", "")
+        self.ref_path = settings.get("reference_library") or settings.get(
+            "reference_fasta", ""
+        )
         self.out_dir = settings.get("output_directory", "")
         self.yleaf_path = settings.get("yleaf_executable", "")
         self.yleaf_pos = ""
