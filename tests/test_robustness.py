@@ -30,6 +30,15 @@ class TestRobustness(unittest.TestCase):
 
     def run_robust(self, name, args):
         """Helper to run a command with an INVALID path (directory where file expected)."""
+        res = self.run_cli(args)
+        output = res.stdout + res.stderr
+
+        self.assertNotIn(
+            "Traceback", output, f"Traceback found in robustness test of {name}"
+        )
+        # It should either print help, a clean error, or just exit.
+
+    def run_cli(self, args):
         env = os.environ.copy()
         env["PYTHONPATH"] = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "../src")
@@ -42,20 +51,13 @@ class TestRobustness(unittest.TestCase):
         cmd = [sys.executable, "-m", "wgsextract_cli.main"] + args
 
         try:
-            # Passing a directory (self.dummy_dir) where a file is expected should be handled gracefully.
-            res = subprocess.run(
+            return subprocess.run(
                 cmd, capture_output=True, text=True, timeout=5, env=env, input=""
             )
-            output = res.stdout + res.stderr
-
-            self.assertNotIn(
-                "Traceback", output, f"Traceback found in robustness test of {name}"
-            )
-            # It should either print help, a clean error, or just exit.
         except subprocess.TimeoutExpired:
-            self.fail(f"Robustness test for {name} timed out after 5s")
+            self.fail(f"CLI test timed out after 5s: {args}")
         except Exception as e:
-            self.fail(f"Robustness test for {name} failed to run: {e}")
+            self.fail(f"CLI test failed to run: {e}")
 
     def test_00_help(self):
         self.run_robust("help", ["--help"])
@@ -234,6 +236,16 @@ class TestRobustness(unittest.TestCase):
 
     def test_34_align(self):
         self.run_robust("align", ["align", "--r1", self.dummy_dir])
+
+    def test_missing_r1_exits_nonzero(self):
+        for args in [
+            ["align", "--ref", self.dummy_dir],
+            ["qc", "fastp"],
+            ["pet-align", "--species", "dog", "--ref", self.dummy_dir],
+        ]:
+            res = self.run_cli(args)
+            self.assertNotEqual(res.returncode, 0, args)
+            self.assertIn("--r1 is required", res.stderr)
 
 
 if __name__ == "__main__":

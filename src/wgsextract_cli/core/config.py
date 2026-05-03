@@ -18,6 +18,7 @@ KNOWN_SETTINGS = {
     "output_directory": (None, "Default output directory"),
     "reference_fasta": (None, "Path to the reference genome FASTA"),
     "reference_library": (None, "Reference library directory (genomes/)"),
+    "genome_library": (None, "Directory containing per-person genome folders"),
     "cpu_threads": ("Auto", "Number of CPU threads to use"),
     "memory_limit": ("1G", "Memory limit per thread"),
     "debug_mode": (False, "Enable verbose debug logging"),
@@ -41,6 +42,23 @@ KNOWN_SETTINGS = {
     "pet_r1_fastq": (None, "Test: Path to PET R1 reads"),
     "pet_r2_fastq": (None, "Test: Path to PET R2 reads"),
     "pet_reference_fasta": (None, "Test: Path to PET reference genome"),
+}
+
+CONFIG_ALIASES = {
+    "input": "input_path",
+    "outdir": "output_directory",
+    "ref": "reference_fasta",
+    "reflib": "reference_library",
+    "genomes": "genome_library",
+    "threads": "cpu_threads",
+    "memory": "memory_limit",
+    "yleaf_path": "yleaf_executable",
+    "haplogrep_path": "haplogrep_executable",
+    "jar_dir": "jar_directory",
+    "vep_cache": "vep_cache_directory",
+    "input_vcf": "default_input_vcf",
+    "mother_vcf": "mother_vcf_path",
+    "father_vcf": "father_vcf_path",
 }
 
 
@@ -74,6 +92,10 @@ def load_config() -> dict[str, Any]:
                 config = tomllib.load(f)
         except Exception as e:
             print(f"Error loading config from {config_path}: {e}", file=sys.stderr)
+
+    for old_key, new_key in CONFIG_ALIASES.items():
+        if old_key in config and new_key not in config:
+            config[new_key] = config[old_key]
 
     return config
 
