@@ -155,15 +155,14 @@ pixi run wgsextract microarray --kit 23andme_v5
 
 While primarily a CLI tool, `wgsextract-cli` includes modern GUI options:
 
-1.  **Web GUI (Recommended)**: A modern, reactive interface built with `NiceGUI`.
-    ```bash
-    pixi run wgsextract gui --web
-    ```
-2.  **Desktop GUI**: A classic desktop experience built with `CustomTkinter`.
+1.  **Desktop GUI**: A classic desktop experience built with `CustomTkinter`.
     ```bash
     pixi run wgsextract gui --desktop
     ```
-
+2.  **Web GUI (NOT Recommended)**: This GUI is incomplete and broken, it's a WIP.
+    ```bash
+    pixi run wgsextract gui --web
+    ```
 ---
 
 ## 🧪 Testing
