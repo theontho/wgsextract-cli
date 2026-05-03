@@ -154,11 +154,22 @@ def _set_vcf_input(
     config: dict[str, Any],
     explicit_dests: set[str],
 ) -> None:
-    if getattr(args, "vcf_cmd", None) == "trio":
+    vcf_cmd = getattr(args, "vcf_cmd", None)
+    if vcf_cmd == "trio":
+        if "proband" in explicit_dests and getattr(args, "proband", None):
+            return
+        if "vcf_input" in explicit_dests and getattr(args, "vcf_input", None):
+            return
+        resolved_vcf = str(_resolve_category(genome_dir, config, "vcf", VCF_SUFFIXES))
+        if hasattr(args, "proband"):
+            args.proband = resolved_vcf
+        if "vcf_input" not in explicit_dests and hasattr(args, "vcf_input"):
+            args.vcf_input = resolved_vcf
+        if "input" not in explicit_dests and hasattr(args, "input"):
+            args.input = None
         return
     if "vcf_input" in explicit_dests and getattr(args, "vcf_input", None):
         return
-    vcf_cmd = getattr(args, "vcf_cmd", None)
     should_resolve_vcf = getattr(args, "qc_cmd", None) == "vcf" or (
         vcf_cmd in VCF_FILE_COMMANDS and "vcf_input" not in explicit_dests
     )

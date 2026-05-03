@@ -215,6 +215,41 @@ class TestCLILogic(unittest.TestCase):
         self.assertEqual(args.vcf_input, vcf_path)
         self.assertIsNone(args.input)
 
+    def test_genome_library_resolves_trio_proband_vcf(self):
+        genome_root = os.path.join(self.test_dir, "genomes")
+        genome_dir = os.path.join(genome_root, "trio-child")
+        os.makedirs(genome_dir)
+        vcf_path = os.path.join(genome_dir, "child.vcf.gz")
+        with open(vcf_path, "w") as f:
+            f.write("vcf")
+
+        from wgsextract_cli.core.config import settings
+
+        old_value = settings.get("genome_library")
+        settings["genome_library"] = genome_root
+        try:
+            args = Namespace(
+                command="vcf",
+                vcf_cmd="trio",
+                genome="trio-child",
+                input=None,
+                vcf_input=None,
+                proband=None,
+                mother="mother.vcf.gz",
+                father="father.vcf.gz",
+                outdir=None,
+            )
+            apply_genome_selection(args, explicit_dests=set())
+        finally:
+            if old_value is None:
+                settings.pop("genome_library", None)
+            else:
+                settings["genome_library"] = old_value
+
+        self.assertEqual(args.proband, vcf_path)
+        self.assertEqual(args.vcf_input, vcf_path)
+        self.assertIsNone(args.input)
+
     def test_genome_library_rejects_path_escape(self):
         genome_root = os.path.join(self.test_dir, "genomes")
         os.makedirs(genome_root)
