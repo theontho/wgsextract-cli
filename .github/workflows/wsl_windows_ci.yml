@@ -1,4 +1,4 @@
-name: CI Windows (WSL2)
+﻿name: CI Windows (WSL2)
 
 on:
   pull_request:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   test-wsl:
-    runs-on: windows-2022
+    runs-on: windows-2025
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -82,3 +82,4 @@ jobs:
         shell: wsl-bash {0}
         run: |
           ~/.pixi/bin/pixi run pytest tests/test_smoke.py
+
