@@ -2346,7 +2346,7 @@ def cmd_chain_annotate(args):
 
             logging.info(f"[{i + 1}/{len(annotations)}] Running '{ann}' annotation...")
 
-            cmd = ["uv", "run", "wgsextract"]
+            cmd = [sys.executable, "-m", "wgsextract_cli.main"]
 
             if ann == "vep":
                 cmd.extend(["vep", "run"])

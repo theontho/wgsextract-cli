@@ -42,6 +42,9 @@ class TestWSLRuntime(unittest.TestCase):
             patch("wgsextract_cli.core.dependencies.shutil.which", return_value=None),
             patch("wgsextract_cli.core.runtime.should_consider_wsl", return_value=True),
             patch(
+                "wgsextract_cli.core.runtime.get_tool_runtime_mode", return_value="auto"
+            ),
+            patch(
                 "wgsextract_cli.core.runtime.wsl_command_available", return_value=True
             ),
         ):
@@ -51,6 +54,9 @@ class TestWSLRuntime(unittest.TestCase):
         with (
             patch("wgsextract_cli.core.dependencies.shutil.which", return_value=None),
             patch("wgsextract_cli.core.runtime.should_consider_wsl", return_value=True),
+            patch(
+                "wgsextract_cli.core.runtime.get_tool_runtime_mode", return_value="auto"
+            ),
             patch(
                 "wgsextract_cli.core.runtime.wsl_command_available", return_value=False
             ),
@@ -66,6 +72,28 @@ class TestWSLRuntime(unittest.TestCase):
             self.assertEqual(
                 dependencies.get_tool_path("bcftools"),
                 "wsl:/home/test/.pixi/bin/pixi run -e default bcftools",
+            )
+
+    def test_get_tool_path_uses_host_pixi_when_wsl_not_applicable(self):
+        completed = MagicMock(returncode=0)
+        with (
+            patch(
+                "wgsextract_cli.core.dependencies.shutil.which",
+                side_effect=lambda tool: (
+                    "/usr/local/bin/pixi" if tool == "pixi" else None
+                ),
+            ),
+            patch(
+                "wgsextract_cli.core.runtime.should_consider_wsl", return_value=False
+            ),
+            patch(
+                "wgsextract_cli.core.dependencies.subprocess.run",
+                return_value=completed,
+            ),
+        ):
+            self.assertEqual(
+                dependencies.get_tool_path("samtools"),
+                "/usr/local/bin/pixi run -e default samtools",
             )
 
     def test_translate_windows_paths_without_touching_regions_flags_or_urls(self):

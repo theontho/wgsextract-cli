@@ -62,7 +62,7 @@ def register(subparsers: Any, base_parser: Any) -> None:
         help="Write WSL2 resource settings. Uses host-based defaults if omitted.",
     )
     wsl_tune_parser.add_argument(
-        "--memory", help="WSL memory limit, such as 24GB. Defaults to 75% of RAM."
+        "--memory", help="WSL memory limit, such as 24GB. Defaults to 75%% of RAM."
     )
     wsl_tune_parser.add_argument(
         "--processors",
@@ -70,7 +70,7 @@ def register(subparsers: Any, base_parser: Any) -> None:
         help="Number of CPU processors available to WSL. Defaults to 2/3 of logical CPUs.",
     )
     wsl_tune_parser.add_argument(
-        "--swap", help="WSL swap size, such as 16GB. Defaults to 25% of RAM."
+        "--swap", help="WSL swap size, such as 16GB. Defaults to 25%% of RAM."
     )
     wsl_tune_parser.set_defaults(func=run_wsl_tune)
 

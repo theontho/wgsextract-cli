@@ -476,7 +476,7 @@ def run_bam_chain(args, input_file, outdir):
 
 def run_cli_subcommand(cmd_args, args):
     """Helper to run a wgsextract subcommand."""
-    cmd = ["uv", "run", "wgsextract"] + cmd_args
+    cmd = [sys.executable, "-m", "wgsextract_cli.main"] + cmd_args
 
     # Use explicit ref if provided, otherwise resolve from env/defaults
     ref_path = args.ref

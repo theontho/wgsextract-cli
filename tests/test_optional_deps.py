@@ -90,13 +90,38 @@ class TestOptionalDependencies(unittest.TestCase):
 
     @patch("wgsextract_cli.core.dependencies.shutil.which", return_value=None)
     @patch("wgsextract_cli.core.runtime.should_consider_wsl", return_value=True)
+    @patch("wgsextract_cli.core.runtime.get_tool_runtime_mode", return_value="auto")
     @patch("wgsextract_cli.core.runtime.wsl_command_available", return_value=True)
     def test_get_tool_path_can_return_wsl_fallback(
-        self, mock_wsl_available, mock_should_consider, mock_which
+        self, mock_wsl_available, mock_runtime_mode, mock_should_consider, mock_which
     ):
         from wgsextract_cli.core.dependencies import get_tool_path
 
         self.assertEqual(get_tool_path("samtools"), "wsl:samtools")
+
+    def test_get_tool_path_can_return_pixi_fallback_without_wsl(self):
+        from wgsextract_cli.core.dependencies import get_tool_path
+
+        completed = MagicMock(returncode=0)
+        with (
+            patch(
+                "wgsextract_cli.core.dependencies.shutil.which",
+                side_effect=lambda tool: (
+                    "/usr/local/bin/pixi" if tool == "pixi" else None
+                ),
+            ),
+            patch(
+                "wgsextract_cli.core.runtime.should_consider_wsl", return_value=False
+            ),
+            patch(
+                "wgsextract_cli.core.dependencies.subprocess.run",
+                return_value=completed,
+            ),
+        ):
+            self.assertEqual(
+                get_tool_path("samtools"),
+                "/usr/local/bin/pixi run -e default samtools",
+            )
 
     def test_version_output_filters_wsl_mount_warning(self):
         from wgsextract_cli.core.dependencies import _version_output

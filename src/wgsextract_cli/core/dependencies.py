@@ -359,14 +359,25 @@ def get_tool_version(tool: str) -> str | None:
 
 def get_tool_path(tool: str) -> str | None:
     """Returns the path to a tool if it exists in the system PATH or pixi environments."""
-    prefer_wsl = runtime.is_windows_host() and runtime.get_tool_runtime_mode() == "wsl"
+    should_consider_wsl = runtime.should_consider_wsl()
+    prefer_wsl = runtime.get_tool_runtime_mode() == "wsl"
 
-    if prefer_wsl and runtime.wsl_command_available(tool):
+    if should_consider_wsl and prefer_wsl and runtime.wsl_command_available(tool):
         return runtime.wsl_tool_command(tool)
 
     path = shutil.which(tool)
     if path:
         return path
+
+    if should_consider_wsl:
+        if runtime.wsl_command_available(tool):
+            return runtime.wsl_tool_command(tool)
+        if tool in PIXI_TOOL_ENVS and runtime.wsl_pixi_tool_available(
+            tool, PIXI_TOOL_ENVS[tool]
+        ):
+            return runtime.wsl_tool_command(
+                f"{_wsl_pixi_path()} run -e {PIXI_TOOL_ENVS[tool]} {tool}"
+            )
 
     # Check for pixi sub-environments
     if tool in PIXI_TOOL_ENVS:
@@ -399,16 +410,6 @@ def get_tool_path(tool: str) -> str | None:
                     return f"{pixi_cmd} run -e {env} {tool}"
             except Exception:
                 pass
-
-    if runtime.should_consider_wsl():
-        if runtime.wsl_command_available(tool):
-            return runtime.wsl_tool_command(tool)
-        if tool in PIXI_TOOL_ENVS and runtime.wsl_pixi_tool_available(
-            tool, PIXI_TOOL_ENVS[tool]
-        ):
-            return runtime.wsl_tool_command(
-                f"{_wsl_pixi_path()} run -e {PIXI_TOOL_ENVS[tool]} {tool}"
-            )
 
     return None
 

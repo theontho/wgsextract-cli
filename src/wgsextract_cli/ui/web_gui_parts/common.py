@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from nicegui import events, ui
+from nicegui import core, events, ui
 
 from wgsextract_cli.core.messages import GUI_TOOLTIPS
 
@@ -24,7 +24,14 @@ def set_render_content_refresh_cb(cb):
 
 def render_content_refresh():
     if _render_content_refresh_cb:
-        _render_content_refresh_cb()
+        if core.loop is None:
+            return
+        try:
+            _render_content_refresh_cb()
+        except AssertionError:
+            # NiceGUI refreshables require an active app loop; unit tests and CLI-side
+            # controller usage can update state without a live browser session.
+            pass
 
 
 class LocalFilePicker(ui.dialog):
