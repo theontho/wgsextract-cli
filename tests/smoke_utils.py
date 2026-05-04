@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 import sys
+from glob import glob
 
 _TOOL_CACHE: dict[str, bool] = {}
 
@@ -162,27 +163,51 @@ def assert_log_contains(stderr: str, pattern: str):
 
 def ensure_fake_data(fake_dir: str):
     """Ensures that fake test data is generated in the specified directory."""
-    if os.path.exists(os.path.join(fake_dir, "fake.bam")):
+    required_files = [
+        os.path.join(fake_dir, "fake.bam"),
+        os.path.join(fake_dir, "fake_ref.fa"),
+        os.path.join(fake_dir, "fake.vcf.gz"),
+    ]
+    if all(os.path.exists(path) for path in required_files):
         return
 
     os.makedirs(fake_dir, exist_ok=True)
-    # Use the CLI to generate fake data
-    run_cli(
-        [
-            "qc",
-            "fake-data",
-            "--outdir",
-            fake_dir,
-            "--build",
-            "hg38",
-            "--seed",
-            "42",
-            "--coverage",
-            "0.1",
-            "--type",
-            "all",
-        ]
-    )
+
+    def normalize_fake_data_names() -> None:
+        ref_candidates = glob(os.path.join(fake_dir, "fake_ref_hg38_*.fa"))
+        if ref_candidates and not os.path.exists(os.path.join(fake_dir, "fake_ref.fa")):
+            shutil.copy(ref_candidates[0], os.path.join(fake_dir, "fake_ref.fa"))
+
+        vcf_candidates = glob(os.path.join(fake_dir, "fake_*.vcf.gz"))
+        if vcf_candidates and not os.path.exists(os.path.join(fake_dir, "fake.vcf.gz")):
+            shutil.copy(vcf_candidates[0], os.path.join(fake_dir, "fake.vcf.gz"))
+            tabix_path = vcf_candidates[0] + ".tbi"
+            if os.path.exists(tabix_path):
+                shutil.copy(tabix_path, os.path.join(fake_dir, "fake.vcf.gz.tbi"))
+
+    normalize_fake_data_names()
+
+    if not all(os.path.exists(path) for path in required_files):
+        # Use the CLI to generate fake data
+        run_cli(
+            [
+                "qc",
+                "fake-data",
+                "--outdir",
+                fake_dir,
+                "--build",
+                "hg38",
+                "--seed",
+                "42",
+                "--coverage",
+                "10.0",
+                "--type",
+                "all",
+                "--ref",
+                fake_dir,
+            ]
+        )
+        normalize_fake_data_names()
 
 
 def setup_test_reference(tmp_path: str, ref_src: str):
