@@ -37,3 +37,5 @@ jobs:
           pixi run mypy src/wgsextract_cli
       - name: Run Basic Tests
         run: pixi run pytest tests/test_smoke.py
+      - name: Run Benchmark
+        run: pixi run wgsextract benchmark

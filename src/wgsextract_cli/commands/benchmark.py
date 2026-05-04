@@ -11,6 +11,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import psutil
+
+from wgsextract_cli.core.dependencies import (
+    get_tool_path,
+    get_tool_runtime,
+    get_tool_version,
+)
 from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
@@ -36,6 +43,32 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
 }
 
 EXCLUDED_OPERATIONS = "VEP, DeepVariant, Yleaf, Haplogrep"
+
+
+@dataclass(frozen=True)
+class BenchmarkToolSpec:
+    name: str
+    required: bool
+    purpose: str
+
+
+BENCHMARK_EXTERNAL_TOOLS: tuple[BenchmarkToolSpec, ...] = (
+    BenchmarkToolSpec("samtools", True, "BAM/CRAM/FASTA indexing and conversion"),
+    BenchmarkToolSpec("bcftools", True, "SNP/indel calling and VCF statistics"),
+    BenchmarkToolSpec("bgzip", True, "Target and VCF compression"),
+    BenchmarkToolSpec("tabix", True, "Compressed target and VCF indexing"),
+    BenchmarkToolSpec("bwa", True, "Short-read alignment"),
+    BenchmarkToolSpec(
+        "sambamba",
+        False,
+        "BAM sort/index/view acceleration when available on non-macOS",
+    ),
+    BenchmarkToolSpec(
+        "samblaster",
+        False,
+        "Duplicate-marking stage during alignment when available",
+    ),
+)
 
 
 @dataclass
@@ -149,18 +182,35 @@ def run(args: argparse.Namespace) -> None:
         "seed": args.seed,
         "region": region,
         "target_count": target_count,
+        "base_file": str(generated_bam),
+        "base_file_size": None,
+        "base_file_size_bytes": None,
+        "external_tools": _benchmark_external_tools(),
+        "machine_stats": _machine_stats(run_dir),
         "excluded_operations": EXCLUDED_OPERATIONS,
         "run_dir": str(run_dir),
     }
 
     results: list[BenchmarkResult] = []
 
+    _print_machine_stats(metadata["machine_stats"])
+    _print_external_tools(metadata["external_tools"])
+    _print_progress_header()
+
     def finish_report() -> None:
         _write_report(run_dir, metadata, results)
 
     def record(result: BenchmarkResult) -> BenchmarkResult:
         results.append(result)
-        if not result.success and not args.keep_going:
+        if result.slug == "00-generate-bam":
+            _record_base_file_size(metadata, generated_bam)
+            print(
+                f"Benchmark base file: {metadata['base_file']} "
+                f"({metadata['base_file_size']})",
+                flush=True,
+            )
+        print(_format_progress_result(result), flush=True)
+        if result.status == "FAIL" and not args.keep_going:
             finish_report()
             raise WGSExtractError(
                 f"Benchmark step failed: {result.name}. See {result.stderr_log}."
@@ -449,7 +499,7 @@ def run(args: argparse.Namespace) -> None:
             )
         )
     else:
-        results.append(
+        record(
             _skipped_result(
                 "CRAM to BAM conversion",
                 "07-cram-to-bam",
@@ -672,6 +722,390 @@ def _skipped_result(
     )
 
 
+def _print_progress_header() -> None:
+    print("WGSExtract CLI Benchmark Progress", flush=True)
+    print(f"{'Step':<42} {'Status':<6} {'Seconds':>10}", flush=True)
+    print("-" * 62, flush=True)
+
+
+def _format_progress_result(result: BenchmarkResult) -> str:
+    return f"{result.name:<42} {result.status:<6} {result.seconds:>10.2f}"
+
+
+def _benchmark_external_tools() -> list[dict[str, str | bool | None]]:
+    tools: list[dict[str, str | bool | None]] = []
+    for spec in BENCHMARK_EXTERNAL_TOOLS:
+        path = get_tool_path(spec.name)
+        version = get_tool_version(spec.name) if path else None
+        active = _tool_active_for_benchmark(spec.name, path)
+        tools.append(
+            {
+                "name": spec.name,
+                "required": spec.required,
+                "active": active,
+                "status": _tool_status(spec.required, active, path),
+                "purpose": spec.purpose,
+                "path": path,
+                "runtime": get_tool_runtime(path),
+                "version": version,
+            }
+        )
+    return tools
+
+
+def _tool_active_for_benchmark(tool: str, path: str | None) -> bool:
+    if path is None:
+        return False
+    if tool == "sambamba":
+        return platform.system() != "Darwin"
+    return True
+
+
+def _tool_status(required: bool, active: bool, path: str | None) -> str:
+    if active:
+        return "active"
+    if path:
+        return "available, not used on this platform"
+    if required:
+        return "missing required tool"
+    return "missing optional tool"
+
+
+def _print_external_tools(tools: list[dict[str, str | bool | None]]) -> None:
+    print("External tools used or checked by this benchmark:", flush=True)
+    for tool in tools:
+        print(f"  {_format_tool_line(tool)}", flush=True)
+    print("", flush=True)
+
+
+def _format_tool_line(tool: dict[str, str | bool | None]) -> str:
+    requirement = "required" if tool["required"] else "optional"
+    path = tool["path"] or "missing"
+    runtime = tool["runtime"] or "missing"
+    version = tool["version"] or "version unavailable"
+    return (
+        f"{tool['name']} [{requirement}, {tool['status']}] - {tool['purpose']} | "
+        f"{runtime}: {path} | {version}"
+    )
+
+
+def _format_tool_names(tools: list[dict[str, str | bool | None]]) -> str:
+    active_tools = [str(tool["name"]) for tool in tools if tool["active"]]
+    return ", ".join(active_tools) if active_tools else "none"
+
+
+def _format_machine_summary(stats: dict[str, str | int | None]) -> str:
+    cores = _machine_stat_display_value(stats, "cores") or "unknown cores"
+    ram = stats.get("ram_total") or "unknown RAM"
+    disk_free = stats.get("disk_free") or "unknown disk free"
+    os_name = stats.get("os") or "unknown OS"
+    cpu = stats.get("cpu_model") or "unknown CPU"
+    return f"{os_name} | {cpu} | {cores} | RAM {ram} | disk free {disk_free}"
+
+
+def _machine_stats(run_dir: Path) -> dict[str, str | int | None]:
+    virtual_memory = psutil.virtual_memory()
+    disk_usage = psutil.disk_usage(str(run_dir))
+    cpu_frequency = psutil.cpu_freq()
+    return {
+        "os": platform.platform(),
+        "python": sys.version.replace("\n", " "),
+        "architecture": platform.machine() or None,
+        "cpu_model": _cpu_model(),
+        "physical_cores": psutil.cpu_count(logical=False),
+        "logical_cores": psutil.cpu_count(logical=True),
+        "cpu_frequency": _format_cpu_frequency(cpu_frequency.current)
+        if cpu_frequency
+        else None,
+        "ram_total": _format_bytes(virtual_memory.total),
+        "ram_available": _format_bytes(virtual_memory.available),
+        "ram_speed": _ram_speed(),
+        "benchmark_filesystem": str(run_dir.anchor or run_dir),
+        "disk_total": _format_bytes(disk_usage.total),
+        "disk_free": _format_bytes(disk_usage.free),
+        "drive_model": _drive_model(run_dir),
+        "drive_speed": _drive_speed(run_dir),
+    }
+
+
+def _print_machine_stats(stats: dict[str, str | int | None]) -> None:
+    print("Machine stats:", flush=True)
+    for label, key in (
+        ("OS", "os"),
+        ("Architecture", "architecture"),
+        ("CPU", "cpu_model"),
+        ("Cores", "cores"),
+        ("CPU frequency", "cpu_frequency"),
+        ("RAM", "ram"),
+        ("RAM speed", "ram_speed"),
+        ("Benchmark filesystem", "benchmark_filesystem"),
+        ("Disk", "disk"),
+        ("Drive", "drive"),
+        ("Drive speed", "drive_speed"),
+    ):
+        value = _machine_stat_display_value(stats, key)
+        if value:
+            print(f"  {label}: {value}", flush=True)
+    print("", flush=True)
+
+
+def _machine_stat_display_value(
+    stats: dict[str, str | int | None], key: str
+) -> str | None:
+    if key == "cores":
+        physical = stats["physical_cores"] or "unknown"
+        logical = stats["logical_cores"] or "unknown"
+        return f"{physical} physical / {logical} logical"
+    if key == "ram":
+        return f"{stats['ram_total']} total / {stats['ram_available']} available"
+    if key == "disk":
+        return f"{stats['disk_total']} total / {stats['disk_free']} free"
+    if key == "drive":
+        drive_model = stats["drive_model"]
+        return str(drive_model) if drive_model else None
+    value = stats.get(key)
+    return str(value) if value else None
+
+
+def _cpu_model() -> str | None:
+    system = platform.system()
+    if system == "Darwin":
+        return _command_output(["sysctl", "-n", "machdep.cpu.brand_string"])
+    if system == "Windows":
+        return platform.processor() or _command_output(
+            ["wmic", "cpu", "get", "Name", "/value"]
+        )
+    if system == "Linux":
+        return _linux_cpu_model()
+    return platform.processor() or None
+
+
+def _linux_cpu_model() -> str | None:
+    cpuinfo = Path("/proc/cpuinfo")
+    if not cpuinfo.exists():
+        return platform.processor() or None
+    try:
+        with open(cpuinfo, encoding="utf-8") as handle:
+            for line in handle:
+                if line.lower().startswith("model name"):
+                    _key, _sep, value = line.partition(":")
+                    return value.strip() or None
+    except OSError:
+        return platform.processor() or None
+    return platform.processor() or None
+
+
+def _ram_speed() -> str | None:
+    system = platform.system()
+    if system == "Darwin":
+        speed = _command_output(["system_profiler", "SPMemoryDataType"])
+        return _first_matching_line(speed, "Speed:")
+    if system == "Windows":
+        return _command_output(
+            ["wmic", "memorychip", "get", "Speed", "/value"], first_value=True
+        )
+    if system == "Linux":
+        return _command_output(["dmidecode", "-t", "memory"], match="Speed:")
+    return None
+
+
+def _drive_model(path: Path) -> str | None:
+    system = platform.system()
+    if system == "Darwin":
+        output = _command_output(["diskutil", "info", _filesystem_mount(path)])
+        model = _first_matching_line(output, "Device / Media Name:")
+        if model:
+            return model
+        model = _first_matching_line(output, "Media Name:")
+        if model:
+            return model
+        return _first_matching_line(
+            _macos_storage_profile_for_path(path), "Device Name:"
+        )
+    if system == "Windows":
+        return _command_output(
+            ["wmic", "diskdrive", "get", "Model", "/value"], first_value=True
+        )
+    if system == "Linux":
+        return _linux_drive_model(path)
+    return None
+
+
+def _linux_drive_model(path: Path) -> str | None:
+    device = _command_output(["df", "--output=source", str(path)])
+    if not device:
+        return None
+    lines = [line.strip() for line in device.splitlines() if line.strip()]
+    if len(lines) < 2:
+        return None
+    block_name = Path(lines[-1]).name
+    while block_name and not (Path("/sys/block") / block_name).exists():
+        block_name = block_name[:-1]
+    model_path = Path("/sys/block") / block_name / "device" / "model"
+    if model_path.exists():
+        try:
+            return model_path.read_text(encoding="utf-8").strip() or None
+        except OSError:
+            return None
+    return None
+
+
+def _drive_speed(path: Path) -> str | None:
+    system = platform.system()
+    if system == "Darwin":
+        output = _command_output(["diskutil", "info", _filesystem_mount(path)])
+        protocol = _first_matching_line(output, "Protocol:")
+        if protocol:
+            return protocol
+        profile = _macos_storage_profile_for_path(path)
+        medium = _first_matching_line(profile, "Medium Type:")
+        protocol = _first_matching_line(profile, "Protocol:")
+        if medium and protocol:
+            return f"{medium}, {protocol}"
+        return medium or protocol
+    if system == "Windows":
+        return _command_output(
+            ["wmic", "diskdrive", "get", "MediaType,InterfaceType", "/value"],
+            first_value=True,
+        )
+    if system == "Linux":
+        rotational = _linux_drive_rotational(path)
+        if rotational is None:
+            return None
+        return "HDD/rotational" if rotational else "SSD/non-rotational"
+    return None
+
+
+def _linux_drive_rotational(path: Path) -> bool | None:
+    device = _command_output(["df", "--output=source", str(path)])
+    if not device:
+        return None
+    lines = [line.strip() for line in device.splitlines() if line.strip()]
+    if len(lines) < 2:
+        return None
+    block_name = Path(lines[-1]).name
+    while block_name and not (Path("/sys/block") / block_name).exists():
+        block_name = block_name[:-1]
+    rotational_path = Path("/sys/block") / block_name / "queue" / "rotational"
+    if not rotational_path.exists():
+        return None
+    try:
+        return rotational_path.read_text(encoding="utf-8").strip() == "1"
+    except OSError:
+        return None
+
+
+def _format_cpu_frequency(mhz: float) -> str:
+    if mhz >= 1000:
+        return f"{mhz / 1000:.2f} GHz"
+    return f"{mhz:.0f} MHz"
+
+
+def _filesystem_mount(path: Path) -> str:
+    try:
+        partitions = sorted(
+            psutil.disk_partitions(all=True),
+            key=lambda partition: len(partition.mountpoint),
+            reverse=True,
+        )
+        resolved = str(path.resolve())
+        for partition in partitions:
+            if resolved == partition.mountpoint or resolved.startswith(
+                partition.mountpoint.rstrip(os.sep) + os.sep
+            ):
+                return str(partition.mountpoint)
+    except OSError:
+        pass
+    return str(path)
+
+
+def _macos_storage_profile_for_path(path: Path) -> str | None:
+    mount = _filesystem_mount(path)
+    output = _command_output(["system_profiler", "SPStorageDataType"])
+    if not output:
+        return None
+    blocks = output.split("\n\n")
+    for block in blocks:
+        if f"Mount Point: {mount}" in block:
+            return block
+    return None
+
+
+def _command_output(
+    command: list[str], match: str | None = None, first_value: bool = False
+) -> str | None:
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0:
+        return None
+    output = completed.stdout.strip()
+    if match:
+        return _first_matching_line(output, match)
+    if first_value:
+        return _first_value_line(output)
+    return output or None
+
+
+def _first_matching_line(output: str | None, prefix: str) -> str | None:
+    if not output:
+        return None
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(prefix):
+            _key, _sep, value = stripped.partition(":")
+            return value.strip() or None
+    return None
+
+
+def _first_value_line(output: str | None) -> str | None:
+    if not output:
+        return None
+    values: list[str] = []
+    for line in output.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if "=" in stripped:
+            _key, _sep, value = stripped.partition("=")
+            if value.strip():
+                values.append(value.strip())
+        elif not stripped.lower().startswith(
+            ("model", "speed", "mediatype", "interfacetype")
+        ):
+            values.append(stripped)
+    return ", ".join(values[:3]) if values else None
+
+
+def _record_base_file_size(metadata: dict[str, Any], base_file: Path) -> None:
+    if not base_file.exists():
+        metadata["base_file_size"] = "not available"
+        metadata["base_file_size_bytes"] = None
+        return
+
+    size_bytes = base_file.stat().st_size
+    metadata["base_file_size"] = _format_bytes(size_bytes)
+    metadata["base_file_size_bytes"] = size_bytes
+
+
+def _format_bytes(size_bytes: int) -> str:
+    size = float(size_bytes)
+    for unit in ("bytes", "KiB", "MiB", "GiB", "TiB"):
+        if size < 1024 or unit == "TiB":
+            if unit == "bytes":
+                return f"{size_bytes:,} bytes"
+            return f"{size:.1f} {unit} ({size_bytes:,} bytes)"
+        size /= 1024
+    return f"{size_bytes:,} bytes"
+
+
 def _cli_command(args: argparse.Namespace, command_args: list[str]) -> list[str]:
     command = [
         sys.executable,
@@ -823,18 +1257,16 @@ def _format_stdout_report(
     skipped = sum(1 for result in results if result.status == "SKIP")
 
     lines = [
-        "WGSExtract CLI Benchmark Report",
+        "",
+        "WGSExtract CLI Benchmark Summary",
         f"Profile: {metadata['profile']} | Coverage: {metadata['coverage']}x | Full size: {metadata['full_size']}",
         f"Region: {metadata['region'] or 'whole generated genome'} | Seed: {metadata['seed']}",
+        f"Base file: {metadata['base_file']} ({metadata['base_file_size'] or 'not available'})",
+        "Machine: " + _format_machine_summary(metadata["machine_stats"]),
+        "External tools: " + _format_tool_names(metadata["external_tools"]),
         f"Excluded operations: {metadata['excluded_operations']}",
-        "",
-        f"{'Step':<42} {'Status':<6} {'Seconds':>10}",
-        "-" * 62,
     ]
-    for result in results:
-        lines.append(f"{result.name:<42} {result.status:<6} {result.seconds:>10.2f}")
     lines += [
-        "-" * 62,
         f"Total measured time: {total:.2f}s",
         f"Passed: {passed} | Failed: {failed} | Skipped: {skipped}",
         f"Markdown report: {report_md}",
@@ -858,8 +1290,53 @@ def _format_markdown_report(
         f"- Region: `{metadata['region'] or 'whole generated genome'}`",
         f"- Seed: `{metadata['seed']}`",
         f"- Target SNP count: `{metadata['target_count']}`",
+        f"- Base file: `{metadata['base_file']}` ({metadata['base_file_size'] or 'not available'})",
         f"- Excluded operations: {metadata['excluded_operations']}",
         f"- JSON results: `{report_json}`",
+        "",
+        "## Machine Stats",
+        "",
+        "| Metric | Value |",
+        "| --- | --- |",
+    ]
+    for label, key in (
+        ("OS", "os"),
+        ("Architecture", "architecture"),
+        ("CPU", "cpu_model"),
+        ("Cores", "cores"),
+        ("CPU frequency", "cpu_frequency"),
+        ("RAM", "ram"),
+        ("RAM speed", "ram_speed"),
+        ("Benchmark filesystem", "benchmark_filesystem"),
+        ("Disk", "disk"),
+        ("Drive", "drive"),
+        ("Drive speed/type", "drive_speed"),
+        ("Python", "python"),
+    ):
+        value = _machine_stat_display_value(metadata["machine_stats"], key)
+        if value:
+            lines.append(f"| {label} | {value} |")
+
+    lines += [
+        "",
+        "## External Tools",
+        "",
+        "| Tool | Required | Status | Runtime | Path | Version | Purpose |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for tool in metadata["external_tools"]:
+        lines.append(
+            "| "
+            f"{tool['name']} | "
+            f"{tool['required']} | "
+            f"{tool['status']} | "
+            f"{tool['runtime'] or 'missing'} | "
+            f"`{tool['path'] or 'missing'}` | "
+            f"{tool['version'] or 'version unavailable'} | "
+            f"{tool['purpose']} |"
+        )
+
+    lines += [
         "",
         "## Summary",
         "",

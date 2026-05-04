@@ -47,3 +47,6 @@ jobs:
       - name: Run Basic Tests
         shell: powershell
         run: pixi run pytest tests/test_smoke.py
+      - name: Run Benchmark
+        shell: powershell
+        run: pixi run wgsextract benchmark

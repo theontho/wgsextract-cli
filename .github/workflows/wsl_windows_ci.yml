@@ -31,3 +31,11 @@ jobs:
           pixi run ruff check src/wgsextract_cli/core/runtime.py src/wgsextract_cli/core/utils.py src/wgsextract_cli/commands/deps.py tests/test_wsl_runtime.py tests/test_optional_deps.py
           pixi run mypy --no-incremental src/wgsextract_cli/core/runtime.py src/wgsextract_cli/core/utils.py src/wgsextract_cli/commands/deps.py
           pixi run pytest tests/test_wsl_runtime.py tests/test_optional_deps.py
+      - name: Run Benchmark
+        shell: powershell
+        env:
+          USERPROFILE: ${{ github.workspace }}\.tmp_home
+          LOCALAPPDATA: ${{ github.workspace }}\.tmp_home\AppData\Local
+          APPDATA: ${{ github.workspace }}\.tmp_home\AppData\Roaming
+          PIXI_CACHE_DIR: ${{ github.workspace }}\.tmp_home\.pixi_cache
+        run: pixi run wgsextract benchmark
