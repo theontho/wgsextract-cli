@@ -13,7 +13,6 @@ from wgsextract_cli.core.utils import (
     calculate_bam_md5,
     get_resource_defaults,
     get_sam_index_cmd,
-    get_sam_sort_cmd,
     popen,
     resolve_reference,
     run_command,
@@ -43,6 +42,15 @@ def run(args):
         align_minimap2(args)
     else:
         align_bwa(args)
+
+
+def _aligner_stream_sort_cmd(out_bam, threads, memory, fmt, reference):
+    cmd = ["samtools", "sort", "-@", threads, "-m", memory, "-o", out_bam]
+    if fmt == "CRAM":
+        cmd += ["-O", "CRAM", "--reference", reference]
+    else:
+        cmd += ["-O", "BAM"]
+    return cmd
 
 
 def align_bwa(args):
@@ -115,7 +123,9 @@ def align_bwa(args):
             logging.info("Using samblaster for marking duplicates...")
 
         # 3. Sorter command
-        sort_cmd = get_sam_sort_cmd(out_bam, threads, memory, args.format, resolved_ref)
+        sort_cmd = _aligner_stream_sort_cmd(
+            out_bam, threads, memory, args.format, resolved_ref
+        )
 
         # Pipe align -> [samblaster] -> sort
         p_align = popen(align_cmd, stdout=subprocess.PIPE)
@@ -207,7 +217,9 @@ def align_minimap2(args):
             logging.info("Using samblaster for marking duplicates...")
 
         # 3. Sorter command
-        sort_cmd = get_sam_sort_cmd(out_bam, threads, memory, args.format, resolved_ref)
+        sort_cmd = _aligner_stream_sort_cmd(
+            out_bam, threads, memory, args.format, resolved_ref
+        )
 
         # Pipe align -> [samblaster] -> sort
         p_align = popen(align_cmd, stdout=subprocess.PIPE)

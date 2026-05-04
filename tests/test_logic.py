@@ -40,7 +40,7 @@ class TestAlignToolSelection(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.test_dir)
 
-    def test_bwa_alignment_uses_shared_sambamba_sort_selection(self):
+    def test_bwa_alignment_sorts_sam_stream_before_sambamba_index(self):
         from wgsextract_cli.commands import align
 
         args = Namespace(
@@ -54,6 +54,7 @@ class TestAlignToolSelection(unittest.TestCase):
             memory=None,
         )
         commands = []
+        run_commands = []
 
         def fake_get_tool_path(tool):
             return "bwa" if tool == "bwa" else None
@@ -65,6 +66,9 @@ class TestAlignToolSelection(unittest.TestCase):
             commands.append(cmd)
             return DummyProcess()
 
+        def fake_run_command(cmd, *_args, **_kwargs):
+            run_commands.append(cmd)
+
         with (
             patch.object(align, "verify_dependencies"),
             patch.object(align, "log_dependency_info"),
@@ -73,14 +77,15 @@ class TestAlignToolSelection(unittest.TestCase):
             patch.object(align, "resolve_reference", return_value=self.ref),
             patch.object(align, "get_tool_path", side_effect=fake_get_tool_path),
             patch.object(align, "print_warning"),
-            patch.object(align, "run_command"),
+            patch.object(align, "run_command", side_effect=fake_run_command),
             patch.object(align, "popen", side_effect=fake_popen),
             patch("wgsextract_cli.core.utils.shutil.which", side_effect=fake_which),
             patch("platform.system", return_value="Linux"),
         ):
             align.align_bwa(args)
 
-        self.assertIn(["sambamba", "sort"], [cmd[:2] for cmd in commands])
+        self.assertIn(["samtools", "sort"], [cmd[:2] for cmd in commands])
+        self.assertIn(["sambamba", "index"], [cmd[:2] for cmd in run_commands])
 
 
 class TestCLILogic(unittest.TestCase):

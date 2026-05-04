@@ -114,6 +114,12 @@ def cleanup_processes():
 atexit.register(cleanup_processes)
 
 
+def _process_group_kwargs():
+    if sys.platform == "win32":
+        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+    return {"start_new_session": True}
+
+
 def get_resource_defaults(threads_arg=None, memory_arg=None):
     """
     Calculate default CPU threads and memory if not provided.
@@ -796,7 +802,13 @@ def popen(cmd, stdout=None, stderr=None, stdin=None, text=False, env=None):
     logging.debug(f"Popen: {cmd_str}")
 
     process = subprocess.Popen(
-        cmd_list, stdout=stdout, stderr=stderr, stdin=stdin, text=text, env=env
+        cmd_list,
+        stdout=stdout,
+        stderr=stderr,
+        stdin=stdin,
+        text=text,
+        env=env,
+        **_process_group_kwargs(),
     )
     proc_registry.register_process(cmd_str, process)
     return process
@@ -824,6 +836,7 @@ def run_command(
         stdin=stdin,
         text=True if capture_output or (stdout is None) else False,
         env=env,
+        **_process_group_kwargs(),
     )
 
     proc_registry.register_process(cmd_str, process)
