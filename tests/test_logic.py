@@ -88,6 +88,24 @@ class TestAlignToolSelection(unittest.TestCase):
         self.assertIn(["sambamba", "index"], [cmd[:2] for cmd in run_commands])
 
 
+class TestRefDownloadValidation(unittest.TestCase):
+    def test_directory_output_short_circuits_before_curl(self):
+        from wgsextract_cli.commands import ref
+
+        args = Namespace(url="http://fake", out=tempfile.mkdtemp())
+        try:
+            with (
+                patch.object(ref, "verify_dependencies"),
+                patch.object(ref, "run_command") as run_command,
+            ):
+                with self.assertRaises(WGSExtractError):
+                    ref.cmd_download(args)
+
+            run_command.assert_not_called()
+        finally:
+            shutil.rmtree(args.out)
+
+
 class TestCLILogic(unittest.TestCase):
     def setUp(self):
         self.test_dir = tempfile.mkdtemp()
