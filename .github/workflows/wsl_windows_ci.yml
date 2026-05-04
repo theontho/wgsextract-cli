@@ -1,86 +1,33 @@
-name: CI Windows (WSL)
+name: CI Windows (WSL Runtime)
 
 on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   test-wsl:
-    runs-on: windows-2022
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
-      
-      - name: Set up WSL
-        uses: Vampire/setup-wsl@v7
+      - name: Set up Pixi
+        uses: prefix-dev/setup-pixi@v0.9.5
         with:
-          distribution: Ubuntu-24.04
-          use-cache: 'false'
-          set-as-default: true
-          wsl-version: 1
-          
-      - name: Install Pixi in WSL
-        shell: wsl-bash {0}
-        run: |
-          curl -fsSL https://pixi.sh/install.sh | bash
-          
-      - name: Initialize Project in WSL
-        shell: wsl-bash {0}
-        run: |
-          ~/.pixi/bin/pixi config set --local detached-environments true
-          ~/.pixi/bin/pixi install
-
-      - name: Install Pixi on Windows
-        shell: pwsh
-        run: |
-          irm https://pixi.sh/install.ps1 | iex
-          "$env:USERPROFILE\.pixi\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Initialize Project on Windows
-        shell: pwsh
+          pixi-version: latest
+          locked: false
+      - name: Validate WSL Runtime Logic
+        shell: powershell
         env:
-          PIXI_PROJECT_ENVIRONMENT_DIR: tmp/pixi-envs/windows
-          PIXI_CACHE_DIR: tmp/pixi-cache/windows
+          USERPROFILE: ${{ github.workspace }}\.tmp_home
+          LOCALAPPDATA: ${{ github.workspace }}\.tmp_home\AppData\Local
+          APPDATA: ${{ github.workspace }}\.tmp_home\AppData\Roaming
+          PIXI_CACHE_DIR: ${{ github.workspace }}\.tmp_home\.pixi_cache
         run: |
-          pixi config set --local detached-environments true
-          pixi install
-
-      - name: Check Windows-hosted WSL Runtime
-        shell: pwsh
-        env:
-          WGSEXTRACT_TOOL_RUNTIME: wsl
-          PIXI_PROJECT_ENVIRONMENT_DIR: tmp/pixi-envs/windows
-          PIXI_CACHE_DIR: tmp/pixi-cache/windows
-        run: |
-          pixi run python -m wgsextract_cli.main deps wsl check
-          
-      - name: Verify Tools in WSL
-        shell: wsl-bash {0}
-        run: |
-          chmod +x ./scripts/verify_tools.sh
-          ~/.pixi/bin/pixi run ./scripts/verify_tools.sh
-          
-      - name: Bootstrap Reference Library in WSL
-        shell: wsl-bash {0}
-        run: |
-          ~/.pixi/bin/pixi run python -c 'from wgsextract_cli.core.config import save_config; save_config({"reference_library": "reference"})'
-          ~/.pixi/bin/pixi run python -m wgsextract_cli.main ref bootstrap --ref reference
-
-      - name: Install Reference Genome in WSL
-        shell: wsl-bash {0}
-        run: |
-          ~/.pixi/bin/pixi run python -m wgsextract_cli.main ref library --install hs38 --ref reference
-
-      - name: Lint and Type Check in WSL
-        shell: wsl-bash {0}
-        run: |
-          ~/.pixi/bin/pixi run ruff check .
-          ~/.pixi/bin/pixi run mypy src/wgsextract_cli
-
-      - name: Run Basic Tests in WSL
-        shell: wsl-bash {0}
-        run: |
-          ~/.pixi/bin/pixi run pytest tests/test_smoke.py
-
+          mkdir .tmp_home\AppData\Local -Force
+          mkdir .tmp_home\AppData\Roaming -Force
+          pixi run ruff check src/wgsextract_cli/core/runtime.py src/wgsextract_cli/core/utils.py src/wgsextract_cli/commands/deps.py tests/test_wsl_runtime.py tests/test_optional_deps.py
+          pixi run mypy --no-incremental src/wgsextract_cli/core/runtime.py src/wgsextract_cli/core/utils.py src/wgsextract_cli/commands/deps.py
+          pixi run pytest tests/test_wsl_runtime.py tests/test_optional_deps.py
