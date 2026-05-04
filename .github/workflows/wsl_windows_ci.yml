@@ -35,13 +35,13 @@ jobs:
         uses: Vampire/setup-wsl@v6
         with:
           distribution: Ubuntu-24.04
-          additional-packages: curl ca-certificates
       - name: Install WSL Benchmark Dependencies
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
           wsl bash -lc "curl -fsSL https://pixi.sh/install.sh | bash"
-          $wslPath = (wsl wslpath -u "${{ github.workspace }}").Trim()
+          $workspace = "${{ github.workspace }}".Replace('\', '/')
+          $wslPath = (wsl wslpath -u "$workspace").Trim()
           wsl bash -lc "cd '$wslPath' && ~/.pixi/bin/pixi install"
       - name: Run Benchmark
         shell: powershell
@@ -52,5 +52,6 @@ jobs:
           PIXI_CACHE_DIR: ${{ github.workspace }}\.tmp_home\.pixi_cache
         run: |
           $ErrorActionPreference = "Stop"
-          $wslPath = (wsl wslpath -u "${{ github.workspace }}").Trim()
-          wsl bash -lc "cd '$wslPath' && ~/.pixi/bin/pixi run wgsextract benchmark"
+          $workspace = "${{ github.workspace }}".Replace('\', '/')
+          $wslPath = (wsl wslpath -u "$workspace").Trim()
+          wsl bash -lc "cd '$wslPath' && ~/.pixi/bin/pixi run wgsextract benchmark --profile smoke"
