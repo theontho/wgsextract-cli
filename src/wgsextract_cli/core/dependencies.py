@@ -5,6 +5,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+from functools import lru_cache
 from typing import Any
 
 from wgsextract_cli.core import runtime
@@ -67,6 +68,33 @@ PIXI_TOOL_ENVS = {
 
 
 IGNORED_VERSION_OUTPUT_PREFIXES = ("wsl: Failed to mount ",)
+
+
+@lru_cache(maxsize=1)
+def _wsl_home_dir() -> str | None:
+    if not runtime.is_windows_host():
+        return None
+    try:
+        result = subprocess.run(
+            ["wsl", "bash", "-lc", 'printf %s "$HOME"'],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except Exception:
+        return None
+    if result.returncode != 0:
+        return None
+    home = result.stdout.strip()
+    return home if home else None
+
+
+def _wsl_pixi_path() -> str:
+    home = _wsl_home_dir()
+    if not home:
+        username = os.environ.get("USERNAME")
+        home = f"/home/{username}" if username else "~"
+    return f"{home}/.pixi/bin/pixi"
 
 
 def required_dependency_tools(include_python: bool = True) -> list[str]:
@@ -379,7 +407,7 @@ def get_tool_path(tool: str) -> str | None:
             tool, PIXI_TOOL_ENVS[tool]
         ):
             return runtime.wsl_tool_command(
-                f"~/.pixi/bin/pixi run -e {PIXI_TOOL_ENVS[tool]} {tool}"
+                f"{_wsl_pixi_path()} run -e {PIXI_TOOL_ENVS[tool]} {tool}"
             )
 
     return None

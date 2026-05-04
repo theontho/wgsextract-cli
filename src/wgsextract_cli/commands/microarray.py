@@ -96,7 +96,7 @@ def process_chrom(
     # We combine mpileup | call | annotate into a single pipeline
     try:
         logging.debug(f"Processing chromosome {chrom}...")
-        p1 = subprocess.Popen(
+        p1 = popen(
             [
                 "bcftools",
                 "mpileup",
@@ -116,7 +116,7 @@ def process_chrom(
             stderr=subprocess.PIPE,
         )
 
-        p2 = subprocess.Popen(
+        p2 = popen(
             ["bcftools", "call"]
             + ploidy_args
             + ["-m", "-V", "indels", "-Oz", "-o", chrom_vcf],
@@ -127,8 +127,13 @@ def process_chrom(
         if p1.stdout:
             p1.stdout.close()
 
-        _, stderr1 = p1.communicate()
         _, stderr2 = p2.communicate()
+        stderr1 = p1.stderr.read() if p1.stderr else b""
+        p1_returncode = p1.wait()
+
+        if p1_returncode != 0:
+            logging.error(f"bcftools mpileup failed for {chrom}: {stderr1.decode()}")
+            return None
 
         if p2.returncode != 0:
             logging.error(f"bcftools call failed for {chrom}: {stderr2.decode()}")
@@ -142,7 +147,7 @@ def process_chrom(
 
         # Annotate RSIDs immediately
         annotated_chrom_vcf = os.path.join(chrom_tmp_dir, f"{chrom}_ann.vcf.gz")
-        ann_res = subprocess.run(
+        ann_res = run_command(
             [
                 "bcftools",
                 "annotate",
@@ -156,6 +161,7 @@ def process_chrom(
                 chrom_vcf,
             ],
             capture_output=True,
+            check=False,
         )
 
         if ann_res.returncode != 0:
@@ -247,7 +253,7 @@ def run(args):
             # Step 1: Get actual variants from the input VCF that match our targets
             hit_vcf = os.path.join(outdir, f"{base_name}_hits.vcf.gz")
             # Use long-form --targets-file to avoid version conflicts
-            subprocess.run(
+            run_command(
                 ["bcftools", "view", "--targets-file", ref_vcf_tab]
                 + region_args
                 + ["-Oz", "-o", hit_vcf, args.input],
@@ -265,7 +271,7 @@ def run(args):
             # For VCF input, annotation is usually already present, but we run it
             # to ensure RSIDs match our master tab file
             annotated_vcf = os.path.join(outdir, f"{base_name}_annotated.vcf.gz")
-            subprocess.run(
+            run_command(
                 [
                     "bcftools",
                     "annotate",
@@ -324,7 +330,7 @@ def run(args):
         # Merge results
         if vcf_chunks:
             logging.info(f"Merging {len(vcf_chunks)} chromosome VCFs...")
-            subprocess.run(
+            run_command(
                 ["bcftools", "concat", "-Oz", "-o", out_vcf] + sorted(vcf_chunks),
                 check=True,
             )
@@ -364,11 +370,11 @@ def run(args):
                 ]
             )
 
-            p1 = subprocess.Popen(
+            p1 = popen(
                 mpileup_cmd,
                 stdout=subprocess.PIPE,
             )
-            p2 = subprocess.Popen(
+            p2 = popen(
                 ["bcftools", "call"]
                 + ploidy_args
                 + ["-m", "-V", "indels", "-Oz", "-o", out_vcf],
@@ -393,7 +399,7 @@ def run(args):
             start_ann = time.time()
             try:
                 # -a: annotation file, -c: columns to use (CHROM, POS, ID)
-                subprocess.run(
+                run_command(
                     [
                         "bcftools",
                         "annotate",

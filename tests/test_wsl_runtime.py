@@ -58,10 +58,14 @@ class TestWSLRuntime(unittest.TestCase):
                 "wgsextract_cli.core.runtime.wsl_pixi_tool_available",
                 return_value=True,
             ),
+            patch(
+                "wgsextract_cli.core.dependencies._wsl_home_dir",
+                return_value="/home/test",
+            ),
         ):
             self.assertEqual(
                 dependencies.get_tool_path("bcftools"),
-                "wsl:~/.pixi/bin/pixi run -e default bcftools",
+                "wsl:/home/test/.pixi/bin/pixi run -e default bcftools",
             )
 
     def test_translate_windows_paths_without_touching_regions_flags_or_urls(self):
