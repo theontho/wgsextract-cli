@@ -211,6 +211,7 @@ def run(args: argparse.Namespace) -> None:
             )
         print(_format_progress_result(result), flush=True)
         if result.status == "FAIL" and not args.keep_going:
+            _print_failure_log_excerpt(result)
             finish_report()
             raise WGSExtractError(
                 f"Benchmark step failed: {result.name}. See {result.stderr_log}."
@@ -730,6 +731,20 @@ def _print_progress_header() -> None:
 
 def _format_progress_result(result: BenchmarkResult) -> str:
     return f"{result.name:<42} {result.status:<6} {result.seconds:>10.2f}"
+
+
+def _print_failure_log_excerpt(result: BenchmarkResult) -> None:
+    if not result.stderr_log:
+        return
+    stderr_path = Path(result.stderr_log)
+    if not stderr_path.exists():
+        return
+    lines = stderr_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    if not lines:
+        return
+    print(f"Failure stderr excerpt ({stderr_path}):", flush=True)
+    for line in lines[-40:]:
+        print(f"  {line}", flush=True)
 
 
 def _benchmark_external_tools() -> list[dict[str, str | bool | None]]:
