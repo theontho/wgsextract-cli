@@ -34,6 +34,13 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "region": None,
         "target_count": 10_000,
     },
+    "200mb": {
+        # The scaled reference produces ~104 MiB at 37x on current fake data.
+        "coverage": 71.0,
+        "full_size": False,
+        "region": None,
+        "target_count": 100_000,
+    },
     "full": {
         "coverage": 1.0,
         "full_size": True,
@@ -105,7 +112,8 @@ def register(
         default="standard",
         help=(
             "Benchmark size preset. smoke is chrM-only, standard is a scaled "
-            "human-like genome, full uses real chromosome lengths."
+            "human-like genome, 200mb targets a ~200 MiB fake BAM, and full "
+            "uses real chromosome lengths."
         ),
     )
     parser.add_argument(
@@ -162,6 +170,8 @@ def run(args: argparse.Namespace) -> None:
     if target_count <= 0:
         raise WGSExtractError("--target-count must be greater than zero.")
 
+    _apply_benchmark_thread_defaults(args)
+
     outdir = _benchmark_root(args)
     run_dir = outdir / "runs" / datetime.now().strftime("%Y%m%d-%H%M%S")
     dataset_dir = run_dir / "dataset"
@@ -182,6 +192,7 @@ def run(args: argparse.Namespace) -> None:
         "seed": args.seed,
         "region": region,
         "target_count": target_count,
+        "threads": getattr(args, "threads", None),
         "base_file": str(generated_bam),
         "base_file_size": None,
         "base_file_size_bytes": None,
@@ -623,6 +634,31 @@ def _benchmark_root(args: argparse.Namespace) -> Path:
     if "outdir" in explicit_dests and args.outdir:
         return Path(args.outdir).expanduser().resolve()
     return (Path.cwd() / "out" / "benchmark").resolve()
+
+
+def _apply_benchmark_thread_defaults(args: argparse.Namespace) -> None:
+    if getattr(args, "threads", None) is not None:
+        return
+    thread_count = _default_benchmark_threads_for_platform()
+    if thread_count:
+        args.threads = thread_count
+
+
+def _default_benchmark_threads_for_platform() -> int | None:
+    if platform.system() != "Darwin":
+        return None
+    perf_cores = _macos_performance_core_count()
+    return perf_cores if perf_cores and perf_cores > 0 else None
+
+
+def _macos_performance_core_count() -> int | None:
+    value = _command_output(["sysctl", "-n", "hw.perflevel0.physicalcpu"])
+    if not value:
+        return None
+    try:
+        return int(value.strip())
+    except ValueError:
+        return None
 
 
 def _run_cli_step(
@@ -1276,6 +1312,7 @@ def _format_stdout_report(
         "",
         "WGSExtract CLI Benchmark Summary",
         f"Profile: {metadata['profile']} | Coverage: {metadata['coverage']}x | Full size: {metadata['full_size']}",
+        f"Threads: {metadata['threads'] or 'auto'}",
         f"Region: {metadata['region'] or 'whole generated genome'} | Seed: {metadata['seed']}",
         f"Base file: {metadata['base_file']} ({metadata['base_file_size'] or 'not available'})",
         "Machine: " + _format_machine_summary(metadata["machine_stats"]),
@@ -1306,6 +1343,7 @@ def _format_markdown_report(
         f"- Region: `{metadata['region'] or 'whole generated genome'}`",
         f"- Seed: `{metadata['seed']}`",
         f"- Target SNP count: `{metadata['target_count']}`",
+        f"- Threads: `{metadata['threads'] or 'auto'}`",
         f"- Base file: `{metadata['base_file']}` ({metadata['base_file_size'] or 'not available'})",
         f"- Excluded operations: {metadata['excluded_operations']}",
         f"- JSON results: `{report_json}`",
