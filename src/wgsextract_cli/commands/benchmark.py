@@ -806,7 +806,8 @@ def _format_machine_summary(stats: dict[str, str | int | None]) -> str:
 def _machine_stats(run_dir: Path) -> dict[str, str | int | None]:
     virtual_memory = psutil.virtual_memory()
     disk_usage = psutil.disk_usage(str(run_dir))
-    cpu_frequency = psutil.cpu_freq()
+    cpu_freq = getattr(psutil, "cpu_freq", None)
+    cpu_frequency = cpu_freq() if cpu_freq else None
     return {
         "os": platform.platform(),
         "python": sys.version.replace("\n", " "),
