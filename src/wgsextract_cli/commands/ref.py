@@ -145,6 +145,9 @@ def register(subparsers, base_parser):
 
 def cmd_download(args):
     verify_dependencies(["curl"])
+    if os.path.isdir(args.out):
+        raise WGSExtractError(f"Output path is a directory: {args.out}")
+
     logging.info(LOG_MESSAGES["ref_downloading"].format(url=args.url, path=args.out))
     try:
         run_command(["curl", "-L", "-o", args.out, args.url])

@@ -133,3 +133,37 @@ def test_benchmark_prints_progress_lines_and_base_file_size(
     assert "WGSExtract CLI Benchmark Summary" in stdout
     assert "Machine: TestOS 1.0 | Test CPU" in stdout
     assert "External tools: samtools" in stdout
+
+
+def test_200mb_profile_targets_scaled_fake_bam() -> None:
+    profile = benchmark.PROFILE_DEFAULTS["200mb"]
+
+    assert profile["coverage"] == 71.0
+    assert profile["full_size"] is False
+    assert profile["region"] is None
+
+
+def test_macos_benchmark_threads_use_performance_cores(monkeypatch) -> None:
+    args = Namespace(threads=None)
+    monkeypatch.setattr(benchmark.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(
+        benchmark,
+        "_command_output",
+        lambda command: (
+            "8" if command == ["sysctl", "-n", "hw.perflevel0.physicalcpu"] else None
+        ),
+    )
+
+    benchmark._apply_benchmark_thread_defaults(args)
+
+    assert args.threads == 8
+
+
+def test_benchmark_keeps_explicit_thread_override(monkeypatch) -> None:
+    args = Namespace(threads=4)
+    monkeypatch.setattr(benchmark.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(benchmark, "_command_output", lambda command: "8")
+
+    benchmark._apply_benchmark_thread_defaults(args)
+
+    assert args.threads == 4

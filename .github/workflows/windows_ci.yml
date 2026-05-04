@@ -24,25 +24,19 @@ jobs:
           wsl bash -lc "curl -fsSL https://pixi.sh/install.sh | bash"
           $workspace = "${{ github.workspace }}".Replace('\', '/')
           $wslPath = (wsl wslpath -u "$workspace").Trim()
-          wsl bash -lc "cd '$wslPath' && ~/.pixi/bin/pixi install"
+          wsl bash -lc "rm -rf ~/wgsextract-cli && mkdir -p ~/wgsextract-cli && cd '$wslPath' && tar --exclude=.pixi --exclude=out --exclude=tmp -cf - . | tar -C ~/wgsextract-cli -xf - && cd ~/wgsextract-cli && ~/.pixi/bin/pixi install"
       - name: Run Benchmark
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $workspace = "${{ github.workspace }}".Replace('\', '/')
-          $wslPath = (wsl wslpath -u "$workspace").Trim()
-          wsl bash -lc "cd '$wslPath' && ~/.pixi/bin/pixi run wgsextract benchmark"
+          wsl bash -lc "cd ~/wgsextract-cli && ~/.pixi/bin/pixi run wgsextract benchmark"
       - name: Run Tests
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $workspace = "${{ github.workspace }}".Replace('\', '/')
-          $wslPath = (wsl wslpath -u "$workspace").Trim()
-          wsl bash -lc "cd '$wslPath' && ~/.pixi/bin/pixi run test"
+          wsl bash -lc "cd ~/wgsextract-cli && ~/.pixi/bin/pixi run test"
       - name: Lint and Type Check
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $workspace = "${{ github.workspace }}".Replace('\', '/')
-          $wslPath = (wsl wslpath -u "$workspace").Trim()
-          wsl bash -lc "cd '$wslPath' && ~/.pixi/bin/pixi run ruff check . && ~/.pixi/bin/pixi run mypy src/wgsextract_cli"
+          wsl bash -lc "cd ~/wgsextract-cli && ~/.pixi/bin/pixi run ruff check . && ~/.pixi/bin/pixi run mypy src/wgsextract_cli"

@@ -11,7 +11,10 @@ from wgsextract_cli.core import (
     dependencies,  # noqa: E402
     runtime,  # noqa: E402
 )
-from wgsextract_cli.core.utils import _normalize_subprocess_cmd  # noqa: E402
+from wgsextract_cli.core.utils import (  # noqa: E402
+    _normalize_subprocess_cmd,
+    run_command,
+)
 
 
 class TestWSLRuntime(unittest.TestCase):
@@ -169,6 +172,22 @@ class TestWSLRuntime(unittest.TestCase):
             normalized = _normalize_subprocess_cmd([executable, "--version"])
 
         self.assertEqual(normalized, [executable, "--version"])
+
+    def test_run_command_starts_managed_process_group(self):
+        process = MagicMock()
+        process.communicate.return_value = ("", "")
+        process.returncode = 0
+
+        with patch(
+            "wgsextract_cli.core.utils.subprocess.Popen", return_value=process
+        ) as popen:
+            run_command(["tool", "--version"])
+
+        kwargs = popen.call_args.kwargs
+        if sys.platform == "win32":
+            self.assertTrue(kwargs["creationflags"])
+        else:
+            self.assertTrue(kwargs["start_new_session"])
 
     def test_write_wslconfig_settings_adds_and_updates_wsl2_section(self):
         with tempfile.TemporaryDirectory() as tempdir:
