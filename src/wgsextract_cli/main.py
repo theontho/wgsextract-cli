@@ -131,7 +131,18 @@ def _extract_shared_options(
     return values
 
 
+def _configure_stdio_encoding() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(errors="replace")
+            except Exception:
+                pass
+
+
 def main():
+    _configure_stdio_encoding()
     # Re-load config to pick up any environment changes made before calling main (useful for tests)
     reload_settings()
 
@@ -377,6 +388,8 @@ def main():
         explicit_dests = set(pre_subcommand_args) | set(post_subcommand_args)
     else:
         explicit_dests = set(_extract_shared_options(raw_argv, option_map))
+
+    args._explicit_dests = set(explicit_dests)
 
     if args.full_help:
         print_full_help(parser)

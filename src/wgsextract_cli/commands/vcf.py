@@ -25,6 +25,19 @@ from wgsextract_cli.core.utils import (
 from wgsextract_cli.core.warnings import print_warning
 
 
+def _select_vcf_input(args):
+    input_path = getattr(args, "input", None)
+    vcf_input = getattr(args, "vcf_input", None)
+    default_vcf = settings.get("default_input_vcf")
+    explicit_dests: set[str] = getattr(args, "_explicit_dests", set())
+
+    if vcf_input and vcf_input != default_vcf:
+        return vcf_input
+    if "input" in explicit_dests and input_path:
+        return input_path
+    return vcf_input if vcf_input else input_path
+
+
 def register(subparsers, base_parser):
     parser = subparsers.add_parser(
         "vcf",
@@ -628,9 +641,7 @@ def cmd_annotate(args):
 
 
 def cmd_filter(args):
-    verify_dependencies(["bcftools", "tabix"])
-    log_dependency_info(["bcftools", "tabix"])
-    input_file = args.vcf_input if args.vcf_input else args.input
+    input_file = _select_vcf_input(args)
     if not input_file:
         msg = LOG_MESSAGES["input_required"]
         logging.error(msg)
@@ -638,6 +649,9 @@ def cmd_filter(args):
 
     if not verify_paths_exist({"--input": input_file}):
         return
+
+    verify_dependencies(["bcftools", "tabix"])
+    log_dependency_info(["bcftools", "tabix"])
 
     logging.debug(f"Input file: {os.path.abspath(input_file)}")
 

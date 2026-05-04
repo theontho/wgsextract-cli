@@ -246,7 +246,11 @@ def cmd_sort(args):
             if p1.stdout:
                 p1.stdout.close()
             _, stderr2 = p2.communicate()
-            _, stderr1 = p1.communicate()
+            stderr1 = p1.stderr.read() if p1.stderr else b""
+            p1.wait()
+            if p1.returncode != 0:
+                err_msg = stderr1.decode() if stderr1 else "Unknown error"
+                raise WGSExtractError(f"View failed: {err_msg}")
             if p2.returncode != 0:
                 err_msg = stderr2.decode() if stderr2 else "Unknown error"
                 if stderr1:

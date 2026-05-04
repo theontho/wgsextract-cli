@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import subprocess
+import sys
 from datetime import datetime
 
 from wgsextract_cli.core.dependencies import log_dependency_info, verify_dependencies
@@ -16,6 +17,20 @@ from wgsextract_cli.core.utils import (
     run_command,
     verify_paths_exist,
 )
+
+
+def _safe_console_text(value: object) -> str:
+    text = str(value)
+    encoding = sys.stdout.encoding or "utf-8"
+    try:
+        text.encode(encoding)
+    except UnicodeEncodeError:
+        return text.encode(encoding, errors="replace").decode(encoding)
+    return text
+
+
+def _print(value: object = "") -> None:
+    print(_safe_console_text(value))
 
 
 def register(subparsers, base_parser):
@@ -100,10 +115,10 @@ def cmd_comprehensive(args):
     os.makedirs(outdir, exist_ok=True)
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"\n🚀 STAGE: Starting Comprehensive Analysis ({now})")
-    print(f"📂 Output Directory: {outdir}")
+    _print(f"\nSTAGE: Starting Comprehensive Analysis ({now})")
+    _print(f"Output Directory: {outdir}")
 
-    print("-" * 60)
+    _print("-" * 60)
 
     # 1. BAM/CRAM Analysis (Info, QC, Lineage)
     if input_file:
@@ -112,14 +127,14 @@ def cmd_comprehensive(args):
     # 2. VCF Processing (Independently per type)
     results = []
     if vcf_inputs:
-        print(f"\n🚀 STAGE: Processing Input VCFs ({len(vcf_inputs)} files)")
+        _print(f"\nSTAGE: Processing Input VCFs ({len(vcf_inputs)} files)")
         for vcf in vcf_inputs:
             v_type = detect_vcf_type(vcf)
             res = run_vcf_workflow(args, vcf, v_type, outdir)
             if res:
                 results.append(res)
     elif input_file and not args.skip_calling:
-        print("\n🚀 STAGE: Variant Calling (No input VCFs provided)")
+        _print("\nSTAGE: Variant Calling (No input VCFs provided)")
         # Call SNV and InDels if nothing else provided
         snps_vcf = os.path.join(outdir, "snps.vcf.gz")
         run_cli_subcommand(
@@ -177,9 +192,9 @@ def run_batch_comprehensive(args, batch_file):
                     if v.strip()
                 ]
 
-            print("\n" + "#" * 80)
-            print(f"### BATCH PROCESSING: {name}")
-            print("#" * 80)
+            _print("\n" + "#" * 80)
+            _print(f"### BATCH PROCESSING: {name}")
+            _print("#" * 80)
 
             # Create sample-specific outdir
             sample_outdir = os.path.join(
@@ -206,7 +221,7 @@ def cmd_batch_gen(args):
     if not os.path.exists(scan_dir):
         raise WGSExtractError(f"Directory not found: {scan_dir}")
 
-    print(f"🔍 Scanning directory: {scan_dir}")
+    _print(f"Scanning directory: {scan_dir}")
 
     samples: dict[str, dict] = {}  # name -> {input, vcfs}
 
@@ -274,7 +289,7 @@ def cmd_batch_gen(args):
         return
 
     output_path = args.output
-    print(f"✍️ Writing batch file to: {output_path}")
+    _print(f"Writing batch file to: {output_path}")
 
     with open(output_path, "w", newline="") as f:
         writer = csv.writer(f)
@@ -283,7 +298,7 @@ def cmd_batch_gen(args):
             vcf_str = ";".join(data["vcfs"])
             writer.writerow([name, data["input"] or "", vcf_str])
 
-    print(f"✅ Generated batch file with {len(samples)} samples.")
+    _print(f"Generated batch file with {len(samples)} samples.")
 
 
 def detect_vcf_type(vcf_path):
@@ -299,7 +314,7 @@ def detect_vcf_type(vcf_path):
 def run_vcf_workflow(args, vcf_path, v_type, outdir):
     """Annotates and filters a single VCF file based on its type."""
     base_name = os.path.basename(vcf_path).split(".")[0]
-    print(f"\n🔹 Sub-Stage: Processing {v_type.upper()} ({os.path.basename(vcf_path)})")
+    _print(f"\nSub-Stage: Processing {v_type.upper()} ({os.path.basename(vcf_path)})")
 
     # Define targeted annotations per type
     if v_type == "snp-indel":
@@ -379,7 +394,7 @@ def run_discovery_filter(args, ann_vcf, v_type, out_vcf):
     else:
         filter_expr = "QUAL > 30"
 
-    print(f"🔍 Applying Discovery Filter: {filter_expr}")
+    _print(f"Applying Discovery Filter: {filter_expr}")
 
     try:
         run_command(
@@ -389,7 +404,7 @@ def run_discovery_filter(args, ann_vcf, v_type, out_vcf):
         ensure_vcf_indexed(out_vcf)
         res = run_command(["bcftools", "view", "-H", out_vcf], capture_output=True)
         count = len(res.stdout.strip().split("\n")) if res.stdout.strip() else 0
-        print(f"✅ Found {count} significant variants.")
+        _print(f"Found {count} significant variants.")
         return count
     except Exception as e:
         logging.error(f"Discovery filter failed for {v_type}: {e}")
@@ -398,25 +413,25 @@ def run_discovery_filter(args, ann_vcf, v_type, out_vcf):
 
 def generate_summary_report(results, outdir):
     """Prints a nice summary of all findings."""
-    print("\n" + "=" * 60)
-    print("GENOMIC ANALYSIS SUMMARY REPORT")
-    print("=" * 60)
+    _print("\n" + "=" * 60)
+    _print("GENOMIC ANALYSIS SUMMARY REPORT")
+    _print("=" * 60)
 
     total_sig = 0
     for res in results:
-        print(f"[{res['type'].upper()}] {os.path.basename(res['input'])}")
-        print(f"  Significant variants: {res['count']}")
-        print(f"  Results file: {res['output']}")
+        _print(f"[{res['type'].upper()}] {os.path.basename(res['input'])}")
+        _print(f"  Significant variants: {res['count']}")
+        _print(f"  Results file: {res['output']}")
         total_sig += res["count"]
-        print("-" * 30)
+        _print("-" * 30)
 
-    print(f"\nTOTAL SIGNIFICANT VARIANTS FOUND: {total_sig}")
-    print("=" * 60 + "\n")
+    _print(f"\nTOTAL SIGNIFICANT VARIANTS FOUND: {total_sig}")
+    _print("=" * 60 + "\n")
 
 
 def run_bam_chain(args, input_file, outdir):
     """Runs info, qc, and lineage steps. Returns detected gender."""
-    print("\n🚀 STAGE: BAM/CRAM Metrics & Lineage")
+    _print("\nSTAGE: BAM/CRAM Metrics & Lineage")
 
     # 1. Info (Detailed run to show table and get gender)
     # We call it even if cached to ensure the table is displayed. It's very fast when cached.
