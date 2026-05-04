@@ -178,6 +178,8 @@ def run_batch_comprehensive(args, batch_file):
         )
         vcf_col = next((c for c in headers if "vcf" in c.lower()), "vcf")
 
+        failed_samples: list[str] = []
+
         for row in reader:
             name = row.get(name_col, "Unknown")
             input_path = row.get(input_col)
@@ -213,6 +215,12 @@ def run_batch_comprehensive(args, batch_file):
                 cmd_comprehensive(sample_args)
             except Exception as e:
                 logging.error(f"Failed to process sample {name}: {e}")
+                failed_samples.append(name)
+
+        if failed_samples:
+            raise WGSExtractError(
+                "Batch analysis failed for sample(s): " + ", ".join(failed_samples)
+            )
 
 
 def cmd_batch_gen(args):
@@ -508,3 +516,4 @@ def run_cli_subcommand(cmd_args, args):
 
     except (subprocess.CalledProcessError, Exception) as e:
         logging.warning(f"Subcommand failed: {' '.join(cmd)}. Error: {e}")
+        raise WGSExtractError("Subcommand failed: " + " ".join(cmd)) from e

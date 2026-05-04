@@ -132,6 +132,7 @@ def cmd_fastp(args):
         run_command(cmd)
     except Exception as e:
         logging.error(f"fastp failed: {e}")
+        raise WGSExtractError("fastp failed.") from e
 
 
 def cmd_fastqc(args):
@@ -160,6 +161,7 @@ def cmd_fastqc(args):
         run_command(["fastqc", "-t", threads, "-o", outdir, args.input])
     except Exception as e:
         logging.error(f"FastQC failed: {e}")
+        raise WGSExtractError("FastQC failed.") from e
 
 
 def cmd_vcf_qc(args):

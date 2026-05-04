@@ -451,7 +451,7 @@ def cmd_snp(args):
         logging.error(f"bcftools call failed with return code {p2.returncode}")
         if stderr:
             logging.error(stderr.decode(errors="replace"))
-        return
+        raise WGSExtractError("SNP variant calling failed.")
 
     ensure_vcf_indexed(out_vcf)
 
@@ -507,7 +507,7 @@ def cmd_indel(args):
         logging.error(f"bcftools call failed with return code {p2.returncode}")
         if stderr:
             logging.error(stderr.decode(errors="replace"))
-        return
+        raise WGSExtractError("InDel variant calling failed.")
 
     p3 = popen(
         [bcftools, "norm", "-f", ref, "--threads", threads, "-Oz", "-o", out_vcf],
@@ -517,7 +517,7 @@ def cmd_indel(args):
 
     if p3.returncode != 0:
         logging.error(f"bcftools norm failed with return code {p3.returncode}")
-        return
+        raise WGSExtractError("InDel normalization failed.")
 
     ensure_vcf_indexed(out_vcf)
 
@@ -817,7 +817,7 @@ def cmd_trio(args):
         ensure_vcf_indexed(merged_vcf)
     except Exception as e:
         logging.error(f"❌: VCF merge failed: {e}")
-        return
+        raise WGSExtractError("VCF trio merge failed.") from e
 
     # 3. Identify sample order
     samples = get_vcf_samples(merged_vcf)
@@ -907,6 +907,7 @@ def cmd_trio(args):
 
         except Exception as e:
             logging.error(f"❌: Filtering for {mode} failed: {e}")
+            raise WGSExtractError(f"VCF trio filtering failed for {mode}.") from e
 
     # Cleanup
     if os.path.exists(merged_vcf):
@@ -1195,6 +1196,7 @@ def cmd_clinvar(args):
         logging.info(LOG_MESSAGES["vcf_clinvar_done"].format(output=path_out))
     except Exception as e:
         logging.error(f"ClinVar filtering failed: {e}")
+        raise WGSExtractError("ClinVar filtering failed.") from e
 
 
 def cmd_revel(args):
@@ -1358,6 +1360,7 @@ def cmd_revel(args):
             logging.info(LOG_MESSAGES["vcf_revel_done"].format(output=path_out))
         except Exception as e:
             logging.error(f"REVEL filtering failed: {e}")
+            raise WGSExtractError("REVEL filtering failed.") from e
     else:
         logging.info(LOG_MESSAGES["vcf_revel_done"].format(output=ann_out))
 
@@ -1524,6 +1527,7 @@ def cmd_phylop(args):
             logging.info(LOG_MESSAGES["vcf_phylop_done"].format(output=path_out))
         except Exception as e:
             logging.error(f"PhyloP filtering failed: {e}")
+            raise WGSExtractError("PhyloP filtering failed.") from e
     else:
         logging.info(LOG_MESSAGES["vcf_phylop_done"].format(output=ann_out))
 
@@ -1642,6 +1646,7 @@ def cmd_gnomad(args):
             logging.info(f"gnomAD filtering complete: {filter_out}")
         except Exception as e:
             logging.error(f"gnomAD filtering failed: {e}")
+            raise WGSExtractError("gnomAD filtering failed.") from e
     else:
         logging.info(LOG_MESSAGES["vcf_gnomad_done"].format(output=ann_out))
 
@@ -1825,6 +1830,7 @@ def cmd_alphamissense(args):
             logging.info(f"AlphaMissense filtering complete: {path_out}")
         except Exception as e:
             logging.error(f"AlphaMissense filtering failed: {e}")
+            raise WGSExtractError("AlphaMissense filtering failed.") from e
     else:
         logging.info(LOG_MESSAGES["vcf_alphamissense_done"].format(output=ann_out))
 

@@ -9,6 +9,7 @@ from wgsextract_cli.core.dependencies import log_dependency_info, verify_depende
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
     ReferenceLibrary,
+    WGSExtractError,
     calculate_bam_md5,
     ensure_vcf_indexed,
     get_resource_defaults,
@@ -133,11 +134,11 @@ def process_chrom(
 
         if p1_returncode != 0:
             logging.error(f"bcftools mpileup failed for {chrom}: {stderr1.decode()}")
-            return None
+            raise RuntimeError(f"bcftools processing failed for {chrom}")
 
         if p2.returncode != 0:
             logging.error(f"bcftools call failed for {chrom}: {stderr2.decode()}")
-            return None
+            raise RuntimeError(f"bcftools processing failed for {chrom}")
 
         if not os.path.exists(chrom_vcf) or os.path.getsize(chrom_vcf) < 100:
             logging.warning(f"No variants called for {chrom}, skipping.")
@@ -168,7 +169,7 @@ def process_chrom(
             logging.error(
                 f"bcftools annotate failed for {chrom}: {ann_res.stderr.decode()}"
             )
-            return None
+            raise RuntimeError(f"bcftools processing failed for {chrom}")
 
         os.remove(chrom_vcf)
         if os.path.exists(chrom_vcf + ".tbi"):
@@ -176,7 +177,7 @@ def process_chrom(
         return annotated_chrom_vcf
     except Exception as e:
         logging.error(f"Error processing {chrom}: {e}")
-        return None
+        raise
 
 
 def run(args):
@@ -291,7 +292,7 @@ def run(args):
 
         except Exception as e:
             logging.error(f"VCF extraction failed: {e}")
-            return
+            raise WGSExtractError("Microarray VCF extraction failed.") from e
 
     elif args.parallel and not args.region:
         from concurrent.futures import ProcessPoolExecutor
@@ -345,7 +346,7 @@ def run(args):
             shutil.rmtree(chrom_tmp_dir)
         else:
             logging.error("No VCF chunks were generated.")
-            return
+            raise WGSExtractError("No VCF chunks were generated.")
 
         vcf_duration = time.time() - start_vcf
         logging.info(f"Parallel VCF generation and annotation took {vcf_duration:.2f}s")
@@ -424,7 +425,7 @@ def run(args):
 
         except Exception as e:
             logging.error(f"Variant calling failed: {e}")
-            return
+            raise WGSExtractError("Microarray variant calling failed.") from e
 
     # 2. Extract results to a temporary CombinedKit.txt
     combined_kit_txt = os.path.join(outdir, f"{base_name}_CombinedKit.txt")
@@ -659,7 +660,7 @@ def run(args):
         logging.info(f"Extraction took {ext_duration:.2f}s")
     except Exception as e:
         logging.error(f"Failed to generate CombinedKit.txt: {e}")
-        return
+        raise WGSExtractError("Failed to generate CombinedKit.txt.") from e
     finally:
         # Cleanup intermediate files
         for f in ["hit_vcf", "annotated_vcf"]:
@@ -695,7 +696,7 @@ def run(args):
                 logging.info(f"Liftover took {lift_duration:.2f}s")
             except Exception as e:
                 logging.error(f"Liftover failed: {e}")
-                # Fallback to hg38? Most vendors expect hg19.
+                raise WGSExtractError("Microarray liftover failed.") from e
         else:
             logging.warning("Liftover requested but chain file not found.")
 
@@ -738,7 +739,7 @@ def run(args):
             logging.info(f"Generated {output_file}")
         except Exception as e:
             logging.error(f"Failed to generate {real_fmt}: {e}")
-
+            raise WGSExtractError(f"Failed to generate {real_fmt}.") from e
     fmt_duration = time.time() - start_fmt
     logging.info(f"Format conversion (all) took {fmt_duration:.2f}s")
 

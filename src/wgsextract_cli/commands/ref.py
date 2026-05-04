@@ -295,7 +295,7 @@ def cmd_ref_verify(args):
             logging.info(LOG_MESSAGES["ref_gzip_ok"])
         except Exception as e:
             logging.error(f"Gzip integrity FAILED: {e}")
-            return
+            raise WGSExtractError("Gzip integrity check failed.") from e
 
     # 2. Check samtools faidx
     logging.info(LOG_MESSAGES["ref_faidx_check"])
@@ -306,10 +306,10 @@ def cmd_ref_verify(args):
             logging.info(LOG_MESSAGES["ref_faidx_ok"])
         else:
             logging.error(f"Samtools faidx FAILED: {res.stderr}")
-            return
+            raise WGSExtractError("Samtools faidx check failed.")
     except Exception as e:
         logging.error(f"Samtools faidx check failed: {e}")
-        return
+        raise WGSExtractError("Samtools faidx check failed.") from e
 
     logging.info(
         LOG_MESSAGES["ref_valid"].format(filename=os.path.basename(resolved_ref))
