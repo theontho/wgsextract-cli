@@ -1,4 +1,4 @@
-﻿name: CI Windows (WSL2)
+name: CI Windows (WSL)
 
 on:
   pull_request:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   test-wsl:
-    runs-on: windows-2025
+    runs-on: windows-2022
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -19,6 +19,7 @@ jobs:
           distribution: Ubuntu-24.04
           use-cache: 'false'
           set-as-default: true
+          wsl-version: 1
           
       - name: Install Pixi in WSL
         shell: wsl-bash {0}
