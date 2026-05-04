@@ -97,6 +97,21 @@ class BenchmarkResult:
         return self.status == "PASS"
 
 
+@dataclass(frozen=True)
+class BenchmarkThreadPlan:
+    label: str
+    default_threads: int | None
+    per_step_threads: dict[str, int]
+
+
+MACOS_FULL_CORE_STEP_SLUGS = {
+    "00a-info-detailed",
+    "01-reference-index",
+    "03-bam-unalign",
+    "04-fastq-align",
+}
+
+
 def register(
     subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
 ):
@@ -170,7 +185,8 @@ def run(args: argparse.Namespace) -> None:
     if target_count <= 0:
         raise WGSExtractError("--target-count must be greater than zero.")
 
-    _apply_benchmark_thread_defaults(args)
+    thread_plan = _benchmark_thread_plan(args)
+    args._benchmark_thread_plan = thread_plan
 
     outdir = _benchmark_root(args)
     run_dir = outdir / "runs" / datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -192,7 +208,7 @@ def run(args: argparse.Namespace) -> None:
         "seed": args.seed,
         "region": region,
         "target_count": target_count,
-        "threads": getattr(args, "threads", None),
+        "threads": thread_plan.label,
         "base_file": str(generated_bam),
         "base_file_size": None,
         "base_file_size_bytes": None,
@@ -636,12 +652,24 @@ def _benchmark_root(args: argparse.Namespace) -> Path:
     return (Path.cwd() / "out" / "benchmark").resolve()
 
 
-def _apply_benchmark_thread_defaults(args: argparse.Namespace) -> None:
+def _benchmark_thread_plan(args: argparse.Namespace) -> BenchmarkThreadPlan:
     if getattr(args, "threads", None) is not None:
-        return
+        return BenchmarkThreadPlan(str(args.threads), int(args.threads), {})
+
+    if platform.system() == "Darwin":
+        perf_threads = _macos_performance_core_count()
+        full_threads = psutil.cpu_count(logical=False)
+        if perf_threads and full_threads and full_threads > perf_threads:
+            return BenchmarkThreadPlan(
+                f"mixed macOS (performance={perf_threads}, full={full_threads})",
+                perf_threads,
+                dict.fromkeys(MACOS_FULL_CORE_STEP_SLUGS, full_threads),
+            )
+
     thread_count = _default_benchmark_threads_for_platform()
-    if thread_count:
-        args.threads = thread_count
+    return BenchmarkThreadPlan(
+        str(thread_count) if thread_count else "auto", thread_count, {}
+    )
 
 
 def _default_benchmark_threads_for_platform() -> int | None:
@@ -673,7 +701,7 @@ def _run_cli_step(
     output_dir.mkdir(parents=True, exist_ok=True)
     stdout_log = logs_dir / f"{slug}.stdout.log"
     stderr_log = logs_dir / f"{slug}.stderr.log"
-    command = _cli_command(args, command_args)
+    command = _cli_command(args, command_args, _benchmark_threads_for_step(args, slug))
     start = time.perf_counter()
 
     with (
@@ -1158,7 +1186,16 @@ def _format_bytes(size_bytes: int) -> str:
     return f"{size_bytes:,} bytes"
 
 
-def _cli_command(args: argparse.Namespace, command_args: list[str]) -> list[str]:
+def _benchmark_threads_for_step(args: argparse.Namespace, slug: str) -> int | None:
+    thread_plan = getattr(args, "_benchmark_thread_plan", None)
+    if isinstance(thread_plan, BenchmarkThreadPlan):
+        return thread_plan.per_step_threads.get(slug, thread_plan.default_threads)
+    return getattr(args, "threads", None)
+
+
+def _cli_command(
+    args: argparse.Namespace, command_args: list[str], threads: int | None
+) -> list[str]:
     command = [
         sys.executable,
         "-m",
@@ -1171,8 +1208,8 @@ def _cli_command(args: argparse.Namespace, command_args: list[str]) -> list[str]
     elif getattr(args, "quiet", False):
         command.append("--quiet")
     command += command_args
-    if getattr(args, "threads", None) is not None:
-        command += ["--threads", str(args.threads)]
+    if threads is not None:
+        command += ["--threads", str(threads)]
     if getattr(args, "memory", None) is not None:
         command += ["--memory", str(args.memory)]
     return command
@@ -1312,7 +1349,7 @@ def _format_stdout_report(
         "",
         "WGSExtract CLI Benchmark Summary",
         f"Profile: {metadata['profile']} | Coverage: {metadata['coverage']}x | Full size: {metadata['full_size']}",
-        f"Threads: {metadata['threads'] or 'auto'}",
+        f"Threads: {metadata['threads']}",
         f"Region: {metadata['region'] or 'whole generated genome'} | Seed: {metadata['seed']}",
         f"Base file: {metadata['base_file']} ({metadata['base_file_size'] or 'not available'})",
         "Machine: " + _format_machine_summary(metadata["machine_stats"]),
@@ -1343,7 +1380,7 @@ def _format_markdown_report(
         f"- Region: `{metadata['region'] or 'whole generated genome'}`",
         f"- Seed: `{metadata['seed']}`",
         f"- Target SNP count: `{metadata['target_count']}`",
-        f"- Threads: `{metadata['threads'] or 'auto'}`",
+        f"- Threads: `{metadata['threads']}`",
         f"- Base file: `{metadata['base_file']}` ({metadata['base_file_size'] or 'not available'})",
         f"- Excluded operations: {metadata['excluded_operations']}",
         f"- JSON results: `{report_json}`",
