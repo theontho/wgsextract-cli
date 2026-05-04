@@ -28,6 +28,28 @@ from .core.messages import CLI_HELP
 from .core.utils import WGSExtractError, cleanup_processes
 
 
+def _parent_process_is_alive(parent_pid: int) -> bool:
+    try:
+        import psutil
+
+        return bool(psutil.pid_exists(parent_pid))
+    except ImportError:
+        pass
+
+    if sys.platform == "win32":
+        return True
+
+    try:
+        os.kill(parent_pid, 0)
+    except ProcessLookupError:gh
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
 class EmojiFormatter(logging.Formatter):
     """Custom formatter to add emojis to log levels."""
 
@@ -420,10 +442,7 @@ def main():
 
         def monitor_parent():
             while True:
-                try:
-                    # os.kill(pid, 0) is a standard way to check if a process is alive
-                    os.kill(args.parent_pid, 0)
-                except OSError:
+                if not _parent_process_is_alive(args.parent_pid):
                     logging.warning(
                         f"Parent process {args.parent_pid} disappeared, exiting..."
                     )
