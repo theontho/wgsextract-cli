@@ -16,6 +16,7 @@ CLI_HELP = {
     "arg_threads": "CPU threads to use.",
     "arg_memory": "Memory limit per thread (e.g., '2G').",
     "cmd_gui": "Launch the Graphical User Interface (GUI)",
+    "cmd_benchmark": "Benchmark the main CLI workflows using a deterministic generated BAM foundation.",
     "cmd_info": "Perform a rapid analysis of your BAM/CRAM file to identify the reference genome build, file integrity, and sequencing metrics. (Time: <1 min)",
     "arg_detailed": "Perform full index and body sample analysis (detailed mode)",
     "arg_csv": "Output the table as CSV instead of formatted text",
