@@ -7,7 +7,7 @@ on:
 
 jobs:
   test-wsl:
-    runs-on: windows-latest
+    runs-on: windows-2022
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -17,6 +17,7 @@ jobs:
         uses: Vampire/setup-wsl@v7
         with:
           distribution: Ubuntu-24.04
+          use-cache: 'false'
           set-as-default: true
           
       - name: Install Pixi in WSL
