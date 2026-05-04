@@ -37,7 +37,9 @@ dev = [
     "playwright",
     "python-dotenv",
     "ruff>=0.1.0",
+    "isort>=5.13.0",
     "mypy>=1.0.0",
+    "pathspec<0.10",
     "pre-commit>=3.0.0",
     "selenium>=4.41.0",
 ]

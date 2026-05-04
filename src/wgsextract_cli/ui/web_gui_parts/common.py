@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from nicegui import events, ui
+from nicegui import core, events, ui
 
 from wgsextract_cli.core.messages import GUI_TOOLTIPS
 
@@ -24,7 +24,14 @@ def set_render_content_refresh_cb(cb):
 
 def render_content_refresh():
     if _render_content_refresh_cb:
-        _render_content_refresh_cb()
+        if core.loop is None:
+            return
+        try:
+            _render_content_refresh_cb()
+        except AssertionError:
+            # NiceGUI refreshables require an active app loop; unit tests and CLI-side
+            # controller usage can update state without a live browser session.
+            pass
 
 
 class LocalFilePicker(ui.dialog):
@@ -477,6 +484,8 @@ def run_generic_cmd(cmd_meta: dict[str, Any]):
         command = bc + ["qc", "fastqc", "--input", input_path]
     elif cmd == "fastp":
         command = bc + ["qc", "fastp", "--input", input_path]
+    elif cmd == "ref-bootstrap":
+        command = bc + ["ref", "bootstrap"]
     elif cmd == "ref-gene-map":
         command = bc + ["ref", "gene-map"]
     elif cmd == "vep-verify":
@@ -497,8 +506,25 @@ def run_generic_cmd(cmd_meta: dict[str, Any]):
     if state.out_dir:
         command.extend(["--outdir", state.out_dir])
 
+    on_finish = None
+    if cmd == "ref-bootstrap":
+
+        def refresh_reference_library_path():
+            from wgsextract_cli.core.config import reload_settings, settings
+
+            reload_settings()
+            saved_reflib = settings.get("reference_library", "")
+            if saved_reflib:
+                state.ref_path = saved_reflib
+                controller.log(f"Reference Library path set to: {saved_reflib}")
+            ui.update()
+
+        on_finish = refresh_reference_library_path
+
     asyncio.create_task(
-        controller.run_cmd(command, label=cmd_meta["label"], cmd_key=cmd)
+        controller.run_cmd(
+            command, label=cmd_meta["label"], cmd_key=cmd, on_finish=on_finish
+        )
     )
 
 

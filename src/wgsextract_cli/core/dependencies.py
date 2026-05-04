@@ -1,10 +1,14 @@
 import logging
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
+from functools import lru_cache
 from typing import Any
+
+from wgsextract_cli.core import runtime
 
 # Define mandatory and optional tools
 MANDATORY_TOOLS = [
@@ -36,6 +40,107 @@ OPTIONAL_TOOLS = [
     "haplogrep",
     "htsfile",
 ]
+
+PIXI_TOOL_ENVS = {
+    "gzip": "default",
+    "tar": "default",
+    "curl": "default",
+    "fastp": "default",
+    "fastqc": "default",
+    "yleaf": "yleaf",
+    "vep": "vep",
+    "run_deepvariant": "deepvariant",
+    "haplogrep": "default",
+    "gatk": "default",
+    "delly": "default",
+    "freebayes": "default",
+    "samtools": "default",
+    "bcftools": "default",
+    "bgzip": "default",
+    "tabix": "default",
+    "java": "default",
+    "sambamba": "default",
+    "samblaster": "default",
+    "bwa": "default",
+    "minimap2": "default",
+    "htsfile": "default",
+}
+
+
+IGNORED_VERSION_OUTPUT_PREFIXES = ("wsl: Failed to mount ",)
+
+
+@lru_cache(maxsize=1)
+def _wsl_home_dir() -> str | None:
+    if not runtime.is_windows_host():
+        return None
+    try:
+        result = subprocess.run(
+            ["wsl", "bash", "-lc", 'printf %s "$HOME"'],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except Exception:
+        return None
+    if result.returncode != 0:
+        return None
+    home = result.stdout.strip()
+    return home if home else None
+
+
+def _wsl_pixi_path() -> str:
+    home = _wsl_home_dir()
+    if not home:
+        username = os.environ.get("USERNAME")
+        home = f"/home/{username}" if username else "~"
+    return f"{home}/.pixi/bin/pixi"
+
+
+def required_dependency_tools(include_python: bool = True) -> list[str]:
+    """Return the centrally-defined required dependency tools."""
+    if include_python:
+        return list(MANDATORY_TOOLS)
+    return [tool for tool in MANDATORY_TOOLS if tool != "python3"]
+
+
+def optional_dependency_tools() -> list[str]:
+    """Return the centrally-defined optional dependency tools."""
+    return list(OPTIONAL_TOOLS)
+
+
+def _version_output(stdout: str, stderr: str) -> str:
+    """Return useful version text, filtering host-runtime noise."""
+    lines = []
+    for stream_text in (stdout, stderr):
+        for line in stream_text.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith(IGNORED_VERSION_OUTPUT_PREFIXES):
+                continue
+            if stripped.startswith("DEBUG:"):
+                continue
+            lines.append(stripped)
+    return "\n".join(lines)
+
+
+def _tool_command_parts(cmd_base: str) -> list[str]:
+    """Split wrapper commands without corrupting native executable paths."""
+    if runtime.is_wsl_tool_command(cmd_base):
+        return [cmd_base]
+    if os.path.exists(cmd_base):
+        return [cmd_base]
+    return shlex.split(cmd_base)
+
+
+def get_tool_runtime(path: str | None) -> str:
+    """Return the runtime used for a resolved dependency path."""
+    if path is None:
+        return "missing"
+    if runtime.is_wsl_tool_command(path):
+        return "wsl"
+    return "native"
 
 
 def get_repo_root() -> str:
@@ -114,7 +219,8 @@ def verify_dependencies(
                     "Warning: Missing required core tools on Windows. Some features may not work."
                 )
                 logging.warning(
-                    "On Windows, we recommend using WSL2 for full bio-tools support."
+                    "WSL2 is the supported Windows runtime for bioinformatics tools. "
+                    "Run 'wgsextract deps wsl check' or bootstrap_wsl.ps1 to verify setup."
                 )
             else:
                 logging.error("Fatal Error: Missing required core tools or JAR files.")
@@ -138,7 +244,8 @@ def verify_dependencies(
             sys.exit(1)
         else:
             logging.warning(
-                "\nProceeding anyway, but expect failures in bio-tool commands."
+                "\nProceeding anyway, but expect failures in bio-tool commands "
+                "unless WSL tools are configured."
             )
 
     # Version Validation for critical tools
@@ -189,29 +296,28 @@ def get_tool_version(tool: str) -> str | None:
     if not cmd_base:
         return None
 
-    import shlex
-
-    full_cmd = shlex.split(cmd_base)
+    full_cmd = _tool_command_parts(cmd_base)
 
     try:
         # 1. Try --version first (standard)
         res = subprocess.run(
-            full_cmd + ["--version"], capture_output=True, text=True, timeout=5
+            runtime.wrap_command(full_cmd + ["--version"]),
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
-        output = (res.stdout or res.stderr).strip()
+        output = _version_output(res.stdout, res.stderr)
 
         if res.returncode == 0 and output and not output.startswith("[main]"):
-            lines = [
-                line.strip()
-                for line in output.splitlines()
-                if line.strip() and not line.startswith("DEBUG:")
-            ]
+            lines = [line.strip() for line in output.splitlines() if line.strip()]
             if lines:
                 return lines[0]
 
         # 2. Fallback for tools that use bare command or --help
-        res = subprocess.run(full_cmd, capture_output=True, text=True, timeout=5)
-        output = (res.stdout or res.stderr).strip()
+        res = subprocess.run(
+            runtime.wrap_command(full_cmd), capture_output=True, text=True, timeout=10
+        )
+        output = _version_output(res.stdout, res.stderr)
 
         # Check for dyld/library errors
         failure_keywords = [
@@ -253,31 +359,29 @@ def get_tool_version(tool: str) -> str | None:
 
 def get_tool_path(tool: str) -> str | None:
     """Returns the path to a tool if it exists in the system PATH or pixi environments."""
+    should_consider_wsl = runtime.should_consider_wsl()
+    prefer_wsl = runtime.get_tool_runtime_mode() == "wsl"
+
+    if should_consider_wsl and prefer_wsl and runtime.wsl_command_available(tool):
+        return runtime.wsl_tool_command(tool)
+
     path = shutil.which(tool)
     if path:
         return path
 
+    if should_consider_wsl:
+        if runtime.wsl_command_available(tool):
+            return runtime.wsl_tool_command(tool)
+        if tool in PIXI_TOOL_ENVS and runtime.wsl_pixi_tool_available(
+            tool, PIXI_TOOL_ENVS[tool]
+        ):
+            return runtime.wsl_tool_command(
+                f"{_wsl_pixi_path()} run -e {PIXI_TOOL_ENVS[tool]} {tool}"
+            )
+
     # Check for pixi sub-environments
-    pixi_map = {
-        "yleaf": "yleaf",
-        "vep": "vep",
-        "run_deepvariant": "deepvariant",
-        "haplogrep": "default",
-        "gatk": "default",
-        "delly": "default",
-        "freebayes": "default",
-        "samtools": "default",
-        "bcftools": "default",
-        "bgzip": "default",
-        "tabix": "default",
-        "java": "default",
-        "sambamba": "default",
-        "samblaster": "default",
-        "bwa": "default",
-        "minimap2": "default",
-    }
-    if tool in pixi_map:
-        env = pixi_map[tool]
+    if tool in PIXI_TOOL_ENVS:
+        env = PIXI_TOOL_ENVS[tool]
 
         # Resolve 'pixi' command
         pixi_cmd = shutil.which("pixi")
@@ -317,9 +421,9 @@ def check_all_dependencies(
     Performs a simple dependency check and returns results.
     """
     if mandatory is None:
-        mandatory = MANDATORY_TOOLS
+        mandatory = required_dependency_tools()
     if optional is None:
-        optional = OPTIONAL_TOOLS
+        optional = optional_dependency_tools()
 
     results: dict[str, list[dict[str, Any]]] = {"mandatory": [], "optional": []}
 
@@ -331,6 +435,7 @@ def check_all_dependencies(
         {
             "name": "Python Runtime",
             "path": sys.executable,
+            "runtime": "native",
             "version": f"Python {py_version} (Required >= 3.10)",
         }
     )
@@ -346,6 +451,7 @@ def check_all_dependencies(
             {
                 "name": tool,
                 "path": path if not is_broken else None,
+                "runtime": get_tool_runtime(path if not is_broken else None),
                 "version": version,
             }
         )
@@ -366,6 +472,7 @@ def check_all_dependencies(
             {
                 "name": display_name,
                 "path": path if not is_broken else None,
+                "runtime": get_tool_runtime(path if not is_broken else None),
                 "version": version,
             }
         )

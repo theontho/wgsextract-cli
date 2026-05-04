@@ -11,6 +11,7 @@ class TestE2EFocused(TestE2EBase):
 
     REGION = "chrM"
     MODE = "CHRM"
+    __test__ = True
 
 
 if __name__ == "__main__":

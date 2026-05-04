@@ -1,6 +1,102 @@
 # WSL2 + Pixi Bootstrap for WGS Extract CLI
 
+param(
+    [switch]$Tune,
+    [string]$Memory,
+    [int]$Processors,
+    [string]$Swap
+)
+
 $ErrorActionPreference = "Stop"
+
+function Get-DefaultWSLSettings {
+    $computer = Get-CimInstance Win32_ComputerSystem
+    $hostProcessors = [int]$computer.NumberOfLogicalProcessors
+    $hostMemoryGb = [Math]::Round($computer.TotalPhysicalMemory / 1GB)
+
+    return @{
+        memory = "$([Math]::Ceiling($hostMemoryGb * 0.75))GB"
+        processors = [string]([Math]::Max(1, [Math]::Round($hostProcessors * 2 / 3)))
+        swap = "$([Math]::Ceiling($hostMemoryGb * 0.25))GB"
+        hostProcessors = $hostProcessors
+        hostMemoryGb = $hostMemoryGb
+    }
+}
+function Update-WSLConfig {
+    if (-not $Tune) {
+        return
+    }
+
+    $defaults = Get-DefaultWSLSettings
+    $settings = @{}
+    $settings["memory"] = if ($Memory) { $Memory } else { $defaults["memory"] }
+    $settings["processors"] = if ($Processors -gt 0) { [string]$Processors } else { $defaults["processors"] }
+    $settings["swap"] = if ($Swap) { $Swap } else { $defaults["swap"] }
+
+    $configPath = Join-Path $env:USERPROFILE ".wslconfig"
+    $lines = @()
+    if (Test-Path $configPath) {
+        $lines = Get-Content $configPath
+    }
+
+    $output = New-Object System.Collections.Generic.List[string]
+    $inWsl2 = $false
+    $sawWsl2 = $false
+    $applied = @{}
+
+    foreach ($line in $lines) {
+        $trimmed = $line.Trim()
+        if ($trimmed.StartsWith("[") -and $trimmed.EndsWith("]")) {
+            if ($inWsl2) {
+                foreach ($key in $settings.Keys) {
+                    if (-not $applied.ContainsKey($key)) {
+                        $output.Add("$key=$($settings[$key])")
+                        $applied[$key] = $true
+                    }
+                }
+            }
+            $inWsl2 = $trimmed.ToLowerInvariant() -eq "[wsl2]"
+            if ($inWsl2) { $sawWsl2 = $true }
+            $output.Add($line)
+            continue
+        }
+
+        if ($inWsl2 -and $trimmed.Contains("=")) {
+            $key = $trimmed.Split("=", 2)[0].Trim().ToLowerInvariant()
+            if ($settings.ContainsKey($key)) {
+                $output.Add("$key=$($settings[$key])")
+                $applied[$key] = $true
+                continue
+            }
+        }
+        $output.Add($line)
+    }
+
+    if ($inWsl2) {
+        foreach ($key in $settings.Keys) {
+            if (-not $applied.ContainsKey($key)) {
+                $output.Add("$key=$($settings[$key])")
+                $applied[$key] = $true
+            }
+        }
+    }
+
+    if (-not $sawWsl2) {
+        if ($output.Count -gt 0 -and $output[$output.Count - 1].Trim()) {
+            $output.Add("")
+        }
+        $output.Add("[wsl2]")
+        foreach ($key in $settings.Keys) {
+            $output.Add("$key=$($settings[$key])")
+        }
+    }
+
+    Set-Content -Path $configPath -Value $output -Encoding UTF8
+    Write-Host "Updated WSL resource settings at $configPath" -ForegroundColor Green
+    Write-Host "Defaults use host ratios: processors=2/3, memory=3/4, swap=1/4." -ForegroundColor Cyan
+    Write-Host "Resolved settings: memory=$($settings['memory']), processors=$($settings['processors']), swap=$($settings['swap']) (host: $($defaults['hostProcessors']) CPUs, $($defaults['hostMemoryGb'])GB RAM)" -ForegroundColor Cyan
+    Write-Host "Run 'wsl --shutdown' or reboot Windows for these settings to take effect." -ForegroundColor Yellow
+}
 
 function Check-WSL {
     if (-not (Get-Command wsl -ErrorAction SilentlyContinue)) {
@@ -73,6 +169,8 @@ function Setup-Repo {
 }
 
 Write-Host "--- WGS Extract CLI: WSL2 Bootstrap ---" -ForegroundColor Blue
+Write-Host "For native Windows + WSL setup, use .\setup_windows.ps1 instead." -ForegroundColor Yellow
+Update-WSLConfig
 Check-WSL
 Install-Ubuntu
 Setup-Pixi
@@ -83,3 +181,7 @@ $winPath = (Get-Location).Path.Replace('\', '/')
 $currentWslPath = wsl wslpath -u "$winPath"
 $currentWslPath = ([string]$currentWslPath).Replace("`0", "").Replace("`n", "").Replace("`r", "").Trim()
 Write-Host "To run the CLI: wsl bash -c 'cd ""$currentWslPath"" && ~/.pixi/bin/pixi run wgsextract --help'" -ForegroundColor Cyan
+
+
+
+

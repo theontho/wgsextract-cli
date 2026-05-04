@@ -1,10 +1,17 @@
 #!/bin/bash
 
 # Simple script to run cloc with appropriate exclusions for this project.
-# Requires 'cloc' to be installed on the system.
+# Run with `pixi run stats` or `pixi run stats-report` to use Pixi-managed cloc.
+
+REPORT_PATH="${1:-}"
+
+if [ -n "$REPORT_PATH" ]; then
+    mkdir -p "$(dirname "$REPORT_PATH")"
+    exec > >(tee "$REPORT_PATH")
+fi
 
 if ! command -v cloc >/dev/null 2>&1; then
-    echo "❌ Error: 'cloc' is not installed. Please install it (e.g., brew install cloc or apt install cloc)."
+    echo "Error: 'cloc' is not available. Run this script via 'pixi run stats' or 'pixi run stats-report'."
     exit 1
 fi
 

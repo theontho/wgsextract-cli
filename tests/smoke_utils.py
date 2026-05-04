@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import sys
 
 _TOOL_CACHE: dict[str, bool] = {}
 
@@ -105,8 +106,7 @@ def assert_file_contains(file_path: str, pattern: str) -> bool:
 
 def get_cli_command() -> list[str]:
     """Returns the base command for running the CLI as a subprocess."""
-    # Using 'pixi run python3 -m wgsextract_cli.main' ensures we use the project's env
-    return ["pixi", "run", "python3", "-m", "wgsextract_cli.main"]
+    return [sys.executable, "-m", "wgsextract_cli.main"]
 
 
 def run_cli(args: list[str], env: dict | None = None) -> tuple[int, str, str]:
@@ -115,6 +115,14 @@ def run_cli(args: list[str], env: dict | None = None) -> tuple[int, str, str]:
     # Also skip loading .env files from the project root
     clean_env = {k: v for k, v in os.environ.items() if not k.startswith("WGSE_")}
     clean_env["WGSE_SKIP_DOTENV"] = "1"
+    test_home = os.path.abspath(os.path.join("tmp", "pytest_home"))
+    local_appdata = os.path.join(test_home, "AppData", "Local")
+    roaming_appdata = os.path.join(test_home, "AppData", "Roaming")
+    os.makedirs(local_appdata, exist_ok=True)
+    os.makedirs(roaming_appdata, exist_ok=True)
+    clean_env["USERPROFILE"] = test_home
+    clean_env["LOCALAPPDATA"] = local_appdata
+    clean_env["APPDATA"] = roaming_appdata
     if env:
         clean_env.update(env)
 
@@ -129,6 +137,14 @@ def run_cli_pipe(
     """Runs the CLI as a subprocess with stdin and returns (returncode, stdout, stderr)."""
     clean_env = {k: v for k, v in os.environ.items() if not k.startswith("WGSE_")}
     clean_env["WGSE_SKIP_DOTENV"] = "1"
+    test_home = os.path.abspath(os.path.join("tmp", "pytest_home"))
+    local_appdata = os.path.join(test_home, "AppData", "Local")
+    roaming_appdata = os.path.join(test_home, "AppData", "Roaming")
+    os.makedirs(local_appdata, exist_ok=True)
+    os.makedirs(roaming_appdata, exist_ok=True)
+    clean_env["USERPROFILE"] = test_home
+    clean_env["LOCALAPPDATA"] = local_appdata
+    clean_env["APPDATA"] = roaming_appdata
     if env:
         clean_env.update(env)
 
