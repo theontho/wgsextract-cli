@@ -17,6 +17,72 @@ from wgsextract_cli.core.genome_library import (
 from wgsextract_cli.core.utils import WGSExtractError
 
 
+class DummyProcess:
+    def __init__(self):
+        self.stdout = self
+
+    def close(self):
+        pass
+
+    def communicate(self):
+        return None, None
+
+
+class TestAlignToolSelection(unittest.TestCase):
+    def setUp(self):
+        self.test_dir = tempfile.mkdtemp()
+        self.r1 = os.path.join(self.test_dir, "fake_R1.fastq.gz")
+        self.ref = os.path.join(self.test_dir, "fake_ref.fa")
+        for path in (self.r1, self.ref, f"{self.ref}.bwt"):
+            with open(path, "w") as f:
+                f.write("test")
+
+    def tearDown(self):
+        shutil.rmtree(self.test_dir)
+
+    def test_bwa_alignment_uses_shared_sambamba_sort_selection(self):
+        from wgsextract_cli.commands import align
+
+        args = Namespace(
+            r1=self.r1,
+            r2=None,
+            ref=self.ref,
+            input=None,
+            outdir=self.test_dir,
+            format="BAM",
+            threads=None,
+            memory=None,
+        )
+        commands = []
+
+        def fake_get_tool_path(tool):
+            return "bwa" if tool == "bwa" else None
+
+        def fake_which(tool):
+            return "/usr/bin/sambamba" if tool == "sambamba" else None
+
+        def fake_popen(cmd, **_kwargs):
+            commands.append(cmd)
+            return DummyProcess()
+
+        with (
+            patch.object(align, "verify_dependencies"),
+            patch.object(align, "log_dependency_info"),
+            patch.object(align, "get_resource_defaults", return_value=("2", "1G")),
+            patch.object(align, "verify_paths_exist", return_value=True),
+            patch.object(align, "resolve_reference", return_value=self.ref),
+            patch.object(align, "get_tool_path", side_effect=fake_get_tool_path),
+            patch.object(align, "print_warning"),
+            patch.object(align, "run_command"),
+            patch.object(align, "popen", side_effect=fake_popen),
+            patch("wgsextract_cli.core.utils.shutil.which", side_effect=fake_which),
+            patch("platform.system", return_value="Linux"),
+        ):
+            align.align_bwa(args)
+
+        self.assertIn(["sambamba", "sort"], [cmd[:2] for cmd in commands])
+
+
 class TestCLILogic(unittest.TestCase):
     def setUp(self):
         self.test_dir = tempfile.mkdtemp()
