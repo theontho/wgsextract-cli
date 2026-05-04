@@ -11,7 +11,10 @@ from typing import Any
 import customtkinter as ctk
 from PIL import Image
 
-from wgsextract_cli.core.dependencies import check_dependencies
+from wgsextract_cli.core.dependencies import (
+    check_dependencies,
+    required_dependency_tools,
+)
 from wgsextract_cli.core.messages import GUI_LABELS
 from wgsextract_cli.ui.constants import BUTTON_FONT, UI_METADATA
 from wgsextract_cli.ui.gui_parts.controller import GUIController
@@ -102,18 +105,7 @@ class WGSExtractGUI(ctk.CTk):
 
         # Perform global dependency check
         logger.debug(f"[{time.time() - start_time:.3f}s] Checking dependencies...")
-        core_tools = [
-            "samtools",
-            "bcftools",
-            "bwa",
-            "minimap2",
-            "tabix",
-            "bgzip",
-            "fastp",
-            "fastqc",
-            "curl",
-        ]
-        missing = check_dependencies(core_tools)
+        missing = check_dependencies(required_dependency_tools(include_python=False))
         if missing:
             logger.warning(f"Missing core dependencies: {', '.join(missing)}")
 

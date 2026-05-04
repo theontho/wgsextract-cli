@@ -736,6 +736,8 @@ def _normalize_subprocess_cmd(cmd):
     """Expand shell-style command strings and configured Pixi tool wrappers."""
     import shlex
 
+    from wgsextract_cli.core import runtime
+
     if isinstance(cmd, str):
         cmd_list = shlex.split(cmd)
     else:
@@ -751,6 +753,13 @@ def _normalize_subprocess_cmd(cmd):
 
     if cmd_list and isinstance(cmd_list[0], str):
         executable = cmd_list[0]
+        if runtime.is_wsl_tool_command(executable):
+            return runtime.wrap_command(cmd_list)
+
+        if executable and " " in executable and not os.path.exists(executable):
+            cmd_list = shlex.split(executable) + cmd_list[1:]
+            executable = cmd_list[0]
+
         if (
             executable
             and os.path.basename(executable) == executable
@@ -760,9 +769,12 @@ def _normalize_subprocess_cmd(cmd):
 
             resolved = get_tool_path(executable)
             if resolved:
-                cmd_list = shlex.split(resolved) + cmd_list[1:]
+                if runtime.is_wsl_tool_command(resolved):
+                    cmd_list = [resolved] + cmd_list[1:]
+                else:
+                    cmd_list = shlex.split(resolved) + cmd_list[1:]
 
-    return cmd_list
+    return runtime.wrap_command(cmd_list)
 
 
 def popen(cmd, stdout=None, stderr=None, stdin=None, text=False, env=None):
@@ -814,7 +826,7 @@ def run_command(
             if res_stderr:
                 logging.error(res_stderr)
             raise subprocess.CalledProcessError(
-                process.returncode, cmd, res_stdout, res_stderr
+                process.returncode, cmd_list, res_stdout, res_stderr
             )
         return subprocess.CompletedProcess(
             cmd, process.returncode, res_stdout, res_stderr
@@ -888,9 +900,7 @@ def ensure_vcf_prepared(vcf_path):
     bgzip = get_tool_path("bgzip")
     logging.info(f"Compressing VCF: {vcf_path}")
     with open(gz_path, "wb") as f_out:
-        import shlex
-
-        subprocess.run(shlex.split(bgzip) + ["-c", vcf_path], stdout=f_out, check=True)
+        run_command([bgzip, "-c", vcf_path], stdout=f_out)
     ensure_vcf_indexed(gz_path)
     return gz_path
 
@@ -898,9 +908,7 @@ def ensure_vcf_prepared(vcf_path):
 def get_vcf_samples(vcf_path):
     """Retrieve sample names from VCF header."""
     try:
-        res = subprocess.run(
-            ["bcftools", "query", "-l", vcf_path], capture_output=True, text=True
-        )
+        res = run_command(["bcftools", "query", "-l", vcf_path], capture_output=True)
         return res.stdout.strip().split("\n")
     except Exception:
         return []
@@ -913,9 +921,7 @@ def normalize_vcf_chromosomes(vcf_path, target_chroms):
     """
     v_chroms = []
     try:
-        res = subprocess.run(
-            ["bcftools", "index", "-s", vcf_path], capture_output=True, text=True
-        )
+        res = run_command(["bcftools", "index", "-s", vcf_path], capture_output=True)
         v_chroms = [line.split("\t")[0] for line in res.stdout.strip().split("\n")]
     except Exception:
         return vcf_path
@@ -1159,11 +1165,11 @@ def get_ref_mito(bam_path, cram_opt=None, header=None):
 def get_file_version(filepath: str) -> str:
     """Retrieve the format and version of a genomic file using htsfile."""
     try:
-        res = subprocess.run(["htsfile", filepath], capture_output=True, text=True)
+        res = run_command(["htsfile", filepath], capture_output=True, check=False)
         if res.returncode == 0:
             # Output format: "path: Format version X sequence data"
             # e.g., "file.cram: CRAM version 3.1 sequence data"
-            out = res.stdout.strip()
+            out = str(res.stdout).strip()
             if ":" in out:
                 version_info = out.split(":", 1)[1].strip()
                 # Clean up "sequence data" suffix if present
@@ -1194,10 +1200,7 @@ def get_vcf_build(vcf_path):
         from wgsextract_cli.core.dependencies import get_tool_path
 
         bcftools = get_tool_path("bcftools")
-        import shlex
-
-        cmd = shlex.split(bcftools) + ["view", "-h", vcf_path]
-        res = subprocess.run(cmd, capture_output=True, text=True)
+        res = run_command([bcftools, "view", "-h", vcf_path], capture_output=True)
         header = res.stdout.lower()
         if "hg38" in header or "grch38" in header:
             return "hg38"
@@ -1214,10 +1217,7 @@ def get_vcf_chr_name(vcf_path, target_chr):
         from wgsextract_cli.core.dependencies import get_tool_path
 
         bcftools = get_tool_path("bcftools")
-        import shlex
-
-        cmd = shlex.split(bcftools) + ["index", "-s", vcf_path]
-        res = subprocess.run(cmd, capture_output=True, text=True)
+        res = run_command([bcftools, "index", "-s", vcf_path], capture_output=True)
         v_chroms = [line.split("\t")[0] for line in res.stdout.strip().split("\n")]
 
         if target_chr.upper() in ["M", "MT", "CHRM", "CHRMT"]:

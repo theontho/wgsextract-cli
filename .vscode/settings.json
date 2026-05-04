@@ -1,0 +1,15 @@
+{
+  "ruff.importStrategy": "fromEnvironment",
+  "ruff.interpreter": ["pixi", "run", "python"],
+  "ruff.organizeImports": true,
+  "ruff.fixAll": true,
+  "isort.importStrategy": "fromEnvironment",
+  "isort.interpreter": ["pixi", "run", "python"],
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.codeActionsOnSave": {
+      "source.fixAll.ruff": "explicit",
+      "source.organizeImports.ruff": "explicit"
+    }
+  }
+}

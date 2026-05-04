@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from argparse import Namespace
+from unittest.mock import patch
 
 # Ensure src is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
@@ -183,6 +184,86 @@ class TestCLILogic(unittest.TestCase):
 
         self.assertEqual(args.vcf_input, vcf_path)
         self.assertEqual(args.outdir, genome_dir)
+
+    def test_vcf_filter_prefers_explicit_vcf_input(self):
+        from wgsextract_cli.commands import vcf
+
+        vcf_path = os.path.join(self.test_dir, "sample.vcf.gz")
+        with open(vcf_path, "w") as f:
+            f.write("vcf")
+
+        class DummyReferenceLibrary:
+            fasta = None
+            root = self.test_dir
+            build = "hg38"
+
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+        args = Namespace(
+            input=os.path.join(self.test_dir, "configured.cram"),
+            vcf_input=vcf_path,
+            outdir=self.test_dir,
+            ref=None,
+            region="chrM",
+            expr=None,
+            gene=None,
+            exclude_near_gaps=False,
+        )
+
+        with (
+            patch.object(vcf, "verify_dependencies"),
+            patch.object(vcf, "log_dependency_info"),
+            patch.object(vcf, "verify_paths_exist", return_value=True),
+            patch.object(vcf, "calculate_bam_md5", return_value=None),
+            patch.object(vcf, "ReferenceLibrary", DummyReferenceLibrary),
+            patch.object(vcf, "ensure_vcf_prepared", return_value=vcf_path),
+            patch.object(vcf, "ensure_vcf_indexed"),
+            patch.object(vcf, "run_command") as run_command,
+        ):
+            vcf.cmd_filter(args)
+
+        command = run_command.call_args.args[0]
+        self.assertEqual(command[-1], vcf_path)
+        self.assertNotIn(args.input, command)
+
+    def test_vcf_filter_raises_on_filter_failure(self):
+        from wgsextract_cli.commands import vcf
+
+        vcf_path = os.path.join(self.test_dir, "sample.vcf.gz")
+        with open(vcf_path, "w") as f:
+            f.write("vcf")
+
+        class DummyReferenceLibrary:
+            fasta = None
+            root = self.test_dir
+            build = "hg38"
+
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+        args = Namespace(
+            input=None,
+            vcf_input=vcf_path,
+            outdir=self.test_dir,
+            ref=None,
+            region="chrM",
+            expr=None,
+            gene=None,
+            exclude_near_gaps=False,
+        )
+
+        with (
+            patch.object(vcf, "verify_dependencies"),
+            patch.object(vcf, "log_dependency_info"),
+            patch.object(vcf, "verify_paths_exist", return_value=True),
+            patch.object(vcf, "calculate_bam_md5", return_value=None),
+            patch.object(vcf, "ReferenceLibrary", DummyReferenceLibrary),
+            patch.object(vcf, "ensure_vcf_prepared", return_value=vcf_path),
+            patch.object(vcf, "run_command", side_effect=RuntimeError("boom")),
+        ):
+            with self.assertRaises(WGSExtractError):
+                vcf.cmd_filter(args)
 
     def test_genome_library_resolves_vcf_input_for_qc_vcf(self):
         genome_root = os.path.join(self.test_dir, "genomes")

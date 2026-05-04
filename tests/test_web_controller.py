@@ -48,6 +48,31 @@ class TestWebController(unittest.IsolatedAsyncioTestCase):
             self.assertIn("ℹ️ New tab message", state.logs["NewTab"])
             mock_refresh.assert_called_once()
 
+    def test_log_print_falls_back_for_non_unicode_stdout(self):
+        """Test console printing does not fail with narrow Windows encodings."""
+
+        class NarrowStdout:
+            encoding = "cp1252"
+
+            def __init__(self):
+                self.output = []
+
+            def write(self, value):
+                value.encode(self.encoding)
+                self.output.append(value)
+
+            def flush(self):
+                pass
+
+        stdout = NarrowStdout()
+        with patch("wgsextract_cli.ui.web_gui_parts.controller.sys.stdout", stdout):
+            self.controller.log("DEBUG: Triggering fast info", tab="Main")
+
+        self.assertIn("🔍 DEBUG: Triggering fast info", state.logs["Main"])
+        self.assertTrue(
+            any("? DEBUG: Triggering fast info" in value for value in stdout.output)
+        )
+
     @patch("asyncio.create_subprocess_exec")
     async def test_run_cmd_success(self, mock_exec):
         """Test successful command execution."""

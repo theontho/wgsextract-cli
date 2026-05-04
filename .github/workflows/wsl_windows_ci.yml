@@ -27,7 +27,32 @@ jobs:
       - name: Initialize Project in WSL
         shell: wsl-bash {0}
         run: |
+          ~/.pixi/bin/pixi config set --local detached-environments true
           ~/.pixi/bin/pixi install
+
+      - name: Install Pixi on Windows
+        shell: pwsh
+        run: |
+          irm https://pixi.sh/install.ps1 | iex
+          "$env:USERPROFILE\.pixi\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Initialize Project on Windows
+        shell: pwsh
+        env:
+          PIXI_PROJECT_ENVIRONMENT_DIR: tmp/pixi-envs/windows
+          PIXI_CACHE_DIR: tmp/pixi-cache/windows
+        run: |
+          pixi config set --local detached-environments true
+          pixi install
+
+      - name: Check Windows-hosted WSL Runtime
+        shell: pwsh
+        env:
+          WGSEXTRACT_TOOL_RUNTIME: wsl
+          PIXI_PROJECT_ENVIRONMENT_DIR: tmp/pixi-envs/windows
+          PIXI_CACHE_DIR: tmp/pixi-cache/windows
+        run: |
+          pixi run python -m wgsextract_cli.main deps wsl check
           
       - name: Verify Tools in WSL
         shell: wsl-bash {0}

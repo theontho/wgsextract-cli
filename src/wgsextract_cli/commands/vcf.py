@@ -630,7 +630,7 @@ def cmd_annotate(args):
 def cmd_filter(args):
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
-    input_file = args.input if args.input else args.vcf_input
+    input_file = args.vcf_input if args.vcf_input else args.input
     if not input_file:
         msg = LOG_MESSAGES["input_required"]
         logging.error(msg)
@@ -703,6 +703,7 @@ def cmd_filter(args):
         ensure_vcf_indexed(out_vcf)
     except Exception as e:
         logging.error(f"❌: Filtering failed: {e}")
+        raise WGSExtractError("VCF filtering failed.") from None
     finally:
         if gaps_bed and os.path.exists(gaps_bed):
             os.remove(gaps_bed)

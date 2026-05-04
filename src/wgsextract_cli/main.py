@@ -305,6 +305,9 @@ def main():
 # memory = "16G"
 
 # --- External Tools ---
+# Runtime for external tools: auto, native, or wsl
+# runtime = "auto"
+
 # Paths to specific tool executables or directories
 # yleaf_path = "/path/to/yleaf"
 # haplogrep_path = "/path/to/haplogrep"

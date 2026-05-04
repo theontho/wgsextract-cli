@@ -12,6 +12,7 @@ from typing import Any
 from urllib.request import Request, urlopen
 
 from wgsextract_cli.core.dependencies import verify_dependencies
+from wgsextract_cli.core.utils import popen, run_command
 
 # Global cache for genome data
 _GENOME_DATA_CACHE: list[dict[str, Any]] = []
@@ -36,7 +37,7 @@ def download_file(
 
         # Note: we don't use progress_callback with curl easily here without parsing output
         # For simplicity in CLI, we'll just run it.
-        subprocess.run(cmd, check=True, capture_output=True)
+        run_command(cmd, capture_output=True)
         return True
     except Exception:
         # Fallback to urllib
@@ -351,7 +352,7 @@ def download_clinvar(reflib_dir, cancel_event=None, progress_callback=None):
         logging.info(f"Indexing ClinVar {build}...")
         try:
             # We need tabix
-            subprocess.run(["tabix", "-p", "vcf", "-f", dest_path], check=True)
+            run_command(["tabix", "-p", "vcf", "-f", dest_path])
         except Exception as e:
             logging.error(f"Failed to index ClinVar {build}: {e}")
             success = False
@@ -381,7 +382,7 @@ def download_spliceai(reflib_dir, cancel_event=None, progress_callback=None):
 
         logging.info(f"Indexing SpliceAI {build}...")
         try:
-            subprocess.run(["tabix", "-p", "vcf", "-f", dest_path], check=True)
+            run_command(["tabix", "-p", "vcf", "-f", dest_path])
         except Exception as e:
             logging.error(f"Failed to index SpliceAI {build}: {e}")
             success = False
@@ -413,9 +414,7 @@ def download_alphamissense(reflib_dir, cancel_event=None, progress_callback=None
         try:
             # AlphaMissense TSV format: #CHROM, POS, REF, ALT, am_pathogenicity, am_class
             # We want CHROM=1, POS=2
-            subprocess.run(
-                ["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", dest_path], check=True
-            )
+            run_command(["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", dest_path])
         except Exception as e:
             logging.error(f"Failed to index AlphaMissense {build}: {e}")
             success = False
@@ -465,7 +464,7 @@ def download_pharmgkb(reflib_dir, cancel_event=None, progress_callback=None):
         logging.info(f"Indexing ClinVar {build}...")
         try:
             # We need tabix
-            subprocess.run(["tabix", "-p", "vcf", "-f", dest_path], check=True)
+            run_command(["tabix", "-p", "vcf", "-f", dest_path])
         except Exception as e:
             logging.error(f"Failed to index ClinVar {build}: {e}")
             success = False
@@ -502,9 +501,7 @@ def download_revel(reflib_dir, cancel_event=None, progress_callback=None):
         try:
             # Annovar REVEL format: #Chr, Start, End, Ref, Alt, REVEL...
             # We want CHROM=1, POS=2, REF=4, ALT=5
-            subprocess.run(
-                ["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", dest_path], check=True
-            )
+            run_command(["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", dest_path])
         except Exception as e:
             logging.error(f"Failed to index REVEL {build}: {e}")
             success = False
@@ -541,9 +538,7 @@ def download_phylop(reflib_dir, cancel_event=None, progress_callback=None):
         try:
             # Annovar PhyloP format: #Chr, Start, End, Score
             # We use bcftools annotate with CHROM=1, POS=2
-            subprocess.run(
-                ["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", dest_path], check=True
-            )
+            run_command(["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", dest_path])
         except Exception as e:
             logging.error(f"Failed to index PhyloP {build}: {e}")
             success = False
@@ -577,7 +572,7 @@ def download_gnomad(reflib_dir, cancel_event=None, progress_callback=None):
             # gnomAD VCFs are usually already bgzipped and indexed,
             # but we might need to download the index or recreate it.
             # Tabix -p vcf works for .vcf.bgz as well.
-            subprocess.run(["tabix", "-p", "vcf", "-f", dest_path], check=True)
+            run_command(["tabix", "-p", "vcf", "-f", dest_path])
         except Exception as e:
             logging.error(f"Failed to index gnomAD {build}: {e}")
             success = False
@@ -721,7 +716,7 @@ def process_reference_file(
         logging.info("Generating sequence dictionary...")
         if status_callback:
             status_callback("Processing: Generating Dictionary...")
-        p_dict = subprocess.Popen(
+        p_dict = popen(
             ["samtools", "dict", bgzf_path, "-o", dict_path],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -732,7 +727,7 @@ def process_reference_file(
         logging.info("Indexing FASTA...")
         if status_callback:
             status_callback("Processing: Indexing FASTA...")
-        p_faidx = subprocess.Popen(
+        p_faidx = popen(
             ["samtools", "faidx", bgzf_path],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -789,8 +784,8 @@ def ensure_bgzf(
     try:
         if path.endswith(".gz"):
             with open(tmp_path, "wb") as f_out:
-                p1 = subprocess.Popen(["gunzip", "-c", path], stdout=subprocess.PIPE)
-                p2 = subprocess.Popen(["bgzip", "-c"], stdin=p1.stdout, stdout=f_out)
+                p1 = popen(["gunzip", "-c", path], stdout=subprocess.PIPE)
+                p2 = popen(["bgzip", "-c"], stdin=p1.stdout, stdout=f_out)
                 if p1.stdout:
                     p1.stdout.close()
 
@@ -806,7 +801,7 @@ def ensure_bgzf(
             return path
         else:
             with open(tmp_path, "wb") as f_out:
-                p_bgzip = subprocess.Popen(["bgzip", "-c", path], stdout=f_out)
+                p_bgzip = popen(["bgzip", "-c", path], stdout=f_out)
                 if not wait_with_cancel(p_bgzip, cancel_event):
                     if os.path.exists(tmp_path):
                         os.remove(tmp_path)
@@ -865,11 +860,7 @@ def download_bootstrap(
 
     # Try curl first if available, then fallback to download_file (urllib)
     try:
-        subprocess.run(
-            ["curl", "-L", "-o", dest_path, BOOTSTRAP_URL],
-            check=True,
-            capture_output=True,
-        )
+        run_command(["curl", "-L", "-o", dest_path, BOOTSTRAP_URL], capture_output=True)
     except Exception:
         if not download_file(BOOTSTRAP_URL, dest_path, progress_callback, cancel_event):
             return False
@@ -882,10 +873,10 @@ def download_bootstrap(
         cmd = ["tar", "-xkf", dest_path, "--no-xattrs", "-C", reflib_dir]
         # Fallback if --no-xattrs is not supported (e.g. on very old tar)
         try:
-            subprocess.run(cmd, check=True, stderr=subprocess.PIPE)
+            run_command(cmd, capture_output=True)
         except subprocess.CalledProcessError:
             cmd = ["tar", "-xkf", dest_path, "-C", reflib_dir]
-            subprocess.run(cmd, check=True)
+            run_command(cmd)
 
         # Cleanup the archive after successful extraction
         os.remove(dest_path)
