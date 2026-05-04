@@ -13,45 +13,11 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Set up Pixi
-        uses: prefix-dev/setup-pixi@v0.9.5
-        with:
-          pixi-version: latest
-          locked: false
-      - name: Configure and Bootstrap Library
-        shell: powershell
-        env:
-          USERPROFILE: ${{ github.workspace }}\.tmp_home
-          LOCALAPPDATA: ${{ github.workspace }}\.tmp_home\AppData\Local
-          APPDATA: ${{ github.workspace }}\.tmp_home\AppData\Roaming
-          PIXI_CACHE_DIR: ${{ github.workspace }}\.tmp_home\.pixi_cache
-        run: |
-          mkdir .tmp_home\AppData\Local -Force
-          mkdir .tmp_home\AppData\Roaming -Force
-          mkdir .tmp_home\.config\wgsextract -Force
-          pixi run python -c "from wgsextract_cli.core.config import save_config; save_config({'reference_library': 'reference'})"
-          pixi run python -m wgsextract_cli.main ref bootstrap --ref reference
-      - name: Install Reference Genome
-        shell: powershell
-        env:
-          USERPROFILE: ${{ github.workspace }}\.tmp_home
-          LOCALAPPDATA: ${{ github.workspace }}\.tmp_home\AppData\Local
-          APPDATA: ${{ github.workspace }}\.tmp_home\AppData\Roaming
-          PIXI_CACHE_DIR: ${{ github.workspace }}\.tmp_home\.pixi_cache
-        run: pixi run python -m wgsextract_cli.main ref library --install hs38 --ref reference
-      - name: Lint and Type Check
-        shell: powershell
-        run: |
-          pixi run ruff check .
-          pixi run mypy src/wgsextract_cli
-      - name: Run Basic Tests
-        shell: powershell
-        run: pixi run pytest tests/test_smoke.py
-      - name: Set up WSL Benchmark Toolchain
+      - name: Set up WSL
         uses: Vampire/setup-wsl@v6
         with:
           distribution: Ubuntu-24.04
-      - name: Install WSL Benchmark Dependencies
+      - name: Install WSL Dependencies
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
@@ -65,4 +31,18 @@ jobs:
           $ErrorActionPreference = "Stop"
           $workspace = "${{ github.workspace }}".Replace('\', '/')
           $wslPath = (wsl wslpath -u "$workspace").Trim()
-          wsl bash -lc "cd '$wslPath' && ~/.pixi/bin/pixi run wgsextract benchmark --profile smoke"
+          wsl bash -lc "cd '$wslPath' && ~/.pixi/bin/pixi run wgsextract benchmark"
+      - name: Run Tests
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $workspace = "${{ github.workspace }}".Replace('\', '/')
+          $wslPath = (wsl wslpath -u "$workspace").Trim()
+          wsl bash -lc "cd '$wslPath' && ~/.pixi/bin/pixi run test"
+      - name: Lint and Type Check
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $workspace = "${{ github.workspace }}".Replace('\', '/')
+          $wslPath = (wsl wslpath -u "$workspace").Trim()
+          wsl bash -lc "cd '$wslPath' && ~/.pixi/bin/pixi run ruff check . && ~/.pixi/bin/pixi run mypy src/wgsextract_cli"
