@@ -143,9 +143,10 @@ def test_200mb_profile_targets_scaled_fake_bam() -> None:
     assert profile["region"] is None
 
 
-def test_macos_benchmark_threads_use_performance_cores(monkeypatch) -> None:
+def test_macos_benchmark_threads_use_mixed_policy(monkeypatch) -> None:
     args = Namespace(threads=None)
     monkeypatch.setattr(benchmark.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(benchmark.psutil, "cpu_count", lambda logical=False: 10)
     monkeypatch.setattr(
         benchmark,
         "_command_output",
@@ -154,9 +155,13 @@ def test_macos_benchmark_threads_use_performance_cores(monkeypatch) -> None:
         ),
     )
 
-    benchmark._apply_benchmark_thread_defaults(args)
+    plan = benchmark._benchmark_thread_plan(args)
 
-    assert args.threads == 8
+    assert plan.label == "mixed macOS (performance=8, full=10)"
+    assert plan.default_threads == 8
+    assert plan.per_step_threads["04-fastq-align"] == 10
+    args._benchmark_thread_plan = plan
+    assert benchmark._benchmark_threads_for_step(args, "05-bam-sort") == 8
 
 
 def test_benchmark_keeps_explicit_thread_override(monkeypatch) -> None:
@@ -164,6 +169,29 @@ def test_benchmark_keeps_explicit_thread_override(monkeypatch) -> None:
     monkeypatch.setattr(benchmark.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(benchmark, "_command_output", lambda command: "8")
 
-    benchmark._apply_benchmark_thread_defaults(args)
+    plan = benchmark._benchmark_thread_plan(args)
 
-    assert args.threads == 4
+    assert plan.label == "4"
+    assert plan.default_threads == 4
+    assert plan.per_step_threads == {}
+
+
+def test_cli_command_uses_step_thread_selection() -> None:
+    args = Namespace(
+        debug=False,
+        quiet=False,
+        memory=None,
+        _benchmark_thread_plan=benchmark.BenchmarkThreadPlan(
+            "mixed", 8, {"04-fastq-align": 10}
+        ),
+    )
+
+    align_threads = benchmark._benchmark_threads_for_step(args, "04-fastq-align")
+    sort_threads = benchmark._benchmark_threads_for_step(args, "05-bam-sort")
+
+    assert align_threads == 10
+    assert sort_threads == 8
+    assert benchmark._cli_command(args, ["align"], align_threads)[-2:] == [
+        "--threads",
+        "10",
+    ]
