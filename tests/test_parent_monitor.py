@@ -5,6 +5,16 @@ from types import SimpleNamespace
 from wgsextract_cli import main
 
 
+def test_parent_process_monitor_rejects_non_positive_pids(monkeypatch):
+    def fail_if_called(parent_pid, signal_number):
+        raise AssertionError("Non-positive PIDs must not call os.kill")
+
+    monkeypatch.setattr(main.os, "kill", fail_if_called)
+
+    assert main._parent_process_is_alive(0) is False
+    assert main._parent_process_is_alive(-1) is False
+
+
 def test_parent_process_monitor_uses_psutil_on_windows(monkeypatch):
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setitem(

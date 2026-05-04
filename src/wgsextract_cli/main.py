@@ -29,6 +29,9 @@ from .core.utils import WGSExtractError, cleanup_processes
 
 
 def _parent_process_is_alive(parent_pid: int) -> bool:
+    if parent_pid <= 0:
+        return False
+
     try:
         import psutil
 
