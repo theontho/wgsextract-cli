@@ -9,6 +9,7 @@ from wgsextract_cli.core.dependencies import log_dependency_info, verify_depende
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
     ReferenceLibrary,
+    WGSExtractError,
     calculate_bam_md5,
     ensure_vcf_indexed,
     get_resource_defaults,
@@ -96,7 +97,7 @@ def process_chrom(
     # We combine mpileup | call | annotate into a single pipeline
     try:
         logging.debug(f"Processing chromosome {chrom}...")
-        p1 = subprocess.Popen(
+        p1 = popen(
             [
                 "bcftools",
                 "mpileup",
@@ -116,7 +117,7 @@ def process_chrom(
             stderr=subprocess.PIPE,
         )
 
-        p2 = subprocess.Popen(
+        p2 = popen(
             ["bcftools", "call"]
             + ploidy_args
             + ["-m", "-V", "indels", "-Oz", "-o", chrom_vcf],
@@ -127,12 +128,17 @@ def process_chrom(
         if p1.stdout:
             p1.stdout.close()
 
-        _, stderr1 = p1.communicate()
         _, stderr2 = p2.communicate()
+        stderr1 = p1.stderr.read() if p1.stderr else b""
+        p1_returncode = p1.wait()
+
+        if p1_returncode != 0:
+            logging.error(f"bcftools mpileup failed for {chrom}: {stderr1.decode()}")
+            raise RuntimeError(f"bcftools processing failed for {chrom}")
 
         if p2.returncode != 0:
             logging.error(f"bcftools call failed for {chrom}: {stderr2.decode()}")
-            return None
+            raise RuntimeError(f"bcftools processing failed for {chrom}")
 
         if not os.path.exists(chrom_vcf) or os.path.getsize(chrom_vcf) < 100:
             logging.warning(f"No variants called for {chrom}, skipping.")
@@ -142,7 +148,7 @@ def process_chrom(
 
         # Annotate RSIDs immediately
         annotated_chrom_vcf = os.path.join(chrom_tmp_dir, f"{chrom}_ann.vcf.gz")
-        ann_res = subprocess.run(
+        ann_res = run_command(
             [
                 "bcftools",
                 "annotate",
@@ -156,13 +162,14 @@ def process_chrom(
                 chrom_vcf,
             ],
             capture_output=True,
+            check=False,
         )
 
         if ann_res.returncode != 0:
             logging.error(
                 f"bcftools annotate failed for {chrom}: {ann_res.stderr.decode()}"
             )
-            return None
+            raise RuntimeError(f"bcftools processing failed for {chrom}")
 
         os.remove(chrom_vcf)
         if os.path.exists(chrom_vcf + ".tbi"):
@@ -170,7 +177,7 @@ def process_chrom(
         return annotated_chrom_vcf
     except Exception as e:
         logging.error(f"Error processing {chrom}: {e}")
-        return None
+        raise
 
 
 def run(args):
@@ -247,7 +254,7 @@ def run(args):
             # Step 1: Get actual variants from the input VCF that match our targets
             hit_vcf = os.path.join(outdir, f"{base_name}_hits.vcf.gz")
             # Use long-form --targets-file to avoid version conflicts
-            subprocess.run(
+            run_command(
                 ["bcftools", "view", "--targets-file", ref_vcf_tab]
                 + region_args
                 + ["-Oz", "-o", hit_vcf, args.input],
@@ -265,7 +272,7 @@ def run(args):
             # For VCF input, annotation is usually already present, but we run it
             # to ensure RSIDs match our master tab file
             annotated_vcf = os.path.join(outdir, f"{base_name}_annotated.vcf.gz")
-            subprocess.run(
+            run_command(
                 [
                     "bcftools",
                     "annotate",
@@ -285,7 +292,7 @@ def run(args):
 
         except Exception as e:
             logging.error(f"VCF extraction failed: {e}")
-            return
+            raise WGSExtractError("Microarray VCF extraction failed.") from e
 
     elif args.parallel and not args.region:
         from concurrent.futures import ProcessPoolExecutor
@@ -324,7 +331,7 @@ def run(args):
         # Merge results
         if vcf_chunks:
             logging.info(f"Merging {len(vcf_chunks)} chromosome VCFs...")
-            subprocess.run(
+            run_command(
                 ["bcftools", "concat", "-Oz", "-o", out_vcf] + sorted(vcf_chunks),
                 check=True,
             )
@@ -339,7 +346,7 @@ def run(args):
             shutil.rmtree(chrom_tmp_dir)
         else:
             logging.error("No VCF chunks were generated.")
-            return
+            raise WGSExtractError("No VCF chunks were generated.")
 
         vcf_duration = time.time() - start_vcf
         logging.info(f"Parallel VCF generation and annotation took {vcf_duration:.2f}s")
@@ -364,11 +371,11 @@ def run(args):
                 ]
             )
 
-            p1 = subprocess.Popen(
+            p1 = popen(
                 mpileup_cmd,
                 stdout=subprocess.PIPE,
             )
-            p2 = subprocess.Popen(
+            p2 = popen(
                 ["bcftools", "call"]
                 + ploidy_args
                 + ["-m", "-V", "indels", "-Oz", "-o", out_vcf],
@@ -393,7 +400,7 @@ def run(args):
             start_ann = time.time()
             try:
                 # -a: annotation file, -c: columns to use (CHROM, POS, ID)
-                subprocess.run(
+                run_command(
                     [
                         "bcftools",
                         "annotate",
@@ -418,7 +425,7 @@ def run(args):
 
         except Exception as e:
             logging.error(f"Variant calling failed: {e}")
-            return
+            raise WGSExtractError("Microarray variant calling failed.") from e
 
     # 2. Extract results to a temporary CombinedKit.txt
     combined_kit_txt = os.path.join(outdir, f"{base_name}_CombinedKit.txt")
@@ -653,7 +660,7 @@ def run(args):
         logging.info(f"Extraction took {ext_duration:.2f}s")
     except Exception as e:
         logging.error(f"Failed to generate CombinedKit.txt: {e}")
-        return
+        raise WGSExtractError("Failed to generate CombinedKit.txt.") from e
     finally:
         # Cleanup intermediate files
         for f in ["hit_vcf", "annotated_vcf"]:
@@ -689,7 +696,7 @@ def run(args):
                 logging.info(f"Liftover took {lift_duration:.2f}s")
             except Exception as e:
                 logging.error(f"Liftover failed: {e}")
-                # Fallback to hg38? Most vendors expect hg19.
+                raise WGSExtractError("Microarray liftover failed.") from e
         else:
             logging.warning("Liftover requested but chain file not found.")
 
@@ -732,7 +739,7 @@ def run(args):
             logging.info(f"Generated {output_file}")
         except Exception as e:
             logging.error(f"Failed to generate {real_fmt}: {e}")
-
+            raise WGSExtractError(f"Failed to generate {real_fmt}.") from e
     fmt_duration = time.time() - start_fmt
     logging.info(f"Format conversion (all) took {fmt_duration:.2f}s")
 

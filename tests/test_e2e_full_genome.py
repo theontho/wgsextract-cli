@@ -11,6 +11,7 @@ class TestE2EFull(TestE2EBase):
 
     REGION = None
     MODE = "FULL GENOME"
+    __test__ = True
 
 
 if __name__ == "__main__":

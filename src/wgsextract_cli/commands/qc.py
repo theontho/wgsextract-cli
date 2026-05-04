@@ -1,6 +1,7 @@
 import logging
 import os
 
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import log_dependency_info, verify_dependencies
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
@@ -10,6 +11,19 @@ from wgsextract_cli.core.utils import (
     get_sam_view_cmd,
     run_command,
 )
+
+
+def _select_vcf_input(args):
+    input_path = getattr(args, "input", None)
+    vcf_input = getattr(args, "vcf_input", None)
+    default_vcf = settings.get("default_input_vcf")
+    explicit_dests: set[str] = getattr(args, "_explicit_dests", set())
+
+    if vcf_input and vcf_input != default_vcf:
+        return vcf_input
+    if "input" in explicit_dests and input_path:
+        return input_path
+    return vcf_input if vcf_input else input_path
 
 
 def register(subparsers, base_parser):
@@ -29,8 +43,6 @@ def register(subparsers, base_parser):
         "fastqc", parents=[base_parser], help=CLI_HELP["cmd_fastqc"]
     )
     fastqc_parser.set_defaults(func=cmd_fastqc)
-
-    from wgsextract_cli.core.config import settings
 
     vcf_parser = qc_subs.add_parser(
         "vcf", parents=[base_parser], help=CLI_HELP["cmd_vcf-qc"]
@@ -120,6 +132,7 @@ def cmd_fastp(args):
         run_command(cmd)
     except Exception as e:
         logging.error(f"fastp failed: {e}")
+        raise WGSExtractError("fastp failed.") from e
 
 
 def cmd_fastqc(args):
@@ -148,12 +161,13 @@ def cmd_fastqc(args):
         run_command(["fastqc", "-t", threads, "-o", outdir, args.input])
     except Exception as e:
         logging.error(f"FastQC failed: {e}")
+        raise WGSExtractError("FastQC failed.") from e
 
 
 def cmd_vcf_qc(args):
     verify_dependencies(["bcftools"])
     log_dependency_info(["bcftools"])
-    input_file = args.vcf_input if args.vcf_input else args.input
+    input_file = _select_vcf_input(args)
     if not input_file:
         logging.error("--input is required.")
         return

@@ -1,9 +1,9 @@
 import os
-import subprocess
 
 import pytest
 
 from tests.smoke_utils import run_cli, verify_vcf
+from wgsextract_cli.core.utils import run_command
 
 
 @pytest.fixture(scope="module")
@@ -49,8 +49,8 @@ def fake_data_dir(tmp_path_factory):
         f.write("chrY\t500\trs789\tG\tA\n")
 
     # BGZIP and Index the SNP tab
-    subprocess.run(["bgzip", snp_tab], check=True)
-    subprocess.run(["tabix", "-p", "vcf", snp_tab + ".gz"], check=True)
+    run_command(["bgzip", snp_tab], check=True)
+    run_command(["tabix", "-p", "vcf", snp_tab + ".gz"], check=True)
 
     return outdir
 

@@ -241,11 +241,11 @@ pixi run mypy src/wgsextract_cli
 
 Visualize the codebase complexity:
 ```bash
-# Via Pixi (if installed)
+# Print stats to the console with Pixi-managed cloc
 pixi run stats
 
-# Or directly
-./scripts/project_stats.sh
+# Generate a gitignored report at out/project_stats.txt
+pixi run stats-report
 ```
 
 Last stats run:

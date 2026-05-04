@@ -7,6 +7,7 @@ import tempfile
 import time
 import unittest
 from contextlib import redirect_stdout
+from typing import ClassVar, TypedDict
 from unittest.mock import patch
 
 from dotenv import load_dotenv
@@ -15,7 +16,11 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 # Load environment variables
-from wgsextract_cli.core.utils import ensure_vcf_indexed  # noqa: E402
+from wgsextract_cli.core.utils import (  # noqa: E402
+    ensure_vcf_indexed,
+    popen,
+    run_command,
+)
 from wgsextract_cli.core.warnings import EXPECTED_TIME, M1_PRO_ESTIMATES  # noqa: E402
 from wgsextract_cli.main import main  # noqa: E402
 
@@ -34,6 +39,26 @@ from wgsextract_cli.core.config import settings  # noqa: E402
 
 REF_PATH = settings.get("reference_fasta")
 INPUT_PATH = settings.get("input_path")
+
+
+class E2EResult(TypedDict):
+    name: str
+    success: bool
+    duration: float
+    expected: int
+    expected_key: str
+
+
+def _alignment_index_exists(path: str) -> bool:
+    if path.endswith(".bam"):
+        return os.path.exists(path + ".bai") or os.path.exists(
+            os.path.splitext(path)[0] + ".bai"
+        )
+    if path.endswith(".cram"):
+        return os.path.exists(path + ".crai") or os.path.exists(
+            os.path.splitext(path)[0] + ".crai"
+        )
+    return False
 
 
 def ensure_fake_data():
@@ -125,6 +150,8 @@ class TestE2EBase(unittest.TestCase):
 
     REGION = "chrM"  # Default to focused
     MODE = "CHRM"
+    __test__ = False
+    results: ClassVar[list[E2EResult]]
 
     @classmethod
     def setUpClass(cls):
@@ -167,7 +194,7 @@ class TestE2EBase(unittest.TestCase):
         )
         print("-" * 105)
         passed = 0
-        total_duration = 0
+        total_duration = 0.0
         cls.results.sort(key=lambda x: x["name"])
         for res in cls.results:
             if res["name"] == "05a unindexed extract":
@@ -278,7 +305,10 @@ class TestE2EBase(unittest.TestCase):
             or "extract" in args
             or "microarray" in args
         ):
-            subprocess.run(["samtools", "index", isolated_input], check=False)
+            if current_input.endswith(
+                (".bam", ".cram")
+            ) and not _alignment_index_exists(isolated_input):
+                run_command(["samtools", "index", isolated_input], check=False)
 
         expected_seconds = EXPECTED_TIME.get(expected_key, 0)
         start_time = time.perf_counter()
@@ -286,7 +316,7 @@ class TestE2EBase(unittest.TestCase):
         print(f"\n>>> [REAL DATA] BEGIN: {name} (Expected: ~{expected_seconds}s)")
 
         success = False
-        duration = 0
+        duration = 0.0
         start_time = time.perf_counter()
         try:
             full_args = ["wgsextract-cli", "--outdir", test_dir] + args
@@ -538,9 +568,9 @@ class TestE2EBase(unittest.TestCase):
             with open(os.path.join(td, "dad.vcf"), "w") as f:
                 f.write(vcf_header + vcf_line + "0/0\n")
 
-            for f in ["child.vcf", "mom.vcf", "dad.vcf"]:
-                subprocess.run(["bgzip", os.path.join(td, f)], check=True)
-                ensure_vcf_indexed(os.path.join(td, f + ".gz"))
+            for filename in ["child.vcf", "mom.vcf", "dad.vcf"]:
+                run_command(["bgzip", os.path.join(td, filename)], check=True)
+                ensure_vcf_indexed(os.path.join(td, filename + ".gz"))
 
             self.run_real(
                 "34 vcf trio denovo",
@@ -591,7 +621,7 @@ class TestE2EBase(unittest.TestCase):
         td = tempfile.mkdtemp()
         try:
             vcf = os.path.join(td, "test.vcf.gz")
-            p1 = subprocess.Popen(
+            p1 = popen(
                 [
                     "bcftools",
                     "mpileup",
@@ -604,10 +634,11 @@ class TestE2EBase(unittest.TestCase):
                 ],
                 stdout=subprocess.PIPE,
             )
-            p2 = subprocess.Popen(
-                ["bcftools", "call", "-mv", "-Oz", "-o", vcf], stdin=p1.stdout
-            )
-            p1.stdout.close()
+            p1_stdout = p1.stdout
+            if p1_stdout is None:
+                self.skipTest("Could not open bcftools mpileup stdout")
+            p2 = popen(["bcftools", "call", "-mv", "-Oz", "-o", vcf], stdin=p1_stdout)
+            p1_stdout.close()
             p2.communicate()
 
             if not os.path.exists(vcf) or os.path.getsize(vcf) < 100:

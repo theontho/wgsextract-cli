@@ -51,7 +51,7 @@ class TestAnalyzeComprehensive(unittest.TestCase):
         print(stderr)
 
         # Basic check: did it run 'info' and 'qc'?
-        self.assertIn("🚀 STAGE: BAM/CRAM Metrics & Lineage", stdout)
+        self.assertIn("STAGE: BAM/CRAM Metrics & Lineage", stdout)
         self.assertIn("Starting Comprehensive Analysis", stdout)
 
     def test_analyze_comprehensive_vcf_inputs(self):

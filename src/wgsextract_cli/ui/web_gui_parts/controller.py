@@ -16,6 +16,17 @@ from wgsextract_cli.core.utils import proc_registry
 from .state import state
 
 
+def _safe_console_text(value: str) -> str:
+    encoding = getattr(sys.stdout, "encoding", None)
+    if not encoding:
+        return value
+    try:
+        value.encode(encoding)
+    except UnicodeEncodeError:
+        return value.encode(encoding, errors="replace").decode(encoding)
+    return value
+
+
 class WebController:
     """Handles command execution and logic for the Web GUI."""
 
@@ -65,7 +76,7 @@ class WebController:
         # Update the UI log if it's the current tab
         if state.current_log_tab == tab and self.main_log:
             self.main_log.push(formatted_msg)
-        print(f"[{tab}] {formatted_msg}")
+        print(_safe_console_text(f"[{tab}] {formatted_msg}"))
 
     async def run_cmd(
         self,

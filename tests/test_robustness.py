@@ -18,6 +18,9 @@ class TestRobustness(unittest.TestCase):
     Tests run as isolated subprocesses with a strict timeout.
     """
 
+    test_dir: str
+    dummy_dir: str
+
     @classmethod
     def setUpClass(cls):
         cls.test_dir = tempfile.mkdtemp(prefix="wgse_robust_")
@@ -44,6 +47,14 @@ class TestRobustness(unittest.TestCase):
             os.path.join(os.path.dirname(__file__), "../src")
         )
         env["WGSE_SKIP_DOTENV"] = "1"
+        test_home = os.path.abspath(os.path.join("tmp", "pytest_home"))
+        local_appdata = os.path.join(test_home, "AppData", "Local")
+        roaming_appdata = os.path.join(test_home, "AppData", "Roaming")
+        os.makedirs(local_appdata, exist_ok=True)
+        os.makedirs(roaming_appdata, exist_ok=True)
+        env["USERPROFILE"] = test_home
+        env["LOCALAPPDATA"] = local_appdata
+        env["APPDATA"] = roaming_appdata
         for k in list(env.keys()):
             if k.startswith("WGSE_") and k != "WGSE_SKIP_DOTENV":
                 del env[k]

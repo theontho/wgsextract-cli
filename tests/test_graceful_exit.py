@@ -26,6 +26,14 @@ class TestGracefulExit(unittest.TestCase):
             os.path.join(os.path.dirname(__file__), "../src")
         )
         env["WGSE_SKIP_DOTENV"] = "1"
+        test_home = os.path.abspath(os.path.join("tmp", "pytest_home"))
+        local_appdata = os.path.join(test_home, "AppData", "Local")
+        roaming_appdata = os.path.join(test_home, "AppData", "Roaming")
+        os.makedirs(local_appdata, exist_ok=True)
+        os.makedirs(roaming_appdata, exist_ok=True)
+        env["USERPROFILE"] = test_home
+        env["LOCALAPPDATA"] = local_appdata
+        env["APPDATA"] = roaming_appdata
 
         # Strip any existing WGSE vars from current shell env
         for k in list(env.keys()):

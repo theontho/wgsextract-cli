@@ -295,7 +295,7 @@ def cmd_ref_verify(args):
             logging.info(LOG_MESSAGES["ref_gzip_ok"])
         except Exception as e:
             logging.error(f"Gzip integrity FAILED: {e}")
-            return
+            raise WGSExtractError("Gzip integrity check failed.") from e
 
     # 2. Check samtools faidx
     logging.info(LOG_MESSAGES["ref_faidx_check"])
@@ -306,10 +306,10 @@ def cmd_ref_verify(args):
             logging.info(LOG_MESSAGES["ref_faidx_ok"])
         else:
             logging.error(f"Samtools faidx FAILED: {res.stderr}")
-            return
+            raise WGSExtractError("Samtools faidx check failed.")
     except Exception as e:
         logging.error(f"Samtools faidx check failed: {e}")
-        return
+        raise WGSExtractError("Samtools faidx check failed.") from e
 
     logging.info(
         LOG_MESSAGES["ref_valid"].format(filename=os.path.basename(resolved_ref))
@@ -707,20 +707,26 @@ def cmd_pharmgkb_dl(args):
 
 
 def cmd_bootstrap(args):
-    from wgsextract_cli.core.config import settings
+    from wgsextract_cli.core.config import save_config, settings
     from wgsextract_cli.core.ref_library import download_bootstrap
 
     reflib = args.ref
+    configured_reflib = settings.get("reference_library")
     if not reflib:
-        reflib = settings.get("reference_library")
+        reflib = configured_reflib
     if not reflib:
         prog_root = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "../../../..")
         )
         reflib = os.path.join(prog_root, "reference")
+    reflib = os.path.abspath(reflib)
+    should_save_reflib = not configured_reflib
 
     logging.info("Starting reference library bootstrap...")
     if download_bootstrap(reflib):
+        if should_save_reflib:
+            save_config({"reference_library": reflib})
+            logging.info(f"Saved reference library path to config.toml: {reflib}")
         logging.info(
             "Bootstrap complete. You can now install genomes via 'wgsextract ref library'."
         )

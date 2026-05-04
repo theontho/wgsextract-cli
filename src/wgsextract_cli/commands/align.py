@@ -73,8 +73,9 @@ def align_bwa(args):
     logging.debug(f"Resolved reference: {resolved_ref}")
 
     if not resolved_ref or not os.path.isfile(resolved_ref):
-        logging.error(LOG_MESSAGES["ref_required_for"].format(task="BWA alignment"))
-        return
+        raise WGSExtractError(
+            LOG_MESSAGES["ref_required_for"].format(task="BWA alignment")
+        )
 
     # Check for BWA index files, if missing, run indexing
     bwt_index = resolved_ref + ".bwt"
@@ -87,7 +88,7 @@ def align_bwa(args):
             run_command([bwa, "index", resolved_ref])
         except Exception as e:
             logging.error(f"Automatic indexing failed: {e}")
-            return
+            raise WGSExtractError("Automatic BWA indexing failed.") from e
 
     print_warning("ButtonBWAAlign", threads=threads)
 
@@ -142,6 +143,7 @@ def align_bwa(args):
         run_command(index_cmd)
     except Exception as e:
         logging.error(f"BWA alignment failed: {e}")
+        raise WGSExtractError("BWA alignment failed.") from e
 
 
 def align_minimap2(args):
@@ -170,10 +172,9 @@ def align_minimap2(args):
     logging.debug(f"Resolved reference: {resolved_ref}")
 
     if not resolved_ref or not os.path.isfile(resolved_ref):
-        logging.error(
+        raise WGSExtractError(
             LOG_MESSAGES["ref_required_for"].format(task="Minimap2 alignment")
         )
-        return
 
     base_name = os.path.basename(args.r1).split(".")[0]
     ext = ".cram" if args.format == "CRAM" else ".bam"
@@ -236,3 +237,4 @@ def align_minimap2(args):
         run_command(index_cmd)
     except Exception as e:
         logging.error(f"Minimap2 alignment failed: {e}")
+        raise WGSExtractError("Minimap2 alignment failed.") from e

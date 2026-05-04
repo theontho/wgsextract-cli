@@ -5,6 +5,7 @@ import subprocess
 from wgsextract_cli.core.dependencies import log_dependency_info, verify_dependencies
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
+    WGSExtractError,
     calculate_bam_md5,
     ensure_vcf_indexed,
     get_chr_name,
@@ -222,6 +223,7 @@ def cmd_mito_fasta(args):
 
     except Exception as e:
         logging.error(f"Mito FASTA extraction failed: {e}")
+        raise WGSExtractError("Mito FASTA extraction failed.") from e
 
 
 def cmd_mito_vcf(args):
@@ -268,6 +270,7 @@ def cmd_mito_vcf(args):
 
     except Exception as e:
         logging.error(f"Mito VCF extraction failed: {e}")
+        raise WGSExtractError("Mito VCF extraction failed.") from e
 
 
 def cmd_mt_bam(args):
@@ -295,6 +298,7 @@ def cmd_mt_bam(args):
         run_command(get_sam_index_cmd(out_file, threads=threads))
     except Exception as e:
         logging.error(f"mtDNA extraction failed: {e}")
+        raise WGSExtractError("mtDNA extraction failed.") from e
 
 
 def cmd_bam_subset(args):
@@ -326,6 +330,7 @@ def cmd_bam_subset(args):
         )
     except Exception as e:
         logging.error(f"Subsetting failed: {e}")
+        raise WGSExtractError("BAM subsetting failed.") from e
 
 
 def cmd_ydna_bam(args):
@@ -351,6 +356,7 @@ def cmd_ydna_bam(args):
         run_command(get_sam_index_cmd(out_bam, threads=threads))
     except Exception as e:
         logging.error(f"Y BAM extraction failed: {e}")
+        raise WGSExtractError("Y BAM extraction failed.") from e
 
 
 def cmd_ydna_vcf(args):
@@ -395,6 +401,7 @@ def cmd_ydna_vcf(args):
 
     except Exception as e:
         logging.error(f"Y VCF extraction failed: {e}")
+        raise WGSExtractError("Y VCF extraction failed.") from e
 
 
 def cmd_y_mt_extract(args):
@@ -421,6 +428,7 @@ def cmd_y_mt_extract(args):
         run_command(get_sam_index_cmd(out_bam, threads=threads))
     except Exception as e:
         logging.error(f"Y+MT extraction failed: {e}")
+        raise WGSExtractError("Y+MT extraction failed.") from e
 
 
 def cmd_unmapped(args):
@@ -445,6 +453,7 @@ def cmd_unmapped(args):
         )
     except Exception as e:
         logging.error(f"Unmapped extraction failed: {e}")
+        raise WGSExtractError("Unmapped extraction failed.") from e
 
 
 def cmd_custom(args):
@@ -486,3 +495,4 @@ def cmd_custom(args):
         run_command(get_sam_index_cmd(out_bam, threads=threads))
     except Exception as e:
         logging.error(f"Custom extraction failed: {e}")
+        raise WGSExtractError("Custom extraction failed.") from e

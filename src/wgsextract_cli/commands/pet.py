@@ -46,8 +46,7 @@ def run(args):
     threads, _ = get_resource_defaults(args.threads, None)
 
     if not args.ref:
-        logging.error(LOG_MESSAGES["ref_required"])
-        return
+        raise WGSExtractError(LOG_MESSAGES["ref_required"])
 
     # Map species to filename
     ref_map = {
@@ -66,7 +65,9 @@ def run(args):
         logging.error(f"Reference genome for {args.species} not found at {ref_file}")
         if not os.path.isfile(args.ref):
             logging.info("Please download it in the Library tab of the GUI.")
-        return
+        raise WGSExtractError(
+            f"Reference genome for {args.species} not found at {ref_file}"
+        )
 
     # Check for BWA index files, if missing, run indexing
     bwt_index = ref_file + ".bwt"
@@ -78,7 +79,7 @@ def run(args):
             run_command(["bwa", "index", ref_file])
         except Exception as e:
             logging.error(f"Automatic indexing failed: {e}")
-            return
+            raise WGSExtractError("Automatic BWA indexing failed.") from e
 
     outdir = args.outdir if args.outdir else os.getcwd()
     logging.debug(f"Output directory: {os.path.abspath(outdir)}")

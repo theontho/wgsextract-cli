@@ -1242,7 +1242,24 @@ class GUIController:
             c = bc + ["ref", sub]
             if sub not in ["download", "download-genes"] and ref_val:
                 c += ["--ref", ref_val]
-            self.run_cmd(c, cmd_key=cmd, frame=frame, label=label)
+
+            on_finish = None
+            if cmd == "ref-bootstrap":
+
+                def refresh_reference_library_path() -> None:
+                    from wgsextract_cli.core.config import reload_settings, settings
+
+                    reload_settings()
+                    saved_reflib = settings.get("reference_library", "")
+                    if saved_reflib:
+                        self.main_app.ref_path_var.set(saved_reflib)
+                        self.main_app.log(
+                            f"Reference Library path set to: {saved_reflib}"
+                        )
+
+                on_finish = refresh_reference_library_path
+
+            self.run_cmd(c, cmd_key=cmd, frame=frame, on_finish=on_finish, label=label)
 
     def _dispatch_vcf_vep(
         self,

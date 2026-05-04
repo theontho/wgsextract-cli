@@ -433,7 +433,7 @@ def cmd_mtdna(args):
 
             if p2.returncode != 0:
                 logging.error("Failed to extract mitochondrial variants.")
-                return
+                raise WGSExtractError("Failed to extract mitochondrial variants.")
             input_file = temp_vcf
 
         elif is_vcf:
