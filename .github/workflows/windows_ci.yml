@@ -47,6 +47,22 @@ jobs:
       - name: Run Basic Tests
         shell: powershell
         run: pixi run pytest tests/test_smoke.py
+      - name: Set up WSL Benchmark Toolchain
+        uses: Vampire/setup-wsl@v6
+        with:
+          distribution: Ubuntu-24.04
+      - name: Install WSL Benchmark Dependencies
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          wsl bash -lc "curl -fsSL https://pixi.sh/install.sh | bash"
+          $workspace = "${{ github.workspace }}".Replace('\', '/')
+          $wslPath = (wsl wslpath -u "$workspace").Trim()
+          wsl bash -lc "cd '$wslPath' && ~/.pixi/bin/pixi install"
       - name: Run Benchmark
         shell: powershell
-        run: pixi run wgsextract benchmark
+        run: |
+          $ErrorActionPreference = "Stop"
+          $workspace = "${{ github.workspace }}".Replace('\', '/')
+          $wslPath = (wsl wslpath -u "$workspace").Trim()
+          wsl bash -lc "cd '$wslPath' && ~/.pixi/bin/pixi run wgsextract benchmark --profile smoke"

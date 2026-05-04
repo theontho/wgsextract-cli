@@ -31,6 +31,18 @@ jobs:
           pixi run ruff check src/wgsextract_cli/core/runtime.py src/wgsextract_cli/core/utils.py src/wgsextract_cli/commands/deps.py tests/test_wsl_runtime.py tests/test_optional_deps.py
           pixi run mypy --no-incremental src/wgsextract_cli/core/runtime.py src/wgsextract_cli/core/utils.py src/wgsextract_cli/commands/deps.py
           pixi run pytest tests/test_wsl_runtime.py tests/test_optional_deps.py
+      - name: Set up WSL Benchmark Toolchain
+        uses: Vampire/setup-wsl@v6
+        with:
+          distribution: Ubuntu-24.04
+      - name: Install WSL Benchmark Dependencies
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          wsl bash -lc "curl -fsSL https://pixi.sh/install.sh | bash"
+          $workspace = "${{ github.workspace }}".Replace('\', '/')
+          $wslPath = (wsl wslpath -u "$workspace").Trim()
+          wsl bash -lc "cd '$wslPath' && ~/.pixi/bin/pixi install"
       - name: Run Benchmark
         shell: powershell
         env:
@@ -38,4 +50,8 @@ jobs:
           LOCALAPPDATA: ${{ github.workspace }}\.tmp_home\AppData\Local
           APPDATA: ${{ github.workspace }}\.tmp_home\AppData\Roaming
           PIXI_CACHE_DIR: ${{ github.workspace }}\.tmp_home\.pixi_cache
-        run: pixi run wgsextract benchmark
+        run: |
+          $ErrorActionPreference = "Stop"
+          $workspace = "${{ github.workspace }}".Replace('\', '/')
+          $wslPath = (wsl wslpath -u "$workspace").Trim()
+          wsl bash -lc "cd '$wslPath' && ~/.pixi/bin/pixi run wgsextract benchmark --profile smoke"
