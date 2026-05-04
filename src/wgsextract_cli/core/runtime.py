@@ -57,9 +57,9 @@ def should_consider_wsl() -> bool:
     return is_windows_host() and mode != "native"
 
 
-@lru_cache(maxsize=1)
-def detect_wsl_available() -> bool:
-    if not should_consider_wsl() or shutil.which("wsl") is None:
+@lru_cache(maxsize=2)
+def detect_wsl_available(*, force: bool = False) -> bool:
+    if (not force and not should_consider_wsl()) or shutil.which("wsl") is None:
         return False
 
     try:
@@ -272,7 +272,7 @@ def read_wslconfig_settings(path: Path | None = None) -> dict[str, str]:
 
     settings: dict[str, str] = {}
     in_wsl2 = False
-    for raw_line in config_path.read_text(encoding="utf-8").splitlines():
+    for raw_line in _read_wslconfig_text(config_path).splitlines():
         line = raw_line.strip()
         if not line or line.startswith(("#", ";")):
             continue
@@ -285,6 +285,15 @@ def read_wslconfig_settings(path: Path | None = None) -> dict[str, str]:
     return settings
 
 
+def _read_wslconfig_text(config_path: Path) -> str:
+    for encoding in ("utf-8-sig", "utf-16", "utf-8"):
+        try:
+            return config_path.read_text(encoding=encoding)
+        except UnicodeError:
+            continue
+    return config_path.read_text(encoding="utf-8", errors="replace")
+
+
 def write_wslconfig_settings(
     *,
     memory: str | None = None,
@@ -295,7 +304,7 @@ def write_wslconfig_settings(
     config_path = path or get_wslconfig_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
-    existing = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+    existing = _read_wslconfig_text(config_path) if config_path.exists() else ""
     updates: dict[str, str] = {}
     if memory:
         updates["memory"] = memory

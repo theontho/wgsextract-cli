@@ -131,6 +131,13 @@ class TestWSLRuntime(unittest.TestCase):
         self.assertEqual(normalized[:3], ["wsl", "bash", "-lc"])
         self.assertIn("samtools idxstats /mnt/c/data/a.bam", normalized[3])
 
+    def test_normalize_subprocess_cmd_keeps_existing_executable_with_spaces(self):
+        executable = r"C:\Program Files\Tool Suite\tool.exe"
+        with patch("wgsextract_cli.core.utils.os.path.exists", return_value=True):
+            normalized = _normalize_subprocess_cmd([executable, "--version"])
+
+        self.assertEqual(normalized, [executable, "--version"])
+
     def test_write_wslconfig_settings_adds_and_updates_wsl2_section(self):
         with tempfile.TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / ".wslconfig"
@@ -146,6 +153,18 @@ class TestWSLRuntime(unittest.TestCase):
             settings = runtime.read_wslconfig_settings(config_path)
             self.assertEqual(settings["memory"], "32GB")
             self.assertEqual(settings["processors"], "8")
+
+    def test_read_wslconfig_settings_handles_utf16(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / ".wslconfig"
+            config_path.write_text(
+                "[wsl2]\nmemory=24GB\nprocessors=8\n", encoding="utf-16"
+            )
+
+            self.assertEqual(
+                runtime.read_wslconfig_settings(config_path),
+                {"memory": "24GB", "processors": "8"},
+            )
 
     def test_recommend_wslconfig_settings_uses_benchmark_ratios(self):
         recommendation = runtime.recommend_wslconfig_settings(
@@ -169,6 +188,22 @@ class TestWSLRuntime(unittest.TestCase):
             ) as mock_run,
         ):
             self.assertTrue(runtime.detect_wsl_available())
+
+        mock_run.assert_called_once()
+
+    def test_detect_wsl_available_force_ignores_runtime_policy(self):
+        completed = MagicMock(returncode=0, stdout="ok", stderr="")
+        with (
+            patch(
+                "wgsextract_cli.core.runtime.should_consider_wsl", return_value=False
+            ),
+            patch("wgsextract_cli.core.runtime.shutil.which", return_value="wsl.exe"),
+            patch(
+                "wgsextract_cli.core.runtime.subprocess.run", return_value=completed
+            ) as mock_run,
+        ):
+            self.assertFalse(runtime.detect_wsl_available())
+            self.assertTrue(runtime.detect_wsl_available(force=True))
 
         mock_run.assert_called_once()
 

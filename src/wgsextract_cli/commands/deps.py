@@ -141,7 +141,7 @@ def run_wsl_check(args: Any) -> None:
     print(f"Host platform:       {sys.platform}")
     print(f"Configured runtime:  {runtime.get_tool_runtime_mode()}")
 
-    available = runtime.detect_wsl_available()
+    available = runtime.detect_wsl_available(force=True)
     print(f"WSL available:       {'yes' if available else 'no'}")
     if not available:
         raise WGSExtractError(

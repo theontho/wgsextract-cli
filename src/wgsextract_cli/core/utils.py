@@ -738,16 +738,22 @@ def _normalize_subprocess_cmd(cmd):
 
     from wgsextract_cli.core import runtime
 
+    def split_wrapper_or_keep(value: str) -> list[str]:
+        if runtime.is_wsl_tool_command(value):
+            return [value]
+        if os.path.exists(value):
+            return [value]
+        if "pixi run" in value or " " in value:
+            return shlex.split(value)
+        return [value]
+
     if isinstance(cmd, str):
         cmd_list = shlex.split(cmd)
     else:
         cmd_list = []
         for item in cmd:
-            if isinstance(item, str) and ("pixi run" in item or " " in item):
-                if item == cmd[0]:
-                    cmd_list.extend(shlex.split(item))
-                else:
-                    cmd_list.append(item)
+            if isinstance(item, str) and item == cmd[0]:
+                cmd_list.extend(split_wrapper_or_keep(item))
             else:
                 cmd_list.append(item)
 
@@ -770,6 +776,8 @@ def _normalize_subprocess_cmd(cmd):
             resolved = get_tool_path(executable)
             if resolved:
                 if runtime.is_wsl_tool_command(resolved):
+                    cmd_list = [resolved] + cmd_list[1:]
+                elif os.path.exists(resolved):
                     cmd_list = [resolved] + cmd_list[1:]
                 else:
                     cmd_list = shlex.split(resolved) + cmd_list[1:]
