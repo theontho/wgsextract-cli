@@ -10,8 +10,7 @@ from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 HTTPS_ROOT = "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp"
 ASPERA_ROOT = "fasp-g1k@fasp.1000genomes.ebi.ac.uk:/vol1/ftp"
-# EBI's public 1000 Genomes Aspera service listens on port 33001.
-ASPERA_PORT = "33001"
+ASPERA_PORT = "33001"  # EBI's public 1000 Genomes Aspera service port.
 ASPERA_MAX_BANDWIDTH = "300M"
 COLLECTION_DIR = "test-1000genomes"
 
@@ -288,6 +287,7 @@ def _select_examples(example_ids: list[str], include_all: bool) -> list[GenomeEx
 
 
 def _target_root(override: str | None) -> Path:
+    """Return a canonical genome-library root, resolving symlinks for consistency."""
     if override:
         root = Path(override).expanduser()
     elif settings.get("genome_library"):
@@ -370,6 +370,7 @@ def _download_file(
                 ]
             )
         else:
+            # Resume partial files if a previous large download was interrupted.
             run_command(
                 [
                     "curl",
@@ -405,6 +406,7 @@ def _resolve_aspera_key(aspera_key: str | None) -> Path | None:
 
 
 def _write_genome_config(example: GenomeExample, example_dir: Path) -> None:
+    """Write only primary input roles; index sidecars are intentionally omitted."""
     lines = [
         "# WGS Extract per-genome configuration",
         "# Downloaded from the 1000 Genomes Project example catalog.",
