@@ -15,6 +15,16 @@ def test_benchmark_suite_defaults_to_heavy() -> None:
     assert args.suite == "heavy"
 
 
+def test_benchmark_accepts_runtime_override() -> None:
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+    benchmark.register(subparsers, argparse.ArgumentParser(add_help=False))
+
+    args = parser.parse_args(["benchmark", "--runtime", "msys2"])
+
+    assert args.runtime == "msys2"
+
+
 def test_benchmark_result_names_include_cli_command_labels() -> None:
     assert (
         benchmark._name_with_command_label(
@@ -152,6 +162,7 @@ def test_benchmark_prints_progress_lines_and_base_file_size(
         "default_thread_tuning_profile",
         lambda: Namespace(threads=8, label="8", reason="all available cores"),
     )
+    monkeypatch.setattr(benchmark, "get_tool_runtime_mode", lambda: "native")
 
     benchmark.run(
         Namespace(
@@ -194,6 +205,7 @@ def test_benchmark_prints_progress_lines_and_base_file_size(
     assert "1.25" in stdout
     assert "WGSExtract CLI Benchmark Summary" in stdout
     assert "Suite: core" in stdout
+    assert "Tool runtime: native" in stdout
     assert "Thread policy: all available cores" in stdout
     assert "Machine: TestOS 1.0 | Test CPU" in stdout
     assert "External tools: samtools" in stdout

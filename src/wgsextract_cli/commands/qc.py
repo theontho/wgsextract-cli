@@ -218,8 +218,12 @@ def cmd_vcf_qc(args):
 
 
 def _tool_command_parts(cmd_base: str) -> list[str]:
-    if runtime.is_wsl_tool_command(cmd_base):
-        return shlex.split(cmd_base)
+    if (
+        runtime.is_wsl_tool_command(cmd_base)
+        or runtime.is_bundled_tool_command(cmd_base)
+        or runtime.is_pacman_tool_command(cmd_base)
+    ):
+        return [cmd_base]
     if os.path.exists(cmd_base):
         return [cmd_base]
     return shlex.split(cmd_base)

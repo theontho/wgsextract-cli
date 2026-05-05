@@ -1,13 +1,17 @@
 import os
 import sys
+import tempfile
 import unittest
+import zipfile
 from argparse import Namespace
 from io import StringIO
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 # Ensure src is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
+from wgsextract_cli.commands import deps as deps_command  # noqa: E402
 from wgsextract_cli.core.dependencies import verify_dependencies  # noqa: E402
 
 
@@ -74,26 +78,130 @@ class TestOptionalDependencies(unittest.TestCase):
     @patch("wgsextract_cli.core.dependencies.get_tool_path", return_value=None)
     @patch("wgsextract_cli.core.dependencies.get_jar_dir", return_value="/tmp")
     @patch("logging.warning")
-    def test_verify_mandatory_missing_on_windows_mentions_wsl(
+    def test_verify_mandatory_missing_on_windows_mentions_runtime_options(
         self, mock_warning, mock_jar, mock_tool_path
     ):
         verify_dependencies(["samtools"])
 
         warning_messages = [call.args[0] for call in mock_warning.call_args_list]
-        self.assertTrue(
-            any(
-                "WSL2 is the supported Windows runtime" in msg
-                for msg in warning_messages
-            )
-        )
         self.assertTrue(any("deps wsl check" in msg for msg in warning_messages))
+        self.assertTrue(any("deps cygwin setup" in msg for msg in warning_messages))
+        self.assertTrue(any("deps msys2 setup" in msg for msg in warning_messages))
+        self.assertTrue(any("deps pacman check" in msg for msg in warning_messages))
+
+    def test_find_local_runtime_archive_uses_newest_matching_zip(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            archive_dir = Path(tempdir)
+            older = archive_dir / "msys2_old.zip"
+            newer = archive_dir / "msys2_new.zip"
+            older.write_bytes(b"older")
+            newer.write_bytes(b"newer")
+            os.utime(older, (1, 1))
+            os.utime(newer, (2, 2))
+
+            self.assertEqual(
+                deps_command._find_local_runtime_archive("msys2", archive_dir), newer
+            )
+
+    def test_resolve_runtime_archive_reuses_cache_without_download(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            cache_dir = Path(tempdir)
+            cached = cache_dir / "msys2_v1.zip"
+            with zipfile.ZipFile(cached, "w") as archive:
+                archive.writestr("msys2/usr/bin/bash.exe", "")
+            args = Namespace(
+                archive_dir=None,
+                cache_dir=str(cache_dir),
+                url="https://example.test/msys2_v1.zip",
+                latest_json_url=deps_command.DEFAULT_WINDOWS_RUNTIME_RELEASE_URL,
+                refresh_download=False,
+            )
+
+            with patch.object(deps_command, "_download_file") as mock_download:
+                self.assertEqual(
+                    deps_command._resolve_bundled_runtime_archive(args, "msys2"),
+                    cached.resolve(),
+                )
+
+            mock_download.assert_not_called()
+
+    def test_safe_extract_zip_rejects_path_traversal(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            archive_path = Path(tempdir) / "bad.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("../escape.txt", "bad")
+
+            with zipfile.ZipFile(archive_path) as archive:
+                with self.assertRaisesRegex(Exception, "unsafe path"):
+                    deps_command._safe_extract_zip(archive, Path(tempdir) / "runtime")
+
+    def test_copy_bundled_runtime_from_parent_source_dir(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            source = root / "legacy"
+            bash = source / "msys2" / "usr" / "bin" / "bash.exe"
+            bash.parent.mkdir(parents=True)
+            bash.write_bytes(b"")
+            destination = root / "runtime" / "msys2"
+
+            deps_command._copy_bundled_runtime_from_source(source, "msys2", destination)
+
+            self.assertTrue((destination / "usr" / "bin" / "bash.exe").exists())
+
+    def test_copy_bundled_runtime_skips_cygwin_mount_placeholder(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            source = root / "legacy" / "cygwin64"
+            bash = source / "bin" / "bash.exe"
+            bash.parent.mkdir(parents=True)
+            bash.write_bytes(b"")
+            (source / "mnt").write_text("placeholder", encoding="utf-8")
+            destination = root / "runtime" / "cygwin64"
+
+            deps_command._copy_bundled_runtime_from_source(
+                source, "cygwin", destination
+            )
+
+            self.assertTrue((destination / "bin" / "bash.exe").exists())
+            self.assertFalse((destination / "mnt").exists())
+
+    def test_copy_bundled_runtime_requires_expected_shell(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            with self.assertRaisesRegex(Exception, "expected shell"):
+                deps_command._copy_bundled_runtime_from_source(
+                    Path(tempdir), "cygwin", Path(tempdir) / "runtime" / "cygwin64"
+                )
+
+    def test_check_dependencies_with_runtime_restores_env(self):
+        env_name = deps_command.runtime.RUNTIME_ENV_VAR
+        previous = os.environ.get(env_name)
+        os.environ[env_name] = "auto"
+        try:
+            with patch.object(
+                deps_command, "check_all_dependencies", return_value={}
+            ) as mock_check:
+                deps_command._check_dependencies_with_runtime("wsl")
+
+            mock_check.assert_called_once_with()
+            self.assertEqual(os.environ[env_name], "auto")
+        finally:
+            if previous is None:
+                os.environ.pop(env_name, None)
+            else:
+                os.environ[env_name] = previous
 
     @patch("wgsextract_cli.core.dependencies.shutil.which", return_value=None)
     @patch("wgsextract_cli.core.runtime.should_consider_wsl", return_value=True)
     @patch("wgsextract_cli.core.runtime.get_tool_runtime_mode", return_value="auto")
     @patch("wgsextract_cli.core.runtime.wsl_command_available", return_value=True)
+    @patch("wgsextract_cli.core.runtime.pacman_tool_path", return_value=None)
     def test_get_tool_path_can_return_wsl_fallback(
-        self, mock_wsl_available, mock_runtime_mode, mock_should_consider, mock_which
+        self,
+        mock_pacman,
+        mock_wsl_available,
+        mock_runtime_mode,
+        mock_should_consider,
+        mock_which,
     ):
         from wgsextract_cli.core.dependencies import get_tool_path
 
@@ -113,6 +221,7 @@ class TestOptionalDependencies(unittest.TestCase):
             patch(
                 "wgsextract_cli.core.runtime.should_consider_wsl", return_value=False
             ),
+            patch("wgsextract_cli.core.runtime.pacman_tool_path", return_value=None),
             patch(
                 "wgsextract_cli.core.dependencies.subprocess.run",
                 return_value=completed,
