@@ -650,6 +650,16 @@ def translate_windows_runtime_args(args: list[str]) -> list[str]:
     return [translate_windows_runtime_arg(arg) for arg in args]
 
 
+def translate_pacman_arg(arg: str) -> str:
+    if is_windows_host() and arg == "/dev/null":
+        return "NUL"
+    return arg
+
+
+def translate_pacman_args(args: list[str]) -> list[str]:
+    return [translate_pacman_arg(arg) for arg in args]
+
+
 def shell_join(args: list[str]) -> str:
     return " ".join(shlex.quote(arg) for arg in args)
 
@@ -675,7 +685,7 @@ def wrap_command(cmd: list[str], force_wsl: bool = False) -> list[str]:
         needs_wsl = True
 
     if is_pacman_tool_command(command):
-        return [strip_pacman_tool_prefix(command)] + cmd[1:]
+        return [strip_pacman_tool_prefix(command)] + translate_pacman_args(cmd[1:])
 
     if bundled_mode:
         command_args = shlex.split(strip_bundled_tool_prefix(command)) + cmd[1:]

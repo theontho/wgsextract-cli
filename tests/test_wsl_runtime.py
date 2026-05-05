@@ -327,6 +327,33 @@ class TestWSLRuntime(unittest.TestCase):
             [r"C:\msys64\ucrt64\bin\samtools.exe", "view", r"C:\data\sample.bam"],
         )
 
+    def test_wrap_command_translates_pacman_null_device(self):
+        with patch("wgsextract_cli.core.runtime.is_windows_host", return_value=True):
+            wrapped = runtime.wrap_command(
+                [
+                    "pacman:C:\\msys64\\ucrt64\\bin\\samtools.exe",
+                    "fastq",
+                    "-0",
+                    "/dev/null",
+                    "-s",
+                    "/dev/null",
+                    r"C:\data\sample.bam",
+                ],
+            )
+
+        self.assertEqual(
+            wrapped,
+            [
+                r"C:\msys64\ucrt64\bin\samtools.exe",
+                "fastq",
+                "-0",
+                "NUL",
+                "-s",
+                "NUL",
+                r"C:\data\sample.bam",
+            ],
+        )
+
     def test_normalize_subprocess_cmd_wraps_wsl_tool_resolution(self):
         with (
             patch("wgsextract_cli.core.utils.shutil.which", return_value=None),
