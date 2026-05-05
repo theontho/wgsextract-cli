@@ -206,6 +206,15 @@ class TestExamplesDownload(unittest.TestCase):
         self.assertIn("Unknown example ID", str(ctx.exception))
         self.assertIn("not-real", str(ctx.exception))
 
+    def test_https_method_requires_curl(self):
+        from wgsextract_cli.commands import examples
+
+        with patch.object(examples.shutil, "which", return_value=None):
+            with self.assertRaises(WGSExtractError) as ctx:
+                examples._resolve_method("https")
+
+        self.assertIn("curl", str(ctx.exception))
+
     def test_aspera_source_uses_1000genomes_fasp_server(self):
         from wgsextract_cli.commands import examples
 

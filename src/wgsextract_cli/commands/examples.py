@@ -308,6 +308,11 @@ def _repo_root() -> Path:
 
 def _resolve_method(method: str, aspera_key: str | None = None) -> str:
     if method in {"auto", "https"}:
+        if shutil.which("curl") is None:
+            raise WGSExtractError(
+                "HTTPS downloads require 'curl' to be installed. Install curl "
+                "or use --method aspera."
+            )
         return "https"
     if method == "aspera":
         if shutil.which("ascp") is None:
