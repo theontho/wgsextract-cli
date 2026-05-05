@@ -201,6 +201,7 @@ class TestExamplesDownload(unittest.TestCase):
             examples._select_examples(["not-real"], include_all=False)
 
         self.assertIn("Unknown example ID", str(ctx.exception))
+        self.assertIn("not-real", str(ctx.exception))
 
     def test_aspera_source_uses_1000genomes_fasp_server(self):
         from wgsextract_cli.commands import examples
