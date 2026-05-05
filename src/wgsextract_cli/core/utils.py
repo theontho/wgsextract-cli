@@ -1,12 +1,14 @@
 import hashlib
 import logging
 import os
+import platform
 import shutil
 import subprocess
 import tempfile
 
 from wgsextract_cli.core.constants import REF_GENOME_FILENAMES
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.runtime import default_thread_tuning_profile
 
 try:
     import psutil
@@ -129,9 +131,7 @@ def get_resource_defaults(threads_arg=None, memory_arg=None):
     if threads_arg is not None:
         threads = str(threads_arg)
     else:
-        # Default to 75% of available cores
-        cpus = os.cpu_count() or 4
-        threads = str(max(1, int(cpus * 0.75)))
+        threads = str(default_thread_tuning_profile().threads)
 
     # 2. Memory (in GB per thread for samtools sort)
     if memory_arg is not None:
@@ -168,8 +168,6 @@ def get_sam_sort_cmd(
     # Convert memory (e.g. "1G") to just "1" for calculation
     mem_val = int(memory.rstrip("GgMm"))
     is_gb = memory.lower().endswith("g")
-
-    import platform
 
     is_macos = platform.system() == "Darwin"
 
@@ -217,7 +215,6 @@ def get_sam_index_cmd(file_path, threads="1"):
     Returns a command list for indexing BAM/CRAM.
     Uses sambamba if available (except on macOS) and file is BAM, else samtools.
     """
-    import platform
 
     is_macos = platform.system() == "Darwin"
 
@@ -232,7 +229,6 @@ def get_sam_view_cmd(threads="1", fmt="BAM", reference=None, is_input_sam=False)
     Returns a command list for viewing/converting BAM/CRAM.
     Uses sambamba if available (except on macOS) and fmt is BAM, else samtools.
     """
-    import platform
 
     is_macos = platform.system() == "Darwin"
 

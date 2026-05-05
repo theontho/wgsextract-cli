@@ -1,4 +1,5 @@
 import os
+import platform
 import re
 import shlex
 import shutil
@@ -18,6 +19,7 @@ _MEMORY_RE = re.compile(r"^\d+(?:\.\d+)?[KMGTP]B?$", re.IGNORECASE)
 _REGION_RE = re.compile(r"^(?:chr)?[A-Za-z0-9_.-]+:\d+(?:-\d+)?$")
 
 DEFAULT_WSL_PROCESSOR_RATIO = 2 / 3
+DEFAULT_WSL_THREAD_RATIO = 3 / 4
 DEFAULT_WSL_MEMORY_RATIO = 3 / 4
 DEFAULT_WSL_SWAP_RATIO = 1 / 4
 
@@ -29,6 +31,13 @@ class WSLResourceRecommendation:
     swap: str
     host_memory_gb: int
     host_processors: int
+
+
+@dataclass(frozen=True)
+class ThreadTuningProfile:
+    threads: int
+    label: str
+    reason: str
 
 
 def is_windows_host() -> bool:
@@ -55,6 +64,54 @@ def get_tool_runtime_mode() -> str:
 def should_consider_wsl() -> bool:
     mode = get_tool_runtime_mode()
     return is_windows_host() and mode != "native"
+
+
+def default_thread_tuning_profile() -> ThreadTuningProfile:
+    """Return the central default thread policy for user-facing commands."""
+    apple_perf_cores = macos_performance_core_count()
+    if apple_perf_cores:
+        return ThreadTuningProfile(
+            threads=apple_perf_cores,
+            label=str(apple_perf_cores),
+            reason="Apple Silicon performance-core count",
+        )
+
+    total_cpus = os.cpu_count() or 4
+    if should_consider_wsl():
+        threads = max(1, int(total_cpus * DEFAULT_WSL_THREAD_RATIO))
+        return ThreadTuningProfile(
+            threads=threads,
+            label=str(threads),
+            reason="WSL balanced CPU allocation",
+        )
+
+    return ThreadTuningProfile(
+        threads=max(1, total_cpus),
+        label=str(max(1, total_cpus)),
+        reason="all available cores",
+    )
+
+
+def macos_performance_core_count() -> int | None:
+    if platform.system() != "Darwin" or platform.machine() not in {"arm64", "aarch64"}:
+        return None
+    try:
+        completed = subprocess.run(
+            ["sysctl", "-n", "hw.perflevel0.physicalcpu"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0:
+        return None
+    try:
+        value = int(completed.stdout.strip())
+    except ValueError:
+        return None
+    return value if value > 0 else None
 
 
 @lru_cache(maxsize=2)

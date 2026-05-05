@@ -229,6 +229,40 @@ class TestWSLRuntime(unittest.TestCase):
         self.assertEqual(recommendation.host_processors, 12)
         self.assertEqual(recommendation.host_memory_gb, 64)
 
+    def test_default_thread_policy_uses_apple_silicon_performance_cores(self):
+        completed = MagicMock(returncode=0, stdout="8\n", stderr="")
+        with (
+            patch.object(runtime.platform, "system", return_value="Darwin"),
+            patch.object(runtime.platform, "machine", return_value="arm64"),
+            patch.object(runtime.subprocess, "run", return_value=completed),
+        ):
+            profile = runtime.default_thread_tuning_profile()
+
+        self.assertEqual(profile.threads, 8)
+        self.assertEqual(profile.reason, "Apple Silicon performance-core count")
+
+    def test_default_thread_policy_uses_wsl_balanced_count(self):
+        with (
+            patch.object(runtime, "macos_performance_core_count", return_value=None),
+            patch.object(runtime, "should_consider_wsl", return_value=True),
+            patch.object(runtime.os, "cpu_count", return_value=16),
+        ):
+            profile = runtime.default_thread_tuning_profile()
+
+        self.assertEqual(profile.threads, 12)
+        self.assertEqual(profile.reason, "WSL balanced CPU allocation")
+
+    def test_default_thread_policy_falls_back_to_all_cores(self):
+        with (
+            patch.object(runtime, "macos_performance_core_count", return_value=None),
+            patch.object(runtime, "should_consider_wsl", return_value=False),
+            patch.object(runtime.os, "cpu_count", return_value=16),
+        ):
+            profile = runtime.default_thread_tuning_profile()
+
+        self.assertEqual(profile.threads, 16)
+        self.assertEqual(profile.reason, "all available cores")
+
     def test_detect_wsl_available_uses_wsl_probe(self):
         completed = MagicMock(returncode=0, stdout="ok", stderr="")
         with (
