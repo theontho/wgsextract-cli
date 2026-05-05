@@ -58,4 +58,4 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          pixi run wgsextract benchmark --runtime pacman --profile smoke --suite core --outdir out\ci-pacman-benchmark
+          pixi run wgsextract benchmark --runtime pacman --dataset real --profile smoke --suite core --outdir out\ci-pacman-benchmark

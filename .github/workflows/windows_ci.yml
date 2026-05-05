@@ -29,7 +29,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          wsl bash -lc "cd ~/wgsextract-cli && ~/.pixi/bin/pixi run wgsextract benchmark"
+          wsl bash -lc "cd ~/wgsextract-cli && ~/.pixi/bin/pixi run wgsextract benchmark --dataset real --profile smoke"
       - name: Run Tests
         shell: powershell
         run: |

@@ -167,6 +167,7 @@ def test_benchmark_prints_progress_lines_and_base_file_size(
     benchmark.run(
         Namespace(
             profile="smoke",
+            dataset="fake",
             coverage=None,
             full_size=False,
             build="hg38",
@@ -314,6 +315,7 @@ def test_heavy_suite_runs_extra_processing_steps(
     benchmark.run(
         Namespace(
             profile="smoke",
+            dataset="fake",
             coverage=None,
             full_size=False,
             build="hg38",
@@ -524,3 +526,12 @@ def test_cli_command_uses_step_thread_selection() -> None:
         "--threads",
         "10",
     ]
+
+
+def test_command_region_expands_whole_contig_region(tmp_path: Path) -> None:
+    ref = tmp_path / "mini.fa"
+    Path(str(ref) + ".fai").write_text("20\t1000\t4\t80\t81\n", encoding="utf-8")
+
+    assert benchmark._command_region("20", ref) == "20:1-1000"
+    assert benchmark._command_region("20:10-20", ref) == "20:10-20"
+    assert benchmark._command_region(None, ref) is None
