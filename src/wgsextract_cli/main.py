@@ -338,7 +338,7 @@ def main():
 
 # --- Analysis Settings ---
 # System resources
-# threads = 8
+# threads = "auto"  # Apple Silicon perf cores, WSL balanced, otherwise all cores
 # memory = "16G"
 
 # --- External Tools ---

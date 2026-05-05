@@ -106,6 +106,28 @@ class TestRefDownloadValidation(unittest.TestCase):
             shutil.rmtree(args.out)
 
 
+class TestResourceDefaults(unittest.TestCase):
+    def test_resource_defaults_use_central_thread_policy(self):
+        from wgsextract_cli.core import utils
+
+        with patch.object(
+            utils, "default_thread_tuning_profile", return_value=Namespace(threads=8)
+        ):
+            threads, _memory = utils.get_resource_defaults(None, None)
+
+        self.assertEqual(threads, "8")
+
+    def test_explicit_thread_count_still_overrides_central_thread_policy(self):
+        from wgsextract_cli.core import utils
+
+        with patch.object(
+            utils, "default_thread_tuning_profile", return_value=Namespace(threads=8)
+        ):
+            threads, _memory = utils.get_resource_defaults(10, None)
+
+        self.assertEqual(threads, "10")
+
+
 class TestCLILogic(unittest.TestCase):
     def setUp(self):
         self.test_dir = tempfile.mkdtemp()
