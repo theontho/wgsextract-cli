@@ -251,14 +251,8 @@ class TestExamplesDownload(unittest.TestCase):
 
         with open(example_dir / GENOME_CONFIG_NAME) as f:
             config = f.read()
-        self.assertIn(
-            'fastq_r1 = "NA12878.illumina.wgs.low_coverage.20101123.read1.fastq.gz"',
-            config,
-        )
-        self.assertIn(
-            'fastq_r2 = "NA12878.illumina.wgs.low_coverage.20101123.read2.fastq.gz"',
-            config,
-        )
+        self.assertIn('fastq_r1 = "ERR001268_1.filt.fastq.gz"', config)
+        self.assertIn('fastq_r2 = "ERR001268_2.filt.fastq.gz"', config)
 
 
 class TestResourceDefaults(unittest.TestCase):

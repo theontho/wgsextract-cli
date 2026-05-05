@@ -42,11 +42,11 @@ EXAMPLES = (
         description="Phase 3 low-coverage Illumina WGS paired reads.",
         files=(
             ExampleFile(
-                "phase3/data/NA12878/sequence_read/NA12878.illumina.wgs.low_coverage.20101123.read1.fastq.gz",
+                "phase3/data/NA12878/sequence_read/ERR001268_1.filt.fastq.gz",
                 "fastq_r1",
             ),
             ExampleFile(
-                "phase3/data/NA12878/sequence_read/NA12878.illumina.wgs.low_coverage.20101123.read2.fastq.gz",
+                "phase3/data/NA12878/sequence_read/ERR001268_2.filt.fastq.gz",
                 "fastq_r2",
             ),
         ),
@@ -60,11 +60,11 @@ EXAMPLES = (
         description="Phase 3 low-coverage GRCh37 alignment.",
         files=(
             ExampleFile(
-                "phase3/data/NA12878/alignment/NA12878.mapped.ILLUMINA.bwa.CEU.low_coverage.20120522.bam",
+                "phase3/data/NA12878/alignment/NA12878.mapped.ILLUMINA.bwa.CEU.low_coverage.20121211.bam",
                 "alignment",
             ),
             ExampleFile(
-                "phase3/data/NA12878/alignment/NA12878.mapped.ILLUMINA.bwa.CEU.low_coverage.20120522.bam.bai",
+                "phase3/data/NA12878/alignment/NA12878.mapped.ILLUMINA.bwa.CEU.low_coverage.20121211.bam.bai",
                 "alignment_index",
             ),
         ),
@@ -78,29 +78,29 @@ EXAMPLES = (
         description="Phase 3 exome alignment for faster alignment-file workflows.",
         files=(
             ExampleFile(
-                "phase3/data/NA12878/alignment/NA12878.mapped.ILLUMINA.bwa.CEU.exome.20121211.bam",
+                "phase3/data/NA12878/exome_alignment/NA12878.mapped.ILLUMINA.bwa.CEU.exome.20121211.bam",
                 "alignment",
             ),
             ExampleFile(
-                "phase3/data/NA12878/alignment/NA12878.mapped.ILLUMINA.bwa.CEU.exome.20121211.bam.bai",
+                "phase3/data/NA12878/exome_alignment/NA12878.mapped.ILLUMINA.bwa.CEU.exome.20121211.bam.bai",
                 "alignment_index",
             ),
         ),
     ),
     GenomeExample(
-        example_id="na12878-30x-cram",
+        example_id="na12878-highcov-cram",
         sample="NA12878",
-        label="NA12878 30x CRAM",
+        label="NA12878 high-coverage CRAM",
         data_type="cram",
-        size="30x whole genome",
-        description="High-coverage GRCh38 CRAM for full-size workflow testing.",
+        size="high-coverage whole genome",
+        description="High-coverage PCR-free GRCh37 CRAM for full-size workflow testing.",
         files=(
             ExampleFile(
-                "data_collections/1000_genomes_project/30x_grch38/data/NA12878/NA12878.final.cram",
+                "phase3/data/NA12878/high_coverage_alignment/NA12878.mapped.ILLUMINA.bwa.CEU.high_coverage_pcr_free.20130906.bam.cram",
                 "alignment",
             ),
             ExampleFile(
-                "data_collections/1000_genomes_project/30x_grch38/data/NA12878/NA12878.final.cram.crai",
+                "phase3/data/NA12878/high_coverage_alignment/NA12878.mapped.ILLUMINA.bwa.CEU.high_coverage_pcr_free.20130906.bam.cram.crai",
                 "alignment_index",
             ),
         ),
@@ -132,11 +132,11 @@ EXAMPLES = (
         description="Integrated Phase 3 chr20 genotypes for moderate VCF workflows.",
         files=(
             ExampleFile(
-                "release/20130502/ALL.chr20.phase3_shapeit2_mvncall_integrated_v5.20130502.genotypes.vcf.gz",
+                "release/20130502/ALL.chr20.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcf.gz",
                 "vcf",
             ),
             ExampleFile(
-                "release/20130502/ALL.chr20.phase3_shapeit2_mvncall_integrated_v5.20130502.genotypes.vcf.gz.tbi",
+                "release/20130502/ALL.chr20.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcf.gz.tbi",
                 "vcf_index",
             ),
         ),
