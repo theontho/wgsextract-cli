@@ -258,12 +258,14 @@ pixi run mypy src/wgsextract_cli
 
 Visualize the codebase complexity:
 ```bash
-# Print stats to the console with Pixi-managed cloc
+# Print stats to the console with cloc
 pixi run stats
 
 # Generate a gitignored report at out/project_stats.txt
 pixi run stats-report
 ```
+
+On Windows, `cloc` is a developer tool installed outside Pixi. Install it with `winget install --id AlDanial.Cloc --exact --scope user` before running the stats tasks.
 
 Last stats run:
 ```
