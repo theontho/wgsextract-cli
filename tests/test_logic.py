@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from argparse import Namespace
+from pathlib import Path
 from unittest.mock import patch
 
 # Ensure src is in sys.path
@@ -104,6 +105,165 @@ class TestRefDownloadValidation(unittest.TestCase):
             run_command.assert_not_called()
         finally:
             shutil.rmtree(args.out)
+
+
+class TestExamplesDownload(unittest.TestCase):
+    def setUp(self):
+        self.test_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.test_dir)
+
+    def test_target_root_uses_configured_genome_library(self):
+        from wgsextract_cli.commands import examples
+        from wgsextract_cli.core.config import settings
+
+        old_value = settings.get("genome_library")
+        settings["genome_library"] = self.test_dir
+        try:
+            self.assertEqual(examples._target_root(None), Path(self.test_dir).resolve())
+        finally:
+            if old_value is None:
+                settings.pop("genome_library", None)
+            else:
+                settings["genome_library"] = old_value
+
+    def test_default_target_root_is_repo_genomes(self):
+        from wgsextract_cli.commands import examples
+        from wgsextract_cli.core.config import settings
+
+        old_value = settings.get("genome_library")
+        settings.pop("genome_library", None)
+        try:
+            self.assertEqual(
+                examples._target_root(None), examples._repo_root() / "genomes"
+            )
+        finally:
+            if old_value is not None:
+                settings["genome_library"] = old_value
+
+    def test_dry_run_plans_downloads_without_creating_files(self):
+        from wgsextract_cli.commands import examples
+
+        args = Namespace(
+            example_ids=["phase3-chrmt-vcf"],
+            all=False,
+            method="https",
+            target_root=self.test_dir,
+            aspera_key=None,
+            force=False,
+            dry_run=True,
+        )
+        with patch.object(examples, "run_command") as run_command:
+            examples.cmd_download(args)
+
+        run_command.assert_not_called()
+        self.assertFalse(
+            os.path.exists(os.path.join(self.test_dir, examples.COLLECTION_DIR))
+        )
+
+    def test_download_writes_genome_config_for_vcf(self):
+        from wgsextract_cli.commands import examples
+
+        args = Namespace(
+            example_ids=["phase3-chrmt-vcf"],
+            all=False,
+            method="https",
+            target_root=self.test_dir,
+            aspera_key=None,
+            force=False,
+            dry_run=False,
+        )
+
+        def fake_download(_source, destination, _method, _aspera_key):
+            destination.write_text("data")
+
+        with patch.object(examples, "_download_file", side_effect=fake_download):
+            examples.cmd_download(args)
+
+        config_path = os.path.join(
+            self.test_dir,
+            examples.COLLECTION_DIR,
+            "phase3-chrmt-vcf",
+            GENOME_CONFIG_NAME,
+        )
+        self.assertTrue(os.path.exists(config_path))
+        with open(config_path) as f:
+            config = f.read()
+            self.assertIn(
+                'vcf = "ALL.chrMT.phase3_callmom-v0_4.20130502.genotypes.vcf.gz"',
+                config,
+            )
+            self.assertNotIn("vcf_index", config)
+            self.assertNotIn(".tbi", config)
+
+    def test_unknown_example_raises_clear_error(self):
+        from wgsextract_cli.commands import examples
+
+        with self.assertRaises(WGSExtractError) as ctx:
+            examples._select_examples(["not-real"], include_all=False)
+
+        self.assertIn("Unknown example ID", str(ctx.exception))
+        self.assertIn("not-real", str(ctx.exception))
+
+    def test_https_method_requires_curl(self):
+        from wgsextract_cli.commands import examples
+
+        with patch.object(examples.shutil, "which", return_value=None):
+            with self.assertRaises(WGSExtractError) as ctx:
+                examples._resolve_method("https")
+
+        self.assertIn("curl", str(ctx.exception))
+
+    def test_aspera_source_uses_1000genomes_fasp_server(self):
+        from wgsextract_cli.commands import examples
+
+        source = examples._source_for("release/20130502/example.vcf.gz", "aspera")
+
+        self.assertEqual(
+            source,
+            "fasp-g1k@fasp.1000genomes.ebi.ac.uk:/vol1/ftp/release/20130502/example.vcf.gz",
+        )
+
+    def test_https_source_uses_1000genomes_https_root(self):
+        from wgsextract_cli.commands import examples
+
+        source = examples._source_for("release/20130502/example.vcf.gz", "https")
+
+        self.assertEqual(
+            source,
+            "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/example.vcf.gz",
+        )
+
+    def test_resolve_aspera_key_prefers_explicit_key(self):
+        from wgsextract_cli.commands import examples
+
+        explicit_key = os.path.join(self.test_dir, "explicit.openssh")
+        home_dir = os.path.join(self.test_dir, "home")
+        default_key = os.path.join(
+            home_dir, ".aspera", "connect", "etc", "asperaweb_id_dsa.openssh"
+        )
+        os.makedirs(os.path.dirname(default_key))
+        Path(explicit_key).write_text("explicit", encoding="utf-8")
+        Path(default_key).write_text("default", encoding="utf-8")
+
+        with patch.dict(os.environ, {"HOME": home_dir}):
+            resolved = examples._resolve_aspera_key(explicit_key)
+
+        self.assertEqual(resolved, Path(explicit_key))
+
+    def test_write_genome_config_for_fastq_pair(self):
+        from wgsextract_cli.commands import examples
+
+        example = examples.EXAMPLES_BY_ID["na12878-lowcov-fastq"]
+        example_dir = Path(self.test_dir)
+
+        examples._write_genome_config(example, example_dir)
+
+        with open(example_dir / GENOME_CONFIG_NAME, encoding="utf-8") as f:
+            config = f.read()
+        self.assertIn('fastq_r1 = "ERR001268_1.filt.fastq.gz"', config)
+        self.assertIn('fastq_r2 = "ERR001268_2.filt.fastq.gz"', config)
 
 
 class TestResourceDefaults(unittest.TestCase):

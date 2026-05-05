@@ -11,6 +11,7 @@ from .commands import (
     bam,
     benchmark,
     deps,
+    examples,
     extract,
     info,
     lineage,
@@ -375,6 +376,7 @@ def main():
     for cmd_module in [
         info,
         deps,
+        examples,
         bam,
         benchmark,
         extract,
