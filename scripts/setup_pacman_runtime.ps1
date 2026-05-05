@@ -29,7 +29,13 @@ function ConvertTo-MsysPath {
     if ($LASTEXITCODE -ne 0 -or -not $converted) {
         throw "Failed to convert path to MSYS2 format: $WindowsPath"
     }
-    return $converted.Trim()
+
+    $convertedLines = @($converted) | ForEach-Object { "$_".Trim() } | Where-Object { $_ }
+    $pathLine = $convertedLines | Where-Object { $_.StartsWith("/") } | Select-Object -Last 1
+    if (-not $pathLine) {
+        $pathLine = $convertedLines | Select-Object -Last 1
+    }
+    return $pathLine
 }
 
 function Invoke-Msys2Script {
