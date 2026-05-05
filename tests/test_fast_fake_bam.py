@@ -187,6 +187,41 @@ def test_cmd_fake_data_rejects_legacy_bam_with_full_size(monkeypatch, tmp_path):
         raise AssertionError("Expected --legacy-bam with --full-size to fail")
 
 
+def test_full_size_bam_creates_explicit_reference_path(monkeypatch, tmp_path):
+    calls = []
+    ref_path = tmp_path / "benchmark_ref.fa"
+
+    def fake_write_reference(path, chroms, get_noise_seq):
+        calls.append({"path": path, "chroms": chroms, "sample": get_noise_seq(0, 0, 4)})
+        ref_path.write_text(">chr1\nACGT\n", encoding="utf-8")
+
+    monkeypatch.setattr(qc, "_write_fake_reference", fake_write_reference)
+    monkeypatch.setattr(qc, "run_command", lambda *args, **kwargs: None)
+    monkeypatch.setattr(qc, "_create_fast_fake_bam", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        qc,
+        "_reference_backed_sequence_provider",
+        lambda _ref_path, _chroms, fallback: fallback,
+    )
+    monkeypatch.setattr(
+        qc, "get_resource_defaults", lambda _threads, _memory: ("2", None)
+    )
+
+    qc.generate_fake_genomics_data(
+        str(tmp_path),
+        ref_path=str(ref_path),
+        coverage=0.01,
+        seed=1,
+        build="hg38",
+        full_size=True,
+        types=["bam"],
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["path"] == str(ref_path)
+    assert calls[0]["chroms"]["chr1"] == 248956422
+
+
 def test_create_fast_fake_bam_streams_sam_to_samtools(monkeypatch, tmp_path):
     captured = {}
 
@@ -201,14 +236,9 @@ def test_create_fast_fake_bam_streams_sam_to_samtools(monkeypatch, tmp_path):
         def close(self):
             self.closed = True
 
-    class FakeStderr:
-        def read(self) -> bytes:
-            return b""
-
     class FakeProcess:
         def __init__(self):
             self.stdin = FakeStdin()
-            self.stderr = FakeStderr()
             self._running = True
 
         def wait(self) -> int:
@@ -221,11 +251,10 @@ def test_create_fast_fake_bam_streams_sam_to_samtools(monkeypatch, tmp_path):
         def kill(self):
             raise AssertionError("kill should not be called on success")
 
-    def fake_popen(cmd, stdin, stderr):
+    def fake_popen(cmd, stdin):
         process = FakeProcess()
         captured["cmd"] = cmd
         captured["stdin_arg"] = stdin
-        captured["stderr_arg"] = stderr
         captured["process"] = process
         return process
 
@@ -233,7 +262,7 @@ def test_create_fast_fake_bam_streams_sam_to_samtools(monkeypatch, tmp_path):
         source = "ACGT" * ((pos + length + 4) // 4)
         return source[pos % 4 : pos % 4 + length]
 
-    monkeypatch.setattr(qc.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(qc, "popen", fake_popen)
     monkeypatch.setattr(qc, "get_tool_path", lambda _tool: "samtools")
 
     qc._create_fast_fake_bam(

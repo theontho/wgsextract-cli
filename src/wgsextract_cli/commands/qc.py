@@ -18,6 +18,7 @@ from wgsextract_cli.core.utils import (
     get_resource_defaults,
     get_sam_index_cmd,
     get_sam_view_cmd,
+    popen,
     run_command,
 )
 
@@ -502,11 +503,7 @@ def _create_fast_fake_bam(
 ) -> None:
     logging.info(f"Streaming coordinate-sorted fake BAM directly to {bam_path}...")
     cmd = _samtools_view_bam_writer_cmd(bam_path, threads)
-    process = subprocess.Popen(
-        cmd,
-        stdin=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    process = popen(cmd, stdin=subprocess.PIPE)
     stdin = process.stdin
     if stdin is None:
         raise WGSExtractError("Failed to open samtools stdin for fake BAM creation.")
@@ -532,18 +529,28 @@ def _create_fast_fake_bam(
         if pending:
             stdin.write(pending)
         stdin.close()
-        stderr = (
-            process.stderr.read().decode(errors="replace") if process.stderr else ""
-        )
         return_code = process.wait()
         if return_code != 0:
             raise WGSExtractError(
-                f"samtools failed while creating fake BAM: {stderr.strip()}"
+                f"samtools failed while creating fake BAM with exit code {return_code}."
             )
     except Exception:
         if process.poll() is None:
             process.kill()
         raise
+
+
+def _write_fake_reference(
+    ref_path: str, chroms: dict[str, int], get_noise_seq: SequenceProvider
+) -> None:
+    with open(ref_path, "w") as f:
+        for idx, (name, length) in enumerate(chroms.items()):
+            f.write(f">{name}\n")
+            chunk_size = 1000000
+            for i in range(0, length, chunk_size):
+                this_chunk_len = min(chunk_size, length - i)
+                seq = list(get_noise_seq(idx, i, this_chunk_len))
+                f.write("".join(seq) + "\n")
 
 
 def cmd_fake_data(args):
@@ -798,6 +805,8 @@ def generate_fake_genomics_data(
                     v_list[v_pos] = (random.choice("ACGT"), "AT", True)
             consistent_variants[name] = v_list
 
+    ref_path_was_provided = bool(ref_path)
+
     # 1. Create a reference if none provided
     if not ref_path:
         ref_path = os.path.join(
@@ -805,23 +814,15 @@ def generate_fake_genomics_data(
         )
 
     # Preserve scaled fake-data behavior by creating a small reference, but avoid
-    # writing a full human FASTA unless CRAM output requires a reference.
-    should_create_reference = not full_size or "cram" in types
+    # writing a full human FASTA unless a caller explicitly requested it or CRAM
+    # output requires a reference.
+    should_create_reference = ref_path_was_provided or not full_size or "cram" in types
     ref_exists = os.path.exists(str(ref_path))
     if ref_exists:
         logging.info(f"Using reference: {ref_path}")
     elif should_create_reference:
         logging.info(f"Creating fake reference at {ref_path}...")
-        with open(ref_path, "w") as f:
-            for idx, (name, length) in enumerate(chroms.items()):
-                f.write(f">{name}\n")
-                # Writing large files in chunks is faster
-                chunk_size = 1000000
-                for i in range(0, length, chunk_size):
-                    this_chunk_len = min(chunk_size, length - i)
-                    seq = list(get_noise_seq(idx, i, this_chunk_len))
-                    # Reference should NOT have the variants
-                    f.write("".join(seq) + "\n")
+        _write_fake_reference(str(ref_path), chroms, get_noise_seq)
         run_command(["samtools", "faidx", ref_path])
     else:
         logging.info(
