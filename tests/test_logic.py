@@ -150,6 +150,7 @@ class TestExamplesDownload(unittest.TestCase):
             all=False,
             method="ftp",
             target_root=self.test_dir,
+            aspera_key=None,
             force=False,
             dry_run=True,
         )
@@ -169,6 +170,7 @@ class TestExamplesDownload(unittest.TestCase):
             all=False,
             method="ftp",
             target_root=self.test_dir,
+            aspera_key=None,
             force=False,
             dry_run=False,
         )
@@ -200,7 +202,7 @@ class TestExamplesDownload(unittest.TestCase):
 
         self.assertIn("Unknown example ID", str(ctx.exception))
 
-    def test_aspera_source_uses_1000_genomes_fasp_server(self):
+    def test_aspera_source_uses_1000genomes_fasp_server(self):
         from wgsextract_cli.commands import examples
 
         source = examples._source_for("release/20130502/example.vcf.gz", "aspera")

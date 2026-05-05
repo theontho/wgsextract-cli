@@ -159,6 +159,13 @@ def register(subparsers, base_parser):
         parents=[base_parser],
         help="List curated 1000 Genomes examples.",
     )
+    list_parser.add_argument(
+        "--target-root",
+        help=(
+            "Genome library root. Defaults to config genome_library, or repo-root "
+            "genomes/ when unset."
+        ),
+    )
     list_parser.set_defaults(func=cmd_list)
 
     download_parser = examples_subs.add_parser(
@@ -208,7 +215,7 @@ def register(subparsers, base_parser):
 
 
 def cmd_list(args: Namespace) -> None:
-    root = _target_root(getattr(args, "target_root", None))
+    root = _target_root(args.target_root)
     print(f"Target collection: {root / COLLECTION_DIR}")
     print()
     for example in EXAMPLES:
@@ -223,7 +230,8 @@ def cmd_list(args: Namespace) -> None:
 
 def cmd_download(args: Namespace) -> None:
     selected = _select_examples(args.example_ids, args.all)
-    method = _resolve_method(args.method, getattr(args, "aspera_key", None))
+    aspera_key = args.aspera_key
+    method = _resolve_method(args.method, aspera_key)
     root = _target_root(args.target_root)
     collection_dir = root / COLLECTION_DIR
 
@@ -240,9 +248,7 @@ def cmd_download(args: Namespace) -> None:
             if destination.exists() and not args.force:
                 logging.info("Skipping existing %s", destination)
                 continue
-            _download_file(
-                source, destination, method, getattr(args, "aspera_key", None)
-            )
+            _download_file(source, destination, method, aspera_key)
         _write_genome_config(example, example_dir)
         logging.info(
             "Installed %s. Use --genome %s/%s",
