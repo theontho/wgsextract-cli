@@ -71,12 +71,14 @@ def test_create_fast_fake_bam_streams_sam_to_samtools(monkeypatch, tmp_path):
         def __init__(self):
             self.stdin = FakeStdin()
             self.stderr = FakeStderr()
+            self._running = True
 
         def wait(self) -> int:
+            self._running = False
             return 0
 
-        def poll(self) -> int:
-            return 0
+        def poll(self) -> int | None:
+            return None if self._running else 0
 
         def kill(self):
             raise AssertionError("kill should not be called on success")

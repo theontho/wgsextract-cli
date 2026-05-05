@@ -362,18 +362,14 @@ def _create_fast_fake_bam(
     if process.stdin is None:
         raise WGSExtractError("Failed to open samtools stdin for fake BAM creation.")
 
-    pending: list[str] = []
-    pending_bytes = 0
+    pending = bytearray()
     flush_at = 4 * 1024 * 1024
 
     def write_sam(line: str) -> None:
-        nonlocal pending_bytes
-        pending.append(line)
-        pending_bytes += len(line)
-        if pending_bytes >= flush_at:
-            process.stdin.write("".join(pending).encode())
+        pending.extend(line.encode())
+        if len(pending) >= flush_at:
+            process.stdin.write(pending)
             pending.clear()
-            pending_bytes = 0
 
     try:
         _stream_fast_bam_sam(
@@ -385,7 +381,7 @@ def _create_fast_fake_bam(
             get_noise_seq,
         )
         if pending:
-            process.stdin.write("".join(pending).encode())
+            process.stdin.write(pending)
         process.stdin.close()
         stderr = process.stderr.read().decode(errors="replace") if process.stderr else ""
         return_code = process.wait()
@@ -652,11 +648,13 @@ def generate_fake_genomics_data(
             outdir, f"fake_ref_{build}_{mode.lower().replace(' ', '_')}.fa"
         )
 
-    need_reference = not full_size or "cram" in types
+    # Preserve scaled fake-data behavior by creating a small reference, but avoid
+    # writing a full human FASTA unless CRAM output requires a reference.
+    should_create_reference = not full_size or "cram" in types
     ref_exists = os.path.exists(str(ref_path))
     if ref_exists:
         logging.info(f"Using reference: {ref_path}")
-    elif need_reference:
+    elif should_create_reference:
         logging.info(f"Creating fake reference at {ref_path}...")
         with open(ref_path, "w") as f:
             for idx, (name, length) in enumerate(chroms.items()):
