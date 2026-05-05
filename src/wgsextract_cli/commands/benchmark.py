@@ -20,7 +20,12 @@ from wgsextract_cli.core.dependencies import (
     get_tool_version,
 )
 from wgsextract_cli.core.messages import CLI_HELP
-from wgsextract_cli.core.runtime import default_thread_tuning_profile
+from wgsextract_cli.core.runtime import (
+    RUNTIME_ENV_VAR,
+    VALID_RUNTIME_MODES,
+    default_thread_tuning_profile,
+    get_tool_runtime_mode,
+)
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
@@ -173,10 +178,18 @@ def register(
         default="heavy",
         help="Benchmark operation coverage. core runs the lighter baseline suite.",
     )
+    parser.add_argument(
+        "--runtime",
+        choices=sorted(VALID_RUNTIME_MODES),
+        help="External tool runtime to benchmark: auto, native, wsl, cygwin, msys2, or pacman.",
+    )
     parser.set_defaults(func=run)
 
 
 def run(args: argparse.Namespace) -> None:
+    if getattr(args, "runtime", None):
+        os.environ[RUNTIME_ENV_VAR] = str(args.runtime)
+
     profile = PROFILE_DEFAULTS[args.profile]
     coverage = args.coverage if args.coverage is not None else profile["coverage"]
     full_size = bool(args.full_size or profile["full_size"])
@@ -215,6 +228,7 @@ def run(args: argparse.Namespace) -> None:
         "region": region,
         "target_count": target_count,
         "suite": args.suite,
+        "tool_runtime": get_tool_runtime_mode(),
         "threads": thread_plan.label,
         "thread_policy": thread_plan.reason,
         "base_file": str(generated_bam),
@@ -2239,6 +2253,7 @@ def _format_stdout_report(
         "WGSExtract CLI Benchmark Summary",
         f"Profile: {metadata['profile']} | Suite: {metadata['suite']} | "
         f"Coverage: {metadata['coverage']}x | Full size: {metadata['full_size']}",
+        f"Tool runtime: {metadata['tool_runtime']}",
         f"Fake BAM generator: {metadata['fake_bam_generator']}",
         f"Threads: {metadata['threads']}",
         f"Thread policy: {metadata['thread_policy']}",
@@ -2268,6 +2283,7 @@ def _format_markdown_report(
         f"- Profile: `{metadata['profile']}`",
         f"- Suite: `{metadata['suite']}`",
         f"- Coverage: `{metadata['coverage']}x`",
+        f"- Tool runtime: `{metadata['tool_runtime']}`",
         f"- Full size reference: `{metadata['full_size']}`",
         f"- Fake BAM generator: `{metadata['fake_bam_generator']}`",
         f"- Build: `{metadata['build']}`",

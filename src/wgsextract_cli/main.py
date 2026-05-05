@@ -342,8 +342,10 @@ def main():
 # memory = "16G"
 
 # --- External Tools ---
-# Runtime for external tools: auto, native, or wsl
+# Runtime for external tools: auto, native, wsl, cygwin, msys2, or pacman
 # runtime = "auto"
+# runtime_dir = "runtime"
+# pacman_bin = "C:/msys64/ucrt64/bin"
 
 # Paths to specific tool executables or directories
 # yleaf_path = "/path/to/yleaf"

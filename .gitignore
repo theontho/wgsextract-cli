@@ -4,6 +4,7 @@ out/
 external/
 tmp/
 local_bin/     
+runtime/
 reference_bootstrap/
 reference/
 .tmp_home/

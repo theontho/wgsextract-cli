@@ -741,7 +741,11 @@ def _normalize_subprocess_cmd(cmd):
     from wgsextract_cli.core import runtime
 
     def split_wrapper_or_keep(value: str) -> list[str]:
-        if runtime.is_wsl_tool_command(value):
+        if (
+            runtime.is_wsl_tool_command(value)
+            or runtime.is_bundled_tool_command(value)
+            or runtime.is_pacman_tool_command(value)
+        ):
             return [value]
         if os.path.exists(value):
             return [value]
@@ -777,7 +781,11 @@ def _normalize_subprocess_cmd(cmd):
 
             resolved = get_tool_path(executable)
             if resolved:
-                if runtime.is_wsl_tool_command(resolved):
+                if (
+                    runtime.is_wsl_tool_command(resolved)
+                    or runtime.is_bundled_tool_command(resolved)
+                    or runtime.is_pacman_tool_command(resolved)
+                ):
                     cmd_list = [resolved] + cmd_list[1:]
                 elif os.path.exists(resolved):
                     cmd_list = [resolved] + cmd_list[1:]
