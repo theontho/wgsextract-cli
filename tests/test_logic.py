@@ -235,10 +235,8 @@ class TestExamplesDownload(unittest.TestCase):
             home_dir, ".aspera", "connect", "etc", "asperaweb_id_dsa.openssh"
         )
         os.makedirs(os.path.dirname(default_key))
-        with open(explicit_key, "w") as f:
-            f.write("explicit")
-        with open(default_key, "w") as f:
-            f.write("default")
+        Path(explicit_key).write_text("explicit", encoding="utf-8")
+        Path(default_key).write_text("default", encoding="utf-8")
 
         with patch.dict(os.environ, {"HOME": home_dir}):
             resolved = examples._resolve_aspera_key(explicit_key)

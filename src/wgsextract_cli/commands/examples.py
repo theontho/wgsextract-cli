@@ -12,6 +12,7 @@ HTTPS_ROOT = "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp"
 ASPERA_ROOT = "fasp-g1k@fasp.1000genomes.ebi.ac.uk:/vol1/ftp"
 ASPERA_PORT = "33001"  # EBI's public 1000 Genomes Aspera service port.
 ASPERA_MAX_BANDWIDTH = "300M"
+ASPERA_RESUME_PARTIAL = "1"
 COLLECTION_DIR = "test-1000genomes"
 
 
@@ -359,7 +360,8 @@ def _download_file(
                     "-i",
                     str(key),
                     "-k",
-                    "1",
+                    ASPERA_RESUME_PARTIAL,
+                    # EBI's public endpoint requires disabling transfer encryption.
                     "-T",
                     "-P",
                     ASPERA_PORT,
