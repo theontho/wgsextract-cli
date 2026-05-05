@@ -7,10 +7,12 @@ local_bin/
 runtime/
 reference_bootstrap/
 reference/
+genomes/
 .tmp_home/
 *.log
 *.log.txt
 *.out
+*.wgse_info.json
 .DS_Store
 
 # we dont want to commit genome data by mistake
