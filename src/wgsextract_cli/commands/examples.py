@@ -191,7 +191,10 @@ def register(subparsers, base_parser):
         "--method",
         choices=("auto", "https", "aspera"),
         default="auto",
-        help="Transfer method. Auto is equivalent to HTTPS; use --method aspera explicitly for Aspera.",
+        help=(
+            "Transfer method. Auto is an alias for HTTPS and does not probe "
+            "Aspera; use --method aspera explicitly for Aspera."
+        ),
     )
     download_parser.add_argument(
         "--aspera-key",
@@ -362,7 +365,8 @@ def _download_file(
                     str(key),
                     "-k",
                     ASPERA_RESUME_PARTIAL,
-                    # EBI's public endpoint requires disabling transfer encryption.
+                    # Disable transfer encryption for compatibility with EBI's
+                    # public endpoint.
                     "-T",
                     "-P",
                     ASPERA_PORT,
