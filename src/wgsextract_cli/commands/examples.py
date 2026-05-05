@@ -149,6 +149,7 @@ CONFIG_ROLES = {"alignment", "vcf", "fastq_r1", "fastq_r2"}
 
 
 def register(subparsers, base_parser):
+    """Register the example-genome list/download subcommands."""
     parser = subparsers.add_parser(
         "example-genome",
         parents=[base_parser],
@@ -217,6 +218,7 @@ def register(subparsers, base_parser):
 
 
 def cmd_list(args: Namespace) -> None:
+    """List available example genomes with metadata and usage instructions."""
     root = _target_root(args.target_root)
     print(f"Target collection: {root / COLLECTION_DIR}")
     print()
@@ -231,13 +233,14 @@ def cmd_list(args: Namespace) -> None:
 
 
 def cmd_download(args: Namespace) -> None:
+    """Download selected example genomes and generate genome config files."""
     selected = _select_examples(args.example_ids, args.all)
     aspera_key = args.aspera_key
     method = _resolve_method(args.method, aspera_key)
     root = _target_root(args.target_root)
     collection_dir = root / COLLECTION_DIR
 
-    logging.info("Downloading examples into %s", collection_dir)
+    logging.info(f"Downloading examples into {collection_dir}")
     for example in selected:
         example_dir = collection_dir / example.example_id
         planned = _planned_downloads(example, example_dir, method)
@@ -248,15 +251,13 @@ def cmd_download(args: Namespace) -> None:
         example_dir.mkdir(parents=True, exist_ok=True)
         for source, destination, _role in planned:
             if destination.exists() and not args.force:
-                logging.info("Skipping existing %s", destination)
+                logging.info(f"Skipping existing {destination}")
                 continue
             _download_file(source, destination, method, aspera_key)
         _write_genome_config(example, example_dir)
         logging.info(
-            "Installed %s. Use --genome %s/%s",
-            example.label,
-            COLLECTION_DIR,
-            example.example_id,
+            f"Installed {example.label}. Use --genome "
+            f"{COLLECTION_DIR}/{example.example_id}"
         )
 
 
@@ -348,7 +349,7 @@ def _filename(url_path: str) -> str:
 def _download_file(
     source: str, destination: Path, method: str, aspera_key: str | None = None
 ) -> None:
-    logging.info("Downloading %s", source)
+    logging.info(f"Downloading {source}")
     try:
         if method == "aspera":
             key = _resolve_aspera_key(aspera_key)
