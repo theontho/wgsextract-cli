@@ -142,11 +142,35 @@ class TestOptionalDependencies(unittest.TestCase):
             bash = source / "msys2" / "usr" / "bin" / "bash.exe"
             bash.parent.mkdir(parents=True)
             bash.write_bytes(b"")
+            fastqc = source / "FastQC" / "fastqc"
+            fastqc.parent.mkdir(parents=True)
+            fastqc.write_text(
+                "if ( $java_bin ne 'java' ) {\r\n"
+                '    system $java_bin, @java_args, "-jar $RealBin/FastQC.jar", @files;\r\n'
+                "}\r\n"
+                "else {\r\n"
+                '    exec $java_bin, @java_args, "-jar $RealBin/FastQC.jar", @files;\r\n'
+                "}\r\n",
+                encoding="utf-8",
+            )
+            java = source / "jre8" / "bin" / "java.exe"
+            java.parent.mkdir(parents=True)
+            java.write_bytes(b"")
             destination = root / "runtime" / "msys2"
 
             deps_command._copy_bundled_runtime_from_source(source, "msys2", destination)
 
             self.assertTrue((destination / "usr" / "bin" / "bash.exe").exists())
+            self.assertTrue((destination / "FastQC" / "fastqc").exists())
+            self.assertTrue((destination / "jre8" / "bin" / "java.exe").exists())
+            self.assertIn(
+                '"-jar", $fastqc_jar',
+                (destination / "FastQC" / "fastqc").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "cygpath -w",
+                (destination / "FastQC" / "fastqc").read_text(encoding="utf-8"),
+            )
 
     def test_copy_bundled_runtime_skips_cygwin_mount_placeholder(self):
         with tempfile.TemporaryDirectory() as tempdir:
