@@ -408,7 +408,7 @@ def _resolve_aspera_key(aspera_key: str | None) -> Path | None:
 
 
 def _write_genome_config(example: GenomeExample, example_dir: Path) -> None:
-    """Write only primary input roles; index sidecars are intentionally omitted."""
+    """Write only primary input roles defined in CONFIG_ROLES."""
     lines = [
         "# WGS Extract per-genome configuration",
         "# Downloaded from the 1000 Genomes Project example catalog.",
