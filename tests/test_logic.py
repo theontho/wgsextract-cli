@@ -17,6 +17,117 @@ from wgsextract_cli.core.genome_library import (
 from wgsextract_cli.core.utils import WGSExtractError
 
 
+class DummyProcess:
+    def __init__(self):
+        self.stdout = self
+
+    def close(self):
+        pass
+
+    def communicate(self):
+        return None, None
+
+
+class TestAlignToolSelection(unittest.TestCase):
+    def setUp(self):
+        self.test_dir = tempfile.mkdtemp()
+        self.r1 = os.path.join(self.test_dir, "fake_R1.fastq.gz")
+        self.ref = os.path.join(self.test_dir, "fake_ref.fa")
+        for path in (self.r1, self.ref, f"{self.ref}.bwt"):
+            with open(path, "w") as f:
+                f.write("test")
+
+    def tearDown(self):
+        shutil.rmtree(self.test_dir)
+
+    def test_bwa_alignment_sorts_sam_stream_before_sambamba_index(self):
+        from wgsextract_cli.commands import align
+
+        args = Namespace(
+            r1=self.r1,
+            r2=None,
+            ref=self.ref,
+            input=None,
+            outdir=self.test_dir,
+            format="BAM",
+            threads=None,
+            memory=None,
+        )
+        commands = []
+        run_commands = []
+
+        def fake_get_tool_path(tool):
+            return "bwa" if tool == "bwa" else None
+
+        def fake_which(tool):
+            return "/usr/bin/sambamba" if tool == "sambamba" else None
+
+        def fake_popen(cmd, **_kwargs):
+            commands.append(cmd)
+            return DummyProcess()
+
+        def fake_run_command(cmd, *_args, **_kwargs):
+            run_commands.append(cmd)
+
+        with (
+            patch.object(align, "verify_dependencies"),
+            patch.object(align, "log_dependency_info"),
+            patch.object(align, "get_resource_defaults", return_value=("2", "1G")),
+            patch.object(align, "verify_paths_exist", return_value=True),
+            patch.object(align, "resolve_reference", return_value=self.ref),
+            patch.object(align, "get_tool_path", side_effect=fake_get_tool_path),
+            patch.object(align, "print_warning"),
+            patch.object(align, "run_command", side_effect=fake_run_command),
+            patch.object(align, "popen", side_effect=fake_popen),
+            patch("wgsextract_cli.core.utils.shutil.which", side_effect=fake_which),
+            patch("platform.system", return_value="Linux"),
+        ):
+            align.align_bwa(args)
+
+        self.assertIn(["samtools", "sort"], [cmd[:2] for cmd in commands])
+        self.assertIn(["sambamba", "index"], [cmd[:2] for cmd in run_commands])
+
+
+class TestRefDownloadValidation(unittest.TestCase):
+    def test_directory_output_short_circuits_before_curl(self):
+        from wgsextract_cli.commands import ref
+
+        args = Namespace(url="http://fake", out=tempfile.mkdtemp())
+        try:
+            with (
+                patch.object(ref, "verify_dependencies"),
+                patch.object(ref, "run_command") as run_command,
+            ):
+                with self.assertRaises(WGSExtractError):
+                    ref.cmd_download(args)
+
+            run_command.assert_not_called()
+        finally:
+            shutil.rmtree(args.out)
+
+
+class TestResourceDefaults(unittest.TestCase):
+    def test_resource_defaults_use_central_thread_policy(self):
+        from wgsextract_cli.core import utils
+
+        with patch.object(
+            utils, "default_thread_tuning_profile", return_value=Namespace(threads=8)
+        ):
+            threads, _memory = utils.get_resource_defaults(None, None)
+
+        self.assertEqual(threads, "8")
+
+    def test_explicit_thread_count_still_overrides_central_thread_policy(self):
+        from wgsextract_cli.core import utils
+
+        with patch.object(
+            utils, "default_thread_tuning_profile", return_value=Namespace(threads=8)
+        ):
+            threads, _memory = utils.get_resource_defaults(10, None)
+
+        self.assertEqual(threads, "10")
+
+
 class TestCLILogic(unittest.TestCase):
     def setUp(self):
         self.test_dir = tempfile.mkdtemp()

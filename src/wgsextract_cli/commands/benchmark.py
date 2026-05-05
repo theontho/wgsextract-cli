@@ -3,6 +3,7 @@ import json
 import os
 import platform
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -19,6 +20,7 @@ from wgsextract_cli.core.dependencies import (
     get_tool_version,
 )
 from wgsextract_cli.core.messages import CLI_HELP
+from wgsextract_cli.core.runtime import default_thread_tuning_profile
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
@@ -34,6 +36,13 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "region": None,
         "target_count": 10_000,
     },
+    "200mb": {
+        # The scaled reference produces ~104 MiB at 37x on current fake data.
+        "coverage": 71.0,
+        "full_size": False,
+        "region": None,
+        "target_count": 100_000,
+    },
     "full": {
         "coverage": 1.0,
         "full_size": True,
@@ -43,6 +52,7 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
 }
 
 EXCLUDED_OPERATIONS = "VEP, DeepVariant, Yleaf, Haplogrep"
+PROGRESS_STEP_WIDTH = 68
 
 
 @dataclass(frozen=True)
@@ -68,6 +78,9 @@ BENCHMARK_EXTERNAL_TOOLS: tuple[BenchmarkToolSpec, ...] = (
         False,
         "Duplicate-marking stage during alignment when available",
     ),
+    BenchmarkToolSpec("fastp", False, "FASTQ read trimming and QC"),
+    BenchmarkToolSpec("fastqc", False, "FASTQ quality-control reports"),
+    BenchmarkToolSpec("freebayes", False, "Haplotype-based variant calling"),
 )
 
 
@@ -90,6 +103,14 @@ class BenchmarkResult:
         return self.status == "PASS"
 
 
+@dataclass(frozen=True)
+class BenchmarkThreadPlan:
+    label: str
+    default_threads: int | None
+    per_step_threads: dict[str, int]
+    reason: str
+
+
 def register(
     subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
 ):
@@ -105,7 +126,8 @@ def register(
         default="standard",
         help=(
             "Benchmark size preset. smoke is chrM-only, standard is a scaled "
-            "human-like genome, full uses real chromosome lengths."
+            "human-like genome, 200mb targets a ~200 MiB fake BAM, and full "
+            "uses real chromosome lengths."
         ),
     )
     parser.add_argument(
@@ -145,6 +167,12 @@ def register(
         action="store_true",
         help="Continue independent benchmark steps after a failed step when possible.",
     )
+    parser.add_argument(
+        "--suite",
+        choices=["core", "heavy"],
+        default="heavy",
+        help="Benchmark operation coverage. core runs the lighter baseline suite.",
+    )
     parser.set_defaults(func=run)
 
 
@@ -161,6 +189,9 @@ def run(args: argparse.Namespace) -> None:
         raise WGSExtractError("--coverage must be greater than zero.")
     if target_count <= 0:
         raise WGSExtractError("--target-count must be greater than zero.")
+
+    thread_plan = _benchmark_thread_plan(args)
+    args._benchmark_thread_plan = thread_plan
 
     outdir = _benchmark_root(args)
     run_dir = outdir / "runs" / datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -183,6 +214,9 @@ def run(args: argparse.Namespace) -> None:
         "seed": args.seed,
         "region": region,
         "target_count": target_count,
+        "suite": args.suite,
+        "threads": thread_plan.label,
+        "thread_policy": thread_plan.reason,
         "base_file": str(generated_bam),
         "base_file_size": None,
         "base_file_size_bytes": None,
@@ -196,6 +230,7 @@ def run(args: argparse.Namespace) -> None:
 
     _print_machine_stats(metadata["machine_stats"])
     _print_external_tools(metadata["external_tools"])
+    _print_thread_policy(thread_plan)
     _print_progress_header()
 
     def finish_report() -> None:
@@ -269,6 +304,7 @@ def run(args: argparse.Namespace) -> None:
             output_dir=steps_dir / "info",
             logs_dir=logs_dir,
             expected_outputs=[],
+            command_label="info --detailed",
         )
     )
 
@@ -511,6 +547,7 @@ def run(args: argparse.Namespace) -> None:
         )
 
     snp_dir = steps_dir / "vcf-snp"
+    snp_vcf = snp_dir / "snps.vcf.gz"
     snp_cmd = [
         "vcf",
         "snp",
@@ -533,7 +570,7 @@ def run(args: argparse.Namespace) -> None:
             command_args=snp_cmd,
             output_dir=snp_dir,
             logs_dir=logs_dir,
-            expected_outputs=[snp_dir / "snps.vcf.gz", snp_dir / "snps.vcf.gz.tbi"],
+            expected_outputs=[snp_vcf, Path(str(snp_vcf) + ".tbi")],
         )
     )
 
@@ -616,7 +653,691 @@ def run(args: argparse.Namespace) -> None:
         )
     )
 
+    if args.suite == "heavy":
+        _run_heavy_processing_steps(
+            args=args,
+            record=record,
+            analysis_bam=analysis_bam,
+            generated_bam=generated_bam,
+            ref_path=ref_path,
+            target_tab_gz=target_tab_gz,
+            snp_vcf=snp_vcf,
+            unalign_r1=unalign_r1,
+            unalign_r2=unalign_r2,
+            steps_dir=steps_dir,
+            logs_dir=logs_dir,
+            build=args.build,
+            region=region,
+        )
+
     finish_report()
+
+
+def _run_heavy_processing_steps(
+    *,
+    args: argparse.Namespace,
+    record: Any,
+    analysis_bam: Path,
+    generated_bam: Path,
+    ref_path: Path,
+    target_tab_gz: Path,
+    snp_vcf: Path,
+    unalign_r1: Path,
+    unalign_r2: Path,
+    steps_dir: Path,
+    logs_dir: Path,
+    build: str,
+    region: str | None,
+) -> None:
+    del generated_bam, build
+    base_name = analysis_bam.name.split(".")[0]
+    heavy_region = region or _default_heavy_region(ref_path)
+
+    ref_count_dir = steps_dir / "ref-count-ns"
+    record(
+        _run_cli_step(
+            args,
+            name="Reference N-base counting",
+            slug="12a-ref-count-ns",
+            command_args=[
+                "ref",
+                "count-ns",
+                "--ref",
+                str(ref_path),
+                "--outdir",
+                str(ref_count_dir),
+            ],
+            output_dir=ref_count_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[],
+        )
+    )
+
+    ref_verify_dir = steps_dir / "ref-verify"
+    record(
+        _run_cli_step(
+            args,
+            name="Reference integrity verification",
+            slug="12b-ref-verify",
+            command_args=[
+                "ref",
+                "verify",
+                "--ref",
+                str(ref_path),
+                "--outdir",
+                str(ref_verify_dir),
+            ],
+            output_dir=ref_verify_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[Path(str(ref_path) + ".fai")],
+        )
+    )
+
+    identify_dir = steps_dir / "bam-identify"
+    record(
+        _run_cli_step(
+            args,
+            name="BAM reference identification",
+            slug="12a-bam-identify",
+            command_args=[
+                "bam",
+                "identify",
+                "--input",
+                str(analysis_bam),
+                "--ref",
+                str(ref_path),
+                "--outdir",
+                str(identify_dir),
+            ],
+            output_dir=identify_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[],
+        )
+    )
+
+    index_dir = steps_dir / "bam-index-cycle"
+    index_fixture = index_dir / "benchmark_index_fixture.bam"
+    record(
+        _run_internal_step(
+            name="Prepare BAM index benchmark fixture",
+            slug="12b-bam-index-fixture",
+            output_dir=index_dir,
+            func=lambda: _copy_bam_with_index(analysis_bam, index_fixture),
+            expected_outputs=[index_fixture, Path(str(index_fixture) + ".bai")],
+        )
+    )
+    record(
+        _run_cli_step(
+            args,
+            name="BAM index removal",
+            slug="12c-bam-unindex",
+            command_args=[
+                "bam",
+                "unindex",
+                "--input",
+                str(index_fixture),
+                "--outdir",
+                str(index_dir),
+            ],
+            output_dir=index_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[index_fixture],
+        )
+    )
+    record(
+        _run_internal_step(
+            name="Verify BAM index removal",
+            slug="12d-bam-unindex-verify",
+            output_dir=index_dir,
+            func=lambda: _assert_bam_unindexed(index_fixture),
+            expected_outputs=[index_fixture],
+        )
+    )
+    record(
+        _run_cli_step(
+            args,
+            name="BAM index creation",
+            slug="12e-bam-index",
+            command_args=[
+                "bam",
+                "index",
+                "--input",
+                str(index_fixture),
+                "--outdir",
+                str(index_dir),
+            ],
+            output_dir=index_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[Path(str(index_fixture) + ".bai")],
+        )
+    )
+
+    unsort_dir = steps_dir / "bam-unsort"
+    record(
+        _run_cli_step(
+            args,
+            name="BAM header unsort conversion",
+            slug="12f-bam-unsort",
+            command_args=[
+                "bam",
+                "unsort",
+                "--input",
+                str(analysis_bam),
+                "--ref",
+                str(ref_path),
+                "--outdir",
+                str(unsort_dir),
+            ],
+            output_dir=unsort_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[unsort_dir / f"{analysis_bam.stem}_unsorted.bam"],
+        )
+    )
+
+    full_coverage_dir = steps_dir / "coverage-full"
+    full_coverage_cmd = [
+        "info",
+        "calculate-coverage",
+        "--input",
+        str(analysis_bam),
+        "--ref",
+        str(ref_path),
+        "--outdir",
+        str(full_coverage_dir),
+    ]
+    if region:
+        full_coverage_cmd += ["--region", str(region)]
+    record(
+        _run_cli_step(
+            args,
+            name="BAM full coverage calculation",
+            slug="13a-info-calculate-coverage",
+            command_args=full_coverage_cmd,
+            output_dir=full_coverage_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[full_coverage_dir / f"{analysis_bam.name}_bincvg.csv"],
+        )
+    )
+
+    sampled_coverage_dir = steps_dir / "coverage-sample"
+    sampled_coverage_cmd = [
+        "info",
+        "coverage-sample",
+        "--input",
+        str(analysis_bam),
+        "--ref",
+        str(ref_path),
+        "--outdir",
+        str(sampled_coverage_dir),
+    ]
+    sampled_region = _chrom_only_region(region)
+    if sampled_region:
+        sampled_coverage_cmd += ["--region", sampled_region]
+    record(
+        _run_cli_step(
+            args,
+            name="BAM sampled coverage calculation",
+            slug="13b-info-coverage-sample",
+            command_args=sampled_coverage_cmd,
+            output_dir=sampled_coverage_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[
+                sampled_coverage_dir / f"{analysis_bam.name}_samplecvg.json"
+            ],
+        )
+    )
+
+    mito_fasta_dir = steps_dir / "mito-fasta"
+    record(
+        _run_cli_step(
+            args,
+            name="Mitochondrial FASTA consensus",
+            slug="14a-mito-fasta",
+            command_args=[
+                "extract",
+                "mito-fasta",
+                "--input",
+                str(analysis_bam),
+                "--ref",
+                str(ref_path),
+                "--outdir",
+                str(mito_fasta_dir),
+            ],
+            output_dir=mito_fasta_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[mito_fasta_dir / f"{base_name}_MT.fasta"],
+        )
+    )
+
+    mito_vcf_dir = steps_dir / "mito-vcf"
+    record(
+        _run_cli_step(
+            args,
+            name="Mitochondrial VCF extraction",
+            slug="14b-mito-vcf",
+            command_args=[
+                "extract",
+                "mito-vcf",
+                "--input",
+                str(analysis_bam),
+                "--ref",
+                str(ref_path),
+                "--outdir",
+                str(mito_vcf_dir),
+            ],
+            output_dir=mito_vcf_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[
+                mito_vcf_dir / f"{base_name}_MT.vcf.gz",
+                mito_vcf_dir / f"{base_name}_MT.vcf.gz.tbi",
+            ],
+        )
+    )
+
+    ydna_vcf_dir = steps_dir / "ydna-vcf"
+    record(
+        _run_cli_step(
+            args,
+            name="Y-DNA VCF extraction",
+            slug="14c-ydna-vcf",
+            command_args=[
+                "extract",
+                "ydna-vcf",
+                "--input",
+                str(analysis_bam),
+                "--ref",
+                str(ref_path),
+                "--outdir",
+                str(ydna_vcf_dir),
+            ],
+            output_dir=ydna_vcf_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[
+                ydna_vcf_dir / f"{base_name}_Y.vcf.gz",
+                ydna_vcf_dir / f"{base_name}_Y.vcf.gz.tbi",
+            ],
+        )
+    )
+
+    y_mt_dir = steps_dir / "y-mt-extract"
+    record(
+        _run_cli_step(
+            args,
+            name="Y and mitochondrial BAM extraction",
+            slug="14d-y-mt-extract",
+            command_args=[
+                "extract",
+                "y-mt-extract",
+                "--input",
+                str(analysis_bam),
+                "--ref",
+                str(ref_path),
+                "--outdir",
+                str(y_mt_dir),
+            ],
+            output_dir=y_mt_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[
+                y_mt_dir / f"{base_name}_Y_MT.bam",
+                y_mt_dir / f"{base_name}_Y_MT.bam.bai",
+            ],
+        )
+    )
+
+    unmapped_dir = steps_dir / "unmapped"
+    record(
+        _run_cli_step(
+            args,
+            name="Unmapped-read BAM extraction",
+            slug="14e-unmapped",
+            command_args=[
+                "extract",
+                "unmapped",
+                "--input",
+                str(analysis_bam),
+                "--ref",
+                str(ref_path),
+                "--outdir",
+                str(unmapped_dir),
+            ],
+            output_dir=unmapped_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[unmapped_dir / f"{base_name}_unmapped.bam"],
+        )
+    )
+
+    custom_dir = steps_dir / "custom-extract"
+    if heavy_region:
+        record(
+            _run_cli_step(
+                args,
+                name="Custom region BAM extraction",
+                slug="14f-custom-extract",
+                command_args=[
+                    "extract",
+                    "custom",
+                    "--input",
+                    str(analysis_bam),
+                    "--ref",
+                    str(ref_path),
+                    "--outdir",
+                    str(custom_dir),
+                    "--region",
+                    heavy_region,
+                ],
+                output_dir=custom_dir,
+                logs_dir=logs_dir,
+                expected_outputs=[
+                    custom_dir
+                    / f"{base_name}_{_region_output_suffix(heavy_region)}.bam",
+                    custom_dir
+                    / f"{base_name}_{_region_output_suffix(heavy_region)}.bam.bai",
+                ],
+            )
+        )
+    else:
+        record(
+            _skipped_result(
+                "Custom region BAM extraction",
+                "14f-custom-extract",
+                custom_dir,
+                "No benchmark region could be resolved from the generated reference.",
+            )
+        )
+
+    fastp_dir = steps_dir / "fastp"
+    if _benchmark_tool_available("fastp"):
+        fastp_base = unalign_r1.name.split(".")[0]
+        record(
+            _run_cli_step(
+                args,
+                name="FASTQ trimming and QC with fastp",
+                slug="15a-fastp",
+                command_args=[
+                    "qc",
+                    "fastp",
+                    "--r1",
+                    str(unalign_r1),
+                    "--r2",
+                    str(unalign_r2),
+                    "--outdir",
+                    str(fastp_dir),
+                ],
+                output_dir=fastp_dir,
+                logs_dir=logs_dir,
+                expected_outputs=[
+                    fastp_dir / f"{fastp_base}_fp_1.fastq.gz",
+                    fastp_dir / f"{fastp_base}_fp_2.fastq.gz",
+                    fastp_dir / f"{fastp_base}_fastp.json",
+                    fastp_dir / f"{fastp_base}_fastp.html",
+                ],
+            )
+        )
+    else:
+        record(_missing_optional_tool_result("fastp", "15a-fastp", fastp_dir))
+
+    fastqc_dir = steps_dir / "fastqc"
+    if _benchmark_tool_available("fastqc"):
+        fastqc_base = _fastqc_output_stem(unalign_r1)
+        record(
+            _run_cli_step(
+                args,
+                name="FASTQ quality reports with FastQC",
+                slug="15b-fastqc",
+                command_args=[
+                    "qc",
+                    "fastqc",
+                    "--input",
+                    str(unalign_r1),
+                    "--outdir",
+                    str(fastqc_dir),
+                ],
+                output_dir=fastqc_dir,
+                logs_dir=logs_dir,
+                expected_outputs=[fastqc_dir / f"{fastqc_base}_fastqc.html"],
+            )
+        )
+    else:
+        record(_missing_optional_tool_result("fastqc", "15b-fastqc", fastqc_dir))
+
+    filter_dir = steps_dir / "vcf-filter"
+    filter_cmd = [
+        "vcf",
+        "filter",
+        "--input",
+        str(snp_vcf),
+        "--ref",
+        str(ref_path),
+        "--outdir",
+        str(filter_dir),
+        "--expr",
+        "QUAL>=0",
+    ]
+    if region:
+        filter_cmd += ["--region", str(region)]
+    record(
+        _run_cli_step(
+            args,
+            name="VCF expression filtering",
+            slug="16a-vcf-filter",
+            command_args=filter_cmd,
+            output_dir=filter_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[
+                filter_dir / "filtered.vcf.gz",
+                filter_dir / "filtered.vcf.gz.tbi",
+            ],
+        )
+    )
+
+    annotate_dir = steps_dir / "vcf-annotate"
+    record(
+        _run_cli_step(
+            args,
+            name="VCF annotation transfer",
+            slug="16b-vcf-annotate",
+            command_args=[
+                "vcf",
+                "annotate",
+                "--input",
+                str(snp_vcf),
+                "--ref",
+                str(ref_path),
+                "--outdir",
+                str(annotate_dir),
+                "--ann-vcf",
+                str(target_tab_gz),
+                "--cols",
+                "CHROM,POS,REF,ALT,ID",
+            ],
+            output_dir=annotate_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[
+                annotate_dir / "annotated.vcf.gz",
+                annotate_dir / "annotated.vcf.gz.tbi",
+            ],
+        )
+    )
+
+    trio_dir = steps_dir / "vcf-trio"
+    trio_proband = trio_dir / "proband.vcf.gz"
+    trio_mother = trio_dir / "mother.vcf.gz"
+    trio_father = trio_dir / "father.vcf.gz"
+    trio_region = region or _trio_benchmark_region(ref_path) or heavy_region
+    trio_prep = record(
+        _run_internal_step(
+            name="Prepare trio VCF benchmark inputs",
+            slug="16c-vcf-trio-inputs",
+            output_dir=trio_dir,
+            func=lambda: _prepare_trio_vcf_inputs(
+                snp_vcf,
+                {
+                    "proband": trio_proband,
+                    "mother": trio_mother,
+                    "father": trio_father,
+                },
+            ),
+            expected_outputs=[
+                trio_proband,
+                Path(str(trio_proband) + ".tbi"),
+                trio_mother,
+                Path(str(trio_mother) + ".tbi"),
+                trio_father,
+                Path(str(trio_father) + ".tbi"),
+            ],
+        )
+    )
+    trio_cmd = [
+        "vcf",
+        "trio",
+        "--proband",
+        str(trio_proband),
+        "--mother",
+        str(trio_mother),
+        "--father",
+        str(trio_father),
+        "--ref",
+        str(ref_path),
+        "--outdir",
+        str(trio_dir),
+        "--mode",
+        "denovo",
+    ]
+    if trio_region:
+        trio_cmd += ["--region", trio_region]
+    if trio_prep.success:
+        record(
+            _run_cli_step(
+                args,
+                name="VCF trio inheritance filtering",
+                slug="16d-vcf-trio",
+                command_args=trio_cmd,
+                output_dir=trio_dir,
+                logs_dir=logs_dir,
+                expected_outputs=[
+                    trio_dir / "trio_denovo.vcf.gz",
+                    trio_dir / "trio_denovo.vcf.gz.tbi",
+                ],
+            )
+        )
+    else:
+        record(
+            _skipped_result(
+                "VCF trio inheritance filtering",
+                "16d-vcf-trio",
+                trio_dir,
+                "Trio VCF input preparation failed.",
+            )
+        )
+
+    freebayes_dir = steps_dir / "vcf-freebayes"
+    if _benchmark_tool_available("freebayes"):
+        freebayes_cmd = [
+            "vcf",
+            "freebayes",
+            "--input",
+            str(analysis_bam),
+            "--ref",
+            str(ref_path),
+            "--outdir",
+            str(freebayes_dir),
+        ]
+        if region:
+            freebayes_cmd += ["--region", str(region)]
+        record(
+            _run_cli_step(
+                args,
+                name="VCF generation with FreeBayes",
+                slug="16e-vcf-freebayes",
+                command_args=freebayes_cmd,
+                output_dir=freebayes_dir,
+                logs_dir=logs_dir,
+                expected_outputs=[
+                    freebayes_dir / "freebayes.vcf.gz",
+                    freebayes_dir / "freebayes.vcf.gz.tbi",
+                ],
+            )
+        )
+    else:
+        record(
+            _missing_optional_tool_result(
+                "freebayes", "16e-vcf-freebayes", freebayes_dir
+            )
+        )
+
+    batch_fixture_dir = steps_dir / "analyze-batch-fixture"
+    batch_csv = steps_dir / "analyze-batch-gen" / "benchmark_batch.csv"
+    record(
+        _run_internal_step(
+            name="Prepare analyze batch-gen fixture",
+            slug="17a-analyze-batch-fixture",
+            output_dir=batch_fixture_dir,
+            func=lambda: _prepare_analyze_batch_fixture(batch_fixture_dir),
+            expected_outputs=[
+                batch_fixture_dir / "benchmark_sample.bam",
+                batch_fixture_dir / "benchmark_sample.vcf.gz",
+            ],
+        )
+    )
+    record(
+        _run_cli_step(
+            args,
+            name="Analyze batch file generation",
+            slug="17b-analyze-batch-gen",
+            command_args=[
+                "analyze",
+                "batch-gen",
+                "--directory",
+                str(batch_fixture_dir),
+                "--output",
+                str(batch_csv),
+            ],
+            output_dir=batch_csv.parent,
+            logs_dir=logs_dir,
+            expected_outputs=[batch_csv],
+        )
+    )
+
+    repair_dir = steps_dir / "repair"
+    repair_bam_input = repair_dir / "ftdna_input.sam"
+    repair_bam_output = repair_dir / "ftdna_repaired.sam"
+    repair_vcf_input = repair_dir / "ftdna_input.vcf"
+    repair_vcf_output = repair_dir / "ftdna_repaired.vcf"
+    record(
+        _run_internal_step(
+            name="Prepare repair command fixtures",
+            slug="18a-repair-fixtures",
+            output_dir=repair_dir,
+            func=lambda: _prepare_repair_fixtures(repair_bam_input, repair_vcf_input),
+            expected_outputs=[repair_bam_input, repair_vcf_input],
+        )
+    )
+    record(
+        _run_cli_pipe_step(
+            args,
+            name="FTDNA BAM text repair",
+            slug="18b-repair-ftdna-bam",
+            command_args=["repair", "ftdna-bam"],
+            input_file=repair_bam_input,
+            output_file=repair_bam_output,
+            output_dir=repair_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[repair_bam_output],
+        )
+    )
+    record(
+        _run_cli_pipe_step(
+            args,
+            name="FTDNA VCF text repair",
+            slug="18c-repair-ftdna-vcf",
+            command_args=["repair", "ftdna-vcf"],
+            input_file=repair_vcf_input,
+            output_file=repair_vcf_output,
+            output_dir=repair_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[repair_vcf_output],
+        )
+    )
 
 
 def _benchmark_root(args: argparse.Namespace) -> Path:
@@ -624,6 +1345,16 @@ def _benchmark_root(args: argparse.Namespace) -> Path:
     if "outdir" in explicit_dests and args.outdir:
         return Path(args.outdir).expanduser().resolve()
     return (Path.cwd() / "out" / "benchmark").resolve()
+
+
+def _benchmark_thread_plan(args: argparse.Namespace) -> BenchmarkThreadPlan:
+    if getattr(args, "threads", None) is not None:
+        return BenchmarkThreadPlan(
+            str(args.threads), int(args.threads), {}, "explicit --threads override"
+        )
+
+    tuning = default_thread_tuning_profile()
+    return BenchmarkThreadPlan(tuning.label, tuning.threads, {}, tuning.reason)
 
 
 def _run_cli_step(
@@ -634,11 +1365,12 @@ def _run_cli_step(
     output_dir: Path,
     logs_dir: Path,
     expected_outputs: list[Path],
+    command_label: str | None = None,
 ) -> BenchmarkResult:
     output_dir.mkdir(parents=True, exist_ok=True)
     stdout_log = logs_dir / f"{slug}.stdout.log"
     stderr_log = logs_dir / f"{slug}.stderr.log"
-    command = _cli_command(args, command_args)
+    command = _cli_command(args, command_args, _benchmark_threads_for_step(args, slug))
     start = time.perf_counter()
 
     with (
@@ -664,7 +1396,64 @@ def _run_cli_step(
         error = "Missing expected output(s): " + ", ".join(missing)
 
     return BenchmarkResult(
-        name=name,
+        name=_name_with_command_label(name, command_args, command_label),
+        slug=slug,
+        status=status,
+        seconds=seconds,
+        command=command,
+        output_dir=str(output_dir),
+        stdout_log=str(stdout_log),
+        stderr_log=str(stderr_log),
+        returncode=completed.returncode,
+        expected_outputs=[str(path) for path in expected_outputs],
+        error=error,
+    )
+
+
+def _run_cli_pipe_step(
+    args: argparse.Namespace,
+    name: str,
+    slug: str,
+    command_args: list[str],
+    input_file: Path,
+    output_file: Path,
+    output_dir: Path,
+    logs_dir: Path,
+    expected_outputs: list[Path],
+    command_label: str | None = None,
+) -> BenchmarkResult:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stdout_log = logs_dir / f"{slug}.stdout.log"
+    stderr_log = logs_dir / f"{slug}.stderr.log"
+    command = _cli_command(args, command_args, _benchmark_threads_for_step(args, slug))
+    start = time.perf_counter()
+
+    with (
+        open(input_file, "rb") as stdin,
+        open(output_file, "wb") as stdout,
+        open(stderr_log, "w", encoding="utf-8") as err,
+    ):
+        completed = subprocess.run(
+            command,
+            stdin=stdin,
+            stdout=stdout,
+            stderr=err,
+            check=False,
+            env=_subprocess_env(),
+        )
+
+    stdout_log.write_text(str(output_file) + "\n", encoding="utf-8")
+    seconds = time.perf_counter() - start
+    missing = [str(path) for path in expected_outputs if not path.exists()]
+    status = "PASS" if completed.returncode == 0 and not missing else "FAIL"
+    error = None
+    if completed.returncode != 0:
+        error = f"Command exited with status {completed.returncode}."
+    elif missing:
+        error = "Missing expected output(s): " + ", ".join(missing)
+
+    return BenchmarkResult(
+        name=_name_with_command_label(name, command_args, command_label),
         slug=slug,
         status=status,
         seconds=seconds,
@@ -710,6 +1499,22 @@ def _run_internal_step(
     )
 
 
+def _name_with_command_label(
+    name: str, command_args: list[str], command_label: str | None = None
+) -> str:
+    label = command_label or _command_label(command_args)
+    return f"{name} [{label}]" if label else name
+
+
+def _command_label(command_args: list[str]) -> str | None:
+    parts = []
+    for arg in command_args:
+        if arg.startswith("-"):
+            break
+        parts.append(arg)
+    return " ".join(parts) if parts else None
+
+
 def _skipped_result(
     name: str, slug: str, output_dir: Path, reason: str
 ) -> BenchmarkResult:
@@ -724,14 +1529,154 @@ def _skipped_result(
     )
 
 
+def _missing_optional_tool_result(
+    tool: str, slug: str, output_dir: Path
+) -> BenchmarkResult:
+    return _skipped_result(
+        f"Optional {tool} benchmark",
+        slug,
+        output_dir,
+        f"Optional tool is not installed or not active for this platform: {tool}.",
+    )
+
+
+def _benchmark_tool_available(tool: str) -> bool:
+    return _tool_active_for_benchmark(tool, get_tool_path(tool))
+
+
+def _copy_bam_with_index(source_bam: Path, dest_bam: Path) -> None:
+    dest_bam.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source_bam, dest_bam)
+
+    source_index = _bam_index_path(source_bam)
+    dest_index = Path(str(dest_bam) + ".bai")
+    if source_index and source_index.exists():
+        shutil.copy2(source_index, dest_index)
+    else:
+        run_command(["samtools", "index", str(dest_bam)])
+
+
+def _prepare_trio_vcf_inputs(source_vcf: Path, outputs: dict[str, Path]) -> None:
+    for sample_name, output_vcf in outputs.items():
+        sample_file = output_vcf.with_suffix(".sample.txt")
+        sample_file.write_text(f"{sample_name}\n", encoding="utf-8")
+        run_command(
+            [
+                "bcftools",
+                "reheader",
+                "-s",
+                str(sample_file),
+                "-o",
+                str(output_vcf),
+                str(source_vcf),
+            ]
+        )
+        run_command(["tabix", "-f", "-p", "vcf", str(output_vcf)])
+
+
+def _prepare_analyze_batch_fixture(output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "benchmark_sample.bam").write_bytes(b"benchmark bam placeholder\n")
+    (output_dir / "benchmark_sample.vcf.gz").write_bytes(b"benchmark vcf placeholder\n")
+    (output_dir / "benchmark_sample.vcf.gz.tbi").write_bytes(b"benchmark index\n")
+
+
+def _prepare_repair_fixtures(sam_path: Path, vcf_path: Path) -> None:
+    sam_path.parent.mkdir(parents=True, exist_ok=True)
+    sam_path.write_text(
+        "@HD\tVN:1.6\tSO:coordinate\n"
+        "@SQ\tSN:chr1\tLN:1000\n"
+        "read name with spaces\t0\tchr1\t1\t60\t10M\t*\t0\t0\tACGTACGTAC\tIIIIIIIIII\n",
+        encoding="utf-8",
+    )
+    vcf_path.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        "chr1\t1\t.\tA\tC\t50\tPASS!BAD\t.\n",
+        encoding="utf-8",
+    )
+
+
+def _assert_bam_unindexed(bam_path: Path) -> None:
+    existing = [path for path in _bam_index_candidates(bam_path) if path.exists()]
+    if existing:
+        paths = ", ".join(str(path) for path in existing)
+        raise WGSExtractError(f"BAM index still exists after unindex: {paths}")
+
+
+def _bam_index_path(bam_path: Path) -> Path | None:
+    for candidate in _bam_index_candidates(bam_path):
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _bam_index_candidates(bam_path: Path) -> list[Path]:
+    candidates = [Path(str(bam_path) + ".bai"), Path(str(bam_path) + ".csi")]
+    if bam_path.suffix.lower() == ".bam":
+        candidates.append(bam_path.with_suffix(".bai"))
+    return candidates
+
+
+def _default_heavy_region(ref_path: Path) -> str | None:
+    fai_path = Path(str(ref_path) + ".fai")
+    if not fai_path.exists():
+        return None
+    contigs = _read_fai(fai_path)
+    if not contigs:
+        return None
+    chrom, length = contigs[0]
+    end = min(length, 100_000)
+    if end < 1:
+        return None
+    return f"{chrom}:1-{end}"
+
+
+def _trio_benchmark_region(ref_path: Path) -> str | None:
+    fai_path = Path(str(ref_path) + ".fai")
+    if not fai_path.exists():
+        return None
+    contigs = _read_fai(fai_path)
+    for chrom, length in contigs:
+        if chrom.upper().replace("CHR", "") in {"M", "MT"}:
+            return f"{chrom}:1-{length}"
+    return _default_heavy_region(ref_path)
+
+
+def _region_output_suffix(region: str) -> str:
+    return region.replace(":", "_").replace(",", "_")
+
+
+def _chrom_only_region(region: str | None) -> str | None:
+    if not region:
+        return None
+    chrom, _sep, _range_part = region.partition(":")
+    return chrom or None
+
+
+def _fastqc_output_stem(input_path: Path) -> str:
+    name = input_path.name
+    for suffix in (".fastq.gz", ".fq.gz", ".fastq", ".fq"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return input_path.stem
+
+
 def _print_progress_header() -> None:
     print("WGSExtract CLI Benchmark Progress", flush=True)
-    print(f"{'Step':<42} {'Status':<6} {'Seconds':>10}", flush=True)
-    print("-" * 62, flush=True)
+    print(f"{'Step':<{PROGRESS_STEP_WIDTH}} {'Status':<6} {'Seconds':>10}", flush=True)
+    print("-" * (PROGRESS_STEP_WIDTH + 19), flush=True)
+
+
+def _print_thread_policy(thread_plan: BenchmarkThreadPlan) -> None:
+    print("Thread policy:", flush=True)
+    print(f"  Threads: {thread_plan.label}", flush=True)
+    print(f"  Policy: {thread_plan.reason}", flush=True)
+    print("", flush=True)
 
 
 def _format_progress_result(result: BenchmarkResult) -> str:
-    return f"{result.name:<42} {result.status:<6} {result.seconds:>10.2f}"
+    return f"{result.name:<{PROGRESS_STEP_WIDTH}} {result.status:<6} {result.seconds:>10.2f}"
 
 
 def _print_failure_log_excerpt(result: BenchmarkResult) -> None:
@@ -1123,7 +2068,16 @@ def _format_bytes(size_bytes: int) -> str:
     return f"{size_bytes:,} bytes"
 
 
-def _cli_command(args: argparse.Namespace, command_args: list[str]) -> list[str]:
+def _benchmark_threads_for_step(args: argparse.Namespace, slug: str) -> int | None:
+    thread_plan = getattr(args, "_benchmark_thread_plan", None)
+    if isinstance(thread_plan, BenchmarkThreadPlan):
+        return thread_plan.per_step_threads.get(slug, thread_plan.default_threads)
+    return getattr(args, "threads", None)
+
+
+def _cli_command(
+    args: argparse.Namespace, command_args: list[str], threads: int | None
+) -> list[str]:
     command = [
         sys.executable,
         "-m",
@@ -1136,8 +2090,8 @@ def _cli_command(args: argparse.Namespace, command_args: list[str]) -> list[str]
     elif getattr(args, "quiet", False):
         command.append("--quiet")
     command += command_args
-    if getattr(args, "threads", None) is not None:
-        command += ["--threads", str(args.threads)]
+    if threads is not None:
+        command += ["--threads", str(threads)]
     if getattr(args, "memory", None) is not None:
         command += ["--memory", str(args.memory)]
     return command
@@ -1276,8 +2230,11 @@ def _format_stdout_report(
     lines = [
         "",
         "WGSExtract CLI Benchmark Summary",
-        f"Profile: {metadata['profile']} | Coverage: {metadata['coverage']}x | Full size: {metadata['full_size']}",
+        f"Profile: {metadata['profile']} | Suite: {metadata['suite']} | "
+        f"Coverage: {metadata['coverage']}x | Full size: {metadata['full_size']}",
         f"Fake BAM generator: {metadata['fake_bam_generator']}",
+        f"Threads: {metadata['threads']}",
+        f"Thread policy: {metadata['thread_policy']}",
         f"Region: {metadata['region'] or 'whole generated genome'} | Seed: {metadata['seed']}",
         f"Base file: {metadata['base_file']} ({metadata['base_file_size'] or 'not available'})",
         "Machine: " + _format_machine_summary(metadata["machine_stats"]),
@@ -1302,6 +2259,7 @@ def _format_markdown_report(
         "## Configuration",
         "",
         f"- Profile: `{metadata['profile']}`",
+        f"- Suite: `{metadata['suite']}`",
         f"- Coverage: `{metadata['coverage']}x`",
         f"- Full size reference: `{metadata['full_size']}`",
         f"- Fake BAM generator: `{metadata['fake_bam_generator']}`",
@@ -1309,6 +2267,8 @@ def _format_markdown_report(
         f"- Region: `{metadata['region'] or 'whole generated genome'}`",
         f"- Seed: `{metadata['seed']}`",
         f"- Target SNP count: `{metadata['target_count']}`",
+        f"- Threads: `{metadata['threads']}`",
+        f"- Thread policy: `{metadata['thread_policy']}`",
         f"- Base file: `{metadata['base_file']}` ({metadata['base_file_size'] or 'not available'})",
         f"- Excluded operations: {metadata['excluded_operations']}",
         f"- JSON results: `{report_json}`",

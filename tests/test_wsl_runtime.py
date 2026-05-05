@@ -11,7 +11,10 @@ from wgsextract_cli.core import (
     dependencies,  # noqa: E402
     runtime,  # noqa: E402
 )
-from wgsextract_cli.core.utils import _normalize_subprocess_cmd  # noqa: E402
+from wgsextract_cli.core.utils import (  # noqa: E402
+    _normalize_subprocess_cmd,
+    run_command,
+)
 
 
 class TestWSLRuntime(unittest.TestCase):
@@ -170,6 +173,22 @@ class TestWSLRuntime(unittest.TestCase):
 
         self.assertEqual(normalized, [executable, "--version"])
 
+    def test_run_command_starts_managed_process_group(self):
+        process = MagicMock()
+        process.communicate.return_value = ("", "")
+        process.returncode = 0
+
+        with patch(
+            "wgsextract_cli.core.utils.subprocess.Popen", return_value=process
+        ) as popen:
+            run_command(["tool", "--version"])
+
+        kwargs = popen.call_args.kwargs
+        if sys.platform == "win32":
+            self.assertTrue(kwargs["creationflags"])
+        else:
+            self.assertTrue(kwargs["start_new_session"])
+
     def test_write_wslconfig_settings_adds_and_updates_wsl2_section(self):
         with tempfile.TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / ".wslconfig"
@@ -209,6 +228,40 @@ class TestWSLRuntime(unittest.TestCase):
         self.assertEqual(recommendation.swap, "16GB")
         self.assertEqual(recommendation.host_processors, 12)
         self.assertEqual(recommendation.host_memory_gb, 64)
+
+    def test_default_thread_policy_uses_apple_silicon_performance_cores(self):
+        completed = MagicMock(returncode=0, stdout="8\n", stderr="")
+        with (
+            patch.object(runtime.platform, "system", return_value="Darwin"),
+            patch.object(runtime.platform, "machine", return_value="arm64"),
+            patch.object(runtime.subprocess, "run", return_value=completed),
+        ):
+            profile = runtime.default_thread_tuning_profile()
+
+        self.assertEqual(profile.threads, 8)
+        self.assertEqual(profile.reason, "Apple Silicon performance-core count")
+
+    def test_default_thread_policy_uses_wsl_balanced_count(self):
+        with (
+            patch.object(runtime, "macos_performance_core_count", return_value=None),
+            patch.object(runtime, "should_consider_wsl", return_value=True),
+            patch.object(runtime.os, "cpu_count", return_value=16),
+        ):
+            profile = runtime.default_thread_tuning_profile()
+
+        self.assertEqual(profile.threads, 12)
+        self.assertEqual(profile.reason, "WSL balanced CPU allocation")
+
+    def test_default_thread_policy_falls_back_to_all_cores(self):
+        with (
+            patch.object(runtime, "macos_performance_core_count", return_value=None),
+            patch.object(runtime, "should_consider_wsl", return_value=False),
+            patch.object(runtime.os, "cpu_count", return_value=16),
+        ):
+            profile = runtime.default_thread_tuning_profile()
+
+        self.assertEqual(profile.threads, 16)
+        self.assertEqual(profile.reason, "all available cores")
 
     def test_detect_wsl_available_uses_wsl_probe(self):
         completed = MagicMock(returncode=0, stdout="ok", stderr="")
