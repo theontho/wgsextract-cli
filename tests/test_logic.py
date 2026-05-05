@@ -253,7 +253,7 @@ class TestExamplesDownload(unittest.TestCase):
 
         examples._write_genome_config(example, example_dir)
 
-        with open(example_dir / GENOME_CONFIG_NAME) as f:
+        with open(example_dir / GENOME_CONFIG_NAME, encoding="utf-8") as f:
             config = f.read()
         self.assertIn('fastq_r1 = "ERR001268_1.filt.fastq.gz"', config)
         self.assertIn('fastq_r2 = "ERR001268_2.filt.fastq.gz"', config)

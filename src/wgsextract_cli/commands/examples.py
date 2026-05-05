@@ -190,7 +190,7 @@ def register(subparsers, base_parser):
         "--method",
         choices=("auto", "https", "aspera"),
         default="auto",
-        help="Transfer method. Auto uses HTTPS unless Aspera is explicitly requested.",
+        help="Transfer method. Auto is equivalent to HTTPS; use --method aspera explicitly for Aspera.",
     )
     download_parser.add_argument(
         "--aspera-key",
