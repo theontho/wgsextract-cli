@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from argparse import Namespace
+from pathlib import Path
 from unittest.mock import patch
 
 # Ensure src is in sys.path
@@ -104,6 +105,100 @@ class TestRefDownloadValidation(unittest.TestCase):
             run_command.assert_not_called()
         finally:
             shutil.rmtree(args.out)
+
+
+class TestExamplesDownload(unittest.TestCase):
+    def setUp(self):
+        self.test_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.test_dir)
+
+    def test_target_root_uses_configured_genome_library(self):
+        from wgsextract_cli.commands import examples
+        from wgsextract_cli.core.config import settings
+
+        old_value = settings.get("genome_library")
+        settings["genome_library"] = self.test_dir
+        try:
+            self.assertEqual(examples._target_root(None), Path(self.test_dir).resolve())
+        finally:
+            if old_value is None:
+                settings.pop("genome_library", None)
+            else:
+                settings["genome_library"] = old_value
+
+    def test_default_target_root_is_repo_genomes(self):
+        from wgsextract_cli.commands import examples
+        from wgsextract_cli.core.config import settings
+
+        old_value = settings.get("genome_library")
+        settings.pop("genome_library", None)
+        try:
+            self.assertEqual(
+                examples._target_root(None), examples._repo_root() / "genomes"
+            )
+        finally:
+            if old_value is not None:
+                settings["genome_library"] = old_value
+
+    def test_dry_run_plans_downloads_without_creating_files(self):
+        from wgsextract_cli.commands import examples
+
+        args = Namespace(
+            example_ids=["phase3-chrmt-vcf"],
+            all=False,
+            method="ftp",
+            target_root=self.test_dir,
+            force=False,
+            dry_run=True,
+        )
+        with patch.object(examples, "run_command") as run_command:
+            examples.cmd_download(args)
+
+        run_command.assert_not_called()
+        self.assertFalse(
+            os.path.exists(os.path.join(self.test_dir, examples.COLLECTION_DIR))
+        )
+
+    def test_download_writes_genome_config_for_vcf(self):
+        from wgsextract_cli.commands import examples
+
+        args = Namespace(
+            example_ids=["phase3-chrmt-vcf"],
+            all=False,
+            method="ftp",
+            target_root=self.test_dir,
+            force=False,
+            dry_run=False,
+        )
+
+        def fake_download(_source, destination, _method):
+            destination.write_text("data")
+
+        with patch.object(examples, "_download_file", side_effect=fake_download):
+            examples.cmd_download(args)
+
+        config_path = os.path.join(
+            self.test_dir,
+            examples.COLLECTION_DIR,
+            "phase3-chrmt-vcf",
+            GENOME_CONFIG_NAME,
+        )
+        self.assertTrue(os.path.exists(config_path))
+        with open(config_path) as f:
+            self.assertIn(
+                'vcf = "ALL.chrMT.phase3_callmom-v0_4.20130502.genotypes.vcf.gz"',
+                f.read(),
+            )
+
+    def test_unknown_example_raises_clear_error(self):
+        from wgsextract_cli.commands import examples
+
+        with self.assertRaises(WGSExtractError) as ctx:
+            examples._select_examples(["not-real"], include_all=False)
+
+        self.assertIn("Unknown example ID", str(ctx.exception))
 
 
 class TestResourceDefaults(unittest.TestCase):
