@@ -54,17 +54,17 @@ EXAMPLES = (
     GenomeExample(
         example_id="na12878-lowcov-bam",
         sample="NA12878",
-        label="NA12878 low-coverage BAM",
+        label="NA12878 chromosome 20 low-coverage BAM",
         data_type="bam",
-        size="low coverage",
-        description="Phase 3 low-coverage GRCh37 alignment.",
+        size="single chromosome low coverage",
+        description="Phase 3 chromosome 20 low-coverage GRCh37 alignment.",
         files=(
             ExampleFile(
-                "phase3/data/NA12878/alignment/NA12878.mapped.ILLUMINA.bwa.CEU.low_coverage.20121211.bam",
+                "phase3/data/NA12878/alignment/NA12878.chrom20.ILLUMINA.bwa.CEU.low_coverage.20121211.bam",
                 "alignment",
             ),
             ExampleFile(
-                "phase3/data/NA12878/alignment/NA12878.mapped.ILLUMINA.bwa.CEU.low_coverage.20121211.bam.bai",
+                "phase3/data/NA12878/alignment/NA12878.chrom20.ILLUMINA.bwa.CEU.low_coverage.20121211.bam.bai",
                 "alignment_index",
             ),
         ),
@@ -72,17 +72,17 @@ EXAMPLES = (
     GenomeExample(
         example_id="na12878-exome-bam",
         sample="NA12878",
-        label="NA12878 exome BAM",
+        label="NA12878 chromosome 20 exome BAM",
         data_type="bam",
-        size="exome",
-        description="Phase 3 exome alignment for faster alignment-file workflows.",
+        size="single chromosome exome",
+        description="Phase 3 chromosome 20 exome alignment for faster alignment-file workflows.",
         files=(
             ExampleFile(
-                "phase3/data/NA12878/exome_alignment/NA12878.mapped.ILLUMINA.bwa.CEU.exome.20121211.bam",
+                "phase3/data/NA12878/exome_alignment/NA12878.chrom20.ILLUMINA.bwa.CEU.exome.20121211.bam",
                 "alignment",
             ),
             ExampleFile(
-                "phase3/data/NA12878/exome_alignment/NA12878.mapped.ILLUMINA.bwa.CEU.exome.20121211.bam.bai",
+                "phase3/data/NA12878/exome_alignment/NA12878.chrom20.ILLUMINA.bwa.CEU.exome.20121211.bam.bai",
                 "alignment_index",
             ),
         ),
@@ -149,7 +149,7 @@ CONFIG_ROLES = {"alignment", "vcf", "fastq_r1", "fastq_r2"}
 
 def register(subparsers, base_parser):
     parser = subparsers.add_parser(
-        "examples",
+        "example-genome",
         parents=[base_parser],
         help="Download curated 1000 Genomes example datasets.",
     )
