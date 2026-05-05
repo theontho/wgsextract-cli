@@ -127,7 +127,11 @@ def _version_output(stdout: str, stderr: str) -> str:
 
 def _tool_command_parts(cmd_base: str) -> list[str]:
     """Split wrapper commands without corrupting native executable paths."""
-    if runtime.is_wsl_tool_command(cmd_base):
+    if (
+        runtime.is_wsl_tool_command(cmd_base)
+        or runtime.is_bundled_tool_command(cmd_base)
+        or runtime.is_pacman_tool_command(cmd_base)
+    ):
         return [cmd_base]
     if os.path.exists(cmd_base):
         return [cmd_base]
@@ -140,6 +144,11 @@ def get_tool_runtime(path: str | None) -> str:
         return "missing"
     if runtime.is_wsl_tool_command(path):
         return "wsl"
+    bundled_mode = runtime.bundled_tool_command_mode(path)
+    if bundled_mode:
+        return bundled_mode
+    if runtime.is_pacman_tool_command(path) or runtime.is_pacman_tool_path(path):
+        return "pacman"
     return "native"
 
 
@@ -219,8 +228,10 @@ def verify_dependencies(
                     "Warning: Missing required core tools on Windows. Some features may not work."
                 )
                 logging.warning(
-                    "WSL2 is the supported Windows runtime for bioinformatics tools. "
-                    "Run 'wgsextract deps wsl check' or bootstrap_wsl.ps1 to verify setup."
+                    "Use 'wgsextract deps wsl check' for WSL, or "
+                    "'wgsextract deps cygwin setup' / 'wgsextract deps msys2 setup' "
+                    "for bundled Windows runtimes, or 'wgsextract deps pacman check' "
+                    "for MSYS2/UCRT64 pacman tools."
                 )
             else:
                 logging.error("Fatal Error: Missing required core tools or JAR files.")
@@ -359,8 +370,22 @@ def get_tool_version(tool: str) -> str | None:
 
 def get_tool_path(tool: str) -> str | None:
     """Returns the path to a tool if it exists in the system PATH or pixi environments."""
+    runtime_mode = runtime.get_tool_runtime_mode()
     should_consider_wsl = runtime.should_consider_wsl()
-    prefer_wsl = runtime.get_tool_runtime_mode() == "wsl"
+    prefer_wsl = runtime_mode == "wsl"
+    bundled_modes = _candidate_bundled_runtime_modes(runtime_mode)
+
+    if runtime_mode == "pacman":
+        pacman_path = runtime.pacman_tool_path(tool)
+        if pacman_path:
+            return runtime.pacman_tool_command(pacman_path)
+
+    explicit_bundled_modes = (
+        bundled_modes if runtime_mode in runtime.BUNDLED_RUNTIME_MODES else ()
+    )
+    for mode in explicit_bundled_modes:
+        if runtime.bundled_command_available(mode, tool):
+            return runtime.bundled_tool_command(mode, tool)
 
     if should_consider_wsl and prefer_wsl and runtime.wsl_command_available(tool):
         return runtime.wsl_tool_command(tool)
@@ -368,6 +393,11 @@ def get_tool_path(tool: str) -> str | None:
     path = shutil.which(tool)
     if path:
         return path
+
+    if runtime_mode == "auto" and runtime.is_windows_host():
+        pacman_path = runtime.pacman_tool_path(tool)
+        if pacman_path:
+            return runtime.pacman_tool_command(pacman_path)
 
     if should_consider_wsl:
         if runtime.wsl_command_available(tool):
@@ -378,6 +408,11 @@ def get_tool_path(tool: str) -> str | None:
             return runtime.wsl_tool_command(
                 f"{_wsl_pixi_path()} run -e {PIXI_TOOL_ENVS[tool]} {tool}"
             )
+
+    auto_bundled_modes = bundled_modes if runtime_mode == "auto" else ()
+    for mode in auto_bundled_modes:
+        if runtime.bundled_command_available(mode, tool):
+            return runtime.bundled_tool_command(mode, tool)
 
     # Check for pixi sub-environments
     if tool in PIXI_TOOL_ENVS:
@@ -412,6 +447,14 @@ def get_tool_path(tool: str) -> str | None:
                 pass
 
     return None
+
+
+def _candidate_bundled_runtime_modes(runtime_mode: str) -> tuple[str, ...]:
+    if runtime_mode in runtime.BUNDLED_RUNTIME_MODES:
+        return (runtime_mode,)
+    if runtime_mode == "auto" and runtime.is_windows_host():
+        return ("cygwin", "msys2")
+    return ()
 
 
 def check_all_dependencies(

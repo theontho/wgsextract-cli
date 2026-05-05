@@ -22,12 +22,20 @@ class TestWSLRuntime(unittest.TestCase):
         runtime.detect_wsl_available.cache_clear()
         runtime.wsl_command_available.cache_clear()
         runtime.wsl_pixi_tool_available.cache_clear()
+        runtime.detect_bundled_runtime_available.cache_clear()
+        runtime.bundled_command_available.cache_clear()
+        runtime.pacman_tool_path.cache_clear()
+        runtime.pacman_tool_available.cache_clear()
         runtime.windows_to_wsl_path.cache_clear()
 
     def tearDown(self):
         runtime.detect_wsl_available.cache_clear()
         runtime.wsl_command_available.cache_clear()
         runtime.wsl_pixi_tool_available.cache_clear()
+        runtime.detect_bundled_runtime_available.cache_clear()
+        runtime.bundled_command_available.cache_clear()
+        runtime.pacman_tool_path.cache_clear()
+        runtime.pacman_tool_available.cache_clear()
         runtime.windows_to_wsl_path.cache_clear()
 
     def test_get_tool_path_prefers_native_tool(self):
@@ -43,6 +51,7 @@ class TestWSLRuntime(unittest.TestCase):
     def test_get_tool_path_uses_wsl_tool_when_native_missing(self):
         with (
             patch("wgsextract_cli.core.dependencies.shutil.which", return_value=None),
+            patch("wgsextract_cli.core.runtime.pacman_tool_path", return_value=None),
             patch("wgsextract_cli.core.runtime.should_consider_wsl", return_value=True),
             patch(
                 "wgsextract_cli.core.runtime.get_tool_runtime_mode", return_value="auto"
@@ -56,6 +65,7 @@ class TestWSLRuntime(unittest.TestCase):
     def test_get_tool_path_uses_wsl_pixi_when_tool_not_on_wsl_path(self):
         with (
             patch("wgsextract_cli.core.dependencies.shutil.which", return_value=None),
+            patch("wgsextract_cli.core.runtime.pacman_tool_path", return_value=None),
             patch("wgsextract_cli.core.runtime.should_consider_wsl", return_value=True),
             patch(
                 "wgsextract_cli.core.runtime.get_tool_runtime_mode", return_value="auto"
@@ -89,6 +99,7 @@ class TestWSLRuntime(unittest.TestCase):
             patch(
                 "wgsextract_cli.core.runtime.should_consider_wsl", return_value=False
             ),
+            patch("wgsextract_cli.core.runtime.pacman_tool_path", return_value=None),
             patch(
                 "wgsextract_cli.core.dependencies.subprocess.run",
                 return_value=completed,
@@ -98,6 +109,85 @@ class TestWSLRuntime(unittest.TestCase):
                 dependencies.get_tool_path("samtools"),
                 "/usr/local/bin/pixi run -e default samtools",
             )
+
+    def test_get_tool_path_prefers_explicit_bundled_runtime(self):
+        with (
+            patch(
+                "wgsextract_cli.core.runtime.get_tool_runtime_mode",
+                return_value="cygwin",
+            ),
+            patch(
+                "wgsextract_cli.core.runtime.bundled_command_available",
+                return_value=True,
+            ),
+            patch("wgsextract_cli.core.dependencies.shutil.which") as mock_which,
+        ):
+            self.assertEqual(dependencies.get_tool_path("samtools"), "cygwin:samtools")
+
+        mock_which.assert_not_called()
+
+    def test_get_tool_path_can_use_bundled_runtime_in_auto_mode(self):
+        def bundled_available(mode: str, tool: str) -> bool:
+            return mode == "msys2" and tool == "samtools"
+
+        with (
+            patch(
+                "wgsextract_cli.core.runtime.get_tool_runtime_mode", return_value="auto"
+            ),
+            patch("wgsextract_cli.core.runtime.is_windows_host", return_value=True),
+            patch(
+                "wgsextract_cli.core.runtime.should_consider_wsl", return_value=False
+            ),
+            patch("wgsextract_cli.core.dependencies.shutil.which", return_value=None),
+            patch("wgsextract_cli.core.runtime.pacman_tool_path", return_value=None),
+            patch(
+                "wgsextract_cli.core.runtime.bundled_command_available",
+                side_effect=bundled_available,
+            ),
+        ):
+            self.assertEqual(dependencies.get_tool_path("samtools"), "msys2:samtools")
+
+    def test_get_tool_path_prefers_explicit_pacman_runtime(self):
+        pacman_path = r"C:\msys64\ucrt64\bin\samtools.exe"
+        with (
+            patch(
+                "wgsextract_cli.core.runtime.get_tool_runtime_mode",
+                return_value="pacman",
+            ),
+            patch(
+                "wgsextract_cli.core.runtime.pacman_tool_path",
+                return_value=pacman_path,
+            ),
+            patch("wgsextract_cli.core.dependencies.shutil.which") as mock_which,
+        ):
+            self.assertEqual(
+                dependencies.get_tool_path("samtools"), f"pacman:{pacman_path}"
+            )
+
+        mock_which.assert_not_called()
+
+    def test_get_tool_runtime_detects_pacman_path(self):
+        self.assertEqual(
+            dependencies.get_tool_runtime(r"C:\msys64\ucrt64\bin\samtools.exe"),
+            "pacman",
+        )
+
+    def test_pacman_tool_path_finds_configured_ucrt64_dir(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            bin_dir = Path(tempdir) / "ucrt64" / "bin"
+            bin_dir.mkdir(parents=True)
+            tool = bin_dir / "samtools.exe"
+            tool.write_bytes(b"")
+
+            with (
+                patch("wgsextract_cli.core.runtime.shutil.which", return_value=None),
+                patch(
+                    "wgsextract_cli.core.runtime.pacman_ucrt64_bin_dirs",
+                    return_value=[bin_dir],
+                ),
+            ):
+                runtime.pacman_tool_path.cache_clear()
+                self.assertEqual(runtime.pacman_tool_path("samtools"), str(tool))
 
     def test_translate_windows_paths_without_touching_regions_flags_or_urls(self):
         with patch(
@@ -144,6 +234,43 @@ class TestWSLRuntime(unittest.TestCase):
         self.assertIn("samtools view", wrapped[3])
         self.assertIn("'/mnt/c/data dir/sample.bam'", wrapped[3])
 
+    def test_wrap_command_uses_bundled_runtime_shell(self):
+        with (
+            patch(
+                "wgsextract_cli.core.runtime.os.getcwd", return_value=r"C:\repo root"
+            ),
+            patch(
+                "wgsextract_cli.core.runtime.runtime_root",
+                return_value=Path(r"C:\repo root\runtime"),
+            ),
+        ):
+            wrapped = runtime.wrap_command(
+                ["msys2:samtools", "view", r"C:\data dir\sample.bam"],
+            )
+
+        self.assertEqual(wrapped[1], "-lc")
+        self.assertTrue(
+            str(wrapped[0]).replace("\\", "/").endswith("msys2/usr/bin/bash.exe")
+        )
+        self.assertIn("MSYSTEM=UCRT64", wrapped[2])
+        self.assertIn("cd 'C:/repo root'", wrapped[2])
+        self.assertIn("samtools view", wrapped[2])
+        self.assertIn("'C:/data dir/sample.bam'", wrapped[2])
+
+    def test_wrap_command_uses_pacman_direct_executable(self):
+        wrapped = runtime.wrap_command(
+            [
+                "pacman:C:\\msys64\\ucrt64\\bin\\samtools.exe",
+                "view",
+                r"C:\data\sample.bam",
+            ],
+        )
+
+        self.assertEqual(
+            wrapped,
+            [r"C:\msys64\ucrt64\bin\samtools.exe", "view", r"C:\data\sample.bam"],
+        )
+
     def test_normalize_subprocess_cmd_wraps_wsl_tool_resolution(self):
         with (
             patch("wgsextract_cli.core.utils.shutil.which", return_value=None),
@@ -165,6 +292,24 @@ class TestWSLRuntime(unittest.TestCase):
 
         self.assertEqual(normalized[:3], ["wsl", "bash", "-lc"])
         self.assertIn("samtools idxstats /mnt/c/data/a.bam", normalized[3])
+
+    def test_normalize_subprocess_cmd_wraps_pacman_tool_resolution(self):
+        pacman_path = r"C:\msys64\ucrt64\bin\samtools.exe"
+        with (
+            patch("wgsextract_cli.core.utils.shutil.which", return_value=None),
+            patch(
+                "wgsextract_cli.core.dependencies.get_tool_path",
+                return_value=f"pacman:{pacman_path}",
+            ),
+        ):
+            normalized = _normalize_subprocess_cmd(
+                ["samtools", "idxstats", r"C:\data\a.bam"]
+            )
+
+        self.assertEqual(
+            normalized,
+            [pacman_path, "idxstats", r"C:\data\a.bam"],
+        )
 
     def test_normalize_subprocess_cmd_keeps_existing_executable_with_spaces(self):
         executable = r"C:\Program Files\Tool Suite\tool.exe"
