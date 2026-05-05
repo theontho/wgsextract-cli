@@ -3,7 +3,6 @@ import shutil
 from argparse import Namespace
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlparse
 
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.genome_library import GENOME_CONFIG_NAME
@@ -338,8 +337,7 @@ def _source_for(url_path: str, method: str) -> str:
 
 
 def _filename(url_path: str) -> str:
-    parsed = urlparse(url_path)
-    name = Path(parsed.path).name
+    name = Path(url_path).name
     if not name:
         raise WGSExtractError(f"Cannot determine filename from URL path: {url_path}")
     return name

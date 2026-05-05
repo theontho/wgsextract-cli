@@ -212,6 +212,54 @@ class TestExamplesDownload(unittest.TestCase):
             "fasp-g1k@fasp.1000genomes.ebi.ac.uk:/vol1/ftp/release/20130502/example.vcf.gz",
         )
 
+    def test_ftp_source_uses_1000genomes_ftp_root(self):
+        from wgsextract_cli.commands import examples
+
+        source = examples._source_for("release/20130502/example.vcf.gz", "ftp")
+
+        self.assertEqual(
+            source,
+            "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/example.vcf.gz",
+        )
+
+    def test_resolve_aspera_key_prefers_explicit_key(self):
+        from wgsextract_cli.commands import examples
+
+        explicit_key = os.path.join(self.test_dir, "explicit.openssh")
+        home_dir = os.path.join(self.test_dir, "home")
+        default_key = os.path.join(
+            home_dir, ".aspera", "connect", "etc", "asperaweb_id_dsa.openssh"
+        )
+        os.makedirs(os.path.dirname(default_key))
+        with open(explicit_key, "w") as f:
+            f.write("explicit")
+        with open(default_key, "w") as f:
+            f.write("default")
+
+        with patch.dict(os.environ, {"HOME": home_dir}):
+            resolved = examples._resolve_aspera_key(explicit_key)
+
+        self.assertEqual(resolved, Path(explicit_key))
+
+    def test_write_genome_config_for_fastq_pair(self):
+        from wgsextract_cli.commands import examples
+
+        example = examples.EXAMPLES_BY_ID["na12878-lowcov-fastq"]
+        example_dir = Path(self.test_dir)
+
+        examples._write_genome_config(example, example_dir)
+
+        with open(example_dir / GENOME_CONFIG_NAME) as f:
+            config = f.read()
+        self.assertIn(
+            'fastq_r1 = "NA12878.illumina.wgs.low_coverage.20101123.read1.fastq.gz"',
+            config,
+        )
+        self.assertIn(
+            'fastq_r2 = "NA12878.illumina.wgs.low_coverage.20101123.read2.fastq.gz"',
+            config,
+        )
+
 
 class TestResourceDefaults(unittest.TestCase):
     def test_resource_defaults_use_central_thread_policy(self):
