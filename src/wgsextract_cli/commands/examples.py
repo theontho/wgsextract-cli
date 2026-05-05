@@ -8,7 +8,7 @@ from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.genome_library import GENOME_CONFIG_NAME
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
-FTP_ROOT = "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp"
+HTTPS_ROOT = "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp"
 ASPERA_ROOT = "fasp-g1k@fasp.1000genomes.ebi.ac.uk:/vol1/ftp"
 ASPERA_PORT = "33001"
 ASPERA_MAX_BANDWIDTH = "300M"
@@ -333,13 +333,13 @@ def _planned_downloads(
 def _source_for(url_path: str, method: str) -> str:
     if method == "aspera":
         return f"{ASPERA_ROOT}/{url_path}"
-    return f"{FTP_ROOT}/{url_path}"
+    return f"{HTTPS_ROOT}/{url_path}"
 
 
 def _filename(url_path: str) -> str:
     name = Path(url_path).name
     if not name:
-        raise WGSExtractError(f"Cannot determine filename from URL path: {url_path}")
+        raise WGSExtractError(f"URL path must end with a filename: {url_path}")
     return name
 
 
