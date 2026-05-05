@@ -176,6 +176,7 @@ def test_benchmark_prints_progress_lines_and_base_file_size(
     assert "Thread policy:" in stdout
     assert "Policy: all available cores" in stdout
     assert "Benchmark base file:" in stdout
+    assert "Fake BAM generator: fast streaming reference-backed SNP generator" in stdout
     assert "1.5 KiB (1,536 bytes)" in stdout
     assert stdout.count("Generate deterministic BAM foundation") == 1
     assert "PASS" in stdout

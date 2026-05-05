@@ -64,7 +64,7 @@ CLI_HELP = {
     "cmd_spliceai": "Annotate VCF with SpliceAI scores. Predicts whether a DNA change will break normal RNA splicing. (Time: 5-10 mins)",
     "cmd_alphamissense": "Annotate VCF with AlphaMissense pathogenicity scores. Uses 3D protein structure to predict variant impact. (Time: 5-10 mins)",
     "cmd_pharmgkb": "Annotate VCF with PharmGKB drug metabolism data. (Time: 1-5 mins)",
-    "cmd_fake-data": "Generate minimal fake BAM, CRAM, and VCF files for testing purposes.",
+    "cmd_fake-data": "Generate fake BAM, CRAM, VCF, and FASTQ files for testing. BAM generation defaults to the fast streaming reference-backed SNP simulator.",
     "cmd_vep-run": "Ensembl Variant Effect Predictor. Predicts the functional impact of your variants (e.g., if a mutation likely breaks a gene or causes a specific disease). (Time: 15-60 mins)",
     "arg_vcf_type": "Type of variants in the VCF (snp-indel, sv, cnv). Affects VEP parameters.",
     "arg_add_chr": "Add 'chr' prefix to numeric chromosomes in VCF before running VEP.",

@@ -186,6 +186,23 @@ pixi run wgsextract microarray --kit 23andme_v5
 | **Analysis** | `microarray`, `lineage`, `qc`, `pet-align` |
 | **System** | `info`, `ref download`, `ref index` |
 
+### Fake BAM Generation
+
+`wgsextract qc fake-data --type bam` uses the fast streaming BAM generator by default for both scaled and full-size fake data. It writes coordinate-sorted paired-end reads directly into `samtools view`, uses reference-backed read sequence when a resolved FASTA is available, and applies deterministic SNPs with `NM` tags without materializing a whole-genome SAM or variant map.
+
+The older scaled generator is still available with `--legacy-bam`. It is slower and only supports scaled fake data, but it has more randomized placement and indel CIGAR simulation. Use the default fast generator for benchmarks and throughput testing; use `--legacy-bam` when specifically testing the older indel-heavy synthetic behavior.
+
+```bash
+# Default fast scaled BAM
+pixi run wgsextract qc fake-data --type bam --coverage 1 --outdir out/fake-fast
+
+# Full-size fast BAM using real chromosome lengths
+pixi run wgsextract qc fake-data --type bam --coverage 0.1 --full-size --outdir out/fake-full
+
+# Older scaled generator
+pixi run wgsextract qc fake-data --type bam --coverage 1 --legacy-bam --outdir out/fake-legacy
+```
+
 ---
 
 ## 🎨 UI Interfaces

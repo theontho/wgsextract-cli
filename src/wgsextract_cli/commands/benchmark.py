@@ -209,6 +209,7 @@ def run(args: argparse.Namespace) -> None:
         "profile": args.profile,
         "coverage": coverage,
         "full_size": full_size,
+        "fake_bam_generator": "fast streaming reference-backed SNP generator",
         "build": args.build,
         "seed": args.seed,
         "region": region,
@@ -2229,7 +2230,9 @@ def _format_stdout_report(
     lines = [
         "",
         "WGSExtract CLI Benchmark Summary",
-        f"Profile: {metadata['profile']} | Suite: {metadata['suite']} | Coverage: {metadata['coverage']}x | Full size: {metadata['full_size']}",
+        f"Profile: {metadata['profile']} | Suite: {metadata['suite']} | "
+        f"Coverage: {metadata['coverage']}x | Full size: {metadata['full_size']}",
+        f"Fake BAM generator: {metadata['fake_bam_generator']}",
         f"Threads: {metadata['threads']}",
         f"Thread policy: {metadata['thread_policy']}",
         f"Region: {metadata['region'] or 'whole generated genome'} | Seed: {metadata['seed']}",
@@ -2259,6 +2262,7 @@ def _format_markdown_report(
         f"- Suite: `{metadata['suite']}`",
         f"- Coverage: `{metadata['coverage']}x`",
         f"- Full size reference: `{metadata['full_size']}`",
+        f"- Fake BAM generator: `{metadata['fake_bam_generator']}`",
         f"- Build: `{metadata['build']}`",
         f"- Region: `{metadata['region'] or 'whole generated genome'}`",
         f"- Seed: `{metadata['seed']}`",
