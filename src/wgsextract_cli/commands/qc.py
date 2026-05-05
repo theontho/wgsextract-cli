@@ -221,6 +221,8 @@ def _samtools_view_bam_writer_cmd(bam_path: str, threads: str) -> list[str]:
         "-@",
         threads,
         "-b",
+        "-l",
+        "1",
         "-o",
         bam_path,
         "-",
