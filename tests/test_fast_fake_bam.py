@@ -1,3 +1,4 @@
+from argparse import Namespace
 from io import StringIO
 
 from wgsextract_cli.commands import qc
@@ -26,6 +27,7 @@ def test_stream_fast_bam_sam_is_coordinate_sorted_and_human_like():
     records = [line.split("\t") for line in lines if not line.startswith("@")]
     assert records
     assert {record[1] for record in records} == {"99", "147"}
+    assert any("NM:i:1" in record[11:] for record in records)
 
     last_chrom = None
     last_pos = 0
@@ -47,6 +49,142 @@ def test_stream_fast_bam_sam_is_coordinate_sorted_and_human_like():
             last_pos = 0
         assert pos >= last_pos
         last_pos = pos
+
+
+def test_stream_fast_bam_sam_applies_consistent_snp_variants():
+    output = StringIO()
+
+    qc._stream_fast_bam_sam(
+        output.write,
+        {"chr1": 2500},
+        coverage=50.0,
+        seed=42,
+        target_md5=None,
+        get_noise_seq=lambda _chrom_idx, _pos, length: "A" * length,
+    )
+
+    records = [
+        line.split("\t")
+        for line in output.getvalue().splitlines()
+        if not line.startswith("@")
+    ]
+    variant_pos = qc._first_fast_bam_variant_pos(0, 42)
+    variant_base = qc._fast_bam_alt_base("A", 0, variant_pos, 42)
+    variant_covering_records = [
+        record
+        for record in records
+        if int(record[3]) <= variant_pos < int(record[3]) + len(record[9])
+    ]
+
+    assert variant_covering_records
+    for record in variant_covering_records:
+        read_offset = variant_pos - int(record[3])
+        assert record[9][read_offset] == variant_base
+        assert "NM:i:1" in record[11:]
+
+
+def test_reference_backed_sequence_provider_fetches_indexed_reference(
+    monkeypatch, tmp_path
+):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nAACCGGTTAACCGGTT\n", encoding="utf-8")
+    ref.with_suffix(".fa.fai").write_text("chr1\t16\t6\t16\t17\n", encoding="utf-8")
+    calls = []
+
+    def fake_run_command(cmd, capture_output=False, check=True):
+        calls.append(cmd)
+        region = cmd[-1]
+        assert region == "chr1:1-16"
+
+        class Result:
+            returncode = 0
+            stdout = ">chr1:1-16\nAACCGGTTAACCGGTT\n"
+
+        return Result()
+
+    monkeypatch.setattr(qc, "run_command", fake_run_command)
+    provider = qc._reference_backed_sequence_provider(
+        str(ref), {"chr1": 16}, lambda _chrom_idx, _pos, length: "N" * length
+    )
+
+    assert provider(0, 2, 4) == "CCGG"
+    assert calls == [["samtools", "faidx", str(ref), "chr1:1-16"]]
+
+
+def test_generate_fake_genomics_data_uses_streaming_bam_by_default(
+    monkeypatch, tmp_path
+):
+    calls = []
+
+    def fake_create_fast_fake_bam(
+        bam_path,
+        chroms,
+        coverage,
+        seed,
+        target_md5,
+        get_noise_seq,
+        threads,
+    ):
+        calls.append(
+            {
+                "bam_path": bam_path,
+                "chroms": chroms,
+                "coverage": coverage,
+                "seed": seed,
+                "target_md5": target_md5,
+                "sample": get_noise_seq(0, 0, 4),
+                "threads": threads,
+            }
+        )
+
+    monkeypatch.setattr(qc, "_create_fast_fake_bam", fake_create_fast_fake_bam)
+    monkeypatch.setattr(
+        qc,
+        "_reference_backed_sequence_provider",
+        lambda _ref_path, _chroms, fallback: fallback,
+    )
+    monkeypatch.setattr(
+        qc, "get_resource_defaults", lambda _threads, _memory: ("2", None)
+    )
+    monkeypatch.setattr(qc, "run_command", lambda *args, **kwargs: None)
+
+    qc.generate_fake_genomics_data(
+        str(tmp_path),
+        ref_path=None,
+        coverage=1.0,
+        seed=1,
+        build="hg38",
+        full_size=False,
+        types=["bam"],
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["bam_path"] == str(tmp_path / "fake.bam")
+    assert calls[0]["coverage"] == 1.0
+    assert "chr1" in calls[0]["chroms"]
+
+
+def test_cmd_fake_data_rejects_legacy_bam_with_full_size(monkeypatch, tmp_path):
+    monkeypatch.setattr(qc, "verify_dependencies", lambda _tools: None)
+    monkeypatch.setattr(qc, "log_dependency_info", lambda _tools: None)
+
+    args = Namespace(
+        outdir=str(tmp_path),
+        coverage=1.0,
+        seed=1,
+        build="hg38",
+        full_size=True,
+        type="bam",
+        ref=None,
+        legacy_bam=True,
+    )
+
+    try:
+        qc.cmd_fake_data(args)
+    except qc.WGSExtractError as exc:
+        assert "--legacy-bam" in str(exc)
+    else:
+        raise AssertionError("Expected --legacy-bam with --full-size to fail")
 
 
 def test_create_fast_fake_bam_streams_sam_to_samtools(monkeypatch, tmp_path):
@@ -113,9 +251,8 @@ def test_create_fast_fake_bam_streams_sam_to_samtools(monkeypatch, tmp_path):
         "view",
         "-@",
         "2",
+        "-1",
         "-b",
-        "-l",
-        "1",
         "-o",
         str(tmp_path / "fake.bam"),
         "-",

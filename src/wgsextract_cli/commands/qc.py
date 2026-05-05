@@ -21,8 +21,10 @@ from wgsextract_cli.core.utils import (
     run_command,
 )
 
-
 SamWriter = Callable[[str], None]
+SequenceProvider = Callable[[int, int, int], str]
+
+_FAST_BAM_VARIANT_SPACING = 2000
 
 
 def _select_vcf_input(args):
@@ -86,7 +88,15 @@ def register(subparsers, base_parser):
     fake_parser.add_argument(
         "--full-size",
         action="store_true",
-        help="Use real human chromosome lengths (creates large files).",
+        help="Use real human chromosome lengths. The default scaled mode uses shorter chromosomes.",
+    )
+    fake_parser.add_argument(
+        "--legacy-bam",
+        action="store_true",
+        help=(
+            "Use the older scaled fake BAM generator. Slower and unavailable with --full-size, "
+            "but includes randomized placement and indel CIGARs."
+        ),
     )
     fake_parser.add_argument(
         "--seed", type=int, default=42, help="Random seed for reproducibility"
@@ -220,9 +230,8 @@ def _samtools_view_bam_writer_cmd(bam_path: str, threads: str) -> list[str]:
         "view",
         "-@",
         threads,
+        "-1",
         "-b",
-        "-l",
-        "1",
         "-o",
         bam_path,
         "-",
@@ -258,11 +267,144 @@ def _fast_sam_record(
     cigar: str,
     seq: str,
     qual: str,
+    nm: int = 0,
 ) -> str:
     return (
         f"{read_id}\t{flag}\t{chrom}\t{pos}\t60\t{cigar}\t=\t{mate_pos}\t"
-        f"{template_length}\t{seq}\t{qual}\tRG:Z:sample1\n"
+        f"{template_length}\t{seq}\t{qual}\tRG:Z:sample1\tNM:i:{nm}\n"
     )
+
+
+def _first_fast_bam_variant_pos(chrom_idx: int, seed: int) -> int:
+    return 100 + ((seed + chrom_idx * 97) % (_FAST_BAM_VARIANT_SPACING - 100))
+
+
+def _fast_bam_alt_base(ref_base: str, chrom_idx: int, pos: int, seed: int) -> str:
+    alternatives = [base for base in "ACGT" if base != ref_base.upper()]
+    return alternatives[(pos + seed + chrom_idx * 13) % len(alternatives)]
+
+
+def _apply_fast_bam_variants(
+    seq: str,
+    chrom_idx: int,
+    pos0: int,
+    seed: int,
+) -> tuple[str, int]:
+    """Apply deterministic homozygous SNPs without storing a genome-wide map."""
+    first_read_pos = pos0 + 1
+    last_read_pos = pos0 + len(seq)
+    first_variant = _first_fast_bam_variant_pos(chrom_idx, seed)
+    if first_variant > last_read_pos:
+        return seq, 0
+
+    if first_variant < first_read_pos:
+        steps = (
+            first_read_pos - first_variant + _FAST_BAM_VARIANT_SPACING - 1
+        ) // _FAST_BAM_VARIANT_SPACING
+        first_variant += steps * _FAST_BAM_VARIANT_SPACING
+
+    if first_variant > last_read_pos:
+        return seq, 0
+
+    mutated = list(seq)
+    mismatch_count = 0
+    variant_pos = first_variant
+    while variant_pos <= last_read_pos:
+        read_offset = variant_pos - first_read_pos
+        ref_base = mutated[read_offset].upper()
+        if ref_base in "ACGT":
+            mutated[read_offset] = _fast_bam_alt_base(
+                ref_base, chrom_idx, variant_pos, seed
+            )
+            mismatch_count += 1
+        variant_pos += _FAST_BAM_VARIANT_SPACING
+
+    return "".join(mutated), mismatch_count
+
+
+def _reference_backed_sequence_provider(
+    ref_path: str | None,
+    chroms: dict[str, int],
+    fallback: SequenceProvider,
+) -> SequenceProvider:
+    if not ref_path or not os.path.exists(str(ref_path)):
+        return fallback
+
+    fai_path = str(ref_path) + ".fai"
+    if not os.path.exists(fai_path):
+        try:
+            run_command(["samtools", "faidx", str(ref_path)], capture_output=True)
+        except Exception as exc:
+            logging.warning(
+                f"Reference FASTA is not indexed; falling back to synthetic read sequence: {exc}"
+            )
+            return fallback
+
+    logging.info(
+        "Using reference-backed read sequence with deterministic SNP simulation..."
+    )
+    chrom_names = list(chroms)
+    chunk_size = 16 * 1024 * 1024
+    unavailable_chroms: set[str] = set()
+    cache_chrom = ""
+    cache_start = 0
+    cache_seq = ""
+
+    def fetch_reference_chunk(chrom: str, chunk_start: int) -> tuple[int, str] | None:
+        chunk_end = min(chroms[chrom], chunk_start + chunk_size)
+        region = f"{chrom}:{chunk_start + 1}-{chunk_end}"
+        result = run_command(
+            ["samtools", "faidx", str(ref_path), region],
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            unavailable_chroms.add(chrom)
+            logging.warning(
+                f"Reference does not provide {chrom}; using synthetic read sequence for that contig."
+            )
+            return None
+        seq = "".join(
+            line.strip()
+            for line in (result.stdout or "").splitlines()
+            if line and not line.startswith(">")
+        ).upper()
+        return chunk_start, seq
+
+    def get_reference_seq(chrom_idx: int, pos: int, length: int) -> str:
+        nonlocal cache_chrom, cache_start, cache_seq
+
+        chrom = chrom_names[chrom_idx]
+        if chrom in unavailable_chroms:
+            return fallback(chrom_idx, pos, length)
+
+        pieces = []
+        cursor = pos
+        remaining = length
+        while remaining > 0:
+            if not (
+                cache_chrom == chrom
+                and cache_start <= cursor
+                and cursor < cache_start + len(cache_seq)
+            ):
+                chunk_start = (cursor // chunk_size) * chunk_size
+                fetched = fetch_reference_chunk(chrom, chunk_start)
+                if fetched is None:
+                    return fallback(chrom_idx, pos, length)
+                cache_start, cache_seq = fetched
+                cache_chrom = chrom
+
+            chunk_offset = cursor - cache_start
+            take = min(remaining, len(cache_seq) - chunk_offset)
+            if take <= 0:
+                return fallback(chrom_idx, pos, length)
+            pieces.append(cache_seq[chunk_offset : chunk_offset + take])
+            cursor += take
+            remaining -= take
+
+        return "".join(pieces)
+
+    return get_reference_seq
 
 
 def _stream_fast_bam_sam(
@@ -271,7 +413,7 @@ def _stream_fast_bam_sam(
     coverage: float,
     seed: int,
     target_md5: str | None,
-    get_noise_seq: Callable[[int, int, int], str],
+    get_noise_seq: SequenceProvider,
 ) -> None:
     """Write coordinate-sorted, paired-end SAM without materializing reads in memory."""
     _write_sam_header(write_sam, chroms, target_md5)
@@ -300,8 +442,12 @@ def _stream_fast_bam_sam(
                 write_sam(mate_line)
 
             read_id = f"read_{name}_{pair_idx}"
-            r1_seq = get_noise_seq(chrom_idx, pos1 - 1, rl1)
-            r2_seq = get_noise_seq(chrom_idx, pos2 - 1, rl2)
+            r1_seq, r1_nm = _apply_fast_bam_variants(
+                get_noise_seq(chrom_idx, pos1 - 1, rl1), chrom_idx, pos1 - 1, seed
+            )
+            r2_seq, r2_nm = _apply_fast_bam_variants(
+                get_noise_seq(chrom_idx, pos2 - 1, rl2), chrom_idx, pos2 - 1, seed
+            )
             q1 = qual_cache.setdefault(rl1, "I" * rl1)
             q2 = qual_cache.setdefault(rl2, "I" * rl2)
             r1_cigar = f"{rl1}M"
@@ -318,6 +464,7 @@ def _stream_fast_bam_sam(
                     r1_cigar,
                     r1_seq,
                     q1,
+                    r1_nm,
                 )
             )
             heappush(
@@ -334,6 +481,7 @@ def _stream_fast_bam_sam(
                         r2_cigar,
                         r2_seq,
                         q2,
+                        r2_nm,
                     ),
                 ),
             )
@@ -349,7 +497,7 @@ def _create_fast_fake_bam(
     coverage: float,
     seed: int,
     target_md5: str | None,
-    get_noise_seq: Callable[[int, int, int], str],
+    get_noise_seq: SequenceProvider,
     threads: str,
 ) -> None:
     logging.info(f"Streaming coordinate-sorted fake BAM directly to {bam_path}...")
@@ -384,7 +532,9 @@ def _create_fast_fake_bam(
         if pending:
             stdin.write(pending)
         stdin.close()
-        stderr = process.stderr.read().decode(errors="replace") if process.stderr else ""
+        stderr = (
+            process.stderr.read().decode(errors="replace") if process.stderr else ""
+        )
         return_code = process.wait()
         if return_code != 0:
             raise WGSExtractError(
@@ -457,6 +607,7 @@ def cmd_fake_data(args):
         full_size=args.full_size,
         types=types,
         target_md5=target_md5,
+        legacy_bam=args.legacy_bam,
     )
 
 
@@ -469,6 +620,7 @@ def generate_fake_genomics_data(
     full_size=False,
     types=None,
     target_md5=None,
+    legacy_bam=False,
 ):
     """Generates a scaled-down or full human fake BAM, CRAM and VCF."""
     import random
@@ -477,6 +629,9 @@ def generate_fake_genomics_data(
         types = ["cram"]
 
     random.seed(seed)
+
+    if legacy_bam and full_size:
+        raise WGSExtractError("--legacy-bam is only supported for scaled fake data.")
 
     mode = "Full size" if full_size else "Scaled"
     logging.info(
@@ -617,11 +772,11 @@ def generate_fake_genomics_data(
     # Add a dummy contig to avoid collision with known SN counts in info.py (e.g. 25)
     chroms["chrExtra" if not is_hg19 else "Extra"] = 1000
 
-    # 0. Pre-generate consistent variants for the legacy scaled BAM path.
-    # Full-size BAM generation uses the streaming path below and avoids this
-    # chromosome-wide variant map because it is prohibitively slow at WGS scale.
+    # 0. Pre-generate consistent variants only for the legacy scaled BAM path.
+    # The default streaming path applies deterministic SNPs in-flight without a
+    # chromosome-wide variant map so it works at full-genome scale.
     need_bam = any(t in types for t in ["bam", "cram", "fastq"])
-    use_streaming_bam = need_bam and full_size
+    use_streaming_bam = need_bam and not legacy_bam
     consistent_variants = {}
     if need_bam and not use_streaming_bam:
         # This ensures that all reads covering a position see the same variant
@@ -690,7 +845,7 @@ def generate_fake_genomics_data(
                 coverage,
                 seed,
                 target_md5,
-                get_noise_seq,
+                _reference_backed_sequence_provider(ref_path, chroms, get_noise_seq),
                 threads,
             )
         else:
@@ -764,10 +919,13 @@ def generate_fake_genomics_data(
                                 elif rel_pos > 10 and rel_pos < len(r1_seq_list) - 20:
                                     # Real Deletion: 5bp
                                     del_seq = (
-                                        r1_seq_list[:rel_pos] + r1_seq_list[rel_pos + 5 :]
+                                        r1_seq_list[:rel_pos]
+                                        + r1_seq_list[rel_pos + 5 :]
                                     )
                                     r1_seq_list = del_seq
-                                    r1_cigar = f"{rel_pos}M5D{len(r1_seq_list) - rel_pos}M"
+                                    r1_cigar = (
+                                        f"{rel_pos}M5D{len(r1_seq_list) - rel_pos}M"
+                                    )
 
                         # Check R2
                         for v_pos, v_data in cv.items():
@@ -784,10 +942,13 @@ def generate_fake_genomics_data(
                                             r2_seq_list[rel_pos] = v_val
                                 elif rel_pos > 10 and rel_pos < len(r2_seq_list) - 20:
                                     del_seq = (
-                                        r2_seq_list[:rel_pos] + r2_seq_list[rel_pos + 5 :]
+                                        r2_seq_list[:rel_pos]
+                                        + r2_seq_list[rel_pos + 5 :]
                                     )
                                     r2_seq_list = del_seq
-                                    r2_cigar = f"{rel_pos}M5D{len(r2_seq_list) - rel_pos}M"
+                                    r2_cigar = (
+                                        f"{rel_pos}M5D{len(r2_seq_list) - rel_pos}M"
+                                    )
 
                         r1_seq = "".join(r1_seq_list)
                         r2_seq = "".join(r2_seq_list)
