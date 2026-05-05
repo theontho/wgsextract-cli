@@ -359,7 +359,8 @@ def _create_fast_fake_bam(
         stdin=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    if process.stdin is None:
+    stdin = process.stdin
+    if stdin is None:
         raise WGSExtractError("Failed to open samtools stdin for fake BAM creation.")
 
     pending = bytearray()
@@ -368,7 +369,7 @@ def _create_fast_fake_bam(
     def write_sam(line: str) -> None:
         pending.extend(line.encode())
         if len(pending) >= flush_at:
-            process.stdin.write(pending)
+            stdin.write(pending)
             pending.clear()
 
     try:
@@ -381,8 +382,8 @@ def _create_fast_fake_bam(
             get_noise_seq,
         )
         if pending:
-            process.stdin.write(pending)
-        process.stdin.close()
+            stdin.write(pending)
+        stdin.close()
         stderr = process.stderr.read().decode(errors="replace") if process.stderr else ""
         return_code = process.wait()
         if return_code != 0:
