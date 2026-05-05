@@ -50,7 +50,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          .\scripts\setup_pacman_runtime.ps1 -Msys2Root C:\msys64 -SkipPackageInstall -ForceBwaBuild
+          .\scripts\setup_pacman_runtime.ps1 -Msys2Root C:\msys64 -ForceBwaBuild
           pixi run wgsextract deps pacman check
           pixi run wgsextract deps check --tool bwa
 
