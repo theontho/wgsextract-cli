@@ -145,12 +145,12 @@ class TestOptionalDependencies(unittest.TestCase):
             fastqc = source / "FastQC" / "fastqc"
             fastqc.parent.mkdir(parents=True)
             fastqc.write_text(
-                "if ($java_bin ne 'java') {\n"
-                '\tsystem $java_bin, @java_args, "-jar $RealBin/FastQC.jar", @files;\n'
-                "}\n"
-                "else {\n"
-                '\texec $java_bin, @java_args, "-jar $RealBin/FastQC.jar", @files;\n'
-                "}\n",
+                "if ( $java_bin ne 'java' ) {\r\n"
+                '    system $java_bin, @java_args, "-jar $RealBin/FastQC.jar", @files;\r\n'
+                "}\r\n"
+                "else {\r\n"
+                '    exec $java_bin, @java_args, "-jar $RealBin/FastQC.jar", @files;\r\n'
+                "}\r\n",
                 encoding="utf-8",
             )
             java = source / "jre8" / "bin" / "java.exe"

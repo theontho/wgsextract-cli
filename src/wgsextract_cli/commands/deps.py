@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -469,17 +470,24 @@ def _patch_fastqc_launcher(runtime_dir: Path) -> None:
         return
 
     text = launcher.read_text(encoding="utf-8")
-    patched = text.replace(
-        '"-jar $RealBin/FastQC.jar"',
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    patched = re.sub(
+        r'"-jar\s+\$RealBin/FastQC\.jar"',
         '"-jar", "$RealBin/FastQC.jar"',
+        normalized,
     )
-    patched = patched.replace(
-        "if ($java_bin ne 'java') {\n"
-        '\tsystem $java_bin, @java_args, "-jar", "$RealBin/FastQC.jar", @files;\n'
-        "}\n"
-        "else {\n"
-        '\texec $java_bin, @java_args, "-jar", "$RealBin/FastQC.jar", @files;\n'
-        "}\n",
+
+    java_tail = re.compile(
+        r"if\s*\(\s*\$java_bin\s+ne\s+['\"]java['\"]\s*\)\s*\{\s*"
+        r"system\s+\$java_bin,\s*@java_args,\s*"
+        r'"-jar",\s*"\$RealBin/FastQC\.jar",\s*@files;\s*'
+        r"\}\s*else\s*\{\s*"
+        r"exec\s+\$java_bin,\s*@java_args,\s*"
+        r'"-jar",\s*"\$RealBin/FastQC\.jar",\s*@files;\s*'
+        r"\}",
+        re.MULTILINE,
+    )
+    replacement = (
         'my $fastqc_jar = "$RealBin/FastQC.jar";\n'
         "if ($^O eq 'cygwin') {\n"
         '\tmy $converted_jar = `cygpath -w "$fastqc_jar" 2>/dev/null`;\n'
@@ -492,8 +500,10 @@ def _patch_fastqc_launcher(runtime_dir: Path) -> None:
         "}\n"
         "else {\n"
         '\texec $java_bin, @java_args, "-jar", $fastqc_jar, @files;\n'
-        "}\n",
+        "}\n"
     )
+    if "$fastqc_jar" not in patched:
+        patched = java_tail.sub(lambda _match: replacement, patched, count=1)
     if patched == text:
         return
 

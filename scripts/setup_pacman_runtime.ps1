@@ -89,7 +89,7 @@ if (-not $SkipPackageInstall) {
         "mingw-w64-ucrt-x86_64-zlib"
     )
     Write-Host "Installing MSYS2 UCRT64 packages..."
-    Invoke-Msys2Script ("pacman -Sy --needed --noconfirm " + ($packages -join " "))
+    Invoke-Msys2Script ("pacman -Syu --needed --noconfirm " + ($packages -join " "))
 }
 else {
     Write-Host "Skipping MSYS2 package installation."
