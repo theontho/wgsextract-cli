@@ -52,7 +52,7 @@ pixi global install --path .
 - **Linux**: Fully supported. Pixi installs all bioinformatics tools automatically.
 - **Windows**:
     - **WSL2 (Recommended)**: Follow the Linux instructions within a WSL2 terminal for full support.
-    - **Native Windows**: Pixi will manage Python and core utilities, but many bioinformatics tools (like `samtools`) are not natively available via Conda on Windows. For a full experience, use WSL2.
+  - **Native Windows**: Use `--runtime pacman` with an MSYS2 UCRT64 toolchain for native Windows bioinformatics tools. See [docs/windows_pacman_runtime.md](docs/windows_pacman_runtime.md).
 
 ### 5. Initialize Reference Library
 Before running extraction tools, you must initialize the reference library (VCFs, liftover chains, metadata).
