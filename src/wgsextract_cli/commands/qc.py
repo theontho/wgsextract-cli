@@ -359,7 +359,8 @@ def _create_fast_fake_bam(
         stdin=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    assert process.stdin is not None
+    if process.stdin is None:
+        raise WGSExtractError("Failed to open samtools stdin for fake BAM creation.")
 
     pending: list[str] = []
     pending_bytes = 0
@@ -652,7 +653,10 @@ def generate_fake_genomics_data(
         )
 
     need_reference = not full_size or "cram" in types
-    if need_reference and not os.path.exists(str(ref_path)):
+    ref_exists = os.path.exists(str(ref_path))
+    if ref_exists:
+        logging.info(f"Using reference: {ref_path}")
+    elif need_reference:
         logging.info(f"Creating fake reference at {ref_path}...")
         with open(ref_path, "w") as f:
             for idx, (name, length) in enumerate(chroms.items()):
@@ -665,8 +669,6 @@ def generate_fake_genomics_data(
                     # Reference should NOT have the variants
                     f.write("".join(seq) + "\n")
         run_command(["samtools", "faidx", ref_path])
-    elif os.path.exists(str(ref_path)):
-        logging.info(f"Using reference: {ref_path}")
     else:
         logging.info(
             "Skipping full-size fake reference creation because the requested outputs "
