@@ -11,6 +11,8 @@ from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 FTP_ROOT = "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp"
 ASPERA_ROOT = "fasp-g1k@fasp.1000genomes.ebi.ac.uk:/vol1/ftp"
+ASPERA_PORT = "33001"
+ASPERA_MAX_BANDWIDTH = "300M"
 COLLECTION_DIR = "test-1000genomes"
 
 
@@ -361,9 +363,9 @@ def _download_file(
                     "1",
                     "-T",
                     "-P",
-                    "33001",
+                    ASPERA_PORT,
                     "-l",
-                    "300M",
+                    ASPERA_MAX_BANDWIDTH,
                     source,
                     str(destination),
                 ]
