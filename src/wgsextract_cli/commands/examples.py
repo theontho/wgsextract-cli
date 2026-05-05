@@ -370,7 +370,7 @@ def _download_file(
                     str(key),
                     "-k",
                     ASPERA_RESUME_PARTIAL,
-                    # Disable transfer encryption for compatibility with EBI's
+                    # Disable encryption (-T) for compatibility with EBI's
                     # public endpoint.
                     "-T",
                     "-P",
