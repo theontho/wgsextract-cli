@@ -230,7 +230,18 @@ class TestWSLRuntime(unittest.TestCase):
         self.assertEqual(recommendation.host_memory_gb, 64)
 
     def test_default_thread_policy_uses_apple_silicon_performance_cores(self):
-        completed = MagicMock(returncode=0, stdout="8\n", stderr="")
+        completed = MagicMock(
+            returncode=0,
+            stdout=(
+                'hw.perflevel0.name: "Efficiency"\n'
+                "hw.perflevel0.physicalcpu: 4\n"
+                'hw.perflevel1.name: "Performance"\n'
+                "hw.perflevel1.physicalcpu: 8\n"
+                'hw.perflevel2.name: "Super"\n'
+                "hw.perflevel2.physicalcpu: 2\n"
+            ),
+            stderr="",
+        )
         with (
             patch.object(runtime.platform, "system", return_value="Darwin"),
             patch.object(runtime.platform, "machine", return_value="arm64"),
@@ -238,8 +249,24 @@ class TestWSLRuntime(unittest.TestCase):
         ):
             profile = runtime.default_thread_tuning_profile()
 
-        self.assertEqual(profile.threads, 8)
+        self.assertEqual(profile.threads, 10)
         self.assertEqual(profile.reason, "Apple Silicon performance-core count")
+
+    def test_macos_performance_core_count_falls_back_to_perflevel0_count(self):
+        missing_names = MagicMock(returncode=0, stdout="", stderr="")
+        perflevel0_count = MagicMock(returncode=0, stdout="8\n", stderr="")
+        with (
+            patch.object(runtime.platform, "system", return_value="Darwin"),
+            patch.object(runtime.platform, "machine", return_value="arm64"),
+            patch.object(
+                runtime.subprocess,
+                "run",
+                side_effect=[missing_names, perflevel0_count],
+            ),
+        ):
+            core_count = runtime.macos_performance_core_count()
+
+        self.assertEqual(core_count, 8)
 
     def test_default_thread_policy_uses_wsl_balanced_count(self):
         with (

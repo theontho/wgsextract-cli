@@ -1767,8 +1767,6 @@ def _format_machine_summary(stats: dict[str, str | int | None]) -> str:
 def _machine_stats(run_dir: Path) -> dict[str, str | int | None]:
     virtual_memory = psutil.virtual_memory()
     disk_usage = psutil.disk_usage(str(run_dir))
-    cpu_freq = getattr(psutil, "cpu_freq", None)
-    cpu_frequency = cpu_freq() if cpu_freq else None
     return {
         "os": platform.platform(),
         "python": sys.version.replace("\n", " "),
@@ -1776,9 +1774,7 @@ def _machine_stats(run_dir: Path) -> dict[str, str | int | None]:
         "cpu_model": _cpu_model(),
         "physical_cores": psutil.cpu_count(logical=False),
         "logical_cores": psutil.cpu_count(logical=True),
-        "cpu_frequency": _format_cpu_frequency(cpu_frequency.current)
-        if cpu_frequency
-        else None,
+        "cpu_frequency": _cpu_frequency(),
         "ram_total": _format_bytes(virtual_memory.total),
         "ram_available": _format_bytes(virtual_memory.available),
         "ram_speed": _ram_speed(),
@@ -1788,6 +1784,17 @@ def _machine_stats(run_dir: Path) -> dict[str, str | int | None]:
         "drive_model": _drive_model(run_dir),
         "drive_speed": _drive_speed(run_dir),
     }
+
+
+def _cpu_frequency() -> str | None:
+    cpu_freq = getattr(psutil, "cpu_freq", None)
+    if not cpu_freq:
+        return None
+    try:
+        frequency = cpu_freq()
+    except Exception:
+        return None
+    return _format_cpu_frequency(frequency.current) if frequency else None
 
 
 def _print_machine_stats(stats: dict[str, str | int | None]) -> None:

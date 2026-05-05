@@ -22,6 +22,7 @@ DEFAULT_WSL_PROCESSOR_RATIO = 2 / 3
 DEFAULT_WSL_THREAD_RATIO = 3 / 4
 DEFAULT_WSL_MEMORY_RATIO = 3 / 4
 DEFAULT_WSL_SWAP_RATIO = 1 / 4
+MACOS_PERFORMANCE_LEVEL_NAMES = {"performance", "super"}
 
 
 @dataclass(frozen=True)
@@ -95,9 +96,58 @@ def default_thread_tuning_profile() -> ThreadTuningProfile:
 def macos_performance_core_count() -> int | None:
     if platform.system() != "Darwin" or platform.machine() not in {"arm64", "aarch64"}:
         return None
+
+    named_core_count = _macos_named_performance_core_count()
+    if named_core_count:
+        return named_core_count
+
+    output = _sysctl_output(["sysctl", "-n", "hw.perflevel0.physicalcpu"])
+    if output is None:
+        return None
+    return _positive_int(output.strip())
+
+
+def _macos_named_performance_core_count() -> int | None:
+    output = _sysctl_output(["sysctl", "-a"])
+    if output is None:
+        return None
+
+    perf_levels: dict[str, dict[str, str]] = {}
+    for line in output.splitlines():
+        key, separator, value = line.partition(":")
+        if not separator:
+            key, separator, value = line.partition("=")
+        if not separator:
+            continue
+
+        key_parts = key.strip().split(".")
+        if len(key_parts) != 3 or key_parts[0] != "hw":
+            continue
+        level_key, field = key_parts[1], key_parts[2]
+        if not level_key.startswith("perflevel") or field not in {
+            "name",
+            "physicalcpu",
+        }:
+            continue
+        perf_levels.setdefault(level_key, {})[field] = value.strip().strip('"')
+
+    total = 0
+    for level_fields in perf_levels.values():
+        if (
+            level_fields.get("name", "").strip().lower()
+            not in MACOS_PERFORMANCE_LEVEL_NAMES
+        ):
+            continue
+        core_count = _positive_int(level_fields.get("physicalcpu", ""))
+        if core_count:
+            total += core_count
+    return total or None
+
+
+def _sysctl_output(command: list[str]) -> str | None:
     try:
         completed = subprocess.run(
-            ["sysctl", "-n", "hw.perflevel0.physicalcpu"],
+            command,
             capture_output=True,
             text=True,
             check=False,
@@ -107,11 +157,15 @@ def macos_performance_core_count() -> int | None:
         return None
     if completed.returncode != 0:
         return None
+    return completed.stdout
+
+
+def _positive_int(value: str) -> int | None:
     try:
-        value = int(completed.stdout.strip())
+        parsed = int(value.strip())
     except ValueError:
         return None
-    return value if value > 0 else None
+    return parsed if parsed > 0 else None
 
 
 @lru_cache(maxsize=2)
