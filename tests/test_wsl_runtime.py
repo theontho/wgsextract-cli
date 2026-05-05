@@ -307,6 +307,8 @@ class TestWSLRuntime(unittest.TestCase):
             str(wrapped[0]).replace("\\", "/").endswith("msys2/usr/bin/bash.exe")
         )
         self.assertIn("MSYSTEM=UCRT64", wrapped[2])
+        self.assertIn("/jre8/bin", wrapped[2])
+        self.assertIn("/FastQC", wrapped[2])
         self.assertIn("cd 'C:/repo root'", wrapped[2])
         self.assertIn("samtools view", wrapped[2])
         self.assertIn("'C:/data dir/sample.bam'", wrapped[2])
@@ -323,6 +325,33 @@ class TestWSLRuntime(unittest.TestCase):
         self.assertEqual(
             wrapped,
             [r"C:\msys64\ucrt64\bin\samtools.exe", "view", r"C:\data\sample.bam"],
+        )
+
+    def test_wrap_command_translates_pacman_null_device(self):
+        with patch("wgsextract_cli.core.runtime.is_windows_host", return_value=True):
+            wrapped = runtime.wrap_command(
+                [
+                    "pacman:C:\\msys64\\ucrt64\\bin\\samtools.exe",
+                    "fastq",
+                    "-0",
+                    "/dev/null",
+                    "-s",
+                    "/dev/null",
+                    r"C:\data\sample.bam",
+                ],
+            )
+
+        self.assertEqual(
+            wrapped,
+            [
+                r"C:\msys64\ucrt64\bin\samtools.exe",
+                "fastq",
+                "-0",
+                "NUL",
+                "-s",
+                "NUL",
+                r"C:\data\sample.bam",
+            ],
         )
 
     def test_normalize_subprocess_cmd_wraps_wsl_tool_resolution(self):
