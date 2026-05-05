@@ -10,6 +10,7 @@ from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 HTTPS_ROOT = "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp"
 ASPERA_ROOT = "fasp-g1k@fasp.1000genomes.ebi.ac.uk:/vol1/ftp"
+# EBI's public 1000 Genomes Aspera service listens on port 33001.
 ASPERA_PORT = "33001"
 ASPERA_MAX_BANDWIDTH = "300M"
 COLLECTION_DIR = "test-1000genomes"
@@ -187,9 +188,9 @@ def register(subparsers, base_parser):
     )
     download_parser.add_argument(
         "--method",
-        choices=("auto", "ftp", "aspera"),
+        choices=("auto", "https", "aspera"),
         default="auto",
-        help="Transfer method. Auto uses FTP unless Aspera is explicitly requested.",
+        help="Transfer method. Auto uses HTTPS unless Aspera is explicitly requested.",
     )
     download_parser.add_argument(
         "--aspera-key",
@@ -301,17 +302,17 @@ def _repo_root() -> Path:
 
 
 def _resolve_method(method: str, aspera_key: str | None = None) -> str:
-    if method in {"auto", "ftp"}:
-        return "ftp"
+    if method in {"auto", "https"}:
+        return "https"
     if method == "aspera":
         if shutil.which("ascp") is None:
             raise WGSExtractError(
-                "Aspera requested but 'ascp' is not installed. Use --method ftp."
+                "Aspera requested but 'ascp' is not installed. Use --method https."
             )
         if not _resolve_aspera_key(aspera_key):
             raise WGSExtractError(
                 "Aspera requested but no private key was found. Pass --aspera-key "
-                "or use --method ftp."
+                "or use --method https."
             )
         return "aspera"
     raise WGSExtractError(f"Unsupported transfer method: {method}")

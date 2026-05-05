@@ -148,7 +148,7 @@ class TestExamplesDownload(unittest.TestCase):
         args = Namespace(
             example_ids=["phase3-chrmt-vcf"],
             all=False,
-            method="ftp",
+            method="https",
             target_root=self.test_dir,
             aspera_key=None,
             force=False,
@@ -168,7 +168,7 @@ class TestExamplesDownload(unittest.TestCase):
         args = Namespace(
             example_ids=["phase3-chrmt-vcf"],
             all=False,
-            method="ftp",
+            method="https",
             target_root=self.test_dir,
             aspera_key=None,
             force=False,
@@ -189,10 +189,13 @@ class TestExamplesDownload(unittest.TestCase):
         )
         self.assertTrue(os.path.exists(config_path))
         with open(config_path) as f:
+            config = f.read()
             self.assertIn(
                 'vcf = "ALL.chrMT.phase3_callmom-v0_4.20130502.genotypes.vcf.gz"',
-                f.read(),
+                config,
             )
+            self.assertNotIn("vcf_index", config)
+            self.assertNotIn(".tbi", config)
 
     def test_unknown_example_raises_clear_error(self):
         from wgsextract_cli.commands import examples
@@ -213,10 +216,10 @@ class TestExamplesDownload(unittest.TestCase):
             "fasp-g1k@fasp.1000genomes.ebi.ac.uk:/vol1/ftp/release/20130502/example.vcf.gz",
         )
 
-    def test_ftp_source_uses_1000genomes_ftp_root(self):
+    def test_https_source_uses_1000genomes_https_root(self):
         from wgsextract_cli.commands import examples
 
-        source = examples._source_for("release/20130502/example.vcf.gz", "ftp")
+        source = examples._source_for("release/20130502/example.vcf.gz", "https")
 
         self.assertEqual(
             source,
