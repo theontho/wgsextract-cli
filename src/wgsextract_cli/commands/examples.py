@@ -10,7 +10,7 @@ from wgsextract_cli.core.genome_library import GENOME_CONFIG_NAME
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 FTP_ROOT = "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp"
-ASPERA_ROOT = "era-fasp@fasp.sra.ebi.ac.uk:vol1/ftp"
+ASPERA_ROOT = "fasp-g1k@fasp.1000genomes.ebi.ac.uk:/vol1/ftp"
 COLLECTION_DIR = "test-1000genomes"
 
 
@@ -184,6 +184,10 @@ def register(subparsers, base_parser):
         help="Transfer method. Auto uses FTP unless Aspera is explicitly requested.",
     )
     download_parser.add_argument(
+        "--aspera-key",
+        help="Private key for Aspera ascp downloads. Required with --method aspera.",
+    )
+    download_parser.add_argument(
         "--target-root",
         help=(
             "Genome library root. Defaults to config genome_library, or repo-root "
@@ -219,7 +223,7 @@ def cmd_list(args: Namespace) -> None:
 
 def cmd_download(args: Namespace) -> None:
     selected = _select_examples(args.example_ids, args.all)
-    method = _resolve_method(args.method)
+    method = _resolve_method(args.method, getattr(args, "aspera_key", None))
     root = _target_root(args.target_root)
     collection_dir = root / COLLECTION_DIR
 
@@ -236,7 +240,9 @@ def cmd_download(args: Namespace) -> None:
             if destination.exists() and not args.force:
                 logging.info("Skipping existing %s", destination)
                 continue
-            _download_file(source, destination, method)
+            _download_file(
+                source, destination, method, getattr(args, "aspera_key", None)
+            )
         _write_genome_config(example, example_dir)
         logging.info(
             "Installed %s. Use --genome %s/%s",
@@ -287,13 +293,18 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def _resolve_method(method: str) -> str:
+def _resolve_method(method: str, aspera_key: str | None = None) -> str:
     if method in {"auto", "ftp"}:
         return "ftp"
     if method == "aspera":
         if shutil.which("ascp") is None:
             raise WGSExtractError(
                 "Aspera requested but 'ascp' is not installed. Use --method ftp."
+            )
+        if not _resolve_aspera_key(aspera_key):
+            raise WGSExtractError(
+                "Aspera requested but no private key was found. Pass --aspera-key "
+                "or use --method ftp."
             )
         return "aspera"
     raise WGSExtractError(f"Unsupported transfer method: {method}")
@@ -326,12 +337,30 @@ def _filename(url_path: str) -> str:
     return name
 
 
-def _download_file(source: str, destination: Path, method: str) -> None:
+def _download_file(
+    source: str, destination: Path, method: str, aspera_key: str | None = None
+) -> None:
     logging.info("Downloading %s", source)
     try:
         if method == "aspera":
+            key = _resolve_aspera_key(aspera_key)
+            if key is None:
+                raise WGSExtractError("No Aspera private key available.")
             run_command(
-                ["ascp", "-k", "1", "-T", "-l", "300M", source, str(destination)]
+                [
+                    "ascp",
+                    "-i",
+                    str(key),
+                    "-k",
+                    "1",
+                    "-T",
+                    "-P",
+                    "33001",
+                    "-l",
+                    "300M",
+                    source,
+                    str(destination),
+                ]
             )
         else:
             run_command(
@@ -348,6 +377,24 @@ def _download_file(source: str, destination: Path, method: str) -> None:
             )
     except Exception as e:
         raise WGSExtractError(f"Download failed for {source}: {e}") from e
+
+
+def _resolve_aspera_key(aspera_key: str | None) -> Path | None:
+    candidates = []
+    if aspera_key:
+        candidates.append(Path(aspera_key).expanduser())
+    candidates.extend(
+        Path(path).expanduser()
+        for path in (
+            "~/.aspera/connect/etc/asperaweb_id_dsa.openssh",
+            "/opt/aspera/connect/etc/asperaweb_id_dsa.openssh",
+            "/usr/local/aspera/connect/etc/asperaweb_id_dsa.openssh",
+        )
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def _write_genome_config(example: GenomeExample, example_dir: Path) -> None:

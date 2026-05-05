@@ -173,7 +173,7 @@ class TestExamplesDownload(unittest.TestCase):
             dry_run=False,
         )
 
-        def fake_download(_source, destination, _method):
+        def fake_download(_source, destination, _method, _aspera_key):
             destination.write_text("data")
 
         with patch.object(examples, "_download_file", side_effect=fake_download):
@@ -199,6 +199,16 @@ class TestExamplesDownload(unittest.TestCase):
             examples._select_examples(["not-real"], include_all=False)
 
         self.assertIn("Unknown example ID", str(ctx.exception))
+
+    def test_aspera_source_uses_1000_genomes_fasp_server(self):
+        from wgsextract_cli.commands import examples
+
+        source = examples._source_for("release/20130502/example.vcf.gz", "aspera")
+
+        self.assertEqual(
+            source,
+            "fasp-g1k@fasp.1000genomes.ebi.ac.uk:/vol1/ftp/release/20130502/example.vcf.gz",
+        )
 
 
 class TestResourceDefaults(unittest.TestCase):
