@@ -63,7 +63,7 @@ WINDOWS_RUNTIME_SPECS: dict[str, WindowsRuntimeSpec] = {
         display_name="Cygwin64",
         archive_key="cygwin64",
         bash_relpath="bin/bash.exe",
-        path_relpaths=("usr/local/bin", "bin"),
+        path_relpaths=("usr/local/bin", "bin", "jre8/bin", "FastQC"),
     ),
     "msys2": WindowsRuntimeSpec(
         mode="msys2",
@@ -71,7 +71,7 @@ WINDOWS_RUNTIME_SPECS: dict[str, WindowsRuntimeSpec] = {
         display_name="MSYS2 UCRT64",
         archive_key="msys2",
         bash_relpath="usr/bin/bash.exe",
-        path_relpaths=("ucrt64/bin", "usr/bin"),
+        path_relpaths=("ucrt64/bin", "usr/bin", "jre8/bin", "FastQC"),
         shell_exports=("MSYSTEM=UCRT64", "CHERE_INVOKING=1"),
     ),
 }

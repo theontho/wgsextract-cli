@@ -307,6 +307,8 @@ class TestWSLRuntime(unittest.TestCase):
             str(wrapped[0]).replace("\\", "/").endswith("msys2/usr/bin/bash.exe")
         )
         self.assertIn("MSYSTEM=UCRT64", wrapped[2])
+        self.assertIn("/jre8/bin", wrapped[2])
+        self.assertIn("/FastQC", wrapped[2])
         self.assertIn("cd 'C:/repo root'", wrapped[2])
         self.assertIn("samtools view", wrapped[2])
         self.assertIn("'C:/data dir/sample.bam'", wrapped[2])

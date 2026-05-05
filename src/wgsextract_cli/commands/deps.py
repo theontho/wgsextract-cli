@@ -448,6 +448,56 @@ def _copy_bundled_runtime_from_source(
         runtime_dir,
         ignore=_source_runtime_copy_ignore(mode),
     )
+    _copy_sibling_runtime_tools(candidate, runtime_dir)
+    _patch_fastqc_launcher(runtime_dir)
+
+
+def _copy_sibling_runtime_tools(source_runtime_dir: Path, runtime_dir: Path) -> None:
+    for dirname in ("FastQC", "jre8"):
+        source_tool_dir = source_runtime_dir.parent / dirname
+        destination_tool_dir = runtime_dir / dirname
+        if not source_tool_dir.is_dir() or destination_tool_dir.exists():
+            continue
+
+        print(f"Copying {dirname} runtime tools from {source_tool_dir}")
+        shutil.copytree(source_tool_dir, destination_tool_dir)
+
+
+def _patch_fastqc_launcher(runtime_dir: Path) -> None:
+    launcher = runtime_dir / "FastQC" / "fastqc"
+    if not launcher.exists():
+        return
+
+    text = launcher.read_text(encoding="utf-8")
+    patched = text.replace(
+        '"-jar $RealBin/FastQC.jar"',
+        '"-jar", "$RealBin/FastQC.jar"',
+    )
+    patched = patched.replace(
+        "if ($java_bin ne 'java') {\n"
+        '\tsystem $java_bin, @java_args, "-jar", "$RealBin/FastQC.jar", @files;\n'
+        "}\n"
+        "else {\n"
+        '\texec $java_bin, @java_args, "-jar", "$RealBin/FastQC.jar", @files;\n'
+        "}\n",
+        'my $fastqc_jar = "$RealBin/FastQC.jar";\n'
+        "if ($^O eq 'cygwin') {\n"
+        '\tmy $converted_jar = `cygpath -w "$fastqc_jar" 2>/dev/null`;\n'
+        "\tchomp $converted_jar;\n"
+        "\t$fastqc_jar = $converted_jar if $converted_jar;\n"
+        "}\n"
+        "\n"
+        "if ($java_bin ne 'java') {\n"
+        '\tsystem $java_bin, @java_args, "-jar", $fastqc_jar, @files;\n'
+        "}\n"
+        "else {\n"
+        '\texec $java_bin, @java_args, "-jar", $fastqc_jar, @files;\n'
+        "}\n",
+    )
+    if patched == text:
+        return
+
+    launcher.write_text(patched, encoding="utf-8")
 
 
 def _source_runtime_copy_ignore(mode: str) -> Any:

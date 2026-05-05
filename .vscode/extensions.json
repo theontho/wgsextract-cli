@@ -1,6 +1,8 @@
 {
   "recommendations": [
-    "charliermarsh.ruff",
+    "charliermarsh.ruff"
+  ],
+  "unwantedRecommendations": [
     "ms-python.isort"
   ]
 }
