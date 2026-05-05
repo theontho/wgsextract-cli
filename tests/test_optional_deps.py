@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
+import zipfile
 from argparse import Namespace
 from io import StringIO
 from pathlib import Path
@@ -106,7 +107,8 @@ class TestOptionalDependencies(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             cache_dir = Path(tempdir)
             cached = cache_dir / "msys2_v1.zip"
-            cached.write_bytes(b"cached")
+            with zipfile.ZipFile(cached, "w") as archive:
+                archive.writestr("msys2/usr/bin/bash.exe", "")
             args = Namespace(
                 archive_dir=None,
                 cache_dir=str(cache_dir),
@@ -118,10 +120,75 @@ class TestOptionalDependencies(unittest.TestCase):
             with patch.object(deps_command, "_download_file") as mock_download:
                 self.assertEqual(
                     deps_command._resolve_bundled_runtime_archive(args, "msys2"),
-                    cached,
+                    cached.resolve(),
                 )
 
             mock_download.assert_not_called()
+
+    def test_safe_extract_zip_rejects_path_traversal(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            archive_path = Path(tempdir) / "bad.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("../escape.txt", "bad")
+
+            with zipfile.ZipFile(archive_path) as archive:
+                with self.assertRaisesRegex(Exception, "unsafe path"):
+                    deps_command._safe_extract_zip(archive, Path(tempdir) / "runtime")
+
+    def test_copy_bundled_runtime_from_parent_source_dir(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            source = root / "legacy"
+            bash = source / "msys2" / "usr" / "bin" / "bash.exe"
+            bash.parent.mkdir(parents=True)
+            bash.write_bytes(b"")
+            destination = root / "runtime" / "msys2"
+
+            deps_command._copy_bundled_runtime_from_source(source, "msys2", destination)
+
+            self.assertTrue((destination / "usr" / "bin" / "bash.exe").exists())
+
+    def test_copy_bundled_runtime_skips_cygwin_mount_placeholder(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            source = root / "legacy" / "cygwin64"
+            bash = source / "bin" / "bash.exe"
+            bash.parent.mkdir(parents=True)
+            bash.write_bytes(b"")
+            (source / "mnt").write_text("placeholder", encoding="utf-8")
+            destination = root / "runtime" / "cygwin64"
+
+            deps_command._copy_bundled_runtime_from_source(
+                source, "cygwin", destination
+            )
+
+            self.assertTrue((destination / "bin" / "bash.exe").exists())
+            self.assertFalse((destination / "mnt").exists())
+
+    def test_copy_bundled_runtime_requires_expected_shell(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            with self.assertRaisesRegex(Exception, "expected shell"):
+                deps_command._copy_bundled_runtime_from_source(
+                    Path(tempdir), "cygwin", Path(tempdir) / "runtime" / "cygwin64"
+                )
+
+    def test_check_dependencies_with_runtime_restores_env(self):
+        env_name = deps_command.runtime.RUNTIME_ENV_VAR
+        previous = os.environ.get(env_name)
+        os.environ[env_name] = "auto"
+        try:
+            with patch.object(
+                deps_command, "check_all_dependencies", return_value={}
+            ) as mock_check:
+                deps_command._check_dependencies_with_runtime("wsl")
+
+            mock_check.assert_called_once_with()
+            self.assertEqual(os.environ[env_name], "auto")
+        finally:
+            if previous is None:
+                os.environ.pop(env_name, None)
+            else:
+                os.environ[env_name] = previous
 
     @patch("wgsextract_cli.core.dependencies.shutil.which", return_value=None)
     @patch("wgsextract_cli.core.runtime.should_consider_wsl", return_value=True)

@@ -87,6 +87,40 @@ class TestWSLRuntime(unittest.TestCase):
                 "wsl:/home/test/.pixi/bin/pixi run -e default bcftools",
             )
 
+    def test_get_tool_path_explicit_wsl_does_not_fall_back_to_native(self):
+        with (
+            patch(
+                "wgsextract_cli.core.runtime.get_tool_runtime_mode", return_value="wsl"
+            ),
+            patch("wgsextract_cli.core.runtime.should_consider_wsl", return_value=True),
+            patch(
+                "wgsextract_cli.core.runtime.wsl_command_available", return_value=False
+            ),
+            patch(
+                "wgsextract_cli.core.runtime.wsl_pixi_tool_available",
+                return_value=False,
+            ),
+            patch(
+                "wgsextract_cli.core.dependencies.shutil.which",
+                return_value=r"C:\msys64\ucrt64\bin\samtools.exe",
+            ),
+        ):
+            self.assertIsNone(dependencies.get_tool_path("samtools"))
+
+    def test_get_tool_path_explicit_pacman_does_not_fall_back_to_native(self):
+        with (
+            patch(
+                "wgsextract_cli.core.runtime.get_tool_runtime_mode",
+                return_value="pacman",
+            ),
+            patch("wgsextract_cli.core.runtime.pacman_tool_path", return_value=None),
+            patch(
+                "wgsextract_cli.core.dependencies.shutil.which",
+                return_value=r"C:\tools\samtools.exe",
+            ),
+        ):
+            self.assertIsNone(dependencies.get_tool_path("samtools"))
+
     def test_get_tool_path_uses_host_pixi_when_wsl_not_applicable(self):
         completed = MagicMock(returncode=0)
         with (
@@ -187,7 +221,27 @@ class TestWSLRuntime(unittest.TestCase):
                 ),
             ):
                 runtime.pacman_tool_path.cache_clear()
-                self.assertEqual(runtime.pacman_tool_path("samtools"), str(tool))
+                self.assertEqual(
+                    runtime.pacman_tool_path("samtools"), str(tool.resolve())
+                )
+
+    def test_default_runtime_root_uses_repo_runtime_for_development_checkout(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            (root / ".git").mkdir()
+            with patch("wgsextract_cli.core.runtime.repo_root", return_value=root):
+                self.assertEqual(runtime.default_runtime_root(), root / "runtime")
+
+    def test_default_runtime_root_uses_user_data_dir_for_installed_context(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir) / "site-packages"
+            data_dir = Path(tempdir) / "data"
+            root.mkdir()
+            with (
+                patch("wgsextract_cli.core.runtime.repo_root", return_value=root),
+                patch("platformdirs.user_data_path", return_value=data_dir),
+            ):
+                self.assertEqual(runtime.default_runtime_root(), data_dir / "runtime")
 
     def test_translate_windows_paths_without_touching_regions_flags_or_urls(self):
         with patch(

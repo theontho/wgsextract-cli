@@ -308,8 +308,21 @@ def runtime_root() -> Path:
     return (
         Path(configured).expanduser().resolve()
         if configured
-        else repo_root() / "runtime"
+        else default_runtime_root()
     )
+
+
+def default_runtime_root() -> Path:
+    root = repo_root()
+    if (root / ".git").exists():
+        return root / "runtime"
+
+    try:
+        from platformdirs import user_data_path
+
+        return user_data_path("wgsextract-cli", "WGSExtract") / "runtime"
+    except Exception:
+        return Path.home() / ".wgsextract" / "runtime"
 
 
 def bundled_runtime_spec(mode: str) -> WindowsRuntimeSpec:

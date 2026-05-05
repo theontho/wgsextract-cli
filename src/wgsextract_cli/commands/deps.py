@@ -4,6 +4,8 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 import urllib.parse
 import urllib.request
 import zipfile
@@ -136,6 +138,14 @@ def register(subparsers: Any, base_parser: Any) -> None:
             help="Directory containing pre-downloaded runtime ZIP packages.",
         )
         bundled_setup_parser.add_argument(
+            "--source-dir",
+            help=(
+                "Directory containing an already-built runtime tree to copy. "
+                "May be the runtime directory itself or a parent containing "
+                f"{spec.dirname}/."
+            ),
+        )
+        bundled_setup_parser.add_argument(
             "--refresh-download",
             action="store_true",
             help="Re-download the runtime ZIP even when it already exists in the cache.",
@@ -252,7 +262,7 @@ def run_wsl_check(args: Any) -> None:
 
     print("\nMandatory tools")
     print("-" * 60)
-    results = check_all_dependencies()
+    results = _check_dependencies_with_runtime("wsl")
     missing: list[str] = []
     for tool in results["mandatory"]:
         if tool["name"] == "Python Runtime":
@@ -307,13 +317,17 @@ def run_bundled_runtime_setup(args: Any) -> None:
     if runtime_dir.exists() and args.force:
         shutil.rmtree(runtime_dir)
 
-    archive_path = _resolve_bundled_runtime_archive(args, mode)
-
     runtime.runtime_root().mkdir(parents=True, exist_ok=True)
-    print(f"Extracting into {runtime.runtime_root()}")
-    with zipfile.ZipFile(archive_path) as archive:
-        archive.extractall(runtime.runtime_root())
+    if getattr(args, "source_dir", None):
+        _copy_bundled_runtime_from_source(Path(args.source_dir), mode, runtime_dir)
+    else:
+        archive_path = _resolve_bundled_runtime_archive(args, mode)
 
+        print(f"Extracting into {runtime.runtime_root()}")
+        with zipfile.ZipFile(archive_path) as archive:
+            _safe_extract_zip(archive, runtime.runtime_root())
+
+    _clear_bundled_runtime_caches()
     _post_extract_bundled_runtime(mode)
 
     if not bash_path.exists():
@@ -321,8 +335,7 @@ def run_bundled_runtime_setup(args: Any) -> None:
             f"Downloaded archive did not create expected shell: {bash_path}"
         )
 
-    runtime.detect_bundled_runtime_available.cache_clear()
-    runtime.bundled_command_available.cache_clear()
+    _clear_bundled_runtime_caches()
     print(f"{spec.display_name} runtime ready at {runtime_dir}")
     _print_bundled_runtime_tool_status(mode, fail_on_missing=False)
 
@@ -414,6 +427,70 @@ def _pacman_executable_path() -> Path | None:
     return Path(path) if path else None
 
 
+def _copy_bundled_runtime_from_source(
+    source_dir: Path, mode: str, runtime_dir: Path
+) -> None:
+    spec = runtime.bundled_runtime_spec(mode)
+    source = source_dir.expanduser().resolve()
+    candidate = source / spec.dirname if (source / spec.dirname).exists() else source
+    expected_shell = candidate / Path(spec.bash_relpath)
+    if not expected_shell.exists():
+        raise WGSExtractError(
+            f"Runtime source does not contain expected shell for {spec.display_name}: "
+            f"{expected_shell}"
+        )
+
+    print(f"Copying {spec.display_name} runtime")
+    print(f"  from: {candidate}")
+    print(f"  to:   {runtime_dir}")
+    shutil.copytree(
+        candidate,
+        runtime_dir,
+        ignore=_source_runtime_copy_ignore(mode),
+    )
+
+
+def _source_runtime_copy_ignore(mode: str) -> Any:
+    def ignore(_directory: str, names: list[str]) -> set[str]:
+        if mode == "cygwin":
+            return {name for name in names if name == "mnt"}
+        return set()
+
+    return ignore
+
+
+def _clear_bundled_runtime_caches() -> None:
+    runtime.detect_bundled_runtime_available.cache_clear()
+    runtime.bundled_command_available.cache_clear()
+
+
+def _check_dependencies_with_runtime(mode: str) -> dict[str, list[dict[str, Any]]]:
+    previous = os.environ.get(runtime.RUNTIME_ENV_VAR)
+    os.environ[runtime.RUNTIME_ENV_VAR] = mode
+    try:
+        return check_all_dependencies()
+    finally:
+        if previous is None:
+            os.environ.pop(runtime.RUNTIME_ENV_VAR, None)
+        else:
+            os.environ[runtime.RUNTIME_ENV_VAR] = previous
+
+
+def _safe_extract_zip(archive: zipfile.ZipFile, destination: Path) -> None:
+    root = destination.resolve()
+    for member in archive.infolist():
+        member_name = member.filename.replace("\\", "/")
+        target = (root / member_name).resolve()
+        try:
+            target.relative_to(root)
+        except ValueError as exc:
+            raise WGSExtractError(
+                f"Runtime archive contains unsafe path: {member.filename}"
+            ) from exc
+
+    archive.extractall(root)
+
+
 def _print_bundled_runtime_tool_status(
     mode: str, *, fail_on_missing: bool = True
 ) -> None:
@@ -421,7 +498,7 @@ def _print_bundled_runtime_tool_status(
     print("-" * 60)
     missing: list[str] = []
     for tool in required_dependency_tools(include_python=False):
-        present = runtime.bundled_command_available(mode, tool)
+        present = _bundled_command_available_with_retry(mode, tool)
         print(f"{tool:<20} {'yes' if present else 'no'}")
         if not present:
             missing.append(tool)
@@ -433,6 +510,16 @@ def _print_bundled_runtime_tool_status(
         print(
             f"Run 'wgsextract deps {mode} check' after adding the bio tool collection."
         )
+
+
+def _bundled_command_available_with_retry(mode: str, tool: str) -> bool:
+    for attempt in range(3):
+        if attempt:
+            time.sleep(0.2)
+        _clear_bundled_runtime_caches()
+        if runtime.bundled_command_available(mode, tool):
+            return True
+    return False
 
 
 def _post_extract_bundled_runtime(mode: str) -> None:
@@ -550,6 +637,7 @@ def _resolve_bundled_runtime_archive(args: Any, mode: str) -> Path:
         str(args.url) if args.url else None,
     )
     if local_archive:
+        _require_zipfile(local_archive)
         print(f"Using local runtime package: {local_archive}")
         return local_archive
 
@@ -565,8 +653,11 @@ def _resolve_bundled_runtime_archive(args: Any, mode: str) -> Path:
     archive_path = cache_dir / _archive_filename(archive_url, mode)
 
     if archive_path.exists() and not args.refresh_download:
-        print(f"Using cached runtime package: {archive_path}")
-        return archive_path
+        if zipfile.is_zipfile(archive_path):
+            print(f"Using cached runtime package: {archive_path}")
+            return archive_path
+        print(f"Ignoring invalid cached runtime package: {archive_path}")
+        archive_path.unlink()
 
     print(
         f"Downloading {runtime.bundled_runtime_spec(mode).display_name} runtime package"
@@ -611,12 +702,32 @@ def _archive_filename(url: str, mode: str) -> str:
 
 
 def _download_file(url: str, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: Path | None = None
     try:
+        with tempfile.NamedTemporaryFile(
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+
         request = urllib.request.Request(
             url, headers={"User-Agent": DOWNLOAD_USER_AGENT}
         )
         with urllib.request.urlopen(request, timeout=300) as response:
-            with destination.open("wb") as output:
+            with temp_path.open("wb") as output:
                 shutil.copyfileobj(response, output)
+
+        _require_zipfile(temp_path)
+        temp_path.replace(destination)
     except Exception as exc:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
         raise WGSExtractError(f"Failed to download {url}: {exc}") from exc
+
+
+def _require_zipfile(path: Path) -> None:
+    if not zipfile.is_zipfile(path):
+        raise WGSExtractError(f"Runtime package is not a valid ZIP archive: {path}")

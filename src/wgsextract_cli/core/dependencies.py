@@ -379,16 +379,25 @@ def get_tool_path(tool: str) -> str | None:
         pacman_path = runtime.pacman_tool_path(tool)
         if pacman_path:
             return runtime.pacman_tool_command(pacman_path)
+        return None
 
-    explicit_bundled_modes = (
-        bundled_modes if runtime_mode in runtime.BUNDLED_RUNTIME_MODES else ()
-    )
-    for mode in explicit_bundled_modes:
-        if runtime.bundled_command_available(mode, tool):
-            return runtime.bundled_tool_command(mode, tool)
+    if runtime_mode in runtime.BUNDLED_RUNTIME_MODES:
+        for mode in bundled_modes:
+            if runtime.bundled_command_available(mode, tool):
+                return runtime.bundled_tool_command(mode, tool)
+        return None
 
     if should_consider_wsl and prefer_wsl and runtime.wsl_command_available(tool):
         return runtime.wsl_tool_command(tool)
+
+    if prefer_wsl:
+        if tool in PIXI_TOOL_ENVS and runtime.wsl_pixi_tool_available(
+            tool, PIXI_TOOL_ENVS[tool]
+        ):
+            return runtime.wsl_tool_command(
+                f"{_wsl_pixi_path()} run -e {PIXI_TOOL_ENVS[tool]} {tool}"
+            )
+        return None
 
     path = shutil.which(tool)
     if path:
