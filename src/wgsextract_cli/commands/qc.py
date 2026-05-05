@@ -1,16 +1,31 @@
 import logging
 import os
+import shlex
+import subprocess
+from collections.abc import Callable
+from heapq import heappop, heappush
 
+from wgsextract_cli.core import runtime
 from wgsextract_cli.core.config import settings
-from wgsextract_cli.core.dependencies import log_dependency_info, verify_dependencies
+from wgsextract_cli.core.dependencies import (
+    get_tool_path,
+    log_dependency_info,
+    verify_dependencies,
+)
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
     get_sam_index_cmd,
     get_sam_view_cmd,
+    popen,
     run_command,
 )
+
+SamWriter = Callable[[str], None]
+SequenceProvider = Callable[[int, int, int], str]
+
+_FAST_BAM_VARIANT_SPACING = 2000
 
 
 def _select_vcf_input(args):
@@ -74,7 +89,15 @@ def register(subparsers, base_parser):
     fake_parser.add_argument(
         "--full-size",
         action="store_true",
-        help="Use real human chromosome lengths (creates large files).",
+        help="Use real human chromosome lengths. The default scaled mode uses shorter chromosomes.",
+    )
+    fake_parser.add_argument(
+        "--legacy-bam",
+        action="store_true",
+        help=(
+            "Use the older scaled fake BAM generator. Slower and unavailable with --full-size, "
+            "but includes randomized placement and indel CIGARs."
+        ),
     )
     fake_parser.add_argument(
         "--seed", type=int, default=42, help="Random seed for reproducibility"
@@ -194,6 +217,342 @@ def cmd_vcf_qc(args):
         raise WGSExtractError(f"VCF stats failed: {e}") from e
 
 
+def _tool_command_parts(cmd_base: str) -> list[str]:
+    if runtime.is_wsl_tool_command(cmd_base):
+        return shlex.split(cmd_base)
+    if os.path.exists(cmd_base):
+        return [cmd_base]
+    return shlex.split(cmd_base)
+
+
+def _samtools_view_bam_writer_cmd(bam_path: str, threads: str) -> list[str]:
+    samtools = get_tool_path("samtools") or "samtools"
+    cmd = _tool_command_parts(samtools) + [
+        "view",
+        "-@",
+        threads,
+        "-1",
+        "-b",
+        "-o",
+        bam_path,
+        "-",
+    ]
+    return runtime.wrap_command(cmd)
+
+
+def _write_sam_header(
+    write_sam: SamWriter,
+    chroms: dict[str, int],
+    target_md5: str | None,
+) -> None:
+    write_sam("@HD\tVN:1.6\tSO:coordinate\n")
+    rg_line = "@RG\tID:sample1\tSM:sample1\tPL:ILLUMINA"
+    if target_md5:
+        rg_line += f"\tDS:MD5:{target_md5}"
+    write_sam(rg_line + "\n")
+
+    if target_md5:
+        write_sam(f"@CO\tMD5:{target_md5}\n")
+
+    for name, length in chroms.items():
+        write_sam(f"@SQ\tSN:{name}\tLN:{length}\n")
+
+
+def _fast_sam_record(
+    read_id: str,
+    flag: int,
+    chrom: str,
+    pos: int,
+    mate_pos: int,
+    template_length: int,
+    cigar: str,
+    seq: str,
+    qual: str,
+    nm: int = 0,
+) -> str:
+    return (
+        f"{read_id}\t{flag}\t{chrom}\t{pos}\t60\t{cigar}\t=\t{mate_pos}\t"
+        f"{template_length}\t{seq}\t{qual}\tRG:Z:sample1\tNM:i:{nm}\n"
+    )
+
+
+def _first_fast_bam_variant_pos(chrom_idx: int, seed: int) -> int:
+    return 100 + ((seed + chrom_idx * 97) % (_FAST_BAM_VARIANT_SPACING - 100))
+
+
+def _fast_bam_alt_base(ref_base: str, chrom_idx: int, pos: int, seed: int) -> str:
+    alternatives = [base for base in "ACGT" if base != ref_base.upper()]
+    return alternatives[(pos + seed + chrom_idx * 13) % len(alternatives)]
+
+
+def _apply_fast_bam_variants(
+    seq: str,
+    chrom_idx: int,
+    pos0: int,
+    seed: int,
+) -> tuple[str, int]:
+    """Apply deterministic homozygous SNPs without storing a genome-wide map."""
+    first_read_pos = pos0 + 1
+    last_read_pos = pos0 + len(seq)
+    first_variant = _first_fast_bam_variant_pos(chrom_idx, seed)
+    if first_variant > last_read_pos:
+        return seq, 0
+
+    if first_variant < first_read_pos:
+        steps = (
+            first_read_pos - first_variant + _FAST_BAM_VARIANT_SPACING - 1
+        ) // _FAST_BAM_VARIANT_SPACING
+        first_variant += steps * _FAST_BAM_VARIANT_SPACING
+
+    if first_variant > last_read_pos:
+        return seq, 0
+
+    mutated = list(seq)
+    mismatch_count = 0
+    variant_pos = first_variant
+    while variant_pos <= last_read_pos:
+        read_offset = variant_pos - first_read_pos
+        ref_base = mutated[read_offset].upper()
+        if ref_base in "ACGT":
+            mutated[read_offset] = _fast_bam_alt_base(
+                ref_base, chrom_idx, variant_pos, seed
+            )
+            mismatch_count += 1
+        variant_pos += _FAST_BAM_VARIANT_SPACING
+
+    return "".join(mutated), mismatch_count
+
+
+def _reference_backed_sequence_provider(
+    ref_path: str | None,
+    chroms: dict[str, int],
+    fallback: SequenceProvider,
+) -> SequenceProvider:
+    if not ref_path or not os.path.exists(str(ref_path)):
+        return fallback
+
+    fai_path = str(ref_path) + ".fai"
+    if not os.path.exists(fai_path):
+        try:
+            run_command(["samtools", "faidx", str(ref_path)], capture_output=True)
+        except Exception as exc:
+            logging.warning(
+                f"Reference FASTA is not indexed; falling back to synthetic read sequence: {exc}"
+            )
+            return fallback
+
+    logging.info(
+        "Using reference-backed read sequence with deterministic SNP simulation..."
+    )
+    chrom_names = list(chroms)
+    chunk_size = 16 * 1024 * 1024
+    unavailable_chroms: set[str] = set()
+    cache_chrom = ""
+    cache_start = 0
+    cache_seq = ""
+
+    def fetch_reference_chunk(chrom: str, chunk_start: int) -> tuple[int, str] | None:
+        chunk_end = min(chroms[chrom], chunk_start + chunk_size)
+        region = f"{chrom}:{chunk_start + 1}-{chunk_end}"
+        result = run_command(
+            ["samtools", "faidx", str(ref_path), region],
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            unavailable_chroms.add(chrom)
+            logging.warning(
+                f"Reference does not provide {chrom}; using synthetic read sequence for that contig."
+            )
+            return None
+        seq = "".join(
+            line.strip()
+            for line in (result.stdout or "").splitlines()
+            if line and not line.startswith(">")
+        ).upper()
+        return chunk_start, seq
+
+    def get_reference_seq(chrom_idx: int, pos: int, length: int) -> str:
+        nonlocal cache_chrom, cache_start, cache_seq
+
+        chrom = chrom_names[chrom_idx]
+        if chrom in unavailable_chroms:
+            return fallback(chrom_idx, pos, length)
+
+        pieces = []
+        cursor = pos
+        remaining = length
+        while remaining > 0:
+            if not (
+                cache_chrom == chrom
+                and cache_start <= cursor
+                and cursor < cache_start + len(cache_seq)
+            ):
+                chunk_start = (cursor // chunk_size) * chunk_size
+                fetched = fetch_reference_chunk(chrom, chunk_start)
+                if fetched is None:
+                    return fallback(chrom_idx, pos, length)
+                cache_start, cache_seq = fetched
+                cache_chrom = chrom
+
+            chunk_offset = cursor - cache_start
+            take = min(remaining, len(cache_seq) - chunk_offset)
+            if take <= 0:
+                return fallback(chrom_idx, pos, length)
+            pieces.append(cache_seq[chunk_offset : chunk_offset + take])
+            cursor += take
+            remaining -= take
+
+        return "".join(pieces)
+
+    return get_reference_seq
+
+
+def _stream_fast_bam_sam(
+    write_sam: SamWriter,
+    chroms: dict[str, int],
+    coverage: float,
+    seed: int,
+    target_md5: str | None,
+    get_noise_seq: SequenceProvider,
+) -> None:
+    """Write coordinate-sorted, paired-end SAM without materializing reads in memory."""
+    _write_sam_header(write_sam, chroms, target_md5)
+
+    base_read_len = 100
+    base_insert_size = 300
+    qual_cache: dict[int, str] = {}
+
+    for chrom_idx, (name, length) in enumerate(chroms.items()):
+        num_pairs = max(2, int((length * coverage) / (base_read_len * 2)))
+        max_start = max(1, length - base_insert_size - 1)
+        step = max_start / max(1, num_pairs - 1)
+        pending_mates: list[tuple[int, str]] = []
+
+        for pair_idx in range(num_pairs):
+            pos1 = min(max_start, max(1, int(pair_idx * step) + 1))
+            jitter = ((pair_idx + seed + chrom_idx * 17) % 11) - 5
+            rl1 = max(75, min(125, base_read_len + (jitter % 7) - 3))
+            rl2 = max(75, min(125, base_read_len - (jitter % 7) + 3))
+            insert_size = max(rl1 + rl2 + 10, base_insert_size + jitter)
+            pos2 = min(length - rl2 + 1, pos1 + insert_size - rl2)
+            pos2 = max(pos1, pos2)
+
+            while pending_mates and pending_mates[0][0] <= pos1:
+                _, mate_line = heappop(pending_mates)
+                write_sam(mate_line)
+
+            read_id = f"read_{name}_{pair_idx}"
+            r1_seq, r1_nm = _apply_fast_bam_variants(
+                get_noise_seq(chrom_idx, pos1 - 1, rl1), chrom_idx, pos1 - 1, seed
+            )
+            r2_seq, r2_nm = _apply_fast_bam_variants(
+                get_noise_seq(chrom_idx, pos2 - 1, rl2), chrom_idx, pos2 - 1, seed
+            )
+            q1 = qual_cache.setdefault(rl1, "I" * rl1)
+            q2 = qual_cache.setdefault(rl2, "I" * rl2)
+            r1_cigar = f"{rl1}M"
+            r2_cigar = f"{rl2}M"
+
+            write_sam(
+                _fast_sam_record(
+                    read_id,
+                    99,
+                    name,
+                    pos1,
+                    pos2,
+                    insert_size,
+                    r1_cigar,
+                    r1_seq,
+                    q1,
+                    r1_nm,
+                )
+            )
+            heappush(
+                pending_mates,
+                (
+                    pos2,
+                    _fast_sam_record(
+                        read_id,
+                        147,
+                        name,
+                        pos2,
+                        pos1,
+                        -insert_size,
+                        r2_cigar,
+                        r2_seq,
+                        q2,
+                        r2_nm,
+                    ),
+                ),
+            )
+
+        while pending_mates:
+            _, mate_line = heappop(pending_mates)
+            write_sam(mate_line)
+
+
+def _create_fast_fake_bam(
+    bam_path: str,
+    chroms: dict[str, int],
+    coverage: float,
+    seed: int,
+    target_md5: str | None,
+    get_noise_seq: SequenceProvider,
+    threads: str,
+) -> None:
+    logging.info(f"Streaming coordinate-sorted fake BAM directly to {bam_path}...")
+    cmd = _samtools_view_bam_writer_cmd(bam_path, threads)
+    process = popen(cmd, stdin=subprocess.PIPE)
+    stdin = process.stdin
+    if stdin is None:
+        raise WGSExtractError("Failed to open samtools stdin for fake BAM creation.")
+
+    pending = bytearray()
+    flush_at = 4 * 1024 * 1024
+
+    def write_sam(line: str) -> None:
+        pending.extend(line.encode())
+        if len(pending) >= flush_at:
+            stdin.write(pending)
+            pending.clear()
+
+    try:
+        _stream_fast_bam_sam(
+            write_sam,
+            chroms,
+            coverage,
+            seed,
+            target_md5,
+            get_noise_seq,
+        )
+        if pending:
+            stdin.write(pending)
+        stdin.close()
+        return_code = process.wait()
+        if return_code != 0:
+            raise WGSExtractError(
+                f"samtools failed while creating fake BAM with exit code {return_code}."
+            )
+    except Exception:
+        if process.poll() is None:
+            process.kill()
+        raise
+
+
+def _write_fake_reference(
+    ref_path: str, chroms: dict[str, int], get_noise_seq: SequenceProvider
+) -> None:
+    with open(ref_path, "w") as f:
+        for idx, (name, length) in enumerate(chroms.items()):
+            f.write(f">{name}\n")
+            chunk_size = 1000000
+            for i in range(0, length, chunk_size):
+                this_chunk_len = min(chunk_size, length - i)
+                seq = list(get_noise_seq(idx, i, this_chunk_len))
+                f.write("".join(seq) + "\n")
+
+
 def cmd_fake_data(args):
     verify_dependencies(["samtools", "bcftools", "bgzip", "tabix"])
     log_dependency_info(["samtools", "bcftools"])
@@ -255,6 +614,7 @@ def cmd_fake_data(args):
         full_size=args.full_size,
         types=types,
         target_md5=target_md5,
+        legacy_bam=args.legacy_bam,
     )
 
 
@@ -267,6 +627,7 @@ def generate_fake_genomics_data(
     full_size=False,
     types=None,
     target_md5=None,
+    legacy_bam=False,
 ):
     """Generates a scaled-down or full human fake BAM, CRAM and VCF."""
     import random
@@ -275,6 +636,9 @@ def generate_fake_genomics_data(
         types = ["cram"]
 
     random.seed(seed)
+
+    if legacy_bam and full_size:
+        raise WGSExtractError("--legacy-bam is only supported for scaled fake data.")
 
     mode = "Full size" if full_size else "Scaled"
     logging.info(
@@ -415,22 +779,33 @@ def generate_fake_genomics_data(
     # Add a dummy contig to avoid collision with known SN counts in info.py (e.g. 25)
     chroms["chrExtra" if not is_hg19 else "Extra"] = 1000
 
-    # 0. Pre-generate consistent variants for all chromosomes
-    # This ensures that all reads covering a position see the same variant
-    # variants[chrom] = {pos: (ref, alt, is_indel, cigar_change)}
+    # 0. Pre-generate consistent variants only for the legacy scaled BAM path.
+    # The default streaming path applies deterministic SNPs in-flight without a
+    # chromosome-wide variant map so it works at full-genome scale.
+    need_bam = any(t in types for t in ["bam", "cram", "fastq"])
+    use_streaming_bam = need_bam and not legacy_bam
     consistent_variants = {}
-    for name, length in chroms.items():
-        v_list = {}
-        # 1 variant every 2000 bp
-        num_v = max(2, length // 2000)
-        for _ in range(num_v):
-            v_pos = random.randint(100, length - 100)
-            v_type = random.random()
-            if v_type < 0.8:  # SNP
-                v_list[v_pos] = (random.choice("ACGT"), random.choice("ACGT"), False)
-            else:  # Indel (just a marker for now, we'll do real ones if possible)
-                v_list[v_pos] = (random.choice("ACGT"), "AT", True)
-        consistent_variants[name] = v_list
+    if need_bam and not use_streaming_bam:
+        # This ensures that all reads covering a position see the same variant
+        # variants[chrom] = {pos: (ref, alt, is_indel, cigar_change)}
+        for name, length in chroms.items():
+            v_list = {}
+            # 1 variant every 2000 bp
+            num_v = max(2, length // 2000)
+            for _ in range(num_v):
+                v_pos = random.randint(100, length - 100)
+                v_type = random.random()
+                if v_type < 0.8:  # SNP
+                    v_list[v_pos] = (
+                        random.choice("ACGT"),
+                        random.choice("ACGT"),
+                        False,
+                    )
+                else:  # Indel (just a marker for now, we'll do real ones if possible)
+                    v_list[v_pos] = (random.choice("ACGT"), "AT", True)
+            consistent_variants[name] = v_list
+
+    ref_path_was_provided = bool(ref_path)
 
     # 1. Create a reference if none provided
     if not ref_path:
@@ -438,21 +813,22 @@ def generate_fake_genomics_data(
             outdir, f"fake_ref_{build}_{mode.lower().replace(' ', '_')}.fa"
         )
 
-    if not os.path.exists(str(ref_path)):
+    # Preserve scaled fake-data behavior by creating a small reference, but avoid
+    # writing a full human FASTA unless a caller explicitly requested it or CRAM
+    # output requires a reference.
+    should_create_reference = ref_path_was_provided or not full_size or "cram" in types
+    ref_exists = os.path.exists(str(ref_path))
+    if ref_exists:
+        logging.info(f"Using reference: {ref_path}")
+    elif should_create_reference:
         logging.info(f"Creating fake reference at {ref_path}...")
-        with open(ref_path, "w") as f:
-            for idx, (name, length) in enumerate(chroms.items()):
-                f.write(f">{name}\n")
-                # Writing large files in chunks is faster
-                chunk_size = 1000000
-                for i in range(0, length, chunk_size):
-                    this_chunk_len = min(chunk_size, length - i)
-                    seq = list(get_noise_seq(idx, i, this_chunk_len))
-                    # Reference should NOT have the variants
-                    f.write("".join(seq) + "\n")
+        _write_fake_reference(str(ref_path), chroms, get_noise_seq)
         run_command(["samtools", "faidx", ref_path])
     else:
-        logging.info(f"Using reference: {ref_path}")
+        logging.info(
+            "Skipping full-size fake reference creation because the requested outputs "
+            "do not require a reference."
+        )
 
     # 2. Create fake BAM with reads on all chromosomes based on coverage
     # We generate reads in sorted order to avoid a massive sort operation
@@ -461,145 +837,163 @@ def generate_fake_genomics_data(
     base_read_len = 100
     base_insert_size = 300
 
-    need_bam = any(t in types for t in ["bam", "cram", "fastq"])
     if need_bam:
-        with open(sam_path, "w") as f:
-            f.write("@HD\tVN:1.6\tSO:coordinate\n")
+        if use_streaming_bam:
+            threads, _ = get_resource_defaults(None, None)
+            _create_fast_fake_bam(
+                bam_path,
+                chroms,
+                coverage,
+                seed,
+                target_md5,
+                _reference_backed_sequence_provider(ref_path, chroms, get_noise_seq),
+                threads,
+            )
+        else:
+            with open(sam_path, "w") as f:
+                f.write("@HD\tVN:1.6\tSO:coordinate\n")
 
-            # Embed MD5 in Read Group Description so it survives into BAM and is visible to samtools view -H
-            rg_line = "@RG\tID:sample1\tSM:sample1\tPL:ILLUMINA"
-            if target_md5:
-                rg_line += f"\tDS:MD5:{target_md5}"
-            f.write(rg_line + "\n")
+                # Embed MD5 in Read Group Description so it survives into BAM and is visible to samtools view -H
+                rg_line = "@RG\tID:sample1\tSM:sample1\tPL:ILLUMINA"
+                if target_md5:
+                    rg_line += f"\tDS:MD5:{target_md5}"
+                f.write(rg_line + "\n")
 
-            if target_md5:
-                f.write(f"@CO\tMD5:{target_md5}\n")
+                if target_md5:
+                    f.write(f"@CO\tMD5:{target_md5}\n")
 
-            # Always write SQ lines from chroms dict for fake data
-            for name, length in chroms.items():
-                f.write(f"@SQ\tSN:{name}\tLN:{length}\n")
+                # Always write SQ lines from chroms dict for fake data
+                for name, length in chroms.items():
+                    f.write(f"@SQ\tSN:{name}\tLN:{length}\n")
 
-            # Generate reads chromosome by chromosome (sorted)
-            for idx, (name, length) in enumerate(chroms.items()):
-                num_pairs = int(
-                    (length * coverage) / (base_read_len * 2)
-                )  # divided by 2 for pairs
-                if num_pairs < 2:
-                    num_pairs = 2
+                # Generate reads chromosome by chromosome (sorted)
+                for idx, (name, length) in enumerate(chroms.items()):
+                    num_pairs = int(
+                        (length * coverage) / (base_read_len * 2)
+                    )  # divided by 2 for pairs
+                    if num_pairs < 2:
+                        num_pairs = 2
 
-                # Generate read pairs
-                reads = []
-                cv = consistent_variants.get(name, {})
-                for i in range(num_pairs):
-                    # Randomize read length and insert size
-                    rl1 = int(random.gauss(base_read_len, 2))
-                    rl2 = int(random.gauss(base_read_len, 2))
-                    # Ensure lengths are reasonable
-                    rl1 = max(50, min(150, rl1))
-                    rl2 = max(50, min(150, rl2))
+                    # Generate read pairs
+                    reads = []
+                    cv = consistent_variants.get(name, {})
+                    for i in range(num_pairs):
+                        # Randomize read length and insert size
+                        rl1 = int(random.gauss(base_read_len, 2))
+                        rl2 = int(random.gauss(base_read_len, 2))
+                        # Ensure lengths are reasonable
+                        rl1 = max(50, min(150, rl1))
+                        rl2 = max(50, min(150, rl2))
 
-                    ins = int(random.gauss(base_insert_size, 15))
-                    ins = max(rl1 + rl2 + 10, ins)  # Ensure no weird overlaps
+                        ins = int(random.gauss(base_insert_size, 15))
+                        ins = max(rl1 + rl2 + 10, ins)  # Ensure no weird overlaps
 
-                    pos1 = random.randint(1, length - ins - 100)
-                    pos2 = pos1 + ins - rl2
+                        pos1 = random.randint(1, length - ins - 100)
+                        pos2 = pos1 + ins - rl2
 
-                    read_id = f"read_{name}_{i}"
+                        read_id = f"read_{name}_{i}"
 
-                    # Pull sequences from the deterministic noise buffer
-                    r1_seq_list = list(get_noise_seq(idx, pos1 - 1, rl1))
-                    r2_seq_list = list(get_noise_seq(idx, pos2 - 1, rl2))
+                        # Pull sequences from the deterministic noise buffer
+                        r1_seq_list = list(get_noise_seq(idx, pos1 - 1, rl1))
+                        r2_seq_list = list(get_noise_seq(idx, pos2 - 1, rl2))
 
-                    # Apply consistent variants
-                    # Homozygous for smoke tests to ensure reliable calling
-                    r1_cigar = f"{rl1}M"
-                    r2_cigar = f"{rl2}M"
+                        # Apply consistent variants
+                        # Homozygous for smoke tests to ensure reliable calling
+                        r1_cigar = f"{rl1}M"
+                        r2_cigar = f"{rl2}M"
 
-                    # Check R1
-                    for v_pos, v_data in cv.items():
-                        v_ref, v_val, is_indel = v_data
-                        if pos1 <= v_pos < pos1 + rl1:
-                            rel_pos = v_pos - pos1
-                            if not is_indel:
-                                # Ensure rel_pos is valid after possible previous indels
-                                if rel_pos < len(r1_seq_list):
-                                    # Ensure alt is different from ref
-                                    if r1_seq_list[rel_pos] == v_val:
-                                        r1_seq_list[rel_pos] = (
-                                            "A" if v_val != "A" else "C"
-                                        )
-                                    else:
-                                        r1_seq_list[rel_pos] = v_val
-                            elif rel_pos > 10 and rel_pos < len(r1_seq_list) - 20:
-                                # Real Deletion: 5bp
-                                del_seq = (
-                                    r1_seq_list[:rel_pos] + r1_seq_list[rel_pos + 5 :]
-                                )
-                                r1_seq_list = del_seq
-                                r1_cigar = f"{rel_pos}M5D{len(r1_seq_list) - rel_pos}M"
+                        # Check R1
+                        for v_pos, v_data in cv.items():
+                            v_ref, v_val, is_indel = v_data
+                            if pos1 <= v_pos < pos1 + rl1:
+                                rel_pos = v_pos - pos1
+                                if not is_indel:
+                                    # Ensure rel_pos is valid after possible previous indels
+                                    if rel_pos < len(r1_seq_list):
+                                        # Ensure alt is different from ref
+                                        if r1_seq_list[rel_pos] == v_val:
+                                            r1_seq_list[rel_pos] = (
+                                                "A" if v_val != "A" else "C"
+                                            )
+                                        else:
+                                            r1_seq_list[rel_pos] = v_val
+                                elif rel_pos > 10 and rel_pos < len(r1_seq_list) - 20:
+                                    # Real Deletion: 5bp
+                                    del_seq = (
+                                        r1_seq_list[:rel_pos]
+                                        + r1_seq_list[rel_pos + 5 :]
+                                    )
+                                    r1_seq_list = del_seq
+                                    r1_cigar = (
+                                        f"{rel_pos}M5D{len(r1_seq_list) - rel_pos}M"
+                                    )
 
-                    # Check R2
-                    for v_pos, v_data in cv.items():
-                        v_ref, v_val, is_indel = v_data
-                        if pos2 <= v_pos < pos2 + rl2:
-                            rel_pos = v_pos - pos2
-                            if not is_indel:
-                                if rel_pos < len(r2_seq_list):
-                                    if r2_seq_list[rel_pos] == v_val:
-                                        r2_seq_list[rel_pos] = (
-                                            "A" if v_val != "A" else "C"
-                                        )
-                                    else:
-                                        r2_seq_list[rel_pos] = v_val
-                            elif rel_pos > 10 and rel_pos < len(r2_seq_list) - 20:
-                                del_seq = (
-                                    r2_seq_list[:rel_pos] + r2_seq_list[rel_pos + 5 :]
-                                )
-                                r2_seq_list = del_seq
-                                r2_cigar = f"{rel_pos}M5D{len(r2_seq_list) - rel_pos}M"
+                        # Check R2
+                        for v_pos, v_data in cv.items():
+                            v_ref, v_val, is_indel = v_data
+                            if pos2 <= v_pos < pos2 + rl2:
+                                rel_pos = v_pos - pos2
+                                if not is_indel:
+                                    if rel_pos < len(r2_seq_list):
+                                        if r2_seq_list[rel_pos] == v_val:
+                                            r2_seq_list[rel_pos] = (
+                                                "A" if v_val != "A" else "C"
+                                            )
+                                        else:
+                                            r2_seq_list[rel_pos] = v_val
+                                elif rel_pos > 10 and rel_pos < len(r2_seq_list) - 20:
+                                    del_seq = (
+                                        r2_seq_list[:rel_pos]
+                                        + r2_seq_list[rel_pos + 5 :]
+                                    )
+                                    r2_seq_list = del_seq
+                                    r2_cigar = (
+                                        f"{rel_pos}M5D{len(r2_seq_list) - rel_pos}M"
+                                    )
 
-                    r1_seq = "".join(r1_seq_list)
-                    r2_seq = "".join(r2_seq_list)
+                        r1_seq = "".join(r1_seq_list)
+                        r2_seq = "".join(r2_seq_list)
 
-                    # R1 (99 = paired, proper pair, mstrand, mate reverse)
-                    reads.append(
-                        (
-                            pos1,
-                            f"{read_id}\t99\t{name}\t{pos1}\t60\t{r1_cigar}\t=\t{pos2}\t{ins}\t"
-                            + r1_seq
-                            + "\t"
-                            + "I" * len(r1_seq)
-                            + "\tRG:Z:sample1\n",
+                        # R1 (99 = paired, proper pair, mstrand, mate reverse)
+                        reads.append(
+                            (
+                                pos1,
+                                f"{read_id}\t99\t{name}\t{pos1}\t60\t{r1_cigar}\t=\t{pos2}\t{ins}\t"
+                                + r1_seq
+                                + "\t"
+                                + "I" * len(r1_seq)
+                                + "\tRG:Z:sample1\n",
+                            )
                         )
-                    )
-                    # R2 (147 = paired, proper pair, reverse, mate mstrand)
-                    reads.append(
-                        (
-                            pos2,
-                            f"{read_id}\t147\t{name}\t{pos2}\t60\t{r2_cigar}\t=\t{pos1}\t-{ins}\t"
-                            + r2_seq
-                            + "\t"
-                            + "I" * len(r2_seq)
-                            + "\tRG:Z:sample1\n",
+                        # R2 (147 = paired, proper pair, reverse, mate mstrand)
+                        reads.append(
+                            (
+                                pos2,
+                                f"{read_id}\t147\t{name}\t{pos2}\t60\t{r2_cigar}\t=\t{pos1}\t-{ins}\t"
+                                + r2_seq
+                                + "\t"
+                                + "I" * len(r2_seq)
+                                + "\tRG:Z:sample1\n",
+                            )
                         )
-                    )
 
-                # Sort all reads by position
-                reads.sort()
+                    # Sort all reads by position
+                    reads.sort()
 
-                # Write in batches
-                batch_size = 10000
-                for i in range(0, len(reads), batch_size):
-                    f.write("".join([r[1] for r in reads[i : i + batch_size]]))
+                    # Write in batches
+                    batch_size = 10000
+                    for i in range(0, len(reads), batch_size):
+                        f.write("".join([r[1] for r in reads[i : i + batch_size]]))
 
-        # Convert SAM to BAM (already sorted)
-        run_command(
-            get_sam_view_cmd(threads="1", fmt="BAM", is_input_sam=True)
-            + [sam_path, "-o", bam_path]
-        )
+            # Convert SAM to BAM (already sorted)
+            run_command(
+                get_sam_view_cmd(threads="1", fmt="BAM", is_input_sam=True)
+                + [sam_path, "-o", bam_path]
+            )
 
         run_command(get_sam_index_cmd(bam_path))
-        os.remove(sam_path)
+        if os.path.exists(sam_path):
+            os.remove(sam_path)
         logging.info(f"Created {bam_path} ({len(chroms)} chromosomes)")
 
     # 3. Create fake CRAM
