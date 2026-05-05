@@ -38,6 +38,17 @@ def test_benchmark_result_names_include_cli_command_labels() -> None:
     )
 
 
+def test_cpu_frequency_handles_psutil_exception(monkeypatch) -> None:
+    def raise_cpu_freq_error():
+        raise RuntimeError("cpu frequency unavailable")
+
+    monkeypatch.setattr(
+        benchmark.psutil, "cpu_freq", raise_cpu_freq_error, raising=False
+    )
+
+    assert benchmark._cpu_frequency() is None
+
+
 def test_benchmark_prints_progress_lines_and_base_file_size(
     tmp_path: Path, capsys, monkeypatch
 ) -> None:
