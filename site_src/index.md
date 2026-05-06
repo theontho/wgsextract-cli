@@ -1,13 +1,13 @@
 ---
-output: index.html
-title: WGS Extract CLI | Local-first whole genome toolkit
-description: WGS Extract CLI and GUI documentation, install guide, workflows, and whole genome sequencing reference.
-eyebrow: Local-first genomics toolkit
-heading: Turn whole genome data into useful files, reports, and extracts.
-lede: WGS Extract CLI is a modern, scriptable command-line recreation of WGS Extract with a desktop GUI for guided workflows. It wraps common bioinformatics tools so you can inspect BAM/CRAM files, build consumer microarray files, call variants, extract Y/MT reads, manage references, and automate repeatable genome work.
-footer_title: WGS Extract CLI
-footer_text: Local-first tools for practical whole genome sequencing workflows.
-footer_extra: GPL-3.0-or-later. Source on [GitHub](https://github.com/theontho/wgsextract-cli).
+output: 'index.html'
+title: 'WGS Extract CLI | Local-first whole genome toolkit'
+description: 'WGS Extract CLI and GUI documentation, install guide, workflows, and whole genome sequencing reference.'
+eyebrow: 'Local-first genomics toolkit'
+heading: 'Turn whole genome data into useful files, reports, and extracts.'
+lede: 'WGS Extract CLI is a modern, scriptable command-line recreation of WGS Extract with a desktop GUI for guided workflows. It wraps common bioinformatics tools so you can inspect BAM/CRAM files, build consumer microarray files, call variants, extract Y/MT reads, manage references, and automate repeatable genome work.'
+footer_title: 'WGS Extract CLI'
+footer_text: 'Local-first tools for practical whole genome sequencing workflows.'
+footer_extra: 'GPL-3.0-or-later. Source on [GitHub](https://github.com/theontho/wgsextract-cli).'
 footer_link_text:
 footer_link_href:
 auto_hero: false

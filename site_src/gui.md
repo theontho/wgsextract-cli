@@ -1,15 +1,15 @@
 ---
-output: gui.html
-title: GUI Guide | WGS Extract CLI
-description: Desktop GUI guide for WGS Extract CLI.
-eyebrow: Guided interface
-heading: The GUI is a command launcher with context.
-lede: The desktop GUI gives WGS Extract a tabbed interface for common jobs: selecting genome files, checking dependencies, browsing references, launching extraction and microarray tasks, running VCF workflows, and watching logs.
-actions: GUI tabs|#tabs|primary; How it maps to CLI|#cli-map
-footer_title: WGS Extract GUI
-footer_text: Desktop interface guide.
-footer_link_text: CLI guide
-footer_link_href: cli.html
+output: 'gui.html'
+title: 'GUI Guide | WGS Extract CLI'
+description: 'Desktop GUI guide for WGS Extract CLI.'
+eyebrow: 'Guided interface'
+heading: 'The GUI is a command launcher with context.'
+lede: 'The desktop GUI gives WGS Extract a tabbed interface for common jobs: selecting genome files, checking dependencies, browsing references, launching extraction and microarray tasks, running VCF workflows, and watching logs.'
+actions: 'GUI tabs|#tabs|primary; How it maps to CLI|#cli-map'
+footer_title: 'WGS Extract GUI'
+footer_text: 'Desktop interface guide.'
+footer_link_text: 'CLI guide'
+footer_link_href: 'cli.html'
 ---
 
 ::: section

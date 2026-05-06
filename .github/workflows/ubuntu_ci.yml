@@ -33,8 +33,8 @@ jobs:
         run: pixi run python -m wgsextract_cli.main ref library --install hs38 --ref reference
       - name: Lint and Type Check
         run: |
-          pixi run ruff check .
-          pixi run mypy src/wgsextract_cli
+          pixi run lint
+          pixi run typecheck
       - name: Run Benchmark
         run: |
           pixi run wgsextract benchmark --dataset real --profile smoke
