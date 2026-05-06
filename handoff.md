@@ -11,6 +11,7 @@ The build is designed to be run by developers and CI, not by end users.
 ## Files Added Or Changed
 
 - `.github/workflows/macos_app_release.yml`
+- `.github/workflows/macos_app_pr_ci.yml`
 - `packaging/macos/app_env.sh`
 - `packaging/macos/launch_gui.sh`
 - `packaging/macos/open_cli.command`
@@ -118,6 +119,8 @@ The workflow:
 4. Uploads the DMG and `.sha256` as workflow artifacts.
 5. If triggered by a release publish event, attaches the DMG and checksum to that release with `gh release upload --clobber`.
 
+`.github/workflows/macos_app_pr_ci.yml` is a dedicated PR/dispatch validation workflow for the app packaging. It runs on pull requests targeting `main` or this continuation branch base (`macos-app-dmg-installer`) and on `workflow_dispatch`. It validates the packaging shell scripts, builds the app/DMG on `macos-latest`, inspects the app bundle, runs the bundled CLI help command, mounts the DMG, checks the drag-and-drop contents, and uploads the DMG/checksum as artifacts.
+
 ## Validation Already Performed
 
 The following checks passed locally on macOS:
@@ -133,6 +136,16 @@ pixi run --manifest-path "out/macos/WGS Extract.app/Contents/Resources/app/pixi.
 pixi run ruff check .
 pixi run mypy src/wgsextract_cli
 ```
+
+For this continuation PR, the Linux baseline also passed before adding the PR workflow:
+
+```bash
+pixi run test
+pixi run lint
+pixi run typecheck
+```
+
+The new `PR macOS App Packaging` workflow was created and triggered for PR #22, but GitHub completed the first run with `action_required` before scheduling jobs, which indicates the workflow needs repository/maintainer approval before its macOS jobs can execute.
 
 The DMG was also mounted read-only and inspected. It contained:
 
@@ -229,6 +242,7 @@ pixi run mypy src/wgsextract_cli
 - Shared Pixi/runtime lookup logic: `packaging/macos/app_env.sh`
 - CLI helper failures: `packaging/macos/open_cli.command`
 - CI release artifact behavior: `.github/workflows/macos_app_release.yml`
+- PR macOS app validation behavior: `.github/workflows/macos_app_pr_ci.yml`
 - User-facing build notes: `README.md` and `packaging/macos/README.md`
 - Runtime launch logs on a user's Mac: `~/Library/Logs/WGS Extract/launcher-*.log`
 - Writable runtime copy on a user's Mac: `~/Library/Application Support/WGS Extract/runtime/<version>/app`
