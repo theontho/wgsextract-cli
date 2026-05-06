@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Common WGS Extract workflows for ancestry, microarray simulation, variant calling, extraction, references, and storage." />
+    <title>Workflows | WGS Extract CLI</title>
+    <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".82em" font-size="84">🧬</text></svg>' />
+    <link rel="stylesheet" href="assets/site.css" />
+  </head>
+  <body>
+    <nav class="nav" aria-label="Primary navigation">
+      <div class="wrap nav-inner">
+        <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true"></span><span>WGS Extract CLI</span></a>
+        <div class="nav-links"><a href="index.html">Home</a><a href="install.html">Install</a><a href="cli.html">CLI</a><a href="gui.html">GUI</a><a class="active" href="workflows.html">Workflows</a><a href="wgs-guide.html">WGS guide</a><a href="reference.html">Reference</a></div>
+      </div>
+    </nav>
+
+    <main>
+      <header class="page-hero">
+        <div class="wrap">
+          <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Goal-oriented recipes</p>
+          <h1>Start with what you want to produce.</h1>
+          <p class="lede">Whole genome workflows are easier when you choose the output first: an uploadable microarray file, a smaller Y/MT extract, a VCF, a storage-friendly CRAM, or a full FASTQ-to-BAM alignment.</p>
+          <div class="toc"><a href="#microarray">Microarray</a><a href="#ymt">Y/MT</a><a href="#variants">Variants</a><a href="#fastq">FASTQ</a><a href="#storage">Storage</a><a href="#testing">Testing</a></div>
+        </div>
+      </header>
+
+      <section id="microarray">
+        <div class="wrap split">
+          <div><p class="kicker">Ancestry uploads</p><h2>Simulate consumer microarray files</h2><p class="lede">Use this when you have WGS data but need a raw-data style file for services expecting 23andMe, AncestryDNA, FTDNA, MyHeritage, GEDmatch-style combined kits, or research panels.</p></div>
+          <div class="code-panel"><header><span>microarray.sh</span><span>common formats</span></header><pre><code>pixi run wgsextract --input sample.bam microarray --formats all
+pixi run wgsextract --input sample.bam microarray --formats 23andme_v5
+pixi run wgsextract --input sample.bam microarray --formats 23andme_v5,ancestry_v2,ftdna_v3</code></pre></div>
+        </div>
+      </section>
+
+      <section id="ymt">
+        <div class="wrap">
+          <div class="section-head"><h2>Extract mitochondrial and Y-DNA data</h2><p>These outputs are much smaller than a whole genome and are useful for haplogroup tools, genealogy services, and quick validation.</p></div>
+          <div class="grid three">
+            <article class="card"><h3>mtDNA FASTA</h3><p>Consensus sequence for mitochondrial analysis.</p><pre><code>pixi run wgsextract --input sample.bam extract mito-fasta</code></pre></article>
+            <article class="card"><h3>mtDNA VCF</h3><p>Mitochondrial variants for Haplogrep-style workflows.</p><pre><code>pixi run wgsextract --input sample.bam extract mito-vcf --region chrM</code></pre></article>
+            <article class="card"><h3>Y-DNA BAM / VCF</h3><p>Paternal-lineage inputs for Y-focused tools and services.</p><pre><code>pixi run wgsextract --input sample.bam extract ydna-bam
+pixi run wgsextract --input sample.bam extract ydna-vcf</code></pre></article>
+          </div>
+        </div>
+      </section>
+
+      <section id="variants">
+        <div class="wrap">
+          <div class="section-head"><h2>Call, annotate, and filter variants</h2><p>VCF workflows produce the file type most downstream variant tools understand. Choose callers based on variant type, sequencing technology, runtime, and accuracy needs.</p></div>
+          <div class="code-panel"><header><span>variants.sh</span><span>small first, then full genome</span></header><pre><code># Fast region test
+pixi run wgsextract --input sample.bam --ref /refs/hs38.fa vcf snp --region chrM
+
+# Whole-genome small variants
+pixi run wgsextract --input sample.bam --ref /refs/hs38.fa vcf snp
+pixi run wgsextract --input sample.bam --ref /refs/hs38.fa vcf indel
+
+# Structural variants
+pixi run wgsextract --input sample.bam --ref /refs/hs38.fa vcf sv
+
+# Annotation and filtering
+pixi run wgsextract vep run --vcf-input calls.vcf.gz
+pixi run wgsextract vcf filter --vcf-input calls.vep.vcf.gz --gene BRCA1
+pixi run wgsextract vcf filter --vcf-input calls.vcf.gz --expr 'QUAL&gt;30'</code></pre></div>
+        </div>
+      </section>
+
+      <section id="fastq">
+        <div class="wrap split">
+          <div><p class="kicker">Raw reads</p><h2>From FASTQ to an aligned file</h2><p class="lede">FASTQ files are raw reads. Quality-check and trim them before alignment, then align to the reference build you intend to use for downstream VCF and extraction work.</p></div>
+          <div class="code-panel"><header><span>fastq-to-bam.sh</span><span>raw data path</span></header><pre><code>pixi run wgsextract --input sample_R1.fastq.gz qc fastqc
+pixi run wgsextract qc fastp --r1 sample_R1.fastq.gz --r2 sample_R2.fastq.gz
+pixi run wgsextract align --r1 sample_R1_fp_1.fastq.gz --r2 sample_R1_fp_2.fastq.gz --ref /refs/hs38.fa</code></pre></div>
+        </div>
+      </section>
+
+      <section id="storage">
+        <div class="wrap">
+          <div class="section-head"><h2>Clean up and store alignment files</h2><p>Coordinate-sorted, indexed CRAM is usually a better long-term storage format than BAM when you have the matching reference genome.</p></div>
+          <div class="grid three">
+            <article class="card"><h3>Sort</h3><pre><code>pixi run wgsextract --input sample.bam bam sort</code></pre><p>Required by most variant callers and random-access tools.</p></article>
+            <article class="card"><h3>Index</h3><pre><code>pixi run wgsextract --input sample.sorted.bam bam index</code></pre><p>Creates .bai/.crai random-access indexes.</p></article>
+            <article class="card"><h3>Compress to CRAM</h3><pre><code>pixi run wgsextract --input sample.sorted.bam --ref /refs/hs38.fa bam to-cram</code></pre><p>Smaller storage if the reference is preserved.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section id="testing">
+        <div class="wrap split">
+          <div><p class="kicker">Safe experimentation</p><h2>Generate fake data before touching real genomes</h2><p class="lede">Fake data is useful for learning command shapes, testing pipeline plumbing, benchmarking file IO, and creating reproducible bug reports without exposing real genetic data.</p></div>
+          <div class="code-panel"><header><span>fake-data.sh</span><span>test artifacts</span></header><pre><code>pixi run wgsextract qc fake-data --type bam --coverage 1 --outdir out/fake-fast
+pixi run wgsextract qc fake-data --type bam,vcf,fastq --coverage 0.1 --outdir out/fake-all
+pixi run wgsextract qc fake-data --type bam --coverage 0.1 --full-size --outdir out/fake-full</code></pre></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer"><div class="wrap"><div><strong>WGS Extract Workflows</strong><p>Goal-oriented genome recipes.</p></div><p><a href="wgs-guide.html">Next: WGS guide</a></p></div></footer>
+  </body>
+</html>
