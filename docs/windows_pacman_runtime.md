@@ -75,7 +75,7 @@ MSYS2 UCRT64 publishes packages for the required HTS tools used by WGSExtract, i
 C:\msys64\ucrt64\bin\bwa.exe
 ```
 
-The release binary is produced by the `Release Windows BWA` GitHub Actions workflow and packaged as `wgsextract-bwa-<version>-windows-ucrt64.zip` with a neighboring `.sha256` checksum file. The installer verifies the checksum when it is available.
+The release binary is produced by the `Release Windows BWA` GitHub Actions workflow and packaged as `wgsextract-bwa-<version>-windows-ucrt64.zip`. For GitHub release asset URLs, the installer verifies the ZIP against the asset's GitHub-provided SHA-256 digest. For local ZIPs or non-GitHub URLs, set `WGSEXTRACT_BWA_BINARY_SHA256` when you want checksum verification.
 
 If the release asset cannot be downloaded, or if you pass `-ForceBwaBuild`, the helper builds BWA locally. That fallback build uses the MSYS2 UCRT64 toolchain installed by pacman, specifically `mingw-w64-ucrt-x86_64-gcc` plus `base-devel`, `make`, `curl`, and `tar`. Windows does not include a built-in C compiler suitable for this build. Visual Studio Build Tools or the Windows SDK are optional Microsoft installs and are not used by this helper; the script runs `make CC=gcc` inside MSYS2 UCRT64 for a consistent native Windows `.exe`.
 
