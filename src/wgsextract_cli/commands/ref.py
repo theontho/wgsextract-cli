@@ -11,6 +11,7 @@ from wgsextract_cli.core.ref_library import (
     download_alphamissense,
     download_and_process_genome,
     download_clinvar,
+    download_file,
     download_gnomad,
     download_pharmgkb,
     download_phylop,
@@ -149,10 +150,8 @@ def cmd_download(args):
         raise WGSExtractError(f"Output path is a directory: {args.out}")
 
     logging.info(LOG_MESSAGES["ref_downloading"].format(url=args.url, path=args.out))
-    try:
-        run_command(["curl", "-L", "-o", args.out, args.url])
-    except Exception as e:
-        raise WGSExtractError(f"Download failed: {e}") from e
+    if not download_file(args.url, args.out):
+        raise WGSExtractError("Download failed.")
 
 
 def cmd_index(args):

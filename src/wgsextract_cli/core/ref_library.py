@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import csv
+import hashlib
+import json
 import logging
 import os
 import re
@@ -9,6 +11,7 @@ import sys
 import time
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
 
 from wgsextract_cli.core.dependencies import verify_dependencies
@@ -26,6 +29,11 @@ def download_file(
 ) -> bool:
     """Downloads a file with progress reporting, optional cancellation, and resume support."""
     partial_dest = dest + ".partial"
+    try:
+        expected_sha256 = resolve_github_release_asset_sha256(url)
+    except Exception as e:
+        logging.error(f"Could not resolve download checksum for {url}: {e}")
+        return False
 
     # Try curl first
     try:
@@ -38,7 +46,7 @@ def download_file(
         # Note: we don't use progress_callback with curl easily here without parsing output
         # For simplicity in CLI, we'll just run it.
         run_command(cmd, capture_output=True)
-        return True
+        return verify_download_sha256(dest, expected_sha256)
     except Exception:
         # Fallback to urllib
         pass
@@ -111,10 +119,84 @@ def download_file(
         if os.path.exists(dest):
             os.remove(dest)
         os.rename(partial_dest, dest)
-        return True
+        return verify_download_sha256(dest, expected_sha256)
     except Exception as e:
         logging.error(f"Download error: {e}")
         return False
+
+
+def resolve_github_release_asset_sha256(url: str) -> str | None:
+    """Return GitHub's sha256 digest for a release asset URL, if applicable."""
+    parsed = urlparse(url)
+    if parsed.netloc.lower() != "github.com":
+        return None
+
+    parts = [unquote(part) for part in parsed.path.strip("/").split("/")]
+    if len(parts) == 6 and parts[2:4] == ["releases", "download"]:
+        owner, repo, tag, asset_name = parts[0], parts[1], parts[4], parts[5]
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
+    elif len(parts) == 6 and parts[2:5] == ["releases", "latest", "download"]:
+        owner, repo, asset_name = parts[0], parts[1], parts[5]
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+    else:
+        return None
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "wgsextract-cli",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    github_token = os.environ.get("GITHUB_TOKEN")
+    if github_token:
+        headers["Authorization"] = f"Bearer {github_token}"
+
+    req = Request(api_url, headers=headers)
+    with urlopen(req, timeout=30) as response:
+        release = json.loads(response.read().decode("utf-8"))
+
+    for asset in release.get("assets", []):
+        if asset.get("name") != asset_name:
+            continue
+        digest = str(asset.get("digest", ""))
+        match = re.fullmatch(r"(?i)sha256:([a-f0-9]{64})", digest)
+        if not match:
+            raise ValueError(
+                f"GitHub release asset {asset_name} did not include a sha256 digest."
+            )
+        return match.group(1).lower()
+
+    raise ValueError(
+        f"GitHub release asset metadata was not found for {asset_name} at {api_url}."
+    )
+
+
+def verify_download_sha256(path: str, expected_sha256: str | None) -> bool:
+    """Verify a downloaded file against an expected SHA-256 digest."""
+    if not expected_sha256:
+        return True
+
+    sha256 = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                sha256.update(chunk)
+    except OSError as e:
+        logging.error(f"Could not read downloaded file for checksum verification: {e}")
+        return False
+
+    actual_sha256 = sha256.hexdigest()
+    if actual_sha256 == expected_sha256.lower():
+        logging.info(f"Verified GitHub release asset SHA256: {actual_sha256}")
+        return True
+
+    logging.error("Downloaded file checksum mismatch.")
+    logging.error(f"Expected SHA256: {expected_sha256.lower()}")
+    logging.error(f"Actual SHA256:   {actual_sha256}")
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    return False
 
 
 def load_genomes_from_csv(csv_path):
@@ -858,12 +940,8 @@ def download_bootstrap(
     dest_path = os.path.join(reflib_dir, BOOTSTRAP_FILENAME)
     logging.info(f"Downloading bootstrap from {BOOTSTRAP_URL}...")
 
-    # Try curl first if available, then fallback to download_file (urllib)
-    try:
-        run_command(["curl", "-L", "-o", dest_path, BOOTSTRAP_URL], capture_output=True)
-    except Exception:
-        if not download_file(BOOTSTRAP_URL, dest_path, progress_callback, cancel_event):
-            return False
+    if not download_file(BOOTSTRAP_URL, dest_path, progress_callback, cancel_event):
+        return False
 
     logging.info(f"Extracting bootstrap to {reflib_dir}...")
     try:
