@@ -25,6 +25,17 @@ def test_benchmark_accepts_runtime_override() -> None:
     assert args.runtime == "msys2"
 
 
+def test_benchmark_accepts_real_coverage_dataset_tags() -> None:
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+    benchmark.register(subparsers, argparse.ArgumentParser(add_help=False))
+
+    assert parser.parse_args(["benchmark", "--dataset", "real-1x"]).dataset == "real-1x"
+    assert (
+        parser.parse_args(["benchmark", "--dataset", "real-30x"]).dataset == "real-30x"
+    )
+
+
 def test_benchmark_result_names_include_cli_command_labels() -> None:
     assert (
         benchmark._name_with_command_label(
@@ -535,3 +546,36 @@ def test_command_region_expands_whole_contig_region(tmp_path: Path) -> None:
     assert benchmark._command_region("20", ref) == "20:1-1000"
     assert benchmark._command_region("20:10-20", ref) == "20:10-20"
     assert benchmark._command_region(None, ref) is None
+
+
+def test_normalize_region_for_ref_matches_chr_prefix(tmp_path: Path) -> None:
+    ref = tmp_path / "grch38.fa"
+    Path(str(ref) + ".fai").write_text(
+        "chr20\t1000\t6\t80\t81\nchrM\t16569\t1020\t80\t81\n", encoding="utf-8"
+    )
+
+    assert benchmark._normalize_region_for_ref("20", ref) == "chr20"
+    assert benchmark._normalize_region_for_ref("20:10-20", ref) == "chr20:10-20"
+    assert benchmark._normalize_region_for_ref("MT", ref) == "chrM"
+
+
+def test_direct_real_dataset_manifest_marks_region_safe(tmp_path: Path) -> None:
+    spec = benchmark.REAL_BENCHMARK_DATASETS["real-30x"]
+    ref = tmp_path / "ref.fa"
+    bam = tmp_path / "sample.cram"
+    bai = tmp_path / "sample.cram.crai"
+    ref.write_text(">chrM\nACGT\n", encoding="utf-8")
+    bam.write_bytes(b"cram")
+    bai.write_bytes(b"index")
+
+    benchmark._write_direct_dataset_manifest(
+        spec,
+        tmp_path,
+        {"ref": ref, "bam": bam, "bam_index": bai},
+    )
+
+    dataset = benchmark._load_real_benchmark_dataset(tmp_path)
+
+    assert dataset.dataset_id == spec.dataset_id
+    assert dataset.region_safe is True
+    assert dataset.bam == bam
