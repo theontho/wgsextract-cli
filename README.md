@@ -17,23 +17,21 @@ Designed to be CLI-first for AI-friendliness, `wgsextract-cli` leverages [**Pixi
 
 ## ⚙️ Installation & Setup Guide
 
-`wgsextract-cli` has a self-contained macOS/Linux installer based on [**Pixi**](https://pixi.sh), which manages Python, bioinformatics tools, and the application environment.
+`wgsextract-cli` has a self-contained macOS/Linux installer based on [**Pixi**](https://pixi.sh), which manages Python, bioinformatics tools, and the application environment. Open the Terminal app on your machine, paste this command, and press Enter:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh
 ```
 
-The installer downloads Pixi if needed, downloads the project source archive, runs `pixi install`, and writes launchers inside the install directory. By default, a downloaded `install.sh` creates `wgsextract-cli/` next to itself; when run through `curl | sh`, it creates `wgsextract-cli/` in the current directory. The app, Pixi environment, Pixi cache, CLI launcher, and GUI launch files stay under that one directory so uninstalling is just deleting it. If the installer installed Pixi for you and you no longer need it, uninstall Pixi separately.
+The installer shows an ASCII WGS Extract banner, outlines what it is about to do, downloads Pixi if needed, downloads the project source archive, runs `pixi install`, and writes launchers inside the install directory. By default, a downloaded `install.sh` creates `wgsextract-cli/` next to itself; when run through `curl | sh`, it creates `wgsextract-cli/` in the current directory. The app lives in `wgsextract-cli/app/`, the CLI launcher lives at `wgsextract-cli/wgsextract`, Pixi files live under `wgsextract-cli/.pixi/`, and installer temporary files live under `wgsextract-cli/app/tmp/`. On macOS, the installer opens the install directory in Finder when it finishes. If the installer installed Pixi for you and you no longer need it, uninstall Pixi separately.
 
 After install, the default launchers are:
 
 | Launcher | Purpose |
 | :--- | :--- |
-| `wgsextract-cli/bin/wgsextract` | CLI launcher |
-| `wgsextract-cli/start-wgsextract-gui.sh` | Shell launcher for the desktop GUI |
-| `wgsextract-cli/WGS Extract GUI.command` | Finder double-click launcher for the desktop GUI on macOS |
-| `wgsextract-cli/start-wgsextract-web-gui.sh` | Shell launcher for the web GUI |
-| `wgsextract-cli/WGS Extract Web GUI.command` | Finder double-click launcher for the web GUI on macOS |
+| `wgsextract-cli/wgsextract` | CLI launcher |
+| `wgsextract-cli/WGS Extract GUI.command` | macOS Finder double-click launcher for the desktop GUI |
+| `wgsextract-cli/start-wgsextract-gui.sh` | Linux shell launcher for the desktop GUI |
 
 ### Installer options
 
@@ -44,9 +42,9 @@ Set these environment variables before running the installer to customize it:
 | `WGSEXTRACT_INSTALL_DIR` | `wgsextract-cli` next to `install.sh`, or `./wgsextract-cli` for `curl | sh` | Install location |
 | `WGSEXTRACT_REF` | `main` | Git ref to install |
 | `WGSEXTRACT_ARCHIVE_URL` | GitHub source archive for `WGSEXTRACT_REF` | Exact source archive URL |
-| `WGSEXTRACT_BIN_DIR` | `$WGSEXTRACT_INSTALL_DIR/bin` | CLI launcher directory |
-| `WGSEXTRACT_PIXI_CACHE_DIR` | `$WGSEXTRACT_INSTALL_DIR/pixi-cache` | Pixi package cache directory |
-| `WGSEXTRACT_PIXI_ENV_DIR` | `$WGSEXTRACT_INSTALL_DIR/pixi-envs` | Pixi project environment directory |
+| `WGSEXTRACT_BIN_DIR` | `$WGSEXTRACT_INSTALL_DIR` | CLI launcher directory |
+| `WGSEXTRACT_PIXI_CACHE_DIR` | `$WGSEXTRACT_INSTALL_DIR/.pixi/cache` | Pixi package cache directory |
+| `WGSEXTRACT_PIXI_ENV_DIR` | `$WGSEXTRACT_INSTALL_DIR/.pixi/envs` | Pixi project environment directory |
 
 Leave `WGSEXTRACT_BIN_DIR`, `WGSEXTRACT_PIXI_CACHE_DIR`, and `WGSEXTRACT_PIXI_ENV_DIR` unset for clean one-directory uninstall behavior. Setting any of them outside `WGSEXTRACT_INSTALL_DIR` intentionally leaves that launcher, cache, or environment outside the install tree.
 
@@ -66,7 +64,7 @@ pixi run wgsextract --help
   - **Native Windows (Recommended)**: Run `install_windows.bat` to install the Pixi project environment and choose the MSYS2 UCRT64 pacman runtime as the default. Use `uninstall_windows.bat` to remove the local project install. See [docs/windows_pacman_runtime.md](docs/windows_pacman_runtime.md).
   - **WSL2 (Alternate)**: WSL2 still works for Linux-like development and testing, but the documented Windows installation path is now the native pacman runtime.
 
-The examples below use `wgsextract` for installed usage. If you have not added `wgsextract-cli/bin` to `PATH`, use `./wgsextract-cli/bin/wgsextract` instead. From a manual development checkout, use `pixi run wgsextract`.
+The examples below use `wgsextract` for installed usage. If you have not added `wgsextract-cli` to `PATH`, use `./wgsextract-cli/wgsextract` instead. From a manual development checkout, use `pixi run wgsextract`.
 
 ### Initialize Reference Library
 Before running extraction tools, you must initialize the reference library (VCFs, liftover chains, metadata).
@@ -236,16 +234,11 @@ wgsextract qc fake-data --type bam --coverage 1 --legacy-bam --outdir out/fake-l
 
 ## 🎨 UI Interfaces
 
-While primarily a CLI tool, `wgsextract-cli` includes modern GUI options:
+While primarily a CLI tool, `wgsextract-cli` includes a desktop GUI built with `CustomTkinter`. On macOS, double-click `wgsextract-cli/WGS Extract GUI.command` in Finder. On Linux, run:
 
-1.  **Desktop GUI**: A classic desktop experience built with `CustomTkinter`.
-    ```bash
-    ./wgsextract-cli/start-wgsextract-gui.sh
-    ```
-2.  **Web GUI (NOT Recommended)**: This GUI is incomplete and broken, it's a WIP.
-    ```bash
-    ./wgsextract-cli/start-wgsextract-web-gui.sh
-    ```
+```bash
+./wgsextract-cli/start-wgsextract-gui.sh
+```
 ---
 
 ## 🧪 Testing

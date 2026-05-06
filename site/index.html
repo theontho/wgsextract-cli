@@ -5,6 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="WGS Extract CLI and GUI documentation, install guide, workflows, and whole genome sequencing reference." />
     <title>WGS Extract CLI | Local-first whole genome toolkit</title>
+    <meta property="og:site_name" content="WGS Extract CLI" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="WGS Extract CLI | Local-first whole genome toolkit" />
+    <meta property="og:description" content="WGS Extract CLI and GUI documentation, install guide, workflows, and whole genome sequencing reference." />
+    <meta property="og:url" content="https://theontho.github.io/wgsextract-cli/" />
+    <meta property="og:image" content="https://theontho.github.io/wgsextract-cli/assets/social-preview.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="WGS Extract CLI local-first whole genome toolkit" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="WGS Extract CLI | Local-first whole genome toolkit" />
+    <meta name="twitter:description" content="WGS Extract CLI and GUI documentation, install guide, workflows, and whole genome sequencing reference." />
+    <meta name="twitter:image" content="https://theontho.github.io/wgsextract-cli/assets/social-preview.png" />
+    <link rel="canonical" href="https://theontho.github.io/wgsextract-cli/" />
     <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".82em" font-size="84">🧬</text></svg>' />
     <link rel="stylesheet" href="assets/site.css" />
   </head>
@@ -43,12 +58,15 @@
           <aside class="hero-card" aria-label="Quick start terminal">
             <div class="terminal">
               <div class="terminal-top" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
-              <pre><code><span class="prompt">$</span> <span class="cmd">curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh</span>
+              <pre><code><span class="comment"># Open Terminal, paste this line, then press Enter</span>
+<span class="prompt">$</span> <span class="cmd">curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh</span>
 
 <span class="comment"># Check your setup</span>
-<span class="prompt">$</span> <span class="cmd">./wgsextract-cli/bin/wgsextract info --detailed</span>
+<span class="prompt">$</span> <span class="cmd">./wgsextract-cli/wgsextract info --detailed</span>
 
-<span class="comment"># Launch the desktop GUI</span>
+<span class="comment"># Launch desktop GUI:
+# macOS: double-click WGS Extract GUI.command in Finder
+# Linux:</span>
 <span class="prompt">$</span> <span class="cmd">./wgsextract-cli/start-wgsextract-gui.sh</span></code></pre>
             </div>
             <div class="stats">
@@ -70,7 +88,7 @@
             <article class="card">
               <div class="kicker">Install</div>
               <h3>Install the standalone app or use Pixi directly</h3>
-              <p>Use the standalone macOS/Linux installer by default, or follow the developer Pixi workflow when you want a normal source checkout.</p>
+              <p>Use the standalone macOS/Linux installer, the native Windows installer, or the developer Pixi workflow when you want a normal source checkout.</p>
               <a class="inline-link" href="install.html">Read the install guide</a>
             </article>
             <article class="card">

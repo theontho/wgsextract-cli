@@ -8,6 +8,15 @@ log() {
     printf '%s\n' "$*"
 }
 
+print_banner() {
+    printf '%s\n' " __        ______ ____  _____      _                  _"
+    printf '%s\n' " \ \      / / ___/ ___|| ____|_  _| |_ _ __ __ _  ___| |_"
+    printf '%s\n' "  \ \ /\ / / |  _\___ \|  _| \ \/ / __| '__/ _\` |/ __| __|"
+    printf '%s\n' "   \ V  V /| |_| |___) | |___ >  <| |_| | | (_| | (__| |_"
+    printf '%s\n' "    \_/\_/  \____|____/|_____/_/\_\\\\__|_|  \__,_|\___|\__|"
+    printf '%s\n' ""
+}
+
 fail() {
     printf 'Error: %s\n' "$*" >&2
     exit 1
@@ -55,18 +64,16 @@ default_install_parent() {
 DEFAULT_INSTALL_PARENT="$(default_install_parent)"
 INSTALL_DIR="$(absolute_path "${WGSEXTRACT_INSTALL_DIR:-$DEFAULT_INSTALL_PARENT/wgsextract-cli}")"
 APP_DIR="$INSTALL_DIR/app"
-TMP_DIR="$INSTALL_DIR/tmp"
-DEFAULT_BIN_DIR="$INSTALL_DIR/bin"
-DEFAULT_PIXI_CACHE_DIR="$INSTALL_DIR/pixi-cache"
-DEFAULT_PIXI_ENV_DIR="$INSTALL_DIR/pixi-envs"
+TMP_DIR="$APP_DIR/tmp"
+DEFAULT_BIN_DIR="$INSTALL_DIR"
+DEFAULT_PIXI_CACHE_DIR="$INSTALL_DIR/.pixi/cache"
+DEFAULT_PIXI_ENV_DIR="$INSTALL_DIR/.pixi/envs"
 BIN_DIR="$(absolute_path "${WGSEXTRACT_BIN_DIR:-$DEFAULT_BIN_DIR}")"
 LAUNCHER="$BIN_DIR/wgsextract"
 PIXI_CACHE_DIR="$(absolute_path "${WGSEXTRACT_PIXI_CACHE_DIR:-$DEFAULT_PIXI_CACHE_DIR}")"
 PIXI_ENV_DIR="$(absolute_path "${WGSEXTRACT_PIXI_ENV_DIR:-$DEFAULT_PIXI_ENV_DIR}")"
 GUI_SH="$INSTALL_DIR/start-wgsextract-gui.sh"
 GUI_COMMAND="$INSTALL_DIR/WGS Extract GUI.command"
-WEB_GUI_SH="$INSTALL_DIR/start-wgsextract-web-gui.sh"
-WEB_GUI_COMMAND="$INSTALL_DIR/WGS Extract Web GUI.command"
 ARCHIVE_URL="${WGSEXTRACT_ARCHIVE_URL:-$REPO_URL/archive/$REF.tar.gz}"
 
 uses_default_pixi_layout() {
@@ -75,8 +82,8 @@ uses_default_pixi_layout() {
 
 write_pixi_exports() {
     if uses_default_pixi_layout; then
-        printf 'export PIXI_CACHE_DIR="$install_dir/pixi-cache"\n'
-        printf 'export PIXI_PROJECT_ENVIRONMENT_DIR="$install_dir/pixi-envs"\n'
+        printf 'export PIXI_CACHE_DIR="$install_dir/.pixi/cache"\n'
+        printf 'export PIXI_PROJECT_ENVIRONMENT_DIR="$install_dir/.pixi/envs"\n'
     else
         printf 'export PIXI_CACHE_DIR=%s\n' "$(quote_sh "$PIXI_CACHE_DIR")"
         printf 'export PIXI_PROJECT_ENVIRONMENT_DIR=%s\n' "$(quote_sh "$PIXI_ENV_DIR")"
@@ -89,7 +96,7 @@ write_cli_launcher() {
             printf '#!/bin/sh\n'
             printf 'set -eu\n'
             printf 'script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)\n'
-            printf 'install_dir=$(dirname "$script_dir")\n'
+            printf 'install_dir="$script_dir"\n'
             write_pixi_exports
             printf 'cd "$install_dir/app" || exit 1\n'
             printf 'exec %s run wgsextract "$@"\n' "$(quote_sh "$PIXI")"
@@ -122,7 +129,16 @@ write_gui_launcher() {
     chmod +x "$output_path"
 }
 
-case "$(uname -s)" in
+remove_legacy_bin_launcher() {
+    legacy_launcher="$INSTALL_DIR/bin/wgsextract"
+    if [ "$LAUNCHER" != "$legacy_launcher" ]; then
+        rm -f "$legacy_launcher"
+        rmdir "$INSTALL_DIR/bin" 2>/dev/null || true
+    fi
+}
+
+OS_NAME="$(uname -s)"
+case "$OS_NAME" in
     Darwin|Linux)
         ;;
     *)
@@ -133,6 +149,30 @@ esac
 command_exists curl || fail "curl is required to download the installer payload."
 command_exists tar || fail "tar is required to extract the installer payload."
 command_exists gzip || fail "gzip is required to extract the installer payload."
+
+print_banner
+log "This installer will:"
+log "  1. Use Pixi if it is already installed, or install Pixi if it is missing."
+log "  2. Download WGS Extract CLI from:"
+log "     $ARCHIVE_URL"
+log "  3. Install or update the app in:"
+log "     $INSTALL_DIR"
+log "  4. Create the CLI launcher:"
+log "     $LAUNCHER"
+case "$OS_NAME" in
+    Darwin)
+        log "  5. Create the macOS desktop GUI launcher:"
+        log "     $GUI_COMMAND"
+        log "  6. Verify the app starts and required dependencies are visible."
+        log "  7. Open the install folder in Finder when finished."
+        ;;
+    Linux)
+        log "  5. Create the Linux desktop GUI shell launcher:"
+        log "     $GUI_SH"
+        log "  6. Verify the app starts and required dependencies are visible."
+        ;;
+esac
+log ""
 
 PIXI="${PIXI:-}"
 if [ -n "$PIXI" ] && [ ! -x "$PIXI" ]; then
@@ -181,6 +221,7 @@ rm -rf "$APP_DIR.new"
 mv "$SOURCE_DIR" "$APP_DIR.new"
 rm -rf "$APP_DIR"
 mv "$APP_DIR.new" "$APP_DIR"
+mkdir -p "$TMP_DIR"
 
 log "Installing Pixi environment..."
 cd "$APP_DIR"
@@ -190,23 +231,45 @@ export PIXI_PROJECT_ENVIRONMENT_DIR="$PIXI_ENV_DIR"
 
 log "Writing launchers..."
 write_cli_launcher
-write_gui_launcher "$GUI_SH" "--desktop"
-write_gui_launcher "$GUI_COMMAND" "--desktop"
-write_gui_launcher "$WEB_GUI_SH" "--web"
-write_gui_launcher "$WEB_GUI_COMMAND" "--web"
+case "$OS_NAME" in
+    Darwin)
+        write_gui_launcher "$GUI_COMMAND" "--desktop"
+        rm -f "$GUI_SH" "$INSTALL_DIR/start-wgsextract-web-gui.sh" "$INSTALL_DIR/WGS Extract Web GUI.command"
+        ;;
+    Linux)
+        write_gui_launcher "$GUI_SH" "--desktop"
+        rm -f "$GUI_COMMAND" "$INSTALL_DIR/start-wgsextract-web-gui.sh" "$INSTALL_DIR/WGS Extract Web GUI.command"
+        ;;
+esac
+remove_legacy_bin_launcher
+if uses_default_pixi_layout; then
+    rm -rf "$INSTALL_DIR/pixi-cache" "$INSTALL_DIR/pixi-envs"
+fi
+rm -rf "$INSTALL_DIR/tmp"
 
 log "Checking installation..."
 "$PIXI" run wgsextract --help >/dev/null
 "$PIXI" run wgsextract deps check >/dev/null
 
+case "$OS_NAME" in
+    Darwin)
+        log "Opening install directory in Finder..."
+        open "$INSTALL_DIR"
+        ;;
+esac
+
 log ""
 log "WGS Extract CLI is installed."
 log "Install directory: $INSTALL_DIR"
 log "Launcher: $LAUNCHER"
-log "Desktop GUI launcher: $GUI_SH"
-log "Finder GUI launcher: $GUI_COMMAND"
-log "Web GUI launcher: $WEB_GUI_SH"
-log "Finder Web GUI launcher: $WEB_GUI_COMMAND"
+case "$OS_NAME" in
+    Darwin)
+        log "Desktop GUI launcher: $GUI_COMMAND"
+        ;;
+    Linux)
+        log "Desktop GUI launcher: $GUI_SH"
+        ;;
+esac
 case ":$PATH:" in
     *":$BIN_DIR:"*)
         log "Run: wgsextract --help"
