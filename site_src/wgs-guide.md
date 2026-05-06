@@ -1,15 +1,15 @@
 ---
-output: wgs-guide.html
-title: Whole Genome Guide | WGS Extract CLI
-description: A friendly guide to whole genome sequencing concepts, file types, coverage, references, variants, SNP chips, and practical uses.
-eyebrow: Genomics primer
-heading: Whole genome sequencing, explained practically.
-lede: WGS reads across nearly all of your DNA instead of checking only a small set of predefined markers. That makes it flexible: the same data can be revisited as reference genomes, callers, annotations, and research improve.
-toc: Test types|types; File flow|files; Coverage|coverage; Variants|variants; References|references; Uses and limits|uses
-footer_title: Whole Genome Guide
-footer_text: Concepts for practical WGS work.
-footer_link_text: Next: reference
-footer_link_href: reference.html
+output: 'wgs-guide.html'
+title: 'Whole Genome Guide | WGS Extract CLI'
+description: 'A friendly guide to whole genome sequencing concepts, file types, coverage, references, variants, SNP chips, and practical uses.'
+eyebrow: 'Genomics primer'
+heading: 'Whole genome sequencing, explained practically.'
+lede: 'WGS reads across nearly all of your DNA instead of checking only a small set of predefined markers. That makes it flexible: the same data can be revisited as reference genomes, callers, annotations, and research improve.'
+toc: 'Test types|types; File flow|files; Coverage|coverage; Variants|variants; References|references; Uses and limits|uses'
+footer_title: 'Whole Genome Guide'
+footer_text: 'Concepts for practical WGS work.'
+footer_link_text: 'Next: reference'
+footer_link_href: 'reference.html'
 ---
 
 ::: section id=types

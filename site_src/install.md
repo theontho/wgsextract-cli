@@ -1,15 +1,15 @@
 ---
-output: install.html
-title: Install | WGS Extract CLI
-description: Install WGS Extract CLI with the standalone macOS/Linux installer, native Windows installer, or developer Pixi workflow.
-eyebrow: Setup guide
-heading: Install once, then run repeatable genome workflows.
-lede: WGS Extract CLI uses Pixi to manage Python, the app itself, and many external bioinformatics tools. macOS and Linux use the standalone terminal installer; Windows uses `install_windows.bat` from PowerShell with the MSYS2 UCRT64 pacman runtime.
-toc: macOS/Linux|quickstart; Windows|windows; Developer Pixi setup|developer; Platforms|platforms; References|references; Configuration|config; Verify|verify
-footer_title: WGS Extract CLI
-footer_text: Install guide and environment reference.
-footer_link_text: Next: CLI guide
-footer_link_href: cli.html
+output: 'install.html'
+title: 'Install | WGS Extract CLI'
+description: 'Install WGS Extract CLI with the standalone macOS/Linux installer, native Windows installer, or developer Pixi workflow.'
+eyebrow: 'Setup guide'
+heading: 'Install once, then run repeatable genome workflows.'
+lede: 'WGS Extract CLI uses Pixi to manage Python, the app itself, and many external bioinformatics tools. macOS and Linux use the standalone terminal installer; Windows uses `install_windows.bat` from PowerShell with the MSYS2 UCRT64 pacman runtime.'
+toc: 'macOS/Linux|quickstart; Windows|windows; Developer Pixi setup|developer; Platforms|platforms; References|references; Configuration|config; Verify|verify'
+footer_title: 'WGS Extract CLI'
+footer_text: 'Install guide and environment reference.'
+footer_link_text: 'Next: CLI guide'
+footer_link_href: 'cli.html'
 ---
 
 ::: section id=quickstart

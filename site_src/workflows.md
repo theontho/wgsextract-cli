@@ -1,15 +1,15 @@
 ---
-output: workflows.html
-title: Workflows | WGS Extract CLI
-description: Common WGS Extract workflows for ancestry, SNP chip simulation, variant calling, extraction, references, and storage.
-eyebrow: Goal-oriented recipes
-heading: Start with what you want to produce.
-lede: Whole genome workflows are easier when you choose the output first: an uploadable microarray / SNP chip file, a smaller Y/MT extract, a VCF, a storage-friendly CRAM, or a full FASTQ-to-BAM alignment.
-toc: Microarray / SNP chip|microarray; Y/MT|ymt; Variants|variants; FASTQ|fastq; Storage|storage; Testing|testing
-footer_title: WGS Extract Workflows
-footer_text: Goal-oriented genome recipes.
-footer_link_text: Next: WGS guide
-footer_link_href: wgs-guide.html
+output: 'workflows.html'
+title: 'Workflows | WGS Extract CLI'
+description: 'Common WGS Extract workflows for ancestry, SNP chip simulation, variant calling, extraction, references, and storage.'
+eyebrow: 'Goal-oriented recipes'
+heading: 'Start with what you want to produce.'
+lede: 'Whole genome workflows are easier when you choose the output first: an uploadable microarray / SNP chip file, a smaller Y/MT extract, a VCF, a storage-friendly CRAM, or a full FASTQ-to-BAM alignment.'
+toc: 'Microarray / SNP chip|microarray; Y/MT|ymt; Variants|variants; FASTQ|fastq; Storage|storage; Testing|testing'
+footer_title: 'WGS Extract Workflows'
+footer_text: 'Goal-oriented genome recipes.'
+footer_link_text: 'Next: WGS guide'
+footer_link_href: 'wgs-guide.html'
 ---
 
 ::: section id=microarray

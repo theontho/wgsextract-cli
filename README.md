@@ -269,9 +269,9 @@ pixi install
 ### Code Quality
 Always run linting and formatting before submitting changes:
 ```bash
-pixi run ruff check --fix .
+pixi run lint
 pixi run ruff format .
-pixi run mypy src/wgsextract_cli
+pixi run typecheck
 ```
 
 ---
