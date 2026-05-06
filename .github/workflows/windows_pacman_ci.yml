@@ -58,4 +58,5 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          pixi run wgsextract benchmark --runtime pacman --profile smoke --suite core --outdir out\ci-pacman-benchmark
+          pixi run wgsextract benchmark --runtime pacman --dataset real --profile smoke --suite core --outdir out\ci-pacman-benchmark
+          "Benchmark timing is published in this job summary." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append

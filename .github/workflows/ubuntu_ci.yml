@@ -36,6 +36,8 @@ jobs:
           pixi run ruff check .
           pixi run mypy src/wgsextract_cli
       - name: Run Benchmark
-        run: pixi run wgsextract benchmark
+        run: |
+          pixi run wgsextract benchmark --dataset real --profile smoke
+          echo "Benchmark timing is published in this job summary."
       - name: Run Tests
         run: pixi run test
