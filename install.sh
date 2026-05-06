@@ -32,11 +32,11 @@ command_exists() {
 
 resolve_latest_release_tag() {
     latest_url="$REPO_URL/releases/latest"
-    effective_url="$(curl -fsIL -o /dev/null -w '%{url_effective}' "$latest_url")" || fail "Could not resolve latest release from $latest_url"
+    effective_url="$(curl -fsIL -o /dev/null -w '%{url_effective}' "$latest_url")" || fail "Could not resolve latest release from $latest_url. To bypass latest-release resolution, set WGSEXTRACT_RELEASE_TAG=<tag>, WGSEXTRACT_REF=main, or WGSEXTRACT_ARCHIVE_URL=<url>."
     latest_tag="${effective_url##*/}"
     case "$latest_tag" in
         ""|latest|releases)
-            fail "Could not determine latest release tag from $effective_url"
+            fail "Could not determine latest release tag from $effective_url. To bypass latest-release resolution, set WGSEXTRACT_RELEASE_TAG=<tag>, WGSEXTRACT_REF=main, or WGSEXTRACT_ARCHIVE_URL=<url>."
             ;;
     esac
     printf '%s\n' "$latest_tag"
