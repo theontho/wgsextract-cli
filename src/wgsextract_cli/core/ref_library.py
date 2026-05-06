@@ -38,10 +38,10 @@ def download_file(
     # Try curl first
     try:
         # Use -L to follow redirects, -C - for resume
-        cmd = ["curl", "-L", "-o", dest, url]
+        cmd = ["curl", "-L"]
         if os.path.exists(dest):
-            cmd.insert(3, "-C")
-            cmd.insert(4, "-")
+            cmd.extend(["-C", "-"])
+        cmd.extend(["-o", dest, url])
 
         # Note: we don't use progress_callback with curl easily here without parsing output
         # For simplicity in CLI, we'll just run it.

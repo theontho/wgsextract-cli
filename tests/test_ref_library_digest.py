@@ -87,6 +87,39 @@ def test_download_file_verifies_github_release_asset_digest(tmp_path, monkeypatc
     assert dest.read_bytes() == payload
 
 
+def test_download_file_resume_keeps_curl_output_argument_order(tmp_path, monkeypatch):
+    payload = b"resumed reference genome test payload"
+    dest = tmp_path / "hs38.fa.gz"
+    dest.write_bytes(b"partial")
+    seen_commands = []
+
+    def fake_run_command(cmd, capture_output=False):
+        seen_commands.append(cmd)
+        output_path = Path(cmd[cmd.index("-o") + 1])
+        output_path.write_bytes(payload)
+
+    monkeypatch.setattr(ref_library, "run_command", fake_run_command)
+    monkeypatch.setattr(
+        ref_library, "resolve_github_release_asset_sha256", lambda url: None
+    )
+
+    assert ref_library.download_file(
+        "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
+        str(dest),
+    )
+    assert seen_commands == [
+        [
+            "curl",
+            "-L",
+            "-C",
+            "-",
+            "-o",
+            str(dest),
+            "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
+        ]
+    ]
+
+
 def test_download_file_rejects_github_release_asset_digest_mismatch(
     tmp_path, monkeypatch
 ):
