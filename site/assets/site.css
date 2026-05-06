@@ -292,10 +292,14 @@ h3 {
 .code-panel,
 .screenshot {
   border: 1px solid var(--line);
-  border-radius: calc(var(--radius) + 8px);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.035));
   box-shadow: var(--shadow);
   overflow: hidden;
+}
+
+.hero-card,
+.code-panel {
+  border-radius: calc(var(--radius) + 8px);
 }
 
 .terminal {
@@ -692,6 +696,10 @@ tr:last-child td {
 }
 
 @media (max-width: 720px) {
+  .nav {
+    position: static;
+  }
+
   .nav-inner {
     align-items: flex-start;
     flex-direction: column;
