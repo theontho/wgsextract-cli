@@ -142,3 +142,29 @@ def test_download_file_rejects_github_release_asset_digest_mismatch(
         str(dest),
     )
     assert not dest.exists()
+
+
+def test_download_file_warns_and_continues_when_github_digest_lookup_fails(
+    tmp_path, monkeypatch, caplog
+):
+    payload = b"reference genome payload without digest metadata"
+    dest = tmp_path / "hs38.fa.gz"
+
+    def fake_run_command(cmd, capture_output=False):
+        output_path = Path(cmd[cmd.index("-o") + 1])
+        output_path.write_bytes(payload)
+
+    def fail_resolve(url):
+        raise OSError("rate limit exceeded")
+
+    monkeypatch.setattr(ref_library, "run_command", fake_run_command)
+    monkeypatch.setattr(
+        ref_library, "resolve_github_release_asset_sha256", fail_resolve
+    )
+
+    assert ref_library.download_file(
+        "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
+        str(dest),
+    )
+    assert dest.read_bytes() == payload
+    assert "Continuing without GitHub asset SHA-256 verification" in caplog.text

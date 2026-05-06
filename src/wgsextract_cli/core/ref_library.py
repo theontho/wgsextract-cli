@@ -32,8 +32,13 @@ def download_file(
     try:
         expected_sha256 = resolve_github_release_asset_sha256(url)
     except Exception as e:
-        logging.error(f"Could not resolve download checksum for {url}: {e}")
-        return False
+        logging.warning(
+            "Could not resolve GitHub release asset checksum for %s: %s. "
+            "Continuing without GitHub asset SHA-256 verification.",
+            url,
+            e,
+        )
+        expected_sha256 = None
 
     # Try curl first
     try:
@@ -122,7 +127,7 @@ def download_file(
         return verify_download_sha256(dest, expected_sha256)
     except Exception as e:
         logging.error(f"Download error: {e}")
-        return False
+    return False
 
 
 def resolve_github_release_asset_sha256(url: str) -> str | None:

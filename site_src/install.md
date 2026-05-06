@@ -215,7 +215,7 @@ Most genome operations need a reference genome and companion files. The referenc
 ./wgsextract-cli/wgsextract ref library --install hs38
 ```
 
-GitHub-hosted reference downloads are checked against GitHub Releases SHA-256 asset metadata before WGS Extract extracts or processes them.
+GitHub-hosted reference downloads are checked against GitHub Releases SHA-256 asset metadata before WGS Extract extracts or processes them. Set `GITHUB_TOKEN` for authenticated API lookups. If digest metadata cannot be fetched, WGS Extract warns and continues; if metadata is available but does not match the download, the download fails.
 :::
 
 ::: card
