@@ -1850,22 +1850,32 @@ def _prepare_direct_real_benchmark_dataset(
 
     _write_direct_dataset_manifest(spec, cache_root, cached_files)
 
-    extract_dir = dataset_dir / spec.tag
-    if extract_dir.exists():
-        shutil.rmtree(extract_dir)
-    _copy_cached_dataset_tree(cache_root, extract_dir)
-    return _load_real_benchmark_dataset(extract_dir)
+    _link_cached_dataset_manifest(
+        cache_root, dataset_dir / f"{spec.tag}-cache-root.txt"
+    )
+    return _load_real_benchmark_dataset(cache_root)
 
 
 def _cached_remote_dataset_file(remote: BenchmarkRemoteFile, cache_root: Path) -> Path:
     path = cache_root / remote.filename
-    if path.exists() and remote.md5 and _md5(path) != remote.md5:
-        path.unlink()
+    verified_path = _verified_checksum_path(path, remote.md5)
+    if path.exists() and (remote.md5 is None or verified_path.exists()):
+        return path
+    if path.exists() and remote.md5:
+        _verify_md5(path, remote.md5)
+        verified_path.write_text(remote.md5.lower().strip() + "\n", encoding="ascii")
+        return path
     if not path.exists():
         _download_file(remote.url, path)
     if remote.md5:
         _verify_md5(path, remote.md5)
+        verified_path.write_text(remote.md5.lower().strip() + "\n", encoding="ascii")
     return path
+
+
+def _verified_checksum_path(path: Path, checksum: str | None) -> Path:
+    suffix = checksum.lower().strip() if checksum else "unchecked"
+    return path.with_name(f".{path.name}.{suffix}.verified")
 
 
 def _prepare_derived_alignment(
@@ -1961,11 +1971,9 @@ def _write_direct_dataset_manifest(
     )
 
 
-def _copy_cached_dataset_tree(cache_root: Path, extract_dir: Path) -> None:
-    extract_dir.mkdir(parents=True, exist_ok=True)
-    for source in cache_root.iterdir():
-        if source.is_file():
-            shutil.copy2(source, extract_dir / source.name)
+def _link_cached_dataset_manifest(cache_root: Path, marker_path: Path) -> None:
+    marker_path.parent.mkdir(parents=True, exist_ok=True)
+    marker_path.write_text(str(cache_root) + "\n", encoding="utf-8")
 
 
 def _real_dataset_zip_path(args: argparse.Namespace, outdir: Path) -> Path:
@@ -2059,7 +2067,10 @@ def _verify_md5(path: Path, expected: str) -> None:
 
 
 def _md5(path: Path) -> str:
-    digest = hashlib.md5()
+    try:
+        digest = hashlib.md5(usedforsecurity=False)
+    except TypeError:
+        digest = hashlib.md5()
     with open(path, "rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
