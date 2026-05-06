@@ -73,7 +73,7 @@ def apply_genome_selection(args: Namespace, explicit_dests: set[str]) -> None:
 def _load_or_create_genome_config(genome_dir: Path) -> dict[str, Any]:
     config_path = genome_dir / GENOME_CONFIG_NAME
     existing = _load_genome_config(config_path)
-    discovered = _discover_genome_files(genome_dir)
+    discovered = _discover_genome_files(genome_dir, existing)
     merged = dict(existing)
     changed = False
 
@@ -99,12 +99,8 @@ def _load_genome_config(config_path: Path) -> dict[str, Any]:
     return {key: value for key, value in data.items() if isinstance(value, str)}
 
 
-def _discover_genome_files(genome_dir: Path) -> dict[str, str]:
-    alignments = [
-        path
-        for path in _find_files(genome_dir, ALIGNMENT_SUFFIXES)
-        if not _is_pacbio_reads_bam(path)
-    ]
+def _discover_genome_files(genome_dir: Path, config: dict[str, Any]) -> dict[str, str]:
+    alignments = _alignment_candidates(genome_dir, config)
     vcfs = _find_files(genome_dir, VCF_SUFFIXES)
     fastq_sets = _find_fastq_sets(genome_dir)
     pacbio_reads = [
@@ -154,9 +150,7 @@ def _set_alignment_input(
 ) -> None:
     if "input" in explicit_dests or not hasattr(args, "input"):
         return
-    args.input = str(
-        _resolve_category(genome_dir, config, "alignment", ALIGNMENT_SUFFIXES)
-    )
+    args.input = str(_resolve_alignment(genome_dir, config))
 
 
 def _set_vcf_input(
@@ -269,8 +263,6 @@ def _resolve_category(
         return _resolve_config_path(genome_dir, configured, config_key)
 
     candidates = _find_files(genome_dir, suffixes)
-    if config_key == "alignment":
-        candidates = [path for path in candidates if not _is_pacbio_reads_bam(path)]
     if not candidates:
         raise WGSExtractError(
             f"No {config_key} file found under {genome_dir}. Add {config_key} to {genome_dir / GENOME_CONFIG_NAME}."
@@ -278,6 +270,36 @@ def _resolve_category(
     if len(candidates) > 1:
         raise _ambiguous_error(genome_dir, config_key, config_key, candidates)
     return candidates[0]
+
+
+def _resolve_alignment(genome_dir: Path, config: dict[str, Any]) -> Path:
+    configured = config.get("alignment")
+    if configured:
+        return _resolve_config_path(genome_dir, configured, "alignment")
+
+    candidates = _alignment_candidates(genome_dir, config)
+    if not candidates:
+        raise WGSExtractError(
+            f"No alignment file found under {genome_dir}. Add alignment to {genome_dir / GENOME_CONFIG_NAME}."
+        )
+    if len(candidates) > 1:
+        raise _ambiguous_error(genome_dir, "alignment", "alignment", candidates)
+    return candidates[0]
+
+
+def _alignment_candidates(genome_dir: Path, config: dict[str, Any]) -> list[Path]:
+    fastq_r1 = config.get("fastq_r1")
+    fastq_path = None
+    if fastq_r1:
+        try:
+            fastq_path = _resolve_config_path(genome_dir, fastq_r1, "fastq_r1")
+        except WGSExtractError:
+            fastq_path = None
+    return [
+        path
+        for path in _find_files(genome_dir, ALIGNMENT_SUFFIXES)
+        if path != fastq_path and not _is_pacbio_reads_bam(path)
+    ]
 
 
 def _resolve_config_path(genome_dir: Path, configured: str, config_key: str) -> Path:

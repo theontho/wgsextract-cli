@@ -242,8 +242,10 @@ def align_minimap2(args):
                 preset = "map-hifi"
             elif platform in {"ont", "nanopore"}:
                 preset = "map-ont"
-            else:
+            elif platform == "clr" or getattr(args, "long_read", False):
                 preset = "map-pb"
+            else:
+                preset = "sr"
 
         # 1. Aligner command
         align_cmd = [

@@ -85,6 +85,9 @@ samblaster = ">=0.1.26"
 wget = ">=1.21"
 
 
+[feature.deepvariant.dependencies]
+python = "3.10.*"
+
 [feature.deepvariant.target.linux-64.dependencies]
 deepvariant = ">=1.6.0"
 openjdk = "11.*"
@@ -92,6 +95,9 @@ openjdk = "11.*"
 [feature.deepvariant.target.osx-arm64.dependencies]
 deepvariant = ">=1.6.0"
 openjdk = "11.*"
+
+[feature.deepvariant.pypi-dependencies]
+wgsextract-cli = { path = ".", editable = true }
 
 [feature.pacbio.dependencies]
 python = "3.10.*"

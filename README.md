@@ -169,10 +169,10 @@ pixi run wgsextract example-genome list
 pixi run wgsextract example-genome download hgsvc2-hg00733-pacbio-hifi-bam --dry-run
 pixi run wgsextract example-genome download hgsvc2-hg00733-pacbio-hifi-bam
 
-# Align PacBio HiFi reads with PacBio tooling, then call PacBio-aware variants.
-pixi run wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam align --platform hifi --ref /path/to/hs38.fa
-pixi run wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam vcf deepvariant --pacbio --ref /path/to/hs38.fa
-pixi run wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam vcf sv --pacbio --ref /path/to/hs38.fa
+# Align PacBio HiFi reads with the PacBio environment, then call PacBio-aware variants.
+pixi run -e pacbio wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam align --platform hifi --ref /path/to/hs38.fa
+pixi run -e pacbio wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam vcf sv --pacbio --ref /path/to/hs38.fa
+pixi run -e deepvariant wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam vcf deepvariant --pacbio --ref /path/to/hs38.fa
 ```
 
 ---

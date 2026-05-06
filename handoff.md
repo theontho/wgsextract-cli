@@ -195,6 +195,7 @@ pixi run -e pacbio python -c "import wgsextract_cli; print(wgsextract_cli.__file
 pixi run -e pacbio wgsextract align --help
 pixi run -e pacbio wgsextract vcf sv --help
 pixi run -e pacbio wgsextract vcf deepvariant --help
+pixi run -e deepvariant wgsextract vcf deepvariant --help
 pixi run -e pacbio sniffles --version
 pixi run -e pacbio minimap2 --version
 pixi run -e pacbio samtools --version
@@ -207,7 +208,7 @@ Observed outputs included:
 ```text
 All checks passed!
 Success: no issues found in 6 source files
-43 passed
+48 passed
 /Users/mac/src/wgs2/.pixi/envs/pacbio/bin/wgsextract
 /Users/mac/src/wgs2/src/wgsextract_cli/__init__.py
 Sniffles2, Version 2.7.5
@@ -301,13 +302,13 @@ Use the smallest catalogued PacBio example first:
 pixi run wgsextract example-genome download hgsvc2-hg00732-pacbio-hifi-bam-smallest --target-root out/pacbio-real
 ```
 
-Then create a small extracted read set from that BAM into `out/` or `tmp/` only. Keep all logs and temporary outputs under `out/` or `tmp/` per repository instructions.
+Set `genome_library = "/absolute/path/to/out/pacbio-real"` in `config.toml`, or pass `--input` and `--outdir` explicitly instead of using `--genome`. Then create a small extracted read set from that BAM into `out/` or `tmp/` only. Keep all logs and temporary outputs under `out/` or `tmp/` per repository instructions.
 
 Suggested native `osx-arm64` path:
 
 ```bash
-pixi run -e pacbio wgsextract align --platform hifi --aligner minimap2 --reference hs38 --sample HG00732 --genome out/pacbio-real/<downloaded-genome-dir>
-pixi run -e pacbio wgsextract vcf sv --caller sniffles --bam <aligned.bam> --reference <reference.fa> --out out/pacbio-real/hg00732.sniffles.vcf
+pixi run -e pacbio wgsextract --genome test-1000genomes/hgsvc2-hg00732-pacbio-hifi-bam-smallest align --platform hifi --aligner minimap2 --ref <reference.fa> --sample HG00732
+pixi run -e pacbio wgsextract vcf sv --caller sniffles --input <aligned.bam> --ref <reference.fa> --outdir out/pacbio-real/hg00732-small
 ```
 
 Exact paths should be adjusted to the genome-library layout produced by the download command.
@@ -319,8 +320,8 @@ After the small extraction succeeds, run a full alignment/SV pass on the 3.5 GiB
 Expected native `osx-arm64` path:
 
 ```bash
-pixi run -e pacbio wgsextract align --platform hifi --aligner minimap2 --reference hs38 --sample HG00732 --genome out/pacbio-real/<downloaded-genome-dir>
-pixi run -e pacbio wgsextract vcf sv --pacbio --bam <aligned.bam> --reference <reference.fa> --out out/pacbio-real/hg00732.sv.vcf
+pixi run -e pacbio wgsextract --genome test-1000genomes/hgsvc2-hg00732-pacbio-hifi-bam-smallest align --platform hifi --aligner minimap2 --ref <reference.fa> --sample HG00732
+pixi run -e pacbio wgsextract vcf sv --pacbio --input <aligned.bam> --ref <reference.fa> --outdir out/pacbio-real/hg00732-full
 ```
 
 On `osx-arm64`, `--pacbio` should choose `sniffles` because `pbsv` is unavailable.
@@ -328,8 +329,8 @@ On `osx-arm64`, `--pacbio` should choose `sniffles` because `pbsv` is unavailabl
 Expected Linux path:
 
 ```bash
-pixi run -e pacbio wgsextract align --platform hifi --aligner pbmm2 --reference hs38 --sample HG00732 --genome out/pacbio-real/<downloaded-genome-dir>
-pixi run -e pacbio wgsextract vcf sv --caller pbsv --ccs --bam <aligned.bam> --reference <reference.fa> --out out/pacbio-real/hg00732.pbsv.vcf
+pixi run -e pacbio wgsextract --genome test-1000genomes/hgsvc2-hg00732-pacbio-hifi-bam-smallest align --platform hifi --aligner pbmm2 --ref <reference.fa> --sample HG00732
+pixi run -e pacbio wgsextract vcf sv --caller pbsv --ccs --input <aligned.bam> --ref <reference.fa> --outdir out/pacbio-real/hg00732-pbsv
 ```
 
 ### DeepVariant PacBio Run
@@ -337,7 +338,7 @@ pixi run -e pacbio wgsextract vcf sv --caller pbsv --ccs --bam <aligned.bam> --r
 Validate DeepVariant PacBio model selection once an aligned PacBio BAM exists and Docker/DeepVariant execution is available:
 
 ```bash
-pixi run wgsextract vcf deepvariant --pacbio --bam <aligned.bam> --reference <reference.fa> --out out/pacbio-real/hg00732.deepvariant.vcf.gz
+pixi run -e deepvariant wgsextract vcf deepvariant --pacbio --input <aligned.bam> --ref <reference.fa> --outdir out/pacbio-real/hg00732-deepvariant
 ```
 
 ## Risks And Review Notes
@@ -345,8 +346,8 @@ pixi run wgsextract vcf deepvariant --pacbio --bam <aligned.bam> --reference <re
 - `pixi.lock` changed substantially because the new `pacbio` environment and platform-specific dependencies expanded the solved package set.
 - `pbmm2` and `pbsv` command construction is covered by tests, but actual execution was not validated on this `osx-arm64` host due package availability.
 - `sniffles` execution was validated only for tool availability and CLI command construction, not against a full real PacBio BAM in this session.
-- PacBio read BAM classification is intentionally extension-based: `.ccs.bam` and `.subreads.bam` are treated as raw reads.
-- If future public PacBio read BAMs use other suffixes, the genome-library detection may need to be extended.
+- PacBio read BAM classification treats `.ccs.bam` and `.subreads.bam` as raw reads, and also respects `fastq_r1` entries in `genome-config.toml` for plain `.bam` PacBio examples.
+- If future public PacBio read BAMs use other suffixes and are not catalogued with `fastq_r1`, the genome-library detection may need to be extended.
 - The example catalog uses public external FTP/HTTPS URLs; availability and transfer speed depend on external services.
 
 ## Files Changed

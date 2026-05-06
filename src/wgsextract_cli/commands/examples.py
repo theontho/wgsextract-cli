@@ -3,6 +3,7 @@ import shutil
 from argparse import Namespace
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.genome_library import GENOME_CONFIG_NAME
@@ -20,6 +21,7 @@ COLLECTION_DIR = "test-1000genomes"
 class ExampleFile:
     url_path: str
     role: str
+    transfer_method: str | None = None
 
 
 @dataclass(frozen=True)
@@ -173,6 +175,7 @@ EXAMPLES = (
             ExampleFile(
                 "https://ftp.sra.ebi.ac.uk/vol1/run/ERR386/ERR3861393/HG00732-hifi-r54329U_20190830_234003-B01.bam",
                 "fastq_r1",
+                "https",
             ),
         ),
         tags=("1000g", "hgsvc2", "pacbio", "hifi", "bam", "smallest"),
@@ -337,11 +340,11 @@ def cmd_download(args: Namespace) -> None:
             continue
 
         example_dir.mkdir(parents=True, exist_ok=True)
-        for source, destination, _role in planned:
+        for source, destination, _role, transfer_method in planned:
             if destination.exists() and not args.force:
                 logging.info(f"Skipping existing {destination}")
                 continue
-            _download_file(source, destination, method, aspera_key)
+            _download_file(source, destination, transfer_method, aspera_key)
         _write_genome_config(example, example_dir)
         logging.info(
             f"Installed {example.label}. Use --genome "
@@ -442,12 +445,13 @@ def _resolve_method(method: str, aspera_key: str | None = None) -> str:
 
 def _planned_downloads(
     example: GenomeExample, example_dir: Path, method: str
-) -> list[tuple[str, Path, str]]:
+) -> list[tuple[str, Path, str, str]]:
     return [
         (
-            _source_for(file.url_path, method),
+            _source_for(file.url_path, file.transfer_method or method),
             example_dir / _filename(file.url_path),
             file.role,
+            file.transfer_method or method,
         )
         for file in example.files
     ]
@@ -462,7 +466,8 @@ def _source_for(url_path: str, method: str) -> str:
 
 
 def _filename(url_path: str) -> str:
-    name = Path(url_path).name
+    parsed = urlparse(url_path)
+    name = Path(parsed.path if parsed.scheme else url_path).name
     if not name:
         raise WGSExtractError(f"URL path must end with a filename: {url_path}")
     return name
@@ -545,8 +550,10 @@ def _write_genome_config(example: GenomeExample, example_dir: Path) -> None:
     (example_dir / GENOME_CONFIG_NAME).write_text("\n".join(lines) + "\n")
 
 
-def _print_plan(example: GenomeExample, planned: list[tuple[str, Path, str]]) -> None:
+def _print_plan(
+    example: GenomeExample, planned: list[tuple[str, Path, str, str]]
+) -> None:
     print(f"{example.example_id}: {example.label}")
-    for source, destination, role in planned:
+    for source, destination, role, _transfer_method in planned:
         print(f"  {role}: {source}")
         print(f"        -> {destination}")

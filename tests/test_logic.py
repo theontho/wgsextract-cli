@@ -130,6 +130,86 @@ class TestAlignToolSelection(unittest.TestCase):
 
         self.assertIn(["minimap2", "-ax", "map-ont"], [cmd[:3] for cmd in commands])
 
+    def test_minimap2_illumina_alignment_defaults_to_short_read_preset(self):
+        from wgsextract_cli.commands import align
+
+        args = Namespace(
+            r1=self.r1,
+            r2=None,
+            ref=self.ref,
+            input=None,
+            outdir=self.test_dir,
+            format="BAM",
+            threads=None,
+            memory=None,
+            long_read=False,
+            platform="illumina",
+            preset=None,
+            aligner="minimap2",
+        )
+        commands = []
+
+        def fake_get_tool_path(tool):
+            return tool
+
+        def fake_popen(cmd, **_kwargs):
+            commands.append(cmd)
+            return DummyProcess()
+
+        with (
+            patch.object(align, "verify_dependencies"),
+            patch.object(align, "log_dependency_info"),
+            patch.object(align, "get_resource_defaults", return_value=("2", "1G")),
+            patch.object(align, "verify_paths_exist", return_value=True),
+            patch.object(align, "resolve_reference", return_value=self.ref),
+            patch.object(align, "get_tool_path", side_effect=fake_get_tool_path),
+            patch.object(align, "run_command"),
+            patch.object(align, "popen", side_effect=fake_popen),
+        ):
+            align.align_minimap2(args)
+
+        self.assertIn(["minimap2", "-ax", "sr"], [cmd[:3] for cmd in commands])
+
+    def test_minimap2_explicit_long_read_defaults_to_map_pb_preset(self):
+        from wgsextract_cli.commands import align
+
+        args = Namespace(
+            r1=self.r1,
+            r2=None,
+            ref=self.ref,
+            input=None,
+            outdir=self.test_dir,
+            format="BAM",
+            threads=None,
+            memory=None,
+            long_read=True,
+            platform="illumina",
+            preset=None,
+            aligner="minimap2",
+        )
+        commands = []
+
+        def fake_get_tool_path(tool):
+            return tool
+
+        def fake_popen(cmd, **_kwargs):
+            commands.append(cmd)
+            return DummyProcess()
+
+        with (
+            patch.object(align, "verify_dependencies"),
+            patch.object(align, "log_dependency_info"),
+            patch.object(align, "get_resource_defaults", return_value=("2", "1G")),
+            patch.object(align, "verify_paths_exist", return_value=True),
+            patch.object(align, "resolve_reference", return_value=self.ref),
+            patch.object(align, "get_tool_path", side_effect=fake_get_tool_path),
+            patch.object(align, "run_command"),
+            patch.object(align, "popen", side_effect=fake_popen),
+        ):
+            align.align_minimap2(args)
+
+        self.assertIn(["minimap2", "-ax", "map-pb"], [cmd[:3] for cmd in commands])
+
     def test_pbmm2_alignment_uses_ccs_preset_and_sample(self):
         from wgsextract_cli.commands import align
 
@@ -378,6 +458,17 @@ class TestExamplesDownload(unittest.TestCase):
 
         self.assertEqual(examples._source_for(url, "https"), url)
 
+    def test_absolute_example_uses_declared_transfer_method(self):
+        from wgsextract_cli.commands import examples
+
+        example = examples.EXAMPLES_BY_ID["hgsvc2-hg00732-pacbio-hifi-bam-smallest"]
+
+        planned = examples._planned_downloads(example, Path(self.test_dir), "aspera")
+
+        self.assertEqual(planned[0][2], "fastq_r1")
+        self.assertEqual(planned[0][3], "https")
+        self.assertEqual(planned[0][0], example.files[0].url_path)
+
     def test_tag_selection_rejects_mixed_explicit_ids(self):
         from wgsextract_cli.commands import examples
 
@@ -591,6 +682,36 @@ class TestCLILogic(unittest.TestCase):
         try:
             args = Namespace(
                 command="info", genome="pacbio-info", input=None, outdir=None
+            )
+            with self.assertRaises(WGSExtractError) as ctx:
+                apply_genome_selection(args, explicit_dests=set())
+        finally:
+            if old_value is None:
+                settings.pop("genome_library", None)
+            else:
+                settings["genome_library"] = old_value
+
+        self.assertIn("No alignment", str(ctx.exception))
+
+    def test_genome_library_does_not_treat_configured_plain_pacbio_bam_as_alignment(
+        self,
+    ):
+        genome_root = os.path.join(self.test_dir, "genomes")
+        genome_dir = os.path.join(genome_root, "pacbio-plain")
+        os.makedirs(genome_dir)
+        bam_path = os.path.join(genome_dir, "HG00732-hifi.bam")
+        with open(bam_path, "w") as f:
+            f.write("reads")
+        with open(os.path.join(genome_dir, GENOME_CONFIG_NAME), "w") as f:
+            f.write('fastq_r1 = "HG00732-hifi.bam"\n')
+
+        from wgsextract_cli.core.config import settings
+
+        old_value = settings.get("genome_library")
+        settings["genome_library"] = genome_root
+        try:
+            args = Namespace(
+                command="info", genome="pacbio-plain", input=None, outdir=None
             )
             with self.assertRaises(WGSExtractError) as ctx:
                 apply_genome_selection(args, explicit_dests=set())
