@@ -274,6 +274,29 @@ class TestRefDownloadValidation(unittest.TestCase):
         finally:
             shutil.rmtree(args.out)
 
+    def test_ref_download_uses_fallback_downloader_without_curl_requirement(self):
+        from wgsextract_cli.commands import ref
+
+        args = Namespace(url="http://fake/reference.fa.gz", out="reference.fa.gz")
+        with (
+            patch.object(ref, "verify_dependencies") as verify_dependencies,
+            patch.object(ref, "download_file", return_value=True) as download_file,
+        ):
+            ref.cmd_download(args)
+
+        verify_dependencies.assert_not_called()
+        download_file.assert_called_once_with(args.url, args.out)
+
+    def test_ref_download_failure_includes_url_and_output_path(self):
+        from wgsextract_cli.commands import ref
+
+        args = Namespace(url="http://fake/reference.fa.gz", out="reference.fa.gz")
+        with patch.object(ref, "download_file", return_value=False):
+            with self.assertRaisesRegex(
+                WGSExtractError, r"http://fake/reference\.fa\.gz.*reference\.fa\.gz"
+            ):
+                ref.cmd_download(args)
+
 
 class TestExamplesDownload(unittest.TestCase):
     def setUp(self):
