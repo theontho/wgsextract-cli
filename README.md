@@ -63,8 +63,8 @@ pixi run wgsextract --help
 - **macOS (Intel/Apple Silicon)**: Fully supported. Pixi installs all bioinformatics tools automatically.
 - **Linux**: Fully supported. Pixi installs all bioinformatics tools automatically.
 - **Windows**:
-  - **WSL2**: Follow the Linux instructions within a WSL2 terminal.
-  - **Native Windows**: Use `--runtime pacman` with an MSYS2 UCRT64 toolchain for native Windows bioinformatics tools. See [docs/windows_pacman_runtime.md](docs/windows_pacman_runtime.md).
+  - **Native Windows (Recommended)**: Run `install_windows.bat` to install the Pixi project environment and choose the MSYS2 UCRT64 pacman runtime as the default. Use `uninstall_windows.bat` to remove the local project install. See [docs/windows_pacman_runtime.md](docs/windows_pacman_runtime.md).
+  - **WSL2 (Alternate)**: WSL2 still works for Linux-like development and testing, but the documented Windows installation path is now the native pacman runtime.
 
 The examples below use `wgsextract` for installed usage. If you have not added `wgsextract-cli/bin` to `PATH`, use `./wgsextract-cli/bin/wgsextract` instead. From a manual development checkout, use `pixi run wgsextract`.
 
@@ -109,7 +109,7 @@ wgsextract info --detailed
 ### Config Locations:
 - **macOS**: `~/.config/wgsextract/config.toml` (Used if `~/.config/` exists) or `~/Library/Application Support/wgsextract/config.toml`
 - **Linux**: `~/.config/wgsextract/config.toml`
-- **Windows**: `%AppData%\wgsextract\wgsextract\config.toml`
+- **Windows**: `%LocalAppData%\theontho\wgsextract\config.toml`
 
 ### View Your Config:
 Run the following command to see your active configuration path and settings:

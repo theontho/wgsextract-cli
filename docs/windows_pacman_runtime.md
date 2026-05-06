@@ -1,8 +1,8 @@
 # Windows Pacman Runtime Setup
 
-`wgsextract-cli` can run required bioinformatics tools on native Windows through an MSYS2 UCRT64 runtime. This mode is selected with `--runtime pacman` or `WGSEXTRACT_TOOL_RUNTIME=pacman`.
+`wgsextract-cli` can run required bioinformatics tools on native Windows through an MSYS2 UCRT64 runtime. This is the recommended Windows runtime and is selected with `--runtime pacman` or `WGSEXTRACT_TOOL_RUNTIME=pacman`.
 
-The pacman runtime is different from the bundled `cygwin` and `msys2` runtimes: it uses tools installed into a normal MSYS2 installation, usually `C:\msys64\ucrt64\bin`, and invokes those Windows `.exe` files directly.
+The pacman runtime is different from the bundled `cygwin`, bundled `msys2`, and WSL2 runtimes: it uses tools installed into a normal MSYS2 installation, usually `C:\msys64\ucrt64\bin`, and invokes those Windows `.exe` files directly.
 
 ## Prerequisites
 
@@ -17,6 +17,42 @@ C:\msys64\usr\bin\pacman.exe
 
 ## Automated Setup
 
+For the standard Windows setup, run the recommended batch installer from the repository root:
+
+```bat
+install_windows.bat
+```
+
+This installs the Pixi project environment, runs the pacman runtime setup helper, and persists `tool_runtime = "pacman"` plus the UCRT64 bin path in the WGSExtract config file. The helper downloads the prebuilt WGSExtract BWA release asset when available, so normal installs do not need a local C compiler.
+
+For a non-default MSYS2 location:
+
+```bat
+install_windows.bat --msys2-root D:\tools\msys64
+```
+
+To force a local BWA build instead of using the release binary:
+
+```bat
+install_windows.bat --force-bwa-build --skip-bwa-download
+```
+
+To test or pin a specific BWA ZIP asset:
+
+```bat
+install_windows.bat --bwa-binary-url https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/wgsextract-bwa-0.7.19-windows-ucrt64.zip
+```
+
+To remove the local project install and clear those pacman config defaults:
+
+```bat
+uninstall_windows.bat
+```
+
+The uninstaller does not remove Pixi, MSYS2, or MSYS2 packages because those may be shared with other projects.
+
+## PowerShell Runtime Helper
+
 Run the helper from a PowerShell terminal at the repository root:
 
 ```powershell
@@ -29,20 +65,24 @@ For a non-default MSYS2 location:
 .\scripts\setup_pacman_runtime.ps1 -Msys2Root D:\tools\msys64
 ```
 
-The helper installs the required UCRT64 packages with pacman, builds `bwa.exe` from source, copies it into `ucrt64\bin`, and validates the runtime with `wgsextract deps pacman check` when Pixi is available.
+The helper installs the required UCRT64 runtime packages with pacman, downloads the prebuilt WGSExtract BWA release asset when available, copies `bwa.exe` into `ucrt64\bin`, and validates the runtime with `wgsextract deps pacman check` when Pixi is available. If the prebuilt binary is unavailable, it falls back to building BWA locally.
 
 ## Why BWA Is Built
 
-MSYS2 UCRT64 publishes packages for the required HTS tools used by WGSExtract, including `samtools`, `bcftools`, `htslib`, `bgzip`, and `tabix`. It does not currently publish the BWA package needed by the alignment benchmark, so the setup helper compiles BWA and installs the resulting binary as:
+MSYS2 UCRT64 publishes packages for the required HTS tools used by WGSExtract, including `samtools`, `bcftools`, `htslib`, `bgzip`, and `tabix`. It does not currently publish the BWA package needed by the alignment benchmark, so WGSExtract publishes a prebuilt UCRT64 `bwa.exe` on GitHub Releases. The setup helper installs that binary as:
 
 ```text
 C:\msys64\ucrt64\bin\bwa.exe
 ```
 
-The default source is BWA `0.7.19` from the upstream GitHub release tag. During the build, the helper adds small Windows/UCRT64 compatibility shims for POSIX APIs that upstream BWA expects but UCRT64 does not provide. You can rebuild it explicitly with:
+The release binary is produced by the `Release Windows BWA` GitHub Actions workflow and packaged as `wgsextract-bwa-<version>-windows-ucrt64.zip` with a neighboring `.sha256` checksum file. The installer verifies the checksum when it is available.
+
+If the release asset cannot be downloaded, or if you pass `-ForceBwaBuild`, the helper builds BWA locally. That fallback build uses the MSYS2 UCRT64 toolchain installed by pacman, specifically `mingw-w64-ucrt-x86_64-gcc` plus `base-devel`, `make`, `curl`, and `tar`. Windows does not include a built-in C compiler suitable for this build. Visual Studio Build Tools or the Windows SDK are optional Microsoft installs and are not used by this helper; the script runs `make CC=gcc` inside MSYS2 UCRT64 for a consistent native Windows `.exe`.
+
+The default source for fallback builds is BWA `0.7.19` from the upstream GitHub release tag. During the build, the helper adds small Windows/UCRT64 compatibility shims for POSIX APIs that upstream BWA expects but UCRT64 does not provide. You can rebuild it explicitly with:
 
 ```powershell
-.\scripts\setup_pacman_runtime.ps1 -ForceBwaBuild
+.\scripts\setup_pacman_runtime.ps1 -ForceBwaBuild -SkipBwaDownload
 ```
 
 ## Validation
@@ -67,22 +107,28 @@ pixi run wgsextract benchmark --runtime pacman --outdir out\benchmark-pacman-def
 
 ## Manual Package List
 
-The helper installs these MSYS2 packages:
+For normal prebuilt-BWA installs, the helper installs these MSYS2 packages:
+
+```text
+gzip
+tar
+mingw-w64-ucrt-x86_64-bcftools
+mingw-w64-ucrt-x86_64-htslib
+mingw-w64-ucrt-x86_64-samtools
+mingw-w64-ucrt-x86_64-zlib
+```
+
+Fallback local BWA builds additionally install:
 
 ```text
 base-devel
 curl
 git
 make
-tar
-mingw-w64-ucrt-x86_64-bcftools
 mingw-w64-ucrt-x86_64-gcc
-mingw-w64-ucrt-x86_64-htslib
-mingw-w64-ucrt-x86_64-samtools
-mingw-w64-ucrt-x86_64-zlib
 ```
 
-If you manage MSYS2 manually, install the packages above in an MSYS2 shell, then compile BWA and copy `bwa.exe` into `ucrt64\bin`.
+If you manage MSYS2 manually, install the packages above in an MSYS2 UCRT64 shell, then compile BWA with GCC and copy `bwa.exe` into `ucrt64\bin`.
 
 ## Configuration
 
