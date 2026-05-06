@@ -63,7 +63,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          .\scripts\setup_pacman_runtime.ps1 -Msys2Root C:\msys64 -BwaVersion $env:BWA_VERSION -ForceBwaBuild -SkipBwaDownload -SkipPackageInstall
+          .\scripts\setup_pacman_runtime.ps1 -Msys2Root C:\msys64 -BwaVersion $env:BWA_VERSION -ForceBwaBuild -SkipBwaDownload
 
       - name: Package BWA release asset
         shell: powershell
