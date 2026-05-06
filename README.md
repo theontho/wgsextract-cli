@@ -48,7 +48,7 @@ Set these environment variables before running the installer to customize it:
 | `WGSEXTRACT_PIXI_CACHE_DIR` | `$WGSEXTRACT_INSTALL_DIR/pixi-cache` | Pixi package cache directory |
 | `WGSEXTRACT_PIXI_ENV_DIR` | `$WGSEXTRACT_INSTALL_DIR/pixi-envs` | Pixi project environment directory |
 
-Leave `WGSEXTRACT_BIN_DIR` unset for the clean one-directory uninstall behavior; setting it outside `WGSEXTRACT_INSTALL_DIR` intentionally creates a launcher outside the install tree.
+Leave `WGSEXTRACT_BIN_DIR`, `WGSEXTRACT_PIXI_CACHE_DIR`, and `WGSEXTRACT_PIXI_ENV_DIR` unset for clean one-directory uninstall behavior. Setting any of them outside `WGSEXTRACT_INSTALL_DIR` intentionally leaves that launcher, cache, or environment outside the install tree.
 
 ### Manual development setup
 
@@ -66,24 +66,26 @@ pixi run wgsextract --help
   - **WSL2**: Follow the Linux instructions within a WSL2 terminal.
   - **Native Windows**: Use `--runtime pacman` with an MSYS2 UCRT64 toolchain for native Windows bioinformatics tools. See [docs/windows_pacman_runtime.md](docs/windows_pacman_runtime.md).
 
+The examples below use `wgsextract` for installed usage. If you have not added `wgsextract-cli/bin` to `PATH`, use `./wgsextract-cli/bin/wgsextract` instead. From a manual development checkout, use `pixi run wgsextract`.
+
 ### Initialize Reference Library
 Before running extraction tools, you must initialize the reference library (VCFs, liftover chains, metadata).
 
 ```bash
 # Initialize library in the default 'reference/' folder
-./wgsextract-cli/bin/wgsextract ref bootstrap
+wgsextract ref bootstrap
 
 # List available genomes
-./wgsextract-cli/bin/wgsextract ref library --list
+wgsextract ref library --list
 
 # Install a genome (e.g., hs38)
-./wgsextract-cli/bin/wgsextract ref library --install hs38
+wgsextract ref library --install hs38
 ```
 
 ### Verification
 ```bash
 # Verify tools and environment
-./wgsextract-cli/bin/wgsextract info --detailed
+wgsextract info --detailed
 ```
 
 ---
@@ -168,20 +170,21 @@ fastq_r2 = "raw-fastqs/sample_R2.fastq.gz"
 ```
 
 ```bash
-pixi run wgsextract --genome joe info
-pixi run wgsextract --genome "ken mcdonald" microarray --formats 23andme_v5
-pixi run wgsextract --genome joe vcf filter --expr 'QUAL>30'
+wgsextract --genome joe info
+wgsextract --genome "ken mcdonald" microarray --formats 23andme_v5
+wgsextract --genome joe vcf filter --expr 'QUAL>30'
 ```
 
 ### 1000 Genomes PacBio Examples
 Curated 1000 Genomes/HGSVC2 PacBio datasets are available through `example-genome`. These are large real PacBio movie files, so start with `--dry-run` and download intentionally.
 
 ```bash
-pixi run wgsextract example-genome list
-pixi run wgsextract example-genome download hgsvc2-hg00733-pacbio-hifi-bam --dry-run
-pixi run wgsextract example-genome download hgsvc2-hg00733-pacbio-hifi-bam
+wgsextract example-genome list
+wgsextract example-genome download hgsvc2-hg00733-pacbio-hifi-bam --dry-run
+wgsextract example-genome download hgsvc2-hg00733-pacbio-hifi-bam
 
-# Align PacBio HiFi reads with the PacBio environment, then call PacBio-aware variants.
+# Advanced PacBio/DeepVariant commands use dedicated Pixi environments.
+# Run them from a manual checkout or the installed app directory.
 pixi run -e pacbio wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam align --platform hifi --ref /path/to/hs38.fa
 pixi run -e pacbio wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam vcf sv --pacbio --ref /path/to/hs38.fa
 pixi run -e deepvariant wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam vcf deepvariant --pacbio --ref /path/to/hs38.fa
@@ -194,13 +197,13 @@ pixi run -e deepvariant wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacb
 ### Common Commands
 ```bash
 # Identify BAM/CRAM file properties
-pixi run wgsextract bam identify
+wgsextract bam identify
 
 # Calculate mitochondrial coverage
-pixi run wgsextract extract mito-vcf --region chrM
+wgsextract extract mito-vcf --region chrM
 
 # Generate a microarray simulation
-pixi run wgsextract microarray --kit 23andme_v5
+wgsextract microarray --kit 23andme_v5
 ```
 
 ### Available Subcommand Groups
@@ -220,13 +223,13 @@ The older scaled generator is still available with `--legacy-bam`. It is slower 
 
 ```bash
 # Default fast scaled BAM
-pixi run wgsextract qc fake-data --type bam --coverage 1 --outdir out/fake-fast
+wgsextract qc fake-data --type bam --coverage 1 --outdir out/fake-fast
 
 # Full-size fast BAM using real chromosome lengths
-pixi run wgsextract qc fake-data --type bam --coverage 0.1 --full-size --outdir out/fake-full
+wgsextract qc fake-data --type bam --coverage 0.1 --full-size --outdir out/fake-full
 
 # Older scaled generator
-pixi run wgsextract qc fake-data --type bam --coverage 1 --legacy-bam --outdir out/fake-legacy
+wgsextract qc fake-data --type bam --coverage 1 --legacy-bam --outdir out/fake-legacy
 ```
 
 ---

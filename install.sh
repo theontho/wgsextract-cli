@@ -21,6 +21,17 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+absolute_path() {
+    case "$1" in
+        /*)
+            printf '%s\n' "$1"
+            ;;
+        *)
+            printf '%s/%s\n' "$(pwd -P)" "$1"
+            ;;
+    esac
+}
+
 default_install_parent() {
     script_path="${0:-}"
     script_name="$(basename "$script_path")"
@@ -42,36 +53,53 @@ default_install_parent() {
 }
 
 DEFAULT_INSTALL_PARENT="$(default_install_parent)"
-INSTALL_DIR="${WGSEXTRACT_INSTALL_DIR:-$DEFAULT_INSTALL_PARENT/wgsextract-cli}"
+INSTALL_DIR="$(absolute_path "${WGSEXTRACT_INSTALL_DIR:-$DEFAULT_INSTALL_PARENT/wgsextract-cli}")"
 APP_DIR="$INSTALL_DIR/app"
 TMP_DIR="$INSTALL_DIR/tmp"
-BIN_DIR="${WGSEXTRACT_BIN_DIR:-$INSTALL_DIR/bin}"
+DEFAULT_BIN_DIR="$INSTALL_DIR/bin"
+DEFAULT_PIXI_CACHE_DIR="$INSTALL_DIR/pixi-cache"
+DEFAULT_PIXI_ENV_DIR="$INSTALL_DIR/pixi-envs"
+BIN_DIR="$(absolute_path "${WGSEXTRACT_BIN_DIR:-$DEFAULT_BIN_DIR}")"
 LAUNCHER="$BIN_DIR/wgsextract"
-PIXI_CACHE_DIR="${WGSEXTRACT_PIXI_CACHE_DIR:-$INSTALL_DIR/pixi-cache}"
-PIXI_ENV_DIR="${WGSEXTRACT_PIXI_ENV_DIR:-$INSTALL_DIR/pixi-envs}"
+PIXI_CACHE_DIR="$(absolute_path "${WGSEXTRACT_PIXI_CACHE_DIR:-$DEFAULT_PIXI_CACHE_DIR}")"
+PIXI_ENV_DIR="$(absolute_path "${WGSEXTRACT_PIXI_ENV_DIR:-$DEFAULT_PIXI_ENV_DIR}")"
 GUI_SH="$INSTALL_DIR/start-wgsextract-gui.sh"
 GUI_COMMAND="$INSTALL_DIR/WGS Extract GUI.command"
 WEB_GUI_SH="$INSTALL_DIR/start-wgsextract-web-gui.sh"
 WEB_GUI_COMMAND="$INSTALL_DIR/WGS Extract Web GUI.command"
 ARCHIVE_URL="${WGSEXTRACT_ARCHIVE_URL:-$REPO_URL/archive/$REF.tar.gz}"
 
+uses_default_pixi_layout() {
+    [ "$PIXI_CACHE_DIR" = "$DEFAULT_PIXI_CACHE_DIR" ] && [ "$PIXI_ENV_DIR" = "$DEFAULT_PIXI_ENV_DIR" ]
+}
+
+write_pixi_exports() {
+    if uses_default_pixi_layout; then
+        printf 'export PIXI_CACHE_DIR="$install_dir/pixi-cache"\n'
+        printf 'export PIXI_PROJECT_ENVIRONMENT_DIR="$install_dir/pixi-envs"\n'
+    else
+        printf 'export PIXI_CACHE_DIR=%s\n' "$(quote_sh "$PIXI_CACHE_DIR")"
+        printf 'export PIXI_PROJECT_ENVIRONMENT_DIR=%s\n' "$(quote_sh "$PIXI_ENV_DIR")"
+    fi
+}
+
 write_cli_launcher() {
-    if [ "$BIN_DIR" = "$INSTALL_DIR/bin" ]; then
+    if [ "$BIN_DIR" = "$DEFAULT_BIN_DIR" ]; then
         {
             printf '#!/bin/sh\n'
             printf 'set -eu\n'
             printf 'script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)\n'
             printf 'install_dir=$(dirname "$script_dir")\n'
-            printf 'export PIXI_CACHE_DIR="$install_dir/pixi-cache"\n'
-            printf 'export PIXI_PROJECT_ENVIRONMENT_DIR="$install_dir/pixi-envs"\n'
+            write_pixi_exports
             printf 'cd "$install_dir/app" || exit 1\n'
             printf 'exec %s run wgsextract "$@"\n' "$(quote_sh "$PIXI")"
         } > "$LAUNCHER"
     else
         {
             printf '#!/bin/sh\n'
-            printf 'export PIXI_CACHE_DIR=%s\n' "$(quote_sh "$PIXI_CACHE_DIR")"
-            printf 'export PIXI_PROJECT_ENVIRONMENT_DIR=%s\n' "$(quote_sh "$PIXI_ENV_DIR")"
+            printf 'set -eu\n'
+            printf 'install_dir=%s\n' "$(quote_sh "$INSTALL_DIR")"
+            write_pixi_exports
             printf 'cd %s || exit 1\n' "$(quote_sh "$APP_DIR")"
             printf 'exec %s run wgsextract "$@"\n' "$(quote_sh "$PIXI")"
         } > "$LAUNCHER"
@@ -86,8 +114,8 @@ write_gui_launcher() {
         printf '#!/bin/sh\n'
         printf 'set -eu\n'
         printf 'script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)\n'
-        printf 'export PIXI_CACHE_DIR="$script_dir/pixi-cache"\n'
-        printf 'export PIXI_PROJECT_ENVIRONMENT_DIR="$script_dir/pixi-envs"\n'
+        printf 'install_dir="$script_dir"\n'
+        write_pixi_exports
         printf 'cd "$script_dir/app" || exit 1\n'
         printf 'exec %s run wgsextract gui %s\n' "$(quote_sh "$PIXI")" "$gui_flag"
     } > "$output_path"
