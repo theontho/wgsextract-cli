@@ -129,6 +129,14 @@ write_gui_launcher() {
     chmod +x "$output_path"
 }
 
+remove_legacy_bin_launcher() {
+    legacy_launcher="$INSTALL_DIR/bin/wgsextract"
+    if [ "$LAUNCHER" != "$legacy_launcher" ]; then
+        rm -f "$legacy_launcher"
+        rmdir "$INSTALL_DIR/bin" 2>/dev/null || true
+    fi
+}
+
 OS_NAME="$(uname -s)"
 case "$OS_NAME" in
     Darwin|Linux)
@@ -226,15 +234,14 @@ write_cli_launcher
 case "$OS_NAME" in
     Darwin)
         write_gui_launcher "$GUI_COMMAND" "--desktop"
-        rm -f "$GUI_SH" "$INSTALL_DIR/bin/wgsextract" "$INSTALL_DIR/start-wgsextract-web-gui.sh" "$INSTALL_DIR/WGS Extract Web GUI.command"
-        rmdir "$INSTALL_DIR/bin" 2>/dev/null || true
+        rm -f "$GUI_SH" "$INSTALL_DIR/start-wgsextract-web-gui.sh" "$INSTALL_DIR/WGS Extract Web GUI.command"
         ;;
     Linux)
         write_gui_launcher "$GUI_SH" "--desktop"
-        rm -f "$GUI_COMMAND" "$INSTALL_DIR/bin/wgsextract" "$INSTALL_DIR/start-wgsextract-web-gui.sh" "$INSTALL_DIR/WGS Extract Web GUI.command"
-        rmdir "$INSTALL_DIR/bin" 2>/dev/null || true
+        rm -f "$GUI_COMMAND" "$INSTALL_DIR/start-wgsextract-web-gui.sh" "$INSTALL_DIR/WGS Extract Web GUI.command"
         ;;
 esac
+remove_legacy_bin_launcher
 if uses_default_pixi_layout; then
     rm -rf "$INSTALL_DIR/pixi-cache" "$INSTALL_DIR/pixi-envs"
 fi
