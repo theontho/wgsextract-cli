@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -7,6 +8,8 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.request
+import zipfile
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -58,6 +61,13 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
 
 EXCLUDED_OPERATIONS = "VEP, DeepVariant, Yleaf, Haplogrep"
 PROGRESS_STEP_WIDTH = 68
+DEFAULT_REAL_DATASET_URL = (
+    "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/"
+    "wgsextract-benchmark-hg19-mini.zip"
+)
+DEFAULT_REAL_DATASET_SHA256 = (
+    "ad0f8070dc5ca35c4a6de540493a81df082d160417f747ae68d9c098c110a9f6"
+)
 
 
 @dataclass(frozen=True)
@@ -114,6 +124,27 @@ class BenchmarkThreadPlan:
     default_threads: int | None
     per_step_threads: dict[str, int]
     reason: str
+
+
+@dataclass(frozen=True)
+class BenchmarkDataset:
+    dataset_id: str
+    description: str
+    build: str
+    root: Path
+    ref: Path
+    bam: Path
+    bam_index: Path | None
+    cram: Path | None
+    cram_index: Path | None
+    fastq_r1: Path | None
+    fastq_r2: Path | None
+    vcf: Path | None
+    vcf_index: Path | None
+    targets: Path | None
+    targets_index: Path | None
+    default_region: str | None
+    manifest: dict[str, Any]
 
 
 def register(
@@ -183,6 +214,30 @@ def register(
         choices=sorted(VALID_RUNTIME_MODES),
         help="External tool runtime to benchmark: auto, native, wsl, cygwin, msys2, or pacman.",
     )
+    parser.add_argument(
+        "--dataset",
+        choices=("fake", "real"),
+        default="fake",
+        help="Benchmark foundation data. fake generates synthetic data; real uses a release-backed mini genome zip.",
+    )
+    parser.add_argument(
+        "--dataset-zip",
+        help="Local real benchmark dataset zip. Overrides --dataset-url when --dataset real is used.",
+    )
+    parser.add_argument(
+        "--dataset-url",
+        default=DEFAULT_REAL_DATASET_URL,
+        help="URL for the release-backed real benchmark dataset zip.",
+    )
+    parser.add_argument(
+        "--dataset-sha256",
+        default=DEFAULT_REAL_DATASET_SHA256,
+        help="Expected SHA-256 for --dataset-url downloads. Empty disables checksum validation.",
+    )
+    parser.add_argument(
+        "--dataset-cache-dir",
+        help="Directory for cached real benchmark dataset zip downloads.",
+    )
     parser.set_defaults(func=run)
 
 
@@ -214,16 +269,33 @@ def run(args: argparse.Namespace) -> None:
     for path in (dataset_dir, steps_dir, logs_dir):
         path.mkdir(parents=True, exist_ok=True)
 
+    real_dataset = None
     ref_path = dataset_dir / "benchmark_ref.fa"
     generated_bam = dataset_dir / "fake.bam"
     target_tab_gz = dataset_dir / "benchmark_targets.tab.gz"
+    benchmark_build = args.build
+    data_source_description = "generated synthetic benchmark data"
+
+    selected_dataset = getattr(args, "dataset", "fake")
+    if selected_dataset == "real":
+        real_dataset = _prepare_real_benchmark_dataset(args, dataset_dir, outdir)
+        ref_path = real_dataset.ref
+        generated_bam = real_dataset.bam
+        if real_dataset.targets:
+            target_tab_gz = real_dataset.targets
+        benchmark_build = real_dataset.build or benchmark_build
+        data_source_description = real_dataset.description
+        if not getattr(args, "region", None) and real_dataset.default_region:
+            region = real_dataset.default_region
 
     metadata = {
         "profile": args.profile,
         "coverage": coverage,
         "full_size": full_size,
         "fake_bam_generator": "fast streaming reference-backed SNP generator",
-        "build": args.build,
+        "data_source": selected_dataset,
+        "data_source_description": data_source_description,
+        "build": benchmark_build,
         "seed": args.seed,
         "region": region,
         "target_count": target_count,
@@ -252,7 +324,7 @@ def run(args: argparse.Namespace) -> None:
 
     def record(result: BenchmarkResult) -> BenchmarkResult:
         results.append(result)
-        if result.slug == "00-generate-bam":
+        if result.slug in {"00-generate-bam", "00-load-real-dataset"}:
             _record_base_file_size(metadata, generated_bam)
             print(
                 f"Benchmark base file: {metadata['base_file']} "
@@ -268,37 +340,48 @@ def run(args: argparse.Namespace) -> None:
             )
         return result
 
-    record(
-        _run_cli_step(
-            args,
-            name="Generate deterministic BAM foundation",
-            slug="00-generate-bam",
-            command_args=[
-                "qc",
-                "fake-data",
-                "--outdir",
-                str(dataset_dir),
-                "--ref",
-                str(ref_path),
-                "--build",
-                args.build,
-                "--coverage",
-                str(coverage),
-                "--type",
-                "bam",
-                "--seed",
-                str(args.seed),
-            ]
-            + (["--full-size"] if full_size else []),
-            output_dir=dataset_dir,
-            logs_dir=logs_dir,
-            expected_outputs=[
-                generated_bam,
-                Path(str(generated_bam) + ".bai"),
-                ref_path,
-            ],
+    if real_dataset:
+        record(
+            _run_internal_step(
+                name="Load release-backed real genome dataset",
+                slug="00-load-real-dataset",
+                output_dir=dataset_dir,
+                func=lambda: None,
+                expected_outputs=_existing_dataset_outputs(real_dataset),
+            )
         )
-    )
+    else:
+        record(
+            _run_cli_step(
+                args,
+                name="Generate deterministic BAM foundation",
+                slug="00-generate-bam",
+                command_args=[
+                    "qc",
+                    "fake-data",
+                    "--outdir",
+                    str(dataset_dir),
+                    "--ref",
+                    str(ref_path),
+                    "--build",
+                    benchmark_build,
+                    "--coverage",
+                    str(coverage),
+                    "--type",
+                    "bam",
+                    "--seed",
+                    str(args.seed),
+                ]
+                + (["--full-size"] if full_size else []),
+                output_dir=dataset_dir,
+                logs_dir=logs_dir,
+                expected_outputs=[
+                    generated_bam,
+                    Path(str(generated_bam) + ".bai"),
+                    ref_path,
+                ],
+            )
+        )
 
     record(
         _run_cli_step(
@@ -337,17 +420,31 @@ def run(args: argparse.Namespace) -> None:
         )
     )
 
-    record(
-        _run_internal_step(
-            name="Generate deterministic microarray targets",
-            slug="02-microarray-targets",
-            output_dir=dataset_dir,
-            func=lambda: _create_target_snp_tab(
-                ref_path, target_tab_gz, target_count, region
-            ),
-            expected_outputs=[target_tab_gz, Path(str(target_tab_gz) + ".tbi")],
+    if real_dataset and real_dataset.targets:
+        expected_targets = [real_dataset.targets]
+        if real_dataset.targets_index:
+            expected_targets.append(real_dataset.targets_index)
+        record(
+            _run_internal_step(
+                name="Load real microarray targets",
+                slug="02-microarray-targets",
+                output_dir=dataset_dir,
+                func=lambda: None,
+                expected_outputs=expected_targets,
+            )
         )
-    )
+    else:
+        record(
+            _run_internal_step(
+                name="Generate deterministic microarray targets",
+                slug="02-microarray-targets",
+                output_dir=dataset_dir,
+                func=lambda: _create_target_snp_tab(
+                    ref_path, target_tab_gz, target_count, region
+                ),
+                expected_outputs=[target_tab_gz, Path(str(target_tab_gz) + ".tbi")],
+            )
+        )
 
     unalign_dir = steps_dir / "bam-unalign"
     unalign_r1 = unalign_dir / "benchmark_R1.fastq.gz"
@@ -366,7 +463,7 @@ def run(args: argparse.Namespace) -> None:
         "--r2",
         unalign_r2.name,
     ]
-    if region:
+    if region and not real_dataset:
         unalign_cmd += ["--region", str(region)]
     record(
         _run_cli_step(
@@ -381,7 +478,13 @@ def run(args: argparse.Namespace) -> None:
     )
 
     align_dir = steps_dir / "fastq-align"
-    aligned_bam = align_dir / "benchmark_R1_aligned.bam"
+    align_r1 = (
+        real_dataset.fastq_r1 if real_dataset and real_dataset.fastq_r1 else unalign_r1
+    )
+    align_r2 = (
+        real_dataset.fastq_r2 if real_dataset and real_dataset.fastq_r2 else unalign_r2
+    )
+    aligned_bam = align_dir / f"{_align_output_stem(align_r1)}_aligned.bam"
     record(
         _run_cli_step(
             args,
@@ -390,9 +493,9 @@ def run(args: argparse.Namespace) -> None:
             command_args=[
                 "align",
                 "--r1",
-                str(unalign_r1),
+                str(align_r1),
                 "--r2",
-                str(unalign_r2),
+                str(align_r2),
                 "--ref",
                 str(ref_path),
                 "--outdir",
@@ -422,7 +525,7 @@ def run(args: argparse.Namespace) -> None:
         "--fraction",
         "0.1",
     ]
-    if region:
+    if region and not real_dataset:
         subset_cmd += ["--region", str(region)]
     record(
         _run_cli_step(
@@ -521,7 +624,8 @@ def run(args: argparse.Namespace) -> None:
                 str(ref_path),
                 "--outdir",
                 str(cram_dir),
-            ],
+            ]
+            + (["--cram-version", "2.1"] if real_dataset else []),
             output_dir=cram_dir,
             logs_dir=logs_dir,
             expected_outputs=[cram_path, Path(str(cram_path) + ".crai")],
@@ -572,9 +676,9 @@ def run(args: argparse.Namespace) -> None:
         "--outdir",
         str(snp_dir),
         "--ploidy",
-        _ploidy_for_build(args.build),
+        _ploidy_for_build(benchmark_build),
     ]
-    if region:
+    if region and not real_dataset:
         snp_cmd += ["--region", str(region)]
     record(
         _run_cli_step(
@@ -599,9 +703,9 @@ def run(args: argparse.Namespace) -> None:
         "--outdir",
         str(indel_dir),
         "--ploidy",
-        _ploidy_for_build(args.build),
+        _ploidy_for_build(benchmark_build),
     ]
-    if region:
+    if region and not real_dataset:
         indel_cmd += ["--region", str(region)]
     record(
         _run_cli_step(
@@ -633,7 +737,7 @@ def run(args: argparse.Namespace) -> None:
         "--formats",
         "all",
     ]
-    if region:
+    if region and not real_dataset:
         microarray_cmd += ["--region", str(region)]
     record(
         _run_cli_step(
@@ -648,6 +752,11 @@ def run(args: argparse.Namespace) -> None:
     )
 
     qc_dir = steps_dir / "vcf-qc"
+    qc_vcf = (
+        real_dataset.vcf
+        if real_dataset and real_dataset.vcf
+        else snp_dir / "snps.vcf.gz"
+    )
     record(
         _run_cli_step(
             args,
@@ -657,13 +766,13 @@ def run(args: argparse.Namespace) -> None:
                 "qc",
                 "vcf",
                 "--input",
-                str(snp_dir / "snps.vcf.gz"),
+                str(qc_vcf),
                 "--outdir",
                 str(qc_dir),
             ],
             output_dir=qc_dir,
             logs_dir=logs_dir,
-            expected_outputs=[qc_dir / "snps.vcf.gz.vcfstats.txt"],
+            expected_outputs=[qc_dir / f"{qc_vcf.name}.vcfstats.txt"],
         )
     )
 
@@ -680,7 +789,7 @@ def run(args: argparse.Namespace) -> None:
             unalign_r2=unalign_r2,
             steps_dir=steps_dir,
             logs_dir=logs_dir,
-            build=args.build,
+            build=benchmark_build,
             region=region,
         )
 
@@ -706,6 +815,8 @@ def _run_heavy_processing_steps(
     del generated_bam, build
     base_name = analysis_bam.name.split(".")[0]
     heavy_region = region or _default_heavy_region(ref_path)
+    command_region = _command_region(region, ref_path)
+    command_chrom = _chrom_only_region(command_region)
 
     ref_count_dir = steps_dir / "ref-count-ns"
     record(
@@ -859,8 +970,8 @@ def _run_heavy_processing_steps(
         "--outdir",
         str(full_coverage_dir),
     ]
-    if region:
-        full_coverage_cmd += ["--region", str(region)]
+    if command_region:
+        full_coverage_cmd += ["--region", command_region]
     record(
         _run_cli_step(
             args,
@@ -884,9 +995,8 @@ def _run_heavy_processing_steps(
         "--outdir",
         str(sampled_coverage_dir),
     ]
-    sampled_region = _chrom_only_region(region)
-    if sampled_region:
-        sampled_coverage_cmd += ["--region", sampled_region]
+    if command_chrom:
+        sampled_coverage_cmd += ["--region", command_chrom]
     record(
         _run_cli_step(
             args,
@@ -1127,8 +1237,8 @@ def _run_heavy_processing_steps(
         "--expr",
         "QUAL>=0",
     ]
-    if region:
-        filter_cmd += ["--region", str(region)]
+    if command_region:
+        filter_cmd += ["--region", command_region]
     record(
         _run_cli_step(
             args,
@@ -1177,7 +1287,7 @@ def _run_heavy_processing_steps(
     trio_proband = trio_dir / "proband.vcf.gz"
     trio_mother = trio_dir / "mother.vcf.gz"
     trio_father = trio_dir / "father.vcf.gz"
-    trio_region = region or _trio_benchmark_region(ref_path) or heavy_region
+    trio_region = command_region or _trio_benchmark_region(ref_path) or heavy_region
     trio_prep = record(
         _run_internal_step(
             name="Prepare trio VCF benchmark inputs",
@@ -1256,8 +1366,8 @@ def _run_heavy_processing_steps(
             "--outdir",
             str(freebayes_dir),
         ]
-        if region:
-            freebayes_cmd += ["--region", str(region)]
+        if command_region:
+            freebayes_cmd += ["--region", command_region]
         record(
             _run_cli_step(
                 args,
@@ -1554,6 +1664,227 @@ def _missing_optional_tool_result(
     )
 
 
+def _prepare_real_benchmark_dataset(
+    args: argparse.Namespace, dataset_dir: Path, outdir: Path
+) -> BenchmarkDataset:
+    zip_path = _real_dataset_zip_path(args, outdir)
+    expected_sha256 = _normalized_dataset_sha256(args)
+    if expected_sha256:
+        _verify_sha256(zip_path, expected_sha256)
+
+    extract_dir = dataset_dir / "real"
+    _extract_zip_safely(zip_path, extract_dir)
+    return _load_real_benchmark_dataset(extract_dir)
+
+
+def _real_dataset_zip_path(args: argparse.Namespace, outdir: Path) -> Path:
+    local_zip = getattr(args, "dataset_zip", None)
+    if local_zip:
+        path = Path(str(local_zip)).expanduser().resolve()
+        if not path.is_file():
+            raise WGSExtractError(f"Benchmark dataset zip not found: {path}")
+        return path
+
+    url = getattr(args, "dataset_url", None) or DEFAULT_REAL_DATASET_URL
+    expected_sha256 = _normalized_dataset_sha256(args)
+    cache_dir = _real_dataset_cache_dir(args, outdir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = cache_dir / _download_filename(url)
+    if zip_path.exists() and not expected_sha256:
+        return zip_path
+    if zip_path.exists() and _sha256(zip_path) == expected_sha256:
+        return zip_path
+
+    _download_file(url, zip_path)
+    return zip_path
+
+
+def _normalized_dataset_sha256(args: argparse.Namespace) -> str | None:
+    value = getattr(args, "dataset_sha256", None)
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    return normalized or None
+
+
+def _real_dataset_cache_dir(args: argparse.Namespace, outdir: Path) -> Path:
+    cache_dir = getattr(args, "dataset_cache_dir", None)
+    if cache_dir:
+        return Path(str(cache_dir)).expanduser().resolve()
+    return outdir / "datasets"
+
+
+def _download_filename(url: str) -> str:
+    filename = Path(url.split("?", 1)[0]).name
+    if not filename:
+        raise WGSExtractError(f"Dataset URL must end with a filename: {url}")
+    return filename
+
+
+def _download_file(url: str, destination: Path) -> None:
+    tmp_path = destination.with_suffix(destination.suffix + ".tmp")
+    request = urllib.request.Request(url, headers={"User-Agent": "wgsextract-cli"})
+    try:
+        with urllib.request.urlopen(request, timeout=300) as response:
+            with open(tmp_path, "wb") as handle:
+                shutil.copyfileobj(response, handle)
+        tmp_path.replace(destination)
+    except Exception as exc:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        raise WGSExtractError(
+            f"Failed to download benchmark dataset {url}: {exc}"
+        ) from exc
+
+
+def _verify_sha256(path: Path, expected: str) -> None:
+    normalized = expected.lower().strip()
+    if not normalized:
+        return
+    actual = _sha256(path)
+    if actual != normalized:
+        raise WGSExtractError(
+            f"Checksum mismatch for {path}: expected {normalized}, got {actual}"
+        )
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _extract_zip_safely(zip_path: Path, extract_dir: Path) -> None:
+    extract_dir.mkdir(parents=True, exist_ok=True)
+    root = extract_dir.resolve()
+    try:
+        with zipfile.ZipFile(zip_path) as archive:
+            for member in archive.infolist():
+                target = (extract_dir / member.filename).resolve()
+                if not _is_relative_to(target, root):
+                    raise WGSExtractError(
+                        f"Unsafe benchmark dataset zip entry: {member.filename}"
+                    )
+            archive.extractall(extract_dir)
+    except zipfile.BadZipFile as exc:
+        raise WGSExtractError(f"Invalid benchmark dataset zip: {zip_path}") from exc
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _load_real_benchmark_dataset(root: Path) -> BenchmarkDataset:
+    manifest_path = root / "manifest.json"
+    if not manifest_path.exists():
+        candidates = list(root.glob("*/manifest.json"))
+        if len(candidates) == 1:
+            root = candidates[0].parent
+            manifest_path = candidates[0]
+    if not manifest_path.exists():
+        raise WGSExtractError(f"Benchmark dataset manifest not found under {root}")
+
+    with open(manifest_path, encoding="utf-8") as handle:
+        manifest = json.load(handle)
+
+    files = manifest.get("files")
+    if not isinstance(files, dict):
+        raise WGSExtractError(
+            f"Benchmark dataset manifest has no files object: {manifest_path}"
+        )
+
+    dataset = BenchmarkDataset(
+        dataset_id=str(manifest.get("dataset_id") or root.name),
+        description=str(
+            manifest.get("description") or "release-backed real benchmark dataset"
+        ),
+        build=str(manifest.get("build") or "hg19"),
+        root=root,
+        ref=_required_dataset_file(root, files, "ref"),
+        bam=_required_dataset_file(root, files, "bam"),
+        bam_index=_optional_dataset_file(root, files, "bam_index"),
+        cram=_optional_dataset_file(root, files, "cram"),
+        cram_index=_optional_dataset_file(root, files, "cram_index"),
+        fastq_r1=_optional_dataset_file(root, files, "fastq_r1"),
+        fastq_r2=_optional_dataset_file(root, files, "fastq_r2"),
+        vcf=_optional_dataset_file(root, files, "vcf"),
+        vcf_index=_optional_dataset_file(root, files, "vcf_index"),
+        targets=_optional_dataset_file(root, files, "targets"),
+        targets_index=_optional_dataset_file(root, files, "targets_index"),
+        default_region=manifest.get("default_region")
+        if isinstance(manifest.get("default_region"), str)
+        else None,
+        manifest=manifest,
+    )
+    _validate_real_benchmark_dataset(dataset)
+    return dataset
+
+
+def _required_dataset_file(root: Path, files: dict[str, Any], role: str) -> Path:
+    path = _optional_dataset_file(root, files, role)
+    if path is None:
+        raise WGSExtractError(
+            f"Benchmark dataset is missing required file role: {role}"
+        )
+    return path
+
+
+def _optional_dataset_file(root: Path, files: dict[str, Any], role: str) -> Path | None:
+    value = files.get(role)
+    if not isinstance(value, str) or not value:
+        return None
+    path = (root / value).resolve()
+    if not _is_relative_to(path, root.resolve()):
+        raise WGSExtractError(
+            f"Benchmark dataset file role escapes dataset root: {role}"
+        )
+    return path
+
+
+def _validate_real_benchmark_dataset(dataset: BenchmarkDataset) -> None:
+    missing = [
+        str(path)
+        for path in _existing_dataset_outputs(dataset)
+        if not path.exists() or not path.is_file()
+    ]
+    if missing:
+        raise WGSExtractError(
+            "Benchmark dataset is incomplete. Missing file(s): " + ", ".join(missing)
+        )
+    if dataset.fastq_r1 and not dataset.fastq_r2:
+        raise WGSExtractError("Benchmark dataset provides fastq_r1 without fastq_r2.")
+
+
+def _existing_dataset_outputs(dataset: BenchmarkDataset) -> list[Path]:
+    outputs = [dataset.ref, dataset.bam]
+    outputs.extend(
+        path
+        for path in (
+            dataset.bam_index,
+            dataset.cram,
+            dataset.cram_index,
+            dataset.fastq_r1,
+            dataset.fastq_r2,
+            dataset.vcf,
+            dataset.vcf_index,
+            dataset.targets,
+            dataset.targets_index,
+        )
+        if path is not None
+    )
+    return outputs
+
+
+def _align_output_stem(fastq_path: Path) -> str:
+    return fastq_path.name.split(".")[0]
+
+
 def _benchmark_tool_available(tool: str) -> bool:
     return _tool_active_for_benchmark(tool, get_tool_path(tool))
 
@@ -1666,6 +1997,28 @@ def _chrom_only_region(region: str | None) -> str | None:
         return None
     chrom, _sep, _range_part = region.partition(":")
     return chrom or None
+
+
+def _command_region(region: str | None, ref_path: Path) -> str | None:
+    if not region:
+        return None
+    chrom, has_range, _range_part = region.partition(":")
+    if has_range:
+        return region
+    length = _contig_length(ref_path, chrom)
+    if length is None:
+        return region
+    return f"{chrom}:1-{length}"
+
+
+def _contig_length(ref_path: Path, chrom: str) -> int | None:
+    fai_path = Path(str(ref_path) + ".fai")
+    if not fai_path.exists():
+        return None
+    for contig, length in _read_fai(fai_path):
+        if contig == chrom:
+            return length
+    return None
 
 
 def _fastqc_output_stem(input_path: Path) -> str:
@@ -2229,6 +2582,7 @@ def _write_report(
     with open(report_md, "w", encoding="utf-8") as handle:
         handle.write(markdown_report)
 
+    _write_github_step_summary(metadata, results, report_md)
     print(stdout_report)
 
 
@@ -2254,6 +2608,7 @@ def _format_stdout_report(
         f"Profile: {metadata['profile']} | Suite: {metadata['suite']} | "
         f"Coverage: {metadata['coverage']}x | Full size: {metadata['full_size']}",
         f"Tool runtime: {metadata['tool_runtime']}",
+        f"Data source: {metadata['data_source']} ({metadata['data_source_description']})",
         f"Fake BAM generator: {metadata['fake_bam_generator']}",
         f"Threads: {metadata['threads']}",
         f"Thread policy: {metadata['thread_policy']}",
@@ -2271,6 +2626,37 @@ def _format_stdout_report(
     return "\n".join(lines)
 
 
+def _write_github_step_summary(
+    metadata: dict[str, Any], results: list[BenchmarkResult], report_md: Path
+) -> None:
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+
+    total = sum(result.seconds for result in results if result.status != "SKIP")
+    passed = sum(1 for result in results if result.status == "PASS")
+    failed = sum(1 for result in results if result.status == "FAIL")
+    skipped = sum(1 for result in results if result.status == "SKIP")
+    lines = [
+        "## WGSExtract Benchmark",
+        "",
+        "| Metric | Value |",
+        "| --- | --- |",
+        f"| Total measured time | {total:.2f}s |",
+        f"| Passed | {passed} |",
+        f"| Failed | {failed} |",
+        f"| Skipped | {skipped} |",
+        f"| Suite | {metadata['suite']} |",
+        f"| Profile | {metadata['profile']} |",
+        f"| Data source | {metadata['data_source']} |",
+        f"| Base file size | {metadata['base_file_size'] or 'not available'} |",
+        f"| Report | `{report_md}` |",
+        "",
+    ]
+    with open(summary_path, "a", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
+
+
 def _format_markdown_report(
     metadata: dict[str, Any], results: list[BenchmarkResult], report_json: Path
 ) -> str:
@@ -2285,6 +2671,7 @@ def _format_markdown_report(
         f"- Coverage: `{metadata['coverage']}x`",
         f"- Tool runtime: `{metadata['tool_runtime']}`",
         f"- Full size reference: `{metadata['full_size']}`",
+        f"- Data source: `{metadata['data_source']}` ({metadata['data_source_description']})",
         f"- Fake BAM generator: `{metadata['fake_bam_generator']}`",
         f"- Build: `{metadata['build']}`",
         f"- Region: `{metadata['region'] or 'whole generated genome'}`",
