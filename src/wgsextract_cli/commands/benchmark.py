@@ -68,6 +68,8 @@ DEFAULT_REAL_DATASET_URL = (
 DEFAULT_REAL_DATASET_SHA256 = (
     "ad0f8070dc5ca35c4a6de540493a81df082d160417f747ae68d9c098c110a9f6"
 )
+THOUSAND_GENOMES_FTP_ROOT = "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp"
+ENA_FTP_ROOT = "https://ftp.sra.ebi.ac.uk/vol1"
 
 
 @dataclass(frozen=True)
@@ -127,6 +129,37 @@ class BenchmarkThreadPlan:
 
 
 @dataclass(frozen=True)
+class BenchmarkRemoteFile:
+    role: str
+    url: str
+    filename: str
+    md5: str | None = None
+
+
+@dataclass(frozen=True)
+class BenchmarkDerivedAlignment:
+    source_role: str
+    output_filename: str
+    index_filename: str
+    subsample: str
+
+
+@dataclass(frozen=True)
+class BenchmarkDatasetSpec:
+    tag: str
+    dataset_id: str
+    description: str
+    build: str
+    sample: str | None
+    kind: str
+    remote_files: tuple[BenchmarkRemoteFile, ...] = ()
+    derived_alignment: BenchmarkDerivedAlignment | None = None
+    default_region: str | None = None
+    region_safe: bool = False
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
 class BenchmarkDataset:
     dataset_id: str
     description: str
@@ -144,7 +177,115 @@ class BenchmarkDataset:
     targets: Path | None
     targets_index: Path | None
     default_region: str | None
+    region_safe: bool
     manifest: dict[str, Any]
+
+
+REAL_BENCHMARK_DATASETS: dict[str, BenchmarkDatasetSpec] = {
+    "real": BenchmarkDatasetSpec(
+        tag="real",
+        dataset_id="hg19-mini-hg00096",
+        description="HG00096 real 1000 Genomes low-coverage mini benchmark dataset",
+        build="hg19",
+        sample="HG00096",
+        kind="archive",
+        default_region="20",
+    ),
+    "real-1x": BenchmarkDatasetSpec(
+        tag="real-1x",
+        dataset_id="1000g-hg00096-hs37d5-real-1x",
+        description=(
+            "HG00096 1000 Genomes Phase 3 low-coverage WGS, deterministically "
+            "downsampled to approximately 1x mapped coverage"
+        ),
+        build="hg37",
+        sample="HG00096",
+        kind="direct",
+        remote_files=(
+            BenchmarkRemoteFile(
+                "ref",
+                f"{THOUSAND_GENOMES_FTP_ROOT}/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz",
+                "hs37d5.fa.gz",
+            ),
+            BenchmarkRemoteFile(
+                "ref_fai",
+                f"{THOUSAND_GENOMES_FTP_ROOT}/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz.fai",
+                "hs37d5.fa.gz.fai",
+            ),
+            BenchmarkRemoteFile(
+                "ref_gzi",
+                f"{THOUSAND_GENOMES_FTP_ROOT}/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz.gzi",
+                "hs37d5.fa.gz.gzi",
+            ),
+            BenchmarkRemoteFile(
+                "source_cram",
+                f"{THOUSAND_GENOMES_FTP_ROOT}/phase3/data/HG00096/alignment/HG00096.mapped.ILLUMINA.bwa.GBR.low_coverage.20120522.bam.cram",
+                "HG00096.mapped.ILLUMINA.bwa.GBR.low_coverage.20120522.bam.cram",
+            ),
+            BenchmarkRemoteFile(
+                "source_cram_index",
+                f"{THOUSAND_GENOMES_FTP_ROOT}/phase3/data/HG00096/alignment/HG00096.mapped.ILLUMINA.bwa.GBR.low_coverage.20120522.bam.cram.crai",
+                "HG00096.mapped.ILLUMINA.bwa.GBR.low_coverage.20120522.bam.cram.crai",
+            ),
+        ),
+        derived_alignment=BenchmarkDerivedAlignment(
+            source_role="source_cram",
+            output_filename="HG00096.real-1x.downsampled.cram",
+            index_filename="HG00096.real-1x.downsampled.cram.crai",
+            subsample="20260504.2255",
+        ),
+        region_safe=True,
+        metadata={
+            "source_project": "1000 Genomes Phase 3 low-coverage alignment",
+            "source_alignment": (
+                "HG00096.mapped.ILLUMINA.bwa.GBR.low_coverage.20120522.bam.cram"
+            ),
+            "source_mapped_bases": 13_911_883_215,
+            "target_coverage": "~1x mapped coverage",
+        },
+    ),
+    "real-30x": BenchmarkDatasetSpec(
+        tag="real-30x",
+        dataset_id="1000g-hg00096-grch38-real-30x",
+        description="HG00096 1000 Genomes NYGC 30x GRCh38 high-coverage WGS CRAM",
+        build="hg38",
+        sample="HG00096",
+        kind="direct",
+        remote_files=(
+            BenchmarkRemoteFile(
+                "ref",
+                f"{THOUSAND_GENOMES_FTP_ROOT}/technical/reference/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa",
+                "GRCh38_full_analysis_set_plus_decoy_hla.fa",
+            ),
+            BenchmarkRemoteFile(
+                "ref_fai",
+                f"{THOUSAND_GENOMES_FTP_ROOT}/technical/reference/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa.fai",
+                "GRCh38_full_analysis_set_plus_decoy_hla.fa.fai",
+            ),
+            BenchmarkRemoteFile(
+                "bam",
+                f"{ENA_FTP_ROOT}/run/ERR324/ERR3240114/HG00096.final.cram",
+                "HG00096.final.cram",
+                md5="d3354f61a055adfcfc988470bc507b2d",
+            ),
+            BenchmarkRemoteFile(
+                "bam_index",
+                f"{ENA_FTP_ROOT}/run/ERR324/ERR3240114/HG00096.final.cram.crai",
+                "HG00096.final.cram.crai",
+            ),
+        ),
+        region_safe=True,
+        metadata={
+            "source_project": "1000 Genomes 2504 high coverage",
+            "run_id": "ERR3240114",
+            "study_id": "ERP114329",
+            "instrument": "Illumina NovaSeq 6000",
+            "read_count": 768_049_130,
+            "base_count": 115_207_369_500,
+            "target_coverage": "30x WGS",
+        },
+    ),
+}
 
 
 def register(
@@ -216,9 +357,13 @@ def register(
     )
     parser.add_argument(
         "--dataset",
-        choices=("fake", "real"),
+        choices=("fake", *sorted(REAL_BENCHMARK_DATASETS)),
         default="fake",
-        help="Benchmark foundation data. fake generates synthetic data; real uses a release-backed mini genome zip.",
+        help=(
+            "Benchmark foundation data. fake generates synthetic data; real uses "
+            "the release-backed mini genome zip; real-1x and real-30x cache "
+            "public 1000 Genomes WGS references locally."
+        ),
     )
     parser.add_argument(
         "--dataset-zip",
@@ -227,7 +372,7 @@ def register(
     parser.add_argument(
         "--dataset-url",
         default=DEFAULT_REAL_DATASET_URL,
-        help="URL for the release-backed real benchmark dataset zip.",
+        help="URL for the release-backed real benchmark dataset zip used by --dataset real.",
     )
     parser.add_argument(
         "--dataset-sha256",
@@ -236,7 +381,7 @@ def register(
     )
     parser.add_argument(
         "--dataset-cache-dir",
-        help="Directory for cached real benchmark dataset zip downloads.",
+        help="Directory for cached real benchmark dataset downloads.",
     )
     parser.set_defaults(func=run)
 
@@ -277,7 +422,7 @@ def run(args: argparse.Namespace) -> None:
     data_source_description = "generated synthetic benchmark data"
 
     selected_dataset = getattr(args, "dataset", "fake")
-    if selected_dataset == "real":
+    if selected_dataset in REAL_BENCHMARK_DATASETS:
         real_dataset = _prepare_real_benchmark_dataset(args, dataset_dir, outdir)
         ref_path = real_dataset.ref
         generated_bam = real_dataset.bam
@@ -287,6 +432,10 @@ def run(args: argparse.Namespace) -> None:
         data_source_description = real_dataset.description
         if not getattr(args, "region", None) and real_dataset.default_region:
             region = real_dataset.default_region
+        if region and real_dataset.region_safe:
+            region = _normalize_region_for_ref(region, ref_path)
+
+    region_allowed = real_dataset is None or real_dataset.region_safe
 
     metadata = {
         "profile": args.profile,
@@ -463,7 +612,7 @@ def run(args: argparse.Namespace) -> None:
         "--r2",
         unalign_r2.name,
     ]
-    if region and not real_dataset:
+    if region and region_allowed:
         unalign_cmd += ["--region", str(region)]
     record(
         _run_cli_step(
@@ -525,7 +674,7 @@ def run(args: argparse.Namespace) -> None:
         "--fraction",
         "0.1",
     ]
-    if region and not real_dataset:
+    if region and region_allowed:
         subset_cmd += ["--region", str(region)]
     record(
         _run_cli_step(
@@ -678,7 +827,7 @@ def run(args: argparse.Namespace) -> None:
         "--ploidy",
         _ploidy_for_build(benchmark_build),
     ]
-    if region and not real_dataset:
+    if region and region_allowed:
         snp_cmd += ["--region", str(region)]
     record(
         _run_cli_step(
@@ -705,7 +854,7 @@ def run(args: argparse.Namespace) -> None:
         "--ploidy",
         _ploidy_for_build(benchmark_build),
     ]
-    if region and not real_dataset:
+    if region and region_allowed:
         indel_cmd += ["--region", str(region)]
     record(
         _run_cli_step(
@@ -737,7 +886,7 @@ def run(args: argparse.Namespace) -> None:
         "--formats",
         "all",
     ]
-    if region and not real_dataset:
+    if region and region_allowed:
         microarray_cmd += ["--region", str(region)]
     record(
         _run_cli_step(
@@ -1667,6 +1816,13 @@ def _missing_optional_tool_result(
 def _prepare_real_benchmark_dataset(
     args: argparse.Namespace, dataset_dir: Path, outdir: Path
 ) -> BenchmarkDataset:
+    selected_dataset = getattr(args, "dataset", "real")
+    spec = REAL_BENCHMARK_DATASETS.get(selected_dataset)
+    if spec is None:
+        raise WGSExtractError(f"Unknown real benchmark dataset: {selected_dataset}")
+    if spec.kind == "direct":
+        return _prepare_direct_real_benchmark_dataset(args, dataset_dir, outdir, spec)
+
     zip_path = _real_dataset_zip_path(args, outdir)
     expected_sha256 = _normalized_dataset_sha256(args)
     if expected_sha256:
@@ -1675,6 +1831,149 @@ def _prepare_real_benchmark_dataset(
     extract_dir = dataset_dir / "real"
     _extract_zip_safely(zip_path, extract_dir)
     return _load_real_benchmark_dataset(extract_dir)
+
+
+def _prepare_direct_real_benchmark_dataset(
+    args: argparse.Namespace,
+    dataset_dir: Path,
+    outdir: Path,
+    spec: BenchmarkDatasetSpec,
+) -> BenchmarkDataset:
+    cache_root = _real_dataset_cache_dir(args, outdir) / spec.dataset_id
+    cache_root.mkdir(parents=True, exist_ok=True)
+    cached_files: dict[str, Path] = {}
+    for remote in spec.remote_files:
+        cached_files[remote.role] = _cached_remote_dataset_file(remote, cache_root)
+
+    if spec.derived_alignment:
+        _prepare_derived_alignment(spec.derived_alignment, cached_files, cache_root)
+
+    _write_direct_dataset_manifest(spec, cache_root, cached_files)
+
+    _link_cached_dataset_manifest(
+        cache_root, dataset_dir / f"{spec.tag}-cache-root.txt"
+    )
+    return _load_real_benchmark_dataset(cache_root)
+
+
+def _cached_remote_dataset_file(remote: BenchmarkRemoteFile, cache_root: Path) -> Path:
+    path = cache_root / remote.filename
+    verified_path = _verified_checksum_path(path, remote.md5)
+    if path.exists() and (remote.md5 is None or verified_path.exists()):
+        return path
+    if path.exists() and remote.md5:
+        _verify_md5(path, remote.md5)
+        verified_path.write_text(remote.md5.lower().strip() + "\n", encoding="ascii")
+        return path
+    if not path.exists():
+        _download_file(remote.url, path)
+    if remote.md5:
+        _verify_md5(path, remote.md5)
+        verified_path.write_text(remote.md5.lower().strip() + "\n", encoding="ascii")
+    return path
+
+
+def _verified_checksum_path(path: Path, checksum: str | None) -> Path:
+    suffix = checksum.lower().strip() if checksum else "unchecked"
+    return path.with_name(f".{path.name}.{suffix}.verified")
+
+
+def _prepare_derived_alignment(
+    alignment: BenchmarkDerivedAlignment,
+    cached_files: dict[str, Path],
+    cache_root: Path,
+) -> None:
+    source = cached_files.get(alignment.source_role)
+    ref = cached_files.get("ref")
+    if source is None or ref is None:
+        raise WGSExtractError(
+            "Benchmark dataset derived alignment requires source alignment and ref."
+        )
+
+    output = cache_root / alignment.output_filename
+    index = cache_root / alignment.index_filename
+    if output.exists() and index.exists():
+        cached_files["bam"] = output
+        cached_files["bam_index"] = index
+        return
+
+    if output.exists():
+        output.unlink()
+    if index.exists():
+        index.unlink()
+
+    run_command(
+        [
+            "samtools",
+            "view",
+            "-C",
+            "-T",
+            str(ref),
+            "-s",
+            alignment.subsample,
+            "-o",
+            str(output),
+            str(source),
+        ]
+    )
+    run_command(["samtools", "index", str(output)])
+    produced_index = Path(str(output) + ".crai")
+    if produced_index != index and produced_index.exists():
+        produced_index.replace(index)
+    if not index.exists():
+        raise WGSExtractError(f"Failed to create benchmark alignment index: {index}")
+
+    cached_files["bam"] = output
+    cached_files["bam_index"] = index
+
+
+def _write_direct_dataset_manifest(
+    spec: BenchmarkDatasetSpec, cache_root: Path, cached_files: dict[str, Path]
+) -> None:
+    metadata = spec.metadata or {}
+    files = {
+        role: path.name
+        for role, path in sorted(cached_files.items())
+        if role
+        in {
+            "ref",
+            "ref_fai",
+            "ref_gzi",
+            "bam",
+            "bam_index",
+            "cram",
+            "cram_index",
+            "fastq_r1",
+            "fastq_r2",
+            "vcf",
+            "vcf_index",
+            "targets",
+            "targets_index",
+            "source_cram",
+            "source_cram_index",
+        }
+    }
+    manifest = {
+        "dataset_id": spec.dataset_id,
+        "tag": spec.tag,
+        "description": spec.description,
+        "sample": spec.sample,
+        "build": spec.build,
+        "kind": spec.kind,
+        "default_region": spec.default_region,
+        "region_safe": spec.region_safe,
+        "source_files": [asdict(remote) for remote in spec.remote_files],
+        "files": files,
+    }
+    manifest.update(metadata)
+    (cache_root / "manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def _link_cached_dataset_manifest(cache_root: Path, marker_path: Path) -> None:
+    marker_path.parent.mkdir(parents=True, exist_ok=True)
+    marker_path.write_text(str(cache_root) + "\n", encoding="utf-8")
 
 
 def _real_dataset_zip_path(args: argparse.Namespace, outdir: Path) -> Path:
@@ -1756,6 +2055,28 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _verify_md5(path: Path, expected: str) -> None:
+    normalized = expected.lower().strip()
+    if not normalized:
+        return
+    actual = _md5(path)
+    if actual != normalized:
+        raise WGSExtractError(
+            f"MD5 mismatch for {path}: expected {normalized}, got {actual}"
+        )
+
+
+def _md5(path: Path) -> str:
+    try:
+        digest = hashlib.md5(usedforsecurity=False)
+    except TypeError:
+        digest = hashlib.md5()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _extract_zip_safely(zip_path: Path, extract_dir: Path) -> None:
     extract_dir.mkdir(parents=True, exist_ok=True)
     root = extract_dir.resolve()
@@ -1820,6 +2141,7 @@ def _load_real_benchmark_dataset(root: Path) -> BenchmarkDataset:
         default_region=manifest.get("default_region")
         if isinstance(manifest.get("default_region"), str)
         else None,
+        region_safe=bool(manifest.get("region_safe", False)),
         manifest=manifest,
     )
     _validate_real_benchmark_dataset(dataset)
@@ -2009,6 +2331,41 @@ def _command_region(region: str | None, ref_path: Path) -> str | None:
     if length is None:
         return region
     return f"{chrom}:1-{length}"
+
+
+def _normalize_region_for_ref(region: str | None, ref_path: Path) -> str | None:
+    if not region:
+        return None
+    chrom, sep, range_part = region.partition(":")
+    normalized_chrom = _matching_ref_contig(ref_path, chrom) or chrom
+    return f"{normalized_chrom}:{range_part}" if sep else normalized_chrom
+
+
+def _matching_ref_contig(ref_path: Path, chrom: str) -> str | None:
+    fai_path = Path(str(ref_path) + ".fai")
+    if not fai_path.exists():
+        return None
+    contigs = [contig for contig, _length in _read_fai(fai_path)]
+    if chrom in contigs:
+        return chrom
+    if chrom.startswith("chr"):
+        without_chr = chrom[3:]
+        if without_chr in contigs:
+            return without_chr
+    else:
+        with_chr = f"chr{chrom}"
+        if with_chr in contigs:
+            return with_chr
+    aliases = {
+        "M": ("MT", "chrM", "chrMT"),
+        "MT": ("M", "chrM", "chrMT"),
+        "chrM": ("MT", "M", "chrMT"),
+        "chrMT": ("MT", "M", "chrM"),
+    }
+    for alias in aliases.get(chrom, ()):
+        if alias in contigs:
+            return alias
+    return None
 
 
 def _contig_length(ref_path: Path, chrom: str) -> int | None:
