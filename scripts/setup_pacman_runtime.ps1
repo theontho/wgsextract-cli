@@ -3,8 +3,11 @@ param(
     [string]$Msys2Root = $(if ($env:MSYS2_ROOT) { $env:MSYS2_ROOT } else { "C:\msys64" }),
     [string]$BwaVersion = "0.7.19",
     [string]$BuildDir = "tmp\pacman-runtime-build",
+    [string]$BwaBinaryUrl = $(if ($env:WGSEXTRACT_BWA_BINARY_URL) { $env:WGSEXTRACT_BWA_BINARY_URL } else { "" }),
+    [string]$BwaBinarySha256 = $(if ($env:WGSEXTRACT_BWA_BINARY_SHA256) { $env:WGSEXTRACT_BWA_BINARY_SHA256 } else { "" }),
     [switch]$ForceBwaBuild,
     [switch]$SkipBwaBuild,
+    [switch]$SkipBwaDownload,
     [switch]$SkipPackageInstall
 )
 
@@ -63,7 +66,110 @@ $ScriptText
     }
 }
 
+function Install-PacmanPackages {
+    param(
+        [string]$Description,
+        [string[]]$Packages
+    )
+
+    if ($Packages.Count -eq 0) {
+        return
+    }
+
+    Write-Host $Description
+    Invoke-Msys2Script ("pacman -Syu --needed --noconfirm " + ($Packages -join " "))
+}
+
+function Copy-UrlOrFile {
+    param(
+        [string]$Source,
+        [string]$Destination
+    )
+
+    if (Test-Path $Source) {
+        Copy-Item -LiteralPath $Source -Destination $Destination -Force
+        return
+    }
+
+    Invoke-WebRequest -Uri $Source -OutFile $Destination -UseBasicParsing
+}
+
+function Resolve-BwaBinarySha256 {
+    param([string]$BinaryUrl)
+
+    if ($BwaBinarySha256) {
+        return ($BwaBinarySha256.Trim() -split "\s+")[0]
+    }
+
+    if (-not $BinaryUrl) {
+        return ""
+    }
+
+    $checksumSource = "$BinaryUrl.sha256"
+    $checksumTemp = Join-Path $env:TEMP ("wgsextract-bwa-{0}.sha256" -f ([guid]::NewGuid()))
+    try {
+        Copy-UrlOrFile -Source $checksumSource -Destination $checksumTemp
+        $checksumText = Get-Content -LiteralPath $checksumTemp -Raw
+        $match = [regex]::Match($checksumText, "(?i)\b[a-f0-9]{64}\b")
+        if ($match.Success) {
+            return $match.Value.ToLowerInvariant()
+        }
+    }
+    catch {
+        Write-Warning "Could not retrieve BWA binary checksum from $checksumSource. Continuing without checksum verification."
+    }
+    finally {
+        Remove-Item $checksumTemp -Force -ErrorAction SilentlyContinue
+    }
+
+    return ""
+}
+
+function Install-BwaBinaryPackage {
+    param(
+        [string]$BinaryUrl,
+        [string]$DestinationPath
+    )
+
+    if (-not $BinaryUrl) {
+        throw "No BWA binary URL was provided."
+    }
+
+    $tempZip = Join-Path $env:TEMP ("wgsextract-bwa-{0}.zip" -f ([guid]::NewGuid()))
+    $extractDir = Join-Path $env:TEMP ("wgsextract-bwa-{0}" -f ([guid]::NewGuid()))
+    try {
+        Write-Host "Downloading prebuilt BWA from $BinaryUrl"
+        Copy-UrlOrFile -Source $BinaryUrl -Destination $tempZip
+
+        $expectedSha256 = Resolve-BwaBinarySha256 -BinaryUrl $BinaryUrl
+        if ($expectedSha256) {
+            $actualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $tempZip).Hash.ToLowerInvariant()
+            if ($actualSha256 -ne $expectedSha256.ToLowerInvariant()) {
+                throw "BWA binary checksum mismatch. Expected $expectedSha256 but got $actualSha256."
+            }
+            Write-Host "Verified BWA binary SHA256: $actualSha256"
+        }
+
+        New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
+        Expand-Archive -Path $tempZip -DestinationPath $extractDir -Force
+        $bwaBinary = Get-ChildItem -Path $extractDir -Recurse -Filter "bwa.exe" | Select-Object -First 1
+        if (-not $bwaBinary) {
+            throw "Downloaded BWA package did not contain bwa.exe."
+        }
+
+        Copy-Item -LiteralPath $bwaBinary.FullName -Destination $DestinationPath -Force
+        Write-Host "Installed prebuilt BWA to $DestinationPath"
+    }
+    finally {
+        Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
+        Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 $Msys2Root = [System.IO.Path]::GetFullPath($Msys2Root)
+if (-not $BwaBinaryUrl) {
+    $BwaBinaryUrl = "https://github.com/theontho/wgsextract-cli/releases/latest/download/wgsextract-bwa-$BwaVersion-windows-ucrt64.zip"
+}
 $script:BashPath = Join-Path $Msys2Root "usr\bin\bash.exe"
 $pacmanPath = Join-Path $Msys2Root "usr\bin\pacman.exe"
 $ucrt64Bin = Join-Path $Msys2Root "ucrt64\bin"
@@ -76,29 +182,48 @@ if (-not (Test-Path $pacmanPath)) {
 }
 
 if (-not $SkipPackageInstall) {
-    $packages = @(
-        "base-devel",
-        "curl",
-        "git",
-        "make",
+    $runtimePackages = @(
+        "gzip",
         "tar",
         "mingw-w64-ucrt-x86_64-bcftools",
-        "mingw-w64-ucrt-x86_64-gcc",
         "mingw-w64-ucrt-x86_64-htslib",
         "mingw-w64-ucrt-x86_64-samtools",
         "mingw-w64-ucrt-x86_64-zlib"
     )
-    Write-Host "Installing MSYS2 UCRT64 packages..."
-    Invoke-Msys2Script ("pacman -Syu --needed --noconfirm " + ($packages -join " "))
+    Install-PacmanPackages "Installing MSYS2 UCRT64 runtime packages..." $runtimePackages
 }
 else {
     Write-Host "Skipping MSYS2 package installation."
 }
 
 $bwaPath = Join-Path $ucrt64Bin "bwa.exe"
+$installedPrebuiltBwa = $false
+
+if ((-not $SkipBwaBuild) -and (-not $ForceBwaBuild) -and (-not $SkipBwaDownload) -and (-not (Test-Path $bwaPath))) {
+    try {
+        Install-BwaBinaryPackage -BinaryUrl $BwaBinaryUrl -DestinationPath $bwaPath
+        $installedPrebuiltBwa = $true
+    }
+    catch {
+        Write-Warning "Prebuilt BWA install failed: $($_.Exception.Message)"
+        Write-Warning "Falling back to a local MSYS2 UCRT64 BWA build."
+    }
+}
+
 $shouldBuildBwa = (-not $SkipBwaBuild) -and ($ForceBwaBuild -or -not (Test-Path $bwaPath))
 
 if ($shouldBuildBwa) {
+    if (-not $SkipPackageInstall) {
+        $buildPackages = @(
+            "base-devel",
+            "curl",
+            "git",
+            "make",
+            "mingw-w64-ucrt-x86_64-gcc"
+        )
+        Install-PacmanPackages "Installing MSYS2 UCRT64 BWA build packages..." $buildPackages
+    }
+
     $buildRoot = Resolve-RepoRelativePath $BuildDir
     New-Item -ItemType Directory -Path $buildRoot -Force | Out-Null
     $buildRootMsys = ConvertTo-MsysPath $buildRoot
@@ -247,8 +372,11 @@ install -m 755 "`$built_bwa" /ucrt64/bin/bwa.exe
 elseif ($SkipBwaBuild) {
     Write-Host "Skipping BWA build."
 }
+elseif ($installedPrebuiltBwa) {
+    Write-Host "BWA installed from prebuilt release package."
+}
 else {
-    Write-Host "BWA already exists at $bwaPath. Use -ForceBwaBuild to rebuild."
+    Write-Host "BWA already exists at $bwaPath. Use -ForceBwaBuild to rebuild locally."
 }
 
 $requiredTools = @("samtools", "bcftools", "bgzip", "tabix", "bwa")
