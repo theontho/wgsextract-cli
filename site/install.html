@@ -72,6 +72,9 @@
 <span class="comment"># 3. The installer creates ./wgsextract-cli.</span>
 <span class="cmd">curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh</span>
 
+<span class="comment"># The bootstrap script resolves and installs the latest GitHub release,</span>
+<span class="comment"># not the latest main branch source.</span>
+
 <span class="comment"># Initialize reference library data</span>
 <span class="cmd">./wgsextract-cli/wgsextract ref bootstrap</span>
 <span class="cmd">./wgsextract-cli/wgsextract ref library --list</span>

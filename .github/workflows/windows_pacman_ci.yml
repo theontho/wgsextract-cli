@@ -46,6 +46,10 @@ jobs:
           $ErrorActionPreference = "Stop"
           pixi install
 
+      - name: Validate Windows installer arguments
+        shell: cmd
+        run: install_windows.bat --dry-run
+
       - name: Build and validate pacman runtime
         shell: powershell
         run: |

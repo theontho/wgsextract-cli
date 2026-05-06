@@ -18,6 +18,8 @@ jobs:
         with:
           pixi-version: latest
           locked: false
+      - name: Test installer
+        run: scripts/test_install_sh.sh
       - name: Verify Tools
         run: chmod +x scripts/verify_tools.sh && pixi run scripts/verify_tools.sh
       - name: Configure and Bootstrap Library
