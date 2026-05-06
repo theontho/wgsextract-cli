@@ -3,8 +3,23 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="Desktop and web GUI guide for WGS Extract CLI." />
+    <meta name="description" content="Desktop GUI guide for WGS Extract CLI." />
     <title>GUI Guide | WGS Extract CLI</title>
+    <meta property="og:site_name" content="WGS Extract CLI" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GUI Guide | WGS Extract CLI" />
+    <meta property="og:description" content="Desktop GUI guide for WGS Extract CLI." />
+    <meta property="og:url" content="https://theontho.github.io/wgsextract-cli/gui.html" />
+    <meta property="og:image" content="https://theontho.github.io/wgsextract-cli/assets/social-preview.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="WGS Extract CLI local-first whole genome toolkit" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="GUI Guide | WGS Extract CLI" />
+    <meta name="twitter:description" content="Desktop GUI guide for WGS Extract CLI." />
+    <meta name="twitter:image" content="https://theontho.github.io/wgsextract-cli/assets/social-preview.png" />
+    <link rel="canonical" href="https://theontho.github.io/wgsextract-cli/gui.html" />
     <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".82em" font-size="84">🧬</text></svg>' />
     <link rel="stylesheet" href="assets/site.css" />
   </head>
@@ -31,12 +46,16 @@
           <div class="screenshot"><img src="gui-screenshot.jpg" alt="Screenshot of the WGS Extract desktop GUI" /></div>
           <div>
             <p class="kicker">Launch commands</p>
-            <h2>Desktop GUI first, web GUI experimental.</h2>
-            <p class="lede">The CustomTkinter desktop GUI is the main graphical interface. The NiceGUI web interface exists for experimentation and development, but the desktop GUI is the safer recommendation for normal use.</p>
-            <div class="code-panel" style="margin-top: 22px"><header><span>launch.sh</span><span>interfaces</span></header><pre><code>pixi run wgsextract gui --desktop
+            <h2>Use the desktop GUI for normal workflows.</h2>
+            <p class="lede">The CustomTkinter desktop GUI is the main graphical interface. The installer creates only a desktop GUI launcher: <code>WGS Extract GUI.command</code> on macOS and <code>start-wgsextract-gui.sh</code> on Linux.</p>
+            <div class="code-panel" style="margin-top: 22px"><header><span>launch.sh</span><span>desktop GUI</span></header><pre><code># macOS installer:
+# double-click "WGS Extract GUI.command" in Finder.
 
-# Experimental web interface
-pixi run wgsextract gui --web</code></pre></div>
+# Linux installer:
+./wgsextract-cli/start-wgsextract-gui.sh
+
+# Developer checkout:
+pixi run wgsextract gui --desktop</code></pre></div>
           </div>
         </div>
       </section>
