@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="WGS Extract CLI and GUI documentation, install guide, workflows, and whole genome sequencing reference." />
+    <title>WGS Extract CLI | Local-first whole genome toolkit</title>
+    <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".82em" font-size="84">🧬</text></svg>' />
+    <link rel="stylesheet" href="assets/site.css" />
+  </head>
+  <body>
+    <nav class="nav" aria-label="Primary navigation">
+      <div class="wrap nav-inner">
+        <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true"></span><span>WGS Extract CLI</span></a>
+        <div class="nav-links">
+          <a class="active" href="index.html">Home</a>
+          <a href="install.html">Install</a>
+          <a href="cli.html">CLI</a>
+          <a href="gui.html">GUI</a>
+          <a href="workflows.html">Workflows</a>
+          <a href="wgs-guide.html">WGS guide</a>
+          <a href="reference.html">Reference</a>
+        </div>
+      </div>
+    </nav>
+
+    <main>
+      <header class="hero">
+        <div class="wrap hero-grid">
+          <div>
+            <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Local-first genomics toolkit</p>
+            <h1>Turn whole genome data into useful files, reports, and extracts.</h1>
+            <p class="lede">
+              WGS Extract CLI is a modern, scriptable command-line recreation of WGS Extract with a desktop GUI for guided workflows. It wraps common bioinformatics tools so you can inspect BAM/CRAM files, build consumer microarray files, call variants, extract Y/MT reads, manage references, and automate repeatable genome work.
+            </p>
+            <div class="actions">
+              <a class="btn primary" href="install.html">Start installing</a>
+              <a class="btn" href="workflows.html">Browse workflows</a>
+              <a class="btn" href="wgs-guide.html">Learn WGS basics</a>
+            </div>
+          </div>
+
+          <aside class="hero-card" aria-label="Quick start terminal">
+            <div class="terminal">
+              <div class="terminal-top" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+              <pre><code><span class="prompt">$</span> <span class="cmd">curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh</span>
+
+<span class="comment"># Check your setup</span>
+<span class="prompt">$</span> <span class="cmd">./wgsextract-cli/bin/wgsextract info --detailed</span>
+
+<span class="comment"># Launch the desktop GUI</span>
+<span class="prompt">$</span> <span class="cmd">./wgsextract-cli/start-wgsextract-gui.sh</span></code></pre>
+            </div>
+            <div class="stats">
+              <div class="stat"><strong>CLI</strong><span>Automation first</span></div>
+              <div class="stat"><strong>GUI</strong><span>Guided desktop app</span></div>
+              <div class="stat"><strong>Pixi</strong><span>Reproducible tools</span></div>
+            </div>
+          </aside>
+        </div>
+      </header>
+
+      <section>
+        <div class="wrap">
+          <div class="section-head">
+            <h2>A practical reference site, not just a splash page.</h2>
+            <p>Use the pages below as a map for installing the tool, choosing the right interface, understanding WGS file types, and running common genome workflows safely.</p>
+          </div>
+          <div class="grid three">
+            <article class="card">
+              <div class="kicker">Install</div>
+              <h3>Install the standalone app or use Pixi directly</h3>
+              <p>Use the standalone macOS/Linux installer by default, or follow the developer Pixi workflow when you want a normal source checkout.</p>
+              <a class="inline-link" href="install.html">Read the install guide</a>
+            </article>
+            <article class="card">
+              <div class="kicker">CLI reference</div>
+              <h3>Command groups and recipes</h3>
+              <p>Learn the major command families for info, BAM/CRAM, extraction, VCF calling, annotation, lineage, FASTQ QC, references, and fake data.</p>
+              <a class="inline-link" href="cli.html">Open the CLI guide</a>
+            </article>
+            <article class="card">
+              <div class="kicker">GUI guide</div>
+              <h3>Use the desktop interface</h3>
+              <p>Understand the GUI tabs, what each tab does, when the GUI is easier than the CLI, and how it maps back to command-line workflows.</p>
+              <a class="inline-link" href="gui.html">Explore the GUI</a>
+            </article>
+            <article class="card">
+              <div class="kicker">Workflows</div>
+              <h3>Go from a goal to commands</h3>
+              <p>Follow recipes for microarray simulation, Y-DNA and mtDNA extraction, variant calling, FASTQ to BAM, storage conversion, and testing.</p>
+              <a class="inline-link" href="workflows.html">Pick a workflow</a>
+            </article>
+            <article class="card">
+              <div class="kicker">WGS guide</div>
+              <h3>Learn whole genome concepts</h3>
+              <p>Get a friendly explanation of whole genome sequencing, coverage, references, variants, file types, read technologies, and interpretation limits.</p>
+              <a class="inline-link" href="wgs-guide.html">Read the WGS guide</a>
+            </article>
+            <article class="card">
+              <div class="kicker">Reference</div>
+              <h3>Glossary and safety notes</h3>
+              <p>Look up common terms, file extensions, external tools, privacy considerations, and troubleshooting tips for long-running genome jobs.</p>
+              <a class="inline-link" href="reference.html">Open the reference</a>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap showcase">
+          <div class="screenshot">
+            <img src="gui-screenshot.jpg" alt="Screenshot of the WGS Extract desktop GUI" />
+          </div>
+          <div>
+            <p class="kicker">CLI plus GUI</p>
+            <h2>Choose the interface that fits the job.</h2>
+            <p class="lede">
+              Use the CLI for repeatable automation, batch runs, remote machines, and precise region testing. Use the desktop GUI when you want a tabbed interface for selecting files, browsing references, launching common jobs, and watching logs.
+            </p>
+            <div class="button-row">
+              <a class="btn primary" href="cli.html">CLI reference</a>
+              <a class="btn" href="gui.html">GUI reference</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="wrap">
+        <div><strong>WGS Extract CLI</strong><p>Local-first tools for practical whole genome sequencing workflows.</p></div>
+        <p>GPL-3.0-or-later. Source on <a href="https://github.com/theontho/wgsextract-cli">GitHub</a>.</p>
+      </div>
+    </footer>
+  </body>
+</html>

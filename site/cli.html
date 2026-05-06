@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="WGS Extract CLI command guide with command groups, options, and common recipes." />
+    <title>CLI Guide | WGS Extract CLI</title>
+    <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".82em" font-size="84">🧬</text></svg>' />
+    <link rel="stylesheet" href="assets/site.css" />
+  </head>
+  <body>
+    <nav class="nav" aria-label="Primary navigation">
+      <div class="wrap nav-inner">
+        <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true"></span><span>WGS Extract CLI</span></a>
+        <div class="nav-links"><a href="index.html">Home</a><a href="install.html">Install</a><a class="active" href="cli.html">CLI</a><a href="gui.html">GUI</a><a href="workflows.html">Workflows</a><a href="wgs-guide.html">WGS guide</a><a href="reference.html">Reference</a></div>
+      </div>
+    </nav>
+
+    <main>
+      <header class="page-hero">
+        <div class="wrap">
+          <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Command reference</p>
+          <h1>A map of the WGS Extract command line.</h1>
+          <p class="lede">The CLI is the best interface for repeatable work: scripts, batch jobs, remote machines, AI-agent workflows, and long-running analyses where exact commands matter.</p>
+          <div class="toc"><a href="#global">Global options</a><a href="#groups">Command groups</a><a href="#recipes">Recipes</a><a href="#environments">Pixi environments</a><a href="#patterns">Best practices</a></div>
+        </div>
+      </header>
+
+      <section id="global">
+        <div class="wrap split">
+          <div>
+            <h2>Global options</h2>
+            <p class="lede">Most commands accept shared options before the subcommand, and many commands also accept them after the subcommand because WGS Extract re-applies explicit shared options across parsers.</p>
+          </div>
+          <div class="code-panel">
+            <header><span>global-options.sh</span><span>common flags</span></header>
+            <pre><code>pixi run wgsextract \
+  --input sample.cram \
+  --outdir out/sample \
+  --ref /refs/hs38.fa \
+  --threads 8 \
+  --memory 16G \
+  info --detailed</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="groups">
+        <div class="wrap">
+          <div class="section-head"><h2>Command groups</h2><p>Run <code>pixi run wgsextract help</code> or <code>pixi run wgsextract --full-help</code> for the live tree from your installed version.</p></div>
+          <div class="grid three">
+            <article class="card"><h3>Info and QC</h3><p><code>info</code>, <code>info calculate-coverage</code>, <code>qc fastqc</code>, <code>qc fastp</code>, <code>qc vcf</code>, and <code>qc fake-data</code> help inspect inputs, test pipelines, and quality-check reads or variants.</p></article>
+            <article class="card"><h3>BAM / CRAM</h3><p><code>bam sort</code>, <code>bam index</code>, <code>bam to-cram</code>, <code>bam to-bam</code>, <code>bam unalign</code>, <code>bam identify</code>, plus repair helpers for FTDNA files.</p></article>
+            <article class="card"><h3>Extraction</h3><p><code>extract mito-fasta</code>, <code>extract mito-vcf</code>, <code>extract mt-bam</code>, <code>extract ydna-bam</code>, <code>extract ydna-vcf</code>, <code>extract y-mt-extract</code>, <code>extract unmapped</code>, and <code>extract custom</code>.</p></article>
+            <article class="card"><h3>Variant workflows</h3><p><code>vcf snp</code>, <code>vcf indel</code>, <code>vcf sv</code>, <code>vcf cnv</code>, <code>vcf freebayes</code>, <code>vcf gatk</code>, <code>vcf deepvariant</code>, <code>vcf filter</code>, <code>vcf trio</code>, and annotation commands.</p></article>
+            <article class="card"><h3>References and annotation</h3><p><code>ref bootstrap</code>, <code>ref library</code>, <code>ref index</code>, <code>ref verify</code>, <code>ref gene-map</code>, annotation downloads, and <code>vep download/run/verify</code>.</p></article>
+            <article class="card"><h3>Analysis helpers</h3><p><code>microarray</code>, <code>lineage y-haplogroup</code>, <code>lineage mt-haplogroup</code>, <code>align</code>, <code>analyze comprehensive</code>, <code>example-genome</code>, <code>pet-align</code>, and <code>benchmark</code>.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section id="recipes">
+        <div class="wrap">
+          <div class="section-head"><h2>Common CLI recipes</h2><p>These examples are intentionally small and explicit. Replace paths and references with your own.</p></div>
+          <div class="code-panel">
+            <header><span>recipes.sh</span><span>copy, edit, run</span></header>
+            <pre><code># Identify a BAM/CRAM and inspect metadata
+pixi run wgsextract --input sample.cram info --detailed
+
+# Sort and index an alignment
+pixi run wgsextract --input sample.bam --outdir out/sample bam sort
+pixi run wgsextract --input out/sample/sample.sorted.bam bam index
+
+# Convert BAM to CRAM for storage
+pixi run wgsextract --input sample.bam --ref /refs/hs38.fa bam to-cram
+
+# Generate consumer microarray-style outputs
+pixi run wgsextract --input sample.bam microarray --formats 23andme_v5,ancestry_v2
+
+# Extract mitochondrial variants and Y-DNA reads
+pixi run wgsextract --input sample.bam extract mito-vcf --region chrM
+pixi run wgsextract --input sample.bam extract ydna-bam
+
+# Call and filter variants
+pixi run wgsextract --input sample.bam --ref /refs/hs38.fa vcf snp
+pixi run wgsextract vcf filter --vcf-input calls.vcf.gz --expr 'QUAL&gt;30'
+
+# Launch the desktop GUI
+pixi run wgsextract gui --desktop</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="environments">
+        <div class="wrap">
+          <div class="section-head"><h2>Pixi environments</h2><p>Some specialized tools live in dedicated Pixi environments to keep dependency solving practical and platform-specific.</p></div>
+          <div class="grid three">
+            <article class="card"><h3>default</h3><p>General CLI, GUI, samtools/bcftools, bwa/minimap2, fastp/fastqc, freebayes, GATK, and common workflows.</p><pre><code>pixi run wgsextract deps check</code></pre></article>
+            <article class="card"><h3>pacbio</h3><p>PacBio-aware structural variant workflows using pbmm2, pbsv, and sniffles where available.</p><pre><code>pixi run -e pacbio wgsextract vcf sv --pacbio</code></pre></article>
+            <article class="card"><h3>deepvariant</h3><p>DeepVariant workflows, including WGS/WES and PacBio HiFi model options where supported.</p><pre><code>pixi run -e deepvariant wgsextract vcf deepvariant</code></pre></article>
+          </div>
+        </div>
+      </section>
+
+      <section id="patterns">
+        <div class="wrap">
+          <div class="section-head"><h2>CLI best practices</h2><p>Genome jobs are expensive. These habits prevent wasted hours and corrupted assumptions.</p></div>
+          <div class="grid four">
+            <article class="card"><h3>Use regions first</h3><p>Try <code>chrM</code>, <code>chrY</code>, or a small gene region before whole-genome commands.</p></article>
+            <article class="card"><h3>Keep outputs isolated</h3><p>Use <code>--outdir</code> per sample or <code>--genome</code> folders to avoid mixing files.</p></article>
+            <article class="card"><h3>Match builds</h3><p>Keep BAM/CRAM, FASTA, VCF, gene maps, and annotations on the same reference build.</p></article>
+            <article class="card"><h3>Log the command</h3><p>Save exact commands, Pixi environment, reference build, and tool versions for repeatability.</p></article>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer"><div class="wrap"><div><strong>WGS Extract CLI</strong><p>Command guide and recipes.</p></div><p><a href="workflows.html">Next: workflows</a></p></div></footer>
+  </body>
+</html>
