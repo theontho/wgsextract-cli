@@ -168,3 +168,28 @@ def test_download_file_warns_and_continues_when_github_digest_lookup_fails(
     )
     assert dest.read_bytes() == payload
     assert "Continuing without GitHub asset SHA-256 verification" in caplog.text
+
+
+def test_download_file_rejects_invalid_github_digest_metadata(tmp_path, monkeypatch):
+    dest = tmp_path / "hs38.fa.gz"
+
+    def fail_resolve(url):
+        raise ValueError(
+            "GitHub release asset hs38.fa.gz did not include a sha256 digest."
+        )
+
+    def fail_if_downloaded(cmd, capture_output=False):
+        raise AssertionError(
+            "download should not start when digest metadata is invalid"
+        )
+
+    monkeypatch.setattr(ref_library, "run_command", fail_if_downloaded)
+    monkeypatch.setattr(
+        ref_library, "resolve_github_release_asset_sha256", fail_resolve
+    )
+
+    assert not ref_library.download_file(
+        "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
+        str(dest),
+    )
+    assert not dest.exists()
