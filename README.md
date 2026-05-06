@@ -217,6 +217,17 @@ While primarily a CLI tool, `wgsextract-cli` includes modern GUI options:
     ```bash
     pixi run wgsextract gui --web
     ```
+
+### macOS App / DMG
+
+Developers can build a drag-and-drop macOS app bundle and DMG from macOS:
+
+```bash
+pixi run build-macos-app
+```
+
+The generated DMG is written to `out/macos/`. The app launches the desktop GUI through Pixi and validates that Pixi is installed before starting. The DMG also includes a Terminal helper for running `wgsextract` commands against the same bundled runtime.
+
 ---
 
 ## 🧪 Testing
