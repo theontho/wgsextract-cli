@@ -32,6 +32,7 @@ fi
 
 APP_PROJECT_DIR="$(wgse_prepare_runtime "${WGSE_RESOURCES_DIR}/app" "${WGSE_CONTENTS_DIR}/Info.plist")"
 SESSION_DIR="$(mktemp -d "${TMPDIR:-/tmp}/wgsextract-cli.XXXXXX")"
+trap 'rm -rf "${SESSION_DIR}"' EXIT INT TERM
 
 cat >"${SESSION_DIR}/.zshrc" <<EOF
 function wgsextract() {
@@ -42,10 +43,10 @@ cd "${APP_PROJECT_DIR}"
 printf '%s\\n' 'WGS Extract CLI shell'
 printf '%s\\n' 'Use: wgsextract --help'
 printf '%s\\n' 'Use: wgsextract gui --desktop'
-printf '%s\\n' 'Runtime: ${APP_PROJECT_DIR}'
+printf '%s\\n' "Runtime: ${APP_PROJECT_DIR}"
 printf '%s\\n' 'Type exit to close this shell.'
 EOF
 
 export PATH="${HOME}/.pixi/bin:${HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
 export ZDOTDIR="${SESSION_DIR}"
-exec /bin/zsh -i
+/bin/zsh -i

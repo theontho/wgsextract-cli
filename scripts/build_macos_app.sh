@@ -57,7 +57,8 @@ if [[ -z "${PIXI_BIN}" ]]; then
     exit 1
 fi
 
-VERSION="$("${PIXI_BIN}" run python - <<'PY'
+VERSION="$("${PIXI_BIN}" run --manifest-path "${REPO_ROOT}/pixi.toml" python - "${REPO_ROOT}/pyproject.toml" <<'PY'
+import sys
 from pathlib import Path
 
 try:
@@ -65,7 +66,7 @@ try:
 except ModuleNotFoundError:
     import tomli as tomllib
 
-with Path("pyproject.toml").open("rb") as f:
+with Path(sys.argv[1]).open("rb") as f:
     print(tomllib.load(f)["project"]["version"])
 PY
 )"
