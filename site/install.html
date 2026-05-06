@@ -3,8 +3,23 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="description" content="Install WGS Extract CLI with the standalone macOS/Linux installer or the developer Pixi workflow, initialize references, configure paths, and verify the environment." />
+    <meta name="description" content="Install WGS Extract CLI with the standalone macOS/Linux installer, native Windows installer, or developer Pixi workflow." />
     <title>Install | WGS Extract CLI</title>
+    <meta property="og:site_name" content="WGS Extract CLI" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Install | WGS Extract CLI" />
+    <meta property="og:description" content="Install WGS Extract CLI with the standalone macOS/Linux installer, native Windows installer, or developer Pixi workflow." />
+    <meta property="og:url" content="https://theontho.github.io/wgsextract-cli/install.html" />
+    <meta property="og:image" content="https://theontho.github.io/wgsextract-cli/assets/social-preview.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="WGS Extract CLI local-first whole genome toolkit" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Install | WGS Extract CLI" />
+    <meta name="twitter:description" content="Install WGS Extract CLI with the standalone macOS/Linux installer, native Windows installer, or developer Pixi workflow." />
+    <meta name="twitter:image" content="https://theontho.github.io/wgsextract-cli/assets/social-preview.png" />
+    <link rel="canonical" href="https://theontho.github.io/wgsextract-cli/install.html" />
     <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".82em" font-size="84">🧬</text></svg>' />
     <link rel="stylesheet" href="assets/site.css" />
   </head>
@@ -23,36 +38,71 @@
         <div class="wrap">
           <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Setup guide</p>
           <h1>Install once, then run repeatable genome workflows.</h1>
-          <p class="lede">WGS Extract CLI uses Pixi to manage Python, the app itself, and many external bioinformatics tools. For macOS and Linux, the recommended installer wraps Pixi into a standalone directory with CLI and GUI launchers.</p>
-          <div class="toc"><a href="#quickstart">Quickstart</a><a href="#developer">Developer Pixi setup</a><a href="#platforms">Platforms</a><a href="#references">References</a><a href="#config">Configuration</a><a href="#verify">Verify</a></div>
+          <p class="lede">WGS Extract CLI uses Pixi to manage Python, the app itself, and many external bioinformatics tools. macOS and Linux use the standalone terminal installer; Windows uses <code>install_windows.bat</code> from PowerShell with the MSYS2 UCRT64 pacman runtime.</p>
+          <div class="toc"><a href="#quickstart">macOS/Linux</a><a href="#windows">Windows</a><a href="#developer">Developer Pixi setup</a><a href="#platforms">Platforms</a><a href="#references">References</a><a href="#config">Configuration</a><a href="#verify">Verify</a></div>
         </div>
       </header>
 
       <section id="quickstart">
         <div class="wrap split">
           <div class="steps">
-            <article class="step"><h3>Run the installer</h3><p>On macOS or Linux, pipe the installer into <code>sh</code> or download <code>install.sh</code> and double-click/run it from your Downloads folder.</p></article>
-            <article class="step"><h3>Use the standalone folder</h3><p>The app, Pixi environment, cache, CLI launcher, and GUI launchers live under one <code>wgsextract-cli/</code> directory.</p></article>
+            <article class="step"><h3>Open Terminal first</h3><p>Open the Terminal app on your machine. On macOS, use <strong>Applications &gt; Utilities &gt; Terminal</strong>. On Linux, open your normal terminal window.</p></article>
+            <article class="step"><h3>Paste the installer command</h3><p>Copy the one-line installer below, paste it into Terminal, and press Enter. The installer prints each step before it runs it.</p></article>
+            <article class="step"><h3>Use the standalone folder</h3><p>The app lives in <code>app/</code>, Pixi files live in <code>.pixi/</code>, installer temp files live in <code>app/tmp/</code>, and the CLI launcher sits beside <code>app/</code> at <code>wgsextract</code>. On macOS, Finder opens this folder when installation finishes.</p></article>
             <article class="step"><h3>Bootstrap references</h3><p>Download the metadata and reference-library structure WGS Extract uses to find FASTA, VCF, ploidy, liftover, and annotation assets.</p></article>
             <article class="step"><h3>Run a small test</h3><p>Use <code>info</code> and region-limited commands first. Whole-genome jobs can take hours and hundreds of gigabytes of working space.</p></article>
           </div>
           <div class="code-panel">
             <header><span>macos-linux.sh</span><span>recommended installer</span></header>
-            <pre><code># Install into ./wgsextract-cli
+            <pre><code># 1. Open Terminal.
+# 2. Paste this line and press Enter.
+# 3. The installer creates ./wgsextract-cli.
 curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh
 
 # Initialize reference library data
-./wgsextract-cli/bin/wgsextract ref bootstrap
-./wgsextract-cli/bin/wgsextract ref library --list
-./wgsextract-cli/bin/wgsextract ref library --install hs38
+./wgsextract-cli/wgsextract ref bootstrap
+./wgsextract-cli/wgsextract ref library --list
+./wgsextract-cli/wgsextract ref library --install hs38
 
 # Verify the app and environment
-./wgsextract-cli/bin/wgsextract info --detailed
-./wgsextract-cli/bin/wgsextract deps check
+./wgsextract-cli/wgsextract info --detailed
+./wgsextract-cli/wgsextract deps check
 
-# Launch the desktop GUI
+# Launch the desktop GUI on macOS:
+# double-click "WGS Extract GUI.command" in the folder Finder opened.
+#
+# Launch the desktop GUI on Linux:
 ./wgsextract-cli/start-wgsextract-gui.sh</code></pre>
           </div>
+        </div>
+      </section>
+
+      <section id="windows">
+        <div class="wrap split">
+          <div>
+            <div class="section-head"><h2>Windows native installer</h2><p>Use the Windows installer from a normal Windows PowerShell window when you want native Windows paths and the MSYS2 UCRT64 pacman runtime.</p></div>
+            <div class="grid two" style="margin-top: 22px">
+              <article class="card"><h3>Open PowerShell first</h3><p>Open PowerShell on Windows, then move into the WGS Extract CLI folder you cloned or downloaded. The installer expects Pixi and MSYS2 to already be installed and visible.</p></article>
+              <article class="card"><h3>What it does</h3><p><code>install_windows.bat</code> validates Pixi and MSYS2, installs the project Pixi environment, prepares the MSYS2 UCRT64 pacman runtime tools, and saves pacman as the default runtime.</p></article>
+            </div>
+          </div>
+          <div class="code-panel">
+            <header><span>windows-native.ps1</span><span>recommended on Windows</span></header>
+            <pre><code># Open PowerShell on Windows.
+# If you have not downloaded the project yet:
+git clone https://github.com/theontho/wgsextract-cli.git
+cd wgsextract-cli
+
+# Run the Windows installer.
+.\install_windows.bat
+
+# Verify the native Windows pacman runtime.
+pixi run wgsextract deps pacman check
+pixi run wgsextract --help</code></pre>
+          </div>
+        </div>
+        <div class="wrap">
+          <div class="callout"><strong>Windows prerequisites:</strong> Install Pixi and MSYS2 first. The default MSYS2 path is <code>C:\msys64</code>; if yours is somewhere else, run <code>.\install_windows.bat --msys2-root D:\tools\msys64</code>. See the <a class="inline-link" href="https://github.com/theontho/wgsextract-cli/blob/main/docs/windows_pacman_runtime.md">Windows pacman runtime guide</a> for details.</div>
         </div>
       </section>
 
@@ -85,21 +135,18 @@ pixi run wgsextract gui --desktop</code></pre>
 
       <section id="platforms">
         <div class="wrap">
-          <div class="section-head"><h2>Platform notes</h2><p>Bioinformatics tools are most mature on Unix-like environments. Windows is supported best through WSL2, with native Windows workflows available for some toolchains.</p></div>
+          <div class="section-head"><h2>Platform notes</h2><p>Use the standalone installer on macOS/Linux and <code>install_windows.bat</code> on native Windows. WSL2 remains useful for Linux-like development and testing.</p></div>
           <div class="grid three">
-            <article class="card"><h3>macOS</h3><p>Use the standalone installer by default. It creates a <code>wgsextract-cli/</code> folder with Finder-friendly <code>.command</code> GUI launchers.</p><span class="tag">osx-arm64</span><span class="tag">osx-64</span></article>
-            <article class="card"><h3>Linux and WSL2</h3><p>Use the standalone installer by default on Linux and inside WSL2. Pixi resolves Python and native command-line tools through conda-forge and bioconda.</p><span class="tag">linux-64</span><span class="tag">WSL2 recommended</span></article>
-            <article class="card"><h3>Native Windows</h3><p>Use the Windows PowerShell Pixi installer for Python/app setup. For native bio tools, use the MSYS2 UCRT64 pacman runtime described in the Windows docs.</p><a class="inline-link" href="https://github.com/theontho/wgsextract-cli/blob/main/docs/windows_pacman_runtime.md">Windows pacman runtime</a></article>
+            <article class="card"><h3>macOS</h3><p>Use the standalone installer by default. It opens the install folder in Finder and creates a Finder-friendly <code>WGS Extract GUI.command</code> desktop GUI launcher.</p><span class="tag">osx-arm64</span><span class="tag">osx-64</span></article>
+            <article class="card"><h3>Linux and WSL2</h3><p>Use the standalone installer by default on Linux and inside WSL2. It creates <code>start-wgsextract-gui.sh</code> for the desktop GUI. Pixi resolves Python and native command-line tools through conda-forge and bioconda.</p><span class="tag">linux-64</span><span class="tag">WSL2 recommended</span></article>
+            <article class="card"><h3>Native Windows</h3><p>Use <code>install_windows.bat</code> from PowerShell after installing Pixi and MSYS2. It configures the app to use the MSYS2 UCRT64 pacman runtime by default.</p><a class="inline-link" href="https://github.com/theontho/wgsextract-cli/blob/main/docs/windows_pacman_runtime.md">Windows pacman runtime</a></article>
           </div>
           <div class="code-panel" style="margin-top: 22px">
-            <header><span>windows-powershell.ps1</span><span>native app setup</span></header>
-            <pre><code># Install Pixi in PowerShell
-iwr -useb https://pixi.sh/install.ps1 | iex
-
-git clone https://github.com/theontho/wgsextract-cli.git
+            <header><span>windows-installer.bat</span><span>native app setup</span></header>
+            <pre><code># Open PowerShell, clone or download the project, then:
 cd wgsextract-cli
-pixi install
-pixi run wgsextract deps check</code></pre>
+.\install_windows.bat
+pixi run wgsextract deps pacman check</code></pre>
           </div>
         </div>
       </section>
@@ -108,11 +155,11 @@ pixi run wgsextract deps check</code></pre>
         <div class="wrap">
           <div class="section-head"><h2>Reference library setup</h2><p>Most genome operations need a reference genome and companion files. The reference library lets WGS Extract resolve those assets instead of asking you for every path on every command.</p></div>
           <div class="grid two">
-            <article class="card"><h3>Bootstrap data</h3><p><code>ref bootstrap</code> initializes the library scaffolding and common metadata. Then use the library commands to list and install supported builds such as hs38.</p><pre><code>./wgsextract-cli/bin/wgsextract ref bootstrap
-./wgsextract-cli/bin/wgsextract ref library --list
-./wgsextract-cli/bin/wgsextract ref library --install hs38</code></pre></article>
-            <article class="card"><h3>Index and verify</h3><p>FASTA references need indexes and dictionaries before alignment and variant callers can use them efficiently.</p><pre><code>./wgsextract-cli/bin/wgsextract ref index --ref /path/to/hs38.fa
-./wgsextract-cli/bin/wgsextract ref verify --ref /path/to/hs38.fa</code></pre></article>
+            <article class="card"><h3>Bootstrap data</h3><p><code>ref bootstrap</code> initializes the library scaffolding and common metadata. Then use the library commands to list and install supported builds such as hs38.</p><pre><code>./wgsextract-cli/wgsextract ref bootstrap
+./wgsextract-cli/wgsextract ref library --list
+./wgsextract-cli/wgsextract ref library --install hs38</code></pre></article>
+            <article class="card"><h3>Index and verify</h3><p>FASTA references need indexes and dictionaries before alignment and variant callers can use them efficiently.</p><pre><code>./wgsextract-cli/wgsextract ref index --ref /path/to/hs38.fa
+./wgsextract-cli/wgsextract ref verify --ref /path/to/hs38.fa</code></pre></article>
           </div>
           <div class="callout"><strong>Reference builds matter.</strong> hg19/GRCh37, hg38/GRCh38, and T2T coordinates differ. Do not mix BAMs, VCFs, annotation files, and gene coordinates from different builds unless you intentionally lift over or re-run the analysis.</div>
         </div>
@@ -146,10 +193,10 @@ haplogrep_path = "/usr/local/bin/haplogrep"</code></pre>
           <div class="section-head"><h2>Verify before running full genomes</h2><p>Start with environment checks and tiny regions. It is much cheaper to catch missing references, unsorted BAMs, or command syntax errors on chrM than halfway through a full-genome job.</p></div>
           <div class="code-panel">
             <header><span>verification-recipes.sh</span><span>safe first commands</span></header>
-            <pre><code>./wgsextract-cli/bin/wgsextract deps check
-./wgsextract-cli/bin/wgsextract --input sample.cram info --detailed
-./wgsextract-cli/bin/wgsextract --input sample.bam extract mito-vcf --region chrM
-./wgsextract-cli/bin/wgsextract --input sample.bam microarray --formats 23andme_v5 --region chrM</code></pre>
+            <pre><code>./wgsextract-cli/wgsextract deps check
+./wgsextract-cli/wgsextract --input sample.cram info --detailed
+./wgsextract-cli/wgsextract --input sample.bam extract mito-vcf --region chrM
+./wgsextract-cli/wgsextract --input sample.bam microarray --formats 23andme_v5 --region chrM</code></pre>
           </div>
         </div>
       </section>
