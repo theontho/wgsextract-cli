@@ -23,7 +23,9 @@ Designed to be CLI-first for AI-friendliness, `wgsextract-cli` leverages [**Pixi
 curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh
 ```
 
-The installer shows an ASCII WGS Extract banner, outlines what it is about to do, downloads Pixi if needed, resolves the latest GitHub release tag, downloads that release's source archive, runs `pixi install`, and writes launchers inside the install directory. By default, a downloaded `install.sh` creates `wgsextract-cli/` next to itself; when run through `curl | sh`, it creates `wgsextract-cli/` in the current directory. The app lives in `wgsextract-cli/app/`, the CLI launcher lives at `wgsextract-cli/wgsextract`, Pixi files live under `wgsextract-cli/.pixi/`, and installer temporary files live under `wgsextract-cli/app/tmp/`. On macOS, the installer opens the install directory in Finder when it finishes. If the installer installed Pixi for you and you no longer need it, uninstall Pixi separately.
+The command downloads the small bootstrap script from `main`, but the app payload is not installed from `main`. The installer resolves GitHub's latest published release, downloads that release tag's source archive, runs `pixi install`, and writes launchers inside the install directory. This keeps normal installs on tested release builds while allowing the install command itself to improve over time.
+
+By default, a downloaded `install.sh` creates `wgsextract-cli/` next to itself; when run through `curl | sh`, it creates `wgsextract-cli/` in the current directory. The app lives in `wgsextract-cli/app/`, the CLI launcher lives at `wgsextract-cli/wgsextract`, Pixi files live under `wgsextract-cli/.pixi/`, and installer temporary files live under `wgsextract-cli/app/tmp/`. On macOS, the installer opens the install directory in Finder when it finishes. If the installer installed Pixi for you and you no longer need it, uninstall Pixi separately.
 
 After install, the default launchers are:
 
@@ -48,6 +50,14 @@ Set these environment variables before running the installer to customize it:
 | `WGSEXTRACT_PIXI_ENV_DIR` | `$WGSEXTRACT_INSTALL_DIR/.pixi/envs` | Pixi project environment directory |
 
 Leave `WGSEXTRACT_BIN_DIR`, `WGSEXTRACT_PIXI_CACHE_DIR`, and `WGSEXTRACT_PIXI_ENV_DIR` unset for clean one-directory uninstall behavior. Setting any of them outside `WGSEXTRACT_INSTALL_DIR` intentionally leaves that launcher, cache, or environment outside the install tree.
+
+For reproducible installs, set `WGSEXTRACT_RELEASE_TAG=vX.Y.Z` before running the installer. For development testing, set `WGSEXTRACT_REF=main` or `WGSEXTRACT_ARCHIVE_URL=<url>` to bypass latest-release resolution.
+
+### Release assets and checksums
+
+Large reference genome bundles are versioned separately from the application release. The current reference bootstrap and benchmark dataset URLs intentionally point to the existing GitHub release assets that host those files, so routine app releases do not require reuploading multi-gigabyte reference bundles.
+
+Windows native installs can use a prebuilt MSYS2 UCRT64 BWA ZIP from GitHub Releases. For GitHub release asset URLs, `scripts/setup_pacman_runtime.ps1` verifies the downloaded ZIP against GitHub's release asset `sha256:<digest>` metadata; no neighboring `.sha256` file is required for future releases. If you override the BWA ZIP with `WGSEXTRACT_BWA_BINARY_URL` or `--bwa-binary-url` and point at a local file or non-GitHub URL, set `WGSEXTRACT_BWA_BINARY_SHA256=<hex>` when you want checksum verification.
 
 ### Manual development setup
 

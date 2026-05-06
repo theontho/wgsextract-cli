@@ -102,6 +102,77 @@ function Copy-UrlOrFile {
     Invoke-WebRequest @invokeParams
 }
 
+function Resolve-GitHubReleaseAssetSha256 {
+    param([string]$BinaryUrl)
+
+    try {
+        $uri = [System.Uri]$BinaryUrl
+    }
+    catch {
+        return ""
+    }
+
+    if ($uri.Host -ne "github.com") {
+        return ""
+    }
+
+    $path = $uri.AbsolutePath.Trim("/")
+    $taggedMatch = [regex]::Match($path, "^([^/]+)/([^/]+)/releases/download/([^/]+)/([^/]+)$")
+    $latestMatch = [regex]::Match($path, "^([^/]+)/([^/]+)/releases/latest/download/([^/]+)$")
+
+    if ($taggedMatch.Success) {
+        $owner = [System.Uri]::UnescapeDataString($taggedMatch.Groups[1].Value)
+        $repo = [System.Uri]::UnescapeDataString($taggedMatch.Groups[2].Value)
+        $tag = [System.Uri]::UnescapeDataString($taggedMatch.Groups[3].Value)
+        $assetName = [System.Uri]::UnescapeDataString($taggedMatch.Groups[4].Value)
+        $apiUrl = "https://api.github.com/repos/$owner/$repo/releases/tags/$tag"
+    }
+    elseif ($latestMatch.Success) {
+        $owner = [System.Uri]::UnescapeDataString($latestMatch.Groups[1].Value)
+        $repo = [System.Uri]::UnescapeDataString($latestMatch.Groups[2].Value)
+        $assetName = [System.Uri]::UnescapeDataString($latestMatch.Groups[3].Value)
+        $apiUrl = "https://api.github.com/repos/$owner/$repo/releases/latest"
+    }
+    else {
+        return ""
+    }
+
+    $headers = @{
+        Accept = "application/vnd.github+json"
+        "X-GitHub-Api-Version" = "2022-11-28"
+    }
+    if ($env:GITHUB_TOKEN) {
+        $headers["Authorization"] = "Bearer $env:GITHUB_TOKEN"
+    }
+
+    try {
+        $invokeParams = @{
+            Uri = $apiUrl
+            Headers = $headers
+        }
+        if ((Get-Command Invoke-RestMethod).Parameters.ContainsKey("UseBasicParsing")) {
+            $invokeParams.UseBasicParsing = $true
+        }
+        $release = Invoke-RestMethod @invokeParams
+    }
+    catch {
+        throw "Could not retrieve GitHub release metadata from ${apiUrl}: $($_.Exception.Message)"
+    }
+
+    $asset = $release.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
+    if (-not $asset) {
+        throw "GitHub release asset metadata was not found for ${assetName} at ${apiUrl}."
+    }
+
+    $digest = [string]$asset.digest
+    $match = [regex]::Match($digest, "(?i)^sha256:([a-f0-9]{64})$")
+    if (-not $match.Success) {
+        throw "GitHub release asset ${assetName} did not include a sha256 digest."
+    }
+
+    return $match.Groups[1].Value.ToLowerInvariant()
+}
+
 function Resolve-BwaBinarySha256 {
     param([string]$BinaryUrl)
 
@@ -113,24 +184,12 @@ function Resolve-BwaBinarySha256 {
         return ""
     }
 
-    $checksumSource = "$BinaryUrl.sha256"
-    $checksumTemp = Join-Path $env:TEMP ("wgsextract-bwa-{0}.sha256" -f ([guid]::NewGuid()))
-    try {
-        Copy-UrlOrFile -Source $checksumSource -Destination $checksumTemp
-        $checksumText = Get-Content -LiteralPath $checksumTemp -Raw
-        $match = [regex]::Match($checksumText, "(?i)\b[a-f0-9]{64}\b")
-        if ($match.Success) {
-            return $match.Value.ToLowerInvariant()
-        }
-    }
-    catch {
-        throw "Could not retrieve BWA binary checksum from ${checksumSource}: $($_.Exception.Message)"
-    }
-    finally {
-        Remove-Item $checksumTemp -Force -ErrorAction SilentlyContinue
+    $githubSha256 = Resolve-GitHubReleaseAssetSha256 -BinaryUrl $BinaryUrl
+    if ($githubSha256) {
+        return $githubSha256
     }
 
-    throw "BWA binary checksum was not found in ${checksumSource}."
+    throw "No BWA binary checksum was available. For non-GitHub release URLs or local ZIP files, set WGSEXTRACT_BWA_BINARY_SHA256."
 }
 
 function Install-BwaBinaryPackage {
