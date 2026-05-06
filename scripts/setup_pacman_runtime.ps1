@@ -2,6 +2,7 @@
 param(
     [string]$Msys2Root = $(if ($env:MSYS2_ROOT) { $env:MSYS2_ROOT } else { "C:\msys64" }),
     [string]$BwaVersion = "0.7.19",
+    [string]$ReleaseTag = $(if ($env:WGSEXTRACT_RELEASE_TAG) { $env:WGSEXTRACT_RELEASE_TAG } else { "latest" }),
     [string]$BuildDir = "tmp\pacman-runtime-build",
     [string]$BwaBinaryUrl = $(if ($env:WGSEXTRACT_BWA_BINARY_URL) { $env:WGSEXTRACT_BWA_BINARY_URL } else { "" }),
     [string]$BwaBinarySha256 = $(if ($env:WGSEXTRACT_BWA_BINARY_SHA256) { $env:WGSEXTRACT_BWA_BINARY_SHA256 } else { "" }),
@@ -175,7 +176,11 @@ function Install-BwaBinaryPackage {
 
 $Msys2Root = [System.IO.Path]::GetFullPath($Msys2Root)
 if (-not $BwaBinaryUrl) {
-    $BwaBinaryUrl = "https://github.com/theontho/wgsextract-cli/releases/latest/download/wgsextract-bwa-$BwaVersion-windows-ucrt64.zip"
+    if ($ReleaseTag -eq "latest") {
+        $BwaBinaryUrl = "https://github.com/theontho/wgsextract-cli/releases/latest/download/wgsextract-bwa-$BwaVersion-windows-ucrt64.zip"
+    } else {
+        $BwaBinaryUrl = "https://github.com/theontho/wgsextract-cli/releases/download/$ReleaseTag/wgsextract-bwa-$BwaVersion-windows-ucrt64.zip"
+    }
 }
 $script:BashPath = Join-Path $Msys2Root "usr\bin\bash.exe"
 $pacmanPath = Join-Path $Msys2Root "usr\bin\pacman.exe"

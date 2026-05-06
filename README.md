@@ -23,7 +23,7 @@ Designed to be CLI-first for AI-friendliness, `wgsextract-cli` leverages [**Pixi
 curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh
 ```
 
-The installer shows an ASCII WGS Extract banner, outlines what it is about to do, downloads Pixi if needed, downloads the project source archive, runs `pixi install`, and writes launchers inside the install directory. By default, a downloaded `install.sh` creates `wgsextract-cli/` next to itself; when run through `curl | sh`, it creates `wgsextract-cli/` in the current directory. The app lives in `wgsextract-cli/app/`, the CLI launcher lives at `wgsextract-cli/wgsextract`, Pixi files live under `wgsextract-cli/.pixi/`, and installer temporary files live under `wgsextract-cli/app/tmp/`. On macOS, the installer opens the install directory in Finder when it finishes. If the installer installed Pixi for you and you no longer need it, uninstall Pixi separately.
+The installer shows an ASCII WGS Extract banner, outlines what it is about to do, downloads Pixi if needed, resolves the latest GitHub release tag, downloads that release's source archive, runs `pixi install`, and writes launchers inside the install directory. By default, a downloaded `install.sh` creates `wgsextract-cli/` next to itself; when run through `curl | sh`, it creates `wgsextract-cli/` in the current directory. The app lives in `wgsextract-cli/app/`, the CLI launcher lives at `wgsextract-cli/wgsextract`, Pixi files live under `wgsextract-cli/.pixi/`, and installer temporary files live under `wgsextract-cli/app/tmp/`. On macOS, the installer opens the install directory in Finder when it finishes. If the installer installed Pixi for you and you no longer need it, uninstall Pixi separately.
 
 After install, the default launchers are:
 
@@ -40,7 +40,8 @@ Set these environment variables before running the installer to customize it:
 | Variable | Default | Purpose |
 | :--- | :--- | :--- |
 | `WGSEXTRACT_INSTALL_DIR` | `wgsextract-cli` next to `install.sh`, or `./wgsextract-cli` for `curl | sh` | Install location |
-| `WGSEXTRACT_REF` | `main` | Git ref to install |
+| `WGSEXTRACT_RELEASE_TAG` | latest GitHub release | Release tag to install, or `latest` |
+| `WGSEXTRACT_REF` | `WGSEXTRACT_RELEASE_TAG` | Git ref to install, or `latest` |
 | `WGSEXTRACT_ARCHIVE_URL` | GitHub source archive for `WGSEXTRACT_REF` | Exact source archive URL |
 | `WGSEXTRACT_BIN_DIR` | `$WGSEXTRACT_INSTALL_DIR` | CLI launcher directory |
 | `WGSEXTRACT_PIXI_CACHE_DIR` | `$WGSEXTRACT_INSTALL_DIR/.pixi/cache` | Pixi package cache directory |
