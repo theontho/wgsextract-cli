@@ -24,6 +24,9 @@ MANDATORY_TOOLS = [
 
 OPTIONAL_TOOLS = [
     "minimap2",
+    "pbmm2",
+    "pbsv",
+    "sniffles",
     "sambamba",
     "samblaster",
     "fastp",
@@ -63,6 +66,9 @@ PIXI_TOOL_ENVS = {
     "samblaster": "default",
     "bwa": "default",
     "minimap2": "default",
+    "pbmm2": "pacbio",
+    "pbsv": "pacbio",
+    "sniffles": "pacbio",
     "htsfile": "default",
 }
 

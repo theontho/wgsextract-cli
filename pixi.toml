@@ -85,6 +85,9 @@ samblaster = ">=0.1.26"
 wget = ">=1.21"
 
 
+[feature.deepvariant.dependencies]
+python = "3.10.*"
+
 [feature.deepvariant.target.linux-64.dependencies]
 deepvariant = ">=1.6.0"
 openjdk = "11.*"
@@ -92,6 +95,27 @@ openjdk = "11.*"
 [feature.deepvariant.target.osx-arm64.dependencies]
 deepvariant = ">=1.6.0"
 openjdk = "11.*"
+
+[feature.deepvariant.pypi-dependencies]
+wgsextract-cli = { path = ".", editable = true }
+
+[feature.pacbio.dependencies]
+python = "3.10.*"
+
+[feature.pacbio.pypi-dependencies]
+wgsextract-cli = { path = ".", editable = true }
+
+[feature.pacbio.target.linux-64.dependencies]
+pbmm2 = ">=1.17.0"
+pbsv = ">=2.10.0"
+sniffles = ">=2.7.0"
+
+[feature.pacbio.target.osx-arm64.dependencies]
+sniffles = ">=2.7.0"
+
+[feature.pacbio.target.osx-64.dependencies]
+pbmm2 = ">=1.7.0,<1.8.0"
+sniffles = ">=2.7.0"
 
 [feature.vep]
 
@@ -113,6 +137,7 @@ pysam = "*"
 [environments]
 default = { features = ["gatk", "bio-tools", "pysam"] }
 deepvariant = { features = ["deepvariant"], no-default-feature = true }
+pacbio = { features = ["bio-tools", "pacbio"], no-default-feature = true, solve-group = "pacbio-unix" }
 vep = { features = ["vep"], no-default-feature = true }
 
 [pypi-dependencies]

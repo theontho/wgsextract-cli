@@ -1,3 +1,4 @@
+import gzip
 import os
 import shutil
 import sys
@@ -53,6 +54,7 @@ class TestAlignToolSelection(unittest.TestCase):
             format="BAM",
             threads=None,
             memory=None,
+            platform="illumina",
         )
         commands = []
         run_commands = []
@@ -87,6 +89,172 @@ class TestAlignToolSelection(unittest.TestCase):
 
         self.assertIn(["samtools", "sort"], [cmd[:2] for cmd in commands])
         self.assertIn(["sambamba", "index"], [cmd[:2] for cmd in run_commands])
+
+    def test_long_read_alignment_uses_platform_preset(self):
+        from wgsextract_cli.commands import align
+
+        args = Namespace(
+            r1=self.r1,
+            r2=None,
+            ref=self.ref,
+            input=None,
+            outdir=self.test_dir,
+            format="BAM",
+            threads=None,
+            memory=None,
+            long_read=True,
+            platform="ont",
+            preset=None,
+            aligner="auto",
+        )
+        commands = []
+
+        def fake_get_tool_path(tool):
+            return tool
+
+        def fake_popen(cmd, **_kwargs):
+            commands.append(cmd)
+            return DummyProcess()
+
+        with (
+            patch.object(align, "verify_dependencies"),
+            patch.object(align, "log_dependency_info"),
+            patch.object(align, "get_resource_defaults", return_value=("2", "1G")),
+            patch.object(align, "verify_paths_exist", return_value=True),
+            patch.object(align, "resolve_reference", return_value=self.ref),
+            patch.object(align, "get_tool_path", side_effect=fake_get_tool_path),
+            patch.object(align, "run_command"),
+            patch.object(align, "popen", side_effect=fake_popen),
+        ):
+            align.align_minimap2(args)
+
+        self.assertIn(["minimap2", "-ax", "map-ont"], [cmd[:3] for cmd in commands])
+
+    def test_minimap2_illumina_alignment_defaults_to_short_read_preset(self):
+        from wgsextract_cli.commands import align
+
+        args = Namespace(
+            r1=self.r1,
+            r2=None,
+            ref=self.ref,
+            input=None,
+            outdir=self.test_dir,
+            format="BAM",
+            threads=None,
+            memory=None,
+            long_read=False,
+            platform="illumina",
+            preset=None,
+            aligner="minimap2",
+        )
+        commands = []
+
+        def fake_get_tool_path(tool):
+            return tool
+
+        def fake_popen(cmd, **_kwargs):
+            commands.append(cmd)
+            return DummyProcess()
+
+        with (
+            patch.object(align, "verify_dependencies"),
+            patch.object(align, "log_dependency_info"),
+            patch.object(align, "get_resource_defaults", return_value=("2", "1G")),
+            patch.object(align, "verify_paths_exist", return_value=True),
+            patch.object(align, "resolve_reference", return_value=self.ref),
+            patch.object(align, "get_tool_path", side_effect=fake_get_tool_path),
+            patch.object(align, "run_command"),
+            patch.object(align, "popen", side_effect=fake_popen),
+        ):
+            align.align_minimap2(args)
+
+        self.assertIn(["minimap2", "-ax", "sr"], [cmd[:3] for cmd in commands])
+
+    def test_minimap2_explicit_long_read_defaults_to_map_pb_preset(self):
+        from wgsextract_cli.commands import align
+
+        args = Namespace(
+            r1=self.r1,
+            r2=None,
+            ref=self.ref,
+            input=None,
+            outdir=self.test_dir,
+            format="BAM",
+            threads=None,
+            memory=None,
+            long_read=True,
+            platform="illumina",
+            preset=None,
+            aligner="minimap2",
+        )
+        commands = []
+
+        def fake_get_tool_path(tool):
+            return tool
+
+        def fake_popen(cmd, **_kwargs):
+            commands.append(cmd)
+            return DummyProcess()
+
+        with (
+            patch.object(align, "verify_dependencies"),
+            patch.object(align, "log_dependency_info"),
+            patch.object(align, "get_resource_defaults", return_value=("2", "1G")),
+            patch.object(align, "verify_paths_exist", return_value=True),
+            patch.object(align, "resolve_reference", return_value=self.ref),
+            patch.object(align, "get_tool_path", side_effect=fake_get_tool_path),
+            patch.object(align, "run_command"),
+            patch.object(align, "popen", side_effect=fake_popen),
+        ):
+            align.align_minimap2(args)
+
+        self.assertIn(["minimap2", "-ax", "map-pb"], [cmd[:3] for cmd in commands])
+
+    def test_pbmm2_alignment_uses_ccs_preset_and_sample(self):
+        from wgsextract_cli.commands import align
+
+        ccs_bam = os.path.join(self.test_dir, "HG00733.ccs.bam")
+        with open(ccs_bam, "w") as f:
+            f.write("bam")
+        args = Namespace(
+            r1=ccs_bam,
+            r2=None,
+            ref=self.ref,
+            input=None,
+            outdir=self.test_dir,
+            format="BAM",
+            threads=None,
+            memory=None,
+            platform="hifi",
+            preset=None,
+            sample="HG00733",
+            aligner="pbmm2",
+        )
+        run_commands = []
+
+        def fake_get_tool_path(tool):
+            return tool
+
+        def fake_run_command(cmd, *_args, **_kwargs):
+            run_commands.append(cmd)
+
+        with (
+            patch.object(align, "verify_dependencies"),
+            patch.object(align, "log_dependency_info"),
+            patch.object(align, "get_resource_defaults", return_value=("2", "1G")),
+            patch.object(align, "verify_paths_exist", return_value=True),
+            patch.object(align, "resolve_reference", return_value=self.ref),
+            patch.object(align, "get_tool_path", side_effect=fake_get_tool_path),
+            patch.object(align, "run_command", side_effect=fake_run_command),
+        ):
+            align.align_pbmm2(args)
+
+        pbmm2_cmd = run_commands[0]
+        self.assertEqual(pbmm2_cmd[:4], ["pbmm2", "align", self.ref, ccs_bam])
+        self.assertIn("--preset", pbmm2_cmd)
+        self.assertIn("CCS", pbmm2_cmd)
+        self.assertIn("--sample", pbmm2_cmd)
+        self.assertIn("HG00733", pbmm2_cmd)
 
 
 class TestRefDownloadValidation(unittest.TestCase):
@@ -265,6 +433,50 @@ class TestExamplesDownload(unittest.TestCase):
         self.assertIn('fastq_r1 = "ERR001268_1.filt.fastq.gz"', config)
         self.assertIn('fastq_r2 = "ERR001268_2.filt.fastq.gz"', config)
 
+    def test_pacbio_examples_are_in_catalog(self):
+        from wgsextract_cli.commands import examples
+
+        example = examples.EXAMPLES_BY_ID["hgsvc2-hg00733-pacbio-hifi-bam"]
+
+        self.assertEqual(example.data_type, "pacbio-hifi-bam")
+        self.assertTrue(example.files[0].url_path.endswith(".ccs.bam"))
+        self.assertEqual(example.files[0].role, "fastq_r1")
+        self.assertIn("pacbio", example.tags)
+
+    def test_select_examples_by_tag(self):
+        from wgsextract_cli.commands import examples
+
+        selected = examples._select_examples([], include_all=False, tags=["pacbio"])
+
+        self.assertGreaterEqual(len(selected), 4)
+        self.assertTrue(all("pacbio" in example.tags for example in selected))
+
+    def test_absolute_example_source_is_used_as_is(self):
+        from wgsextract_cli.commands import examples
+
+        url = "https://example.test/sample.bam"
+
+        self.assertEqual(examples._source_for(url, "https"), url)
+
+    def test_absolute_example_uses_declared_transfer_method(self):
+        from wgsextract_cli.commands import examples
+
+        example = examples.EXAMPLES_BY_ID["hgsvc2-hg00732-pacbio-hifi-bam-smallest"]
+
+        planned = examples._planned_downloads(example, Path(self.test_dir), "aspera")
+
+        self.assertEqual(planned[0][2], "fastq_r1")
+        self.assertEqual(planned[0][3], "https")
+        self.assertEqual(planned[0][0], example.files[0].url_path)
+
+    def test_tag_selection_rejects_mixed_explicit_ids(self):
+        from wgsextract_cli.commands import examples
+
+        with self.assertRaises(WGSExtractError):
+            examples._select_examples(
+                ["phase3-chrmt-vcf"], include_all=False, tags=["pacbio"]
+            )
+
 
 class TestResourceDefaults(unittest.TestCase):
     def test_resource_defaults_use_central_thread_policy(self):
@@ -423,6 +635,94 @@ class TestCLILogic(unittest.TestCase):
         self.assertEqual(args.r2, r2_path)
         self.assertEqual(args.outdir, genome_dir)
 
+    def test_genome_library_resolves_pacbio_read_bam_for_align(self):
+        genome_root = os.path.join(self.test_dir, "genomes")
+        genome_dir = os.path.join(genome_root, "pacbio")
+        os.makedirs(genome_dir)
+        ccs_path = os.path.join(genome_dir, "pacbio.ccs.bam")
+        with open(ccs_path, "w") as f:
+            f.write("reads")
+
+        from wgsextract_cli.core.config import settings
+
+        old_value = settings.get("genome_library")
+        settings["genome_library"] = genome_root
+        try:
+            args = Namespace(
+                command="align",
+                genome="pacbio",
+                input=None,
+                outdir=None,
+                r1=None,
+                r2=None,
+            )
+            apply_genome_selection(args, explicit_dests=set())
+        finally:
+            if old_value is None:
+                settings.pop("genome_library", None)
+            else:
+                settings["genome_library"] = old_value
+
+        self.assertEqual(args.r1, ccs_path)
+        self.assertIsNone(args.r2)
+        with open(os.path.join(genome_dir, GENOME_CONFIG_NAME)) as f:
+            self.assertIn('fastq_r1 = "pacbio.ccs.bam"', f.read())
+
+    def test_genome_library_does_not_treat_pacbio_read_bam_as_alignment(self):
+        genome_root = os.path.join(self.test_dir, "genomes")
+        genome_dir = os.path.join(genome_root, "pacbio-info")
+        os.makedirs(genome_dir)
+        with open(os.path.join(genome_dir, "reads.ccs.bam"), "w") as f:
+            f.write("reads")
+
+        from wgsextract_cli.core.config import settings
+
+        old_value = settings.get("genome_library")
+        settings["genome_library"] = genome_root
+        try:
+            args = Namespace(
+                command="info", genome="pacbio-info", input=None, outdir=None
+            )
+            with self.assertRaises(WGSExtractError) as ctx:
+                apply_genome_selection(args, explicit_dests=set())
+        finally:
+            if old_value is None:
+                settings.pop("genome_library", None)
+            else:
+                settings["genome_library"] = old_value
+
+        self.assertIn("No alignment", str(ctx.exception))
+
+    def test_genome_library_does_not_treat_configured_plain_pacbio_bam_as_alignment(
+        self,
+    ):
+        genome_root = os.path.join(self.test_dir, "genomes")
+        genome_dir = os.path.join(genome_root, "pacbio-plain")
+        os.makedirs(genome_dir)
+        bam_path = os.path.join(genome_dir, "HG00732-hifi.bam")
+        with open(bam_path, "w") as f:
+            f.write("reads")
+        with open(os.path.join(genome_dir, GENOME_CONFIG_NAME), "w") as f:
+            f.write('fastq_r1 = "HG00732-hifi.bam"\n')
+
+        from wgsextract_cli.core.config import settings
+
+        old_value = settings.get("genome_library")
+        settings["genome_library"] = genome_root
+        try:
+            args = Namespace(
+                command="info", genome="pacbio-plain", input=None, outdir=None
+            )
+            with self.assertRaises(WGSExtractError) as ctx:
+                apply_genome_selection(args, explicit_dests=set())
+        finally:
+            if old_value is None:
+                settings.pop("genome_library", None)
+            else:
+                settings["genome_library"] = old_value
+
+        self.assertIn("No alignment", str(ctx.exception))
+
     def test_genome_library_resolves_vcf_input_for_vcf_commands(self):
         genome_root = os.path.join(self.test_dir, "genomes")
         genome_dir = os.path.join(genome_root, "mac")
@@ -535,6 +835,227 @@ class TestCLILogic(unittest.TestCase):
         ):
             with self.assertRaises(WGSExtractError):
                 vcf.cmd_filter(args)
+
+    def test_deepvariant_pacbio_model_type(self):
+        from wgsextract_cli.commands import vcf
+
+        bam_path = os.path.join(self.test_dir, "sample.bam")
+        ref_path = os.path.join(self.test_dir, "ref.fa")
+        for path in (bam_path, ref_path):
+            with open(path, "w") as f:
+                f.write("data")
+
+        args = Namespace(
+            input=bam_path,
+            outdir=self.test_dir,
+            ref=ref_path,
+            region=None,
+            wes=False,
+            pacbio=True,
+            model_type=None,
+            checkpoint=None,
+        )
+        commands = []
+
+        def fake_run_command(cmd, *_args, **kwargs):
+            commands.append(cmd)
+            output = (
+                cmd[cmd.index("--output_vcf") + 1] if "--output_vcf" in cmd else None
+            )
+            if output:
+                Path(output).write_text("##fileformat=VCFv4.2\n")
+
+        class DummyReferenceLibrary:
+            fasta = ref_path
+            ploidy_file = None
+
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+        with (
+            patch.object(vcf.shutil, "which", return_value="run_deepvariant"),
+            patch.object(
+                vcf,
+                "get_base_args",
+                return_value=("2", self.test_dir, ref_path, DummyReferenceLibrary()),
+            ),
+            patch.object(vcf, "run_command", side_effect=fake_run_command),
+            patch.object(vcf, "ensure_vcf_indexed"),
+        ):
+            vcf.cmd_deepvariant(args)
+
+        self.assertIn("PACBIO", commands[0])
+
+    def test_pbsv_sv_builds_discover_and_call_commands(self):
+        from wgsextract_cli.commands import vcf
+
+        bam_path = os.path.join(self.test_dir, "sample.bam")
+        ref_path = os.path.join(self.test_dir, "ref.fa")
+        for path in (bam_path, ref_path):
+            with open(path, "w") as f:
+                f.write("data")
+
+        args = Namespace(
+            input=bam_path,
+            outdir=self.test_dir,
+            ref=ref_path,
+            region="chr20",
+            ccs=True,
+            tandem_repeats=None,
+        )
+        commands = []
+
+        def fake_run_command(cmd, *_args, **_kwargs):
+            commands.append(cmd)
+            if cmd[:2] == ["pbsv", "call"]:
+                Path(os.path.join(self.test_dir, "pbsv.vcf")).write_text(
+                    "##fileformat=VCFv4.2\n"
+                )
+
+        class DummyReferenceLibrary:
+            fasta = ref_path
+            ploidy_file = None
+
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+        with (
+            patch.object(vcf, "verify_dependencies"),
+            patch.object(vcf, "log_dependency_info"),
+            patch.object(vcf, "get_tool_path", side_effect=lambda tool: tool),
+            patch.object(
+                vcf,
+                "get_base_args",
+                return_value=("2", self.test_dir, ref_path, DummyReferenceLibrary()),
+            ),
+            patch.object(vcf, "run_command", side_effect=fake_run_command),
+            patch.object(vcf, "ensure_vcf_indexed"),
+        ):
+            vcf.cmd_sv_pbsv(args)
+
+        self.assertEqual(commands[0][:2], ["pbsv", "discover"])
+        self.assertIn("--region", commands[0])
+        self.assertIn("--hifi", commands[0])
+        self.assertEqual(commands[1][:2], ["pbsv", "call"])
+        self.assertIn("--ccs", commands[1])
+        self.assertEqual(commands[2][:3], ["bcftools", "view", "-Oz"])
+
+    def test_pbsv_sv_uncompresses_gzipped_reference_for_call(self):
+        from wgsextract_cli.commands import vcf
+
+        bam_path = os.path.join(self.test_dir, "sample.bam")
+        ref_path = os.path.join(self.test_dir, "ref.fa.gz")
+        with open(bam_path, "w") as f:
+            f.write("data")
+        with gzip.open(ref_path, "wt") as f:
+            f.write(">chr1\nACGT\n")
+
+        args = Namespace(
+            input=bam_path,
+            outdir=self.test_dir,
+            ref=ref_path,
+            region=None,
+            ccs=True,
+            tandem_repeats=None,
+        )
+        commands = []
+
+        def fake_run_command(cmd, *_args, **_kwargs):
+            commands.append(cmd)
+            if cmd[:2] == ["pbsv", "call"]:
+                Path(os.path.join(self.test_dir, "pbsv.vcf")).write_text(
+                    "##fileformat=VCFv4.2\n"
+                )
+
+        class DummyReferenceLibrary:
+            fasta = ref_path
+            ploidy_file = None
+
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+        with (
+            patch.object(vcf, "verify_dependencies"),
+            patch.object(vcf, "log_dependency_info"),
+            patch.object(vcf, "get_tool_path", side_effect=lambda tool: tool),
+            patch.object(
+                vcf,
+                "get_base_args",
+                return_value=("2", self.test_dir, ref_path, DummyReferenceLibrary()),
+            ),
+            patch.object(vcf, "run_command", side_effect=fake_run_command),
+            patch.object(vcf, "ensure_vcf_indexed"),
+        ):
+            vcf.cmd_sv_pbsv(args)
+
+        plain_ref = os.path.join(self.test_dir, "ref.fa")
+        self.assertTrue(os.path.isfile(plain_ref))
+        self.assertEqual(commands[0], ["samtools", "faidx", plain_ref])
+        self.assertEqual(commands[2][-3], plain_ref)
+
+    def test_pacbio_sv_falls_back_to_sniffles_when_pbsv_missing(self):
+        from wgsextract_cli.commands import vcf
+
+        args = Namespace(pacbio=True, caller="delly", ccs=False)
+
+        with (
+            patch.object(vcf, "get_tool_path", return_value=None),
+            patch.object(vcf, "cmd_sv_sniffles") as cmd_sv_sniffles,
+        ):
+            vcf.cmd_sv(args)
+
+        cmd_sv_sniffles.assert_called_once_with(args)
+        self.assertEqual(args.caller, "sniffles")
+        self.assertTrue(args.ccs)
+
+    def test_sniffles_sv_builds_command(self):
+        from wgsextract_cli.commands import vcf
+
+        bam_path = os.path.join(self.test_dir, "sample.bam")
+        ref_path = os.path.join(self.test_dir, "ref.fa")
+        for path in (bam_path, ref_path):
+            with open(path, "w") as f:
+                f.write("data")
+
+        args = Namespace(
+            input=bam_path,
+            outdir=self.test_dir,
+            ref=ref_path,
+            region="chr20",
+        )
+        commands = []
+
+        def fake_run_command(cmd, *_args, **_kwargs):
+            commands.append(cmd)
+            if cmd[0] == "sniffles":
+                Path(os.path.join(self.test_dir, "sniffles.vcf")).write_text(
+                    "##fileformat=VCFv4.2\n"
+                )
+
+        class DummyReferenceLibrary:
+            fasta = ref_path
+            ploidy_file = None
+
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+        with (
+            patch.object(vcf, "verify_dependencies"),
+            patch.object(vcf, "log_dependency_info"),
+            patch.object(vcf, "get_tool_path", side_effect=lambda tool: tool),
+            patch.object(
+                vcf,
+                "get_base_args",
+                return_value=("2", self.test_dir, ref_path, DummyReferenceLibrary()),
+            ),
+            patch.object(vcf, "run_command", side_effect=fake_run_command),
+            patch.object(vcf, "ensure_vcf_indexed"),
+        ):
+            vcf.cmd_sv_sniffles(args)
+
+        self.assertEqual(commands[0][:3], ["sniffles", "--input", bam_path])
+        self.assertIn("--regions", commands[0])
+        self.assertEqual(commands[1][:3], ["bcftools", "view", "-Oz"])
 
     def test_genome_library_resolves_vcf_input_for_qc_vcf(self):
         genome_root = os.path.join(self.test_dir, "genomes")
