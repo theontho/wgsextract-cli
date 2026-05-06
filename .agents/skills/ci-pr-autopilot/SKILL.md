@@ -1,3 +1,8 @@
+---
+name: ci-pr-autopilot
+description: Use when the user wants an autonomous PR babysitter to monitor CI and review feedback, make safe fixes, push follow-up commits, resolve handled threads, rerun checks, and merge only when clean.
+---
+
 # CI PR Autopilot
 
 ## Purpose
