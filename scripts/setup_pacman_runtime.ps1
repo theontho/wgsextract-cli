@@ -91,7 +91,14 @@ function Copy-UrlOrFile {
         return
     }
 
-    Invoke-WebRequest -Uri $Source -OutFile $Destination -UseBasicParsing
+    $invokeParams = @{
+        Uri = $Source
+        OutFile = $Destination
+    }
+    if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey("UseBasicParsing")) {
+        $invokeParams.UseBasicParsing = $true
+    }
+    Invoke-WebRequest @invokeParams
 }
 
 function Resolve-BwaBinarySha256 {
@@ -116,13 +123,13 @@ function Resolve-BwaBinarySha256 {
         }
     }
     catch {
-        Write-Warning "Could not retrieve BWA binary checksum from $checksumSource. Continuing without checksum verification."
+        throw "Could not retrieve BWA binary checksum from ${checksumSource}: $($_.Exception.Message)"
     }
     finally {
         Remove-Item $checksumTemp -Force -ErrorAction SilentlyContinue
     }
 
-    return ""
+    throw "BWA binary checksum was not found in ${checksumSource}."
 }
 
 function Install-BwaBinaryPackage {

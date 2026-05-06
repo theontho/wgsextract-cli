@@ -142,13 +142,16 @@ if "%SKIP_PIXI_INSTALL%"=="0" (
 
 if "%SKIP_PACMAN_SETUP%"=="0" (
     echo Setting up MSYS2 UCRT64 pacman runtime tools...
-    set "PACMAN_SETUP_ARGS=-NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%scripts\setup_pacman_runtime.ps1" -Msys2Root "%WGSE_MSYS2_ROOT%""
-    if "%SKIP_PACKAGE_INSTALL%"=="1" set "PACMAN_SETUP_ARGS=!PACMAN_SETUP_ARGS! -SkipPackageInstall"
-    if "%SKIP_BWA_BUILD%"=="1" set "PACMAN_SETUP_ARGS=!PACMAN_SETUP_ARGS! -SkipBwaBuild"
-    if "%SKIP_BWA_DOWNLOAD%"=="1" set "PACMAN_SETUP_ARGS=!PACMAN_SETUP_ARGS! -SkipBwaDownload"
-    if defined BWA_BINARY_URL set "PACMAN_SETUP_ARGS=!PACMAN_SETUP_ARGS! -BwaBinaryUrl "!BWA_BINARY_URL!""
-    if "%FORCE_BWA_BUILD%"=="1" set "PACMAN_SETUP_ARGS=!PACMAN_SETUP_ARGS! -ForceBwaBuild"
-    powershell.exe !PACMAN_SETUP_ARGS!
+    set "PACMAN_SETUP_EXTRA_ARGS="
+    if "%SKIP_PACKAGE_INSTALL%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipPackageInstall"
+    if "%SKIP_BWA_BUILD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipBwaBuild"
+    if "%SKIP_BWA_DOWNLOAD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipBwaDownload"
+    if "%FORCE_BWA_BUILD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -ForceBwaBuild"
+    if "%BWA_BINARY_URL%"=="" (
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%scripts\setup_pacman_runtime.ps1" -Msys2Root "%WGSE_MSYS2_ROOT%" !PACMAN_SETUP_EXTRA_ARGS!
+    ) else (
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%scripts\setup_pacman_runtime.ps1" -Msys2Root "%WGSE_MSYS2_ROOT%" !PACMAN_SETUP_EXTRA_ARGS! -BwaBinaryUrl "%BWA_BINARY_URL%"
+    )
     if errorlevel 1 exit /b 1
 ) else (
     echo Skipping pacman runtime setup.
