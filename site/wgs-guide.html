@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="A friendly guide to whole genome sequencing concepts, file types, coverage, references, variants, and practical uses." />
+    <title>Whole Genome Guide | WGS Extract CLI</title>
+    <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".82em" font-size="84">🧬</text></svg>' />
+    <link rel="stylesheet" href="assets/site.css" />
+  </head>
+  <body>
+    <nav class="nav" aria-label="Primary navigation">
+      <div class="wrap nav-inner">
+        <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true"></span><span>WGS Extract CLI</span></a>
+        <div class="nav-links"><a href="index.html">Home</a><a href="install.html">Install</a><a href="cli.html">CLI</a><a href="gui.html">GUI</a><a href="workflows.html">Workflows</a><a class="active" href="wgs-guide.html">WGS guide</a><a href="reference.html">Reference</a></div>
+      </div>
+    </nav>
+
+    <main>
+      <header class="page-hero">
+        <div class="wrap">
+          <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Genomics primer</p>
+          <h1>Whole genome sequencing, explained practically.</h1>
+          <p class="lede">Whole genome sequencing reads across nearly all of your DNA instead of checking only a small set of predefined markers. That makes it flexible: the same data can be revisited as reference genomes, callers, annotations, and research improve.</p>
+          <div class="toc"><a href="#types">Test types</a><a href="#files">File flow</a><a href="#coverage">Coverage</a><a href="#variants">Variants</a><a href="#references">References</a><a href="#uses">Uses and limits</a></div>
+        </div>
+      </header>
+
+      <section id="types">
+        <div class="wrap">
+          <div class="section-head"><h2>WGS vs microarray vs exome</h2><p>These tests answer different questions. WGS is broad, microarrays are marker-based, and exomes focus on protein-coding sequence.</p></div>
+          <div class="grid three">
+            <article class="card"><h3>Whole genome sequencing</h3><p>Attempts to sequence the full genome: autosomes, sex chromosomes, mitochondrial DNA, coding regions, non-coding regions, and many structural signals.</p><span class="tag">broadest reuse</span></article>
+            <article class="card"><h3>Microarray genotyping</h3><p>Checks selected markers chosen by a chip design. It is common for ancestry, but misses most variants that are not on the chip.</p><span class="tag">cheap</span><span class="tag">fixed markers</span></article>
+            <article class="card"><h3>Exome sequencing</h3><p>Targets protein-coding regions. Useful for many clinical questions, but it skips most non-coding and structural context.</p><span class="tag">coding focus</span></article>
+          </div>
+        </div>
+      </section>
+
+      <section id="files">
+        <div class="wrap">
+          <div class="section-head"><h2>The usual file flow</h2><p>Most WGS analysis moves through a small set of file types. WGS Extract helps at several points in this chain.</p></div>
+          <div class="timeline">
+            <div class="node"><strong>FASTQ</strong><span>Raw reads and base quality scores directly from sequencing.</span></div>
+            <div class="node"><strong>BAM / CRAM</strong><span>Reads aligned to a reference genome, sorted and indexed for access.</span></div>
+            <div class="node"><strong>VCF / BCF</strong><span>Variant calls: positions where the sample differs from the reference.</span></div>
+            <div class="node"><strong>Reports / kits</strong><span>Microarray simulations, haplogroups, annotations, extracts, and filtered outputs.</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="coverage">
+        <div class="wrap split">
+          <div><h2>Coverage and quality</h2><p class="lede">Coverage is how many reads support a position. A "30x" genome means an average of about 30 reads cover each position, but real coverage varies across GC-rich regions, repeats, sex chromosomes, mitochondrial DNA, capture gaps, and low-mappability regions.</p></div>
+          <div class="guide-panel">
+            <h3>Coverage questions to ask</h3>
+            <ul>
+              <li>Is this average coverage or breadth of coverage?</li>
+              <li>Are mitochondrial and Y-chromosome reads present?</li>
+              <li>Was the sample aligned to hg19, hg38, T2T, or another build?</li>
+              <li>Is the alignment sorted and indexed?</li>
+              <li>Are low-quality reads or duplicate reads affecting calls?</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="variants">
+        <div class="wrap">
+          <div class="section-head"><h2>Variant types</h2><p>Different callers and workflows target different kinds of changes. No single command is best for every variant class and sequencing technology.</p></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Variant type</th><th>What it means</th><th>Why it matters</th></tr></thead>
+              <tbody>
+                <tr><td>SNP</td><td>One base differs from the reference.</td><td>Common in ancestry, trait, and many disease-risk annotations.</td></tr>
+                <tr><td>InDel</td><td>A small insertion or deletion.</td><td>Can disrupt genes and is harder to call than many SNPs.</td></tr>
+                <tr><td>Structural variant</td><td>A larger deletion, duplication, inversion, insertion, or rearrangement.</td><td>Often missed by microarrays and short-read SNP-only workflows.</td></tr>
+                <tr><td>CNV</td><td>Copy number variant: a region is deleted or duplicated.</td><td>Can affect gene dosage and medically relevant regions.</td></tr>
+                <tr><td>mtDNA and Y-DNA markers</td><td>Lineage-informative variants in mitochondrial DNA or the Y chromosome.</td><td>Used for maternal and paternal haplogroups and genealogy.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="references">
+        <div class="wrap">
+          <div class="section-head"><h2>Reference builds and coordinates</h2><p>A genomic coordinate only makes sense relative to a reference build. chr1:100000 in hg19 may not refer to the same biological position in hg38 or T2T.</p></div>
+          <div class="grid three">
+            <article class="card"><h3>hg19 / GRCh37</h3><p>Older but still common in genealogy tools, legacy annotations, and many older consumer datasets.</p></article>
+            <article class="card"><h3>hg38 / GRCh38</h3><p>Modern mainstream reference for many current short-read WGS pipelines and annotation resources.</p></article>
+            <article class="card"><h3>T2T</h3><p>Telomere-to-telomere references cover many regions older references represented poorly, but tool and annotation support varies.</p></article>
+          </div>
+          <div class="callout"><strong>Do not mix builds casually.</strong> If your BAM was aligned to hg38, call variants and annotate with hg38-compatible resources unless you intentionally lift over coordinates or re-align.</div>
+        </div>
+      </section>
+
+      <section id="uses">
+        <div class="wrap">
+          <div class="section-head"><h2>What WGS can be used for</h2><p>WGS is powerful, but it is not magic. Results depend on data quality, tool choice, reference build, ancestry representation in databases, and careful interpretation.</p></div>
+          <div class="grid three">
+            <article class="card"><h3>Ancestry and genealogy</h3><p>Microarray simulations, Y/MT extracts, haplogroups, triangulation, and upload-compatible files for third-party tools.</p></article>
+            <article class="card"><h3>Variant exploration</h3><p>SNP, InDel, SV, CNV, VEP, ClinVar, gnomAD, conservation, splicing, and pharmacogenomic annotation workflows.</p></article>
+            <article class="card"><h3>Data stewardship</h3><p>Convert BAM to CRAM, index files, verify references, preserve metadata, and keep data private and backed up.</p></article>
+          </div>
+          <div class="callout"><strong>Privacy and medical caution:</strong> Whole genome files can reveal sensitive information about you and biological relatives. This site is educational and does not provide medical advice.</div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer"><div class="wrap"><div><strong>Whole Genome Guide</strong><p>Concepts for practical WGS work.</p></div><p><a href="reference.html">Next: reference</a></p></div></footer>
+  </body>
+</html>
