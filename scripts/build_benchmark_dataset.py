@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import zipfile
@@ -239,9 +240,9 @@ def build_fastqs(dataset_dir: Path, bam: Path) -> None:
             "-2",
             str(r2_plain),
             "-0",
-            "/dev/null",
+            os.devnull,
             "-s",
-            "/dev/null",
+            os.devnull,
             "-n",
             str(name_sorted),
         ]

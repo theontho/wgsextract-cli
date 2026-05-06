@@ -1668,8 +1668,9 @@ def _prepare_real_benchmark_dataset(
     args: argparse.Namespace, dataset_dir: Path, outdir: Path
 ) -> BenchmarkDataset:
     zip_path = _real_dataset_zip_path(args, outdir)
-    if getattr(args, "dataset_sha256", None):
-        _verify_sha256(zip_path, str(args.dataset_sha256))
+    expected_sha256 = _normalized_dataset_sha256(args)
+    if expected_sha256:
+        _verify_sha256(zip_path, expected_sha256)
 
     extract_dir = dataset_dir / "real"
     _extract_zip_safely(zip_path, extract_dir)
@@ -1685,16 +1686,25 @@ def _real_dataset_zip_path(args: argparse.Namespace, outdir: Path) -> Path:
         return path
 
     url = getattr(args, "dataset_url", None) or DEFAULT_REAL_DATASET_URL
+    expected_sha256 = _normalized_dataset_sha256(args)
     cache_dir = _real_dataset_cache_dir(args, outdir)
     cache_dir.mkdir(parents=True, exist_ok=True)
     zip_path = cache_dir / _download_filename(url)
-    if zip_path.exists() and not getattr(args, "dataset_sha256", None):
+    if zip_path.exists() and not expected_sha256:
         return zip_path
-    if zip_path.exists() and _sha256(zip_path) == str(args.dataset_sha256).lower():
+    if zip_path.exists() and _sha256(zip_path) == expected_sha256:
         return zip_path
 
     _download_file(url, zip_path)
     return zip_path
+
+
+def _normalized_dataset_sha256(args: argparse.Namespace) -> str | None:
+    value = getattr(args, "dataset_sha256", None)
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    return normalized or None
 
 
 def _real_dataset_cache_dir(args: argparse.Namespace, outdir: Path) -> Path:
@@ -2572,6 +2582,7 @@ def _write_report(
     with open(report_md, "w", encoding="utf-8") as handle:
         handle.write(markdown_report)
 
+    _write_github_step_summary(metadata, results, report_md)
     print(stdout_report)
 
 
@@ -2613,6 +2624,37 @@ def _format_stdout_report(
         f"Markdown report: {report_md}",
     ]
     return "\n".join(lines)
+
+
+def _write_github_step_summary(
+    metadata: dict[str, Any], results: list[BenchmarkResult], report_md: Path
+) -> None:
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+
+    total = sum(result.seconds for result in results if result.status != "SKIP")
+    passed = sum(1 for result in results if result.status == "PASS")
+    failed = sum(1 for result in results if result.status == "FAIL")
+    skipped = sum(1 for result in results if result.status == "SKIP")
+    lines = [
+        "## WGSExtract Benchmark",
+        "",
+        "| Metric | Value |",
+        "| --- | --- |",
+        f"| Total measured time | {total:.2f}s |",
+        f"| Passed | {passed} |",
+        f"| Failed | {failed} |",
+        f"| Skipped | {skipped} |",
+        f"| Suite | {metadata['suite']} |",
+        f"| Profile | {metadata['profile']} |",
+        f"| Data source | {metadata['data_source']} |",
+        f"| Base file size | {metadata['base_file_size'] or 'not available'} |",
+        f"| Report | `{report_md}` |",
+        "",
+    ]
+    with open(summary_path, "a", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
 
 
 def _format_markdown_report(
