@@ -23,3 +23,12 @@ repos:
     hooks:
       - id: shellcheck
         files: ^
+  - repo: local
+    hooks:
+      - id: validate-site-sources
+        name: validate site sources
+        entry: python scripts/validate_site_sources.py
+        language: python
+        additional_dependencies: [tomli]
+        pass_filenames: false
+        files: ^(site_src/.*\.(md|toml)|scripts/(build_site|validate_site_sources)\.py)$

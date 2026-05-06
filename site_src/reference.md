@@ -1,15 +1,15 @@
 ---
-output: reference.html
-title: Reference | WGS Extract CLI
-description: WGS Extract glossary, file extension reference, tool reference, privacy notes, and troubleshooting guide.
-eyebrow: Lookup pages
-heading: Glossary, files, tools, privacy, and troubleshooting.
-lede: Use this as a quick reference when a command mentions an unfamiliar acronym, file extension, external tool, reference-build concept, or common failure mode.
-toc: Glossary|glossary; Files|files; Tools|tools; Privacy|privacy; Troubleshooting|troubleshooting
-footer_title: WGS Extract Reference
-footer_text: Glossary, files, tools, and troubleshooting.
-footer_link_text: Back home
-footer_link_href: index.html
+output: 'reference.html'
+title: 'Reference | WGS Extract CLI'
+description: 'WGS Extract glossary, file extension reference, tool reference, privacy notes, and troubleshooting guide.'
+eyebrow: 'Lookup pages'
+heading: 'Glossary, files, tools, privacy, and troubleshooting.'
+lede: 'Use this as a quick reference when a command mentions an unfamiliar acronym, file extension, external tool, reference-build concept, or common failure mode.'
+toc: 'Glossary|glossary; Files|files; Tools|tools; Privacy|privacy; Troubleshooting|troubleshooting'
+footer_title: 'WGS Extract Reference'
+footer_text: 'Glossary, files, tools, and troubleshooting.'
+footer_link_text: 'Back home'
+footer_link_href: 'index.html'
 ---
 
 ::: section id=glossary

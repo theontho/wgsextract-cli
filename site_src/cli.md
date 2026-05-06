@@ -1,15 +1,15 @@
 ---
-output: cli.html
-title: CLI Guide | WGS Extract CLI
-description: WGS Extract CLI command guide with command groups, options, and common recipes.
-eyebrow: Command reference
-heading: A map of the WGS Extract command line.
-lede: The CLI is the best interface for repeatable work: scripts, batch jobs, remote machines, AI-agent workflows, and long-running analyses where exact commands matter.
-toc: Global options|global; Command groups|groups; Recipes|recipes; Pixi environments|environments; Best practices|patterns
-footer_title: WGS Extract CLI
-footer_text: Command guide and recipes.
-footer_link_text: Next: workflows
-footer_link_href: workflows.html
+output: 'cli.html'
+title: 'CLI Guide | WGS Extract CLI'
+description: 'WGS Extract CLI command guide with command groups, options, and common recipes.'
+eyebrow: 'Command reference'
+heading: 'A map of the WGS Extract command line.'
+lede: 'The CLI is the best interface for repeatable work: scripts, batch jobs, remote machines, AI-agent workflows, and long-running analyses where exact commands matter.'
+toc: 'Global options|global; Command groups|groups; Recipes|recipes; Pixi environments|environments; Best practices|patterns'
+footer_title: 'WGS Extract CLI'
+footer_text: 'Command guide and recipes.'
+footer_link_text: 'Next: workflows'
+footer_link_href: 'workflows.html'
 ---
 
 ::: section id=global

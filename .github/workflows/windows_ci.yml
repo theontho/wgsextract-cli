@@ -41,4 +41,4 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          wsl bash -lc "cd ~/wgsextract-cli && ~/.pixi/bin/pixi run ruff check . && ~/.pixi/bin/pixi run mypy src/wgsextract_cli"
+          wsl bash -lc "cd ~/wgsextract-cli && ~/.pixi/bin/pixi run lint && ~/.pixi/bin/pixi run typecheck"

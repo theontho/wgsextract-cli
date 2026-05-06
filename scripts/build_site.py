@@ -135,11 +135,19 @@ def parse_front_matter(text: str) -> tuple[dict[str, str], str]:
         key, separator, value = line.partition(":")
         if not separator:
             raise ValueError(f"Invalid front matter line: {line}")
-        metadata[key.strip()] = value.strip()
+        metadata[key.strip()] = unquote_front_matter_value(value.strip())
     else:
         raise ValueError("Unterminated front matter")
 
     return metadata, "\n".join(lines[index:]).strip()
+
+
+def unquote_front_matter_value(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] == "'":
+        return value[1:-1].replace("''", "'")
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        return bytes(value[1:-1], "utf-8").decode("unicode_escape")
+    return value
 
 
 def require(metadata: dict[str, str], key: str) -> str:
