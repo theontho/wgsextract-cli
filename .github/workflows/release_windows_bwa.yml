@@ -82,18 +82,13 @@ jobs:
           "@ | Set-Content -Path (Join-Path $assetDir "README.txt") -Encoding ASCII
           $zipPath = Join-Path "out\release-bwa" "$assetName.zip"
           Compress-Archive -Path (Join-Path $assetDir "*") -DestinationPath $zipPath -Force
-          $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash.ToLowerInvariant()
-          "$sha256  $assetName.zip" | Set-Content -Path "$zipPath.sha256" -Encoding ASCII
           "BWA_ZIP=$zipPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "BWA_SHA256=$zipPath.sha256" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: wgsextract-bwa-${{ env.BWA_VERSION }}-windows-ucrt64
-          path: |
-            ${{ env.BWA_ZIP }}
-            ${{ env.BWA_SHA256 }}
+          path: ${{ env.BWA_ZIP }}
           if-no-files-found: error
 
       - name: Upload release asset
@@ -102,6 +97,4 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           fail_on_unmatched_files: true
-          files: |
-            ${{ env.BWA_ZIP }}
-            ${{ env.BWA_SHA256 }}
+          files: ${{ env.BWA_ZIP }}
