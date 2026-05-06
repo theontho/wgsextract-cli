@@ -2,7 +2,7 @@
 set -eu
 
 REPO_URL="${WGSEXTRACT_REPO_URL:-https://github.com/theontho/wgsextract-cli}"
-REF="${WGSEXTRACT_REF:-main}"
+REQUESTED_REF="${WGSEXTRACT_REF:-${WGSEXTRACT_RELEASE_TAG:-latest}}"
 
 log() {
     printf '%s\n' "$*"
@@ -28,6 +28,18 @@ quote_sh() {
 
 command_exists() {
     command -v "$1" >/dev/null 2>&1
+}
+
+resolve_latest_release_tag() {
+    latest_url="$REPO_URL/releases/latest"
+    effective_url="$(curl -fsIL -o /dev/null -w '%{url_effective}' "$latest_url")" || fail "Could not resolve latest release from $latest_url"
+    latest_tag="${effective_url##*/}"
+    case "$latest_tag" in
+        ""|latest|releases)
+            fail "Could not determine latest release tag from $effective_url"
+            ;;
+    esac
+    printf '%s\n' "$latest_tag"
 }
 
 absolute_path() {
@@ -74,7 +86,7 @@ PIXI_CACHE_DIR="$(absolute_path "${WGSEXTRACT_PIXI_CACHE_DIR:-$DEFAULT_PIXI_CACH
 PIXI_ENV_DIR="$(absolute_path "${WGSEXTRACT_PIXI_ENV_DIR:-$DEFAULT_PIXI_ENV_DIR}")"
 GUI_SH="$INSTALL_DIR/start-wgsextract-gui.sh"
 GUI_COMMAND="$INSTALL_DIR/WGS Extract GUI.command"
-ARCHIVE_URL="${WGSEXTRACT_ARCHIVE_URL:-$REPO_URL/archive/$REF.tar.gz}"
+ARCHIVE_URL="${WGSEXTRACT_ARCHIVE_URL:-}"
 
 uses_default_pixi_layout() {
     [ "$PIXI_CACHE_DIR" = "$DEFAULT_PIXI_CACHE_DIR" ] && [ "$PIXI_ENV_DIR" = "$DEFAULT_PIXI_ENV_DIR" ]
@@ -149,6 +161,20 @@ esac
 command_exists curl || fail "curl is required to download the installer payload."
 command_exists tar || fail "tar is required to extract the installer payload."
 command_exists gzip || fail "gzip is required to extract the installer payload."
+
+if [ -z "$ARCHIVE_URL" ]; then
+    case "$REQUESTED_REF" in
+        ""|latest)
+            REF="$(resolve_latest_release_tag)"
+            ;;
+        *)
+            REF="$REQUESTED_REF"
+            ;;
+    esac
+    ARCHIVE_URL="$REPO_URL/archive/$REF.tar.gz"
+else
+    REF="${REQUESTED_REF:-custom}"
+fi
 
 print_banner
 log "This installer will:"

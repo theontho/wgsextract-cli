@@ -48,6 +48,9 @@ Use `info` and region-limited commands first. Whole-genome jobs can take hours a
 # 3. The installer creates ./wgsextract-cli.
 curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh
 
+# The bootstrap script resolves and installs the latest GitHub release,
+# not the latest main branch source.
+
 # Initialize reference library data
 ./wgsextract-cli/wgsextract ref bootstrap
 ./wgsextract-cli/wgsextract ref library --list
