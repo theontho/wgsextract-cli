@@ -105,7 +105,7 @@ pre {
 
 .brand-mark {
   display: grid;
-  width: 52px;
+  width: 38px;
   height: 38px;
   place-items: center;
   border: 1px solid rgba(98, 208, 255, 0.5);
@@ -117,9 +117,8 @@ pre {
 }
 
 .brand-mark::before {
-  content: "🧬🧰";
+  content: "🧬";
   font-size: 1.05rem;
-  letter-spacing: -0.24em;
   filter: drop-shadow(0 0 10px rgba(98, 208, 255, 0.35));
 }
 
