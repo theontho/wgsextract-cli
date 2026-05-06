@@ -17,61 +17,75 @@ Designed to be CLI-first for AI-friendliness, `wgsextract-cli` leverages [**Pixi
 
 ## ⚙️ Installation & Setup Guide
 
-`wgsextract-cli` uses [**Pixi**](https://pixi.sh) to manage its entire environment, including Python, standard bioinformatics tools (samtools, bcftools, etc.), and the application itself. This ensures a consistent, reproducible setup across all platforms.
+`wgsextract-cli` has a self-contained macOS/Linux installer based on [**Pixi**](https://pixi.sh), which manages Python, bioinformatics tools, and the application environment.
 
-### 1. Install Pixi
-If you don't have Pixi installed, run:
 ```bash
-# macOS / Linux / WSL2
-curl -fsSL https://pixi.sh/install.sh | bash
-
-# Windows (PowerShell)
-iwr -useb https://pixi.sh/install.ps1 | iex
+curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh
 ```
-*Restart your terminal after installation.*
 
-### 2. Clone and Setup
+The installer downloads Pixi if needed, downloads the project source archive, runs `pixi install`, and writes launchers inside the install directory. By default, a downloaded `install.sh` creates `wgsextract-cli/` next to itself; when run through `curl | sh`, it creates `wgsextract-cli/` in the current directory. The app, Pixi environment, Pixi cache, CLI launcher, and GUI launch files stay under that one directory so uninstalling is just deleting it. If the installer installed Pixi for you and you no longer need it, uninstall Pixi separately.
+
+After install, the default launchers are:
+
+| Launcher | Purpose |
+| :--- | :--- |
+| `wgsextract-cli/bin/wgsextract` | CLI launcher |
+| `wgsextract-cli/start-wgsextract-gui.sh` | Shell launcher for the desktop GUI |
+| `wgsextract-cli/WGS Extract GUI.command` | Finder double-click launcher for the desktop GUI on macOS |
+| `wgsextract-cli/start-wgsextract-web-gui.sh` | Shell launcher for the web GUI |
+| `wgsextract-cli/WGS Extract Web GUI.command` | Finder double-click launcher for the web GUI on macOS |
+
+### Installer options
+
+Set these environment variables before running the installer to customize it:
+
+| Variable | Default | Purpose |
+| :--- | :--- | :--- |
+| `WGSEXTRACT_INSTALL_DIR` | `wgsextract-cli` next to `install.sh`, or `./wgsextract-cli` for `curl | sh` | Install location |
+| `WGSEXTRACT_REF` | `main` | Git ref to install |
+| `WGSEXTRACT_ARCHIVE_URL` | GitHub source archive for `WGSEXTRACT_REF` | Exact source archive URL |
+| `WGSEXTRACT_BIN_DIR` | `$WGSEXTRACT_INSTALL_DIR/bin` | CLI launcher directory |
+| `WGSEXTRACT_PIXI_CACHE_DIR` | `$WGSEXTRACT_INSTALL_DIR/pixi-cache` | Pixi package cache directory |
+| `WGSEXTRACT_PIXI_ENV_DIR` | `$WGSEXTRACT_INSTALL_DIR/pixi-envs` | Pixi project environment directory |
+
+Leave `WGSEXTRACT_BIN_DIR`, `WGSEXTRACT_PIXI_CACHE_DIR`, and `WGSEXTRACT_PIXI_ENV_DIR` unset for clean one-directory uninstall behavior. Setting any of them outside `WGSEXTRACT_INSTALL_DIR` intentionally leaves that launcher, cache, or environment outside the install tree.
+
+### Manual development setup
+
 ```bash
 git clone https://github.com/theontho/wgsextract-cli.git
 cd wgsextract-cli
-
-# Install all dependencies and the CLI tool
 pixi install
+pixi run wgsextract --help
 ```
 
-### 3. Global Install (Optional)
-To make the `wgsextract` command available everywhere on your system without needing to prefix it with `pixi run`:
-```bash
-# From within the cloned directory
-pixi global install --path .
-```
-*Note: This will add `wgsextract` to your Pixi global binary path.*
-
-### 4. Platform Support
+### Platform Support
 - **macOS (Intel/Apple Silicon)**: Fully supported. Pixi installs all bioinformatics tools automatically.
 - **Linux**: Fully supported. Pixi installs all bioinformatics tools automatically.
 - **Windows**:
-    - **WSL2 (Recommended)**: Follow the Linux instructions within a WSL2 terminal for full support.
+  - **WSL2**: Follow the Linux instructions within a WSL2 terminal.
   - **Native Windows**: Use `--runtime pacman` with an MSYS2 UCRT64 toolchain for native Windows bioinformatics tools. See [docs/windows_pacman_runtime.md](docs/windows_pacman_runtime.md).
 
-### 5. Initialize Reference Library
+The examples below use `wgsextract` for installed usage. If you have not added `wgsextract-cli/bin` to `PATH`, use `./wgsextract-cli/bin/wgsextract` instead. From a manual development checkout, use `pixi run wgsextract`.
+
+### Initialize Reference Library
 Before running extraction tools, you must initialize the reference library (VCFs, liftover chains, metadata).
 
 ```bash
 # Initialize library in the default 'reference/' folder
-pixi run wgsextract ref bootstrap
+wgsextract ref bootstrap
 
 # List available genomes
-pixi run wgsextract ref library --list
+wgsextract ref library --list
 
 # Install a genome (e.g., hs38)
-pixi run wgsextract ref library --install hs38
+wgsextract ref library --install hs38
 ```
 
-### 6. Verification
+### Verification
 ```bash
 # Verify tools and environment
-pixi run wgsextract info --detailed
+wgsextract info --detailed
 ```
 
 ---
@@ -156,20 +170,21 @@ fastq_r2 = "raw-fastqs/sample_R2.fastq.gz"
 ```
 
 ```bash
-pixi run wgsextract --genome joe info
-pixi run wgsextract --genome "ken mcdonald" microarray --formats 23andme_v5
-pixi run wgsextract --genome joe vcf filter --expr 'QUAL>30'
+wgsextract --genome joe info
+wgsextract --genome "ken mcdonald" microarray --formats 23andme_v5
+wgsextract --genome joe vcf filter --expr 'QUAL>30'
 ```
 
 ### 1000 Genomes PacBio Examples
 Curated 1000 Genomes/HGSVC2 PacBio datasets are available through `example-genome`. These are large real PacBio movie files, so start with `--dry-run` and download intentionally.
 
 ```bash
-pixi run wgsextract example-genome list
-pixi run wgsextract example-genome download hgsvc2-hg00733-pacbio-hifi-bam --dry-run
-pixi run wgsextract example-genome download hgsvc2-hg00733-pacbio-hifi-bam
+wgsextract example-genome list
+wgsextract example-genome download hgsvc2-hg00733-pacbio-hifi-bam --dry-run
+wgsextract example-genome download hgsvc2-hg00733-pacbio-hifi-bam
 
-# Align PacBio HiFi reads with the PacBio environment, then call PacBio-aware variants.
+# Advanced PacBio/DeepVariant commands use dedicated Pixi environments.
+# Run them from a manual checkout or the installed app directory.
 pixi run -e pacbio wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam align --platform hifi --ref /path/to/hs38.fa
 pixi run -e pacbio wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam vcf sv --pacbio --ref /path/to/hs38.fa
 pixi run -e deepvariant wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam vcf deepvariant --pacbio --ref /path/to/hs38.fa
@@ -182,13 +197,13 @@ pixi run -e deepvariant wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacb
 ### Common Commands
 ```bash
 # Identify BAM/CRAM file properties
-pixi run wgsextract bam identify
+wgsextract bam identify
 
 # Calculate mitochondrial coverage
-pixi run wgsextract extract mito-vcf --region chrM
+wgsextract extract mito-vcf --region chrM
 
 # Generate a microarray simulation
-pixi run wgsextract microarray --kit 23andme_v5
+wgsextract microarray --kit 23andme_v5
 ```
 
 ### Available Subcommand Groups
@@ -208,13 +223,13 @@ The older scaled generator is still available with `--legacy-bam`. It is slower 
 
 ```bash
 # Default fast scaled BAM
-pixi run wgsextract qc fake-data --type bam --coverage 1 --outdir out/fake-fast
+wgsextract qc fake-data --type bam --coverage 1 --outdir out/fake-fast
 
 # Full-size fast BAM using real chromosome lengths
-pixi run wgsextract qc fake-data --type bam --coverage 0.1 --full-size --outdir out/fake-full
+wgsextract qc fake-data --type bam --coverage 0.1 --full-size --outdir out/fake-full
 
 # Older scaled generator
-pixi run wgsextract qc fake-data --type bam --coverage 1 --legacy-bam --outdir out/fake-legacy
+wgsextract qc fake-data --type bam --coverage 1 --legacy-bam --outdir out/fake-legacy
 ```
 
 ---
@@ -225,11 +240,11 @@ While primarily a CLI tool, `wgsextract-cli` includes modern GUI options:
 
 1.  **Desktop GUI**: A classic desktop experience built with `CustomTkinter`.
     ```bash
-    pixi run wgsextract gui --desktop
+    ./wgsextract-cli/start-wgsextract-gui.sh
     ```
 2.  **Web GUI (NOT Recommended)**: This GUI is incomplete and broken, it's a WIP.
     ```bash
-    pixi run wgsextract gui --web
+    ./wgsextract-cli/start-wgsextract-web-gui.sh
     ```
 ---
 

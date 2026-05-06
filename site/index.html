@@ -43,15 +43,13 @@
           <aside class="hero-card" aria-label="Quick start terminal">
             <div class="terminal">
               <div class="terminal-top" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
-              <pre><code><span class="prompt">$</span> <span class="cmd">git clone https://github.com/theontho/wgsextract-cli.git</span>
-<span class="prompt">$</span> <span class="cmd">cd wgsextract-cli</span>
-<span class="prompt">$</span> <span class="cmd">pixi install</span>
+              <pre><code><span class="prompt">$</span> <span class="cmd">curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh</span>
 
 <span class="comment"># Check your setup</span>
-<span class="prompt">$</span> <span class="cmd">pixi run wgsextract info --detailed</span>
+<span class="prompt">$</span> <span class="cmd">./wgsextract-cli/bin/wgsextract info --detailed</span>
 
 <span class="comment"># Launch the desktop GUI</span>
-<span class="prompt">$</span> <span class="cmd">pixi run wgsextract gui --desktop</span></code></pre>
+<span class="prompt">$</span> <span class="cmd">./wgsextract-cli/start-wgsextract-gui.sh</span></code></pre>
             </div>
             <div class="stats">
               <div class="stat"><strong>CLI</strong><span>Automation first</span></div>
@@ -71,8 +69,8 @@
           <div class="grid three">
             <article class="card">
               <div class="kicker">Install</div>
-              <h3>Set up Pixi, references, and platforms</h3>
-              <p>Install on macOS, Linux, WSL2, or native Windows; initialize the reference library; configure global defaults; and verify dependencies.</p>
+              <h3>Install the standalone app or use Pixi directly</h3>
+              <p>Use the standalone macOS/Linux installer by default, or follow the developer Pixi workflow when you want a normal source checkout.</p>
               <a class="inline-link" href="install.html">Read the install guide</a>
             </article>
             <article class="card">
