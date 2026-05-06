@@ -31,8 +31,18 @@ def download_file(
     partial_dest = dest + ".partial"
     try:
         expected_sha256 = resolve_github_release_asset_sha256(url)
-    except Exception as e:
-        logging.error(f"Could not resolve download checksum for {url}: {e}")
+    except OSError as e:
+        logging.warning(
+            "Could not resolve GitHub release asset checksum for %s: %s. "
+            "Continuing without GitHub asset SHA-256 verification.",
+            url,
+            e,
+        )
+        expected_sha256 = None
+    except ValueError as e:
+        logging.error(
+            "Could not resolve GitHub release asset checksum for %s: %s", url, e
+        )
         return False
 
     # Try curl first
@@ -122,7 +132,7 @@ def download_file(
         return verify_download_sha256(dest, expected_sha256)
     except Exception as e:
         logging.error(f"Download error: {e}")
-        return False
+    return False
 
 
 def resolve_github_release_asset_sha256(url: str) -> str | None:
