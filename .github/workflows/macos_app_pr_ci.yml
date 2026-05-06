@@ -2,7 +2,7 @@ name: PR macOS App Packaging
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, macos-app-dmg-installer ]
   workflow_dispatch:
 
 env:
