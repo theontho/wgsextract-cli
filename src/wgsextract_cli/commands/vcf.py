@@ -1,3 +1,4 @@
+import gzip
 import logging
 import os
 import shutil
@@ -1148,6 +1149,7 @@ def cmd_sv_pbsv(args):
     if not base:
         return
     threads, outdir, ref, lib = base
+    pbsv_ref = _prepare_pbsv_reference(ref, outdir)
 
     out_vcf = os.path.join(outdir, "pbsv.vcf.gz")
     svsig = os.path.join(outdir, "pbsv.svsig.gz")
@@ -1175,7 +1177,7 @@ def cmd_sv_pbsv(args):
             call_cmd.extend(["--region", region])
         if getattr(args, "ccs", False):
             call_cmd.append("--ccs")
-        call_cmd.extend([ref, svsig, raw_vcf])
+        call_cmd.extend([pbsv_ref, svsig, raw_vcf])
         run_command(call_cmd)
 
         bcftools = get_tool_path("bcftools")
@@ -1186,6 +1188,33 @@ def cmd_sv_pbsv(args):
         raise WGSExtractError(
             f"PacBio SV calling failed with exit code {e.returncode}"
         ) from e
+
+
+def _prepare_pbsv_reference(ref: str, outdir: str) -> str:
+    """Return a plain FASTA path because pbsv call does not accept .fa.gz input."""
+    if not ref.lower().endswith(".gz"):
+        return ref
+
+    sibling = ref[:-3]
+    if os.path.isfile(sibling):
+        _ensure_fasta_index(sibling)
+        return sibling
+
+    os.makedirs(outdir, exist_ok=True)
+    target = os.path.join(outdir, os.path.basename(sibling))
+    if not os.path.isfile(target):
+        logging.info(f"Creating uncompressed reference for pbsv: {target}")
+        with gzip.open(ref, "rb") as source, open(target, "wb") as destination:
+            shutil.copyfileobj(source, destination)
+    _ensure_fasta_index(target)
+    return target
+
+
+def _ensure_fasta_index(ref: str) -> None:
+    if os.path.isfile(ref + ".fai"):
+        return
+    samtools = get_tool_path("samtools")
+    run_command([samtools, "faidx", ref])
 
 
 def cmd_sv_sniffles(args):

@@ -1,3 +1,4 @@
+import gzip
 import os
 import shutil
 import sys
@@ -817,6 +818,59 @@ class TestCLILogic(unittest.TestCase):
         self.assertEqual(commands[1][:2], ["pbsv", "call"])
         self.assertIn("--ccs", commands[1])
         self.assertEqual(commands[2][:3], ["bcftools", "view", "-Oz"])
+
+    def test_pbsv_sv_uncompresses_gzipped_reference_for_call(self):
+        from wgsextract_cli.commands import vcf
+
+        bam_path = os.path.join(self.test_dir, "sample.bam")
+        ref_path = os.path.join(self.test_dir, "ref.fa.gz")
+        with open(bam_path, "w") as f:
+            f.write("data")
+        with gzip.open(ref_path, "wt") as f:
+            f.write(">chr1\nACGT\n")
+
+        args = Namespace(
+            input=bam_path,
+            outdir=self.test_dir,
+            ref=ref_path,
+            region=None,
+            ccs=True,
+            tandem_repeats=None,
+        )
+        commands = []
+
+        def fake_run_command(cmd, *_args, **_kwargs):
+            commands.append(cmd)
+            if cmd[:2] == ["pbsv", "call"]:
+                Path(os.path.join(self.test_dir, "pbsv.vcf")).write_text(
+                    "##fileformat=VCFv4.2\n"
+                )
+
+        class DummyReferenceLibrary:
+            fasta = ref_path
+            ploidy_file = None
+
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+        with (
+            patch.object(vcf, "verify_dependencies"),
+            patch.object(vcf, "log_dependency_info"),
+            patch.object(vcf, "get_tool_path", side_effect=lambda tool: tool),
+            patch.object(
+                vcf,
+                "get_base_args",
+                return_value=("2", self.test_dir, ref_path, DummyReferenceLibrary()),
+            ),
+            patch.object(vcf, "run_command", side_effect=fake_run_command),
+            patch.object(vcf, "ensure_vcf_indexed"),
+        ):
+            vcf.cmd_sv_pbsv(args)
+
+        plain_ref = os.path.join(self.test_dir, "ref.fa")
+        self.assertTrue(os.path.isfile(plain_ref))
+        self.assertEqual(commands[0], ["samtools", "faidx", plain_ref])
+        self.assertEqual(commands[2][-3], plain_ref)
 
     def test_pacbio_sv_falls_back_to_sniffles_when_pbsv_missing(self):
         from wgsextract_cli.commands import vcf
