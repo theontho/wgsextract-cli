@@ -1,0 +1,73 @@
+name: PR macOS App Packaging
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  validate-macos-app:
+    name: Validate macOS app bundle and DMG
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Pixi
+        uses: prefix-dev/setup-pixi@v0.9.5
+        with:
+          pixi-version: latest
+          locked: false
+
+      - name: Validate packaging shell scripts
+        run: |
+          bash -n scripts/build_macos_app.sh
+          bash -n packaging/macos/app_env.sh
+          bash -n packaging/macos/launch_gui.sh
+          bash -n packaging/macos/open_cli.command
+
+      - name: Build macOS app and DMG
+        run: pixi run build-macos-app
+
+      - name: Inspect app bundle
+        run: |
+          APP_BUNDLE="out/macos/WGS Extract.app"
+          test -d "${APP_BUNDLE}"
+          plutil -lint "${APP_BUNDLE}/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${APP_BUNDLE}/Contents/Info.plist"
+          test -x "${APP_BUNDLE}/Contents/MacOS/WGS Extract"
+          test -f "${APP_BUNDLE}/Contents/Resources/app/pixi.toml"
+          test -f "${APP_BUNDLE}/Contents/Resources/app/.wgsextract-app-build"
+
+      - name: Validate bundled CLI entry point
+        run: |
+          pixi run --manifest-path "out/macos/WGS Extract.app/Contents/Resources/app/pixi.toml" wgsextract --help
+
+      - name: Verify and inspect DMG
+        run: |
+          DMG_PATH="$(find out/macos -maxdepth 1 -name '*.dmg' -print -quit)"
+          test -n "${DMG_PATH}"
+          test -f "${DMG_PATH}.sha256"
+          shasum -a 256 --check "${DMG_PATH}.sha256"
+          hdiutil verify "${DMG_PATH}"
+          MOUNT_POINT="${PWD}/out/macos/mount-check"
+          mkdir -p "${MOUNT_POINT}"
+          hdiutil attach "${DMG_PATH}" -mountpoint "${MOUNT_POINT}" -nobrowse -readonly
+          trap 'hdiutil detach "${MOUNT_POINT}" || true' EXIT
+          test -d "${MOUNT_POINT}/WGS Extract.app"
+          test -L "${MOUNT_POINT}/Applications"
+          test -x "${MOUNT_POINT}/WGS Extract CLI.command"
+          test -f "${MOUNT_POINT}/README.md"
+          ls -la "${MOUNT_POINT}"
+
+      - name: Upload macOS app artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr-macos-app-artifacts
+          path: |
+            out/macos/*.dmg
+            out/macos/*.dmg.sha256
+          if-no-files-found: warn
