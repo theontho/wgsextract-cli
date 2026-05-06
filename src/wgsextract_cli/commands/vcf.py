@@ -150,6 +150,26 @@ def register(subparsers, base_parser):
         "sv", parents=[base_parser], help=CLI_HELP["cmd_sv"]
     )
     sv_parser.add_argument("-r", "--region", help="Chromosomal region")
+    sv_parser.add_argument(
+        "--caller",
+        choices=["delly", "pbsv", "sniffles"],
+        default="delly",
+        help="SV caller to use. Use pbsv or sniffles for PacBio long-read BAMs.",
+    )
+    sv_parser.add_argument(
+        "--pacbio",
+        action="store_true",
+        help="Alias for --caller pbsv --ccs for PacBio HiFi/CCS data.",
+    )
+    sv_parser.add_argument(
+        "--ccs",
+        action="store_true",
+        help="Use pbsv CCS/HiFi thresholds when --caller pbsv is selected.",
+    )
+    sv_parser.add_argument(
+        "--tandem-repeats",
+        help="Optional tandem-repeat BED for pbsv discover.",
+    )
     sv_parser.set_defaults(func=cmd_sv)
 
     freebayes_parser = vcf_subs.add_parser(
@@ -174,6 +194,16 @@ def register(subparsers, base_parser):
     )
     deepvariant_parser.add_argument(
         "--wes", action="store_true", help="Set model type to WES (default: WGS)"
+    )
+    deepvariant_parser.add_argument(
+        "--model-type",
+        choices=["WGS", "WES", "PACBIO", "HYBRID_PACBIO_ILLUMINA"],
+        help="DeepVariant model type. Use PACBIO for PacBio HiFi/CCS alignments.",
+    )
+    deepvariant_parser.add_argument(
+        "--pacbio",
+        action="store_true",
+        help="Alias for --model-type PACBIO.",
     )
     deepvariant_parser.add_argument(
         "--checkpoint", help="Path to DeepVariant model checkpoint"
@@ -1030,6 +1060,16 @@ def cmd_cnv(args):
 
 
 def cmd_sv(args):
+    if getattr(args, "pacbio", False):
+        args.caller = "pbsv" if get_tool_path("pbsv") is not None else "sniffles"
+        args.ccs = True
+    if getattr(args, "caller", "delly") == "pbsv":
+        cmd_sv_pbsv(args)
+        return
+    if getattr(args, "caller", "delly") == "sniffles":
+        cmd_sv_sniffles(args)
+        return
+
     verify_dependencies(["delly", "bcftools", "tabix", "samtools"])
     base = get_base_args(args)
     if not base:
@@ -1099,6 +1139,91 @@ def cmd_sv(args):
             os.remove(temp_bam)
             if os.path.exists(temp_bam + ".bai"):
                 os.remove(temp_bam + ".bai")
+
+
+def cmd_sv_pbsv(args):
+    verify_dependencies(["pbsv", "bcftools", "tabix", "samtools"])
+    log_dependency_info(["pbsv", "bcftools", "tabix", "samtools"])
+    base = get_base_args(args)
+    if not base:
+        return
+    threads, outdir, ref, lib = base
+
+    out_vcf = os.path.join(outdir, "pbsv.vcf.gz")
+    svsig = os.path.join(outdir, "pbsv.svsig.gz")
+    raw_vcf = os.path.join(outdir, "pbsv.vcf")
+    region = getattr(args, "region", None)
+    tandem_repeats = getattr(args, "tandem_repeats", None)
+
+    logging.info(LOG_MESSAGES["vcf_calling_sv"].format(output=out_vcf))
+    try:
+        pbsv = get_tool_path("pbsv")
+        discover_cmd = [pbsv, "discover"]
+        if region:
+            discover_cmd.extend(["--region", region])
+        if tandem_repeats:
+            if not verify_paths_exist({"--tandem-repeats": tandem_repeats}):
+                return
+            discover_cmd.extend(["--tandem-repeats", tandem_repeats])
+        if getattr(args, "ccs", False):
+            discover_cmd.append("--hifi")
+        discover_cmd.extend([args.input, svsig])
+        run_command(discover_cmd)
+
+        call_cmd = [pbsv, "call", "-j", threads]
+        if region:
+            call_cmd.extend(["--region", region])
+        if getattr(args, "ccs", False):
+            call_cmd.append("--ccs")
+        call_cmd.extend([ref, svsig, raw_vcf])
+        run_command(call_cmd)
+
+        bcftools = get_tool_path("bcftools")
+        run_command([bcftools, "view", "-Oz", "-o", out_vcf, raw_vcf], check=True)
+        ensure_vcf_indexed(out_vcf)
+    except subprocess.CalledProcessError as e:
+        logging.error(f"PacBio SV calling failed: {e}")
+        raise WGSExtractError(
+            f"PacBio SV calling failed with exit code {e.returncode}"
+        ) from e
+
+
+def cmd_sv_sniffles(args):
+    verify_dependencies(["sniffles", "bcftools", "tabix", "samtools"])
+    log_dependency_info(["sniffles", "bcftools", "tabix", "samtools"])
+    base = get_base_args(args)
+    if not base:
+        return
+    threads, outdir, _ref, _lib = base
+
+    raw_vcf = os.path.join(outdir, "sniffles.vcf")
+    out_vcf = os.path.join(outdir, "sniffles.vcf.gz")
+    region = getattr(args, "region", None)
+
+    logging.info(LOG_MESSAGES["vcf_calling_sv"].format(output=out_vcf))
+    try:
+        sniffles = get_tool_path("sniffles")
+        cmd = [
+            sniffles,
+            "--input",
+            args.input,
+            "--vcf",
+            raw_vcf,
+            "--threads",
+            threads,
+        ]
+        if region:
+            cmd.extend(["--regions", region])
+        run_command(cmd)
+
+        bcftools = get_tool_path("bcftools")
+        run_command([bcftools, "view", "-Oz", "-o", out_vcf, raw_vcf], check=True)
+        ensure_vcf_indexed(out_vcf)
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Sniffles SV calling failed: {e}")
+        raise WGSExtractError(
+            f"Sniffles SV calling failed with exit code {e.returncode}"
+        ) from e
 
 
 def _exit_if_missing(file_path, message_key, ann_name=None):
@@ -2103,7 +2228,12 @@ def cmd_deepvariant(args):
 
     logging.info(LOG_MESSAGES["vcf_calling_deepvariant"].format(output=out_vcf))
 
-    model_type = "WGS" if not args.wes else "WES"
+    if getattr(args, "pacbio", False):
+        model_type = "PACBIO"
+    elif getattr(args, "model_type", None):
+        model_type = args.model_type
+    else:
+        model_type = "WGS" if not args.wes else "WES"
     region_args = ["--regions", args.region] if args.region else []
 
     try:

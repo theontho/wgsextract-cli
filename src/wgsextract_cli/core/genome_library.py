@@ -100,9 +100,18 @@ def _load_genome_config(config_path: Path) -> dict[str, Any]:
 
 
 def _discover_genome_files(genome_dir: Path) -> dict[str, str]:
-    alignments = _find_files(genome_dir, ALIGNMENT_SUFFIXES)
+    alignments = [
+        path
+        for path in _find_files(genome_dir, ALIGNMENT_SUFFIXES)
+        if not _is_pacbio_reads_bam(path)
+    ]
     vcfs = _find_files(genome_dir, VCF_SUFFIXES)
     fastq_sets = _find_fastq_sets(genome_dir)
+    pacbio_reads = [
+        path
+        for path in _find_files(genome_dir, (".bam",))
+        if _is_pacbio_reads_bam(path)
+    ]
 
     discovered: dict[str, str] = {}
     if len(alignments) == 1:
@@ -114,6 +123,8 @@ def _discover_genome_files(genome_dir: Path) -> dict[str, str]:
         discovered["fastq_r1"] = _relative(r1, genome_dir)
         if r2:
             discovered["fastq_r2"] = _relative(r2, genome_dir)
+    elif len(pacbio_reads) == 1:
+        discovered["fastq_r1"] = _relative(pacbio_reads[0], genome_dir)
     return discovered
 
 
@@ -191,6 +202,8 @@ def _set_fastq_inputs(
         return
 
     if "r1" in explicit_dests and getattr(args, "r1", None):
+        if _is_pacbio_reads_bam(Path(args.r1).expanduser()):
+            return
         r2 = _matching_r2(
             Path(args.r1).expanduser().resolve(),
             _find_files(genome_dir, FASTQ_SUFFIXES),
@@ -219,6 +232,19 @@ def _set_fastq_inputs(
 
     fastq_sets = _find_fastq_sets(genome_dir)
     if not fastq_sets:
+        pacbio_reads = [
+            path
+            for path in _find_files(genome_dir, (".bam",))
+            if _is_pacbio_reads_bam(path)
+        ]
+        if len(pacbio_reads) == 1:
+            if "r1" not in explicit_dests and hasattr(args, "r1"):
+                args.r1 = str(pacbio_reads[0])
+            return
+        if len(pacbio_reads) > 1:
+            raise _ambiguous_error(
+                genome_dir, "PacBio read BAM", "fastq_r1", pacbio_reads
+            )
         return
     if len(fastq_sets) > 1:
         raise _ambiguous_error(
@@ -243,6 +269,8 @@ def _resolve_category(
         return _resolve_config_path(genome_dir, configured, config_key)
 
     candidates = _find_files(genome_dir, suffixes)
+    if config_key == "alignment":
+        candidates = [path for path in candidates if not _is_pacbio_reads_bam(path)]
     if not candidates:
         raise WGSExtractError(
             f"No {config_key} file found under {genome_dir}. Add {config_key} to {genome_dir / GENOME_CONFIG_NAME}."
@@ -291,6 +319,10 @@ def _find_fastq_sets(folder: Path) -> list[tuple[Path, Path | None]]:
         sets.extend((single, None) for single in singles)
         return sets
     return [(single, None) for single in singles]
+
+
+def _is_pacbio_reads_bam(path: Path) -> bool:
+    return path.name.lower().endswith((".ccs.bam", ".subreads.bam"))
 
 
 def _matching_r2(r1: Path, r2s: list[Path]) -> Path | None:

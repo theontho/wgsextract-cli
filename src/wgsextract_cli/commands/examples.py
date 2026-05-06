@@ -31,6 +31,7 @@ class GenomeExample:
     size: str
     description: str
     files: tuple[ExampleFile, ...]
+    tags: tuple[str, ...] = ()
 
 
 EXAMPLES = (
@@ -142,6 +143,78 @@ EXAMPLES = (
             ),
         ),
     ),
+    GenomeExample(
+        example_id="hgsvc2-hg00733-pacbio-hifi-bam",
+        sample="HG00733",
+        label="HGSVC2 HG00733 PacBio HiFi CCS BAM",
+        data_type="pacbio-hifi-bam",
+        size="single PacBio movie, large (~9.5 GB)",
+        description="HGSVC2/1000 Genomes PacBio HiFi CCS read BAM for PacBio alignment and variant-calling tests.",
+        files=(
+            ExampleFile(
+                "data_collections/HGSVC2/working/20190925_PUR_PacBio_HiFi/HG00733_20190925_EEE_m54329U_190607_185248.ccs.bam",
+                "fastq_r1",
+            ),
+            ExampleFile(
+                "data_collections/HGSVC2/working/20190925_PUR_PacBio_HiFi/HG00733_20190925_EEE_m54329U_190607_185248.ccs.bam.pbi",
+                "pacbio_pbi",
+            ),
+        ),
+        tags=("1000g", "hgsvc2", "pacbio", "hifi", "bam"),
+    ),
+    GenomeExample(
+        example_id="hgsvc2-hg00732-pacbio-hifi-bam-smallest",
+        sample="HG00732",
+        label="HGSVC2 HG00732 PacBio HiFi CCS BAM (smallest movie)",
+        data_type="pacbio-hifi-bam",
+        size="single PacBio movie, large (~3.5 GB)",
+        description="Smallest HGSVC2/1000 Genomes PacBio HiFi CCS read BAM found in the index; useful as the first full real-data PacBio workflow target.",
+        files=(
+            ExampleFile(
+                "https://ftp.sra.ebi.ac.uk/vol1/run/ERR386/ERR3861393/HG00732-hifi-r54329U_20190830_234003-B01.bam",
+                "fastq_r1",
+            ),
+        ),
+        tags=("1000g", "hgsvc2", "pacbio", "hifi", "bam", "smallest"),
+    ),
+    GenomeExample(
+        example_id="hgsvc2-hg00733-pacbio-hifi-fastq",
+        sample="HG00733",
+        label="HGSVC2 HG00733 PacBio HiFi Q20 FASTQ",
+        data_type="pacbio-hifi-fastq",
+        size="single PacBio movie, large (~9.3 GB)",
+        description="HGSVC2/1000 Genomes PacBio HiFi Q20 FASTQ for minimap2/pbmm2 alignment tests.",
+        files=(
+            ExampleFile(
+                "data_collections/HGSVC2/working/20190925_PUR_PacBio_HiFi/HG00733_20190925_EEE_m54329U_190607_185248.Q20.fastq.gz",
+                "fastq_r1",
+            ),
+        ),
+        tags=("1000g", "hgsvc2", "pacbio", "hifi", "fastq"),
+    ),
+    GenomeExample(
+        example_id="hgsvc2-na19240-pacbio-hifi-bam",
+        sample="NA19240",
+        label="HGSVC2 NA19240 PacBio HiFi CCS BAM",
+        data_type="pacbio-hifi-bam",
+        size="single PacBio movie, large (~15 GB compressed reads)",
+        description="HGSVC2/1000 Genomes PacBio HiFi CCS read BAM from the YRI trio for full PacBio workflow testing.",
+        files=(
+            ExampleFile(
+                "data_collections/HGSVC2/HGSVC2_pacbio.index",
+                "metadata",
+            ),
+            ExampleFile(
+                "data_collections/HGSVC2/working/20191005_YRI_PacBio_NA19240_HiFi/NA19240_20191002_CLEE_m54336U_190827_013439.ccs.bam",
+                "fastq_r1",
+            ),
+            ExampleFile(
+                "data_collections/HGSVC2/working/20191005_YRI_PacBio_NA19240_HiFi/NA19240_20191002_CLEE_m54336U_190827_013439.ccs.bam.pbi",
+                "pacbio_pbi",
+            ),
+        ),
+        tags=("1000g", "hgsvc2", "pacbio", "hifi", "bam"),
+    ),
 )
 
 EXAMPLES_BY_ID = {example.example_id: example for example in EXAMPLES}
@@ -169,6 +242,11 @@ def register(subparsers, base_parser):
             "genomes/ when unset."
         ),
     )
+    list_parser.add_argument(
+        "--tag",
+        action="append",
+        help="Only list examples with this tag. May be repeated (e.g. --tag pacbio).",
+    )
     list_parser.set_defaults(func=cmd_list)
 
     download_parser = examples_subs.add_parser(
@@ -181,6 +259,11 @@ def register(subparsers, base_parser):
         nargs="*",
         metavar="EXAMPLE_ID",
         help="Example IDs to download. Defaults to a small starter set.",
+    )
+    download_parser.add_argument(
+        "--tag",
+        action="append",
+        help="Download every example with this tag. May be repeated (e.g. --tag pacbio).",
     )
     download_parser.add_argument(
         "--all",
@@ -225,11 +308,13 @@ def cmd_list(args: Namespace) -> None:
     root = _target_root(args.target_root)
     print(f"Target collection: {root / COLLECTION_DIR}")
     print()
-    for example in EXAMPLES:
+    for example in _filter_examples_by_tags(EXAMPLES, getattr(args, "tag", None)):
         print(f"{example.example_id}")
         print(f"  label: {example.label}")
         print(f"  type:  {example.data_type}")
         print(f"  size:  {example.size}")
+        if example.tags:
+            print(f"  tags:  {', '.join(example.tags)}")
         print(f"  files: {len(example.files)}")
         print(f"  use:   wgsextract --genome {COLLECTION_DIR}/{example.example_id} ...")
         print()
@@ -237,7 +322,7 @@ def cmd_list(args: Namespace) -> None:
 
 def cmd_download(args: Namespace) -> None:
     """Download selected example genomes and generate genome config files."""
-    selected = _select_examples(args.example_ids, args.all)
+    selected = _select_examples(args.example_ids, args.all, getattr(args, "tag", None))
     aspera_key = args.aspera_key
     method = _resolve_method(args.method, aspera_key)
     root = _target_root(args.target_root)
@@ -264,7 +349,21 @@ def cmd_download(args: Namespace) -> None:
         )
 
 
-def _select_examples(example_ids: list[str], include_all: bool) -> list[GenomeExample]:
+def _select_examples(
+    example_ids: list[str], include_all: bool, tags: list[str] | None = None
+) -> list[GenomeExample]:
+    if tags:
+        if example_ids or include_all:
+            raise WGSExtractError(
+                "Use --tag by itself, not with --all or explicit example IDs."
+            )
+        selected = _filter_examples_by_tags(EXAMPLES, tags)
+        if not selected:
+            valid = ", ".join(_all_tags())
+            raise WGSExtractError(
+                f"No examples match tag(s): {', '.join(tags)}. Valid tags: {valid}"
+            )
+        return selected
     if include_all:
         if example_ids:
             raise WGSExtractError("Use either --all or explicit example IDs, not both.")
@@ -289,6 +388,19 @@ def _select_examples(example_ids: list[str], include_all: bool) -> list[GenomeEx
             f"Unknown example ID(s): {', '.join(unknown)}. Valid IDs: {valid}"
         )
     return selected
+
+
+def _filter_examples_by_tags(
+    examples: tuple[GenomeExample, ...], tags: list[str] | None
+) -> list[GenomeExample]:
+    if not tags:
+        return list(examples)
+    wanted = {tag.strip().lower() for tag in tags if tag.strip()}
+    return [example for example in examples if wanted.issubset(set(example.tags))]
+
+
+def _all_tags() -> list[str]:
+    return sorted({tag for example in EXAMPLES for tag in example.tags})
 
 
 def _target_root(override: str | None) -> Path:
@@ -342,6 +454,8 @@ def _planned_downloads(
 
 
 def _source_for(url_path: str, method: str) -> str:
+    if url_path.startswith(("https://", "http://", "ftp://")):
+        return url_path
     if method == "aspera":
         return f"{ASPERA_ROOT}/{url_path}"
     return f"{HTTPS_ROOT}/{url_path}"

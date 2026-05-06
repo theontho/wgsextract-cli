@@ -161,6 +161,20 @@ pixi run wgsextract --genome "ken mcdonald" microarray --formats 23andme_v5
 pixi run wgsextract --genome joe vcf filter --expr 'QUAL>30'
 ```
 
+### 1000 Genomes PacBio Examples
+Curated 1000 Genomes/HGSVC2 PacBio datasets are available through `example-genome`. These are large real PacBio movie files, so start with `--dry-run` and download intentionally.
+
+```bash
+pixi run wgsextract example-genome list
+pixi run wgsextract example-genome download hgsvc2-hg00733-pacbio-hifi-bam --dry-run
+pixi run wgsextract example-genome download hgsvc2-hg00733-pacbio-hifi-bam
+
+# Align PacBio HiFi reads with PacBio tooling, then call PacBio-aware variants.
+pixi run wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam align --platform hifi --ref /path/to/hs38.fa
+pixi run wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam vcf deepvariant --pacbio --ref /path/to/hs38.fa
+pixi run wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam vcf sv --pacbio --ref /path/to/hs38.fa
+```
+
 ---
 
 ## 📖 Usage Guide
@@ -182,7 +196,7 @@ pixi run wgsextract microarray --kit 23andme_v5
 | :--- | :--- |
 | **BAM/CRAM** | `sort`, `index`, `to-cram`, `to-bam`, `unalign`, `identify` |
 | **Extraction** | `mito-vcf`, `ydna-vcf`, `y-mt-extract`, `bam-subset` |
-| **VCF/Variant** | `snp`, `indel`, `annotate`, `filter`, `freebayes`, `vep-run` |
+| **VCF/Variant** | `snp`, `indel`, `annotate`, `filter`, `freebayes`, `deepvariant`, `sv`, `vep-run` |
 | **Analysis** | `microarray`, `lineage`, `qc`, `pet-align` |
 | **System** | `info`, `ref download`, `ref index` |
 
