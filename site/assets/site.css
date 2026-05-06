@@ -68,6 +68,42 @@ code {
   color: #d9f2ff;
 }
 
+abbr[data-tooltip] {
+  cursor: help;
+  text-decoration: underline dotted rgba(98, 208, 255, 0.72);
+  text-underline-offset: 0.18em;
+}
+
+a.term-link {
+  color: var(--blue);
+  text-decoration: underline;
+  text-decoration-color: rgba(98, 208, 255, 0.45);
+  text-underline-offset: 0.18em;
+}
+
+.site-tooltip {
+  position: absolute;
+  z-index: 20;
+  max-width: min(340px, calc(100vw - 24px));
+  padding: 9px 11px;
+  border: 1px solid rgba(154, 181, 225, 0.24);
+  border-radius: 12px;
+  color: #eaf5ff;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  background: rgba(5, 13, 28, 0.97);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(2px);
+  transition: opacity 90ms ease, transform 90ms ease;
+}
+
+.site-tooltip.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 pre {
   margin: 0;
   white-space: pre-wrap;
@@ -293,6 +329,12 @@ h3 {
   background: var(--green);
 }
 
+.window-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .terminal pre,
 .code-panel pre {
   padding: 24px;
@@ -311,6 +353,14 @@ h3 {
 
 .comment {
   color: #8195b5;
+}
+
+.config-key {
+  color: var(--orange);
+}
+
+.config-value {
+  color: #d9f2ff;
 }
 
 .stats {
@@ -429,13 +479,42 @@ section {
 
 .code-panel header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 14px 18px;
+  gap: 14px;
+  min-height: 40px;
+  padding: 9px calc(var(--radius) + 8px) 9px 18px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   color: var(--muted);
   font-family: var(--mono);
   font-size: 0.82rem;
+}
+
+.code-panel-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copy-button {
+  padding: 2px 8px;
+  border: 1px solid rgba(98, 208, 255, 0.28);
+  border-radius: 999px;
+  color: #dff5ff;
+  font: inherit;
+  font-size: 0.76rem;
+  line-height: 1.2;
+  background: rgba(98, 208, 255, 0.1);
+  cursor: pointer;
+}
+
+.copy-button:hover,
+.copy-button:focus-visible {
+  border-color: rgba(98, 208, 255, 0.58);
+  color: var(--text);
+  outline: none;
+  background: rgba(98, 208, 255, 0.16);
 }
 
 .steps {

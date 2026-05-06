@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="Common WGS Extract workflows for ancestry, microarray simulation, variant calling, extraction, references, and storage." />
+    <meta name="description" content="Common WGS Extract workflows for ancestry, SNP chip simulation, variant calling, extraction, references, and storage." />
     <title>Workflows | WGS Extract CLI</title>
     <meta property="og:site_name" content="WGS Extract CLI" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="Workflows | WGS Extract CLI" />
-    <meta property="og:description" content="Common WGS Extract workflows for ancestry, microarray simulation, variant calling, extraction, references, and storage." />
+    <meta property="og:description" content="Common WGS Extract workflows for ancestry, SNP chip simulation, variant calling, extraction, references, and storage." />
     <meta property="og:url" content="https://theontho.github.io/wgsextract-cli/workflows.html" />
     <meta property="og:image" content="https://theontho.github.io/wgsextract-cli/assets/social-preview.png" />
     <meta property="og:image:type" content="image/png" />
@@ -17,7 +17,7 @@
     <meta property="og:image:alt" content="WGS Extract CLI local-first whole genome toolkit" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Workflows | WGS Extract CLI" />
-    <meta name="twitter:description" content="Common WGS Extract workflows for ancestry, microarray simulation, variant calling, extraction, references, and storage." />
+    <meta name="twitter:description" content="Common WGS Extract workflows for ancestry, SNP chip simulation, variant calling, extraction, references, and storage." />
     <meta name="twitter:image" content="https://theontho.github.io/wgsextract-cli/assets/social-preview.png" />
     <link rel="canonical" href="https://theontho.github.io/wgsextract-cli/workflows.html" />
     <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".82em" font-size="84">🧬</text></svg>' />
@@ -27,7 +27,7 @@
     <nav class="nav" aria-label="Primary navigation">
       <div class="wrap nav-inner">
         <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true"></span><span>WGS Extract CLI</span></a>
-        <div class="nav-links"><a href="index.html">Home</a><a href="install.html">Install</a><a href="cli.html">CLI</a><a href="gui.html">GUI</a><a class="active" href="workflows.html">Workflows</a><a href="wgs-guide.html">WGS guide</a><a href="reference.html">Reference</a></div>
+        <div class="nav-links"><a href="index.html">Home</a><a href="install.html">Install</a><a href="cli.html">CLI</a><a href="gui.html">GUI</a><a class="active" href="workflows.html">Workflows</a><a href="wgs-guide.html">WGS guide</a><a href="reference.html">Reference</a><a href="https://github.com/theontho/wgsextract-cli" target="_blank" rel="noopener noreferrer">GitHub</a></div>
       </div>
     </nav>
 
@@ -36,82 +36,280 @@
         <div class="wrap">
           <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Goal-oriented recipes</p>
           <h1>Start with what you want to produce.</h1>
-          <p class="lede">Whole genome workflows are easier when you choose the output first: an uploadable microarray file, a smaller Y/MT extract, a VCF, a storage-friendly CRAM, or a full FASTQ-to-BAM alignment.</p>
-          <div class="toc"><a href="#microarray">Microarray</a><a href="#ymt">Y/MT</a><a href="#variants">Variants</a><a href="#fastq">FASTQ</a><a href="#storage">Storage</a><a href="#testing">Testing</a></div>
+          <p class="lede">Whole genome workflows are easier when you choose the output first: an uploadable microarray / <abbr data-tooltip="SNP: Single Nucleotide Polymorphism: a one-base marker or variant, commonly used by microarray SNP chips." aria-label="SNP: Single Nucleotide Polymorphism: a one-base marker or variant, commonly used by microarray SNP chips.">SNP</abbr> chip file, a smaller Y/<abbr data-tooltip="MT: Mitochondrial chromosome: the chromosome name often used for mitochondrial DNA in some reference builds." aria-label="MT: Mitochondrial chromosome: the chromosome name often used for mitochondrial DNA in some reference builds.">MT</abbr> extract, a <abbr data-tooltip="VCF: Variant Call Format: a standard text format for variants and their annotations." aria-label="VCF: Variant Call Format: a standard text format for variants and their annotations.">VCF</abbr>, a storage-friendly <abbr data-tooltip="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome." aria-label="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome.">CRAM</abbr>, or a full FASTQ-to-BAM alignment.</p>
+          <div class="toc"><a href="#microarray">Microarray / SNP chip</a><a href="#ymt">Y/MT</a><a href="#variants">Variants</a><a href="#fastq">FASTQ</a><a href="#storage">Storage</a><a href="#testing">Testing</a></div>
         </div>
       </header>
 
-      <section id="microarray">
-        <div class="wrap split">
-          <div><p class="kicker">Ancestry uploads</p><h2>Simulate consumer microarray files</h2><p class="lede">Use this when you have WGS data but need a raw-data style file for services expecting 23andMe, AncestryDNA, FTDNA, MyHeritage, GEDmatch-style combined kits, or research panels.</p></div>
-          <div class="code-panel"><header><span>microarray.sh</span><span>common formats</span></header><pre><code>pixi run wgsextract --input sample.bam microarray --formats all
-pixi run wgsextract --input sample.bam microarray --formats 23andme_v5
-pixi run wgsextract --input sample.bam microarray --formats 23andme_v5,ancestry_v2,ftdna_v3</code></pre></div>
-        </div>
-      </section>
+<section id="microarray">
+<div class="wrap split">
+<div>
+<p class="kicker">Ancestry uploads</p>
+<h2>Simulate microarray / <abbr data-tooltip="SNP: Single Nucleotide Polymorphism: a one-base marker or variant, commonly used by microarray SNP chips." aria-label="SNP: Single Nucleotide Polymorphism: a one-base marker or variant, commonly used by microarray SNP chips.">SNP</abbr> chip files</h2>
+<p class="lede">Use this when you have <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> data but need a raw-data style file for services expecting 23andMe, AncestryDNA, <abbr data-tooltip="FTDNA: FamilyTreeDNA: a consumer genealogy service and raw-data format target." aria-label="FTDNA: FamilyTreeDNA: a consumer genealogy service and raw-data format target.">FTDNA</abbr>, MyHeritage, GEDmatch-style combined kits, or research panels. These files are also commonly called <abbr data-tooltip="SNP: Single Nucleotide Polymorphism: a one-base marker or variant, commonly used by microarray SNP chips." aria-label="SNP: Single Nucleotide Polymorphism: a one-base marker or variant, commonly used by microarray SNP chips.">SNP</abbr> chip files because they represent selected single-marker sites.</p>
+<p>A microarray or <abbr data-tooltip="SNP: Single Nucleotide Polymorphism: a one-base marker or variant, commonly used by microarray SNP chips." aria-label="SNP: Single Nucleotide Polymorphism: a one-base marker or variant, commonly used by microarray SNP chips.">SNP</abbr> chip file is not a complete genome. It is a compact table of markers that a downstream service knows how to read. <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract builds these files by looking up target positions in your aligned <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> data and writing the requested vendor-style format.</p>
+<p>Start with one target format and a small region if you are checking plumbing. Use <code>--formats all</code> only when you are confident that the input, reference build, and output directory are correct. If a target site has too little coverage or ambiguous data, the simulated result may be missing or no-called depending on the format and command behavior.</p>
+</div>
+<div class="code-panel">
+<header class="code-panel-top"><div class="window-controls" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div><span class="code-panel-title">microarray-snp-chip.sh</span><button class="copy-button" type="button">Copy</button></header>
+<pre><code><span class="cmd">pixi run wgsextract --input sample.bam microarray --formats all</span>
+<span class="cmd">pixi run wgsextract --input sample.bam microarray --formats 23andme_v5</span>
+<span class="cmd">pixi run wgsextract --input sample.bam microarray --formats 23andme_v5,ancestry_v2,ftdna_v3</span></code></pre>
+</div>
+</div>
+</section>
+<section id="ymt">
+<div class="wrap">
+<div class="section-head">
+<h2>Extract mitochondrial and <abbr data-tooltip="Y-DNA: Y-chromosome DNA: DNA on the Y chromosome, often used for paternal-line genealogy." aria-label="Y-DNA: Y-chromosome DNA: DNA on the Y chromosome, often used for paternal-line genealogy.">Y-DNA</abbr> data</h2>
+<p>These outputs are much smaller than a whole genome and are useful for haplogroup tools, genealogy services, and quick validation.</p>
+</div>
+<p>Mitochondrial <abbr data-tooltip="DNA: Deoxyribonucleic Acid: the molecule that carries inherited genetic information." aria-label="DNA: Deoxyribonucleic Acid: the molecule that carries inherited genetic information.">DNA</abbr> and <abbr data-tooltip="Y-DNA: Y-chromosome DNA: DNA on the Y chromosome, often used for paternal-line genealogy." aria-label="Y-DNA: Y-chromosome DNA: DNA on the Y chromosome, often used for paternal-line genealogy.">Y-DNA</abbr> workflows are common first checks because they are smaller than autosomal whole-genome jobs. They can confirm that the file is readable, that chromosome naming matches expectations, and that the output directory is configured correctly.</p>
+<p>Chromosome naming matters here. Some files use <code>chrM</code> and <code>chrY</code>; others use <code>MT</code> and <code>Y</code>. If a command cannot find a region, inspect the alignment header or run an identify/info command before assuming the data is absent.</p>
+<div class="grid three">
+<article class="card">
+<h3><abbr data-tooltip="mtDNA: Mitochondrial DNA: DNA inherited mostly through the maternal line and stored in mitochondria." aria-label="mtDNA: Mitochondrial DNA: DNA inherited mostly through the maternal line and stored in mitochondria.">mtDNA</abbr> <abbr data-tooltip="FASTA: FASTA sequence format: a plain-text format for reference genomes or other biological sequences." aria-label="FASTA: FASTA sequence format: a plain-text format for reference genomes or other biological sequences.">FASTA</abbr></h3>
+<p>Consensus sequence for mitochondrial analysis.</p>
+<p>A mitochondrial <abbr data-tooltip="FASTA: FASTA sequence format: a plain-text format for reference genomes or other biological sequences." aria-label="FASTA: FASTA sequence format: a plain-text format for reference genomes or other biological sequences.">FASTA</abbr> is useful when a downstream tool wants a sequence rather than a variant table. It is a compact output, but the consensus still depends on coverage, read quality, and how heteroplasmy or ambiguous positions are handled.</p>
+<pre><code><span class="cmd">pixi run wgsextract --input sample.bam extract mito-fasta</span></code></pre>
+</article>
+<article class="card">
+<h3><abbr data-tooltip="mtDNA: Mitochondrial DNA: DNA inherited mostly through the maternal line and stored in mitochondria." aria-label="mtDNA: Mitochondrial DNA: DNA inherited mostly through the maternal line and stored in mitochondria.">mtDNA</abbr> <abbr data-tooltip="VCF: Variant Call Format: a standard text format for variants and their annotations." aria-label="VCF: Variant Call Format: a standard text format for variants and their annotations.">VCF</abbr></h3>
+<p>Mitochondrial variants for Haplogrep-style workflows.</p>
+<p>A mitochondrial <abbr data-tooltip="VCF: Variant Call Format: a standard text format for variants and their annotations." aria-label="VCF: Variant Call Format: a standard text format for variants and their annotations.">VCF</abbr> records differences from the reference. Use a region-limited command first so missing indexes, naming mismatches, or reference issues fail quickly.</p>
+<pre><code><span class="cmd">pixi run wgsextract --input sample.bam extract mito-vcf --region chrM</span></code></pre>
+</article>
+<article class="card">
+<h3><abbr data-tooltip="Y-DNA: Y-chromosome DNA: DNA on the Y chromosome, often used for paternal-line genealogy." aria-label="Y-DNA: Y-chromosome DNA: DNA on the Y chromosome, often used for paternal-line genealogy.">Y-DNA</abbr> <abbr data-tooltip="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome." aria-label="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome.">BAM</abbr> / <abbr data-tooltip="VCF: Variant Call Format: a standard text format for variants and their annotations." aria-label="VCF: Variant Call Format: a standard text format for variants and their annotations.">VCF</abbr></h3>
+<p>Paternal-lineage inputs for Y-focused tools and services.</p>
+<p><abbr data-tooltip="Y-DNA: Y-chromosome DNA: DNA on the Y chromosome, often used for paternal-line genealogy." aria-label="Y-DNA: Y-chromosome DNA: DNA on the Y chromosome, often used for paternal-line genealogy.">Y-DNA</abbr> extraction can produce smaller alignment or variant files for lineage tools. Coverage can vary widely by sample, sex chromosome composition, sequencing method, and aligner behavior, so inspect outputs before treating a missing marker as meaningful.</p>
+<pre><code><span class="cmd">pixi run wgsextract --input sample.bam extract ydna-bam</span>
+<span class="cmd">pixi run wgsextract --input sample.bam extract ydna-vcf</span></code></pre>
+</article>
+</div>
+</div>
+</section>
+<section id="variants">
+<div class="wrap">
+<div class="section-head">
+<h2>Call, annotate, and filter variants</h2>
+<p><abbr data-tooltip="VCF: Variant Call Format: a standard text format for variants and their annotations." aria-label="VCF: Variant Call Format: a standard text format for variants and their annotations.">VCF</abbr> workflows produce the file type most downstream variant tools understand. Choose callers based on variant type, sequencing technology, runtime, and accuracy needs.</p>
+</div>
+<p>Variant calling is where small test regions are especially important. A command can be syntactically correct but still fail because the <abbr data-tooltip="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome." aria-label="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome.">BAM</abbr> is unsorted, the <abbr data-tooltip="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome." aria-label="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome.">CRAM</abbr> cannot find its reference, the contig names do not match, or the caller needs more memory than expected. A fast mitochondrial or small-gene test catches those problems before a whole-genome run consumes hours.</p>
+<p>Annotation is a separate step from calling. A caller says what appears to differ from the reference. Annotation adds context such as gene names, transcript consequences, population frequencies, or clinical database matches. Filtering then narrows the result to records that match a quality threshold, region, gene, consequence, or expression.</p>
+<div class="code-panel">
+<header class="code-panel-top"><div class="window-controls" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div><span class="code-panel-title">variants.sh</span><button class="copy-button" type="button">Copy</button></header>
+<pre><code><span class="comment"># Fast region test</span>
+<span class="cmd">pixi run wgsextract --input sample.bam --ref /refs/hs38.fa vcf snp --region chrM</span>
 
-      <section id="ymt">
-        <div class="wrap">
-          <div class="section-head"><h2>Extract mitochondrial and Y-DNA data</h2><p>These outputs are much smaller than a whole genome and are useful for haplogroup tools, genealogy services, and quick validation.</p></div>
-          <div class="grid three">
-            <article class="card"><h3>mtDNA FASTA</h3><p>Consensus sequence for mitochondrial analysis.</p><pre><code>pixi run wgsextract --input sample.bam extract mito-fasta</code></pre></article>
-            <article class="card"><h3>mtDNA VCF</h3><p>Mitochondrial variants for Haplogrep-style workflows.</p><pre><code>pixi run wgsextract --input sample.bam extract mito-vcf --region chrM</code></pre></article>
-            <article class="card"><h3>Y-DNA BAM / VCF</h3><p>Paternal-lineage inputs for Y-focused tools and services.</p><pre><code>pixi run wgsextract --input sample.bam extract ydna-bam
-pixi run wgsextract --input sample.bam extract ydna-vcf</code></pre></article>
-          </div>
-        </div>
-      </section>
+<span class="comment"># Whole-genome small variants</span>
+<span class="cmd">pixi run wgsextract --input sample.bam --ref /refs/hs38.fa vcf snp</span>
+<span class="cmd">pixi run wgsextract --input sample.bam --ref /refs/hs38.fa vcf indel</span>
 
-      <section id="variants">
-        <div class="wrap">
-          <div class="section-head"><h2>Call, annotate, and filter variants</h2><p>VCF workflows produce the file type most downstream variant tools understand. Choose callers based on variant type, sequencing technology, runtime, and accuracy needs.</p></div>
-          <div class="code-panel"><header><span>variants.sh</span><span>small first, then full genome</span></header><pre><code># Fast region test
-pixi run wgsextract --input sample.bam --ref /refs/hs38.fa vcf snp --region chrM
+<span class="comment"># Structural variants</span>
+<span class="cmd">pixi run wgsextract --input sample.bam --ref /refs/hs38.fa vcf sv</span>
 
-# Whole-genome small variants
-pixi run wgsextract --input sample.bam --ref /refs/hs38.fa vcf snp
-pixi run wgsextract --input sample.bam --ref /refs/hs38.fa vcf indel
-
-# Structural variants
-pixi run wgsextract --input sample.bam --ref /refs/hs38.fa vcf sv
-
-# Annotation and filtering
-pixi run wgsextract vep run --vcf-input calls.vcf.gz
-pixi run wgsextract vcf filter --vcf-input calls.vep.vcf.gz --gene BRCA1
-pixi run wgsextract vcf filter --vcf-input calls.vcf.gz --expr 'QUAL&gt;30'</code></pre></div>
-        </div>
-      </section>
-
-      <section id="fastq">
-        <div class="wrap split">
-          <div><p class="kicker">Raw reads</p><h2>From FASTQ to an aligned file</h2><p class="lede">FASTQ files are raw reads. Quality-check and trim them before alignment, then align to the reference build you intend to use for downstream VCF and extraction work.</p></div>
-          <div class="code-panel"><header><span>fastq-to-bam.sh</span><span>raw data path</span></header><pre><code>pixi run wgsextract --input sample_R1.fastq.gz qc fastqc
-pixi run wgsextract qc fastp --r1 sample_R1.fastq.gz --r2 sample_R2.fastq.gz
-pixi run wgsextract align --r1 sample_R1_fp_1.fastq.gz --r2 sample_R1_fp_2.fastq.gz --ref /refs/hs38.fa</code></pre></div>
-        </div>
-      </section>
-
-      <section id="storage">
-        <div class="wrap">
-          <div class="section-head"><h2>Clean up and store alignment files</h2><p>Coordinate-sorted, indexed CRAM is usually a better long-term storage format than BAM when you have the matching reference genome.</p></div>
-          <div class="grid three">
-            <article class="card"><h3>Sort</h3><pre><code>pixi run wgsextract --input sample.bam bam sort</code></pre><p>Required by most variant callers and random-access tools.</p></article>
-            <article class="card"><h3>Index</h3><pre><code>pixi run wgsextract --input sample.sorted.bam bam index</code></pre><p>Creates .bai/.crai random-access indexes.</p></article>
-            <article class="card"><h3>Compress to CRAM</h3><pre><code>pixi run wgsextract --input sample.sorted.bam --ref /refs/hs38.fa bam to-cram</code></pre><p>Smaller storage if the reference is preserved.</p></article>
-          </div>
-        </div>
-      </section>
-
-      <section id="testing">
-        <div class="wrap split">
-          <div><p class="kicker">Safe experimentation</p><h2>Generate fake data before touching real genomes</h2><p class="lede">Fake data is useful for learning command shapes, testing pipeline plumbing, benchmarking file IO, and creating reproducible bug reports without exposing real genetic data.</p></div>
-          <div class="code-panel"><header><span>fake-data.sh</span><span>test artifacts</span></header><pre><code>pixi run wgsextract qc fake-data --type bam --coverage 1 --outdir out/fake-fast
-pixi run wgsextract qc fake-data --type bam,vcf,fastq --coverage 0.1 --outdir out/fake-all
-pixi run wgsextract qc fake-data --type bam --coverage 0.1 --full-size --outdir out/fake-full</code></pre></div>
-        </div>
-      </section>
+<span class="comment"># Annotation and filtering</span>
+<span class="cmd">pixi run wgsextract vep run --vcf-input calls.vcf.gz</span>
+<span class="cmd">pixi run wgsextract vcf filter --vcf-input calls.vep.vcf.gz --gene BRCA1</span>
+<span class="cmd">pixi run wgsextract vcf filter --vcf-input calls.vcf.gz --expr &#x27;QUAL&gt;30&#x27;</span></code></pre>
+</div>
+<div class="grid three">
+<article class="card">
+<h3><abbr data-tooltip="SNP: Single Nucleotide Polymorphism: a one-base marker or variant, commonly used by microarray SNP chips." aria-label="SNP: Single Nucleotide Polymorphism: a one-base marker or variant, commonly used by microarray SNP chips.">SNP</abbr> and <abbr data-tooltip="InDel: Insertion or Deletion: a small variant where bases are added or removed relative to the reference." aria-label="InDel: Insertion or Deletion: a small variant where bases are added or removed relative to the reference.">InDel</abbr> calls</h3>
+<p><abbr data-tooltip="SNP: Single Nucleotide Polymorphism: a one-base marker or variant, commonly used by microarray SNP chips." aria-label="SNP: Single Nucleotide Polymorphism: a one-base marker or variant, commonly used by microarray SNP chips.">SNP</abbr> and <abbr data-tooltip="InDel: Insertion or Deletion: a small variant where bases are added or removed relative to the reference." aria-label="InDel: Insertion or Deletion: a small variant where bases are added or removed relative to the reference.">InDel</abbr> workflows target small sequence changes. They are often the first full-genome variant calls people run, but they still need a matching reference, sorted/indexed alignments, and enough coverage.</p>
+</article>
+<article class="card">
+<h3>Structural and copy-number calls</h3>
+<p><abbr data-tooltip="SV: Structural Variant: a larger genomic change such as a deletion, duplication, inversion, or rearrangement." aria-label="SV: Structural Variant: a larger genomic change such as a deletion, duplication, inversion, or rearrangement.">SV</abbr> and <abbr data-tooltip="CNV: Copy Number Variant: a genomic region where copies are deleted or duplicated compared with expectation." aria-label="CNV: Copy Number Variant: a genomic region where copies are deleted or duplicated compared with expectation.">CNV</abbr> workflows look for larger changes. These can be sensitive to sequencing technology, read length, depth, and caller assumptions, so compare outputs cautiously.</p>
+</article>
+<article class="card">
+<h3>Annotation and filtering</h3>
+<p>Annotation tools such as <a class="term-link" href="https://www.ensembl.org/info/docs/tools/vep/index.html" data-tooltip="VEP: Variant Effect Predictor: an annotation tool that predicts variant effects on genes and transcripts." aria-label="VEP: Variant Effect Predictor: an annotation tool that predicts variant effects on genes and transcripts.">VEP</a> add biological context. Filtering is useful for exploration, but a filtered list is not a diagnosis and should not be used as medical advice.</p>
+</article>
+</div>
+</div>
+</section>
+<section id="fastq">
+<div class="wrap split">
+<div>
+<p class="kicker">Raw reads</p>
+<h2>From <abbr data-tooltip="FASTQ: FASTQ read format: raw sequencing reads with per-base quality scores." aria-label="FASTQ: FASTQ read format: raw sequencing reads with per-base quality scores.">FASTQ</abbr> to an aligned file</h2>
+<p class="lede"><abbr data-tooltip="FASTQ: FASTQ read format: raw sequencing reads with per-base quality scores." aria-label="FASTQ: FASTQ read format: raw sequencing reads with per-base quality scores.">FASTQ</abbr> files are raw reads. Quality-check and trim them before alignment, then align to the reference build you intend to use for downstream <abbr data-tooltip="VCF: Variant Call Format: a standard text format for variants and their annotations." aria-label="VCF: Variant Call Format: a standard text format for variants and their annotations.">VCF</abbr>, extraction, and <abbr data-tooltip="SNP: Single Nucleotide Polymorphism: a one-base marker or variant, commonly used by microarray SNP chips." aria-label="SNP: Single Nucleotide Polymorphism: a one-base marker or variant, commonly used by microarray SNP chips.">SNP</abbr> chip simulation work.</p>
+<p>Raw reads are closest to the sequencer output. They preserve information before alignment choices, but they are large and require more processing. A typical workflow checks read quality, optionally trims adapters or low-quality ends, aligns reads to a reference, then sorts and indexes the resulting alignment.</p>
+<p>If you plan to compare outputs with third-party services, choose the reference build intentionally. Aligning to hg38 and then trying to use hg19-specific annotations or <abbr data-tooltip="SNP: Single Nucleotide Polymorphism: a one-base marker or variant, commonly used by microarray SNP chips." aria-label="SNP: Single Nucleotide Polymorphism: a one-base marker or variant, commonly used by microarray SNP chips.">SNP</abbr> chip positions can produce confusing results unless you lift over or regenerate the appropriate files.</p>
+</div>
+<div class="code-panel">
+<header class="code-panel-top"><div class="window-controls" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div><span class="code-panel-title">fastq-to-bam.sh</span><button class="copy-button" type="button">Copy</button></header>
+<pre><code><span class="cmd">pixi run wgsextract --input sample_R1.fastq.gz qc fastqc</span>
+<span class="cmd">pixi run wgsextract qc fastp --r1 sample_R1.fastq.gz --r2 sample_R2.fastq.gz</span>
+<span class="cmd">pixi run wgsextract align --r1 sample_R1_fp_1.fastq.gz --r2 sample_R1_fp_2.fastq.gz --ref /refs/hs38.fa</span></code></pre>
+</div>
+</div>
+</section>
+<section id="storage">
+<div class="wrap">
+<div class="section-head">
+<h2>Clean up and store alignment files</h2>
+<p>Coordinate-sorted, indexed <abbr data-tooltip="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome." aria-label="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome.">CRAM</abbr> is usually a better long-term storage format than <abbr data-tooltip="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome." aria-label="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome.">BAM</abbr> when you have the matching reference genome.</p>
+</div>
+<p>Storage workflows are not just housekeeping. Sorting makes records usable by coordinate-based tools. Indexing enables fast region access. <abbr data-tooltip="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome." aria-label="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome.">CRAM</abbr> conversion can save substantial disk space, but it makes the matching reference <abbr data-tooltip="FASTA: FASTA sequence format: a plain-text format for reference genomes or other biological sequences." aria-label="FASTA: FASTA sequence format: a plain-text format for reference genomes or other biological sequences.">FASTA</abbr> part of the file's long-term readability story.</p>
+<p>Before deleting a larger original file, make sure the converted file opens, indexes, and reports expected metadata. Preserve checksums and notes about the reference build, because future failures often come from not knowing which reference a compressed alignment expects.</p>
+<div class="grid three">
+<article class="card">
+<h3>Sort</h3>
+<pre><code><span class="cmd">pixi run wgsextract --input sample.bam bam sort</span></code></pre>
+<p>Required by most variant callers and random-access tools. Coordinate sorting is different from name sorting; use the one expected by your downstream command.</p>
+</article>
+<article class="card">
+<h3>Index</h3>
+<pre><code><span class="cmd">pixi run wgsextract --input sample.sorted.bam bam index</span></code></pre>
+<p>Creates <code>.bai</code> or <code>.crai</code> random-access indexes. Keep indexes beside the primary alignment file so tools can find them automatically.</p>
+</article>
+<article class="card">
+<h3>Compress to <abbr data-tooltip="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome." aria-label="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome.">CRAM</abbr></h3>
+<pre><code><span class="cmd">pixi run wgsextract --input sample.sorted.bam --ref /refs/hs38.fa bam to-cram</span></code></pre>
+<p>Smaller storage if the reference is preserved. Record the reference path, build, and checksum when possible.</p>
+</article>
+</div>
+</div>
+</section>
+<section id="testing">
+<div class="wrap split">
+<div>
+<p class="kicker">Safe experimentation</p>
+<h2>Generate fake data before touching real genomes</h2>
+<p class="lede">Fake data is useful for learning command shapes, testing pipeline plumbing, benchmarking file IO, and creating reproducible bug reports without exposing real genetic data.</p>
+<p>Fake data lets you practice workflows without risking privacy. It is especially useful for checking output directories, command syntax, reference resolution, logging, and cleanup behavior. It will not reproduce every biological edge case, but it can prove that the pipeline wiring works before you use real data.</p>
+<p>Use a small fake dataset first, then scale up only when the command does what you expect. Full-size test data can still consume significant disk and time, so treat it like a real run from an operational perspective.</p>
+</div>
+<div class="code-panel">
+<header class="code-panel-top"><div class="window-controls" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div><span class="code-panel-title">fake-data.sh</span><button class="copy-button" type="button">Copy</button></header>
+<pre><code><span class="cmd">pixi run wgsextract qc fake-data --type bam --coverage 1 --outdir out/fake-fast</span>
+<span class="cmd">pixi run wgsextract qc fake-data --type bam,vcf,fastq --coverage 0.1 --outdir out/fake-all</span>
+<span class="cmd">pixi run wgsextract qc fake-data --type bam --coverage 0.1 --full-size --outdir out/fake-full</span></code></pre>
+</div>
+</div>
+</section>
     </main>
 
-    <footer class="footer"><div class="wrap"><div><strong>WGS Extract Workflows</strong><p>Goal-oriented genome recipes.</p></div><p><a href="wgs-guide.html">Next: WGS guide</a></p></div></footer>
+    <footer class="footer">
+      <div class="wrap">
+        <div><strong>WGS Extract Workflows</strong><p>Goal-oriented genome recipes.</p></div>
+        <p><a href="wgs-guide.html">Next: WGS guide</a></p>
+      </div>
+    </footer>
+    <script>
+      (() => {
+        const copyText = async (text) => {
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            return;
+          }
+          const textarea = document.createElement("textarea");
+          textarea.value = text;
+          textarea.setAttribute("readonly", "");
+          textarea.style.position = "fixed";
+          textarea.style.left = "-9999px";
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand("copy");
+          textarea.remove();
+        };
+
+        document.addEventListener("click", async (event) => {
+          const button = event.target.closest(".copy-button");
+          if (!button) return;
+          const panel = button.closest(".code-panel");
+          const code = panel?.querySelector("pre code");
+          if (!code) return;
+          const previous = button.textContent;
+          try {
+            await copyText(code.innerText);
+            button.textContent = "Copied";
+          } catch {
+            button.textContent = "Failed";
+          }
+          window.setTimeout(() => {
+            button.textContent = previous;
+          }, 1400);
+        });
+
+        let tooltip;
+        let activeTooltipTarget;
+        let tooltipTimer;
+
+        const ensureTooltip = () => {
+          if (!tooltip) {
+            tooltip = document.createElement("div");
+            tooltip.className = "site-tooltip";
+            tooltip.hidden = true;
+            tooltip.setAttribute("role", "tooltip");
+            document.body.appendChild(tooltip);
+          }
+          return tooltip;
+        };
+
+        const positionTooltip = () => {
+          if (!tooltip || !activeTooltipTarget) return;
+          const rect = activeTooltipTarget.getBoundingClientRect();
+          const tipRect = tooltip.getBoundingClientRect();
+          const margin = 12;
+          let left = rect.left + rect.width / 2 - tipRect.width / 2;
+          left = Math.max(margin, Math.min(left, window.innerWidth - tipRect.width - margin));
+          let top = rect.top - tipRect.height - 10;
+          if (top < margin) top = rect.bottom + 10;
+          tooltip.style.left = `${Math.round(left + window.scrollX)}px`;
+          tooltip.style.top = `${Math.round(top + window.scrollY)}px`;
+        };
+
+        const showTooltip = (target) => {
+          const text = target.dataset.tooltip;
+          if (!text) return;
+          activeTooltipTarget = target;
+          const tip = ensureTooltip();
+          tip.textContent = text;
+          tip.hidden = false;
+          tip.classList.remove("visible");
+          window.requestAnimationFrame(() => {
+            positionTooltip();
+            tip.classList.add("visible");
+          });
+        };
+
+        const scheduleTooltip = (target) => {
+          window.clearTimeout(tooltipTimer);
+          tooltipTimer = window.setTimeout(() => showTooltip(target), 120);
+        };
+
+        const hideTooltip = () => {
+          window.clearTimeout(tooltipTimer);
+          activeTooltipTarget = undefined;
+          if (!tooltip) return;
+          tooltip.classList.remove("visible");
+          tooltip.hidden = true;
+        };
+
+        document.addEventListener("mouseover", (event) => {
+          const target = event.target.closest?.('[data-tooltip]');
+          if (!target || target === activeTooltipTarget) return;
+          scheduleTooltip(target);
+        });
+
+        document.addEventListener("mouseout", (event) => {
+          const target = event.target.closest?.('[data-tooltip]');
+          if (!target || target.contains(event.relatedTarget)) return;
+          hideTooltip();
+        });
+
+        document.addEventListener("focusin", (event) => {
+          const target = event.target.closest?.('[data-tooltip]');
+          if (target) scheduleTooltip(target);
+        });
+        document.addEventListener("focusout", hideTooltip);
+        window.addEventListener("scroll", positionTooltip, { passive: true });
+        window.addEventListener("resize", positionTooltip);
+      })();
+    </script>
   </body>
 </html>

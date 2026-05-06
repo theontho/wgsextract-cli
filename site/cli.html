@@ -27,7 +27,7 @@
     <nav class="nav" aria-label="Primary navigation">
       <div class="wrap nav-inner">
         <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true"></span><span>WGS Extract CLI</span></a>
-        <div class="nav-links"><a href="index.html">Home</a><a href="install.html">Install</a><a class="active" href="cli.html">CLI</a><a href="gui.html">GUI</a><a href="workflows.html">Workflows</a><a href="wgs-guide.html">WGS guide</a><a href="reference.html">Reference</a></div>
+        <div class="nav-links"><a href="index.html">Home</a><a href="install.html">Install</a><a class="active" href="cli.html">CLI</a><a href="gui.html">GUI</a><a href="workflows.html">Workflows</a><a href="wgs-guide.html">WGS guide</a><a href="reference.html">Reference</a><a href="https://github.com/theontho/wgsextract-cli" target="_blank" rel="noopener noreferrer">GitHub</a></div>
       </div>
     </nav>
 
@@ -35,101 +35,268 @@
       <header class="page-hero">
         <div class="wrap">
           <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Command reference</p>
-          <h1>A map of the WGS Extract command line.</h1>
-          <p class="lede">The CLI is the best interface for repeatable work: scripts, batch jobs, remote machines, AI-agent workflows, and long-running analyses where exact commands matter.</p>
+          <h1>A map of the <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract command line.</h1>
+          <p class="lede">The <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> is the best interface for repeatable work: scripts, batch jobs, remote machines, AI-agent workflows, and long-running analyses where exact commands matter.</p>
           <div class="toc"><a href="#global">Global options</a><a href="#groups">Command groups</a><a href="#recipes">Recipes</a><a href="#environments">Pixi environments</a><a href="#patterns">Best practices</a></div>
         </div>
       </header>
 
-      <section id="global">
-        <div class="wrap split">
-          <div>
-            <h2>Global options</h2>
-            <p class="lede">Most commands accept shared options before the subcommand, and many commands also accept them after the subcommand because WGS Extract re-applies explicit shared options across parsers.</p>
-          </div>
-          <div class="code-panel">
-            <header><span>global-options.sh</span><span>common flags</span></header>
-            <pre><code>pixi run wgsextract \
-  --input sample.cram \
-  --outdir out/sample \
-  --ref /refs/hs38.fa \
-  --threads 8 \
-  --memory 16G \
-  info --detailed</code></pre>
-          </div>
-        </div>
-      </section>
+<section id="global">
+<div class="wrap split">
+<div>
+<h2>Global options</h2>
+<p class="lede">Most commands accept shared options before the subcommand, and many commands also accept them after the subcommand because <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract re-applies explicit shared options across parsers.</p>
+</div>
+<div class="code-panel">
+<header class="code-panel-top"><div class="window-controls" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div><span class="code-panel-title">global-options.sh</span><button class="copy-button" type="button">Copy</button></header>
+<pre><code><span class="cmd">pixi run wgsextract \</span>
+<span class="cmd">  --input sample.cram \</span>
+<span class="cmd">  --outdir out/sample \</span>
+<span class="cmd">  --ref /refs/hs38.fa \</span>
+<span class="cmd">  --threads 8 \</span>
+<span class="cmd">  --memory 16G \</span>
+<span class="cmd">  info --detailed</span></code></pre>
+</div>
+</div>
+</section>
+<section id="groups">
+<div class="wrap">
+<div class="section-head">
+<h2>Command groups</h2>
+<p>Run <code>pixi run wgsextract help</code> or <code>pixi run wgsextract --full-help</code> for the live tree from your installed version.</p>
+</div>
+<div class="grid three">
+<article class="card">
+<h3>Info and <abbr data-tooltip="QC: Quality Control: checks that help assess whether data and outputs are usable." aria-label="QC: Quality Control: checks that help assess whether data and outputs are usable.">QC</abbr></h3>
+<p><code>info</code>, <code>info calculate-coverage</code>, <code>qc fastqc</code>, <code>qc fastp</code>, <code>qc vcf</code>, and <code>qc fake-data</code> help inspect inputs, test pipelines, and quality-check reads or variants.</p>
+</article>
+<article class="card">
+<h3><abbr data-tooltip="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome." aria-label="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome.">BAM</abbr> / <abbr data-tooltip="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome." aria-label="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome.">CRAM</abbr></h3>
+<p><code>bam sort</code>, <code>bam index</code>, <code>bam to-cram</code>, <code>bam to-bam</code>, <code>bam unalign</code>, <code>bam identify</code>, plus repair helpers for <abbr data-tooltip="FTDNA: FamilyTreeDNA: a consumer genealogy service and raw-data format target." aria-label="FTDNA: FamilyTreeDNA: a consumer genealogy service and raw-data format target.">FTDNA</abbr> files.</p>
+</article>
+<article class="card">
+<h3>Extraction</h3>
+<p><code>extract mito-fasta</code>, <code>extract mito-vcf</code>, <code>extract mt-bam</code>, <code>extract ydna-bam</code>, <code>extract ydna-vcf</code>, <code>extract y-mt-extract</code>, <code>extract unmapped</code>, and <code>extract custom</code>.</p>
+</article>
+<article class="card">
+<h3>Variant workflows</h3>
+<p><code>vcf snp</code>, <code>vcf indel</code>, <code>vcf sv</code>, <code>vcf cnv</code>, <code>vcf freebayes</code>, <code>vcf gatk</code>, <code>vcf deepvariant</code>, <code>vcf filter</code>, <code>vcf trio</code>, and annotation commands.</p>
+</article>
+<article class="card">
+<h3>References and annotation</h3>
+<p><code>ref bootstrap</code>, <code>ref library</code>, <code>ref index</code>, <code>ref verify</code>, <code>ref gene-map</code>, annotation downloads, and <code>vep download/run/verify</code>.</p>
+</article>
+<article class="card">
+<h3>Analysis helpers</h3>
+<p><code>microarray</code>, <code>lineage y-haplogroup</code>, <code>lineage mt-haplogroup</code>, <code>align</code>, <code>analyze comprehensive</code>, <code>example-genome</code>, <code>pet-align</code>, and <code>benchmark</code>.</p>
+</article>
+</div>
+</div>
+</section>
+<section id="recipes">
+<div class="wrap">
+<div class="section-head">
+<h2>Common <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> recipes</h2>
+<p>These examples are intentionally small and explicit. Replace paths and references with your own.</p>
+</div>
+<div class="code-panel">
+<header class="code-panel-top"><div class="window-controls" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div><span class="code-panel-title">recipes.sh</span><button class="copy-button" type="button">Copy</button></header>
+<pre><code><span class="comment"># Identify a BAM/CRAM and inspect metadata</span>
+<span class="cmd">pixi run wgsextract --input sample.cram info --detailed</span>
 
-      <section id="groups">
-        <div class="wrap">
-          <div class="section-head"><h2>Command groups</h2><p>Run <code>pixi run wgsextract help</code> or <code>pixi run wgsextract --full-help</code> for the live tree from your installed version.</p></div>
-          <div class="grid three">
-            <article class="card"><h3>Info and QC</h3><p><code>info</code>, <code>info calculate-coverage</code>, <code>qc fastqc</code>, <code>qc fastp</code>, <code>qc vcf</code>, and <code>qc fake-data</code> help inspect inputs, test pipelines, and quality-check reads or variants.</p></article>
-            <article class="card"><h3>BAM / CRAM</h3><p><code>bam sort</code>, <code>bam index</code>, <code>bam to-cram</code>, <code>bam to-bam</code>, <code>bam unalign</code>, <code>bam identify</code>, plus repair helpers for FTDNA files.</p></article>
-            <article class="card"><h3>Extraction</h3><p><code>extract mito-fasta</code>, <code>extract mito-vcf</code>, <code>extract mt-bam</code>, <code>extract ydna-bam</code>, <code>extract ydna-vcf</code>, <code>extract y-mt-extract</code>, <code>extract unmapped</code>, and <code>extract custom</code>.</p></article>
-            <article class="card"><h3>Variant workflows</h3><p><code>vcf snp</code>, <code>vcf indel</code>, <code>vcf sv</code>, <code>vcf cnv</code>, <code>vcf freebayes</code>, <code>vcf gatk</code>, <code>vcf deepvariant</code>, <code>vcf filter</code>, <code>vcf trio</code>, and annotation commands.</p></article>
-            <article class="card"><h3>References and annotation</h3><p><code>ref bootstrap</code>, <code>ref library</code>, <code>ref index</code>, <code>ref verify</code>, <code>ref gene-map</code>, annotation downloads, and <code>vep download/run/verify</code>.</p></article>
-            <article class="card"><h3>Analysis helpers</h3><p><code>microarray</code>, <code>lineage y-haplogroup</code>, <code>lineage mt-haplogroup</code>, <code>align</code>, <code>analyze comprehensive</code>, <code>example-genome</code>, <code>pet-align</code>, and <code>benchmark</code>.</p></article>
-          </div>
-        </div>
-      </section>
+<span class="comment"># Sort and index an alignment</span>
+<span class="cmd">pixi run wgsextract --input sample.bam --outdir out/sample bam sort</span>
+<span class="cmd">pixi run wgsextract --input out/sample/sample.sorted.bam bam index</span>
 
-      <section id="recipes">
-        <div class="wrap">
-          <div class="section-head"><h2>Common CLI recipes</h2><p>These examples are intentionally small and explicit. Replace paths and references with your own.</p></div>
-          <div class="code-panel">
-            <header><span>recipes.sh</span><span>copy, edit, run</span></header>
-            <pre><code># Identify a BAM/CRAM and inspect metadata
-pixi run wgsextract --input sample.cram info --detailed
+<span class="comment"># Convert BAM to CRAM for storage</span>
+<span class="cmd">pixi run wgsextract --input sample.bam --ref /refs/hs38.fa bam to-cram</span>
 
-# Sort and index an alignment
-pixi run wgsextract --input sample.bam --outdir out/sample bam sort
-pixi run wgsextract --input out/sample/sample.sorted.bam bam index
+<span class="comment"># Generate consumer microarray-style outputs</span>
+<span class="cmd">pixi run wgsextract --input sample.bam microarray --formats 23andme_v5,ancestry_v2</span>
 
-# Convert BAM to CRAM for storage
-pixi run wgsextract --input sample.bam --ref /refs/hs38.fa bam to-cram
+<span class="comment"># Extract mitochondrial variants and Y-DNA reads</span>
+<span class="cmd">pixi run wgsextract --input sample.bam extract mito-vcf --region chrM</span>
+<span class="cmd">pixi run wgsextract --input sample.bam extract ydna-bam</span>
 
-# Generate consumer microarray-style outputs
-pixi run wgsextract --input sample.bam microarray --formats 23andme_v5,ancestry_v2
+<span class="comment"># Call and filter variants</span>
+<span class="cmd">pixi run wgsextract --input sample.bam --ref /refs/hs38.fa vcf snp</span>
+<span class="cmd">pixi run wgsextract vcf filter --vcf-input calls.vcf.gz --expr &#x27;QUAL&gt;30&#x27;</span>
 
-# Extract mitochondrial variants and Y-DNA reads
-pixi run wgsextract --input sample.bam extract mito-vcf --region chrM
-pixi run wgsextract --input sample.bam extract ydna-bam
-
-# Call and filter variants
-pixi run wgsextract --input sample.bam --ref /refs/hs38.fa vcf snp
-pixi run wgsextract vcf filter --vcf-input calls.vcf.gz --expr 'QUAL&gt;30'
-
-# Launch the desktop GUI
-pixi run wgsextract gui --desktop</code></pre>
-          </div>
-        </div>
-      </section>
-
-      <section id="environments">
-        <div class="wrap">
-          <div class="section-head"><h2>Pixi environments</h2><p>Some specialized tools live in dedicated Pixi environments to keep dependency solving practical and platform-specific.</p></div>
-          <div class="grid three">
-            <article class="card"><h3>default</h3><p>General CLI, GUI, samtools/bcftools, bwa/minimap2, fastp/fastqc, freebayes, GATK, and common workflows.</p><pre><code>pixi run wgsextract deps check</code></pre></article>
-            <article class="card"><h3>pacbio</h3><p>PacBio-aware structural variant workflows using pbmm2, pbsv, and sniffles where available.</p><pre><code>pixi run -e pacbio wgsextract vcf sv --pacbio</code></pre></article>
-            <article class="card"><h3>deepvariant</h3><p>DeepVariant workflows, including WGS/WES and PacBio HiFi model options where supported.</p><pre><code>pixi run -e deepvariant wgsextract vcf deepvariant</code></pre></article>
-          </div>
-        </div>
-      </section>
-
-      <section id="patterns">
-        <div class="wrap">
-          <div class="section-head"><h2>CLI best practices</h2><p>Genome jobs are expensive. These habits prevent wasted hours and corrupted assumptions.</p></div>
-          <div class="grid four">
-            <article class="card"><h3>Use regions first</h3><p>Try <code>chrM</code>, <code>chrY</code>, or a small gene region before whole-genome commands.</p></article>
-            <article class="card"><h3>Keep outputs isolated</h3><p>Use <code>--outdir</code> per sample or <code>--genome</code> folders to avoid mixing files.</p></article>
-            <article class="card"><h3>Match builds</h3><p>Keep BAM/CRAM, FASTA, VCF, gene maps, and annotations on the same reference build.</p></article>
-            <article class="card"><h3>Log the command</h3><p>Save exact commands, Pixi environment, reference build, and tool versions for repeatability.</p></article>
-          </div>
-        </div>
-      </section>
+<span class="comment"># Launch the desktop GUI</span>
+<span class="cmd">pixi run wgsextract gui --desktop</span></code></pre>
+</div>
+</div>
+</section>
+<section id="environments">
+<div class="wrap">
+<div class="section-head">
+<h2><a class="term-link" href="https://pixi.sh/">Pixi</a> environments</h2>
+<p>Some specialized tools live in dedicated <a class="term-link" href="https://pixi.sh/">Pixi</a> environments to keep dependency solving practical and platform-specific.</p>
+</div>
+<div class="grid three">
+<article class="card">
+<h3>default</h3>
+<p>General <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr>, <abbr data-tooltip="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command." aria-label="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command.">GUI</abbr>, <a class="term-link" href="https://www.htslib.org/">samtools</a>/<a class="term-link" href="https://samtools.github.io/bcftools/">bcftools</a>, <a class="term-link" href="https://github.com/lh3/bwa">bwa</a>/<a class="term-link" href="https://github.com/lh3/minimap2">minimap2</a>, <a class="term-link" href="https://github.com/OpenGene/fastp">fastp</a>/<a class="term-link" href="https://www.bioinformatics.babraham.ac.uk/projects/fastqc/">fastqc</a>, <a class="term-link" href="https://github.com/freebayes/freebayes">freebayes</a>, <a class="term-link" href="https://gatk.broadinstitute.org/" data-tooltip="GATK: Genome Analysis Toolkit: a widely used suite of tools for variant discovery and genomics workflows." aria-label="GATK: Genome Analysis Toolkit: a widely used suite of tools for variant discovery and genomics workflows.">GATK</a>, and common workflows.</p>
+<pre><code><span class="cmd">pixi run wgsextract deps check</span></code></pre>
+</article>
+<article class="card">
+<h3>pacbio</h3>
+<p>PacBio-aware structural variant workflows using pbmm2, pbsv, and sniffles where available.</p>
+<pre><code><span class="cmd">pixi run -e pacbio wgsextract vcf sv --pacbio</span></code></pre>
+</article>
+<article class="card">
+<h3>deepvariant</h3>
+<p><a class="term-link" href="https://github.com/google/deepvariant">DeepVariant</a> workflows, including <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr>/WES and PacBio HiFi model options where supported.</p>
+<pre><code><span class="cmd">pixi run -e deepvariant wgsextract vcf deepvariant</span></code></pre>
+</article>
+</div>
+</div>
+</section>
+<section id="patterns">
+<div class="wrap">
+<div class="section-head">
+<h2><abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> best practices</h2>
+<p>Genome jobs are expensive. These habits prevent wasted hours and corrupted assumptions.</p>
+</div>
+<div class="grid four">
+<article class="card">
+<h3>Use regions first</h3>
+<p>Try <code>chrM</code>, <code>chrY</code>, or a small gene region before whole-genome commands.</p>
+</article>
+<article class="card">
+<h3>Keep outputs isolated</h3>
+<p>Use <code>--outdir</code> per sample or <code>--genome</code> folders to avoid mixing files.</p>
+</article>
+<article class="card">
+<h3>Match builds</h3>
+<p>Keep <abbr data-tooltip="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome." aria-label="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome.">BAM</abbr>/<abbr data-tooltip="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome." aria-label="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome.">CRAM</abbr>, <abbr data-tooltip="FASTA: FASTA sequence format: a plain-text format for reference genomes or other biological sequences." aria-label="FASTA: FASTA sequence format: a plain-text format for reference genomes or other biological sequences.">FASTA</abbr>, <abbr data-tooltip="VCF: Variant Call Format: a standard text format for variants and their annotations." aria-label="VCF: Variant Call Format: a standard text format for variants and their annotations.">VCF</abbr>, gene maps, and annotations on the same reference build.</p>
+</article>
+<article class="card">
+<h3>Log the command</h3>
+<p>Save exact commands, <a class="term-link" href="https://pixi.sh/">Pixi</a> environment, reference build, and tool versions for repeatability.</p>
+</article>
+</div>
+</div>
+</section>
     </main>
 
-    <footer class="footer"><div class="wrap"><div><strong>WGS Extract CLI</strong><p>Command guide and recipes.</p></div><p><a href="workflows.html">Next: workflows</a></p></div></footer>
+    <footer class="footer">
+      <div class="wrap">
+        <div><strong>WGS Extract CLI</strong><p>Command guide and recipes.</p></div>
+        <p><a href="workflows.html">Next: workflows</a></p>
+      </div>
+    </footer>
+    <script>
+      (() => {
+        const copyText = async (text) => {
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            return;
+          }
+          const textarea = document.createElement("textarea");
+          textarea.value = text;
+          textarea.setAttribute("readonly", "");
+          textarea.style.position = "fixed";
+          textarea.style.left = "-9999px";
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand("copy");
+          textarea.remove();
+        };
+
+        document.addEventListener("click", async (event) => {
+          const button = event.target.closest(".copy-button");
+          if (!button) return;
+          const panel = button.closest(".code-panel");
+          const code = panel?.querySelector("pre code");
+          if (!code) return;
+          const previous = button.textContent;
+          try {
+            await copyText(code.innerText);
+            button.textContent = "Copied";
+          } catch {
+            button.textContent = "Failed";
+          }
+          window.setTimeout(() => {
+            button.textContent = previous;
+          }, 1400);
+        });
+
+        let tooltip;
+        let activeTooltipTarget;
+        let tooltipTimer;
+
+        const ensureTooltip = () => {
+          if (!tooltip) {
+            tooltip = document.createElement("div");
+            tooltip.className = "site-tooltip";
+            tooltip.hidden = true;
+            tooltip.setAttribute("role", "tooltip");
+            document.body.appendChild(tooltip);
+          }
+          return tooltip;
+        };
+
+        const positionTooltip = () => {
+          if (!tooltip || !activeTooltipTarget) return;
+          const rect = activeTooltipTarget.getBoundingClientRect();
+          const tipRect = tooltip.getBoundingClientRect();
+          const margin = 12;
+          let left = rect.left + rect.width / 2 - tipRect.width / 2;
+          left = Math.max(margin, Math.min(left, window.innerWidth - tipRect.width - margin));
+          let top = rect.top - tipRect.height - 10;
+          if (top < margin) top = rect.bottom + 10;
+          tooltip.style.left = `${Math.round(left + window.scrollX)}px`;
+          tooltip.style.top = `${Math.round(top + window.scrollY)}px`;
+        };
+
+        const showTooltip = (target) => {
+          const text = target.dataset.tooltip;
+          if (!text) return;
+          activeTooltipTarget = target;
+          const tip = ensureTooltip();
+          tip.textContent = text;
+          tip.hidden = false;
+          tip.classList.remove("visible");
+          window.requestAnimationFrame(() => {
+            positionTooltip();
+            tip.classList.add("visible");
+          });
+        };
+
+        const scheduleTooltip = (target) => {
+          window.clearTimeout(tooltipTimer);
+          tooltipTimer = window.setTimeout(() => showTooltip(target), 120);
+        };
+
+        const hideTooltip = () => {
+          window.clearTimeout(tooltipTimer);
+          activeTooltipTarget = undefined;
+          if (!tooltip) return;
+          tooltip.classList.remove("visible");
+          tooltip.hidden = true;
+        };
+
+        document.addEventListener("mouseover", (event) => {
+          const target = event.target.closest?.('[data-tooltip]');
+          if (!target || target === activeTooltipTarget) return;
+          scheduleTooltip(target);
+        });
+
+        document.addEventListener("mouseout", (event) => {
+          const target = event.target.closest?.('[data-tooltip]');
+          if (!target || target.contains(event.relatedTarget)) return;
+          hideTooltip();
+        });
+
+        document.addEventListener("focusin", (event) => {
+          const target = event.target.closest?.('[data-tooltip]');
+          if (target) scheduleTooltip(target);
+        });
+        document.addEventListener("focusout", hideTooltip);
+        window.addEventListener("scroll", positionTooltip, { passive: true });
+        window.addEventListener("resize", positionTooltip);
+      })();
+    </script>
   </body>
 </html>
