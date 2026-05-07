@@ -88,7 +88,10 @@
 <span class="comment"># double-click &quot;WGS Extract GUI.command&quot; in the folder Finder opened.</span>
 <span class="comment">#</span>
 <span class="comment"># Launch the desktop GUI on Linux:</span>
-<span class="cmd">./wgsextract-cli/start-wgsextract-gui.sh</span></code></pre>
+<span class="cmd">./wgsextract-cli/start-wgsextract-gui.sh</span>
+
+<span class="comment"># Uninstall the app if needed. Interactive runs ask whether to remove Pixi too.</span>
+<span class="cmd">./wgsextract-cli/uninstall.sh</span></code></pre>
 </div>
 </div>
 </section>
@@ -102,11 +105,11 @@
 <div class="grid two" style="margin-top: 22px">
 <article class="card">
 <h3>Run the BAT installer</h3>
-<p>Open <a class="term-link" href="https://learn.microsoft.com/powershell/">PowerShell</a> on Windows, then move into the <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> folder you cloned or downloaded and run <code>install_windows.bat</code>. The installer expects <a class="term-link" href="https://pixi.sh/">Pixi</a> and <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> to already be installed and visible.</p>
+<p>Open <a class="term-link" href="https://learn.microsoft.com/powershell/">PowerShell</a> on Windows, then move into the <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> folder you cloned or downloaded and run <code>install_windows.bat</code>. If <a class="term-link" href="https://pixi.sh/">Pixi</a> or <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> are missing, the installer bootstraps them first.</p>
 </article>
 <article class="card">
 <h3>What it does</h3>
-<p><code>install_windows.bat</code> validates <a class="term-link" href="https://pixi.sh/">Pixi</a> and <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a>, installs the project <a class="term-link" href="https://pixi.sh/">Pixi</a> environment, prepares the <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> <abbr data-tooltip="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime." aria-label="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime.">UCRT64</abbr> pacman runtime tools, and saves pacman as the default runtime.</p>
+<p><code>install_windows.bat</code> installs or validates <a class="term-link" href="https://pixi.sh/">Pixi</a> and <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a>, installs the project <a class="term-link" href="https://pixi.sh/">Pixi</a> environment, prepares the <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> <abbr data-tooltip="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime." aria-label="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime.">UCRT64</abbr> pacman runtime tools, and saves pacman as the default runtime.</p>
 </article>
 </div>
 </div>
@@ -122,12 +125,18 @@
 
 <span class="comment"># Verify the native Windows pacman runtime.</span>
 <span class="cmd">pixi run wgsextract deps pacman check</span>
-<span class="cmd">pixi run wgsextract --help</span></code></pre>
+<span class="cmd">pixi run wgsextract --help</span>
+
+<span class="comment"># Uninstall the app-local environment and config defaults.</span>
+<span class="cmd">.\uninstall_windows.bat</span>
+
+<span class="comment"># Also remove bootstrapper-installed Pixi and MSYS2 when desired.</span>
+<span class="cmd">.\uninstall_windows.bat --remove-prerequisites</span></code></pre>
 </div>
 </div>
 <div class="wrap">
 <div class="callout">
-<strong>Windows prerequisites:</strong> Install <a class="term-link" href="https://pixi.sh/">Pixi</a> and <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> first. The default <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> path is <code>C:\msys64</code>; if yours is somewhere else, run <code>.\install_windows.bat --msys2-root D:\tools\msys64</code>. See the <a class="inline-link" href="https://github.com/theontho/wgsextract-cli/blob/main/docs/windows_pacman_runtime.md">Windows pacman runtime guide</a> for details.
+<strong>Windows prerequisites:</strong> A normal <a class="term-link" href="https://learn.microsoft.com/powershell/">PowerShell</a> session with internet access is enough for a default install. The installer downloads <a class="term-link" href="https://pixi.sh/">Pixi</a> and <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> when missing. The default <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> path is <code>C:\msys64</code>; if yours is somewhere else, run <code>.\install_windows.bat --msys2-root D:\tools\msys64</code>. See the <a class="inline-link" href="https://github.com/theontho/wgsextract-cli/blob/main/docs/windows_pacman_runtime.md">Windows pacman runtime guide</a> for details.
 </div>
 </div>
 </section>
@@ -186,7 +195,7 @@
 </article>
 <article class="card">
 <h3>Native Windows (recommended)</h3>
-<p>Use <code>install_windows.bat</code> from <a class="term-link" href="https://learn.microsoft.com/powershell/">PowerShell</a> after installing <a class="term-link" href="https://pixi.sh/">Pixi</a> and <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a>. It configures the app to use the <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> <abbr data-tooltip="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime." aria-label="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime.">UCRT64</abbr> pacman runtime by default.</p>
+<p>Use <code>install_windows.bat</code> from <a class="term-link" href="https://learn.microsoft.com/powershell/">PowerShell</a>. It bootstraps <a class="term-link" href="https://pixi.sh/">Pixi</a> and <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> when needed and configures the app to use the <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> <abbr data-tooltip="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime." aria-label="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime.">UCRT64</abbr> pacman runtime by default.</p>
 <a class="inline-link" href="https://github.com/theontho/wgsextract-cli/blob/main/docs/windows_pacman_runtime.md">Windows pacman runtime</a>
 </article>
 </div>
