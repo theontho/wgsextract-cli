@@ -245,6 +245,10 @@ class TestOptionalDependencies(unittest.TestCase):
             patch(
                 "wgsextract_cli.core.runtime.should_consider_wsl", return_value=False
             ),
+            patch(
+                "wgsextract_cli.core.runtime.get_tool_runtime_mode",
+                return_value="auto",
+            ),
             patch("wgsextract_cli.core.runtime.pacman_tool_path", return_value=None),
             patch(
                 "wgsextract_cli.core.dependencies.subprocess.run",
