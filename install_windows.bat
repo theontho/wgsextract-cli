@@ -16,8 +16,11 @@ set "SKIP_BWA_BUILD=0"
 set "SKIP_BWA_DOWNLOAD=0"
 set "FORCE_BWA_BUILD=0"
 set "BWA_BINARY_URL="
+set "SKIP_PIXI_BOOTSTRAP=0"
+set "SKIP_MSYS2_INSTALL=0"
 set "SKIP_CHECKS=0"
 set "DRY_RUN=0"
+set "ALLOW_NONEMPTY_BOOTSTRAP_DIR=0"
 
 :parse_args
 if "%~1"=="" goto args_done
@@ -32,6 +35,16 @@ if /I "!ARG!"=="--dry-run" (
 )
 if /I "!ARG!"=="--skip-pixi-install" (
     set "SKIP_PIXI_INSTALL=1"
+    shift
+    goto parse_args
+)
+if /I "!ARG!"=="--skip-pixi-bootstrap" (
+    set "SKIP_PIXI_BOOTSTRAP=1"
+    shift
+    goto parse_args
+)
+if /I "!ARG!"=="--skip-msys2-install" (
+    set "SKIP_MSYS2_INSTALL=1"
     shift
     goto parse_args
 )
@@ -72,6 +85,11 @@ if /I "!ARG!"=="--skip-checks" (
     shift
     goto parse_args
 )
+if /I "!ARG!"=="--allow-nonempty-bootstrap-dir" (
+    set "ALLOW_NONEMPTY_BOOTSTRAP_DIR=1"
+    shift
+    goto parse_args
+)
 if /I "!ARG!"=="--msys2-root" (
     shift
     if "%~1"=="" goto missing_msys2_root
@@ -104,6 +122,21 @@ if "%DRY_RUN%"=="1" (
     echo Dry run only; no changes were made.
     exit /b 0
 )
+
+if not exist "%SCRIPT_DIR%pixi.toml" (
+    echo No WGS Extract CLI workspace found next to install_windows.bat.
+    echo Bootstrapping WGS Extract CLI source into this directory...
+    call :bootstrap_source
+    if errorlevel 1 exit /b 1
+)
+
+set "BOOTSTRAP_PREREQ_ARGS="
+if "%SKIP_PIXI_BOOTSTRAP%"=="1" set "BOOTSTRAP_PREREQ_ARGS=!BOOTSTRAP_PREREQ_ARGS! -SkipPixiInstall"
+if "%SKIP_MSYS2_INSTALL%"=="1" set "BOOTSTRAP_PREREQ_ARGS=!BOOTSTRAP_PREREQ_ARGS! -SkipMsys2Install"
+echo Ensuring Windows prerequisites are installed...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%scripts\bootstrap_windows_prereqs.ps1" -Msys2Root "%WGSE_MSYS2_ROOT%" !BOOTSTRAP_PREREQ_ARGS!
+if errorlevel 1 exit /b 1
+set "PATH=%USERPROFILE%\.pixi\bin;%PATH%"
 
 where pixi >nul 2>nul
 if errorlevel 1 (
@@ -175,6 +208,20 @@ echo Run: pixi run wgsextract --help
 echo Runtime defaults were set to pacman in the WGS Extract config file.
 exit /b 0
 
+:bootstrap_source
+set "WGSE_REPO_URL=%WGSEXTRACT_REPO_URL%"
+if not defined WGSE_REPO_URL set "WGSE_REPO_URL=https://github.com/theontho/wgsextract-cli"
+set "WGSE_REQUESTED_REF=%WGSEXTRACT_REF%"
+if not defined WGSE_REQUESTED_REF set "WGSE_REQUESTED_REF=%WGSEXTRACT_RELEASE_TAG%"
+if not defined WGSE_REQUESTED_REF set "WGSE_REQUESTED_REF=latest"
+set "WGSE_BOOTSTRAP_ARCHIVE_URL=%WGSEXTRACT_ARCHIVE_URL%"
+set "WGSE_BOOTSTRAP_DIR=%SCRIPT_DIR%"
+set "WGSE_BOOTSTRAP_TMP=%SCRIPT_DIR%tmp\bootstrap"
+set "WGSE_ALLOW_NONEMPTY_BOOTSTRAP_DIR=%ALLOW_NONEMPTY_BOOTSTRAP_DIR%"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; $repoUrl = $env:WGSE_REPO_URL.TrimEnd('/'); $requestedRef = $env:WGSE_REQUESTED_REF; $archiveUrl = $env:WGSE_BOOTSTRAP_ARCHIVE_URL; $installDir = $env:WGSE_BOOTSTRAP_DIR; $tmpDir = $env:WGSE_BOOTSTRAP_TMP; $existing = @(Get-ChildItem -LiteralPath $installDir -Force | Where-Object { $_.Name -notin @('install_windows.bat', 'tmp') }); if ($existing.Count -gt 0 -and $env:WGSE_ALLOW_NONEMPTY_BOOTSTRAP_DIR -ne '1') { throw 'Install directory is not empty. Move install_windows.bat to an empty directory or rerun with --allow-nonempty-bootstrap-dir.' }; if (-not $archiveUrl) { if ($requestedRef -eq 'latest') { $latest = Invoke-RestMethod -Uri ($repoUrl + '/releases/latest') -Headers @{ 'User-Agent' = 'wgsextract-cli-installer' }; $requestedRef = $latest.tag_name; if (-not $requestedRef) { throw 'Could not determine latest release tag.' } }; $archiveUrl = $repoUrl + '/archive/' + $requestedRef + '.zip' }; Write-Host ('Downloading WGS Extract CLI from ' + $archiveUrl); Remove-Item -Recurse -Force $tmpDir -ErrorAction SilentlyContinue; New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null; $archive = Join-Path $tmpDir 'wgsextract-cli.zip'; if (Test-Path -LiteralPath $archiveUrl) { Copy-Item -LiteralPath $archiveUrl -Destination $archive -Force } else { Invoke-WebRequest -Uri $archiveUrl -OutFile $archive -Headers @{ 'User-Agent' = 'wgsextract-cli-installer' } }; $extractDir = Join-Path $tmpDir 'source'; Expand-Archive -LiteralPath $archive -DestinationPath $extractDir -Force; $sourceDir = Get-ChildItem -LiteralPath $extractDir -Directory | Select-Object -First 1; if (-not $sourceDir) { throw 'Downloaded archive did not contain a source directory.' }; Get-ChildItem -LiteralPath $sourceDir.FullName -Force | Where-Object { $_.Name -ne 'install_windows.bat' } | Copy-Item -Destination $installDir -Recurse -Force; if (-not (Test-Path (Join-Path $installDir 'pixi.toml'))) { throw 'Bootstrapped source did not include pixi.toml.' }; Remove-Item -Recurse -Force $tmpDir -ErrorAction SilentlyContinue; Write-Host ('Bootstrapped WGS Extract CLI into ' + $installDir)"
+if errorlevel 1 exit /b 1
+exit /b 0
+
 :usage
 echo WGS Extract CLI Windows installer, defaulting external tools to pacman.
 echo.
@@ -185,6 +232,8 @@ echo.
 echo Options:
 echo   --msys2-root PATH          MSYS2 install root. Defaults to %%MSYS2_ROOT%% or C:\msys64.
 echo   --skip-pixi-install       Do not run pixi install.
+echo   --skip-pixi-bootstrap     Do not install Pixi if it is missing.
+echo   --skip-msys2-install      Do not install MSYS2 if it is missing.
 echo   --skip-pacman-setup       Do not run scripts\setup_pacman_runtime.ps1.
 echo   --skip-package-install    Pass -SkipPackageInstall to the pacman setup helper.
 echo   --skip-bwa-build          Pass -SkipBwaBuild to the pacman setup helper.
@@ -192,8 +241,19 @@ echo   --skip-bwa-download       Build BWA locally instead of downloading the re
 echo   --bwa-binary-url URL      Download BWA from this ZIP URL or local ZIP path.
 echo   --force-bwa-build         Pass -ForceBwaBuild to the pacman setup helper.
 echo   --skip-checks             Do not run the final wgsextract pacman dependency check.
+echo   --allow-nonempty-bootstrap-dir
+echo                           Allow standalone source bootstrap into a non-empty directory.
 echo   --dry-run                 Print resolved paths and exit without changing anything.
 echo   --help                    Show this help.
+echo.
+echo Standalone bootstrap environment variables:
+echo   WGSEXTRACT_RELEASE_TAG    Release tag to download when this file is run alone. Defaults to latest.
+echo   WGSEXTRACT_REF            Git ref to download when this file is run alone.
+echo   WGSEXTRACT_ARCHIVE_URL    ZIP archive URL or local path to download/extract.
+echo   WGSEXTRACT_PIXI_INSTALL_URL    Pixi install.ps1 URL or local path.
+echo   WGSEXTRACT_PIXI_INSTALL_SHA256 Optional SHA-256 for the Pixi installer.
+echo   WGSEXTRACT_MSYS2_INSTALLER_URL MSYS2 installer URL or local path.
+echo   WGSEXTRACT_MSYS2_INSTALLER_SHA256 Optional SHA-256 for the MSYS2 installer.
 exit /b 0
 
 :missing_msys2_root

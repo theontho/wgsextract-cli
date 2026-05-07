@@ -106,9 +106,6 @@ def register(subparsers, base_parser):
 
 
 def cmd_fastp(args):
-    verify_dependencies(["fastp"])
-    log_dependency_info(["fastp"])
-
     if not args.r1:
         raise WGSExtractError("--r1 is required unless --genome resolves FASTQ inputs.")
 
@@ -119,6 +116,9 @@ def cmd_fastp(args):
         paths["--r2"] = args.r2
     if not verify_paths_exist(paths):
         return
+
+    verify_dependencies(["fastp"])
+    log_dependency_info(["fastp"])
 
     threads, _ = get_resource_defaults(args.threads, None)
     outdir = args.outdir if args.outdir else os.path.dirname(os.path.abspath(args.r1))
@@ -159,9 +159,6 @@ def cmd_fastp(args):
 
 
 def cmd_fastqc(args):
-    verify_dependencies(["fastqc"])
-    log_dependency_info(["fastqc"])
-
     if not args.input:
         logging.error(LOG_MESSAGES["input_required"])
         return
@@ -170,6 +167,9 @@ def cmd_fastqc(args):
 
     if not verify_paths_exist({"--input": args.input}):
         return
+
+    verify_dependencies(["fastqc"])
+    log_dependency_info(["fastqc"])
 
     threads, _ = get_resource_defaults(args.threads, None)
     outdir = (
@@ -188,8 +188,6 @@ def cmd_fastqc(args):
 
 
 def cmd_vcf_qc(args):
-    verify_dependencies(["bcftools"])
-    log_dependency_info(["bcftools"])
     input_file = _select_vcf_input(args)
     if not input_file:
         logging.error("--input is required.")
@@ -199,6 +197,9 @@ def cmd_vcf_qc(args):
 
     if not verify_paths_exist({"--input": input_file}):
         return
+
+    verify_dependencies(["bcftools"])
+    log_dependency_info(["bcftools"])
 
     logging.debug(f"Input file: {os.path.abspath(input_file)}")
 
