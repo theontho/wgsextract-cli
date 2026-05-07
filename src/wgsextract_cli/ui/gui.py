@@ -226,7 +226,28 @@ class WGSExtractGUI(ctk.CTk):
 
         # Protocol for closing
         self.protocol("WM_DELETE_WINDOW", self._on_closing)
+        self._focus_startup_window()
         logger.debug(f"[{time.time() - start_time:.3f}s] Initialization complete.")
+
+    def _focus_startup_window(self) -> None:
+        """Bring the GUI to the front once Tk has finished initial layout."""
+        self.after(50, self._raise_startup_window)
+
+    def _raise_startup_window(self) -> None:
+        try:
+            self.deiconify()
+            self.lift()
+            self.attributes("-topmost", True)
+            self.focus_force()
+            self.after(750, self._release_startup_topmost)
+        except tk.TclError as exc:
+            logger.debug("Could not force GUI window focus: %s", exc)
+
+    def _release_startup_topmost(self) -> None:
+        try:
+            self.attributes("-topmost", False)
+        except tk.TclError as exc:
+            logger.debug("Could not release GUI window topmost state: %s", exc)
 
     def _on_closing(self) -> None:
         """Handle the window closing event by cancelling all active processes."""
