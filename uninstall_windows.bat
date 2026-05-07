@@ -168,6 +168,8 @@ if "%REMOVE_PIXI%"=="1" (
     echo Keeping Pixi install.
 )
 
+if "%REMOVE_MSYS2%"=="1" call :validate_msys2_root "%WGSE_MSYS2_ROOT%"
+if errorlevel 1 exit /b 1
 if "%REMOVE_MSYS2%"=="1" (
     call :remove_dir "%WGSE_MSYS2_ROOT%"
     if errorlevel 1 exit /b 1
@@ -204,6 +206,17 @@ if not exist "%TARGET_DIR%" (
 )
 echo Removing: %TARGET_DIR%
 rmdir /s /q "%TARGET_DIR%"
+if errorlevel 1 exit /b 1
+exit /b 0
+
+:validate_msys2_root
+set "TARGET_MSYS2_ROOT=%~1"
+if "%TARGET_MSYS2_ROOT%"=="" (
+    echo ERROR: MSYS2 root is empty; refusing to remove it.
+    exit /b 1
+)
+set "WGSE_TARGET_MSYS2_ROOT=%TARGET_MSYS2_ROOT%"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$root = [System.IO.Path]::GetFullPath($env:WGSE_TARGET_MSYS2_ROOT).TrimEnd('\'); $driveRoot = [System.IO.Path]::GetPathRoot($root).TrimEnd('\'); $programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)'); $blocked = @($driveRoot, $env:SystemRoot, $env:USERPROFILE, $env:ProgramFiles, $programFilesX86); foreach ($item in $blocked) { if ($item -and $root -ieq ([System.IO.Path]::GetFullPath($item).TrimEnd('\'))) { throw ('Refusing to remove protected directory: ' + $root) } }; $pacman = Join-Path $root 'usr\bin\pacman.exe'; $bash = Join-Path $root 'usr\bin\bash.exe'; if (-not ((Test-Path -LiteralPath $pacman) -and (Test-Path -LiteralPath $bash))) { throw ('Refusing to remove MSYS2 root without expected usr\bin\pacman.exe and usr\bin\bash.exe markers: ' + $root) }"
 if errorlevel 1 exit /b 1
 exit /b 0
 

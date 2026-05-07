@@ -3,6 +3,8 @@ param(
     [string]$Msys2Root = $(if ($env:MSYS2_ROOT) { $env:MSYS2_ROOT } else { "C:\msys64" }),
     [string]$PixiInstallUrl = $(if ($env:WGSEXTRACT_PIXI_INSTALL_URL) { $env:WGSEXTRACT_PIXI_INSTALL_URL } else { "https://pixi.sh/install.ps1" }),
     [string]$Msys2InstallerUrl = $(if ($env:WGSEXTRACT_MSYS2_INSTALLER_URL) { $env:WGSEXTRACT_MSYS2_INSTALLER_URL } else { "https://github.com/msys2/msys2-installer/releases/latest/download/msys2-base-x86_64-latest.sfx.exe" }),
+    [string]$PixiInstallSha256 = $(if ($env:WGSEXTRACT_PIXI_INSTALL_SHA256) { $env:WGSEXTRACT_PIXI_INSTALL_SHA256 } else { "" }),
+    [string]$Msys2InstallerSha256 = $(if ($env:WGSEXTRACT_MSYS2_INSTALLER_SHA256) { $env:WGSEXTRACT_MSYS2_INSTALLER_SHA256 } else { "" }),
     [switch]$SkipPixiInstall,
     [switch]$SkipMsys2Install
 )
@@ -44,6 +46,27 @@ function Add-PathForCurrentProcess {
     }
 }
 
+function Assert-FileSha256 {
+    param(
+        [string]$Path,
+        [string]$ExpectedSha256,
+        [string]$Label
+    )
+
+    if (-not $ExpectedSha256) {
+        return
+    }
+    if ($ExpectedSha256 -notmatch '^[0-9a-fA-F]{64}$') {
+        throw "$Label SHA-256 must be a 64-character hexadecimal digest."
+    }
+
+    $actual = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+    if ($actual -ine $ExpectedSha256) {
+        throw "$Label SHA-256 mismatch. Expected $ExpectedSha256 but got $actual."
+    }
+    Write-Step "$Label SHA-256 verified."
+}
+
 function Ensure-Pixi {
     if ($SkipPixiInstall) {
         Write-Step "Skipping Pixi bootstrap."
@@ -61,6 +84,7 @@ function Ensure-Pixi {
     $installScript = Join-Path $env:TEMP ("wgsextract-pixi-install-{0}.ps1" -f ([guid]::NewGuid()))
     try {
         Copy-UrlOrFile -Source $PixiInstallUrl -Destination $installScript
+        Assert-FileSha256 -Path $installScript -ExpectedSha256 $PixiInstallSha256 -Label "Pixi installer"
         powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installScript
         Add-PathForCurrentProcess (Join-Path $env:USERPROFILE ".pixi\bin")
         $pixi = Get-Command pixi -ErrorAction SilentlyContinue
@@ -90,12 +114,16 @@ function Ensure-Msys2 {
 
     Write-Step "MSYS2 was not found at $resolvedRoot; installing MSYS2..."
     $rootParent = Split-Path -Parent $resolvedRoot
+    if (-not $rootParent) {
+        throw "MSYS2 root must include a parent directory: $resolvedRoot"
+    }
     if ($rootParent -and -not (Test-Path -LiteralPath $rootParent)) {
         New-Item -ItemType Directory -Path $rootParent -Force | Out-Null
     }
     $installer = Join-Path $env:TEMP ("wgsextract-msys2-install-{0}.exe" -f ([guid]::NewGuid()))
     try {
         Copy-UrlOrFile -Source $Msys2InstallerUrl -Destination $installer
+        Assert-FileSha256 -Path $installer -ExpectedSha256 $Msys2InstallerSha256 -Label "MSYS2 installer"
         $isSelfExtractingArchive = $Msys2InstallerUrl -like "*.sfx.exe"
         if (-not $isSelfExtractingArchive -and (Test-Path -LiteralPath $Msys2InstallerUrl)) {
             $isSelfExtractingArchive = ([System.IO.Path]::GetFileName($Msys2InstallerUrl) -like "*.sfx.exe")
@@ -103,9 +131,10 @@ function Ensure-Msys2 {
 
         if ($isSelfExtractingArchive) {
             $extractParent = $rootParent
+            $outputArg = '-o"{0}"' -f $extractParent
             $process = Start-Process -FilePath $installer -ArgumentList @(
                 "-y",
-                "-o$extractParent"
+                $outputArg
             ) -Wait -PassThru
             $extractedRoot = Join-Path $extractParent "msys64"
             if ($process.ExitCode -eq 0 -and $extractedRoot -ne $resolvedRoot -and (Test-Path -LiteralPath $extractedRoot)) {

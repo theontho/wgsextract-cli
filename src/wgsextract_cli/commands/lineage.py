@@ -138,7 +138,7 @@ def cmd_ydna(args):
         logging.error(LOG_MESSAGES["input_required"])
         return
     if not verify_paths_exist({"--input": args.input}):
-        raise WGSExtractError("Input path missing.")
+        return
 
     # Check dependencies only after cheap input validation so invalid invocations fail fast.
     if not args.yleaf_path:
@@ -349,7 +349,7 @@ def cmd_mtdna(args):
         logging.error(LOG_MESSAGES["input_required"])
         return
     if not verify_paths_exist({"--input": args.input}):
-        raise WGSExtractError("Input path missing.")
+        return
 
     # Check dependencies only after cheap input validation so invalid invocations fail fast.
     if not args.haplogrep_path:

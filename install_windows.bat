@@ -20,6 +20,7 @@ set "SKIP_PIXI_BOOTSTRAP=0"
 set "SKIP_MSYS2_INSTALL=0"
 set "SKIP_CHECKS=0"
 set "DRY_RUN=0"
+set "ALLOW_NONEMPTY_BOOTSTRAP_DIR=0"
 
 :parse_args
 if "%~1"=="" goto args_done
@@ -81,6 +82,11 @@ if /I "!ARG!"=="--force-bwa-build" (
 )
 if /I "!ARG!"=="--skip-checks" (
     set "SKIP_CHECKS=1"
+    shift
+    goto parse_args
+)
+if /I "!ARG!"=="--allow-nonempty-bootstrap-dir" (
+    set "ALLOW_NONEMPTY_BOOTSTRAP_DIR=1"
     shift
     goto parse_args
 )
@@ -211,7 +217,8 @@ if not defined WGSE_REQUESTED_REF set "WGSE_REQUESTED_REF=latest"
 set "WGSE_BOOTSTRAP_ARCHIVE_URL=%WGSEXTRACT_ARCHIVE_URL%"
 set "WGSE_BOOTSTRAP_DIR=%SCRIPT_DIR%"
 set "WGSE_BOOTSTRAP_TMP=%SCRIPT_DIR%tmp\bootstrap"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; $repoUrl = $env:WGSE_REPO_URL.TrimEnd('/'); $requestedRef = $env:WGSE_REQUESTED_REF; $archiveUrl = $env:WGSE_BOOTSTRAP_ARCHIVE_URL; $installDir = $env:WGSE_BOOTSTRAP_DIR; $tmpDir = $env:WGSE_BOOTSTRAP_TMP; if (-not $archiveUrl) { if ($requestedRef -eq 'latest') { $latest = Invoke-RestMethod -Uri ($repoUrl + '/releases/latest') -Headers @{ 'User-Agent' = 'wgsextract-cli-installer' }; $requestedRef = $latest.tag_name; if (-not $requestedRef) { throw 'Could not determine latest release tag.' } }; $archiveUrl = $repoUrl + '/archive/' + $requestedRef + '.zip' }; Write-Host ('Downloading WGS Extract CLI from ' + $archiveUrl); Remove-Item -Recurse -Force $tmpDir -ErrorAction SilentlyContinue; New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null; $archive = Join-Path $tmpDir 'wgsextract-cli.zip'; if (Test-Path -LiteralPath $archiveUrl) { Copy-Item -LiteralPath $archiveUrl -Destination $archive -Force } else { Invoke-WebRequest -Uri $archiveUrl -OutFile $archive -Headers @{ 'User-Agent' = 'wgsextract-cli-installer' } }; $extractDir = Join-Path $tmpDir 'source'; Expand-Archive -LiteralPath $archive -DestinationPath $extractDir -Force; $sourceDir = Get-ChildItem -LiteralPath $extractDir -Directory | Select-Object -First 1; if (-not $sourceDir) { throw 'Downloaded archive did not contain a source directory.' }; Get-ChildItem -LiteralPath $sourceDir.FullName -Force | Where-Object { $_.Name -ne 'install_windows.bat' } | Copy-Item -Destination $installDir -Recurse -Force; if (-not (Test-Path (Join-Path $installDir 'pixi.toml'))) { throw 'Bootstrapped source did not include pixi.toml.' }; Remove-Item -Recurse -Force $tmpDir -ErrorAction SilentlyContinue; Write-Host ('Bootstrapped WGS Extract CLI into ' + $installDir)"
+set "WGSE_ALLOW_NONEMPTY_BOOTSTRAP_DIR=%ALLOW_NONEMPTY_BOOTSTRAP_DIR%"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; $repoUrl = $env:WGSE_REPO_URL.TrimEnd('/'); $requestedRef = $env:WGSE_REQUESTED_REF; $archiveUrl = $env:WGSE_BOOTSTRAP_ARCHIVE_URL; $installDir = $env:WGSE_BOOTSTRAP_DIR; $tmpDir = $env:WGSE_BOOTSTRAP_TMP; $existing = @(Get-ChildItem -LiteralPath $installDir -Force | Where-Object { $_.Name -notin @('install_windows.bat', 'tmp') }); if ($existing.Count -gt 0 -and $env:WGSE_ALLOW_NONEMPTY_BOOTSTRAP_DIR -ne '1') { throw 'Install directory is not empty. Move install_windows.bat to an empty directory or rerun with --allow-nonempty-bootstrap-dir.' }; if (-not $archiveUrl) { if ($requestedRef -eq 'latest') { $latest = Invoke-RestMethod -Uri ($repoUrl + '/releases/latest') -Headers @{ 'User-Agent' = 'wgsextract-cli-installer' }; $requestedRef = $latest.tag_name; if (-not $requestedRef) { throw 'Could not determine latest release tag.' } }; $archiveUrl = $repoUrl + '/archive/' + $requestedRef + '.zip' }; Write-Host ('Downloading WGS Extract CLI from ' + $archiveUrl); Remove-Item -Recurse -Force $tmpDir -ErrorAction SilentlyContinue; New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null; $archive = Join-Path $tmpDir 'wgsextract-cli.zip'; if (Test-Path -LiteralPath $archiveUrl) { Copy-Item -LiteralPath $archiveUrl -Destination $archive -Force } else { Invoke-WebRequest -Uri $archiveUrl -OutFile $archive -Headers @{ 'User-Agent' = 'wgsextract-cli-installer' } }; $extractDir = Join-Path $tmpDir 'source'; Expand-Archive -LiteralPath $archive -DestinationPath $extractDir -Force; $sourceDir = Get-ChildItem -LiteralPath $extractDir -Directory | Select-Object -First 1; if (-not $sourceDir) { throw 'Downloaded archive did not contain a source directory.' }; Get-ChildItem -LiteralPath $sourceDir.FullName -Force | Where-Object { $_.Name -ne 'install_windows.bat' } | Copy-Item -Destination $installDir -Recurse -Force; if (-not (Test-Path (Join-Path $installDir 'pixi.toml'))) { throw 'Bootstrapped source did not include pixi.toml.' }; Remove-Item -Recurse -Force $tmpDir -ErrorAction SilentlyContinue; Write-Host ('Bootstrapped WGS Extract CLI into ' + $installDir)"
 if errorlevel 1 exit /b 1
 exit /b 0
 
@@ -234,6 +241,8 @@ echo   --skip-bwa-download       Build BWA locally instead of downloading the re
 echo   --bwa-binary-url URL      Download BWA from this ZIP URL or local ZIP path.
 echo   --force-bwa-build         Pass -ForceBwaBuild to the pacman setup helper.
 echo   --skip-checks             Do not run the final wgsextract pacman dependency check.
+echo   --allow-nonempty-bootstrap-dir
+echo                           Allow standalone source bootstrap into a non-empty directory.
 echo   --dry-run                 Print resolved paths and exit without changing anything.
 echo   --help                    Show this help.
 echo.
@@ -242,7 +251,9 @@ echo   WGSEXTRACT_RELEASE_TAG    Release tag to download when this file is run a
 echo   WGSEXTRACT_REF            Git ref to download when this file is run alone.
 echo   WGSEXTRACT_ARCHIVE_URL    ZIP archive URL or local path to download/extract.
 echo   WGSEXTRACT_PIXI_INSTALL_URL    Pixi install.ps1 URL or local path.
+echo   WGSEXTRACT_PIXI_INSTALL_SHA256 Optional SHA-256 for the Pixi installer.
 echo   WGSEXTRACT_MSYS2_INSTALLER_URL MSYS2 installer URL or local path.
+echo   WGSEXTRACT_MSYS2_INSTALLER_SHA256 Optional SHA-256 for the MSYS2 installer.
 exit /b 0
 
 :missing_msys2_root

@@ -25,6 +25,10 @@ install_windows.bat
 
 This bootstraps Pixi and MSYS2 if needed, installs the Pixi project environment, runs the pacman runtime setup helper, and persists `tool_runtime = "pacman"` plus the UCRT64 bin path in the WGSExtract config file. The helper downloads the prebuilt WGSExtract BWA release asset when available, so normal installs do not need a local C compiler.
 
+If you run a standalone copy of `install_windows.bat` without the rest of the repository, place it in an empty directory. The source bootstrap refuses to copy into a non-empty directory unless you explicitly pass `--allow-nonempty-bootstrap-dir`.
+
+For locked-down automation, you can override prerequisite download locations with `WGSEXTRACT_PIXI_INSTALL_URL` and `WGSEXTRACT_MSYS2_INSTALLER_URL`. Set `WGSEXTRACT_PIXI_INSTALL_SHA256` or `WGSEXTRACT_MSYS2_INSTALLER_SHA256` to a 64-character SHA-256 digest to verify those downloaded installers before they run.
+
 For a non-default MSYS2 location:
 
 ```bat
