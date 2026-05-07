@@ -25,7 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/instal
 
 The command downloads the small bootstrap script from `main`, but the app payload is not installed from `main`. The installer resolves GitHub's latest published release, downloads that release tag's source archive, runs `pixi install`, and writes launchers inside the install directory. This keeps normal installs on tested release builds while allowing the install command itself to improve over time.
 
-By default, a downloaded `install.sh` creates `wgsextract-cli/` next to itself; when run through `curl | sh`, it creates `wgsextract-cli/` in the current directory. The app lives in `wgsextract-cli/app/`, the CLI launcher lives at `wgsextract-cli/wgsextract`, Pixi files live under `wgsextract-cli/.pixi/`, and installer temporary files live under `wgsextract-cli/app/tmp/`. On macOS, the installer opens the install directory in Finder when it finishes. If the installer installed Pixi for you and you no longer need it, uninstall Pixi separately.
+By default, a downloaded `install.sh` creates `wgsextract-cli/` next to itself; when run through `curl | sh`, it creates `wgsextract-cli/` in the current directory. The app lives in `wgsextract-cli/app/`, the CLI launcher lives at `wgsextract-cli/wgsextract`, Pixi files live under `wgsextract-cli/.pixi/`, and installer temporary files live under `wgsextract-cli/app/tmp/`. On macOS, the installer opens the install directory in Finder when it finishes. Remove the app with `wgsextract-cli/uninstall.sh`; interactive uninstalls ask whether to remove Pixi from `~/.pixi` too.
 
 After install, the default launchers are:
 
@@ -34,6 +34,7 @@ After install, the default launchers are:
 | `wgsextract-cli/wgsextract` | CLI launcher |
 | `wgsextract-cli/WGS Extract GUI.command` | macOS Finder double-click launcher for the desktop GUI |
 | `wgsextract-cli/start-wgsextract-gui.sh` | Linux shell launcher for the desktop GUI |
+| `wgsextract-cli/uninstall.sh` | macOS/Linux uninstaller |
 
 ### Installer options
 
@@ -52,6 +53,14 @@ Set these environment variables before running the installer to customize it:
 Leave `WGSEXTRACT_BIN_DIR`, `WGSEXTRACT_PIXI_CACHE_DIR`, and `WGSEXTRACT_PIXI_ENV_DIR` unset for clean one-directory uninstall behavior. Setting any of them outside `WGSEXTRACT_INSTALL_DIR` intentionally leaves that launcher, cache, or environment outside the install tree.
 
 For reproducible installs, set `WGSEXTRACT_RELEASE_TAG=vX.Y.Z` before running the installer. For development testing, set `WGSEXTRACT_REF=main` or `WGSEXTRACT_ARCHIVE_URL=<url>` to bypass latest-release resolution.
+
+### macOS/Linux uninstall
+
+```bash
+./wgsextract-cli/uninstall.sh --yes
+```
+
+The uninstaller removes the install directory and the default launcher, Pixi environments, and Pixi cache under that directory. It keeps user configuration by default; add `--remove-config` to remove `config.toml` too. Interactive runs ask whether to remove Pixi from `~/.pixi`; `--yes` keeps Pixi unless you also pass `--remove-pixi`. Use `--keep-pixi` to skip the Pixi prompt. If you installed with custom `WGSEXTRACT_BIN_DIR`, `WGSEXTRACT_PIXI_CACHE_DIR`, or `WGSEXTRACT_PIXI_ENV_DIR` values outside the install directory, pass the same environment variables or matching `--bin-dir`, `--pixi-cache-dir`, and `--pixi-env-dir` options to remove those external paths.
 
 ### Release assets and checksums
 

@@ -93,5 +93,8 @@ sh "$repo_root/install.sh"
 grep -F "/releases/latest" "$curl_log" >/dev/null
 grep -F "/archive/$release_tag.tar.gz" "$curl_log" >/dev/null
 test -x "$install_dir/wgsextract"
+test -x "$install_dir/uninstall.sh"
+grep -F "# WGS Extract CLI installer launcher" "$install_dir/wgsextract" >/dev/null
+sh -n "$install_dir/uninstall.sh"
 "$install_dir/wgsextract" --help >/dev/null
 test -d "$install_dir/app/src/wgsextract_cli"
