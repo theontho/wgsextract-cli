@@ -184,7 +184,17 @@ function Resolve-BwaBinarySha256 {
         return ""
     }
 
-    $githubSha256 = Resolve-GitHubReleaseAssetSha256 -BinaryUrl $BinaryUrl
+    try {
+        $githubSha256 = Resolve-GitHubReleaseAssetSha256 -BinaryUrl $BinaryUrl
+    }
+    catch {
+        if ($_.Exception.Message -notlike "Could not retrieve GitHub release metadata from *") {
+            throw
+        }
+        Write-Warning "Could not resolve GitHub release asset checksum for ${BinaryUrl}: $($_.Exception.Message). Continuing without SHA-256 verification."
+        return ""
+    }
+
     if ($githubSha256) {
         return $githubSha256
     }

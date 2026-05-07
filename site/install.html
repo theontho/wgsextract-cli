@@ -212,6 +212,7 @@
 <pre><code><span class="cmd">./wgsextract-cli/wgsextract ref bootstrap</span>
 <span class="cmd">./wgsextract-cli/wgsextract ref library --list</span>
 <span class="cmd">./wgsextract-cli/wgsextract ref library --install hs38</span></code></pre>
+<p>GitHub-hosted reference downloads are checked against <a class="term-link" href="https://github.com/theontho/wgsextract-cli">GitHub</a> Releases SHA-256 asset metadata before <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract extracts or processes them. Set <code>GITHUB_TOKEN</code> for authenticated API lookups. If the digest lookup is unavailable, <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract warns and continues; if <a class="term-link" href="https://github.com/theontho/wgsextract-cli">GitHub</a> metadata is fetched but lacks valid SHA-256 asset metadata, or if the download does not match the digest, the download fails.</p>
 </article>
 <article class="card">
 <h3>Index and verify</h3>
