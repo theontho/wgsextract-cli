@@ -66,8 +66,8 @@ curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/instal
 # Launch the desktop GUI on Linux:
 ./wgsextract-cli/start-wgsextract-gui.sh
 
-# Uninstall the app if needed. Pixi itself is left installed.
-./wgsextract-cli/uninstall.sh --yes
+# Uninstall the app if needed. Interactive runs ask whether to remove Pixi too.
+./wgsextract-cli/uninstall.sh
 ```
 :::
 :::

@@ -74,12 +74,15 @@ Options:
   --pixi-env-dir PATH       Pixi environment directory used by the install.
   --keep-pixi-cache         Leave the Pixi cache directory in place.
   --keep-pixi-envs          Leave the Pixi environment directory in place.
+  --remove-pixi             Also remove Pixi from ~/.pixi without prompting.
+  --keep-pixi               Do not ask about removing Pixi.
   --remove-config           Also remove WGS Extract config.toml.
   --dry-run                 Print resolved paths and exit without changing anything.
   --help, -h                Show this help.
 
-The uninstaller removes the WGS Extract install tree and launchers. It does not
-uninstall Pixi itself because Pixi may be shared with other projects.
+The uninstaller removes the WGS Extract install tree and launchers. Interactive
+runs ask whether to remove Pixi from ~/.pixi too; noninteractive --yes runs keep
+Pixi unless --remove-pixi is also set.
 EOF
 }
 
@@ -137,6 +140,21 @@ remove_dir() {
     fi
     log "Removing directory: $remove_dir_target"
     rm -rf "$remove_dir_target"
+}
+
+remove_pixi_home() {
+    if [ ! -e "$USER_PIXI_HOME" ]; then
+        log "Pixi was not found at: $USER_PIXI_HOME"
+        return
+    fi
+    if [ "$USER_PIXI_HOME" != "$HOME/.pixi" ]; then
+        fail "Refusing to remove unexpected Pixi home: $USER_PIXI_HOME"
+    fi
+    if has_symlink_component "$USER_PIXI_HOME"; then
+        fail "Refusing to remove Pixi through a symlink: $USER_PIXI_HOME"
+    fi
+    log "Removing Pixi directory: $USER_PIXI_HOME"
+    rm -rf "$USER_PIXI_HOME" || fail "Failed to remove Pixi directory: $USER_PIXI_HOME"
 }
 
 remove_empty_dir() {
@@ -220,15 +238,112 @@ config_paths() {
     esac
 }
 
+remove_pixi_shell_profile_entries() {
+    for profile_path in "$HOME/.profile" "$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.config/fish/config.fish"; do
+        if [ ! -f "$profile_path" ]; then
+            continue
+        fi
+        if [ -L "$profile_path" ]; then
+            fail "Refusing to edit symlinked shell profile: $profile_path"
+        fi
+        profile_tmp="$profile_path.wgsextract-uninstall.$$"
+        awk '
+            /^# >>> pixi initialize >>>/ {
+                in_pixi_block = 1
+                next
+            }
+            /^# <<< pixi initialize <<</ && in_pixi_block {
+                in_pixi_block = 0
+                next
+            }
+            in_pixi_block {
+                next
+            }
+            {
+                path_line = $0
+                comment_start = index(path_line, "#")
+                if (comment_start > 0) {
+                    path_line = substr(path_line, 1, comment_start - 1)
+                }
+            }
+            index(path_line, ".pixi/bin") && (path_line ~ /^[[:space:]]*(export[[:space:]]+)?PATH=/ || path_line ~ /^[[:space:]]*set[[:space:]]+(-[-[:alnum:]]+[[:space:]]+)*PATH[[:space:]]/) {
+                next
+            }
+            {
+                print
+            }
+            END {
+                if (in_pixi_block) {
+                    exit 2
+                }
+            }
+        ' "$profile_path" > "$profile_tmp" || {
+            rm -f "$profile_tmp"
+            fail "Could not safely update shell profile: $profile_path"
+        }
+        if cmp -s "$profile_path" "$profile_tmp"; then
+            rm -f "$profile_tmp"
+        else
+            profile_backup="$profile_path.wgsextract-uninstall-backup.$(date +%Y%m%d%H%M%S).$$"
+            cp -p "$profile_path" "$profile_backup" || {
+                rm -f "$profile_tmp"
+                fail "Could not back up shell profile before editing: $profile_path"
+            }
+            mv "$profile_tmp" "$profile_path" || {
+                rm -f "$profile_tmp"
+                fail "Could not update shell profile: $profile_path"
+            }
+            log "Removed Pixi PATH entries from: $profile_path"
+            log "Backup saved as: $profile_backup"
+        fi
+    done
+}
+
+select_pixi_removal() {
+    REMOVE_PIXI_SELECTED=0
+    if [ "$PIXI_REMOVAL" = "keep" ]; then
+        return
+    fi
+    if [ "$PIXI_REMOVAL" = "remove" ]; then
+        REMOVE_PIXI_SELECTED=1
+        return
+    fi
+    if [ ! -x "$USER_PIXI_HOME/bin/pixi" ]; then
+        log "Pixi was not found at: $USER_PIXI_HOME"
+        return
+    fi
+    if [ "$ASSUME_YES" = "1" ]; then
+        log "Keeping Pixi. Pass --remove-pixi to remove it during a --yes uninstall."
+        return
+    fi
+
+    log ""
+    log "Pixi is installed at:"
+    log "  $USER_PIXI_HOME"
+    log "Pixi may be shared with other projects."
+    printf 'Remove Pixi too? [y/N] '
+    read -r REMOVE_PIXI_CONFIRM
+    case "$REMOVE_PIXI_CONFIRM" in
+        y|Y)
+            REMOVE_PIXI_SELECTED=1
+            ;;
+        *)
+            log "Keeping Pixi."
+            ;;
+    esac
+}
+
 ASSUME_YES=0
 DRY_RUN=0
 KEEP_PIXI_CACHE=0
 KEEP_PIXI_ENVS=0
 REMOVE_CONFIG=0
+PIXI_REMOVAL=ask
 INSTALL_DIR_RAW="${WGSEXTRACT_INSTALL_DIR:-$(default_install_dir)}"
 BIN_DIR_RAW="${WGSEXTRACT_BIN_DIR:-}"
 PIXI_CACHE_DIR_RAW="${WGSEXTRACT_PIXI_CACHE_DIR:-}"
 PIXI_ENV_DIR_RAW="${WGSEXTRACT_PIXI_ENV_DIR:-}"
+REMOVE_PIXI_SELECTED=0
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -247,6 +362,12 @@ while [ "$#" -gt 0 ]; do
             ;;
         --keep-pixi-envs)
             KEEP_PIXI_ENVS=1
+            ;;
+        --remove-pixi)
+            PIXI_REMOVAL=remove
+            ;;
+        --keep-pixi)
+            PIXI_REMOVAL=keep
             ;;
         --remove-config)
             REMOVE_CONFIG=1
@@ -290,6 +411,10 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 
+if [ -z "${HOME:-}" ] || [ "$HOME" = "/" ]; then
+    fail "HOME environment variable is not set or is unsafe."
+fi
+
 INSTALL_DIR="$(absolute_path "$INSTALL_DIR_RAW")"
 DEFAULT_BIN_DIR="$INSTALL_DIR"
 DEFAULT_PIXI_CACHE_DIR="$INSTALL_DIR/.pixi/cache"
@@ -298,6 +423,7 @@ BIN_DIR="$(absolute_path "${BIN_DIR_RAW:-$DEFAULT_BIN_DIR}")"
 LAUNCHER="$BIN_DIR/wgsextract"
 PIXI_CACHE_DIR="$(absolute_path "${PIXI_CACHE_DIR_RAW:-$DEFAULT_PIXI_CACHE_DIR}")"
 PIXI_ENV_DIR="$(absolute_path "${PIXI_ENV_DIR_RAW:-$DEFAULT_PIXI_ENV_DIR}")"
+USER_PIXI_HOME="$HOME/.pixi"
 
 validate_removal_path "$INSTALL_DIR"
 
@@ -306,13 +432,25 @@ log "Install directory: $INSTALL_DIR"
 log "Launcher:          $LAUNCHER"
 log "Pixi envs:         $PIXI_ENV_DIR"
 log "Pixi cache:        $PIXI_CACHE_DIR"
+log "Pixi home:         $USER_PIXI_HOME"
 if [ "$REMOVE_CONFIG" = "1" ]; then
     log "Config removal:    enabled"
 else
     log "Config removal:    disabled"
 fi
+case "$PIXI_REMOVAL" in
+    remove)
+        log "Pixi removal:      enabled"
+        ;;
+    keep)
+        log "Pixi removal:      disabled"
+        ;;
+    *)
+        log "Pixi removal:      ask"
+        ;;
+esac
 log ""
-log "This removes the WGS Extract CLI install. It does not uninstall Pixi."
+log "This removes the WGS Extract CLI install."
 log ""
 
 if [ "$DRY_RUN" = "1" ]; then
@@ -335,6 +473,7 @@ if [ "$ASSUME_YES" = "0" ]; then
     esac
 fi
 
+select_pixi_removal
 validate_install_marker
 
 if is_within_or_same "$LAUNCHER" "$INSTALL_DIR"; then
@@ -373,6 +512,13 @@ if [ "$REMOVE_CONFIG" = "1" ]; then
     done
 else
     log "Keeping WGS Extract config.toml."
+fi
+
+if [ "$REMOVE_PIXI_SELECTED" = "1" ]; then
+    remove_pixi_shell_profile_entries
+    remove_pixi_home
+else
+    log "Keeping Pixi."
 fi
 
 log ""

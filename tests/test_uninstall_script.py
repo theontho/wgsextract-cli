@@ -23,7 +23,10 @@ def make_fake_install(root: Path) -> Path:
 
 
 def run_uninstall(
-    script: Path, *args: str, env: dict[str, str] | None = None
+    script: Path,
+    *args: str,
+    env: dict[str, str] | None = None,
+    input_text: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     run_env = os.environ.copy()
     if env:
@@ -34,7 +37,32 @@ def run_uninstall(
         env=run_env,
         text=True,
         capture_output=True,
+        input=input_text,
     )
+
+
+def make_fake_pixi_home(home: Path) -> Path:
+    pixi_home = home / ".pixi"
+    pixi_bin = pixi_home / "bin"
+    pixi_bin.mkdir(parents=True)
+    pixi = pixi_bin / "pixi"
+    pixi.write_text("#!/bin/sh\necho pixi 0.0.0\n", encoding="utf-8")
+    pixi.chmod(0o755)
+    (home / ".zshrc").write_text(
+        'export OTHER=1\nexport PATH="$HOME/.pixi/bin:$PATH"\n',
+        encoding="utf-8",
+    )
+    fish_config = home / ".config" / "fish" / "config.fish"
+    fish_config.parent.mkdir(parents=True)
+    fish_config.write_text(
+        "set -x PIXI_BIN_PATH $HOME/.pixi/bin\nset -gx PATH $HOME/.pixi/bin $PATH\n",
+        encoding="utf-8",
+    )
+    return pixi_home
+
+
+def assert_profile_backup_exists(home: Path) -> None:
+    assert list(home.glob(".zshrc.wgsextract-uninstall-backup.*"))
 
 
 def test_uninstall_removes_default_install_tree(tmp_path: Path) -> None:
@@ -44,6 +72,176 @@ def test_uninstall_removes_default_install_tree(tmp_path: Path) -> None:
 
     assert "Uninstall complete." in result.stdout
     assert not install_dir.exists()
+
+
+def test_uninstall_yes_keeps_pixi_by_default(tmp_path: Path) -> None:
+    install_dir = make_fake_install(tmp_path)
+    home = tmp_path / "home"
+    pixi_home = make_fake_pixi_home(home)
+
+    result = run_uninstall(
+        install_dir / "uninstall.sh",
+        "--yes",
+        env={"HOME": str(home)},
+    )
+
+    assert "Pass --remove-pixi" in result.stdout
+    assert not install_dir.exists()
+    assert (pixi_home / "bin" / "pixi").exists()
+    assert ".pixi/bin" in (home / ".zshrc").read_text(encoding="utf-8")
+
+
+def test_uninstall_interactive_can_remove_pixi(tmp_path: Path) -> None:
+    install_dir = make_fake_install(tmp_path)
+    home = tmp_path / "home"
+    pixi_home = make_fake_pixi_home(home)
+
+    result = run_uninstall(
+        install_dir / "uninstall.sh",
+        env={"HOME": str(home)},
+        input_text="y\ny\n",
+    )
+
+    assert "Remove Pixi too?" in result.stdout
+    assert not install_dir.exists()
+    assert not pixi_home.exists()
+    zshrc = (home / ".zshrc").read_text(encoding="utf-8")
+    assert "export OTHER=1" in zshrc
+    assert 'export PATH="$HOME/.pixi/bin:$PATH"' not in zshrc
+    fish_config = (home / ".config" / "fish" / "config.fish").read_text(
+        encoding="utf-8"
+    )
+    assert "set -x PIXI_BIN_PATH $HOME/.pixi/bin" in fish_config
+    assert "set -gx PATH $HOME/.pixi/bin $PATH" not in fish_config
+    assert_profile_backup_exists(home)
+
+
+def test_uninstall_yes_remove_pixi_removes_pixi(tmp_path: Path) -> None:
+    install_dir = make_fake_install(tmp_path)
+    home = tmp_path / "home"
+    pixi_home = make_fake_pixi_home(home)
+
+    result = run_uninstall(
+        install_dir / "uninstall.sh",
+        "--yes",
+        "--remove-pixi",
+        env={"HOME": str(home)},
+    )
+
+    assert "Removing Pixi directory" in result.stdout
+    assert not install_dir.exists()
+    assert not pixi_home.exists()
+    assert 'export PATH="$HOME/.pixi/bin:$PATH"' not in (home / ".zshrc").read_text(
+        encoding="utf-8"
+    )
+    assert_profile_backup_exists(home)
+
+
+def test_uninstall_pixi_profile_cleanup_preserves_non_path_mentions(
+    tmp_path: Path,
+) -> None:
+    install_dir = make_fake_install(tmp_path)
+    home = tmp_path / "home"
+    pixi_home = make_fake_pixi_home(home)
+    (home / ".zshrc").write_text(
+        "\n".join(
+            [
+                "# TODO: check whether ~/.pixi/bin is needed later",
+                'alias pixi-note="echo ~/.pixi/bin/pixi"',
+                'export PATH="/usr/bin:$PATH"  # TODO: maybe add ~/.pixi/bin later',
+                'export PATH="$HOME/.pixi/bin:$PATH"',
+                "export OTHER=1",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    run_uninstall(
+        install_dir / "uninstall.sh",
+        "--yes",
+        "--remove-pixi",
+        env={"HOME": str(home)},
+    )
+
+    zshrc = (home / ".zshrc").read_text(encoding="utf-8")
+    assert not pixi_home.exists()
+    assert "# TODO: check whether ~/.pixi/bin is needed later" in zshrc
+    assert 'alias pixi-note="echo ~/.pixi/bin/pixi"' in zshrc
+    assert 'export PATH="/usr/bin:$PATH"  # TODO: maybe add ~/.pixi/bin later' in zshrc
+    assert 'export PATH="$HOME/.pixi/bin:$PATH"' not in zshrc
+    assert "export OTHER=1" in zshrc
+    assert_profile_backup_exists(home)
+
+
+def test_uninstall_remove_pixi_handles_missing_pixi_executable(
+    tmp_path: Path,
+) -> None:
+    install_dir = make_fake_install(tmp_path)
+    home = tmp_path / "home"
+    pixi_home = make_fake_pixi_home(home)
+    (pixi_home / "bin" / "pixi").unlink()
+
+    result = run_uninstall(
+        install_dir / "uninstall.sh",
+        "--yes",
+        "--remove-pixi",
+        env={"HOME": str(home)},
+    )
+
+    assert "Removing Pixi directory" in result.stdout
+    assert not install_dir.exists()
+    assert not pixi_home.exists()
+
+
+def test_uninstall_remove_pixi_refuses_symlinked_shell_profile(
+    tmp_path: Path,
+) -> None:
+    install_dir = make_fake_install(tmp_path)
+    home = tmp_path / "home"
+    pixi_home = make_fake_pixi_home(home)
+    dotfiles_dir = home / "dotfiles"
+    dotfiles_dir.mkdir()
+    zshrc_target = dotfiles_dir / "zshrc"
+    zshrc_target.write_text(
+        'export PATH="$HOME/.pixi/bin:$PATH"\n',
+        encoding="utf-8",
+    )
+    (home / ".zshrc").unlink()
+    (home / ".zshrc").symlink_to(zshrc_target)
+
+    result = subprocess.run(
+        ["/bin/sh", str(install_dir / "uninstall.sh"), "--yes", "--remove-pixi"],
+        env={
+            **os.environ,
+            "HOME": str(home),
+        },
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode != 0
+    assert "Refusing to edit symlinked shell profile" in result.stderr
+    assert (home / ".zshrc").is_symlink()
+    assert pixi_home.exists()
+
+
+def test_uninstall_refuses_empty_home(tmp_path: Path) -> None:
+    install_dir = make_fake_install(tmp_path)
+
+    result = subprocess.run(
+        ["/bin/sh", str(install_dir / "uninstall.sh"), "--yes"],
+        env={
+            **os.environ,
+            "HOME": "",
+        },
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode != 0
+    assert "HOME environment variable is not set or is unsafe" in result.stderr
+    assert install_dir.exists()
 
 
 def test_uninstall_dry_run_keeps_install_tree(tmp_path: Path) -> None:
