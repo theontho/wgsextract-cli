@@ -57,7 +57,7 @@ For reproducible installs, set `WGSEXTRACT_RELEASE_TAG=vX.Y.Z` before running th
 
 Large reference genome bundles are versioned separately from the application release. The current reference bootstrap and benchmark dataset URLs intentionally point to the existing GitHub release assets that host those files, so routine app releases do not require reuploading multi-gigabyte reference bundles.
 
-Windows native installs can use a prebuilt MSYS2 UCRT64 BWA ZIP from GitHub Releases. For GitHub release asset URLs, `scripts/setup_pacman_runtime.ps1` verifies the downloaded ZIP against GitHub's release asset `sha256:<digest>` metadata; no neighboring `.sha256` file is required for future releases. If you override the BWA ZIP with `WGSEXTRACT_BWA_BINARY_URL` or `--bwa-binary-url` and point at a local file or non-GitHub URL, set `WGSEXTRACT_BWA_BINARY_SHA256=<hex>` when you want checksum verification.
+Windows native installs use `install_windows.bat`, which bootstraps Pixi and MSYS2 when they are missing, then configures the MSYS2 UCRT64 pacman runtime. They can use a prebuilt MSYS2 UCRT64 BWA ZIP from GitHub Releases. For GitHub release asset URLs, `scripts/setup_pacman_runtime.ps1` verifies the downloaded ZIP against GitHub's release asset `sha256:<digest>` metadata; no neighboring `.sha256` file is required for future releases. If you override the BWA ZIP with `WGSEXTRACT_BWA_BINARY_URL` or `--bwa-binary-url` and point at a local file or non-GitHub URL, set `WGSEXTRACT_BWA_BINARY_SHA256=<hex>` when you want checksum verification.
 
 ### Manual development setup
 
@@ -72,7 +72,7 @@ pixi run wgsextract --help
 - **macOS (Intel/Apple Silicon)**: Fully supported. Pixi installs all bioinformatics tools automatically.
 - **Linux**: Fully supported. Pixi installs all bioinformatics tools automatically.
 - **Windows**:
-  - **Native Windows (Recommended)**: Run `install_windows.bat` to install the Pixi project environment and choose the MSYS2 UCRT64 pacman runtime as the default. Use `uninstall_windows.bat` to remove the local project install. See [docs/windows_pacman_runtime.md](docs/windows_pacman_runtime.md).
+  - **Native Windows (Recommended)**: Run `install_windows.bat` to bootstrap Pixi/MSYS2 when needed, install the Pixi project environment, and choose the MSYS2 UCRT64 pacman runtime as the default. Use `uninstall_windows.bat` to remove the local project install, or `uninstall_windows.bat --remove-prerequisites` to also remove bootstrapper-installed Pixi/MSYS2. See [docs/windows_pacman_runtime.md](docs/windows_pacman_runtime.md).
   - **WSL2**: Not recommended as the normal Windows runtime. It can be useful for separate Linux development, but native pacman avoids Windows feature changes, reboots, Linux user setup, and slower access to Windows-hosted files.
 
 The examples below use `wgsextract` for installed usage. If you have not added `wgsextract-cli` to `PATH`, use `./wgsextract-cli/wgsextract` instead. From a manual development checkout, use `pixi run wgsextract`.

@@ -134,14 +134,16 @@ def update_yleaf_config(yleaf_path, ref_path, build):
 
 
 def cmd_ydna(args):
-    # Check dependencies
-    if not args.yleaf_path:
-        verify_dependencies(["yleaf"])
-    log_dependency_info(["yleaf"])
-
     if not args.input:
         logging.error(LOG_MESSAGES["input_required"])
         return
+    if not verify_paths_exist({"--input": args.input}):
+        raise WGSExtractError("Input path missing.")
+
+    # Check dependencies only after cheap input validation so invalid invocations fail fast.
+    if not args.yleaf_path:
+        verify_dependencies(["yleaf"])
+    log_dependency_info(["yleaf"])
 
     yleaf_path = args.yleaf_path or get_tool_path("yleaf")
 
@@ -152,10 +154,8 @@ def cmd_ydna(args):
         if resolved:
             yleaf_path = resolved
 
-    if not yleaf_path or not verify_paths_exist(
-        {"--input": args.input, "--yleaf-path": yleaf_path}
-    ):
-        raise WGSExtractError("Input or Yleaf path missing.")
+    if not yleaf_path or not verify_paths_exist({"--yleaf-path": yleaf_path}):
+        raise WGSExtractError("Yleaf path missing.")
 
     logging.debug(f"Input file: {os.path.abspath(args.input)}")
     logging.debug(f"Output directory: {os.path.abspath(args.outdir)}")
@@ -345,14 +345,16 @@ def cmd_ydna(args):
 
 
 def cmd_mtdna(args):
-    # Check dependencies
-    if not args.haplogrep_path:
-        verify_dependencies(["haplogrep", "bcftools"])
-    log_dependency_info(["haplogrep", "bcftools"])
-
     if not args.input:
         logging.error(LOG_MESSAGES["input_required"])
         return
+    if not verify_paths_exist({"--input": args.input}):
+        raise WGSExtractError("Input path missing.")
+
+    # Check dependencies only after cheap input validation so invalid invocations fail fast.
+    if not args.haplogrep_path:
+        verify_dependencies(["haplogrep", "bcftools"])
+    log_dependency_info(["haplogrep", "bcftools"])
 
     haplogrep_path = args.haplogrep_path or get_tool_path("haplogrep")
 
@@ -368,9 +370,9 @@ def cmd_mtdna(args):
             haplogrep_path = resolved
 
     if not haplogrep_path or not verify_paths_exist(
-        {"--input": args.input, "--haplogrep-path": haplogrep_path}
+        {"--haplogrep-path": haplogrep_path}
     ):
-        raise WGSExtractError("Input or Haplogrep path missing.")
+        raise WGSExtractError("Haplogrep path missing.")
 
     outdir = (
         args.outdir if args.outdir else os.path.dirname(os.path.abspath(args.input))

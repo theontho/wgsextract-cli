@@ -6,7 +6,7 @@ The pacman runtime is different from the bundled `cygwin`, bundled `msys2`, and 
 
 ## Prerequisites
 
-Install MSYS2 from <https://www.msys2.org/>. The default install path, `C:\msys64`, is recommended.
+The standard `install_windows.bat` bootstrapper installs Pixi and MSYS2 when they are missing. If you manage MSYS2 yourself, install it from <https://www.msys2.org/>. The default install path, `C:\msys64`, is recommended.
 
 The setup helper expects these MSYS2 files to exist:
 
@@ -23,7 +23,7 @@ For the standard Windows setup, run the recommended batch installer from the rep
 install_windows.bat
 ```
 
-This installs the Pixi project environment, runs the pacman runtime setup helper, and persists `tool_runtime = "pacman"` plus the UCRT64 bin path in the WGSExtract config file. The helper downloads the prebuilt WGSExtract BWA release asset when available, so normal installs do not need a local C compiler.
+This bootstraps Pixi and MSYS2 if needed, installs the Pixi project environment, runs the pacman runtime setup helper, and persists `tool_runtime = "pacman"` plus the UCRT64 bin path in the WGSExtract config file. The helper downloads the prebuilt WGSExtract BWA release asset when available, so normal installs do not need a local C compiler.
 
 For a non-default MSYS2 location:
 
@@ -49,7 +49,11 @@ To remove the local project install and clear those pacman config defaults:
 uninstall_windows.bat
 ```
 
-The uninstaller does not remove Pixi, MSYS2, or MSYS2 packages because those may be shared with other projects.
+By default, the uninstaller does not remove Pixi, MSYS2, or MSYS2 packages because those may be shared with other projects. To remove the bootstrapper-installed prerequisites too, opt in explicitly:
+
+```bat
+uninstall_windows.bat --yes --remove-prerequisites
+```
 
 ## PowerShell Runtime Helper
 
