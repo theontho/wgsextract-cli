@@ -84,12 +84,12 @@ Use the Windows installer from a normal Windows PowerShell window when you want 
 ::: grid two style="margin-top: 22px"
 ::: card
 ### Run the BAT installer
-Open PowerShell on Windows, then move into the WGS Extract CLI folder you cloned or downloaded and run `install_windows.bat`. The installer expects Pixi and MSYS2 to already be installed and visible.
+Open PowerShell on Windows, then move into the WGS Extract CLI folder you cloned or downloaded and run `install_windows.bat`. If Pixi or MSYS2 are missing, the installer bootstraps them first.
 :::
 
 ::: card
 ### What it does
-`install_windows.bat` validates Pixi and MSYS2, installs the project Pixi environment, prepares the MSYS2 UCRT64 pacman runtime tools, and saves pacman as the default runtime.
+`install_windows.bat` installs or validates Pixi and MSYS2, installs the project Pixi environment, prepares the MSYS2 UCRT64 pacman runtime tools, and saves pacman as the default runtime.
 :::
 :::
 :::
@@ -107,13 +107,19 @@ cd wgsextract-cli
 # Verify the native Windows pacman runtime.
 pixi run wgsextract deps pacman check
 pixi run wgsextract --help
+
+# Uninstall the app-local environment and config defaults.
+.\uninstall_windows.bat
+
+# Also remove bootstrapper-installed Pixi and MSYS2 when desired.
+.\uninstall_windows.bat --remove-prerequisites
 ```
 :::
 :::
 
 ::: wrap
 ::: callout
-{{ text: **Windows prerequisites:** Install Pixi and MSYS2 first. The default MSYS2 path is `C:\msys64`; if yours is somewhere else, run `.\install_windows.bat --msys2-root D:\tools\msys64`. See the [Windows pacman runtime guide](https://github.com/theontho/wgsextract-cli/blob/main/docs/windows_pacman_runtime.md){.inline-link} for details. }}
+{{ text: **Windows prerequisites:** A normal PowerShell session with internet access is enough for a default install. The installer downloads Pixi and MSYS2 when missing. The default MSYS2 path is `C:\msys64`; if yours is somewhere else, run `.\install_windows.bat --msys2-root D:\tools\msys64`. See the [Windows pacman runtime guide](https://github.com/theontho/wgsextract-cli/blob/main/docs/windows_pacman_runtime.md){.inline-link} for details. }}
 :::
 :::
 :::
@@ -183,7 +189,7 @@ Use the standalone installer by default on Linux. It creates `start-wgsextract-g
 
 ::: card
 ### Native Windows (recommended)
-Use `install_windows.bat` from PowerShell after installing Pixi and MSYS2. It configures the app to use the MSYS2 UCRT64 pacman runtime by default.
+Use `install_windows.bat` from PowerShell. It bootstraps Pixi and MSYS2 when needed and configures the app to use the MSYS2 UCRT64 pacman runtime by default.
 
 {{ link: Windows pacman runtime|https://github.com/theontho/wgsextract-cli/blob/main/docs/windows_pacman_runtime.md|inline-link }}
 :::

@@ -39,7 +39,13 @@ class TestWSLRuntime(unittest.TestCase):
         runtime.windows_to_wsl_path.cache_clear()
 
     def test_get_tool_path_prefers_native_tool(self):
-        with patch("wgsextract_cli.core.dependencies.shutil.which") as mock_which:
+        with (
+            patch("wgsextract_cli.core.dependencies.shutil.which") as mock_which,
+            patch(
+                "wgsextract_cli.core.runtime.get_tool_runtime_mode",
+                return_value="auto",
+            ),
+        ):
             mock_which.side_effect = lambda tool: (
                 r"C:\tools\samtools.exe" if tool == "samtools" else None
             )
@@ -132,6 +138,10 @@ class TestWSLRuntime(unittest.TestCase):
             ),
             patch(
                 "wgsextract_cli.core.runtime.should_consider_wsl", return_value=False
+            ),
+            patch(
+                "wgsextract_cli.core.runtime.get_tool_runtime_mode",
+                return_value="auto",
             ),
             patch("wgsextract_cli.core.runtime.pacman_tool_path", return_value=None),
             patch(
@@ -522,6 +532,7 @@ class TestWSLRuntime(unittest.TestCase):
         completed = MagicMock(returncode=0, stdout="ok", stderr="")
         with (
             patch.object(runtime.sys, "platform", "win32"),
+            patch("wgsextract_cli.core.runtime.should_consider_wsl", return_value=True),
             patch("wgsextract_cli.core.runtime.shutil.which", return_value="wsl.exe"),
             patch(
                 "wgsextract_cli.core.runtime.subprocess.run", return_value=completed
