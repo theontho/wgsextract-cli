@@ -122,7 +122,7 @@ remove_launcher_file() {
     if has_symlink_component "$launcher_target"; then
         fail "Refusing to remove launcher through a symlink: $launcher_target"
     fi
-    if ! grep -F "run wgsextract" "$launcher_target" >/dev/null 2>&1; then
+    if ! grep -F "# WGS Extract CLI installer launcher" "$launcher_target" >/dev/null 2>&1; then
         fail "Refusing to remove launcher that does not look like WGS Extract CLI: $launcher_target"
     fi
     remove_file "$launcher_target"
@@ -322,7 +322,10 @@ select_pixi_removal() {
     log "  $USER_PIXI_HOME"
     log "Pixi may be shared with other projects."
     printf 'Remove Pixi too? [y/N] '
-    read -r REMOVE_PIXI_CONFIRM
+    if ! read -r REMOVE_PIXI_CONFIRM; then
+        log "Keeping Pixi."
+        return
+    fi
     case "$REMOVE_PIXI_CONFIRM" in
         y|Y)
             REMOVE_PIXI_SELECTED=1
@@ -462,7 +465,10 @@ validate_install_marker
 
 if [ "$ASSUME_YES" = "0" ]; then
     printf 'Continue? [y/N] '
-    read -r CONFIRM
+    if ! read -r CONFIRM; then
+        log "Uninstall cancelled."
+        exit 0
+    fi
     case "$CONFIRM" in
         y|Y)
             ;;

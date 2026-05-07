@@ -107,6 +107,7 @@ write_cli_launcher() {
     if [ "$BIN_DIR" = "$DEFAULT_BIN_DIR" ]; then
         {
             printf '#!/bin/sh\n'
+            printf '# WGS Extract CLI installer launcher\n'
             printf 'set -eu\n'
             printf 'script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)\n'
             printf 'install_dir="$script_dir"\n'
@@ -117,6 +118,7 @@ write_cli_launcher() {
     else
         {
             printf '#!/bin/sh\n'
+            printf '# WGS Extract CLI installer launcher\n'
             printf 'set -eu\n'
             printf 'install_dir=%s\n' "$(quote_sh "$INSTALL_DIR")"
             write_pixi_exports

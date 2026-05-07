@@ -5,8 +5,16 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 UNINSTALL_SH = ROOT / "uninstall.sh"
+SH = shutil.which("sh") or "sh"
+
+pytestmark = pytest.mark.skipif(
+    shutil.which("sh") is None,
+    reason="POSIX sh is required to test uninstall.sh",
+)
 
 
 def make_fake_install(root: Path) -> Path:
@@ -32,7 +40,7 @@ def run_uninstall(
     if env:
         run_env.update(env)
     return subprocess.run(
-        ["/bin/sh", str(script), *args],
+        [SH, str(script), *args],
         check=True,
         env=run_env,
         text=True,
@@ -89,6 +97,22 @@ def test_uninstall_yes_keeps_pixi_by_default(tmp_path: Path) -> None:
     assert not install_dir.exists()
     assert (pixi_home / "bin" / "pixi").exists()
     assert ".pixi/bin" in (home / ".zshrc").read_text(encoding="utf-8")
+
+
+def test_uninstall_eof_cancels_without_error(tmp_path: Path) -> None:
+    install_dir = make_fake_install(tmp_path)
+
+    result = subprocess.run(
+        [SH, str(install_dir / "uninstall.sh")],
+        env=os.environ,
+        text=True,
+        capture_output=True,
+        input="",
+    )
+
+    assert result.returncode == 0
+    assert "Uninstall cancelled." in result.stdout
+    assert install_dir.exists()
 
 
 def test_uninstall_interactive_can_remove_pixi(tmp_path: Path) -> None:
@@ -211,7 +235,7 @@ def test_uninstall_remove_pixi_refuses_symlinked_shell_profile(
     (home / ".zshrc").symlink_to(zshrc_target)
 
     result = subprocess.run(
-        ["/bin/sh", str(install_dir / "uninstall.sh"), "--yes", "--remove-pixi"],
+        [SH, str(install_dir / "uninstall.sh"), "--yes", "--remove-pixi"],
         env={
             **os.environ,
             "HOME": str(home),
@@ -230,7 +254,7 @@ def test_uninstall_refuses_empty_home(tmp_path: Path) -> None:
     install_dir = make_fake_install(tmp_path)
 
     result = subprocess.run(
-        ["/bin/sh", str(install_dir / "uninstall.sh"), "--yes"],
+        [SH, str(install_dir / "uninstall.sh"), "--yes"],
         env={
             **os.environ,
             "HOME": "",
@@ -262,7 +286,7 @@ def test_uninstall_removes_external_paths_when_configured(tmp_path: Path) -> Non
     cache_dir.mkdir()
     env_dir.mkdir()
     (bin_dir / "wgsextract").write_text(
-        '#!/bin/sh\nexec /path/to/pixi run wgsextract "$@"\n',
+        '#!/bin/sh\n# WGS Extract CLI installer launcher\nexec /path/to/pixi run wgsextract "$@"\n',
         encoding="utf-8",
     )
 
@@ -292,7 +316,7 @@ def test_uninstall_refuses_external_launcher_that_is_not_generated(
     launcher.write_text("#!/bin/sh\necho unrelated\n", encoding="utf-8")
 
     result = subprocess.run(
-        ["/bin/sh", str(install_dir / "uninstall.sh"), "--yes"],
+        [SH, str(install_dir / "uninstall.sh"), "--yes"],
         env={
             **os.environ,
             "WGSEXTRACT_BIN_DIR": str(bin_dir),
@@ -311,7 +335,7 @@ def test_uninstall_refuses_unsafe_external_directory(tmp_path: Path) -> None:
     install_dir = make_fake_install(tmp_path)
 
     result = subprocess.run(
-        ["/bin/sh", str(install_dir / "uninstall.sh"), "--yes"],
+        [SH, str(install_dir / "uninstall.sh"), "--yes"],
         env={
             **os.environ,
             "WGSEXTRACT_PIXI_CACHE_DIR": "/",
@@ -329,7 +353,7 @@ def test_uninstall_refuses_normalized_unsafe_external_directory(tmp_path: Path) 
     install_dir = make_fake_install(tmp_path)
 
     result = subprocess.run(
-        ["/bin/sh", str(install_dir / "uninstall.sh"), "--yes"],
+        [SH, str(install_dir / "uninstall.sh"), "--yes"],
         env={
             **os.environ,
             "WGSEXTRACT_PIXI_CACHE_DIR": "/usr/../usr",
@@ -353,7 +377,7 @@ def test_uninstall_refuses_symlinked_external_directory(tmp_path: Path) -> None:
     link_dir.symlink_to(victim_dir, target_is_directory=True)
 
     result = subprocess.run(
-        ["/bin/sh", str(install_dir / "uninstall.sh"), "--yes"],
+        [SH, str(install_dir / "uninstall.sh"), "--yes"],
         env={
             **os.environ,
             "WGSEXTRACT_PIXI_CACHE_DIR": str(link_dir / "cache"),
