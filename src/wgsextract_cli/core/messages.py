@@ -23,6 +23,7 @@ CLI_HELP = {
     "cmd_calculate-coverage": "Generate a full breadth-of-coverage report. This accurately calculates how much of the genome was successfully sequenced. (Time: 1-3 hours, Space: 1-2 GB)",
     "cmd_coverage-sample": "[DISCONTINUED] Quickly estimate sequencing coverage using statistical sampling. Provides a 'good enough' estimate. Warning: Not working properly.",
     "cmd_align": "Map raw FASTQ reads to a reference genome. This is the primary step to convert raw data into a usable BAM/CRAM file. (Time: 8-160 hours, Space: 150-300 GB)",
+    "cmd_realign": "Re-align an existing BAM/CRAM to a (possibly different) reference. Reuses previously extracted FASTQs when available, otherwise extracts on demand. Verifies free disk space up-front. (Time: 8-160 hours, Space: 150-300 GB)",
     "cmd_sort": "Sort alignments by genomic coordinates. Required by almost all downstream tools (like variant callers) to function correctly. (Time: 1-2 hours, Space: Input Size x 2)",
     "cmd_index": "Create a random-access index (.bai/.crai) for your file. This allows tools to jump to specific regions instantly without reading the whole file. (Time: 1-5 mins)",
     "cmd_unindex": "Remove the index file associated with your BAM/CRAM. Use this to force a re-indexing or to clean up workspace. (Time: instant)",
