@@ -24,7 +24,7 @@ jobs:
   build-windows-bwa:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Resolve build inputs
         shell: powershell
@@ -42,7 +42,7 @@ jobs:
           "RELEASE_TAG=$releaseTag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Set up MSYS2 UCRT64
-        uses: msys2/setup-msys2@v2
+        uses: msys2/setup-msys2@e9898307ac31d1a803454791be09ab9973336e1c # v2
         with:
           msystem: UCRT64
           update: true
@@ -85,7 +85,7 @@ jobs:
           "BWA_ZIP=$zipPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: wgsextract-bwa-${{ env.BWA_VERSION }}-windows-ucrt64
           path: ${{ env.BWA_ZIP }}
@@ -93,7 +93,7 @@ jobs:
 
       - name: Upload release asset
         if: env.RELEASE_TAG != ''
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.3.2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           fail_on_unmatched_files: true

@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  # Track PyPI dependencies declared in pyproject.toml. Pixi/conda dependencies
+  # in pixi.toml and pixi.lock are managed separately because Dependabot does not
+  # support the pixi ecosystem.
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
