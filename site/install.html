@@ -27,7 +27,7 @@
     <nav class="nav" aria-label="Primary navigation">
       <div class="wrap nav-inner">
         <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true"></span><span>WGS Extract CLI</span></a>
-        <div class="nav-links"><a href="index.html">Home</a><a class="active" href="install.html">Install</a><a href="cli.html">CLI</a><a href="gui.html">GUI</a><a href="workflows.html">Workflows</a><a href="wgs-guide.html">WGS guide</a><a href="reference.html">Reference</a><a href="https://github.com/theontho/wgsextract-cli" target="_blank" rel="noopener noreferrer">GitHub</a></div>
+        <div class="nav-links"><a href="index.html">Home</a><a class="active" href="install.html">Install</a><a href="cli.html">CLI</a><a href="workflows.html">Workflows</a><a href="wgs-guide.html">WGS guide</a><a href="reference.html">Reference</a><a href="https://github.com/theontho/wgsextract-cli" target="_blank" rel="noopener noreferrer">GitHub</a></div>
       </div>
     </nav>
 
@@ -84,11 +84,8 @@
 <span class="cmd">./wgsextract-cli/wgsextract info --detailed</span>
 <span class="cmd">./wgsextract-cli/wgsextract deps check</span>
 
-<span class="comment"># Launch the desktop GUI on macOS:</span>
-<span class="comment"># double-click &quot;WGS Extract GUI.command&quot; in the folder Finder opened.</span>
-<span class="comment">#</span>
-<span class="comment"># Launch the desktop GUI on Linux:</span>
-<span class="cmd">./wgsextract-cli/start-wgsextract-gui.sh</span>
+<span class="comment"># Optional graphical interface lives in a separate project:</span>
+<span class="comment"># https://github.com/theontho/gui-for-cli</span>
 
 <span class="comment"># Uninstall the app if needed. Interactive runs ask whether to remove Pixi too.</span>
 <span class="cmd">./wgsextract-cli/uninstall.sh</span></code></pre>
@@ -170,8 +167,10 @@
 
 <span class="comment"># Run through Pixi</span>
 <span class="cmd">pixi run wgsextract --help</span>
-<span class="cmd">pixi run wgsextract deps check</span>
-<span class="cmd">pixi run wgsextract gui --desktop</span></code></pre>
+<span class="cmd">pixi run wgsextract deps check</span></code></pre>
+</div>
+<div class="callout">
+<strong>Need a GUI?</strong> <code>wgsextract-cli</code> stays command-line only. Use <a class="inline-link" href="https://github.com/theontho/gui-for-cli">gui-for-cli</a> for the graphical interface.
 </div>
 </div>
 </section>
@@ -184,13 +183,13 @@
 <div class="grid three">
 <article class="card">
 <h3>macOS</h3>
-<p>Use the standalone installer by default. It opens the install folder in Finder and creates a Finder-friendly <code>WGS Extract GUI.command</code> desktop <abbr data-tooltip="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command." aria-label="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command.">GUI</abbr> launcher.</p>
+<p>Use the standalone installer by default. It opens the install folder in Finder and creates the <code>wgsextract</code> <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> launcher.</p>
 <span class="tag">osx-arm64</span>
 <span class="tag">osx-64</span>
 </article>
 <article class="card">
 <h3>Linux</h3>
-<p>Use the standalone installer by default on Linux. It creates <code>start-wgsextract-gui.sh</code> for the desktop <abbr data-tooltip="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command." aria-label="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command.">GUI</abbr>. <a class="term-link" href="https://pixi.sh/">Pixi</a> resolves <a class="term-link" href="https://www.python.org/">Python</a> and native command-line tools through conda-forge and bioconda.</p>
+<p>Use the standalone installer by default on Linux. <a class="term-link" href="https://pixi.sh/">Pixi</a> resolves <a class="term-link" href="https://www.python.org/">Python</a> and native command-line tools through conda-forge and bioconda.</p>
 <span class="tag">linux-64</span>
 </article>
 <article class="card">

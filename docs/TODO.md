@@ -1,6 +1,6 @@
 # WGS Extract Todo List
 
-This document outlines the planned features, improvements, and bug fixes for WGS Extract. Items are categorized by their relevance to the **CLI (Engine)** and the **GUI (Interface)**.
+This document outlines the planned features, improvements, and bug fixes for WGS Extract CLI.
 
 ## 🚀 Strategic & High Priority
 - [x] **Merge v5 Changes**: (Engine) Integrated major updates including DeepVariant, GATK, and Trio analysis.
@@ -49,17 +49,6 @@ This document outlines the planned features, improvements, and bug fixes for WGS
 - [ ] **Parallel Microarray Generation**: (In Progress) Implement `--parallel` flag for per-chromosome calling.
 - [x] **JSON/TSV Output**: Machine-readable formats for all stats and results.
 - [x] **Smoke Test Coverage**: Full CLI coverage with automated tests.
-
----
-
-## 🎨 GUI Specific (User Interface & Experience)
-
-### Web-based GUI (v0)
-- [x] **Modular Architecture**: Transitioned from Tkinter to a modern Web-based GUI.
-- [x] **Full Functional Parity**: All CLI commands accessible via Web interface.
-- [x] **Live Progress Tracking**: Real-time bars for downloads, alignment, and annotation.
-- [x] **Cancel Button**: Functional "Cancel/Abort" for backend processes.
-- [ ] **Interactive VCF Viewer**: (Next) Search and filter VCFs directly in the Web UI.
 
 ---
 

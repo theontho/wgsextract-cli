@@ -3,8 +3,6 @@
 
 # 🧬 WGS Extract CLI (`wgsextract-cli`)
 
-![GUI Screenshot](docs/gui-screenshot.jpg)
-
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
@@ -32,8 +30,6 @@ After install, the default launchers are:
 | Launcher | Purpose |
 | :--- | :--- |
 | `wgsextract-cli/wgsextract` | CLI launcher |
-| `wgsextract-cli/WGS Extract GUI.command` | macOS Finder double-click launcher for the desktop GUI |
-| `wgsextract-cli/start-wgsextract-gui.sh` | Linux shell launcher for the desktop GUI |
 | `wgsextract-cli/uninstall.sh` | macOS/Linux uninstaller |
 
 ### Installer options
@@ -258,11 +254,8 @@ wgsextract qc fake-data --type bam --coverage 1 --legacy-bam --outdir out/fake-l
 
 ## 🎨 UI Interfaces
 
-While primarily a CLI tool, `wgsextract-cli` includes a desktop GUI built with `CustomTkinter`. On macOS, double-click `wgsextract-cli/WGS Extract GUI.command` in Finder. On Linux, run:
-
-```bash
-./wgsextract-cli/start-wgsextract-gui.sh
-```
+`wgsextract-cli` is CLI-only. Graphical interfaces are maintained outside this package.
+If you want a GUI, use [gui-for-cli](https://github.com/theontho/gui-for-cli).
 ---
 
 ## 🧪 Testing
