@@ -29,7 +29,7 @@ dev = [
     "ruff>=0.1.0",
     "isort>=5.13.0",
     "mypy>=1.0.0",
-    "pathspec<0.10",
+    "pathspec<1.2",
     "pre-commit>=3.0.0",
 ]
 
