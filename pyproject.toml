@@ -18,15 +18,6 @@ dependencies = [
     "tomli-w",       # TOML writer
 ]
 
-[project.optional-dependencies]
-gui = [
-    "customtkinter", # Modern GUI framework
-    "Pillow",        # Image processing (needed by customtkinter)
-]
-web = [
-    "nicegui",       # Web-based GUI framework
-]
-
 [project.scripts]
 wgsextract = "wgsextract_cli.main:main"
 
@@ -34,14 +25,12 @@ wgsextract = "wgsextract_cli.main:main"
 dev = [
     "pytest>=7.0",
     "pytest-asyncio",
-    "playwright",
     "python-dotenv",
     "ruff>=0.1.0",
     "isort>=5.13.0",
     "mypy>=1.0.0",
     "pathspec<0.10",
     "pre-commit>=3.0.0",
-    "selenium>=4.41.0",
 ]
 
 [tool.ruff]
