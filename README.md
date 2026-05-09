@@ -256,6 +256,7 @@ wgsextract qc fake-data --type bam --coverage 1 --legacy-bam --outdir out/fake-l
 
 `wgsextract-cli` is CLI-only. Graphical interfaces are maintained outside this package.
 If you want a GUI, use [gui-for-cli](https://github.com/theontho/gui-for-cli).
+
 ---
 
 ## 🧪 Testing

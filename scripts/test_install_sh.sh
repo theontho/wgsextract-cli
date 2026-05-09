@@ -20,9 +20,6 @@ mkdir -p "$source_dir" "$home_dir" "$pixi_cache_dir" "$pixi_env_dir" "$fake_bin"
 
 cd "$repo_root"
 git ls-files | while IFS= read -r path; do
-    if [ ! -e "$repo_root/$path" ] && [ ! -L "$repo_root/$path" ]; then
-        continue
-    fi
     target_dir="$source_dir/$(dirname "$path")"
     mkdir -p "$target_dir"
     cp -pP "$repo_root/$path" "$source_dir/$path"
