@@ -33,7 +33,6 @@ BASICS_TESTS=(
     "test_ref_basics.sh"
     "test_ref_library_basics.sh"
     "test_ref_databases.sh"
-    "test_web_gui_basics.sh"
     "test_repair_basics.sh"
     "test_pet_basics.sh"
     "test_vep_basics.sh"

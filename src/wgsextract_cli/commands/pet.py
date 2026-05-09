@@ -64,7 +64,7 @@ def run(args):
     if not os.path.exists(ref_file):
         logging.error(f"Reference genome for {args.species} not found at {ref_file}")
         if not os.path.isfile(args.ref):
-            logging.info("Please download it in the Library tab of the GUI.")
+            logging.info("Please download it with `wgsextract ref library --install`.")
         raise WGSExtractError(
             f"Reference genome for {args.species} not found at {ref_file}"
         )

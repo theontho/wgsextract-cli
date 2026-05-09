@@ -60,11 +60,8 @@ curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/instal
 ./wgsextract-cli/wgsextract info --detailed
 ./wgsextract-cli/wgsextract deps check
 
-# Launch the desktop GUI on macOS:
-# double-click "WGS Extract GUI.command" in the folder Finder opened.
-#
-# Launch the desktop GUI on Linux:
-./wgsextract-cli/start-wgsextract-gui.sh
+# Optional graphical interface lives in a separate project:
+# https://github.com/theontho/gui-for-cli
 
 # Uninstall the app if needed. Interactive runs ask whether to remove Pixi too.
 ./wgsextract-cli/uninstall.sh
@@ -158,8 +155,11 @@ pixi install
 # Run through Pixi
 pixi run wgsextract --help
 pixi run wgsextract deps check
-pixi run wgsextract gui --desktop
 ```
+:::
+
+::: callout
+{{ text: **Need a GUI?** `wgsextract-cli` stays command-line only. Use [gui-for-cli](https://github.com/theontho/gui-for-cli){.inline-link} for the graphical interface. }}
 :::
 :::
 :::
@@ -174,7 +174,7 @@ Use the standalone installer on macOS/Linux and `install_windows.bat` on native 
 ::: grid three
 ::: card
 ### macOS
-Use the standalone installer by default. It opens the install folder in Finder and creates a Finder-friendly `WGS Extract GUI.command` desktop GUI launcher.
+Use the standalone installer by default. It opens the install folder in Finder and creates the `wgsextract` CLI launcher.
 
 {{ tag: osx-arm64 }}
 {{ tag: osx-64 }}
@@ -182,7 +182,7 @@ Use the standalone installer by default. It opens the install folder in Finder a
 
 ::: card
 ### Linux
-Use the standalone installer by default on Linux. It creates `start-wgsextract-gui.sh` for the desktop GUI. Pixi resolves Python and native command-line tools through conda-forge and bioconda.
+Use the standalone installer by default on Linux. Pixi resolves Python and native command-line tools through conda-forge and bioconda.
 
 {{ tag: linux-64 }}
 :::
