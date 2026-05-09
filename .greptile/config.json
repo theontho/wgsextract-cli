@@ -1,0 +1,17 @@
+{
+  "strictness": 2,
+  "commentTypes": ["logic", "syntax"],
+  "triggerOnUpdates": true,
+  "updateExistingSummaryComment": true,
+  "includeBranches": ["main"],
+  "ignorePatterns": ".venv/**\ndist/**\nbuild/**\n**/__pycache__/**\n**/*.egg-info/**\nsite/**\nout/**\ntmp/**\nscratch/**\n**/node_modules/**\nuv.lock\npixi.lock\n**/*.lock",
+  "summarySection": {"included": true, "collapsible": true, "defaultOpen": false},
+  "issuesTableSection": {"included": true, "collapsible": true, "defaultOpen": true},
+  "instructions": "Python project. Skip style/formatting nits (handled by ruff). Focus on correctness, security, and maintainability.",
+  "rules": [
+    {"id": "no-bare-except", "scope": ["src/**/*.py", "scripts/**/*.py"], "rule": "Avoid bare `except:` and overly broad `except Exception:`. Catch specific exception types.", "severity": 2, "enabled": true},
+    {"id": "redact-secrets", "scope": ["src/**/*.py", "scripts/**/*.py"], "rule": "Configuration display, logs, and error messages must redact keys, tokens, and credentials.", "severity": 1, "enabled": true},
+    {"id": "prefer-pathlib", "scope": ["src/**/*.py", "scripts/**/*.py"], "rule": "Prefer pathlib.Path over os.path string manipulation in new code.", "severity": 3, "enabled": true},
+    {"id": "type-annotations", "scope": ["src/**/*.py"], "rule": "Public functions and methods should have type annotations on parameters and return values.", "severity": 3, "enabled": true}
+  ]
+}
