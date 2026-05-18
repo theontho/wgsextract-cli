@@ -18,7 +18,10 @@ from wgsextract_cli.core.dependencies import (
     check_all_dependencies,
     required_dependency_tools,
 )
-from wgsextract_cli.core.download_progress import copy_response_to_file
+from wgsextract_cli.core.download_progress import (
+    copy_response_to_file,
+    require_http_url,
+)
 from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.utils import WGSExtractError
 
@@ -766,6 +769,7 @@ def _download_file(url: str, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     temp_path: Path | None = None
     try:
+        require_http_url(url, "runtime archive URL")
         with tempfile.NamedTemporaryFile(
             dir=destination.parent,
             prefix=f".{destination.name}.",

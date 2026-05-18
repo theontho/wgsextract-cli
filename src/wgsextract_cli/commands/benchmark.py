@@ -23,7 +23,10 @@ from wgsextract_cli.core.dependencies import (
     get_tool_runtime,
     get_tool_version,
 )
-from wgsextract_cli.core.download_progress import copy_response_to_file
+from wgsextract_cli.core.download_progress import (
+    copy_response_to_file,
+    require_http_url,
+)
 from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.runtime import (
     RUNTIME_ENV_VAR,
@@ -2023,6 +2026,7 @@ def _download_filename(url: str) -> str:
 
 
 def _download_file(url: str, destination: Path) -> None:
+    require_http_url(url, "benchmark dataset URL")
     tmp_path = destination.with_suffix(destination.suffix + ".tmp")
     request = urllib.request.Request(url, headers={"User-Agent": "wgsextract-cli"})
     logging.info(f"Downloading {url}")

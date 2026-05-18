@@ -125,6 +125,18 @@ class TestOptionalDependencies(unittest.TestCase):
 
             mock_download.assert_not_called()
 
+    def test_download_file_rejects_non_http_runtime_archive_url(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            destination = Path(tempdir) / "runtime.zip"
+
+            with patch.object(deps_command.urllib.request, "urlopen") as urlopen:
+                with self.assertRaisesRegex(
+                    Exception, "Unsupported runtime archive URL"
+                ):
+                    deps_command._download_file("file:///tmp/runtime.zip", destination)
+
+            urlopen.assert_not_called()
+
     def test_safe_extract_zip_rejects_path_traversal(self):
         with tempfile.TemporaryDirectory() as tempdir:
             archive_path = Path(tempdir) / "bad.zip"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+import urllib.parse
 from collections.abc import Callable
 from typing import Any, BinaryIO, Protocol
 
@@ -30,6 +31,13 @@ def format_bytes(value: int | float) -> str:
     return f"{amount:.1f} TiB"
 
 
+def require_http_url(url: str, label: str = "download URL") -> None:
+    """Reject URL schemes that should not be opened by network download paths."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError(f"Unsupported {label} scheme '{parsed.scheme}' for {url!r}")
+
+
 class PercentProgressLogger:
     """Log download progress at newline-friendly percentage intervals."""
 
@@ -41,6 +49,8 @@ class PercentProgressLogger:
         min_unknown_interval: float = 10.0,
         logger: logging.Logger | None = None,
     ) -> None:
+        if step_percent <= 0:
+            raise ValueError("step_percent must be greater than zero")
         self.label = label
         self.step_percent = step_percent
         self.min_unknown_interval = min_unknown_interval

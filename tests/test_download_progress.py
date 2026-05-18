@@ -3,7 +3,13 @@ from __future__ import annotations
 import io
 import logging
 
-from wgsextract_cli.core.download_progress import copy_response_to_file
+import pytest
+
+from wgsextract_cli.core.download_progress import (
+    PercentProgressLogger,
+    copy_response_to_file,
+    require_http_url,
+)
 
 
 class FakeDownloadResponse:
@@ -55,3 +61,13 @@ def test_copy_response_to_file_logs_unknown_size_progress(caplog):
     assert any(
         "dataset.zip download progress: 50 B downloaded" in msg for msg in messages
     )
+
+
+def test_progress_logger_rejects_invalid_step_percent():
+    with pytest.raises(ValueError, match="step_percent"):
+        PercentProgressLogger(step_percent=0)
+
+
+def test_require_http_url_rejects_non_network_schemes():
+    with pytest.raises(ValueError, match="Unsupported download URL scheme"):
+        require_http_url("file:///tmp/reference.fa.gz")
