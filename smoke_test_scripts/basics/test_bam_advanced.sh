@@ -78,15 +78,13 @@ fi
 
 # 4. Test --gene for bam unalign
 echo ":: Testing 'bam unalign' with --gene..."
-mkdir -p "$OUTDIR/ref"
-echo -e "symbol\tchrom\tstart\tend" > "$OUTDIR/ref/genes_hg38.tsv"
-echo -e "GENE1\tchr1\t1\t10000" >> "$OUTDIR/ref/genes_hg38.tsv"
+GENE_REF=$(prepare_fake_gene_reflib "$OUTDIR" "$FAKEDATA" 10000) || exit 1
 
-if WGSE_REFLIB="$OUTDIR" pixi run wgsextract bam unalign \
+if pixi run wgsextract bam unalign \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR/unalign_gene" \
     --gene "GENE1" \
-    --ref "$FAKEDATA/fake_ref_hg38_scaled.fa" \
+    --ref "$GENE_REF" \
     --r1 "gene_R1.fastq.gz" \
     --r2 "gene_R2.fastq.gz" && \
     verify_fastq "$OUTDIR/unalign_gene/gene_R1.fastq.gz"; then
@@ -98,11 +96,11 @@ fi
 
 # 5. Test --gene for bam sort (which acts as a regional extractor + sorter)
 echo ":: Testing 'bam sort' with --gene..."
-if WGSE_REFLIB="$OUTDIR" pixi run wgsextract bam sort \
+if pixi run wgsextract bam sort \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR/sort_gene" \
     --gene "GENE1" \
-    --ref "$FAKEDATA/fake_ref_hg38_scaled.fa" && \
+    --ref "$GENE_REF" && \
     verify_bam "$OUTDIR/sort_gene/fake_sorted.bam"; then
     echo "✅ Success: 'bam sort --gene' completed."
 else

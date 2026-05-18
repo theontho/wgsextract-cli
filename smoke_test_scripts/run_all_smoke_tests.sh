@@ -10,6 +10,7 @@ FAKE_DIR="out/fake_30x"
 LOG_DIR="out/smoke_test_logs"
 mkdir -p "$FAKE_DIR"
 mkdir -p "$LOG_DIR"
+FAILED_TESTS=()
 
 # Handle Ctrl+C (SIGINT) and SIGTERM
 exit_on_signal() {
@@ -182,6 +183,7 @@ run_test_group() {
             fi
         else
             echo "❌ FAILED (Check $LOG_DIR/${test_script}.log) ($duration_fmt)"
+            FAILED_TESTS+=("$group_name/$test_script")
         fi
     done
 }
@@ -267,3 +269,10 @@ fi
 echo "  Total Execution Time: $TOTAL_DURATION_FMT"
 echo "  Logs available in: $LOG_DIR"
 echo "========================================================"
+
+if [ ${#FAILED_TESTS[@]} -ne 0 ]; then
+    echo ""
+    echo "Failed smoke tests:"
+    printf '  - %s\n' "${FAILED_TESTS[@]}"
+    exit 1
+fi

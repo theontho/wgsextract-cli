@@ -45,8 +45,8 @@ cat "$OUTDIR/stdout"
 if [ $exit_code -eq 0 ] && verify_vcf "$OUTDIR/cnv.vcf.gz" 1; then
     echo "SUCCESS: VCF CNV completed."
     ls -lh "$OUTDIR/cnv.vcf.gz"
-elif [ $exit_code -eq 139 ] || grep -q "Segmentation fault" "$OUTDIR/stdout"; then
-    echo "⏭️ SKIP: Delly segfaulted (exit 139), skipping CNV test."
+elif [ $exit_code -eq 139 ] || grep -qiE "Segmentation fault|segfaulted" "$OUTDIR/stdout"; then
+    echo "⏭️ SKIP: Delly segfaulted, skipping CNV test."
     exit 0
 else
     echo "FAILURE: VCF CNV failed with exit code $exit_code."

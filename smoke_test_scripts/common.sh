@@ -87,6 +87,37 @@ ensure_fake_data() {
     fi
 }
 
+prepare_fake_gene_reflib() {
+    local outdir=$1
+    local fakedata=$2
+    local gene_end=${3:-10000}
+    local ref_src
+    ref_src=$(find "$fakedata" -name "fake_ref_hg38_*.fa" | head -n 1)
+    if [ -z "$ref_src" ] || [ ! -f "$ref_src" ]; then
+        echo "❌ Failure: fake hg38 reference missing in $fakedata" >&2
+        return 1
+    fi
+
+    local refdir="$outdir/ref"
+    mkdir -p "$refdir" || return 1
+    local ref_base
+    ref_base=$(basename "$ref_src") || return 1
+    local ref_dst="$refdir/$ref_base"
+    cp "$ref_src" "$ref_dst" || return 1
+    if [ -f "$ref_src.fai" ]; then
+        cp "$ref_src.fai" "$ref_dst.fai" || return 1
+    else
+        pixi run samtools faidx "$ref_dst" >/dev/null || return 1
+    fi
+
+    {
+        echo -e "symbol\tchrom\tstart\tend"
+        echo -e "GENE1\tchr1\t1\t$gene_end"
+    } > "$refdir/genes_hg38.tsv" || return 1
+
+    printf '%s\n' "$ref_dst"
+}
+
 # Helper to verify a BAM/CRAM file
 verify_bam() {
     local file=$1

@@ -50,7 +50,7 @@ fi
 # 3. Test 'lineage y-haplogroup' with missing input (expect failure)
 echo ":: Testing 'lineage y-haplogroup' (expect failure for missing input)..."
 if ! pixi run wgsextract lineage y-haplogroup --yleaf-path "/tmp/non_existent_yleaf" > "$OUTDIR/y_fail.stdout" 2>&1; then
-    if grep -q "Error" "$OUTDIR/y_fail.stdout" || grep -q "missing" "$OUTDIR/y_fail.stdout" || grep -q "not found" "$OUTDIR/y_fail.stdout"; then
+    if grep -qiE "(--input|input).*(required|missing|not provided)|required option.*--input" "$OUTDIR/y_fail.stdout"; then
         echo "✅ Success: 'lineage y-haplogroup' correctly failed and reported error in stdout."
     else
         echo "❌ Failure: 'lineage y-haplogroup' failed but output did not contain expected error message."

@@ -6,7 +6,7 @@ source "$(dirname "$0")/../common.sh"
 
 if [[ "$1" == "--describe" ]]; then
     echo "Description: Verifies the CLI's internal fallback to Pixi environments when tools are missing from the system PATH."
-    echo "✅ Verified End Goal: Successful detection and execution of a tool (yleaf) using Pixi fallback; confirmed by Python check confirming 'pixi run' in tool path and successful help execution with a cleaned PATH."
+    echo "✅ Verified End Goal: Successful detection and execution of a tool using Pixi fallback; confirmed by Python check resolving and running a hidden Pixi-managed tool through 'pixi run' with a cleaned PATH."
     exit 0
 fi
 
@@ -17,70 +17,58 @@ echo "--------------------------------------------------------"
 echo "  WGS Extract CLI: Pixi Fallback Smoke Test"
 echo "--------------------------------------------------------"
 
-# 1. Create a clean PATH environment that definitely DOES NOT have yleaf
+# 1. Create a clean PATH environment that definitely DOES NOT have the selected tool
 # We save the original path first
 ORIG_PATH="$PATH"
-# Minimal path
-export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+PIXI_PATH=$(dirname "$(which pixi)")
+MINIMAL_PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+FALLBACK_TOOL=""
+for candidate in freebayes delly haplogrep bgzip; do
+    if ! PATH="$MINIMAL_PATH" command -v "$candidate" &> /dev/null; then
+        FALLBACK_TOOL="$candidate"
+        break
+    fi
+done
 
-echo ":: Verifying 'yleaf' is NOT in the current PATH..."
-if command -v yleaf &> /dev/null; then
-    echo "❌ Error: 'yleaf' found in path even after clearing it! Path: $(command -v yleaf)"
-    exit 1
-else
-    echo "✅ Success: 'yleaf' is hidden from the system."
+if [ -z "$FALLBACK_TOOL" ]; then
+    echo "⏭️ SKIP: No Pixi-managed fallback test tool is hidden by the minimal PATH."
+    exit 77
 fi
 
-echo ":: Checking if the CLI can still 'see' yleaf via Pixi..."
-# We use 'deps check' or just try to run y-haplogroup with --help
-# Note: we need 'uv' and 'python' to be available to run the CLI itself
-export PATH="$ORIG_PATH"
-# But we'll use a wrapper or env var to tell the CLI to ignore the system yleaf if it exists
-# Actually, the CLI's get_tool_path uses shutil.which(tool) first.
-# To truly test fallback, we need shutil.which to fail but pixi to succeed.
+export PATH="$MINIMAL_PATH"
 
-# We'll run a small python snippet to test the core logic directly
-pixi run python3 -c "
+echo ":: Verifying '$FALLBACK_TOOL' is NOT in the current PATH..."
+if command -v "$FALLBACK_TOOL" &> /dev/null; then
+    echo "❌ Error: '$FALLBACK_TOOL' found in path even after clearing it! Path: $(command -v "$FALLBACK_TOOL")"
+    exit 1
+else
+    echo "✅ Success: '$FALLBACK_TOOL' is hidden from the system."
+fi
+
+echo ":: Checking if the CLI can still resolve $FALLBACK_TOOL via Pixi..."
+export PATH="$ORIG_PATH"
+CLEAN_PATH="$PIXI_PATH:$MINIMAL_PATH"
+
+FALLBACK_TOOL="$FALLBACK_TOOL" CLEAN_PATH="$CLEAN_PATH" pixi run python3 -c "
+import os
+import shlex
+import subprocess
 from wgsextract_cli.core.dependencies import get_tool_path
-path = get_tool_path('yleaf')
-print(f'Resolved yleaf to: {path}')
-if path and 'pixi run' in path:
-    print('✅ SUCCESS: CLI correctly fell back to Pixi for yleaf')
-elif path:
-    print(f'ℹ️ INFO: Resolved to {path} (might be system path)')
-else:
-    print('❌ FAILURE: CLI could not find yleaf at all')
+tool = os.environ['FALLBACK_TOOL']
+os.environ['PATH'] = os.environ['CLEAN_PATH']
+path = get_tool_path(tool)
+print(f'Resolved {tool} to: {path}')
+if not path or f'pixi run -e default {tool}' not in path:
+    raise SystemExit(f'CLI did not resolve {tool} through Pixi fallback')
+subprocess.run(shlex.split(path) + ['--version'], check=True, stdout=subprocess.DEVNULL)
+print(f'✅ SUCCESS: CLI correctly fell back to Pixi for {tool}')
 " > "$OUTDIR/python_check.stdout" 2>&1
 
-if grep -q "SUCCESS" "$OUTDIR/python_check.stdout" || grep -q "INFO" "$OUTDIR/python_check.stdout"; then
+if grep -q "SUCCESS" "$OUTDIR/python_check.stdout"; then
     cat "$OUTDIR/python_check.stdout"
 else
-    echo "❌ FAILURE: CLI could not resolve yleaf."
+    echo "❌ FAILURE: CLI could not resolve $FALLBACK_TOOL through Pixi fallback."
     cat "$OUTDIR/python_check.stdout"
-    exit 1
-fi
-
-# Now test if a command that needs yleaf works even if we pretend it's missing
-# We'll use a modified PATH for this specific execution
-PIXI_PATH=$(dirname "$(which pixi)")
-UV_PATH=$(dirname "$(which uv)")
-PY_PATH=$(dirname "$(which python3)")
-CLEAN_PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PIXI_PATH:$UV_PATH:$PY_PATH"
-
-echo ":: Running 'lineage y-haplogroup' with hidden system tools..."
-# We use a real input file if possible, or just check help
-# Help is safer as it doesn't need data.
-if PATH="$CLEAN_PATH" pixi run python3 -m wgsextract_cli.main lineage y-haplogroup --help > "$OUTDIR/y_help_fallback.stdout" 2>&1; then
-    if grep -qE "yleaf-path|--help" "$OUTDIR/y_help_fallback.stdout"; then
-        echo "✅ SUCCESS: CLI command worked with tool hidden from PATH (via Pixi fallback)."
-    else
-        echo "❌ FAILURE: CLI command worked but output was unexpected."
-        cat "$OUTDIR/y_help_fallback.stdout"
-        exit 1
-    fi
-else
-    echo "❌ FAILURE: CLI command failed when tool was hidden from PATH."
-    cat "$OUTDIR/y_help_fallback.stdout"
     exit 1
 fi
 
