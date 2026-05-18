@@ -2043,7 +2043,7 @@ def _download_file(url: str, destination: Path) -> None:
         if tmp_path.exists():
             tmp_path.unlink()
         raise WGSExtractError(
-            f"Failed to download benchmark dataset {url}: {exc}"
+            f"Failed to download benchmark dataset {destination.name}: {exc}"
         ) from exc
 
 
