@@ -3,7 +3,6 @@ import logging
 import os
 import shutil
 import subprocess
-import sys
 
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import (
@@ -329,4 +328,4 @@ def _exit_if_missing(file_path, message_key, ann_name=None):
         logging.info(
             f"To fix this, run: wgsextract ref {ann_name or message_key.split('_')[1]}"
         )
-        sys.exit(2)  # Use exit code 2 to indicate missing data
+        raise WGSExtractError(msg)

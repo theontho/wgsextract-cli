@@ -1,6 +1,7 @@
 import logging
 import os
 import shutil
+import subprocess
 
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.utils import (
@@ -86,8 +87,8 @@ def cmd_deepvariant(args):
                             if part.startswith("SM:"):
                                 sample_name = part[3:]
                                 break
-            except Exception:
-                pass
+            except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+                logging.debug(f"Failed to infer DeepVariant sample name: {e}")
 
             # 1. Make Examples
             logging.info("DeepVariant Step 1/3: Making examples...")

@@ -1,5 +1,6 @@
 import logging
 import os
+import subprocess
 
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -111,8 +112,10 @@ def cmd_phylop(args):
             os.remove(map_path)
             normalized_input = norm_out
             needs_cleanup = True
-    except Exception as e:
-        logging.debug(f"Chromosome normalization failed: {e}")
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+        logging.warning(
+            f"Chromosome normalization failed; annotation may miss variants: {e}"
+        )
 
     # 3. Annotate with PhyloP
     ann_out = os.path.join(outdir, "phylop_annotated.vcf.gz")
