@@ -317,7 +317,7 @@ if ($shouldBuildBwa) {
 mkdir -p '$buildRootMsys'
 cd '$buildRootMsys'
 rm -rf '$sourceDir' '$archiveName'
-curl -L --retry 3 -o '$archiveName' '$sourceUrl'
+curl -L --progress-bar --retry 3 -o '$archiveName' '$sourceUrl'
 tar -xzf '$archiveName'
 cd '$sourceDir'
 mkdir -p sys

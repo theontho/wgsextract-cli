@@ -507,6 +507,7 @@ def _download_file(
                     "curl",
                     "--fail",
                     "--location",
+                    "--progress-bar",
                     "--continue-at",
                     "-",
                     "--output",

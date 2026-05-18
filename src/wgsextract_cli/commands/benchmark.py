@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import json
+import logging
 import os
 import platform
 import shlex
@@ -22,6 +23,7 @@ from wgsextract_cli.core.dependencies import (
     get_tool_runtime,
     get_tool_version,
 )
+from wgsextract_cli.core.download_progress import copy_response_to_file
 from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.runtime import (
     RUNTIME_ENV_VAR,
@@ -2023,10 +2025,15 @@ def _download_filename(url: str) -> str:
 def _download_file(url: str, destination: Path) -> None:
     tmp_path = destination.with_suffix(destination.suffix + ".tmp")
     request = urllib.request.Request(url, headers={"User-Agent": "wgsextract-cli"})
+    logging.info(f"Downloading {url}")
     try:
         with urllib.request.urlopen(request, timeout=300) as response:
             with open(tmp_path, "wb") as handle:
-                shutil.copyfileobj(response, handle)
+                copy_response_to_file(
+                    response,
+                    handle,
+                    progress_label=destination.name,
+                )
         tmp_path.replace(destination)
     except Exception as exc:
         if tmp_path.exists():

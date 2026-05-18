@@ -3,6 +3,7 @@
 import argparse
 import logging
 import os
+import signal
 import sys
 
 from .commands import (
@@ -28,6 +29,25 @@ from .core.config import KNOWN_SETTINGS, get_config_path, reload_settings, setti
 from .core.genome_library import apply_genome_selection
 from .core.messages import CLI_HELP
 from .core.utils import WGSExtractError, cleanup_processes
+
+SIGNAL_EXPLANATIONS = {
+    "SIGHUP": "terminal or parent session closed",
+    "SIGINT": "interrupt from keyboard, usually Ctrl+C",
+    "SIGQUIT": "quit from keyboard, usually Ctrl+\\",
+    "SIGKILL": "force kill; cannot be caught or cleaned up",
+    "SIGTERM": "normal termination request from kill or a process manager",
+}
+
+
+def describe_signal(signum: int) -> str:
+    """Return a concise user-facing explanation for a signal number."""
+    try:
+        signal_name = signal.Signals(signum).name
+    except ValueError:
+        return f"signal {signum}: unknown signal"
+
+    explanation = SIGNAL_EXPLANATIONS.get(signal_name, "process signal")
+    return f"signal {signum} ({signal_name}: {explanation})"
 
 
 def _parent_process_is_alive(parent_pid: int) -> bool:
@@ -412,11 +432,8 @@ def main():
     elif args.quiet:
         logging.getLogger().setLevel(logging.ERROR)
 
-    # Handle signals for clean exit (allows finally blocks to run)
-    import signal
-
     def signal_handler(signum, frame):
-        logging.info(f"Received signal {signum}, cleaning up...")
+        logging.info(f"Received {describe_signal(signum)}, cleaning up...")
         cleanup_processes()
         sys.exit(0)
 

@@ -10,11 +10,15 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, BinaryIO
 from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
 
 from wgsextract_cli.core.dependencies import verify_dependencies
+from wgsextract_cli.core.download_progress import (
+    DownloadCancelled,
+    copy_response_to_file,
+)
 from wgsextract_cli.core.utils import popen, run_command
 
 # Global cache for genome data
@@ -48,14 +52,12 @@ def download_file(
     # Try curl first
     try:
         # Use -L to follow redirects, -C - for resume
-        cmd = ["curl", "-L"]
+        cmd = ["curl", "-L", "--progress-bar"]
         if os.path.exists(dest):
             cmd.extend(["-C", "-"])
         cmd.extend(["-o", dest, url])
 
-        # Note: we don't use progress_callback with curl easily here without parsing output
-        # For simplicity in CLI, we'll just run it.
-        run_command(cmd, capture_output=True)
+        run_command(cmd, capture_output=False)
         return verify_download_sha256(dest, expected_sha256)
     except Exception:
         # Fallback to urllib
@@ -92,44 +94,30 @@ def download_file(
                 initial_size = 0
                 mode = "wb"
 
-            content_length = int(response.info().get("Content-Length", 0))
-            total_size = initial_size + content_length
-            bytes_downloaded = initial_size
-            start_time = time.time()
-            last_report_time = 0.0
+            def write_partial(f: BinaryIO) -> None:
+                copy_response_to_file(
+                    response,
+                    f,
+                    initial_size=initial_size,
+                    progress_callback=progress_callback,
+                    progress_label=os.path.basename(dest),
+                    cancel_event=cancel_event,
+                )
 
-            with open(partial_dest, mode) as f:
-                while True:
-                    if cancel_event and cancel_event.is_set():
-                        logging.info("Download cancelled by user.")
-                        return False
-
-                    chunk = response.read(1024 * 256)  # 256KB chunks
-                    if not chunk:
-                        break
-
-                    f.write(chunk)
-                    bytes_downloaded += len(chunk)
-
-                    curr_time = time.time()
-                    if progress_callback and (
-                        curr_time - last_report_time > 0.1
-                        or bytes_downloaded == total_size
-                    ):
-                        elapsed = curr_time - start_time
-                        speed = (
-                            (bytes_downloaded - initial_size) / elapsed
-                            if elapsed > 0
-                            else 0
-                        )
-                        progress_callback(bytes_downloaded, total_size, speed)
-                        last_report_time = curr_time
+            if mode == "ab":
+                with open(partial_dest, "ab") as f:
+                    write_partial(f)
+            else:
+                with open(partial_dest, "wb") as f:
+                    write_partial(f)
 
         # Rename to final destination on success
         if os.path.exists(dest):
             os.remove(dest)
         os.rename(partial_dest, dest)
         return verify_download_sha256(dest, expected_sha256)
+    except DownloadCancelled as e:
+        logging.info(str(e))
     except Exception as e:
         logging.error(f"Download error: {e}")
     return False

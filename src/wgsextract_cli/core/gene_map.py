@@ -117,7 +117,7 @@ def download_gene_maps(reflib_dir, cancel_event=None):
             # 1. Download
             # Use curl but check cancel_event periodically if possible
             # For simplicity, we check before/after large steps
-            run_command(["curl", "-L", "-o", gz_path, url])
+            run_command(["curl", "-L", "--progress-bar", "-o", gz_path, url])
 
             if cancel_event and cancel_event.is_set():
                 if os.path.exists(gz_path):
