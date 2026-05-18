@@ -30,8 +30,7 @@ from ._lineage_ydna import (
 
 def cmd_mtdna(args):
     if not args.input:
-        logging.error(LOG_MESSAGES["input_required"])
-        return
+        raise WGSExtractError(LOG_MESSAGES["input_required"])
     if not verify_paths_exist({"--input": args.input}):
         return
 

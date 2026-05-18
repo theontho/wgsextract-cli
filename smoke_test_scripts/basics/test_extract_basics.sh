@@ -87,15 +87,13 @@ fi
 
 # 5. Extract Subset (Gene)
 echo ":: Testing 'extract bam-subset' (--gene GENE1)..."
-mkdir -p "$OUTDIR/ref"
-echo -e "symbol\tchrom\tstart\tend" > "$OUTDIR/ref/genes_hg38.tsv"
-echo -e "GENE1\tchr1\t1\t10000" >> "$OUTDIR/ref/genes_hg38.tsv"
+GENE_REF=$(prepare_fake_gene_reflib "$OUTDIR" "$FAKEDATA" 10000) || exit 1
 
-STDOUT=$(WGSE_REFLIB="$OUTDIR" pixi run wgsextract extract bam-subset \
+STDOUT=$(pixi run wgsextract extract bam-subset \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR/gene_subset" \
     --gene "GENE1" \
-    --ref "$FAKEDATA/fake_ref_hg38_scaled.fa" \
+    --ref "$GENE_REF" \
     --fraction 1.0 2>&1)
 echo "$STDOUT"
 if echo "$STDOUT" | grep -q "GENE1" && verify_bam "$OUTDIR/gene_subset/fake_subset.bam"; then
