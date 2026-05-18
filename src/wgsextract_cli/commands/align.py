@@ -3,20 +3,22 @@ import os
 import subprocess
 from pathlib import Path
 
-from wgsextract_cli.core.dependencies import (
-    get_tool_path,
+from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
     WGSExtractError,
-    calculate_bam_md5,
     get_resource_defaults,
     get_sam_index_cmd,
+    run_command,
+)
+from wgsextract_cli.core.variant_files import (
+    calculate_bam_md5,
     popen,
     resolve_reference,
-    run_command,
     verify_paths_exist,
 )
 from wgsextract_cli.core.warnings import print_warning

@@ -26,7 +26,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from wgsextract_cli.core.dependencies import (
+from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
@@ -35,6 +35,8 @@ from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
     get_sam_sort_cmd,
+)
+from wgsextract_cli.core.variant_files import (
     popen,
     verify_paths_exist,
 )
@@ -87,9 +89,7 @@ def register(subparsers, base_parser):
         choices=["sr", "map-pb", "map-hifi", "map-ont", "ccs", "subread"],
         help="minimap2/pbmm2 preset.",
     )
-    parser.add_argument(
-        "--sample", help="Sample name to embed in read-group metadata."
-    )
+    parser.add_argument("--sample", help="Sample name to embed in read-group metadata.")
     parser.add_argument(
         "--long-read",
         action="store_true",
@@ -198,9 +198,7 @@ def _extract_fastqs(
     return out_r1, out_r2
 
 
-def _preflight_disk_space(
-    input_path: str, outdir: str, need_extract: bool
-) -> None:
+def _preflight_disk_space(input_path: str, outdir: str, need_extract: bool) -> None:
     """Estimate the worst-case disk usage and bail out if outdir lacks space."""
     file_size = os.path.getsize(input_path)
     is_cram = input_path.lower().endswith(".cram")
@@ -215,9 +213,7 @@ def _preflight_disk_space(
         file_size, sort_type="Coord", is_cram=is_cram
     )
 
-    total_gb = (
-        extract_temp_gb + extract_final_gb + align_temp_gb + align_final_gb
-    )
+    total_gb = extract_temp_gb + extract_final_gb + align_temp_gb + align_final_gb
     logging.warning(
         "Realign pre-flight: ~%d GB free space required at %s "
         "(extract %d+%d, align %d+%d).",
@@ -268,9 +264,7 @@ def run(args):
     elif not args.force_extract and (existing := _find_existing_fastqs(args.input)):
         r1_path, r2_path = existing
         need_extract = False
-        logging.info(
-            "Reusing existing FASTQs:\n  R1: %s\n  R2: %s", r1_path, r2_path
-        )
+        logging.info("Reusing existing FASTQs:\n  R1: %s\n  R2: %s", r1_path, r2_path)
     else:
         r1_path = r2_path = None
         need_extract = True

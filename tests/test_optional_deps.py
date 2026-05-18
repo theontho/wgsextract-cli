@@ -11,15 +11,18 @@ from unittest.mock import MagicMock, patch
 # Ensure src is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
+from wgsextract_cli.commands import _deps_runtime as deps_runtime_command  # noqa: E402
+from wgsextract_cli.commands import _deps_status as deps_status_command  # noqa: E402
 from wgsextract_cli.commands import deps as deps_command  # noqa: E402
-from wgsextract_cli.core.dependencies import verify_dependencies  # noqa: E402
+from wgsextract_cli.core import runtime  # noqa: E402
+from wgsextract_cli.core.dependency_checks import verify_dependencies  # noqa: E402
 
 
 class TestOptionalDependencies(unittest.TestCase):
     """Tests the new optional dependency handling."""
 
-    @patch("wgsextract_cli.core.dependencies.get_tool_path")
-    @patch("wgsextract_cli.core.dependencies.get_jar_dir", return_value="/tmp")
+    @patch("wgsextract_cli.core.dependency_checks.check_dependencies")
+    @patch("wgsextract_cli.core.dependency_checks.get_jar_dir", return_value="/tmp")
     @patch("sys.exit")
     @patch("logging.error")
     @patch("logging.info")
@@ -27,9 +30,7 @@ class TestOptionalDependencies(unittest.TestCase):
         self, mock_info, mock_error, mock_exit, mock_jar, mock_tool_path
     ):
         # Simulate 'minimap2' (optional) is missing
-        mock_tool_path.side_effect = lambda x: (
-            None if x == "minimap2" else "/usr/bin/" + x
-        )
+        mock_tool_path.return_value = ["minimap2"]
 
         try:
             verify_dependencies(["minimap2"])
@@ -49,18 +50,16 @@ class TestOptionalDependencies(unittest.TestCase):
 
         mock_exit.assert_called_with(1)
 
-    @patch("wgsextract_cli.core.dependencies.get_tool_path")
-    @patch("wgsextract_cli.core.dependencies.get_jar_dir", return_value="/tmp")
+    @patch("wgsextract_cli.core.dependency_checks.check_dependencies")
+    @patch("wgsextract_cli.core.dependency_checks.get_jar_dir", return_value="/tmp")
     @patch("sys.exit")
     @patch("logging.error")
-    @patch("wgsextract_cli.core.dependencies.sys.platform", "linux")
+    @patch("wgsextract_cli.core.dependency_checks.sys.platform", "linux")
     def test_verify_mandatory_missing(
         self, mock_error, mock_exit, mock_jar, mock_tool_path
     ):
         # Simulate 'samtools' (mandatory) is missing
-        mock_tool_path.side_effect = lambda x: (
-            None if x == "samtools" else "/usr/bin/" + x
-        )
+        mock_tool_path.return_value = ["samtools"]
 
         try:
             verify_dependencies(["samtools"])
@@ -74,9 +73,12 @@ class TestOptionalDependencies(unittest.TestCase):
         mock_error.assert_any_call(" - samtools")
         mock_exit.assert_called_with(1)
 
-    @patch("wgsextract_cli.core.dependencies.sys.platform", "win32")
-    @patch("wgsextract_cli.core.dependencies.get_tool_path", return_value=None)
-    @patch("wgsextract_cli.core.dependencies.get_jar_dir", return_value="/tmp")
+    @patch("wgsextract_cli.core.dependency_checks.sys.platform", "win32")
+    @patch(
+        "wgsextract_cli.core.dependency_checks.check_dependencies",
+        return_value=["samtools"],
+    )
+    @patch("wgsextract_cli.core.dependency_checks.get_jar_dir", return_value="/tmp")
     @patch("logging.warning")
     def test_verify_mandatory_missing_on_windows_mentions_runtime_options(
         self, mock_warning, mock_jar, mock_tool_path
@@ -100,7 +102,8 @@ class TestOptionalDependencies(unittest.TestCase):
             os.utime(newer, (2, 2))
 
             self.assertEqual(
-                deps_command._find_local_runtime_archive("msys2", archive_dir), newer
+                deps_runtime_command._find_local_runtime_archive("msys2", archive_dir),
+                newer,
             )
 
     def test_resolve_runtime_archive_reuses_cache_without_download(self):
@@ -117,9 +120,11 @@ class TestOptionalDependencies(unittest.TestCase):
                 refresh_download=False,
             )
 
-            with patch.object(deps_command, "_download_file") as mock_download:
+            with patch.object(deps_runtime_command, "_download_file") as mock_download:
                 self.assertEqual(
-                    deps_command._resolve_bundled_runtime_archive(args, "msys2"),
+                    deps_runtime_command._resolve_bundled_runtime_archive(
+                        args, "msys2"
+                    ),
                     cached.resolve(),
                 )
 
@@ -133,7 +138,9 @@ class TestOptionalDependencies(unittest.TestCase):
 
             with zipfile.ZipFile(archive_path) as archive:
                 with self.assertRaisesRegex(Exception, "unsafe path"):
-                    deps_command._safe_extract_zip(archive, Path(tempdir) / "runtime")
+                    deps_status_command._safe_extract_zip(
+                        archive, Path(tempdir) / "runtime"
+                    )
 
     def test_copy_bundled_runtime_from_parent_source_dir(self):
         with tempfile.TemporaryDirectory() as tempdir:
@@ -158,7 +165,9 @@ class TestOptionalDependencies(unittest.TestCase):
             java.write_bytes(b"")
             destination = root / "runtime" / "msys2"
 
-            deps_command._copy_bundled_runtime_from_source(source, "msys2", destination)
+            deps_status_command._copy_bundled_runtime_from_source(
+                source, "msys2", destination
+            )
 
             self.assertTrue((destination / "usr" / "bin" / "bash.exe").exists())
             self.assertTrue((destination / "FastQC" / "fastqc").exists())
@@ -182,7 +191,7 @@ class TestOptionalDependencies(unittest.TestCase):
             (source / "mnt").write_text("placeholder", encoding="utf-8")
             destination = root / "runtime" / "cygwin64"
 
-            deps_command._copy_bundled_runtime_from_source(
+            deps_status_command._copy_bundled_runtime_from_source(
                 source, "cygwin", destination
             )
 
@@ -192,19 +201,19 @@ class TestOptionalDependencies(unittest.TestCase):
     def test_copy_bundled_runtime_requires_expected_shell(self):
         with tempfile.TemporaryDirectory() as tempdir:
             with self.assertRaisesRegex(Exception, "expected shell"):
-                deps_command._copy_bundled_runtime_from_source(
+                deps_status_command._copy_bundled_runtime_from_source(
                     Path(tempdir), "cygwin", Path(tempdir) / "runtime" / "cygwin64"
                 )
 
     def test_check_dependencies_with_runtime_restores_env(self):
-        env_name = deps_command.runtime.RUNTIME_ENV_VAR
+        env_name = runtime.RUNTIME_ENV_VAR
         previous = os.environ.get(env_name)
         os.environ[env_name] = "auto"
         try:
             with patch.object(
-                deps_command, "check_all_dependencies", return_value={}
+                deps_status_command, "check_all_dependencies", return_value={}
             ) as mock_check:
-                deps_command._check_dependencies_with_runtime("wsl")
+                deps_status_command._check_dependencies_with_runtime("wsl")
 
             mock_check.assert_called_once_with()
             self.assertEqual(os.environ[env_name], "auto")
@@ -217,8 +226,8 @@ class TestOptionalDependencies(unittest.TestCase):
     @patch("wgsextract_cli.core.dependencies.shutil.which", return_value=None)
     @patch("wgsextract_cli.core.runtime.should_consider_wsl", return_value=True)
     @patch("wgsextract_cli.core.runtime.get_tool_runtime_mode", return_value="auto")
-    @patch("wgsextract_cli.core.runtime.wsl_command_available", return_value=True)
-    @patch("wgsextract_cli.core.runtime.pacman_tool_path", return_value=None)
+    @patch("wgsextract_cli.core.runtime_paths.wsl_command_available", return_value=True)
+    @patch("wgsextract_cli.core.runtime_paths.pacman_tool_path", return_value=None)
     def test_get_tool_path_can_return_wsl_fallback(
         self,
         mock_pacman,
@@ -249,7 +258,9 @@ class TestOptionalDependencies(unittest.TestCase):
                 "wgsextract_cli.core.runtime.get_tool_runtime_mode",
                 return_value="auto",
             ),
-            patch("wgsextract_cli.core.runtime.pacman_tool_path", return_value=None),
+            patch(
+                "wgsextract_cli.core.runtime_paths.pacman_tool_path", return_value=None
+            ),
             patch(
                 "wgsextract_cli.core.dependencies.subprocess.run",
                 return_value=completed,
@@ -297,8 +308,8 @@ class TestOptionalDependencies(unittest.TestCase):
 
     @patch("wgsextract_cli.core.dependencies.MANDATORY_TOOLS", ["samtools"])
     @patch("wgsextract_cli.core.dependencies.OPTIONAL_TOOLS", ["minimap2"])
-    @patch("wgsextract_cli.core.dependencies.get_tool_path")
-    @patch("wgsextract_cli.core.dependencies.get_tool_version", return_value="1.0")
+    @patch("wgsextract_cli.core.dependency_checks.get_tool_path")
+    @patch("wgsextract_cli.core.dependency_checks.get_tool_version", return_value="1.0")
     def test_deps_check_output(self, mock_version, mock_tool_path):
         from wgsextract_cli.commands.deps import run
 
@@ -334,11 +345,11 @@ class TestOptionalDependencies(unittest.TestCase):
 
         with (
             patch(
-                "wgsextract_cli.commands.deps.runtime.recommend_wslconfig_settings",
+                "wgsextract_cli.commands._deps_status.runtime_wrappers.recommend_wslconfig_settings",
                 return_value=recommendation,
             ),
             patch(
-                "wgsextract_cli.commands.deps.runtime.write_wslconfig_settings",
+                "wgsextract_cli.commands._deps_status.runtime_wrappers.write_wslconfig_settings",
                 return_value="C:/Users/test/.wslconfig",
             ) as mock_write,
             patch("sys.stdout", new=StringIO()) as fake_out,

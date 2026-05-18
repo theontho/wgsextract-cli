@@ -16,10 +16,10 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 # Load environment variables
-from wgsextract_cli.core.utils import (  # noqa: E402
+from wgsextract_cli.core.utils import run_command  # noqa: E402
+from wgsextract_cli.core.variant_files import (
     ensure_vcf_indexed,
     popen,
-    run_command,
 )
 from wgsextract_cli.core.warnings import EXPECTED_TIME, M1_PRO_ESTIMATES  # noqa: E402
 from wgsextract_cli.main import main  # noqa: E402
@@ -503,7 +503,7 @@ class TestE2EBase(unittest.TestCase):
 
     def test_37_vcf_gatk_chrm(self):
         # Only run if GATK jar is present
-        from wgsextract_cli.core.dependencies import get_jar_path
+        from wgsextract_cli.core.dependency_checks import get_jar_path
 
         if not get_jar_path("gatk-package-4.1.9.0-local.jar"):
             self.skipTest("GATK jar not found")

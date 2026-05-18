@@ -1,16 +1,14 @@
-import logging
 import os
-import re
 import shlex
 import shutil
 import subprocess
-import sys
 from functools import lru_cache
-from typing import Any
 
-from wgsextract_cli.core import runtime
+from wgsextract_cli.core import (
+    runtime,
+    runtime_paths,
+)
 
-# Define mandatory and optional tools
 MANDATORY_TOOLS = [
     "samtools",
     "bcftools",
@@ -21,6 +19,7 @@ MANDATORY_TOOLS = [
     "gzip",
     "tar",
 ]
+
 
 OPTIONAL_TOOLS = [
     "minimap2",
@@ -43,6 +42,7 @@ OPTIONAL_TOOLS = [
     "haplogrep",
     "htsfile",
 ]
+
 
 PIXI_TOOL_ENVS = {
     "gzip": "default",
@@ -153,7 +153,7 @@ def get_tool_runtime(path: str | None) -> str:
     bundled_mode = runtime.bundled_tool_command_mode(path)
     if bundled_mode:
         return bundled_mode
-    if runtime.is_pacman_tool_command(path) or runtime.is_pacman_tool_path(path):
+    if runtime.is_pacman_tool_command(path) or runtime_paths.is_pacman_tool_path(path):
         return "pacman"
     return "native"
 
@@ -191,187 +191,12 @@ def get_jar_dir() -> str:
     return path
 
 
-def check_dependencies(tool_list: list[str], jar_dir: str | None = None) -> list[str]:
-    """
-    Checks if all required tools or JAR files are available in the PATH or Pixi.
-    Returns a list of missing tools.
-    """
-    missing = []
-    if jar_dir is None:
-        jar_dir = get_jar_dir()
-
-    for tool in tool_list:
-        if tool.endswith(".jar"):
-            if not os.path.exists(os.path.join(jar_dir, tool)):
-                missing.append(f"{tool} (in {jar_dir})")
-        else:
-            if get_tool_path(tool) is None:
-                missing.append(tool)
-    return missing
-
-
-def verify_dependencies(
-    tool_list: list[str], optional_list: list[str] | None = None
-) -> None:
-    """
-    Checks if all required tools or JAR files are available.
-    Exits gracefully if a tool is missing or version is too old.
-    """
-    if optional_list is None:
-        optional_list = OPTIONAL_TOOLS
-
-    missing = check_dependencies(tool_list)
-
-    if missing:
-        is_optional = all(tool in optional_list for tool in missing)
-        is_windows = sys.platform == "win32"
-
-        if is_optional:
-            logging.error("Required optional tool(s) missing for this feature:")
-        else:
-            if is_windows:
-                logging.warning(
-                    "Warning: Missing required core tools on Windows. Some features may not work."
-                )
-                logging.warning(
-                    "Use 'wgsextract deps wsl check' for WSL, or "
-                    "'wgsextract deps cygwin setup' / 'wgsextract deps msys2 setup' "
-                    "for bundled Windows runtimes, or 'wgsextract deps pacman check' "
-                    "for MSYS2/UCRT64 pacman tools."
-                )
-            else:
-                logging.error("Fatal Error: Missing required core tools or JAR files.")
-
-        for t in missing:
-            if is_windows and not is_optional:
-                logging.warning(f" - {t} (Missing)")
-            else:
-                logging.error(f" - {t}")
-
-        if is_optional:
-            logging.info(
-                "\nPlease install the missing tools using your system package manager "
-                "(e.g., brew, apt, conda) or follow the project installation guide."
-            )
-            sys.exit(1)
-        elif not is_windows:
-            logging.error(
-                "\nPlease ensure all mandatory tools are installed and in your PATH."
-            )
-            sys.exit(1)
-        else:
-            logging.warning(
-                "\nProceeding anyway, but expect failures in bio-tool commands "
-                "unless WSL tools are configured."
-            )
-
-    # Version Validation for critical tools
-    for tool in ["bcftools", "samtools"]:
-        if tool in tool_list:
-            version_str = get_tool_version(tool)
-            if not version_str:
-                continue
-
-            # Handle version strings like "bcftools 1.12" or "Version: 0.1.19"
-
-            match = re.search(r"(\d+)\.(\d+)", version_str)
-            if match:
-                major = int(match.group(1))
-                if major < 1:
-                    if sys.platform == "win32":
-                        logging.warning(
-                            f"Warning: {tool} version {version_str} is too old or unsupported on Windows."
-                        )
-                    else:
-                        logging.error(
-                            f"Fatal Error: {tool} version {version_str} is too old."
-                        )
-                        logging.error(
-                            f"This tool requires {tool} version 1.0 or newer."
-                        )
-                        logging.info(
-                            f"\nYour current path for {tool} is: {shutil.which(tool)}"
-                        )
-                        logging.info(
-                            "Please update your conda environment or system path."
-                        )
-                        sys.exit(1)
-
-
-def get_jar_path(jar_name: str) -> str | None:
-    """Returns absolute path to a JAR file in jartools/."""
-    path = os.path.join(get_jar_dir(), jar_name)
-    if os.path.exists(path):
-        return path
-    return None
-
-
-def get_tool_version(tool: str) -> str | None:
-    """Attempt to get the version of a tool by running it."""
-    # Use the path/command from get_tool_path to handle pixi correctly
-    cmd_base = get_tool_path(tool)
-    if not cmd_base:
-        return None
-
-    full_cmd = _tool_command_parts(cmd_base)
-
-    try:
-        # 1. Try --version first (standard)
-        res = subprocess.run(
-            runtime.wrap_command(full_cmd + ["--version"]),
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        output = _version_output(res.stdout, res.stderr)
-
-        if res.returncode == 0 and output and not output.startswith("[main]"):
-            lines = [line.strip() for line in output.splitlines() if line.strip()]
-            if lines:
-                return lines[0]
-
-        # 2. Fallback for tools that use bare command or --help
-        res = subprocess.run(
-            runtime.wrap_command(full_cmd), capture_output=True, text=True, timeout=10
-        )
-        output = _version_output(res.stdout, res.stderr)
-
-        # Check for dyld/library errors
-        failure_keywords = [
-            "Library not loaded",
-            "not found",
-            "illegal instruction",
-            "segmentation fault",
-            "bad interpreter",
-        ]
-        if any(kw.lower() in output.lower() for kw in failure_keywords):
-            if "not found" in output.lower() and tool.lower() not in output.lower():
-                pass
-            else:
-                return f"Error: {output.splitlines()[0]}"
-
-        # Search for "Version:" or similar in the output
-        for line in output.splitlines():
-            line_l = line.lower()
-            if "version:" in line_l:
-                return line.strip()
-            if tool.lower() in line_l and any(c.isdigit() for c in line):
-                if len(line.strip()) < 50:
-                    return line.strip()
-
-        # Generalized fallback for tools like VEP or others with multi-line help
-        if not output:
-            return "Available"
-
-        # Check first 5 lines for anything that looks like a version string
-        for line in output.splitlines()[:5]:
-            if any(word in line.lower() for word in ["version", "release", "v[0-9]"]):
-                if len(line.strip()) < 60:
-                    return line.strip()
-
-        return "Available"
-    except Exception as e:
-        return f"Error: {str(e)}"
+def _candidate_bundled_runtime_modes(runtime_mode: str) -> tuple[str, ...]:
+    if runtime_mode in runtime.BUNDLED_RUNTIME_MODES:
+        return (runtime_mode,)
+    if runtime_mode == "auto" and runtime.is_windows_host():
+        return ("cygwin", "msys2")
+    return ()
 
 
 def get_tool_path(tool: str) -> str | None:
@@ -382,22 +207,22 @@ def get_tool_path(tool: str) -> str | None:
     bundled_modes = _candidate_bundled_runtime_modes(runtime_mode)
 
     if runtime_mode == "pacman":
-        pacman_path = runtime.pacman_tool_path(tool)
+        pacman_path = runtime_paths.pacman_tool_path(tool)
         if pacman_path:
             return runtime.pacman_tool_command(pacman_path)
         return None
 
     if runtime_mode in runtime.BUNDLED_RUNTIME_MODES:
         for mode in bundled_modes:
-            if runtime.bundled_command_available(mode, tool):
+            if runtime_paths.bundled_command_available(mode, tool):
                 return runtime.bundled_tool_command(mode, tool)
         return None
 
-    if should_consider_wsl and prefer_wsl and runtime.wsl_command_available(tool):
+    if should_consider_wsl and prefer_wsl and runtime_paths.wsl_command_available(tool):
         return runtime.wsl_tool_command(tool)
 
     if prefer_wsl:
-        if tool in PIXI_TOOL_ENVS and runtime.wsl_pixi_tool_available(
+        if tool in PIXI_TOOL_ENVS and runtime_paths.wsl_pixi_tool_available(
             tool, PIXI_TOOL_ENVS[tool]
         ):
             return runtime.wsl_tool_command(
@@ -410,14 +235,14 @@ def get_tool_path(tool: str) -> str | None:
         return path
 
     if runtime_mode == "auto" and runtime.is_windows_host():
-        pacman_path = runtime.pacman_tool_path(tool)
+        pacman_path = runtime_paths.pacman_tool_path(tool)
         if pacman_path:
             return runtime.pacman_tool_command(pacman_path)
 
     if should_consider_wsl:
-        if runtime.wsl_command_available(tool):
+        if runtime_paths.wsl_command_available(tool):
             return runtime.wsl_tool_command(tool)
-        if tool in PIXI_TOOL_ENVS and runtime.wsl_pixi_tool_available(
+        if tool in PIXI_TOOL_ENVS and runtime_paths.wsl_pixi_tool_available(
             tool, PIXI_TOOL_ENVS[tool]
         ):
             return runtime.wsl_tool_command(
@@ -426,7 +251,7 @@ def get_tool_path(tool: str) -> str | None:
 
     auto_bundled_modes = bundled_modes if runtime_mode == "auto" else ()
     for mode in auto_bundled_modes:
-        if runtime.bundled_command_available(mode, tool):
+        if runtime_paths.bundled_command_available(mode, tool):
             return runtime.bundled_tool_command(mode, tool)
 
     # Check for pixi sub-environments
@@ -464,86 +289,20 @@ def get_tool_path(tool: str) -> str | None:
     return None
 
 
-def _candidate_bundled_runtime_modes(runtime_mode: str) -> tuple[str, ...]:
-    if runtime_mode in runtime.BUNDLED_RUNTIME_MODES:
-        return (runtime_mode,)
-    if runtime_mode == "auto" and runtime.is_windows_host():
-        return ("cygwin", "msys2")
-    return ()
-
-
-def check_all_dependencies(
-    mandatory: list[str] | None = None, optional: list[str] | None = None
-) -> dict[str, list[dict[str, Any]]]:
+def check_dependencies(tool_list: list[str], jar_dir: str | None = None) -> list[str]:
     """
-    Performs a simple dependency check and returns results.
+    Checks if all required tools or JAR files are available in the PATH or Pixi.
+    Returns a list of missing tools.
     """
-    if mandatory is None:
-        mandatory = required_dependency_tools()
-    if optional is None:
-        optional = optional_dependency_tools()
+    missing = []
+    if jar_dir is None:
+        jar_dir = get_jar_dir()
 
-    results: dict[str, list[dict[str, Any]]] = {"mandatory": [], "optional": []}
-
-    # Python Version Check
-    py_version = (
-        f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-    )
-    results["mandatory"].append(
-        {
-            "name": "Python Runtime",
-            "path": sys.executable,
-            "runtime": "native",
-            "version": f"Python {py_version} (Required >= 3.10)",
-        }
-    )
-
-    for tool in mandatory:
-        if tool == "python3":
-            continue  # Already checked above as Runtime
-        path = get_tool_path(tool)
-        version = get_tool_version(tool) if path else None
-        is_broken = version and version.startswith("Error:")
-
-        results["mandatory"].append(
-            {
-                "name": tool,
-                "path": path if not is_broken else None,
-                "runtime": get_tool_runtime(path if not is_broken else None),
-                "version": version,
-            }
-        )
-
-    for tool in optional:
-        path = get_tool_path(tool)
-        version = get_tool_version(tool) if path else None
-
-        display_name = tool
-        if tool == "run_deepvariant":
-            display_name = f"{tool} (Wrapper)"
-        elif tool == "dv_call_variants.py":
-            display_name = f"{tool} (Bioconda)"
-
-        is_broken = version and version.startswith("Error:")
-
-        results["optional"].append(
-            {
-                "name": display_name,
-                "path": path if not is_broken else None,
-                "runtime": get_tool_runtime(path if not is_broken else None),
-                "version": version,
-            }
-        )
-
-    return results
-
-
-def log_dependency_info(tool_list: list[str]) -> None:
-    """Logs the path and version for a list of tools for diagnostic purposes."""
     for tool in tool_list:
-        path = get_tool_path(tool)
-        if path:
-            version = get_tool_version(tool)
-            logging.debug(f"Dependency: {tool} -> {path} ({version})")
+        if tool.endswith(".jar"):
+            if not os.path.exists(os.path.join(jar_dir, tool)):
+                missing.append(f"{tool} (in {jar_dir})")
         else:
-            logging.debug(f"Dependency: {tool} -> NOT FOUND")
+            if get_tool_path(tool) is None:
+                missing.append(tool)
+    return missing

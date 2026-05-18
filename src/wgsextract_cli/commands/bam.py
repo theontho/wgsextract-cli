@@ -3,17 +3,22 @@ import os
 import subprocess
 import tempfile
 
-from wgsextract_cli.core.dependencies import log_dependency_info, verify_dependencies
+from wgsextract_cli.core.dependency_checks import (
+    log_dependency_info,
+    verify_dependencies,
+)
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
     WGSExtractError,
-    calculate_bam_md5,
     get_resource_defaults,
     get_sam_index_cmd,
     get_sam_sort_cmd,
+    run_command,
+)
+from wgsextract_cli.core.variant_files import (
+    calculate_bam_md5,
     popen,
     resolve_reference,
-    run_command,
     verify_paths_exist,
 )
 from wgsextract_cli.core.warnings import check_free_space, print_warning
@@ -104,7 +109,7 @@ def get_base_args(args):
         resolved_ref = resolve_reference(args.ref, md5_sig)
         # Ensure it's a file, not a directory
         if resolved_ref and os.path.isdir(resolved_ref):
-            from wgsextract_cli.core.utils import REF_GENOME_FILENAMES
+            from wgsextract_cli.core.constants import REF_GENOME_FILENAMES
 
             for f in REF_GENOME_FILENAMES:
                 potential = os.path.join(resolved_ref, f)
