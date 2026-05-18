@@ -2,6 +2,8 @@ import argparse
 from argparse import Namespace
 from pathlib import Path
 
+import pytest
+
 from wgsextract_cli.commands import benchmark
 
 
@@ -34,6 +36,35 @@ def test_benchmark_accepts_real_coverage_dataset_tags() -> None:
     assert (
         parser.parse_args(["benchmark", "--dataset", "real-30x"]).dataset == "real-30x"
     )
+
+
+def test_benchmark_download_rejects_non_http_url(tmp_path: Path, monkeypatch) -> None:
+    def fail_urlopen(*_args, **_kwargs):
+        raise AssertionError("urlopen should not be called for non-HTTP URLs")
+
+    monkeypatch.setattr(benchmark.urllib.request, "urlopen", fail_urlopen)
+
+    with pytest.raises(ValueError, match="Unsupported benchmark dataset URL scheme"):
+        benchmark._download_file("file:///tmp/dataset.zip", tmp_path / "dataset.zip")
+
+
+def test_benchmark_download_error_redacts_url_query(
+    tmp_path: Path, monkeypatch
+) -> None:
+    def fail_urlopen(*_args, **_kwargs):
+        raise OSError("network unavailable")
+
+    monkeypatch.setattr(benchmark.urllib.request, "urlopen", fail_urlopen)
+
+    with pytest.raises(benchmark.WGSExtractError) as excinfo:
+        benchmark._download_file(
+            "https://example.test/dataset.zip?token=secret",
+            tmp_path / "dataset.zip",
+        )
+
+    message = str(excinfo.value)
+    assert "dataset.zip" in message
+    assert "token=secret" not in message
 
 
 def test_benchmark_result_names_include_cli_command_labels() -> None:
