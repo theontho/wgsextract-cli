@@ -41,7 +41,7 @@ if pixi run wgsextract vcf indel \
 
     # Synthetic data can legitimately produce no indel calls; verify a valid VCF.
     INDEL_COUNT=$(zgrep -v "^#" "$OUTDIR/indels.vcf.gz" | wc -l)
-    verify_vcf "$OUTDIR/indels.vcf.gz" allow_empty
+    verify_vcf "$OUTDIR/indels.vcf.gz" allow_empty || exit 1
     echo "VERIFIED: VCF is valid with $INDEL_COUNT indel records."
 else
     echo "FAILURE: VCF Indel failed."

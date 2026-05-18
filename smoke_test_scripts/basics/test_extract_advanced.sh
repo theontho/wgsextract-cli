@@ -87,7 +87,7 @@ fi
 echo ":: Testing 'extract custom' (--gene GENE1)..."
 GENE_OUTDIR="$OUTDIR/gene_custom"
 rm -rf "$GENE_OUTDIR"
-mkdir -p "$GENE_OUTDIR"
+mkdir -p "$GENE_OUTDIR" || exit 1
 GENE_REF=$(prepare_fake_gene_reflib "$GENE_OUTDIR" "$FAKEDATA" 5000) || exit 1
 
 if pixi run wgsextract extract custom \
