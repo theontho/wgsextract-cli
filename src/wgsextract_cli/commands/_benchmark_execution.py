@@ -161,8 +161,11 @@ def _copy_bam_with_index(source_bam: Path, dest_bam: Path) -> None:
     shutil.copy2(source_bam, dest_bam)
 
     source_index = _bam_index_path(source_bam)
-    dest_index = Path(str(dest_bam) + ".bai")
     if source_index and source_index.exists():
+        if source_index.name == source_bam.name + source_index.suffix:
+            dest_index = Path(str(dest_bam) + source_index.suffix)
+        else:
+            dest_index = dest_bam.with_suffix(source_index.suffix)
         shutil.copy2(source_index, dest_index)
     else:
         run_command(["samtools", "index", str(dest_bam)])

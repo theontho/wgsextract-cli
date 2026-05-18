@@ -80,7 +80,7 @@ def cmd_vep_download(args):
                         )
                     )
                 else:
-                    logging.warning(
+                    raise WGSExtractError(
                         LOG_MESSAGES["vep_checksum_failed"].format(
                             expected_sum=found_sum,
                             expected_blocks=found_blocks,
@@ -88,6 +88,8 @@ def cmd_vep_download(args):
                             actual_blocks=local_blocks,
                         )
                     )
+        except WGSExtractError:
+            raise
         except Exception as e:
             logging.debug(f"Checksum verification failed: {e}")
         finally:

@@ -235,8 +235,10 @@ def run(args):
             with open(json_cache, "w") as f:
                 json.dump(data, f, indent=2)
             logging.debug(f"Fast metrics cached to {json_cache}")
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.warning(
+                "Failed to write fast metrics cache %s: %s", json_cache, exc
+            )
         logging.debug(f"Total info time: {time.time() - start_time:.3f}s")
         return
 
@@ -286,8 +288,10 @@ def run(args):
                 try:
                     with open(sample_file) as f:
                         coverage_map = json.load(f)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logging.warning(
+                        "Failed to read sampled coverage %s: %s", sample_file, exc
+                    )
 
         y_reads = next(
             (
@@ -416,5 +420,7 @@ def run(args):
             with open(json_cache, "w") as f:
                 json.dump(data, f, indent=2)
             print(LOG_MESSAGES["info_metrics_cached"].format(path=json_cache))
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.warning(
+                "Failed to write detailed metrics cache %s: %s", json_cache, exc
+            )

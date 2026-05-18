@@ -174,11 +174,12 @@ def run_full_coverage(input_p, ref_p, out_p, region=None):
         region_args = ["-r", region] if region else []
         cmd = ["samtools", "depth", "-aa"] + region_args + opts + [input_p]
         cmd = [x for x in cmd if x is not None]
-        p1 = popen(cmd, stdout=subprocess.PIPE)
-        p2 = popen(["awk", awk], stdin=p1.stdout, stdout=open(out_p, "w"))
-        if p1.stdout:
-            p1.stdout.close()
-        p2.communicate()
+        with open(out_p, "w") as output:
+            p1 = popen(cmd, stdout=subprocess.PIPE)
+            p2 = popen(["awk", awk], stdin=p1.stdout, stdout=output)
+            if p1.stdout:
+                p1.stdout.close()
+            p2.communicate()
     except Exception as e:
         logging.error(f"Coverage failed: {e}")
 

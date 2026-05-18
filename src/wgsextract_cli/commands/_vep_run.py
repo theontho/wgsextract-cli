@@ -184,8 +184,13 @@ def cmd_vep(args):
                 if p1.stdout:
                     p1.stdout.close()
                 _, stderr = p2.communicate()
-                if p2.returncode != 0:
-                    logging.error(f"Variant calling failed: {stderr.decode()}")
+                mpileup_returncode = p1.wait()
+                if mpileup_returncode != 0 or p2.returncode != 0:
+                    logging.error(
+                        "Variant calling failed with return codes "
+                        f"mpileup={mpileup_returncode}, call={p2.returncode}: "
+                        f"{stderr.decode() if stderr else ''}"
+                    )
                     batch_stats.append((os.path.basename(current_input), "FAILED", "-"))
                     continue
                 ensure_vcf_indexed(temp_vcf)

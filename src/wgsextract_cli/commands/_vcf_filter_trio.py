@@ -169,7 +169,7 @@ def cmd_trio(args):
 
     # Get chrom style from proband
     try:
-        res = run_command(["bcftools", "index", "-s", p_vcf])
+        res = run_command(["bcftools", "index", "-s", p_vcf], capture_output=True)
         target_chroms = [line.split("\t")[0] for line in res.stdout.strip().split("\n")]
     except Exception:
         target_chroms = ["chr1"]  # Default to chr
@@ -180,6 +180,17 @@ def cmd_trio(args):
     # 2. Merge
     merged_vcf = os.path.join(outdir, "merged_trio_tmp.vcf.gz")
     region_args = ["-r", args.region] if getattr(args, "region", None) else []
+
+    def cleanup_trio_temp_files() -> None:
+        for path in [merged_vcf, m_vcf_norm, f_vcf_norm]:
+            if path in {m_vcf, f_vcf}:
+                continue
+            if os.path.exists(path):
+                os.remove(path)
+            for ext in [".tbi", ".csi"]:
+                if os.path.exists(path + ext):
+                    os.remove(path + ext)
+
     try:
         run_command(
             [
@@ -200,6 +211,7 @@ def cmd_trio(args):
         ensure_vcf_indexed(merged_vcf)
     except Exception as e:
         logging.error(f"❌: VCF merge failed: {e}")
+        cleanup_trio_temp_files()
         raise WGSExtractError("VCF trio merge failed.") from e
 
     # 3. Identify sample order
@@ -263,12 +275,16 @@ def cmd_trio(args):
             # Basic summary
             try:
                 # Count total
-                total_res = run_command(["bcftools", "view", "-H", out_vcf])
+                total_res = run_command(
+                    ["bcftools", "view", "-H", out_vcf], capture_output=True
+                )
                 total_count = total_res.stdout.count("\n")
 
                 # Check if CSQ exists in header
                 has_csq = False
-                header_res = run_command(["bcftools", "view", "-h", out_vcf])
+                header_res = run_command(
+                    ["bcftools", "view", "-h", out_vcf], capture_output=True
+                )
                 if "ID=CSQ" in header_res.stdout:
                     has_csq = True
 
@@ -279,7 +295,8 @@ def cmd_trio(args):
                 if has_csq:
                     # Count high impact
                     high_res = run_command(
-                        ["bcftools", "view", "-H", "-i", 'CSQ~"HIGH"', out_vcf]
+                        ["bcftools", "view", "-H", "-i", 'CSQ~"HIGH"', out_vcf],
+                        capture_output=True,
                     )
                     high_count = high_res.stdout.count("\n")
                     summary_msg += f", {high_count} HIGH impact"
@@ -290,21 +307,8 @@ def cmd_trio(args):
 
         except Exception as e:
             logging.error(f"❌: Filtering for {mode} failed: {e}")
+            cleanup_trio_temp_files()
             raise WGSExtractError(f"VCF trio filtering failed for {mode}.") from e
 
     # Cleanup
-    if os.path.exists(merged_vcf):
-        os.remove(merged_vcf)
-        if os.path.exists(merged_vcf + ".tbi"):
-            os.remove(merged_vcf + ".tbi")
-        if os.path.exists(merged_vcf + ".csi"):
-            os.remove(merged_vcf + ".csi")
-
-    if m_vcf_norm != m_vcf and os.path.exists(m_vcf_norm):
-        os.remove(m_vcf_norm)
-        if os.path.exists(m_vcf_norm + ".tbi"):
-            os.remove(m_vcf_norm + ".tbi")
-    if f_vcf_norm != f_vcf and os.path.exists(f_vcf_norm):
-        os.remove(f_vcf_norm)
-        if os.path.exists(f_vcf_norm + ".tbi"):
-            os.remove(f_vcf_norm + ".tbi")
+    cleanup_trio_temp_files()

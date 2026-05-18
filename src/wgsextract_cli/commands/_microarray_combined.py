@@ -255,14 +255,4 @@ def _write_microarray_combined_kit(
     except Exception as e:
         logging.error(f"Failed to generate CombinedKit.txt: {e}")
         raise WGSExtractError("Failed to generate CombinedKit.txt.") from e
-    finally:
-        # Cleanup intermediate files
-        for f in ["hit_vcf", "annotated_vcf"]:
-            if f in locals():
-                path = locals()[f]
-                if path and os.path.exists(path):
-                    os.remove(path)
-                    for ext in [".tbi", ".csi"]:
-                        if os.path.exists(path + ext):
-                            os.remove(path + ext)
     return combined_kit_txt

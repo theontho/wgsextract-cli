@@ -120,6 +120,7 @@ def _post_extract_bundled_runtime(mode: str) -> None:
 
 
 def _bundled_runtime_archive_url(mode: str, latest_json_url: str) -> str:
+    require_http_url(latest_json_url, "runtime release JSON URL")
     spec = runtime_paths.bundled_runtime_spec(mode)
     request = urllib.request.Request(
         latest_json_url, headers={"User-Agent": DOWNLOAD_USER_AGENT}

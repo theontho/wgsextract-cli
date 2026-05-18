@@ -205,8 +205,8 @@ def cmd_deepvariant(args):
             run_command(["bgzip", "-f", intermediate_vcf], check=True)
             ensure_vcf_indexed(out_vcf)
         else:
-            logging.error("DeepVariant failed to produce output VCF.")
+            raise WGSExtractError("DeepVariant failed to produce output VCF.")
 
     except Exception as e:
         logging.error(f"DeepVariant failed: {e}")
-        raise WGSExtractError("VCF processing failed.") from None
+        raise WGSExtractError("VCF processing failed.") from e

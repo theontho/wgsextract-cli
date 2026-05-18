@@ -333,4 +333,4 @@ def cmd_annotate(args):
         ensure_vcf_indexed(out_vcf)
     except Exception as e:
         logging.error(f"❌: Annotation failed: {e}")
-        raise WGSExtractError("VCF processing failed.") from None
+        raise WGSExtractError("VCF processing failed.") from e

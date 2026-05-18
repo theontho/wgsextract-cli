@@ -87,7 +87,7 @@ def cmd_clinvar(args):
         ensure_vcf_indexed(ann_out)
     except Exception as e:
         logging.error(f"ClinVar annotation failed: {e}")
-        raise WGSExtractError("VCF processing failed.") from None
+        raise WGSExtractError("VCF processing failed.") from e
     finally:
         if normalized_input != input_vcf and os.path.exists(normalized_input):
             os.remove(normalized_input)
@@ -116,7 +116,7 @@ def cmd_revel(args):
     input_file = args.input if args.input else args.vcf_input
     if not input_file:
         logging.error(LOG_MESSAGES["input_required"])
-        raise WGSExtractError("VCF processing failed.") from None
+        raise WGSExtractError("VCF processing failed.")
 
     outdir = (
         args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_file))
@@ -235,7 +235,7 @@ def cmd_revel(args):
         ensure_vcf_indexed(ann_out)
     except Exception as e:
         logging.error(f"REVEL annotation failed: {e}")
-        raise WGSExtractError("VCF processing failed.") from None
+        raise WGSExtractError("VCF processing failed.") from e
     finally:
         if header_tmp and os.path.exists(header_tmp):
             os.remove(header_tmp)

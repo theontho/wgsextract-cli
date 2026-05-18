@@ -100,8 +100,8 @@ def run_body_sample(filepath, cram_opt):
                 tlen_values.append(tlen)
 
         proc.terminate()
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.warning("Failed to sample read metrics from %s: %s", filepath, exc)
 
     avg_len = total_len / count if count > 0 else 0
     avg_tlen = sum(tlen_values) / len(tlen_values) if len(tlen_values) > 0 else 0

@@ -163,10 +163,9 @@ def generate_fake_genomics_data(
 
             _, _, free = shutil.disk_usage(outdir)
             if free < (est_bam_gb * 1.5) * (1024**3):
-                logging.error(
-                    f"Insufficient disk space in {outdir}. Need at least {est_bam_gb * 1.5:.1f}GB."
-                )
-                return
+                msg = f"Insufficient disk space in {outdir}. Need at least {est_bam_gb * 1.5:.1f}GB."
+                logging.error(msg)
+                raise WGSExtractError(msg)
     else:
         chroms = {}
         for i in range(1, 23):

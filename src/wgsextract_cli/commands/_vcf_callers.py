@@ -6,7 +6,7 @@ import sys
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
-from wgsextract_cli.core.utils import run_command
+from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import (
     ensure_vcf_indexed,
     popen,
@@ -87,13 +87,18 @@ def cmd_freebayes(args):
             if p_fb.stdout:
                 p_fb.stdout.close()
             _, stderr = p_vcf.communicate()
+            fb_returncode = p_fb.wait()
+            view_returncode = p_view.wait()
 
-            if p_vcf.returncode != 0:
+            if view_returncode != 0 or fb_returncode != 0 or p_vcf.returncode != 0:
                 logging.error(
-                    f"Freebayes/bcftools pipeline failed with return code {p_vcf.returncode}"
+                    "Freebayes pipeline failed with return codes "
+                    f"samtools={view_returncode}, freebayes={fb_returncode}, "
+                    f"bcftools={p_vcf.returncode}"
                 )
                 if stderr:
                     logging.error(stderr.decode(errors="replace"))
+                raise WGSExtractError("Freebayes pipeline failed.")
         else:
             # BAM handling
             p1 = popen(
@@ -108,17 +113,21 @@ def cmd_freebayes(args):
             if p1.stdout:
                 p1.stdout.close()
             _, stderr = p2.communicate()
+            freebayes_returncode = p1.wait()
 
-            if p2.returncode != 0:
+            if freebayes_returncode != 0 or p2.returncode != 0:
                 logging.error(
-                    f"Freebayes/bcftools failed with return code {p2.returncode}"
+                    "Freebayes/bcftools failed with return codes "
+                    f"freebayes={freebayes_returncode}, bcftools={p2.returncode}"
                 )
                 if stderr:
                     logging.error(stderr.decode(errors="replace"))
+                raise WGSExtractError("Freebayes pipeline failed.")
 
         ensure_vcf_indexed(out_vcf)
     except Exception as e:
         logging.error(f"Freebayes failed: {e}")
+        raise WGSExtractError("Freebayes failed.") from e
     finally:
         # Clean up temp reference
         if temp_ref and os.path.exists(temp_ref):

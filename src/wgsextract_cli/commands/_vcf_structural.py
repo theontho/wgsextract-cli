@@ -87,7 +87,7 @@ def cmd_cnv(args):
             logging.error(f"Failed to extract region: {e}")
             if os.path.exists(temp_bam):
                 os.remove(temp_bam)
-            return
+            raise WGSExtractError("CNV region extraction failed.") from e
 
     try:
         # delly cnv -g ref.fa -o cnv.bcf input.bam
@@ -296,7 +296,7 @@ def cmd_sv(args):
             logging.error(f"Failed to extract region: {e}")
             if os.path.exists(temp_bam):
                 os.remove(temp_bam)
-            return
+            raise WGSExtractError("SV region extraction failed.") from e
 
     try:
         # delly call -g ref.fa -o sv.bcf input.bam
