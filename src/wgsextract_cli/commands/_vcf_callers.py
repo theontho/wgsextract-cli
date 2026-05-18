@@ -1,7 +1,6 @@
 import logging
 import os
 import subprocess
-import sys
 
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
@@ -21,8 +20,8 @@ def cmd_freebayes(args):
     verify_dependencies(["freebayes", "bcftools", "tabix", "samtools"])
     base = get_base_args(args)
     if not base:
-        return
-    threads, outdir, ref, lib = base
+        raise WGSExtractError("Failed to resolve base arguments for FreeBayes.")
+    _threads, outdir, ref, _lib = base
 
     out_vcf = os.path.join(outdir, "freebayes.vcf.gz")
 
@@ -141,8 +140,8 @@ def cmd_gatk(args):
     verify_dependencies(["gatk", "samtools"])
     base = get_base_args(args)
     if not base:
-        return
-    threads, outdir, ref, lib = base
+        raise WGSExtractError("Failed to resolve base arguments for GATK.")
+    _threads, outdir, ref, lib = base
 
     out_vcf = os.path.join(outdir, "gatk.vcf.gz")
 
@@ -166,8 +165,6 @@ def cmd_gatk(args):
     region_args = ["-L", args.region] if args.region else []
 
     try:
-        from wgsextract_cli.core.dependencies import get_tool_path
-
         gatk_tool = get_tool_path("gatk")
         # Use system gatk binary
         cmd = [
@@ -189,4 +186,4 @@ def cmd_gatk(args):
                 "Hint: Older GATK versions do not support CRAM version 3.1. "
                 "If this failed with a CRAM error, please convert to BAM or upgrade GATK."
             )
-        sys.exit(e.returncode)
+        raise WGSExtractError("GATK failed.") from e

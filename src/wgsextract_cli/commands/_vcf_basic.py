@@ -142,9 +142,14 @@ def cmd_snp(args):
     if p1.stdout:
         p1.stdout.close()
     _, stderr = p2.communicate()
+    mpileup_returncode = p1.wait()
 
-    if p2.returncode != 0:
+    if mpileup_returncode != 0 or p2.returncode != 0:
         logging.error(f"bcftools call failed with return code {p2.returncode}")
+        if mpileup_returncode != 0:
+            logging.error(
+                f"bcftools mpileup failed with return code {mpileup_returncode}"
+            )
         if stderr:
             logging.error(stderr.decode(errors="replace"))
         raise WGSExtractError("SNP variant calling failed.")

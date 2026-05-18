@@ -61,7 +61,7 @@ def cmd_filter(args):
     if not input_file:
         msg = LOG_MESSAGES["input_required"]
         logging.error(msg)
-        raise WGSExtractError(msg) from None
+        raise WGSExtractError(msg)
 
     if not verify_paths_exist({"--input": input_file}):
         return
@@ -133,7 +133,7 @@ def cmd_filter(args):
         ensure_vcf_indexed(out_vcf)
     except Exception as e:
         logging.error(f"❌: Filtering failed: {e}")
-        raise WGSExtractError("VCF filtering failed.") from None
+        raise WGSExtractError("VCF filtering failed.") from e
     finally:
         if gaps_bed and os.path.exists(gaps_bed):
             os.remove(gaps_bed)

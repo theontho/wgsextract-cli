@@ -33,11 +33,13 @@ def cmd_deepvariant(args):
             logging.error(
                 "DeepVariant not found. Please install it or ensure it is in your PATH."
             )
-            return
+            raise WGSExtractError(
+                "DeepVariant not found. Please install it or add it to PATH."
+            )
 
     base = get_base_args(args)
     if not base:
-        return
+        raise WGSExtractError("Failed to resolve base arguments for DeepVariant.")
     threads, outdir, ref, lib = base
 
     out_vcf = os.path.join(outdir, "deepvariant.vcf.gz")

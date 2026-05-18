@@ -91,7 +91,7 @@ def cmd_vep_download(args):
         except WGSExtractError:
             raise
         except Exception as e:
-            logging.debug(f"Checksum verification failed: {e}")
+            logging.warning(f"Checksum verification could not be completed: {e}")
         finally:
             if os.path.exists(checksum_path):
                 os.remove(checksum_path)

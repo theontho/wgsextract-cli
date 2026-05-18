@@ -19,16 +19,16 @@ from ._qc_commands import (
 
 
 def generate_fake_genomics_data(
-    outdir,
-    ref_path=None,
-    coverage=1.0,
-    seed=42,
-    build="hg38",
-    full_size=False,
-    types=None,
-    target_md5=None,
-    legacy_bam=False,
-):
+    outdir: str,
+    ref_path: str | None = None,
+    coverage: float = 1.0,
+    seed: int = 42,
+    build: str = "hg38",
+    full_size: bool = False,
+    types: list[str] | None = None,
+    target_md5: str | None = None,
+    legacy_bam: bool = False,
+) -> None:
     """Generates a scaled-down or full human fake BAM, CRAM and VCF."""
     import random
 
