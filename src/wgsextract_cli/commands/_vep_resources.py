@@ -192,7 +192,9 @@ def preprocess_vcf_chr_prefix(input_path, output_path):
                     parts = line.split("\t", 1)
                     chrom = parts[0]
                     # Only prefix if it's a standard chromosome name
-                    if chrom.isdigit() or chrom in ["X", "Y", "MT", "M"]:
+                    if len(parts) > 1 and (
+                        chrom.isdigit() or chrom in ["X", "Y", "MT", "M"]
+                    ):
                         new_chrom = f"chr{chrom}"
                         if new_chrom == "chrMT":
                             new_chrom = "chrM"

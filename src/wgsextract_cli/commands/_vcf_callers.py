@@ -56,7 +56,7 @@ def cmd_freebayes(args):
                 os.remove(temp_ref)
                 if os.path.exists(temp_ref + ".fai"):
                     os.remove(temp_ref + ".fai")
-            return
+            raise WGSExtractError("Failed to prepare reference for FreeBayes.") from e
 
     # Check if input is CRAM
     is_cram = args.input.lower().endswith(".cram")

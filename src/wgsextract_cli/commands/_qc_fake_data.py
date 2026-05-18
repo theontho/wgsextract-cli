@@ -303,7 +303,7 @@ def generate_fake_genomics_data(
 
                         # Check R1
                         for v_pos, v_data in cv.items():
-                            v_ref, v_val, is_indel = v_data
+                            _v_ref, v_val, is_indel = v_data
                             if pos1 <= v_pos < pos1 + rl1:
                                 rel_pos = v_pos - pos1
                                 if not is_indel:
@@ -329,7 +329,7 @@ def generate_fake_genomics_data(
 
                         # Check R2
                         for v_pos, v_data in cv.items():
-                            v_ref, v_val, is_indel = v_data
+                            _v_ref, v_val, is_indel = v_data
                             if pos2 <= v_pos < pos2 + rl2:
                                 rel_pos = v_pos - pos2
                                 if not is_indel:
