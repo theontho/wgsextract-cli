@@ -9,6 +9,7 @@ from typing import Any
 from wgsextract_cli.core import (
     runtime_wrappers,
 )
+from wgsextract_cli.core.utils import WGSExtractError
 
 from .dependencies import (
     OPTIONAL_TOOLS,
@@ -137,12 +138,16 @@ def verify_dependencies(
                 "\nPlease install the missing tools using your system package manager "
                 "(e.g., brew, apt, conda) or follow the project installation guide."
             )
-            sys.exit(1)
+            raise WGSExtractError(
+                f"Missing required optional tool(s): {', '.join(missing)}"
+            )
         elif not is_windows:
             logging.error(
                 "\nPlease ensure all mandatory tools are installed and in your PATH."
             )
-            sys.exit(1)
+            raise WGSExtractError(
+                f"Missing required core tool(s): {', '.join(missing)}"
+            )
         else:
             logging.warning(
                 "\nProceeding anyway, but expect failures in bio-tool commands "
@@ -179,7 +184,9 @@ def verify_dependencies(
                         logging.info(
                             "Please update your conda environment or system path."
                         )
-                        sys.exit(1)
+                        raise WGSExtractError(
+                            f"{tool} version {version_str} is too old."
+                        )
 
 
 def get_jar_path(jar_name: str) -> str | None:

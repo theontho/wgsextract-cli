@@ -16,6 +16,7 @@ from wgsextract_cli.commands import _deps_status as deps_status_command  # noqa:
 from wgsextract_cli.commands import deps as deps_command  # noqa: E402
 from wgsextract_cli.core import runtime  # noqa: E402
 from wgsextract_cli.core.dependency_checks import verify_dependencies  # noqa: E402
+from wgsextract_cli.core.utils import WGSExtractError  # noqa: E402
 
 
 class TestOptionalDependencies(unittest.TestCase):
@@ -32,10 +33,8 @@ class TestOptionalDependencies(unittest.TestCase):
         # Simulate 'minimap2' (optional) is missing
         mock_tool_path.return_value = ["minimap2"]
 
-        try:
+        with self.assertRaises(WGSExtractError):
             verify_dependencies(["minimap2"])
-        except SystemExit:
-            pass
 
         # Check that it called logging.error with the optional message
         mock_error.assert_any_call(
@@ -48,7 +47,7 @@ class TestOptionalDependencies(unittest.TestCase):
         self.assertIn("package manager", args[0])
         self.assertIn("brew, apt, conda", args[0])
 
-        mock_exit.assert_called_with(1)
+        mock_exit.assert_not_called()
 
     @patch("wgsextract_cli.core.dependency_checks.check_dependencies")
     @patch("wgsextract_cli.core.dependency_checks.get_jar_dir", return_value="/tmp")
@@ -61,17 +60,15 @@ class TestOptionalDependencies(unittest.TestCase):
         # Simulate 'samtools' (mandatory) is missing
         mock_tool_path.return_value = ["samtools"]
 
-        try:
+        with self.assertRaises(WGSExtractError):
             verify_dependencies(["samtools"])
-        except SystemExit:
-            pass
 
         # Check that it called logging.error with the fatal message
         mock_error.assert_any_call(
             "Fatal Error: Missing required core tools or JAR files."
         )
         mock_error.assert_any_call(" - samtools")
-        mock_exit.assert_called_with(1)
+        mock_exit.assert_not_called()
 
     @patch("wgsextract_cli.core.dependency_checks.sys.platform", "win32")
     @patch(
