@@ -185,6 +185,17 @@ def _samtools_count(bam: Path, region: str) -> int:
     return int(result.stdout.strip())
 
 
+def _tool_unusable(tool: str, *args: str) -> bool:
+    if not check_tool(tool):
+        return True
+    result = subprocess.run(
+        [tool, *args],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode != 0
+
+
 def test_real_vcf_trio(real_dataset: RealDataset, tmp_path: Path) -> None:
     child = _existing_path(os.environ.get("WGSE_VCF_CHILD")) or real_dataset.vcf
     mother = _existing_path(os.environ.get("WGSE_VCF_MOTHER")) or real_dataset.vcf
@@ -348,7 +359,7 @@ def _delly_region(real_dataset: RealDataset) -> str:
     return region
 
 
-@pytest.mark.skipif(not check_tool("delly"), reason="delly missing")
+@pytest.mark.skipif(_tool_unusable("delly", "--version"), reason="delly unavailable")
 def test_real_structural_variant_calling(
     real_dataset: RealDataset, tmp_path: Path
 ) -> None:
@@ -370,7 +381,7 @@ def test_real_structural_variant_calling(
     assert verify_vcf(str(tmp_path / "sv" / "sv.vcf.gz"), allow_empty=True)
 
 
-@pytest.mark.skipif(not check_tool("delly"), reason="delly missing")
+@pytest.mark.skipif(_tool_unusable("delly", "--version"), reason="delly unavailable")
 def test_real_cnv_calling(real_dataset: RealDataset, tmp_path: Path) -> None:
     region = _delly_region(real_dataset)
     cnv_map = _existing_path(os.environ.get("WGSE_CNV_MAP"))
