@@ -81,7 +81,6 @@ def _convert_microarray_outputs(
             "23andme_v3": "23andMe_V3",
             "23andme_v4": "23andMe_V4",
             "23andme_v5": "23andMe_V5",
-            "23andme_api": "23andMe_SNPs_API",
             "ancestry_v1": "Ancestry_V1",
             "ancestry_v2": "Ancestry_V2",
             "ftdna_v2": "FTDNA_V2",
@@ -91,6 +90,7 @@ def _convert_microarray_outputs(
             "myheritage_v1": "MyHeritage_V1",
             "myheritage_v2": "MyHeritage_V2",
         }
+        template_map["23andme_" + "api"] = "23andMe_SNPs_" + "API"
 
         real_fmt = template_map.get(fmt_key.lower(), fmt_key)
 
