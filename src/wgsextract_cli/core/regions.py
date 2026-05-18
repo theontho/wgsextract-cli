@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 
@@ -46,8 +47,8 @@ def get_vcf_chr_name(vcf_path, target_chr):
             for c in ["chrY", "Y"]:
                 if c in v_chroms:
                     return c
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning(f"VCF chromosome name detection failed for {vcf_path}: {e}")
     return target_chr
 
 
