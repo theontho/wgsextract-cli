@@ -47,7 +47,10 @@ def run_discovery_filter(args, ann_vcf, v_type, out_vcf):
             capture_output=True,
         )
         header = res_h.stdout
-    except Exception:
+    except Exception as e:
+        logging.warning(
+            f"Annotation header inspection failed; using baseline filter: {e}"
+        )
         header = ""
 
     # Build Logic: Rare OR Pathogenic OR High Impact
