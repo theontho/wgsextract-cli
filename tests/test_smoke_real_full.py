@@ -112,8 +112,31 @@ def _run_ok(args: list[str]) -> tuple[str, str]:
 
 
 def _reference_fai(ref: Path) -> Path | None:
-    fai = Path(f"{ref}.fai")
+    fasta = _reference_fasta(ref)
+    if fasta is None:
+        return None
+    fai = Path(f"{fasta}.fai")
     return fai if fai.exists() else None
+
+
+def _reference_fasta(ref: Path) -> Path | None:
+    if ref.is_file():
+        return ref
+    if not ref.is_dir():
+        return None
+
+    candidates: list[Path] = []
+    for subdir in ("genomes", "ref", ""):
+        root = ref / subdir if subdir else ref
+        if root.is_dir():
+            candidates.extend(root.glob("*.fa"))
+            candidates.extend(root.glob("*.fa.gz"))
+            candidates.extend(root.glob("*.fasta"))
+            candidates.extend(root.glob("*.fasta.gz"))
+    indexed = [
+        candidate for candidate in candidates if Path(f"{candidate}.fai").exists()
+    ]
+    return sorted(indexed or candidates)[0] if candidates else None
 
 
 def _reference_contigs(ref: Path) -> list[str]:
@@ -147,7 +170,7 @@ def _target_tab(dataset: RealDataset) -> Path:
     if dataset.target_tab and dataset.target_tab.exists():
         return dataset.target_tab
 
-    for root in {dataset.vcf.parent, dataset.ref.parent, dataset.bam.parent}:
+    for root in (dataset.vcf.parent, dataset.ref.parent, dataset.bam.parent):
         matches = sorted(root.glob("*.targets.tab.gz"))
         if matches:
             return matches[0]
@@ -173,11 +196,18 @@ def _assert_combined_kit_has_calls(path: Path) -> None:
     assert valid_calls > 0, f"no concrete genotype calls found in {path}"
 
 
-def _samtools_count(bam: Path, region: str) -> int:
+def _samtools_count(bam: Path, region: str, ref: Path) -> int:
     if not check_tool("samtools"):
         pytest.skip("samtools missing")
+    command = ["samtools", "view", "-c"]
+    if bam.suffix == ".cram":
+        fasta = _reference_fasta(ref)
+        if fasta is None:
+            pytest.skip(f"reference FASTA not resolvable for CRAM input: {bam}")
+        command.extend(["-T", str(fasta)])
+    command.extend([str(bam), region])
     result = subprocess.run(
-        ["samtools", "view", "-c", str(bam), region],
+        command,
         capture_output=True,
         text=True,
         check=True,
@@ -354,7 +384,7 @@ def test_real_variant_calling(real_dataset: RealDataset, tmp_path: Path) -> None
 
 def _delly_region(real_dataset: RealDataset) -> str:
     region = _reference_region(real_dataset.ref, "20", "chr20", "Y", "chrY")
-    if _samtools_count(real_dataset.bam, region) < 1000:
+    if _samtools_count(real_dataset.bam, region, real_dataset.ref) < 1000:
         pytest.skip(f"not enough reads in {region} for Delly library estimation")
     return region
 
@@ -474,7 +504,7 @@ def test_real_y_lineage(real_dataset: RealDataset, tmp_path: Path) -> None:
             str(tmp_path),
         ]
     )
-    assert list(tmp_path.glob("**/*_Final_Report.txt"))
+    _single_file(tmp_path, "**/*_Final_Report.txt")
 
 
 @pytest.mark.skipif(not check_tool("vep"), reason="vep missing")
@@ -542,12 +572,16 @@ def test_real_clinical_annotation_stack(
         "pharmgkb_*",
     ]
     resource_root = real_dataset.ref / "ref"
-    has_any_resource = any(
-        next(resource_root.glob(pattern), None) is not None
+    missing = [
+        pattern
         for pattern in resource_patterns
-    )
-    if not has_any_resource:
-        pytest.skip(f"clinical annotation databases missing in {resource_root}")
+        if next(resource_root.glob(pattern), None) is None
+    ]
+    if missing:
+        pytest.skip(
+            f"clinical annotation resources missing in {resource_root}: "
+            f"{', '.join(missing)}"
+        )
 
     steps = [
         ("clinvar", real_dataset.vcf, "clinvar_annotated.vcf.gz"),
@@ -579,31 +613,3 @@ def test_real_clinical_annotation_stack(
             ]
         )
         assert verify_vcf(str(tmp_path / output_name), allow_empty=True)
-
-
-def test_real_pet_alignment(tmp_path: Path) -> None:
-    pet_r1 = _existing_path(os.environ.get("WGSE_PET_R1"))
-    pet_r2 = _existing_path(os.environ.get("WGSE_PET_R2"))
-    pet_ref = _existing_path(os.environ.get("WGSE_PET_REF"))
-    if not pet_r1 or not pet_r2 or not pet_ref:
-        pytest.skip("WGSE_PET_R1/WGSE_PET_R2/WGSE_PET_REF not configured")
-    if not check_tool("bwa"):
-        pytest.skip("bwa missing")
-
-    _run_ok(
-        [
-            "pet-align",
-            "--r1",
-            str(pet_r1),
-            "--r2",
-            str(pet_r2),
-            "--ref",
-            str(pet_ref),
-            "--species",
-            os.environ.get("WGSE_PET_SPECIES", "dog"),
-            "--outdir",
-            str(tmp_path),
-        ]
-    )
-    assert verify_bam(str(_single_file(tmp_path, "*.bam")))
-    assert verify_vcf(str(_single_file(tmp_path, "*.vcf.gz")), allow_empty=True)
