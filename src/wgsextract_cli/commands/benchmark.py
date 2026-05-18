@@ -2029,7 +2029,7 @@ def _download_file(url: str, destination: Path) -> None:
     require_http_url(url, "benchmark dataset URL")
     tmp_path = destination.with_suffix(destination.suffix + ".tmp")
     request = urllib.request.Request(url, headers={"User-Agent": "wgsextract-cli"})
-    logging.info(f"Downloading {url}")
+    logging.info("Downloading benchmark dataset to %s", destination.name)
     try:
         with urllib.request.urlopen(request, timeout=300) as response:
             with open(tmp_path, "wb") as handle:

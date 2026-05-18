@@ -240,11 +240,10 @@ mkdir -p "$EXTRACT_DIR"
 
 log "Downloading WGS Extract CLI from $ARCHIVE_URL"
 if [ -t 2 ]; then
-    CURL_PROGRESS_ARGS="--progress-bar"
+    curl -fL --progress-bar --retry 3 --retry-delay 2 -o "$ARCHIVE" "$ARCHIVE_URL"
 else
-    CURL_PROGRESS_ARGS="--silent --show-error"
+    curl -fL --silent --show-error --retry 3 --retry-delay 2 -o "$ARCHIVE" "$ARCHIVE_URL"
 fi
-curl -fL $CURL_PROGRESS_ARGS --retry 3 --retry-delay 2 -o "$ARCHIVE" "$ARCHIVE_URL"
 tar -xzf "$ARCHIVE" -C "$EXTRACT_DIR"
 
 SOURCE_DIR="$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)"

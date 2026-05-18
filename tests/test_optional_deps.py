@@ -131,7 +131,7 @@ class TestOptionalDependencies(unittest.TestCase):
 
             with patch.object(deps_command.urllib.request, "urlopen") as urlopen:
                 with self.assertRaisesRegex(
-                    Exception, "Unsupported runtime archive URL"
+                    deps_command.WGSExtractError, "Unsupported runtime archive URL"
                 ):
                     deps_command._download_file("file:///tmp/runtime.zip", destination)
 

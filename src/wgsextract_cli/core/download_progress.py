@@ -124,6 +124,9 @@ def copy_response_to_file(
     chunk_size: int = 1024 * 256,
 ) -> None:
     """Stream a URL response to a file while emitting progress updates."""
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be greater than zero")
+
     content_length = _response_content_length(response)
     total_size = initial_size + content_length if content_length > 0 else 0
     bytes_downloaded = initial_size
