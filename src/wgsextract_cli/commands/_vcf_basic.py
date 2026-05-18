@@ -89,7 +89,7 @@ def cmd_snp(args):
     verify_dependencies(["bcftools", "tabix"])
     base = get_base_args(args)
     if not base:
-        return
+        raise WGSExtractError("Failed to resolve base arguments for SNP calling.")
 
     threads, outdir, ref, lib = base
 
@@ -103,7 +103,7 @@ def cmd_snp(args):
     ploidy_args = []
     if args.ploidy_file:
         if not verify_paths_exist({"--ploidy-file": args.ploidy_file}):
-            return
+            raise WGSExtractError("Invalid --ploidy-file path.")
         ploidy_args = ["--ploidy-file", args.ploidy_file]
     elif args.ploidy:
         ploidy_args = ["--ploidy", args.ploidy]
@@ -111,7 +111,7 @@ def cmd_snp(args):
         logging.error(
             "Ploidy (--ploidy or --ploidy-file) is required and could not be auto-resolved from --ref."
         )
-        return
+        raise WGSExtractError("Ploidy resolution failed.")
 
     bcftools = get_tool_path("bcftools")
     p1 = popen(
@@ -161,7 +161,7 @@ def cmd_indel(args):
     verify_dependencies(["bcftools", "tabix"])
     base = get_base_args(args)
     if not base:
-        return
+        raise WGSExtractError("Failed to resolve base arguments for InDel calling.")
 
     threads, outdir, ref, lib = base
 
@@ -175,7 +175,7 @@ def cmd_indel(args):
     ploidy_args = []
     if args.ploidy_file:
         if not verify_paths_exist({"--ploidy-file": args.ploidy_file}):
-            return
+            raise WGSExtractError("Invalid --ploidy-file path.")
         ploidy_args = ["--ploidy-file", args.ploidy_file]
     elif args.ploidy:
         ploidy_args = ["--ploidy", args.ploidy]
@@ -183,7 +183,7 @@ def cmd_indel(args):
         logging.error(
             "Ploidy (--ploidy or --ploidy-file) is required and could not be auto-resolved from --ref."
         )
-        return
+        raise WGSExtractError("Ploidy resolution failed.")
 
     bcftools = get_tool_path("bcftools")
     p1 = popen(
@@ -191,6 +191,7 @@ def cmd_indel(args):
         + region_args
         + [args.input],
         stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
     p2 = popen(
         [bcftools, "call"]
@@ -203,9 +204,17 @@ def cmd_indel(args):
     if p1.stdout:
         p1.stdout.close()
     stdout, stderr = p2.communicate()
+    mpileup_stderr = p1.stderr.read() if p1.stderr else None
+    mpileup_returncode = p1.wait()
 
-    if p2.returncode != 0:
+    if mpileup_returncode != 0 or p2.returncode != 0:
         logging.error(f"bcftools call failed with return code {p2.returncode}")
+        if mpileup_returncode != 0:
+            logging.error(
+                f"bcftools mpileup failed with return code {mpileup_returncode}"
+            )
+        if mpileup_stderr:
+            logging.error(mpileup_stderr.decode(errors="replace"))
         if stderr:
             logging.error(stderr.decode(errors="replace"))
         raise WGSExtractError("InDel variant calling failed.")
@@ -256,7 +265,9 @@ def cmd_annotate(args):
             logging.info(f"Auto-resolved annotation file: {ann_vcf}")
         else:
             logging.error("--ann-vcf is required and could not be auto-resolved.")
-            return
+            raise WGSExtractError(
+                "--ann-vcf is required and could not be auto-resolved."
+            )
 
     if not cols:
         # Dynamically resolve columns from the annotation file
@@ -313,7 +324,7 @@ def cmd_annotate(args):
         logging.info(f"Using default annotation column: {cols}")
 
     if not verify_paths_exist({"--input": input_file, "--ann-vcf": ann_vcf}):
-        return
+        raise WGSExtractError("Annotation input path validation failed.")
 
     # Ensure inputs are bgzipped and indexed
     input_vcf = ensure_vcf_prepared(input_file)

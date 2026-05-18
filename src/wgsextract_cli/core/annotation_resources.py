@@ -8,7 +8,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from wgsextract_cli.core.utils import run_command
+from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import popen
 
 from .ref_library import (
@@ -250,6 +250,13 @@ def ensure_bgzf(
                     if os.path.exists(tmp_path):
                         os.remove(tmp_path)
                     return None
+                gunzip_returncode = p1.wait()
+                if gunzip_returncode != 0:
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+                    raise WGSExtractError(
+                        f"gunzip failed with return code {gunzip_returncode}."
+                    )
 
             os.remove(path)
             os.rename(tmp_path, path)

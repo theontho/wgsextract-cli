@@ -1,6 +1,7 @@
 import logging
 import os
 import subprocess
+from pathlib import Path
 
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
@@ -14,6 +15,15 @@ from wgsextract_cli.core.variant_files import (
 from ._vcf_basic import (
     get_base_args,
 )
+
+
+def _gatk_dict_path(ref: str) -> str:
+    ref_path = Path(ref)
+    ref_name = ref_path.name
+    for suffix in (".fasta.gz", ".fa.gz", ".fasta", ".fa"):
+        if ref_name.endswith(suffix):
+            return str(ref_path.with_name(ref_name[: -len(suffix)] + ".dict"))
+    return str(ref_path.with_name(ref_name + ".dict"))
 
 
 def cmd_freebayes(args):
@@ -148,12 +158,7 @@ def cmd_gatk(args):
     # GATK requires a .dict file
     if not lib.dict_file:
         logging.info(LOG_MESSAGES["vcf_generating_dict"])
-        dict_file = (
-            ref.replace(".fa.gz", ".dict")
-            .replace(".fasta.gz", ".dict")
-            .replace(".fa", ".dict")
-            .replace(".fasta", ".dict")
-        )
+        dict_file = _gatk_dict_path(ref)
         try:
             run_command(["samtools", "dict", "-o", dict_file, ref], check=True)
             lib.dict_file = dict_file
