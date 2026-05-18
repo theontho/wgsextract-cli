@@ -62,7 +62,8 @@ def cmd_clinvar(args):
         )
         c_chroms = [line.split("\t")[0] for line in res_c.stdout.strip().split("\n")]
         normalized_input = normalize_vcf_chromosomes(input_vcf, c_chroms)
-    except Exception:
+    except Exception as e:
+        logging.warning(f"ClinVar chromosome normalization skipped: {e}")
         normalized_input = input_vcf
 
     # 3. Annotate with ClinVar
@@ -200,7 +201,7 @@ def cmd_revel(args):
             normalized_input = norm_out
             needs_cleanup = True
     except Exception as e:
-        logging.debug(f"Chromosome normalization failed: {e}")
+        logging.warning(f"REVEL chromosome normalization skipped: {e}")
 
     # 3. Annotate with REVEL
     ann_out = os.path.join(outdir, "revel_annotated.vcf.gz")

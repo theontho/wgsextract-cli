@@ -171,7 +171,8 @@ def cmd_trio(args):
     try:
         res = run_command(["bcftools", "index", "-s", p_vcf], capture_output=True)
         target_chroms = [line.split("\t")[0] for line in res.stdout.strip().split("\n")]
-    except Exception:
+    except Exception as e:
+        logging.warning(f"Failed to infer trio chromosome style from proband: {e}")
         target_chroms = ["chr1"]  # Default to chr
 
     m_vcf_norm = normalize_vcf_chromosomes(m_vcf, target_chroms)

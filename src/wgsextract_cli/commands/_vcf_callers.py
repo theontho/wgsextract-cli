@@ -160,7 +160,7 @@ def cmd_gatk(args):
             lib.dict_file = dict_file
         except Exception as e:
             logging.error(f"Failed to generate .dict file: {e}")
-            return
+            raise WGSExtractError("Failed to generate GATK dict file.") from e
 
     logging.info(LOG_MESSAGES["vcf_calling_gatk"].format(output=out_vcf))
     region_args = ["-L", args.region] if args.region else []

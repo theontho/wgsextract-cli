@@ -196,7 +196,7 @@ def cmd_deepvariant(args):
                 "--output_vcf",
                 intermediate_vcf,
                 "--num_shards",
-                threads,
+                str(threads),
             ] + region_args
             run_command(cmd, check=True)
 

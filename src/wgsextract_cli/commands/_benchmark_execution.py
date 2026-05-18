@@ -162,13 +162,19 @@ def _copy_bam_with_index(source_bam: Path, dest_bam: Path) -> None:
 
     source_index = _bam_index_path(source_bam)
     if source_index and source_index.exists():
-        if source_index.name == source_bam.name + source_index.suffix:
-            dest_index = Path(str(dest_bam) + source_index.suffix)
-        else:
-            dest_index = dest_bam.with_suffix(source_index.suffix)
+        dest_index = _copied_bam_index_path(source_bam, dest_bam)
         shutil.copy2(source_index, dest_index)
     else:
         run_command(["samtools", "index", str(dest_bam)])
+
+
+def _copied_bam_index_path(source_bam: Path, dest_bam: Path) -> Path:
+    source_index = _bam_index_path(source_bam)
+    if source_index and source_index.name == source_bam.name + source_index.suffix:
+        return Path(str(dest_bam) + source_index.suffix)
+    if source_index:
+        return dest_bam.with_suffix(source_index.suffix)
+    return Path(str(dest_bam) + ".bai")
 
 
 def _assert_bam_unindexed(bam_path: Path) -> None:
@@ -257,7 +263,10 @@ def _run_heavy_reference_and_bam_steps(
             slug="12b-bam-index-fixture",
             output_dir=index_dir,
             func=lambda: _copy_bam_with_index(analysis_bam, index_fixture),
-            expected_outputs=[index_fixture, Path(str(index_fixture) + ".bai")],
+            expected_outputs=[
+                index_fixture,
+                _copied_bam_index_path(analysis_bam, index_fixture),
+            ],
         )
     )
     record(

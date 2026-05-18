@@ -45,6 +45,7 @@ def cmd_chain_annotate(args):
 
     current_input = ensure_vcf_prepared(input_file)
     intermediate_files = []
+    finalized = False
 
     try:
         for i, ann in enumerate(annotations):
@@ -168,13 +169,21 @@ def cmd_chain_annotate(args):
         shutil.copy2(current_input, final_out)
         if os.path.exists(current_input + ".tbi"):
             shutil.copy2(current_input + ".tbi", final_out + ".tbi")
+        if os.path.exists(current_input + ".csi"):
+            shutil.copy2(current_input + ".csi", final_out + ".csi")
+        finalized = True
 
         logging.info(f"✅ Chain annotation complete: {final_out}")
 
     finally:
         if not getattr(args, "keep_intermediates", False):
-            logging.info("Cleaning up intermediate files...")
-            for i, ann in enumerate(annotations):
-                step_outdir = os.path.join(outdir, f"chain_step_{i + 1}_{ann}")
-                if os.path.exists(step_outdir):
-                    shutil.rmtree(step_outdir, ignore_errors=True)
+            if finalized:
+                logging.info("Cleaning up intermediate files...")
+                for i, ann in enumerate(annotations):
+                    step_outdir = os.path.join(outdir, f"chain_step_{i + 1}_{ann}")
+                    if os.path.exists(step_outdir):
+                        shutil.rmtree(step_outdir, ignore_errors=True)
+            else:
+                logging.warning(
+                    "Preserving chain annotation intermediates because finalization did not complete."
+                )
