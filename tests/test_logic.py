@@ -259,7 +259,7 @@ class TestAlignToolSelection(unittest.TestCase):
 
 class TestRefDownloadValidation(unittest.TestCase):
     def test_directory_output_short_circuits_before_curl(self):
-        from wgsextract_cli.commands import ref
+        from wgsextract_cli.commands import _ref_core_commands as ref
 
         args = Namespace(url="http://fake", out=tempfile.mkdtemp())
         try:
@@ -275,7 +275,7 @@ class TestRefDownloadValidation(unittest.TestCase):
             shutil.rmtree(args.out)
 
     def test_ref_download_uses_fallback_downloader_without_curl_requirement(self):
-        from wgsextract_cli.commands import ref
+        from wgsextract_cli.commands import _ref_core_commands as ref
 
         args = Namespace(url="http://fake/reference.fa.gz", out="reference.fa.gz")
         with (
@@ -288,7 +288,7 @@ class TestRefDownloadValidation(unittest.TestCase):
         download_file.assert_called_once_with(args.url, args.out)
 
     def test_ref_download_failure_includes_url_and_output_path(self):
-        from wgsextract_cli.commands import ref
+        from wgsextract_cli.commands import _ref_core_commands as ref
 
         args = Namespace(url="http://fake/reference.fa.gz", out="reference.fa.gz")
         with patch.object(ref, "download_file", return_value=False):
@@ -306,7 +306,7 @@ class TestExamplesDownload(unittest.TestCase):
         shutil.rmtree(self.test_dir)
 
     def test_target_root_uses_configured_genome_library(self):
-        from wgsextract_cli.commands import examples
+        from wgsextract_cli.commands import _examples_catalog as examples
         from wgsextract_cli.core.config import settings
 
         old_value = settings.get("genome_library")
@@ -320,7 +320,7 @@ class TestExamplesDownload(unittest.TestCase):
                 settings["genome_library"] = old_value
 
     def test_default_target_root_is_repo_genomes(self):
-        from wgsextract_cli.commands import examples
+        from wgsextract_cli.commands import _examples_catalog as examples
         from wgsextract_cli.core.config import settings
 
         old_value = settings.get("genome_library")
@@ -389,7 +389,7 @@ class TestExamplesDownload(unittest.TestCase):
             self.assertNotIn(".tbi", config)
 
     def test_unknown_example_raises_clear_error(self):
-        from wgsextract_cli.commands import examples
+        from wgsextract_cli.commands import _examples_catalog as examples
 
         with self.assertRaises(WGSExtractError) as ctx:
             examples._select_examples(["not-real"], include_all=False)
@@ -427,7 +427,7 @@ class TestExamplesDownload(unittest.TestCase):
         )
 
     def test_resolve_aspera_key_prefers_explicit_key(self):
-        from wgsextract_cli.commands import examples
+        from wgsextract_cli.commands import _examples_catalog as examples
 
         explicit_key = os.path.join(self.test_dir, "explicit.openssh")
         home_dir = os.path.join(self.test_dir, "home")
@@ -444,9 +444,10 @@ class TestExamplesDownload(unittest.TestCase):
         self.assertEqual(resolved, Path(explicit_key))
 
     def test_write_genome_config_for_fastq_pair(self):
+        from wgsextract_cli.commands import _examples_catalog as catalog
         from wgsextract_cli.commands import examples
 
-        example = examples.EXAMPLES_BY_ID["na12878-lowcov-fastq"]
+        example = catalog.EXAMPLES_BY_ID["na12878-lowcov-fastq"]
         example_dir = Path(self.test_dir)
 
         examples._write_genome_config(example, example_dir)
@@ -457,7 +458,7 @@ class TestExamplesDownload(unittest.TestCase):
         self.assertIn('fastq_r2 = "ERR001268_2.filt.fastq.gz"', config)
 
     def test_pacbio_examples_are_in_catalog(self):
-        from wgsextract_cli.commands import examples
+        from wgsextract_cli.commands import _examples_catalog as examples
 
         example = examples.EXAMPLES_BY_ID["hgsvc2-hg00733-pacbio-hifi-bam"]
 
@@ -467,7 +468,7 @@ class TestExamplesDownload(unittest.TestCase):
         self.assertIn("pacbio", example.tags)
 
     def test_select_examples_by_tag(self):
-        from wgsextract_cli.commands import examples
+        from wgsextract_cli.commands import _examples_catalog as examples
 
         selected = examples._select_examples([], include_all=False, tags=["pacbio"])
 
@@ -482,9 +483,10 @@ class TestExamplesDownload(unittest.TestCase):
         self.assertEqual(examples._source_for(url, "https"), url)
 
     def test_absolute_example_uses_declared_transfer_method(self):
+        from wgsextract_cli.commands import _examples_catalog as catalog
         from wgsextract_cli.commands import examples
 
-        example = examples.EXAMPLES_BY_ID["hgsvc2-hg00732-pacbio-hifi-bam-smallest"]
+        example = catalog.EXAMPLES_BY_ID["hgsvc2-hg00732-pacbio-hifi-bam-smallest"]
 
         planned = examples._planned_downloads(example, Path(self.test_dir), "aspera")
 
@@ -493,7 +495,7 @@ class TestExamplesDownload(unittest.TestCase):
         self.assertEqual(planned[0][0], example.files[0].url_path)
 
     def test_tag_selection_rejects_mixed_explicit_ids(self):
-        from wgsextract_cli.commands import examples
+        from wgsextract_cli.commands import _examples_catalog as examples
 
         with self.assertRaises(WGSExtractError):
             examples._select_examples(
@@ -780,7 +782,7 @@ class TestCLILogic(unittest.TestCase):
         self.assertEqual(args.outdir, genome_dir)
 
     def test_vcf_filter_prefers_explicit_vcf_input(self):
-        from wgsextract_cli.commands import vcf
+        from wgsextract_cli.commands import _vcf_filter_trio as vcf
 
         vcf_path = os.path.join(self.test_dir, "sample.vcf.gz")
         with open(vcf_path, "w") as f:
@@ -822,7 +824,7 @@ class TestCLILogic(unittest.TestCase):
         self.assertNotIn(args.input, command)
 
     def test_vcf_filter_raises_on_filter_failure(self):
-        from wgsextract_cli.commands import vcf
+        from wgsextract_cli.commands import _vcf_filter_trio as vcf
 
         vcf_path = os.path.join(self.test_dir, "sample.vcf.gz")
         with open(vcf_path, "w") as f:
@@ -860,7 +862,7 @@ class TestCLILogic(unittest.TestCase):
                 vcf.cmd_filter(args)
 
     def test_deepvariant_pacbio_model_type(self):
-        from wgsextract_cli.commands import vcf
+        from wgsextract_cli.commands import _vcf_deepvariant as vcf
 
         bam_path = os.path.join(self.test_dir, "sample.bam")
         ref_path = os.path.join(self.test_dir, "ref.fa")
@@ -910,7 +912,7 @@ class TestCLILogic(unittest.TestCase):
         self.assertIn("PACBIO", commands[0])
 
     def test_pbsv_sv_builds_discover_and_call_commands(self):
-        from wgsextract_cli.commands import vcf
+        from wgsextract_cli.commands import _vcf_structural as vcf
 
         bam_path = os.path.join(self.test_dir, "sample.bam")
         ref_path = os.path.join(self.test_dir, "ref.fa")
@@ -964,7 +966,7 @@ class TestCLILogic(unittest.TestCase):
         self.assertEqual(commands[2][:3], ["bcftools", "view", "-Oz"])
 
     def test_pbsv_sv_uncompresses_gzipped_reference_for_call(self):
-        from wgsextract_cli.commands import vcf
+        from wgsextract_cli.commands import _vcf_structural as vcf
 
         bam_path = os.path.join(self.test_dir, "sample.bam")
         ref_path = os.path.join(self.test_dir, "ref.fa.gz")
@@ -1017,7 +1019,7 @@ class TestCLILogic(unittest.TestCase):
         self.assertEqual(commands[2][-3], plain_ref)
 
     def test_pacbio_sv_falls_back_to_sniffles_when_pbsv_missing(self):
-        from wgsextract_cli.commands import vcf
+        from wgsextract_cli.commands import _vcf_structural as vcf
 
         args = Namespace(pacbio=True, caller="delly", ccs=False)
 
@@ -1032,7 +1034,7 @@ class TestCLILogic(unittest.TestCase):
         self.assertTrue(args.ccs)
 
     def test_sniffles_sv_builds_command(self):
-        from wgsextract_cli.commands import vcf
+        from wgsextract_cli.commands import _vcf_structural as vcf
 
         bam_path = os.path.join(self.test_dir, "sample.bam")
         ref_path = os.path.join(self.test_dir, "ref.fa")

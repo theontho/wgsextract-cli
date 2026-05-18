@@ -10,33 +10,35 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../s
 from wgsextract_cli.core import (
     dependencies,  # noqa: E402
     runtime,  # noqa: E402
+    runtime_paths,  # noqa: E402
+    runtime_wrappers,  # noqa: E402
 )
-from wgsextract_cli.core.utils import (  # noqa: E402
+from wgsextract_cli.core.utils import (
     _normalize_subprocess_cmd,
     run_command,
-)
+)  # noqa: E402
 
 
 class TestWSLRuntime(unittest.TestCase):
     def setUp(self):
         runtime.detect_wsl_available.cache_clear()
-        runtime.wsl_command_available.cache_clear()
-        runtime.wsl_pixi_tool_available.cache_clear()
-        runtime.detect_bundled_runtime_available.cache_clear()
-        runtime.bundled_command_available.cache_clear()
-        runtime.pacman_tool_path.cache_clear()
-        runtime.pacman_tool_available.cache_clear()
-        runtime.windows_to_wsl_path.cache_clear()
+        runtime_paths.wsl_command_available.cache_clear()
+        runtime_paths.wsl_pixi_tool_available.cache_clear()
+        runtime_paths.detect_bundled_runtime_available.cache_clear()
+        runtime_paths.bundled_command_available.cache_clear()
+        runtime_paths.pacman_tool_path.cache_clear()
+        runtime_paths.pacman_tool_available.cache_clear()
+        runtime_paths.windows_to_wsl_path.cache_clear()
 
     def tearDown(self):
         runtime.detect_wsl_available.cache_clear()
-        runtime.wsl_command_available.cache_clear()
-        runtime.wsl_pixi_tool_available.cache_clear()
-        runtime.detect_bundled_runtime_available.cache_clear()
-        runtime.bundled_command_available.cache_clear()
-        runtime.pacman_tool_path.cache_clear()
-        runtime.pacman_tool_available.cache_clear()
-        runtime.windows_to_wsl_path.cache_clear()
+        runtime_paths.wsl_command_available.cache_clear()
+        runtime_paths.wsl_pixi_tool_available.cache_clear()
+        runtime_paths.detect_bundled_runtime_available.cache_clear()
+        runtime_paths.bundled_command_available.cache_clear()
+        runtime_paths.pacman_tool_path.cache_clear()
+        runtime_paths.pacman_tool_available.cache_clear()
+        runtime_paths.windows_to_wsl_path.cache_clear()
 
     def test_get_tool_path_prefers_native_tool(self):
         with (
@@ -57,13 +59,16 @@ class TestWSLRuntime(unittest.TestCase):
     def test_get_tool_path_uses_wsl_tool_when_native_missing(self):
         with (
             patch("wgsextract_cli.core.dependencies.shutil.which", return_value=None),
-            patch("wgsextract_cli.core.runtime.pacman_tool_path", return_value=None),
+            patch(
+                "wgsextract_cli.core.runtime_paths.pacman_tool_path", return_value=None
+            ),
             patch("wgsextract_cli.core.runtime.should_consider_wsl", return_value=True),
             patch(
                 "wgsextract_cli.core.runtime.get_tool_runtime_mode", return_value="auto"
             ),
             patch(
-                "wgsextract_cli.core.runtime.wsl_command_available", return_value=True
+                "wgsextract_cli.core.runtime_paths.wsl_command_available",
+                return_value=True,
             ),
         ):
             self.assertEqual(dependencies.get_tool_path("samtools"), "wsl:samtools")
@@ -71,16 +76,19 @@ class TestWSLRuntime(unittest.TestCase):
     def test_get_tool_path_uses_wsl_pixi_when_tool_not_on_wsl_path(self):
         with (
             patch("wgsextract_cli.core.dependencies.shutil.which", return_value=None),
-            patch("wgsextract_cli.core.runtime.pacman_tool_path", return_value=None),
+            patch(
+                "wgsextract_cli.core.runtime_paths.pacman_tool_path", return_value=None
+            ),
             patch("wgsextract_cli.core.runtime.should_consider_wsl", return_value=True),
             patch(
                 "wgsextract_cli.core.runtime.get_tool_runtime_mode", return_value="auto"
             ),
             patch(
-                "wgsextract_cli.core.runtime.wsl_command_available", return_value=False
+                "wgsextract_cli.core.runtime_paths.wsl_command_available",
+                return_value=False,
             ),
             patch(
-                "wgsextract_cli.core.runtime.wsl_pixi_tool_available",
+                "wgsextract_cli.core.runtime_paths.wsl_pixi_tool_available",
                 return_value=True,
             ),
             patch(
@@ -100,10 +108,11 @@ class TestWSLRuntime(unittest.TestCase):
             ),
             patch("wgsextract_cli.core.runtime.should_consider_wsl", return_value=True),
             patch(
-                "wgsextract_cli.core.runtime.wsl_command_available", return_value=False
+                "wgsextract_cli.core.runtime_paths.wsl_command_available",
+                return_value=False,
             ),
             patch(
-                "wgsextract_cli.core.runtime.wsl_pixi_tool_available",
+                "wgsextract_cli.core.runtime_paths.wsl_pixi_tool_available",
                 return_value=False,
             ),
             patch(
@@ -119,7 +128,9 @@ class TestWSLRuntime(unittest.TestCase):
                 "wgsextract_cli.core.runtime.get_tool_runtime_mode",
                 return_value="pacman",
             ),
-            patch("wgsextract_cli.core.runtime.pacman_tool_path", return_value=None),
+            patch(
+                "wgsextract_cli.core.runtime_paths.pacman_tool_path", return_value=None
+            ),
             patch(
                 "wgsextract_cli.core.dependencies.shutil.which",
                 return_value=r"C:\tools\samtools.exe",
@@ -143,7 +154,9 @@ class TestWSLRuntime(unittest.TestCase):
                 "wgsextract_cli.core.runtime.get_tool_runtime_mode",
                 return_value="auto",
             ),
-            patch("wgsextract_cli.core.runtime.pacman_tool_path", return_value=None),
+            patch(
+                "wgsextract_cli.core.runtime_paths.pacman_tool_path", return_value=None
+            ),
             patch(
                 "wgsextract_cli.core.dependencies.subprocess.run",
                 return_value=completed,
@@ -161,7 +174,7 @@ class TestWSLRuntime(unittest.TestCase):
                 return_value="cygwin",
             ),
             patch(
-                "wgsextract_cli.core.runtime.bundled_command_available",
+                "wgsextract_cli.core.runtime_paths.bundled_command_available",
                 return_value=True,
             ),
             patch("wgsextract_cli.core.dependencies.shutil.which") as mock_which,
@@ -178,14 +191,19 @@ class TestWSLRuntime(unittest.TestCase):
             patch(
                 "wgsextract_cli.core.runtime.get_tool_runtime_mode", return_value="auto"
             ),
-            patch("wgsextract_cli.core.runtime.is_windows_host", return_value=True),
+            patch(
+                "wgsextract_cli.core.runtime.is_windows_host",
+                return_value=True,
+            ),
             patch(
                 "wgsextract_cli.core.runtime.should_consider_wsl", return_value=False
             ),
             patch("wgsextract_cli.core.dependencies.shutil.which", return_value=None),
-            patch("wgsextract_cli.core.runtime.pacman_tool_path", return_value=None),
             patch(
-                "wgsextract_cli.core.runtime.bundled_command_available",
+                "wgsextract_cli.core.runtime_paths.pacman_tool_path", return_value=None
+            ),
+            patch(
+                "wgsextract_cli.core.runtime_paths.bundled_command_available",
                 side_effect=bundled_available,
             ),
         ):
@@ -199,7 +217,7 @@ class TestWSLRuntime(unittest.TestCase):
                 return_value="pacman",
             ),
             patch(
-                "wgsextract_cli.core.runtime.pacman_tool_path",
+                "wgsextract_cli.core.runtime_paths.pacman_tool_path",
                 return_value=pacman_path,
             ),
             patch("wgsextract_cli.core.dependencies.shutil.which") as mock_which,
@@ -224,15 +242,17 @@ class TestWSLRuntime(unittest.TestCase):
             tool.write_bytes(b"")
 
             with (
-                patch("wgsextract_cli.core.runtime.shutil.which", return_value=None),
                 patch(
-                    "wgsextract_cli.core.runtime.pacman_ucrt64_bin_dirs",
+                    "wgsextract_cli.core.runtime_paths.shutil.which", return_value=None
+                ),
+                patch(
+                    "wgsextract_cli.core.runtime_paths.pacman_ucrt64_bin_dirs",
                     return_value=[bin_dir],
                 ),
             ):
-                runtime.pacman_tool_path.cache_clear()
+                runtime_paths.pacman_tool_path.cache_clear()
                 self.assertEqual(
-                    runtime.pacman_tool_path("samtools"), str(tool.resolve())
+                    runtime_paths.pacman_tool_path("samtools"), str(tool.resolve())
                 )
 
     def test_default_runtime_root_uses_repo_runtime_for_development_checkout(self):
@@ -258,38 +278,41 @@ class TestWSLRuntime(unittest.TestCase):
             "wgsextract_cli.core.runtime.detect_wsl_available", return_value=False
         ):
             self.assertEqual(
-                runtime.translate_wsl_arg(r"C:\Users\mac\data\sample.bam"),
+                runtime_paths.translate_wsl_arg(r"C:\Users\mac\data\sample.bam"),
                 "/mnt/c/Users/mac/data/sample.bam",
             )
             self.assertEqual(
-                runtime.translate_wsl_arg(r"tmp\wsl_stress\data\fake.bam"),
+                runtime_paths.translate_wsl_arg(r"tmp\wsl_stress\data\fake.bam"),
                 "tmp/wsl_stress/data/fake.bam",
             )
             self.assertEqual(
-                runtime.translate_wsl_arg(r"OUT=tmp\wsl_stress\data\fake.bam"),
+                runtime_paths.translate_wsl_arg(r"OUT=tmp\wsl_stress\data\fake.bam"),
                 "OUT=tmp/wsl_stress/data/fake.bam",
             )
-            self.assertEqual(runtime.translate_wsl_arg("chrM:1-100"), "chrM:1-100")
-            self.assertEqual(runtime.translate_wsl_arg("-o"), "-o")
             self.assertEqual(
-                runtime.translate_wsl_arg("https://example.test/file.vcf.gz"),
+                runtime_paths.translate_wsl_arg("chrM:1-100"), "chrM:1-100"
+            )
+            self.assertEqual(runtime_paths.translate_wsl_arg("-o"), "-o")
+            self.assertEqual(
+                runtime_paths.translate_wsl_arg("https://example.test/file.vcf.gz"),
                 "https://example.test/file.vcf.gz",
             )
-            self.assertEqual(runtime.translate_wsl_arg("16GB"), "16GB")
+            self.assertEqual(runtime_paths.translate_wsl_arg("16GB"), "16GB")
 
     def test_wrap_command_quotes_wsl_script_and_cwd(self):
         with (
             patch(
-                "wgsextract_cli.core.runtime.os.getcwd", return_value=r"C:\repo root"
+                "wgsextract_cli.core.runtime_wrappers.os.getcwd",
+                return_value=r"C:\repo root",
             ),
             patch(
-                "wgsextract_cli.core.runtime.windows_to_wsl_path",
+                "wgsextract_cli.core.runtime_paths.windows_to_wsl_path",
                 side_effect=lambda path: path.replace("C:\\", "/mnt/c/").replace(
                     "\\", "/"
                 ),
             ),
         ):
-            wrapped = runtime.wrap_command(
+            wrapped = runtime_wrappers.wrap_command(
                 ["wsl:samtools", "view", r"C:\data dir\sample.bam"],
             )
 
@@ -301,14 +324,15 @@ class TestWSLRuntime(unittest.TestCase):
     def test_wrap_command_uses_bundled_runtime_shell(self):
         with (
             patch(
-                "wgsextract_cli.core.runtime.os.getcwd", return_value=r"C:\repo root"
+                "wgsextract_cli.core.runtime_wrappers.os.getcwd",
+                return_value=r"C:\repo root",
             ),
             patch(
-                "wgsextract_cli.core.runtime.runtime_root",
+                "wgsextract_cli.core.runtime_paths.runtime_root",
                 return_value=Path(r"C:\repo root\runtime"),
             ),
         ):
-            wrapped = runtime.wrap_command(
+            wrapped = runtime_wrappers.wrap_command(
                 ["msys2:samtools", "view", r"C:\data dir\sample.bam"],
             )
 
@@ -324,7 +348,7 @@ class TestWSLRuntime(unittest.TestCase):
         self.assertIn("'C:/data dir/sample.bam'", wrapped[2])
 
     def test_wrap_command_uses_pacman_direct_executable(self):
-        wrapped = runtime.wrap_command(
+        wrapped = runtime_wrappers.wrap_command(
             [
                 "pacman:C:\\msys64\\ucrt64\\bin\\samtools.exe",
                 "view",
@@ -338,8 +362,10 @@ class TestWSLRuntime(unittest.TestCase):
         )
 
     def test_wrap_command_translates_pacman_null_device(self):
-        with patch("wgsextract_cli.core.runtime.is_windows_host", return_value=True):
-            wrapped = runtime.wrap_command(
+        with patch(
+            "wgsextract_cli.core.runtime_wrappers.is_windows_host", return_value=True
+        ):
+            wrapped = runtime_wrappers.wrap_command(
                 [
                     "pacman:C:\\msys64\\ucrt64\\bin\\samtools.exe",
                     "fastq",
@@ -371,9 +397,12 @@ class TestWSLRuntime(unittest.TestCase):
                 "wgsextract_cli.core.dependencies.get_tool_path",
                 return_value="wsl:samtools",
             ),
-            patch("wgsextract_cli.core.runtime.os.getcwd", return_value=r"C:\repo"),
             patch(
-                "wgsextract_cli.core.runtime.windows_to_wsl_path",
+                "wgsextract_cli.core.runtime_wrappers.os.getcwd",
+                return_value=r"C:\repo",
+            ),
+            patch(
+                "wgsextract_cli.core.runtime_paths.windows_to_wsl_path",
                 side_effect=lambda path: path.replace("C:\\", "/mnt/c/").replace(
                     "\\", "/"
                 ),
@@ -430,16 +459,16 @@ class TestWSLRuntime(unittest.TestCase):
     def test_write_wslconfig_settings_adds_and_updates_wsl2_section(self):
         with tempfile.TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / ".wslconfig"
-            runtime.write_wslconfig_settings(
+            runtime_wrappers.write_wslconfig_settings(
                 memory="24GB", processors=8, swap="16GB", path=config_path
             )
             self.assertEqual(
-                runtime.read_wslconfig_settings(config_path),
+                runtime_wrappers.read_wslconfig_settings(config_path),
                 {"memory": "24GB", "processors": "8", "swap": "16GB"},
             )
 
-            runtime.write_wslconfig_settings(memory="32GB", path=config_path)
-            settings = runtime.read_wslconfig_settings(config_path)
+            runtime_wrappers.write_wslconfig_settings(memory="32GB", path=config_path)
+            settings = runtime_wrappers.read_wslconfig_settings(config_path)
             self.assertEqual(settings["memory"], "32GB")
             self.assertEqual(settings["processors"], "8")
 
@@ -451,12 +480,12 @@ class TestWSLRuntime(unittest.TestCase):
             )
 
             self.assertEqual(
-                runtime.read_wslconfig_settings(config_path),
+                runtime_wrappers.read_wslconfig_settings(config_path),
                 {"memory": "24GB", "processors": "8"},
             )
 
     def test_recommend_wslconfig_settings_uses_benchmark_ratios(self):
-        recommendation = runtime.recommend_wslconfig_settings(
+        recommendation = runtime_wrappers.recommend_wslconfig_settings(
             host_processors=12,
             host_memory_bytes=64 * 1024**3,
         )
@@ -533,7 +562,9 @@ class TestWSLRuntime(unittest.TestCase):
         with (
             patch.object(runtime.sys, "platform", "win32"),
             patch("wgsextract_cli.core.runtime.should_consider_wsl", return_value=True),
-            patch("wgsextract_cli.core.runtime.shutil.which", return_value="wsl.exe"),
+            patch(
+                "wgsextract_cli.core.runtime_paths.shutil.which", return_value="wsl.exe"
+            ),
             patch(
                 "wgsextract_cli.core.runtime.subprocess.run", return_value=completed
             ) as mock_run,
@@ -548,7 +579,9 @@ class TestWSLRuntime(unittest.TestCase):
             patch(
                 "wgsextract_cli.core.runtime.should_consider_wsl", return_value=False
             ),
-            patch("wgsextract_cli.core.runtime.shutil.which", return_value="wsl.exe"),
+            patch(
+                "wgsextract_cli.core.runtime_paths.shutil.which", return_value="wsl.exe"
+            ),
             patch(
                 "wgsextract_cli.core.runtime.subprocess.run", return_value=completed
             ) as mock_run,
