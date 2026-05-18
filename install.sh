@@ -239,7 +239,11 @@ EXTRACT_DIR="$WORK_DIR/source"
 mkdir -p "$EXTRACT_DIR"
 
 log "Downloading WGS Extract CLI from $ARCHIVE_URL"
-curl -fL --retry 3 --retry-delay 2 -o "$ARCHIVE" "$ARCHIVE_URL"
+if [ -t 2 ]; then
+    curl -fL --progress-bar --retry 3 --retry-delay 2 -o "$ARCHIVE" "$ARCHIVE_URL"
+else
+    curl -fL --silent --show-error --retry 3 --retry-delay 2 -o "$ARCHIVE" "$ARCHIVE_URL"
+fi
 tar -xzf "$ARCHIVE" -C "$EXTRACT_DIR"
 
 SOURCE_DIR="$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)"

@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import json
+import logging
 import os
 import platform
 import shlex
@@ -21,6 +22,10 @@ from wgsextract_cli.core.dependencies import (
     get_tool_path,
     get_tool_runtime,
     get_tool_version,
+)
+from wgsextract_cli.core.download_progress import (
+    copy_response_to_file,
+    require_http_url,
 )
 from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.runtime import (
@@ -2021,18 +2026,24 @@ def _download_filename(url: str) -> str:
 
 
 def _download_file(url: str, destination: Path) -> None:
+    require_http_url(url, "benchmark dataset URL")
     tmp_path = destination.with_suffix(destination.suffix + ".tmp")
     request = urllib.request.Request(url, headers={"User-Agent": "wgsextract-cli"})
+    logging.info("Downloading benchmark dataset to %s", destination.name)
     try:
         with urllib.request.urlopen(request, timeout=300) as response:
             with open(tmp_path, "wb") as handle:
-                shutil.copyfileobj(response, handle)
+                copy_response_to_file(
+                    response,
+                    handle,
+                    progress_label=destination.name,
+                )
         tmp_path.replace(destination)
     except Exception as exc:
         if tmp_path.exists():
             tmp_path.unlink()
         raise WGSExtractError(
-            f"Failed to download benchmark dataset {url}: {exc}"
+            f"Failed to download benchmark dataset {destination.name}: {exc}"
         ) from exc
 
 

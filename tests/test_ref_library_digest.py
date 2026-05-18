@@ -92,13 +92,16 @@ def test_download_file_resume_keeps_curl_output_argument_order(tmp_path, monkeyp
     dest = tmp_path / "hs38.fa.gz"
     dest.write_bytes(b"partial")
     seen_commands = []
+    seen_capture_output = []
 
     def fake_run_command(cmd, capture_output=False):
         seen_commands.append(cmd)
+        seen_capture_output.append(capture_output)
         output_path = Path(cmd[cmd.index("-o") + 1])
         output_path.write_bytes(payload)
 
     monkeypatch.setattr(ref_library, "run_command", fake_run_command)
+    monkeypatch.setattr(ref_library.sys.stderr, "isatty", lambda: True)
     monkeypatch.setattr(
         ref_library, "resolve_github_release_asset_sha256", lambda url: None
     )
@@ -111,6 +114,7 @@ def test_download_file_resume_keeps_curl_output_argument_order(tmp_path, monkeyp
         [
             "curl",
             "-L",
+            "--progress-bar",
             "-C",
             "-",
             "-o",
@@ -118,6 +122,7 @@ def test_download_file_resume_keeps_curl_output_argument_order(tmp_path, monkeyp
             "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
         ]
     ]
+    assert seen_capture_output == [False]
 
 
 def test_download_file_rejects_github_release_asset_digest_mismatch(
