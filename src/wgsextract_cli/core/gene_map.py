@@ -4,6 +4,7 @@ import logging
 import os
 from typing import Any
 
+from wgsextract_cli.core.download_progress import curl_progress_args
 from wgsextract_cli.core.utils import run_command
 
 # Official UCSC RefGene database URLs
@@ -117,7 +118,7 @@ def download_gene_maps(reflib_dir, cancel_event=None):
             # 1. Download
             # Use curl but check cancel_event periodically if possible
             # For simplicity, we check before/after large steps
-            run_command(["curl", "-L", "--progress-bar", "-o", gz_path, url])
+            run_command(["curl", "-L", *curl_progress_args(), "-o", gz_path, url])
 
             if cancel_event and cancel_event.is_set():
                 if os.path.exists(gz_path):

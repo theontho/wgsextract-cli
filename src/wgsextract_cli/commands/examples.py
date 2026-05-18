@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from wgsextract_cli.core.config import settings
+from wgsextract_cli.core.download_progress import curl_progress_args
 from wgsextract_cli.core.genome_library import GENOME_CONFIG_NAME
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
@@ -507,7 +508,7 @@ def _download_file(
                     "curl",
                     "--fail",
                     "--location",
-                    "--progress-bar",
+                    *curl_progress_args(),
                     "--continue-at",
                     "-",
                     "--output",

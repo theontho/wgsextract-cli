@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import time
 import urllib.parse
 from collections.abc import Callable
@@ -38,6 +39,13 @@ def require_http_url(url: str, label: str = "download URL") -> None:
         raise ValueError(f"Unsupported {label} scheme '{parsed.scheme}' for {url!r}")
 
 
+def curl_progress_args() -> list[str]:
+    """Return curl progress flags appropriate for the current stderr."""
+    if sys.stderr.isatty():
+        return ["--progress-bar"]
+    return ["--silent", "--show-error"]
+
+
 class PercentProgressLogger:
     """Log download progress at newline-friendly percentage intervals."""
 
@@ -61,8 +69,6 @@ class PercentProgressLogger:
     def __call__(self, downloaded: int, total_size: int, speed: float) -> None:
         if total_size > 0:
             percent = min(100, int(downloaded * 100 / total_size))
-            if downloaded >= total_size:
-                percent = 100
             if percent < self._next_percent:
                 return
 
@@ -91,6 +97,16 @@ class PercentProgressLogger:
         self._last_unknown_report = now
         self.logger.info(
             "%s download progress: %s downloaded (%s/s)",
+            self.label,
+            format_bytes(downloaded),
+            format_bytes(speed),
+        )
+
+    def report_complete(self, downloaded: int, total_size: int, speed: float) -> None:
+        if total_size > 0:
+            return
+        self.logger.info(
+            "%s download complete: %s downloaded (%s/s)",
             self.label,
             format_bytes(downloaded),
             format_bytes(speed),
@@ -133,6 +149,11 @@ def copy_response_to_file(
             progress_callback(bytes_downloaded, total_size, speed)
         if default_progress is not None:
             default_progress(bytes_downloaded, total_size, speed)
+
+    if default_progress is not None:
+        elapsed = time.monotonic() - start_time
+        speed = (bytes_downloaded - initial_size) / elapsed if elapsed > 0 else 0.0
+        default_progress.report_complete(bytes_downloaded, total_size, speed)
 
 
 def _response_content_length(response: DownloadResponse) -> int:

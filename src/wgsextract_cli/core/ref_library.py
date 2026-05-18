@@ -18,6 +18,7 @@ from wgsextract_cli.core.dependencies import verify_dependencies
 from wgsextract_cli.core.download_progress import (
     DownloadCancelled,
     copy_response_to_file,
+    curl_progress_args,
 )
 from wgsextract_cli.core.utils import popen, run_command
 
@@ -52,7 +53,7 @@ def download_file(
     # Try curl first
     try:
         # Use -L to follow redirects, -C - for resume
-        cmd = ["curl", "-L", "--progress-bar"]
+        cmd = ["curl", "-L", *curl_progress_args()]
         if os.path.exists(dest):
             cmd.extend(["-C", "-"])
         cmd.extend(["-o", dest, url])
