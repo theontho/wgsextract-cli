@@ -144,7 +144,8 @@ class TestCLISmoke(unittest.TestCase):
             "info",
         ]
         patches = [
-            patch(f"wgsextract_cli.commands.{c}.verify_dependencies") for c in cmds
+            patch(f"wgsextract_cli.commands.{c}.verify_dependencies", create=True)
+            for c in cmds
         ]
 
         with (
@@ -155,11 +156,14 @@ class TestCLISmoke(unittest.TestCase):
             patch("os.path.getsize", return_value=1024),
             patch("os.remove"),
             patch("sys.stdin", io.StringIO("")),
-            patch("wgsextract_cli.core.dependencies.verify_dependencies"),
-            patch("wgsextract_cli.commands.info.run_full_coverage"),
-            patch("wgsextract_cli.commands.info.run_sampled_coverage"),
             patch(
-                "wgsextract_cli.commands.info.calculate_bam_md5",
+                "wgsextract_cli.core.dependency_checks.check_dependencies",
+                return_value=[],
+            ),
+            patch("wgsextract_cli.commands._info_run.run_full_coverage"),
+            patch("wgsextract_cli.commands._info_run.run_sampled_coverage"),
+            patch(
+                "wgsextract_cli.commands._info_run.calculate_bam_md5",
                 return_value="dummy_md5",
             ),
             patch("wgsextract_cli.core.ref_library.urlopen"),
@@ -410,7 +414,7 @@ class TestCLISmoke(unittest.TestCase):
         )
 
     @patch("builtins.input", side_effect=["0"])
-    @patch("wgsextract_cli.commands.ref.download_and_process_genome")
+    @patch("wgsextract_cli.commands._ref_library_commands.download_and_process_genome")
     def test_34_ref_library(self, mock_dl, mock_input):
         self.run_sub("ref library", ["ref", "library"])
 

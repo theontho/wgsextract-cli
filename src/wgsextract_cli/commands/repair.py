@@ -4,7 +4,10 @@ import re
 import sys
 
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
-from wgsextract_cli.core.utils import WGSExtractError, run_command
+from wgsextract_cli.core.utils import (
+    WGSExtractError,
+    run_command,
+)
 
 
 def register(subparsers, base_parser):

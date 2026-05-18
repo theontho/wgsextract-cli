@@ -46,7 +46,8 @@ class TestMicroarrayAccuracy(unittest.TestCase):
             self.skipTest(f"No generated VCF found for verification in {OUT_DIR}")
 
         # Resolve reference FASTA
-        from wgsextract_cli.core.utils import ReferenceLibrary, calculate_bam_md5
+        from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+        from wgsextract_cli.core.variant_files import calculate_bam_md5
 
         md5_sig = calculate_bam_md5(INPUT_PATH)
         self.lib = ReferenceLibrary(REF_PATH, md5_sig)

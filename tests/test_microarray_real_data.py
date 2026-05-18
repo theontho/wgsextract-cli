@@ -20,7 +20,8 @@ cli_src = cli_root / "src"
 if str(cli_src) not in sys.path:
     sys.path.insert(0, str(cli_src))
 
-from wgsextract_cli.core.utils import ReferenceLibrary, calculate_bam_md5  # noqa: E402
+from wgsextract_cli.core.reference_resolver import ReferenceLibrary  # noqa: E402
+from wgsextract_cli.core.variant_files import calculate_bam_md5  # noqa: E402
 from wgsextract_cli.main import main  # noqa: E402
 
 # Get paths from environment
