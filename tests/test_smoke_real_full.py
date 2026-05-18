@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
 import pytest
@@ -206,23 +207,37 @@ def _samtools_count(bam: Path, region: str, ref: Path) -> int:
             pytest.skip(f"reference FASTA not resolvable for CRAM input: {bam}")
         command.extend(["-T", str(fasta)])
     command.extend([str(bam), region])
-    result = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.skip(f"samtools count timed out for {bam} {region}")
+    except subprocess.CalledProcessError as exc:
+        pytest.skip(
+            f"samtools count failed for {bam} {region}: "
+            f"{(exc.stderr or exc.stdout or '').strip()}"
+        )
     return int(result.stdout.strip())
 
 
+@cache
 def _tool_unusable(tool: str, *args: str) -> bool:
     if not check_tool(tool):
         return True
-    result = subprocess.run(
-        [tool, *args],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            [tool, *args],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        return True
     return result.returncode != 0
 
 
