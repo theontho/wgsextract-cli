@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import sys
 import time
+import urllib.parse
 from collections.abc import Callable
 from typing import Any, BinaryIO, Protocol
 
@@ -30,6 +32,20 @@ def format_bytes(value: int | float) -> str:
     return f"{amount:.1f} TiB"
 
 
+def require_http_url(url: str, label: str = "download URL") -> None:
+    """Reject URL schemes that should not be opened by network download paths."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError(f"Unsupported {label} scheme '{parsed.scheme}' for {url!r}")
+
+
+def curl_progress_args() -> list[str]:
+    """Return curl progress flags appropriate for the current stderr."""
+    if sys.stderr.isatty():
+        return ["--progress-bar"]
+    return ["--silent", "--show-error"]
+
+
 class PercentProgressLogger:
     """Log download progress at newline-friendly percentage intervals."""
 
@@ -41,6 +57,8 @@ class PercentProgressLogger:
         min_unknown_interval: float = 10.0,
         logger: logging.Logger | None = None,
     ) -> None:
+        if step_percent <= 0:
+            raise ValueError("step_percent must be greater than zero")
         self.label = label
         self.step_percent = step_percent
         self.min_unknown_interval = min_unknown_interval
@@ -51,8 +69,6 @@ class PercentProgressLogger:
     def __call__(self, downloaded: int, total_size: int, speed: float) -> None:
         if total_size > 0:
             percent = min(100, int(downloaded * 100 / total_size))
-            if downloaded >= total_size:
-                percent = 100
             if percent < self._next_percent:
                 return
 
@@ -86,6 +102,16 @@ class PercentProgressLogger:
             format_bytes(speed),
         )
 
+    def report_complete(self, downloaded: int, total_size: int, speed: float) -> None:
+        if total_size > 0:
+            return
+        self.logger.info(
+            "%s download complete: %s downloaded (%s/s)",
+            self.label,
+            format_bytes(downloaded),
+            format_bytes(speed),
+        )
+
 
 def copy_response_to_file(
     response: DownloadResponse,
@@ -98,6 +124,9 @@ def copy_response_to_file(
     chunk_size: int = 1024 * 256,
 ) -> None:
     """Stream a URL response to a file while emitting progress updates."""
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be greater than zero")
+
     content_length = _response_content_length(response)
     total_size = initial_size + content_length if content_length > 0 else 0
     bytes_downloaded = initial_size
@@ -123,6 +152,11 @@ def copy_response_to_file(
             progress_callback(bytes_downloaded, total_size, speed)
         if default_progress is not None:
             default_progress(bytes_downloaded, total_size, speed)
+
+    if default_progress is not None:
+        elapsed = time.monotonic() - start_time
+        speed = (bytes_downloaded - initial_size) / elapsed if elapsed > 0 else 0.0
+        default_progress.report_complete(bytes_downloaded, total_size, speed)
 
 
 def _response_content_length(response: DownloadResponse) -> int:

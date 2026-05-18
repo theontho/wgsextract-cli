@@ -7,13 +7,14 @@ import logging
 import os
 import re
 from collections.abc import Callable
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Literal
 from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
 
 from wgsextract_cli.core.download_progress import (
     DownloadCancelled,
     copy_response_to_file,
+    curl_progress_args,
 )
 from wgsextract_cli.core.utils import run_command
 
@@ -121,7 +122,7 @@ def download_file(
     # Try curl first
     try:
         # Use -L to follow redirects, -C - for resume
-        cmd = ["curl", "-L", "--progress-bar"]
+        cmd = ["curl", "-L", *curl_progress_args()]
         if os.path.exists(dest):
             cmd.extend(["-C", "-"])
         cmd.extend(["-o", dest, url])
@@ -136,7 +137,7 @@ def download_file(
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     }
     initial_size = 0
-    mode = "wb"
+    mode: Literal["ab", "wb"] = "wb"
 
     # If the final file exists but we are here, it might be incomplete (e.g. missing index)
     # Move it to .partial to attempt a resume/verify
@@ -173,12 +174,8 @@ def download_file(
                     cancel_event=cancel_event,
                 )
 
-            if mode == "ab":
-                with open(partial_dest, "ab") as f:
-                    write_partial(f)
-            else:
-                with open(partial_dest, "wb") as f:
-                    write_partial(f)
+            with open(partial_dest, mode) as f:
+                write_partial(f)
 
         # Rename to final destination on success
         if os.path.exists(dest):

@@ -317,7 +317,12 @@ if ($shouldBuildBwa) {
 mkdir -p '$buildRootMsys'
 cd '$buildRootMsys'
 rm -rf '$sourceDir' '$archiveName'
-curl -L --progress-bar --retry 3 -o '$archiveName' '$sourceUrl'
+if [ -t 2 ]; then
+    curl_progress='--progress-bar'
+else
+    curl_progress='--silent --show-error'
+fi
+curl -L `$curl_progress --retry 3 -o '$archiveName' '$sourceUrl'
 tar -xzf '$archiveName'
 cd '$sourceDir'
 mkdir -p sys

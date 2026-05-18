@@ -2,7 +2,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from wgsextract_cli.core import ref_library
+from wgsextract_cli.core import download_progress, ref_library
 
 
 class _FakeResponse:
@@ -101,6 +101,7 @@ def test_download_file_resume_keeps_curl_output_argument_order(tmp_path, monkeyp
         output_path.write_bytes(payload)
 
     monkeypatch.setattr(ref_library, "run_command", fake_run_command)
+    monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
     monkeypatch.setattr(
         ref_library, "resolve_github_release_asset_sha256", lambda url: None
     )

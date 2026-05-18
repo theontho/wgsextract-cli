@@ -7,7 +7,10 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from wgsextract_cli.core.download_progress import copy_response_to_file
+from wgsextract_cli.core.download_progress import (
+    copy_response_to_file,
+    require_http_url,
+)
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
@@ -25,9 +28,10 @@ from ._benchmark_models import (
 
 
 def _download_file(url: str, destination: Path) -> None:
+    require_http_url(url, "benchmark dataset URL")
     tmp_path = destination.with_suffix(destination.suffix + ".tmp")
     request = urllib.request.Request(url, headers={"User-Agent": "wgsextract-cli"})
-    logging.info(f"Downloading {url}")
+    logging.info("Downloading benchmark dataset to %s", destination.name)
     try:
         with urllib.request.urlopen(request, timeout=300) as response:
             with open(tmp_path, "wb") as handle:
@@ -41,7 +45,7 @@ def _download_file(url: str, destination: Path) -> None:
         if tmp_path.exists():
             tmp_path.unlink()
         raise WGSExtractError(
-            f"Failed to download benchmark dataset {url}: {exc}"
+            f"Failed to download benchmark dataset {destination.name}: {exc}"
         ) from exc
 
 
