@@ -59,7 +59,8 @@ def cmd_spliceai(args):
         )
         s_chroms = [line.split("\t")[0] for line in res_s.stdout.strip().split("\n")]
         normalized_input = normalize_vcf_chromosomes(input_vcf, s_chroms)
-    except Exception:
+    except Exception as e:
+        logging.warning(f"SpliceAI chromosome normalization skipped: {e}")
         normalized_input = input_vcf
 
     # 3. Annotate with SpliceAI
@@ -127,7 +128,8 @@ def cmd_alphamissense(args):
         res_a = run_command(["bcftools", "index", "-s", am_vcf], capture_output=True)
         a_chroms = [line.split("\t")[0] for line in res_a.stdout.strip().split("\n")]
         normalized_input = normalize_vcf_chromosomes(input_vcf, a_chroms)
-    except Exception:
+    except Exception as e:
+        logging.warning(f"AlphaMissense chromosome normalization skipped: {e}")
         normalized_input = input_vcf
 
     # 3. Annotate with AlphaMissense
@@ -243,7 +245,8 @@ def cmd_pharmgkb(args):
         )
         p_chroms = [line.split("\t")[0] for line in res_p.stdout.strip().split("\n")]
         normalized_input = normalize_vcf_chromosomes(input_vcf, p_chroms)
-    except Exception:
+    except Exception as e:
+        logging.warning(f"PharmGKB chromosome normalization skipped: {e}")
         normalized_input = input_vcf
 
     # 3. Annotate with PharmGKB

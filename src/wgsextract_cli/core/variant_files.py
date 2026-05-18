@@ -163,7 +163,8 @@ def normalize_vcf_chromosomes(vcf_path, target_chroms):
     try:
         res = run_command(["bcftools", "index", "-s", vcf_path], capture_output=True)
         v_chroms = [line.split("\t")[0] for line in res.stdout.strip().split("\n")]
-    except Exception:
+    except Exception as e:
+        logging.warning(f"Chromosome normalization skipped for {vcf_path}: {e}")
         return vcf_path
 
     needs_rename = False
