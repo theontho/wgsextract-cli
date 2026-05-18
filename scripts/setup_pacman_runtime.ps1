@@ -78,7 +78,7 @@ function Install-PacmanPackages {
     }
 
     Write-Host $Description
-    Invoke-Msys2Script ("pacman -Syu --needed --noconfirm " + ($Packages -join " "))
+    Invoke-Msys2Script ("pacman -Sy --needed --noconfirm " + ($Packages -join " "))
 }
 
 function Copy-UrlOrFile {
