@@ -103,8 +103,7 @@ def update_yleaf_config(yleaf_path, ref_path, build):
 
 def cmd_ydna(args):
     if not args.input:
-        logging.error(LOG_MESSAGES["input_required"])
-        return
+        raise WGSExtractError(LOG_MESSAGES["input_required"])
     if not verify_paths_exist({"--input": args.input}):
         return
 

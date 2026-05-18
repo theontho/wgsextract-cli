@@ -11,7 +11,7 @@ from unittest.mock import patch
 # Ensure src is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
-from wgsextract_cli.core.gene_map import GeneMap
+from wgsextract_cli.core.gene_map import GeneMap, resolve_gene_map_reflib
 from wgsextract_cli.core.genome_library import (
     GENOME_CONFIG_NAME,
     apply_genome_selection,
@@ -553,6 +553,39 @@ class TestCLILogic(unittest.TestCase):
         # Test unknown gene
         coords = gm.get_coords("FAKEGENE", "hg38")
         self.assertIsNone(coords)
+
+    def test_gene_map_reflib_prefers_explicit_ref_maps(self):
+        ref_path = os.path.join(self.ref_dir, "fake_ref_hg38.fa")
+        Path(ref_path).write_text(">chr1\nACGT\n")
+        configured_reflib = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, configured_reflib)
+        os.makedirs(os.path.join(configured_reflib, "ref"))
+        Path(os.path.join(configured_reflib, "ref", "genes_hg38.tsv")).write_text(
+            "symbol\tchrom\tstart\tend\nBRCA1\tchr1\t1\t2\n"
+        )
+
+        self.assertEqual(
+            resolve_gene_map_reflib(ref_path, configured_reflib, "hg38"),
+            self.test_dir,
+        )
+
+    def test_gene_map_reflib_falls_back_to_configured_maps(self):
+        ref_root = tempfile.mkdtemp()
+        configured_reflib = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, ref_root)
+        self.addCleanup(shutil.rmtree, configured_reflib)
+        os.makedirs(os.path.join(ref_root, "ref"))
+        ref_path = os.path.join(ref_root, "ref", "fake_ref_hg38.fa")
+        Path(ref_path).write_text(">chr1\nACGT\n")
+        os.makedirs(os.path.join(configured_reflib, "ref"))
+        Path(os.path.join(configured_reflib, "ref", "genes_hg38.tsv")).write_text(
+            "symbol\tchrom\tstart\tend\nBRCA1\tchr1\t1\t2\n"
+        )
+
+        self.assertEqual(
+            resolve_gene_map_reflib(ref_path, configured_reflib, "hg38"),
+            configured_reflib,
+        )
 
     def test_inheritance_expressions(self):
         # Verify the bcftools expressions used in vcf.py

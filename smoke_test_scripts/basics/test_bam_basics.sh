@@ -71,16 +71,13 @@ fi
 
 # 5. Test --gene resolution for to-cram
 echo ":: Testing 'bam to-cram' with --gene..."
-# Create dummy gene map
-mkdir -p "$OUTDIR/ref"
-echo -e "symbol\tchrom\tstart\tend" > "$OUTDIR/ref/genes_hg38.tsv"
-echo -e "GENE1\tchr1\t1\t5000" >> "$OUTDIR/ref/genes_hg38.tsv"
+GENE_REF=$(prepare_fake_gene_reflib "$OUTDIR" "$FAKEDATA" 5000)
 
-if WGSE_REFLIB="$OUTDIR" pixi run wgsextract bam to-cram \
+if pixi run wgsextract bam to-cram \
     --input "$OUTDIR/test.bam" \
     --outdir "$OUTDIR/gene_test" \
     --gene "GENE1" \
-    --ref "$REF" && verify_bam "$OUTDIR/gene_test/test.cram"; then
+    --ref "$GENE_REF" && verify_bam "$OUTDIR/gene_test/test.cram"; then
     echo "✅ Success: 'bam to-cram --gene' completed."
 else
     echo "❌ Failure: 'bam to-cram --gene' failed."

@@ -54,12 +54,12 @@ else
 fi
 
 # 3. Test 'extract custom' (Region)
-echo ":: Testing 'extract custom' (region chr1:800-2000)..."
+echo ":: Testing 'extract custom' (region chr1:1-5000)..."
 if pixi run wgsextract extract custom \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR" \
-    --region "chr1:800-2000" && \
-    verify_bam "$OUTDIR/fake_chr1_800-2000.bam"; then
+    --region "chr1:1-5000" && \
+    verify_bam "$OUTDIR/fake_chr1_1-5000.bam"; then
     echo "✅ Success: extract custom (region) completed."
 else
     echo "❌ Failure: extract custom (region) failed."
@@ -68,7 +68,7 @@ fi
 
 # 4. Test 'extract custom' (BED)
 echo ":: Testing 'extract custom' with a BED file..."
-echo -e "chr1\t800\t2000" > "$OUTDIR/test.bed"
+echo -e "chr1\t0\t5000" > "$OUTDIR/test.bed"
 # The filename logic in extract.py now uses basename of the region file
 if pixi run wgsextract extract custom \
     --input "$FAKEDATA/fake.bam" \
@@ -85,20 +85,15 @@ fi
 
 # 5. Test 'extract custom' (Gene)
 echo ":: Testing 'extract custom' (--gene GENE1)..."
-# Create dummy gene map
-mkdir -p "$OUTDIR/ref"
-echo -e "symbol\tchrom\tstart\tend" > "$OUTDIR/ref/genes_hg38.tsv"
-echo -e "GENE1\tchr1\t1\t2000" >> "$OUTDIR/ref/genes_hg38.tsv"
+GENE_REF=$(prepare_fake_gene_reflib "$OUTDIR" "$FAKEDATA" 5000)
 
-# We need to point WGSE_REFLIB or similar to this directory
-# Or just use --ref as it often points to the library root
-if WGSE_REFLIB="$OUTDIR" pixi run wgsextract extract custom \
+if pixi run wgsextract extract custom \
     --input "$FAKEDATA/fake.bam" \
     --outdir "$OUTDIR" \
     --gene "GENE1" \
-    --ref "$REF" && \
-    [ -f "$OUTDIR/fake_chr1_1-2000.bam" ] && \
-    verify_bam "$OUTDIR/fake_chr1_1-2000.bam"; then
+    --ref "$GENE_REF" && \
+    [ -f "$OUTDIR/fake_chr1_1-5000.bam" ] && \
+    verify_bam "$OUTDIR/fake_chr1_1-5000.bam"; then
     echo "✅ Success: extract custom (gene) completed."
 else
     echo "❌ Failure: extract custom (gene) failed or output not found."

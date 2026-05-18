@@ -16,7 +16,7 @@ if [ "$WGSE_USE_REAL_DATA" = "true" ] && [ -n "$WGSE_INPUT" ]; then
 else
     INPUT_CRAM="out/fake_30x/fake.bam"
 fi
-REF_PATH="${WGSE_REF:-reference/chrm/chrM.fa}"
+REF_PATH="${WGSE_REF:-out/fake_30x/fake_ref.fa}"
 OUTDIR="out/benchmark_results_haplogrep"
 
 # Path to the specific conda environment for Haplogrep

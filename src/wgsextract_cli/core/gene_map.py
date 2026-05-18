@@ -83,6 +83,32 @@ def are_gene_maps_installed(reflib_dir: str) -> bool:
     return True
 
 
+def gene_map_exists(reflib_dir: str | None, build: str = "hg38") -> bool:
+    """Return True when a gene map for the requested build exists in a reflib."""
+    if not reflib_dir:
+        return False
+    build_key = "hg38" if "38" in build else "hg19"
+    return os.path.exists(
+        os.path.join(reflib_dir, "ref", f"genes_{build_key}.tsv")
+    ) or os.path.exists(
+        os.path.join(reflib_dir, "microarray", f"genes_{build_key}.tsv")
+    )
+
+
+def resolve_gene_map_reflib(
+    resolved_ref: str | None, configured_reflib: str | None, build: str = "hg38"
+) -> str | None:
+    """Choose the reflib that should be used for resolving gene names."""
+    ref_reflib = (
+        os.path.dirname(os.path.dirname(resolved_ref)) if resolved_ref else None
+    )
+    if gene_map_exists(ref_reflib, build):
+        return ref_reflib
+    if gene_map_exists(configured_reflib, build):
+        return configured_reflib
+    return ref_reflib or configured_reflib
+
+
 def delete_gene_maps(reflib_dir: str) -> bool:
     """Deletes gene mapping files from the reference library."""
     if not reflib_dir:

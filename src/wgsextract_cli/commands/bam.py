@@ -142,13 +142,18 @@ def resolve_region_or_gene(args, resolved_ref):
     if hasattr(args, "gene") and args.gene:
         # Determine reference library directory
         from wgsextract_cli.core.config import settings
-        from wgsextract_cli.core.gene_map import GeneMap
 
-        reflib_dir = settings.get("reference_library")
-        if not reflib_dir and resolved_ref:
-            # resolved_ref is usually path/to/reflib/ref/genome.fa
-            reflib_dir = os.path.dirname(os.path.dirname(resolved_ref))
+        # We need a build name. Default to hg38 if we can't detect it.
+        build = "hg38"
+        if resolved_ref:
+            if "hg19" in resolved_ref.lower() or "b37" in resolved_ref.lower():
+                build = "hg19"
 
+        from wgsextract_cli.core.gene_map import GeneMap, resolve_gene_map_reflib
+
+        reflib_dir = resolve_gene_map_reflib(
+            resolved_ref, settings.get("reference_library"), build
+        )
         if not reflib_dir:
             logging.error(
                 "Reference library not found. Please provide a --ref or set reference_library in config.toml."
@@ -156,12 +161,6 @@ def resolve_region_or_gene(args, resolved_ref):
             return None
 
         gm = GeneMap(reflib_dir)
-        # We need a build name. Default to hg38 if we can't detect it.
-        build = "hg38"
-        if resolved_ref:
-            if "hg19" in resolved_ref.lower() or "b37" in resolved_ref.lower():
-                build = "hg19"
-
         resolved_region = gm.get_coords(args.gene, build)
         if resolved_region:
             logging.info(f"Resolved gene {args.gene} to {resolved_region}")
