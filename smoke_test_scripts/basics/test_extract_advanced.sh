@@ -85,19 +85,22 @@ fi
 
 # 5. Test 'extract custom' (Gene)
 echo ":: Testing 'extract custom' (--gene GENE1)..."
-GENE_REF=$(prepare_fake_gene_reflib "$OUTDIR" "$FAKEDATA" 5000)
+GENE_OUTDIR="$OUTDIR/gene_custom"
+rm -rf "$GENE_OUTDIR"
+mkdir -p "$GENE_OUTDIR"
+GENE_REF=$(prepare_fake_gene_reflib "$GENE_OUTDIR" "$FAKEDATA" 5000) || exit 1
 
 if pixi run wgsextract extract custom \
     --input "$FAKEDATA/fake.bam" \
-    --outdir "$OUTDIR" \
+    --outdir "$GENE_OUTDIR" \
     --gene "GENE1" \
     --ref "$GENE_REF" && \
-    [ -f "$OUTDIR/fake_chr1_1-5000.bam" ] && \
-    verify_bam "$OUTDIR/fake_chr1_1-5000.bam"; then
+    [ -f "$GENE_OUTDIR/fake_chr1_1-5000.bam" ] && \
+    verify_bam "$GENE_OUTDIR/fake_chr1_1-5000.bam"; then
     echo "✅ Success: extract custom (gene) completed."
 else
     echo "❌ Failure: extract custom (gene) failed or output not found."
-    ls -R "$OUTDIR"
+    ls -R "$GENE_OUTDIR"
     exit 1
 fi
 

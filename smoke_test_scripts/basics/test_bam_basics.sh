@@ -71,7 +71,7 @@ fi
 
 # 5. Test --gene resolution for to-cram
 echo ":: Testing 'bam to-cram' with --gene..."
-GENE_REF=$(prepare_fake_gene_reflib "$OUTDIR" "$FAKEDATA" 5000)
+GENE_REF=$(prepare_fake_gene_reflib "$OUTDIR" "$FAKEDATA" 5000) || exit 1
 
 if pixi run wgsextract bam to-cram \
     --input "$OUTDIR/test.bam" \

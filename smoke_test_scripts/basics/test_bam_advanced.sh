@@ -78,7 +78,7 @@ fi
 
 # 4. Test --gene for bam unalign
 echo ":: Testing 'bam unalign' with --gene..."
-GENE_REF=$(prepare_fake_gene_reflib "$OUTDIR" "$FAKEDATA" 10000)
+GENE_REF=$(prepare_fake_gene_reflib "$OUTDIR" "$FAKEDATA" 10000) || exit 1
 
 if pixi run wgsextract bam unalign \
     --input "$FAKEDATA/fake.bam" \

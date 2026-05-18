@@ -87,7 +87,7 @@ fi
 
 # 5. Extract Subset (Gene)
 echo ":: Testing 'extract bam-subset' (--gene GENE1)..."
-GENE_REF=$(prepare_fake_gene_reflib "$OUTDIR" "$FAKEDATA" 10000)
+GENE_REF=$(prepare_fake_gene_reflib "$OUTDIR" "$FAKEDATA" 10000) || exit 1
 
 STDOUT=$(pixi run wgsextract extract bam-subset \
     --input "$FAKEDATA/fake.bam" \

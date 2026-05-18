@@ -99,14 +99,26 @@ def resolve_gene_map_reflib(
     resolved_ref: str | None, configured_reflib: str | None, build: str = "hg38"
 ) -> str | None:
     """Choose the reflib that should be used for resolving gene names."""
-    ref_reflib = (
-        os.path.dirname(os.path.dirname(resolved_ref)) if resolved_ref else None
-    )
-    if gene_map_exists(ref_reflib, build):
-        return ref_reflib
+    ref_candidates: list[str] = []
+    inferred_reflib = None
+    if resolved_ref:
+        ref_parent = os.path.dirname(resolved_ref)
+        ref_grandparent = os.path.dirname(ref_parent)
+        inferred_reflib = (
+            ref_grandparent
+            if os.path.basename(ref_parent) in {"ref", "microarray"}
+            else ref_parent
+        )
+        for candidate in (ref_parent, ref_grandparent):
+            if candidate and candidate not in ref_candidates:
+                ref_candidates.append(candidate)
+
+    for candidate in ref_candidates:
+        if gene_map_exists(candidate, build):
+            return candidate
     if gene_map_exists(configured_reflib, build):
         return configured_reflib
-    return ref_reflib or configured_reflib
+    return inferred_reflib or configured_reflib
 
 
 def delete_gene_maps(reflib_dir: str) -> bool:

@@ -99,19 +99,21 @@ prepare_fake_gene_reflib() {
     fi
 
     local refdir="$outdir/ref"
-    mkdir -p "$refdir"
-    local ref_dst="$refdir/$(basename "$ref_src")"
-    cp "$ref_src" "$ref_dst"
+    mkdir -p "$refdir" || return 1
+    local ref_base
+    ref_base=$(basename "$ref_src") || return 1
+    local ref_dst="$refdir/$ref_base"
+    cp "$ref_src" "$ref_dst" || return 1
     if [ -f "$ref_src.fai" ]; then
-        cp "$ref_src.fai" "$ref_dst.fai"
+        cp "$ref_src.fai" "$ref_dst.fai" || return 1
     else
-        pixi run samtools faidx "$ref_dst" >/dev/null
+        pixi run samtools faidx "$ref_dst" >/dev/null || return 1
     fi
 
     {
         echo -e "symbol\tchrom\tstart\tend"
         echo -e "GENE1\tchr1\t1\t$gene_end"
-    } > "$refdir/genes_hg38.tsv"
+    } > "$refdir/genes_hg38.tsv" || return 1
 
     printf '%s\n' "$ref_dst"
 }
