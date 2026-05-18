@@ -103,8 +103,8 @@ def main() -> int:
                 ["src/wgsextract_cli", "--vcs=git"],
             ),
             (
-                "--- Test Code (tests/ and smoke_test_scripts/) ---",
-                ["tests", "smoke_test_scripts", "--vcs=git"],
+                "--- Test Code (tests/) ---",
+                ["tests", "--vcs=git"],
             ),
         ]
 
