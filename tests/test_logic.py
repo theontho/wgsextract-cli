@@ -608,6 +608,44 @@ class TestCLILogic(unittest.TestCase):
             configured_reflib,
         )
 
+    def test_gene_map_reflib_microarray_prefers_explicit_ref_maps(self):
+        ref_root = tempfile.mkdtemp()
+        configured_reflib = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, ref_root)
+        self.addCleanup(shutil.rmtree, configured_reflib)
+        ref_path = os.path.join(ref_root, "fake_ref_hg38.fa")
+        Path(ref_path).write_text(">chr1\nACGT\n")
+        os.makedirs(os.path.join(ref_root, "microarray"))
+        Path(os.path.join(ref_root, "microarray", "genes_hg38.tsv")).write_text(
+            "symbol\tchrom\tstart\tend\nBRCA1\tchr1\t1\t2\n"
+        )
+        os.makedirs(os.path.join(configured_reflib, "microarray"))
+        Path(
+            os.path.join(configured_reflib, "microarray", "genes_hg38.tsv")
+        ).write_text("symbol\tchrom\tstart\tend\nBRCA1\tchr1\t3\t4\n")
+
+        self.assertEqual(
+            resolve_gene_map_reflib(ref_path, configured_reflib, "hg38"),
+            ref_root,
+        )
+
+    def test_gene_map_reflib_microarray_falls_back_to_configured_maps(self):
+        ref_root = tempfile.mkdtemp()
+        configured_reflib = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, ref_root)
+        self.addCleanup(shutil.rmtree, configured_reflib)
+        ref_path = os.path.join(ref_root, "fake_ref_hg38.fa")
+        Path(ref_path).write_text(">chr1\nACGT\n")
+        os.makedirs(os.path.join(configured_reflib, "microarray"))
+        Path(
+            os.path.join(configured_reflib, "microarray", "genes_hg38.tsv")
+        ).write_text("symbol\tchrom\tstart\tend\nBRCA1\tchr1\t3\t4\n")
+
+        self.assertEqual(
+            resolve_gene_map_reflib(ref_path, configured_reflib, "hg38"),
+            configured_reflib,
+        )
+
     def test_inheritance_expressions(self):
         # Verify the bcftools expressions used in vcf.py
         # GT[0] is proband, [1] is mother, [2] is father

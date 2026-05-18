@@ -2,6 +2,7 @@ import csv
 import gzip
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 from wgsextract_cli.core.download_progress import curl_progress_args
@@ -88,11 +89,10 @@ def gene_map_exists(reflib_dir: str | None, build: str = "hg38") -> bool:
     if not reflib_dir:
         return False
     build_key = "hg38" if "38" in build else "hg19"
-    return os.path.exists(
-        os.path.join(reflib_dir, "ref", f"genes_{build_key}.tsv")
-    ) or os.path.exists(
-        os.path.join(reflib_dir, "microarray", f"genes_{build_key}.tsv")
-    )
+    root = Path(reflib_dir)
+    return (root / "ref" / f"genes_{build_key}.tsv").exists() or (
+        root / "microarray" / f"genes_{build_key}.tsv"
+    ).exists()
 
 
 def resolve_gene_map_reflib(
@@ -102,20 +102,21 @@ def resolve_gene_map_reflib(
     ref_candidates: list[str] = []
     inferred_reflib = None
     if resolved_ref:
-        ref_parent = os.path.dirname(resolved_ref)
-        ref_grandparent = os.path.dirname(ref_parent)
+        ref_parent = Path(resolved_ref).parent
+        ref_grandparent = ref_parent.parent
         inferred_reflib = (
-            ref_grandparent
-            if os.path.basename(ref_parent) in {"ref", "microarray"}
-            else ref_parent
+            str(ref_grandparent)
+            if ref_parent.name in {"ref", "microarray"}
+            else str(ref_parent)
         )
-        for candidate in (ref_parent, ref_grandparent):
-            if candidate and candidate not in ref_candidates:
-                ref_candidates.append(candidate)
+        for ref_candidate in (ref_parent, ref_grandparent):
+            candidate_str = str(ref_candidate)
+            if candidate_str and candidate_str not in ref_candidates:
+                ref_candidates.append(candidate_str)
 
-    for candidate in ref_candidates:
-        if gene_map_exists(candidate, build):
-            return candidate
+    for reflib_candidate in ref_candidates:
+        if gene_map_exists(reflib_candidate, build):
+            return reflib_candidate
     if gene_map_exists(configured_reflib, build):
         return configured_reflib
     return inferred_reflib or configured_reflib
