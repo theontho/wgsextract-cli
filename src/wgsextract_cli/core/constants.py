@@ -1,3 +1,12 @@
+from typing import TypedDict
+
+
+class DellyMappabilityMap(TypedDict):
+    filename: str
+    url: str
+    sidecars: dict[str, str]
+
+
 SEQUENCERS = {
     "Illumina NS 6000 (Dante)": r"^(A00910|A00925|A00966|A01245):\d+:[a-zA-Z0-9]{9}:\d:\d+:\d+:\d+$",
     "Illumina NS 6000 (FTDNA)": r"^(A00186):\d+:[a-zA-Z0-9]{9}:\d:\d+:\d+:\d+$",
@@ -389,7 +398,7 @@ BOOTSTRAP_FILENAME = "wgsextract-reference-bootstrap.tar.gz"
 # Standard Delly CNV mappability maps. Delly hosts these as BGZF FASTA-like
 # tracks with sidecar indexes; store them under stable local names so callers
 # can resolve them from the reference build without user input.
-DELLY_MAPPABILITY_MAPS = {
+DELLY_MAPPABILITY_MAPS: dict[str, DellyMappabilityMap] = {
     "hg19": {
         "filename": "hg19.map.gz",
         "url": "https://gear-genomics.embl.de/data/delly/Homo_sapiens.GRCh37.dna.primary_assembly.fa.r101.s501.blacklist.gz",

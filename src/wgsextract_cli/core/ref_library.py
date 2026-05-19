@@ -976,6 +976,8 @@ def install_standard_mappability_maps(
     os.makedirs(maps_dir, exist_ok=True)
     ok = True
     for build, entry in DELLY_MAPPABILITY_MAPS.items():
+        if cancel_event and cancel_event.is_set():
+            return False
         filename = entry["filename"]
         dest_path = os.path.join(maps_dir, filename)
         if not os.path.exists(dest_path):
@@ -984,6 +986,8 @@ def install_standard_mappability_maps(
                 download_file(entry["url"], dest_path, progress_callback, cancel_event)
                 and ok
             )
+        if cancel_event and cancel_event.is_set():
+            return False
         for suffix, url in entry.get("sidecars", {}).items():
             sidecar_path = dest_path + suffix
             if os.path.exists(sidecar_path):
@@ -991,6 +995,8 @@ def install_standard_mappability_maps(
             ok = (
                 download_file(url, sidecar_path, progress_callback, cancel_event) and ok
             )
+            if cancel_event and cancel_event.is_set():
+                return False
     if not ok:
         logging.warning("One or more Delly mappability map downloads failed.")
     return ok

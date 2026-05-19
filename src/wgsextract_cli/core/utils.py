@@ -730,7 +730,7 @@ class ReferenceLibrary:
                 "GRCh38.map.gz",
                 "Homo_sapiens.GRCh38.dna.primary_assembly.fa.r101.s501.blacklist.gz",
             ]
-        if self.build in {"hg19", "GRCh37", "hs37d5"}:
+        if self.build == "hg19":
             return [
                 "hg19.map.gz",
                 "grch37.map.gz",
