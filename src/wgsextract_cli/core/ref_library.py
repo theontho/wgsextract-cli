@@ -953,8 +953,41 @@ def download_bootstrap(
 
         # Cleanup the archive after successful extraction
         os.remove(dest_path)
+        install_standard_mappability_maps(reflib_dir, cancel_event, progress_callback)
         logging.info("Bootstrap extraction complete.")
         return True
     except Exception as e:
         logging.error(f"Failed to extract bootstrap: {e}")
         return False
+
+
+def install_standard_mappability_maps(
+    reflib_dir: str,
+    cancel_event: Any | None = None,
+    progress_callback: Callable[[int, int, float], None] | None = None,
+) -> bool:
+    """Install standard Delly CNV mappability maps into the reference library."""
+    from wgsextract_cli.core.constants import DELLY_MAPPABILITY_MAPS
+
+    maps_dir = os.path.join(reflib_dir, "maps")
+    os.makedirs(maps_dir, exist_ok=True)
+    ok = True
+    for build, entry in DELLY_MAPPABILITY_MAPS.items():
+        filename = entry["filename"]
+        dest_path = os.path.join(maps_dir, filename)
+        if not os.path.exists(dest_path):
+            logging.info("Downloading Delly %s mappability map...", build)
+            ok = (
+                download_file(entry["url"], dest_path, progress_callback, cancel_event)
+                and ok
+            )
+        for suffix, url in entry.get("sidecars", {}).items():
+            sidecar_path = dest_path + suffix
+            if os.path.exists(sidecar_path):
+                continue
+            ok = (
+                download_file(url, sidecar_path, progress_callback, cancel_event) and ok
+            )
+    if not ok:
+        logging.warning("One or more Delly mappability map downloads failed.")
+    return ok

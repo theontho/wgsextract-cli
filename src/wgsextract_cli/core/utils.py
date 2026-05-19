@@ -277,6 +277,7 @@ class ReferenceLibrary:
         self.alphamissense_vcf: str | None = None
         self.pharmgkb_vcf: str | None = None
         self.ploidy_file: str | None = None
+        self.mappability_map: str | None = None
         self.vep_cache: str | None = None
         self.build: str | None = None
 
@@ -412,6 +413,20 @@ class ReferenceLibrary:
                 self.build = "hg38"
             elif "hg19" in d.lower() or "grch37" in d.lower():
                 self.build = "hg19"
+        if not self.build and self.input_path:
+            input_lower = self.input_path.lower()
+            if (
+                "hg38" in input_lower
+                or "grch38" in input_lower
+                or "hs38" in input_lower
+            ):
+                self.build = "hg38"
+            elif (
+                "hg19" in input_lower
+                or "grch37" in input_lower
+                or "hs37" in input_lower
+            ):
+                self.build = "hg19"
 
         # Re-resolve FASTA if build was found from MD5/Header but path-based resolution found something else
         if self.build and self.fasta:
@@ -491,6 +506,28 @@ class ReferenceLibrary:
                     self.ploidy_file = potential
                     break
 
+        # Look for Delly CNV mappability map
+        if self.build:
+            map_names = self._mappability_map_names()
+            for search_dir in [
+                self.root,
+                os.path.join(self.root, "maps"),
+                os.path.join(self.root, "ref"),
+                os.path.join(self.root, "microarray"),
+                os.path.join(self.root, self.build),
+                os.path.join(self.root, "maps", self.build),
+                os.path.join(self.root, "ref", self.build),
+            ]:
+                if not os.path.isdir(search_dir):
+                    continue
+                for name in map_names:
+                    potential = os.path.join(search_dir, name)
+                    if os.path.exists(potential):
+                        self.mappability_map = potential
+                        break
+                if self.mappability_map:
+                    break
+
         # Look for vep cache
         from wgsextract_cli.core.config import settings
 
@@ -529,6 +566,7 @@ class ReferenceLibrary:
 
             potential_vcf_names.extend(
                 [
+                    f"snps_{build_suffix}.vcf.gz",
                     f"All_SNPs_{build_suffix}_ref.tab.gz",
                     f"All_SNPs_{build_suffix.upper()}_ref.tab.gz",
                     f"All_SNPs_GRCh{build_suffix[-2:]}_ref.tab.gz",
@@ -538,6 +576,7 @@ class ReferenceLibrary:
             if alt_build:
                 potential_vcf_names.extend(
                     [
+                        f"snps_{alt_build.lower()}.vcf.gz",
                         f"All_SNPs_{alt_build.lower()}_ref.tab.gz",
                         f"All_SNPs_{alt_build.upper()}_ref.tab.gz",
                         f"All_SNPs_{alt_build.capitalize()}_ref.tab.gz",
@@ -577,6 +616,14 @@ class ReferenceLibrary:
                     break
             if self.ref_vcf_tab:
                 break
+        if not self.ref_vcf_tab:
+            for current_dir, _, files in os.walk(self.root):
+                for v in potential_vcf_names:
+                    if v in files:
+                        self.ref_vcf_tab = os.path.join(current_dir, v)
+                        break
+                if self.ref_vcf_tab:
+                    break
 
         # Look for ClinVar VCF
         self.clinvar_vcf = self._resolve_annotation_file(
@@ -664,6 +711,24 @@ class ReferenceLibrary:
                 if os.path.exists(potential):
                     self.liftover_chain = potential
                     break
+
+    def _mappability_map_names(self) -> list[str]:
+        """Return build-compatible Delly map filenames in preference order."""
+        if self.build == "hg38":
+            return [
+                "hg38.map.gz",
+                "grch38.map.gz",
+                "GRCh38.map.gz",
+                "Homo_sapiens.GRCh38.dna.primary_assembly.fa.r101.s501.blacklist.gz",
+            ]
+        if self.build in {"hg19", "GRCh37", "hs37d5"}:
+            return [
+                "hg19.map.gz",
+                "grch37.map.gz",
+                "GRCh37.map.gz",
+                "Homo_sapiens.GRCh37.dna.primary_assembly.fa.r101.s501.blacklist.gz",
+            ]
+        return []
 
     def _resolve_annotation_file(
         self,

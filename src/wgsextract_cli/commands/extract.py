@@ -159,6 +159,14 @@ def get_base_args(args):
     return threads, outdir, cram_opt, resolved_ref
 
 
+def require_reference(resolved_ref, task):
+    if resolved_ref:
+        return
+    message = LOG_MESSAGES["ref_required_for"].format(task=task)
+    logging.error(message)
+    raise WGSExtractError(message)
+
+
 def cmd_mito_fasta(args):
     verify_dependencies(["samtools", "bcftools", "tabix"])
     base = get_base_args(args)
@@ -166,11 +174,7 @@ def cmd_mito_fasta(args):
         return
     threads, outdir, cram_opt, resolved_ref = base
 
-    if not resolved_ref:
-        logging.error(
-            LOG_MESSAGES["ref_required_for"].format(task="mitochondrial extraction")
-        )
-        return
+    require_reference(resolved_ref, "mitochondrial extraction")
 
     print_warning("ButtonMitoFASTA", threads=threads)
 
@@ -233,11 +237,7 @@ def cmd_mito_vcf(args):
         return
     threads, outdir, cram_opt, resolved_ref = base
 
-    if not resolved_ref:
-        logging.error(
-            LOG_MESSAGES["ref_required_for"].format(task="mitochondrial extraction")
-        )
-        return
+    require_reference(resolved_ref, "mitochondrial extraction")
 
     print_warning("ButtonMitoVCF", threads=threads)
 
@@ -366,9 +366,7 @@ def cmd_ydna_vcf(args):
         return
     threads, outdir, cram_opt, resolved_ref = base
 
-    if not resolved_ref:
-        logging.error(LOG_MESSAGES["ref_required_for"].format(task="Y extraction"))
-        return
+    require_reference(resolved_ref, "Y extraction")
 
     print_warning("ButtonYOnlyVCF", threads=threads)
 

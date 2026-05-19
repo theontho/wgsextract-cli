@@ -213,14 +213,14 @@ def run(args):
         logging.debug(f"Resolved Liftover Chain: {lib.liftover_chain}")
 
     if not ref_fasta or not os.path.isfile(ref_fasta):
-        logging.error(
-            LOG_MESSAGES["ref_required_for"].format(task="microarray generation")
-        )
-        return
+        message = LOG_MESSAGES["ref_required_for"].format(task="microarray generation")
+        logging.error(message)
+        raise WGSExtractError(message)
 
     if not ref_vcf_tab:
-        logging.error("--ref-vcf-tab is required and could not be auto-resolved.")
-        return
+        message = "--ref-vcf-tab is required and could not be auto-resolved."
+        logging.error(message)
+        raise WGSExtractError(message)
 
     start_total = time.time()
 
