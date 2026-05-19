@@ -62,9 +62,8 @@ def download_file(
 
             run_command(cmd, capture_output=False)
             return verify_download_sha256(dest, expected_sha256)
-        except Exception:
-            # Fallback to urllib
-            pass
+        except (OSError, subprocess.SubprocessError) as e:
+            logging.warning("curl download failed, falling back to urllib: %s", e)
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"

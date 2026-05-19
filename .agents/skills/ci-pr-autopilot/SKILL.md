@@ -27,29 +27,31 @@ The loop is intentionally conservative. Prefer stopping and reporting over guess
    - `git status --short --branch`
    - `git remote -v`
    - Determine the current branch and the repository default branch.
-2. If the current branch is the default branch and the only work to carry forward is uncommitted intended PR work:
+2. Determine the commit identity before creating any commit:
+   - If the repo has a `.dev_id` file or documented developer identity file, use the matching name and email from it.
+   - Otherwise use the GitHub user that checked out or owns the current PR branch when that can be determined from `gh auth status`, `gh api user`, the remote URL, and PR metadata.
+   - If multiple GitHub users are authenticated or configured, match the commit name and email to the repository owner when that owner appears in the local owner/user list.
+   - Do not change global git config. Prefer explicit per-commit identity, such as `git -c user.name=... -c user.email=... commit ...`, or repo-local config only when the repo already uses that convention.
+3. If the current branch is the default branch and the only work to carry forward is uncommitted intended PR work:
    - Create a dedicated branch from the current checkout before trying to inspect PR state.
    - Prefer a descriptive branch name derived from the change.
-   - Preserve the working tree changes on that new branch, then push it and create a PR with `gh pr create`.
+   - Preserve the working tree changes on that new branch.
+   - Stage and commit the intended PR changes on that branch using the identity from Step 2.
+   - Push the new branch, then create a PR with `gh pr create`.
    - After the PR exists, continue the normal discovery flow against that PR.
-3. Identify the PR and repository:
+4. Identify the PR and repository:
    - If the user gave a PR URL, use `gh pr view <url> --json ...`.
    - Otherwise use `gh pr view --json ...` from the current branch.
-4. Capture baseline PR state:
+5. Capture baseline PR state:
    - `gh pr view --json number,title,url,headRefName,baseRefName,mergeStateStatus,reviewDecision,isDraft,maintainerCanModify,commits,statusCheckRollup,latestReviews`
    - `gh pr checks --watch=false` or `gh pr checks <number> --watch=false`
    - `gh api repos/{owner}/{repo}/pulls/{number}/comments`
    - `gh api repos/{owner}/{repo}/pulls/{number}/reviews`
    - `gh api repos/{owner}/{repo}/pulls/{number}/commits`
    - `gh api graphql` for review threads, including thread id, resolved state, path, line, original line, comments, author, body, and diff hunk.
-5. Determine the repo's local verification commands before changing code:
+6. Determine the repo's local verification commands before changing code:
    - Prefer project docs, package scripts, CI config, Makefile, task files, or existing contributor docs.
    - Build a comprehensive local test command set covering formatting, linting, typecheck, unit tests, integration tests, and build when available.
-6. Determine the commit identity before creating any commit:
-   - If the repo has a `.dev_id` file or documented developer identity file, use the matching name and email from it.
-   - Otherwise use the GitHub user that checked out or owns the current PR branch when that can be determined from `gh auth status`, `gh api user`, the remote URL, and PR metadata.
-   - If multiple GitHub users are authenticated or configured, match the commit name and email to the repository owner when that owner appears in the local owner/user list.
-   - Do not change global git config. Prefer explicit per-commit identity, such as `git -c user.name=... -c user.email=... commit ...`, or repo-local config only when the repo already uses that convention.
 
 ## Review Comment Policy
 
