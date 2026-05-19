@@ -1,7 +1,28 @@
 from argparse import Namespace
 from io import StringIO
 
-from wgsextract_cli.commands import qc
+from wgsextract_cli.commands import _qc_bam_writer, _qc_commands, _qc_fake_data
+from wgsextract_cli.commands import qc as _qc_entry
+
+
+class _ModuleGroup:
+    def __init__(self, *modules):
+        object.__setattr__(self, "_modules", modules)
+
+    def __getattr__(self, name):
+        for module in self._modules:
+            if hasattr(module, name):
+                return getattr(module, name)
+        raise AttributeError(name)
+
+    def __setattr__(self, name, value):
+        for module in self._modules:
+            if hasattr(module, name):
+                setattr(module, name, value)
+        object.__setattr__(self, name, value)
+
+
+qc = _ModuleGroup(_qc_entry, _qc_commands, _qc_bam_writer, _qc_fake_data)
 
 
 def test_stream_fast_bam_sam_is_coordinate_sorted_and_human_like():

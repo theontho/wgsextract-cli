@@ -2,6 +2,7 @@ import csv
 import gzip
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 from wgsextract_cli.core.download_progress import curl_progress_args
@@ -81,6 +82,44 @@ def are_gene_maps_installed(reflib_dir: str) -> bool:
         if not os.path.exists(tsv_path):
             return False
     return True
+
+
+def gene_map_exists(reflib_dir: str | None, build: str = "hg38") -> bool:
+    """Return True when a gene map for the requested build exists in a reflib."""
+    if not reflib_dir:
+        return False
+    build_key = "hg38" if "38" in build else "hg19"
+    root = Path(reflib_dir)
+    return (root / "ref" / f"genes_{build_key}.tsv").exists() or (
+        root / "microarray" / f"genes_{build_key}.tsv"
+    ).exists()
+
+
+def resolve_gene_map_reflib(
+    resolved_ref: str | None, configured_reflib: str | None, build: str = "hg38"
+) -> str | None:
+    """Choose the reflib that should be used for resolving gene names."""
+    ref_candidates: list[str] = []
+    inferred_reflib = None
+    if resolved_ref:
+        ref_parent = Path(resolved_ref).parent
+        ref_grandparent = ref_parent.parent
+        inferred_reflib = (
+            str(ref_grandparent)
+            if ref_parent.name in {"ref", "microarray"}
+            else str(ref_parent)
+        )
+        for ref_candidate in (ref_parent, ref_grandparent):
+            candidate_str = str(ref_candidate)
+            if candidate_str and candidate_str not in ref_candidates:
+                ref_candidates.append(candidate_str)
+
+    for reflib_candidate in ref_candidates:
+        if gene_map_exists(reflib_candidate, build):
+            return reflib_candidate
+    if gene_map_exists(configured_reflib, build):
+        return configured_reflib
+    return inferred_reflib or configured_reflib
 
 
 def delete_gene_maps(reflib_dir: str) -> bool:

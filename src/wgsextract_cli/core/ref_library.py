@@ -14,16 +14,90 @@ from typing import Any, BinaryIO, Literal
 from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
 
-from wgsextract_cli.core.dependencies import verify_dependencies
+from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.download_progress import (
     DownloadCancelled,
     copy_response_to_file,
     curl_progress_args,
 )
-from wgsextract_cli.core.utils import popen, run_command
+from wgsextract_cli.core.utils import run_command
+from wgsextract_cli.core.variant_files import popen
 
-# Global cache for genome data
 _GENOME_DATA_CACHE: list[dict[str, Any]] = []
+
+
+def resolve_github_release_asset_sha256(url: str) -> str | None:
+    """Return GitHub's sha256 digest for a release asset URL, if applicable."""
+    parsed = urlparse(url)
+    if parsed.netloc.lower() != "github.com":
+        return None
+
+    parts = [unquote(part) for part in parsed.path.strip("/").split("/")]
+    if len(parts) == 6 and parts[2:4] == ["releases", "download"]:
+        owner, repo, tag, asset_name = parts[0], parts[1], parts[4], parts[5]
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
+    elif len(parts) == 6 and parts[2:5] == ["releases", "latest", "download"]:
+        owner, repo, asset_name = parts[0], parts[1], parts[5]
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+    else:
+        return None
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "wgsextract-cli",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    github_token = os.environ.get("GITHUB_TOKEN")
+    if github_token:
+        headers["Authorization"] = f"Bearer {github_token}"
+
+    req = Request(api_url, headers=headers)
+    with urlopen(req, timeout=30) as response:
+        release = json.loads(response.read().decode("utf-8"))
+
+    for asset in release.get("assets", []):
+        if asset.get("name") != asset_name:
+            continue
+        digest = str(asset.get("digest", ""))
+        match = re.fullmatch(r"(?i)sha256:([a-f0-9]{64})", digest)
+        if not match:
+            raise ValueError(
+                f"GitHub release asset {asset_name} did not include a sha256 digest."
+            )
+        return match.group(1).lower()
+
+    raise ValueError(
+        f"GitHub release asset metadata was not found for {asset_name} at {api_url}."
+    )
+
+
+def verify_download_sha256(path: str, expected_sha256: str | None) -> bool:
+    """Verify a downloaded file against an expected SHA-256 digest."""
+    if not expected_sha256:
+        return True
+
+    sha256 = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                sha256.update(chunk)
+    except OSError as e:
+        logging.error(f"Could not read downloaded file for checksum verification: {e}")
+        return False
+
+    actual_sha256 = sha256.hexdigest()
+    if actual_sha256 == expected_sha256.lower():
+        logging.info(f"Verified GitHub release asset SHA256: {actual_sha256}")
+        return True
+
+    logging.error("Downloaded file checksum mismatch.")
+    logging.error(f"Expected SHA256: {expected_sha256.lower()}")
+    logging.error(f"Actual SHA256:   {actual_sha256}")
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    return False
 
 
 def download_file(
@@ -117,80 +191,6 @@ def download_file(
         logging.info(str(e))
     except Exception as e:
         logging.error(f"Download error: {e}")
-    return False
-
-
-def resolve_github_release_asset_sha256(url: str) -> str | None:
-    """Return GitHub's sha256 digest for a release asset URL, if applicable."""
-    parsed = urlparse(url)
-    if parsed.netloc.lower() != "github.com":
-        return None
-
-    parts = [unquote(part) for part in parsed.path.strip("/").split("/")]
-    if len(parts) == 6 and parts[2:4] == ["releases", "download"]:
-        owner, repo, tag, asset_name = parts[0], parts[1], parts[4], parts[5]
-        api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
-    elif len(parts) == 6 and parts[2:5] == ["releases", "latest", "download"]:
-        owner, repo, asset_name = parts[0], parts[1], parts[5]
-        api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
-    else:
-        return None
-
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "wgsextract-cli",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    github_token = os.environ.get("GITHUB_TOKEN")
-    if github_token:
-        headers["Authorization"] = f"Bearer {github_token}"
-
-    req = Request(api_url, headers=headers)
-    with urlopen(req, timeout=30) as response:
-        release = json.loads(response.read().decode("utf-8"))
-
-    for asset in release.get("assets", []):
-        if asset.get("name") != asset_name:
-            continue
-        digest = str(asset.get("digest", ""))
-        match = re.fullmatch(r"(?i)sha256:([a-f0-9]{64})", digest)
-        if not match:
-            raise ValueError(
-                f"GitHub release asset {asset_name} did not include a sha256 digest."
-            )
-        return match.group(1).lower()
-
-    raise ValueError(
-        f"GitHub release asset metadata was not found for {asset_name} at {api_url}."
-    )
-
-
-def verify_download_sha256(path: str, expected_sha256: str | None) -> bool:
-    """Verify a downloaded file against an expected SHA-256 digest."""
-    if not expected_sha256:
-        return True
-
-    sha256 = hashlib.sha256()
-    try:
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(1024 * 1024), b""):
-                sha256.update(chunk)
-    except OSError as e:
-        logging.error(f"Could not read downloaded file for checksum verification: {e}")
-        return False
-
-    actual_sha256 = sha256.hexdigest()
-    if actual_sha256 == expected_sha256.lower():
-        logging.info(f"Verified GitHub release asset SHA256: {actual_sha256}")
-        return True
-
-    logging.error("Downloaded file checksum mismatch.")
-    logging.error(f"Expected SHA256: {expected_sha256.lower()}")
-    logging.error(f"Actual SHA256:   {actual_sha256}")
-    try:
-        os.remove(path)
-    except OSError:
-        pass
     return False
 
 
@@ -307,7 +307,6 @@ def get_available_genomes():
     return _GENOME_DATA_CACHE
 
 
-# Backwards compatibility for modules importing GENOME_DATA
 GENOME_DATA = get_available_genomes()
 
 
