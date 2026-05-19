@@ -124,19 +124,25 @@ def download_file(
         )
         return False
 
-    # Try curl first
-    try:
-        # Use -L to follow redirects, -C - for resume
-        cmd = ["curl", "-L", *curl_progress_args()]
-        if os.path.exists(dest):
-            cmd.extend(["-C", "-"])
-        cmd.extend(["-o", dest, url])
+    # Use curl only when it can surface its native progress bar directly.
+    # Non-TTY runs should take the urllib path so progress is emitted as logs.
+    curl_args = curl_progress_args()
+    if (
+        progress_callback is None
+        and cancel_event is None
+        and "--progress-bar" in curl_args
+    ):
+        try:
+            # Use -L to follow redirects, -C - for resume
+            cmd = ["curl", "-L", *curl_args]
+            if os.path.exists(dest):
+                cmd.extend(["-C", "-"])
+            cmd.extend(["-o", dest, url])
 
-        run_command(cmd, capture_output=False)
-        return verify_download_sha256(dest, expected_sha256)
-    except Exception:
-        # Fallback to urllib
-        pass
+            run_command(cmd, capture_output=False)
+            return verify_download_sha256(dest, expected_sha256)
+        except (OSError, subprocess.SubprocessError) as e:
+            logging.warning("curl download failed, falling back to urllib: %s", e)
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
