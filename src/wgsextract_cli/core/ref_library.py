@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 from collections.abc import Callable
 from typing import Any, BinaryIO, Literal
 from urllib.parse import unquote, urlparse
