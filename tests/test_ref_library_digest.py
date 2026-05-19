@@ -3,7 +3,7 @@ import json
 import logging
 from pathlib import Path
 
-from wgsextract_cli.core import ref_library
+from wgsextract_cli.core import download_progress, ref_library
 
 
 class _FakeResponse:
@@ -112,7 +112,7 @@ def test_download_file_verifies_github_release_asset_digest(tmp_path, monkeypatc
 
     monkeypatch.setattr(ref_library, "run_command", fake_run_command)
     monkeypatch.setattr(ref_library, "urlopen", fake_urlopen)
-    monkeypatch.setattr(ref_library.sys.stderr, "isatty", lambda: True)
+    monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
 
     assert ref_library.download_file(
         "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
@@ -135,7 +135,7 @@ def test_download_file_resume_keeps_curl_output_argument_order(tmp_path, monkeyp
         output_path.write_bytes(payload)
 
     monkeypatch.setattr(ref_library, "run_command", fake_run_command)
-    monkeypatch.setattr(ref_library.sys.stderr, "isatty", lambda: True)
+    monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
     monkeypatch.setattr(
         ref_library, "resolve_github_release_asset_sha256", lambda url: None
     )
@@ -176,7 +176,7 @@ def test_download_file_uses_logged_progress_when_stderr_is_not_tty(
 
     monkeypatch.setattr(ref_library, "run_command", fail_if_curl_runs)
     monkeypatch.setattr(ref_library, "urlopen", fake_urlopen)
-    monkeypatch.setattr(ref_library.sys.stderr, "isatty", lambda: False)
+    monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: False)
 
     caplog.set_level(logging.INFO)
 
@@ -207,7 +207,7 @@ def test_download_file_rejects_github_release_asset_digest_mismatch(
 
     monkeypatch.setattr(ref_library, "run_command", fake_run_command)
     monkeypatch.setattr(ref_library, "urlopen", fake_urlopen)
-    monkeypatch.setattr(ref_library.sys.stderr, "isatty", lambda: True)
+    monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
 
     assert not ref_library.download_file(
         "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
@@ -233,7 +233,7 @@ def test_download_file_warns_and_continues_when_github_digest_lookup_fails(
     monkeypatch.setattr(
         ref_library, "resolve_github_release_asset_sha256", fail_resolve
     )
-    monkeypatch.setattr(ref_library.sys.stderr, "isatty", lambda: True)
+    monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
 
     assert ref_library.download_file(
         "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",

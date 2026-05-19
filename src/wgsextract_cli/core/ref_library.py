@@ -52,10 +52,15 @@ def download_file(
 
     # Use curl only when it can surface its native progress bar directly.
     # Non-TTY runs should take the urllib path so progress is emitted as logs.
-    if progress_callback is None and cancel_event is None and sys.stderr.isatty():
+    curl_args = curl_progress_args()
+    if (
+        progress_callback is None
+        and cancel_event is None
+        and "--progress-bar" in curl_args
+    ):
         try:
             # Use -L to follow redirects, -C - for resume
-            cmd = ["curl", "-L", *curl_progress_args()]
+            cmd = ["curl", "-L", *curl_args]
             if os.path.exists(dest):
                 cmd.extend(["-C", "-"])
             cmd.extend(["-o", dest, url])
