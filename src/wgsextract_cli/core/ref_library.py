@@ -953,7 +953,11 @@ def download_bootstrap(
 
         # Cleanup the archive after successful extraction
         os.remove(dest_path)
-        install_standard_mappability_maps(reflib_dir, cancel_event, progress_callback)
+        if not install_standard_mappability_maps(
+            reflib_dir, cancel_event, progress_callback
+        ):
+            logging.error("Failed to install standard Delly mappability maps.")
+            return False
         logging.info("Bootstrap extraction complete.")
         return True
     except Exception as e:

@@ -617,10 +617,20 @@ class ReferenceLibrary:
             if self.ref_vcf_tab:
                 break
         if not self.ref_vcf_tab:
-            for current_dir, _, files in os.walk(self.root):
-                for v in potential_vcf_names:
-                    if v in files:
-                        self.ref_vcf_tab = os.path.join(current_dir, v)
+            support_search_roots = [
+                os.path.join(self.root, "microarray"),
+                os.path.join(self.root, "ref"),
+                os.path.join(self.root, "genomes", "microarray"),
+            ]
+            for search_root in support_search_roots:
+                if not os.path.isdir(search_root):
+                    continue
+                for current_dir, _, files in os.walk(search_root):
+                    for v in potential_vcf_names:
+                        if v in files:
+                            self.ref_vcf_tab = os.path.join(current_dir, v)
+                            break
+                    if self.ref_vcf_tab:
                         break
                 if self.ref_vcf_tab:
                     break

@@ -1431,6 +1431,53 @@ class TestReferenceSupportAssets(unittest.TestCase):
             ],
         )
 
+    def test_install_standard_mappability_maps_reports_download_failure(self):
+        from wgsextract_cli.core import constants, ref_library
+
+        downloaded = []
+        maps = {
+            "hg19": {
+                "filename": "hg19.map.gz",
+                "url": "https://example.invalid/hg19.map.gz",
+                "sidecars": {".fai": "https://example.invalid/hg19.map.gz.fai"},
+            }
+        }
+
+        def fake_download(url, dest_path, *_args):
+            downloaded.append((url, dest_path))
+            if url.endswith(".fai"):
+                return False
+            Path(dest_path).touch()
+            return True
+
+        with (
+            patch.object(constants, "DELLY_MAPPABILITY_MAPS", maps),
+            patch.object(ref_library, "download_file", fake_download),
+        ):
+            self.assertFalse(
+                ref_library.install_standard_mappability_maps(self.test_dir)
+            )
+
+        self.assertEqual(
+            downloaded,
+            [
+                (
+                    "https://example.invalid/hg19.map.gz",
+                    os.path.join(self.test_dir, "maps", "hg19.map.gz"),
+                ),
+                (
+                    "https://example.invalid/hg19.map.gz.fai",
+                    os.path.join(self.test_dir, "maps", "hg19.map.gz.fai"),
+                ),
+            ],
+        )
+        self.assertTrue(
+            os.path.exists(os.path.join(self.test_dir, "maps", "hg19.map.gz"))
+        )
+        self.assertFalse(
+            os.path.exists(os.path.join(self.test_dir, "maps", "hg19.map.gz.fai"))
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

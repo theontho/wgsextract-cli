@@ -163,7 +163,6 @@ def require_reference(resolved_ref, task):
     if resolved_ref:
         return
     message = LOG_MESSAGES["ref_required_for"].format(task=task)
-    logging.error(message)
     raise WGSExtractError(message)
 
 

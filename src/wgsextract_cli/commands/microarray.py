@@ -214,12 +214,14 @@ def run(args):
 
     if not ref_fasta or not os.path.isfile(ref_fasta):
         message = LOG_MESSAGES["ref_required_for"].format(task="microarray generation")
-        logging.error(message)
         raise WGSExtractError(message)
 
     if not ref_vcf_tab:
         message = "--ref-vcf-tab is required and could not be auto-resolved."
-        logging.error(message)
+        raise WGSExtractError(message)
+
+    if not os.path.isfile(ref_vcf_tab):
+        message = f"--ref-vcf-tab not found: {ref_vcf_tab}"
         raise WGSExtractError(message)
 
     start_total = time.time()
