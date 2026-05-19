@@ -1,6 +1,6 @@
 [workspace]
 name = "wgsextract-cli"
-version = "0.2.0"
+version = "0.3.0"
 description = "A modern, standalone Command-Line Interface for WGS Extract."
 authors = ["WGS Extract Contributors"]
 channels = ["conda-forge", "bioconda"]
@@ -168,5 +168,5 @@ typecheck = "mypy src/wgsextract_cli"
 site-build = "python scripts/build_site.py"
 stats = "python scripts/project_stats.py"
 stats-report = "python scripts/project_stats.py out/project_stats.txt"
-smoke-test = "./smoke_test_scripts/run_all_smoke_tests.sh"
-smoke-test-full = "./smoke_test_scripts/run_all_smoke_tests.sh --real-data"
+smoke-test = "pytest tests/test_smoke.py tests/test_smoke_real_basics.py tests/test_smoke_real_vcf.py tests/test_smoke_real_vcf_ann.py tests/test_smoke_real_expert.py tests/test_smoke_real_ref.py"
+smoke-test-full = "pytest tests/test_smoke.py tests/test_smoke_real_basics.py tests/test_smoke_real_vcf.py tests/test_smoke_real_vcf_ann.py tests/test_smoke_real_expert.py tests/test_smoke_real_ref.py tests/test_smoke_real_full.py tests/test_smoke_real_pet.py"

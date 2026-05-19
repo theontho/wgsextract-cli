@@ -4,7 +4,53 @@ from pathlib import Path
 
 import pytest
 
-from wgsextract_cli.commands import benchmark
+from wgsextract_cli.commands import (
+    _benchmark_core,
+    _benchmark_datasets,
+    _benchmark_environment,
+    _benchmark_execution,
+    _benchmark_fixtures,
+    _benchmark_heavy,
+    _benchmark_machine,
+    _benchmark_models,
+    _benchmark_qc,
+    _benchmark_reports,
+    _benchmark_setup,
+)
+from wgsextract_cli.commands import benchmark as _benchmark_entry
+
+
+class _ModuleGroup:
+    def __init__(self, *modules):
+        object.__setattr__(self, "_modules", modules)
+
+    def __getattr__(self, name):
+        for module in self._modules:
+            if hasattr(module, name):
+                return getattr(module, name)
+        raise AttributeError(name)
+
+    def __setattr__(self, name, value):
+        for module in self._modules:
+            if hasattr(module, name):
+                setattr(module, name, value)
+        object.__setattr__(self, name, value)
+
+
+benchmark = _ModuleGroup(
+    _benchmark_entry,
+    _benchmark_models,
+    _benchmark_execution,
+    _benchmark_qc,
+    _benchmark_fixtures,
+    _benchmark_heavy,
+    _benchmark_datasets,
+    _benchmark_environment,
+    _benchmark_machine,
+    _benchmark_reports,
+    _benchmark_setup,
+    _benchmark_core,
+)
 
 
 def test_benchmark_suite_defaults_to_heavy() -> None:
