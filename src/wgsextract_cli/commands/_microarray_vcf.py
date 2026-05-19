@@ -248,8 +248,22 @@ def _prepare_microarray_vcf(
         # Merge results
         if vcf_chunks:
             logging.info(f"Merging {len(vcf_chunks)} chromosome VCFs...")
+
+            # Natural chromosome order (1..22, X, Y, MT) — bcftools concat preserves
+            # input order, so lexical sort would emit 10, 11, ..., 1, 20, ..., 9.
+            def _chrom_sort_key(path: str) -> tuple[int, str]:
+                chrom = os.path.basename(path).split("_ann.")[0].removeprefix("chr")
+                order = {"X": 23, "Y": 24, "MT": 25, "M": 25}
+                if chrom in order:
+                    return (order[chrom], chrom)
+                try:
+                    return (int(chrom), chrom)
+                except ValueError:
+                    return (99, chrom)
+
             run_command(
-                ["bcftools", "concat", "-Oz", "-o", out_vcf] + sorted(vcf_chunks),
+                ["bcftools", "concat", "-Oz", "-o", out_vcf]
+                + sorted(vcf_chunks, key=_chrom_sort_key),
                 check=True,
             )
             ensure_vcf_indexed(out_vcf)
