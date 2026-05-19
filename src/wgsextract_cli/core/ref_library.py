@@ -517,35 +517,6 @@ def download_pharmgkb(reflib_dir, cancel_event=None, progress_callback=None):
             continue
 
     return success
-    """Downloads and indexes official ClinVar VCFs for hg19 and hg38."""
-    target_dir = os.path.join(reflib_dir, "ref")
-    os.makedirs(target_dir, exist_ok=True)
-
-    success = True
-    for build, url in CLINVAR_URLS.items():
-        if cancel_event and cancel_event.is_set():
-            return False
-
-        dest_path = os.path.join(target_dir, f"clinvar_{build}.vcf.gz")
-        logging.info(f"Downloading ClinVar {build} from NIH FTP...")
-
-        if not download_file(url, dest_path, progress_callback, cancel_event):
-            success = False
-            continue
-
-        if cancel_event and cancel_event.is_set():
-            return False
-
-        # Index the VCF
-        logging.info(f"Indexing ClinVar {build}...")
-        try:
-            # We need tabix
-            run_command(["tabix", "-p", "vcf", "-f", dest_path])
-        except Exception as e:
-            logging.error(f"Failed to index ClinVar {build}: {e}")
-            success = False
-
-    return success
 
 
 def download_revel(reflib_dir, cancel_event=None, progress_callback=None):
