@@ -58,7 +58,10 @@ def prepare_tabix_annotation(
                 run_command([bgzip, "-c", annotation_path], stdout=f_out)
 
     index_path = prepared_path + ".tbi"
-    if not os.path.exists(index_path):
+    needs_index = not os.path.exists(index_path) or (
+        os.path.getmtime(index_path) <= os.path.getmtime(prepared_path)
+    )
+    if needs_index:
         tabix = get_tool_path("tabix")
         logging.info("Indexing %s annotation resource: %s", label, prepared_path)
         run_command(

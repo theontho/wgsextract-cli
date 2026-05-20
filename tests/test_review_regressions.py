@@ -23,6 +23,29 @@ def test_tabix_annotation_preparation_indexes_tsv_with_coordinate_columns(
     assert commands == [["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", str(resource)]]
 
 
+def test_tabix_annotation_preparation_rebuilds_stale_index(monkeypatch, tmp_path):
+    from wgsextract_cli.commands import _vcf_annotation_helpers as helpers
+
+    resource = tmp_path / "phylop_hg38.tsv.gz"
+    index = tmp_path / "phylop_hg38.tsv.gz.tbi"
+    resource.touch()
+    index.touch()
+    commands = []
+
+    monkeypatch.setattr(helpers, "get_tool_path", lambda tool: tool)
+    monkeypatch.setattr(
+        helpers, "run_command", lambda cmd, **_kwargs: commands.append(cmd)
+    )
+    monkeypatch.setattr(
+        helpers.os.path,
+        "getmtime",
+        lambda path: 20 if str(path).endswith(".tsv.gz") else 10,
+    )
+
+    assert helpers.prepare_tabix_annotation(str(resource), "PhyloP") == str(resource)
+    assert commands == [["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", str(resource)]]
+
+
 def test_build_choices_include_lowercase_aliases():
     from wgsextract_cli.core.builds import (
         BUILD_CHOICES,
