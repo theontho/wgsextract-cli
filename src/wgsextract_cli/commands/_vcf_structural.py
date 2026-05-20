@@ -16,6 +16,7 @@ from wgsextract_cli.core.utils import (
 )
 from wgsextract_cli.core.variant_files import (
     ensure_vcf_indexed,
+    popen,
     verify_paths_exist,
 )
 
@@ -37,12 +38,8 @@ def _region_input_bam(
     os.close(fd)
     logging.info(f"Extracting region {args.region} to temporary BAM...")
     try:
+        _extract_region_bam_with_reference_header(args, ref, temp_bam)
         samtools = get_tool_path("samtools")
-        view_cmd = [samtools, "view", "-bh"]
-        if args.input.lower().endswith(".cram"):
-            view_cmd.extend(["-T", ref])
-        view_cmd.extend([args.input, args.region, "-o", temp_bam])
-        run_command(view_cmd)
         run_command([samtools, "index", temp_bam])
         return temp_bam, temp_bam
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
@@ -50,6 +47,92 @@ def _region_input_bam(
         if temp_bam and os.path.exists(temp_bam):
             os.remove(temp_bam)
         raise WGSExtractError(f"{failure_label} region extraction failed.") from e
+
+
+def _reference_sq_lines(ref: str) -> list[str]:
+    fai_path = ref + ".fai"
+    if not os.path.isfile(fai_path):
+        run_command([get_tool_path("samtools"), "faidx", ref])
+
+    sq_lines = []
+    with open(fai_path, encoding="utf-8") as fai:
+        for line in fai:
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) >= 2:
+                sq_lines.append(f"@SQ\tSN:{fields[0]}\tLN:{fields[1]}\n")
+    if not sq_lines:
+        raise WGSExtractError(f"Reference index has no contigs: {fai_path}")
+    return sq_lines
+
+
+def _write_reference_header(
+    sink, non_sq_header_lines: list[str], reference_sq_lines: list[str]
+) -> None:
+    hd_lines = [line for line in non_sq_header_lines if line.startswith("@HD")]
+    other_header_lines = [
+        line for line in non_sq_header_lines if not line.startswith("@HD")
+    ]
+    for line in hd_lines:
+        sink.write(line)
+    for line in reference_sq_lines:
+        sink.write(line)
+    for line in other_header_lines:
+        sink.write(line)
+
+
+def _extract_region_bam_with_reference_header(args, ref: str, temp_bam: str) -> None:
+    samtools = get_tool_path("samtools")
+    source_cmd = [samtools, "view", "-h"]
+    if args.input.lower().endswith(".cram"):
+        source_cmd.extend(["-T", ref])
+    source_cmd.extend([args.input, args.region])
+    sink_cmd = [samtools, "view", "-bh", "-o", temp_bam, "-"]
+
+    reference_sq = _reference_sq_lines(ref)
+    source = popen(
+        source_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
+    sink = popen(sink_cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if source.stdout is None or sink.stdin is None:
+        raise WGSExtractError("Failed to open samtools region extraction pipeline.")
+
+    non_sq_header_lines = []
+    first_alignment = None
+    for line in source.stdout:
+        if line.startswith("@"):
+            if not line.startswith("@SQ"):
+                non_sq_header_lines.append(line)
+            continue
+        first_alignment = line
+        break
+
+    _write_reference_header(sink.stdin, non_sq_header_lines, reference_sq)
+    if first_alignment is not None:
+        sink.stdin.write(first_alignment)
+    for line in source.stdout:
+        sink.stdin.write(line)
+
+    source_stderr = source.stderr.read() if source.stderr is not None else ""
+    sink.stdin.close()
+    sink_stderr = sink.stderr.read() if sink.stderr is not None else ""
+    source_rc = source.wait()
+    sink_rc = sink.wait()
+    if source_rc != 0:
+        raise WGSExtractError(f"samtools view failed: {source_stderr.strip()}")
+    if sink_rc != 0:
+        raise WGSExtractError(f"samtools BAM write failed: {sink_stderr.strip()}")
+
+
+def _validate_delly_map(map_file: str) -> None:
+    if not map_file.endswith(".gz"):
+        return
+    try:
+        with gzip.open(map_file, "rb") as handle:
+            handle.read(1)
+    except (OSError, EOFError) as e:
+        raise WGSExtractError(
+            f"Mappability map is not a valid gzip-compressed file: {map_file}"
+        ) from e
 
 
 def _write_indexed_vcf_from_bcf(out_bcf: str, out_vcf: str) -> None:
@@ -83,6 +166,7 @@ def cmd_cnv(args):
         msg = "Mappability map (-M/--map) is required for delly cnv.\nYou can download standard maps (e.g., hg38.map.gz) from:\nhttps://github.com/dellytools/delly/tree/master/exclude\nOr provide a custom .map file."
         logging.error(f"❌: {msg}")
         raise WGSExtractError(msg) from None
+    _validate_delly_map(map_file)
 
     map_args = ["-m", map_file]
     if getattr(args, "ploidy", None):
