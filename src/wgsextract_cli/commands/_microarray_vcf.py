@@ -12,6 +12,7 @@ from wgsextract_cli.core.variant_files import (
     chromosome_aliases,
     ensure_vcf_indexed,
     popen,
+    vcf_index_chromosomes,
 )
 
 
@@ -59,23 +60,10 @@ def split_snps_by_chrom(ref_vcf_tab, outdir):
     return chrom_files
 
 
-def _vcf_index_chromosomes(vcf_path: str) -> list[str]:
-    try:
-        res = run_command(["bcftools", "index", "-s", vcf_path], capture_output=True)
-    except Exception as e:
-        logging.debug(f"Could not inspect VCF chromosome index for {vcf_path}: {e}")
-        return []
-    return [
-        line.split("\t", 1)[0]
-        for line in (res.stdout or "").splitlines()
-        if line.strip()
-    ]
-
-
 def _target_tab_chromosomes(ref_vcf_tab: str) -> list[str]:
     try:
         res = run_command(["tabix", "-l", ref_vcf_tab], capture_output=True)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError) as e:
         logging.debug(f"Could not list target chromosomes for {ref_vcf_tab}: {e}")
         return []
     return [line.strip() for line in (res.stdout or "").splitlines() if line.strip()]
@@ -103,10 +91,14 @@ def _normalize_region_args_for_input(
 
 
 def _prepare_vcf_target_tab_for_input(
-    ref_vcf_tab: str, input_vcf: str, outdir: str
+    ref_vcf_tab: str,
+    input_vcf: str,
+    outdir: str,
+    input_chroms: list[str] | None = None,
 ) -> str:
     """Return a target tab whose chromosome names match the input VCF."""
-    input_chroms = _vcf_index_chromosomes(input_vcf)
+    if input_chroms is None:
+        input_chroms = vcf_index_chromosomes(input_vcf)
     target_chroms = _target_tab_chromosomes(ref_vcf_tab)
     if not input_chroms or not target_chroms:
         return ref_vcf_tab
@@ -262,9 +254,10 @@ def _prepare_microarray_vcf(
         # For VCF input, we intersect our targets with the input VCF.
         # Any missing targets are assumed to be homozygous reference.
         try:
-            input_chroms = _vcf_index_chromosomes(args.input)
+            ensure_vcf_indexed(args.input)
+            input_chroms = vcf_index_chromosomes(args.input)
             input_ref_vcf_tab = _prepare_vcf_target_tab_for_input(
-                ref_vcf_tab, args.input, outdir
+                ref_vcf_tab, args.input, outdir, input_chroms
             )
             input_region_args = _normalize_region_args_for_input(
                 region_args, input_chroms

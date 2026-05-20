@@ -296,8 +296,6 @@ def test_microarray_vcf_targets_normalize_to_input_vcf_chromosomes(tmp_path):
     commands = []
 
     def fake_run_command(cmd, **_kwargs):
-        if cmd[:3] == ["bcftools", "index", "-s"]:
-            return SimpleNamespace(stdout="1\t100\nMT\t16569\n", stderr="")
         if cmd == ["tabix", "-l", str(ref_targets)]:
             return SimpleNamespace(stdout="chr1\nchrM\nchrUn\n", stderr="")
         commands.append(cmd)
@@ -305,7 +303,10 @@ def test_microarray_vcf_targets_normalize_to_input_vcf_chromosomes(tmp_path):
 
     with patch.object(_microarray_vcf, "run_command", side_effect=fake_run_command):
         normalized = _microarray_vcf._prepare_vcf_target_tab_for_input(
-            str(ref_targets), str(tmp_path / "input.vcf.gz"), str(tmp_path)
+            str(ref_targets),
+            str(tmp_path / "input.vcf.gz"),
+            str(tmp_path),
+            ["1", "MT"],
         )
 
     normalized_plain = Path(normalized[:-3])
@@ -317,6 +318,15 @@ def test_microarray_vcf_targets_normalize_to_input_vcf_chromosomes(tmp_path):
         ["bgzip", "-f", str(normalized_plain)],
         ["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", normalized],
     ]
+
+
+def test_vcf_index_chromosomes_returns_index_contigs():
+    def fake_run_command(cmd, **_kwargs):
+        assert cmd == ["bcftools", "index", "-s", "input.vcf.gz"]
+        return SimpleNamespace(stdout="1\t248956422\nMT\t16569\n", stderr="")
+
+    with patch.object(variant_files, "run_command", side_effect=fake_run_command):
+        assert variant_files.vcf_index_chromosomes("input.vcf.gz") == ["1", "MT"]
 
 
 def test_microarray_vcf_region_normalizes_to_input_vcf_chromosome_style():

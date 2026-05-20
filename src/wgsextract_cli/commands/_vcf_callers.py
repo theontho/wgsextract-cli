@@ -62,10 +62,7 @@ def _prepare_gatk_input(args, ref: str, outdir: str) -> tuple[str, str | None]:
         )
         run_command([samtools, "index", temp_bam], check=True)
     except (OSError, subprocess.SubprocessError, WGSExtractError):
-        if os.path.exists(temp_bam):
-            os.remove(temp_bam)
-        if os.path.exists(temp_bam + ".bai"):
-            os.remove(temp_bam + ".bai")
+        _cleanup_gatk_temp_input(temp_bam)
         raise
     return temp_bam, temp_bam
 
@@ -74,8 +71,10 @@ def _cleanup_gatk_temp_input(temp_input: str | None) -> None:
     if not temp_input:
         return
     for path in (temp_input, temp_input + ".bai", temp_input + ".csi"):
-        if os.path.exists(path):
-            os.remove(path)
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError as e:
+            logging.warning(f"Failed to remove temporary GATK artifact {path}: {e}")
 
 
 def cmd_freebayes(args):

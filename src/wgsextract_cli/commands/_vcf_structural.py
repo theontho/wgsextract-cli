@@ -80,6 +80,26 @@ def _write_reference_header(
         sink.write(line)
 
 
+def _terminate_processes(processes: tuple[subprocess.Popen, ...]) -> None:
+    for process in processes:
+        try:
+            if process.poll() is None:
+                process.terminate()
+        except OSError as e:
+            logging.warning(f"Failed to terminate process {process.pid}: {e}")
+    for process in processes:
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+                process.wait()
+            except OSError as e:
+                logging.warning(f"Failed to kill process {process.pid}: {e}")
+        except OSError as e:
+            logging.warning(f"Failed to wait for process {process.pid}: {e}")
+
+
 def _extract_region_bam_with_reference_header(args, ref: str, temp_bam: str) -> None:
     samtools = get_tool_path("samtools")
     source_cmd = [samtools, "view", "-h"]
@@ -94,29 +114,40 @@ def _extract_region_bam_with_reference_header(args, ref: str, temp_bam: str) -> 
     )
     sink = popen(sink_cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if source.stdout is None or sink.stdin is None:
+        _terminate_processes((source, sink))
         raise WGSExtractError("Failed to open samtools region extraction pipeline.")
 
-    non_sq_header_lines = []
-    first_alignment = None
-    for line in source.stdout:
-        if line.startswith("@"):
-            if not line.startswith("@SQ"):
-                non_sq_header_lines.append(line)
-            continue
-        first_alignment = line
-        break
+    try:
+        non_sq_header_lines = []
+        first_alignment = None
+        for line in source.stdout:
+            if line.startswith("@"):
+                if not line.startswith("@SQ"):
+                    non_sq_header_lines.append(line)
+                continue
+            first_alignment = line
+            break
 
-    _write_reference_header(sink.stdin, non_sq_header_lines, reference_sq)
-    if first_alignment is not None:
-        sink.stdin.write(first_alignment)
-    for line in source.stdout:
-        sink.stdin.write(line)
+        _write_reference_header(sink.stdin, non_sq_header_lines, reference_sq)
+        if first_alignment is not None:
+            sink.stdin.write(first_alignment)
+        for line in source.stdout:
+            sink.stdin.write(line)
 
-    source_stderr = source.stderr.read() if source.stderr is not None else ""
-    sink.stdin.close()
-    sink_stderr = sink.stderr.read() if sink.stderr is not None else ""
-    source_rc = source.wait()
-    sink_rc = sink.wait()
+        source_stderr = source.stderr.read() if source.stderr is not None else ""
+        sink.stdin.close()
+        sink_stderr = sink.stderr.read() if sink.stderr is not None else ""
+        source_rc = source.wait()
+        sink_rc = sink.wait()
+    except (OSError, subprocess.SubprocessError, WGSExtractError):
+        if sink.stdin and not sink.stdin.closed:
+            try:
+                sink.stdin.close()
+            except OSError as e:
+                logging.warning(f"Failed to close samtools sink stdin: {e}")
+        _terminate_processes((source, sink))
+        raise
+
     if source_rc != 0:
         raise WGSExtractError(f"samtools view failed: {source_stderr.strip()}")
     if sink_rc != 0:
