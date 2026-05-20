@@ -1,6 +1,10 @@
 import logging
 import os
 
+from wgsextract_cli.core.builds import (
+    BUILD_CHOICES,
+    fake_data_library_code,
+)
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -32,10 +36,7 @@ def cmd_fake_data(args):
     lib_ref = None
     target_md5 = None
 
-    # Map CLI builds to library codes
-    build_map = {"hg38": "hg38", "hg19": "hg19", "hg37": "hs37d5", "t2t": "T2Tv20"}
-
-    target_code = build_map.get(args.build)
+    target_code = fake_data_library_code(args.build)
     if target_code:
         all_genomes = get_available_genomes()
         genome_info = next(
@@ -119,7 +120,7 @@ def register(subparsers, base_parser):
     )
     fake_parser.add_argument(
         "--build",
-        choices=["hg38", "hg19", "hg37", "t2t"],
+        choices=BUILD_CHOICES,
         default="hg38",
         help="Human genome build naming convention.",
     )

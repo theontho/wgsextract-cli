@@ -6,17 +6,16 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
-from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
 )
 from wgsextract_cli.core.variant_files import (
-    calculate_bam_md5,
     ensure_vcf_indexed,
     ensure_vcf_prepared,
 )
 
+from ._vcf_annotation_helpers import annotation_context, prepare_tabix_annotation
 from ._vcf_structural import (
     _exit_if_missing,
 )
@@ -25,22 +24,9 @@ from ._vcf_structural import (
 def cmd_spliceai(args):
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
-    input_file = args.input if args.input else args.vcf_input
-    if not input_file:
-        logging.error(LOG_MESSAGES["input_required"])
-        raise WGSExtractError("VCF processing failed.") from None
-
-    outdir = (
-        args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_file))
-    )
+    input_file, outdir, lib = annotation_context(args)
     logging.info(f"Annotating VCF with SpliceAI scores: {input_file}")
 
-    md5_sig = (
-        calculate_bam_md5(input_file, None)
-        if input_file.lower().endswith((".bam", ".cram"))
-        else None
-    )
-    lib = ReferenceLibrary(args.ref, md5_sig, input_path=input_file)
     spliceai_file = args.spliceai_file if args.spliceai_file else lib.spliceai_vcf
 
     _exit_if_missing(spliceai_file, "vcf_spliceai_missing", "spliceai")
@@ -96,30 +82,18 @@ def cmd_spliceai(args):
 def cmd_alphamissense(args):
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
-    input_file = args.input if args.input else args.vcf_input
-    if not input_file:
-        logging.error(LOG_MESSAGES["input_required"])
-        raise WGSExtractError("VCF processing failed.")
-
-    outdir = (
-        args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_file))
-    )
+    input_file, outdir, lib = annotation_context(args)
     logging.info(f"Annotating VCF with AlphaMissense scores: {input_file}")
 
-    md5_sig = (
-        calculate_bam_md5(input_file, None)
-        if input_file.lower().endswith((".bam", ".cram"))
-        else None
-    )
-    lib = ReferenceLibrary(args.ref, md5_sig, input_path=input_file)
     am_file = args.am_file if args.am_file else lib.alphamissense_vcf
 
     _exit_if_missing(am_file, "vcf_alphamissense_missing", "alphamissense")
+    am_file = str(am_file)
 
     # 1. Prepare Inputs
 
     input_vcf = ensure_vcf_prepared(input_file)
-    am_vcf = ensure_vcf_prepared(am_file)
+    am_vcf = prepare_tabix_annotation(am_file, "AlphaMissense")
 
     # 2. Match chromosome styles
     from wgsextract_cli.core.variant_files import normalize_vcf_chromosomes
@@ -211,22 +185,9 @@ def cmd_alphamissense(args):
 def cmd_pharmgkb(args):
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
-    input_file = args.input if args.input else args.vcf_input
-    if not input_file:
-        logging.error(LOG_MESSAGES["input_required"])
-        raise WGSExtractError("VCF processing failed.") from None
-
-    outdir = (
-        args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_file))
-    )
+    input_file, outdir, lib = annotation_context(args)
     logging.info(f"Annotating VCF with PharmGKB data: {input_file}")
 
-    md5_sig = (
-        calculate_bam_md5(input_file, None)
-        if input_file.lower().endswith((".bam", ".cram"))
-        else None
-    )
-    lib = ReferenceLibrary(args.ref, md5_sig, input_path=input_file)
     pharmgkb_file = args.pharmgkb_file if args.pharmgkb_file else lib.pharmgkb_vcf
 
     _exit_if_missing(pharmgkb_file, "vcf_pharmgkb_missing", "pharmgkb")

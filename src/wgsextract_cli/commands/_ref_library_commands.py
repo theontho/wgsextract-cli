@@ -1,5 +1,6 @@
 import logging
 import os
+from collections.abc import Callable
 
 from wgsextract_cli.core.annotation_resources import (
     download_alphamissense,
@@ -204,116 +205,58 @@ def cmd_gene_map(args):
             print(LOG_MESSAGES["dl_genemap_failed"])
 
 
-def cmd_clinvar_dl(args):
+def _resolve_reflib(args) -> str:
     from wgsextract_cli.core.config import settings
 
     prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    reflib = settings.get("reference_library")
-    if not reflib:
-        reflib = args.ref if args.ref else os.path.join(prog_root, "reference")
+    return (
+        args.ref
+        or settings.get("reference_library")
+        or os.path.join(prog_root, "reference")
+    )
 
-    logging.info("Starting ClinVar download and indexing...")
-    if download_clinvar(reflib):
-        logging.info("ClinVar setup complete.")
-    else:
-        logging.error("ClinVar setup failed.")
-        raise WGSExtractError("Ref library installation failed.")
+
+def _run_ref_download(
+    args,
+    resource_name: str,
+    downloader: Callable[[str], bool],
+    action: str = "download and indexing",
+) -> None:
+    reflib = _resolve_reflib(args)
+    logging.info("Starting %s %s...", resource_name, action)
+    if downloader(reflib):
+        logging.info("%s setup complete.", resource_name)
+        return
+    logging.error("%s setup failed.", resource_name)
+    raise WGSExtractError("Ref library installation failed.")
+
+
+def cmd_clinvar_dl(args):
+    _run_ref_download(args, "ClinVar", download_clinvar)
 
 
 def cmd_revel_dl(args):
-    from wgsextract_cli.core.config import settings
-
-    prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    reflib = settings.get("reference_library")
-    if not reflib:
-        reflib = args.ref if args.ref else os.path.join(prog_root, "reference")
-
-    logging.info("Starting REVEL download and indexing...")
-    if download_revel(reflib):
-        logging.info("REVEL setup complete.")
-    else:
-        logging.error("REVEL setup failed.")
-        raise WGSExtractError("Ref library installation failed.")
+    _run_ref_download(args, "REVEL", download_revel)
 
 
 def cmd_phylop_dl(args):
-    from wgsextract_cli.core.config import settings
-
-    prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    reflib = settings.get("reference_library")
-    if not reflib:
-        reflib = args.ref if args.ref else os.path.join(prog_root, "reference")
-
-    logging.info("Starting PhyloP download and indexing...")
-    if download_phylop(reflib):
-        logging.info("PhyloP setup complete.")
-    else:
-        logging.error("PhyloP setup failed.")
-        raise WGSExtractError("Ref library installation failed.")
+    _run_ref_download(args, "PhyloP", download_phylop)
 
 
 def cmd_gnomad_dl(args):
-    from wgsextract_cli.core.config import settings
-
-    prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    reflib = settings.get("reference_library")
-    if not reflib:
-        reflib = args.ref if args.ref else os.path.join(prog_root, "reference")
-
-    logging.info("Starting gnomAD download and indexing...")
-    if download_gnomad(reflib):
-        logging.info("gnomAD setup complete.")
-    else:
-        logging.error("gnomAD setup failed.")
-        raise WGSExtractError("Ref library installation failed.")
+    _run_ref_download(args, "gnomAD", download_gnomad)
 
 
 def cmd_spliceai_dl(args):
-    from wgsextract_cli.core.config import settings
-
-    prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    reflib = settings.get("reference_library")
-    if not reflib:
-        reflib = args.ref if args.ref else os.path.join(prog_root, "reference")
-
-    logging.info("Starting SpliceAI download and indexing...")
-    if download_spliceai(reflib):
-        logging.info("SpliceAI setup complete.")
-    else:
-        logging.error("SpliceAI setup failed.")
-        raise WGSExtractError("Ref library installation failed.")
+    _run_ref_download(args, "SpliceAI", download_spliceai)
 
 
 def cmd_alphamissense_dl(args):
-    from wgsextract_cli.core.config import settings
-
-    prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    reflib = settings.get("reference_library")
-    if not reflib:
-        reflib = args.ref if args.ref else os.path.join(prog_root, "reference")
-
-    logging.info("Starting AlphaMissense download and indexing...")
-    if download_alphamissense(reflib):
-        logging.info("AlphaMissense setup complete.")
-    else:
-        logging.error("AlphaMissense setup failed.")
-        raise WGSExtractError("Ref library installation failed.")
+    _run_ref_download(args, "AlphaMissense", download_alphamissense)
 
 
 def cmd_pharmgkb_dl(args):
-    from wgsextract_cli.core.config import settings
-
-    prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    reflib = settings.get("reference_library")
-    if not reflib:
-        reflib = args.ref if args.ref else os.path.join(prog_root, "reference")
-
-    logging.info("Starting PharmGKB download...")
-    if download_pharmgkb(reflib):
-        logging.info("PharmGKB setup complete.")
-    else:
-        logging.error("PharmGKB setup failed.")
-        raise WGSExtractError("Ref library installation failed.")
+    _run_ref_download(args, "PharmGKB", download_pharmgkb, "download")
 
 
 def cmd_bootstrap(args):

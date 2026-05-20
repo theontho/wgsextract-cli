@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import time
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
@@ -57,41 +58,40 @@ def _subprocess_env() -> dict[str, str]:
     return env
 
 
-def _run_cli_step(
+def _cli_step_context(
     args: argparse.Namespace,
-    name: str,
     slug: str,
     command_args: list[str],
     output_dir: Path,
     logs_dir: Path,
-    expected_outputs: list[Path],
-    command_label: str | None = None,
-) -> BenchmarkResult:
+) -> tuple[Path, Path, list[str]]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
     stdout_log = logs_dir / f"{slug}.stdout.log"
     stderr_log = logs_dir / f"{slug}.stderr.log"
     command = _cli_command(args, command_args, _benchmark_threads_for_step(args, slug))
-    start = time.perf_counter()
+    return stdout_log, stderr_log, command
 
-    with (
-        open(stdout_log, "w", encoding="utf-8") as out,
-        open(stderr_log, "w", encoding="utf-8") as err,
-    ):
-        completed = subprocess.run(
-            command,
-            stdout=out,
-            stderr=err,
-            check=False,
-            text=True,
-            env=_subprocess_env(),
-        )
 
-    seconds = time.perf_counter() - start
+def _cli_step_result(
+    *,
+    name: str,
+    slug: str,
+    command_args: list[str],
+    command_label: str | None,
+    seconds: float,
+    command: list[str],
+    output_dir: Path,
+    stdout_log: Path,
+    stderr_log: Path,
+    returncode: int,
+    expected_outputs: list[Path],
+) -> BenchmarkResult:
     missing = [str(path) for path in expected_outputs if not path.exists()]
-    status = "PASS" if completed.returncode == 0 and not missing else "FAIL"
+    status = "PASS" if returncode == 0 and not missing else "FAIL"
     error = None
-    if completed.returncode != 0:
-        error = f"Command exited with status {completed.returncode}."
+    if returncode != 0:
+        error = f"Command exited with status {returncode}."
     elif missing:
         error = "Missing expected output(s): " + ", ".join(missing)
 
@@ -104,9 +104,133 @@ def _run_cli_step(
         output_dir=str(output_dir),
         stdout_log=str(stdout_log),
         stderr_log=str(stderr_log),
-        returncode=completed.returncode,
+        returncode=returncode,
         expected_outputs=[str(path) for path in expected_outputs],
         error=error,
+    )
+
+
+def _completed_cli_step_result(
+    *,
+    name: str,
+    slug: str,
+    command_args: list[str],
+    command_label: str | None,
+    start: float,
+    completed: subprocess.CompletedProcess[Any],
+    command: list[str],
+    output_dir: Path,
+    stdout_log: Path,
+    stderr_log: Path,
+    expected_outputs: list[Path],
+) -> BenchmarkResult:
+    return _cli_step_result(
+        name=name,
+        slug=slug,
+        command_args=command_args,
+        command_label=command_label,
+        seconds=time.perf_counter() - start,
+        command=command,
+        output_dir=output_dir,
+        stdout_log=stdout_log,
+        stderr_log=stderr_log,
+        returncode=completed.returncode,
+        expected_outputs=expected_outputs,
+    )
+
+
+def _run_cli_subprocess(
+    command: list[str],
+    stderr_log: Path,
+    *,
+    stdout_log: Path | None = None,
+    stdin_file: Path | None = None,
+    stdout_file: Path | None = None,
+    text: bool = False,
+) -> subprocess.CompletedProcess[Any]:
+    with ExitStack() as stack:
+        stdin: Any = stack.enter_context(open(stdin_file, "rb")) if stdin_file else None
+        if stdout_file:
+            stdout: Any = stack.enter_context(open(stdout_file, "wb"))
+        elif stdout_log:
+            stdout = stack.enter_context(open(stdout_log, "w", encoding="utf-8"))
+        else:
+            stdout = None
+        stderr = stack.enter_context(open(stderr_log, "w", encoding="utf-8"))
+        return subprocess.run(
+            command,
+            stdin=stdin,
+            stdout=stdout,
+            stderr=stderr,
+            check=False,
+            text=text,
+            env=_subprocess_env(),
+        )
+
+
+def _run_cli_step_with_io(
+    args: argparse.Namespace,
+    name: str,
+    slug: str,
+    command_args: list[str],
+    output_dir: Path,
+    logs_dir: Path,
+    expected_outputs: list[Path],
+    command_label: str | None = None,
+    stdin_file: Path | None = None,
+    stdout_file: Path | None = None,
+    stdout_log_text: str | None = None,
+    text: bool = False,
+) -> BenchmarkResult:
+    stdout_log, stderr_log, command = _cli_step_context(
+        args, slug, command_args, output_dir, logs_dir
+    )
+    start = time.perf_counter()
+    completed = _run_cli_subprocess(
+        command,
+        stderr_log,
+        stdout_log=None if stdout_file else stdout_log,
+        stdin_file=stdin_file,
+        stdout_file=stdout_file,
+        text=text,
+    )
+    if stdout_log_text is not None:
+        stdout_log.write_text(stdout_log_text, encoding="utf-8")
+    return _completed_cli_step_result(
+        name=name,
+        slug=slug,
+        command_args=command_args,
+        command_label=command_label,
+        start=start,
+        completed=completed,
+        command=command,
+        output_dir=output_dir,
+        stdout_log=stdout_log,
+        stderr_log=stderr_log,
+        expected_outputs=expected_outputs,
+    )
+
+
+def _run_cli_step(
+    args: argparse.Namespace,
+    name: str,
+    slug: str,
+    command_args: list[str],
+    output_dir: Path,
+    logs_dir: Path,
+    expected_outputs: list[Path],
+    command_label: str | None = None,
+) -> BenchmarkResult:
+    return _run_cli_step_with_io(
+        args,
+        name,
+        slug,
+        command_args,
+        output_dir,
+        logs_dir,
+        expected_outputs,
+        command_label,
+        text=True,
     )
 
 

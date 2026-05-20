@@ -8,7 +8,14 @@ from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
 )
-from wgsextract_cli.core.variant_files import popen
+from wgsextract_cli.core.variant_files import chromosome_aliases, popen
+
+
+def _matching_fasta_chrom(chrom: str, fasta_chroms: set[str]) -> str | None:
+    for alias in chromosome_aliases(chrom):
+        if alias in fasta_chroms:
+            return alias
+    return None
 
 
 def _write_microarray_combined_kit(
@@ -39,7 +46,9 @@ def _write_microarray_combined_kit(
                     for line in proc.stdout:
                         parts = line.strip().split("\t")
                         if len(parts) >= 3:
-                            variant_calls[(parts[0], parts[1])] = parts[2]
+                            chrom, pos, tgt = parts[0], parts[1], parts[2]
+                            for alias in chromosome_aliases(chrom):
+                                variant_calls[(alias, pos)] = tgt
 
             logging.info(
                 f"Found {len(variant_calls)} variants in input VCF matching targets."
@@ -89,18 +98,8 @@ def _write_microarray_combined_kit(
                             if len(parts) < 2:
                                 continue
                             c, p = parts[0], parts[1]
-                            # Normalize for FASTA
-                            fc = c
-                            if fc not in fasta_chroms:
-                                if fc.startswith("chr") and fc[3:] in fasta_chroms:
-                                    fc = fc[3:]
-                                elif (
-                                    not fc.startswith("chr")
-                                    and f"chr{fc}" in fasta_chroms
-                                ):
-                                    fc = f"chr{fc}"
-
-                            if fc in fasta_chroms:
+                            fc = _matching_fasta_chrom(c, fasta_chroms)
+                            if fc:
                                 f_reg.write(f"{fc}:{p}-{p}\n")
                                 norm_to_orig[f"{fc}:{p}-{p}"] = (c, p)
 
@@ -131,10 +130,8 @@ def _write_microarray_combined_kit(
                                         p = p_range.split("-")[0]
                                         ref_alleles[(c_norm, p)] = base
                                         # Also store variations to be safe
-                                        if not c_norm.startswith("chr"):
-                                            ref_alleles[(f"chr{c_norm}", p)] = base
-                                        elif c_norm.startswith("chr"):
-                                            ref_alleles[(c_norm[3:], p)] = base
+                                        for alias in chromosome_aliases(c_norm):
+                                            ref_alleles[(alias, p)] = base
                 logging.info(f"Pre-fetched {len(ref_alleles)} reference alleles.")
                 if os.path.exists(region_file):
                     os.remove(region_file)

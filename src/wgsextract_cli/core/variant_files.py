@@ -154,6 +154,48 @@ def get_vcf_samples(vcf_path):
         return []
 
 
+def chromosome_aliases(chrom: str) -> tuple[str, ...]:
+    if not chrom:
+        return ()
+
+    if chrom.startswith("chr"):
+        bare = chrom[3:]
+    else:
+        bare = chrom
+
+    aliases: tuple[str, ...]
+    if bare.upper() in {"M", "MT"}:
+        aliases = ("chrM", "chrMT", "MT", "M")
+    elif chrom.startswith("chr"):
+        aliases = (chrom, bare)
+    else:
+        aliases = (chrom, f"chr{chrom}")
+
+    return tuple(dict.fromkeys(aliases))
+
+
+def chromosome_rename_mapping(
+    source_chroms: list[str], target_chroms: list[str]
+) -> list[tuple[str, str]]:
+    """Build bcftools --rename-chrs mappings from source names to target names."""
+    targets = {chrom for chrom in target_chroms if chrom}
+    target_by_alias: dict[str, str] = {}
+    for target in target_chroms:
+        if not target:
+            continue
+        for alias in chromosome_aliases(target):
+            target_by_alias.setdefault(alias, target)
+
+    mapping: list[tuple[str, str]] = []
+    for source in source_chroms:
+        if not source or source in targets:
+            continue
+        matched_target = target_by_alias.get(source)
+        if matched_target and matched_target != source:
+            mapping.append((source, matched_target))
+    return mapping
+
+
 def normalize_vcf_chromosomes(vcf_path, target_chroms):
     """
     Ensure VCF chromosome naming (chr1 vs 1) matches the targets.
@@ -167,32 +209,14 @@ def normalize_vcf_chromosomes(vcf_path, target_chroms):
         logging.warning(f"Chromosome normalization skipped for {vcf_path}: {e}")
         return vcf_path
 
-    needs_rename = False
-    mapping = []
-
-    # Check for mismatches
-    for tc in target_chroms:
-        # Simple match
-        if tc in v_chroms:
-            continue
-
-        # Try prefix mismatch
-        if tc.startswith("chr"):
-            alt = tc[3:]
-        else:
-            alt = "chr" + tc
-
-        if alt in v_chroms:
-            needs_rename = True
-            mapping.append(f"{alt} {tc}")
-
-    if not needs_rename:
+    mapping = chromosome_rename_mapping(v_chroms, target_chroms)
+    if not mapping:
         return vcf_path
 
     # Create mapping file
     fd, map_file = tempfile.mkstemp(suffix=".txt")
     with os.fdopen(fd, "w") as f:
-        f.write("\n".join(mapping))
+        f.write("\n".join(f"{source} {target}" for source, target in mapping))
 
     # Use a unique temporary file for the normalized VCF to avoid collisions
     fd_out, norm_vcf = tempfile.mkstemp(suffix=".vcf.gz", dir=os.path.dirname(vcf_path))

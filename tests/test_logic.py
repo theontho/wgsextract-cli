@@ -1462,7 +1462,7 @@ class TestReferenceSupportAssets(unittest.TestCase):
         shutil.rmtree(self.test_dir)
 
     def test_reference_library_resolves_support_assets_from_input_build_hint(self):
-        from wgsextract_cli.core.utils import ReferenceLibrary
+        from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 
         os.makedirs(os.path.join(self.test_dir, "genomes"))
         nested_ref = os.path.join(
@@ -1486,6 +1486,53 @@ class TestReferenceSupportAssets(unittest.TestCase):
         self.assertEqual(lib.build, "hg19")
         self.assertEqual(lib.ref_vcf_tab, snps)
         self.assertEqual(lib.mappability_map, map_path)
+
+    def test_reference_library_detects_hs_build_aliases_from_reference_path(self):
+        from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+
+        hs38_ref = os.path.join(self.test_dir, "GCA_hs38d1_analysis_set.fa")
+        hs37_ref = os.path.join(self.test_dir, "hs37d5.fa")
+        Path(hs38_ref).touch()
+        Path(hs37_ref).touch()
+
+        self.assertEqual(ReferenceLibrary(hs38_ref, None).build, "hg38")
+        self.assertEqual(ReferenceLibrary(hs37_ref, None).build, "hg19")
+
+    def test_reference_resolver_resolves_mappability_map(self):
+        from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+
+        ref = os.path.join(self.test_dir, "GCA_hs38d1_analysis_set.fa")
+        maps_dir = os.path.join(self.test_dir, "maps")
+        map_path = os.path.join(maps_dir, "hg38.map.gz")
+        os.makedirs(maps_dir)
+        Path(ref).touch()
+        Path(map_path).touch()
+
+        lib = ReferenceLibrary(ref, None)
+
+        self.assertEqual(lib.build, "hg38")
+        self.assertEqual(lib.mappability_map, map_path)
+
+    def test_reference_resolver_resolves_support_assets_from_input_build_hint(self):
+        from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+
+        nested_ref = os.path.join(
+            self.test_dir, "microarray", "raw_file_templates", "body", "head", "ref"
+        )
+        os.makedirs(os.path.join(self.test_dir, "genomes"))
+        os.makedirs(nested_ref)
+        Path(os.path.join(self.test_dir, "genomes", "hg19.fa.gz")).touch()
+        snps = os.path.join(nested_ref, "snps_hg19.vcf.gz")
+        Path(snps).touch()
+
+        input_path = os.path.join(self.test_dir, "inputs", "HG00096.hg19-mini.bam")
+        os.makedirs(os.path.dirname(input_path))
+        Path(input_path).touch()
+
+        lib = ReferenceLibrary(self.test_dir, None, input_path=input_path)
+
+        self.assertEqual(lib.build, "hg19")
+        self.assertEqual(lib.ref_vcf_tab, snps)
 
     def test_install_standard_mappability_maps_skips_existing_files(self):
         from wgsextract_cli.core import constants, ref_library

@@ -8,8 +8,12 @@ from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
 )
+from wgsextract_cli.core.variant_files import (
+    chromosome_aliases,
+)
 
 from ._benchmark_machine import (
+    MACHINE_STAT_FIELDS,
     _format_stdout_report,
     _machine_stat_display_value,
     _system_metadata,
@@ -52,20 +56,12 @@ def _format_markdown_report(
         "| Metric | Value |",
         "| --- | --- |",
     ]
-    for label, key in (
-        ("OS", "os"),
-        ("Architecture", "architecture"),
-        ("CPU", "cpu_model"),
-        ("Cores", "cores"),
-        ("CPU frequency", "cpu_frequency"),
-        ("RAM", "ram"),
-        ("RAM speed", "ram_speed"),
-        ("Benchmark filesystem", "benchmark_filesystem"),
-        ("Disk", "disk"),
-        ("Drive", "drive"),
+    machine_report_fields = (
+        *MACHINE_STAT_FIELDS[:-1],
         ("Drive speed/type", "drive_speed"),
         ("Python", "python"),
-    ):
+    )
+    for label, key in machine_report_fields:
         value = _machine_stat_display_value(metadata["machine_stats"], key)
         if value:
             lines.append(f"| {label} | {value} |")
@@ -162,15 +158,8 @@ def _target_ranges(
         return [(chrom, 1, length) for chrom, length in contigs]
 
     chrom_part, has_range, range_part = region.partition(":")
-    matching = [(chrom, length) for chrom, length in contigs if chrom == chrom_part]
-    if not matching and chrom_part.startswith("chr"):
-        matching = [
-            (chrom, length) for chrom, length in contigs if chrom == chrom_part[3:]
-        ]
-    if not matching and not chrom_part.startswith("chr"):
-        matching = [
-            (chrom, length) for chrom, length in contigs if chrom == f"chr{chrom_part}"
-        ]
+    aliases = set(chromosome_aliases(chrom_part))
+    matching = [(chrom, length) for chrom, length in contigs if chrom in aliases]
 
     ranges = []
     for chrom, length in matching:

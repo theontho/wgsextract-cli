@@ -1,6 +1,10 @@
 import logging
 import os
 
+from wgsextract_cli.core.builds import (
+    is_hg37_build,
+    is_t2t_build,
+)
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -47,7 +51,7 @@ def generate_fake_genomics_data(
     if target_md5:
         logging.debug(f"Generator using target MD5: {target_md5}")
 
-    is_hg19 = build in ["hg19", "hg37"]
+    is_hg19 = is_hg37_build(build)
 
     # Pre-generate a noise buffer to use for both FASTA and BAM
     # 1MB of noise is enough to avoid obvious patterns
@@ -66,7 +70,7 @@ def generate_fake_genomics_data(
 
     # Chromosome lengths
     if full_size:
-        if build == "t2t":
+        if is_t2t_build(build):
             chroms = {
                 "chr1": 248387328,
                 "chr2": 242696752,
