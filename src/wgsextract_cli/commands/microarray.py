@@ -169,9 +169,9 @@ def run(args):
 
     # Resolve ploidy alias from build if no file provided
     ploidy_val = "1"  # Default to haploid if unknown
-    if lib.build == "hg38":
+    if lib.build in ("hg38", "GRCh38", "hs38DH"):
         ploidy_val = "GRCh38"
-    elif lib.build == "hg19" or lib.build == "hs37d5":
+    elif lib.build in ("hg19", "hs37d5", "GRCh37"):
         ploidy_val = "GRCh37"
 
     ploidy_args = (

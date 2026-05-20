@@ -187,7 +187,8 @@ def write_formatted_line(
         f.write(f"{snp_id}\t{chrom}\t{pos}\t{val}\n")
 
     elif "23andMe" in format_name or format_name == "23andMe_SNPs_API":
-        chrom = chrom.replace("M", "MT")
+        if chrom == "M":
+            chrom = "MT"
         f.write(f"{snp_id}\t{chrom}\t{pos}\t{result}\n")
 
     elif format_name in ["FTDNA_V1_Affy", "MyHeritage_V2", "MyHeritage_V1"]:

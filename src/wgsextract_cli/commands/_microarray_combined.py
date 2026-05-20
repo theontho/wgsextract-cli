@@ -207,7 +207,11 @@ def _write_microarray_combined_kit(
 
                                 genotype = f"{ref_base}{ref_base}"
 
-                            chrom_norm = chrom.replace("chr", "").replace("M", "MT")
+                            chrom_norm = (
+                                "MT"
+                                if chrom in ("chrM", "M")
+                                else chrom.removeprefix("chr")
+                            )
                             f_out.write(f"{rsid}\t{chrom_norm}\t{pos}\t{genotype}\n")
 
         else:
@@ -247,7 +251,11 @@ def _write_microarray_combined_kit(
                             if not genotype:
                                 genotype = "--"
 
-                            chrom_norm = chrom.replace("chr", "").replace("M", "MT")
+                            chrom_norm = (
+                                "MT"
+                                if chrom in ("chrM", "M")
+                                else chrom.removeprefix("chr")
+                            )
                             f_out.write(f"{snp_id}\t{chrom_norm}\t{pos}\t{genotype}\n")
 
         ext_duration = time.time() - start_ext
