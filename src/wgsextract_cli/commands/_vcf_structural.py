@@ -24,6 +24,42 @@ from ._vcf_basic import (
 )
 
 
+def _region_input_bam(
+    args, outdir: str, ref: str, failure_label: str
+) -> tuple[str, str | None]:
+    temp_bam = None
+    if not getattr(args, "region", None):
+        return args.input, temp_bam
+
+    import tempfile
+
+    fd, temp_bam = tempfile.mkstemp(suffix=".bam", dir=outdir)
+    os.close(fd)
+    logging.info(f"Extracting region {args.region} to temporary BAM...")
+    try:
+        samtools = get_tool_path("samtools")
+        view_cmd = [samtools, "view", "-bh"]
+        if args.input.lower().endswith(".cram"):
+            view_cmd.extend(["-T", ref])
+        view_cmd.extend([args.input, args.region, "-o", temp_bam])
+        run_command(view_cmd)
+        run_command([samtools, "index", temp_bam])
+        return temp_bam, temp_bam
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+        logging.error(f"Failed to extract region: {e}")
+        if temp_bam and os.path.exists(temp_bam):
+            os.remove(temp_bam)
+        raise WGSExtractError(f"{failure_label} region extraction failed.") from e
+
+
+def _write_indexed_vcf_from_bcf(out_bcf: str, out_vcf: str) -> None:
+    bcftools = get_tool_path("bcftools")
+    run_command([bcftools, "view", "-Oz", "-o", out_vcf, out_bcf])
+    ensure_vcf_indexed(out_vcf)
+    if os.path.exists(out_bcf):
+        os.remove(out_bcf)
+
+
 def cmd_cnv(args):
     verify_dependencies(["delly", "bcftools", "tabix", "samtools"])
     base = get_base_args(args)
@@ -52,53 +88,14 @@ def cmd_cnv(args):
     if getattr(args, "ploidy", None):
         map_args.extend(["-y", args.ploidy])
 
-    temp_bam = None
-    input_file = args.input
-
-    if getattr(args, "region", None):
-        import tempfile
-
-        fd, temp_bam = tempfile.mkstemp(suffix=".bam", dir=outdir)
-        os.close(fd)
-        logging.info(f"Extracting region {args.region} to temporary BAM...")
-        try:
-            samtools = get_tool_path("samtools")
-            view_cmd = [
-                samtools,
-                "view",
-                "-bh",
-            ]
-            if args.input.lower().endswith(".cram"):
-                view_cmd.extend(["-T", ref])
-
-            view_cmd.extend(
-                [
-                    args.input,
-                    args.region,
-                    "-o",
-                    temp_bam,
-                ]
-            )
-            run_command(view_cmd)
-            run_command([samtools, "index", temp_bam])
-            input_file = temp_bam
-        except Exception as e:
-            logging.error(f"Failed to extract region: {e}")
-            if os.path.exists(temp_bam):
-                os.remove(temp_bam)
-            raise WGSExtractError("CNV region extraction failed.") from e
+    input_file, temp_bam = _region_input_bam(args, outdir, ref, "CNV")
 
     try:
         # delly cnv -g ref.fa -o cnv.bcf input.bam
         delly = get_tool_path("delly")
-        bcftools = get_tool_path("bcftools")
         cmd = [delly, "cnv", "-g", ref, "-o", out_bcf] + map_args + [input_file]
         run_command(cmd)
-        # convert bcf to vcf.gz
-        run_command([bcftools, "view", "-Oz", "-o", out_vcf, out_bcf])
-        ensure_vcf_indexed(out_vcf)
-        if os.path.exists(out_bcf):
-            os.remove(out_bcf)
+        _write_indexed_vcf_from_bcf(out_bcf, out_vcf)
     except subprocess.CalledProcessError as e:
         logging.error(f"CNV calling failed: {e}")
         if e.returncode < 0:
@@ -261,53 +258,14 @@ def cmd_sv(args):
 
     logging.info(LOG_MESSAGES["vcf_calling_sv"].format(output=out_vcf))
 
-    temp_bam = None
-    input_file = args.input
-
-    if getattr(args, "region", None):
-        import tempfile
-
-        fd, temp_bam = tempfile.mkstemp(suffix=".bam", dir=outdir)
-        os.close(fd)
-        logging.info(f"Extracting region {args.region} to temporary BAM...")
-        try:
-            samtools = get_tool_path("samtools")
-            view_cmd = [
-                samtools,
-                "view",
-                "-bh",
-            ]
-            if args.input.lower().endswith(".cram"):
-                view_cmd.extend(["-T", ref])
-
-            view_cmd.extend(
-                [
-                    args.input,
-                    args.region,
-                    "-o",
-                    temp_bam,
-                ]
-            )
-            run_command(view_cmd)
-            run_command([samtools, "index", temp_bam])
-            input_file = temp_bam
-        except Exception as e:
-            logging.error(f"Failed to extract region: {e}")
-            if os.path.exists(temp_bam):
-                os.remove(temp_bam)
-            raise WGSExtractError("SV region extraction failed.") from e
+    input_file, temp_bam = _region_input_bam(args, outdir, ref, "SV")
 
     try:
         # delly call -g ref.fa -o sv.bcf input.bam
         delly = get_tool_path("delly")
-        bcftools = get_tool_path("bcftools")
         cmd = [delly, "call", "-g", ref, "-o", out_bcf, input_file]
         run_command(cmd)
-        # convert bcf to vcf.gz
-        run_command([bcftools, "view", "-Oz", "-o", out_vcf, out_bcf])
-        ensure_vcf_indexed(out_vcf)
-        if os.path.exists(out_bcf):
-            os.remove(out_bcf)
+        _write_indexed_vcf_from_bcf(out_bcf, out_vcf)
     except subprocess.CalledProcessError as e:
         logging.error(f"SV calling failed: {e}")
         logging.error(

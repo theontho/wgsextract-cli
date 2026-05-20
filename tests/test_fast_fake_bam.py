@@ -1,3 +1,4 @@
+import argparse
 from argparse import Namespace
 from io import StringIO
 
@@ -183,6 +184,63 @@ def test_generate_fake_genomics_data_uses_streaming_bam_by_default(
     assert calls[0]["bam_path"] == str(tmp_path / "fake.bam")
     assert calls[0]["coverage"] == 1.0
     assert "chr1" in calls[0]["chroms"]
+
+
+def test_generate_fake_genomics_data_uses_hg37_style_for_grch37_alias(
+    monkeypatch, tmp_path
+):
+    calls = []
+
+    def fake_create_fast_fake_bam(
+        bam_path,
+        chroms,
+        coverage,
+        seed,
+        target_md5,
+        get_noise_seq,
+        threads,
+    ):
+        del bam_path, coverage, seed, target_md5, get_noise_seq, threads
+        calls.append(chroms)
+
+    monkeypatch.setattr(qc, "_create_fast_fake_bam", fake_create_fast_fake_bam)
+    monkeypatch.setattr(
+        qc,
+        "_reference_backed_sequence_provider",
+        lambda _ref_path, _chroms, fallback: fallback,
+    )
+    monkeypatch.setattr(
+        qc, "get_resource_defaults", lambda _threads, _memory: ("2", None)
+    )
+    monkeypatch.setattr(qc, "run_command", lambda *args, **kwargs: None)
+
+    qc.generate_fake_genomics_data(
+        str(tmp_path),
+        ref_path=None,
+        coverage=1.0,
+        seed=1,
+        build="GRCh37",
+        full_size=False,
+        types=["bam"],
+    )
+
+    assert len(calls) == 1
+    assert "1" in calls[0]
+    assert "MT" in calls[0]
+    assert "chr1" not in calls[0]
+    assert "chrM" not in calls[0]
+
+
+def test_qc_fake_data_accepts_build_aliases() -> None:
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+    qc.register(subparsers, argparse.ArgumentParser(add_help=False))
+
+    args = parser.parse_args(["qc", "fake-data", "--build", "GRCh37"])
+    assert args.build == "GRCh37"
+
+    args = parser.parse_args(["qc", "fake-data", "--build", "hs38d1"])
+    assert args.build == "hs38d1"
 
 
 def test_cmd_fake_data_rejects_legacy_bam_with_full_size(monkeypatch, tmp_path):

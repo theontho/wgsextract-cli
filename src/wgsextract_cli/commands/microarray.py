@@ -3,6 +3,10 @@ import logging
 import os
 import time
 
+from wgsextract_cli.core.builds import (
+    is_hg38_build,
+    ploidy_for_build,
+)
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -44,7 +48,7 @@ def _convert_microarray_outputs(
 
     # 3. Liftover if needed (to hg19 for most vendors)
     final_txt = combined_kit_txt
-    if lib.build and "38" in lib.build:
+    if lib.build and is_hg38_build(lib.build):
         hg19_txt = combined_kit_txt.replace(".txt", "_hg19.txt")
         if lib.liftover_chain:
             logging.info(LOG_MESSAGES["micro_liftover_warn"])
@@ -169,10 +173,11 @@ def run(args):
 
     # Resolve ploidy alias from build if no file provided
     ploidy_val = "1"  # Default to haploid if unknown
-    if lib.build in ("hg38", "GRCh38", "hs38DH"):
-        ploidy_val = "GRCh38"
-    elif lib.build in ("hg19", "hs37d5", "GRCh37"):
-        ploidy_val = "GRCh37"
+    if lib.build:
+        try:
+            ploidy_val = ploidy_for_build(lib.build)
+        except ValueError:
+            pass
 
     ploidy_args = (
         ["--ploidy-file", ploidy_file] if ploidy_file else ["--ploidy", ploidy_val]

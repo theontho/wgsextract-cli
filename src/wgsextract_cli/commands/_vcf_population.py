@@ -1,23 +1,27 @@
 import logging
 import os
-import subprocess
 
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
-from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
 )
 from wgsextract_cli.core.variant_files import (
-    calculate_bam_md5,
     ensure_vcf_indexed,
     ensure_vcf_prepared,
 )
 
+from ._vcf_annotation_helpers import (
+    annotation_context,
+    cleanup_annotation_temporaries,
+    normalize_to_annotation_chroms,
+    prepare_tabix_annotation,
+    run_min_score_filter,
+)
 from ._vcf_structural import (
     _exit_if_missing,
 )
@@ -26,96 +30,24 @@ from ._vcf_structural import (
 def cmd_phylop(args):
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
-    input_file = args.input if args.input else args.vcf_input
-    if not input_file:
-        logging.error(LOG_MESSAGES["input_required"])
-        raise WGSExtractError("VCF processing failed.") from None
-
-    outdir = (
-        args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_file))
-    )
+    input_file, outdir, lib = annotation_context(args)
     logging.info(LOG_MESSAGES["vcf_phylop_start"].format(input=input_file))
 
     # Resolve PhyloP data file
-    md5_sig = (
-        calculate_bam_md5(input_file, None)
-        if input_file.lower().endswith((".bam", ".cram"))
-        else None
-    )
-    lib = ReferenceLibrary(args.ref, md5_sig, input_path=input_file)
     phylop_file = args.phylop_file if args.phylop_file else lib.phylop_file
 
     _exit_if_missing(phylop_file, "vcf_phylop_missing", "phylop")
+    phylop_file = str(phylop_file)
 
     logging.info(LOG_MESSAGES["vcf_phylop_resolve"].format(path=phylop_file))
 
     # 1. Prepare Inputs
     input_vcf = ensure_vcf_prepared(input_file)
-    phylop_vcf = ensure_vcf_prepared(phylop_file)
+    phylop_vcf = prepare_tabix_annotation(phylop_file, "PhyloP")
 
-    # 2. Match chromosome styles (chr1 vs 1)
-    normalized_input = input_vcf
-    needs_cleanup = False
-    try:
-        res_v = run_command(["bcftools", "index", "-s", input_vcf], capture_output=True)
-        v_chroms = [line.split("\t")[0] for line in res_v.stdout.strip().split("\n")]
-
-        if phylop_vcf.lower().endswith((".vcf", ".vcf.gz")):
-            res_p = run_command(
-                ["bcftools", "index", "-s", phylop_vcf], capture_output=True
-            )
-            p_chroms = [
-                line.split("\t")[0] for line in res_p.stdout.strip().split("\n")
-            ]
-        else:
-            res_p = run_command(["tabix", "-l", phylop_vcf], capture_output=True)
-            p_chroms = res_p.stdout.strip().split("\n")
-
-        v_has_chr = any(c.startswith("chr") for c in v_chroms)
-        p_has_chr = any(c.startswith("chr") for c in p_chroms if c)
-
-        if v_has_chr != p_has_chr:
-            import tempfile
-
-            fd, map_path = tempfile.mkstemp(suffix=".map", dir=outdir)
-            with os.fdopen(fd, "w") as f:
-                for vc in v_chroms:
-                    if v_has_chr and not p_has_chr:
-                        pc = vc[3:] if vc.startswith("chr") else vc
-                        if pc == "MT":
-                            pc = "M"
-                        f.write(f"{vc} {pc}\n")
-                    elif not v_has_chr and p_has_chr:
-                        pc = "chr" + vc
-                        if pc == "chrMT":
-                            pc = "chrM"
-                        f.write(f"{vc} {pc}\n")
-
-            norm_out = os.path.join(outdir, "input_phylop_norm.vcf.gz")
-            logging.info(
-                f"Normalizing chromosome naming for PhyloP: {'chr1 -> 1' if v_has_chr else '1 -> chr1'}"
-            )
-            run_command(
-                [
-                    "bcftools",
-                    "annotate",
-                    "--rename-chrs",
-                    map_path,
-                    "-Oz",
-                    "-o",
-                    norm_out,
-                    input_vcf,
-                ],
-                check=True,
-            )
-            ensure_vcf_indexed(norm_out)
-            os.remove(map_path)
-            normalized_input = norm_out
-            needs_cleanup = True
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.warning(
-            f"Chromosome normalization failed; annotation may miss variants: {e}"
-        )
+    normalized_input, needs_cleanup = normalize_to_annotation_chroms(
+        input_vcf, phylop_vcf, outdir, "PhyloP", "input_phylop_norm.vcf.gz"
+    )
 
     # 3. Annotate with PhyloP
     ann_out = os.path.join(outdir, "phylop_annotated.vcf.gz")
@@ -153,65 +85,27 @@ def cmd_phylop(args):
         logging.error(f"PhyloP annotation failed: {e}")
         raise WGSExtractError("VCF processing failed.") from None
     finally:
-        if header_tmp and os.path.exists(header_tmp):
-            os.remove(header_tmp)
-        if needs_cleanup and os.path.exists(normalized_input):
-            os.remove(normalized_input)
-            if os.path.exists(normalized_input + ".tbi"):
-                os.remove(normalized_input + ".tbi")
+        cleanup_annotation_temporaries(header_tmp, normalized_input, needs_cleanup)
 
-    # 4. Optional Filtering
-    if args.min_score is not None:
-        path_out = os.path.join(outdir, f"phylop_gt_{args.min_score}.vcf.gz")
-        logging.info(
-            LOG_MESSAGES["vcf_phylop_filtering"].format(
-                min_score=args.min_score, output=path_out
-            )
-        )
-        try:
-            filter_expr = f"PHYLOP >= {args.min_score}"
-            run_command(
-                [
-                    "bcftools",
-                    "filter",
-                    "-i",
-                    filter_expr,
-                    "-Oz",
-                    "-o",
-                    path_out,
-                    ann_out,
-                ],
-                capture_output=True,
-            )
-            ensure_vcf_indexed(path_out)
-            logging.info(LOG_MESSAGES["vcf_phylop_done"].format(output=path_out))
-        except Exception as e:
-            logging.error(f"PhyloP filtering failed: {e}")
-            raise WGSExtractError("PhyloP filtering failed.") from e
-    else:
-        logging.info(LOG_MESSAGES["vcf_phylop_done"].format(output=ann_out))
+    run_min_score_filter(
+        ann_out,
+        outdir,
+        args.min_score,
+        "PHYLOP",
+        "phylop",
+        "vcf_phylop_filtering",
+        "vcf_phylop_done",
+        "PhyloP",
+    )
 
 
 def cmd_gnomad(args):
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
-    input_file = args.input if args.input else args.vcf_input
-    if not input_file:
-        logging.error(LOG_MESSAGES["input_required"])
-        raise WGSExtractError("VCF processing failed.") from None
-
-    outdir = (
-        args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_file))
-    )
+    input_file, outdir, lib = annotation_context(args)
     logging.info(f"Annotating VCF with gnomAD data: {input_file}")
 
     # Resolve gnomAD VCF
-    md5_sig = (
-        calculate_bam_md5(input_file, None)
-        if input_file.lower().endswith((".bam", ".cram"))
-        else None
-    )
-    lib = ReferenceLibrary(args.ref, md5_sig, input_path=input_file)
     gnomad_file = args.gnomad_file if args.gnomad_file else lib.gnomad_vcf
 
     _exit_if_missing(gnomad_file, "vcf_gnomad_missing", "gnomad")

@@ -1,19 +1,14 @@
 import argparse
-import subprocess
-import time
 from pathlib import Path
 
 from wgsextract_cli.core.utils import run_command
 
 from ._benchmark_execution import (
-    _benchmark_threads_for_step,
-    _cli_command,
-    _subprocess_env,
+    _run_cli_step_with_io,
 )
 from ._benchmark_models import (
     BenchmarkResult,
     _default_heavy_region,
-    _name_with_command_label,
     _read_fai,
 )
 
@@ -30,48 +25,18 @@ def _run_cli_pipe_step(
     expected_outputs: list[Path],
     command_label: str | None = None,
 ) -> BenchmarkResult:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    stdout_log = logs_dir / f"{slug}.stdout.log"
-    stderr_log = logs_dir / f"{slug}.stderr.log"
-    command = _cli_command(args, command_args, _benchmark_threads_for_step(args, slug))
-    start = time.perf_counter()
-
-    with (
-        open(input_file, "rb") as stdin,
-        open(output_file, "wb") as stdout,
-        open(stderr_log, "w", encoding="utf-8") as err,
-    ):
-        completed = subprocess.run(
-            command,
-            stdin=stdin,
-            stdout=stdout,
-            stderr=err,
-            check=False,
-            env=_subprocess_env(),
-        )
-
-    stdout_log.write_text(str(output_file) + "\n", encoding="utf-8")
-    seconds = time.perf_counter() - start
-    missing = [str(path) for path in expected_outputs if not path.exists()]
-    status = "PASS" if completed.returncode == 0 and not missing else "FAIL"
-    error = None
-    if completed.returncode != 0:
-        error = f"Command exited with status {completed.returncode}."
-    elif missing:
-        error = "Missing expected output(s): " + ", ".join(missing)
-
-    return BenchmarkResult(
-        name=_name_with_command_label(name, command_args, command_label),
-        slug=slug,
-        status=status,
-        seconds=seconds,
-        command=command,
-        output_dir=str(output_dir),
-        stdout_log=str(stdout_log),
-        stderr_log=str(stderr_log),
-        returncode=completed.returncode,
-        expected_outputs=[str(path) for path in expected_outputs],
-        error=error,
+    return _run_cli_step_with_io(
+        args,
+        name,
+        slug,
+        command_args,
+        output_dir,
+        logs_dir,
+        expected_outputs,
+        command_label,
+        stdin_file=input_file,
+        stdout_file=output_file,
+        stdout_log_text=str(output_file) + "\n",
     )
 
 

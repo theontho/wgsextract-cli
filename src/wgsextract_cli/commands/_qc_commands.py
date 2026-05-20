@@ -1,14 +1,11 @@
 import logging
 import os
-import shlex
 from collections.abc import Callable
 
 from wgsextract_cli.core import (
-    runtime,
     runtime_wrappers,
 )
-from wgsextract_cli.core.config import settings
-from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.dependencies import _tool_command_parts, get_tool_path
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -20,6 +17,8 @@ from wgsextract_cli.core.utils import (
     run_command,
 )
 
+from ._vcf_basic import _select_vcf_input
+
 SamWriter = Callable[[str], None]
 
 
@@ -27,19 +26,6 @@ SequenceProvider = Callable[[int, int, int], str]
 
 
 _FAST_BAM_VARIANT_SPACING = 2000
-
-
-def _select_vcf_input(args):
-    input_path = getattr(args, "input", None)
-    vcf_input = getattr(args, "vcf_input", None)
-    default_vcf = settings.get("default_input_vcf")
-    explicit_dests: set[str] = getattr(args, "_explicit_dests", set())
-
-    if vcf_input and vcf_input != default_vcf:
-        return vcf_input
-    if "input" in explicit_dests and input_path:
-        return input_path
-    return vcf_input if vcf_input else input_path
 
 
 def cmd_fastp(args):
@@ -238,18 +224,6 @@ def _reference_backed_sequence_provider(
         return "".join(pieces)
 
     return get_reference_seq
-
-
-def _tool_command_parts(cmd_base: str) -> list[str]:
-    if (
-        runtime.is_wsl_tool_command(cmd_base)
-        or runtime.is_bundled_tool_command(cmd_base)
-        or runtime.is_pacman_tool_command(cmd_base)
-    ):
-        return [cmd_base]
-    if os.path.exists(cmd_base):
-        return [cmd_base]
-    return shlex.split(cmd_base)
 
 
 def _samtools_view_bam_writer_cmd(bam_path: str, threads: str) -> list[str]:

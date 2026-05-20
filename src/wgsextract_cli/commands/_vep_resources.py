@@ -12,6 +12,16 @@ from wgsextract_cli.core.utils import (
 from wgsextract_cli.core.variant_files import calculate_bsd_sum
 
 
+def _resolve_vep_cache_root(args) -> str:
+    cache_root = getattr(args, "vep_cache", None)
+    if cache_root:
+        return str(cache_root)
+    lib = ReferenceLibrary(getattr(args, "ref", None))
+    if lib.root and os.path.isdir(lib.root):
+        return os.path.join(lib.root, "vep")
+    return os.path.expanduser("~/.vep")
+
+
 def cmd_vep_download(args):
     verify_dependencies(["curl", "tar"])
 
@@ -28,14 +38,7 @@ def cmd_vep_download(args):
     }
     host = mirror_hosts.get(mirror, "useast.ensembl.org")
 
-    cache_root = args.vep_cache
-    if not cache_root:
-        lib = ReferenceLibrary(args.ref)
-        if lib.root and os.path.isdir(lib.root):
-            cache_root = os.path.join(lib.root, "vep")
-        else:
-            cache_root = os.path.expanduser("~/.vep")
-
+    cache_root = _resolve_vep_cache_root(args)
     os.makedirs(cache_root, exist_ok=True)
 
     filename = f"{species}_vep_{vep_version}_{assembly}.tar.gz"
@@ -111,19 +114,39 @@ def cmd_vep_download(args):
         return False
 
 
+def _chr_prefixed_standard_chrom(chrom: str) -> str | None:
+    if chrom in {"M", "MT", "chrM", "chrMT"}:
+        return "chrM"
+    bare = chrom.removeprefix("chr")
+    if bare.isdigit() or bare in {"X", "Y"}:
+        return f"chr{bare}"
+    return None
+
+
+def _prefix_contig_header_line(line: str) -> str:
+    prefix = "##contig=<ID="
+    rest = line[len(prefix) :]
+    for sep in (",", ">"):
+        sep_idx = rest.find(sep)
+        if sep_idx != -1:
+            chrom = rest[:sep_idx]
+            suffix = rest[sep_idx:]
+            break
+    else:
+        return line
+
+    prefixed = _chr_prefixed_standard_chrom(chrom)
+    if prefixed:
+        return f"{prefix}{prefixed}{suffix}"
+    return line
+
+
 def cmd_vep_verify(args):
     vep_version = args.vep_version
     species = args.species
     assembly = args.assembly
 
-    cache_root = args.vep_cache
-    if not cache_root:
-        lib = ReferenceLibrary(args.ref)
-        if lib.root and os.path.isdir(lib.root):
-            cache_root = os.path.join(lib.root, "vep")
-        else:
-            cache_root = os.path.expanduser("~/.vep")
-
+    cache_root = _resolve_vep_cache_root(args)
     species_dir = os.path.join(cache_root, species)
     version_dir = os.path.join(species_dir, f"{vep_version}_{assembly}")
 
@@ -181,22 +204,14 @@ def preprocess_vcf_chr_prefix(input_path, output_path):
     with open_func(input_path, "rt") as f_in, open(output_path, "w") as f_out:
         for line in f_in:
             if line.startswith("##contig=<ID="):
-                # Replace ID=1 with ID=chr1, but avoid ID=chrchr1
-                if "ID=chr" not in line:
-                    line = line.replace("ID=", "ID=chr")
+                line = _prefix_contig_header_line(line)
             elif line.startswith("#"):
                 pass
             else:
                 # Variant line
-                if not line.startswith("chr"):
-                    parts = line.split("\t", 1)
-                    chrom = parts[0]
-                    # Only prefix if it's a standard chromosome name
-                    if len(parts) > 1 and (
-                        chrom.isdigit() or chrom in ["X", "Y", "MT", "M"]
-                    ):
-                        new_chrom = f"chr{chrom}"
-                        if new_chrom == "chrMT":
-                            new_chrom = "chrM"
-                        line = f"{new_chrom}\t{parts[1]}"
+                parts = line.split("\t", 1)
+                chrom = parts[0]
+                new_chrom = _chr_prefixed_standard_chrom(chrom)
+                if len(parts) > 1 and new_chrom:
+                    line = f"{new_chrom}\t{parts[1]}"
             f_out.write(line)

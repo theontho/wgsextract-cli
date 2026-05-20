@@ -19,6 +19,20 @@ from ._benchmark_models import (
     BenchmarkResult,
 )
 
+MACHINE_STAT_FIELDS = (
+    ("OS", "os"),
+    ("Architecture", "architecture"),
+    ("CPU", "cpu_model"),
+    ("Cores", "cores"),
+    ("CPU frequency", "cpu_frequency"),
+    ("RAM", "ram"),
+    ("RAM speed", "ram_speed"),
+    ("Benchmark filesystem", "benchmark_filesystem"),
+    ("Disk", "disk"),
+    ("Drive", "drive"),
+    ("Drive speed", "drive_speed"),
+)
+
 
 def _macos_storage_profile_for_path(path: Path) -> str | None:
     mount = _filesystem_mount(path)
@@ -152,19 +166,7 @@ def _machine_stat_display_value(
 
 def _print_machine_stats(stats: dict[str, str | int | None]) -> None:
     print("Machine stats:", flush=True)
-    for label, key in (
-        ("OS", "os"),
-        ("Architecture", "architecture"),
-        ("CPU", "cpu_model"),
-        ("Cores", "cores"),
-        ("CPU frequency", "cpu_frequency"),
-        ("RAM", "ram"),
-        ("RAM speed", "ram_speed"),
-        ("Benchmark filesystem", "benchmark_filesystem"),
-        ("Disk", "disk"),
-        ("Drive", "drive"),
-        ("Drive speed", "drive_speed"),
-    ):
+    for label, key in MACHINE_STAT_FIELDS:
         value = _machine_stat_display_value(stats, key)
         if value:
             print(f"  {label}: {value}", flush=True)

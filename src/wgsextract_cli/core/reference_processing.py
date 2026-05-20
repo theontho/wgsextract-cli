@@ -143,26 +143,6 @@ def delete_ref_ns(final_name: str, reflib_dir: str):
     return True
 
 
-class ReferenceAnalyzer:
-    def __init__(self, fasta_path, dict_path):
-        self.fasta_path = fasta_path
-        self.dict_path = dict_path
-
-    def analyze(self):
-        # Simplified for now
-        pass
-
-
-class ReferenceCataloger:
-    def __init__(self, fasta_path, dict_path):
-        self.fasta_path = fasta_path
-        self.dict_path = dict_path
-
-    def update_catalog(self):
-        # Simplified for now
-        pass
-
-
 def process_reference_file(
     fasta_path: str,
     status_callback: Callable[[str], None] | None = None,
@@ -212,10 +192,6 @@ def process_reference_file(
         logging.error(f"Indexing failed: {e}")
         return False
 
-    analyzer = ReferenceAnalyzer(bgzf_path, dict_path)
-    analyzer.analyze()
-    cataloger = ReferenceCataloger(bgzf_path, dict_path)
-    cataloger.update_catalog()
     return True
 
 
