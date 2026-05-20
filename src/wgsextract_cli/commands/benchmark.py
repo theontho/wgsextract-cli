@@ -2,6 +2,9 @@ import argparse
 import os
 from datetime import datetime
 
+from wgsextract_cli.core.builds import (
+    BUILD_CHOICES,
+)
 from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.runtime import (
     RUNTIME_ENV_VAR,
@@ -217,7 +220,7 @@ def register(
     )
     parser.add_argument(
         "--build",
-        choices=["hg38", "hg19", "hg37", "t2t"],
+        choices=BUILD_CHOICES,
         default="hg38",
         help="Generated reference naming/build convention.",
     )

@@ -6,7 +6,11 @@ from unittest.mock import patch
 import pytest
 
 from wgsextract_cli.commands import _microarray_combined, _microarray_vcf, microarray
-from wgsextract_cli.core.microarray_utils import write_formatted_line
+from wgsextract_cli.core import variant_files
+from wgsextract_cli.core.microarray_utils import (
+    liftover_hg38_to_hg19,
+    write_formatted_line,
+)
 
 
 class FakeProcess:
@@ -32,8 +36,10 @@ class FakeProcess:
     ("build", "expected_ploidy"),
     [
         ("GRCh37", "GRCh37"),
+        ("hs37", "GRCh37"),
         ("GRCh38", "GRCh38"),
         ("hs38DH", "GRCh38"),
+        ("hs38d1", "GRCh38"),
     ],
 )
 def test_microarray_uses_diploid_ploidy_for_reference_model_aliases(
@@ -128,6 +134,44 @@ def test_combined_kit_vcf_mode_preserves_existing_mt_chromosome(tmp_path):
     assert all("\tMTT\t" not in row for row in rows)
 
 
+def test_combined_kit_vcf_mode_matches_mito_aliases_for_hits_and_reference(tmp_path):
+    ref_fasta = tmp_path / "ref.fa"
+    ref_vcf_tab = tmp_path / "targets.tsv"
+    ref_fasta.touch()
+    (tmp_path / "ref.fa.fai").write_text("chrM\t200\t0\t50\t51\n")
+    ref_vcf_tab.write_text("#CHROM\tPOS\tID\nMT\t100\trsHit\nMT\t101\trsRef\n")
+    requested_regions = []
+
+    def fake_popen(cmd, **_kwargs):
+        if cmd[:2] == ["bcftools", "query"]:
+            return FakeProcess("chrM\t100\tA/A\n")
+        if cmd[:2] == ["samtools", "faidx"]:
+            region_file = Path(cmd[cmd.index("--region-file") + 1])
+            requested_regions.extend(region_file.read_text().splitlines())
+            return FakeProcess(">chrM:100-100\nA\n>chrM:101-101\nC\n")
+        if cmd[0] == "cat":
+            return FakeProcess(ref_vcf_tab.read_text())
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    args = SimpleNamespace(region=None)
+    with patch.object(_microarray_combined, "popen", side_effect=fake_popen):
+        combined_kit = _microarray_combined._write_microarray_combined_kit(
+            args=args,
+            outdir=str(tmp_path),
+            base_name="sample",
+            is_vcf=True,
+            out_vcf=str(tmp_path / "hits.vcf.gz"),
+            ref_fasta=str(ref_fasta),
+            ref_vcf_tab=str(ref_vcf_tab),
+        )
+
+    rows = Path(combined_kit).read_text().splitlines()
+    assert requested_regions == ["chrM:100-100", "chrM:101-101"]
+    assert "rsHit\tMT\t100\tAA" in rows
+    assert "rsRef\tMT\t101\tCC" in rows
+    assert all("\tMTT\t" not in row for row in rows)
+
+
 def test_combined_kit_bam_mode_normalizes_mito_chromosome_names(tmp_path):
     def fake_popen(cmd, **_kwargs):
         assert cmd[:2] == ["bcftools", "query"]
@@ -168,6 +212,77 @@ def test_23andme_writer_does_not_expand_existing_mt_chromosome():
         "rsMT\tMT\t100\tAA",
         "rsM\tMT\t101\tCC",
     ]
+
+
+def test_liftover_accepts_prefixed_chromosome_names(tmp_path):
+    chain_file = tmp_path / "hg38ToHg19.over.chain.gz"
+    chain_file.touch()
+    input_txt = tmp_path / "input.txt"
+    output_txt = tmp_path / "output.txt"
+    input_txt.write_text(
+        "rsChrM\tchrM\t100\tAA\nrsChr1\tchr1\t200\tCC\nrsMT\tMT\t300\tGG\n"
+    )
+    seen_chroms = []
+
+    class FakeLiftOver:
+        def __init__(self, chain_path):
+            assert chain_path == str(chain_file)
+
+        def convert_coordinate(self, chrom, pos):
+            seen_chroms.append(chrom)
+            return [(chrom, pos + 10)]
+
+    with patch("wgsextract_cli.core.microarray_utils.LiftOver", FakeLiftOver):
+        liftover_hg38_to_hg19(str(input_txt), str(output_txt), str(chain_file))
+
+    rows = {
+        parts[0]: parts
+        for parts in (
+            line.split("\t") for line in output_txt.read_text().strip().splitlines()
+        )
+    }
+    assert seen_chroms == ["chrM", "chr1", "chrM"]
+    assert rows["rsChrM"] == ["rsChrM", "MT", "110", "AA"]
+    assert rows["rsChr1"] == ["rsChr1", "1", "210", "CC"]
+    assert rows["rsMT"] == ["rsMT", "MT", "310", "GG"]
+    assert all(parts[1] != "MTT" for parts in rows.values())
+
+
+def test_chromosome_rename_mapping_matches_mito_aliases():
+    assert variant_files.chromosome_rename_mapping(
+        ["chr1", "chrM", "chrUn"], ["1", "MT"]
+    ) == [("chr1", "1"), ("chrM", "MT")]
+    assert variant_files.chromosome_rename_mapping(["MT"], ["chrM"]) == [("MT", "chrM")]
+
+
+def test_normalize_vcf_chromosomes_renames_chr_m_to_target_mt(tmp_path):
+    input_vcf = tmp_path / "input.vcf.gz"
+    input_vcf.touch()
+    rename_map = {}
+
+    def fake_run_command(cmd, **_kwargs):
+        if cmd[:3] == ["bcftools", "index", "-s"]:
+            return SimpleNamespace(stdout="chr1\t100\nchrM\t16569\n", stderr="")
+        if "--rename-chrs" in cmd:
+            map_path = cmd[cmd.index("--rename-chrs") + 1]
+            rename_map["text"] = Path(map_path).read_text()
+            return SimpleNamespace(stdout="", stderr="")
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    with (
+        patch.object(variant_files, "run_command", side_effect=fake_run_command),
+        patch(
+            "wgsextract_cli.core.dependencies.get_tool_path", return_value="bcftools"
+        ),
+        patch.object(variant_files, "ensure_vcf_indexed"),
+    ):
+        normalized = variant_files.normalize_vcf_chromosomes(
+            str(input_vcf), ["1", "MT"]
+        )
+
+    assert normalized != str(input_vcf)
+    assert rename_map["text"].splitlines() == ["chr1 1", "chrM MT"]
+    Path(normalized).unlink(missing_ok=True)
 
 
 def test_parallel_microarray_vcf_concat_uses_natural_chromosome_order(tmp_path):

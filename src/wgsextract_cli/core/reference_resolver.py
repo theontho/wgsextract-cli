@@ -1,6 +1,11 @@
 import logging
 import os
 
+from wgsextract_cli.core.builds import (
+    build_from_path,
+    is_hg37_build,
+    is_hg38_build,
+)
 from wgsextract_cli.core.constants import REF_GENOME_FILENAMES
 
 try:
@@ -43,6 +48,7 @@ class ReferenceLibrary:
         self.alphamissense_vcf: str | None = None
         self.pharmgkb_vcf: str | None = None
         self.ploidy_file: str | None = None
+        self.mappability_map: str | None = None
         self.vep_cache: str | None = None
         self.build: str | None = None
 
@@ -167,28 +173,23 @@ class ReferenceLibrary:
 
         # Build identification from path (fallback)
         if not self.build and self.fasta:
-            f_lower = self.fasta.lower()
-            if "hg38" in f_lower or "grch38" in f_lower:
-                self.build = "hg38"
-            elif "hg19" in f_lower or "grch37" in f_lower or "hs37d5" in f_lower:
-                self.build = "hg19"
+            self.build = build_from_path(self.fasta)
 
         if not self.build:
-            if "hg38" in d.lower() or "grch38" in d.lower():
-                self.build = "hg38"
-            elif "hg19" in d.lower() or "grch37" in d.lower():
-                self.build = "hg19"
+            self.build = build_from_path(d)
+
+        if not self.build and self.input_path:
+            self.build = build_from_path(self.input_path)
 
         # Re-resolve FASTA if build was found from MD5/Header but path-based resolution found something else
         if self.build and self.fasta:
             f_lower = self.fasta.lower()
-            is_hg38_path = "hg38" in f_lower or "grch38" in f_lower
-            is_hg19_path = (
-                "hg19" in f_lower or "grch37" in f_lower or "hs37d5" in f_lower
-            )
+            path_build = build_from_path(f_lower)
+            is_hg38_path = path_build == "hg38"
+            is_hg19_path = path_build == "hg19"
 
-            mismatch = (self.build == "hg38" and is_hg19_path) or (
-                self.build == "hg19" and is_hg38_path
+            mismatch = (is_hg38_build(self.build) and is_hg19_path) or (
+                is_hg37_build(self.build) and is_hg38_path
             )
 
             if mismatch:
@@ -204,10 +205,10 @@ class ReferenceLibrary:
                     # Prioritize genomes that match our build
                     for build_key, f_name in REF_GENOME_FILENAMES.items():
                         # We only want to match the target build (hg38 or hg19)
-                        match_hg19 = self.build == "hg19" and (
+                        match_hg19 = is_hg37_build(self.build) and (
                             "37" in build_key or "19" in build_key
                         )
-                        match_hg38 = self.build == "hg38" and (
+                        match_hg38 = is_hg38_build(self.build) and (
                             "38" in build_key or "hs38" in build_key
                         )
 
@@ -240,21 +241,35 @@ class ReferenceLibrary:
 
         # Look for ploidy
         if self.build:
+            self.ploidy_file = self._first_existing_file(
+                [
+                    self.root,
+                    os.path.join(self.root, "ref"),
+                    os.path.join(self.root, "microarray"),
+                ],
+                [f"ploidy_{self.build}.txt", "ploidy.txt"],
+            )
+
+        # Look for Delly CNV mappability map
+        if self.build:
+            map_names = self._mappability_map_names()
             for search_dir in [
                 self.root,
+                os.path.join(self.root, "maps"),
                 os.path.join(self.root, "ref"),
                 os.path.join(self.root, "microarray"),
+                os.path.join(self.root, self.build),
+                os.path.join(self.root, "maps", self.build),
+                os.path.join(self.root, "ref", self.build),
             ]:
                 if not os.path.isdir(search_dir):
                     continue
-                potential = os.path.join(search_dir, f"ploidy_{self.build}.txt")
-                if os.path.exists(potential):
-                    self.ploidy_file = potential
-                    break
-                # Generic name
-                potential = os.path.join(search_dir, "ploidy.txt")
-                if os.path.exists(potential):
-                    self.ploidy_file = potential
+                for name in map_names:
+                    potential = os.path.join(search_dir, name)
+                    if os.path.exists(potential):
+                        self.mappability_map = potential
+                        break
+                if self.mappability_map:
                     break
 
         # Look for vep cache
@@ -295,6 +310,7 @@ class ReferenceLibrary:
 
             potential_vcf_names.extend(
                 [
+                    f"snps_{build_suffix}.vcf.gz",
                     f"All_SNPs_{build_suffix}_ref.tab.gz",
                     f"All_SNPs_{build_suffix.upper()}_ref.tab.gz",
                     f"All_SNPs_GRCh{build_suffix[-2:]}_ref.tab.gz",
@@ -304,6 +320,7 @@ class ReferenceLibrary:
             if alt_build:
                 potential_vcf_names.extend(
                     [
+                        f"snps_{alt_build.lower()}.vcf.gz",
                         f"All_SNPs_{alt_build.lower()}_ref.tab.gz",
                         f"All_SNPs_{alt_build.upper()}_ref.tab.gz",
                         f"All_SNPs_{alt_build.capitalize()}_ref.tab.gz",
@@ -343,6 +360,25 @@ class ReferenceLibrary:
                     break
             if self.ref_vcf_tab:
                 break
+
+        if not self.ref_vcf_tab:
+            support_search_roots = [
+                os.path.join(self.root, "microarray"),
+                os.path.join(self.root, "ref"),
+                os.path.join(self.root, "genomes", "microarray"),
+            ]
+            for search_root in support_search_roots:
+                if not os.path.isdir(search_root):
+                    continue
+                for current_dir, _, files in os.walk(search_root):
+                    for v in potential_vcf_names:
+                        if v in files:
+                            self.ref_vcf_tab = os.path.join(current_dir, v)
+                            break
+                    if self.ref_vcf_tab:
+                        break
+                if self.ref_vcf_tab:
+                    break
 
         # Look for ClinVar VCF
         self.clinvar_vcf = self._resolve_annotation_file(
@@ -418,18 +454,44 @@ class ReferenceLibrary:
                         break
 
         # Look for Liftover Chain (hg38 -> hg19)
-        if self.build == "hg38":
-            for search_dir in [
-                self.root,
-                os.path.join(self.root, "ref"),
-                os.path.join(self.root, "microarray"),
-            ]:
-                if not os.path.isdir(search_dir):
-                    continue
-                potential = os.path.join(search_dir, "hg38ToHg19.over.chain.gz")
+        if self.build and is_hg38_build(self.build):
+            self.liftover_chain = self._first_existing_file(
+                [
+                    self.root,
+                    os.path.join(self.root, "ref"),
+                    os.path.join(self.root, "microarray"),
+                ],
+                ["hg38ToHg19.over.chain.gz"],
+            )
+
+    @staticmethod
+    def _first_existing_file(search_dirs: list[str], names: list[str]) -> str | None:
+        for search_dir in search_dirs:
+            if not os.path.isdir(search_dir):
+                continue
+            for name in names:
+                potential = os.path.join(search_dir, name)
                 if os.path.exists(potential):
-                    self.liftover_chain = potential
-                    break
+                    return potential
+        return None
+
+    def _mappability_map_names(self) -> list[str]:
+        """Return build-compatible Delly map filenames in preference order."""
+        if self.build and is_hg38_build(self.build):
+            return [
+                "hg38.map.gz",
+                "grch38.map.gz",
+                "GRCh38.map.gz",
+                "Homo_sapiens.GRCh38.dna.primary_assembly.fa.r101.s501.blacklist.gz",
+            ]
+        if self.build and is_hg37_build(self.build):
+            return [
+                "hg19.map.gz",
+                "grch37.map.gz",
+                "GRCh37.map.gz",
+                "Homo_sapiens.GRCh37.dna.primary_assembly.fa.r101.s501.blacklist.gz",
+            ]
+        return []
 
     def _resolve_annotation_file(
         self,
@@ -453,10 +515,10 @@ class ReferenceLibrary:
             aliases = [self.build, "hg38", "hg19", "grch38", "grch37", ""]
             for alt in aliases:
                 # Only check if it's potentially compatible with current build
-                is_hg38_compatible = self.build == "hg38" and (
+                is_hg38_compatible = is_hg38_build(self.build) and (
                     alt == "hg38" or alt == "grch38"
                 )
-                is_hg19_compatible = self.build == "hg19" and (
+                is_hg19_compatible = is_hg37_build(self.build) and (
                     alt == "hg19" or alt == "grch37"
                 )
 

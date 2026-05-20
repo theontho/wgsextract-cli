@@ -2,6 +2,10 @@ import argparse
 from pathlib import Path
 from typing import Any
 
+from wgsextract_cli.core.builds import (
+    ploidy_for_build,
+)
+
 from ._benchmark_datasets import (
     _existing_dataset_outputs,
 )
@@ -210,6 +214,4 @@ def _run_core_benchmark_setup_steps(
 
 
 def _ploidy_for_build(build: str) -> str:
-    if build in {"hg19", "hg37"}:
-        return "GRCh37"
-    return "GRCh38"
+    return ploidy_for_build(build)
