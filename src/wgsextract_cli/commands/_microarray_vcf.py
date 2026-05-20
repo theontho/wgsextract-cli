@@ -9,6 +9,7 @@ from wgsextract_cli.core.utils import (
     run_command,
 )
 from wgsextract_cli.core.variant_files import (
+    chromosome_aliases,
     ensure_vcf_indexed,
     popen,
 )
@@ -56,6 +57,99 @@ def split_snps_by_chrom(ref_vcf_tab, outdir):
                     f.write(line)
 
     return chrom_files
+
+
+def _vcf_index_chromosomes(vcf_path: str) -> list[str]:
+    try:
+        res = run_command(["bcftools", "index", "-s", vcf_path], capture_output=True)
+    except Exception as e:
+        logging.debug(f"Could not inspect VCF chromosome index for {vcf_path}: {e}")
+        return []
+    return [
+        line.split("\t", 1)[0]
+        for line in (res.stdout or "").splitlines()
+        if line.strip()
+    ]
+
+
+def _target_tab_chromosomes(ref_vcf_tab: str) -> list[str]:
+    try:
+        res = run_command(["tabix", "-l", ref_vcf_tab], capture_output=True)
+    except Exception as e:
+        logging.debug(f"Could not list target chromosomes for {ref_vcf_tab}: {e}")
+        return []
+    return [line.strip() for line in (res.stdout or "").splitlines() if line.strip()]
+
+
+def _matching_input_chrom(target_chrom: str, input_chroms: set[str]) -> str | None:
+    for alias in chromosome_aliases(target_chrom):
+        if alias in input_chroms:
+            return alias
+    return None
+
+
+def _normalize_region_args_for_input(
+    region_args: list[str], input_chroms: list[str]
+) -> list[str]:
+    if len(region_args) != 2 or region_args[0] != "-r" or not input_chroms:
+        return region_args
+
+    region = region_args[1]
+    chrom, sep, rest = region.partition(":")
+    match = _matching_input_chrom(chrom, set(input_chroms))
+    if not match:
+        return region_args
+    return ["-r", f"{match}{sep}{rest}"]
+
+
+def _prepare_vcf_target_tab_for_input(
+    ref_vcf_tab: str, input_vcf: str, outdir: str
+) -> str:
+    """Return a target tab whose chromosome names match the input VCF."""
+    input_chroms = _vcf_index_chromosomes(input_vcf)
+    target_chroms = _target_tab_chromosomes(ref_vcf_tab)
+    if not input_chroms or not target_chroms:
+        return ref_vcf_tab
+
+    input_chrom_set = set(input_chroms)
+    chrom_map = {
+        chrom: matched
+        for chrom in target_chroms
+        if (matched := _matching_input_chrom(chrom, input_chrom_set))
+    }
+    if not chrom_map or all(chrom_map.get(chrom) == chrom for chrom in target_chroms):
+        return ref_vcf_tab
+
+    normalized_tab = os.path.join(outdir, "input_chrom_targets.tab")
+    with (
+        (
+            gzip.open(ref_vcf_tab, "rt")
+            if ref_vcf_tab.endswith((".gz", ".bgz"))
+            else open(ref_vcf_tab)
+        ) as source,
+        open(normalized_tab, "w") as destination,
+    ):
+        for line in source:
+            if line.startswith("#") or not line.strip():
+                destination.write(line)
+                continue
+            parts = line.rstrip("\n").split("\t")
+            if not parts:
+                continue
+            mapped_chrom = chrom_map.get(parts[0])
+            if not mapped_chrom:
+                continue
+            parts[0] = mapped_chrom
+            destination.write("\t".join(parts) + "\n")
+
+    normalized_tab_gz = normalized_tab + ".gz"
+    run_command(["bgzip", "-f", normalized_tab])
+    run_command(["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", normalized_tab_gz])
+    logging.info(
+        "Normalized microarray target chromosome names to match input VCF "
+        f"({len(chrom_map)} contigs)."
+    )
+    return normalized_tab_gz
 
 
 def process_chrom(
@@ -168,12 +262,19 @@ def _prepare_microarray_vcf(
         # For VCF input, we intersect our targets with the input VCF.
         # Any missing targets are assumed to be homozygous reference.
         try:
+            input_chroms = _vcf_index_chromosomes(args.input)
+            input_ref_vcf_tab = _prepare_vcf_target_tab_for_input(
+                ref_vcf_tab, args.input, outdir
+            )
+            input_region_args = _normalize_region_args_for_input(
+                region_args, input_chroms
+            )
             # Step 1: Get actual variants from the input VCF that match our targets
             hit_vcf = os.path.join(outdir, f"{base_name}_hits.vcf.gz")
             # Use long-form --targets-file to avoid version conflicts
             run_command(
-                ["bcftools", "view", "--targets-file", ref_vcf_tab]
-                + region_args
+                ["bcftools", "view", "--targets-file", input_ref_vcf_tab]
+                + input_region_args
                 + ["-Oz", "-o", hit_vcf, args.input],
                 check=True,
             )
@@ -194,7 +295,7 @@ def _prepare_microarray_vcf(
                     "bcftools",
                     "annotate",
                     "-a",
-                    ref_vcf_tab,
+                    input_ref_vcf_tab,
                     "-c",
                     "CHROM,POS,ID",
                     "-Oz",
