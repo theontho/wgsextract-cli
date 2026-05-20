@@ -19,6 +19,7 @@ from ._vcf_annotation_helpers import (
     annotation_context,
     cleanup_annotation_temporaries,
     normalize_to_annotation_chroms,
+    prepare_tabix_annotation,
     run_min_score_filter,
 )
 from ._vcf_structural import (
@@ -112,12 +113,13 @@ def cmd_revel(args):
     revel_file = args.revel_file if args.revel_file else lib.revel_file
 
     _exit_if_missing(revel_file, "vcf_revel_missing", "revel")
+    revel_file = str(revel_file)
 
     logging.info(LOG_MESSAGES["vcf_revel_resolve"].format(path=revel_file))
 
     # 1. Prepare Inputs
     input_vcf = ensure_vcf_prepared(input_file)
-    revel_vcf = ensure_vcf_prepared(revel_file)
+    revel_vcf = prepare_tabix_annotation(revel_file, "REVEL")
 
     normalized_input, needs_cleanup = normalize_to_annotation_chroms(
         input_vcf, revel_vcf, outdir, "REVEL", "input_revel_norm.vcf.gz"

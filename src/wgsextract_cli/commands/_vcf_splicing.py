@@ -15,7 +15,7 @@ from wgsextract_cli.core.variant_files import (
     ensure_vcf_prepared,
 )
 
-from ._vcf_annotation_helpers import annotation_context
+from ._vcf_annotation_helpers import annotation_context, prepare_tabix_annotation
 from ._vcf_structural import (
     _exit_if_missing,
 )
@@ -88,11 +88,12 @@ def cmd_alphamissense(args):
     am_file = args.am_file if args.am_file else lib.alphamissense_vcf
 
     _exit_if_missing(am_file, "vcf_alphamissense_missing", "alphamissense")
+    am_file = str(am_file)
 
     # 1. Prepare Inputs
 
     input_vcf = ensure_vcf_prepared(input_file)
-    am_vcf = ensure_vcf_prepared(am_file)
+    am_vcf = prepare_tabix_annotation(am_file, "AlphaMissense")
 
     # 2. Match chromosome styles
     from wgsextract_cli.core.variant_files import normalize_vcf_chromosomes

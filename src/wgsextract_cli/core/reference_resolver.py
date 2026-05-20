@@ -2,6 +2,8 @@ import logging
 import os
 
 from wgsextract_cli.core.builds import (
+    HG37_BUILD_ALIASES,
+    HG38_BUILD_ALIASES,
     build_from_path,
     is_hg37_build,
     is_hg38_build,
@@ -185,8 +187,8 @@ class ReferenceLibrary:
         if self.build and self.fasta:
             f_lower = self.fasta.lower()
             path_build = build_from_path(f_lower)
-            is_hg38_path = path_build == "hg38"
-            is_hg19_path = path_build == "hg19"
+            is_hg38_path = is_hg38_build(path_build) if path_build else False
+            is_hg19_path = is_hg37_build(path_build) if path_build else False
 
             mismatch = (is_hg38_build(self.build) and is_hg19_path) or (
                 is_hg37_build(self.build) and is_hg38_path
@@ -511,15 +513,21 @@ class ReferenceLibrary:
             if not os.path.isdir(search_dir):
                 continue
 
-            # Check direct build name and aliases
-            aliases = [self.build, "hg38", "hg19", "grch38", "grch37", ""]
+            aliases = [self.build, ""]
+            if is_hg38_build(self.build):
+                aliases.extend(sorted(HG38_BUILD_ALIASES))
+                aliases.append("GRCh38")
+            elif is_hg37_build(self.build):
+                aliases.extend(sorted(HG37_BUILD_ALIASES))
+                aliases.append("GRCh37")
             for alt in aliases:
+                alt_key = alt.lower()
                 # Only check if it's potentially compatible with current build
-                is_hg38_compatible = is_hg38_build(self.build) and (
-                    alt == "hg38" or alt == "grch38"
+                is_hg38_compatible = is_hg38_build(self.build) and is_hg38_build(
+                    alt_key
                 )
-                is_hg19_compatible = is_hg37_build(self.build) and (
-                    alt == "hg19" or alt == "grch37"
+                is_hg19_compatible = is_hg37_build(self.build) and is_hg37_build(
+                    alt_key
                 )
 
                 if is_hg38_compatible or is_hg19_compatible:
@@ -527,7 +535,6 @@ class ReferenceLibrary:
                         potential = os.path.join(search_dir, f"{prefix}_{alt}{ext}")
                         if os.path.exists(potential):
                             return potential
-                # Handle cases without build suffix in filename (e.g. prefix.vcf.gz)
                 if alt == "":
                     for ext in extensions:
                         potential = os.path.join(search_dir, f"{prefix}{ext}")

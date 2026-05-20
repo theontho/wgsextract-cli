@@ -66,6 +66,7 @@ def _cli_step_context(
     logs_dir: Path,
 ) -> tuple[Path, Path, list[str]]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
     stdout_log = logs_dir / f"{slug}.stdout.log"
     stderr_log = logs_dir / f"{slug}.stderr.log"
     command = _cli_command(args, command_args, _benchmark_threads_for_step(args, slug))

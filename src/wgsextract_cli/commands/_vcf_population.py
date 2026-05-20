@@ -19,6 +19,7 @@ from ._vcf_annotation_helpers import (
     annotation_context,
     cleanup_annotation_temporaries,
     normalize_to_annotation_chroms,
+    prepare_tabix_annotation,
     run_min_score_filter,
 )
 from ._vcf_structural import (
@@ -36,12 +37,13 @@ def cmd_phylop(args):
     phylop_file = args.phylop_file if args.phylop_file else lib.phylop_file
 
     _exit_if_missing(phylop_file, "vcf_phylop_missing", "phylop")
+    phylop_file = str(phylop_file)
 
     logging.info(LOG_MESSAGES["vcf_phylop_resolve"].format(path=phylop_file))
 
     # 1. Prepare Inputs
     input_vcf = ensure_vcf_prepared(input_file)
-    phylop_vcf = ensure_vcf_prepared(phylop_file)
+    phylop_vcf = prepare_tabix_annotation(phylop_file, "PhyloP")
 
     normalized_input, needs_cleanup = normalize_to_annotation_chroms(
         input_vcf, phylop_vcf, outdir, "PhyloP", "input_phylop_norm.vcf.gz"

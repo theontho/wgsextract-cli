@@ -45,7 +45,7 @@ def _region_input_bam(
         run_command(view_cmd)
         run_command([samtools, "index", temp_bam])
         return temp_bam, temp_bam
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"Failed to extract region: {e}")
         if temp_bam and os.path.exists(temp_bam):
             os.remove(temp_bam)

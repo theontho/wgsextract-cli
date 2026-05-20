@@ -90,6 +90,14 @@ def _aligner_stream_sort_cmd(out_bam, threads, memory, fmt, reference):
     return cmd
 
 
+def _check_pipeline_process(process, label: str) -> None:
+    if hasattr(process, "wait"):
+        process.wait()
+    returncode = getattr(process, "returncode", 0)
+    if returncode:
+        raise WGSExtractError(f"{label} failed with exit status {returncode}.")
+
+
 def _run_streamed_alignment(
     align_cmd: list[str],
     sort_cmd: list[str],
@@ -98,6 +106,7 @@ def _run_streamed_alignment(
     samblaster: str | None,
 ) -> None:
     p_align = popen(align_cmd, stdout=subprocess.PIPE)
+    p_blaster = None
     if samblaster:
         logging.info("Using samblaster for marking duplicates...")
         p_blaster = popen([samblaster], stdin=p_align.stdout, stdout=subprocess.PIPE)
@@ -112,6 +121,10 @@ def _run_streamed_alignment(
             p_align.stdout.close()
 
     p_sort.communicate()
+    _check_pipeline_process(p_sort, "samtools sort")
+    if p_blaster:
+        _check_pipeline_process(p_blaster, "samblaster")
+    _check_pipeline_process(p_align, "aligner")
 
     logging.info(LOG_MESSAGES["indexing_output"])
     run_command(get_sam_index_cmd(out_bam, threads=threads))

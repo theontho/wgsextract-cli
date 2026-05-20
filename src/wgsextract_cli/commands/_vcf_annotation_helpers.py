@@ -3,6 +3,7 @@ import os
 import subprocess
 import tempfile
 
+from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import WGSExtractError, run_command
@@ -29,6 +30,51 @@ def annotation_context(args) -> tuple[str, str, ReferenceLibrary]:
     )
     lib = ReferenceLibrary(getattr(args, "ref", None), md5_sig, input_path=input_file)
     return input_file, outdir, lib
+
+
+def prepare_tabix_annotation(
+    annotation_path: str,
+    label: str,
+    seq_col: str = "1",
+    begin_col: str = "2",
+    end_col: str = "2",
+) -> str:
+    if annotation_path.lower().endswith((".vcf", ".vcf.gz", ".vcf.bgz")):
+        from wgsextract_cli.core.variant_files import ensure_vcf_prepared
+
+        return str(ensure_vcf_prepared(annotation_path))
+
+    prepared_path = annotation_path
+    if not annotation_path.lower().endswith((".gz", ".bgz")):
+        prepared_path = annotation_path + ".gz"
+        if not os.path.exists(prepared_path) or os.path.getmtime(
+            prepared_path
+        ) <= os.path.getmtime(annotation_path):
+            bgzip = get_tool_path("bgzip")
+            logging.info(
+                "Compressing %s annotation resource: %s", label, annotation_path
+            )
+            with open(prepared_path, "wb") as f_out:
+                run_command([bgzip, "-c", annotation_path], stdout=f_out)
+
+    index_path = prepared_path + ".tbi"
+    if not os.path.exists(index_path):
+        tabix = get_tool_path("tabix")
+        logging.info("Indexing %s annotation resource: %s", label, prepared_path)
+        run_command(
+            [
+                tabix,
+                "-f",
+                "-s",
+                seq_col,
+                "-b",
+                begin_col,
+                "-e",
+                end_col,
+                prepared_path,
+            ]
+        )
+    return prepared_path
 
 
 def normalize_to_annotation_chroms(
@@ -140,6 +186,6 @@ def run_min_score_filter(
         )
         ensure_vcf_indexed(path_out)
         logging.info(LOG_MESSAGES[log_done_key].format(output=path_out))
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error("%s filtering failed: %s", label, e)
         raise WGSExtractError(f"{label} filtering failed.") from e

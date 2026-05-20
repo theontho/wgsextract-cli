@@ -1,5 +1,5 @@
 HG37_BUILD_ALIASES = {"hg19", "hg37", "grch37", "hs37", "hs37d5"}
-HG38_BUILD_ALIASES = {"hg38", "grch38", "hs38", "hs38dh"}
+HG38_BUILD_ALIASES = {"hg38", "grch38", "hs38", "hs38dh", "hs38d1", "hs38d1v0"}
 T2T_BUILD_ALIASES = {
     "t2t",
     "t2tv20",
@@ -12,20 +12,30 @@ T2T_BUILD_ALIASES = {
 
 BUILD_CHOICES = [
     "hg38",
+    "grch38",
     "GRCh38",
     "hs38",
+    "hs38dh",
     "hs38DH",
     "hs38d1",
     "hs38d1v0",
     "hg19",
     "hg37",
+    "grch37",
     "GRCh37",
     "hs37",
     "hs37d5",
     "t2t",
+    "t2tv20",
     "T2Tv20",
+    "t2tv2",
+    "T2Tv2",
+    "t2tv2.0",
     "T2Tv2.0",
+    "chm13",
     "CHM13",
+    "chm13v2",
+    "chm13v2.0",
     "CHM13v2.0",
 ]
 

@@ -210,8 +210,8 @@ def _resolve_reflib(args) -> str:
 
     prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
     return (
-        settings.get("reference_library")
-        or args.ref
+        args.ref
+        or settings.get("reference_library")
         or os.path.join(prog_root, "reference")
     )
 
