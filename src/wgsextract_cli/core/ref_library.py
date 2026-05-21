@@ -6,7 +6,9 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
+import zipfile
 from collections.abc import Callable
 from typing import Any, BinaryIO, Literal
 from urllib.parse import unquote, urlparse
@@ -388,3 +390,66 @@ def install_standard_mappability_maps(
     if not ok:
         logging.warning("One or more Delly mappability map downloads failed.")
     return ok
+
+
+def install_mappability_maps(
+    reflib_dir: str,
+    cancel_event: Any | None = None,
+    progress_callback: Callable[[int, int, float], None] | None = None,
+) -> bool:
+    """Downloads and extracts the mirrored Delly mappability map set."""
+    from wgsextract_cli.core.constants import (
+        MAPPABILITY_MAP_ARCHIVE_FILENAME,
+        MAPPABILITY_MAP_ARCHIVE_SHA256,
+        MAPPABILITY_MAP_ARCHIVE_URL,
+        MAPPABILITY_MAP_FILES,
+    )
+
+    maps_dir = os.path.join(reflib_dir, "maps")
+    os.makedirs(maps_dir, exist_ok=True)
+    if all(os.path.isfile(os.path.join(maps_dir, name)) for name in MAPPABILITY_MAP_FILES):
+        logging.info("Delly mappability maps are already installed.")
+        return True
+
+    archive_path = os.path.join(reflib_dir, MAPPABILITY_MAP_ARCHIVE_FILENAME)
+    try:
+        logging.info(
+            "Downloading Delly mappability maps from %s...",
+            MAPPABILITY_MAP_ARCHIVE_URL,
+        )
+        if not download_file(
+            MAPPABILITY_MAP_ARCHIVE_URL,
+            archive_path,
+            progress_callback,
+            cancel_event,
+        ):
+            return False
+        if not verify_download_sha256(archive_path, MAPPABILITY_MAP_ARCHIVE_SHA256):
+            return False
+        if cancel_event and cancel_event.is_set():
+            logging.info("Mappability map installation cancelled by user.")
+            return False
+
+        logging.info("Extracting Delly mappability maps to %s...", maps_dir)
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+            for file_name in MAPPABILITY_MAP_FILES:
+                member = f"maps/{file_name}"
+                if member not in names:
+                    logging.error("Mappability map archive is missing %s.", member)
+                    return False
+                target = os.path.join(maps_dir, file_name)
+                with archive.open(member) as source, open(target, "wb") as destination:
+                    shutil.copyfileobj(source, destination)
+
+        logging.info("Delly mappability maps are installed.")
+        return True
+    except (OSError, zipfile.BadZipFile) as e:
+        logging.error("Failed to install Delly mappability maps: %s", e)
+        return False
+    finally:
+        try:
+            if os.path.exists(archive_path):
+                os.remove(archive_path)
+        except OSError:
+            pass

@@ -1,9 +1,10 @@
 import hashlib
 import json
 import logging
+import zipfile
 from pathlib import Path
 
-from wgsextract_cli.core import download_progress, ref_library
+from wgsextract_cli.core import constants, download_progress, ref_library
 
 
 class _FakeResponse:
@@ -266,3 +267,39 @@ def test_download_file_rejects_invalid_github_digest_metadata(tmp_path, monkeypa
         str(dest),
     )
     assert not dest.exists()
+
+
+def test_install_mappability_maps_extracts_mirrored_archive(tmp_path, monkeypatch):
+    reflib = tmp_path / "reference"
+    payload = tmp_path / constants.MAPPABILITY_MAP_ARCHIVE_FILENAME
+    with zipfile.ZipFile(payload, "w") as archive:
+        for file_name in constants.MAPPABILITY_MAP_FILES:
+            archive.writestr(f"maps/{file_name}", f"contents for {file_name}")
+
+    def fake_download(url, destination, progress_callback=None, cancel_event=None):
+        assert url == constants.MAPPABILITY_MAP_ARCHIVE_URL
+        Path(destination).write_bytes(payload.read_bytes())
+        return True
+
+    monkeypatch.setattr(ref_library, "download_file", fake_download)
+    monkeypatch.setattr(ref_library, "verify_download_sha256", lambda path, sha: True)
+
+    assert ref_library.install_mappability_maps(str(reflib))
+    for file_name in constants.MAPPABILITY_MAP_FILES:
+        assert (reflib / "maps" / file_name).read_text() == f"contents for {file_name}"
+    assert not (reflib / constants.MAPPABILITY_MAP_ARCHIVE_FILENAME).exists()
+
+
+def test_install_mappability_maps_skips_when_complete(tmp_path, monkeypatch):
+    reflib = tmp_path / "reference"
+    maps_dir = reflib / "maps"
+    maps_dir.mkdir(parents=True)
+    for file_name in constants.MAPPABILITY_MAP_FILES:
+        (maps_dir / file_name).write_text("already installed")
+
+    def fail_download(*args, **kwargs):
+        raise AssertionError("complete mappability map set should not be downloaded")
+
+    monkeypatch.setattr(ref_library, "download_file", fail_download)
+
+    assert ref_library.install_mappability_maps(str(reflib))
