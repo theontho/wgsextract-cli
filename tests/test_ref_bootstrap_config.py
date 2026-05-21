@@ -1,7 +1,10 @@
 from argparse import Namespace
 
+import pytest
+
 from wgsextract_cli.commands import ref as ref_command
 from wgsextract_cli.core import config
+from wgsextract_cli.core.utils import WGSExtractError
 
 
 def test_bootstrap_saves_reference_library_when_unconfigured(tmp_path, monkeypatch):
@@ -75,3 +78,27 @@ def test_bootstrap_installs_mappability_maps_from_env(tmp_path, monkeypatch):
     ref_command.cmd_bootstrap(Namespace(ref=str(reflib)))
 
     assert calls == [str(reflib)]
+
+
+def test_bootstrap_saves_reference_library_before_map_install_failure(
+    tmp_path, monkeypatch
+):
+    config_path = tmp_path / "config.toml"
+    reflib = tmp_path / "reference"
+
+    monkeypatch.setattr(config, "get_config_path", lambda: config_path)
+    config.settings.clear()
+    monkeypatch.setattr(
+        "wgsextract_cli.core.reference_processing.download_bootstrap", lambda path: True
+    )
+    monkeypatch.setattr(
+        "wgsextract_cli.core.ref_library.install_mappability_maps", lambda path: False
+    )
+
+    with pytest.raises(WGSExtractError):
+        ref_command.cmd_bootstrap(
+            Namespace(ref=str(reflib), install_mappability_maps=True)
+        )
+
+    config.reload_settings()
+    assert config.settings["reference_library"] == str(reflib)

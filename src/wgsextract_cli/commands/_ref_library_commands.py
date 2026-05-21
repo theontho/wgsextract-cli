@@ -278,6 +278,9 @@ def cmd_bootstrap(args):
 
     logging.info("Starting reference library bootstrap...")
     if download_bootstrap(reflib):
+        if should_save_reflib:
+            save_config({"reference_library": reflib})
+            logging.info(f"Saved reference library path to config.toml: {reflib}")
         install_maps = getattr(
             args, "install_mappability_maps", False
         ) or os.environ.get("WGSEXTRACT_INSTALL_MAPPABILITY_MAPS") == "1"
@@ -290,9 +293,6 @@ def cmd_bootstrap(args):
                 "Use --install-mappability-maps or "
                 "WGSEXTRACT_INSTALL_MAPPABILITY_MAPS=1 to preinstall them."
             )
-        if should_save_reflib:
-            save_config({"reference_library": reflib})
-            logging.info(f"Saved reference library path to config.toml: {reflib}")
         logging.info(
             "Bootstrap complete. You can now install genomes via 'wgsextract ref library'."
         )
