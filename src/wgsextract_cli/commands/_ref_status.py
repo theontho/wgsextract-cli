@@ -126,7 +126,7 @@ def _resolve_reference_library(args) -> str:
     reflib = getattr(args, "ref", None) or configured_reflib
     if reflib:
         return os.path.abspath(str(reflib))
-    prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
+    prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
     return os.path.join(prog_root, "reference")
 
 

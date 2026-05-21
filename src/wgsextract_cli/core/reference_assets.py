@@ -38,7 +38,7 @@ def find_reference_fasta(root: str, *hints: str | None) -> str:
 def resolve_input_reference_fasta(input_path: str | None) -> str:
     if not input_path:
         return ""
-    directory = os.path.dirname(input_path)
+    directory = os.path.dirname(input_path) or "."
     if not os.path.isdir(directory):
         return ""
     manifest_path = os.path.join(directory, "manifest.json")
@@ -136,7 +136,7 @@ def find_annotation_resource(
 def resolve_input_target_tab(input_path: str | None) -> str:
     if not input_path:
         return ""
-    directory = os.path.dirname(input_path)
+    directory = os.path.dirname(input_path) or "."
     if not os.path.isdir(directory):
         return ""
     stem = input_stem(input_path)
