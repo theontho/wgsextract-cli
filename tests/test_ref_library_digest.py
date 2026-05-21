@@ -1,8 +1,9 @@
 import hashlib
 import json
+import zipfile
 from pathlib import Path
 
-from wgsextract_cli.core import ref_library
+from wgsextract_cli.core import constants, ref_library
 
 
 class _FakeResponse:
@@ -193,3 +194,49 @@ def test_download_file_rejects_invalid_github_digest_metadata(tmp_path, monkeypa
         str(dest),
     )
     assert not dest.exists()
+
+
+def test_install_mappability_maps_downloads_mirror_archive(tmp_path, monkeypatch):
+    payloads = {
+        "hg19.map.gz": b"hg19 map",
+        "hg19.map.gz.fai": b"hg19 fai",
+        "hg19.map.gz.gzi": b"hg19 gzi",
+        "hg38.map.gz": b"hg38 map",
+        "hg38.map.gz.fai": b"hg38 fai",
+        "hg38.map.gz.gzi": b"hg38 gzi",
+    }
+    source_zip = tmp_path / "source.zip"
+    with zipfile.ZipFile(source_zip, "w") as archive:
+        for name, payload in payloads.items():
+            archive.writestr(f"maps/{name}", payload)
+    archive_sha256 = hashlib.sha256(source_zip.read_bytes()).hexdigest()
+    seen_downloads = []
+
+    def fake_download_file(url, dest, progress_callback=None, cancel_event=None):
+        seen_downloads.append(url)
+        Path(dest).write_bytes(source_zip.read_bytes())
+        return True
+
+    monkeypatch.setattr(constants, "MAPPABILITY_MAP_ARCHIVE_SHA256", archive_sha256)
+    monkeypatch.setattr(ref_library, "download_file", fake_download_file)
+
+    assert ref_library.install_mappability_maps(str(tmp_path / "reference"))
+
+    assert seen_downloads == [constants.MAPPABILITY_MAP_ARCHIVE_URL]
+    for name, payload in payloads.items():
+        assert (tmp_path / "reference" / "maps" / name).read_bytes() == payload
+    assert not (tmp_path / "reference" / constants.MAPPABILITY_MAP_ARCHIVE_FILENAME).exists()
+
+
+def test_install_mappability_maps_skips_when_complete(tmp_path, monkeypatch):
+    maps_dir = tmp_path / "reference" / "maps"
+    maps_dir.mkdir(parents=True)
+    for name in constants.MAPPABILITY_MAP_FILES:
+        (maps_dir / name).write_bytes(b"installed")
+
+    def fail_download(*args, **kwargs):
+        raise AssertionError("complete mappability maps should not be downloaded")
+
+    monkeypatch.setattr(ref_library, "download_file", fail_download)
+
+    assert ref_library.install_mappability_maps(str(tmp_path / "reference"))
