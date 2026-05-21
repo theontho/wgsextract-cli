@@ -13,7 +13,12 @@ def test_repair_vcf_file_mode_writes_repaired_vcf(tmp_path):
     )
 
     repair.repair_vcf(
-        Namespace(input=str(input_vcf), outdir=str(tmp_path), output=None)
+        Namespace(
+            input=str(input_vcf),
+            outdir=str(tmp_path),
+            output=None,
+            _explicit_dests={"input"},
+        )
     )
 
     output = tmp_path / "ftdna_repaired.vcf"
@@ -29,7 +34,9 @@ def test_repair_vcf_file_mode_defaults_to_input_directory(tmp_path):
         encoding="utf-8",
     )
 
-    repair.repair_vcf(Namespace(input=str(input_vcf), output=None))
+    repair.repair_vcf(
+        Namespace(input=str(input_vcf), output=None, _explicit_dests={"input"})
+    )
 
     assert "DP1" in (tmp_path / "ftdna_repaired.vcf").read_text(encoding="utf-8")
 
@@ -59,9 +66,34 @@ def test_repair_bam_file_mode_streams_through_samtools(tmp_path, monkeypatch):
     monkeypatch.setattr(repair, "run_command", fake_run_command)
 
     repair.repair_bam(
-        Namespace(input=str(input_bam), outdir=str(tmp_path), output=None)
+        Namespace(
+            input=str(input_bam),
+            outdir=str(tmp_path),
+            output=None,
+            _explicit_dests={"input"},
+        )
     )
 
     assert (tmp_path / "ftdna_repaired.bam").read_bytes() == b"bam"
     assert calls[0][:3] == ["samtools", "view", "-h"]
     assert calls[1][:4] == ["samtools", "view", "-b", "-o"]
+
+
+def test_repair_vcf_config_default_input_keeps_stream_mode(tmp_path, monkeypatch):
+    input_vcf = tmp_path / "configured-default.vcf"
+    input_vcf.write_text("##fileformat=VCFv4.2\n", encoding="utf-8")
+    called = {}
+
+    def fake_repair_vcf_stream(input_stream, output_stream):
+        called["stream"] = True
+
+    monkeypatch.setattr(
+        repair, "get_script_path", lambda _name: str(tmp_path / "missing.py")
+    )
+    monkeypatch.setattr(repair, "repair_vcf_stream", fake_repair_vcf_stream)
+
+    repair.repair_vcf(
+        Namespace(input=str(input_vcf), output=None, _explicit_dests=set())
+    )
+
+    assert called == {"stream": True}

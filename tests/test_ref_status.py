@@ -2,6 +2,7 @@ import json
 from argparse import Namespace
 
 from wgsextract_cli.commands._ref_status import build_ref_status, cmd_ref_status
+from wgsextract_cli.core.config import settings
 
 
 def test_ref_status_reports_gui_library_values(tmp_path, capsys):
@@ -64,3 +65,55 @@ def test_ref_status_uses_custom_annotation_vcf_for_readiness(tmp_path):
     assert status["annotationVcf"]["installed"] is False
     assert status["annotationVcf"]["ready"] is True
     assert status["annotationVcf"]["argument"] == str(custom_vcf)
+
+
+def test_ref_status_prefers_configured_library_over_default_ref_fasta(tmp_path):
+    reflib = tmp_path / "reference"
+    genomes = reflib / "genomes"
+    fasta = genomes / "hg38.fa"
+    genomes.mkdir(parents=True)
+    fasta.write_text(">chr1\nA\n", encoding="utf-8")
+    old_reflib = settings.get("reference_library")
+    try:
+        settings["reference_library"] = str(reflib)
+        status = build_ref_status(
+            Namespace(
+                ref=str(fasta),
+                genome_library=str(tmp_path / "genomes"),
+                annotation_vcf="",
+                input=None,
+            )
+        )
+    finally:
+        if old_reflib is None:
+            settings.pop("reference_library", None)
+        else:
+            settings["reference_library"] = old_reflib
+
+    assert status["referenceLibrary"]["path"] == str(reflib)
+
+
+def test_ref_status_infers_library_from_reference_fasta(tmp_path):
+    reflib = tmp_path / "reference"
+    genomes = reflib / "genomes"
+    fasta = genomes / "hg38.fa"
+    genomes.mkdir(parents=True)
+    fasta.write_text(">chr1\nA\n", encoding="utf-8")
+    old_reflib = settings.get("reference_library")
+    try:
+        settings.pop("reference_library", None)
+        status = build_ref_status(
+            Namespace(
+                ref=str(fasta),
+                genome_library=str(tmp_path / "genomes"),
+                annotation_vcf="",
+                input=None,
+            )
+        )
+    finally:
+        if old_reflib is None:
+            settings.pop("reference_library", None)
+        else:
+            settings["reference_library"] = old_reflib
+
+    assert status["referenceLibrary"]["path"] == str(reflib)

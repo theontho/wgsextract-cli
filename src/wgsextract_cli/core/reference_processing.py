@@ -356,7 +356,8 @@ def normalize_bootstrap_layout(reflib_dir: str) -> None:
 
 def install_bootstrap_support_files(reflib_dir: str) -> bool:
     ok = install_ploidy_files(reflib_dir)
-    logging.info("Reference bootstrap support files are ready.")
+    if ok:
+        logging.info("Reference bootstrap support files are ready.")
     return ok
 
 
@@ -388,8 +389,9 @@ def _ploidy_content(alias: str) -> str:
             capture_output=True,
             check=False,
         )
-        if result.stdout and "*" in result.stdout:
-            return str(result.stdout)
+        stdout = getattr(result, "stdout", "")
+        if stdout and "*" in stdout:
+            return str(stdout)
     except (OSError, subprocess.SubprocessError):
         logging.debug("Could not query bcftools built-in ploidy for %s.", alias)
     return _PLOIDY_TEMPLATES[alias]

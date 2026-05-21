@@ -123,11 +123,32 @@ def print_ref_status(status: dict[str, Any]) -> None:
 
 def _resolve_reference_library(args) -> str:
     configured_reflib = settings.get("reference_library")
-    reflib = getattr(args, "ref", None) or configured_reflib
-    if reflib:
-        return os.path.abspath(str(reflib))
+    ref = getattr(args, "ref", None)
+    explicit_dests = getattr(args, "_explicit_dests", None)
+    ref_is_explicit = explicit_dests is None or "ref" in explicit_dests
+    if ref and ref_is_explicit:
+        ref_path = os.path.abspath(str(ref))
+        if os.path.isdir(ref_path):
+            return ref_path
+        if os.path.isfile(ref_path):
+            return _reference_library_from_fasta(ref_path)
+    if configured_reflib:
+        return os.path.abspath(str(configured_reflib))
+    if ref:
+        ref_path = os.path.abspath(str(ref))
+        if os.path.isdir(ref_path):
+            return ref_path
+        if os.path.isfile(ref_path):
+            return _reference_library_from_fasta(ref_path)
     prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
     return os.path.join(prog_root, "reference")
+
+
+def _reference_library_from_fasta(ref_path: str) -> str:
+    ref_dir = os.path.dirname(ref_path)
+    if os.path.basename(ref_dir).lower() == "genomes":
+        return os.path.dirname(ref_dir)
+    return ref_dir
 
 
 def _resolve_genome_library(args, reflib: str) -> str:

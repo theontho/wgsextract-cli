@@ -49,7 +49,7 @@ def get_script_path(script_name):
 
 
 def repair_bam(args):
-    if getattr(args, "input", None):
+    if _input_was_explicit(args) and getattr(args, "input", None):
         repair_bam_file(args)
         return
 
@@ -67,7 +67,7 @@ def repair_bam(args):
 
 
 def repair_vcf(args):
-    if getattr(args, "input", None):
+    if _input_was_explicit(args) and getattr(args, "input", None):
         repair_vcf_file(args)
         return
 
@@ -174,6 +174,13 @@ def _repair_output_path(args, extension: str) -> str:
     return os.path.abspath(
         os.path.join(outdir, f"{_input_stem(args.input)}_repaired{extension}")
     )
+
+
+def _input_was_explicit(args) -> bool:
+    explicit_dests = getattr(args, "_explicit_dests", None)
+    if explicit_dests is None:
+        return bool(getattr(args, "input", None))
+    return "input" in explicit_dests
 
 
 def _input_stem(path: str) -> str:
