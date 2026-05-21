@@ -19,6 +19,7 @@ from ._ref_library_commands import (
     cmd_revel_dl,
     cmd_spliceai_dl,
 )
+from ._ref_status import cmd_ref_status
 
 
 def register(subparsers, base_parser):
@@ -69,6 +70,31 @@ def register(subparsers, base_parser):
         help="List installed and available reference library assets.",
     )
     lib_list_parser.set_defaults(func=cmd_library_list)
+
+    status_parser = ref_subs.add_parser(
+        "status",
+        parents=[base_parser],
+        help="Report reference library asset status.",
+    )
+    status_parser.add_argument(
+        "--genome-library",
+        help="Genome library directory used for test genome status.",
+    )
+    status_parser.add_argument(
+        "--annotation-vcf",
+        help="Custom annotation VCF path to include in readiness checks.",
+    )
+    status_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit structured JSON status.",
+    )
+    status_parser.add_argument(
+        "--values",
+        action="store_true",
+        help="Emit a compact values JSON object for GUI data-source consumers.",
+    )
+    status_parser.set_defaults(func=cmd_ref_status)
 
     genemap_parser = ref_subs.add_parser(
         "gene-map", parents=[base_parser], help=CLI_HELP["cmd_ref-gene-map"]

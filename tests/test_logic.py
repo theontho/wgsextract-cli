@@ -1487,6 +1487,65 @@ class TestReferenceSupportAssets(unittest.TestCase):
         self.assertEqual(lib.ref_vcf_tab, snps)
         self.assertEqual(lib.mappability_map, map_path)
 
+    def test_reference_library_resolves_input_manifest_reference_fasta(self):
+        from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+
+        genome_dir = os.path.join(self.test_dir, "genome")
+        os.makedirs(genome_dir)
+        input_path = os.path.join(genome_dir, "sample.bam")
+        fasta = os.path.join(genome_dir, "sample.hg19.fa")
+        Path(input_path).touch()
+        Path(fasta).touch()
+        Path(os.path.join(genome_dir, "sample.targets.tab.gz")).touch()
+        Path(os.path.join(genome_dir, "manifest.json")).write_text(
+            '{"files":{"ref":"sample.hg19.fa"}}',
+            encoding="utf-8",
+        )
+        lib = ReferenceLibrary(self.test_dir, None, input_path=input_path)
+
+        self.assertEqual(lib.fasta, fasta)
+        self.assertEqual(
+            lib.ref_vcf_tab, os.path.join(genome_dir, "sample.targets.tab.gz")
+        )
+
+    def test_reference_library_resolves_generic_reference_fasta(self):
+        from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+
+        fasta = os.path.join(self.test_dir, "my.grch38.reference.fasta")
+        Path(fasta).touch()
+        lib = ReferenceLibrary(self.test_dir, None, input_path="sample.hg38.bam")
+
+        self.assertEqual(lib.fasta, fasta)
+        self.assertEqual(lib.build, "hg38")
+
+    def test_reference_library_manifest_fallback_for_relative_input(self):
+        from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+
+        input_dir = os.path.join(self.test_dir, "input")
+        os.makedirs(input_dir)
+        fasta = os.path.join(input_dir, "my.grch38.reference.fasta")
+        target = os.path.join(input_dir, "sample.targets.tab.gz")
+        Path(os.path.join(input_dir, "sample.hg38.bam")).touch()
+        Path(fasta).touch()
+        Path(target).touch()
+        Path(os.path.join(input_dir, "manifest.json")).write_text(
+            "{not valid json",
+            encoding="utf-8",
+        )
+
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(input_dir)
+            lib = ReferenceLibrary(self.test_dir, None, input_path="sample.hg38.bam")
+            resolved_fasta = os.path.realpath(lib.fasta)
+            resolved_target = os.path.realpath(lib.ref_vcf_tab)
+        finally:
+            os.chdir(old_cwd)
+
+        self.assertEqual(resolved_fasta, os.path.realpath(fasta))
+        self.assertEqual(resolved_target, os.path.realpath(target))
+        self.assertEqual(lib.build, "hg38")
+
     def test_reference_library_detects_hs_build_aliases_from_reference_path(self):
         from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 
