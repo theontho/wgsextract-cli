@@ -1537,13 +1537,13 @@ class TestReferenceSupportAssets(unittest.TestCase):
         try:
             os.chdir(input_dir)
             lib = ReferenceLibrary(self.test_dir, None, input_path="sample.hg38.bam")
-            resolved_fasta = os.path.abspath(lib.fasta)
-            resolved_target = os.path.abspath(lib.ref_vcf_tab)
+            resolved_fasta = os.path.realpath(lib.fasta)
+            resolved_target = os.path.realpath(lib.ref_vcf_tab)
         finally:
             os.chdir(old_cwd)
 
-        self.assertEqual(resolved_fasta, fasta)
-        self.assertEqual(resolved_target, target)
+        self.assertEqual(resolved_fasta, os.path.realpath(fasta))
+        self.assertEqual(resolved_target, os.path.realpath(target))
         self.assertEqual(lib.build, "hg38")
 
     def test_reference_library_detects_hs_build_aliases_from_reference_path(self):
