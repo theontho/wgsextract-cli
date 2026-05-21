@@ -369,6 +369,20 @@ N_ADJUST["19"] = N_ADJUST["37"]
 BOOTSTRAP_URL = "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/wgsextract-reference-bootstrap.tar.gz"
 BOOTSTRAP_FILENAME = "wgsextract-reference-bootstrap.tar.gz"
 
+MAPPABILITY_MAP_ARCHIVE_URL = "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/wgsextract-delly-mappability-maps.zip"
+MAPPABILITY_MAP_ARCHIVE_FILENAME = "wgsextract-delly-mappability-maps.zip"
+MAPPABILITY_MAP_ARCHIVE_SHA256 = (
+    "cab55d8fe28f3c0da90cfdd0a8a4951dc5a33d182bbce3ef34392762eafe5d1b"
+)
+MAPPABILITY_MAP_FILES = (
+    "hg19.map.gz",
+    "hg19.map.gz.fai",
+    "hg19.map.gz.gzi",
+    "hg38.map.gz",
+    "hg38.map.gz.fai",
+    "hg38.map.gz.gzi",
+)
+
 # Standard Delly CNV mappability maps. Delly hosts these as BGZF FASTA-like
 # tracks with sidecar indexes; store them under stable local names so callers
 # can resolve them from the reference build without user input.

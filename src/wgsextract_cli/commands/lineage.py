@@ -34,6 +34,8 @@ def cmd_mtdna(args):
     if not verify_paths_exist({"--input": args.input}):
         return
 
+    logging.info("Running mtDNA haplogroup analysis...")
+
     # Check dependencies only after cheap input validation so invalid invocations fail fast.
     if not args.haplogrep_path:
         verify_dependencies(["haplogrep", "bcftools"])
