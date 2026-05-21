@@ -388,6 +388,7 @@ def _ploidy_content(alias: str) -> str:
             ["bcftools", "call", "--ploidy", f"{alias}?"],
             capture_output=True,
             check=False,
+            stdin=subprocess.DEVNULL,
         )
         stdout = getattr(result, "stdout", "")
         if stdout and "*" in stdout:

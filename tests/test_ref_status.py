@@ -68,20 +68,23 @@ def test_ref_status_uses_custom_annotation_vcf_for_readiness(tmp_path):
 
 
 def test_ref_status_prefers_configured_library_over_default_ref_fasta(tmp_path):
-    reflib = tmp_path / "reference"
-    genomes = reflib / "genomes"
+    inferred_reflib = tmp_path / "reference"
+    configured_reflib = tmp_path / "configured-reference"
+    genomes = inferred_reflib / "genomes"
     fasta = genomes / "hg38.fa"
     genomes.mkdir(parents=True)
+    configured_reflib.mkdir()
     fasta.write_text(">chr1\nA\n", encoding="utf-8")
     old_reflib = settings.get("reference_library")
     try:
-        settings["reference_library"] = str(reflib)
+        settings["reference_library"] = str(configured_reflib)
         status = build_ref_status(
             Namespace(
                 ref=str(fasta),
                 genome_library=str(tmp_path / "genomes"),
                 annotation_vcf="",
                 input=None,
+                _explicit_dests=set(),
             )
         )
     finally:
@@ -90,7 +93,7 @@ def test_ref_status_prefers_configured_library_over_default_ref_fasta(tmp_path):
         else:
             settings["reference_library"] = old_reflib
 
-    assert status["referenceLibrary"]["path"] == str(reflib)
+    assert status["referenceLibrary"]["path"] == str(configured_reflib)
 
 
 def test_ref_status_infers_library_from_reference_fasta(tmp_path):
