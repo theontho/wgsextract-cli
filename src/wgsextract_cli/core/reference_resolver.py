@@ -9,6 +9,14 @@ from wgsextract_cli.core.builds import (
     is_hg38_build,
 )
 from wgsextract_cli.core.constants import REF_GENOME_FILENAMES
+from wgsextract_cli.core.reference_assets import (
+    build_hint,
+    find_reference_fasta,
+    find_reference_target_tab,
+    is_fasta_path,
+    resolve_input_reference_fasta,
+    resolve_input_target_tab,
+)
 
 try:
     import psutil
@@ -57,7 +65,7 @@ class ReferenceLibrary:
         if not self.root:
             return
 
-        if os.path.isfile(self.root):
+        if os.path.isfile(self.root) and is_fasta_path(self.root):
             self.fasta = self.root
             self.root = os.path.dirname(self.root)
 
@@ -76,6 +84,10 @@ class ReferenceLibrary:
                         break
                 if self.fasta:
                     break
+        if not self.fasta:
+            self.fasta = find_reference_fasta(d, input_path, root_path) or None
+        if not self.fasta:
+            self.fasta = resolve_input_reference_fasta(input_path) or None
 
         # Resolve associated files
         self.fai = self.fasta + ".fai" if self.fasta else None
@@ -182,6 +194,8 @@ class ReferenceLibrary:
 
         if not self.build and self.input_path:
             self.build = build_from_path(self.input_path)
+        if not self.build:
+            self.build = build_hint(input_path, root_path)
 
         # Re-resolve FASTA if build was found from MD5/Header but path-based resolution found something else
         if self.build and self.fasta:
@@ -362,6 +376,12 @@ class ReferenceLibrary:
                     break
             if self.ref_vcf_tab:
                 break
+
+        if not self.ref_vcf_tab:
+            self.ref_vcf_tab = resolve_input_target_tab(self.input_path)
+
+        if not self.ref_vcf_tab:
+            self.ref_vcf_tab = find_reference_target_tab(self.root, self.build or "")
 
         if not self.ref_vcf_tab:
             support_search_roots = [

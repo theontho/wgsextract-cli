@@ -3,7 +3,7 @@ from argparse import Namespace
 import pytest
 
 from wgsextract_cli.commands import ref as ref_command
-from wgsextract_cli.core import config
+from wgsextract_cli.core import config, reference_processing
 from wgsextract_cli.core.utils import WGSExtractError
 
 
@@ -55,9 +55,7 @@ def test_bootstrap_installs_mappability_maps_when_requested(tmp_path, monkeypatc
         lambda path: calls.append(path) or True,
     )
 
-    ref_command.cmd_bootstrap(
-        Namespace(ref=str(reflib), install_mappability_maps=True)
-    )
+    ref_command.cmd_bootstrap(Namespace(ref=str(reflib), install_mappability_maps=True))
 
     assert calls == [str(reflib)]
 
@@ -102,3 +100,25 @@ def test_bootstrap_saves_reference_library_before_map_install_failure(
 
     config.reload_settings()
     assert config.settings["reference_library"] == str(reflib)
+
+
+def test_download_bootstrap_normalizes_existing_assets_and_installs_ploidy(
+    tmp_path, monkeypatch
+):
+    reflib = tmp_path / "reference"
+    nested_ref = reflib / "reference" / "ref"
+    nested_ref.mkdir(parents=True)
+    (nested_ref / "All_SNPs_hg19_ref.tab.gz").write_text("snps\n", encoding="utf-8")
+    (nested_ref / ".DS_Store").write_text("metadata\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        reference_processing,
+        "run_command",
+        lambda *_args, **_kwargs: type("Result", (), {"stdout": "* * * M 2\n"})(),
+    )
+
+    assert reference_processing.download_bootstrap(str(reflib))
+    assert (reflib / "ref" / "All_SNPs_hg19_ref.tab.gz").is_file()
+    assert not (reflib / "ref" / ".DS_Store").exists()
+    assert (reflib / "ploidy_hg19.txt").is_file()
+    assert (reflib / "ploidy_hg38.txt").is_file()
