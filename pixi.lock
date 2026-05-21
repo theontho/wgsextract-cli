@@ -12959,8 +12959,8 @@ packages:
   timestamp: 1772233693369
 - pypi: ./
   name: wgsextract-cli
-  version: 0.3.2
-  sha256: 79d5811a631d9cf4dd66f4c83f0583ddf5f8870b2850f5a8541b8154ea5d10f1
+  version: 0.3.3
+  sha256: b18c4f1b25aa23f701695755aec2ac331fdca287283f1af5e2c454a37cd90a64
   requires_dist:
   - pyliftover
   - psutil
