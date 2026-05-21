@@ -1,3 +1,4 @@
+import gzip
 import io
 from pathlib import Path
 from types import SimpleNamespace
@@ -283,6 +284,58 @@ def test_normalize_vcf_chromosomes_renames_chr_m_to_target_mt(tmp_path):
     assert normalized != str(input_vcf)
     assert rename_map["text"].splitlines() == ["chr1 1", "chrM MT"]
     Path(normalized).unlink(missing_ok=True)
+
+
+def test_microarray_vcf_targets_normalize_to_input_vcf_chromosomes(tmp_path):
+    ref_targets = tmp_path / "targets.tab.gz"
+    with gzip.open(ref_targets, "wt") as handle:
+        handle.write("chr1\t100\trs1\tA\n")
+        handle.write("chrM\t200\trsM\tC\n")
+        handle.write("chrUn\t300\trsUn\tG\n")
+
+    commands = []
+
+    def fake_run_command(cmd, **_kwargs):
+        if cmd == ["tabix", "-l", str(ref_targets)]:
+            return SimpleNamespace(stdout="chr1\nchrM\nchrUn\n", stderr="")
+        commands.append(cmd)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    with patch.object(_microarray_vcf, "run_command", side_effect=fake_run_command):
+        normalized = _microarray_vcf._prepare_vcf_target_tab_for_input(
+            str(ref_targets),
+            str(tmp_path / "input.vcf.gz"),
+            str(tmp_path),
+            ["1", "MT"],
+        )
+
+    normalized_plain = Path(normalized[:-3])
+    assert normalized_plain.read_text().splitlines() == [
+        "1\t100\trs1\tA",
+        "MT\t200\trsM\tC",
+    ]
+    assert commands == [
+        ["bgzip", "-f", str(normalized_plain)],
+        ["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", normalized],
+    ]
+
+
+def test_vcf_index_chromosomes_returns_index_contigs():
+    def fake_run_command(cmd, **_kwargs):
+        assert cmd == ["bcftools", "index", "-s", "input.vcf.gz"]
+        return SimpleNamespace(stdout="1\t248956422\nMT\t16569\n", stderr="")
+
+    with patch.object(variant_files, "run_command", side_effect=fake_run_command):
+        assert variant_files.vcf_index_chromosomes("input.vcf.gz") == ["1", "MT"]
+
+
+def test_microarray_vcf_region_normalizes_to_input_vcf_chromosome_style():
+    assert _microarray_vcf._normalize_region_args_for_input(
+        ["-r", "chrM:1-200"], ["1", "MT"]
+    ) == ["-r", "MT:1-200"]
+    assert _microarray_vcf._normalize_region_args_for_input(
+        ["-r", "chr1"], ["1", "MT"]
+    ) == ["-r", "1"]
 
 
 def test_parallel_microarray_vcf_concat_uses_natural_chromosome_order(tmp_path):
