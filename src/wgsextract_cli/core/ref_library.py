@@ -444,7 +444,7 @@ def install_mappability_maps(
 
         logging.info("Delly mappability maps are installed.")
         return True
-    except Exception as e:
+    except (OSError, zipfile.BadZipFile) as e:
         logging.error("Failed to install Delly mappability maps: %s", e)
         return False
     finally:
