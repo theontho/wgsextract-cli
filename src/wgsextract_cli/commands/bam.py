@@ -3,20 +3,27 @@ import os
 import subprocess
 import tempfile
 
-from wgsextract_cli.core.dependencies import log_dependency_info, verify_dependencies
+from wgsextract_cli.core.dependency_checks import (
+    log_dependency_info,
+    verify_dependencies,
+)
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
     WGSExtractError,
-    calculate_bam_md5,
     get_resource_defaults,
     get_sam_index_cmd,
     get_sam_sort_cmd,
+    run_command,
+)
+from wgsextract_cli.core.variant_files import (
+    calculate_bam_md5,
     popen,
     resolve_reference,
-    run_command,
     verify_paths_exist,
 )
 from wgsextract_cli.core.warnings import check_free_space, print_warning
+
+from ._extract_helpers import resolve_region_or_gene
 
 
 def register(subparsers, base_parser):
@@ -104,7 +111,7 @@ def get_base_args(args):
         resolved_ref = resolve_reference(args.ref, md5_sig)
         # Ensure it's a file, not a directory
         if resolved_ref and os.path.isdir(resolved_ref):
-            from wgsextract_cli.core.utils import REF_GENOME_FILENAMES
+            from wgsextract_cli.core.constants import REF_GENOME_FILENAMES
 
             for f in REF_GENOME_FILENAMES:
                 potential = os.path.join(resolved_ref, f)
@@ -127,45 +134,6 @@ def get_base_args(args):
 
     cram_opt = ["-T", resolved_ref] if resolved_ref else []
     return threads, memory, outdir, cram_opt, resolved_ref
-
-
-def resolve_region_or_gene(args, resolved_ref):
-    """Helper to resolve either a raw region or a gene name to coordinates."""
-    if args.region:
-        return args.region
-
-    if hasattr(args, "gene") and args.gene:
-        # Determine reference library directory
-        from wgsextract_cli.core.config import settings
-        from wgsextract_cli.core.gene_map import GeneMap
-
-        reflib_dir = settings.get("reference_library")
-        if not reflib_dir and resolved_ref:
-            # resolved_ref is usually path/to/reflib/ref/genome.fa
-            reflib_dir = os.path.dirname(os.path.dirname(resolved_ref))
-
-        if not reflib_dir:
-            logging.error(
-                "Reference library not found. Please provide a --ref or set reference_library in config.toml."
-            )
-            return None
-
-        gm = GeneMap(reflib_dir)
-        # We need a build name. Default to hg38 if we can't detect it.
-        build = "hg38"
-        if resolved_ref:
-            if "hg19" in resolved_ref.lower() or "b37" in resolved_ref.lower():
-                build = "hg19"
-
-        resolved_region = gm.get_coords(args.gene, build)
-        if resolved_region:
-            logging.info(f"Resolved gene {args.gene} to {resolved_region}")
-            return resolved_region
-        else:
-            logging.error(f"Could not resolve gene name: {args.gene}")
-            return None
-
-    return None
 
 
 def cmd_identify(args):

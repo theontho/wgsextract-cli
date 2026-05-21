@@ -1,9 +1,10 @@
 import hashlib
 import json
+import logging
 import zipfile
 from pathlib import Path
 
-from wgsextract_cli.core import constants, ref_library
+from wgsextract_cli.core import constants, download_progress, ref_library
 
 
 class _FakeResponse:
@@ -18,6 +19,38 @@ class _FakeResponse:
 
     def read(self):
         return self._data
+
+
+class _FakeDownloadResponse:
+    def __init__(
+        self, payload: bytes, content_length: int | None = None, code: int = 200
+    ):
+        self._data = payload
+        self._offset = 0
+        self._headers = {}
+        if content_length is not None:
+            self._headers["Content-Length"] = str(content_length)
+        self._code = code
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self, size: int = -1):
+        if size < 0:
+            size = len(self._data) - self._offset
+        start = self._offset
+        end = min(len(self._data), start + size)
+        self._offset = end
+        return self._data[start:end]
+
+    def info(self):
+        return self._headers
+
+    def getcode(self):
+        return self._code
 
 
 def _asset_payload(name: str, digest: str) -> dict:
@@ -80,6 +113,7 @@ def test_download_file_verifies_github_release_asset_digest(tmp_path, monkeypatc
 
     monkeypatch.setattr(ref_library, "run_command", fake_run_command)
     monkeypatch.setattr(ref_library, "urlopen", fake_urlopen)
+    monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
 
     assert ref_library.download_file(
         "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
@@ -93,13 +127,16 @@ def test_download_file_resume_keeps_curl_output_argument_order(tmp_path, monkeyp
     dest = tmp_path / "hs38.fa.gz"
     dest.write_bytes(b"partial")
     seen_commands = []
+    seen_capture_output = []
 
     def fake_run_command(cmd, capture_output=False):
         seen_commands.append(cmd)
+        seen_capture_output.append(capture_output)
         output_path = Path(cmd[cmd.index("-o") + 1])
         output_path.write_bytes(payload)
 
     monkeypatch.setattr(ref_library, "run_command", fake_run_command)
+    monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
     monkeypatch.setattr(
         ref_library, "resolve_github_release_asset_sha256", lambda url: None
     )
@@ -112,6 +149,7 @@ def test_download_file_resume_keeps_curl_output_argument_order(tmp_path, monkeyp
         [
             "curl",
             "-L",
+            "--progress-bar",
             "-C",
             "-",
             "-o",
@@ -119,6 +157,39 @@ def test_download_file_resume_keeps_curl_output_argument_order(tmp_path, monkeyp
             "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
         ]
     ]
+    assert seen_capture_output == [False]
+
+
+def test_download_file_uses_logged_progress_when_stderr_is_not_tty(
+    tmp_path, monkeypatch, caplog
+):
+    payload = b"x" * 100
+    digest = hashlib.sha256(payload).hexdigest()
+    dest = tmp_path / "hs37.fa.gz"
+
+    def fail_if_curl_runs(cmd, capture_output=False):
+        raise AssertionError("curl path should not be used when stderr is not a tty")
+
+    def fake_urlopen(request, timeout=None):
+        if request.full_url.startswith("https://api.github.com/"):
+            return _FakeResponse(_asset_payload("hs37.fa.gz", digest))
+        return _FakeDownloadResponse(payload, content_length=len(payload))
+
+    monkeypatch.setattr(ref_library, "run_command", fail_if_curl_runs)
+    monkeypatch.setattr(ref_library, "urlopen", fake_urlopen)
+    monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: False)
+
+    caplog.set_level(logging.INFO)
+
+    assert ref_library.download_file(
+        "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs37.fa.gz",
+        str(dest),
+    )
+    assert dest.read_bytes() == payload
+    assert any(
+        "hs37.fa.gz download progress: 100%" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 def test_download_file_rejects_github_release_asset_digest_mismatch(
@@ -137,6 +208,7 @@ def test_download_file_rejects_github_release_asset_digest_mismatch(
 
     monkeypatch.setattr(ref_library, "run_command", fake_run_command)
     monkeypatch.setattr(ref_library, "urlopen", fake_urlopen)
+    monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
 
     assert not ref_library.download_file(
         "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
@@ -162,6 +234,7 @@ def test_download_file_warns_and_continues_when_github_digest_lookup_fails(
     monkeypatch.setattr(
         ref_library, "resolve_github_release_asset_sha256", fail_resolve
     )
+    monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
 
     assert ref_library.download_file(
         "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
@@ -196,47 +269,37 @@ def test_download_file_rejects_invalid_github_digest_metadata(tmp_path, monkeypa
     assert not dest.exists()
 
 
-def test_install_mappability_maps_downloads_mirror_archive(tmp_path, monkeypatch):
-    payloads = {
-        "hg19.map.gz": b"hg19 map",
-        "hg19.map.gz.fai": b"hg19 fai",
-        "hg19.map.gz.gzi": b"hg19 gzi",
-        "hg38.map.gz": b"hg38 map",
-        "hg38.map.gz.fai": b"hg38 fai",
-        "hg38.map.gz.gzi": b"hg38 gzi",
-    }
-    source_zip = tmp_path / "source.zip"
-    with zipfile.ZipFile(source_zip, "w") as archive:
-        for name, payload in payloads.items():
-            archive.writestr(f"maps/{name}", payload)
-    archive_sha256 = hashlib.sha256(source_zip.read_bytes()).hexdigest()
-    seen_downloads = []
+def test_install_mappability_maps_extracts_mirrored_archive(tmp_path, monkeypatch):
+    reflib = tmp_path / "reference"
+    payload = tmp_path / constants.MAPPABILITY_MAP_ARCHIVE_FILENAME
+    with zipfile.ZipFile(payload, "w") as archive:
+        for file_name in constants.MAPPABILITY_MAP_FILES:
+            archive.writestr(f"maps/{file_name}", f"contents for {file_name}")
 
-    def fake_download_file(url, dest, progress_callback=None, cancel_event=None):
-        seen_downloads.append(url)
-        Path(dest).write_bytes(source_zip.read_bytes())
+    def fake_download(url, destination, progress_callback=None, cancel_event=None):
+        assert url == constants.MAPPABILITY_MAP_ARCHIVE_URL
+        Path(destination).write_bytes(payload.read_bytes())
         return True
 
-    monkeypatch.setattr(constants, "MAPPABILITY_MAP_ARCHIVE_SHA256", archive_sha256)
-    monkeypatch.setattr(ref_library, "download_file", fake_download_file)
+    monkeypatch.setattr(ref_library, "download_file", fake_download)
+    monkeypatch.setattr(ref_library, "verify_download_sha256", lambda path, sha: True)
 
-    assert ref_library.install_mappability_maps(str(tmp_path / "reference"))
-
-    assert seen_downloads == [constants.MAPPABILITY_MAP_ARCHIVE_URL]
-    for name, payload in payloads.items():
-        assert (tmp_path / "reference" / "maps" / name).read_bytes() == payload
-    assert not (tmp_path / "reference" / constants.MAPPABILITY_MAP_ARCHIVE_FILENAME).exists()
+    assert ref_library.install_mappability_maps(str(reflib))
+    for file_name in constants.MAPPABILITY_MAP_FILES:
+        assert (reflib / "maps" / file_name).read_text() == f"contents for {file_name}"
+    assert not (reflib / constants.MAPPABILITY_MAP_ARCHIVE_FILENAME).exists()
 
 
 def test_install_mappability_maps_skips_when_complete(tmp_path, monkeypatch):
-    maps_dir = tmp_path / "reference" / "maps"
+    reflib = tmp_path / "reference"
+    maps_dir = reflib / "maps"
     maps_dir.mkdir(parents=True)
-    for name in constants.MAPPABILITY_MAP_FILES:
-        (maps_dir / name).write_bytes(b"installed")
+    for file_name in constants.MAPPABILITY_MAP_FILES:
+        (maps_dir / file_name).write_text("already installed")
 
     def fail_download(*args, **kwargs):
-        raise AssertionError("complete mappability maps should not be downloaded")
+        raise AssertionError("complete mappability map set should not be downloaded")
 
     monkeypatch.setattr(ref_library, "download_file", fail_download)
 
-    assert ref_library.install_mappability_maps(str(tmp_path / "reference"))
+    assert ref_library.install_mappability_maps(str(reflib))

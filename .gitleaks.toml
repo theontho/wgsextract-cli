@@ -1,0 +1,7 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Microarray vendor format key is not a secret"
+paths = ['''src/wgsextract_cli/commands/microarray\.py''']
+regexes = ['''23andMe_SNPs_API''']

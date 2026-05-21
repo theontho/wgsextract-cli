@@ -25,7 +25,6 @@ NAV_ITEMS = [
     ("index.html", "Home"),
     ("install.html", "Install"),
     ("cli.html", "CLI"),
-    ("gui.html", "GUI"),
     ("workflows.html", "Workflows"),
     ("wgs-guide.html", "WGS guide"),
     ("reference.html", "Reference"),

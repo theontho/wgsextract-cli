@@ -2,7 +2,55 @@ import argparse
 from argparse import Namespace
 from pathlib import Path
 
-from wgsextract_cli.commands import benchmark
+import pytest
+
+from wgsextract_cli.commands import (
+    _benchmark_core,
+    _benchmark_datasets,
+    _benchmark_environment,
+    _benchmark_execution,
+    _benchmark_fixtures,
+    _benchmark_heavy,
+    _benchmark_machine,
+    _benchmark_models,
+    _benchmark_qc,
+    _benchmark_reports,
+    _benchmark_setup,
+)
+from wgsextract_cli.commands import benchmark as _benchmark_entry
+
+
+class _ModuleGroup:
+    def __init__(self, *modules):
+        object.__setattr__(self, "_modules", modules)
+
+    def __getattr__(self, name):
+        for module in self._modules:
+            if hasattr(module, name):
+                return getattr(module, name)
+        raise AttributeError(name)
+
+    def __setattr__(self, name, value):
+        for module in self._modules:
+            if hasattr(module, name):
+                setattr(module, name, value)
+        object.__setattr__(self, name, value)
+
+
+benchmark = _ModuleGroup(
+    _benchmark_entry,
+    _benchmark_models,
+    _benchmark_execution,
+    _benchmark_qc,
+    _benchmark_fixtures,
+    _benchmark_heavy,
+    _benchmark_datasets,
+    _benchmark_environment,
+    _benchmark_machine,
+    _benchmark_reports,
+    _benchmark_setup,
+    _benchmark_core,
+)
 
 
 def test_benchmark_suite_defaults_to_heavy() -> None:
@@ -25,6 +73,15 @@ def test_benchmark_accepts_runtime_override() -> None:
     assert args.runtime == "msys2"
 
 
+def test_benchmark_accepts_build_aliases() -> None:
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+    benchmark.register(subparsers, argparse.ArgumentParser(add_help=False))
+
+    assert parser.parse_args(["benchmark", "--build", "GRCh37"]).build == "GRCh37"
+    assert parser.parse_args(["benchmark", "--build", "hs38d1"]).build == "hs38d1"
+
+
 def test_benchmark_accepts_real_coverage_dataset_tags() -> None:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command")
@@ -34,6 +91,53 @@ def test_benchmark_accepts_real_coverage_dataset_tags() -> None:
     assert (
         parser.parse_args(["benchmark", "--dataset", "real-30x"]).dataset == "real-30x"
     )
+
+
+@pytest.mark.parametrize(
+    ("build", "expected_ploidy"),
+    [
+        ("hg19", "GRCh37"),
+        ("hg37", "GRCh37"),
+        ("GRCh37", "GRCh37"),
+        ("hs37d5", "GRCh37"),
+        ("hg38", "GRCh38"),
+        ("GRCh38", "GRCh38"),
+        ("hs38DH", "GRCh38"),
+        ("hs38d1", "GRCh38"),
+        ("t2t", "GRCh38"),
+    ],
+)
+def test_benchmark_ploidy_for_build_aliases(build: str, expected_ploidy: str) -> None:
+    assert benchmark._ploidy_for_build(build) == expected_ploidy
+
+
+def test_benchmark_download_rejects_non_http_url(tmp_path: Path, monkeypatch) -> None:
+    def fail_urlopen(*_args, **_kwargs):
+        raise AssertionError("urlopen should not be called for non-HTTP URLs")
+
+    monkeypatch.setattr(benchmark.urllib.request, "urlopen", fail_urlopen)
+
+    with pytest.raises(ValueError, match="Unsupported benchmark dataset URL scheme"):
+        benchmark._download_file("file:///tmp/dataset.zip", tmp_path / "dataset.zip")
+
+
+def test_benchmark_download_error_redacts_url_query(
+    tmp_path: Path, monkeypatch
+) -> None:
+    def fail_urlopen(*_args, **_kwargs):
+        raise OSError("network unavailable")
+
+    monkeypatch.setattr(benchmark.urllib.request, "urlopen", fail_urlopen)
+
+    with pytest.raises(benchmark.WGSExtractError) as excinfo:
+        benchmark._download_file(
+            "https://example.test/dataset.zip?token=secret",
+            tmp_path / "dataset.zip",
+        )
+
+    message = str(excinfo.value)
+    assert "dataset.zip" in message
+    assert "token=secret" not in message
 
 
 def test_benchmark_result_names_include_cli_command_labels() -> None:
@@ -546,6 +650,11 @@ def test_command_region_expands_whole_contig_region(tmp_path: Path) -> None:
     assert benchmark._command_region("20", ref) == "20:1-1000"
     assert benchmark._command_region("20:10-20", ref) == "20:10-20"
     assert benchmark._command_region(None, ref) is None
+
+
+def test_target_ranges_match_mito_aliases() -> None:
+    assert benchmark._target_ranges([("chrM", 16569)], "MT:10-20") == [("chrM", 10, 20)]
+    assert benchmark._target_ranges([("MT", 16569)], "chrM") == [("MT", 1, 16569)]
 
 
 def test_normalize_region_for_ref_matches_chr_prefix(tmp_path: Path) -> None:

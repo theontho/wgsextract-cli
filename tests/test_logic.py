@@ -11,7 +11,7 @@ from unittest.mock import patch
 # Ensure src is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
-from wgsextract_cli.core.gene_map import GeneMap
+from wgsextract_cli.core.gene_map import GeneMap, resolve_gene_map_reflib
 from wgsextract_cli.core.genome_library import (
     GENOME_CONFIG_NAME,
     apply_genome_selection,
@@ -259,7 +259,7 @@ class TestAlignToolSelection(unittest.TestCase):
 
 class TestRefDownloadValidation(unittest.TestCase):
     def test_directory_output_short_circuits_before_curl(self):
-        from wgsextract_cli.commands import ref
+        from wgsextract_cli.commands import _ref_core_commands as ref
 
         args = Namespace(url="http://fake", out=tempfile.mkdtemp())
         try:
@@ -275,7 +275,7 @@ class TestRefDownloadValidation(unittest.TestCase):
             shutil.rmtree(args.out)
 
     def test_ref_download_uses_fallback_downloader_without_curl_requirement(self):
-        from wgsextract_cli.commands import ref
+        from wgsextract_cli.commands import _ref_core_commands as ref
 
         args = Namespace(url="http://fake/reference.fa.gz", out="reference.fa.gz")
         with (
@@ -288,7 +288,7 @@ class TestRefDownloadValidation(unittest.TestCase):
         download_file.assert_called_once_with(args.url, args.out)
 
     def test_ref_download_failure_includes_url_and_output_path(self):
-        from wgsextract_cli.commands import ref
+        from wgsextract_cli.commands import _ref_core_commands as ref
 
         args = Namespace(url="http://fake/reference.fa.gz", out="reference.fa.gz")
         with patch.object(ref, "download_file", return_value=False):
@@ -306,7 +306,7 @@ class TestExamplesDownload(unittest.TestCase):
         shutil.rmtree(self.test_dir)
 
     def test_target_root_uses_configured_genome_library(self):
-        from wgsextract_cli.commands import examples
+        from wgsextract_cli.commands import _examples_catalog as examples
         from wgsextract_cli.core.config import settings
 
         old_value = settings.get("genome_library")
@@ -320,7 +320,7 @@ class TestExamplesDownload(unittest.TestCase):
                 settings["genome_library"] = old_value
 
     def test_default_target_root_is_repo_genomes(self):
-        from wgsextract_cli.commands import examples
+        from wgsextract_cli.commands import _examples_catalog as examples
         from wgsextract_cli.core.config import settings
 
         old_value = settings.get("genome_library")
@@ -389,7 +389,7 @@ class TestExamplesDownload(unittest.TestCase):
             self.assertNotIn(".tbi", config)
 
     def test_unknown_example_raises_clear_error(self):
-        from wgsextract_cli.commands import examples
+        from wgsextract_cli.commands import _examples_catalog as examples
 
         with self.assertRaises(WGSExtractError) as ctx:
             examples._select_examples(["not-real"], include_all=False)
@@ -427,7 +427,7 @@ class TestExamplesDownload(unittest.TestCase):
         )
 
     def test_resolve_aspera_key_prefers_explicit_key(self):
-        from wgsextract_cli.commands import examples
+        from wgsextract_cli.commands import _examples_catalog as examples
 
         explicit_key = os.path.join(self.test_dir, "explicit.openssh")
         home_dir = os.path.join(self.test_dir, "home")
@@ -444,9 +444,10 @@ class TestExamplesDownload(unittest.TestCase):
         self.assertEqual(resolved, Path(explicit_key))
 
     def test_write_genome_config_for_fastq_pair(self):
+        from wgsextract_cli.commands import _examples_catalog as catalog
         from wgsextract_cli.commands import examples
 
-        example = examples.EXAMPLES_BY_ID["na12878-lowcov-fastq"]
+        example = catalog.EXAMPLES_BY_ID["na12878-lowcov-fastq"]
         example_dir = Path(self.test_dir)
 
         examples._write_genome_config(example, example_dir)
@@ -457,7 +458,7 @@ class TestExamplesDownload(unittest.TestCase):
         self.assertIn('fastq_r2 = "ERR001268_2.filt.fastq.gz"', config)
 
     def test_pacbio_examples_are_in_catalog(self):
-        from wgsextract_cli.commands import examples
+        from wgsextract_cli.commands import _examples_catalog as examples
 
         example = examples.EXAMPLES_BY_ID["hgsvc2-hg00733-pacbio-hifi-bam"]
 
@@ -467,7 +468,7 @@ class TestExamplesDownload(unittest.TestCase):
         self.assertIn("pacbio", example.tags)
 
     def test_select_examples_by_tag(self):
-        from wgsextract_cli.commands import examples
+        from wgsextract_cli.commands import _examples_catalog as examples
 
         selected = examples._select_examples([], include_all=False, tags=["pacbio"])
 
@@ -482,9 +483,10 @@ class TestExamplesDownload(unittest.TestCase):
         self.assertEqual(examples._source_for(url, "https"), url)
 
     def test_absolute_example_uses_declared_transfer_method(self):
+        from wgsextract_cli.commands import _examples_catalog as catalog
         from wgsextract_cli.commands import examples
 
-        example = examples.EXAMPLES_BY_ID["hgsvc2-hg00732-pacbio-hifi-bam-smallest"]
+        example = catalog.EXAMPLES_BY_ID["hgsvc2-hg00732-pacbio-hifi-bam-smallest"]
 
         planned = examples._planned_downloads(example, Path(self.test_dir), "aspera")
 
@@ -493,7 +495,7 @@ class TestExamplesDownload(unittest.TestCase):
         self.assertEqual(planned[0][0], example.files[0].url_path)
 
     def test_tag_selection_rejects_mixed_explicit_ids(self):
-        from wgsextract_cli.commands import examples
+        from wgsextract_cli.commands import _examples_catalog as examples
 
         with self.assertRaises(WGSExtractError):
             examples._select_examples(
@@ -551,6 +553,98 @@ class TestCLILogic(unittest.TestCase):
         # Test unknown gene
         coords = gm.get_coords("FAKEGENE", "hg38")
         self.assertIsNone(coords)
+
+    def test_gene_map_reflib_prefers_explicit_ref_maps(self):
+        ref_path = os.path.join(self.ref_dir, "fake_ref_hg38.fa")
+        Path(ref_path).write_text(">chr1\nACGT\n")
+        configured_reflib = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, configured_reflib)
+        os.makedirs(os.path.join(configured_reflib, "ref"))
+        Path(os.path.join(configured_reflib, "ref", "genes_hg38.tsv")).write_text(
+            "symbol\tchrom\tstart\tend\nBRCA1\tchr1\t1\t2\n"
+        )
+
+        self.assertEqual(
+            resolve_gene_map_reflib(ref_path, configured_reflib, "hg38"),
+            self.test_dir,
+        )
+
+    def test_gene_map_reflib_finds_maps_adjacent_to_explicit_ref(self):
+        ref_root = tempfile.mkdtemp()
+        configured_reflib = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, ref_root)
+        self.addCleanup(shutil.rmtree, configured_reflib)
+        ref_path = os.path.join(ref_root, "fake_ref_hg38.fa")
+        Path(ref_path).write_text(">chr1\nACGT\n")
+        os.makedirs(os.path.join(ref_root, "ref"))
+        Path(os.path.join(ref_root, "ref", "genes_hg38.tsv")).write_text(
+            "symbol\tchrom\tstart\tend\nBRCA1\tchr1\t1\t2\n"
+        )
+        os.makedirs(os.path.join(configured_reflib, "ref"))
+        Path(os.path.join(configured_reflib, "ref", "genes_hg38.tsv")).write_text(
+            "symbol\tchrom\tstart\tend\nBRCA1\tchr1\t3\t4\n"
+        )
+
+        self.assertEqual(
+            resolve_gene_map_reflib(ref_path, configured_reflib, "hg38"),
+            ref_root,
+        )
+
+    def test_gene_map_reflib_falls_back_to_configured_maps(self):
+        ref_root = tempfile.mkdtemp()
+        configured_reflib = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, ref_root)
+        self.addCleanup(shutil.rmtree, configured_reflib)
+        os.makedirs(os.path.join(ref_root, "ref"))
+        ref_path = os.path.join(ref_root, "ref", "fake_ref_hg38.fa")
+        Path(ref_path).write_text(">chr1\nACGT\n")
+        os.makedirs(os.path.join(configured_reflib, "ref"))
+        Path(os.path.join(configured_reflib, "ref", "genes_hg38.tsv")).write_text(
+            "symbol\tchrom\tstart\tend\nBRCA1\tchr1\t1\t2\n"
+        )
+
+        self.assertEqual(
+            resolve_gene_map_reflib(ref_path, configured_reflib, "hg38"),
+            configured_reflib,
+        )
+
+    def test_gene_map_reflib_microarray_prefers_explicit_ref_maps(self):
+        ref_root = tempfile.mkdtemp()
+        configured_reflib = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, ref_root)
+        self.addCleanup(shutil.rmtree, configured_reflib)
+        ref_path = os.path.join(ref_root, "fake_ref_hg38.fa")
+        Path(ref_path).write_text(">chr1\nACGT\n")
+        os.makedirs(os.path.join(ref_root, "microarray"))
+        Path(os.path.join(ref_root, "microarray", "genes_hg38.tsv")).write_text(
+            "symbol\tchrom\tstart\tend\nBRCA1\tchr1\t1\t2\n"
+        )
+        os.makedirs(os.path.join(configured_reflib, "microarray"))
+        Path(
+            os.path.join(configured_reflib, "microarray", "genes_hg38.tsv")
+        ).write_text("symbol\tchrom\tstart\tend\nBRCA1\tchr1\t3\t4\n")
+
+        self.assertEqual(
+            resolve_gene_map_reflib(ref_path, configured_reflib, "hg38"),
+            ref_root,
+        )
+
+    def test_gene_map_reflib_microarray_falls_back_to_configured_maps(self):
+        ref_root = tempfile.mkdtemp()
+        configured_reflib = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, ref_root)
+        self.addCleanup(shutil.rmtree, configured_reflib)
+        ref_path = os.path.join(ref_root, "fake_ref_hg38.fa")
+        Path(ref_path).write_text(">chr1\nACGT\n")
+        os.makedirs(os.path.join(configured_reflib, "microarray"))
+        Path(
+            os.path.join(configured_reflib, "microarray", "genes_hg38.tsv")
+        ).write_text("symbol\tchrom\tstart\tend\nBRCA1\tchr1\t3\t4\n")
+
+        self.assertEqual(
+            resolve_gene_map_reflib(ref_path, configured_reflib, "hg38"),
+            configured_reflib,
+        )
 
     def test_inheritance_expressions(self):
         # Verify the bcftools expressions used in vcf.py
@@ -780,7 +874,7 @@ class TestCLILogic(unittest.TestCase):
         self.assertEqual(args.outdir, genome_dir)
 
     def test_vcf_filter_prefers_explicit_vcf_input(self):
-        from wgsextract_cli.commands import vcf
+        from wgsextract_cli.commands import _vcf_filter_trio as vcf
 
         vcf_path = os.path.join(self.test_dir, "sample.vcf.gz")
         with open(vcf_path, "w") as f:
@@ -822,7 +916,7 @@ class TestCLILogic(unittest.TestCase):
         self.assertNotIn(args.input, command)
 
     def test_vcf_filter_raises_on_filter_failure(self):
-        from wgsextract_cli.commands import vcf
+        from wgsextract_cli.commands import _vcf_filter_trio as vcf
 
         vcf_path = os.path.join(self.test_dir, "sample.vcf.gz")
         with open(vcf_path, "w") as f:
@@ -860,7 +954,7 @@ class TestCLILogic(unittest.TestCase):
                 vcf.cmd_filter(args)
 
     def test_deepvariant_pacbio_model_type(self):
-        from wgsextract_cli.commands import vcf
+        from wgsextract_cli.commands import _vcf_deepvariant as vcf
 
         bam_path = os.path.join(self.test_dir, "sample.bam")
         ref_path = os.path.join(self.test_dir, "ref.fa")
@@ -910,7 +1004,7 @@ class TestCLILogic(unittest.TestCase):
         self.assertIn("PACBIO", commands[0])
 
     def test_pbsv_sv_builds_discover_and_call_commands(self):
-        from wgsextract_cli.commands import vcf
+        from wgsextract_cli.commands import _vcf_structural as vcf
 
         bam_path = os.path.join(self.test_dir, "sample.bam")
         ref_path = os.path.join(self.test_dir, "ref.fa")
@@ -964,7 +1058,7 @@ class TestCLILogic(unittest.TestCase):
         self.assertEqual(commands[2][:3], ["bcftools", "view", "-Oz"])
 
     def test_pbsv_sv_uncompresses_gzipped_reference_for_call(self):
-        from wgsextract_cli.commands import vcf
+        from wgsextract_cli.commands import _vcf_structural as vcf
 
         bam_path = os.path.join(self.test_dir, "sample.bam")
         ref_path = os.path.join(self.test_dir, "ref.fa.gz")
@@ -1017,7 +1111,7 @@ class TestCLILogic(unittest.TestCase):
         self.assertEqual(commands[2][-3], plain_ref)
 
     def test_pacbio_sv_falls_back_to_sniffles_when_pbsv_missing(self):
-        from wgsextract_cli.commands import vcf
+        from wgsextract_cli.commands import _vcf_structural as vcf
 
         args = Namespace(pacbio=True, caller="delly", ccs=False)
 
@@ -1032,7 +1126,7 @@ class TestCLILogic(unittest.TestCase):
         self.assertTrue(args.ccs)
 
     def test_sniffles_sv_builds_command(self):
-        from wgsextract_cli.commands import vcf
+        from wgsextract_cli.commands import _vcf_structural as vcf
 
         bam_path = os.path.join(self.test_dir, "sample.bam")
         ref_path = os.path.join(self.test_dir, "ref.fa")
@@ -1358,6 +1452,172 @@ class TestCLILogic(unittest.TestCase):
 
         self.assertEqual(args.r1, fastq)
         self.assertIsNone(args.r2)
+
+
+class TestReferenceSupportAssets(unittest.TestCase):
+    def setUp(self):
+        self.test_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.test_dir)
+
+    def test_reference_library_resolves_support_assets_from_input_build_hint(self):
+        from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+
+        os.makedirs(os.path.join(self.test_dir, "genomes"))
+        nested_ref = os.path.join(
+            self.test_dir, "microarray", "raw_file_templates", "body", "head", "ref"
+        )
+        os.makedirs(nested_ref)
+        os.makedirs(os.path.join(self.test_dir, "maps"))
+        fasta = os.path.join(self.test_dir, "genomes", "hg19.fa.gz")
+        snps = os.path.join(nested_ref, "snps_hg19.vcf.gz")
+        map_path = os.path.join(self.test_dir, "maps", "hg19.map.gz")
+        Path(fasta).touch()
+        Path(snps).touch()
+        Path(map_path).touch()
+
+        input_path = os.path.join(self.test_dir, "inputs", "HG00096.hg19-mini.bam")
+        os.makedirs(os.path.dirname(input_path))
+        Path(input_path).touch()
+
+        lib = ReferenceLibrary(self.test_dir, None, input_path=input_path)
+
+        self.assertEqual(lib.build, "hg19")
+        self.assertEqual(lib.ref_vcf_tab, snps)
+        self.assertEqual(lib.mappability_map, map_path)
+
+    def test_reference_library_detects_hs_build_aliases_from_reference_path(self):
+        from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+
+        hs38_ref = os.path.join(self.test_dir, "GCA_hs38d1_analysis_set.fa")
+        hs37_ref = os.path.join(self.test_dir, "hs37d5.fa")
+        Path(hs38_ref).touch()
+        Path(hs37_ref).touch()
+
+        self.assertEqual(ReferenceLibrary(hs38_ref, None).build, "hg38")
+        self.assertEqual(ReferenceLibrary(hs37_ref, None).build, "hg19")
+
+    def test_reference_resolver_resolves_mappability_map(self):
+        from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+
+        ref = os.path.join(self.test_dir, "GCA_hs38d1_analysis_set.fa")
+        maps_dir = os.path.join(self.test_dir, "maps")
+        map_path = os.path.join(maps_dir, "hg38.map.gz")
+        os.makedirs(maps_dir)
+        Path(ref).touch()
+        Path(map_path).touch()
+
+        lib = ReferenceLibrary(ref, None)
+
+        self.assertEqual(lib.build, "hg38")
+        self.assertEqual(lib.mappability_map, map_path)
+
+    def test_reference_resolver_resolves_support_assets_from_input_build_hint(self):
+        from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+
+        nested_ref = os.path.join(
+            self.test_dir, "microarray", "raw_file_templates", "body", "head", "ref"
+        )
+        os.makedirs(os.path.join(self.test_dir, "genomes"))
+        os.makedirs(nested_ref)
+        Path(os.path.join(self.test_dir, "genomes", "hg19.fa.gz")).touch()
+        snps = os.path.join(nested_ref, "snps_hg19.vcf.gz")
+        Path(snps).touch()
+
+        input_path = os.path.join(self.test_dir, "inputs", "HG00096.hg19-mini.bam")
+        os.makedirs(os.path.dirname(input_path))
+        Path(input_path).touch()
+
+        lib = ReferenceLibrary(self.test_dir, None, input_path=input_path)
+
+        self.assertEqual(lib.build, "hg19")
+        self.assertEqual(lib.ref_vcf_tab, snps)
+
+    def test_install_standard_mappability_maps_skips_existing_files(self):
+        from wgsextract_cli.core import constants, ref_library
+
+        downloaded = []
+        maps = {
+            "hg19": {
+                "filename": "hg19.map.gz",
+                "url": "https://example.invalid/hg19.map.gz",
+                "sidecars": {".fai": "https://example.invalid/hg19.map.gz.fai"},
+            }
+        }
+        existing = os.path.join(self.test_dir, "maps", "hg19.map.gz")
+        os.makedirs(os.path.dirname(existing))
+        Path(existing).touch()
+
+        def fake_download(url, dest_path, *_args):
+            downloaded.append((url, dest_path))
+            Path(dest_path).touch()
+            return True
+
+        with (
+            patch.object(constants, "DELLY_MAPPABILITY_MAPS", maps),
+            patch.object(ref_library, "download_file", fake_download),
+        ):
+            self.assertTrue(
+                ref_library.install_standard_mappability_maps(self.test_dir)
+            )
+
+        self.assertEqual(
+            downloaded,
+            [
+                (
+                    "https://example.invalid/hg19.map.gz.fai",
+                    os.path.join(self.test_dir, "maps", "hg19.map.gz.fai"),
+                )
+            ],
+        )
+
+    def test_install_standard_mappability_maps_reports_download_failure(self):
+        from wgsextract_cli.core import constants, ref_library
+
+        downloaded = []
+        maps = {
+            "hg19": {
+                "filename": "hg19.map.gz",
+                "url": "https://example.invalid/hg19.map.gz",
+                "sidecars": {".fai": "https://example.invalid/hg19.map.gz.fai"},
+            }
+        }
+
+        def fake_download(url, dest_path, *_args):
+            downloaded.append((url, dest_path))
+            if url.endswith(".fai"):
+                return False
+            Path(dest_path).touch()
+            return True
+
+        with (
+            patch.object(constants, "DELLY_MAPPABILITY_MAPS", maps),
+            patch.object(ref_library, "download_file", fake_download),
+        ):
+            self.assertFalse(
+                ref_library.install_standard_mappability_maps(self.test_dir)
+            )
+
+        self.assertEqual(
+            downloaded,
+            [
+                (
+                    "https://example.invalid/hg19.map.gz",
+                    os.path.join(self.test_dir, "maps", "hg19.map.gz"),
+                ),
+                (
+                    "https://example.invalid/hg19.map.gz.fai",
+                    os.path.join(self.test_dir, "maps", "hg19.map.gz.fai"),
+                ),
+            ],
+        )
+        self.assertTrue(
+            os.path.exists(os.path.join(self.test_dir, "maps", "hg19.map.gz"))
+        )
+        self.assertFalse(
+            os.path.exists(os.path.join(self.test_dir, "maps", "hg19.map.gz.fai"))
+        )
 
 
 if __name__ == "__main__":

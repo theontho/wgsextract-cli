@@ -2,21 +2,23 @@ import logging
 import os
 import subprocess
 
-from wgsextract_cli.core.dependencies import log_dependency_info, verify_dependencies
+from wgsextract_cli.core.dependency_checks import (
+    verify_dependencies,
+)
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
     WGSExtractError,
-    calculate_bam_md5,
+    get_sam_index_cmd,
+    run_command,
+)
+from wgsextract_cli.core.variant_files import (
     ensure_vcf_indexed,
     get_chr_name,
-    get_resource_defaults,
-    get_sam_index_cmd,
     popen,
-    resolve_reference,
-    run_command,
-    verify_paths_exist,
 )
 from wgsextract_cli.core.warnings import print_warning
+
+from ._extract_helpers import get_base_args, resolve_region_or_gene
 
 
 def register(subparsers, base_parser):
@@ -86,77 +88,11 @@ def register(subparsers, base_parser):
     custom_parser.set_defaults(func=cmd_custom)
 
 
-def resolve_region_or_gene(args, resolved_ref):
-    """Helper to resolve either a raw region or a gene name to coordinates."""
-    if hasattr(args, "region") and args.region:
-        return args.region
-
-    if hasattr(args, "gene") and args.gene:
-        from wgsextract_cli.core.config import settings
-        from wgsextract_cli.core.gene_map import GeneMap
-
-        # Determine reference library directory
-        reflib_dir = settings.get("reference_library")
-        if not reflib_dir and resolved_ref:
-            # resolved_ref is usually path/to/reflib/ref/genome.fa
-            reflib_dir = os.path.dirname(os.path.dirname(resolved_ref))
-
-        if not reflib_dir:
-            logging.error(
-                "Reference library not found. Please provide a --ref or set reference_library in config.toml."
-            )
-            return None
-
-        gm = GeneMap(reflib_dir)
-        # We need a build name. Default to hg38 if we can't detect it.
-        build = "hg38"
-        if resolved_ref:
-            if "hg19" in resolved_ref.lower() or "b37" in resolved_ref.lower():
-                build = "hg19"
-
-        resolved_region = gm.get_coords(args.gene, build)
-        if resolved_region:
-            logging.info(f"Resolved gene {args.gene} to {resolved_region}")
-            return resolved_region
-        else:
-            logging.error(f"Could not resolve gene name: {args.gene}")
-            return None
-
-    return None
-
-
-def get_base_args(args):
-    verify_dependencies(["samtools", "bcftools", "tabix"])
-    log_dependency_info(["samtools", "bcftools", "tabix"])
-
-    if not args.input:
-        logging.error(LOG_MESSAGES["input_required"])
-        return None
-
-    if not verify_paths_exist({"--input": args.input}):
-        return None
-
-    logging.debug(f"Input file: {os.path.abspath(args.input)}")
-
-    threads, _ = get_resource_defaults(args.threads, None)
-    outdir = (
-        args.outdir if args.outdir else os.path.dirname(os.path.abspath(args.input))
-    )
-    logging.debug(f"Output directory: {os.path.abspath(outdir)}")
-
-    md5_sig = calculate_bam_md5(args.input, None)
-    resolved_ref = resolve_reference(args.ref, md5_sig)
-    logging.debug(f"Resolved reference: {resolved_ref}")
-
-    paths_to_check = {}
+def require_reference(resolved_ref, task):
     if resolved_ref:
-        paths_to_check["--ref"] = resolved_ref
-
-    if not verify_paths_exist(paths_to_check):
-        return None
-
-    cram_opt = ["-T", resolved_ref] if resolved_ref else []
-    return threads, outdir, cram_opt, resolved_ref
+        return
+    message = LOG_MESSAGES["ref_required_for"].format(task=task)
+    raise WGSExtractError(message)
 
 
 def cmd_mito_fasta(args):
@@ -166,11 +102,7 @@ def cmd_mito_fasta(args):
         return
     threads, outdir, cram_opt, resolved_ref = base
 
-    if not resolved_ref:
-        logging.error(
-            LOG_MESSAGES["ref_required_for"].format(task="mitochondrial extraction")
-        )
-        return
+    require_reference(resolved_ref, "mitochondrial extraction")
 
     print_warning("ButtonMitoFASTA", threads=threads)
 
@@ -233,11 +165,7 @@ def cmd_mito_vcf(args):
         return
     threads, outdir, cram_opt, resolved_ref = base
 
-    if not resolved_ref:
-        logging.error(
-            LOG_MESSAGES["ref_required_for"].format(task="mitochondrial extraction")
-        )
-        return
+    require_reference(resolved_ref, "mitochondrial extraction")
 
     print_warning("ButtonMitoVCF", threads=threads)
 
@@ -366,9 +294,7 @@ def cmd_ydna_vcf(args):
         return
     threads, outdir, cram_opt, resolved_ref = base
 
-    if not resolved_ref:
-        logging.error(LOG_MESSAGES["ref_required_for"].format(task="Y extraction"))
-        return
+    require_reference(resolved_ref, "Y extraction")
 
     print_warning("ButtonYOnlyVCF", threads=threads)
 

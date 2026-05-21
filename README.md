@@ -3,8 +3,6 @@
 
 # 🧬 WGS Extract CLI (`wgsextract-cli`)
 
-![GUI Screenshot](docs/gui-screenshot.jpg)
-
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
@@ -25,15 +23,14 @@ curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/instal
 
 The command downloads the small bootstrap script from `main`, but the app payload is not installed from `main`. The installer resolves GitHub's latest published release, downloads that release tag's source archive, runs `pixi install`, and writes launchers inside the install directory. This keeps normal installs on tested release builds while allowing the install command itself to improve over time.
 
-By default, a downloaded `install.sh` creates `wgsextract-cli/` next to itself; when run through `curl | sh`, it creates `wgsextract-cli/` in the current directory. The app lives in `wgsextract-cli/app/`, the CLI launcher lives at `wgsextract-cli/wgsextract`, Pixi files live under `wgsextract-cli/.pixi/`, and installer temporary files live under `wgsextract-cli/app/tmp/`. On macOS, the installer opens the install directory in Finder when it finishes. If the installer installed Pixi for you and you no longer need it, uninstall Pixi separately.
+By default, a downloaded `install.sh` creates `wgsextract-cli/` next to itself; when run through `curl | sh`, it creates `wgsextract-cli/` in the current directory. The app lives in `wgsextract-cli/app/`, the CLI launcher lives at `wgsextract-cli/wgsextract`, Pixi files live under `wgsextract-cli/.pixi/`, and installer temporary files live under `wgsextract-cli/app/tmp/`. On macOS, the installer opens the install directory in Finder when it finishes. Remove the app with `wgsextract-cli/uninstall.sh`; interactive uninstalls ask whether to remove Pixi from `~/.pixi` too.
 
 After install, the default launchers are:
 
 | Launcher | Purpose |
 | :--- | :--- |
 | `wgsextract-cli/wgsextract` | CLI launcher |
-| `wgsextract-cli/WGS Extract GUI.command` | macOS Finder double-click launcher for the desktop GUI |
-| `wgsextract-cli/start-wgsextract-gui.sh` | Linux shell launcher for the desktop GUI |
+| `wgsextract-cli/uninstall.sh` | macOS/Linux uninstaller |
 
 ### Installer options
 
@@ -52,6 +49,14 @@ Set these environment variables before running the installer to customize it:
 Leave `WGSEXTRACT_BIN_DIR`, `WGSEXTRACT_PIXI_CACHE_DIR`, and `WGSEXTRACT_PIXI_ENV_DIR` unset for clean one-directory uninstall behavior. Setting any of them outside `WGSEXTRACT_INSTALL_DIR` intentionally leaves that launcher, cache, or environment outside the install tree.
 
 For reproducible installs, set `WGSEXTRACT_RELEASE_TAG=vX.Y.Z` before running the installer. For development testing, set `WGSEXTRACT_REF=main` or `WGSEXTRACT_ARCHIVE_URL=<url>` to bypass latest-release resolution.
+
+### macOS/Linux uninstall
+
+```bash
+./wgsextract-cli/uninstall.sh --yes
+```
+
+The uninstaller removes the install directory and the default launcher, Pixi environments, and Pixi cache under that directory. It keeps user configuration by default; add `--remove-config` to remove `config.toml` too. Interactive runs ask whether to remove Pixi from `~/.pixi`; `--yes` keeps Pixi unless you also pass `--remove-pixi`. Use `--keep-pixi` to skip the Pixi prompt. If you installed with custom `WGSEXTRACT_BIN_DIR`, `WGSEXTRACT_PIXI_CACHE_DIR`, or `WGSEXTRACT_PIXI_ENV_DIR` values outside the install directory, pass the same environment variables or matching `--bin-dir`, `--pixi-cache-dir`, and `--pixi-env-dir` options to remove those external paths.
 
 ### Release assets and checksums
 
@@ -249,11 +254,9 @@ wgsextract qc fake-data --type bam --coverage 1 --legacy-bam --outdir out/fake-l
 
 ## 🎨 UI Interfaces
 
-While primarily a CLI tool, `wgsextract-cli` includes a desktop GUI built with `CustomTkinter`. On macOS, double-click `wgsextract-cli/WGS Extract GUI.command` in Finder. On Linux, run:
+`wgsextract-cli` is CLI-only. Graphical interfaces are maintained outside this package.
+If you want a GUI, use [gui-for-cli](https://github.com/theontho/gui-for-cli).
 
-```bash
-./wgsextract-cli/start-wgsextract-gui.sh
-```
 ---
 
 ## 🧪 Testing
@@ -311,54 +314,46 @@ Last stats run:
 ========================================================
 
 --- Full Project (Excluding generated data and external deps) ---
-     185 text files.
-     179 unique files.                                          
-      11 files ignored.
-
-github.com/AlDanial/cloc v 2.06  T=0.42 s (430.3 files/s, 78153.9 lines/s)
+github.com/AlDanial/cloc v 2.08  T=0.33 s (493.8 files/s, 124255.2 lines/s)
 -------------------------------------------------------------------------------
 Language                     files          blank        comment           code
 -------------------------------------------------------------------------------
-Python                          82           3478           1771          20029
-Bourne Shell                    87            929            798           4916
-Markdown                         3             73              0            196
-TOML                             2             24             11            192
-PowerShell                       2             10              3             28
-YAML                             1              0              0             25
-SVG                              1              3              4             17
-INI                              1              0              0              5
+Python                         120           4615           1348          27082
+HTML                             6            101              0           1837
+Markdown                        14            458              0           1704
+PowerShell                       4            150             64           1028
+Bourne Shell                     6            120             13            966
+CSS                              1            105              0            631
+DOS Batch                        2             43              0            484
+TOML                             3             41              4            274
+YAML                             2              3              1             83
+JSON                             4              0              0             72
+CSV                              1              0              0             38
+Text                             1              0              0              2
 -------------------------------------------------------------------------------
-SUM:                           179           4517           2587          25408
+SUM:                           164           5636           1430          34201
 -------------------------------------------------------------------------------
 
 --- Production Code (src/wgsextract_cli) ---
-      53 text files.
-      53 unique files.                              
-       3 files ignored.
-
-github.com/AlDanial/cloc v 2.06  T=0.29 s (184.1 files/s, 70679.4 lines/s)
+github.com/AlDanial/cloc v 2.08  T=0.24 s (338.3 files/s, 91951.5 lines/s)
 -------------------------------------------------------------------------------
 Language                     files          blank        comment           code
 -------------------------------------------------------------------------------
-Python                          52           2699           1379          16248
-SVG                              1              3              4             17
+Python                          79           2923            944          18106
+CSV                              1              0              0             38
+Text                             1              0              0              2
 -------------------------------------------------------------------------------
-SUM:                            53           2702           1383          16265
+SUM:                            81           2923            944          18146
 -------------------------------------------------------------------------------
 
---- Test Code (tests/ and smoke_test_scripts/) ---
-      96 text files.
-      96 unique files.                              
-       1 file ignored.
-
-github.com/AlDanial/cloc v 2.06  T=0.38 s (254.5 files/s, 29160.1 lines/s)
+--- Test Code (tests/) ---
+github.com/AlDanial/cloc v 2.08  T=0.18 s (187.7 files/s, 51943.8 lines/s)
 -------------------------------------------------------------------------------
 Language                     files          blank        comment           code
 -------------------------------------------------------------------------------
-Bourne Shell                    69            836            765           4543
-Python                          27            762            383           3710
+Python                          33           1424            379           7331
 -------------------------------------------------------------------------------
-SUM:                            96           1598           1148           8253
+SUM:                            33           1424            379           7331
 -------------------------------------------------------------------------------
 
 ========================================================

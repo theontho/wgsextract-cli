@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="WGS Extract CLI and GUI documentation, install guide, workflows, and whole genome sequencing reference." />
+    <meta name="description" content="WGS Extract CLI documentation, install guide, workflows, and whole genome sequencing reference." />
     <title>WGS Extract CLI | Local-first whole genome toolkit</title>
     <meta property="og:site_name" content="WGS Extract CLI" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="WGS Extract CLI | Local-first whole genome toolkit" />
-    <meta property="og:description" content="WGS Extract CLI and GUI documentation, install guide, workflows, and whole genome sequencing reference." />
+    <meta property="og:description" content="WGS Extract CLI documentation, install guide, workflows, and whole genome sequencing reference." />
     <meta property="og:url" content="https://theontho.github.io/wgsextract-cli/" />
     <meta property="og:image" content="https://theontho.github.io/wgsextract-cli/assets/social-preview.png" />
     <meta property="og:image:type" content="image/png" />
@@ -17,7 +17,7 @@
     <meta property="og:image:alt" content="WGS Extract CLI local-first whole genome toolkit" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="WGS Extract CLI | Local-first whole genome toolkit" />
-    <meta name="twitter:description" content="WGS Extract CLI and GUI documentation, install guide, workflows, and whole genome sequencing reference." />
+    <meta name="twitter:description" content="WGS Extract CLI documentation, install guide, workflows, and whole genome sequencing reference." />
     <meta name="twitter:image" content="https://theontho.github.io/wgsextract-cli/assets/social-preview.png" />
     <link rel="canonical" href="https://theontho.github.io/wgsextract-cli/" />
     <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".82em" font-size="84">🧬</text></svg>' />
@@ -27,7 +27,7 @@
     <nav class="nav" aria-label="Primary navigation">
       <div class="wrap nav-inner">
         <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true"></span><span>WGS Extract CLI</span></a>
-        <div class="nav-links"><a class="active" href="index.html">Home</a><a href="install.html">Install</a><a href="cli.html">CLI</a><a href="gui.html">GUI</a><a href="workflows.html">Workflows</a><a href="wgs-guide.html">WGS guide</a><a href="reference.html">Reference</a><a href="https://github.com/theontho/wgsextract-cli" target="_blank" rel="noopener noreferrer">GitHub</a></div>
+        <div class="nav-links"><a class="active" href="index.html">Home</a><a href="install.html">Install</a><a href="cli.html">CLI</a><a href="workflows.html">Workflows</a><a href="wgs-guide.html">WGS guide</a><a href="reference.html">Reference</a><a href="https://github.com/theontho/wgsextract-cli" target="_blank" rel="noopener noreferrer">GitHub</a></div>
       </div>
     </nav>
 
@@ -39,7 +39,7 @@
       <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Local-first genomics toolkit</p>
       <h1>Turn whole genome data into useful files, reports, and extracts.</h1>
       <p class="lede">
-        <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> is a modern, scriptable command-line recreation of <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract with a desktop <abbr data-tooltip="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command." aria-label="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command.">GUI</abbr> for guided workflows. It wraps common bioinformatics tools so you can inspect <abbr data-tooltip="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome." aria-label="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome.">BAM</abbr>/<abbr data-tooltip="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome." aria-label="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome.">CRAM</abbr> files, build consumer microarray files, call variants, extract Y/<abbr data-tooltip="MT: Mitochondrial chromosome: the chromosome name often used for mitochondrial DNA in some reference builds." aria-label="MT: Mitochondrial chromosome: the chromosome name often used for mitochondrial DNA in some reference builds.">MT</abbr> reads, manage references, and automate repeatable genome work.
+        <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> is a modern, scriptable command-line recreation of <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract. It wraps common bioinformatics tools so you can inspect <abbr data-tooltip="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome." aria-label="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome.">BAM</abbr>/<abbr data-tooltip="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome." aria-label="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome.">CRAM</abbr> files, build consumer microarray files, call variants, extract Y/<abbr data-tooltip="MT: Mitochondrial chromosome: the chromosome name often used for mitochondrial DNA in some reference builds." aria-label="MT: Mitochondrial chromosome: the chromosome name often used for mitochondrial DNA in some reference builds.">MT</abbr> reads, manage references, and automate repeatable genome work.
       </p>
       <div class="actions">
         <a class="btn primary" href="install.html">Start installing</a>
@@ -57,14 +57,12 @@
 <span class="comment"># Check your setup</span>
 <span class="prompt">$</span> <span class="cmd">./wgsextract-cli/wgsextract info --detailed</span>
 
-<span class="comment"># Launch desktop GUI:
-# macOS: double-click WGS Extract GUI.command in Finder
-# Linux:</span>
-<span class="prompt">$</span> <span class="cmd">./wgsextract-cli/start-wgsextract-gui.sh</span></code></pre>
+<span class="comment"># See available commands</span>
+<span class="prompt">$</span> <span class="cmd">./wgsextract-cli/wgsextract help</span></code></pre>
       </div>
       <div class="stats">
         <div class="stat"><strong><abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr></strong><span>Automation first</span></div>
-        <div class="stat"><strong><abbr data-tooltip="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command." aria-label="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command.">GUI</abbr></strong><span>Guided desktop app</span></div>
+        <div class="stat"><strong>Local</strong><span>Runs on your machine</span></div>
         <div class="stat"><strong><a class="term-link" href="https://pixi.sh/">Pixi</a></strong><span>Reproducible tools</span></div>
       </div>
     </aside>
@@ -74,7 +72,7 @@
 <div class="wrap">
 <div class="section-head">
 <h2>A practical reference site, not just a splash page.</h2>
-<p>Use the pages below as a map for installing the tool, choosing the right interface, understanding <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> file types, and running common genome workflows safely.</p>
+<p>Use the pages below as a map for installing the tool, understanding <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> file types, and running common genome workflows safely.</p>
 </div>
 <div class="grid three">
 <article class="card">
@@ -90,10 +88,9 @@
 <a class="inline-link" href="cli.html" data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">Open the CLI guide</a>
 </article>
 <article class="card">
-<div class="kicker"><abbr data-tooltip="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command." aria-label="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command.">GUI</abbr> guide</div>
-<h3>Use the desktop interface</h3>
-<p>Understand the <abbr data-tooltip="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command." aria-label="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command.">GUI</abbr> tabs, what each tab does, when the <abbr data-tooltip="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command." aria-label="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command.">GUI</abbr> is easier than the <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr>, and how it maps back to command-line workflows.</p>
-<a class="inline-link" href="gui.html" data-tooltip="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command." aria-label="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command.">Explore the GUI</a>
+<div class="kicker">Graphical interface</div>
+<h3>Want a GUI?</h3>
+<p>This package is CLI-only. Use <a class="inline-link" href="https://github.com/theontho/gui-for-cli">gui-for-cli</a> when you want a graphical interface for these workflows.</p>
 </article>
 <article class="card">
 <div class="kicker">Workflows</div>
@@ -113,22 +110,6 @@
 <p>Look up common terms, file extensions, external tools, privacy considerations, and troubleshooting tips for long-running genome jobs.</p>
 <a class="inline-link" href="reference.html">Open the reference</a>
 </article>
-</div>
-</div>
-</section>
-<section>
-<div class="wrap showcase">
-<div class="screenshot">
-<img src="gui-screenshot.jpg" alt="Screenshot of the WGS Extract desktop GUI" />
-</div>
-<div>
-<p class="kicker"><abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> plus <abbr data-tooltip="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command." aria-label="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command.">GUI</abbr></p>
-<h2>Choose the interface that fits the job.</h2>
-<p class="lede">Use the <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> for repeatable automation, batch runs, remote machines, and precise region testing. Use the desktop <abbr data-tooltip="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command." aria-label="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command.">GUI</abbr> when you want a tabbed interface for selecting files, browsing references, launching common jobs, and watching logs.</p>
-<div class="button-row">
-<a class="btn primary" href="cli.html" data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI reference</a>
-<a class="btn" href="gui.html" data-tooltip="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command." aria-label="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command.">GUI reference</a>
-</div>
 </div>
 </div>
 </section>

@@ -1,3 +1,12 @@
+from typing import TypedDict
+
+
+class DellyMappabilityMap(TypedDict):
+    filename: str
+    url: str
+    sidecars: dict[str, str]
+
+
 SEQUENCERS = {
     "Illumina NS 6000 (Dante)": r"^(A00910|A00925|A00966|A01245):\d+:[a-zA-Z0-9]{9}:\d:\d+:\d+:\d+$",
     "Illumina NS 6000 (FTDNA)": r"^(A00186):\d+:[a-zA-Z0-9]{9}:\d:\d+:\d+:\d+$",
@@ -275,33 +284,6 @@ N_ADJUST = {
         "Y": 36389037,
         "M": 0,
     },
-    "19": {
-        "1": 23970000,
-        "2": 4994855,
-        "3": 3225295,
-        "4": 3492600,
-        "5": 3220000,
-        "6": 3720001,
-        "7": 3785000,
-        "8": 3475100,
-        "9": 21070000,
-        "10": 4220009,
-        "11": 3877000,
-        "12": 3370502,
-        "13": 19580000,
-        "14": 19060000,
-        "15": 20836626,
-        "16": 11470000,
-        "17": 3400000,
-        "18": 3420019,
-        "19": 3320000,
-        "20": 3520000,
-        "21": 13023253,
-        "22": 16410021,
-        "X": 4170000,
-        "Y": 36389037,
-        "M": 0,
-    },
     "36": {
         "1": 22250000,
         "2": 5241355,
@@ -381,6 +363,7 @@ N_ADJUST = {
         "M": 0,
     },
 }
+N_ADJUST["19"] = N_ADJUST["37"]
 
 # Reference Library Bootstrap
 BOOTSTRAP_URL = "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/wgsextract-reference-bootstrap.tar.gz"
@@ -399,3 +382,25 @@ MAPPABILITY_MAP_FILES = (
     "hg38.map.gz.fai",
     "hg38.map.gz.gzi",
 )
+
+# Standard Delly CNV mappability maps. Delly hosts these as BGZF FASTA-like
+# tracks with sidecar indexes; store them under stable local names so callers
+# can resolve them from the reference build without user input.
+DELLY_MAPPABILITY_MAPS: dict[str, DellyMappabilityMap] = {
+    "hg19": {
+        "filename": "hg19.map.gz",
+        "url": "https://gear-genomics.embl.de/data/delly/Homo_sapiens.GRCh37.dna.primary_assembly.fa.r101.s501.blacklist.gz",
+        "sidecars": {
+            ".fai": "https://gear-genomics.embl.de/data/delly/Homo_sapiens.GRCh37.dna.primary_assembly.fa.r101.s501.blacklist.gz.fai",
+            ".gzi": "https://gear-genomics.embl.de/data/delly/Homo_sapiens.GRCh37.dna.primary_assembly.fa.r101.s501.blacklist.gz.gzi",
+        },
+    },
+    "hg38": {
+        "filename": "hg38.map.gz",
+        "url": "https://gear-genomics.embl.de/data/delly/Homo_sapiens.GRCh38.dna.primary_assembly.fa.r101.s501.blacklist.gz",
+        "sidecars": {
+            ".fai": "https://gear-genomics.embl.de/data/delly/Homo_sapiens.GRCh38.dna.primary_assembly.fa.r101.s501.blacklist.gz.fai",
+            ".gzi": "https://gear-genomics.embl.de/data/delly/Homo_sapiens.GRCh38.dna.primary_assembly.fa.r101.s501.blacklist.gz.gzi",
+        },
+    },
+}

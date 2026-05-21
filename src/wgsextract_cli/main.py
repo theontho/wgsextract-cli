@@ -3,6 +3,7 @@
 import argparse
 import logging
 import os
+import signal
 import sys
 
 from .commands import (
@@ -18,6 +19,7 @@ from .commands import (
     microarray,
     pet,
     qc,
+    realign,
     ref,
     repair,
     vcf,
@@ -27,6 +29,25 @@ from .core.config import KNOWN_SETTINGS, get_config_path, reload_settings, setti
 from .core.genome_library import apply_genome_selection
 from .core.messages import CLI_HELP
 from .core.utils import WGSExtractError, cleanup_processes
+
+SIGNAL_EXPLANATIONS = {
+    "SIGHUP": "terminal or parent session closed",
+    "SIGINT": "interrupt from keyboard, usually Ctrl+C",
+    "SIGQUIT": "quit from keyboard, usually Ctrl+\\",
+    "SIGKILL": "force kill; cannot be caught or cleaned up",
+    "SIGTERM": "normal termination request from kill or a process manager",
+}
+
+
+def describe_signal(signum: int) -> str:
+    """Return a concise user-facing explanation for a signal number."""
+    try:
+        signal_name = signal.Signals(signum).name
+    except ValueError:
+        return f"signal {signum}: unknown signal"
+
+    explanation = SIGNAL_EXPLANATIONS.get(signal_name, "process signal")
+    return f"signal {signum} ({signal_name}: {explanation})"
 
 
 def _parent_process_is_alive(parent_pid: int) -> bool:
@@ -263,27 +284,6 @@ def main():
         dest="command", required=False, title="subcommands"
     )
 
-    # UI Commands
-    gui_parser = subparsers.add_parser("gui", help=CLI_HELP["cmd_gui"])
-    gui_group = gui_parser.add_mutually_exclusive_group()
-    gui_group.add_argument(
-        "--web", action="store_true", help="Start the Web-based GUI (NiceGUI)."
-    )
-    gui_group.add_argument(
-        "--desktop",
-        action="store_true",
-        default=True,
-        help="Start the Desktop GUI (CustomTkinter).",
-    )
-
-    def run_gui(args):
-        if args.web:
-            __import__("wgsextract_cli.ui.web_gui", fromlist=["main"]).main()
-        else:
-            __import__("wgsextract_cli.ui.gui", fromlist=["main"]).main()
-
-    gui_parser.set_defaults(func=run_gui)
-
     help_parser = subparsers.add_parser("help", help="Show this concise command tree.")
     help_parser.set_defaults(func=lambda args: print_full_help(parser))
 
@@ -387,6 +387,7 @@ def main():
         qc,
         ref,
         align,
+        realign,
         pet,
         vep,
         analyze,
@@ -431,11 +432,8 @@ def main():
     elif args.quiet:
         logging.getLogger().setLevel(logging.ERROR)
 
-    # Handle signals for clean exit (allows finally blocks to run)
-    import signal
-
     def signal_handler(signum, frame):
-        logging.info(f"Received signal {signum}, cleaning up...")
+        logging.info(f"Received {describe_signal(signum)}, cleaning up...")
         cleanup_processes()
         sys.exit(0)
 

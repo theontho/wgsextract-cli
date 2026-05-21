@@ -5,16 +5,19 @@ import os
 import shutil
 import subprocess
 
-from wgsextract_cli.core.dependencies import log_dependency_info, verify_dependencies
+from wgsextract_cli.core.dependency_checks import (
+    log_dependency_info,
+    verify_dependencies,
+)
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
     get_sam_index_cmd,
     get_sam_sort_cmd,
-    popen,
     run_command,
 )
+from wgsextract_cli.core.variant_files import popen
 
 
 def register(subparsers, base_parser):
@@ -64,7 +67,7 @@ def run(args):
     if not os.path.exists(ref_file):
         logging.error(f"Reference genome for {args.species} not found at {ref_file}")
         if not os.path.isfile(args.ref):
-            logging.info("Please download it in the Library tab of the GUI.")
+            logging.info("Please download it with `wgsextract ref library --install`.")
         raise WGSExtractError(
             f"Reference genome for {args.species} not found at {ref_file}"
         )

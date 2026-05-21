@@ -49,6 +49,20 @@ def sort_microarray_file(input_file: str, output_file: str) -> None:
             f.write("\t".join(parts) + "\n")
 
 
+def _chrom_for_liftover(chrom: str) -> str:
+    if chrom in {"M", "MT", "chrM", "chrMT"}:
+        return "chrM"
+    if chrom.startswith("chr"):
+        return chrom
+    return f"chr{chrom}"
+
+
+def _chrom_from_liftover(chrom: str) -> str:
+    if chrom in {"chrM", "chrMT", "M", "MT"}:
+        return "MT"
+    return chrom.removeprefix("chr")
+
+
 def liftover_hg38_to_hg19(
     input_txt: str, output_txt: str, chain_file: str, templates_dir: str | None = None
 ) -> None:
@@ -84,7 +98,7 @@ def liftover_hg38_to_hg19(
                 snp_id, chrom, pos, result = parts[0], parts[1], parts[2], parts[3]
 
                 # Normalize chromosome name for pyliftover
-                old_chrom = ("chr" + chrom).replace("chrMT", "chrM")
+                old_chrom = _chrom_for_liftover(chrom)
 
                 try:
                     new_coord = lo.convert_coordinate(old_chrom, int(pos))
@@ -97,7 +111,7 @@ def liftover_hg38_to_hg19(
 
                     if new_chrom in valid_chroms:
                         # Normalize back to legacy format (no 'chr', M->MT)
-                        out_chrom = new_chrom.replace("chrM", "MT").replace("chr", "")
+                        out_chrom = _chrom_from_liftover(new_chrom)
                         f_sink.write(f"{snp_id}\t{out_chrom}\t{new_pos}\t{result}\n")
                     else:
                         bad_chrom += 1
@@ -187,7 +201,8 @@ def write_formatted_line(
         f.write(f"{snp_id}\t{chrom}\t{pos}\t{val}\n")
 
     elif "23andMe" in format_name or format_name == "23andMe_SNPs_API":
-        chrom = chrom.replace("M", "MT")
+        if chrom == "M":
+            chrom = "MT"
         f.write(f"{snp_id}\t{chrom}\t{pos}\t{result}\n")
 
     elif format_name in ["FTDNA_V1_Affy", "MyHeritage_V2", "MyHeritage_V1"]:

@@ -3,20 +3,22 @@ import os
 import subprocess
 from pathlib import Path
 
-from wgsextract_cli.core.dependencies import (
-    get_tool_path,
+from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
     WGSExtractError,
-    calculate_bam_md5,
     get_resource_defaults,
     get_sam_index_cmd,
+    run_command,
+)
+from wgsextract_cli.core.variant_files import (
+    calculate_bam_md5,
     popen,
     resolve_reference,
-    run_command,
     verify_paths_exist,
 )
 from wgsextract_cli.core.warnings import print_warning
@@ -88,6 +90,46 @@ def _aligner_stream_sort_cmd(out_bam, threads, memory, fmt, reference):
     return cmd
 
 
+def _check_pipeline_process(process, label: str) -> None:
+    if hasattr(process, "wait"):
+        process.wait()
+    returncode = getattr(process, "returncode", 0)
+    if returncode:
+        raise WGSExtractError(f"{label} failed with exit status {returncode}.")
+
+
+def _run_streamed_alignment(
+    align_cmd: list[str],
+    sort_cmd: list[str],
+    out_bam: str,
+    threads: str,
+    samblaster: str | None,
+) -> None:
+    p_align = popen(align_cmd, stdout=subprocess.PIPE)
+    p_blaster = None
+    if samblaster:
+        logging.info("Using samblaster for marking duplicates...")
+        p_blaster = popen([samblaster], stdin=p_align.stdout, stdout=subprocess.PIPE)
+        if p_align.stdout:
+            p_align.stdout.close()
+        p_sort = popen(sort_cmd, stdin=p_blaster.stdout)
+        if p_blaster.stdout:
+            p_blaster.stdout.close()
+    else:
+        p_sort = popen(sort_cmd, stdin=p_align.stdout)
+        if p_align.stdout:
+            p_align.stdout.close()
+
+    p_sort.communicate()
+    _check_pipeline_process(p_sort, "samtools sort")
+    if p_blaster:
+        _check_pipeline_process(p_blaster, "samblaster")
+    _check_pipeline_process(p_align, "aligner")
+
+    logging.info(LOG_MESSAGES["indexing_output"])
+    run_command(get_sam_index_cmd(out_bam, threads=threads))
+
+
 def align_bwa(args):
     verify_dependencies(["bwa", "samtools"])
     log_dependency_info(["bwa", "samtools"])
@@ -152,38 +194,10 @@ def align_bwa(args):
         # 1. Aligner command
         align_cmd = [bwa, "mem", "-t", threads, resolved_ref, args.r1] + r2_args
 
-        # 2. Mark duplicates (optional)
-        use_blaster = samblaster is not None
-        if use_blaster:
-            logging.info("Using samblaster for marking duplicates...")
-
-        # 3. Sorter command
         sort_cmd = _aligner_stream_sort_cmd(
             out_bam, threads, memory, args.format, resolved_ref
         )
-
-        # Pipe align -> [samblaster] -> sort
-        p_align = popen(align_cmd, stdout=subprocess.PIPE)
-
-        if use_blaster:
-            p_blaster = popen(
-                [samblaster], stdin=p_align.stdout, stdout=subprocess.PIPE
-            )
-            if p_align.stdout:
-                p_align.stdout.close()
-            p_sort = popen(sort_cmd, stdin=p_blaster.stdout)
-            if p_blaster.stdout:
-                p_blaster.stdout.close()
-        else:
-            p_sort = popen(sort_cmd, stdin=p_align.stdout)
-            if p_align.stdout:
-                p_align.stdout.close()
-
-        p_sort.communicate()
-
-        logging.info(LOG_MESSAGES["indexing_output"])
-        index_cmd = get_sam_index_cmd(out_bam, threads=threads)
-        run_command(index_cmd)
+        _run_streamed_alignment(align_cmd, sort_cmd, out_bam, threads, samblaster)
     except Exception as e:
         logging.error(f"BWA alignment failed: {e}")
         raise WGSExtractError("BWA alignment failed.") from e
@@ -258,43 +272,17 @@ def align_minimap2(args):
             args.r1,
         ] + r2_args
 
-        # 2. Mark duplicates (optional)
         platform = getattr(args, "platform", "illumina")
         use_blaster = (
             samblaster is not None
             and not getattr(args, "long_read", False)
             and platform not in {"pacbio", "hifi", "clr", "ont", "nanopore"}
         )
-        if use_blaster:
-            logging.info("Using samblaster for marking duplicates...")
-
-        # 3. Sorter command
+        samblaster_cmd = samblaster if use_blaster else None
         sort_cmd = _aligner_stream_sort_cmd(
             out_bam, threads, memory, args.format, resolved_ref
         )
-
-        # Pipe align -> [samblaster] -> sort
-        p_align = popen(align_cmd, stdout=subprocess.PIPE)
-
-        if use_blaster:
-            p_blaster = popen(
-                [samblaster], stdin=p_align.stdout, stdout=subprocess.PIPE
-            )
-            if p_align.stdout:
-                p_align.stdout.close()
-            p_sort = popen(sort_cmd, stdin=p_blaster.stdout)
-            if p_blaster.stdout:
-                p_blaster.stdout.close()
-        else:
-            p_sort = popen(sort_cmd, stdin=p_align.stdout)
-            if p_align.stdout:
-                p_align.stdout.close()
-
-        p_sort.communicate()
-
-        logging.info(LOG_MESSAGES["indexing_output"])
-        index_cmd = get_sam_index_cmd(out_bam, threads=threads)
-        run_command(index_cmd)
+        _run_streamed_alignment(align_cmd, sort_cmd, out_bam, threads, samblaster_cmd)
     except Exception as e:
         logging.error(f"Minimap2 alignment failed: {e}")
         raise WGSExtractError("Minimap2 alignment failed.") from e

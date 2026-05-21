@@ -8,134 +8,20 @@ import os
 import re
 import shutil
 import subprocess
-import sys
-import tempfile
-import time
 import zipfile
 from collections.abc import Callable
-from typing import Any
+from typing import Any, BinaryIO, Literal
 from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
 
-from wgsextract_cli.core.dependencies import verify_dependencies
-from wgsextract_cli.core.utils import popen, run_command
+from wgsextract_cli.core.download_progress import (
+    DownloadCancelled,
+    copy_response_to_file,
+    curl_progress_args,
+)
+from wgsextract_cli.core.utils import run_command
 
-# Global cache for genome data
 _GENOME_DATA_CACHE: list[dict[str, Any]] = []
-
-
-def download_file(
-    url: str,
-    dest: str,
-    progress_callback: Callable[[int, int, float], None] | None = None,
-    cancel_event: Any | None = None,
-) -> bool:
-    """Downloads a file with progress reporting, optional cancellation, and resume support."""
-    partial_dest = dest + ".partial"
-    try:
-        expected_sha256 = resolve_github_release_asset_sha256(url)
-    except OSError as e:
-        logging.warning(
-            "Could not resolve GitHub release asset checksum for %s: %s. "
-            "Continuing without GitHub asset SHA-256 verification.",
-            url,
-            e,
-        )
-        expected_sha256 = None
-    except ValueError as e:
-        logging.error(
-            "Could not resolve GitHub release asset checksum for %s: %s", url, e
-        )
-        return False
-
-    # Try curl first
-    try:
-        # Use -L to follow redirects, -C - for resume
-        cmd = ["curl", "-L"]
-        if os.path.exists(dest):
-            cmd.extend(["-C", "-"])
-        cmd.extend(["-o", dest, url])
-
-        # Note: we don't use progress_callback with curl easily here without parsing output
-        # For simplicity in CLI, we'll just run it.
-        run_command(cmd, capture_output=True)
-        return verify_download_sha256(dest, expected_sha256)
-    except Exception:
-        # Fallback to urllib
-        pass
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-    }
-    initial_size = 0
-    mode = "wb"
-
-    # If the final file exists but we are here, it might be incomplete (e.g. missing index)
-    # Move it to .partial to attempt a resume/verify
-    if not os.path.exists(partial_dest) and os.path.exists(dest):
-        os.rename(dest, partial_dest)
-
-    if os.path.exists(partial_dest):
-        initial_size = os.path.getsize(partial_dest)
-        if initial_size > 0:
-            headers["Range"] = f"bytes={initial_size}-"
-            mode = "ab"
-        else:
-            mode = "wb"
-
-    try:
-        req = Request(url, headers=headers)
-        with urlopen(req) as response:
-            code = response.getcode()
-            # If we requested a range but got 200, the server doesn't support range or sent full file
-            if initial_size > 0 and code == 200:
-                logging.info(
-                    "Server does not support Range requests, starting from scratch."
-                )
-                initial_size = 0
-                mode = "wb"
-
-            content_length = int(response.info().get("Content-Length", 0))
-            total_size = initial_size + content_length
-            bytes_downloaded = initial_size
-            start_time = time.time()
-            last_report_time = 0.0
-
-            with open(partial_dest, mode) as f:
-                while True:
-                    if cancel_event and cancel_event.is_set():
-                        logging.info("Download cancelled by user.")
-                        return False
-
-                    chunk = response.read(1024 * 256)  # 256KB chunks
-                    if not chunk:
-                        break
-
-                    f.write(chunk)
-                    bytes_downloaded += len(chunk)
-
-                    curr_time = time.time()
-                    if progress_callback and (
-                        curr_time - last_report_time > 0.1
-                        or bytes_downloaded == total_size
-                    ):
-                        elapsed = curr_time - start_time
-                        speed = (
-                            (bytes_downloaded - initial_size) / elapsed
-                            if elapsed > 0
-                            else 0
-                        )
-                        progress_callback(bytes_downloaded, total_size, speed)
-                        last_report_time = curr_time
-
-        # Rename to final destination on success
-        if os.path.exists(dest):
-            os.remove(dest)
-        os.rename(partial_dest, dest)
-        return verify_download_sha256(dest, expected_sha256)
-    except Exception as e:
-        logging.error(f"Download error: {e}")
-    return False
 
 
 def resolve_github_release_asset_sha256(url: str) -> str | None:
@@ -209,6 +95,106 @@ def verify_download_sha256(path: str, expected_sha256: str | None) -> bool:
         os.remove(path)
     except OSError:
         pass
+    return False
+
+
+def download_file(
+    url: str,
+    dest: str,
+    progress_callback: Callable[[int, int, float], None] | None = None,
+    cancel_event: Any | None = None,
+) -> bool:
+    """Downloads a file with progress reporting, optional cancellation, and resume support."""
+    partial_dest = dest + ".partial"
+    try:
+        expected_sha256 = resolve_github_release_asset_sha256(url)
+    except OSError as e:
+        logging.warning(
+            "Could not resolve GitHub release asset checksum for %s: %s. "
+            "Continuing without GitHub asset SHA-256 verification.",
+            url,
+            e,
+        )
+        expected_sha256 = None
+    except ValueError as e:
+        logging.error(
+            "Could not resolve GitHub release asset checksum for %s: %s", url, e
+        )
+        return False
+
+    # Use curl only when it can surface its native progress bar directly.
+    # Non-TTY runs should take the urllib path so progress is emitted as logs.
+    curl_args = curl_progress_args()
+    if (
+        progress_callback is None
+        and cancel_event is None
+        and "--progress-bar" in curl_args
+    ):
+        try:
+            # Use -L to follow redirects, -C - for resume
+            cmd = ["curl", "-L", *curl_args]
+            if os.path.exists(dest):
+                cmd.extend(["-C", "-"])
+            cmd.extend(["-o", dest, url])
+
+            run_command(cmd, capture_output=False)
+            return verify_download_sha256(dest, expected_sha256)
+        except (OSError, subprocess.SubprocessError) as e:
+            logging.warning("curl download failed, falling back to urllib: %s", e)
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    initial_size = 0
+    mode: Literal["ab", "wb"] = "wb"
+
+    # If the final file exists but we are here, it might be incomplete (e.g. missing index)
+    # Move it to .partial to attempt a resume/verify
+    if not os.path.exists(partial_dest) and os.path.exists(dest):
+        os.rename(dest, partial_dest)
+
+    if os.path.exists(partial_dest):
+        initial_size = os.path.getsize(partial_dest)
+        if initial_size > 0:
+            headers["Range"] = f"bytes={initial_size}-"
+            mode = "ab"
+        else:
+            mode = "wb"
+
+    try:
+        req = Request(url, headers=headers)
+        with urlopen(req) as response:
+            code = response.getcode()
+            # If we requested a range but got 200, the server doesn't support range or sent full file
+            if initial_size > 0 and code == 200:
+                logging.info(
+                    "Server does not support Range requests, starting from scratch."
+                )
+                initial_size = 0
+                mode = "wb"
+
+            def write_partial(f: BinaryIO) -> None:
+                copy_response_to_file(
+                    response,
+                    f,
+                    initial_size=initial_size,
+                    progress_callback=progress_callback,
+                    progress_label=os.path.basename(dest),
+                    cancel_event=cancel_event,
+                )
+
+            with open(partial_dest, mode) as f:
+                write_partial(f)
+
+        # Rename to final destination on success
+        if os.path.exists(dest):
+            os.remove(dest)
+        os.rename(partial_dest, dest)
+        return verify_download_sha256(dest, expected_sha256)
+    except DownloadCancelled as e:
+        logging.info(str(e))
+    except Exception as e:
+        logging.error(f"Download error: {e}")
     return False
 
 
@@ -325,7 +311,6 @@ def get_available_genomes():
     return _GENOME_DATA_CACHE
 
 
-# Backwards compatibility for modules importing GENOME_DATA
 GENOME_DATA = get_available_genomes()
 
 
@@ -369,613 +354,42 @@ def is_genome_installed(final_name: str, reflib_dir: str) -> bool:
     return get_genome_status(final_name, reflib_dir) == "installed"
 
 
-def get_genome_size(final_name: str, reflib_dir: str) -> str:
-    """Returns human-readable local size of the genome and its index files."""
-    if not reflib_dir:
-        return ""
-    base_path = os.path.join(reflib_dir, "genomes", final_name)
-    total_bytes = 0
-    # Include .partial, .fai, .gzi, .dict etc
-    for ext in ["", ".partial", ".fai", ".gzi", ".dict"]:
-        p = base_path + ext
-        if os.path.exists(p):
-            total_bytes += os.path.getsize(p)
-
-    if total_bytes == 0:
-        return ""
-    if total_bytes > 1024 * 1024 * 1024:
-        return f"{total_bytes / (1024 * 1024 * 1024):.1f} GB"
-    return f"{total_bytes / (1024 * 1024):.1f} MB"
-
-
-CLINVAR_URLS = {
-    "hg38": "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/clinvar.vcf.gz",
-    "hg19": "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh37/clinvar.vcf.gz",
-}
-
-REVEL_URLS = {
-    "hg38": "http://www.openbioinformatics.org/annovar/download/hg38_revel.txt.gz",
-    "hg19": "http://www.openbioinformatics.org/annovar/download/hg19_revel.txt.gz",
-}
-
-PHYLOP_URLS = {
-    "hg38": "http://www.openbioinformatics.org/annovar/download/hg38_phyloP100way.txt.gz",
-    "hg19": "http://www.openbioinformatics.org/annovar/download/hg19_phyloP100way.txt.gz",
-}
-
-GNOMAD_URLS = {
-    "hg38": "https://storage.googleapis.com/gcp-public-data--gnomad/release/2.1.1/liftover_grch38/vcf/exomes/gnomad.exomes.r2.1.1.sites.liftover_grch38.vcf.bgz",
-    "hg19": "https://storage.googleapis.com/gcp-public-data--gnomad/release/2.1.1/vcf/exomes/gnomad.exomes.r2.1.1.sites.vcf.bgz",
-}
-
-SPLICEAI_URLS = {
-    "hg38": "https://basespace.illumina.com/s/vU97u6757PBt/spliceai_scores.raw.snv.hg38.vcf.gz",  # Note: Requires login/mirror check
-    "hg19": "https://basespace.illumina.com/s/vU97u6757PBt/spliceai_scores.raw.snv.hg19.vcf.gz",
-}
-
-ALPHAMISSENSE_URLS = {
-    "hg38": "https://storage.googleapis.com/dm_alphamissense/AlphaMissense_hg38.tsv.gz",
-    "hg19": "https://storage.googleapis.com/dm_alphamissense/AlphaMissense_hg19.tsv.gz",
-}
-
-PHARMGKB_URLS = {
-    "hg38": "https://api.pharmgkb.org/v1/download/file/data/annotations.zip",
-}
-
-
-def download_clinvar(reflib_dir, cancel_event=None, progress_callback=None):
-    """Downloads and indexes official ClinVar VCFs for hg19 and hg38."""
-    target_dir = os.path.join(reflib_dir, "ref")
-    os.makedirs(target_dir, exist_ok=True)
-
-    success = True
-    for build, url in CLINVAR_URLS.items():
-        if cancel_event and cancel_event.is_set():
-            return False
-
-        dest_path = os.path.join(target_dir, f"clinvar_{build}.vcf.gz")
-        logging.info(f"Downloading ClinVar {build} from NIH FTP...")
-
-        if not download_file(url, dest_path, progress_callback, cancel_event):
-            success = False
-            continue
-
-        if cancel_event and cancel_event.is_set():
-            return False
-
-        # Index the VCF
-        logging.info(f"Indexing ClinVar {build}...")
-        try:
-            # We need tabix
-            run_command(["tabix", "-p", "vcf", "-f", dest_path])
-        except Exception as e:
-            logging.error(f"Failed to index ClinVar {build}: {e}")
-            success = False
-
-    return success
-
-
-def download_spliceai(reflib_dir, cancel_event=None, progress_callback=None):
-    """Downloads and indexes SpliceAI precomputed scores."""
-    target_dir = os.path.join(reflib_dir, "ref")
-    os.makedirs(target_dir, exist_ok=True)
-
-    success = True
-    for build, url in SPLICEAI_URLS.items():
-        if cancel_event and cancel_event.is_set():
-            return False
-
-        dest_path = os.path.join(target_dir, f"spliceai_{build}.vcf.gz")
-        logging.info(f"Downloading SpliceAI {build}...")
-
-        if not download_file(url, dest_path, progress_callback, cancel_event):
-            success = False
-            continue
-
-        if cancel_event and cancel_event.is_set():
-            return False
-
-        logging.info(f"Indexing SpliceAI {build}...")
-        try:
-            run_command(["tabix", "-p", "vcf", "-f", dest_path])
-        except Exception as e:
-            logging.error(f"Failed to index SpliceAI {build}: {e}")
-            success = False
-
-    return success
-
-
-def download_alphamissense(reflib_dir, cancel_event=None, progress_callback=None):
-    """Downloads and indexes AlphaMissense pathogenicity scores."""
-    target_dir = os.path.join(reflib_dir, "ref")
-    os.makedirs(target_dir, exist_ok=True)
-
-    success = True
-    for build, url in ALPHAMISSENSE_URLS.items():
-        if cancel_event and cancel_event.is_set():
-            return False
-
-        dest_path = os.path.join(target_dir, f"alphamissense_{build}.tsv.gz")
-        logging.info(f"Downloading AlphaMissense {build} from Google Storage...")
-
-        if not download_file(url, dest_path, progress_callback, cancel_event):
-            success = False
-            continue
-
-        if cancel_event and cancel_event.is_set():
-            return False
-
-        logging.info(f"Indexing AlphaMissense {build}...")
-        try:
-            # AlphaMissense TSV format: #CHROM, POS, REF, ALT, am_pathogenicity, am_class
-            # We want CHROM=1, POS=2
-            run_command(["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", dest_path])
-        except Exception as e:
-            logging.error(f"Failed to index AlphaMissense {build}: {e}")
-            success = False
-
-    return success
-
-
-def download_pharmgkb(reflib_dir, cancel_event=None, progress_callback=None):
-    """Downloads PharmGKB annotations (placeholder for full implementation)."""
-    target_dir = os.path.join(reflib_dir, "ref")
-    os.makedirs(target_dir, exist_ok=True)
-
-    success = True
-    for build, url in PHARMGKB_URLS.items():
-        if cancel_event and cancel_event.is_set():
-            return False
-
-        # PharmGKB is often a ZIP, but for now we'll just download it
-        dest_path = os.path.join(target_dir, f"pharmgkb_{build}.zip")
-        logging.info(f"Downloading PharmGKB {build}...")
-
-        if not download_file(url, dest_path, progress_callback, cancel_event):
-            success = False
-            continue
-
-    return success
-    """Downloads and indexes official ClinVar VCFs for hg19 and hg38."""
-    target_dir = os.path.join(reflib_dir, "ref")
-    os.makedirs(target_dir, exist_ok=True)
-
-    success = True
-    for build, url in CLINVAR_URLS.items():
-        if cancel_event and cancel_event.is_set():
-            return False
-
-        dest_path = os.path.join(target_dir, f"clinvar_{build}.vcf.gz")
-        logging.info(f"Downloading ClinVar {build} from NIH FTP...")
-
-        if not download_file(url, dest_path, progress_callback, cancel_event):
-            success = False
-            continue
-
-        if cancel_event and cancel_event.is_set():
-            return False
-
-        # Index the VCF
-        logging.info(f"Indexing ClinVar {build}...")
-        try:
-            # We need tabix
-            run_command(["tabix", "-p", "vcf", "-f", dest_path])
-        except Exception as e:
-            logging.error(f"Failed to index ClinVar {build}: {e}")
-            success = False
-
-    return success
-
-
-def download_revel(reflib_dir, cancel_event=None, progress_callback=None):
-    """Downloads and indexes REVEL pathogenicity scores for hg19 and hg38."""
-    target_dir = os.path.join(reflib_dir, "ref")
-    os.makedirs(target_dir, exist_ok=True)
-
-    success = True
-    for build, url in REVEL_URLS.items():
-        if cancel_event and cancel_event.is_set():
-            return False
-
-        # We use .tsv.gz suffix for consistency in our app's search logic
-        dest_path = os.path.join(target_dir, f"revel_{build}.tsv.gz")
-        logging.info(f"Downloading REVEL {build} from Annovar mirrors...")
-
-        if not download_file(url, dest_path, progress_callback, cancel_event):
-            success = False
-            continue
-
-        if cancel_event and cancel_event.is_set():
-            return False
-
-        # Ensure BGZF format before indexing (Annovar mirrors are usually standard gzip)
-        dest_path = ensure_bgzf(dest_path, None, cancel_event) or dest_path
-
-        # Index the TSV
-        logging.info(f"Indexing REVEL {build}...")
-        try:
-            # Annovar REVEL format: #Chr, Start, End, Ref, Alt, REVEL...
-            # We want CHROM=1, POS=2, REF=4, ALT=5
-            run_command(["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", dest_path])
-        except Exception as e:
-            logging.error(f"Failed to index REVEL {build}: {e}")
-            success = False
-
-    return success
-
-
-def download_phylop(reflib_dir, cancel_event=None, progress_callback=None):
-    """Downloads and indexes PhyloP conservation scores for hg19 and hg38."""
-    target_dir = os.path.join(reflib_dir, "ref")
-    os.makedirs(target_dir, exist_ok=True)
-
-    success = True
-    for build, url in PHYLOP_URLS.items():
-        if cancel_event and cancel_event.is_set():
-            return False
-
-        # We use .tsv.gz suffix for consistency in our app's search logic
-        dest_path = os.path.join(target_dir, f"phylop_{build}.tsv.gz")
-        logging.info(f"Downloading PhyloP {build} from Annovar mirrors...")
-
-        if not download_file(url, dest_path, progress_callback, cancel_event):
-            success = False
-            continue
-
-        if cancel_event and cancel_event.is_set():
-            return False
-
-        # Ensure BGZF format before indexing (Annovar mirrors are usually standard gzip)
-        dest_path = ensure_bgzf(dest_path, None, cancel_event) or dest_path
-
-        # Index the TSV
-        logging.info(f"Indexing PhyloP {build}...")
-        try:
-            # Annovar PhyloP format: #Chr, Start, End, Score
-            # We use bcftools annotate with CHROM=1, POS=2
-            run_command(["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", dest_path])
-        except Exception as e:
-            logging.error(f"Failed to index PhyloP {build}: {e}")
-            success = False
-
-    return success
-
-
-def download_gnomad(reflib_dir, cancel_event=None, progress_callback=None):
-    """Downloads and indexes gnomAD sites VCFs for hg19 and hg38."""
-    target_dir = os.path.join(reflib_dir, "ref")
-    os.makedirs(target_dir, exist_ok=True)
-
-    success = True
-    for build, url in GNOMAD_URLS.items():
-        if cancel_event and cancel_event.is_set():
-            return False
-
-        dest_path = os.path.join(target_dir, f"gnomad_{build}.vcf.bgz")
-        logging.info(f"Downloading gnomAD {build} from Google Storage...")
-
-        if not download_file(url, dest_path, progress_callback, cancel_event):
-            success = False
-            continue
-
-        if cancel_event and cancel_event.is_set():
-            return False
-
-        # Index the VCF
-        logging.info(f"Indexing gnomAD {build}...")
-        try:
-            # gnomAD VCFs are usually already bgzipped and indexed,
-            # but we might need to download the index or recreate it.
-            # Tabix -p vcf works for .vcf.bgz as well.
-            run_command(["tabix", "-p", "vcf", "-f", dest_path])
-        except Exception as e:
-            logging.error(f"Failed to index gnomAD {build}: {e}")
-            success = False
-
-    return success
-
-
-def delete_genome(final_name: str, reflib_dir: str):
-    base_path = os.path.join(reflib_dir, "genomes", final_name)
-    for ext in ["", ".partial", ".fai", ".gzi", ".dict"]:
-        p = base_path + ext
-        if os.path.exists(p):
-            os.remove(p)
-    prefix = re.sub(r"\.(fasta|fna|fa)\.gz$", "", base_path)
-    for ext in ["_ncnt.csv", "_nbin.csv", ".wgse"]:
-        p = prefix + ext
-        if os.path.exists(p):
-            os.remove(p)
-    return True
-
-
-def delete_ref_index(final_name: str, reflib_dir: str):
-    """Deletes only the index and companion files for a reference genome."""
-    base_path = os.path.join(reflib_dir, "genomes", final_name)
-    # Delete index files but NOT the main genome file ("")
-    for ext in [".fai", ".gzi", ".dict"]:
-        p = base_path + ext
-        if os.path.exists(p):
-            os.remove(p)
-    return True
-
-
-def has_ref_ns(final_name: str, reflib_dir: str) -> bool:
-    """Checks if N-count files exist for a reference genome."""
-    if not reflib_dir:
-        return False
-    base_path = os.path.join(reflib_dir, "genomes", final_name)
-    prefix = re.sub(r"\.(fasta|fna|fa)\.gz$", "", base_path)
-    for ext in ["_ncnt.csv", "_nbin.csv"]:
-        if os.path.exists(prefix + ext):
-            return True
-    return False
-
-
-def delete_ref_ns(final_name: str, reflib_dir: str):
-    """Deletes only the N-count CSV files for a reference genome."""
-    base_path = os.path.join(reflib_dir, "genomes", final_name)
-    prefix = re.sub(r"\.(fasta|fna|fa)\.gz$", "", base_path)
-    for ext in ["_ncnt.csv", "_nbin.csv"]:
-        p = prefix + ext
-        if os.path.exists(p):
-            os.remove(p)
-    return True
-
-
-def download_and_process_genome(
-    genome_data: dict,
-    reflib_dir: str,
-    interactive: bool = True,
-    progress_callback: Callable | None = None,
-    cancel_event: Any | None = None,
-    restart: bool = False,
-    status_callback: Callable[[str], None] | None = None,
-):
-    verify_dependencies(["samtools", "bgzip", "gzip"])
-    target_dir = os.path.join(reflib_dir, "genomes")
-    os.makedirs(target_dir, exist_ok=True)
-    final_path = os.path.join(target_dir, genome_data["final"])
-    partial_path = final_path + ".partial"
-
-    if restart:
-        if os.path.exists(final_path):
-            os.remove(final_path)
-        if os.path.exists(partial_path):
-            os.remove(partial_path)
-
-    status = get_genome_status(genome_data["final"], reflib_dir)
-    if status == "installed":
-        if not interactive:
-            return process_reference_file(final_path, status_callback, cancel_event)
-        print(f"\n{genome_data['final']} is already installed.")
-        choice = input("Re-download anyway? [y/N]: ").strip().lower()
-        if choice != "y":
-            return True
-        os.remove(final_path)
-    elif status == "incomplete" and interactive:
-        print(f"\n{genome_data['final']} is incomplete.")
-        choice = input("[R]esume, [D]elete, or [C]ancel? ").strip().lower()
-        if choice == "c":
-            return False
-        if choice == "d":
-            delete_genome(genome_data["final"], reflib_dir)
-            return False
-        # 'r' continues to download_file below
-
-    logging.info(f"Downloading {genome_data['label']} from {genome_data['source']}...")
-
-    success = download_file(
-        genome_data["url"], final_path, progress_callback, cancel_event
-    )
-    if not success:
-        return False
-
-    return process_reference_file(final_path, status_callback, cancel_event)
-
-
-def wait_with_cancel(
-    process: subprocess.Popen, cancel_event: Any | None = None
-) -> bool:
-    """Waits for a process while checking for a cancel event."""
-    while process.poll() is None:
-        if cancel_event and cancel_event.is_set():
-            logging.info(f"Terminating process {process.pid} due to cancellation.")
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-            return False
-        time.sleep(0.1)
-    return process.returncode == 0
-
-
-def process_reference_file(
-    fasta_path: str,
-    status_callback: Callable[[str], None] | None = None,
-    cancel_event: Any | None = None,
-):
-    logging.info(f"Processing reference: {fasta_path}")
-
-    bgzf_path = ensure_bgzf(fasta_path, status_callback, cancel_event)
-    if not bgzf_path:
-        return False
-
-    if cancel_event and cancel_event.is_set():
-        return False
-
-    base_name = re.sub(r"\.(fasta|fna|fa)\.gz$", "", bgzf_path)
-    dict_path = base_name + ".dict"
-    try:
-        logging.info("Generating sequence dictionary...")
-        if status_callback:
-            status_callback("Processing: Generating Dictionary...")
-        p_dict = popen(
-            ["samtools", "dict", bgzf_path, "-o", dict_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        if not wait_with_cancel(p_dict, cancel_event):
-            return False
-
-        logging.info("Indexing FASTA...")
-        if status_callback:
-            status_callback("Processing: Indexing FASTA...")
-        p_faidx = popen(
-            ["samtools", "faidx", bgzf_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        if not wait_with_cancel(p_faidx, cancel_event):
-            return False
-
-    except Exception as e:
-        if sys.platform == "win32" and isinstance(e, FileNotFoundError):
-            logging.warning(
-                f"Warning: Could not index reference on Windows (missing tools): {e}"
-            )
-            logging.warning("Reference is downloaded but remains unindexed.")
-            return True
-        logging.error(f"Indexing failed: {e}")
-        return False
-
-    analyzer = ReferenceAnalyzer(bgzf_path, dict_path)
-    analyzer.analyze()
-    cataloger = ReferenceCataloger(bgzf_path, dict_path)
-    cataloger.update_catalog()
-    return True
-
-
-def is_bgzf(path: str) -> bool:
-    """Check if a file is in BGZF format by looking for the magic bytes."""
-    try:
-        with open(path, "rb") as f:
-            # BGZF header: 1f 8b 08 04 ... (the 4th byte 04 indicates XLEN is present)
-            # This is a bit simplified but generally reliable for our tools.
-            header = f.read(4)
-            return header == b"\x1f\x8b\x08\x04"
-    except Exception:
-        return False
-
-
-def ensure_bgzf(
-    path: str,
-    status_callback: Callable[[str], None] | None = None,
-    cancel_event: Any | None = None,
-) -> str | None:
-    if is_bgzf(path):
-        logging.info(f"{path} is already in BGZF format.")
-        return path
-
-    if cancel_event and cancel_event.is_set():
-        return None
-
-    logging.info(f"Recompressing {path} to BGZF format (required for fast access)...")
-    if status_callback:
-        status_callback("Processing: Recompressing (BGZF)...")
-
-    tmp_path = path + ".tmp.gz"
-    try:
-        if path.endswith(".gz"):
-            with open(tmp_path, "wb") as f_out:
-                p1 = popen(["gunzip", "-c", path], stdout=subprocess.PIPE)
-                p2 = popen(["bgzip", "-c"], stdin=p1.stdout, stdout=f_out)
-                if p1.stdout:
-                    p1.stdout.close()
-
-                if not wait_with_cancel(p2, cancel_event):
-                    p1.terminate()
-                    if os.path.exists(tmp_path):
-                        os.remove(tmp_path)
-                    return None
-
-            os.remove(path)
-            os.rename(tmp_path, path)
-            logging.info(f"Recompression of {path} complete.")
-            return path
-        else:
-            with open(tmp_path, "wb") as f_out:
-                p_bgzip = popen(["bgzip", "-c", path], stdout=f_out)
-                if not wait_with_cancel(p_bgzip, cancel_event):
-                    if os.path.exists(tmp_path):
-                        os.remove(tmp_path)
-                    return None
-
-            os.remove(path)
-            new_path = path + ".gz" if not path.endswith(".gz") else path
-            os.rename(tmp_path, new_path)
-            logging.info(f"Recompression to {new_path} complete.")
-            return new_path
-    except Exception as e:
-        if sys.platform == "win32" and isinstance(e, FileNotFoundError):
-            logging.warning(
-                f"Warning: Could not recompress to BGZF on Windows (missing tools): {e}"
-            )
-            return path
-        logging.error(f"Recompression failed: {e}")
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-        return None
-
-
-class ReferenceAnalyzer:
-    def __init__(self, fasta_path, dict_path):
-        self.fasta_path = fasta_path
-        self.dict_path = dict_path
-
-    def analyze(self):
-        # Simplified for now
-        pass
-
-
-class ReferenceCataloger:
-    def __init__(self, fasta_path, dict_path):
-        self.fasta_path = fasta_path
-        self.dict_path = dict_path
-
-    def update_catalog(self):
-        # Simplified for now
-        pass
-
-
-def download_bootstrap(
+def install_standard_mappability_maps(
     reflib_dir: str,
     cancel_event: Any | None = None,
     progress_callback: Callable[[int, int, float], None] | None = None,
 ) -> bool:
-    """Downloads and extracts the reference library bootstrap."""
-    from wgsextract_cli.core.constants import BOOTSTRAP_FILENAME, BOOTSTRAP_URL
+    """Install standard Delly CNV mappability maps into the reference library."""
+    from wgsextract_cli.core.constants import DELLY_MAPPABILITY_MAPS
 
-    if not os.path.exists(reflib_dir):
-        os.makedirs(reflib_dir, exist_ok=True)
-
-    dest_path = os.path.join(reflib_dir, BOOTSTRAP_FILENAME)
-    logging.info(f"Downloading bootstrap from {BOOTSTRAP_URL}...")
-
-    if not download_file(BOOTSTRAP_URL, dest_path, progress_callback, cancel_event):
-        return False
-
-    logging.info(f"Extracting bootstrap to {reflib_dir}...")
-    try:
-        # Use tar -xvf -z (or bgzip -d | tar)
-        # Since we use bgzip, we can pipe bgzip -d to tar -xf -
-        # Use tar -xkf (keep existing files) and --no-xattrs to avoid macOS metadata warnings
-        cmd = ["tar", "-xkf", dest_path, "--no-xattrs", "-C", reflib_dir]
-        # Fallback if --no-xattrs is not supported (e.g. on very old tar)
-        try:
-            run_command(cmd, capture_output=True)
-        except subprocess.CalledProcessError:
-            cmd = ["tar", "-xkf", dest_path, "-C", reflib_dir]
-            run_command(cmd)
-
-        # Cleanup the archive after successful extraction
-        os.remove(dest_path)
-        logging.info("Bootstrap extraction complete.")
-        return True
-    except Exception as e:
-        logging.error(f"Failed to extract bootstrap: {e}")
-        return False
+    maps_dir = os.path.join(reflib_dir, "maps")
+    os.makedirs(maps_dir, exist_ok=True)
+    ok = True
+    for build, entry in DELLY_MAPPABILITY_MAPS.items():
+        if cancel_event and cancel_event.is_set():
+            return False
+        filename = entry["filename"]
+        dest_path = os.path.join(maps_dir, filename)
+        if not os.path.exists(dest_path):
+            logging.info("Downloading Delly %s mappability map...", build)
+            ok = (
+                download_file(entry["url"], dest_path, progress_callback, cancel_event)
+                and ok
+            )
+        if cancel_event and cancel_event.is_set():
+            return False
+        for suffix, url in entry.get("sidecars", {}).items():
+            sidecar_path = dest_path + suffix
+            if os.path.exists(sidecar_path):
+                continue
+            ok = (
+                download_file(url, sidecar_path, progress_callback, cancel_event) and ok
+            )
+            if cancel_event and cancel_event.is_set():
+                return False
+    if not ok:
+        logging.warning("One or more Delly mappability map downloads failed.")
+    return ok
 
 
 def install_mappability_maps(
@@ -998,9 +412,11 @@ def install_mappability_maps(
         return True
 
     archive_path = os.path.join(reflib_dir, MAPPABILITY_MAP_ARCHIVE_FILENAME)
-    extract_dir = tempfile.mkdtemp(prefix="mappability-maps.", dir=reflib_dir)
     try:
-        logging.info(f"Downloading Delly mappability maps from {MAPPABILITY_MAP_ARCHIVE_URL}...")
+        logging.info(
+            "Downloading Delly mappability maps from %s...",
+            MAPPABILITY_MAP_ARCHIVE_URL,
+        )
         if not download_file(
             MAPPABILITY_MAP_ARCHIVE_URL,
             archive_path,
@@ -1014,13 +430,13 @@ def install_mappability_maps(
             logging.info("Mappability map installation cancelled by user.")
             return False
 
-        logging.info(f"Extracting Delly mappability maps to {maps_dir}...")
+        logging.info("Extracting Delly mappability maps to %s...", maps_dir)
         with zipfile.ZipFile(archive_path) as archive:
             names = set(archive.namelist())
             for file_name in MAPPABILITY_MAP_FILES:
                 member = f"maps/{file_name}"
                 if member not in names:
-                    logging.error(f"Mappability map archive is missing {member}.")
+                    logging.error("Mappability map archive is missing %s.", member)
                     return False
                 target = os.path.join(maps_dir, file_name)
                 with archive.open(member) as source, open(target, "wb") as destination:
@@ -1029,7 +445,7 @@ def install_mappability_maps(
         logging.info("Delly mappability maps are installed.")
         return True
     except Exception as e:
-        logging.error(f"Failed to install Delly mappability maps: {e}")
+        logging.error("Failed to install Delly mappability maps: %s", e)
         return False
     finally:
         try:
@@ -1037,4 +453,3 @@ def install_mappability_maps(
                 os.remove(archive_path)
         except OSError:
             pass
-        shutil.rmtree(extract_dir, ignore_errors=True)

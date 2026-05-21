@@ -40,6 +40,10 @@ pixi run wgsextract \
 Run `pixi run wgsextract help` or `pixi run wgsextract --full-help` for the live tree from your installed version.
 :::
 
+::: callout
+{{ text: **Need a GUI?** This package is CLI-only. Use [gui-for-cli](https://github.com/theontho/gui-for-cli){.inline-link} for graphical workflows. }}
+:::
+
 ::: grid three
 ::: card
 ### Info and QC
@@ -104,8 +108,8 @@ pixi run wgsextract --input sample.bam extract ydna-bam
 pixi run wgsextract --input sample.bam --ref /refs/hs38.fa vcf snp
 pixi run wgsextract vcf filter --vcf-input calls.vcf.gz --expr 'QUAL>30'
 
-# Launch the desktop GUI
-pixi run wgsextract gui --desktop
+# Show the full command tree
+pixi run wgsextract help
 ```
 :::
 :::
@@ -121,7 +125,7 @@ Some specialized tools live in dedicated Pixi environments to keep dependency so
 ::: grid three
 ::: card
 ### default
-General CLI, GUI, samtools/bcftools, bwa/minimap2, fastp/fastqc, freebayes, GATK, and common workflows.
+General CLI, samtools/bcftools, bwa/minimap2, fastp/fastqc, freebayes, GATK, and common workflows.
 
 ```
 pixi run wgsextract deps check

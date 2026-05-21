@@ -27,7 +27,7 @@
     <nav class="nav" aria-label="Primary navigation">
       <div class="wrap nav-inner">
         <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true"></span><span>WGS Extract CLI</span></a>
-        <div class="nav-links"><a href="index.html">Home</a><a href="install.html">Install</a><a class="active" href="cli.html">CLI</a><a href="gui.html">GUI</a><a href="workflows.html">Workflows</a><a href="wgs-guide.html">WGS guide</a><a href="reference.html">Reference</a><a href="https://github.com/theontho/wgsextract-cli" target="_blank" rel="noopener noreferrer">GitHub</a></div>
+        <div class="nav-links"><a href="index.html">Home</a><a href="install.html">Install</a><a class="active" href="cli.html">CLI</a><a href="workflows.html">Workflows</a><a href="wgs-guide.html">WGS guide</a><a href="reference.html">Reference</a><a href="https://github.com/theontho/wgsextract-cli" target="_blank" rel="noopener noreferrer">GitHub</a></div>
       </div>
     </nav>
 
@@ -64,6 +64,9 @@
 <div class="section-head">
 <h2>Command groups</h2>
 <p>Run <code>pixi run wgsextract help</code> or <code>pixi run wgsextract --full-help</code> for the live tree from your installed version.</p>
+</div>
+<div class="callout">
+<strong>Need a GUI?</strong> This package is CLI-only. Use <a class="inline-link" href="https://github.com/theontho/gui-for-cli">gui-for-cli</a> for graphical workflows.
 </div>
 <div class="grid three">
 <article class="card">
@@ -122,8 +125,8 @@
 <span class="cmd">pixi run wgsextract --input sample.bam --ref /refs/hs38.fa vcf snp</span>
 <span class="cmd">pixi run wgsextract vcf filter --vcf-input calls.vcf.gz --expr &#x27;QUAL&gt;30&#x27;</span>
 
-<span class="comment"># Launch the desktop GUI</span>
-<span class="cmd">pixi run wgsextract gui --desktop</span></code></pre>
+<span class="comment"># Show the full command tree</span>
+<span class="cmd">pixi run wgsextract help</span></code></pre>
 </div>
 </div>
 </section>
@@ -136,7 +139,7 @@
 <div class="grid three">
 <article class="card">
 <h3>default</h3>
-<p>General <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr>, <abbr data-tooltip="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command." aria-label="GUI: Graphical User Interface: a visual app interface for running workflows without typing every command.">GUI</abbr>, <a class="term-link" href="https://www.htslib.org/">samtools</a>/<a class="term-link" href="https://samtools.github.io/bcftools/">bcftools</a>, <a class="term-link" href="https://github.com/lh3/bwa">bwa</a>/<a class="term-link" href="https://github.com/lh3/minimap2">minimap2</a>, <a class="term-link" href="https://github.com/OpenGene/fastp">fastp</a>/<a class="term-link" href="https://www.bioinformatics.babraham.ac.uk/projects/fastqc/">fastqc</a>, <a class="term-link" href="https://github.com/freebayes/freebayes">freebayes</a>, <a class="term-link" href="https://gatk.broadinstitute.org/" data-tooltip="GATK: Genome Analysis Toolkit: a widely used suite of tools for variant discovery and genomics workflows." aria-label="GATK: Genome Analysis Toolkit: a widely used suite of tools for variant discovery and genomics workflows.">GATK</a>, and common workflows.</p>
+<p>General <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr>, <a class="term-link" href="https://www.htslib.org/">samtools</a>/<a class="term-link" href="https://samtools.github.io/bcftools/">bcftools</a>, <a class="term-link" href="https://github.com/lh3/bwa">bwa</a>/<a class="term-link" href="https://github.com/lh3/minimap2">minimap2</a>, <a class="term-link" href="https://github.com/OpenGene/fastp">fastp</a>/<a class="term-link" href="https://www.bioinformatics.babraham.ac.uk/projects/fastqc/">fastqc</a>, <a class="term-link" href="https://github.com/freebayes/freebayes">freebayes</a>, <a class="term-link" href="https://gatk.broadinstitute.org/" data-tooltip="GATK: Genome Analysis Toolkit: a widely used suite of tools for variant discovery and genomics workflows." aria-label="GATK: Genome Analysis Toolkit: a widely used suite of tools for variant discovery and genomics workflows.">GATK</a>, and common workflows.</p>
 <pre><code><span class="cmd">pixi run wgsextract deps check</span></code></pre>
 </article>
 <article class="card">

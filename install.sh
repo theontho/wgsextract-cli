@@ -84,8 +84,7 @@ BIN_DIR="$(absolute_path "${WGSEXTRACT_BIN_DIR:-$DEFAULT_BIN_DIR}")"
 LAUNCHER="$BIN_DIR/wgsextract"
 PIXI_CACHE_DIR="$(absolute_path "${WGSEXTRACT_PIXI_CACHE_DIR:-$DEFAULT_PIXI_CACHE_DIR}")"
 PIXI_ENV_DIR="$(absolute_path "${WGSEXTRACT_PIXI_ENV_DIR:-$DEFAULT_PIXI_ENV_DIR}")"
-GUI_SH="$INSTALL_DIR/start-wgsextract-gui.sh"
-GUI_COMMAND="$INSTALL_DIR/WGS Extract GUI.command"
+UNINSTALL_SH="$INSTALL_DIR/uninstall.sh"
 ARCHIVE_URL="${WGSEXTRACT_ARCHIVE_URL:-}"
 
 uses_default_pixi_layout() {
@@ -106,6 +105,7 @@ write_cli_launcher() {
     if [ "$BIN_DIR" = "$DEFAULT_BIN_DIR" ]; then
         {
             printf '#!/bin/sh\n'
+            printf '# WGS Extract CLI installer launcher\n'
             printf 'set -eu\n'
             printf 'script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)\n'
             printf 'install_dir="$script_dir"\n'
@@ -116,6 +116,7 @@ write_cli_launcher() {
     else
         {
             printf '#!/bin/sh\n'
+            printf '# WGS Extract CLI installer launcher\n'
             printf 'set -eu\n'
             printf 'install_dir=%s\n' "$(quote_sh "$INSTALL_DIR")"
             write_pixi_exports
@@ -126,19 +127,14 @@ write_cli_launcher() {
     chmod +x "$LAUNCHER"
 }
 
-write_gui_launcher() {
-    output_path="$1"
-    gui_flag="$2"
-    {
-        printf '#!/bin/sh\n'
-        printf 'set -eu\n'
-        printf 'script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)\n'
-        printf 'install_dir="$script_dir"\n'
-        write_pixi_exports
-        printf 'cd "$script_dir/app" || exit 1\n'
-        printf 'exec %s run wgsextract gui %s\n' "$(quote_sh "$PIXI")" "$gui_flag"
-    } > "$output_path"
-    chmod +x "$output_path"
+write_uninstaller() {
+    if [ ! -f "$APP_DIR/uninstall.sh" ]; then
+        fail "Installer payload is missing uninstall.sh."
+    fi
+    cp "$APP_DIR/uninstall.sh" "$UNINSTALL_SH"
+    [ -s "$UNINSTALL_SH" ] || fail "Copied uninstaller is empty: $UNINSTALL_SH"
+    sh -n "$UNINSTALL_SH" || fail "Copied uninstaller failed shell syntax validation: $UNINSTALL_SH"
+    chmod +x "$UNINSTALL_SH"
 }
 
 remove_legacy_bin_launcher() {
@@ -147,6 +143,14 @@ remove_legacy_bin_launcher() {
         rm -f "$legacy_launcher"
         rmdir "$INSTALL_DIR/bin" 2>/dev/null || true
     fi
+}
+
+remove_legacy_gui_launchers() {
+    rm -f \
+        "$INSTALL_DIR/start-wgsextract-gui.sh" \
+        "$INSTALL_DIR/WGS Extract GUI.command" \
+        "$INSTALL_DIR/start-wgsextract-web-gui.sh" \
+        "$INSTALL_DIR/WGS Extract Web GUI.command"
 }
 
 OS_NAME="$(uname -s)"
@@ -187,14 +191,14 @@ log "  4. Create the CLI launcher:"
 log "     $LAUNCHER"
 case "$OS_NAME" in
     Darwin)
-        log "  5. Create the macOS desktop GUI launcher:"
-        log "     $GUI_COMMAND"
+        log "  5. Create the uninstaller:"
+        log "     $UNINSTALL_SH"
         log "  6. Verify the app starts and required dependencies are visible."
         log "  7. Open the install folder in Finder when finished."
         ;;
     Linux)
-        log "  5. Create the Linux desktop GUI shell launcher:"
-        log "     $GUI_SH"
+        log "  5. Create the uninstaller:"
+        log "     $UNINSTALL_SH"
         log "  6. Verify the app starts and required dependencies are visible."
         ;;
 esac
@@ -235,7 +239,11 @@ EXTRACT_DIR="$WORK_DIR/source"
 mkdir -p "$EXTRACT_DIR"
 
 log "Downloading WGS Extract CLI from $ARCHIVE_URL"
-curl -fL --retry 3 --retry-delay 2 -o "$ARCHIVE" "$ARCHIVE_URL"
+if [ -t 2 ]; then
+    curl -fL --progress-bar --retry 3 --retry-delay 2 -o "$ARCHIVE" "$ARCHIVE_URL"
+else
+    curl -fL --silent --show-error --retry 3 --retry-delay 2 -o "$ARCHIVE" "$ARCHIVE_URL"
+fi
 tar -xzf "$ARCHIVE" -C "$EXTRACT_DIR"
 
 SOURCE_DIR="$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
@@ -257,16 +265,8 @@ export PIXI_PROJECT_ENVIRONMENT_DIR="$PIXI_ENV_DIR"
 
 log "Writing launchers..."
 write_cli_launcher
-case "$OS_NAME" in
-    Darwin)
-        write_gui_launcher "$GUI_COMMAND" "--desktop"
-        rm -f "$GUI_SH" "$INSTALL_DIR/start-wgsextract-web-gui.sh" "$INSTALL_DIR/WGS Extract Web GUI.command"
-        ;;
-    Linux)
-        write_gui_launcher "$GUI_SH" "--desktop"
-        rm -f "$GUI_COMMAND" "$INSTALL_DIR/start-wgsextract-web-gui.sh" "$INSTALL_DIR/WGS Extract Web GUI.command"
-        ;;
-esac
+remove_legacy_gui_launchers
+write_uninstaller
 remove_legacy_bin_launcher
 if uses_default_pixi_layout; then
     rm -rf "$INSTALL_DIR/pixi-cache" "$INSTALL_DIR/pixi-envs"
@@ -288,14 +288,7 @@ log ""
 log "WGS Extract CLI is installed."
 log "Install directory: $INSTALL_DIR"
 log "Launcher: $LAUNCHER"
-case "$OS_NAME" in
-    Darwin)
-        log "Desktop GUI launcher: $GUI_COMMAND"
-        ;;
-    Linux)
-        log "Desktop GUI launcher: $GUI_SH"
-        ;;
-esac
+log "Uninstaller: $UNINSTALL_SH"
 case ":$PATH:" in
     *":$BIN_DIR:"*)
         log "Run: wgsextract --help"
