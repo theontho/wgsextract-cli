@@ -126,7 +126,7 @@ def find_annotation_resource(
     reflib: str, prefix: str, build: str, extensions: list[str]
 ) -> str:
     directories = [reflib, os.path.join(reflib, "ref")]
-    patterns = []
+    patterns: list[str] = []
     if build:
         patterns.extend(f"{prefix}*{build}*{extension}" for extension in extensions)
     patterns.extend(f"{prefix}*{extension}" for extension in extensions)

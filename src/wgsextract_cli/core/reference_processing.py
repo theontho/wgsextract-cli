@@ -389,7 +389,7 @@ def _ploidy_content(alias: str) -> str:
             check=False,
         )
         if result.stdout and "*" in result.stdout:
-            return result.stdout
+            return str(result.stdout)
     except (OSError, subprocess.SubprocessError):
         logging.debug("Could not query bcftools built-in ploidy for %s.", alias)
     return _PLOIDY_TEMPLATES[alias]

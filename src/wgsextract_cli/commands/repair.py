@@ -165,8 +165,9 @@ def repair_vcf_stream(input_stream, output_stream) -> None:
 
 
 def _repair_output_path(args, extension: str) -> str:
-    if getattr(args, "output", None):
-        return os.path.abspath(args.output)
+    output = getattr(args, "output", None)
+    if output:
+        return os.path.abspath(str(output))
     outdir = getattr(args, "outdir", None) or os.path.dirname(
         os.path.abspath(args.input)
     )

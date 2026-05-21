@@ -125,7 +125,7 @@ def _resolve_reference_library(args) -> str:
     configured_reflib = settings.get("reference_library")
     reflib = getattr(args, "ref", None) or configured_reflib
     if reflib:
-        return os.path.abspath(reflib)
+        return os.path.abspath(str(reflib))
     prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
     return os.path.join(prog_root, "reference")
 
@@ -135,7 +135,7 @@ def _resolve_genome_library(args, reflib: str) -> str:
         "genome_library"
     )
     if genome_library:
-        return os.path.abspath(genome_library)
+        return os.path.abspath(str(genome_library))
     return os.path.join(os.path.dirname(reflib), "genomes")
 
 
