@@ -26,6 +26,57 @@ def _gatk_dict_path(ref: str) -> str:
     return str(ref_path.with_name(ref_name + ".dict"))
 
 
+def _prepare_gatk_input(args, ref: str, outdir: str) -> tuple[str, str | None]:
+    """Return an input GATK can read, converting regional CRAM input when needed."""
+    if not args.input.lower().endswith(".cram"):
+        return args.input, None
+
+    if not args.region:
+        logging.warning(
+            "GATK may not support CRAM 3.1 directly. For whole-genome CRAM input, "
+            "convert to BAM first with 'wgsextract bam to-bam' or pass --region for "
+            "automatic regional conversion."
+        )
+        return args.input, None
+
+    import tempfile
+
+    fd, temp_bam = tempfile.mkstemp(suffix=".bam", dir=outdir)
+    os.close(fd)
+    logging.info(f"Preparing regional BAM for GATK from CRAM input ({args.region})...")
+    try:
+        samtools = get_tool_path("samtools")
+        run_command(
+            [
+                samtools,
+                "view",
+                "-bh",
+                "-T",
+                ref,
+                "-o",
+                temp_bam,
+                args.input,
+                args.region,
+            ],
+            check=True,
+        )
+        run_command([samtools, "index", temp_bam], check=True)
+    except (OSError, subprocess.SubprocessError, WGSExtractError):
+        _cleanup_gatk_temp_input(temp_bam)
+        raise
+    return temp_bam, temp_bam
+
+
+def _cleanup_gatk_temp_input(temp_input: str | None) -> None:
+    if not temp_input:
+        return
+    for path in (temp_input, temp_input + ".bai", temp_input + ".csi"):
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError as e:
+            logging.warning(f"Failed to remove temporary GATK artifact {path}: {e}")
+
+
 def cmd_freebayes(args):
     verify_dependencies(["freebayes", "bcftools", "tabix", "samtools"])
     base = get_base_args(args)
@@ -168,8 +219,11 @@ def cmd_gatk(args):
 
     logging.info(LOG_MESSAGES["vcf_calling_gatk"].format(output=out_vcf))
     region_args = ["-L", args.region] if args.region else []
+    gatk_input = args.input
+    temp_gatk_input = None
 
     try:
+        gatk_input, temp_gatk_input = _prepare_gatk_input(args, ref, outdir)
         gatk_tool = get_tool_path("gatk")
         # Use system gatk binary
         cmd = [
@@ -178,7 +232,7 @@ def cmd_gatk(args):
             "-R",
             ref,
             "-I",
-            args.input,
+            gatk_input,
             "-O",
             out_vcf,
         ] + region_args
@@ -192,3 +246,5 @@ def cmd_gatk(args):
                 "If this failed with a CRAM error, please convert to BAM or upgrade GATK."
             )
         raise WGSExtractError("GATK failed.") from e
+    finally:
+        _cleanup_gatk_temp_input(temp_gatk_input)

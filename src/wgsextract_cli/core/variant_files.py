@@ -106,7 +106,8 @@ def ensure_vcf_indexed(vcf_path):
         return
 
     index_path = vcf_path + ".tbi"
-    if not os.path.exists(index_path):
+    csi_index_path = vcf_path + ".csi"
+    if not os.path.exists(index_path) and not os.path.exists(csi_index_path):
         from wgsextract_cli.core.dependencies import get_tool_path
 
         tabix = get_tool_path("tabix")
@@ -196,17 +197,28 @@ def chromosome_rename_mapping(
     return mapping
 
 
+def vcf_index_chromosomes(vcf_path: str) -> list[str]:
+    """Return contigs listed in a bgzipped VCF index."""
+    try:
+        res = run_command(["bcftools", "index", "-s", vcf_path], capture_output=True)
+    except (OSError, subprocess.SubprocessError) as e:
+        logging.debug(f"Could not inspect VCF chromosome index for {vcf_path}: {e}")
+        return []
+    return [
+        line.split("\t", 1)[0]
+        for line in (res.stdout or "").splitlines()
+        if line.strip()
+    ]
+
+
 def normalize_vcf_chromosomes(vcf_path, target_chroms):
     """
     Ensure VCF chromosome naming (chr1 vs 1) matches the targets.
     Returns path to a temporary normalized VCF if changes were needed.
     """
-    v_chroms = []
-    try:
-        res = run_command(["bcftools", "index", "-s", vcf_path], capture_output=True)
-        v_chroms = [line.split("\t")[0] for line in res.stdout.strip().split("\n")]
-    except Exception as e:
-        logging.warning(f"Chromosome normalization skipped for {vcf_path}: {e}")
+    v_chroms = vcf_index_chromosomes(vcf_path)
+    if not v_chroms:
+        logging.warning(f"Chromosome normalization skipped for {vcf_path}.")
         return vcf_path
 
     mapping = chromosome_rename_mapping(v_chroms, target_chroms)
