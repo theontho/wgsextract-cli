@@ -287,7 +287,8 @@ def cmd_bootstrap(args):
         if not install_maps:
             logging.info(
                 "Skipping optional Delly mappability maps. "
-                "Use --install-mappability-maps to preinstall them."
+                "Use --install-mappability-maps or "
+                "WGSEXTRACT_INSTALL_MAPPABILITY_MAPS=1 to preinstall them."
             )
         if should_save_reflib:
             save_config({"reference_library": reflib})
