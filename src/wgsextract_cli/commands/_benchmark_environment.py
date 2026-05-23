@@ -12,6 +12,11 @@ from wgsextract_cli.core.dependencies import (
     get_tool_runtime,
 )
 from wgsextract_cli.core.dependency_checks import get_tool_version
+from wgsextract_cli.core.dev_download_cache import (
+    drop_cached_download,
+    restore_cached_download,
+    store_download_in_dev_cache,
+)
 from wgsextract_cli.core.utils import WGSExtractError
 
 from ._benchmark_datasets import (
@@ -49,15 +54,32 @@ def _real_dataset_zip_path(args: argparse.Namespace, outdir: Path) -> Path:
 
     url = getattr(args, "dataset_url", None) or DEFAULT_REAL_DATASET_URL
     expected_sha256 = _normalized_dataset_sha256(args)
+    checksum_hint = f"sha256:{expected_sha256}" if expected_sha256 else None
     cache_dir = _real_dataset_cache_dir(args, outdir)
     cache_dir.mkdir(parents=True, exist_ok=True)
     zip_path = cache_dir / _download_filename(url)
     if zip_path.exists() and not expected_sha256:
+        store_download_in_dev_cache(url, zip_path)
         return zip_path
     if zip_path.exists() and _sha256(zip_path) == expected_sha256:
+        store_download_in_dev_cache(url, zip_path, checksum_hint=checksum_hint)
         return zip_path
+    if not zip_path.exists() and restore_cached_download(
+        url, zip_path, checksum_hint=checksum_hint
+    ):
+        if not expected_sha256:
+            return zip_path
+        try:
+            _verify_sha256(zip_path, expected_sha256)
+            return zip_path
+        except WGSExtractError:
+            drop_cached_download(url, zip_path, checksum_hint=checksum_hint)
+            zip_path.unlink(missing_ok=True)
 
-    _download_file(url, zip_path)
+    _download_file(url, zip_path, checksum_hint=checksum_hint)
+    if expected_sha256:
+        _verify_sha256(zip_path, expected_sha256)
+    store_download_in_dev_cache(url, zip_path, checksum_hint=checksum_hint)
     return zip_path
 
 

@@ -5,8 +5,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from wgsextract_cli.core.download_progress import curl_progress_args
-from wgsextract_cli.core.utils import run_command
+from wgsextract_cli.core.ref_library import download_file
 
 # Official UCSC RefGene database URLs
 # These files are approx 4-5MB compressed and contain all RefSeq gene models.
@@ -155,9 +154,9 @@ def download_gene_maps(reflib_dir, cancel_event=None):
         logging.info(f"Downloading {build} gene database from UCSC...")
         try:
             # 1. Download
-            # Use curl but check cancel_event periodically if possible
-            # For simplicity, we check before/after large steps
-            run_command(["curl", "-L", *curl_progress_args(), "-o", gz_path, url])
+            if not download_file(url, gz_path, cancel_event=cancel_event):
+                success = False
+                continue
 
             if cancel_event and cancel_event.is_set():
                 if os.path.exists(gz_path):

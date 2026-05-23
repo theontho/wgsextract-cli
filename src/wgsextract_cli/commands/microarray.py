@@ -30,6 +30,35 @@ from ._microarray_vcf import (
     _prepare_microarray_vcf,
 )
 
+_MICROARRAY_TEMPLATE_MAP = {
+    "23andme_v3": "23andMe_V3",
+    "23andme_v4": "23andMe_V4",
+    "23andme_v5": "23andMe_V5",
+    "23andme_v3+v5": "23andMe_V35",
+    "23andme_v3_v5": "23andMe_V35",
+    "23andme_v35": "23andMe_V35",
+    "23andme_api": "23andMe_SNPs_API",
+    "ancestry_v1": "Ancestry_V1",
+    "ancestry_v2": "Ancestry_V2",
+    "ftdna_v2": "FTDNA_V2",
+    "ftdna_v3": "FTDNA_V3",
+    "familytreedna_v2": "FTDNA_V2",
+    "familytreedna_v3": "FTDNA_V3",
+    "ldna_v1": "LDNA_V1",
+    "ldna_v2": "LDNA_V2",
+    "livingdna_v1": "LDNA_V1",
+    "livingdna_v2": "LDNA_V2",
+    "myheritage_v1": "MyHeritage_V1",
+    "myheritage_v2": "MyHeritage_V2",
+}
+
+
+def _resolve_microarray_format(format_key: str) -> str | None:
+    normalized = format_key.strip().lower().replace("-", "_")
+    if normalized in {"", "all", "combined_all"}:
+        return None
+    return _MICROARRAY_TEMPLATE_MAP.get(normalized, format_key.strip())
+
 
 def _convert_microarray_outputs(
     *,
@@ -73,30 +102,11 @@ def _convert_microarray_outputs(
     requested_formats = args.formats.split(",")
     start_fmt = time.time()
     for fmt_key in requested_formats:
-        fmt_key = fmt_key.strip()
-        if fmt_key == "all":
+        real_fmt = _resolve_microarray_format(fmt_key)
+        if real_fmt is None:
             continue
 
-        logging.info(LOG_MESSAGES["micro_generating_fmt"].format(format=fmt_key))
-
-        # We need to map fmt_key to actual template names if they differ
-        # e.g. 23andme_v5 -> 23andMe_V5
-        template_map = {
-            "23andme_v3": "23andMe_V3",
-            "23andme_v4": "23andMe_V4",
-            "23andme_v5": "23andMe_V5",
-            "ancestry_v1": "Ancestry_V1",
-            "ancestry_v2": "Ancestry_V2",
-            "ftdna_v2": "FTDNA_V2",
-            "ftdna_v3": "FTDNA_V3",
-            "ldna_v1": "LDNA_V1",
-            "ldna_v2": "LDNA_V2",
-            "myheritage_v1": "MyHeritage_V1",
-            "myheritage_v2": "MyHeritage_V2",
-        }
-        template_map["23andme_" + "api"] = "23andMe_SNPs_" + "API"
-
-        real_fmt = template_map.get(fmt_key.lower(), fmt_key)
+        logging.info(LOG_MESSAGES["micro_generating_fmt"].format(format=real_fmt))
 
         output_file = os.path.join(outdir, f"{base_name}_{real_fmt}.txt")
         if "MyHeritage" in real_fmt or "FTDNA" in real_fmt:

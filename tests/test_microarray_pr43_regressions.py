@@ -102,6 +102,24 @@ def test_microarray_uses_diploid_ploidy_for_reference_model_aliases(
     assert captured["ploidy_args"] == ["--ploidy", expected_ploidy]
 
 
+@pytest.mark.parametrize(
+    ("format_key", "expected"),
+    [
+        ("all", None),
+        ("combined-all", None),
+        ("23andme_v3+v5", "23andMe_V35"),
+        ("23andme-v3-v5", "23andMe_V35"),
+        ("23andMe_V35", "23andMe_V35"),
+        ("23andme-v5", "23andMe_V5"),
+        ("familytreedna-v2", "FTDNA_V2"),
+        ("livingdna-v1", "LDNA_V1"),
+        ("myheritage-v2", "MyHeritage_V2"),
+    ],
+)
+def test_microarray_format_aliases_match_template_names(format_key, expected):
+    assert microarray._resolve_microarray_format(format_key) == expected
+
+
 def test_combined_kit_vcf_mode_preserves_existing_mt_chromosome(tmp_path):
     ref_fasta = tmp_path / "ref.fa"
     ref_vcf_tab = tmp_path / "targets.tsv"

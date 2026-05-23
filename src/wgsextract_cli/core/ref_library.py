@@ -10,10 +10,16 @@ import shutil
 import subprocess
 import zipfile
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, BinaryIO, Literal
 from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
 
+from wgsextract_cli.core.dev_download_cache import (
+    drop_cached_download,
+    restore_cached_download,
+    store_download_in_dev_cache,
+)
 from wgsextract_cli.core.download_progress import (
     DownloadCancelled,
     copy_response_to_file,
@@ -122,6 +128,14 @@ def download_file(
         )
         return False
 
+    checksum_hint = f"sha256:{expected_sha256}" if expected_sha256 else None
+    dest_path = Path(dest)
+    if not os.path.exists(dest) and not os.path.exists(partial_dest):
+        if restore_cached_download(url, dest_path, checksum_hint=checksum_hint):
+            if verify_download_sha256(dest, expected_sha256):
+                return True
+            drop_cached_download(url, dest_path, checksum_hint=checksum_hint)
+
     # Use curl only when it can surface its native progress bar directly.
     # Non-TTY runs should take the urllib path so progress is emitted as logs.
     curl_args = curl_progress_args()
@@ -138,7 +152,10 @@ def download_file(
             cmd.extend(["-o", dest, url])
 
             run_command(cmd, capture_output=False)
-            return verify_download_sha256(dest, expected_sha256)
+            verified = verify_download_sha256(dest, expected_sha256)
+            if verified:
+                store_download_in_dev_cache(url, dest_path, checksum_hint=checksum_hint)
+            return verified
         except (OSError, subprocess.SubprocessError) as e:
             logging.warning("curl download failed, falling back to urllib: %s", e)
 
@@ -190,7 +207,10 @@ def download_file(
         if os.path.exists(dest):
             os.remove(dest)
         os.rename(partial_dest, dest)
-        return verify_download_sha256(dest, expected_sha256)
+        verified = verify_download_sha256(dest, expected_sha256)
+        if verified:
+            store_download_in_dev_cache(url, dest_path, checksum_hint=checksum_hint)
+        return verified
     except DownloadCancelled as e:
         logging.info(str(e))
     except Exception as e:
@@ -407,7 +427,9 @@ def install_mappability_maps(
 
     maps_dir = os.path.join(reflib_dir, "maps")
     os.makedirs(maps_dir, exist_ok=True)
-    if all(os.path.isfile(os.path.join(maps_dir, name)) for name in MAPPABILITY_MAP_FILES):
+    if all(
+        os.path.isfile(os.path.join(maps_dir, name)) for name in MAPPABILITY_MAP_FILES
+    ):
         logging.info("Delly mappability maps are already installed.")
         return True
 
