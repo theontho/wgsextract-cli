@@ -4,6 +4,8 @@ import logging
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from wgsextract_cli.core import constants, download_progress, ref_library
 
 
@@ -55,6 +57,11 @@ class _FakeDownloadResponse:
 
 def _asset_payload(name: str, digest: str) -> dict:
     return {"assets": [{"name": name, "digest": f"sha256:{digest}"}]}
+
+
+@pytest.fixture(autouse=True)
+def disable_dev_download_cache(monkeypatch):
+    monkeypatch.setenv("WGSEXTRACT_DEV_DOWNLOAD_CACHE", "0")
 
 
 def test_resolve_github_release_asset_sha256_tagged_url(monkeypatch):

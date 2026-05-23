@@ -106,10 +106,6 @@ Available formats:
     ldna_v1, ldna_v2
   MyHeritage:
     myheritage_v1, myheritage_v2
-  Other Vendors:
-    mthfr_uk (MTHFR Genetics UK), genera_br (Genera BR), meudna_br (meuDNA BR)
-  Reich Lab:
-    reich_aadr (AADR 1240K), reich_human_origins (Human Origins v1), reich_combined
 """,
     "arg_region": "Chromosomal region (e.g. chrM, chrY:10000-20000)",
     "arg_fraction": "Decimal percentage (e.g. 0.1 for 10%%)",
