@@ -707,6 +707,31 @@ def test_cached_remote_file_rechecks_verified_md5(tmp_path: Path) -> None:
         benchmark._cached_remote_dataset_file(remote, tmp_path)
 
 
+def test_cached_remote_file_skips_current_verified_md5(
+    monkeypatch, tmp_path: Path
+) -> None:
+    remote = benchmark.BenchmarkRemoteFile(
+        role="bam",
+        url="https://example.invalid/sample.cram",
+        filename="sample.cram",
+        md5="d41d8cd98f00b204e9800998ecf8427e",
+    )
+    cached = tmp_path / remote.filename
+    cached.write_bytes(b"")
+    benchmark._write_verified_md5_marker(
+        cached,
+        benchmark._verified_checksum_path(cached, remote.md5),
+        remote.md5,
+    )
+    monkeypatch.setattr(
+        benchmark,
+        "_md5",
+        lambda path: (_ for _ in ()).throw(AssertionError("md5 should be cached")),
+    )
+
+    assert benchmark._cached_remote_dataset_file(remote, tmp_path) == cached
+
+
 def test_direct_real_dataset_uses_cache_root(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("WGSEXTRACT_DEV_DOWNLOAD_CACHE", "0")
     spec = benchmark.BenchmarkDatasetSpec(

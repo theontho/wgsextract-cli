@@ -82,6 +82,42 @@ def _verify_md5(path: Path, expected: str) -> None:
         )
 
 
+def _write_verified_md5_marker(path: Path, marker_path: Path, md5: str) -> None:
+    stat = path.stat()
+    marker_path.write_text(
+        "\n".join(
+            [
+                md5.lower().strip(),
+                f"size={stat.st_size}",
+                f"mtime_ns={stat.st_mtime_ns}",
+            ]
+        )
+        + "\n",
+        encoding="ascii",
+    )
+
+
+def _has_current_verified_md5_marker(path: Path, marker_path: Path, md5: str) -> bool:
+    if not marker_path.exists():
+        return False
+    try:
+        lines = marker_path.read_text(encoding="ascii").splitlines()
+        values = {
+            key: value
+            for line in lines
+            if "=" in line
+            for key, value in [line.split("=", 1)]
+        }
+        stat = path.stat()
+    except OSError:
+        return False
+    return (
+        lines[:1] == [md5.lower().strip()]
+        and values.get("size") == str(stat.st_size)
+        and values.get("mtime_ns") == str(stat.st_mtime_ns)
+    )
+
+
 def _cached_remote_dataset_file(remote: BenchmarkRemoteFile, cache_root: Path) -> Path:
     path = cache_root / remote.filename
     checksum_hint = f"md5:{remote.md5.lower().strip()}" if remote.md5 else None
@@ -89,9 +125,16 @@ def _cached_remote_dataset_file(remote: BenchmarkRemoteFile, cache_root: Path) -
     if path.exists() and remote.md5 is None:
         store_download_in_dev_cache(remote.url, path, checksum_hint=checksum_hint)
         return path
+    if (
+        path.exists()
+        and remote.md5
+        and _has_current_verified_md5_marker(path, verified_path, remote.md5)
+    ):
+        store_download_in_dev_cache(remote.url, path, checksum_hint=checksum_hint)
+        return path
     if path.exists() and remote.md5:
         _verify_md5(path, remote.md5)
-        verified_path.write_text(remote.md5.lower().strip() + "\n", encoding="ascii")
+        _write_verified_md5_marker(path, verified_path, remote.md5)
         store_download_in_dev_cache(remote.url, path, checksum_hint=checksum_hint)
         return path
     if not path.exists():
@@ -99,9 +142,7 @@ def _cached_remote_dataset_file(remote: BenchmarkRemoteFile, cache_root: Path) -
             try:
                 if remote.md5:
                     _verify_md5(path, remote.md5)
-                    verified_path.write_text(
-                        remote.md5.lower().strip() + "\n", encoding="ascii"
-                    )
+                    _write_verified_md5_marker(path, verified_path, remote.md5)
                 return path
             except WGSExtractError:
                 drop_cached_download(remote.url, path, checksum_hint=checksum_hint)
@@ -109,7 +150,7 @@ def _cached_remote_dataset_file(remote: BenchmarkRemoteFile, cache_root: Path) -
         _download_file(remote.url, path, checksum_hint=checksum_hint)
     if remote.md5:
         _verify_md5(path, remote.md5)
-        verified_path.write_text(remote.md5.lower().strip() + "\n", encoding="ascii")
+        _write_verified_md5_marker(path, verified_path, remote.md5)
     store_download_in_dev_cache(remote.url, path, checksum_hint=checksum_hint)
     return path
 
