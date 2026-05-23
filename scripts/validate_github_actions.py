@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_GLOB = ".github/workflows/*.y*ml"
 USES_RE = re.compile(
-    r"^(?P<indent>\s*)uses:\s+(?P<target>['\"]?[^'\"\s#]+['\"]?)"
+    r"^(?P<indent>\s*)(?:-\s+)?uses:\s+(?P<target>['\"]?[^'\"\s#]+['\"]?)"
     r"(?:\s+#\s*(?P<version>\S+))?\s*$"
 )
 PINNED_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -108,7 +108,9 @@ def validate_workflows() -> list[str]:
     errors: list[str] = []
     workflows = sorted(ROOT.glob(WORKFLOW_GLOB))
     for workflow in workflows:
-        for line_number, line in enumerate(workflow.read_text().splitlines(), start=1):
+        for line_number, line in enumerate(
+            workflow.read_text(encoding="utf-8").splitlines(), start=1
+        ):
             match = USES_RE.match(line)
             if match is None:
                 continue
@@ -128,8 +130,8 @@ def validate_workflows() -> list[str]:
             expected = EXPECTED_ACTIONS.get(normalized_action)
             if expected is None:
                 errors.append(
-                    f"{workflow}:{line_number}: add {action} to EXPECTED_ACTIONS "
-                    "after checking its latest stable tag"
+                    f"{workflow}:{line_number}: add {normalized_action} to "
+                    "EXPECTED_ACTIONS after checking its latest stable tag"
                 )
                 continue
 
