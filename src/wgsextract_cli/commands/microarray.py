@@ -57,7 +57,7 @@ def _resolve_microarray_format(format_key: str) -> str | None:
     normalized = format_key.strip().lower().replace("-", "_")
     if normalized in {"", "all", "combined_all"}:
         return None
-    return _MICROARRAY_TEMPLATE_MAP.get(normalized, format_key.strip())
+    return _MICROARRAY_TEMPLATE_MAP.get(normalized, normalized)
 
 
 def _convert_microarray_outputs(

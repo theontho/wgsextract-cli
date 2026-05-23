@@ -59,16 +59,15 @@ def _real_dataset_zip_path(args: argparse.Namespace, outdir: Path) -> Path:
     cache_dir.mkdir(parents=True, exist_ok=True)
     zip_path = cache_dir / _download_filename(url)
     if zip_path.exists() and not expected_sha256:
-        store_download_in_dev_cache(url, zip_path)
         return zip_path
     if zip_path.exists() and _sha256(zip_path) == expected_sha256:
         store_download_in_dev_cache(url, zip_path, checksum_hint=checksum_hint)
         return zip_path
-    if not zip_path.exists() and restore_cached_download(
-        url, zip_path, checksum_hint=checksum_hint
+    if (
+        expected_sha256
+        and not zip_path.exists()
+        and restore_cached_download(url, zip_path, checksum_hint=checksum_hint)
     ):
-        if not expected_sha256:
-            return zip_path
         try:
             _verify_sha256(zip_path, expected_sha256)
             return zip_path
@@ -79,7 +78,7 @@ def _real_dataset_zip_path(args: argparse.Namespace, outdir: Path) -> Path:
     _download_file(url, zip_path, checksum_hint=checksum_hint)
     if expected_sha256:
         _verify_sha256(zip_path, expected_sha256)
-    store_download_in_dev_cache(url, zip_path, checksum_hint=checksum_hint)
+        store_download_in_dev_cache(url, zip_path, checksum_hint=checksum_hint)
     return zip_path
 
 

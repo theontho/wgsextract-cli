@@ -690,7 +690,7 @@ def test_direct_real_dataset_manifest_marks_region_safe(tmp_path: Path) -> None:
     assert dataset.bam == bam
 
 
-def test_cached_remote_file_skips_verified_md5(monkeypatch, tmp_path: Path) -> None:
+def test_cached_remote_file_rechecks_verified_md5(tmp_path: Path) -> None:
     remote = benchmark.BenchmarkRemoteFile(
         role="bam",
         url="https://example.invalid/sample.cram",
@@ -702,13 +702,9 @@ def test_cached_remote_file_skips_verified_md5(monkeypatch, tmp_path: Path) -> N
     benchmark._verified_checksum_path(cached, remote.md5).write_text(
         remote.md5 + "\n", encoding="ascii"
     )
-    monkeypatch.setattr(
-        benchmark,
-        "_md5",
-        lambda path: (_ for _ in ()).throw(AssertionError("md5 should be cached")),
-    )
 
-    assert benchmark._cached_remote_dataset_file(remote, tmp_path) == cached
+    with pytest.raises(benchmark.WGSExtractError):
+        benchmark._cached_remote_dataset_file(remote, tmp_path)
 
 
 def test_direct_real_dataset_uses_cache_root(monkeypatch, tmp_path: Path) -> None:

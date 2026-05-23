@@ -130,7 +130,8 @@ def download_file(
 
     checksum_hint = f"sha256:{expected_sha256}" if expected_sha256 else None
     dest_path = Path(dest)
-    if not os.path.exists(dest) and not os.path.exists(partial_dest):
+    partial_path = Path(partial_dest)
+    if not dest_path.exists() and not partial_path.exists():
         if restore_cached_download(url, dest_path, checksum_hint=checksum_hint):
             if verify_download_sha256(dest, expected_sha256):
                 return True

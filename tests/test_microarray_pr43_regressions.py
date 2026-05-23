@@ -114,6 +114,7 @@ def test_microarray_uses_diploid_ploidy_for_reference_model_aliases(
         ("familytreedna-v2", "FTDNA_V2"),
         ("livingdna-v1", "LDNA_V1"),
         ("myheritage-v2", "MyHeritage_V2"),
+        ("My-Custom-Format", "my_custom_format"),
     ],
 )
 def test_microarray_format_aliases_match_template_names(format_key, expected):

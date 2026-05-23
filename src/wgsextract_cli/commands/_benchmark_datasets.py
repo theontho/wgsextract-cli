@@ -86,7 +86,7 @@ def _cached_remote_dataset_file(remote: BenchmarkRemoteFile, cache_root: Path) -
     path = cache_root / remote.filename
     checksum_hint = f"md5:{remote.md5.lower().strip()}" if remote.md5 else None
     verified_path = _verified_checksum_path(path, remote.md5)
-    if path.exists() and (remote.md5 is None or verified_path.exists()):
+    if path.exists() and remote.md5 is None:
         store_download_in_dev_cache(remote.url, path, checksum_hint=checksum_hint)
         return path
     if path.exists() and remote.md5:
