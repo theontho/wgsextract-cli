@@ -25,6 +25,18 @@ repos:
         files: ^
   - repo: local
     hooks:
+      - id: actionlint
+        name: actionlint
+        entry: actionlint
+        language: system
+        pass_filenames: false
+        files: ^\.github/workflows/.*\.ya?ml$
+      - id: validate-github-actions
+        name: validate GitHub Actions versions
+        entry: python scripts/validate_github_actions.py
+        language: python
+        pass_filenames: false
+        files: ^(\.github/workflows/.*\.ya?ml|scripts/validate_github_actions\.py)$
       - id: validate-site-sources
         name: validate site sources
         entry: python scripts/validate_site_sources.py
