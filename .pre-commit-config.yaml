@@ -27,7 +27,7 @@ repos:
     hooks:
       - id: actionlint
         name: actionlint
-        entry: actionlint
+        entry: python scripts/run_actionlint.py
         language: system
         pass_filenames: false
         files: ^\.github/workflows/.*\.ya?ml$

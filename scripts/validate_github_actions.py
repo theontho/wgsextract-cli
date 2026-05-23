@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_GLOB = ".github/workflows/*.y*ml"
 USES_RE = re.compile(
     r"^(?P<indent>\s*)(?:-\s+)?uses:\s+(?P<target>['\"]?[^'\"\s#]+['\"]?)"
-    r"(?:\s+#\s*(?P<version>\S+))?\s*$"
+    r"(?:\s+#\s*(?P<comment>.*))?\s*$"
 )
 PINNED_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
@@ -135,7 +135,8 @@ def validate_workflows() -> list[str]:
                 )
                 continue
 
-            version = match.group("version")
+            comment = match.group("comment")
+            version = comment.split()[0] if comment else None
             if ref != expected.sha:
                 if ref == expected.version:
                     errors.append(
