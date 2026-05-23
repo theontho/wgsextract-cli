@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-import getpass
 import hashlib
 import logging
 import os
-import platform
 import re
 import shutil
-import socket
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -18,36 +14,11 @@ CACHE_ENV_VAR = "WGSEXTRACT_DEV_DOWNLOAD_CACHE"
 CACHE_TTL_ENV_VAR = "WGSEXTRACT_DEV_DOWNLOAD_CACHE_TTL_SECONDS"
 
 
-@dataclass(frozen=True)
-class DevCacheHint:
-    system: str | None = None
-    username: str | None = None
-    computer_name: str | None = None
-
-    def matches(self) -> bool:
-        if self.system and platform.system().lower() != self.system.lower():
-            return False
-        if self.username and _current_username().lower() != self.username.lower():
-            return False
-        if (
-            self.computer_name
-            and _current_computer_name().lower() != self.computer_name.lower()
-        ):
-            return False
-        return True
-
-
-DEV_CACHE_HINTS: tuple[DevCacheHint, ...] = (
-    DevCacheHint(system="Darwin", username="mac"),
-    DevCacheHint(system="Windows", computer_name="minipc"),
-)
-
-
 def dev_download_cache_enabled() -> bool:
     override = os.environ.get(CACHE_ENV_VAR)
     if override is not None:
         return override.strip().lower() in {"1", "true", "yes", "on"}
-    return any(hint.matches() for hint in DEV_CACHE_HINTS)
+    return False
 
 
 def xdg_cache_home() -> Path:
@@ -219,16 +190,3 @@ def _cache_ttl_seconds() -> int:
         logging.debug("Ignoring invalid %s=%r", CACHE_TTL_ENV_VAR, value)
         return CACHE_TTL_SECONDS
     return max(0, ttl)
-
-
-def _current_username() -> str:
-    return os.environ.get("USER") or os.environ.get("USERNAME") or getpass.getuser()
-
-
-def _current_computer_name() -> str:
-    return (
-        os.environ.get("COMPUTERNAME")
-        or os.environ.get("HOSTNAME")
-        or platform.node()
-        or socket.gethostname()
-    )

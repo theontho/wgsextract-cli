@@ -135,6 +135,7 @@ def download_file(
             if verify_download_sha256(dest, expected_sha256):
                 return True
             drop_cached_download(url, dest_path, checksum_hint=checksum_hint)
+            dest_path.unlink(missing_ok=True)
 
     # Use curl only when it can surface its native progress bar directly.
     # Non-TTY runs should take the urllib path so progress is emitted as logs.

@@ -44,6 +44,21 @@ def test_dev_download_cache_can_be_disabled(tmp_path, monkeypatch):
     )
 
 
+def test_dev_download_cache_defaults_to_disabled(tmp_path, monkeypatch):
+    monkeypatch.delenv("WGSEXTRACT_DEV_DOWNLOAD_CACHE", raising=False)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg-cache"))
+
+    source = tmp_path / "source.fa.gz"
+    source.write_bytes(b"cached reference")
+
+    assert (
+        dev_download_cache.store_download_in_dev_cache(
+            "https://example.test/source.fa.gz", source
+        )
+        is None
+    )
+
+
 def test_prune_expired_cache_items_removes_stale_files(tmp_path, monkeypatch):
     monkeypatch.setenv("WGSEXTRACT_DEV_DOWNLOAD_CACHE_TTL_SECONDS", "1")
     root = tmp_path / "cache"
