@@ -7,6 +7,15 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from wgsextract_cli.core.dev_download_cache import (
+    benchmark_dataset_cache_root,
+    dev_download_cache_enabled,
+    drop_cached_download,
+    mark_cache_item_used,
+    prune_expired_cache_items,
+    restore_cached_download,
+    store_download_in_dev_cache,
+)
 from wgsextract_cli.core.download_progress import (
     copy_response_to_file,
     require_http_url,
@@ -27,7 +36,9 @@ from ._benchmark_models import (
 )
 
 
-def _download_file(url: str, destination: Path) -> None:
+def _download_file(
+    url: str, destination: Path, *, checksum_hint: str | None = None
+) -> None:
     require_http_url(url, "benchmark dataset URL")
     tmp_path = destination.with_suffix(destination.suffix + ".tmp")
     request = urllib.request.Request(url, headers={"User-Agent": "wgsextract-cli"})
@@ -71,20 +82,76 @@ def _verify_md5(path: Path, expected: str) -> None:
         )
 
 
+def _write_verified_md5_marker(path: Path, marker_path: Path, md5: str) -> None:
+    stat = path.stat()
+    marker_path.write_text(
+        "\n".join(
+            [
+                md5.lower().strip(),
+                f"size={stat.st_size}",
+                f"mtime_ns={stat.st_mtime_ns}",
+            ]
+        )
+        + "\n",
+        encoding="ascii",
+    )
+
+
+def _has_current_verified_md5_marker(path: Path, marker_path: Path, md5: str) -> bool:
+    if not marker_path.exists():
+        return False
+    try:
+        lines = marker_path.read_text(encoding="ascii").splitlines()
+        values = {
+            key: value
+            for line in lines
+            if "=" in line
+            for key, value in [line.split("=", 1)]
+        }
+        stat = path.stat()
+    except OSError:
+        return False
+    return (
+        lines[:1] == [md5.lower().strip()]
+        and values.get("size") == str(stat.st_size)
+        and values.get("mtime_ns") == str(stat.st_mtime_ns)
+    )
+
+
 def _cached_remote_dataset_file(remote: BenchmarkRemoteFile, cache_root: Path) -> Path:
     path = cache_root / remote.filename
+    checksum_hint = f"md5:{remote.md5.lower().strip()}" if remote.md5 else None
     verified_path = _verified_checksum_path(path, remote.md5)
-    if path.exists() and (remote.md5 is None or verified_path.exists()):
+    if path.exists() and remote.md5 is None:
+        store_download_in_dev_cache(remote.url, path, checksum_hint=checksum_hint)
+        return path
+    if (
+        path.exists()
+        and remote.md5
+        and _has_current_verified_md5_marker(path, verified_path, remote.md5)
+    ):
+        store_download_in_dev_cache(remote.url, path, checksum_hint=checksum_hint)
         return path
     if path.exists() and remote.md5:
         _verify_md5(path, remote.md5)
-        verified_path.write_text(remote.md5.lower().strip() + "\n", encoding="ascii")
+        _write_verified_md5_marker(path, verified_path, remote.md5)
+        store_download_in_dev_cache(remote.url, path, checksum_hint=checksum_hint)
         return path
     if not path.exists():
-        _download_file(remote.url, path)
+        if restore_cached_download(remote.url, path, checksum_hint=checksum_hint):
+            try:
+                if remote.md5:
+                    _verify_md5(path, remote.md5)
+                    _write_verified_md5_marker(path, verified_path, remote.md5)
+                return path
+            except WGSExtractError:
+                drop_cached_download(remote.url, path, checksum_hint=checksum_hint)
+                path.unlink(missing_ok=True)
+        _download_file(remote.url, path, checksum_hint=checksum_hint)
     if remote.md5:
         _verify_md5(path, remote.md5)
-        verified_path.write_text(remote.md5.lower().strip() + "\n", encoding="ascii")
+        _write_verified_md5_marker(path, verified_path, remote.md5)
+    store_download_in_dev_cache(remote.url, path, checksum_hint=checksum_hint)
     return path
 
 
@@ -190,6 +257,10 @@ def _real_dataset_cache_dir(args: argparse.Namespace, outdir: Path) -> Path:
     cache_dir = getattr(args, "dataset_cache_dir", None)
     if cache_dir:
         return Path(str(cache_dir)).expanduser().resolve()
+    if dev_download_cache_enabled():
+        root = benchmark_dataset_cache_root()
+        prune_expired_cache_items(root)
+        return root
     return outdir / "datasets"
 
 
@@ -323,6 +394,7 @@ def _prepare_direct_real_benchmark_dataset(
     _link_cached_dataset_manifest(
         cache_root, dataset_dir / f"{spec.tag}-cache-root.txt"
     )
+    mark_cache_item_used(cache_root)
     return _load_real_benchmark_dataset(cache_root)
 
 
