@@ -712,6 +712,7 @@ def test_cached_remote_file_skips_verified_md5(monkeypatch, tmp_path: Path) -> N
 
 
 def test_direct_real_dataset_uses_cache_root(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("WGSEXTRACT_DEV_DOWNLOAD_CACHE", "0")
     spec = benchmark.BenchmarkDatasetSpec(
         tag="real-test",
         dataset_id="real-test",
