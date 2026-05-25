@@ -1,7 +1,7 @@
 ---
 output: 'cli.html'
 title: 'CLI Guide | WGS Extract CLI'
-description: 'WGS Extract CLI command guide with command groups, options, and common recipes.'
+description: 'WGS Extract CLI command guide with command groups, options, common recipes, and links to the separate GUI downloads.'
 eyebrow: 'Command reference'
 heading: 'A map of the WGS Extract command line.'
 lede: 'The CLI is the best interface for repeatable work: scripts, batch jobs, remote machines, AI-agent workflows, and long-running analyses where exact commands matter.'
@@ -41,7 +41,7 @@ Run `pixi run wgsextract help` or `pixi run wgsextract --full-help` for the live
 :::
 
 ::: callout
-{{ text: **Need a GUI?** This package is CLI-only. Use [gui-for-cli](https://github.com/theontho/gui-for-cli){.inline-link} for graphical workflows. }}
+{{ text: **Need a GUI?** This package is CLI-only. Use the [gui-for-cli releases](https://github.com/theontho/gui-for-cli/releases){.inline-link} or the local [GUI downloads page](gui.html){.inline-link} for graphical workflows. Install the CLI when you need terminal commands, scripts, automation, or remote jobs. }}
 :::
 
 ::: grid three
