@@ -23,7 +23,8 @@ auto_hero: false
         WGS Extract CLI is a modern, scriptable command-line recreation of WGS Extract. It wraps common bioinformatics tools so you can inspect BAM/CRAM files, build consumer microarray files, call variants, extract Y/MT reads, manage references, and automate repeatable genome work.
       </p>
       <div class="actions">
-        <a class="btn primary" href="install.html">Start installing</a>
+        <a class="btn primary" href="install.html">Install the CLI</a>
+        <a class="btn" href="gui.html">Download the GUI</a>
         <a class="btn" href="workflows.html">Browse workflows</a>
         <a class="btn" href="wgs-guide.html">Learn WGS basics</a>
       </div>
@@ -78,8 +79,10 @@ Learn the major command families for info, BAM/CRAM, extraction, VCF calling, an
 
 ::: card
 {{ kicker: Graphical interface }}
-### Want a GUI?
-This package is CLI-only. Use [gui-for-cli](https://github.com/theontho/gui-for-cli){.inline-link} when you want a graphical interface for these workflows.
+### Download the separate WGS Extract GUI
+This package is CLI-only. Use the [gui-for-cli releases](https://github.com/theontho/gui-for-cli/releases){.inline-link} when you want a graphical interface, or install this CLI for terminal workflows.
+
+{{ link: Open GUI downloads|gui.html|inline-link }}
 :::
 
 ::: card

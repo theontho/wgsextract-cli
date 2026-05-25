@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="Install WGS Extract CLI with the standalone macOS/Linux installer, native Windows installer, or developer Pixi workflow." />
+    <meta name="description" content="Install WGS Extract CLI with the standalone macOS/Linux installer, native Windows installer, or developer Pixi workflow, and find the separate GUI releases." />
     <title>Install | WGS Extract CLI</title>
     <meta property="og:site_name" content="WGS Extract CLI" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="Install | WGS Extract CLI" />
-    <meta property="og:description" content="Install WGS Extract CLI with the standalone macOS/Linux installer, native Windows installer, or developer Pixi workflow." />
+    <meta property="og:description" content="Install WGS Extract CLI with the standalone macOS/Linux installer, native Windows installer, or developer Pixi workflow, and find the separate GUI releases." />
     <meta property="og:url" content="https://theontho.github.io/wgsextract-cli/install.html" />
     <meta property="og:image" content="https://theontho.github.io/wgsextract-cli/assets/social-preview.png" />
     <meta property="og:image:type" content="image/png" />
@@ -17,7 +17,7 @@
     <meta property="og:image:alt" content="WGS Extract CLI local-first whole genome toolkit" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Install | WGS Extract CLI" />
-    <meta name="twitter:description" content="Install WGS Extract CLI with the standalone macOS/Linux installer, native Windows installer, or developer Pixi workflow." />
+    <meta name="twitter:description" content="Install WGS Extract CLI with the standalone macOS/Linux installer, native Windows installer, or developer Pixi workflow, and find the separate GUI releases." />
     <meta name="twitter:image" content="https://theontho.github.io/wgsextract-cli/assets/social-preview.png" />
     <link rel="canonical" href="https://theontho.github.io/wgsextract-cli/install.html" />
     <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".82em" font-size="84">🧬</text></svg>' />
@@ -27,7 +27,7 @@
     <nav class="nav" aria-label="Primary navigation">
       <div class="wrap nav-inner">
         <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true"></span><span>WGS Extract CLI</span></a>
-        <div class="nav-links"><a href="index.html">Home</a><a class="active" href="install.html">Install</a><a href="cli.html">CLI</a><a href="workflows.html">Workflows</a><a href="wgs-guide.html">WGS guide</a><a href="reference.html">Reference</a><a href="https://github.com/theontho/wgsextract-cli" target="_blank" rel="noopener noreferrer">GitHub</a></div>
+        <div class="nav-links"><a href="index.html">Home</a><a class="active" href="install.html">Install</a><a href="gui.html">GUI</a><a href="cli.html">CLI</a><a href="workflows.html">Workflows</a><a href="wgs-guide.html">WGS guide</a><a href="reference.html">Reference</a><a href="https://github.com/theontho/wgsextract-cli" target="_blank" rel="noopener noreferrer">GitHub</a></div>
       </div>
     </nav>
 
@@ -36,8 +36,8 @@
         <div class="wrap">
           <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Setup guide</p>
           <h1>Install once, then run repeatable genome workflows.</h1>
-          <p class="lede"><abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> uses <a class="term-link" href="https://pixi.sh/">Pixi</a> to manage <a class="term-link" href="https://www.python.org/">Python</a>, the app itself, and many external bioinformatics tools. macOS and Linux use the standalone terminal installer; Windows uses <code>install_windows.bat</code> from <a class="term-link" href="https://learn.microsoft.com/powershell/">PowerShell</a> with the <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> <abbr data-tooltip="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime." aria-label="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime.">UCRT64</abbr> pacman runtime.</p>
-          <div class="toc"><a href="#quickstart">macOS/Linux</a><a href="#windows">Windows</a><a href="#developer">Developer Pixi setup</a><a href="#platforms">Platforms</a><a href="#references">References</a><a href="#config">Configuration</a><a href="#verify">Verify</a></div>
+          <p class="lede"><abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> uses <a class="term-link" href="https://pixi.sh/">Pixi</a> to manage <a class="term-link" href="https://www.python.org/">Python</a>, the app itself, and many external bioinformatics tools. macOS and Linux use the standalone terminal installer; Windows uses <code>install_windows.bat</code> from <a class="term-link" href="https://learn.microsoft.com/powershell/">PowerShell</a> with the <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> <abbr data-tooltip="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime." aria-label="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime.">UCRT64</abbr> pacman runtime. The graphical <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract app is published separately by gui-for-cli.</p>
+          <div class="toc"><a href="#quickstart">macOS/Linux</a><a href="#gui-option">GUI option</a><a href="#windows">Windows</a><a href="#developer">Developer Pixi setup</a><a href="#platforms">Platforms</a><a href="#references">References</a><a href="#config">Configuration</a><a href="#verify">Verify</a></div>
         </div>
       </header>
 
@@ -84,11 +84,36 @@
 <span class="cmd">./wgsextract-cli/wgsextract info --detailed</span>
 <span class="cmd">./wgsextract-cli/wgsextract deps check</span>
 
-<span class="comment"># Optional graphical interface lives in a separate project:</span>
-<span class="comment"># https://github.com/theontho/gui-for-cli</span>
+<span class="comment"># Optional graphical interface releases live in a separate project:</span>
+<span class="comment"># https://github.com/theontho/gui-for-cli/releases</span>
 
 <span class="comment"># Uninstall the app if needed. Interactive runs ask whether to remove Pixi too.</span>
 <span class="cmd">./wgsextract-cli/uninstall.sh</span></code></pre>
+</div>
+</div>
+</section>
+<section id="gui-option">
+<div class="wrap">
+<div class="section-head">
+<h2>GUI option</h2>
+<p>Install <code>wgsextract-cli</code> for terminal commands, scripts, automation, and remote jobs. If you want a graphical <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract interface instead, download gui-for-cli from its <a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases">Releases page</a>.</p>
+</div>
+<div class="grid three">
+<article class="card">
+<h3>Latest GUI release</h3>
+<p><a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases/tag/v0.1.10">gui-for-cli v0.1.10</a> includes Windows, macOS, and Linux desktop packages for the graphical interface.</p>
+<a class="inline-link" href="gui.html">Open GUI downloads</a>
+</article>
+<article class="card">
+<h3>All GUI releases</h3>
+<p>Use the releases page for the newest builds, release notes, older versions, and checksum/signature assets.</p>
+<a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases">Browse gui-for-cli releases</a>
+</article>
+<article class="card">
+<h3><abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> install stays here</h3>
+<p>Use this install guide when you want the <code>wgsextract</code> command. The <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> is still the best fit for repeatable whole-genome workflows and automation.</p>
+<a class="inline-link" href="#quickstart" data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">Continue CLI install</a>
+</article>
 </div>
 </div>
 </section>
@@ -170,7 +195,7 @@
 <span class="cmd">pixi run wgsextract deps check</span></code></pre>
 </div>
 <div class="callout">
-<strong>Need a GUI?</strong> <code>wgsextract-cli</code> stays command-line only. Use <a class="inline-link" href="https://github.com/theontho/gui-for-cli">gui-for-cli</a> for the graphical interface.
+<strong>Need a GUI?</strong> <code>wgsextract-cli</code> stays command-line only. Use the <a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases">gui-for-cli releases</a> or the local <a class="inline-link" href="gui.html">GUI downloads page</a> for the graphical interface.
 </div>
 </div>
 </section>

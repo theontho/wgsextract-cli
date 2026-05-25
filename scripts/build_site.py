@@ -24,6 +24,7 @@ ABBR_FILE = SOURCE_DIR / "abbr.toml"
 NAV_ITEMS = [
     ("index.html", "Home"),
     ("install.html", "Install"),
+    ("gui.html", "GUI"),
     ("cli.html", "CLI"),
     ("workflows.html", "Workflows"),
     ("wgs-guide.html", "WGS guide"),
