@@ -4,7 +4,7 @@ title: 'GUI Downloads | WGS Extract CLI'
 description: 'Download the separate gui-for-cli graphical interface for WGS Extract, or install the CLI-only wgsextract command-line app.'
 eyebrow: 'Graphical interface'
 heading: 'Use gui-for-cli when you want WGS Extract with windows, buttons, and forms.'
-lede: 'The command-line app and graphical app are separate projects. Install `wgsextract-cli` when you want terminal commands and automation; install gui-for-cli from GitHub Releases when you want a graphical interface for WGS Extract workflows.'
+lede: 'The command-line app and graphical app are separate projects. Install `wgsextract-cli` when you want terminal commands and automation; install gui-for-cli from [gui-for-cli Releases](https://github.com/theontho/gui-for-cli/releases){.inline-link} when you want a graphical interface for WGS Extract workflows.'
 toc: 'GUI releases|releases; Choose a download|downloads; CLI option|cli-option; How they fit|fit'
 footer_title: 'WGS Extract GUI'
 footer_text: 'Graphical releases are maintained in the gui-for-cli repository.'
@@ -33,7 +33,7 @@ Use the release page when you want the newest platform packages, signatures, rel
 ::: wrap
 ::: section-head
 ## Choose a GUI download
-Pick the package that matches your operating system. If you are unsure, open the latest release page and choose the asset GitHub recommends for your platform.
+Pick the package that matches your operating system. If you are unsure, open the [latest gui-for-cli release](https://github.com/theontho/gui-for-cli/releases/latest){.inline-link} and choose the asset recommended for your platform.
 :::
 
 ::: grid three
@@ -69,7 +69,7 @@ Use the package format native to your distribution, or use the AppImage for a po
 :::
 
 ::: callout
-{{ text: **Checksums and signatures:** gui-for-cli release assets include signature, appcast, and metadata files where the GUI build publishes them. Use the GitHub release page when you need to verify a package before installing. }}
+{{ text: **Checksums and signatures:** gui-for-cli release assets include signature, appcast, and metadata files where the GUI build publishes them. Use the [gui-for-cli releases page](https://github.com/theontho/gui-for-cli/releases){.inline-link} when you need to verify a package before installing. }}
 :::
 :::
 :::

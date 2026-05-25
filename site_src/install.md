@@ -74,7 +74,7 @@ curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/instal
 ::: wrap
 ::: section-head
 ## GUI option
-Install `wgsextract-cli` for terminal commands, scripts, automation, and remote jobs. If you want a graphical WGS Extract interface instead, download gui-for-cli from its GitHub Releases page.
+Install `wgsextract-cli` for terminal commands, scripts, automation, and remote jobs. If you want a graphical WGS Extract interface instead, download gui-for-cli from its [Releases page](https://github.com/theontho/gui-for-cli/releases){.inline-link}.
 :::
 
 ::: grid three
