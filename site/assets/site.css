@@ -66,6 +66,11 @@ td {
 code {
   font-family: var(--mono);
   color: #d9f2ff;
+  overflow-wrap: anywhere;
+}
+
+pre code {
+  overflow-wrap: normal;
 }
 
 abbr[data-tooltip] {
@@ -630,6 +635,7 @@ tr:last-child td {
   border-radius: 24px;
   color: #ffe4b7;
   background: rgba(255, 202, 122, 0.08);
+  overflow-wrap: break-word;
 }
 
 .callout strong {

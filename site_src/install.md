@@ -1,11 +1,11 @@
 ---
 output: 'install.html'
 title: 'Install | WGS Extract CLI'
-description: 'Install WGS Extract CLI with the standalone macOS/Linux installer, native Windows installer, or developer Pixi workflow.'
+description: 'Install WGS Extract CLI with the standalone macOS/Linux installer, native Windows installer, or developer Pixi workflow, and find the separate GUI releases.'
 eyebrow: 'Setup guide'
 heading: 'Install once, then run repeatable genome workflows.'
-lede: 'WGS Extract CLI uses Pixi to manage Python, the app itself, and many external bioinformatics tools. macOS and Linux use the standalone terminal installer; Windows uses `install_windows.bat` from PowerShell with the MSYS2 UCRT64 pacman runtime.'
-toc: 'macOS/Linux|quickstart; Windows|windows; Developer Pixi setup|developer; Platforms|platforms; References|references; Configuration|config; Verify|verify'
+lede: 'WGS Extract CLI uses Pixi to manage Python, the app itself, and many external bioinformatics tools. macOS and Linux use the standalone terminal installer; Windows uses `install_windows.bat` from PowerShell with the MSYS2 UCRT64 pacman runtime. The graphical WGS Extract app is published separately by gui-for-cli.'
+toc: 'macOS/Linux|quickstart; GUI option|gui-option; Windows|windows; Developer Pixi setup|developer; Platforms|platforms; References|references; Configuration|config; Verify|verify'
 footer_title: 'WGS Extract CLI'
 footer_text: 'Install guide and environment reference.'
 footer_link_text: 'Next: CLI guide'
@@ -60,12 +60,44 @@ curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/instal
 ./wgsextract-cli/wgsextract info --detailed
 ./wgsextract-cli/wgsextract deps check
 
-# Optional graphical interface lives in a separate project:
-# https://github.com/theontho/gui-for-cli
+# Optional graphical interface releases live in a separate project:
+# https://github.com/theontho/gui-for-cli/releases
 
 # Uninstall the app if needed. Interactive runs ask whether to remove Pixi too.
 ./wgsextract-cli/uninstall.sh
 ```
+:::
+:::
+:::
+
+::: section id=gui-option
+::: wrap
+::: section-head
+## GUI option
+Install `wgsextract-cli` for terminal commands, scripts, automation, and remote jobs. If you want a graphical WGS Extract interface instead, download gui-for-cli from its GitHub Releases page.
+:::
+
+::: grid three
+::: card
+### Latest GUI release
+[gui-for-cli v0.1.10](https://github.com/theontho/gui-for-cli/releases/tag/v0.1.10){.inline-link} includes Windows, macOS, and Linux desktop packages for the graphical interface.
+
+{{ link: Open GUI downloads|gui.html|inline-link }}
+:::
+
+::: card
+### All GUI releases
+Use the releases page for the newest builds, release notes, older versions, and checksum/signature assets.
+
+{{ link: Browse gui-for-cli releases|https://github.com/theontho/gui-for-cli/releases|inline-link }}
+:::
+
+::: card
+### CLI install stays here
+Use this install guide when you want the `wgsextract` command. The CLI is still the best fit for repeatable whole-genome workflows and automation.
+
+{{ link: Continue CLI install|#quickstart|inline-link }}
+:::
 :::
 :::
 :::
@@ -159,7 +191,7 @@ pixi run wgsextract deps check
 :::
 
 ::: callout
-{{ text: **Need a GUI?** `wgsextract-cli` stays command-line only. Use [gui-for-cli](https://github.com/theontho/gui-for-cli){.inline-link} for the graphical interface. }}
+{{ text: **Need a GUI?** `wgsextract-cli` stays command-line only. Use the [gui-for-cli releases](https://github.com/theontho/gui-for-cli/releases){.inline-link} or the local [GUI downloads page](gui.html){.inline-link} for the graphical interface. }}
 :::
 :::
 :::
