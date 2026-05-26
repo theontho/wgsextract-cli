@@ -17,8 +17,6 @@ from .downloads import (
 _GENOME_DATA_CACHE: list[dict[str, Any]] = []
 
 
-
-
 def load_genomes_from_csv(csv_path: str) -> list[dict[str, Any]]:
     if not os.path.exists(csv_path):
         return []

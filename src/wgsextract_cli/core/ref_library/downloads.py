@@ -21,6 +21,7 @@ from wgsextract_cli.core.download_progress import (
     DownloadCancelled,
     copy_response_to_file,
     curl_progress_args,
+    require_http_url,
 )
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
@@ -113,6 +114,7 @@ def download_file(
     cancel_event: CancelEvent | None = None,
 ) -> bool:
     """Downloads a file with progress reporting, optional cancellation, and resume support."""
+    require_http_url(url, "download URL")
     partial_dest = dest + ".partial"
     try:
         expected_sha256 = resolve_github_release_asset_sha256(url)

@@ -69,8 +69,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"skip {target} ({exc})")
             continue
         if (
-            target_resolved != repo_root_resolved
-            and repo_root_resolved not in target_resolved.parents
+            target_resolved == repo_root_resolved
+            or repo_root_resolved not in target_resolved.parents
         ):
             print(f"skip {target} (resolves outside repo: {target_resolved})")
             continue
