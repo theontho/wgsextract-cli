@@ -25,7 +25,7 @@ jobs:
           wsl bash -lc "curl -fsSL https://pixi.sh/install.sh | bash"
           $workspace = "${{ github.workspace }}".Replace('\', '/')
           $wslPath = (wsl wslpath -u "$workspace").Trim()
-          wsl bash -lc "rm -rf ~/wgsextract-cli && mkdir -p ~/wgsextract-cli && cd '$wslPath' && tar --exclude=.pixi --exclude=out --exclude=tmp -cf - . | tar -C ~/wgsextract-cli -xf - && cd ~/wgsextract-cli && ~/.pixi/bin/pixi install"
+          wsl bash -lc "rm -rf ~/wgsextract-cli && mkdir -p ~/wgsextract-cli && cd '$wslPath' && tar --exclude=.pixi --exclude=out --exclude=tmp -cf - . | tar -C ~/wgsextract-cli -xf - && cd ~/wgsextract-cli && ~/.pixi/bin/pixi install --locked"
       - name: Run Benchmark
         shell: powershell
         run: |
@@ -43,3 +43,8 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           wsl bash -lc "cd ~/wgsextract-cli && ~/.pixi/bin/pixi run lint && ~/.pixi/bin/pixi run typecheck"
+      - name: Build and Smoke Test Package
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          wsl bash -lc "cd ~/wgsextract-cli && ~/.pixi/bin/pixi run package-smoke"

@@ -5,9 +5,10 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from contextlib import ExitStack
 from pathlib import Path
-from typing import Any
+from typing import IO, TextIO
 
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -117,7 +118,7 @@ def _completed_cli_step_result(
     command_args: list[str],
     command_label: str | None,
     start: float,
-    completed: subprocess.CompletedProcess[Any],
+    completed: subprocess.CompletedProcess[object],
     command: list[str],
     output_dir: Path,
     stdout_log: Path,
@@ -147,11 +148,15 @@ def _run_cli_subprocess(
     stdin_file: Path | None = None,
     stdout_file: Path | None = None,
     text: bool = False,
-) -> subprocess.CompletedProcess[Any]:
+) -> subprocess.CompletedProcess[object]:
     with ExitStack() as stack:
-        stdin: Any = stack.enter_context(open(stdin_file, "rb")) if stdin_file else None
+        stdin: IO[bytes] | None = (
+            stack.enter_context(open(stdin_file, "rb")) if stdin_file else None
+        )
         if stdout_file:
-            stdout: Any = stack.enter_context(open(stdout_file, "wb"))
+            stdout: IO[bytes] | TextIO | None = stack.enter_context(
+                open(stdout_file, "wb")
+            )
         elif stdout_log:
             stdout = stack.enter_context(open(stdout_log, "w", encoding="utf-8"))
         else:
@@ -238,7 +243,7 @@ def _run_internal_step(
     name: str,
     slug: str,
     output_dir: Path,
-    func: Any,
+    func: Callable[[], object],
     expected_outputs: list[Path],
 ) -> BenchmarkResult:
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -311,7 +316,7 @@ def _assert_bam_unindexed(bam_path: Path) -> None:
 def _run_heavy_reference_and_bam_steps(
     *,
     args: argparse.Namespace,
-    record: Any,
+    record: Callable[[BenchmarkResult], BenchmarkResult],
     analysis_bam: Path,
     ref_path: Path,
     steps_dir: Path,

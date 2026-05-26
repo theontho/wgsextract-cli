@@ -16,9 +16,9 @@ footer_link_href: 'https://github.com/theontho/gui-for-cli/releases'
 ::: split
 ::: block
 ## GUI releases live in gui-for-cli
-Download the WGS Extract graphical interface from the [gui-for-cli Releases page](https://github.com/theontho/gui-for-cli/releases){.inline-link}. The latest release at the time this page was updated is [v0.1.10](https://github.com/theontho/gui-for-cli/releases/tag/v0.1.10){.inline-link}, published 2026-05-24.
+Download the WGS Extract graphical interface from the [gui-for-cli Releases page](https://github.com/theontho/gui-for-cli/releases){.inline-link}. Use [the latest gui-for-cli release](https://github.com/theontho/gui-for-cli/releases/latest){.inline-link} for current installers, release notes, signatures, and metadata.
 
-Use the release page when you want the newest platform packages, signatures, release notes, or older versions. The links below point directly at the current release assets for convenience.
+Use the release page when you want the newest platform packages, signatures, release notes, or older versions. The package names below describe what to choose on the latest release.
 :::
 
 ::: actions
@@ -41,7 +41,7 @@ Pick the package that matches your operating system. If you are unsure, open the
 ### Windows
 Use the x64 setup executable for a normal graphical install.
 
-{{ link: WGSExtract_0.1.10_x64-setup.exe|https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/WGSExtract_0.1.10_x64-setup.exe|inline-link }}
+{{ link: Open latest Windows GUI release|https://github.com/theontho/gui-for-cli/releases/latest|inline-link }}
 
 The release also includes a quick uninstall PowerShell helper and signature assets.
 :::
@@ -50,21 +50,18 @@ The release also includes a quick uninstall PowerShell helper and signature asse
 ### macOS
 Use a DMG package, then drag the app into Applications when prompted.
 
-{{ link: WGSExtract-0.1.10.dmg|https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/WGSExtract-0.1.10.dmg|inline-link }}
+{{ link: Open latest macOS GUI release|https://github.com/theontho/gui-for-cli/releases/latest|inline-link }}
 
 Apple Silicon users can also use the aarch64 web-app DMG when that package is the better fit.
 
-{{ link: WGSExtract.Web_0.1.10_aarch64.dmg|https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/WGSExtract.Web_0.1.10_aarch64.dmg|inline-link }}
+{{ link: Open latest Apple Silicon web-app release|https://github.com/theontho/gui-for-cli/releases/latest|inline-link }}
 :::
 
 ::: card
 ### Linux
 Use the package format native to your distribution, or use the AppImage for a portable desktop app.
 
-{{ link: AppImage|https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/WGSExtract_0.1.10_amd64.AppImage|inline-link }}
-{{ link: DEB|https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/WGSExtract_0.1.10_amd64.deb|inline-link }}
-{{ link: RPM|https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/WGSExtract-0.1.10-1.x86_64.rpm|inline-link }}
-{{ link: Arch package|https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/wgsextract-0.1.10-1-x86_64.pkg.tar.zst|inline-link }}
+{{ link: Open latest Linux GUI release|https://github.com/theontho/gui-for-cli/releases/latest|inline-link }}
 :::
 :::
 

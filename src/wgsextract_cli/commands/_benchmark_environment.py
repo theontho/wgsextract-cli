@@ -256,7 +256,7 @@ def _cpu_frequency() -> str | None:
         return None
     try:
         frequency = cpu_freq()
-    except Exception:
+    except (OSError, AttributeError, RuntimeError):
         return None
     return _format_cpu_frequency(frequency.current) if frequency else None
 

@@ -1,6 +1,6 @@
 import argparse
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 from ._benchmark_execution import (
     _run_cli_step,
@@ -8,6 +8,7 @@ from ._benchmark_execution import (
 )
 from ._benchmark_models import (
     BenchmarkDataset,
+    BenchmarkResult,
 )
 from ._benchmark_setup import (
     _ploidy_for_build,
@@ -18,7 +19,7 @@ from ._benchmark_setup import (
 def _run_core_benchmark_analysis_steps(
     *,
     args: argparse.Namespace,
-    record: Any,
+    record: Callable[[BenchmarkResult], BenchmarkResult],
     real_dataset: BenchmarkDataset | None,
     steps_dir: Path,
     logs_dir: Path,
@@ -299,7 +300,7 @@ def _run_core_benchmark_analysis_steps(
 def _run_core_benchmark_steps(
     *,
     args: argparse.Namespace,
-    record: Any,
+    record: Callable[[BenchmarkResult], BenchmarkResult],
     real_dataset: BenchmarkDataset | None,
     dataset_dir: Path,
     steps_dir: Path,

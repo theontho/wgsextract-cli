@@ -1,13 +1,14 @@
+import argparse
 import json
 import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
-from typing import Any
 
 from wgsextract_cli.core import (
     runtime,
@@ -208,13 +209,19 @@ def _download_file(url: str, destination: Path) -> None:
 
         _require_zipfile(temp_path)
         temp_path.replace(destination)
-    except Exception as exc:
+    except (
+        OSError,
+        urllib.error.URLError,
+        zipfile.BadZipFile,
+        ValueError,
+        WGSExtractError,
+    ) as exc:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
         raise WGSExtractError(f"Failed to download {url}: {exc}") from exc
 
 
-def _resolve_bundled_runtime_archive(args: Any, mode: str) -> Path:
+def _resolve_bundled_runtime_archive(args: argparse.Namespace, mode: str) -> Path:
     local_archive = _find_local_runtime_archive(
         mode,
         Path(args.archive_dir).expanduser().resolve() if args.archive_dir else None,
@@ -252,7 +259,7 @@ def _resolve_bundled_runtime_archive(args: Any, mode: str) -> Path:
     return archive_path
 
 
-def run_bundled_runtime_setup(args: Any) -> None:
+def run_bundled_runtime_setup(args: argparse.Namespace) -> None:
     mode = str(args.mode)
     spec = runtime_paths.bundled_runtime_spec(mode)
     runtime_dir = runtime_paths.bundled_runtime_dir(mode)
@@ -289,7 +296,7 @@ def run_bundled_runtime_setup(args: Any) -> None:
     _print_bundled_runtime_tool_status(mode, fail_on_missing=False)
 
 
-def run_bundled_runtime_check(args: Any) -> None:
+def run_bundled_runtime_check(args: argparse.Namespace) -> None:
     mode = str(args.mode)
     spec = runtime_paths.bundled_runtime_spec(mode)
 
@@ -342,7 +349,7 @@ def _pacman_executable_path() -> Path | None:
     return Path(path) if path else None
 
 
-def run_pacman_check(args: Any) -> None:
+def run_pacman_check(args: argparse.Namespace) -> None:
     print("MSYS2 Pacman Runtime")
     print("-" * 60)
     print(f"Host platform:       {sys.platform}")

@@ -90,17 +90,17 @@ The examples below use `wgsextract` for installed usage. If you have not added `
 
 `wgsextract-cli` is the command-line app. If you want the graphical WGS Extract interface, install the separate [gui-for-cli](https://github.com/theontho/gui-for-cli) project from its [GitHub Releases page](https://github.com/theontho/gui-for-cli/releases).
 
-Current GUI release downloads include Windows, macOS, and Linux packages. Open the latest release and choose the asset for your operating system:
+Current GUI releases include Windows, macOS, and Linux packages. Open the latest release and choose the asset for your operating system:
 
 | Platform | GUI release asset |
 | :--- | :--- |
-| Windows x64 | [`WGSExtract_0.1.10_x64-setup.exe`](https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/WGSExtract_0.1.10_x64-setup.exe) |
-| macOS | [`WGSExtract-0.1.10.dmg`](https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/WGSExtract-0.1.10.dmg) |
-| macOS Apple Silicon web app | [`WGSExtract.Web_0.1.10_aarch64.dmg`](https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/WGSExtract.Web_0.1.10_aarch64.dmg) |
-| Linux portable | [`WGSExtract_0.1.10_amd64.AppImage`](https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/WGSExtract_0.1.10_amd64.AppImage) |
-| Debian/Ubuntu | [`WGSExtract_0.1.10_amd64.deb`](https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/WGSExtract_0.1.10_amd64.deb) |
-| Fedora/RHEL | [`WGSExtract-0.1.10-1.x86_64.rpm`](https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/WGSExtract-0.1.10-1.x86_64.rpm) |
-| Arch Linux | [`wgsextract-0.1.10-1-x86_64.pkg.tar.zst`](https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/wgsextract-0.1.10-1-x86_64.pkg.tar.zst) |
+| Windows x64 | Latest Windows setup executable |
+| macOS | Latest macOS DMG package |
+| macOS Apple Silicon web app | Latest aarch64 web-app DMG package, when available |
+| Linux portable | Latest AppImage package |
+| Debian/Ubuntu | Latest `.deb` package |
+| Fedora/RHEL | Latest `.rpm` package |
+| Arch Linux | Latest `pkg.tar.zst` package |
 
 Use the GUI for interactive desktop workflows. Use this CLI install when you need repeatable terminal commands, scripts, batch processing, remote jobs, or AI-agent workflows.
 

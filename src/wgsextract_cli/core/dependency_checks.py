@@ -91,7 +91,7 @@ def get_tool_version(tool: str) -> str | None:
                     return line.strip()
 
         return "Available"
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, RuntimeError, ValueError) as e:
         return f"Error: {str(e)}"
 
 

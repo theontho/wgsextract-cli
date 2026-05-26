@@ -112,7 +112,7 @@ def _host_memory_bytes() -> int | None:
         import psutil
 
         return int(psutil.virtual_memory().total)
-    except Exception:
+    except (ImportError, OSError, AttributeError):
         return None
 
 

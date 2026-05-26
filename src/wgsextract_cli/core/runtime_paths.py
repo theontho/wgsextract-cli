@@ -1,3 +1,4 @@
+import logging
 import os
 import shlex
 import shutil
@@ -27,7 +28,8 @@ def runtime_root() -> Path:
 
             config_value = settings.get("runtime_directory")
             configured = str(config_value) if config_value else None
-        except Exception:
+        except (ImportError, AttributeError):
+            logging.debug("Runtime directory setting could not be read.", exc_info=True)
             configured = None
     return (
         Path(configured).expanduser().resolve()
@@ -90,8 +92,8 @@ def pacman_ucrt64_bin_dirs() -> list[Path]:
         config_value = settings.get("pacman_ucrt64_bin")
         if config_value:
             configured_paths.append(str(config_value))
-    except Exception:
-        pass
+    except (ImportError, AttributeError):
+        logging.debug("Pacman UCRT64 bin setting could not be read.", exc_info=True)
 
     candidates: list[Path | None] = [
         Path(path).expanduser() for path in configured_paths
@@ -225,7 +227,7 @@ def detect_bundled_runtime_available(mode: str, *, force: bool = False) -> bool:
             text=True,
             timeout=10,
         )
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return False
     return result.returncode == 0 and result.stdout.strip() == "ok"
 
@@ -246,7 +248,7 @@ def bundled_command_available(mode: str, command: str) -> bool:
             text=True,
             timeout=10,
         )
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return False
     return result.returncode == 0
 
@@ -263,7 +265,7 @@ def wsl_command_available(command: str) -> bool:
             text=True,
             timeout=10,
         )
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return False
     return result.returncode == 0
 
@@ -287,7 +289,7 @@ def wsl_pixi_tool_available(tool: str, env: str) -> bool:
             text=True,
             timeout=15,
         )
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return False
     return result.returncode == 0
 
@@ -312,7 +314,7 @@ def windows_to_wsl_path(path: str) -> str:
             converted = result.stdout.replace("\x00", "").strip()
             if result.returncode == 0 and converted:
                 return converted
-        except Exception:
+        except (OSError, subprocess.SubprocessError):
             pass
 
     drive = normalized[0].lower()

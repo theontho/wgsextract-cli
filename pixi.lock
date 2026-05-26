@@ -13010,7 +13010,7 @@ packages:
 - pypi: ./
   name: wgsextract-cli
   version: 0.3.5
-  sha256: 903e37eedef7c144c59bda9cf06501c1c078cae59b1aed6ec73e0f011600a296
+  sha256: 7c74e3088f1433f2a80b100c72d196aaf4ce3f15ab3893a20ca760b752788c6d
   requires_dist:
   - pyliftover
   - psutil

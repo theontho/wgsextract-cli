@@ -1,4 +1,4 @@
-from typing import Any
+import argparse
 
 from wgsextract_cli.core import (
     runtime_paths,
@@ -18,7 +18,9 @@ from ._deps_status import (
 )
 
 
-def register(subparsers: Any, base_parser: Any) -> None:
+def register(
+    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+) -> None:
     deps_parser = subparsers.add_parser(
         "deps", parents=[base_parser], help=CLI_HELP["cmd_deps"]
     )

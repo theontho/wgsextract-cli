@@ -7,16 +7,17 @@ import re
 import shutil
 import subprocess
 import sys
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Mapping
 
 from wgsextract_cli.core.dependency_checks import verify_dependencies
-from wgsextract_cli.core.utils import run_command
+from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import popen
 
 from .annotation_resources import (
     GNOMAD_URLS,
     PHYLOP_URLS,
+    CancelEvent,
+    ProgressCallback,
     ensure_bgzf,
     wait_with_cancel,
 )
@@ -47,7 +48,11 @@ MT 1 16569 F 1
 }
 
 
-def download_phylop(reflib_dir, cancel_event=None, progress_callback=None):
+def download_phylop(
+    reflib_dir: str,
+    cancel_event: CancelEvent | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> bool:
     """Downloads and indexes PhyloP conservation scores for hg19 and hg38."""
     target_dir = os.path.join(reflib_dir, "ref")
     os.makedirs(target_dir, exist_ok=True)
@@ -77,14 +82,18 @@ def download_phylop(reflib_dir, cancel_event=None, progress_callback=None):
             # Annovar PhyloP format: #Chr, Start, End, Score
             # We use bcftools annotate with CHROM=1, POS=2
             run_command(["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", dest_path])
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             logging.error(f"Failed to index PhyloP {build}: {e}")
             success = False
 
     return success
 
 
-def download_gnomad(reflib_dir, cancel_event=None, progress_callback=None):
+def download_gnomad(
+    reflib_dir: str,
+    cancel_event: CancelEvent | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> bool:
     """Downloads and indexes gnomAD sites VCFs for hg19 and hg38."""
     target_dir = os.path.join(reflib_dir, "ref")
     os.makedirs(target_dir, exist_ok=True)
@@ -111,14 +120,14 @@ def download_gnomad(reflib_dir, cancel_event=None, progress_callback=None):
             # but we might need to download the index or recreate it.
             # Tabix -p vcf works for .vcf.bgz as well.
             run_command(["tabix", "-p", "vcf", "-f", dest_path])
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             logging.error(f"Failed to index gnomAD {build}: {e}")
             success = False
 
     return success
 
 
-def delete_genome(final_name: str, reflib_dir: str):
+def delete_genome(final_name: str, reflib_dir: str) -> bool:
     base_path = os.path.join(reflib_dir, "genomes", final_name)
     for ext in ["", ".partial", ".fai", ".gzi", ".dict"]:
         p = base_path + ext
@@ -132,7 +141,7 @@ def delete_genome(final_name: str, reflib_dir: str):
     return True
 
 
-def delete_ref_index(final_name: str, reflib_dir: str):
+def delete_ref_index(final_name: str, reflib_dir: str) -> bool:
     """Deletes only the index and companion files for a reference genome."""
     base_path = os.path.join(reflib_dir, "genomes", final_name)
     # Delete index files but NOT the main genome file ("")
@@ -155,7 +164,7 @@ def has_ref_ns(final_name: str, reflib_dir: str) -> bool:
     return False
 
 
-def delete_ref_ns(final_name: str, reflib_dir: str):
+def delete_ref_ns(final_name: str, reflib_dir: str) -> bool:
     """Deletes only the N-count CSV files for a reference genome."""
     base_path = os.path.join(reflib_dir, "genomes", final_name)
     prefix = re.sub(r"\.(fasta|fna|fa)\.gz$", "", base_path)
@@ -169,8 +178,8 @@ def delete_ref_ns(final_name: str, reflib_dir: str):
 def process_reference_file(
     fasta_path: str,
     status_callback: Callable[[str], None] | None = None,
-    cancel_event: Any | None = None,
-):
+    cancel_event: CancelEvent | None = None,
+) -> bool:
     logging.info(f"Processing reference: {fasta_path}")
 
     bgzf_path = ensure_bgzf(fasta_path, status_callback, cancel_event)
@@ -205,7 +214,7 @@ def process_reference_file(
         if not wait_with_cancel(p_faidx, cancel_event):
             return False
 
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         if sys.platform == "win32" and isinstance(e, FileNotFoundError):
             logging.warning(
                 f"Warning: Could not index reference on Windows (missing tools): {e}"
@@ -219,14 +228,14 @@ def process_reference_file(
 
 
 def download_and_process_genome(
-    genome_data: dict,
+    genome_data: Mapping[str, str],
     reflib_dir: str,
     interactive: bool = True,
-    progress_callback: Callable | None = None,
-    cancel_event: Any | None = None,
+    progress_callback: ProgressCallback | None = None,
+    cancel_event: CancelEvent | None = None,
     restart: bool = False,
     status_callback: Callable[[str], None] | None = None,
-):
+) -> bool:
     verify_dependencies(["samtools", "bgzip", "gzip"])
     target_dir = os.path.join(reflib_dir, "genomes")
     os.makedirs(target_dir, exist_ok=True)
@@ -271,8 +280,8 @@ def download_and_process_genome(
 
 def download_bootstrap(
     reflib_dir: str,
-    cancel_event: Any | None = None,
-    progress_callback: Callable[[int, int, float], None] | None = None,
+    cancel_event: CancelEvent | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> bool:
     """Downloads and extracts the reference library bootstrap."""
     from wgsextract_cli.core.constants import BOOTSTRAP_FILENAME, BOOTSTRAP_URL
@@ -315,7 +324,7 @@ def download_bootstrap(
             return False
         logging.info("Bootstrap extraction complete.")
         return True
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"Failed to extract bootstrap: {e}")
         return False
 

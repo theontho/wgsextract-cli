@@ -4,14 +4,17 @@ import json
 import logging
 import os
 import subprocess
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.utils import run_command
 from wgsextract_cli.core.variant_files import popen
 
+from ._info_metrics import IdxStat
 
-def render_info(data, detailed=False):
+
+def render_info(data: Mapping[str, Any], detailed: bool = False) -> str:
     """Generate the formatted console output string."""
     output_lines = []
     if detailed and data.get("chrom_table_csv"):
@@ -32,7 +35,7 @@ def render_info(data, detailed=False):
             f"{LOG_MESSAGES['info_rendering_name']}\n{header_line1}\n{header_line2}"
         )
 
-        def fmt_num(val):
+        def fmt_num(val: str | int | float) -> str:
             val = int(float(val))
             if val == 0:
                 return "0 K"
@@ -158,7 +161,9 @@ def render_info(data, detailed=False):
     return "\n".join(output_lines) + "\n"
 
 
-def run_full_coverage(input_p, ref_p, out_p, region=None):
+def run_full_coverage(
+    input_p: str, ref_p: str | None, out_p: str, region: str | None = None
+) -> None:
     """Long-running full breadth coverage pipeline."""
     if os.path.exists(out_p) and os.path.getsize(out_p) > 120:
         return
@@ -180,16 +185,22 @@ def run_full_coverage(input_p, ref_p, out_p, region=None):
             if p1.stdout:
                 p1.stdout.close()
             p2.communicate()
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError) as e:
         logging.error(f"Coverage failed: {e}")
 
 
-def run_sampled_coverage(input_p, ref_p, idx_stats, out_p, region=None):
+def run_sampled_coverage(
+    input_p: str,
+    ref_p: str | None,
+    idx_stats: Sequence[IdxStat],
+    out_p: str,
+    region: str | None = None,
+) -> None:
     """Fast sampling-based coverage estimation."""
     import random
 
     print(LOG_MESSAGES["info_sampling_coverage"])
-    sample_results: dict[str, Any] = {}
+    sample_results: dict[str, list[float]] = {}
     total_b, covered_b = 0, 0
 
     if region:

@@ -1,5 +1,7 @@
+import argparse
 import logging
 import shutil
+import subprocess
 from argparse import Namespace
 from pathlib import Path
 from urllib.parse import urlparse
@@ -121,7 +123,7 @@ def _download_file(
                     source,
                 ]
             )
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Download failed for {source}: {e}") from e
 
 
@@ -177,7 +179,9 @@ def cmd_download(args: Namespace) -> None:
         )
 
 
-def register(subparsers, base_parser):
+def register(
+    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+) -> None:
     """Register the example-genome list/download subcommands."""
     parser = subparsers.add_parser(
         "example-genome",

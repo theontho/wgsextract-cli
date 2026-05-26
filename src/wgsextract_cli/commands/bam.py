@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import subprocess
@@ -26,7 +27,9 @@ from wgsextract_cli.core.warnings import check_free_space, print_warning
 from ._extract_helpers import resolve_region_or_gene
 
 
-def register(subparsers, base_parser):
+def register(
+    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+) -> None:
     parser = subparsers.add_parser("bam", help=CLI_HELP["cmd_bam_mgmt"])
     bam_subs = parser.add_subparsers(dest="bam_cmd", required=True)
 
@@ -90,7 +93,9 @@ def register(subparsers, base_parser):
     identify_parser.set_defaults(func=cmd_identify)
 
 
-def get_base_args(args):
+def get_base_args(
+    args: argparse.Namespace,
+) -> tuple[str, str, str, list[str], str | None] | None:
     if not args.input:
         logging.error(LOG_MESSAGES["input_required"])
         return None
@@ -120,7 +125,7 @@ def get_base_args(args):
                     break
 
         logging.debug(f"Resolved reference: {resolved_ref}")
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError, WGSExtractError) as e:
         logging.error(f"Failed to initialize reference resolution: {e}")
         return None
 
@@ -136,7 +141,7 @@ def get_base_args(args):
     return threads, memory, outdir, cram_opt, resolved_ref
 
 
-def cmd_identify(args):
+def cmd_identify(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
     if not args.input:
@@ -158,7 +163,7 @@ def cmd_identify(args):
     )
 
 
-def cmd_sort(args):
+def cmd_sort(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
     base = get_base_args(args)
@@ -224,13 +229,13 @@ def cmd_sort(args):
                 if stderr1:
                     err_msg += f" | View error: {stderr1.decode()}"
                 raise WGSExtractError(f"Sort failed: {err_msg}")
-        except Exception as e:
-            if isinstance(e, WGSExtractError):
-                raise
+        except WGSExtractError:
+            raise
+        except (OSError, subprocess.SubprocessError) as e:
             raise WGSExtractError(f"Execution failed: {e}") from e
 
 
-def cmd_index(args):
+def cmd_index(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
     if not args.input:
@@ -245,11 +250,11 @@ def cmd_index(args):
     logging.info(LOG_MESSAGES["indexing_file"].format(path=args.input))
     try:
         run_command(get_sam_index_cmd(args.input))
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Indexing failed: {e}") from e
 
 
-def cmd_unindex(args):
+def cmd_unindex(args: argparse.Namespace) -> None:
     if not args.input:
         logging.error(LOG_MESSAGES["input_required"])
         return
@@ -272,7 +277,7 @@ def cmd_unindex(args):
         )
 
 
-def cmd_unsort(args):
+def cmd_unsort(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
     base = get_base_args(args)
@@ -308,11 +313,11 @@ def cmd_unsort(args):
                 if p.returncode != 0:
                     raise WGSExtractError(f"Reheader failed for {args.input}")
 
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             raise WGSExtractError(f"Failed to unsort {args.input}: {e}") from e
 
 
-def cmd_tocram(args):
+def cmd_tocram(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
     base = get_base_args(args)
@@ -347,11 +352,11 @@ def cmd_tocram(args):
             + region_args
         )
         run_command(get_sam_index_cmd(out_file))
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Conversion to CRAM failed: {e}") from e
 
 
-def cmd_tobam(args):
+def cmd_tobam(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
     base = get_base_args(args)
@@ -380,11 +385,11 @@ def cmd_tobam(args):
             + region_args
         )
         run_command(get_sam_index_cmd(out_file))
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Conversion to BAM failed: {e}") from e
 
 
-def cmd_unalign(args):
+def cmd_unalign(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
     base = get_base_args(args)
@@ -451,9 +456,22 @@ def cmd_unalign(args):
             if p2.stdout:
                 p2.stdout.close()
             p3.communicate()
-            if p3.returncode != 0:
-                raise WGSExtractError("Unalign failed.")
-        except Exception as e:
-            if isinstance(e, WGSExtractError):
-                raise
+            p2_returncode = p2.wait()
+            p1_returncode = p1.wait()
+            failed_stages = [
+                name
+                for name, returncode in (
+                    ("samtools view", p1_returncode),
+                    ("samtools sort", p2_returncode),
+                    ("samtools fastq", p3.returncode),
+                )
+                if returncode != 0
+            ]
+            if failed_stages:
+                raise WGSExtractError(
+                    f"Unalign failed in pipeline stage(s): {', '.join(failed_stages)}."
+                )
+        except WGSExtractError:
+            raise
+        except (OSError, subprocess.SubprocessError) as e:
             raise WGSExtractError(f"Unalign failed: {e}") from e

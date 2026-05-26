@@ -59,7 +59,9 @@ _FASTQ_PATTERNS: list[tuple[str, str]] = [
 ]
 
 
-def register(subparsers, base_parser):
+def register(
+    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+) -> None:
     parser = subparsers.add_parser(
         "realign",
         parents=[base_parser],
@@ -232,7 +234,7 @@ def _preflight_disk_space(input_path: str, outdir: str, need_extract: bool) -> N
         )
 
 
-def run(args):
+def run(args: argparse.Namespace) -> None:
     if not getattr(args, "input", None):
         raise WGSExtractError(
             "--input <BAM|CRAM> is required for realign. Pass it before the "

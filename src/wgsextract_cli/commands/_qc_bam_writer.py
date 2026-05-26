@@ -141,10 +141,12 @@ def _create_fast_fake_bam(
             raise WGSExtractError(
                 f"samtools failed while creating fake BAM with exit code {return_code}."
             )
-    except Exception:
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise WGSExtractError(f"Failed to write fake BAM {bam_path}: {exc}") from exc
+    finally:
         if process.poll() is None:
             process.kill()
-        raise
+            process.wait()
 
 
 def _write_fake_reference(

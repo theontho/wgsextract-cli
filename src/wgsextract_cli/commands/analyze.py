@@ -1,8 +1,10 @@
+import argparse
 import copy
 import csv
 import logging
 import os
 from datetime import datetime
+from typing import TypedDict
 
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -22,7 +24,12 @@ from ._analyze_workflows import (
 )
 
 
-def cmd_comprehensive(args):
+class BatchSample(TypedDict):
+    input: str | None
+    vcfs: list[str]
+
+
+def cmd_comprehensive(args: argparse.Namespace) -> None:
     from wgsextract_cli.core.config import settings
 
     verify_dependencies(["bcftools", "samtools", "tabix"])
@@ -100,7 +107,7 @@ def cmd_comprehensive(args):
     generate_summary_report(results, outdir)
 
 
-def run_batch_comprehensive(args, batch_file):
+def run_batch_comprehensive(args: argparse.Namespace, batch_file: str) -> None:
     """Runs comprehensive analysis for multiple samples defined in batch_file."""
 
     if not os.path.exists(batch_file):
@@ -125,9 +132,9 @@ def run_batch_comprehensive(args, batch_file):
         failed_samples: list[str] = []
 
         for row in reader:
-            name = row.get(name_col, "Unknown")
+            name = row.get(name_col) or "Unknown"
             input_path = row.get(input_col)
-            vcf_paths = row.get(vcf_col, "")
+            vcf_paths = row.get(vcf_col) or ""
 
             # Clean up vcf_paths - handle comma or space separated
             vcf_list = []
@@ -157,7 +164,7 @@ def run_batch_comprehensive(args, batch_file):
 
             try:
                 cmd_comprehensive(sample_args)
-            except Exception as e:
+            except (OSError, WGSExtractError) as e:
                 logging.error(f"Failed to process sample {name}: {e}")
                 failed_samples.append(name)
 
@@ -167,7 +174,7 @@ def run_batch_comprehensive(args, batch_file):
             )
 
 
-def cmd_batch_gen(args):
+def cmd_batch_gen(args: argparse.Namespace) -> None:
     """Generates a batch file by scanning a directory."""
     scan_dir = args.directory
     if not os.path.exists(scan_dir):
@@ -175,7 +182,7 @@ def cmd_batch_gen(args):
 
     _print(f"Scanning directory: {scan_dir}")
 
-    samples: dict[str, dict] = {}  # name -> {input, vcfs}
+    samples: dict[str, BatchSample] = {}
 
     for root, _, files in os.walk(scan_dir):
         for f in files:
@@ -185,7 +192,7 @@ def cmd_batch_gen(args):
             # Heuristic: sample1.bam -> name sample1
             # sample1.vcf.gz -> name sample1
             # Strip common suffixes for better grouping
-            def clean_name(n):
+            def clean_name(n: str) -> str:
                 # Strip all extensions first
                 name = n
                 while "." in name:
@@ -253,7 +260,9 @@ def cmd_batch_gen(args):
     _print(f"Generated batch file with {len(samples)} samples.")
 
 
-def register(subparsers, base_parser):
+def register(
+    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+) -> None:
     parser = subparsers.add_parser(
         "analyze", help=CLI_HELP.get("cmd_analyze", "Analyze genomic data.")
     )

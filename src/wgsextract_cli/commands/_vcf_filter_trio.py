@@ -1,5 +1,7 @@
+import argparse
 import logging
 import os
+import subprocess
 
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -23,7 +25,7 @@ from ._vcf_basic import (
 )
 
 
-def get_gaps_bed(ref_path):
+def get_gaps_bed(ref_path: str) -> str | None:
     """Try to locate and convert _nbin.csv to a temporary BED file."""
     import re
 
@@ -49,14 +51,14 @@ def get_gaps_bed(ref_path):
                         except ValueError:
                             continue  # Header or invalid row
         return bed_path
-    except Exception as e:
+    except OSError as e:
         logging.debug(f"Failed to create gaps BED: {e}")
         if os.path.exists(bed_path):
             os.remove(bed_path)
         return None
 
 
-def cmd_filter(args):
+def cmd_filter(args: argparse.Namespace) -> None:
     input_file = _select_vcf_input(args)
     if not input_file:
         msg = LOG_MESSAGES["input_required"]
@@ -131,7 +133,7 @@ def cmd_filter(args):
             + ["-Oz", "-o", out_vcf, input_vcf]
         )
         ensure_vcf_indexed(out_vcf)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, RuntimeError, WGSExtractError) as e:
         logging.error(f"❌: Filtering failed: {e}")
         raise WGSExtractError("VCF filtering failed.") from e
     finally:
@@ -139,7 +141,7 @@ def cmd_filter(args):
             os.remove(gaps_bed)
 
 
-def cmd_trio(args):
+def cmd_trio(args: argparse.Namespace) -> None:
     from wgsextract_cli.core.variant_files import (
         get_vcf_samples,
         normalize_vcf_chromosomes,
@@ -171,7 +173,7 @@ def cmd_trio(args):
     try:
         res = run_command(["bcftools", "index", "-s", p_vcf], capture_output=True)
         target_chroms = [line.split("\t")[0] for line in res.stdout.strip().split("\n")]
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, RuntimeError, WGSExtractError) as e:
         logging.warning(f"Failed to infer trio chromosome style from proband: {e}")
         target_chroms = ["chr1"]  # Default to chr
 
@@ -210,7 +212,7 @@ def cmd_trio(args):
             ]
         )
         ensure_vcf_indexed(merged_vcf)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, RuntimeError, WGSExtractError) as e:
         logging.error(f"❌: VCF merge failed: {e}")
         cleanup_trio_temp_files()
         raise WGSExtractError("VCF trio merge failed.") from e
@@ -220,7 +222,7 @@ def cmd_trio(args):
     # Map roles to indices
     p_idx, m_idx, f_idx = 0, 1, 2  # Defaults based on merge order
 
-    def find_sample_idx(path, default):
+    def find_sample_idx(path: str, default: int) -> int:
         s_list = get_vcf_samples(path)
         if not s_list:
             return default
@@ -303,10 +305,22 @@ def cmd_trio(args):
                     summary_msg += f", {high_count} HIGH impact"
 
                 logging.info(summary_msg)
-            except Exception:
-                pass
+            except (
+                OSError,
+                subprocess.SubprocessError,
+                RuntimeError,
+                WGSExtractError,
+            ) as e:
+                logging.debug(
+                    "Could not summarize trio filter output %s: %s", out_vcf, e
+                )
 
-        except Exception as e:
+        except (
+            OSError,
+            subprocess.SubprocessError,
+            RuntimeError,
+            WGSExtractError,
+        ) as e:
             logging.error(f"❌: Filtering for {mode} failed: {e}")
             cleanup_trio_temp_files()
             raise WGSExtractError(f"VCF trio filtering failed for {mode}.") from e

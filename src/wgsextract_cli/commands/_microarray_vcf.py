@@ -1,3 +1,4 @@
+import argparse
 import gzip
 import logging
 import os
@@ -16,9 +17,9 @@ from wgsextract_cli.core.variant_files import (
 )
 
 
-def split_snps_by_chrom(ref_vcf_tab, outdir):
+def split_snps_by_chrom(ref_vcf_tab: str, outdir: str) -> dict[str, str]:
     """Splits the master SNP list into per-chromosome files for parallel processing."""
-    chrom_files = {}
+    chrom_files: dict[str, str] = {}
 
     # We use tabix to list chromosomes efficiently if possible
     try:
@@ -33,7 +34,12 @@ def split_snps_by_chrom(ref_vcf_tab, outdir):
                 run_command(["tabix", ref_vcf_tab, chrom], stdout=f)
             chrom_files[chrom] = chrom_out
 
-    except Exception as e:
+    except (
+        OSError,
+        gzip.BadGzipFile,
+        subprocess.SubprocessError,
+        WGSExtractError,
+    ) as e:
         logging.warning(
             f"Failed to split SNPs using tabix: {e}. Falling back to linear scan."
         )
@@ -145,8 +151,14 @@ def _prepare_vcf_target_tab_for_input(
 
 
 def process_chrom(
-    chrom, snp_file, chrom_tmp_dir, ref_fasta, ref_vcf_tab, ploidy_args, input_path
-):
+    chrom: str,
+    snp_file: str,
+    chrom_tmp_dir: str,
+    ref_fasta: str,
+    ref_vcf_tab: str,
+    ploidy_args: list[str],
+    input_path: str,
+) -> str | None:
     """Worker function for parallel chromosome processing. Must be at module level for pickling."""
     chrom_vcf = os.path.join(chrom_tmp_dir, f"{chrom}.vcf.gz")
     # We combine mpileup | call | annotate into a single pipeline
@@ -222,7 +234,7 @@ def process_chrom(
 
         if ann_res.returncode != 0:
             logging.error(
-                f"bcftools annotate failed for {chrom}: {ann_res.stderr.decode()}"
+                f"bcftools annotate failed for {chrom}: {ann_res.stderr or ''}"
             )
             raise RuntimeError(f"bcftools processing failed for {chrom}")
 
@@ -230,25 +242,25 @@ def process_chrom(
         if os.path.exists(chrom_vcf + ".tbi"):
             os.remove(chrom_vcf + ".tbi")
         return annotated_chrom_vcf
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, RuntimeError, WGSExtractError) as e:
         logging.error(f"Error processing {chrom}: {e}")
         raise
 
 
 def _prepare_microarray_vcf(
     *,
-    args,
-    outdir,
-    base_name,
-    is_vcf,
-    ref_vcf_tab,
-    region_args,
-    ploidy_args,
-    ref_fasta,
-    threads,
-    start_vcf,
-    out_vcf,
-):
+    args: argparse.Namespace,
+    outdir: str,
+    base_name: str,
+    is_vcf: bool,
+    ref_vcf_tab: str,
+    region_args: list[str],
+    ploidy_args: list[str],
+    ref_fasta: str,
+    threads: str,
+    start_vcf: float,
+    out_vcf: str,
+) -> str:
     if is_vcf:
         logging.info(f"VCF input detected. Extracting target SNPs from {args.input}...")
         # For VCF input, we intersect our targets with the input VCF.
@@ -301,7 +313,7 @@ def _prepare_microarray_vcf(
             out_vcf = annotated_vcf
             ensure_vcf_indexed(out_vcf)
 
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             logging.error(f"VCF extraction failed: {e}")
             raise WGSExtractError("Microarray VCF extraction failed.") from e
 
@@ -445,10 +457,15 @@ def _prepare_microarray_vcf(
                 ensure_vcf_indexed(out_vcf)
                 ann_duration = time.time() - start_ann
                 logging.info(f"Annotation took {ann_duration:.2f}s")
-            except Exception as e:
+            except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
                 logging.warning(f"VCF annotation failed, IDs may be missing: {e}")
 
-        except Exception as e:
+        except (
+            OSError,
+            subprocess.SubprocessError,
+            RuntimeError,
+            WGSExtractError,
+        ) as e:
             logging.error(f"Variant calling failed: {e}")
             raise WGSExtractError("Microarray variant calling failed.") from e
     return out_vcf

@@ -94,7 +94,7 @@ def _load_genome_config(config_path: Path) -> dict[str, Any]:
     try:
         with open(config_path, "rb") as f:
             data = tomllib.load(f)
-    except Exception as e:
+    except (OSError, tomllib.TOMLDecodeError) as e:
         raise WGSExtractError(f"Failed to read {config_path}: {e}") from e
     return {key: value for key, value in data.items() if isinstance(value, str)}
 

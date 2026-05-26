@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import subprocess
@@ -26,7 +27,9 @@ def _gatk_dict_path(ref: str) -> str:
     return str(ref_path.with_name(ref_name + ".dict"))
 
 
-def _prepare_gatk_input(args, ref: str, outdir: str) -> tuple[str, str | None]:
+def _prepare_gatk_input(
+    args: argparse.Namespace, ref: str, outdir: str
+) -> tuple[str, str | None]:
     """Return an input GATK can read, converting regional CRAM input when needed."""
     if not args.input.lower().endswith(".cram"):
         return args.input, None
@@ -77,7 +80,7 @@ def _cleanup_gatk_temp_input(temp_input: str | None) -> None:
             logging.warning(f"Failed to remove temporary GATK artifact {path}: {e}")
 
 
-def cmd_freebayes(args):
+def cmd_freebayes(args: argparse.Namespace) -> None:
     verify_dependencies(["freebayes", "bcftools", "tabix", "samtools"])
     base = get_base_args(args)
     if not base:
@@ -110,7 +113,7 @@ def cmd_freebayes(args):
             logging.info("Indexing temporary reference...")
             run_command(["samtools", "faidx", temp_ref], check=True)
             use_ref = temp_ref
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             logging.error(f"Failed to prepare uncompressed reference: {e}")
             if temp_ref and os.path.exists(temp_ref):
                 os.remove(temp_ref)
@@ -125,6 +128,10 @@ def cmd_freebayes(args):
         freebayes = get_tool_path("freebayes")
         bcftools = get_tool_path("bcftools")
         samtools = get_tool_path("samtools")
+        if freebayes is None or bcftools is None or samtools is None:
+            raise WGSExtractError(
+                "freebayes, bcftools, and samtools dependencies are required."
+            )
 
         if is_cram:
             # freebayes doesn't always handle CRAM perfectly via stdin
@@ -185,7 +192,7 @@ def cmd_freebayes(args):
                 raise WGSExtractError("Freebayes pipeline failed.")
 
         ensure_vcf_indexed(out_vcf)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"Freebayes failed: {e}")
         raise WGSExtractError("Freebayes failed.") from e
     finally:
@@ -197,7 +204,7 @@ def cmd_freebayes(args):
                 os.remove(temp_ref + ".fai")
 
 
-def cmd_gatk(args):
+def cmd_gatk(args: argparse.Namespace) -> None:
     verify_dependencies(["gatk", "samtools"])
     base = get_base_args(args)
     if not base:
@@ -213,7 +220,7 @@ def cmd_gatk(args):
         try:
             run_command(["samtools", "dict", "-o", dict_file, ref], check=True)
             lib.dict_file = dict_file
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             logging.error(f"Failed to generate .dict file: {e}")
             raise WGSExtractError("Failed to generate GATK dict file.") from e
 

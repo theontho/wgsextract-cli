@@ -62,14 +62,14 @@ def _resolve_microarray_format(format_key: str) -> str | None:
 
 def _convert_microarray_outputs(
     *,
-    args,
-    outdir,
-    base_name,
-    lib,
-    combined_kit_txt,
-    ref_fasta,
-    start_total,
-):
+    args: argparse.Namespace,
+    outdir: str,
+    base_name: str,
+    lib: ReferenceLibrary,
+    combined_kit_txt: str,
+    ref_fasta: str,
+    start_total: float,
+) -> None:
     from wgsextract_cli.core.microarray_utils import (
         convert_to_vendor_format,
         liftover_hg38_to_hg19,
@@ -92,7 +92,7 @@ def _convert_microarray_outputs(
                 final_txt = hg19_txt
                 lift_duration = time.time() - start_lift
                 logging.info(f"Liftover took {lift_duration:.2f}s")
-            except Exception as e:
+            except (OSError, ValueError, WGSExtractError) as e:
                 logging.error(f"Liftover failed: {e}")
                 raise WGSExtractError("Microarray liftover failed.") from e
         else:
@@ -116,7 +116,7 @@ def _convert_microarray_outputs(
             templates_dir = lib.root or os.path.dirname(ref_fasta)
             convert_to_vendor_format(real_fmt, final_txt, output_file, templates_dir)
             logging.info(f"Generated {output_file}")
-        except Exception as e:
+        except (OSError, ValueError, WGSExtractError) as e:
             logging.error(f"Failed to generate {real_fmt}: {e}")
             raise WGSExtractError(f"Failed to generate {real_fmt}.") from e
     fmt_duration = time.time() - start_fmt
@@ -126,7 +126,7 @@ def _convert_microarray_outputs(
     logging.info(f"Total microarray process took {total_duration:.2f}s")
 
 
-def run(args):
+def run(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix", "samtools"])
     log_dependency_info(["bcftools", "tabix", "samtools"])
 
@@ -228,7 +228,9 @@ def run(args):
     )
 
 
-def register(subparsers, base_parser):
+def register(
+    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+) -> None:
     parser = subparsers.add_parser(
         "microarray",
         parents=[base_parser],

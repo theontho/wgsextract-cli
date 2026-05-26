@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import shutil
@@ -15,7 +16,7 @@ from ._vcf_basic import (
 )
 
 
-def cmd_deepvariant(args):
+def cmd_deepvariant(args: argparse.Namespace) -> None:
     import shlex
 
     # DeepVariant can be run via:
@@ -184,8 +185,10 @@ def cmd_deepvariant(args):
                 if f.startswith("dv_examples.tfrecord") or f == "dv_calls.tfrecord.gz":
                     try:
                         os.remove(os.path.join(outdir, f))
-                    except Exception:
-                        pass
+                    except OSError as e:
+                        logging.debug(
+                            "Failed to remove DeepVariant intermediate %s: %s", f, e
+                        )
         else:
             # Single wrapper
             cmd = [
@@ -210,6 +213,6 @@ def cmd_deepvariant(args):
         else:
             raise WGSExtractError("DeepVariant failed to produce output VCF.")
 
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"DeepVariant failed: {e}")
         raise WGSExtractError("VCF processing failed.") from e

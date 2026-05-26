@@ -87,7 +87,7 @@ def _wsl_home_dir() -> str | None:
             text=True,
             timeout=2,
         )
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return None
     if result.returncode != 0:
         return None
@@ -283,7 +283,7 @@ def get_tool_path(tool: str) -> str | None:
                 )
                 if res.returncode == 0:
                     return f"{pixi_cmd} run -e {env} {tool}"
-            except Exception:
+            except (OSError, subprocess.SubprocessError):
                 pass
 
     return None

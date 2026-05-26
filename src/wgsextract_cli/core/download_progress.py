@@ -5,7 +5,8 @@ import sys
 import time
 import urllib.parse
 from collections.abc import Callable
-from typing import Any, BinaryIO, Protocol
+from email.message import Message
+from typing import BinaryIO, Protocol
 
 ProgressCallback = Callable[[int, int, float], None]
 
@@ -17,7 +18,11 @@ class DownloadCancelled(Exception):
 class DownloadResponse(Protocol):
     def read(self, size: int = -1) -> bytes: ...
 
-    def info(self) -> Any: ...
+    def info(self) -> Message: ...
+
+
+class CancelEvent(Protocol):
+    def is_set(self) -> bool: ...
 
 
 def format_bytes(value: int | float) -> str:
@@ -120,7 +125,7 @@ def copy_response_to_file(
     initial_size: int = 0,
     progress_callback: ProgressCallback | None = None,
     progress_label: str = "Download",
-    cancel_event: Any | None = None,
+    cancel_event: CancelEvent | None = None,
     chunk_size: int = 1024 * 256,
 ) -> None:
     """Stream a URL response to a file while emitting progress updates."""

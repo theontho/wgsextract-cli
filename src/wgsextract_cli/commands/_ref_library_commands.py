@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 from collections.abc import Callable
@@ -30,7 +31,7 @@ from ._ref_core_commands import (
 )
 
 
-def cmd_library(args):
+def cmd_library(args: argparse.Namespace) -> None:
     """Interactive or non-interactive library manager."""
     from wgsextract_cli.core.config import settings
 
@@ -187,7 +188,7 @@ def cmd_library(args):
         print("\nExiting library manager.")
 
 
-def cmd_gene_map(args):
+def cmd_gene_map(args: argparse.Namespace) -> None:
     from wgsextract_cli.core.gene_map import delete_gene_maps, download_gene_maps
 
     prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
@@ -205,7 +206,7 @@ def cmd_gene_map(args):
             print(LOG_MESSAGES["dl_genemap_failed"])
 
 
-def _resolve_reflib(args) -> str:
+def _resolve_reflib(args: argparse.Namespace) -> str:
     from wgsextract_cli.core.config import settings
 
     prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
@@ -217,7 +218,7 @@ def _resolve_reflib(args) -> str:
 
 
 def _run_ref_download(
-    args,
+    args: argparse.Namespace,
     resource_name: str,
     downloader: Callable[[str], bool],
     action: str = "download and indexing",
@@ -231,35 +232,35 @@ def _run_ref_download(
     raise WGSExtractError("Ref library installation failed.")
 
 
-def cmd_clinvar_dl(args):
+def cmd_clinvar_dl(args: argparse.Namespace) -> None:
     _run_ref_download(args, "ClinVar", download_clinvar)
 
 
-def cmd_revel_dl(args):
+def cmd_revel_dl(args: argparse.Namespace) -> None:
     _run_ref_download(args, "REVEL", download_revel)
 
 
-def cmd_phylop_dl(args):
+def cmd_phylop_dl(args: argparse.Namespace) -> None:
     _run_ref_download(args, "PhyloP", download_phylop)
 
 
-def cmd_gnomad_dl(args):
+def cmd_gnomad_dl(args: argparse.Namespace) -> None:
     _run_ref_download(args, "gnomAD", download_gnomad)
 
 
-def cmd_spliceai_dl(args):
+def cmd_spliceai_dl(args: argparse.Namespace) -> None:
     _run_ref_download(args, "SpliceAI", download_spliceai)
 
 
-def cmd_alphamissense_dl(args):
+def cmd_alphamissense_dl(args: argparse.Namespace) -> None:
     _run_ref_download(args, "AlphaMissense", download_alphamissense)
 
 
-def cmd_pharmgkb_dl(args):
+def cmd_pharmgkb_dl(args: argparse.Namespace) -> None:
     _run_ref_download(args, "PharmGKB", download_pharmgkb, "download")
 
 
-def cmd_bootstrap(args):
+def cmd_bootstrap(args: argparse.Namespace) -> None:
     from wgsextract_cli.core.config import save_config, settings
     from wgsextract_cli.core.ref_library import install_mappability_maps
     from wgsextract_cli.core.reference_processing import download_bootstrap
@@ -281,9 +282,10 @@ def cmd_bootstrap(args):
         if should_save_reflib:
             save_config({"reference_library": reflib})
             logging.info(f"Saved reference library path to config.toml: {reflib}")
-        install_maps = getattr(
-            args, "install_mappability_maps", False
-        ) or os.environ.get("WGSEXTRACT_INSTALL_MAPPABILITY_MAPS") == "1"
+        install_maps = (
+            getattr(args, "install_mappability_maps", False)
+            or os.environ.get("WGSEXTRACT_INSTALL_MAPPABILITY_MAPS") == "1"
+        )
         if install_maps and not install_mappability_maps(reflib):
             logging.error("Delly mappability map installation failed.")
             raise WGSExtractError("Ref library installation failed.")
