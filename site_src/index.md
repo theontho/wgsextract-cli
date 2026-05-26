@@ -30,11 +30,34 @@ auto_hero: false
       </div>
     </div>
 
-    <figure class="hero-screenshot">
+    <aside class="hero-card" aria-label="Quick start terminal">
+      <div class="terminal">
+        <div class="terminal-top" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+        <pre><code><span class="comment"># Open Terminal, paste this line, then press Enter</span>
+<span class="prompt">$</span> <span class="cmd">curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh</span>
+
+<span class="comment"># Check your setup</span>
+<span class="prompt">$</span> <span class="cmd">./wgsextract-cli/wgsextract info --detailed</span>
+
+<span class="comment"># See available commands</span>
+<span class="prompt">$</span> <span class="cmd">./wgsextract-cli/wgsextract help</span></code></pre>
+      </div>
+      <div class="stats">
+        <div class="stat"><strong>CLI</strong><span>Automation first</span></div>
+        <div class="stat"><strong>Local</strong><span>Runs on your machine</span></div>
+        <div class="stat"><strong>Pixi</strong><span>Reproducible tools</span></div>
+      </div>
+    </aside>
+  </div>
+</header>
+
+<section class="homepage-screenshot-section">
+  <div class="wrap">
+    <figure class="homepage-screenshot">
       <img src="assets/cli-screenshot.webp" alt="WGSExtract CLI desktop app showing command-line workflow output." width="2514" height="1874" fetchpriority="high" />
     </figure>
   </div>
-</header>
+</section>
 :::
 
 ::: section

@@ -27,6 +27,10 @@
     <link rel="stylesheet" href="assets/site.css" />
   </head>
   <body>
+    <details class="ai-written-banner">
+      <summary class="ai-written-banner-text">AI written</summary>
+      <div class="ai-written-tooltip" id="ai-written-tooltip">I'm tired and bad at writing things, help appreciated - <a href="https://github.com/theontho/wgsextract-cli/issues/new" target="_blank" rel="noopener noreferrer">file an issue</a> or <a href="https://github.com/theontho/wgsextract-cli/pulls" target="_blank" rel="noopener noreferrer">PR on GitHub</a>.</div>
+    </details>
     <nav class="nav" aria-label="Primary navigation">
       <div class="wrap nav-inner">
         <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true"></span><span>WGS Extract CLI</span></a>
@@ -52,11 +56,34 @@
       </div>
     </div>
 
-    <figure class="hero-screenshot">
+    <aside class="hero-card" aria-label="Quick start terminal">
+      <div class="terminal">
+        <div class="terminal-top" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+        <pre><code><span class="comment"># Open Terminal, paste this line, then press Enter</span>
+<span class="prompt">$</span> <span class="cmd">curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh</span>
+
+<span class="comment"># Check your setup</span>
+<span class="prompt">$</span> <span class="cmd">./wgsextract-cli/wgsextract info --detailed</span>
+
+<span class="comment"># See available commands</span>
+<span class="prompt">$</span> <span class="cmd">./wgsextract-cli/wgsextract help</span></code></pre>
+      </div>
+      <div class="stats">
+        <div class="stat"><strong><abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr></strong><span>Automation first</span></div>
+        <div class="stat"><strong>Local</strong><span>Runs on your machine</span></div>
+        <div class="stat"><strong><a class="term-link" href="https://pixi.sh/">Pixi</a></strong><span>Reproducible tools</span></div>
+      </div>
+    </aside>
+  </div>
+</header>
+
+<section class="homepage-screenshot-section">
+  <div class="wrap">
+    <figure class="homepage-screenshot">
       <img src="assets/cli-screenshot.webp" alt="WGSExtract CLI desktop app showing command-line workflow output." width="2514" height="1874" fetchpriority="high" />
     </figure>
   </div>
-</header>
+</section>
 <section>
 <div class="wrap">
 <div class="section-head">
