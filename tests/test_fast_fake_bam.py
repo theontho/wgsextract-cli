@@ -4,8 +4,10 @@ from io import StringIO
 
 import pytest
 
-from wgsextract_cli.commands import _qc_bam_writer, _qc_commands, _qc_fake_data
 from wgsextract_cli.commands import qc as _qc_entry
+from wgsextract_cli.commands.qc import bam_writer as _qc_bam_writer
+from wgsextract_cli.commands.qc import commands as _qc_commands
+from wgsextract_cli.commands.qc import fake_data as _qc_fake_data
 
 
 class _ModuleGroup:

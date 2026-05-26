@@ -361,7 +361,3 @@ if (-not $SkipWsl) {
     $quotedFinalWslPath = Quote-Bash $finalWslPath
     Write-Host "WSL CLI:    wsl -d $Distribution bash -lc `"cd $quotedFinalWslPath && ~/.pixi/bin/pixi run wgsextract --help`"" -ForegroundColor Cyan
 }
-
-
-
-

@@ -1,4 +1,7 @@
 #!/bin/sh
+# shellcheck disable=SC1007,SC2016
+# SC1007: `CDPATH= cd "$dir"` intentionally clears CDPATH for one command.
+# SC2016: launcher templates use literal $install_dir for runtime expansion.
 set -eu
 
 REPO_URL="${WGSEXTRACT_REPO_URL:-https://github.com/theontho/wgsextract-cli}"

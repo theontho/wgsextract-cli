@@ -1,7 +1,7 @@
 import json
 from argparse import Namespace
 
-from wgsextract_cli.commands._ref_status import build_ref_status, cmd_ref_status
+from wgsextract_cli.commands.ref.status import build_ref_status, cmd_ref_status
 from wgsextract_cli.core.config import settings
 
 

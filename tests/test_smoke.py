@@ -160,14 +160,17 @@ class TestCLISmoke(unittest.TestCase):
                 "wgsextract_cli.core.dependency_checks.check_dependencies",
                 return_value=[],
             ),
-            patch("wgsextract_cli.commands._info_run.run_full_coverage"),
-            patch("wgsextract_cli.commands._info_run.run_sampled_coverage"),
+            patch("wgsextract_cli.commands.info.runner.run_full_coverage"),
+            patch("wgsextract_cli.commands.info.runner.run_sampled_coverage"),
             patch(
-                "wgsextract_cli.commands._info_run.calculate_bam_md5",
+                "wgsextract_cli.commands.info.runner.calculate_bam_md5",
                 return_value="dummy_md5",
             ),
-            patch("wgsextract_cli.core.ref_library.urlopen"),
-            patch("wgsextract_cli.core.ref_library.download_file", return_value=True),
+            patch("wgsextract_cli.core.ref_library.downloads.urlopen"),
+            patch(
+                "wgsextract_cli.core.ref_library.downloads.download_file",
+                return_value=True,
+            ),
         ):
             # Activate sub-module patches
             for p in patches:
@@ -414,7 +417,7 @@ class TestCLISmoke(unittest.TestCase):
         )
 
     @patch("builtins.input", side_effect=["0"])
-    @patch("wgsextract_cli.commands._ref_library_commands.download_and_process_genome")
+    @patch("wgsextract_cli.commands.ref.library_commands.download_and_process_genome")
     def test_34_ref_library(self, mock_dl, mock_input):
         self.run_sub("ref library", ["ref", "library"])
 

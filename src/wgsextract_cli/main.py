@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import os
 from collections.abc import Sequence
 
 from .cli.bootstrap import (
@@ -15,7 +14,7 @@ from .cli.dispatch import dispatch_command
 from .cli.parser import build_parser, parse_args, print_full_help
 from .core.config import reload_settings
 
-__all__ = ["_parent_process_is_alive", "describe_signal", "main", "os"]
+__all__ = ["_parent_process_is_alive", "describe_signal", "main"]
 
 
 def main(argv: Sequence[str] | None = None) -> None:

@@ -72,7 +72,7 @@ def test_resolve_github_release_asset_sha256_tagged_url(monkeypatch):
         seen_urls.append(request.full_url)
         return _FakeResponse(_asset_payload("hs38.fa.gz", digest))
 
-    monkeypatch.setattr(ref_library, "urlopen", fake_urlopen)
+    monkeypatch.setattr(ref_library.downloads, "urlopen", fake_urlopen)
 
     resolved = ref_library.resolve_github_release_asset_sha256(
         "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz"
@@ -94,7 +94,7 @@ def test_resolve_github_release_asset_sha256_latest_url(monkeypatch):
             _asset_payload("wgsextract-reference-bootstrap.tar.gz", digest)
         )
 
-    monkeypatch.setattr(ref_library, "urlopen", fake_urlopen)
+    monkeypatch.setattr(ref_library.downloads, "urlopen", fake_urlopen)
 
     resolved = ref_library.resolve_github_release_asset_sha256(
         "https://github.com/theontho/wgsextract-cli/releases/latest/download/wgsextract-reference-bootstrap.tar.gz"
@@ -118,8 +118,8 @@ def test_download_file_verifies_github_release_asset_digest(tmp_path, monkeypatc
     def fake_urlopen(request, timeout):
         return _FakeResponse(_asset_payload("hs38.fa.gz", digest))
 
-    monkeypatch.setattr(ref_library, "run_command", fake_run_command)
-    monkeypatch.setattr(ref_library, "urlopen", fake_urlopen)
+    monkeypatch.setattr(ref_library.downloads, "run_command", fake_run_command)
+    monkeypatch.setattr(ref_library.downloads, "urlopen", fake_urlopen)
     monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
 
     assert ref_library.download_file(
@@ -142,10 +142,10 @@ def test_download_file_resume_keeps_curl_output_argument_order(tmp_path, monkeyp
         output_path = Path(cmd[cmd.index("-o") + 1])
         output_path.write_bytes(payload)
 
-    monkeypatch.setattr(ref_library, "run_command", fake_run_command)
+    monkeypatch.setattr(ref_library.downloads, "run_command", fake_run_command)
     monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
     monkeypatch.setattr(
-        ref_library, "resolve_github_release_asset_sha256", lambda url: None
+        ref_library.downloads, "resolve_github_release_asset_sha256", lambda url: None
     )
 
     assert ref_library.download_file(
@@ -182,8 +182,8 @@ def test_download_file_uses_logged_progress_when_stderr_is_not_tty(
             return _FakeResponse(_asset_payload("hs37.fa.gz", digest))
         return _FakeDownloadResponse(payload, content_length=len(payload))
 
-    monkeypatch.setattr(ref_library, "run_command", fail_if_curl_runs)
-    monkeypatch.setattr(ref_library, "urlopen", fake_urlopen)
+    monkeypatch.setattr(ref_library.downloads, "run_command", fail_if_curl_runs)
+    monkeypatch.setattr(ref_library.downloads, "urlopen", fake_urlopen)
     monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: False)
 
     caplog.set_level(logging.INFO)
@@ -213,8 +213,8 @@ def test_download_file_rejects_github_release_asset_digest_mismatch(
     def fake_urlopen(request, timeout):
         return _FakeResponse(_asset_payload("hs38.fa.gz", expected_digest))
 
-    monkeypatch.setattr(ref_library, "run_command", fake_run_command)
-    monkeypatch.setattr(ref_library, "urlopen", fake_urlopen)
+    monkeypatch.setattr(ref_library.downloads, "run_command", fake_run_command)
+    monkeypatch.setattr(ref_library.downloads, "urlopen", fake_urlopen)
     monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
 
     assert not ref_library.download_file(
@@ -237,9 +237,9 @@ def test_download_file_warns_and_continues_when_github_digest_lookup_fails(
     def fail_resolve(url):
         raise OSError("rate limit exceeded")
 
-    monkeypatch.setattr(ref_library, "run_command", fake_run_command)
+    monkeypatch.setattr(ref_library.downloads, "run_command", fake_run_command)
     monkeypatch.setattr(
-        ref_library, "resolve_github_release_asset_sha256", fail_resolve
+        ref_library.downloads, "resolve_github_release_asset_sha256", fail_resolve
     )
     monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
 
@@ -264,9 +264,9 @@ def test_download_file_rejects_invalid_github_digest_metadata(tmp_path, monkeypa
             "download should not start when digest metadata is invalid"
         )
 
-    monkeypatch.setattr(ref_library, "run_command", fail_if_downloaded)
+    monkeypatch.setattr(ref_library.downloads, "run_command", fail_if_downloaded)
     monkeypatch.setattr(
-        ref_library, "resolve_github_release_asset_sha256", fail_resolve
+        ref_library.downloads, "resolve_github_release_asset_sha256", fail_resolve
     )
 
     assert not ref_library.download_file(
@@ -288,8 +288,10 @@ def test_install_mappability_maps_extracts_mirrored_archive(tmp_path, monkeypatc
         Path(destination).write_bytes(payload.read_bytes())
         return True
 
-    monkeypatch.setattr(ref_library, "download_file", fake_download)
-    monkeypatch.setattr(ref_library, "verify_download_sha256", lambda path, sha: True)
+    monkeypatch.setattr(ref_library.catalog, "download_file", fake_download)
+    monkeypatch.setattr(
+        ref_library.catalog, "verify_download_sha256", lambda path, sha: True
+    )
 
     assert ref_library.install_mappability_maps(str(reflib))
     for file_name in constants.MAPPABILITY_MAP_FILES:
@@ -307,6 +309,6 @@ def test_install_mappability_maps_skips_when_complete(tmp_path, monkeypatch):
     def fail_download(*args, **kwargs):
         raise AssertionError("complete mappability map set should not be downloaded")
 
-    monkeypatch.setattr(ref_library, "download_file", fail_download)
+    monkeypatch.setattr(ref_library.downloads, "download_file", fail_download)
 
     assert ref_library.install_mappability_maps(str(reflib))
