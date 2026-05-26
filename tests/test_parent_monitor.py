@@ -3,13 +3,14 @@ import sys
 from types import SimpleNamespace
 
 from wgsextract_cli import main
+from wgsextract_cli.cli import bootstrap
 
 
 def test_parent_process_monitor_rejects_non_positive_pids(monkeypatch):
     def fail_if_called(parent_pid, signal_number):
         raise AssertionError("Non-positive PIDs must not call os.kill")
 
-    monkeypatch.setattr(main.os, "kill", fail_if_called)
+    monkeypatch.setattr(bootstrap.os, "kill", fail_if_called)
 
     assert main._parent_process_is_alive(0) is False
     assert main._parent_process_is_alive(-1) is False
@@ -26,7 +27,7 @@ def test_parent_process_monitor_uses_psutil_on_windows(monkeypatch):
     def fail_if_called(parent_pid, signal_number):
         raise AssertionError("Windows parent liveness checks must not call os.kill")
 
-    monkeypatch.setattr(main.os, "kill", fail_if_called)
+    monkeypatch.setattr(bootstrap.os, "kill", fail_if_called)
 
     assert main._parent_process_is_alive(os.getpid()) is True
 
@@ -39,7 +40,7 @@ def test_parent_process_monitor_posix_fallback(monkeypatch):
     def fake_kill(parent_pid, signal_number):
         calls.append((parent_pid, signal_number))
 
-    monkeypatch.setattr(main.os, "kill", fake_kill)
+    monkeypatch.setattr(bootstrap.os, "kill", fake_kill)
 
     parent_pid = os.getpid()
     assert main._parent_process_is_alive(parent_pid) is True

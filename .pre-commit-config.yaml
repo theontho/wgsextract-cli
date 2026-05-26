@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.0
+    rev: v0.15.14
     hooks:
       - id: ruff
         args: [ --fix ]
@@ -8,7 +8,7 @@ repos:
       - id: ruff-format
         files: ^
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
+    rev: v6.0.0
     hooks:
       - id: trailing-whitespace
         files: ^
@@ -19,7 +19,7 @@ repos:
       - id: check-added-large-files
         files: ^
   - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: v0.10.0.1
+    rev: v0.11.0.1
     hooks:
       - id: shellcheck
         files: ^
@@ -44,3 +44,10 @@ repos:
         additional_dependencies: [tomli]
         pass_filenames: false
         files: ^(site_src/.*\.(md|toml)|scripts/(build_site|validate_site_sources)\.py)$
+      - id: mypy
+        name: mypy (via pixi)
+        entry: pixi run mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+        files: ^src/wgsextract_cli/.*\.py$

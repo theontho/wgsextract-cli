@@ -6,7 +6,7 @@ from wgsextract_cli.core.utils import WGSExtractError
 def test_tabix_annotation_preparation_indexes_tsv_with_coordinate_columns(
     monkeypatch, tmp_path
 ):
-    from wgsextract_cli.commands import _vcf_annotation_helpers as helpers
+    from wgsextract_cli.commands.vcf import annotation_helpers as helpers
 
     resource = tmp_path / "alphamissense_hg38.tsv.gz"
     resource.touch()
@@ -24,7 +24,7 @@ def test_tabix_annotation_preparation_indexes_tsv_with_coordinate_columns(
 
 
 def test_tabix_annotation_preparation_rebuilds_stale_index(monkeypatch, tmp_path):
-    from wgsextract_cli.commands import _vcf_annotation_helpers as helpers
+    from wgsextract_cli.commands.vcf import annotation_helpers as helpers
 
     resource = tmp_path / "phylop_hg38.tsv.gz"
     index = tmp_path / "phylop_hg38.tsv.gz.tbi"
@@ -89,7 +89,7 @@ def test_alignment_pipeline_reports_process_failure():
 def test_gatk_prepares_regional_cram_as_temporary_bam(monkeypatch, tmp_path):
     from types import SimpleNamespace
 
-    from wgsextract_cli.commands import _vcf_callers
+    from wgsextract_cli.commands.vcf import callers as _vcf_callers
 
     cram = tmp_path / "sample.cram"
     cram.touch()
@@ -126,7 +126,7 @@ def test_gatk_prepares_regional_cram_as_temporary_bam(monkeypatch, tmp_path):
 def test_gatk_does_not_convert_whole_cram_without_region(tmp_path):
     from types import SimpleNamespace
 
-    from wgsextract_cli.commands import _vcf_callers
+    from wgsextract_cli.commands.vcf import callers as _vcf_callers
 
     args = SimpleNamespace(input=str(tmp_path / "sample.cram"), region=None)
 
@@ -139,7 +139,7 @@ def test_gatk_does_not_convert_whole_cram_without_region(tmp_path):
 def test_structural_reference_header_keeps_reference_sq_order():
     from io import StringIO
 
-    from wgsextract_cli.commands import _vcf_structural
+    from wgsextract_cli.commands.vcf import structural as _vcf_structural
 
     sink = StringIO()
 
@@ -163,7 +163,7 @@ def test_structural_reference_header_keeps_reference_sq_order():
 
 
 def test_delly_map_validation_rejects_bad_gzip(tmp_path):
-    from wgsextract_cli.commands import _vcf_structural
+    from wgsextract_cli.commands.vcf import structural as _vcf_structural
 
     bad_map = tmp_path / "hg38.map.gz"
     bad_map.write_text("404: Not Found", encoding="utf-8")

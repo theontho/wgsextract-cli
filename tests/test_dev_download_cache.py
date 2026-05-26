@@ -2,7 +2,7 @@ import os
 import time
 from argparse import Namespace
 
-from wgsextract_cli.commands._benchmark_datasets import _real_dataset_cache_dir
+from wgsextract_cli.commands.benchmark.datasets import _real_dataset_cache_dir
 from wgsextract_cli.core import dev_download_cache, ref_library
 
 
@@ -80,7 +80,7 @@ def test_ref_library_download_file_uses_dev_cache(tmp_path, monkeypatch):
     monkeypatch.setenv("WGSEXTRACT_DEV_DOWNLOAD_CACHE", "1")
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg-cache"))
     monkeypatch.setattr(
-        ref_library, "resolve_github_release_asset_sha256", lambda url: None
+        ref_library.downloads, "resolve_github_release_asset_sha256", lambda url: None
     )
 
     def fail_run_command(*_args, **_kwargs):
@@ -93,8 +93,8 @@ def test_ref_library_download_file_uses_dev_cache(tmp_path, monkeypatch):
             "urlopen should not run when the dev cache satisfies download"
         )
 
-    monkeypatch.setattr(ref_library, "run_command", fail_run_command)
-    monkeypatch.setattr(ref_library, "urlopen", fail_urlopen)
+    monkeypatch.setattr(ref_library.downloads, "run_command", fail_run_command)
+    monkeypatch.setattr(ref_library.downloads, "urlopen", fail_urlopen)
 
     source = tmp_path / "source.fa.gz"
     source.write_bytes(b"cached reference")

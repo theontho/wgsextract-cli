@@ -3,7 +3,7 @@ log/
 out/
 external/
 tmp/
-local_bin/     
+local_bin/
 runtime/
 reference_bootstrap/
 reference/

@@ -173,6 +173,7 @@ package-smoke = "rm -rf out/package-smoke && mkdir -p out/package-smoke && uv bu
 jscpd = "npx --yes jscpd@4.2.3 src/wgsextract_cli --reporters console,json --output out/jscpd --min-lines 5 --min-tokens 50 --ignore '**/__pycache__/**' --ignore '**/.mypy_cache/**'"
 site-build = "python scripts/build_site.py"
 stats = "python scripts/project_stats.py"
+clean = { cmd = "python scripts/clean_outputs.py", description = "Remove gitignored scratch dirs (out/, tmp/)." }
 stats-report = "python scripts/project_stats.py out/project_stats.txt"
 smoke-test = "pytest tests/test_smoke.py tests/test_smoke_real_basics.py tests/test_smoke_real_vcf.py tests/test_smoke_real_vcf_ann.py tests/test_smoke_real_expert.py tests/test_smoke_real_ref.py"
 smoke-test-full = "pytest tests/test_smoke.py tests/test_smoke_real_basics.py tests/test_smoke_real_vcf.py tests/test_smoke_real_vcf_ann.py tests/test_smoke_real_expert.py tests/test_smoke_real_ref.py tests/test_smoke_real_full.py tests/test_smoke_real_pet.py"
