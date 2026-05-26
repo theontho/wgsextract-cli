@@ -48,7 +48,7 @@ def get_available_genomes() -> list[dict[str, Any]]:
     if _GENOME_DATA_CACHE:
         return _GENOME_DATA_CACHE
 
-    cli_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    cli_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     csv_path = os.path.join(cli_root, "assets/reference/seed_genomes.csv")
 
     if os.path.exists(csv_path):
