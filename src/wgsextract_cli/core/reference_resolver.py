@@ -44,8 +44,12 @@ class ReferenceLibrary:
         from wgsextract_cli.core.config import settings
 
         self.root: str | None = root_path or settings.get("reference_library")
+        if isinstance(self.root, str):
+            self.root = os.path.expanduser(self.root)
         self.md5: str | None = md5_sig
         self.input_path: str | None = input_path
+        if isinstance(self.input_path, str):
+            self.input_path = os.path.expanduser(self.input_path)
         self.fasta: str | None = None
         self.dict_file: str | None = None
         self.fai: str | None = None

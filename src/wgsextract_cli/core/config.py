@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 from typing import Any, TypeVar, overload
@@ -50,6 +51,51 @@ KNOWN_SETTINGS = {
     "pet_r2_fastq": (None, "Test: Path to PET R2 reads"),
     "pet_reference_fasta": (None, "Test: Path to PET reference genome"),
 }
+
+PATH_SETTINGS = {
+    "input_path",
+    "output_directory",
+    "reference_fasta",
+    "reference_library",
+    "genome_library",
+    "runtime_directory",
+    "pacman_ucrt64_bin",
+    "yleaf_executable",
+    "haplogrep_executable",
+    "jar_directory",
+    "vep_cache_directory",
+    "default_input_vcf",
+    "mother_vcf_path",
+    "father_vcf_path",
+    "batch_file_path",
+    "vcf_input_paths",
+    "clinvar_vcf_path",
+    "revel_tsv_path",
+    "phylop_tsv_path",
+    "gnomad_vcf_path",
+    "spliceai_vcf_path",
+    "alphamissense_vcf_path",
+    "pharmgkb_vcf_path",
+    "pet_r1_fastq",
+    "pet_r2_fastq",
+    "pet_reference_fasta",
+}
+
+
+def _normalize_path_setting(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value.expanduser())
+    if isinstance(value, str):
+        return os.path.expanduser(value)
+    return value
+
+
+def normalize_config_paths(config: dict[str, Any]) -> dict[str, Any]:
+    for key in PATH_SETTINGS:
+        if key in config:
+            config[key] = _normalize_path_setting(config[key])
+    return config
+
 
 CONFIG_ALIASES = {
     "input": "input_path",
@@ -107,7 +153,7 @@ def load_config() -> dict[str, Any]:
         if old_key in config and new_key not in config:
             config[new_key] = config[old_key]
 
-    return config
+    return normalize_config_paths(config)
 
 
 # Global config object
@@ -143,7 +189,7 @@ def save_config(updates: dict[str, Any]) -> None:
             if value is None or value == "":
                 current_config.pop(key, None)
             else:
-                current_config[key] = value
+                current_config[key] = _normalize_path_setting(value)
 
     # Write back
     try:

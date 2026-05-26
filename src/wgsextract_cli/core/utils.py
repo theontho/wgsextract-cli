@@ -53,6 +53,7 @@ def _normalize_subprocess_cmd(cmd: str | Sequence[object]) -> list[str]:
     )
 
     def split_wrapper_or_keep(value: str) -> list[str]:
+        value = os.path.expanduser(value)
         if (
             runtime.is_wsl_tool_command(value)
             or runtime.is_bundled_tool_command(value)
@@ -66,14 +67,18 @@ def _normalize_subprocess_cmd(cmd: str | Sequence[object]) -> list[str]:
         return [value]
 
     if isinstance(cmd, str):
-        cmd_list = shlex.split(cmd)
+        cmd_list = [os.path.expanduser(part) for part in shlex.split(cmd)]
     else:
         cmd_list = []
         for index, item in enumerate(cmd):
             if index == 0 and isinstance(item, str):
                 cmd_list.extend(split_wrapper_or_keep(item))
             else:
-                cmd_list.append(str(item))
+                cmd_list.append(
+                    os.path.expanduser(str(item))
+                    if isinstance(item, str)
+                    else str(item)
+                )
 
     if cmd_list and isinstance(cmd_list[0], str):
         executable = cmd_list[0]
@@ -150,4 +155,4 @@ def run_command(
             cmd_list, process.returncode, res_stdout, res_stderr
         )
     finally:
-        proc_registry.unregister_process(cmd_str)
+        proc_registry.unregister_process(cmd_str, process)

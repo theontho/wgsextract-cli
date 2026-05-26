@@ -1,7 +1,9 @@
 import argparse
 import logging
 import os
+import shlex
 import subprocess
+import tempfile
 
 from wgsextract_cli.core.alignment_metadata import get_vcf_build
 from wgsextract_cli.core.dependencies import get_tool_path
@@ -149,10 +151,9 @@ def cmd_ydna(args: argparse.Namespace) -> None:
         update_yleaf_config(yleaf_path, args.ref, build)
 
     logging.info(LOG_MESSAGES["running_yleaf"].format(input=args.input))
+    temp_dir = None
     temp_vcf = None
     try:
-        import shlex
-
         # Check if yleaf_path is a python script or a wrapper
         cmd = shlex.split(yleaf_path)
         if yleaf_path.endswith(".py"):
@@ -172,10 +173,8 @@ def cmd_ydna(args: argparse.Namespace) -> None:
             logging.info(f"Filtering VCF to {chr_y} for Yleaf...")
 
             # Use a space-free path in /tmp to avoid shell quoting bugs in Yleaf
-            import tempfile
-
-            temp_dir = tempfile.mkdtemp(prefix="yleaf_")
-            temp_vcf = os.path.join(temp_dir, "input.vcf.gz")
+            temp_dir = tempfile.TemporaryDirectory(prefix="yleaf_")
+            temp_vcf = os.path.join(temp_dir.name, "input.vcf.gz")
 
             bcftools = get_tool_path("bcftools")
             bgzip = get_tool_path("bgzip")
@@ -187,13 +186,6 @@ def cmd_ydna(args: argparse.Namespace) -> None:
             # because some bcftools versions might handle --rename-chrs differently with temp files.
             # We use a temp file for sed output then move it back.
             sed_vcf = temp_vcf + ".sed.gz"
-            # Note: sed is usually a system tool, but bgzip might be from Pixi
-            import shlex
-
-            bgzip_list = shlex.split(bgzip)
-            # If bgzip is 'pixi run -e default bgzip', we need to be careful with redirection
-            # But run_command handles it if we pass it as a list.
-            # For shell=True pipes, it's harder. Let's use a more robust way.
 
             # Alternative: use python to do the sed-like replacement to avoid shell escaping issues
             import gzip
@@ -211,13 +203,8 @@ def cmd_ydna(args: argparse.Namespace) -> None:
                         f_out.write(line)
 
             # Recompress with bgzip to ensure it's BGZF
-            import shlex
-
-            bgzip_list = shlex.split(bgzip)
             with open(sed_vcf, "wb") as f_out:
-                subprocess.run(
-                    bgzip_list + ["-c", temp_vcf + ".plain"], stdout=f_out, check=True
-                )
+                run_command([bgzip, "-c", temp_vcf + ".plain"], stdout=f_out)
             os.remove(temp_vcf + ".plain")
 
             os.rename(sed_vcf, temp_vcf)
@@ -264,8 +251,6 @@ def cmd_ydna(args: argparse.Namespace) -> None:
 
         # Add extra args if provided
         if args.extra_args:
-            import shlex
-
             extra = shlex.split(args.extra_args)
             # Remove -force from extra if it's already there to avoid duplicates
             # though Yleaf likely doesn't mind
@@ -296,20 +281,9 @@ def cmd_ydna(args: argparse.Namespace) -> None:
     except (OSError, subprocess.SubprocessError, ValueError) as e:
         raise WGSExtractError(f"Yleaf failed: {e}") from e
     finally:
-        if temp_vcf and os.path.exists(temp_vcf):
+        if temp_dir is not None:
             try:
-                # If we used a temp_dir in /tmp, remove the whole thing
-                temp_dir = os.path.dirname(temp_vcf)
-                if "/yleaf_" in temp_dir:
-                    import shutil
-
-                    shutil.rmtree(temp_dir)
-                else:
-                    os.remove(temp_vcf)
-                    if os.path.exists(temp_vcf + ".tbi"):
-                        os.remove(temp_vcf + ".tbi")
-                    if os.path.exists(temp_vcf + ".csi"):
-                        os.remove(temp_vcf + ".csi")
+                temp_dir.cleanup()
             except OSError as e:
                 logging.debug(
                     "Failed to remove temporary Yleaf VCF %s: %s", temp_vcf, e
