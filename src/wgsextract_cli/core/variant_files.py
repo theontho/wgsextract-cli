@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 from collections.abc import Mapping, Sequence
 from typing import IO, Literal, TypeAlias, overload
 
@@ -108,6 +109,12 @@ def popen(
         **_process_group_kwargs(),
     )
     proc_registry.register_process(cmd_str, process)
+
+    def _unregister_finished_process() -> None:
+        process.wait()
+        proc_registry.unregister_process(cmd_str, process)
+
+    threading.Thread(target=_unregister_finished_process, daemon=True).start()
     return process
 
 
@@ -120,16 +127,20 @@ def verify_paths_exist(paths_dict: Mapping[str, str | None]) -> bool:
             all_exist = False
             continue
 
+        normalized_path = os.path.expanduser(str(path))
+
         # Skip check for commands (like pixi run)
-        if "pixi run" in str(path):
+        if "pixi run" in normalized_path:
             continue
 
-        if not os.path.exists(str(path)) and not shutil.which(str(path)):
-            logging.error(LOG_MESSAGES["file_not_found"].format(label=label, path=path))
-            all_exist = False
-        elif os.path.isdir(str(path)) and not shutil.which(str(path)):
+        if not os.path.exists(normalized_path) and not shutil.which(normalized_path):
             logging.error(
-                f"{label} path is a directory, but a file is expected: {path}"
+                LOG_MESSAGES["file_not_found"].format(label=label, path=normalized_path)
+            )
+            all_exist = False
+        elif os.path.isdir(normalized_path) and not shutil.which(normalized_path):
+            logging.error(
+                f"{label} path is a directory, but a file is expected: {normalized_path}"
             )
             all_exist = False
     return all_exist

@@ -133,15 +133,16 @@ def _version_output(stdout: str, stderr: str) -> str:
 
 def _tool_command_parts(cmd_base: str) -> list[str]:
     """Split wrapper commands without corrupting native executable paths."""
+    normalized_cmd = os.path.expanduser(cmd_base)
     if (
-        runtime.is_wsl_tool_command(cmd_base)
-        or runtime.is_bundled_tool_command(cmd_base)
-        or runtime.is_pacman_tool_command(cmd_base)
+        runtime.is_wsl_tool_command(normalized_cmd)
+        or runtime.is_bundled_tool_command(normalized_cmd)
+        or runtime.is_pacman_tool_command(normalized_cmd)
     ):
-        return [cmd_base]
-    if os.path.exists(cmd_base):
-        return [cmd_base]
-    return shlex.split(cmd_base)
+        return [normalized_cmd]
+    if os.path.exists(normalized_cmd):
+        return [normalized_cmd]
+    return shlex.split(normalized_cmd)
 
 
 def get_tool_runtime(path: str | None) -> str:
@@ -184,8 +185,10 @@ def get_jar_dir() -> str:
     from wgsextract_cli.core.config import settings
 
     env_path = settings.get("jar_directory")
-    if env_path and isinstance(env_path, str) and os.path.isdir(env_path):
-        return str(env_path)
+    if env_path and isinstance(env_path, str):
+        expanded_path = os.path.expanduser(str(env_path))
+        if os.path.isdir(expanded_path):
+            return expanded_path
 
     path: str = os.path.join(str(get_repo_root()), "jartools")
     return path

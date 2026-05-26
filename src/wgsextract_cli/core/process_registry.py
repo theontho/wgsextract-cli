@@ -16,17 +16,21 @@ class ProcessRegistry:
     """
 
     def __init__(self) -> None:
-        self.processes: dict[str, subprocess.Popen[Any]] = {}
+        self.processes: dict[str, set[subprocess.Popen[Any]]] = {}
         self.events: dict[str, threading.Event] = {}
         self._lock = threading.Lock()
 
     def register_process(self, key: str, process: subprocess.Popen[Any]) -> None:
         with self._lock:
-            self.processes[key] = process
+            self.processes.setdefault(key, set()).add(process)
 
-    def unregister_process(self, key: str) -> None:
+    def unregister_process(self, key: str, process: subprocess.Popen[Any]) -> None:
         with self._lock:
-            if key in self.processes:
+            processes = self.processes.get(key)
+            if not processes:
+                return
+            processes.discard(process)
+            if not processes:
                 del self.processes[key]
 
     def register_event(self, key: str, event: threading.Event) -> None:
@@ -47,7 +51,10 @@ class ProcessRegistry:
             if not self.processes:
                 return
 
-            for _key, proc in self.processes.items():
+            all_processes = [
+                proc for processes in self.processes.values() for proc in processes
+            ]
+            for proc in all_processes:
                 if proc.poll() is None:
                     try:
                         if sys.platform == "win32":
@@ -65,7 +72,7 @@ class ProcessRegistry:
 
             time.sleep(0.5)
 
-            for _key, proc in self.processes.items():
+            for proc in all_processes:
                 if proc.poll() is None:
                     try:
                         if sys.platform == "win32":
