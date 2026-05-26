@@ -11,7 +11,7 @@ import subprocess
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, BinaryIO, Literal
+from typing import Any, BinaryIO, Literal, Protocol
 from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
 
@@ -25,9 +25,16 @@ from wgsextract_cli.core.download_progress import (
     copy_response_to_file,
     curl_progress_args,
 )
-from wgsextract_cli.core.utils import run_command
+from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 _GENOME_DATA_CACHE: list[dict[str, Any]] = []
+
+
+class CancelEvent(Protocol):
+    def is_set(self) -> bool: ...
+
+
+ProgressCallback = Callable[[int, int, float], None]
 
 
 def resolve_github_release_asset_sha256(url: str) -> str | None:
@@ -107,8 +114,8 @@ def verify_download_sha256(path: str, expected_sha256: str | None) -> bool:
 def download_file(
     url: str,
     dest: str,
-    progress_callback: Callable[[int, int, float], None] | None = None,
-    cancel_event: Any | None = None,
+    progress_callback: ProgressCallback | None = None,
+    cancel_event: CancelEvent | None = None,
 ) -> bool:
     """Downloads a file with progress reporting, optional cancellation, and resume support."""
     partial_dest = dest + ".partial"
@@ -215,12 +222,17 @@ def download_file(
         return verified
     except DownloadCancelled as e:
         logging.info(str(e))
-    except Exception as e:
+    except (
+        OSError,
+        subprocess.SubprocessError,
+        WGSExtractError,
+        zipfile.BadZipFile,
+    ) as e:
         logging.error(f"Download error: {e}")
     return False
 
 
-def load_genomes_from_csv(csv_path):
+def load_genomes_from_csv(csv_path: str) -> list[dict[str, Any]]:
     if not os.path.exists(csv_path):
         return []
     genomes = []
@@ -239,12 +251,12 @@ def load_genomes_from_csv(csv_path):
                         "md5": "",
                     }
                 )
-    except Exception as e:
+    except (OSError, csv.Error) as e:
         logging.error(f"Error reading {csv_path}: {e}")
     return genomes
 
 
-def get_available_genomes():
+def get_available_genomes() -> list[dict[str, Any]]:
     global _GENOME_DATA_CACHE
     if _GENOME_DATA_CACHE:
         return _GENOME_DATA_CACHE
@@ -336,7 +348,7 @@ def get_available_genomes():
 GENOME_DATA = get_available_genomes()
 
 
-def get_grouped_genomes():
+def get_grouped_genomes() -> list[dict[str, Any]]:
     all_data = get_available_genomes()
     grouped = {}
     for item in all_data:
@@ -378,8 +390,8 @@ def is_genome_installed(final_name: str, reflib_dir: str) -> bool:
 
 def install_standard_mappability_maps(
     reflib_dir: str,
-    cancel_event: Any | None = None,
-    progress_callback: Callable[[int, int, float], None] | None = None,
+    cancel_event: CancelEvent | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> bool:
     """Install standard Delly CNV mappability maps into the reference library."""
     from wgsextract_cli.core.constants import DELLY_MAPPABILITY_MAPS
@@ -416,8 +428,8 @@ def install_standard_mappability_maps(
 
 def install_mappability_maps(
     reflib_dir: str,
-    cancel_event: Any | None = None,
-    progress_callback: Callable[[int, int, float], None] | None = None,
+    cancel_event: CancelEvent | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> bool:
     """Downloads and extracts the mirrored Delly mappability map set."""
     from wgsextract_cli.core.constants import (

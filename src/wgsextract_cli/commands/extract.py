@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import subprocess
@@ -21,7 +22,9 @@ from wgsextract_cli.core.warnings import print_warning
 from ._extract_helpers import get_base_args, resolve_region_or_gene
 
 
-def register(subparsers, base_parser):
+def register(
+    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+) -> None:
     parser = subparsers.add_parser(
         "extract", help="Extract specific chromosomes or unmapped reads."
     )
@@ -88,14 +91,14 @@ def register(subparsers, base_parser):
     custom_parser.set_defaults(func=cmd_custom)
 
 
-def require_reference(resolved_ref, task):
+def require_reference(resolved_ref: str | None, task: str) -> None:
     if resolved_ref:
         return
     message = LOG_MESSAGES["ref_required_for"].format(task=task)
     raise WGSExtractError(message)
 
 
-def cmd_mito_fasta(args):
+def cmd_mito_fasta(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools", "bcftools", "tabix"])
     base = get_base_args(args)
     if not base:
@@ -103,6 +106,7 @@ def cmd_mito_fasta(args):
     threads, outdir, cram_opt, resolved_ref = base
 
     require_reference(resolved_ref, "mitochondrial extraction")
+    assert resolved_ref is not None
 
     print_warning("ButtonMitoFASTA", threads=threads)
 
@@ -153,12 +157,12 @@ def cmd_mito_fasta(args):
         os.remove(out_vcf)
         os.remove(out_vcf + ".tbi")
 
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"Mito FASTA extraction failed: {e}")
         raise WGSExtractError("Mito FASTA extraction failed.") from e
 
 
-def cmd_mito_vcf(args):
+def cmd_mito_vcf(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools", "bcftools", "tabix"])
     base = get_base_args(args)
     if not base:
@@ -166,6 +170,7 @@ def cmd_mito_vcf(args):
     threads, outdir, cram_opt, resolved_ref = base
 
     require_reference(resolved_ref, "mitochondrial extraction")
+    assert resolved_ref is not None
 
     print_warning("ButtonMitoVCF", threads=threads)
 
@@ -196,12 +201,12 @@ def cmd_mito_vcf(args):
         os.remove(out_bam)
         os.remove(out_bam + ".bai")
 
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"Mito VCF extraction failed: {e}")
         raise WGSExtractError("Mito VCF extraction failed.") from e
 
 
-def cmd_mt_bam(args):
+def cmd_mt_bam(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     base = get_base_args(args)
     if not base:
@@ -224,12 +229,12 @@ def cmd_mt_bam(args):
             + ["-@", threads, "-o", out_file, args.input, mt_chr]
         )
         run_command(get_sam_index_cmd(out_file, threads=threads))
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"mtDNA extraction failed: {e}")
         raise WGSExtractError("mtDNA extraction failed.") from e
 
 
-def cmd_bam_subset(args):
+def cmd_bam_subset(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     base = get_base_args(args)
     if not base:
@@ -256,12 +261,12 @@ def cmd_bam_subset(args):
             + ["-o", out_file, args.input]
             + region_args
         )
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"Subsetting failed: {e}")
         raise WGSExtractError("BAM subsetting failed.") from e
 
 
-def cmd_ydna_bam(args):
+def cmd_ydna_bam(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     base = get_base_args(args)
     if not base:
@@ -282,12 +287,12 @@ def cmd_ydna_bam(args):
             + ["-@", threads, "-o", out_bam, args.input, chr_y]
         )
         run_command(get_sam_index_cmd(out_bam, threads=threads))
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"Y BAM extraction failed: {e}")
         raise WGSExtractError("Y BAM extraction failed.") from e
 
 
-def cmd_ydna_vcf(args):
+def cmd_ydna_vcf(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools", "bcftools", "tabix"])
     base = get_base_args(args)
     if not base:
@@ -295,6 +300,7 @@ def cmd_ydna_vcf(args):
     threads, outdir, cram_opt, resolved_ref = base
 
     require_reference(resolved_ref, "Y extraction")
+    assert resolved_ref is not None
 
     print_warning("ButtonYOnlyVCF", threads=threads)
 
@@ -325,12 +331,12 @@ def cmd_ydna_vcf(args):
         os.remove(out_bam)
         os.remove(out_bam + ".bai")
 
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"Y VCF extraction failed: {e}")
         raise WGSExtractError("Y VCF extraction failed.") from e
 
 
-def cmd_y_mt_extract(args):
+def cmd_y_mt_extract(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     base = get_base_args(args)
     if not base:
@@ -352,12 +358,12 @@ def cmd_y_mt_extract(args):
             + ["-@", threads, "-o", out_bam, args.input, chr_y, chr_m]
         )
         run_command(get_sam_index_cmd(out_bam, threads=threads))
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"Y+MT extraction failed: {e}")
         raise WGSExtractError("Y+MT extraction failed.") from e
 
 
-def cmd_unmapped(args):
+def cmd_unmapped(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     base = get_base_args(args)
     if not base:
@@ -377,12 +383,12 @@ def cmd_unmapped(args):
             + cram_opt
             + ["-@", threads, "-o", out_bam, args.input]
         )
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"Unmapped extraction failed: {e}")
         raise WGSExtractError("Unmapped extraction failed.") from e
 
 
-def cmd_custom(args):
+def cmd_custom(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     base = get_base_args(args)
     if not base:
@@ -419,6 +425,6 @@ def cmd_custom(args):
             + region_args
         )
         run_command(get_sam_index_cmd(out_bam, threads=threads))
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"Custom extraction failed: {e}")
         raise WGSExtractError("Custom extraction failed.") from e

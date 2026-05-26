@@ -4,7 +4,8 @@ import math
 import os
 import re
 import subprocess
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Any, TypedDict
 
 from wgsextract_cli.core.constants import (
     N_ADJUST,
@@ -15,7 +16,14 @@ from wgsextract_cli.core.utils import run_command
 from wgsextract_cli.core.variant_files import popen
 
 
-def determine_sequencer(qname):
+class IdxStat(TypedDict):
+    name: str
+    length: int
+    mapped: int
+    unmapped: int
+
+
+def determine_sequencer(qname: str | None) -> str:
     """Identify sequencer type from QNAME using regex patterns."""
     if not qname:
         return "Unknown"
@@ -29,7 +37,7 @@ def determine_sequencer(qname):
     return "Unknown"
 
 
-def get_file_stats(filepath):
+def get_file_stats(filepath: str) -> tuple[float, bool]:
     """Retrieve file size and check for index existence."""
     size_bytes = os.path.getsize(filepath)
     size_gb = size_bytes / (1024**3)
@@ -50,12 +58,14 @@ def get_file_stats(filepath):
     return size_gb, indexed
 
 
-def run_body_sample(filepath, cram_opt):
+def run_body_sample(
+    filepath: str, cram_opt: Sequence[str]
+) -> tuple[int, float, float, float, float, bool, str | None]:
     """Sample first 20k reads to calculate length, insert size, and read type."""
     logging.info(
         LOG_MESSAGES["sampling_metrics"].format(filename=os.path.basename(filepath))
     )
-    cmd = ["samtools", "view"] + (cram_opt if cram_opt else []) + [filepath]
+    cmd = ["samtools", "view", *cram_opt, filepath]
 
     total_len = count = paired_count = 0
     tlen_values = []
@@ -100,7 +110,7 @@ def run_body_sample(filepath, cram_opt):
                 tlen_values.append(tlen)
 
         proc.terminate()
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
         logging.warning("Failed to sample read metrics from %s: %s", filepath, exc)
 
     avg_len = total_len / count if count > 0 else 0
@@ -120,7 +130,7 @@ def run_body_sample(filepath, cram_opt):
     return count, avg_len, std_len, avg_tlen, std_tlen, is_paired, first_qname
 
 
-def load_n_counts(ref_path):
+def load_n_counts(ref_path: str | None) -> dict[str, int]:
     """Try to load chromosome N counts from a sidecar _ncnt.csv file."""
     if not ref_path or not os.path.isfile(ref_path):
         return {}
@@ -131,7 +141,7 @@ def load_n_counts(ref_path):
         return {}
 
     logging.debug(LOG_MESSAGES["info_loading_n"].format(file=ncnt_file))
-    n_counts = {}
+    n_counts: dict[str, int] = {}
     try:
         with open(ncnt_file, newline="") as f:
             # Try to detect if it's tab-separated or comma-separated
@@ -164,16 +174,17 @@ def load_n_counts(ref_path):
                         n_counts[cnum] = int(float(clean_count))
                     except ValueError:
                         pass
-    except Exception as e:
+    except (OSError, csv.Error) as e:
         logging.debug(f"Failed to read {ncnt_file}: {e}")
 
     return n_counts
 
 
-def parse_idxstats(filepath):
+def parse_idxstats(filepath: str) -> tuple[list[IdxStat], int, int, int]:
     """Parse samtools idxstats for mapped/unmapped counts."""
     idx = run_command(["samtools", "idxstats", filepath], capture_output=True)
-    stats, genome_len, total_mapped, total_unmapped = [], 0, 0, 0
+    stats: list[IdxStat] = []
+    genome_len, total_mapped, total_unmapped = 0, 0, 0
 
     for line in idx.stdout.splitlines():
         parts = line.split("\t")
@@ -196,8 +207,13 @@ def parse_idxstats(filepath):
 
 
 def generate_chrom_table(
-    idx_stats, avg_len, gender, ref_model_name, coverage_map=None, n_counts=None
-):
+    idx_stats: Sequence[IdxStat],
+    avg_len: float,
+    gender: str,
+    ref_model_name: str,
+    coverage_map: Mapping[str, str] | None = None,
+    n_counts: Mapping[str, int] | None = None,
+) -> list[list[Any]]:
     """Build the detailed per-chromosome metrics table."""
     valid_autos, valid_somal, valid_mito = (
         [str(i) for i in range(1, 23)],

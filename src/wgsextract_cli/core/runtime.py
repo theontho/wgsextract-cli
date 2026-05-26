@@ -113,7 +113,7 @@ def get_tool_runtime_mode() -> str:
 
             configured = settings.get("tool_runtime")
             mode = str(configured) if configured is not None else None
-        except Exception:
+        except ImportError:
             mode = None
 
     normalized = (mode or "auto").strip().lower()
@@ -250,7 +250,7 @@ def detect_wsl_available(*, force: bool = False) -> bool:
             text=True,
             timeout=10,
         )
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return False
     return result.returncode == 0 and result.stdout.strip() == "ok"
 
@@ -328,5 +328,5 @@ def default_runtime_root() -> Path:
         from platformdirs import user_data_path
 
         return user_data_path("wgsextract-cli", "WGSExtract") / "runtime"
-    except Exception:
+    except ImportError:
         return Path.home() / ".wgsextract" / "runtime"

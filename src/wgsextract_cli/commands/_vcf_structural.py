@@ -1,8 +1,10 @@
+import argparse
 import gzip
 import logging
 import os
 import shutil
 import subprocess
+from typing import IO
 
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import (
@@ -26,7 +28,7 @@ from ._vcf_basic import (
 
 
 def _region_input_bam(
-    args, outdir: str, ref: str, failure_label: str
+    args: argparse.Namespace, outdir: str, ref: str, failure_label: str
 ) -> tuple[str, str | None]:
     temp_bam = None
     if not getattr(args, "region", None):
@@ -66,7 +68,7 @@ def _reference_sq_lines(ref: str) -> list[str]:
 
 
 def _write_reference_header(
-    sink, non_sq_header_lines: list[str], reference_sq_lines: list[str]
+    sink: IO[str], non_sq_header_lines: list[str], reference_sq_lines: list[str]
 ) -> None:
     hd_lines = [line for line in non_sq_header_lines if line.startswith("@HD")]
     other_header_lines = [
@@ -100,8 +102,12 @@ def _terminate_processes(processes: tuple[subprocess.Popen, ...]) -> None:
             logging.warning(f"Failed to wait for process {process.pid}: {e}")
 
 
-def _extract_region_bam_with_reference_header(args, ref: str, temp_bam: str) -> None:
+def _extract_region_bam_with_reference_header(
+    args: argparse.Namespace, ref: str, temp_bam: str
+) -> None:
     samtools = get_tool_path("samtools")
+    if samtools is None:
+        raise WGSExtractError("samtools dependency is required for region extraction.")
     source_cmd = [samtools, "view", "-h"]
     if args.input.lower().endswith(".cram"):
         source_cmd.extend(["-T", ref])
@@ -174,7 +180,7 @@ def _write_indexed_vcf_from_bcf(out_bcf: str, out_vcf: str) -> None:
         os.remove(out_bcf)
 
 
-def cmd_cnv(args):
+def cmd_cnv(args: argparse.Namespace) -> None:
     verify_dependencies(["delly", "bcftools", "tabix", "samtools"])
     base = get_base_args(args)
     if not base:
@@ -265,7 +271,7 @@ def _prepare_pbsv_reference(ref: str, outdir: str) -> str:
     return target
 
 
-def cmd_sv_pbsv(args):
+def cmd_sv_pbsv(args: argparse.Namespace) -> None:
     verify_dependencies(["pbsv", "bcftools", "tabix", "samtools"])
     log_dependency_info(["pbsv", "bcftools", "tabix", "samtools"])
     base = get_base_args(args)
@@ -313,7 +319,7 @@ def cmd_sv_pbsv(args):
         ) from e
 
 
-def cmd_sv_sniffles(args):
+def cmd_sv_sniffles(args: argparse.Namespace) -> None:
     verify_dependencies(["sniffles", "bcftools", "tabix", "samtools"])
     log_dependency_info(["sniffles", "bcftools", "tabix", "samtools"])
     base = get_base_args(args)
@@ -351,7 +357,7 @@ def cmd_sv_sniffles(args):
         ) from e
 
 
-def cmd_sv(args):
+def cmd_sv(args: argparse.Namespace) -> None:
     if getattr(args, "pacbio", False):
         args.caller = "pbsv" if get_tool_path("pbsv") is not None else "sniffles"
         args.ccs = True
@@ -394,7 +400,9 @@ def cmd_sv(args):
                 os.remove(temp_bam + ".bai")
 
 
-def _exit_if_missing(file_path, message_key, ann_name=None):
+def _exit_if_missing(
+    file_path: str | None, message_key: str, ann_name: str | None = None
+) -> None:
     if not file_path:
         msg = LOG_MESSAGES.get(message_key, f"Missing data file for {ann_name}")
         logging.error(f"REQUIRED DATA MISSING: {msg}")

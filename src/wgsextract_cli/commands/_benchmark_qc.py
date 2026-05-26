@@ -1,6 +1,6 @@
 import argparse
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 from wgsextract_cli.core.dependencies import get_tool_path
 
@@ -10,6 +10,7 @@ from ._benchmark_execution import (
     _skipped_result,
     _tool_active_for_benchmark,
 )
+from ._benchmark_models import BenchmarkResult
 
 
 def _benchmark_tool_available(tool: str) -> bool:
@@ -31,7 +32,7 @@ def _fastqc_output_stem(input_path: Path) -> str:
 def _run_heavy_coverage_extract_and_qc_steps(
     *,
     args: argparse.Namespace,
-    record: Any,
+    record: Callable[[BenchmarkResult], BenchmarkResult],
     analysis_bam: Path,
     ref_path: Path,
     unalign_r1: Path,

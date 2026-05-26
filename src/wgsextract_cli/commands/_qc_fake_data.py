@@ -58,7 +58,7 @@ def generate_fake_genomics_data(
     noise_size = 1024 * 1024
     noise_buffer = "".join(random.choices(["A", "C", "G", "T"], k=noise_size))
 
-    def get_noise_seq(chrom_idx, pos, length):
+    def get_noise_seq(chrom_idx: int, pos: int, length: int) -> str:
         # Use a large prime offset per chromosome to ensure diversity
         offset = chrom_idx * 15485863  # A large prime
         start = (pos + offset) % noise_size

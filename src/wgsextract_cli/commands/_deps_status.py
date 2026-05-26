@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import re
@@ -6,6 +7,7 @@ import subprocess
 import sys
 import time
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -64,7 +66,7 @@ def _status_text(path: object, *, optional: bool = False) -> str:
     return "WARN" if optional else "MISS"
 
 
-def run(args: Any) -> None:
+def run(args: argparse.Namespace) -> None:
     if args.tool:
         from wgsextract_cli.core.dependencies import get_tool_path
 
@@ -117,7 +119,7 @@ def _run_wsl_info(command: str) -> str | None:
             text=True,
             timeout=15,
         )
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return None
     if result.returncode != 0:
         return None
@@ -136,7 +138,7 @@ def _check_dependencies_with_runtime(mode: str) -> dict[str, list[dict[str, Any]
             os.environ[runtime.RUNTIME_ENV_VAR] = previous
 
 
-def run_wsl_check(args: Any) -> None:
+def run_wsl_check(args: argparse.Namespace) -> None:
     print("WSL Runtime")
     print("-" * 60)
     print(f"Host platform:       {sys.platform}")
@@ -181,7 +183,7 @@ def run_wsl_check(args: Any) -> None:
         raise WGSExtractError("Missing WSL-backed tool(s): " + ", ".join(missing))
 
 
-def run_wsl_tune(args: Any) -> None:
+def run_wsl_tune(args: argparse.Namespace) -> None:
     recommendation = runtime_wrappers.recommend_wslconfig_settings()
     memory = args.memory or recommendation.memory
     processors = (
@@ -265,7 +267,7 @@ def _patch_fastqc_launcher(runtime_dir: Path) -> None:
     launcher.write_text(patched, encoding="utf-8")
 
 
-def _source_runtime_copy_ignore(mode: str) -> Any:
+def _source_runtime_copy_ignore(mode: str) -> Callable[[str, list[str]], set[str]]:
     def ignore(_directory: str, names: list[str]) -> set[str]:
         if mode == "cygwin":
             return {name for name in names if name == "mnt"}

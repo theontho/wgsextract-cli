@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import subprocess
@@ -25,20 +26,23 @@ from wgsextract_cli.core.variant_files import (
 from wgsextract_cli.core.warnings import print_warning
 
 
-def _select_vcf_input(args):
+def _select_vcf_input(args: argparse.Namespace) -> str | None:
     input_path = getattr(args, "input", None)
     vcf_input = getattr(args, "vcf_input", None)
     default_vcf = settings.get("default_input_vcf")
     explicit_dests: set[str] = getattr(args, "_explicit_dests", set())
 
     if vcf_input and vcf_input != default_vcf:
-        return vcf_input
+        return str(vcf_input)
     if "input" in explicit_dests and input_path:
-        return input_path
-    return vcf_input if vcf_input else input_path
+        return str(input_path)
+    selected = vcf_input if vcf_input else input_path
+    return str(selected) if selected else None
 
 
-def get_base_args(args):
+def get_base_args(
+    args: argparse.Namespace,
+) -> tuple[str, str, str, ReferenceLibrary] | None:
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
 
@@ -85,7 +89,7 @@ def get_base_args(args):
     return threads, outdir, resolved_ref, lib
 
 
-def cmd_snp(args):
+def cmd_snp(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
     base = get_base_args(args)
     if not base:
@@ -114,6 +118,8 @@ def cmd_snp(args):
         raise WGSExtractError("Ploidy resolution failed.")
 
     bcftools = get_tool_path("bcftools")
+    if bcftools is None:
+        raise WGSExtractError("bcftools dependency is required for SNP calling.")
     p1 = popen(
         [bcftools, "mpileup", "-B", "-I", "-C", "50", "-f", ref, "-Ou"]
         + region_args
@@ -157,7 +163,7 @@ def cmd_snp(args):
     ensure_vcf_indexed(out_vcf)
 
 
-def cmd_indel(args):
+def cmd_indel(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
     base = get_base_args(args)
     if not base:
@@ -186,6 +192,8 @@ def cmd_indel(args):
         raise WGSExtractError("Ploidy resolution failed.")
 
     bcftools = get_tool_path("bcftools")
+    if bcftools is None:
+        raise WGSExtractError("bcftools dependency is required for InDel calling.")
     p1 = popen(
         [bcftools, "mpileup", "-B", "-C", "50", "-f", ref, "-Ou"]
         + region_args
@@ -232,7 +240,7 @@ def cmd_indel(args):
     ensure_vcf_indexed(out_vcf)
 
 
-def cmd_annotate(args):
+def cmd_annotate(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
     input_file = args.input if args.input else args.vcf_input
@@ -303,8 +311,8 @@ def cmd_annotate(args):
                     if "CHROM" in found_cols and "POS" in found_cols:
                         cols = ",".join(found_cols)
                         logging.info(f"Auto-resolved columns from header: {cols}")
-            except Exception as e:
-                logging.debug(f"Failed to parse tab header: {e}")
+            except (OSError, UnicodeError, ValueError):
+                logging.debug("Failed to parse tab header.", exc_info=True)
 
         if not cols and ann_vcf.lower().endswith((".vcf", ".vcf.gz")):
             # For VCFs, default to ID and HG if present in header
@@ -315,8 +323,11 @@ def cmd_annotate(args):
                     found_cols.append("INFO/HG")
                 cols = ",".join(found_cols)
                 logging.info(f"Auto-resolved VCF columns: {cols}")
-            except Exception:
-                pass
+            except (OSError, subprocess.SubprocessError, RuntimeError):
+                logging.debug(
+                    "Failed to inspect VCF header for annotation columns.",
+                    exc_info=True,
+                )
 
     if not cols:
         # Fallback to a safe default if still not resolved
@@ -347,6 +358,6 @@ def cmd_annotate(args):
             ]
         )
         ensure_vcf_indexed(out_vcf)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"❌: Annotation failed: {e}")
         raise WGSExtractError("VCF processing failed.") from e

@@ -1,3 +1,5 @@
+import argparse
+
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.messages import CLI_HELP
 
@@ -10,7 +12,9 @@ from ._vep_run import (
 )
 
 
-def register(subparsers, base_parser):
+def register(
+    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+) -> None:
     parser = subparsers.add_parser(
         "vep", parents=[base_parser], help=CLI_HELP["cmd_vep-run"]
     )

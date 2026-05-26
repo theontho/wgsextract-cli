@@ -1,11 +1,16 @@
 import logging
 import os
-from typing import Any
+from typing import TextIO, TypedDict
 
 from pyliftover import LiftOver
 
 
-def chr_to_int(chrom: Any) -> int:
+class TemplateFormat(TypedDict):
+    suffix: str
+    parts: int
+
+
+def chr_to_int(chrom: str | int) -> int:
     """
     Converts chromosome name to an integer for sorting.
     M/MT -> 23, X -> 24, Y -> 25.
@@ -164,10 +169,10 @@ def liftover_hg38_to_hg19(
         os.remove(tmp_txt)
 
 
-def get_template_format(format_name: str) -> dict[str, Any] | None:
+def get_template_format(format_name: str) -> TemplateFormat | None:
     """Returns metadata for known microarray formats."""
     # Ported from legacy program/aconv.py logic
-    formats = {
+    formats: dict[str, TemplateFormat] = {
         "23andMe_V3": {"suffix": ".txt", "parts": 1},
         "23andMe_V4": {"suffix": ".txt", "parts": 2},
         "23andMe_V5": {"suffix": ".txt", "parts": 2},
@@ -186,7 +191,7 @@ def get_template_format(format_name: str) -> dict[str, Any] | None:
 
 
 def write_formatted_line(
-    f: Any, format_name: str, snp_id: str, chrom: str, pos: str, result: str
+    f: TextIO, format_name: str, snp_id: str, chrom: str, pos: str, result: str
 ) -> None:
     """Writes a line in the specific vendor format. Ported from aconv.py."""
 

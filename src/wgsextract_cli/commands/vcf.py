@@ -1,3 +1,5 @@
+import argparse
+
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.messages import CLI_HELP
 
@@ -39,7 +41,56 @@ from ._vcf_structural import (
 )
 
 
-def register(subparsers, base_parser):
+def _add_region(
+    parser: argparse.ArgumentParser, help_text: str = "Chromosomal region"
+) -> None:
+    parser.add_argument("-r", "--region", help=help_text)
+
+
+def _add_ploidy_options(parser: argparse.ArgumentParser) -> None:
+    ploidy_group = parser.add_mutually_exclusive_group(required=False)
+    ploidy_group.add_argument(
+        "--ploidy-file",
+        help="File defining ploidy per chromosome (auto-resolved from --ref if possible)",
+    )
+    ploidy_group.add_argument("--ploidy", help="Predefined ploidy name or value")
+
+
+def _add_vcf_input(
+    parser: argparse.ArgumentParser,
+    help_text: str = "Optional override for VCF input file.",
+) -> None:
+    parser.add_argument(
+        "--vcf-input",
+        default=settings.get("default_input_vcf"),
+        help=help_text,
+    )
+
+
+def _add_annotation_resource(
+    parser: argparse.ArgumentParser,
+    option: str,
+    setting_key: str,
+    help_text: str,
+) -> None:
+    parser.add_argument(option, default=settings.get(setting_key), help=help_text)
+
+
+def _add_min_score(
+    parser: argparse.ArgumentParser,
+    label: str,
+    example: str,
+) -> None:
+    parser.add_argument(
+        "--min-score",
+        type=float,
+        help=f"Minimum {label} score to filter for (e.g., {example}).",
+    )
+
+
+def register(
+    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+) -> None:
     parser = subparsers.add_parser(
         "vcf",
         help="Variant calling and processing using bcftools, delly, or freebayes.",
@@ -49,40 +100,21 @@ def register(subparsers, base_parser):
     snp_parser = vcf_subs.add_parser(
         "snp", parents=[base_parser], help=CLI_HELP["cmd_snp"]
     )
-
-    snp_group = snp_parser.add_mutually_exclusive_group(required=False)
-    snp_group.add_argument(
-        "--ploidy-file",
-        help="File defining ploidy per chromosome (auto-resolved from --ref if possible)",
-    )
-    snp_group.add_argument("--ploidy", help="Predefined ploidy name or value")
-    snp_parser.add_argument(
-        "-r", "--region", help="Chromosomal region (e.g. chrM, chrY:10000-20000)"
-    )
+    _add_ploidy_options(snp_parser)
+    _add_region(snp_parser, "Chromosomal region (e.g. chrM, chrY:10000-20000)")
     snp_parser.set_defaults(func=cmd_snp)
 
     indel_parser = vcf_subs.add_parser(
         "indel", parents=[base_parser], help=CLI_HELP["cmd_indel"]
     )
-    indel_group = indel_parser.add_mutually_exclusive_group(required=False)
-    indel_group.add_argument(
-        "--ploidy-file",
-        help="File defining ploidy per chromosome (auto-resolved from --ref if possible)",
-    )
-    indel_group.add_argument("--ploidy", help="Predefined ploidy name or value")
-    indel_parser.add_argument(
-        "-r", "--region", help="Chromosomal region (e.g. chrM, chrY:10000-20000)"
-    )
+    _add_ploidy_options(indel_parser)
+    _add_region(indel_parser, "Chromosomal region (e.g. chrM, chrY:10000-20000)")
     indel_parser.set_defaults(func=cmd_indel)
 
     annotate_parser = vcf_subs.add_parser(
         "annotate", parents=[base_parser], help=CLI_HELP["cmd_annotate"]
     )
-    annotate_parser.add_argument(
-        "--vcf-input",
-        default=settings.get("default_input_vcf"),
-        help=CLI_HELP["arg_vcf_input"],
-    )
+    _add_vcf_input(annotate_parser, CLI_HELP["arg_vcf_input"])
     annotate_parser.add_argument(
         "--ann-vcf", help="Annotation VCF file (auto-resolved from --ref if possible)"
     )
@@ -92,11 +124,7 @@ def register(subparsers, base_parser):
     filter_parser = vcf_subs.add_parser(
         "filter", parents=[base_parser], help=CLI_HELP["cmd_filter"]
     )
-    filter_parser.add_argument(
-        "--vcf-input",
-        default=settings.get("default_input_vcf"),
-        help=CLI_HELP["arg_vcf_input"],
-    )
+    _add_vcf_input(filter_parser, CLI_HELP["arg_vcf_input"])
     filter_parser.add_argument(
         "--expr", help="bcftools filter expression (e.g. 'QUAL>30')"
     )
@@ -106,17 +134,13 @@ def register(subparsers, base_parser):
         action="store_true",
         help="Exclude variants in or near genomic gaps (requires Count Ns output)",
     )
-    filter_parser.add_argument("-r", "--region", help="Chromosomal region")
+    _add_region(filter_parser)
     filter_parser.set_defaults(func=cmd_filter)
 
     trio_parser = vcf_subs.add_parser(
         "trio", parents=[base_parser], help=CLI_HELP["cmd_trio"]
     )
-    trio_parser.add_argument(
-        "--vcf-input",
-        default=settings.get("default_input_vcf"),
-        help=CLI_HELP["arg_vcf_input"],
-    )
+    _add_vcf_input(trio_parser, CLI_HELP["arg_vcf_input"])
     trio_parser.add_argument(
         "--mother",
         default=settings.get("mother_vcf_path"),
@@ -134,13 +158,13 @@ def register(subparsers, base_parser):
         default="denovo",
         help="Inheritance mode to filter for",
     )
-    trio_parser.add_argument("-r", "--region", help="Chromosomal region")
+    _add_region(trio_parser)
     trio_parser.set_defaults(func=cmd_trio)
 
     cnv_parser = vcf_subs.add_parser(
         "cnv", parents=[base_parser], help=CLI_HELP["cmd_cnv"]
     )
-    cnv_parser.add_argument("-r", "--region", help="Chromosomal region")
+    _add_region(cnv_parser)
     cnv_parser.add_argument(
         "-M", "--map", help="Mappability map file (required for delly cnv)"
     )
@@ -150,7 +174,7 @@ def register(subparsers, base_parser):
     sv_parser = vcf_subs.add_parser(
         "sv", parents=[base_parser], help=CLI_HELP["cmd_sv"]
     )
-    sv_parser.add_argument("-r", "--region", help="Chromosomal region")
+    _add_region(sv_parser)
     sv_parser.add_argument(
         "--caller",
         choices=["delly", "pbsv", "sniffles"],
@@ -176,23 +200,19 @@ def register(subparsers, base_parser):
     freebayes_parser = vcf_subs.add_parser(
         "freebayes", parents=[base_parser], help=CLI_HELP["cmd_freebayes"]
     )
-    freebayes_parser.add_argument(
-        "-r", "--region", help="Chromosomal region (e.g. chrM, chrY:10000-20000)"
-    )
+    _add_region(freebayes_parser, "Chromosomal region (e.g. chrM, chrY:10000-20000)")
     freebayes_parser.set_defaults(func=cmd_freebayes)
 
     gatk_parser = vcf_subs.add_parser(
         "gatk", parents=[base_parser], help=CLI_HELP["cmd_gatk"]
     )
-    gatk_parser.add_argument("-r", "--region", help="Chromosomal region (e.g. chrM)")
+    _add_region(gatk_parser, "Chromosomal region (e.g. chrM)")
     gatk_parser.set_defaults(func=cmd_gatk)
 
     deepvariant_parser = vcf_subs.add_parser(
         "deepvariant", parents=[base_parser], help=CLI_HELP["cmd_deepvariant"]
     )
-    deepvariant_parser.add_argument(
-        "-r", "--region", help="Chromosomal region (e.g. chrM)"
-    )
+    _add_region(deepvariant_parser, "Chromosomal region (e.g. chrM)")
     deepvariant_parser.add_argument(
         "--wes", action="store_true", help="Set model type to WES (default: WGS)"
     )
@@ -216,15 +236,12 @@ def register(subparsers, base_parser):
         parents=[base_parser],
         help="Annotate VCF with ClinVar pathogenicity data.",
     )
-    clinvar_parser.add_argument(
-        "--vcf-input",
-        default=settings.get("default_input_vcf"),
-        help="Optional override for VCF input file.",
-    )
-    clinvar_parser.add_argument(
+    _add_vcf_input(clinvar_parser)
+    _add_annotation_resource(
+        clinvar_parser,
         "--clinvar-file",
-        default=settings.get("clinvar_vcf_path"),
-        help="Path to ClinVar VCF data file.",
+        "clinvar_vcf_path",
+        "Path to ClinVar VCF data file.",
     )
     clinvar_parser.set_defaults(func=cmd_clinvar)
 
@@ -233,21 +250,14 @@ def register(subparsers, base_parser):
         parents=[base_parser],
         help="Annotate VCF with REVEL pathogenicity scores.",
     )
-    revel_parser.add_argument(
-        "--vcf-input",
-        default=settings.get("default_input_vcf"),
-        help="Optional override for VCF input file.",
-    )
-    revel_parser.add_argument(
+    _add_vcf_input(revel_parser)
+    _add_annotation_resource(
+        revel_parser,
         "--revel-file",
-        default=settings.get("revel_tsv_path"),
-        help="Path to REVEL TSV or VCF data file.",
+        "revel_tsv_path",
+        "Path to REVEL TSV or VCF data file.",
     )
-    revel_parser.add_argument(
-        "--min-score",
-        type=float,
-        help="Minimum REVEL score to filter for (e.g., 0.5).",
-    )
+    _add_min_score(revel_parser, "REVEL", "0.5")
     revel_parser.set_defaults(func=cmd_revel)
 
     phylop_parser = vcf_subs.add_parser(
@@ -255,21 +265,14 @@ def register(subparsers, base_parser):
         parents=[base_parser],
         help="Annotate VCF with PhyloP conservation scores.",
     )
-    phylop_parser.add_argument(
-        "--vcf-input",
-        default=settings.get("default_input_vcf"),
-        help="Optional override for VCF input file.",
-    )
-    phylop_parser.add_argument(
+    _add_vcf_input(phylop_parser)
+    _add_annotation_resource(
+        phylop_parser,
         "--phylop-file",
-        default=settings.get("phylop_tsv_path"),
-        help="Path to PhyloP TSV or VCF data file.",
+        "phylop_tsv_path",
+        "Path to PhyloP TSV or VCF data file.",
     )
-    phylop_parser.add_argument(
-        "--min-score",
-        type=float,
-        help="Minimum PhyloP score to filter for (e.g., 2.0).",
-    )
+    _add_min_score(phylop_parser, "PhyloP", "2.0")
     phylop_parser.set_defaults(func=cmd_phylop)
 
     gnomad_parser = vcf_subs.add_parser(
@@ -277,15 +280,12 @@ def register(subparsers, base_parser):
         parents=[base_parser],
         help="Annotate VCF with gnomAD population frequencies.",
     )
-    gnomad_parser.add_argument(
-        "--vcf-input",
-        default=settings.get("default_input_vcf"),
-        help="Optional override for VCF input file.",
-    )
-    gnomad_parser.add_argument(
+    _add_vcf_input(gnomad_parser)
+    _add_annotation_resource(
+        gnomad_parser,
         "--gnomad-file",
-        default=settings.get("gnomad_vcf_path"),
-        help="Path to gnomAD VCF data file.",
+        "gnomad_vcf_path",
+        "Path to gnomAD VCF data file.",
     )
     gnomad_parser.add_argument(
         "--max-af",
@@ -299,15 +299,12 @@ def register(subparsers, base_parser):
         parents=[base_parser],
         help="Annotate VCF with SpliceAI splicing scores.",
     )
-    spliceai_parser.add_argument(
-        "--vcf-input",
-        default=settings.get("default_input_vcf"),
-        help="Optional override for VCF input file.",
-    )
-    spliceai_parser.add_argument(
+    _add_vcf_input(spliceai_parser)
+    _add_annotation_resource(
+        spliceai_parser,
         "--spliceai-file",
-        default=settings.get("spliceai_vcf_path"),
-        help="Path to SpliceAI VCF data file.",
+        "spliceai_vcf_path",
+        "Path to SpliceAI VCF data file.",
     )
     spliceai_parser.set_defaults(func=cmd_spliceai)
 
@@ -316,21 +313,14 @@ def register(subparsers, base_parser):
         parents=[base_parser],
         help="Annotate VCF with AlphaMissense pathogenicity scores.",
     )
-    alphamissense_parser.add_argument(
-        "--vcf-input",
-        default=settings.get("default_input_vcf"),
-        help="Optional override for VCF input file.",
-    )
-    alphamissense_parser.add_argument(
+    _add_vcf_input(alphamissense_parser)
+    _add_annotation_resource(
+        alphamissense_parser,
         "--am-file",
-        default=settings.get("alphamissense_vcf_path"),
-        help="Path to AlphaMissense VCF data file.",
+        "alphamissense_vcf_path",
+        "Path to AlphaMissense VCF data file.",
     )
-    alphamissense_parser.add_argument(
-        "--min-score",
-        type=float,
-        help="Minimum AlphaMissense score to filter for (e.g., 0.5).",
-    )
+    _add_min_score(alphamissense_parser, "AlphaMissense", "0.5")
     alphamissense_parser.set_defaults(func=cmd_alphamissense)
 
     pharmgkb_parser = vcf_subs.add_parser(
@@ -338,15 +328,12 @@ def register(subparsers, base_parser):
         parents=[base_parser],
         help="Annotate VCF with PharmGKB drug metabolism data.",
     )
-    pharmgkb_parser.add_argument(
-        "--vcf-input",
-        default=settings.get("default_input_vcf"),
-        help="Optional override for VCF input file.",
-    )
-    pharmgkb_parser.add_argument(
+    _add_vcf_input(pharmgkb_parser)
+    _add_annotation_resource(
+        pharmgkb_parser,
         "--pharmgkb-file",
-        default=settings.get("pharmgkb_vcf_path"),
-        help="Path to PharmGKB VCF or data file.",
+        "pharmgkb_vcf_path",
+        "Path to PharmGKB VCF or data file.",
     )
     pharmgkb_parser.set_defaults(func=cmd_pharmgkb)
 
@@ -355,11 +342,7 @@ def register(subparsers, base_parser):
         parents=[base_parser],
         help="Sequentially apply multiple annotations to a single VCF.",
     )
-    chain_annotate_parser.add_argument(
-        "--vcf-input",
-        default=settings.get("default_input_vcf"),
-        help="Optional override for VCF input file.",
-    )
+    _add_vcf_input(chain_annotate_parser)
     chain_annotate_parser.add_argument(
         "--annotations",
         default="clinvar,revel,phylop,gnomad,vep",

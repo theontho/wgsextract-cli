@@ -4,6 +4,8 @@ import os
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Mapping, Sequence
+from typing import IO, Literal, TypeAlias, overload
 
 from wgsextract_cli.core.messages import LOG_MESSAGES
 
@@ -20,14 +22,19 @@ from .reference_resolver import (
     ReferenceLibrary,
 )
 from .utils import (
+    WGSExtractError,
     _normalize_subprocess_cmd,
     _process_group_kwargs,
     proc_registry,
     run_command,
 )
 
+ProcessStream: TypeAlias = int | IO[bytes] | IO[str] | None
 
-def resolve_reference(ref_path, md5_sig, input_path=None):
+
+def resolve_reference(
+    ref_path: str | None, md5_sig: str | None, input_path: str | None = None
+) -> str | None:
     """Find specific .fa.gz from directory or direct path."""
     lib = ReferenceLibrary(
         ref_path, md5_sig, skip_full_search=True, input_path=input_path
@@ -35,7 +42,7 @@ def resolve_reference(ref_path, md5_sig, input_path=None):
     return lib.fasta if lib.fasta else ref_path
 
 
-def calculate_bsd_sum(file_path):
+def calculate_bsd_sum(file_path: str) -> tuple[int, int]:
     """
     Calculates BSD-style checksum and 1K block count.
     Used for local file comparison.
@@ -52,7 +59,36 @@ def calculate_bsd_sum(file_path):
     return checksum, blocks
 
 
-def popen(cmd, stdout=None, stderr=None, stdin=None, text=False, env=None):
+@overload
+def popen(
+    cmd: str | Sequence[str],
+    stdout: ProcessStream = None,
+    stderr: ProcessStream = None,
+    stdin: ProcessStream = None,
+    text: Literal[False] = False,
+    env: Mapping[str, str] | None = None,
+) -> subprocess.Popen[bytes]: ...
+
+
+@overload
+def popen(
+    cmd: str | Sequence[str],
+    stdout: ProcessStream = None,
+    stderr: ProcessStream = None,
+    stdin: ProcessStream = None,
+    text: Literal[True] = True,
+    env: Mapping[str, str] | None = None,
+) -> subprocess.Popen[str]: ...
+
+
+def popen(
+    cmd: str | Sequence[str],
+    stdout: ProcessStream = None,
+    stderr: ProcessStream = None,
+    stdin: ProcessStream = None,
+    text: bool = False,
+    env: Mapping[str, str] | None = None,
+) -> subprocess.Popen[str] | subprocess.Popen[bytes]:
     """
     Helper to run subprocess.Popen with shlex splitting and registry.
     Default text=False to allow binary pipes (BAM/BCF).
@@ -75,7 +111,7 @@ def popen(cmd, stdout=None, stderr=None, stdin=None, text=False, env=None):
     return process
 
 
-def verify_paths_exist(paths_dict):
+def verify_paths_exist(paths_dict: Mapping[str, str | None]) -> bool:
     """Validate that required files exist before starting a command."""
     all_exist = True
     for label, path in paths_dict.items():
@@ -99,7 +135,7 @@ def verify_paths_exist(paths_dict):
     return all_exist
 
 
-def ensure_vcf_indexed(vcf_path):
+def ensure_vcf_indexed(vcf_path: str) -> None:
     """Ensure VCF has a .tbi index, creating it if needed."""
     if not (vcf_path.endswith(".gz") or vcf_path.endswith(".bgz")):
         # We can't index plain VCF easily with tabix
@@ -115,10 +151,10 @@ def ensure_vcf_indexed(vcf_path):
         run_command([tabix, "-p", "vcf", vcf_path])
 
 
-def ensure_vcf_prepared(vcf_path):
+def ensure_vcf_prepared(vcf_path: str | None) -> str:
     """Ensure VCF is bgzipped and indexed, returns path to compressed file."""
     if not vcf_path:
-        return vcf_path
+        raise WGSExtractError("VCF input path is required.")
 
     # If it's a BAM or CRAM, don't try to prepare it as a VCF
     if vcf_path.lower().endswith((".bam", ".cram")):
@@ -146,12 +182,13 @@ def ensure_vcf_prepared(vcf_path):
     return gz_path
 
 
-def get_vcf_samples(vcf_path):
+def get_vcf_samples(vcf_path: str) -> list[str]:
     """Retrieve sample names from VCF header."""
     try:
         res = run_command(["bcftools", "query", "-l", vcf_path], capture_output=True)
-        return res.stdout.strip().split("\n")
-    except Exception:
+        stdout = str(res.stdout)
+        return stdout.strip().split("\n") if stdout.strip() else []
+    except (OSError, subprocess.SubprocessError, WGSExtractError):
         return []
 
 
@@ -176,7 +213,7 @@ def chromosome_aliases(chrom: str) -> tuple[str, ...]:
 
 
 def chromosome_rename_mapping(
-    source_chroms: list[str], target_chroms: list[str]
+    source_chroms: Sequence[str], target_chroms: Sequence[str]
 ) -> list[tuple[str, str]]:
     """Build bcftools --rename-chrs mappings from source names to target names."""
     targets = {chrom for chrom in target_chroms if chrom}
@@ -211,11 +248,18 @@ def vcf_index_chromosomes(vcf_path: str) -> list[str]:
     ]
 
 
-def normalize_vcf_chromosomes(vcf_path, target_chroms):
+def normalize_vcf_chromosomes(
+    vcf_path: str | None, target_chroms: Sequence[str]
+) -> str:
     """
     Ensure VCF chromosome naming (chr1 vs 1) matches the targets.
     Returns path to a temporary normalized VCF if changes were needed.
     """
+    if not vcf_path:
+        raise WGSExtractError(
+            "VCF input path is required for chromosome normalization."
+        )
+
     v_chroms = vcf_index_chromosomes(vcf_path)
     if not v_chroms:
         logging.warning(f"Chromosome normalization skipped for {vcf_path}.")
@@ -254,7 +298,7 @@ def normalize_vcf_chromosomes(vcf_path, target_chroms):
         ensure_vcf_indexed(norm_vcf)
         os.remove(map_file)
         return norm_vcf
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"Normalization failed: {e}")
         if os.path.exists(map_file):
             os.remove(map_file)
@@ -263,7 +307,9 @@ def normalize_vcf_chromosomes(vcf_path, target_chroms):
         return vcf_path
 
 
-def get_chr_name(bam_path, target_chr, cram_opt=None):
+def get_chr_name(
+    bam_path: str, target_chr: str, cram_opt: Sequence[str] | str | None = None
+) -> str:
     """
     Dynamically map a target chromosome (like MT or Y) to the specific
     naming convention used in the BAM header (e.g., chrM, MT, M, chrY).
@@ -292,7 +338,11 @@ def get_chr_name(bam_path, target_chr, cram_opt=None):
     return target_chr  # fallback
 
 
-def calculate_bam_md5(bam_path, cram_opt=None, header=None):
+def calculate_bam_md5(
+    bam_path: str,
+    cram_opt: Sequence[str] | str | None = None,
+    header: str | None = None,
+) -> str:
     """
     Calculates MD5 signature from BAM header @SQ lines.
     It takes SN and LN, upcases SN, sorts ASCII-wise, and hashes.
@@ -314,7 +364,7 @@ def calculate_bam_md5(bam_path, cram_opt=None, header=None):
 
     sq_lines = [line for line in header.splitlines() if line.startswith("@SQ")]
 
-    bamsq_header = {}
+    bamsq_header: dict[str, str] = {}
     for line in sq_lines:
         sn = None
         ln = None
@@ -334,7 +384,11 @@ def calculate_bam_md5(bam_path, cram_opt=None, header=None):
     return md5hash.hexdigest()
 
 
-def is_sorted(bam_path, cram_opt=None, header=None):
+def is_sorted(
+    bam_path: str,
+    cram_opt: Sequence[str] | str | None = None,
+    header: str | None = None,
+) -> bool:
     """Verifies if BAM is coordinate sorted."""
     if header is None:
         header = get_bam_header(bam_path, cram_opt)
@@ -347,7 +401,11 @@ def is_sorted(bam_path, cram_opt=None, header=None):
     return False
 
 
-def get_ref_mito(bam_path, cram_opt=None, header=None):
+def get_ref_mito(
+    bam_path: str,
+    cram_opt: Sequence[str] | str | None = None,
+    header: str | None = None,
+) -> str:
     """
     Identifies if mitochondrial reference is Yoruba based on chromosome lengths.
     Logic from program/bamfiles.py.
@@ -390,6 +448,6 @@ def get_file_version(filepath: str) -> str:
                 # Clean up "sequence data" suffix if present
                 version_info = version_info.replace(" sequence data", "")
                 return version_info
-    except Exception:
-        pass
+    except (OSError, subprocess.SubprocessError):
+        logging.debug("Could not determine file version with htsfile for %s", filepath)
     return "Unknown"

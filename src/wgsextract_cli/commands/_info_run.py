@@ -1,3 +1,4 @@
+import argparse
 import csv
 import io
 import json
@@ -36,7 +37,7 @@ from ._info_render import (
 )
 
 
-def run(args):
+def run(args: argparse.Namespace) -> None:
     from wgsextract_cli.core.variant_files import resolve_reference
 
     start_time = time.time()
@@ -125,7 +126,7 @@ def run(args):
             logging.debug(
                 f"Cache miss or partial: detailed={args.detailed}, has_read_len={bool(data.get('avg_read_len'))}, has_chrom_table={bool(data.get('chrom_table_csv'))}"
             )
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, TypeError) as e:
             logging.debug(f"Cache read error: {e}")
             pass
     else:
@@ -235,7 +236,7 @@ def run(args):
             with open(json_cache, "w") as f:
                 json.dump(data, f, indent=2)
             logging.debug(f"Fast metrics cached to {json_cache}")
-        except Exception as exc:
+        except (OSError, TypeError) as exc:
             logging.warning(
                 "Failed to write fast metrics cache %s: %s", json_cache, exc
             )
@@ -288,7 +289,7 @@ def run(args):
                 try:
                     with open(sample_file) as f:
                         coverage_map = json.load(f)
-                except Exception as exc:
+                except (OSError, json.JSONDecodeError, TypeError) as exc:
                     logging.warning(
                         "Failed to read sampled coverage %s: %s", sample_file, exc
                     )
@@ -420,7 +421,7 @@ def run(args):
             with open(json_cache, "w") as f:
                 json.dump(data, f, indent=2)
             print(LOG_MESSAGES["info_metrics_cached"].format(path=json_cache))
-        except Exception as exc:
+        except (OSError, TypeError) as exc:
             logging.warning(
                 "Failed to write detailed metrics cache %s: %s", json_cache, exc
             )

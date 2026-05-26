@@ -1,3 +1,5 @@
+import argparse
+
 from wgsextract_cli.core.messages import CLI_HELP
 
 from ._ref_core_commands import (
@@ -22,7 +24,9 @@ from ._ref_library_commands import (
 from ._ref_status import cmd_ref_status
 
 
-def register(subparsers, base_parser):
+def register(
+    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+) -> None:
     parser = subparsers.add_parser("ref", help="Reference Data Management commands.")
     ref_subs = parser.add_subparsers(dest="ref_cmd", required=True)
 

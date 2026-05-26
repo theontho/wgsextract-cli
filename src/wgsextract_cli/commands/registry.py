@@ -1,0 +1,41 @@
+from types import ModuleType
+
+from . import (
+    align,
+    analyze,
+    bam,
+    benchmark,
+    deps,
+    examples,
+    extract,
+    info,
+    lineage,
+    microarray,
+    pet,
+    qc,
+    realign,
+    ref,
+    repair,
+    vcf,
+    vep,
+)
+
+COMMAND_MODULES: tuple[ModuleType, ...] = (
+    info,
+    deps,
+    examples,
+    bam,
+    benchmark,
+    extract,
+    microarray,
+    lineage,
+    vcf,
+    repair,
+    qc,
+    ref,
+    align,
+    realign,
+    pet,
+    vep,
+    analyze,
+)

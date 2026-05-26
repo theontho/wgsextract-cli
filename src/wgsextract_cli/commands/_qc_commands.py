@@ -1,5 +1,7 @@
+import argparse
 import logging
 import os
+import subprocess
 from collections.abc import Callable
 
 from wgsextract_cli.core import (
@@ -28,7 +30,7 @@ SequenceProvider = Callable[[int, int, int], str]
 _FAST_BAM_VARIANT_SPACING = 2000
 
 
-def cmd_fastp(args):
+def cmd_fastp(args: argparse.Namespace) -> None:
     if not args.r1:
         raise WGSExtractError("--r1 is required unless --genome resolves FASTQ inputs.")
 
@@ -76,12 +78,12 @@ def cmd_fastp(args):
     logging.info(LOG_MESSAGES["running_fastp"].format(input=args.r1))
     try:
         run_command(cmd)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"fastp failed: {e}")
         raise WGSExtractError("fastp failed.") from e
 
 
-def cmd_fastqc(args):
+def cmd_fastqc(args: argparse.Namespace) -> None:
     if not args.input:
         logging.error(LOG_MESSAGES["input_required"])
         return
@@ -105,12 +107,12 @@ def cmd_fastqc(args):
     logging.info(LOG_MESSAGES["running_fastqc"].format(input=args.input))
     try:
         run_command(["fastqc", "-t", threads, "-o", outdir, args.input])
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"FastQC failed: {e}")
         raise WGSExtractError("FastQC failed.") from e
 
 
-def cmd_vcf_qc(args):
+def cmd_vcf_qc(args: argparse.Namespace) -> None:
     input_file = _select_vcf_input(args)
     if not input_file:
         logging.error("--input is required.")
@@ -137,7 +139,7 @@ def cmd_vcf_qc(args):
     try:
         with open(out_stats, "w") as f:
             run_command(["bcftools", "stats", input_file], stdout=f)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"VCF stats failed: {e}") from e
 
 
@@ -153,7 +155,7 @@ def _reference_backed_sequence_provider(
     if not os.path.exists(fai_path):
         try:
             run_command(["samtools", "faidx", str(ref_path)], capture_output=True)
-        except Exception as exc:
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as exc:
             logging.warning(
                 f"Reference FASTA is not indexed; falling back to synthetic read sequence: {exc}"
             )

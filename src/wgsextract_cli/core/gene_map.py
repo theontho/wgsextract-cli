@@ -3,8 +3,8 @@ import gzip
 import logging
 import os
 from pathlib import Path
-from typing import Any
 
+from wgsextract_cli.core.annotation_resources import CancelEvent
 from wgsextract_cli.core.ref_library import download_file
 
 # Official UCSC RefGene database URLs
@@ -16,11 +16,11 @@ GENE_MAP_URLS = {
 
 
 class GeneMap:
-    def __init__(self, reflib_dir):
+    def __init__(self, reflib_dir: str) -> None:
         self.reflib_dir = reflib_dir
-        self.maps = {}  # build -> { symbol -> coords }
+        self.maps: dict[str, dict[str, str]] = {}
 
-    def load(self, build="hg38"):
+    def load(self, build: str = "hg38") -> bool:
         build_key = "hg38" if "38" in build else "hg19"
         if build_key in self.maps:
             return True
@@ -59,11 +59,11 @@ class GeneMap:
                             gene_dict[symbol] = f"{chrom}:{start}-{end}"
             self.maps[build_key] = gene_dict
             return True
-        except Exception as e:
+        except (OSError, csv.Error, ValueError) as e:
             logging.error(f"Failed to load gene map {map_file}: {e}")
             return False
 
-    def get_coords(self, gene_symbol, build="hg38"):
+    def get_coords(self, gene_symbol: str, build: str = "hg38") -> str | None:
         build_key = "hg38" if "38" in build else "hg19"
         if build_key not in self.maps:
             if not self.load(build):
@@ -132,13 +132,15 @@ def delete_gene_maps(reflib_dir: str) -> bool:
         if os.path.exists(tsv_path):
             try:
                 os.remove(tsv_path)
-            except Exception as e:
+            except OSError as e:
                 logging.error(f"Failed to delete {tsv_path}: {e}")
                 success = False
     return success
 
 
-def download_gene_maps(reflib_dir, cancel_event=None):
+def download_gene_maps(
+    reflib_dir: str, cancel_event: CancelEvent | None = None
+) -> bool:
     """Downloads and processes official UCSC RefGene maps."""
     target_dir = os.path.join(reflib_dir, "ref")
     os.makedirs(target_dir, exist_ok=True)
@@ -165,7 +167,7 @@ def download_gene_maps(reflib_dir, cancel_event=None):
 
             # 2. Parse UCSC format to simple TSV
             # UCSC refGene columns: 2=chrom, 4=txStart, 5=txEnd, 12=name2(Symbol)
-            gene_data: dict[str, list[Any]] = {}  # Symbol -> (chrom, start, end)
+            gene_data: dict[str, list[str | int]] = {}  # Symbol -> (chrom, start, end)
 
             with gzip.open(gz_path, "rt") as f_in:
                 for i, line in enumerate(f_in):
@@ -198,7 +200,7 @@ def download_gene_maps(reflib_dir, cancel_event=None):
             logging.info(f"Successfully processed {len(gene_data)} genes for {build}")
             os.remove(gz_path)  # Cleanup
 
-        except Exception as e:
+        except (OSError, gzip.BadGzipFile, ValueError) as e:
             logging.error(f"Failed to setup {build} gene map: {e}")
             success = False
 

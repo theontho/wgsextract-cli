@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar, overload
 
 from platformdirs import user_config_dir
 
@@ -12,6 +12,7 @@ else:
 
 APP_NAME = "wgsextract"
 APP_AUTHOR = "theontho"
+T = TypeVar("T")
 
 KNOWN_SETTINGS = {
     "input_path": (None, "Default input BAM/CRAM or FASTQ file"),
@@ -99,7 +100,7 @@ def load_config() -> dict[str, Any]:
         try:
             with open(config_path, "rb") as f:
                 config = tomllib.load(f)
-        except Exception as e:
+        except (OSError, tomllib.TOMLDecodeError) as e:
             print(f"Error loading config from {config_path}: {e}", file=sys.stderr)
 
     for old_key, new_key in CONFIG_ALIASES.items():
@@ -133,7 +134,7 @@ def save_config(updates: dict[str, Any]) -> None:
         try:
             with open(config_path, "rb") as f:
                 current_config = tomllib.load(f)
-        except Exception:
+        except (OSError, tomllib.TOMLDecodeError):
             pass
 
     # Update with new values
@@ -151,11 +152,19 @@ def save_config(updates: dict[str, Any]) -> None:
             tomli_w.dump(current_config, f)
         # Refresh global settings
         reload_settings()
-    except Exception as e:
+    except OSError as e:
         print(f"Error saving config to {config_path}: {e}", file=sys.stderr)
         raise
 
 
-def get(key: str, default: Any = None) -> Any:
+@overload
+def get(key: str) -> object | None: ...
+
+
+@overload
+def get(key: str, default: T) -> object | T: ...
+
+
+def get(key: str, default: object | None = None) -> object | None:
     """Get a configuration value with an optional default."""
     return settings.get(key, default)

@@ -1,5 +1,7 @@
+import argparse
 import logging
 import os
+import subprocess
 
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
@@ -12,7 +14,7 @@ from wgsextract_cli.core.utils import (
 from wgsextract_cli.core.variant_files import calculate_bsd_sum
 
 
-def _resolve_vep_cache_root(args) -> str:
+def _resolve_vep_cache_root(args: argparse.Namespace) -> str:
     cache_root = getattr(args, "vep_cache", None)
     if cache_root:
         return str(cache_root)
@@ -22,7 +24,7 @@ def _resolve_vep_cache_root(args) -> str:
     return os.path.expanduser("~/.vep")
 
 
-def cmd_vep_download(args):
+def cmd_vep_download(args: argparse.Namespace) -> bool:
     verify_dependencies(["curl", "tar"])
 
     vep_version = args.vep_version
@@ -93,7 +95,7 @@ def cmd_vep_download(args):
                     )
         except WGSExtractError:
             raise
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError, ValueError) as e:
             logging.warning(f"Checksum verification could not be completed: {e}")
         finally:
             if os.path.exists(checksum_path):
@@ -109,7 +111,7 @@ def cmd_vep_download(args):
         logging.info(LOG_MESSAGES["vep_ready"].format(path=f"{cache_root}/{species}"))
         os.remove(target_path)
         return True
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"Post-download processing failed: {e}")
         return False
 
@@ -141,7 +143,7 @@ def _prefix_contig_header_line(line: str) -> str:
     return line
 
 
-def cmd_vep_verify(args):
+def cmd_vep_verify(args: argparse.Namespace) -> bool:
     vep_version = args.vep_version
     species = args.species
     assembly = args.assembly
@@ -187,7 +189,7 @@ def cmd_vep_verify(args):
     return True
 
 
-def preprocess_vcf_chr_prefix(input_path, output_path):
+def preprocess_vcf_chr_prefix(input_path: str, output_path: str) -> None:
     """
     Adds 'chr' prefix to numeric chromosomes if missing.
     Equivalent to the sed command in run_vep_batch.py.

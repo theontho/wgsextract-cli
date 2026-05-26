@@ -1,5 +1,7 @@
+import argparse
 import logging
 import os
+import subprocess
 
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -21,7 +23,7 @@ from ._vcf_structural import (
 )
 
 
-def cmd_spliceai(args):
+def cmd_spliceai(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
     input_file, outdir, lib = annotation_context(args)
@@ -45,7 +47,7 @@ def cmd_spliceai(args):
         )
         s_chroms = [line.split("\t")[0] for line in res_s.stdout.strip().split("\n")]
         normalized_input = normalize_vcf_chromosomes(input_vcf, s_chroms)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.warning(f"SpliceAI chromosome normalization skipped: {e}")
         normalized_input = input_vcf
 
@@ -68,7 +70,7 @@ def cmd_spliceai(args):
             capture_output=True,
         )
         ensure_vcf_indexed(ann_out)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"SpliceAI annotation failed: {e}")
         raise WGSExtractError("VCF processing failed.") from None
     finally:
@@ -79,7 +81,7 @@ def cmd_spliceai(args):
     logging.info(LOG_MESSAGES["vcf_spliceai_done"].format(output=ann_out))
 
 
-def cmd_alphamissense(args):
+def cmd_alphamissense(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
     input_file, outdir, lib = annotation_context(args)
@@ -102,7 +104,7 @@ def cmd_alphamissense(args):
         res_a = run_command(["bcftools", "index", "-s", am_vcf], capture_output=True)
         a_chroms = [line.split("\t")[0] for line in res_a.stdout.strip().split("\n")]
         normalized_input = normalize_vcf_chromosomes(input_vcf, a_chroms)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.warning(f"AlphaMissense chromosome normalization skipped: {e}")
         normalized_input = input_vcf
 
@@ -147,7 +149,7 @@ def cmd_alphamissense(args):
             capture_output=True,
         )
         ensure_vcf_indexed(ann_out)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"AlphaMissense annotation failed: {e}")
         raise WGSExtractError("VCF processing failed.") from None
     finally:
@@ -175,14 +177,14 @@ def cmd_alphamissense(args):
             )
             ensure_vcf_indexed(path_out)
             logging.info(f"AlphaMissense filtering complete: {path_out}")
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             logging.error(f"AlphaMissense filtering failed: {e}")
             raise WGSExtractError("AlphaMissense filtering failed.") from e
     else:
         logging.info(LOG_MESSAGES["vcf_alphamissense_done"].format(output=ann_out))
 
 
-def cmd_pharmgkb(args):
+def cmd_pharmgkb(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
     input_file, outdir, lib = annotation_context(args)
@@ -206,7 +208,7 @@ def cmd_pharmgkb(args):
         )
         p_chroms = [line.split("\t")[0] for line in res_p.stdout.strip().split("\n")]
         normalized_input = normalize_vcf_chromosomes(input_vcf, p_chroms)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.warning(f"PharmGKB chromosome normalization skipped: {e}")
         normalized_input = input_vcf
 
@@ -231,7 +233,7 @@ def cmd_pharmgkb(args):
         )
 
         ensure_vcf_indexed(ann_out)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"PharmGKB annotation failed: {e}")
         raise WGSExtractError("VCF processing failed.") from None
     finally:

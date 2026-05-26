@@ -131,7 +131,7 @@ def print_warning(
                 if t > 1:
                     # Very rough heuristic: speed up but not linearly
                     wait_time = wait_time / (t**0.7)
-            except Exception:
+            except ValueError:
                 pass
 
         time_str = format_time(int(wait_time))
@@ -162,7 +162,7 @@ def print_warning(
                 time=f"{estimated_hours:.1f}"
             )
             logging.warning(f"!!! {msg} !!!")
-        except Exception:
+        except (ValueError, ZeroDivisionError):
             pass
 
     elif action_key in MESSAGES:

@@ -1,9 +1,12 @@
+import argparse
 import gzip
 import logging
 import os
 import re
+import subprocess
 import sys
 import tempfile
+from typing import TextIO
 
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
@@ -12,7 +15,9 @@ from wgsextract_cli.core.utils import (
 )
 
 
-def register(subparsers, base_parser):
+def register(
+    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+) -> None:
     parser = subparsers.add_parser(
         "repair", help="Repair formatting violations in FTDNA files."
     )
@@ -41,14 +46,14 @@ def register(subparsers, base_parser):
     vcf_parser.set_defaults(func=repair_vcf)
 
 
-def get_script_path(script_name):
+def get_script_path(script_name: str) -> str:
     prog_dir = os.path.abspath(
         os.path.join(os.path.dirname(__file__), "../../../../program")
     )
     return os.path.join(prog_dir, script_name)
 
 
-def repair_bam(args):
+def repair_bam(args: argparse.Namespace) -> None:
     if _input_was_explicit(args) and getattr(args, "input", None):
         repair_bam_file(args)
         return
@@ -62,11 +67,11 @@ def repair_bam(args):
     try:
         # Note: This is designed to be part of a pipe: samtools view -h in.bam | wgsextract-cli repair ftdna-bam | samtools view -b > out.bam
         run_command([sys.executable, script])
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Repair failed: {e}") from e
 
 
-def repair_vcf(args):
+def repair_vcf(args: argparse.Namespace) -> None:
     if _input_was_explicit(args) and getattr(args, "input", None):
         repair_vcf_file(args)
         return
@@ -80,11 +85,11 @@ def repair_vcf(args):
     try:
         # Note: Designed to be part of a pipe: bcftools view in.vcf | wgsextract-cli repair ftdna-vcf > out.vcf
         run_command([sys.executable, script])
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Repair failed: {e}") from e
 
 
-def repair_bam_file(args) -> None:
+def repair_bam_file(args: argparse.Namespace) -> None:
     input_path = args.input
     if not os.path.isfile(input_path):
         raise WGSExtractError(f"Input BAM/CRAM does not exist: {input_path}")
@@ -109,7 +114,7 @@ def repair_bam_file(args) -> None:
     logging.info("Repaired FTDNA BAM written to %s", output_path)
 
 
-def repair_vcf_file(args) -> None:
+def repair_vcf_file(args: argparse.Namespace) -> None:
     input_path = args.input
     if not os.path.isfile(input_path):
         raise WGSExtractError(f"Input VCF/BCF does not exist: {input_path}")
@@ -142,7 +147,7 @@ def repair_vcf_file(args) -> None:
     logging.info("Repaired FTDNA VCF written to %s", output_path)
 
 
-def repair_bam_stream(input_stream, output_stream) -> None:
+def repair_bam_stream(input_stream: TextIO, output_stream: TextIO) -> None:
     for line in input_stream:
         if line.startswith("@"):
             output_stream.write(line)
@@ -153,7 +158,7 @@ def repair_bam_stream(input_stream, output_stream) -> None:
         output_stream.write("\t".join(fields) + "\n")
 
 
-def repair_vcf_stream(input_stream, output_stream) -> None:
+def repair_vcf_stream(input_stream: TextIO, output_stream: TextIO) -> None:
     for line in input_stream:
         if line.startswith("#"):
             output_stream.write(line)
@@ -164,7 +169,7 @@ def repair_vcf_stream(input_stream, output_stream) -> None:
         output_stream.write("\t".join(fields) + "\n")
 
 
-def _repair_output_path(args, extension: str) -> str:
+def _repair_output_path(args: argparse.Namespace, extension: str) -> str:
     output = getattr(args, "output", None)
     if output:
         return os.path.abspath(str(output))
@@ -176,7 +181,7 @@ def _repair_output_path(args, extension: str) -> str:
     )
 
 
-def _input_was_explicit(args) -> bool:
+def _input_was_explicit(args: argparse.Namespace) -> bool:
     explicit_dests = getattr(args, "_explicit_dests", None)
     if explicit_dests is None:
         return bool(getattr(args, "input", None))
@@ -191,7 +196,7 @@ def _input_stem(path: str) -> str:
     return os.path.splitext(name)[0]
 
 
-def _open_text_variant_input(path: str):
+def _open_text_variant_input(path: str) -> TextIO:
     if path.lower().endswith(".gz"):
         return gzip.open(path, "rt", encoding="utf-8", errors="replace")
     return open(path, encoding="utf-8", errors="replace")

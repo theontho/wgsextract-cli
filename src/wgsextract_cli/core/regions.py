@@ -1,5 +1,6 @@
 import logging
 import os
+import subprocess
 import tempfile
 
 try:
@@ -16,7 +17,9 @@ from .utils import (
 )
 
 
-def is_long_read(bam_path, cram_opt=None, header=None):
+def is_long_read(
+    bam_path: str, cram_opt: list[str] | str | None = None, header: str | None = None
+) -> bool:
     """
     Rough heuristic to detect long-read data (e.g. Nanopore) from BAM header.
     In the original app, it checks if read length > 500.
@@ -30,12 +33,14 @@ def is_long_read(bam_path, cram_opt=None, header=None):
     return False
 
 
-def get_vcf_chr_name(vcf_path, target_chr):
+def get_vcf_chr_name(vcf_path: str, target_chr: str) -> str:
     """Map standard chromosome to VCF-specific naming."""
     try:
         from wgsextract_cli.core.dependencies import get_tool_path
 
         bcftools = get_tool_path("bcftools")
+        if bcftools is None:
+            return target_chr
         res = run_command([bcftools, "index", "-s", vcf_path], capture_output=True)
         v_chroms = [line.split("\t")[0] for line in res.stdout.strip().split("\n")]
 
@@ -47,12 +52,12 @@ def get_vcf_chr_name(vcf_path, target_chr):
             for c in ["chrY", "Y"]:
                 if c in v_chroms:
                     return c
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, RuntimeError, ValueError) as e:
         logging.warning(f"VCF chromosome name detection failed for {vcf_path}: {e}")
     return target_chr
 
 
-def get_region_bed(region_str):
+def get_region_bed(region_str: str | None) -> str | None:
     """
     Converts a region string (chr:start-end) to a temporary BED file.
     Returns the path to the temporary file.

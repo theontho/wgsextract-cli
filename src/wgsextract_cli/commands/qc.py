@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 
@@ -22,7 +23,7 @@ from ._qc_fake_data import (
 )
 
 
-def cmd_fake_data(args):
+def cmd_fake_data(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools", "bcftools", "bgzip", "tabix"])
     log_dependency_info(["samtools", "bcftools"])
 
@@ -84,7 +85,9 @@ def cmd_fake_data(args):
     )
 
 
-def register(subparsers, base_parser):
+def register(
+    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+) -> None:
     parser = subparsers.add_parser(
         "qc", help="Runs quality control or calculates coverage."
     )

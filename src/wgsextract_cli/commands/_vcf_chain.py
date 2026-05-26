@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import shutil
@@ -17,7 +18,7 @@ from wgsextract_cli.core.variant_files import (
 )
 
 
-def cmd_chain_annotate(args):
+def cmd_chain_annotate(args: argparse.Namespace) -> None:
 
     verify_dependencies(["bcftools", "tabix"])
     input_file = args.input if args.input else args.vcf_input

@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 
@@ -14,10 +15,12 @@ from wgsextract_cli.core.variant_files import (
 )
 
 
-def resolve_region_or_gene(args, resolved_ref):
+def resolve_region_or_gene(
+    args: argparse.Namespace, resolved_ref: str | None
+) -> str | None:
     """Helper to resolve either a raw region or a gene name to coordinates."""
     if hasattr(args, "region") and args.region:
-        return args.region
+        return str(args.region)
 
     if hasattr(args, "gene") and args.gene:
         from wgsextract_cli.core.config import settings
@@ -30,8 +33,11 @@ def resolve_region_or_gene(args, resolved_ref):
 
         from wgsextract_cli.core.gene_map import GeneMap, resolve_gene_map_reflib
 
+        configured_reflib = settings.get("reference_library")
         reflib_dir = resolve_gene_map_reflib(
-            resolved_ref, settings.get("reference_library"), build
+            resolved_ref,
+            str(configured_reflib) if configured_reflib else None,
+            build,
         )
         if not reflib_dir:
             logging.error(
@@ -50,7 +56,9 @@ def resolve_region_or_gene(args, resolved_ref):
     return None
 
 
-def get_base_args(args):
+def get_base_args(
+    args: argparse.Namespace,
+) -> tuple[str, str, list[str], str | None] | None:
     verify_dependencies(["samtools", "bcftools", "tabix"])
     log_dependency_info(["samtools", "bcftools", "tabix"])
 
