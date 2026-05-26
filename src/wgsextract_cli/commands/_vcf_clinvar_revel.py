@@ -1,5 +1,7 @@
+import argparse
 import logging
 import os
+import subprocess
 
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -27,7 +29,7 @@ from ._vcf_structural import (
 )
 
 
-def cmd_clinvar(args):
+def cmd_clinvar(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
     input_file, outdir, lib = annotation_context(args)
@@ -54,7 +56,7 @@ def cmd_clinvar(args):
         )
         c_chroms = [line.split("\t")[0] for line in res_c.stdout.strip().split("\n")]
         normalized_input = normalize_vcf_chromosomes(input_vcf, c_chroms)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.warning(f"ClinVar chromosome normalization skipped: {e}")
         normalized_input = input_vcf
 
@@ -78,7 +80,7 @@ def cmd_clinvar(args):
             capture_output=True,
         )
         ensure_vcf_indexed(ann_out)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"ClinVar annotation failed: {e}")
         raise WGSExtractError("VCF processing failed.") from e
     finally:
@@ -98,12 +100,12 @@ def cmd_clinvar(args):
         )
         ensure_vcf_indexed(path_out)
         logging.info(LOG_MESSAGES["vcf_clinvar_done"].format(output=path_out))
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"ClinVar filtering failed: {e}")
         raise WGSExtractError("ClinVar filtering failed.") from e
 
 
-def cmd_revel(args):
+def cmd_revel(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
     input_file, outdir, lib = annotation_context(args)
@@ -156,7 +158,7 @@ def cmd_revel(args):
         annotate_args.append(normalized_input)
         run_command(annotate_args, capture_output=True)
         ensure_vcf_indexed(ann_out)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"REVEL annotation failed: {e}")
         raise WGSExtractError("VCF processing failed.") from e
     finally:

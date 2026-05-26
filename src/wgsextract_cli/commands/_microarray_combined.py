@@ -1,3 +1,4 @@
+import argparse
 import gzip
 import logging
 import os
@@ -20,14 +21,14 @@ def _matching_fasta_chrom(chrom: str, fasta_chroms: set[str]) -> str | None:
 
 def _write_microarray_combined_kit(
     *,
-    args,
-    outdir,
-    base_name,
-    is_vcf,
-    out_vcf,
-    ref_fasta,
-    ref_vcf_tab,
-):
+    args: argparse.Namespace,
+    outdir: str,
+    base_name: str,
+    is_vcf: bool,
+    out_vcf: str,
+    ref_fasta: str,
+    ref_vcf_tab: str,
+) -> str:
     # 2. Extract results to a temporary CombinedKit.txt
     combined_kit_txt = os.path.join(outdir, f"{base_name}_CombinedKit.txt")
     logging.info(f"Extracting genotypes to {combined_kit_txt}...")
@@ -67,7 +68,7 @@ def _write_microarray_combined_kit(
                 try:
                     with open(fai_path) as f_fai:
                         fasta_chroms = {line.split("\t")[0] for line in f_fai}
-                except Exception as e:
+                except OSError as e:
                     logging.warning(f"Failed to read .fai file: {e}")
 
             if not fasta_chroms:
@@ -135,7 +136,7 @@ def _write_microarray_combined_kit(
                 logging.info(f"Pre-fetched {len(ref_alleles)} reference alleles.")
                 if os.path.exists(region_file):
                     os.remove(region_file)
-            except Exception as e:
+            except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
                 logging.warning(
                     f"Fast reference pre-fetch failed: {e}. Falling back to SNP-tab column or 'N'."
                 )
@@ -257,7 +258,13 @@ def _write_microarray_combined_kit(
 
         ext_duration = time.time() - start_ext
         logging.info(f"Extraction took {ext_duration:.2f}s")
-    except Exception as e:
+    except (
+        OSError,
+        gzip.BadGzipFile,
+        subprocess.SubprocessError,
+        WGSExtractError,
+        ValueError,
+    ) as e:
         logging.error(f"Failed to generate CombinedKit.txt: {e}")
         raise WGSExtractError("Failed to generate CombinedKit.txt.") from e
     return combined_kit_txt

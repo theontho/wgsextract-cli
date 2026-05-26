@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import shlex
@@ -28,7 +29,7 @@ from ._vep_resources import (
 )
 
 
-def cmd_vep(args):
+def cmd_vep(args: argparse.Namespace) -> None:
     if getattr(args, "vep_cmd", None) == "download":
         return
     if not args.input:
@@ -287,7 +288,7 @@ def cmd_vep(args):
             )
             logging.info(LOG_MESSAGES["vep_complete"].format(path=final_output))
 
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError, WGSExtractError, ValueError) as e:
             logging.error(f"VEP failed for {current_input}: {e}")
             batch_stats.append((os.path.basename(current_input), "FAILED", "-"))
         finally:

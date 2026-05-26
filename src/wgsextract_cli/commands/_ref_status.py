@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 from typing import Any
@@ -15,7 +16,7 @@ from wgsextract_cli.core.reference_processing import bootstrap_has_support_asset
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 
 
-def cmd_ref_status(args) -> None:
+def cmd_ref_status(args: argparse.Namespace) -> None:
     status = build_ref_status(args)
     if getattr(args, "values", False):
         print(json.dumps({"values": ref_status_values(status)}, sort_keys=True))
@@ -26,7 +27,7 @@ def cmd_ref_status(args) -> None:
     print_ref_status(status)
 
 
-def build_ref_status(args) -> dict[str, Any]:
+def build_ref_status(args: argparse.Namespace) -> dict[str, Any]:
     reflib = _resolve_reference_library(args)
     genome_library = _resolve_genome_library(args, reflib)
     input_path = getattr(args, "input", None)
@@ -121,7 +122,7 @@ def print_ref_status(status: dict[str, Any]) -> None:
     print(f"Test genome: {status['testGenome']['status']}")
 
 
-def _resolve_reference_library(args) -> str:
+def _resolve_reference_library(args: argparse.Namespace) -> str:
     configured_reflib = settings.get("reference_library")
     ref = getattr(args, "ref", None)
     explicit_dests = getattr(args, "_explicit_dests", None)
@@ -151,7 +152,7 @@ def _reference_library_from_fasta(ref_path: str) -> str:
     return ref_dir
 
 
-def _resolve_genome_library(args, reflib: str) -> str:
+def _resolve_genome_library(args: argparse.Namespace, reflib: str) -> str:
     genome_library = getattr(args, "genome_library", None) or settings.get(
         "genome_library"
     )

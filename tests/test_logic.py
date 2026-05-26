@@ -524,6 +524,46 @@ class TestResourceDefaults(unittest.TestCase):
 
         self.assertEqual(threads, "10")
 
+    def test_resource_defaults_clamp_non_positive_thread_count(self):
+        from wgsextract_cli.core import resource_policy
+
+        class FakeMemory:
+            total = 16 * (1024**3)
+
+        class FakePsutil:
+            @staticmethod
+            def virtual_memory():
+                return FakeMemory()
+
+        with patch.object(resource_policy, "psutil", FakePsutil):
+            threads, memory = resource_policy.get_resource_defaults(0, None)
+
+        self.assertEqual(threads, "1")
+        self.assertEqual(memory, "4G")
+
+
+class TestSamtoolsCommands(unittest.TestCase):
+    def test_sambamba_memory_parser_accepts_suffixes_and_decimals(self):
+        from wgsextract_cli.core import samtools_commands
+
+        with (
+            patch.object(samtools_commands.shutil, "which", return_value="sambamba"),
+            patch.object(samtools_commands.platform, "system", return_value="Linux"),
+        ):
+            gb_cmd = samtools_commands.get_sam_sort_cmd(
+                "out.bam", "2", "1GB", fmt="BAM"
+            )
+            decimal_cmd = samtools_commands.get_sam_sort_cmd(
+                "out.bam", "2", "1.5G", fmt="BAM"
+            )
+            mb_cmd = samtools_commands.get_sam_sort_cmd(
+                "out.bam", "2", "512MB", fmt="BAM"
+            )
+
+        self.assertEqual(gb_cmd[gb_cmd.index("-m") + 1], "2G")
+        self.assertEqual(decimal_cmd[decimal_cmd.index("-m") + 1], "3G")
+        self.assertEqual(mb_cmd[mb_cmd.index("-m") + 1], "1024M")
+
 
 class TestCLILogic(unittest.TestCase):
     def setUp(self):

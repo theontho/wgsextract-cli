@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import subprocess
@@ -14,7 +15,7 @@ from wgsextract_cli.core.variant_files import (
 )
 
 
-def annotation_context(args) -> tuple[str, str, ReferenceLibrary]:
+def annotation_context(args: argparse.Namespace) -> tuple[str, str, ReferenceLibrary]:
     input_file = getattr(args, "input", None) or getattr(args, "vcf_input", None)
     if not input_file:
         logging.error(LOG_MESSAGES["input_required"])

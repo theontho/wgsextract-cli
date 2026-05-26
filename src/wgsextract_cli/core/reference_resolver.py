@@ -1,5 +1,6 @@
 import logging
 import os
+import subprocess
 
 from wgsextract_cli.core.builds import (
     HG37_BUILD_ALIASES,
@@ -39,7 +40,7 @@ class ReferenceLibrary:
         md5_sig: str | None = None,
         skip_full_search: bool = False,
         input_path: str | None = None,
-    ):
+    ) -> None:
         from wgsextract_cli.core.config import settings
 
         self.root: str | None = root_path or settings.get("reference_library")
@@ -182,7 +183,13 @@ class ReferenceLibrary:
                     logging.debug(
                         f"ReferenceLibrary: No header retrieved from {target_for_header}"
                     )
-            except Exception as e:
+            except (
+                OSError,
+                subprocess.SubprocessError,
+                RuntimeError,
+                ValueError,
+                TypeError,
+            ) as e:
                 logging.debug(f"ReferenceLibrary: Error reading header: {e}")
 
         # Build identification from path (fallback)

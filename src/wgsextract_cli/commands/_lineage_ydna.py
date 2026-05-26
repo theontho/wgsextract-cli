@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import subprocess
@@ -22,7 +23,9 @@ from wgsextract_cli.core.variant_files import (
 )
 
 
-def update_yleaf_config(yleaf_path, ref_path, build):
+def update_yleaf_config(
+    yleaf_path: str | None, ref_path: str | None, build: str
+) -> None:
     """
     Attempts to update yleaf's config.txt to point to the local reference library.
     """
@@ -65,12 +68,12 @@ def update_yleaf_config(yleaf_path, ref_path, build):
             fasta_path = ref_path
         else:
             # Look for hg38 or hg19 specific fasta in the root
-            for f in os.listdir(ref_path):
-                f_up = f.upper()
-                if build.upper() in f_up and f.endswith(
+            for filename in os.listdir(ref_path):
+                filename_upper = filename.upper()
+                if build.upper() in filename_upper and filename.endswith(
                     (".fa", ".fasta", ".fna", ".fa.gz", ".fasta.gz", ".fna.gz")
                 ):
-                    fasta_path = os.path.join(ref_path, f)
+                    fasta_path = os.path.join(ref_path, filename)
                     break
 
         if not fasta_path:
@@ -97,11 +100,11 @@ def update_yleaf_config(yleaf_path, ref_path, build):
 
         logging.info(f"Updated yleaf config.txt to use reference: {fasta_path}")
 
-    except Exception as e:
+    except OSError as e:
         logging.debug(f"Failed to update yleaf config: {e}")
 
 
-def cmd_ydna(args):
+def cmd_ydna(args: argparse.Namespace) -> None:
     if not args.input:
         raise WGSExtractError(LOG_MESSAGES["input_required"])
     if not verify_paths_exist({"--input": args.input}):
@@ -284,13 +287,13 @@ def cmd_ydna(args):
                         print(content)
                     else:
                         print("Yleaf output is empty (Level 3).")
-            except Exception as e:
+            except OSError as e:
                 logging.debug(f"Failed to print Yleaf results: {e}")
             print("-" * 30 + "\n")
 
-    except Exception as e:
-        if isinstance(e, WGSExtractError):
-            raise
+    except WGSExtractError:
+        raise
+    except (OSError, subprocess.SubprocessError, ValueError) as e:
         raise WGSExtractError(f"Yleaf failed: {e}") from e
     finally:
         if temp_vcf and os.path.exists(temp_vcf):
@@ -307,5 +310,7 @@ def cmd_ydna(args):
                         os.remove(temp_vcf + ".tbi")
                     if os.path.exists(temp_vcf + ".csi"):
                         os.remove(temp_vcf + ".csi")
-            except Exception:
-                pass
+            except OSError as e:
+                logging.debug(
+                    "Failed to remove temporary Yleaf VCF %s: %s", temp_vcf, e
+                )

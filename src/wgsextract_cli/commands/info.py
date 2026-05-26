@@ -1,3 +1,5 @@
+import argparse
+
 from wgsextract_cli.core.messages import CLI_HELP
 
 from ._info_run import (
@@ -5,7 +7,9 @@ from ._info_run import (
 )
 
 
-def register(subparsers, base_parser):
+def register(
+    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+) -> None:
     parser = subparsers.add_parser(
         "info", parents=[base_parser], help=CLI_HELP["cmd_info"]
     )

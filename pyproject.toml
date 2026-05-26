@@ -61,19 +61,10 @@ line-ending = "auto"
 python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
-disallow_untyped_defs = false
+disallow_untyped_defs = true
 check_untyped_defs = true
 ignore_missing_imports = true
 files = "src/wgsextract_cli"
-
-[[tool.mypy.overrides]]
-module = [
-    "wgsextract_cli.core.config",
-    "wgsextract_cli.core.dependencies",
-    "wgsextract_cli.core.microarray_utils",
-    "wgsextract_cli.core.warnings",
-]
-disallow_untyped_defs = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/wgsextract_cli"]

@@ -1,8 +1,11 @@
+import argparse
 import json
 import logging
 import os
 import subprocess
 import sys
+from collections.abc import Sequence
+from typing import TypedDict
 
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
@@ -29,7 +32,14 @@ def _print(value: object = "") -> None:
     print(_safe_console_text(value))
 
 
-def detect_vcf_type(vcf_path):
+class AnalyzeResult(TypedDict):
+    type: str
+    input: str
+    output: str
+    count: int
+
+
+def detect_vcf_type(vcf_path: str) -> str:
     """Simple heuristic to detect SNV, CNV, or SV."""
     fname = os.path.basename(vcf_path).lower()
     if "cnv" in fname:
@@ -39,7 +49,9 @@ def detect_vcf_type(vcf_path):
     return "snp-indel"
 
 
-def run_discovery_filter(args, ann_vcf, v_type, out_vcf):
+def run_discovery_filter(
+    args: argparse.Namespace, ann_vcf: str, v_type: str, out_vcf: str
+) -> int:
     """Dynamically builds filter based on type and headers."""
     try:
         res_h = run_command(
@@ -47,7 +59,7 @@ def run_discovery_filter(args, ann_vcf, v_type, out_vcf):
             capture_output=True,
         )
         header = res_h.stdout
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.warning(
             f"Annotation header inspection failed; using baseline filter: {e}"
         )
@@ -92,12 +104,12 @@ def run_discovery_filter(args, ann_vcf, v_type, out_vcf):
         count = len(res.stdout.strip().split("\n")) if res.stdout.strip() else 0
         _print(f"Found {count} significant variants.")
         return count
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"Discovery filter failed for {v_type}: {e}")
         return 0
 
 
-def run_cli_subcommand(cmd_args, args):
+def run_cli_subcommand(cmd_args: list[str], args: argparse.Namespace) -> None:
     """Helper to run a wgsextract subcommand."""
     cmd = [sys.executable, "-m", "wgsextract_cli.main"] + cmd_args
 
@@ -137,12 +149,14 @@ def run_cli_subcommand(cmd_args, args):
         else:
             run_command(cmd, capture_output=True)
 
-    except (subprocess.CalledProcessError, Exception) as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.warning(f"Subcommand failed: {' '.join(cmd)}. Error: {e}")
         raise WGSExtractError("Subcommand failed: " + " ".join(cmd)) from e
 
 
-def run_vcf_workflow(args, vcf_path, v_type, outdir):
+def run_vcf_workflow(
+    args: argparse.Namespace, vcf_path: str, v_type: str, outdir: str
+) -> AnalyzeResult | None:
     """Annotates and filters a single VCF file based on its type."""
     base_name = os.path.basename(vcf_path).split(".")[0]
     _print(f"\nSub-Stage: Processing {v_type.upper()} ({os.path.basename(vcf_path)})")
@@ -187,7 +201,7 @@ def run_vcf_workflow(args, vcf_path, v_type, outdir):
     return {"type": v_type, "input": vcf_path, "output": discovery_vcf, "count": count}
 
 
-def generate_summary_report(results, outdir):
+def generate_summary_report(results: Sequence[AnalyzeResult], outdir: str) -> None:
     """Prints a nice summary of all findings."""
     _print("\n" + "=" * 60)
     _print("GENOMIC ANALYSIS SUMMARY REPORT")
@@ -205,7 +219,7 @@ def generate_summary_report(results, outdir):
     _print("=" * 60 + "\n")
 
 
-def run_bam_chain(args, input_file, outdir):
+def run_bam_chain(args: argparse.Namespace, input_file: str, outdir: str) -> str:
     """Runs info, qc, and lineage steps. Returns detected gender."""
     _print("\nSTAGE: BAM/CRAM Metrics & Lineage")
 
@@ -222,9 +236,12 @@ def run_bam_chain(args, input_file, outdir):
         try:
             with open(cache_file) as f:
                 data = json.load(f)
-                gender = data.get("gender", "Unknown")
-        except Exception:
-            pass
+                if isinstance(data, dict):
+                    gender = str(data.get("gender", "Unknown"))
+        except (OSError, json.JSONDecodeError) as e:
+            logging.debug(
+                "Failed to read cached info metrics from %s: %s", cache_file, e
+            )
 
     # 3. mt-haplogroup (Haplogrep)
     run_cli_subcommand(

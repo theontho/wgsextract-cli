@@ -18,7 +18,7 @@ jobs:
         uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11 # v0.9.6
         with:
           pixi-version: latest
-          locked: false
+          locked: true
       - name: Test installer
         run: scripts/test_install_sh.sh
       - name: Verify Tools
@@ -38,6 +38,8 @@ jobs:
         run: |
           pixi run lint
           pixi run typecheck
+      - name: Build and Smoke Test Package
+        run: pixi run package-smoke
       - name: Run Benchmark
         run: |
           pixi run wgsextract benchmark --dataset real --profile smoke

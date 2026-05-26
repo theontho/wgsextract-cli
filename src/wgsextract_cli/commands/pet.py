@@ -1,5 +1,6 @@
 """Pet Analysis command for aligning and calling variants in non-human species."""
 
+import argparse
 import logging
 import os
 import shutil
@@ -20,7 +21,9 @@ from wgsextract_cli.core.utils import (
 from wgsextract_cli.core.variant_files import popen
 
 
-def register(subparsers, base_parser):
+def register(
+    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+) -> None:
     parser = subparsers.add_parser(
         "pet-align", parents=[base_parser], help=CLI_HELP["cmd_pet-align"]
     )
@@ -35,7 +38,7 @@ def register(subparsers, base_parser):
     parser.set_defaults(func=run)
 
 
-def run(args):
+def run(args: argparse.Namespace) -> None:
     verify_dependencies(["bwa", "samtools", "bcftools"])
     log_dependency_info(["bwa", "samtools", "bcftools"])
 
@@ -80,7 +83,7 @@ def run(args):
         )
         try:
             run_command(["bwa", "index", ref_file])
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             logging.error(f"Automatic indexing failed: {e}")
             raise WGSExtractError("Automatic BWA indexing failed.") from e
 
@@ -134,9 +137,9 @@ def run(args):
         logging.info(LOG_MESSAGES["pet_indexing"].format(format=args.format))
         run_command(get_sam_index_cmd(out_bam, threads=threads))
 
-    except Exception as e:
-        if isinstance(e, WGSExtractError):
-            raise
+    except WGSExtractError:
+        raise
+    except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Alignment error: {e}") from e
 
     # 2. Variant Calling (Simple MPileup + BCFTools)
@@ -181,7 +184,7 @@ def run(args):
         logging.info(LOG_MESSAGES["pet_complete"])
         logging.info(LOG_MESSAGES["pet_results"].format(bam=out_bam, vcf=out_vcf))
 
-    except Exception as e:
-        if isinstance(e, WGSExtractError):
-            raise
+    except WGSExtractError:
+        raise
+    except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Variant calling error: {e}") from e

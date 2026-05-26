@@ -1,7 +1,9 @@
+import argparse
 import gzip
 import hashlib
 import logging
 import os
+import subprocess
 
 from wgsextract_cli.core.annotation_resources import get_genome_size
 from wgsextract_cli.core.dependency_checks import (
@@ -27,7 +29,7 @@ from wgsextract_cli.core.variant_files import (
 )
 
 
-def cmd_download(args):
+def cmd_download(args: argparse.Namespace) -> None:
     if os.path.isdir(args.out):
         raise WGSExtractError(f"Output path is a directory: {args.out}")
 
@@ -36,7 +38,7 @@ def cmd_download(args):
         raise WGSExtractError(f"Download failed: {args.url} -> {args.out}")
 
 
-def cmd_index(args):
+def cmd_index(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools", "bwa"])
     log_dependency_info(["samtools", "bwa"])
     if not args.ref:
@@ -73,11 +75,11 @@ def cmd_index(args):
         run_command(["bwa", "index", args.ref])
 
         logging.info("Indexing complete.")
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Indexing failed: {e}") from e
 
 
-def cmd_count_ns(args):
+def cmd_count_ns(args: argparse.Namespace) -> None:
     if not args.ref:
         logging.error("--ref is required.")
         raise WGSExtractError("Ref library installation failed.")
@@ -127,11 +129,11 @@ def cmd_count_ns(args):
         total_pct = (total_n / total_length * 100) if total_length else 0.0
         print(f"TOTAL\t{total_length}\t{total_n}\t{total_pct:.4f}")
 
-    except Exception as e:
+    except (OSError, gzip.BadGzipFile) as e:
         raise WGSExtractError(f"N-counting failed: {e}") from e
 
 
-def cmd_ref_verify(args):
+def cmd_ref_verify(args: argparse.Namespace) -> None:
     verify_dependencies(["gzip", "samtools"])
     log_dependency_info(["gzip", "samtools"])
     if not args.ref:
@@ -140,6 +142,8 @@ def cmd_ref_verify(args):
     # Auto-resolve ref if a directory was provided
     resolved_ref = resolve_reference(args.ref, "")
     logging.debug(f"Resolved reference: {resolved_ref}")
+    if resolved_ref is None:
+        raise WGSExtractError(f"Reference file not found: {args.ref}")
     if not os.path.exists(resolved_ref):
         raise WGSExtractError(f"Reference file not found: {resolved_ref}")
 
@@ -168,7 +172,7 @@ def cmd_ref_verify(args):
                 logging.error(f"Expected: {expected_md5}")
                 logging.error(f"Calculated: {calculated}")
                 # We continue to show other potential errors (like gzip eof)
-        except Exception as e:
+        except OSError as e:
             logging.error(f"MD5 verification failed to run: {e}")
 
     # 2. Check gzip integrity
@@ -177,7 +181,7 @@ def cmd_ref_verify(args):
         try:
             run_command(["gzip", "-t", resolved_ref])
             logging.info(LOG_MESSAGES["ref_gzip_ok"])
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             logging.error(f"Gzip integrity FAILED: {e}")
             raise WGSExtractError("Gzip integrity check failed.") from e
 
@@ -191,7 +195,7 @@ def cmd_ref_verify(args):
         else:
             logging.error(f"Samtools faidx FAILED: {res.stderr}")
             raise WGSExtractError("Samtools faidx check failed.")
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"Samtools faidx check failed: {e}")
         raise WGSExtractError("Samtools faidx check failed.") from e
 
@@ -200,7 +204,7 @@ def cmd_ref_verify(args):
     )
 
 
-def cmd_library_list(args):
+def cmd_library_list(args: argparse.Namespace) -> None:
     """Non-interactive library status list."""
     from wgsextract_cli.core.config import settings
 

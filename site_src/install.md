@@ -80,7 +80,7 @@ Install `wgsextract-cli` for terminal commands, scripts, automation, and remote 
 ::: grid three
 ::: card
 ### Latest GUI release
-[gui-for-cli v0.1.10](https://github.com/theontho/gui-for-cli/releases/tag/v0.1.10){.inline-link} includes Windows, macOS, and Linux desktop packages for the graphical interface.
+[gui-for-cli latest release](https://github.com/theontho/gui-for-cli/releases/latest){.inline-link} includes Windows, macOS, and Linux desktop packages for the graphical interface.
 
 {{ link: Open GUI downloads|gui.html|inline-link }}
 :::

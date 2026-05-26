@@ -6,7 +6,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Protocol
 
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import popen
@@ -14,6 +14,13 @@ from wgsextract_cli.core.variant_files import popen
 from .ref_library import (
     download_file,
 )
+
+
+class CancelEvent(Protocol):
+    def is_set(self) -> bool: ...
+
+
+ProgressCallback = Callable[[int, int, float], None]
 
 
 def get_genome_size(final_name: str, reflib_dir: str) -> str:
@@ -76,7 +83,11 @@ PHARMGKB_URLS = {
 }
 
 
-def download_clinvar(reflib_dir, cancel_event=None, progress_callback=None):
+def download_clinvar(
+    reflib_dir: str,
+    cancel_event: CancelEvent | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> bool:
     """Downloads and indexes official ClinVar VCFs for hg19 and hg38."""
     target_dir = os.path.join(reflib_dir, "ref")
     os.makedirs(target_dir, exist_ok=True)
@@ -101,14 +112,18 @@ def download_clinvar(reflib_dir, cancel_event=None, progress_callback=None):
         try:
             # We need tabix
             run_command(["tabix", "-p", "vcf", "-f", dest_path])
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             logging.error(f"Failed to index ClinVar {build}: {e}")
             success = False
 
     return success
 
 
-def download_spliceai(reflib_dir, cancel_event=None, progress_callback=None):
+def download_spliceai(
+    reflib_dir: str,
+    cancel_event: CancelEvent | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> bool:
     """Downloads and indexes SpliceAI precomputed scores."""
     target_dir = os.path.join(reflib_dir, "ref")
     os.makedirs(target_dir, exist_ok=True)
@@ -131,14 +146,18 @@ def download_spliceai(reflib_dir, cancel_event=None, progress_callback=None):
         logging.info(f"Indexing SpliceAI {build}...")
         try:
             run_command(["tabix", "-p", "vcf", "-f", dest_path])
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             logging.error(f"Failed to index SpliceAI {build}: {e}")
             success = False
 
     return success
 
 
-def download_alphamissense(reflib_dir, cancel_event=None, progress_callback=None):
+def download_alphamissense(
+    reflib_dir: str,
+    cancel_event: CancelEvent | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> bool:
     """Downloads and indexes AlphaMissense pathogenicity scores."""
     target_dir = os.path.join(reflib_dir, "ref")
     os.makedirs(target_dir, exist_ok=True)
@@ -163,14 +182,18 @@ def download_alphamissense(reflib_dir, cancel_event=None, progress_callback=None
             # AlphaMissense TSV format: #CHROM, POS, REF, ALT, am_pathogenicity, am_class
             # We want CHROM=1, POS=2
             run_command(["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", dest_path])
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             logging.error(f"Failed to index AlphaMissense {build}: {e}")
             success = False
 
     return success
 
 
-def download_pharmgkb(reflib_dir, cancel_event=None, progress_callback=None):
+def download_pharmgkb(
+    reflib_dir: str,
+    cancel_event: CancelEvent | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> bool:
     """Downloads PharmGKB annotations (placeholder for full implementation)."""
     target_dir = os.path.join(reflib_dir, "ref")
     os.makedirs(target_dir, exist_ok=True)
@@ -192,7 +215,8 @@ def download_pharmgkb(reflib_dir, cancel_event=None, progress_callback=None):
 
 
 def wait_with_cancel(
-    process: subprocess.Popen, cancel_event: Any | None = None
+    process: subprocess.Popen[str] | subprocess.Popen[bytes],
+    cancel_event: CancelEvent | None = None,
 ) -> bool:
     """Waits for a process while checking for a cancel event."""
     while process.poll() is None:
@@ -216,28 +240,30 @@ def is_bgzf(path: str) -> bool:
             # This is a bit simplified but generally reliable for our tools.
             header = f.read(4)
             return header == b"\x1f\x8b\x08\x04"
-    except Exception:
-        return False
+    except OSError as e:
+        raise WGSExtractError(f"Failed to inspect gzip header for {path}: {e}") from e
 
 
 def ensure_bgzf(
     path: str,
     status_callback: Callable[[str], None] | None = None,
-    cancel_event: Any | None = None,
+    cancel_event: CancelEvent | None = None,
 ) -> str | None:
-    if is_bgzf(path):
-        logging.info(f"{path} is already in BGZF format.")
-        return path
-
-    if cancel_event and cancel_event.is_set():
-        return None
-
-    logging.info(f"Recompressing {path} to BGZF format (required for fast access)...")
-    if status_callback:
-        status_callback("Processing: Recompressing (BGZF)...")
-
     tmp_path = path + ".tmp.gz"
     try:
+        if is_bgzf(path):
+            logging.info(f"{path} is already in BGZF format.")
+            return path
+
+        if cancel_event and cancel_event.is_set():
+            return None
+
+        logging.info(
+            f"Recompressing {path} to BGZF format (required for fast access)..."
+        )
+        if status_callback:
+            status_callback("Processing: Recompressing (BGZF)...")
+
         if path.endswith(".gz"):
             with open(tmp_path, "wb") as f_out:
                 p1 = popen(["gunzip", "-c", path], stdout=subprocess.PIPE)
@@ -275,7 +301,7 @@ def ensure_bgzf(
             os.rename(tmp_path, new_path)
             logging.info(f"Recompression to {new_path} complete.")
             return new_path
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         if sys.platform == "win32" and isinstance(e, FileNotFoundError):
             logging.warning(
                 f"Warning: Could not recompress to BGZF on Windows (missing tools): {e}"
@@ -287,7 +313,11 @@ def ensure_bgzf(
         return None
 
 
-def download_revel(reflib_dir, cancel_event=None, progress_callback=None):
+def download_revel(
+    reflib_dir: str,
+    cancel_event: CancelEvent | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> bool:
     """Downloads and indexes REVEL pathogenicity scores for hg19 and hg38."""
     target_dir = os.path.join(reflib_dir, "ref")
     os.makedirs(target_dir, exist_ok=True)
@@ -317,7 +347,7 @@ def download_revel(reflib_dir, cancel_event=None, progress_callback=None):
             # Annovar REVEL format: #Chr, Start, End, Ref, Alt, REVEL...
             # We want CHROM=1, POS=2, REF=4, ALT=5
             run_command(["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", dest_path])
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             logging.error(f"Failed to index REVEL {build}: {e}")
             success = False
 

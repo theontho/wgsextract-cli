@@ -1,6 +1,6 @@
 import argparse
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 from wgsextract_cli.core.runtime import default_thread_tuning_profile
 
@@ -19,6 +19,7 @@ from ._benchmark_fixtures import (
     _trio_benchmark_region,
 )
 from ._benchmark_models import (
+    BenchmarkResult,
     BenchmarkThreadPlan,
     _chrom_only_region,
     _command_region,
@@ -33,7 +34,7 @@ from ._benchmark_qc import (
 def _run_heavy_vcf_analysis_and_repair_steps(
     *,
     args: argparse.Namespace,
-    record: Any,
+    record: Callable[[BenchmarkResult], BenchmarkResult],
     analysis_bam: Path,
     ref_path: Path,
     target_tab_gz: Path,
@@ -286,7 +287,7 @@ def _run_heavy_vcf_analysis_and_repair_steps(
 def _run_heavy_processing_steps(
     *,
     args: argparse.Namespace,
-    record: Any,
+    record: Callable[[BenchmarkResult], BenchmarkResult],
     analysis_bam: Path,
     generated_bam: Path,
     ref_path: Path,

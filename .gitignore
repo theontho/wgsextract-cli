@@ -12,6 +12,7 @@ genomes/
 *.log
 *.log.txt
 *.out
+*.partial
 *.wgse_info.json
 .DS_Store
 

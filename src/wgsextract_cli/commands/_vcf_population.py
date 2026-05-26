@@ -1,5 +1,7 @@
+import argparse
 import logging
 import os
+import subprocess
 
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -27,7 +29,7 @@ from ._vcf_structural import (
 )
 
 
-def cmd_phylop(args):
+def cmd_phylop(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
     input_file, outdir, lib = annotation_context(args)
@@ -81,7 +83,7 @@ def cmd_phylop(args):
         annotate_args.append(normalized_input)
         run_command(annotate_args, capture_output=True)
         ensure_vcf_indexed(ann_out)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"PhyloP annotation failed: {e}")
         raise WGSExtractError("VCF processing failed.") from None
     finally:
@@ -99,7 +101,7 @@ def cmd_phylop(args):
     )
 
 
-def cmd_gnomad(args):
+def cmd_gnomad(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
     input_file, outdir, lib = annotation_context(args)
@@ -126,7 +128,7 @@ def cmd_gnomad(args):
         )
         g_chroms = [line.split("\t")[0] for line in res_g.stdout.strip().split("\n")]
         normalized_input = normalize_vcf_chromosomes(input_vcf, g_chroms)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.debug(f"Chromosome normalization check failed: {e}")
         normalized_input = input_vcf
 
@@ -161,7 +163,7 @@ def cmd_gnomad(args):
             capture_output=True,
         )
         ensure_vcf_indexed(ann_out)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"gnomAD annotation failed: {e}")
         raise WGSExtractError("VCF processing failed.") from None
     finally:
@@ -198,7 +200,7 @@ def cmd_gnomad(args):
             )
             ensure_vcf_indexed(filter_out)
             logging.info(f"gnomAD filtering complete: {filter_out}")
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             logging.error(f"gnomAD filtering failed: {e}")
             raise WGSExtractError("gnomAD filtering failed.") from e
     else:

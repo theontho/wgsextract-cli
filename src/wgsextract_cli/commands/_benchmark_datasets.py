@@ -2,6 +2,7 @@ import argparse
 import hashlib
 import json
 import logging
+import urllib.error
 import urllib.request
 from dataclasses import asdict
 from pathlib import Path
@@ -52,9 +53,16 @@ def _download_file(
                     progress_label=destination.name,
                 )
         tmp_path.replace(destination)
-    except Exception as exc:
+    except (OSError, urllib.error.URLError, WGSExtractError) as exc:
         if tmp_path.exists():
-            tmp_path.unlink()
+            try:
+                tmp_path.unlink()
+            except OSError as cleanup_error:
+                logging.warning(
+                    "Failed to remove partial benchmark download %s: %s",
+                    tmp_path,
+                    cleanup_error,
+                )
         raise WGSExtractError(
             f"Failed to download benchmark dataset {destination.name}: {exc}"
         ) from exc

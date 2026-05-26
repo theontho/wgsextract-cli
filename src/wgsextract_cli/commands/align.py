@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import subprocess
@@ -24,7 +25,9 @@ from wgsextract_cli.core.variant_files import (
 from wgsextract_cli.core.warnings import print_warning
 
 
-def register(subparsers, base_parser):
+def register(
+    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+) -> None:
     parser = subparsers.add_parser(
         "align", parents=[base_parser], help=CLI_HELP["cmd_align"]
     )
@@ -59,7 +62,7 @@ def register(subparsers, base_parser):
     parser.set_defaults(func=run)
 
 
-def run(args):
+def run(args: argparse.Namespace) -> None:
     # Determine which aligner to use
     platform = getattr(args, "platform", "illumina")
     aligner = getattr(args, "aligner", "auto")
@@ -81,7 +84,9 @@ def run(args):
         raise WGSExtractError(f"Unsupported aligner: {aligner}")
 
 
-def _aligner_stream_sort_cmd(out_bam, threads, memory, fmt, reference):
+def _aligner_stream_sort_cmd(
+    out_bam: str, threads: str, memory: str, fmt: str, reference: str
+) -> list[str]:
     cmd = ["samtools", "sort", "-@", threads, "-m", memory, "-o", out_bam]
     if fmt == "CRAM":
         cmd += ["-O", "CRAM", "--reference", reference]
@@ -90,10 +95,12 @@ def _aligner_stream_sort_cmd(out_bam, threads, memory, fmt, reference):
     return cmd
 
 
-def _check_pipeline_process(process, label: str) -> None:
-    if hasattr(process, "wait"):
-        process.wait()
-    returncode = getattr(process, "returncode", 0)
+def _check_pipeline_process(process: object, label: str) -> None:
+    wait = getattr(process, "wait", None)
+    if callable(wait):
+        wait()
+    returncode_obj = getattr(process, "returncode", 0)
+    returncode = returncode_obj if isinstance(returncode_obj, int) else 0
     if returncode:
         raise WGSExtractError(f"{label} failed with exit status {returncode}.")
 
@@ -130,7 +137,7 @@ def _run_streamed_alignment(
     run_command(get_sam_index_cmd(out_bam, threads=threads))
 
 
-def align_bwa(args):
+def align_bwa(args: argparse.Namespace) -> None:
     verify_dependencies(["bwa", "samtools"])
     log_dependency_info(["bwa", "samtools"])
     threads, memory = get_resource_defaults(args.threads, args.memory)
@@ -171,7 +178,7 @@ def align_bwa(args):
         try:
             bwa = get_tool_path("bwa")
             run_command([bwa, "index", resolved_ref])
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             logging.error(f"Automatic indexing failed: {e}")
             raise WGSExtractError("Automatic BWA indexing failed.") from e
 
@@ -198,12 +205,12 @@ def align_bwa(args):
             out_bam, threads, memory, args.format, resolved_ref
         )
         _run_streamed_alignment(align_cmd, sort_cmd, out_bam, threads, samblaster)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"BWA alignment failed: {e}")
         raise WGSExtractError("BWA alignment failed.") from e
 
 
-def align_minimap2(args):
+def align_minimap2(args: argparse.Namespace) -> None:
     verify_dependencies(["minimap2", "samtools"])
     log_dependency_info(["minimap2", "samtools"])
     threads, memory = get_resource_defaults(args.threads, args.memory)
@@ -283,12 +290,12 @@ def align_minimap2(args):
             out_bam, threads, memory, args.format, resolved_ref
         )
         _run_streamed_alignment(align_cmd, sort_cmd, out_bam, threads, samblaster_cmd)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"Minimap2 alignment failed: {e}")
         raise WGSExtractError("Minimap2 alignment failed.") from e
 
 
-def align_pbmm2(args):
+def align_pbmm2(args: argparse.Namespace) -> None:
     verify_dependencies(["pbmm2", "samtools"])
     log_dependency_info(["pbmm2", "samtools"])
     threads, _memory = get_resource_defaults(args.threads, args.memory)
@@ -383,6 +390,6 @@ def align_pbmm2(args):
         logging.info(LOG_MESSAGES["indexing_output"])
         index_cmd = get_sam_index_cmd(out_bam, threads=threads)
         run_command(index_cmd)
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.error(f"pbmm2 alignment failed: {e}")
         raise WGSExtractError("PacBio alignment failed.") from e

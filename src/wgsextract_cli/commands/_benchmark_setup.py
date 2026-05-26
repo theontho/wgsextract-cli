@@ -1,6 +1,6 @@
 import argparse
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 from wgsextract_cli.core.builds import (
     ploidy_for_build,
@@ -15,6 +15,7 @@ from ._benchmark_execution import (
 )
 from ._benchmark_models import (
     BenchmarkDataset,
+    BenchmarkResult,
 )
 from ._benchmark_reports import (
     _align_output_stem,
@@ -25,7 +26,7 @@ from ._benchmark_reports import (
 def _run_core_benchmark_setup_steps(
     *,
     args: argparse.Namespace,
-    record: Any,
+    record: Callable[[BenchmarkResult], BenchmarkResult],
     real_dataset: BenchmarkDataset | None,
     dataset_dir: Path,
     steps_dir: Path,

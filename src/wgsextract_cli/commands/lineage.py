@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import subprocess
@@ -28,7 +29,7 @@ from ._lineage_ydna import (
 )
 
 
-def cmd_mtdna(args):
+def cmd_mtdna(args: argparse.Namespace) -> None:
     if not args.input:
         raise WGSExtractError(LOG_MESSAGES["input_required"])
     if not verify_paths_exist({"--input": args.input}):
@@ -95,6 +96,10 @@ def cmd_mtdna(args):
 
             # Fast variant calling for MT region
             bcftools = get_tool_path("bcftools")
+            if bcftools is None:
+                raise WGSExtractError(
+                    "bcftools dependency is required for mtDNA variant calling."
+                )
             p1 = popen(
                 [
                     bcftools,
@@ -130,6 +135,10 @@ def cmd_mtdna(args):
             temp_vcf = os.path.join(outdir, "temp_haplogrep_filtered.vcf.gz")
 
             bcftools = get_tool_path("bcftools")
+            if bcftools is None:
+                raise WGSExtractError(
+                    "bcftools dependency is required for mtDNA VCF filtering."
+                )
             run_command(
                 [bcftools, "view", "-r", chr_m, "-Oz", "-o", temp_vcf, input_file]
             )
@@ -178,13 +187,13 @@ def cmd_mtdna(args):
                                 print(f"{h:<15} : {d}")
                     elif len(lines) == 1:
                         print(lines[0].strip())
-            except Exception as e:
+            except OSError as e:
                 logging.debug(f"Failed to print Haplogrep results: {e}")
             print("-" * 30 + "\n")
 
-    except Exception as e:
-        if isinstance(e, WGSExtractError):
-            raise
+    except WGSExtractError:
+        raise
+    except (OSError, subprocess.SubprocessError, ValueError) as e:
         raise WGSExtractError(f"Haplogrep failed: {e}") from e
     finally:
         if temp_vcf and os.path.exists(temp_vcf):
@@ -192,11 +201,15 @@ def cmd_mtdna(args):
                 os.remove(temp_vcf)
                 if os.path.exists(temp_vcf + ".tbi"):
                     os.remove(temp_vcf + ".tbi")
-            except Exception:
-                pass
+            except OSError as e:
+                logging.debug(
+                    "Failed to remove temporary Haplogrep VCF %s: %s", temp_vcf, e
+                )
 
 
-def register(subparsers, base_parser):
+def register(
+    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+) -> None:
     parser = subparsers.add_parser("lineage", help="Executes Yleaf or Haplogrep.")
     lin_subs = parser.add_subparsers(dest="lin_cmd", required=True)
 

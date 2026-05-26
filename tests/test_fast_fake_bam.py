@@ -2,6 +2,8 @@ import argparse
 from argparse import Namespace
 from io import StringIO
 
+import pytest
+
 from wgsextract_cli.commands import _qc_bam_writer, _qc_commands, _qc_fake_data
 from wgsextract_cli.commands import qc as _qc_entry
 
@@ -372,3 +374,56 @@ def test_create_fast_fake_bam_streams_sam_to_samtools(monkeypatch, tmp_path):
     assert "\n@SQ\tSN:chr1\tLN:800\n" in sam_text
     assert "\t99\tchr1\t" in sam_text
     assert "\t147\tchr1\t" in sam_text
+
+
+def test_create_fast_fake_bam_kills_samtools_on_unexpected_stream_error(
+    monkeypatch, tmp_path
+):
+    class FailingStdin:
+        def write(self, _data: bytes):
+            raise ValueError("stream interrupted")
+
+        def close(self):
+            pass
+
+    class FakeProcess:
+        def __init__(self):
+            self.stdin = FailingStdin()
+            self._running = True
+            self.killed = False
+            self.waited = False
+
+        def wait(self) -> int:
+            self.waited = True
+            self._running = False
+            return 0
+
+        def poll(self) -> int | None:
+            return None if self._running else 0
+
+        def kill(self):
+            self.killed = True
+            self._running = False
+
+    process = FakeProcess()
+
+    monkeypatch.setattr(qc, "popen", lambda _cmd, stdin: process)
+    monkeypatch.setattr(qc, "get_tool_path", lambda _tool: "samtools")
+
+    def noise(_chrom_idx: int, pos: int, length: int) -> str:
+        source = "ACGT" * ((pos + length + 4) // 4)
+        return source[pos % 4 : pos % 4 + length]
+
+    with pytest.raises(ValueError, match="stream interrupted"):
+        qc._create_fast_fake_bam(
+            str(tmp_path / "fake.bam"),
+            {"chr1": 800},
+            coverage=1.0,
+            seed=7,
+            target_md5=None,
+            get_noise_seq=noise,
+            threads="2",
+        )
+
+    assert process.killed
+    assert process.waited
