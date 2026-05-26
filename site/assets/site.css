@@ -196,6 +196,16 @@ pre {
   align-items: center;
 }
 
+.hero-screenshot {
+  margin: 0;
+}
+
+.hero-screenshot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .page-hero .lede {
   max-width: 850px;
 }
