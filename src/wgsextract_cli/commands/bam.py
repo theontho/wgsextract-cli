@@ -456,8 +456,21 @@ def cmd_unalign(args: argparse.Namespace) -> None:
             if p2.stdout:
                 p2.stdout.close()
             p3.communicate()
-            if p3.returncode != 0:
-                raise WGSExtractError("Unalign failed.")
+            p2_returncode = p2.wait()
+            p1_returncode = p1.wait()
+            failed_stages = [
+                name
+                for name, returncode in (
+                    ("samtools view", p1_returncode),
+                    ("samtools sort", p2_returncode),
+                    ("samtools fastq", p3.returncode),
+                )
+                if returncode != 0
+            ]
+            if failed_stages:
+                raise WGSExtractError(
+                    f"Unalign failed in pipeline stage(s): {', '.join(failed_stages)}."
+                )
         except WGSExtractError:
             raise
         except (OSError, subprocess.SubprocessError) as e:

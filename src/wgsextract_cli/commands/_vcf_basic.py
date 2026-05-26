@@ -56,6 +56,7 @@ def get_base_args(
     if not input_file:
         logging.error(LOG_MESSAGES["input_required"])
         return None
+    args.input = input_file
 
     logging.debug(f"Input file: {os.path.abspath(input_file)}")
 
@@ -323,7 +324,7 @@ def cmd_annotate(args: argparse.Namespace) -> None:
                     found_cols.append("INFO/HG")
                 cols = ",".join(found_cols)
                 logging.info(f"Auto-resolved VCF columns: {cols}")
-            except (OSError, subprocess.SubprocessError, RuntimeError):
+            except (OSError, subprocess.SubprocessError, RuntimeError, WGSExtractError):
                 logging.debug(
                     "Failed to inspect VCF header for annotation columns.",
                     exc_info=True,

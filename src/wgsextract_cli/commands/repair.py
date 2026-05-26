@@ -67,7 +67,9 @@ def repair_bam(args: argparse.Namespace) -> None:
     try:
         # Note: This is designed to be part of a pipe: samtools view -h in.bam | wgsextract-cli repair ftdna-bam | samtools view -b > out.bam
         run_command([sys.executable, script])
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+    except WGSExtractError:
+        raise
+    except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Repair failed: {e}") from e
 
 
@@ -85,7 +87,9 @@ def repair_vcf(args: argparse.Namespace) -> None:
     try:
         # Note: Designed to be part of a pipe: bcftools view in.vcf | wgsextract-cli repair ftdna-vcf > out.vcf
         run_command([sys.executable, script])
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+    except WGSExtractError:
+        raise
+    except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Repair failed: {e}") from e
 
 

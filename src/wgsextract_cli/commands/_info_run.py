@@ -105,6 +105,8 @@ def run(args: argparse.Namespace) -> None:
         try:
             with open(json_cache) as f:
                 data = json.load(f)
+            if not isinstance(data, dict):
+                data = {}
             # If we only wanted fast mode and we have it, we can return early
             if not args.detailed and data.get("avg_read_len"):
                 logging.debug("Cache hit for fast metrics.")
@@ -289,6 +291,8 @@ def run(args: argparse.Namespace) -> None:
                 try:
                     with open(sample_file) as f:
                         coverage_map = json.load(f)
+                    if not isinstance(coverage_map, dict):
+                        coverage_map = {}
                 except (OSError, json.JSONDecodeError, TypeError) as exc:
                     logging.warning(
                         "Failed to read sampled coverage %s: %s", sample_file, exc

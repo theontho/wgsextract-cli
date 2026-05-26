@@ -249,19 +249,21 @@ def ensure_bgzf(
     status_callback: Callable[[str], None] | None = None,
     cancel_event: CancelEvent | None = None,
 ) -> str | None:
-    if is_bgzf(path):
-        logging.info(f"{path} is already in BGZF format.")
-        return path
-
-    if cancel_event and cancel_event.is_set():
-        return None
-
-    logging.info(f"Recompressing {path} to BGZF format (required for fast access)...")
-    if status_callback:
-        status_callback("Processing: Recompressing (BGZF)...")
-
     tmp_path = path + ".tmp.gz"
     try:
+        if is_bgzf(path):
+            logging.info(f"{path} is already in BGZF format.")
+            return path
+
+        if cancel_event and cancel_event.is_set():
+            return None
+
+        logging.info(
+            f"Recompressing {path} to BGZF format (required for fast access)..."
+        )
+        if status_callback:
+            status_callback("Processing: Recompressing (BGZF)...")
+
         if path.endswith(".gz"):
             with open(tmp_path, "wb") as f_out:
                 p1 = popen(["gunzip", "-c", path], stdout=subprocess.PIPE)

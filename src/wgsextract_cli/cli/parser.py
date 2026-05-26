@@ -194,15 +194,24 @@ def run_config(args: argparse.Namespace) -> None:
         current_val = settings.get(key)
         if current_val is not None:
             status = "[SET]"
-            val_str = str(current_val)
+            val_str = _display_config_value(key, current_val)
         else:
             status = "[DEFAULT/UNSET]"
-            val_str = str(default) if default is not None else "None"
+            val_str = _display_config_value(key, default)
 
         print(f"{key:<20} {val_str:<30} {status}")
 
     if not config_path.exists():
         bootstrap_default_config(config_path)
+
+
+def _display_config_value(key: str, value: object) -> str:
+    if value is None:
+        return "None"
+    sensitive_markers = ("token", "secret", "credential", "password", "key")
+    if any(marker in key.lower() for marker in sensitive_markers):
+        return "<redacted>"
+    return str(value)
 
 
 def bootstrap_default_config(config_path: Path) -> None:
@@ -323,7 +332,13 @@ def _extract_shared_options(
             i += 1
             continue
 
-        raw_value = inline_value if has_inline_value else argv[i + 1]
+        if has_inline_value:
+            raw_value = inline_value
+        elif i + 1 < len(argv):
+            raw_value = argv[i + 1]
+        else:
+            i += 1
+            continue
         values[action.dest] = (
             action.type(raw_value) if callable(action.type) else raw_value
         )

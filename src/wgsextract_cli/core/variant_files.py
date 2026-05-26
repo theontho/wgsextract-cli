@@ -147,6 +147,8 @@ def ensure_vcf_indexed(vcf_path: str) -> None:
         from wgsextract_cli.core.dependencies import get_tool_path
 
         tabix = get_tool_path("tabix")
+        if tabix is None:
+            raise WGSExtractError("tabix dependency is required to index VCF files.")
         logging.info(LOG_MESSAGES["vcf_indexing"].format(path=vcf_path))
         run_command([tabix, "-p", "vcf", vcf_path])
 

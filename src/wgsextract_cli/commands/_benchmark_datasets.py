@@ -55,7 +55,14 @@ def _download_file(
         tmp_path.replace(destination)
     except (OSError, urllib.error.URLError, WGSExtractError) as exc:
         if tmp_path.exists():
-            tmp_path.unlink()
+            try:
+                tmp_path.unlink()
+            except OSError as cleanup_error:
+                logging.warning(
+                    "Failed to remove partial benchmark download %s: %s",
+                    tmp_path,
+                    cleanup_error,
+                )
         raise WGSExtractError(
             f"Failed to download benchmark dataset {destination.name}: {exc}"
         ) from exc

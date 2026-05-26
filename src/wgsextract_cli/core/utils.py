@@ -69,8 +69,8 @@ def _normalize_subprocess_cmd(cmd: str | Sequence[object]) -> list[str]:
         cmd_list = shlex.split(cmd)
     else:
         cmd_list = []
-        for item in cmd:
-            if isinstance(item, str) and item == cmd[0]:
+        for index, item in enumerate(cmd):
+            if index == 0 and isinstance(item, str):
                 cmd_list.extend(split_wrapper_or_keep(item))
             else:
                 cmd_list.append(str(item))

@@ -23,16 +23,18 @@ def get_resource_defaults(
     Logic inspired by Adjust_Mem in program/mainwindow.py.
     """
     if threads_arg is not None:
-        threads = str(threads_arg)
+        threads_count = int(threads_arg)
     else:
-        threads = str(thread_profile_factory().threads)
+        threads_count = int(thread_profile_factory().threads)
+    threads_count = max(1, threads_count)
+    threads = str(threads_count)
 
     if memory_arg is not None:
         memory = str(memory_arg)
     elif psutil:
         total_mem_gb = psutil.virtual_memory().total / (1024**3)
         safe_mem = max(2, int(total_mem_gb * 0.25))
-        mem_per_thread = max(1, safe_mem // int(threads))
+        mem_per_thread = max(1, safe_mem // threads_count)
         memory = f"{mem_per_thread}G"
     else:
         memory = "1G"

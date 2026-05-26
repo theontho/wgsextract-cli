@@ -103,7 +103,7 @@ def install_signal_handlers() -> None:
     def signal_handler(signum: int, frame: FrameType | None) -> None:
         logging.info(f"Received {describe_signal(signum)}, cleaning up...")
         cleanup_processes()
-        sys.exit(0)
+        sys.exit(128 + signum)
 
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)

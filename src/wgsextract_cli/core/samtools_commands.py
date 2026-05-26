@@ -1,5 +1,17 @@
 import platform
+import re
 import shutil
+
+
+def _parse_memory(memory: str) -> tuple[float, str]:
+    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([GgMm])(?:[Bb])?\s*", memory)
+    if not match:
+        raise ValueError(f"Invalid memory value: {memory}")
+    return float(match.group(1)), match.group(2).upper()
+
+
+def _format_memory(amount: float, unit: str) -> str:
+    return f"{amount:g}{unit}"
 
 
 def get_sam_sort_cmd(
@@ -16,13 +28,12 @@ def get_sam_sort_cmd(
     Uses sambamba if available (except on macOS) and format is BAM, else samtools.
     """
     threads_val = int(threads)
-    mem_val = int(memory.rstrip("GgMm"))
-    is_gb = memory.lower().endswith("g")
+    mem_val, mem_unit = _parse_memory(memory)
     is_macos = platform.system() == "Darwin"
 
     if shutil.which("sambamba") and fmt == "BAM" and not is_macos:
         total_mem = mem_val * threads_val
-        total_mem_str = f"{total_mem}G" if is_gb else f"{total_mem}M"
+        total_mem_str = _format_memory(total_mem, mem_unit)
         cmd = [
             "sambamba",
             "sort",
