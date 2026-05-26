@@ -309,6 +309,6 @@ def test_install_mappability_maps_skips_when_complete(tmp_path, monkeypatch):
     def fail_download(*args, **kwargs):
         raise AssertionError("complete mappability map set should not be downloaded")
 
-    monkeypatch.setattr(ref_library.downloads, "download_file", fail_download)
+    monkeypatch.setattr(ref_library.catalog, "download_file", fail_download)
 
     assert ref_library.install_mappability_maps(str(reflib))

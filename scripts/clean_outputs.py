@@ -51,13 +51,28 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     repo_root = Path(__file__).resolve().parent.parent
+    repo_root_resolved = repo_root.resolve()
     for name in args.targets:
         target = repo_root / name
-        if not target.exists():
+        if not target.exists() and not target.is_symlink():
             print(f"skip {target} (does not exist)")
+            continue
+        if target.is_symlink():
+            print(f"skip {target} (symlink; refusing to traverse)")
             continue
         if not target.is_dir():
             print(f"skip {target} (not a directory)")
+            continue
+        try:
+            target_resolved = target.resolve(strict=True)
+        except OSError as exc:
+            print(f"skip {target} ({exc})")
+            continue
+        if (
+            target_resolved != repo_root_resolved
+            and repo_root_resolved not in target_resolved.parents
+        ):
+            print(f"skip {target} (resolves outside repo: {target_resolved})")
             continue
         size = _dir_size(target)
         action = "would remove" if args.dry_run else "removing"

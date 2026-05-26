@@ -6,7 +6,6 @@ import logging
 import os
 import re
 import subprocess
-import zipfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import BinaryIO, Literal, Protocol
@@ -222,7 +221,6 @@ def download_file(
         OSError,
         subprocess.SubprocessError,
         WGSExtractError,
-        zipfile.BadZipFile,
     ) as e:
         logging.error(f"Download error: {e}")
     return False
