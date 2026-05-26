@@ -259,7 +259,7 @@ class TestAlignToolSelection(unittest.TestCase):
 
 class TestRefDownloadValidation(unittest.TestCase):
     def test_directory_output_short_circuits_before_curl(self):
-        from wgsextract_cli.commands import _ref_core_commands as ref
+        from wgsextract_cli.commands.ref import core_commands as ref
 
         args = Namespace(url="http://fake", out=tempfile.mkdtemp())
         try:
@@ -275,7 +275,7 @@ class TestRefDownloadValidation(unittest.TestCase):
             shutil.rmtree(args.out)
 
     def test_ref_download_uses_fallback_downloader_without_curl_requirement(self):
-        from wgsextract_cli.commands import _ref_core_commands as ref
+        from wgsextract_cli.commands.ref import core_commands as ref
 
         args = Namespace(url="http://fake/reference.fa.gz", out="reference.fa.gz")
         with (
@@ -288,7 +288,7 @@ class TestRefDownloadValidation(unittest.TestCase):
         download_file.assert_called_once_with(args.url, args.out)
 
     def test_ref_download_failure_includes_url_and_output_path(self):
-        from wgsextract_cli.commands import _ref_core_commands as ref
+        from wgsextract_cli.commands.ref import core_commands as ref
 
         args = Namespace(url="http://fake/reference.fa.gz", out="reference.fa.gz")
         with patch.object(ref, "download_file", return_value=False):
@@ -914,7 +914,7 @@ class TestCLILogic(unittest.TestCase):
         self.assertEqual(args.outdir, genome_dir)
 
     def test_vcf_filter_prefers_explicit_vcf_input(self):
-        from wgsextract_cli.commands import _vcf_filter_trio as vcf
+        from wgsextract_cli.commands.vcf import filter_trio as vcf
 
         vcf_path = os.path.join(self.test_dir, "sample.vcf.gz")
         with open(vcf_path, "w") as f:
@@ -956,7 +956,7 @@ class TestCLILogic(unittest.TestCase):
         self.assertNotIn(args.input, command)
 
     def test_vcf_filter_raises_on_filter_failure(self):
-        from wgsextract_cli.commands import _vcf_filter_trio as vcf
+        from wgsextract_cli.commands.vcf import filter_trio as vcf
 
         vcf_path = os.path.join(self.test_dir, "sample.vcf.gz")
         with open(vcf_path, "w") as f:
@@ -994,7 +994,7 @@ class TestCLILogic(unittest.TestCase):
                 vcf.cmd_filter(args)
 
     def test_deepvariant_pacbio_model_type(self):
-        from wgsextract_cli.commands import _vcf_deepvariant as vcf
+        from wgsextract_cli.commands.vcf import deepvariant as vcf
 
         bam_path = os.path.join(self.test_dir, "sample.bam")
         ref_path = os.path.join(self.test_dir, "ref.fa")
@@ -1044,7 +1044,7 @@ class TestCLILogic(unittest.TestCase):
         self.assertIn("PACBIO", commands[0])
 
     def test_pbsv_sv_builds_discover_and_call_commands(self):
-        from wgsextract_cli.commands import _vcf_structural as vcf
+        from wgsextract_cli.commands.vcf import structural as vcf
 
         bam_path = os.path.join(self.test_dir, "sample.bam")
         ref_path = os.path.join(self.test_dir, "ref.fa")
@@ -1098,7 +1098,7 @@ class TestCLILogic(unittest.TestCase):
         self.assertEqual(commands[2][:3], ["bcftools", "view", "-Oz"])
 
     def test_pbsv_sv_uncompresses_gzipped_reference_for_call(self):
-        from wgsextract_cli.commands import _vcf_structural as vcf
+        from wgsextract_cli.commands.vcf import structural as vcf
 
         bam_path = os.path.join(self.test_dir, "sample.bam")
         ref_path = os.path.join(self.test_dir, "ref.fa.gz")
@@ -1151,7 +1151,7 @@ class TestCLILogic(unittest.TestCase):
         self.assertEqual(commands[2][-3], plain_ref)
 
     def test_pacbio_sv_falls_back_to_sniffles_when_pbsv_missing(self):
-        from wgsextract_cli.commands import _vcf_structural as vcf
+        from wgsextract_cli.commands.vcf import structural as vcf
 
         args = Namespace(pacbio=True, caller="delly", ccs=False)
 
@@ -1166,7 +1166,7 @@ class TestCLILogic(unittest.TestCase):
         self.assertTrue(args.ccs)
 
     def test_sniffles_sv_builds_command(self):
-        from wgsextract_cli.commands import _vcf_structural as vcf
+        from wgsextract_cli.commands.vcf import structural as vcf
 
         bam_path = os.path.join(self.test_dir, "sample.bam")
         ref_path = os.path.join(self.test_dir, "ref.fa")
@@ -1655,7 +1655,7 @@ class TestReferenceSupportAssets(unittest.TestCase):
 
         with (
             patch.object(constants, "DELLY_MAPPABILITY_MAPS", maps),
-            patch.object(ref_library, "download_file", fake_download),
+            patch.object(ref_library.catalog, "download_file", fake_download),
         ):
             self.assertTrue(
                 ref_library.install_standard_mappability_maps(self.test_dir)
@@ -1692,7 +1692,7 @@ class TestReferenceSupportAssets(unittest.TestCase):
 
         with (
             patch.object(constants, "DELLY_MAPPABILITY_MAPS", maps),
-            patch.object(ref_library, "download_file", fake_download),
+            patch.object(ref_library.catalog, "download_file", fake_download),
         ):
             self.assertFalse(
                 ref_library.install_standard_mappability_maps(self.test_dir)

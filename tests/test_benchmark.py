@@ -4,20 +4,18 @@ from pathlib import Path
 
 import pytest
 
-from wgsextract_cli.commands import (
-    _benchmark_core,
-    _benchmark_datasets,
-    _benchmark_environment,
-    _benchmark_execution,
-    _benchmark_fixtures,
-    _benchmark_heavy,
-    _benchmark_machine,
-    _benchmark_models,
-    _benchmark_qc,
-    _benchmark_reports,
-    _benchmark_setup,
-)
 from wgsextract_cli.commands import benchmark as _benchmark_entry
+from wgsextract_cli.commands.benchmark import core as _benchmark_core
+from wgsextract_cli.commands.benchmark import datasets as _benchmark_datasets
+from wgsextract_cli.commands.benchmark import environment as _benchmark_environment
+from wgsextract_cli.commands.benchmark import execution as _benchmark_execution
+from wgsextract_cli.commands.benchmark import fixtures as _benchmark_fixtures
+from wgsextract_cli.commands.benchmark import heavy as _benchmark_heavy
+from wgsextract_cli.commands.benchmark import machine as _benchmark_machine
+from wgsextract_cli.commands.benchmark import models as _benchmark_models
+from wgsextract_cli.commands.benchmark import qc as _benchmark_qc
+from wgsextract_cli.commands.benchmark import reports as _benchmark_reports
+from wgsextract_cli.commands.benchmark import setup as _benchmark_setup
 
 
 class _ModuleGroup:

@@ -1,4 +1,6 @@
 #!/bin/sh
+# shellcheck disable=SC1007
+# SC1007: `CDPATH= cd "$dir"` intentionally clears CDPATH for one command.
 set -eu
 
 log() {

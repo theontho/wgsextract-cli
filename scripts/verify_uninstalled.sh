@@ -25,7 +25,7 @@ for tool in "${tools[@]}"; do
         # On CI, python3 and openjdk are often pre-installed.
         # We only fail if the specific bioinformatics tools are still present.
         if [[ "$tool" != "python3" && "$tool" != "java" && "$tool" != "openjdk" ]]; then
-            echo "❌ $tool is still present at $(command -v $tool)"
+            echo "❌ $tool is still present at $(command -v "$tool")"
             found_tools+=("$tool")
         else
             echo "⚠️ $tool is still present, but it might be a system default."

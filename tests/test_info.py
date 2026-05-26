@@ -39,14 +39,14 @@ class TestInfoCommand(unittest.TestCase):
             elif v in os.environ:
                 del os.environ[v]
 
-    @patch("wgsextract_cli.commands._info_run.verify_dependencies")
-    @patch("wgsextract_cli.commands._info_run.get_bam_header")
-    @patch("wgsextract_cli.commands._info_run.calculate_bam_md5")
-    @patch("wgsextract_cli.commands._info_run.is_sorted")
-    @patch("wgsextract_cli.commands._info_run.get_file_stats")
-    @patch("wgsextract_cli.commands._info_run.run_body_sample")
-    @patch("wgsextract_cli.commands._info_run.parse_idxstats")
-    @patch("wgsextract_cli.commands._info_run.os.path.exists")
+    @patch("wgsextract_cli.commands.info.runner.verify_dependencies")
+    @patch("wgsextract_cli.commands.info.runner.get_bam_header")
+    @patch("wgsextract_cli.commands.info.runner.calculate_bam_md5")
+    @patch("wgsextract_cli.commands.info.runner.is_sorted")
+    @patch("wgsextract_cli.commands.info.runner.get_file_stats")
+    @patch("wgsextract_cli.commands.info.runner.run_body_sample")
+    @patch("wgsextract_cli.commands.info.runner.parse_idxstats")
+    @patch("wgsextract_cli.commands.info.runner.os.path.exists")
     def test_info_fast_mode(
         self,
         mock_exists,
@@ -119,16 +119,16 @@ class TestInfoCommand(unittest.TestCase):
         self.assertEqual(args.outdir, tmpdir)
         self.assertEqual(args.ref, "reference")
 
-    @patch("wgsextract_cli.commands._info_run.verify_dependencies")
-    @patch("wgsextract_cli.commands._info_run.get_bam_header")
-    @patch("wgsextract_cli.commands._info_run.calculate_bam_md5")
-    @patch("wgsextract_cli.commands._info_run.is_sorted")
-    @patch("wgsextract_cli.commands._info_run.get_file_stats")
-    @patch("wgsextract_cli.commands._info_run.run_body_sample")
-    @patch("wgsextract_cli.commands._info_run.parse_idxstats")
-    @patch("wgsextract_cli.commands._info_run.os.path.exists")
-    @patch("wgsextract_cli.commands._info_run.os.path.getsize")
-    @patch("wgsextract_cli.commands._info_run.open", create=True)
+    @patch("wgsextract_cli.commands.info.runner.verify_dependencies")
+    @patch("wgsextract_cli.commands.info.runner.get_bam_header")
+    @patch("wgsextract_cli.commands.info.runner.calculate_bam_md5")
+    @patch("wgsextract_cli.commands.info.runner.is_sorted")
+    @patch("wgsextract_cli.commands.info.runner.get_file_stats")
+    @patch("wgsextract_cli.commands.info.runner.run_body_sample")
+    @patch("wgsextract_cli.commands.info.runner.parse_idxstats")
+    @patch("wgsextract_cli.commands.info.runner.os.path.exists")
+    @patch("wgsextract_cli.commands.info.runner.os.path.getsize")
+    @patch("wgsextract_cli.commands.info.runner.open", create=True)
     def test_info_detailed_mode(
         self,
         mock_open,
@@ -192,16 +192,16 @@ class TestInfoCommand(unittest.TestCase):
         self.assertIn("Sequencer", output)
         self.assertIn("Illumina NS 6000 (Dante)", output)
 
-    @patch("wgsextract_cli.commands._info_run.verify_dependencies")
-    @patch("wgsextract_cli.commands._info_run.get_bam_header")
-    @patch("wgsextract_cli.commands._info_run.calculate_bam_md5")
-    @patch("wgsextract_cli.commands._info_run.is_sorted")
-    @patch("wgsextract_cli.commands._info_run.get_file_stats")
-    @patch("wgsextract_cli.commands._info_run.run_body_sample")
-    @patch("wgsextract_cli.commands._info_run.parse_idxstats")
-    @patch("wgsextract_cli.commands._info_run.os.path.exists")
-    @patch("wgsextract_cli.commands._info_run.os.path.getsize")
-    @patch("wgsextract_cli.commands._info_run.open", create=True)
+    @patch("wgsextract_cli.commands.info.runner.verify_dependencies")
+    @patch("wgsextract_cli.commands.info.runner.get_bam_header")
+    @patch("wgsextract_cli.commands.info.runner.calculate_bam_md5")
+    @patch("wgsextract_cli.commands.info.runner.is_sorted")
+    @patch("wgsextract_cli.commands.info.runner.get_file_stats")
+    @patch("wgsextract_cli.commands.info.runner.run_body_sample")
+    @patch("wgsextract_cli.commands.info.runner.parse_idxstats")
+    @patch("wgsextract_cli.commands.info.runner.os.path.exists")
+    @patch("wgsextract_cli.commands.info.runner.os.path.getsize")
+    @patch("wgsextract_cli.commands.info.runner.open", create=True)
     def test_info_csv_mode(
         self,
         mock_open,
