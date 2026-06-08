@@ -44,9 +44,21 @@ is_truthy() {
     esac
 }
 
+expand_home_path() {
+    case "$1" in
+        "~"|"~"/*)
+            printf '%s\n' "$HOME${1#\~}"
+            ;;
+        *)
+            printf '%s\n' "$1"
+            ;;
+    esac
+}
+
 download_with_retry() {
     download_url="$1"
     download_output="$2"
+    download_url="$(expand_home_path "$download_url")"
 
     if [ -f "$download_url" ]; then
         cp "$download_url" "$download_output"
@@ -88,10 +100,11 @@ download_source_archive() {
     fi
     if [ -n "$fallback_url" ] && [ "$fallback_url" != "$primary_url" ]; then
         log "Primary source archive download failed; downloading from $fallback_url"
-        download_with_retry "$fallback_url" "$output"
-        return
+        if download_with_retry "$fallback_url" "$output"; then
+            return 0
+        fi
     fi
-    return 1
+    fail "Could not download source archive from $primary_url"
 }
 
 pixi_asset_name() {
@@ -127,11 +140,7 @@ install_embedded_pixi() {
     pixi_version="${PIXI_VERSION:-latest}"
     pixi_repo_url="${PIXI_REPOURL:-https://github.com/prefix-dev/pixi}"
     pixi_home="${WGSEXTRACT_PIXI_HOME:-$INSTALL_DIR/.pixi}"
-    case "$pixi_home" in
-        "~"|"~"/*)
-            pixi_home="$HOME${pixi_home#\~}"
-            ;;
-    esac
+    pixi_home="$(expand_home_path "$pixi_home")"
     pixi_bin_dir="${WGSEXTRACT_PIXI_BIN_DIR:-$pixi_home/bin}"
     pixi_asset="$(pixi_asset_name)"
     if [ "$pixi_version" = "latest" ]; then
@@ -146,16 +155,31 @@ install_embedded_pixi() {
     pixi_extract_dir="$pixi_work_dir/pixi"
     mkdir -p "$pixi_extract_dir" "$pixi_bin_dir"
     if download_with_retry "$pixi_url" "$pixi_archive"; then
-        tar -xzf "$pixi_archive" -C "$pixi_extract_dir"
+        if ! tar -xzf "$pixi_archive" -C "$pixi_extract_dir"; then
+            rm -rf "$pixi_work_dir"
+            fail "Downloaded Pixi archive could not be extracted."
+        fi
         pixi_binary="$(find "$pixi_extract_dir" -type f -name pixi | head -n 1)"
-        [ -n "$pixi_binary" ] || fail "Downloaded Pixi archive did not contain a pixi binary."
-        mv "$pixi_binary" "$pixi_bin_dir/pixi"
+        if [ -z "$pixi_binary" ]; then
+            rm -rf "$pixi_work_dir"
+            fail "Downloaded Pixi archive did not contain a pixi binary."
+        fi
+        if ! mv "$pixi_binary" "$pixi_bin_dir/pixi"; then
+            rm -rf "$pixi_work_dir"
+            fail "Could not install Pixi into $pixi_bin_dir."
+        fi
     else
         pixi_binary_url="${pixi_url%.tar.gz}"
         log "Pixi archive download failed; downloading raw binary from $pixi_binary_url"
-        download_with_retry "$pixi_binary_url" "$pixi_bin_dir/pixi"
+        if ! download_with_retry "$pixi_binary_url" "$pixi_bin_dir/pixi"; then
+            rm -rf "$pixi_work_dir"
+            fail "Could not download Pixi from $pixi_url or $pixi_binary_url"
+        fi
     fi
-    chmod +x "$pixi_bin_dir/pixi"
+    if ! chmod +x "$pixi_bin_dir/pixi"; then
+        rm -rf "$pixi_work_dir"
+        fail "Could not make Pixi executable at $pixi_bin_dir/pixi."
+    fi
     rm -rf "$pixi_work_dir"
     PIXI="$pixi_bin_dir/pixi"
     PIXI_INSTALL_ROOT="$(CDPATH= cd "$pixi_bin_dir/.." && pwd)"
@@ -296,7 +320,25 @@ write_uninstaller() {
 }
 
 json_escape() {
-    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+    printf '%s' "$1" | awk '
+        BEGIN { ORS = "" }
+        NR > 1 { printf "\\n" }
+        {
+            gsub(/\\/, "\\\\")
+            gsub(/"/, "\\\"")
+            gsub(/\t/, "\\t")
+            gsub(/\r/, "\\r")
+            printf "%s", $0
+        }
+    '
+}
+
+open_install_dir() {
+    if [ -n "${WGSEXTRACT_OPEN_COMMAND:-}" ]; then
+        "$WGSEXTRACT_OPEN_COMMAND" "$INSTALL_DIR"
+    else
+        open "$INSTALL_DIR"
+    fi
 }
 
 append_manifest_item() {
@@ -412,13 +454,16 @@ if [ -z "$PIXI" ]; then
         if [ -n "${WGSEXTRACT_PIXI_HOME:-}" ]; then
             install_embedded_pixi
         else
-            curl -fsSL https://pixi.sh/install.sh | sh
-            PIXI_INSTALL_ROOT="$HOME/.pixi"
-            PIXI_BIN_DIR="$HOME/.pixi/bin"
-            if [ -x "$HOME/.pixi/bin/pixi" ]; then
-                PIXI="$HOME/.pixi/bin/pixi"
+            pixi_home="$(expand_home_path "${PIXI_HOME:-$HOME/.pixi}")"
+            PIXI_INSTALL_ROOT="$pixi_home"
+            PIXI_BIN_DIR="$pixi_home/bin"
+            curl -fsSL https://pixi.sh/install.sh | PIXI_HOME="$pixi_home" sh
+            if [ -x "$PIXI_BIN_DIR/pixi" ]; then
+                PIXI="$PIXI_BIN_DIR/pixi"
             elif command_exists pixi; then
                 PIXI="$(command -v pixi)"
+                PIXI_BIN_DIR="$(CDPATH= cd "$(dirname "$PIXI")" && pwd)"
+                PIXI_INSTALL_ROOT="$(CDPATH= cd "$PIXI_BIN_DIR/.." && pwd)"
             else
                 fail "Pixi installation completed, but pixi was not found. Open a new terminal and rerun this installer."
             fi
@@ -478,7 +523,7 @@ case "$OS_NAME" in
     Darwin)
         if ! is_truthy "$NO_OPEN"; then
             log "Opening install directory in Finder..."
-            open "$INSTALL_DIR"
+            open_install_dir
         fi
         ;;
 esac

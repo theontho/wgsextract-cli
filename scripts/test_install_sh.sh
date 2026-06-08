@@ -14,6 +14,7 @@ pixi_cache_dir="$work_dir/pixi-cache"
 pixi_env_dir="$work_dir/pixi-envs"
 fake_bin="$work_dir/fake-bin"
 curl_log="$work_dir/curl.log"
+open_log="$work_dir/open.log"
 release_tag="v0.0.0-installer-test"
 pixi_path="$(command -v pixi)"
 fake_pixi_source="$work_dir/fake-pixi-src"
@@ -124,6 +125,14 @@ esac
 SH
 chmod +x "$fake_bin/curl"
 
+cat > "$fake_bin/open-install-dir" <<'SH'
+#!/bin/sh
+set -eu
+
+printf '%s\n' "$1" >> "${WGSEXTRACT_INSTALLER_TEST_OPEN_LOG:?}"
+SH
+chmod +x "$fake_bin/open-install-dir"
+
 HOME="$home_dir" \
 PATH="$fake_bin:$PATH" \
 PIXI="$pixi_path" \
@@ -173,3 +182,28 @@ test -x "$embedded_install_dir/wgsextract"
 grep -F "/pixi-" "$curl_log" >/dev/null
 grep -F "\"path\":\"$embedded_install_dir/.pixi\"" "$embedded_install_dir/install-manifest.json" >/dev/null
 grep -F "\"type\":\"userPathEntry\"" "$embedded_install_dir/install-manifest.json" >/dev/null
+
+if [ "$(uname -s)" = "Darwin" ]; then
+    interactive_install_dir="$work_dir/interactive-install"
+    interactive_home_dir="$work_dir/interactive-home"
+    rm -f "$curl_log" "$open_log"
+    mkdir -p "$interactive_home_dir"
+
+    HOME="$interactive_home_dir" \
+    PATH="$fake_bin:/usr/bin:/bin" \
+    WGSEXTRACT_INSTALLER_TEST_ARCHIVE="$archive" \
+    WGSEXTRACT_INSTALLER_TEST_PIXI_ARCHIVE="$fake_pixi_archive" \
+    WGSEXTRACT_INSTALLER_TEST_RELEASE_TAG="$release_tag" \
+    WGSEXTRACT_INSTALLER_TEST_CURL_LOG="$curl_log" \
+    WGSEXTRACT_INSTALLER_TEST_OPEN_LOG="$open_log" \
+    WGSEXTRACT_INSTALL_DIR="$interactive_install_dir" \
+    WGSEXTRACT_ARCHIVE_URL="$archive" \
+    WGSEXTRACT_PIXI_HOME="$interactive_install_dir/.pixi" \
+    WGSEXTRACT_PIXI_CACHE_DIR="$interactive_install_dir/.pixi/cache" \
+    WGSEXTRACT_PIXI_ENV_DIR="$interactive_install_dir/app/.pixi/envs" \
+    WGSEXTRACT_OPEN_COMMAND="$fake_bin/open-install-dir" \
+    sh "$repo_root/install.sh"
+
+    test -x "$interactive_install_dir/wgsextract"
+    grep -Fx "$interactive_install_dir" "$open_log" >/dev/null
+fi
