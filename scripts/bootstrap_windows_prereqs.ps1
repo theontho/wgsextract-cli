@@ -27,6 +27,17 @@ function Copy-UrlOrFile {
         return
     }
 
+    $releaseAsset = Resolve-GitHubReleaseAsset -Source $Source
+    if ($releaseAsset) {
+        try {
+            Copy-GitHubReleaseAsset -Asset $releaseAsset -Destination $Destination
+            return
+        }
+        catch {
+            Write-Warning "GitHub API release-asset download failed for ${Source}: $($_.Exception.Message). Falling back to direct URL."
+        }
+    }
+
     $invokeParams = @{
         Uri = $Source
         OutFile = $Destination
@@ -36,6 +47,89 @@ function Copy-UrlOrFile {
         $invokeParams.UseBasicParsing = $true
     }
     Invoke-WebRequest @invokeParams
+}
+
+function Resolve-GitHubReleaseAsset {
+    param([string]$Source)
+
+    try {
+        $uri = [System.Uri]$Source
+    }
+    catch {
+        return $null
+    }
+    if ($uri.Host -ne "github.com") {
+        return $null
+    }
+
+    $path = $uri.AbsolutePath.Trim("/")
+    $taggedMatch = [regex]::Match($path, "^([^/]+)/([^/]+)/releases/download/([^/]+)/(.+)$")
+    $latestMatch = [regex]::Match($path, "^([^/]+)/([^/]+)/releases/latest/download/(.+)$")
+    if ($taggedMatch.Success) {
+        return [pscustomobject]@{
+            ApiUrl = "https://api.github.com/repos/$([System.Uri]::UnescapeDataString($taggedMatch.Groups[1].Value))/$([System.Uri]::UnescapeDataString($taggedMatch.Groups[2].Value))/releases/tags/$([System.Uri]::UnescapeDataString($taggedMatch.Groups[3].Value))"
+            AssetName = [System.Uri]::UnescapeDataString($taggedMatch.Groups[4].Value)
+        }
+    }
+    if ($latestMatch.Success) {
+        return [pscustomobject]@{
+            ApiUrl = "https://api.github.com/repos/$([System.Uri]::UnescapeDataString($latestMatch.Groups[1].Value))/$([System.Uri]::UnescapeDataString($latestMatch.Groups[2].Value))/releases/latest"
+            AssetName = [System.Uri]::UnescapeDataString($latestMatch.Groups[3].Value)
+        }
+    }
+    return $null
+}
+
+function Copy-GitHubReleaseAsset {
+    param(
+        [Parameter(Mandatory = $true)]$Asset,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+
+    $headers = @{
+        Accept = "application/vnd.github+json"
+        "User-Agent" = "wgsextract-cli-installer"
+    }
+    if ($env:GITHUB_TOKEN) {
+        $headers["Authorization"] = "Bearer $env:GITHUB_TOKEN"
+    }
+
+    $release = $null
+    for ($attempt = 1; $attempt -le 5; $attempt += 1) {
+        try {
+            $release = Invoke-RestMethod -UseBasicParsing -Uri $Asset.ApiUrl -Headers $headers -TimeoutSec 60
+            break
+        }
+        catch {
+            if ($attempt -eq 5) { throw }
+            Start-Sleep -Seconds (5 * $attempt)
+        }
+    }
+
+    $releaseAsset = $release.assets | Where-Object { $_.name -eq $Asset.AssetName } | Select-Object -First 1
+    if (-not $releaseAsset) {
+        throw "Release $($release.tag_name) does not include asset $($Asset.AssetName)."
+    }
+
+    $assetHeaders = @{
+        Accept = "application/octet-stream"
+        "User-Agent" = "wgsextract-cli-installer"
+    }
+    if ($env:GITHUB_TOKEN) {
+        $assetHeaders["Authorization"] = "Bearer $env:GITHUB_TOKEN"
+    }
+
+    for ($attempt = 1; $attempt -le 5; $attempt += 1) {
+        try {
+            Invoke-WebRequest -UseBasicParsing -Uri $releaseAsset.url -Headers $assetHeaders -OutFile $Destination -TimeoutSec 600
+            Write-Step "Downloaded $($Asset.AssetName) from GitHub Releases API release $($release.tag_name)."
+            return
+        }
+        catch {
+            if ($attempt -eq 5) { throw }
+            Start-Sleep -Seconds (5 * $attempt)
+        }
+    }
 }
 
 function Add-PathForCurrentProcess {
@@ -131,7 +225,18 @@ function Ensure-Msys2 {
 
         if ($isSelfExtractingArchive) {
             $extractParent = $rootParent
-            $outputArg = '-o"{0}"' -f $extractParent
+            # 7-Zip SFX -o argument: a path that ends with `\` followed by a closing
+            # double-quote (e.g. `-o"C:\"`) is mis-parsed because `\"` is treated as an
+            # escaped quote. Strip the trailing backslash, and only quote when the path
+            # contains whitespace. If trimming somehow empties the path, fall back to
+            # the original extraction parent rather than passing an invalid argument.
+            $normalizedParent = $extractParent.TrimEnd([char[]]@('\','/'))
+            if ([string]::IsNullOrEmpty($normalizedParent)) { $normalizedParent = $extractParent }
+            if ($normalizedParent -match '\s') {
+                $outputArg = "-o`"$normalizedParent`""
+            } else {
+                $outputArg = "-o$normalizedParent"
+            }
             $process = Start-Process -FilePath $installer -ArgumentList @(
                 "-y",
                 $outputArg

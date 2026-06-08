@@ -104,8 +104,8 @@ goto parse_args
 
 :args_done
 set "WGSE_UCRT64_BIN=%WGSE_MSYS2_ROOT%\ucrt64\bin"
-set "PIXI_CACHE_DIR=%CD%\tmp\pixi-cache\windows"
-set "PIXI_PROJECT_ENVIRONMENT_DIR=%CD%\tmp\pixi-envs\windows"
+if not defined PIXI_CACHE_DIR set "PIXI_CACHE_DIR=%CD%\tmp\pixi-cache\windows"
+if not defined PIXI_PROJECT_ENVIRONMENT_DIR set "PIXI_PROJECT_ENVIRONMENT_DIR=%CD%\tmp\pixi-envs\windows"
 set "WGSEXTRACT_TOOL_RUNTIME=pacman"
 set "WGSEXTRACT_PACMAN_UCRT64_BIN=%WGSE_UCRT64_BIN%"
 

@@ -67,6 +67,59 @@ $ScriptText
     }
 }
 
+function Initialize-PacmanKeyring {
+    # Fresh MSYS2 installs need an explicit `pacman-key --init` and
+    # `pacman-key --populate msys2` before any signed `pacman -Sy` operation
+    # will succeed. The first-time bash init can leave the keyring
+    # partially populated (no secret key) and a stale `/var/lib/pacman/db.lck`,
+    # causing `error: failed to synchronize all databases (unable to lock database)`.
+    $gnupgRoot = Join-Path $Msys2Root "etc\pacman.d\gnupg"
+    $marker = Join-Path $gnupgRoot ".wgsextract-keyring-ready"
+    if (Test-Path $marker) { return }
+
+    Write-Host "Triggering MSYS2 first-time initialization..."
+    try { & $script:BashPath -lc "true" 2>&1 | Out-Host } catch { }
+
+    Start-Sleep -Seconds 2
+    $dbLock = Join-Path $Msys2Root "var\lib\pacman\db.lck"
+    if (Test-Path $dbLock) {
+        Write-Host "Removing stale MSYS2 pacman db lock: $dbLock"
+        Remove-Item -LiteralPath $dbLock -Force -ErrorAction SilentlyContinue
+    }
+
+    Write-Host "Initializing MSYS2 pacman keyring..."
+    if (Test-Path $gnupgRoot) {
+        try { Remove-Item -LiteralPath $gnupgRoot -Recurse -Force -ErrorAction Stop } catch { }
+    }
+    Invoke-Msys2Script "pacman-key --init && pacman-key --populate msys2"
+
+    New-Item -ItemType Directory -Force -Path (Split-Path $marker -Parent) | Out-Null
+    Set-Content -LiteralPath $marker -Value (Get-Date).ToString('o') -Encoding ASCII
+}
+
+function Invoke-PacmanCommand {
+    param([string]$ScriptText)
+
+    $dbLock = Join-Path $Msys2Root "var\lib\pacman\db.lck"
+    $attempts = 3
+    for ($i = 1; $i -le $attempts; $i += 1) {
+        if (Test-Path $dbLock) {
+            Write-Host "Removing stale MSYS2 pacman db lock before retry: $dbLock"
+            Remove-Item -LiteralPath $dbLock -Force -ErrorAction SilentlyContinue
+        }
+        try {
+            Invoke-Msys2Script $ScriptText
+            return
+        }
+        catch {
+            if ($i -eq $attempts) { throw }
+            $delay = 5 * $i
+            Write-Host "pacman command failed (attempt $i/$attempts). Retrying in $delay s..."
+            Start-Sleep -Seconds $delay
+        }
+    }
+}
+
 function Install-PacmanPackages {
     param(
         [string]$Description,
@@ -78,7 +131,8 @@ function Install-PacmanPackages {
     }
 
     Write-Host $Description
-    Invoke-Msys2Script ("pacman -Sy --needed --noconfirm " + ($Packages -join " "))
+    Initialize-PacmanKeyring
+    Invoke-PacmanCommand ("pacman -Sy --needed --noconfirm " + ($Packages -join " "))
 }
 
 function Copy-UrlOrFile {
