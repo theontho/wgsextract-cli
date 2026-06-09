@@ -32,19 +32,41 @@ jobs:
 
       - name: Resolve build inputs
         shell: powershell
+        env:
+          INPUT_BWA_VERSION: ${{ inputs.bwa_version }}
+          INPUT_MINIMAP2_VERSION: ${{ inputs.minimap2_version }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          EVENT_RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           $ErrorActionPreference = "Stop"
-          $bwaVersion = "${{ inputs.bwa_version }}"
-          if (-not $bwaVersion) {
-            $bwaVersion = "0.7.19"
+          function Resolve-SafeBuildInput {
+            param(
+              [string]$Name,
+              [string]$Value,
+              [string]$DefaultValue,
+              [switch]$AllowEmpty
+            )
+
+            if (-not $Value) {
+              $Value = $DefaultValue
+            }
+            if (-not $Value) {
+              if ($AllowEmpty) {
+                return ""
+              }
+              throw "$Name is required."
+            }
+            if ($Value -notmatch '^[A-Za-z0-9._-]+$') {
+              throw "$Name contains unsupported characters. Use only letters, digits, '.', '_' or '-'."
+            }
+            return $Value
           }
-          $minimap2Version = "${{ inputs.minimap2_version }}"
-          if (-not $minimap2Version) {
-            $minimap2Version = "2.30"
-          }
-          $releaseTag = "${{ github.event.release.tag_name }}"
+
+          $bwaVersion = Resolve-SafeBuildInput -Name "bwa_version" -Value $env:INPUT_BWA_VERSION -DefaultValue "0.7.19"
+          $minimap2Version = Resolve-SafeBuildInput -Name "minimap2_version" -Value $env:INPUT_MINIMAP2_VERSION -DefaultValue "2.30"
+          $releaseTag = Resolve-SafeBuildInput -Name "release_tag" -Value $env:EVENT_RELEASE_TAG -DefaultValue "" -AllowEmpty
           if (-not $releaseTag) {
-            $releaseTag = "${{ inputs.release_tag }}"
+            $releaseTag = Resolve-SafeBuildInput -Name "release_tag" -Value $env:INPUT_RELEASE_TAG -DefaultValue "" -AllowEmpty
           }
           "BWA_VERSION=$bwaVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "MINIMAP2_VERSION=$minimap2Version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append

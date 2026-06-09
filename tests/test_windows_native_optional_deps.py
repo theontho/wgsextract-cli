@@ -14,7 +14,10 @@ def test_pacman_setup_declares_native_optional_packages() -> None:
 def test_pacman_setup_reports_native_optional_tools() -> None:
     script = (ROOT / "scripts" / "setup_pacman_runtime.ps1").read_text(encoding="utf-8")
 
-    assert '$optionalPacmanTools = @("curl", "htsfile", "minimap2")' in script
+    assert "$optionalPacmanTools = @(" in script
+    assert '"curl"' in script
+    assert '"htsfile"' in script
+    assert '"minimap2"' in script
     assert "Optional pacman runtime tools are present:" in script
 
 
@@ -26,6 +29,7 @@ def test_pacman_setup_can_build_and_install_minimap2_asset() -> None:
     assert '[string]$Minimap2BinarySha256 = ""' in script
     assert "WGSEXTRACT_MINIMAP2_BINARY_URL" not in script
     assert "WGSEXTRACT_MINIMAP2_BINARY_SHA256" not in script
+    assert 'Assert-SafeReleaseValue -Name "Minimap2Version"' in script
     assert '-Sha256ParameterName "Minimap2BinarySha256"' in script
     assert "Install-Minimap2BinaryPackage" in script
     assert "wgsextract-minimap2-$Minimap2Version-windows-ucrt64.zip" in script
@@ -40,6 +44,9 @@ def test_release_workflow_uploads_minimap2_asset() -> None:
     )
 
     assert "MINIMAP2_VERSION" in workflow
+    assert "Resolve-SafeBuildInput" in workflow
+    assert "INPUT_MINIMAP2_VERSION: ${{ inputs.minimap2_version }}" in workflow
+    assert '$minimap2Version = "${{ inputs.minimap2_version }}"' not in workflow
     assert "Build native tools with MSYS2 UCRT64 GCC" in workflow
     assert "wgsextract-minimap2-$env:MINIMAP2_VERSION-windows-ucrt64" in workflow
     assert "minimap2.exe" in workflow

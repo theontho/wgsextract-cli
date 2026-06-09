@@ -20,6 +20,24 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Assert-SafeReleaseValue {
+    param(
+        [string]$Name,
+        [string]$Value,
+        [switch]$AllowEmpty
+    )
+
+    if (-not $Value) {
+        if ($AllowEmpty) {
+            return
+        }
+        throw "$Name is required."
+    }
+    if ($Value -notmatch '^[A-Za-z0-9._-]+$') {
+        throw "$Name contains unsupported characters. Use only letters, digits, '.', '_' or '-'."
+    }
+}
+
 function Resolve-RepoRelativePath {
     param([string]$Path)
 
@@ -330,6 +348,10 @@ function Install-Minimap2BinaryPackage {
     $expectedSha256 = Resolve-BinaryPackageSha256 -ToolName "minimap2" -BinaryUrl $BinaryUrl -ExplicitSha256 $Minimap2BinarySha256 -Sha256ParameterName "Minimap2BinarySha256"
     Install-ZippedBinaryPackage -ToolName "minimap2" -BinaryUrl $BinaryUrl -DestinationPath $DestinationPath -ExecutableName "minimap2.exe" -ExpectedSha256 $expectedSha256
 }
+
+Assert-SafeReleaseValue -Name "BwaVersion" -Value $BwaVersion
+Assert-SafeReleaseValue -Name "Minimap2Version" -Value $Minimap2Version
+Assert-SafeReleaseValue -Name "ReleaseTag" -Value $ReleaseTag -AllowEmpty
 
 $Msys2Root = [System.IO.Path]::GetFullPath($Msys2Root)
 if (-not $BwaBinaryUrl) {
