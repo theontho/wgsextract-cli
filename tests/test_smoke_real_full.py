@@ -234,7 +234,29 @@ def _target_tab(dataset: RealDataset) -> Path:
 
 
 def _microarray_template_roots(dataset: RealDataset) -> list[str]:
-    return [str(dataset.ref.parent), str(_target_tab(dataset).parent)]
+    ref_root = dataset.ref if dataset.ref.is_dir() else dataset.ref.parent
+    return [str(ref_root), str(_target_tab(dataset).parent)]
+
+
+def test_microarray_template_roots_search_reference_directory(tmp_path: Path) -> None:
+    ref_dir = tmp_path / "reference"
+    target_dir = tmp_path / "microarray"
+    ref_dir.mkdir()
+    target_dir.mkdir()
+    target_tab = target_dir / "targets.tab.gz"
+    target_tab.touch()
+
+    dataset = RealDataset(
+        bam=tmp_path / "sample.bam",
+        vcf=tmp_path / "sample.vcf.gz",
+        ref=ref_dir,
+        target_tab=target_tab,
+        fastq_r1=None,
+        fastq_r2=None,
+        cram=None,
+    )
+
+    assert _microarray_template_roots(dataset) == [str(ref_dir), str(target_dir)]
 
 
 def _require_microarray_templates(dataset: RealDataset) -> None:

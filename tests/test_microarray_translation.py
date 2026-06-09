@@ -227,6 +227,46 @@ class TestMicroarrayTranslation(unittest.TestCase):
 
         self.assertFalse(os.path.exists(out_path))
 
+    def test_partial_template_root_does_not_mask_complete_later_root(self) -> None:
+        """A partial nearby template tree should not hide a complete later root."""
+        partial_root = os.path.join(self.test_dir, "near", "raw_file_templates")
+        complete_root = os.path.join(self.test_dir, "far", "raw_file_templates")
+        os.makedirs(os.path.join(partial_root, "head"), exist_ok=True)
+        os.makedirs(os.path.join(partial_root, "body"), exist_ok=True)
+        os.makedirs(os.path.join(complete_root, "head"), exist_ok=True)
+        os.makedirs(os.path.join(complete_root, "body"), exist_ok=True)
+
+        with open(os.path.join(complete_root, "head", "23andMe_V5.txt"), "w") as f:
+            f.write("# rsid\tchromosome\tposition\tgenotype\n")
+        with open(os.path.join(complete_root, "body", "23andMe_V5_1.txt"), "w") as f:
+            f.write("rs3094315\t1\t752566\n")
+        with open(os.path.join(complete_root, "body", "23andMe_V5_2.txt"), "w") as f:
+            f.write("rs3131972\t1\t752721\n")
+
+        input_hg19 = os.path.join(self.test_dir, "kit_hg19.txt")
+        with open(input_hg19, "w") as f:
+            f.write("rs3094315\t1\t752566\tAG\n")
+            f.write("rs3131972\t1\t752721\tGG\n")
+
+        out_path = os.path.join(self.test_dir, "out_v5.txt")
+        convert_to_vendor_format(
+            "23andMe_V5",
+            input_hg19,
+            out_path,
+            [os.path.dirname(partial_root), os.path.dirname(complete_root)],
+        )
+
+        with open(out_path) as f:
+            lines = [line.strip() for line in f if not line.startswith("#")]
+
+        self.assertEqual(
+            lines,
+            [
+                "rs3094315\t1\t752566\tAG",
+                "rs3131972\t1\t752721\tGG",
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

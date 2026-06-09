@@ -9,6 +9,7 @@ from wgsextract_cli.core.utils import WGSExtractError
 
 TemplateSearchPath = str | os.PathLike[str]
 TemplateSearchInput = TemplateSearchPath | Sequence[TemplateSearchPath | None] | None
+_TEMPLATE_SEARCH_PARENT_LIMIT = 3
 
 
 class TemplateFormat(TypedDict):
@@ -81,7 +82,7 @@ def _iter_template_search_dirs(
         return
 
     search_dirs: Sequence[TemplateSearchPath | None]
-    if isinstance(templates_dir, str | os.PathLike):
+    if isinstance(templates_dir, (str, os.PathLike)):
         search_dirs = (templates_dir,)
     else:
         search_dirs = templates_dir
@@ -91,21 +92,25 @@ def _iter_template_search_dirs(
             yield os.fspath(search_dir)
 
 
-def _resolve_templates_root(templates_dir: TemplateSearchInput) -> str | None:
-    """Resolve the raw_file_templates root from a reference directory or its parents.
+def _resolve_templates_roots(templates_dir: TemplateSearchInput) -> list[str]:
+    """Resolve raw_file_templates roots from reference directories or nearby parents.
 
-    Walks up the directory tree from ``templates_dir`` looking for a sibling
-    ``microarray/raw_file_templates`` or ``raw_file_templates`` directory.
-    Returns ``None`` when no templates can be located, so callers can report the
-    missing dependency without silently searching the current working directory.
+    Searches the provided directories plus a small number of parent directories
+    for sibling ``microarray/raw_file_templates`` or ``raw_file_templates``
+    directories. The bounded walk finds the reference-library layout without
+    accidentally selecting unrelated templates from high-level filesystem roots.
     """
-    visited: set[str] = set()
+    roots: list[str] = []
+    visited_dirs: set[str] = set()
+    seen_roots: set[str] = set()
 
     for search_dir in _iter_template_search_dirs(templates_dir):
         current = os.path.abspath(search_dir)
 
-        while current and current not in visited:
-            visited.add(current)
+        for _ in range(_TEMPLATE_SEARCH_PARENT_LIMIT + 1):
+            if not current or current in visited_dirs:
+                break
+            visited_dirs.add(current)
 
             candidates = [
                 os.path.join(current, "microarray", "raw_file_templates"),
@@ -115,15 +120,58 @@ def _resolve_templates_root(templates_dir: TemplateSearchInput) -> str | None:
                 candidates.insert(0, current)
 
             for candidate in candidates:
-                if os.path.isdir(candidate):
-                    return candidate
+                candidate = os.path.abspath(candidate)
+                if os.path.isdir(candidate) and candidate not in seen_roots:
+                    roots.append(candidate)
+                    seen_roots.add(candidate)
 
             parent = os.path.dirname(current)
             if parent == current:
                 break
             current = parent
 
+    return roots
+
+
+def _resolve_templates_root(templates_dir: TemplateSearchInput) -> str | None:
+    """Resolve the first available raw_file_templates root."""
+    roots = _resolve_templates_roots(templates_dir)
+    if roots:
+        return roots[0]
     return None
+
+
+def _template_body_paths(
+    templates_root: str, format_name: str, fmt_info: TemplateFormat
+) -> list[str]:
+    body_templates = []
+    for i in range(1, fmt_info["parts"] + 1):
+        part_suffix = f"_{i}" if fmt_info["parts"] > 1 else ""
+        template_name = f"{format_name}{part_suffix}{fmt_info['suffix']}"
+        body_templates.append(os.path.join(templates_root, "body", template_name))
+    return body_templates
+
+
+def _resolve_templates_for_format(
+    templates_dir: TemplateSearchInput, format_name: str, fmt_info: TemplateFormat
+) -> tuple[str, list[str]]:
+    roots = _resolve_templates_roots(templates_dir)
+    if not roots:
+        raise WGSExtractError(
+            f"Microarray templates not found near {templates_dir!r}; "
+            f"cannot generate {format_name} output."
+        )
+
+    first_missing: str | None = None
+    for templates_root in roots:
+        body_templates = _template_body_paths(templates_root, format_name, fmt_info)
+        missing = [path for path in body_templates if not os.path.exists(path)]
+        if not missing:
+            return templates_root, body_templates
+        if first_missing is None:
+            first_missing = missing[0]
+
+    raise WGSExtractError(f"Template body not found: {first_missing}")
 
 
 def liftover_hg38_to_hg19(
@@ -203,12 +251,12 @@ def liftover_hg38_to_hg19(
             f.writelines(headers)
         # 2. Fallback: If no headers and templates_dir provided, try finding 23andMe_V3 head
         elif templates_dir:
-            templates_root = _resolve_templates_root(templates_dir)
-            if templates_root:
+            for templates_root in _resolve_templates_roots(templates_dir):
                 head_path = os.path.join(templates_root, "head", "23andMe_V3.txt")
                 if os.path.exists(head_path):
                     with open(head_path) as f_h:
                         f.writelines(f_h.readlines())
+                    break
 
         for parts in data:
             f.write("\t".join(parts) + "\n")
@@ -293,13 +341,6 @@ def convert_to_vendor_format(
         logging.warning(f"Unknown format: {format_name}, using generic fallback.")
         fmt_info = {"suffix": ".txt", "parts": 1}
 
-    templates_root = _resolve_templates_root(templates_dir)
-    if not templates_root:
-        raise WGSExtractError(
-            f"Microarray templates not found near {templates_dir!r}; "
-            f"cannot generate {format_name} output."
-        )
-
     # Load all called variants into memory for fast lookup
     called_variants: dict[tuple[str, str], str] = {}
     with open(combined_kit_txt) as f:
@@ -311,14 +352,9 @@ def convert_to_vendor_format(
                 # Key is (chrom, pos)
                 called_variants[(str(parts[1]), str(parts[2]))] = parts[3]
 
-    body_templates = []
-    for i in range(1, fmt_info["parts"] + 1):
-        part_suffix = f"_{i}" if fmt_info["parts"] > 1 else ""
-        template_name = f"{format_name}{part_suffix}{fmt_info['suffix']}"
-        body_template = os.path.join(templates_root, "body", template_name)
-        if not os.path.exists(body_template):
-            raise WGSExtractError(f"Template body not found: {body_template}")
-        body_templates.append(body_template)
+    templates_root, body_templates = _resolve_templates_for_format(
+        templates_dir, format_name, fmt_info
+    )
 
     # Handle multiple parts (concatenated at the end)
     temp_files: list[str] = []

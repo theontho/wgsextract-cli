@@ -12,6 +12,7 @@ from wgsextract_cli.core.microarray_utils import (
     liftover_hg38_to_hg19,
     write_formatted_line,
 )
+from wgsextract_cli.core.utils import WGSExtractError
 
 
 class FakeProcess:
@@ -119,6 +120,30 @@ def test_microarray_uses_diploid_ploidy_for_reference_model_aliases(
 )
 def test_microarray_format_aliases_match_template_names(format_key, expected):
     assert microarray._resolve_microarray_format(format_key) == expected
+
+
+def test_convert_microarray_outputs_preserves_vendor_wgsextract_error(tmp_path):
+    combined_kit = tmp_path / "sample_CombinedKit.txt"
+    ref_fasta = tmp_path / "ref.fa"
+    combined_kit.write_text("rs1\t1\t100\tAA\n")
+    ref_fasta.touch()
+    args = SimpleNamespace(formats="23andme_v5")
+    lib = SimpleNamespace(root=str(tmp_path), build="GRCh37")
+
+    with patch(
+        "wgsextract_cli.core.microarray_utils.convert_to_vendor_format",
+        side_effect=WGSExtractError("Template body not found: specific-template"),
+    ):
+        with pytest.raises(WGSExtractError, match="specific-template"):
+            microarray._convert_microarray_outputs(
+                args=args,
+                outdir=str(tmp_path),
+                base_name="sample",
+                lib=lib,
+                combined_kit_txt=str(combined_kit),
+                ref_fasta=str(ref_fasta),
+                start_total=0.0,
+            )
 
 
 def test_combined_kit_vcf_mode_preserves_existing_mt_chromosome(tmp_path):

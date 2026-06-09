@@ -129,9 +129,12 @@ def _convert_microarray_outputs(
                 real_fmt, final_txt, output_file, template_search_roots
             )
             logging.info(f"Generated {output_file}")
-        except (OSError, ValueError, WGSExtractError) as e:
+        except WGSExtractError as e:
             logging.error(f"Failed to generate {real_fmt}: {e}")
-            raise WGSExtractError(f"Failed to generate {real_fmt}.") from e
+            raise
+        except (OSError, ValueError) as e:
+            logging.error(f"Failed to generate {real_fmt}: {e}")
+            raise WGSExtractError(f"Failed to generate {real_fmt}: {e}") from e
     fmt_duration = time.time() - start_fmt
     logging.info(f"Format conversion (all) took {fmt_duration:.2f}s")
 
