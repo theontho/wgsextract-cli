@@ -33,6 +33,184 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+is_truthy() {
+    case "$1" in
+        1|true|TRUE|yes|YES|on|ON)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+expand_home_path() {
+    case "$1" in
+        "~"|"~"/*)
+            printf '%s\n' "$HOME${1#\~}"
+            ;;
+        *)
+            printf '%s\n' "$1"
+            ;;
+    esac
+}
+
+download_with_retry() {
+    download_url="$1"
+    download_output="$2"
+    download_url="$(expand_home_path "$download_url")"
+
+    if [ -f "$download_url" ]; then
+        cp "$download_url" "$download_output"
+        return
+    fi
+
+    if [ -t 2 ]; then
+        curl -fL --progress-bar --retry 5 --retry-delay 2 -o "$download_output" "$download_url"
+    else
+        curl -fL --silent --show-error --retry 5 --retry-delay 2 -o "$download_output" "$download_url"
+    fi
+}
+
+github_codeload_url() {
+    repo_url="$1"
+    ref="$2"
+    case "$repo_url" in
+        https://github.com/*/*)
+            repo_path="${repo_url#https://github.com/}"
+            repo_path="${repo_path%.git}"
+            owner="${repo_path%%/*}"
+            repo_name="${repo_path#*/}"
+            repo_name="${repo_name%%/*}"
+            printf 'https://codeload.github.com/%s/%s/tar.gz/%s\n' "$owner" "$repo_name" "$ref"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+download_source_archive() {
+    primary_url="$1"
+    fallback_url="${2:-}"
+    output="$3"
+
+    if download_with_retry "$primary_url" "$output"; then
+        return 0
+    fi
+    if [ -n "$fallback_url" ] && [ "$fallback_url" != "$primary_url" ]; then
+        log "Primary source archive download failed; downloading from $fallback_url"
+        if download_with_retry "$fallback_url" "$output"; then
+            return 0
+        fi
+    fi
+    fail "Could not download source archive from $primary_url"
+}
+
+pixi_asset_name() {
+    platform="$(uname -s)"
+    arch="${PIXI_ARCH:-$(uname -m)}"
+    case "$platform" in
+        Darwin)
+            platform="apple-darwin"
+            ;;
+        Linux)
+            if [ "$arch" = "riscv64" ]; then
+                platform="unknown-linux-gnu"
+            else
+                platform="unknown-linux-musl"
+            fi
+            ;;
+        *)
+            fail "Unsupported Pixi install platform: $platform"
+            ;;
+    esac
+    case "$arch" in
+        arm64|aarch64)
+            arch="aarch64"
+            ;;
+        riscv64)
+            arch="riscv64gc"
+            ;;
+    esac
+    printf 'pixi-%s-%s.tar.gz' "$arch" "$platform"
+}
+
+install_embedded_pixi() {
+    pixi_version="${PIXI_VERSION:-latest}"
+    pixi_repo_url="${PIXI_REPOURL:-https://github.com/prefix-dev/pixi}"
+    pixi_home="${WGSEXTRACT_PIXI_HOME:-$INSTALL_DIR/.pixi}"
+    pixi_home="$(expand_home_path "$pixi_home")"
+    pixi_bin_dir="${WGSEXTRACT_PIXI_BIN_DIR:-$pixi_home/bin}"
+    pixi_asset="$(pixi_asset_name)"
+    if [ "$pixi_version" = "latest" ]; then
+        pixi_url="${PIXI_DOWNLOAD_URL:-${pixi_repo_url%/}/releases/latest/download/$pixi_asset}"
+    else
+        pixi_url="${PIXI_DOWNLOAD_URL:-${pixi_repo_url%/}/releases/download/v${pixi_version#v}/$pixi_asset}"
+    fi
+
+    log "Downloading Pixi from $pixi_url"
+    pixi_work_dir="$(mktemp -d "${TMPDIR:-/tmp}/pixi-install.XXXXXX")"
+    pixi_archive="$pixi_work_dir/$pixi_asset"
+    pixi_extract_dir="$pixi_work_dir/pixi"
+    mkdir -p "$pixi_extract_dir" "$pixi_bin_dir"
+    if download_with_retry "$pixi_url" "$pixi_archive"; then
+        if ! tar -xzf "$pixi_archive" -C "$pixi_extract_dir"; then
+            rm -rf "$pixi_work_dir"
+            fail "Downloaded Pixi archive could not be extracted."
+        fi
+        pixi_binary="$(find "$pixi_extract_dir" -type f -name pixi | head -n 1)"
+        if [ -z "$pixi_binary" ]; then
+            rm -rf "$pixi_work_dir"
+            fail "Downloaded Pixi archive did not contain a pixi binary."
+        fi
+        if ! mv "$pixi_binary" "$pixi_bin_dir/pixi"; then
+            rm -rf "$pixi_work_dir"
+            fail "Could not install Pixi into $pixi_bin_dir."
+        fi
+    else
+        pixi_binary_url="${pixi_url%.tar.gz}"
+        log "Pixi archive download failed; downloading raw binary from $pixi_binary_url"
+        if ! download_with_retry "$pixi_binary_url" "$pixi_bin_dir/pixi"; then
+            rm -rf "$pixi_work_dir"
+            fail "Could not download Pixi from $pixi_url or $pixi_binary_url"
+        fi
+    fi
+    if ! chmod +x "$pixi_bin_dir/pixi"; then
+        rm -rf "$pixi_work_dir"
+        fail "Could not make Pixi executable at $pixi_bin_dir/pixi."
+    fi
+    rm -rf "$pixi_work_dir"
+    PIXI="$pixi_bin_dir/pixi"
+    PIXI_INSTALL_ROOT="$(CDPATH= cd "$pixi_bin_dir/.." && pwd)"
+    PIXI_BIN_DIR="$(CDPATH= cd "$pixi_bin_dir" && pwd)"
+}
+
+verify_xcode_command_line_tools() {
+    [ "$OS_NAME" = "Darwin" ] || return 0
+
+    if ! /usr/bin/xcode-select -p >/dev/null 2>&1; then
+        cat >&2 <<'EOF'
+Error: Xcode Command Line Tools are required on macOS.
+Install them with `xcode-select --install`, then rerun this installer.
+EOF
+        exit 1
+    fi
+
+    if ! /usr/bin/xcrun --find clang >/dev/null 2>&1; then
+        developer_dir="$(/usr/bin/xcode-select -p 2>/dev/null || true)"
+        cat >&2 <<EOF
+Error: Xcode Command Line Tools are selected but clang is not available.
+Selected developer directory: ${developer_dir:-unknown}
+Run \`sudo xcode-select --reset\` or reinstall with \`xcode-select --install\`, then rerun this installer.
+EOF
+        exit 1
+    fi
+
+    developer_dir="$(/usr/bin/xcode-select -p)"
+    log "Xcode Command Line Tools are available: $developer_dir"
+}
+
 resolve_latest_release_tag() {
     latest_url="$REPO_URL/releases/latest"
     effective_url="$(curl -fsIL -o /dev/null -w '%{url_effective}' "$latest_url")" || fail "Could not resolve latest release from $latest_url. To bypass latest-release resolution, set WGSEXTRACT_RELEASE_TAG=<tag>, WGSEXTRACT_REF=main, or WGSEXTRACT_ARCHIVE_URL=<url>."
@@ -89,6 +267,7 @@ PIXI_CACHE_DIR="$(absolute_path "${WGSEXTRACT_PIXI_CACHE_DIR:-$DEFAULT_PIXI_CACH
 PIXI_ENV_DIR="$(absolute_path "${WGSEXTRACT_PIXI_ENV_DIR:-$DEFAULT_PIXI_ENV_DIR}")"
 UNINSTALL_SH="$INSTALL_DIR/uninstall.sh"
 ARCHIVE_URL="${WGSEXTRACT_ARCHIVE_URL:-}"
+NO_OPEN="${WGSEXTRACT_NO_OPEN:-0}"
 
 uses_default_pixi_layout() {
     [ "$PIXI_CACHE_DIR" = "$DEFAULT_PIXI_CACHE_DIR" ] && [ "$PIXI_ENV_DIR" = "$DEFAULT_PIXI_ENV_DIR" ]
@@ -140,6 +319,51 @@ write_uninstaller() {
     chmod +x "$UNINSTALL_SH"
 }
 
+json_escape() {
+    printf '%s' "$1" | awk '
+        BEGIN { ORS = "" }
+        NR > 1 { printf "\\n" }
+        {
+            gsub(/\\/, "\\\\")
+            gsub(/"/, "\\\"")
+            gsub(/\t/, "\\t")
+            gsub(/\r/, "\\r")
+            printf "%s", $0
+        }
+    '
+}
+
+open_install_dir() {
+    if [ -n "${WGSEXTRACT_OPEN_COMMAND:-}" ]; then
+        "$WGSEXTRACT_OPEN_COMMAND" "$INSTALL_DIR"
+    else
+        open "$INSTALL_DIR"
+    fi
+}
+
+append_manifest_item() {
+    if [ -n "$manifest_items" ]; then
+        manifest_items="$manifest_items,"
+    fi
+    manifest_items="$manifest_items$1"
+}
+
+write_install_manifest() {
+    manifest_path="$INSTALL_DIR/install-manifest.json"
+    manifest_items=""
+    if [ "$PIXI_INSTALLED_BY_SETUP" = "1" ]; then
+        if [ -n "$PIXI_INSTALL_ROOT" ]; then
+            append_manifest_item "{\"type\":\"directory\",\"path\":\"$(json_escape "$PIXI_INSTALL_ROOT")\",\"ownedBy\":\"install.sh\"}"
+        fi
+        if [ -n "$PIXI_BIN_DIR" ]; then
+            append_manifest_item "{\"type\":\"userPathEntry\",\"path\":\"$(json_escape "$PIXI_BIN_DIR")\",\"ownedBy\":\"install.sh\"}"
+        fi
+    fi
+    created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf '{\n  "format": 1,\n  "createdAt": "%s",\n  "wgsextractRef": "%s",\n  "items": [%s]\n}\n' \
+        "$created_at" "$(json_escape "${REF:-$REQUESTED_REF}")" "$manifest_items" > "$manifest_path"
+}
+
 remove_legacy_bin_launcher() {
     legacy_launcher="$INSTALL_DIR/bin/wgsextract"
     if [ "$LAUNCHER" != "$legacy_launcher" ]; then
@@ -168,7 +392,9 @@ esac
 command_exists curl || fail "curl is required to download the installer payload."
 command_exists tar || fail "tar is required to extract the installer payload."
 command_exists gzip || fail "gzip is required to extract the installer payload."
+verify_xcode_command_line_tools
 
+ARCHIVE_FALLBACK_URL=""
 if [ -z "$ARCHIVE_URL" ]; then
     case "$REQUESTED_REF" in
         ""|latest)
@@ -179,6 +405,7 @@ if [ -z "$ARCHIVE_URL" ]; then
             ;;
     esac
     ARCHIVE_URL="$REPO_URL/archive/$REF.tar.gz"
+    ARCHIVE_FALLBACK_URL="$(github_codeload_url "$REPO_URL" "$REF" || true)"
 else
     REF="${REQUESTED_REF:-custom}"
 fi
@@ -197,7 +424,9 @@ case "$OS_NAME" in
         log "  5. Create the uninstaller:"
         log "     $UNINSTALL_SH"
         log "  6. Verify the app starts and required dependencies are visible."
-        log "  7. Open the install folder in Finder when finished."
+        if ! is_truthy "$NO_OPEN"; then
+            log "  7. Open the install folder in Finder when finished."
+        fi
         ;;
     Linux)
         log "  5. Create the uninstaller:"
@@ -208,6 +437,9 @@ esac
 log ""
 
 PIXI="${PIXI:-}"
+PIXI_INSTALLED_BY_SETUP=0
+PIXI_INSTALL_ROOT=""
+PIXI_BIN_DIR=""
 if [ -n "$PIXI" ] && [ ! -x "$PIXI" ]; then
     fail "PIXI is set but is not executable: $PIXI"
 fi
@@ -219,14 +451,24 @@ if [ -z "$PIXI" ]; then
         PIXI="$HOME/.pixi/bin/pixi"
     else
         log "Installing Pixi..."
-        curl -fsSL https://pixi.sh/install.sh | sh
-        if [ -x "$HOME/.pixi/bin/pixi" ]; then
-            PIXI="$HOME/.pixi/bin/pixi"
-        elif command_exists pixi; then
-            PIXI="$(command -v pixi)"
+        if [ -n "${WGSEXTRACT_PIXI_HOME:-}" ]; then
+            install_embedded_pixi
         else
-            fail "Pixi installation completed, but pixi was not found. Open a new terminal and rerun this installer."
+            pixi_home="$(expand_home_path "${PIXI_HOME:-$HOME/.pixi}")"
+            PIXI_INSTALL_ROOT="$pixi_home"
+            PIXI_BIN_DIR="$pixi_home/bin"
+            curl -fsSL https://pixi.sh/install.sh | PIXI_HOME="$pixi_home" sh
+            if [ -x "$PIXI_BIN_DIR/pixi" ]; then
+                PIXI="$PIXI_BIN_DIR/pixi"
+            elif command_exists pixi; then
+                PIXI="$(command -v pixi)"
+                PIXI_BIN_DIR="$(CDPATH= cd "$(dirname "$PIXI")" && pwd)"
+                PIXI_INSTALL_ROOT="$(CDPATH= cd "$PIXI_BIN_DIR/.." && pwd)"
+            else
+                fail "Pixi installation completed, but pixi was not found. Open a new terminal and rerun this installer."
+            fi
         fi
+        PIXI_INSTALLED_BY_SETUP=1
     fi
 fi
 
@@ -242,11 +484,7 @@ EXTRACT_DIR="$WORK_DIR/source"
 mkdir -p "$EXTRACT_DIR"
 
 log "Downloading WGS Extract CLI from $ARCHIVE_URL"
-if [ -t 2 ]; then
-    curl -fL --progress-bar --retry 3 --retry-delay 2 -o "$ARCHIVE" "$ARCHIVE_URL"
-else
-    curl -fL --silent --show-error --retry 3 --retry-delay 2 -o "$ARCHIVE" "$ARCHIVE_URL"
-fi
+download_source_archive "$ARCHIVE_URL" "$ARCHIVE_FALLBACK_URL" "$ARCHIVE"
 tar -xzf "$ARCHIVE" -C "$EXTRACT_DIR"
 
 SOURCE_DIR="$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
@@ -271,6 +509,7 @@ write_cli_launcher
 remove_legacy_gui_launchers
 write_uninstaller
 remove_legacy_bin_launcher
+write_install_manifest
 if uses_default_pixi_layout; then
     rm -rf "$INSTALL_DIR/pixi-cache" "$INSTALL_DIR/pixi-envs"
 fi
@@ -282,8 +521,10 @@ log "Checking installation..."
 
 case "$OS_NAME" in
     Darwin)
-        log "Opening install directory in Finder..."
-        open "$INSTALL_DIR"
+        if ! is_truthy "$NO_OPEN"; then
+            log "Opening install directory in Finder..."
+            open_install_dir
+        fi
         ;;
 esac
 
