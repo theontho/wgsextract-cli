@@ -15,6 +15,7 @@ from wgsextract_cli.core.microarray_utils import (  # noqa: E402
     convert_to_vendor_format,
     liftover_hg38_to_hg19,
 )
+from wgsextract_cli.core.utils import WGSExtractError  # noqa: E402
 
 
 class TestMicroarrayTranslation(unittest.TestCase):
@@ -23,7 +24,7 @@ class TestMicroarrayTranslation(unittest.TestCase):
     Verifies coordinate shifts and chromosome normalization.
     """
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.test_dir = tempfile.mkdtemp(prefix="wgse_trans_test_")
 
         # We need a real chain file for pyliftover to work.
@@ -34,13 +35,8 @@ class TestMicroarrayTranslation(unittest.TestCase):
 
         if not os.path.exists(self.chain_file):
             # Fallback to standard workspace location
-            repo_root = Path(__file__).resolve().parent.parent.parent
+            repo_root = Path(__file__).resolve().parent.parent
             self.chain_file = str(repo_root / "reference" / "hg38ToHg19.over.chain.gz")
-
-        if not os.path.exists(self.chain_file):
-            self.skipTest(
-                f"Liftover chain file not found at {self.chain_file}. Skipping translation verification."
-            )
 
         # Templates dir for vendor formatting
         self.templates_dir = os.environ.get("WGSE_REFERENCE_FASTA", "")
@@ -51,19 +47,24 @@ class TestMicroarrayTranslation(unittest.TestCase):
                 if not os.path.exists(
                     os.path.join(self.templates_dir, "raw_file_templates")
                 ):
-                    repo_root = Path(__file__).resolve().parent.parent.parent
+                    repo_root = Path(__file__).resolve().parent.parent
                     self.templates_dir = str(repo_root / "reference" / "microarray")
         else:
-            repo_root = Path(__file__).resolve().parent.parent.parent
+            repo_root = Path(__file__).resolve().parent.parent
             self.templates_dir = str(repo_root / "reference" / "microarray")
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         shutil.rmtree(self.test_dir)
 
-    def test_hg38_to_hg19_coordinate_shift(self):
+    def test_hg38_to_hg19_coordinate_shift(self) -> None:
         """
         Verify that specific hg38 coordinates are shifted to correct hg19 positions.
         """
+        if not os.path.exists(self.chain_file):
+            self.skipTest(
+                f"Liftover chain file not found at {self.chain_file}. Skipping translation verification."
+            )
+
         # Create a mock hg38 CombinedKit.txt
         # Format: ID, CHROM, POS, RESULT
         # rs3094315: hg38=817186 -> hg19=752566
@@ -105,7 +106,7 @@ class TestMicroarrayTranslation(unittest.TestCase):
             results["mt_test"][1], "MT", "Mito chromosome normalization failed"
         )
 
-    def test_vendor_formatting_preservation(self):
+    def test_vendor_formatting_preservation(self) -> None:
         """
         Verify that genotypes and RSIDs are preserved when converting to vendor format.
         """
@@ -151,6 +152,80 @@ class TestMicroarrayTranslation(unittest.TestCase):
         self.assertEqual(
             results["rs3131972"][3], "GG", "Genotype lost in vendor conversion"
         )
+
+    def test_vendor_formatting_finds_templates_from_reference_genomes_dir(self) -> None:
+        """Ensure vendor templates are found when the FASTA lives under genomes/."""
+        ref_root = os.path.join(self.test_dir, "reference")
+        genomes_dir = os.path.join(ref_root, "genomes")
+        templates_root = os.path.join(ref_root, "microarray", "raw_file_templates")
+        os.makedirs(genomes_dir, exist_ok=True)
+        os.makedirs(os.path.join(templates_root, "head"), exist_ok=True)
+        os.makedirs(os.path.join(templates_root, "body"), exist_ok=True)
+
+        with open(os.path.join(templates_root, "head", "23andMe_V5.txt"), "w") as f:
+            f.write("# rsid\tchromosome\tposition\tgenotype\n")
+        with open(os.path.join(templates_root, "body", "23andMe_V5_1.txt"), "w") as f:
+            f.write("rs3094315\t1\t752566\n")
+        with open(os.path.join(templates_root, "body", "23andMe_V5_2.txt"), "w") as f:
+            f.write("rs3131972\t1\t752721\n")
+
+        input_hg19 = os.path.join(self.test_dir, "kit_hg19.txt")
+        with open(input_hg19, "w") as f:
+            f.write("rs3094315\t1\t752566\tAG\n")
+            f.write("rs3131972\t1\t752721\tGG\n")
+
+        out_23andme = os.path.join(self.test_dir, "23andme_v5.txt")
+
+        convert_to_vendor_format(
+            "23andMe_V5",
+            input_hg19,
+            out_23andme,
+            genomes_dir,
+        )
+
+        with open(out_23andme) as f:
+            lines = [line.strip() for line in f if not line.startswith("#")]
+
+        self.assertEqual(len(lines), 2)
+        self.assertIn("rs3094315\t1\t752566\tAG", lines)
+        self.assertIn("rs3131972\t1\t752721\tGG", lines)
+
+    def test_vendor_formatting_errors_when_templates_are_missing(self) -> None:
+        """When templates_dir is empty/None or missing, fail without output."""
+        input_hg19 = os.path.join(self.test_dir, "kit_hg19.txt")
+        with open(input_hg19, "w") as f:
+            f.write("rs3094315\t1\t752566\tAG\n")
+
+        for i, templates_dir in enumerate(
+            (None, "", os.path.join(self.test_dir, "nonexistent"))
+        ):
+            out_path = os.path.join(self.test_dir, f"out_{i}.txt")
+            with self.assertRaisesRegex(
+                WGSExtractError, "Microarray templates not found"
+            ):
+                convert_to_vendor_format(
+                    "23andMe_V5",
+                    input_hg19,
+                    out_path,
+                    templates_dir,
+                )
+            self.assertFalse(os.path.exists(out_path))
+
+    def test_vendor_formatting_errors_when_body_template_is_missing(self) -> None:
+        """A partial template set should fail instead of creating empty parts."""
+        templates_root = os.path.join(self.test_dir, "raw_file_templates")
+        os.makedirs(os.path.join(templates_root, "head"), exist_ok=True)
+        os.makedirs(os.path.join(templates_root, "body"), exist_ok=True)
+
+        input_hg19 = os.path.join(self.test_dir, "kit_hg19.txt")
+        with open(input_hg19, "w") as f:
+            f.write("rs3094315\t1\t752566\tAG\n")
+
+        out_path = os.path.join(self.test_dir, "out_missing_body.txt")
+        with self.assertRaisesRegex(WGSExtractError, "Template body not found"):
+            convert_to_vendor_format("23andMe_V5", input_hg19, out_path, self.test_dir)
+
+        self.assertFalse(os.path.exists(out_path))
 
 
 if __name__ == "__main__":

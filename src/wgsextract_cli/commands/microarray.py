@@ -60,6 +60,16 @@ def _resolve_microarray_format(format_key: str) -> str | None:
     return _MICROARRAY_TEMPLATE_MAP.get(normalized, normalized)
 
 
+def _template_search_roots(ref_fasta: str, lib: ReferenceLibrary) -> list[str]:
+    roots = []
+    ref_dir = os.path.dirname(ref_fasta)
+    if ref_dir:
+        roots.append(ref_dir)
+    if lib.root and lib.root not in roots:
+        roots.append(lib.root)
+    return roots
+
+
 def _convert_microarray_outputs(
     *,
     args: argparse.Namespace,
@@ -75,6 +85,8 @@ def _convert_microarray_outputs(
         liftover_hg38_to_hg19,
     )
 
+    template_search_roots = _template_search_roots(ref_fasta, lib)
+
     # 3. Liftover if needed (to hg19 for most vendors)
     final_txt = combined_kit_txt
     if lib.build and is_hg38_build(lib.build):
@@ -87,7 +99,7 @@ def _convert_microarray_outputs(
                     combined_kit_txt,
                     hg19_txt,
                     lib.liftover_chain,
-                    templates_dir=lib.root,
+                    templates_dir=template_search_roots,
                 )
                 final_txt = hg19_txt
                 lift_duration = time.time() - start_lift
@@ -113,8 +125,9 @@ def _convert_microarray_outputs(
             output_file = output_file.replace(".txt", ".csv")
 
         try:
-            templates_dir = lib.root or os.path.dirname(ref_fasta)
-            convert_to_vendor_format(real_fmt, final_txt, output_file, templates_dir)
+            convert_to_vendor_format(
+                real_fmt, final_txt, output_file, template_search_roots
+            )
             logging.info(f"Generated {output_file}")
         except (OSError, ValueError, WGSExtractError) as e:
             logging.error(f"Failed to generate {real_fmt}: {e}")

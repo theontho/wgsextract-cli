@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from tests.smoke_utils import check_tool, run_cli, verify_bam, verify_fastq, verify_vcf
+from wgsextract_cli.core.microarray_utils import _resolve_templates_root
 
 
 @dataclass(frozen=True)
@@ -178,6 +179,15 @@ def _target_tab(dataset: RealDataset) -> Path:
     pytest.skip("microarray target tab not found; set WGSE_REF_VCF_TAB")
 
 
+def _microarray_template_roots(dataset: RealDataset) -> list[str]:
+    return [str(dataset.ref.parent), str(_target_tab(dataset).parent)]
+
+
+def _require_microarray_templates(dataset: RealDataset) -> None:
+    if not _resolve_templates_root(_microarray_template_roots(dataset)):
+        pytest.skip("microarray raw_file_templates not available for real smoke data")
+
+
 def _single_file(outdir: Path, pattern: str) -> Path:
     matches = sorted(outdir.glob(pattern))
     assert matches, f"missing output matching {pattern} in {outdir}"
@@ -265,6 +275,8 @@ def test_real_vcf_trio(real_dataset: RealDataset, tmp_path: Path) -> None:
 
 
 def test_real_vcf_microarray(real_dataset: RealDataset, tmp_path: Path) -> None:
+    _require_microarray_templates(real_dataset)
+
     _run_ok(
         [
             "microarray",
@@ -288,6 +300,8 @@ def test_real_vcf_microarray(real_dataset: RealDataset, tmp_path: Path) -> None:
 
 
 def test_real_bam_microarray(real_dataset: RealDataset, tmp_path: Path) -> None:
+    _require_microarray_templates(real_dataset)
+
     _run_ok(
         [
             "microarray",

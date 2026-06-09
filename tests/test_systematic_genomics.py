@@ -204,7 +204,7 @@ def test_microarray_generation(fake_data_dir):
         ]
     )
     # Microarray might fail if it can't find templates, but let's see if the VCF part works
-    assert rc == 0 or "Failed to generate 23andme_v5" in stderr, (
+    assert rc == 0 or "Failed to generate 23andMe_V5" in stderr, (
         f"STDOUT: {stdout}\nSTDERR: {stderr}"
     )
 
