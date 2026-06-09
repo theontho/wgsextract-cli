@@ -79,7 +79,7 @@ def _dataset_from_env() -> RealDataset | None:
 
 
 def _dataset_from_config() -> RealDataset | None:
-    if os.environ.get("WGSE_USE_REAL_GENOME_CONFIG") != "1":
+    if settings.get("real_genome_tests_enabled") is not True:
         return None
 
     root_value = settings.get("real_genome_test_path")
@@ -153,8 +153,8 @@ def real_dataset() -> RealDataset:
     if dataset is None:
         pytest.skip(
             "real smoke data not configured; set WGSE_INPUT/WGSE_INPUT_VCF/WGSE_REF, "
-            "set WGSE_USE_REAL_GENOME_CONFIG=1 with real_genome_test_path in the CLI "
-            "config, or run the real benchmark smoke first"
+            "enable real_genome_tests_enabled with real_genome_test_path in the CLI "
+            "config.toml, or run the real benchmark smoke first"
         )
     return dataset
 

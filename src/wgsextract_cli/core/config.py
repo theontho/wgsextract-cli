@@ -51,6 +51,10 @@ KNOWN_SETTINGS = {
     "pet_r2_fastq": (None, "Test: Path to PET R2 reads"),
     "pet_reference_fasta": (None, "Test: Path to PET reference genome"),
     "real_genome_test_path": (None, "Test: Path to a local real genome dataset"),
+    "real_genome_tests_enabled": (
+        False,
+        "Test: Enable real smoke tests from real_genome_test_path",
+    ),
 }
 
 PATH_SETTINGS = {

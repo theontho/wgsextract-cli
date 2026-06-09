@@ -51,6 +51,7 @@ DEFAULT_CONFIG = """# WGS Extract Configuration
 # --- Local Developer Test Data ---
 # Path to a local real genome dataset used by real smoke tests.
 # real_genome_test_path = "~/genomes/sample"
+# real_genome_tests_enabled = false
 """
 
 
