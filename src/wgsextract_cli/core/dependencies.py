@@ -3,6 +3,7 @@ import shlex
 import shutil
 import subprocess
 from functools import lru_cache
+from pathlib import Path
 
 from wgsextract_cli.core import (
     runtime,
@@ -201,12 +202,9 @@ def _is_pixi_environment_active() -> bool:
 
 def _is_relative_to(path: str, parent: str) -> bool:
     try:
-        common = os.path.commonpath(
-            [os.path.normcase(path), os.path.normcase(os.path.abspath(parent))]
-        )
-    except ValueError:
+        return Path(path).resolve().is_relative_to(Path(parent).resolve())
+    except (OSError, RuntimeError, ValueError):
         return False
-    return common == os.path.normcase(os.path.abspath(parent))
 
 
 def get_repo_root() -> str:
