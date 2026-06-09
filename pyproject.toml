@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "wgsextract-cli"
-version = "0.3.9"
+version = "0.3.10"
 description = "A modern, standalone Command-Line Interface for WGS Extract."
 readme = "README.md"
 requires-python = ">=3.10"
