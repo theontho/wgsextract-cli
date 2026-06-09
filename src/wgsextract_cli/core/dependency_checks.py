@@ -218,7 +218,7 @@ def check_all_dependencies(
         {
             "name": "Python Runtime",
             "path": sys.executable,
-            "runtime": "native",
+            "runtime": get_tool_runtime(sys.executable),
             "version": f"Python {py_version} (Required >= 3.10)",
         }
     )

@@ -156,7 +156,41 @@ def get_tool_runtime(path: str | None) -> str:
         return bundled_mode
     if runtime.is_pacman_tool_command(path) or runtime_paths.is_pacman_tool_path(path):
         return "pacman"
+    if is_pixi_tool_path(path) or is_pixi_tool_command(path):
+        return "pixi"
     return "native"
+
+
+def is_pixi_tool_command(path: str) -> bool:
+    """Return whether a resolved command is explicitly launched through Pixi."""
+    try:
+        command = shlex.split(os.path.expanduser(path), posix=not runtime.is_windows_host())
+    except ValueError:
+        return False
+    if not command:
+        return False
+    executable = os.path.basename(command[0]).lower()
+    return executable in {"pixi", "pixi.exe"} and "run" in command[1:]
+
+
+def is_pixi_tool_path(path: str) -> bool:
+    """Return whether a resolved executable lives inside the active Pixi env."""
+    expanded_path = os.path.abspath(os.path.expanduser(path))
+    for env_var in ("CONDA_PREFIX", "PIXI_PREFIX"):
+        prefix = os.environ.get(env_var)
+        if prefix and _is_relative_to(expanded_path, prefix):
+            return True
+    return False
+
+
+def _is_relative_to(path: str, parent: str) -> bool:
+    try:
+        common = os.path.commonpath(
+            [os.path.normcase(path), os.path.normcase(os.path.abspath(parent))]
+        )
+    except ValueError:
+        return False
+    return common == os.path.normcase(os.path.abspath(parent))
 
 
 def get_repo_root() -> str:

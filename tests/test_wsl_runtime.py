@@ -234,6 +234,30 @@ class TestWSLRuntime(unittest.TestCase):
             "pacman",
         )
 
+    def test_get_tool_runtime_detects_pixi_env_path(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            prefix = Path(tempdir) / "envs" / "default"
+            tool = prefix / "Library" / "bin" / "java.exe"
+            tool.parent.mkdir(parents=True)
+            tool.write_bytes(b"")
+
+            with patch.dict(os.environ, {"CONDA_PREFIX": str(prefix)}, clear=False):
+                self.assertEqual(dependencies.get_tool_runtime(str(tool)), "pixi")
+
+    def test_get_tool_runtime_detects_pixi_run_command(self):
+        self.assertEqual(
+            dependencies.get_tool_runtime("/usr/local/bin/pixi run -e default java"),
+            "pixi",
+        )
+
+    def test_get_tool_runtime_keeps_wsl_pixi_command_attributed_to_wsl(self):
+        self.assertEqual(
+            dependencies.get_tool_runtime(
+                "wsl:/home/test/.pixi/bin/pixi run -e default samtools"
+            ),
+            "wsl",
+        )
+
     def test_pacman_tool_path_finds_configured_ucrt64_dir(self):
         with tempfile.TemporaryDirectory() as tempdir:
             bin_dir = Path(tempdir) / "ucrt64" / "bin"
