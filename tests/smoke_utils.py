@@ -168,7 +168,12 @@ def ensure_fake_data(fake_dir: str):
         os.path.join(fake_dir, "fake_ref.fa"),
         os.path.join(fake_dir, "fake.vcf.gz"),
     ]
-    if all(os.path.exists(path) for path in required_files):
+    required_index_files = [
+        os.path.join(fake_dir, "fake.bam.bai"),
+        os.path.join(fake_dir, "fake_ref.fa.fai"),
+        os.path.join(fake_dir, "fake.vcf.gz.tbi"),
+    ]
+    if all(os.path.exists(path) for path in required_files + required_index_files):
         return
 
     os.makedirs(fake_dir, exist_ok=True)
@@ -185,9 +190,35 @@ def ensure_fake_data(fake_dir: str):
             if os.path.exists(tabix_path):
                 shutil.copy(tabix_path, os.path.join(fake_dir, "fake.vcf.gz.tbi"))
 
-    normalize_fake_data_names()
+    def repair_fake_data_indexes() -> None:
+        bam_path = os.path.join(fake_dir, "fake.bam")
+        if (
+            os.path.exists(bam_path)
+            and not os.path.exists(bam_path + ".bai")
+            and check_tool("samtools")
+        ):
+            subprocess.run(["samtools", "index", bam_path], check=True)
 
-    if not all(os.path.exists(path) for path in required_files):
+        ref_path = os.path.join(fake_dir, "fake_ref.fa")
+        if (
+            os.path.exists(ref_path)
+            and not os.path.exists(ref_path + ".fai")
+            and check_tool("samtools")
+        ):
+            subprocess.run(["samtools", "faidx", ref_path], check=True)
+
+        vcf_path = os.path.join(fake_dir, "fake.vcf.gz")
+        if (
+            os.path.exists(vcf_path)
+            and not os.path.exists(vcf_path + ".tbi")
+            and check_tool("tabix")
+        ):
+            subprocess.run(["tabix", "-p", "vcf", vcf_path], check=True)
+
+    normalize_fake_data_names()
+    repair_fake_data_indexes()
+
+    if not all(os.path.exists(path) for path in required_files + required_index_files):
         # Use the CLI to generate fake data
         run_cli(
             [
@@ -208,6 +239,7 @@ def ensure_fake_data(fake_dir: str):
             ]
         )
         normalize_fake_data_names()
+        repair_fake_data_indexes()
 
 
 def setup_test_reference(tmp_path: str, ref_src: str):

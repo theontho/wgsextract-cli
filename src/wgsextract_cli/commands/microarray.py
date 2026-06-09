@@ -208,7 +208,7 @@ def run(args: argparse.Namespace) -> None:
 
     start_vcf = time.time()
 
-    out_vcf = _prepare_microarray_vcf(
+    out_vcf, ref_vcf_tab = _prepare_microarray_vcf(
         args=args,
         outdir=outdir,
         base_name=base_name,
