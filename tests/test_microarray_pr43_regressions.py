@@ -192,6 +192,57 @@ def test_combined_kit_vcf_mode_matches_mito_aliases_for_hits_and_reference(tmp_p
     assert all("\tMTT\t" not in row for row in rows)
 
 
+def test_combined_kit_vcf_mode_emits_snp_shaped_genotypes(tmp_path):
+    ref_fasta = tmp_path / "ref.fa"
+    ref_vcf_tab = tmp_path / "targets.tsv"
+    ref_fasta.touch()
+    (tmp_path / "ref.fa.fai").write_text("chr1\t500\t0\t50\t51\n")
+    ref_vcf_tab.write_text(
+        "#CHROM\tPOS\tID\n"
+        "chr1\t100\trsHom\n"
+        "chr1\t101\trsNoCall\n"
+        "chr1\t102\trsHet\n"
+        "chr1\t103\trsRef\n"
+        "chr1\t104\trsAmbigRef\n"
+    )
+
+    def fake_popen(cmd, **_kwargs):
+        if cmd[:2] == ["bcftools", "query"]:
+            return FakeProcess(
+                "chr1\t100\tC\nchr1\t100\tC/CT\nchr1\t101\t.\nchr1\t102\tA/T\n"
+            )
+        if cmd[:2] == ["samtools", "faidx"]:
+            return FakeProcess(
+                ">chr1:100-100\nC\n"
+                ">chr1:101-101\nG\n"
+                ">chr1:102-102\nA\n"
+                ">chr1:103-103\nT\n"
+                ">chr1:104-104\nY\n"
+            )
+        if cmd[0] == "cat":
+            return FakeProcess(ref_vcf_tab.read_text())
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    args = SimpleNamespace(region=None)
+    with patch.object(_microarray_combined, "popen", side_effect=fake_popen):
+        combined_kit = _microarray_combined._write_microarray_combined_kit(
+            args=args,
+            outdir=str(tmp_path),
+            base_name="sample",
+            is_vcf=True,
+            out_vcf=str(tmp_path / "hits.vcf.gz"),
+            ref_fasta=str(ref_fasta),
+            ref_vcf_tab=str(ref_vcf_tab),
+        )
+
+    rows = Path(combined_kit).read_text().splitlines()
+    assert "rsHom\t1\t100\tCC" in rows
+    assert "rsNoCall\t1\t101\t--" in rows
+    assert "rsHet\t1\t102\tAT" in rows
+    assert "rsRef\t1\t103\tTT" in rows
+    assert "rsAmbigRef\t1\t104\tNN" in rows
+
+
 def test_combined_kit_bam_mode_normalizes_mito_chromosome_names(tmp_path):
     def fake_popen(cmd, **_kwargs):
         assert cmd[:2] == ["bcftools", "query"]
