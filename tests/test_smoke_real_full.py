@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 
 from tests.smoke_utils import check_tool, run_cli, verify_bam, verify_fastq, verify_vcf
+from wgsextract_cli.core.config import settings
+from wgsextract_cli.core.microarray_utils import _resolve_templates_root
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,14 @@ def _existing_path(value: str | None) -> Path | None:
 
 def _first_existing(paths: list[Path]) -> Path | None:
     return next((path for path in paths if path.exists()), None)
+
+
+def _first_existing_recursive(root: Path, patterns: list[str]) -> Path | None:
+    for pattern in patterns:
+        match = _first_existing(sorted(root.rglob(pattern)))
+        if match:
+            return match
+    return None
 
 
 def _latest_benchmark_dataset() -> Path | None:
@@ -68,6 +78,48 @@ def _dataset_from_env() -> RealDataset | None:
     )
 
 
+def _dataset_from_config() -> RealDataset | None:
+    if settings.get("real_genome_tests_enabled") is not True:
+        return None
+
+    root_value = settings.get("real_genome_test_path")
+    if not isinstance(root_value, str):
+        return None
+
+    root = _existing_path(root_value)
+    if not root or not root.is_dir():
+        return None
+
+    bam = _first_existing_recursive(root, ["*.bam", "*.cram"])
+    vcf = _first_existing_recursive(
+        root,
+        [
+            "*.snp-indel.genome.vcf.gz",
+            "filtered.vcf.gz",
+            "*.vcf.gz",
+        ],
+    )
+
+    ref_value = settings.get("reference_fasta") or settings.get("reference_library")
+    ref = _existing_path(str(ref_value)) if ref_value else None
+
+    if not bam or not vcf or not ref:
+        return None
+
+    fastqs = sorted(root.rglob("*_R[12].fastq.gz"))
+    return RealDataset(
+        bam=bam,
+        vcf=vcf,
+        ref=ref,
+        target_tab=_first_existing_recursive(root, ["*.targets.tab.gz"]),
+        fastq_r1=fastqs[0] if len(fastqs) >= 2 else None,
+        fastq_r2=fastqs[1] if len(fastqs) >= 2 else None,
+        cram=bam
+        if bam.suffix == ".cram"
+        else _first_existing_recursive(root, ["*.cram"]),
+    )
+
+
 def _dataset_from_benchmark_cache() -> RealDataset | None:
     dataset_dir = _latest_benchmark_dataset()
     if not dataset_dir:
@@ -95,11 +147,14 @@ def _dataset_from_benchmark_cache() -> RealDataset | None:
 
 @pytest.fixture(scope="session")
 def real_dataset() -> RealDataset:
-    dataset = _dataset_from_env() or _dataset_from_benchmark_cache()
+    dataset = (
+        _dataset_from_env() or _dataset_from_config() or _dataset_from_benchmark_cache()
+    )
     if dataset is None:
         pytest.skip(
-            "real smoke data not configured; set WGSE_INPUT/WGSE_INPUT_VCF/WGSE_REF "
-            "or run the real benchmark smoke first"
+            "real smoke data not configured; set WGSE_INPUT/WGSE_INPUT_VCF/WGSE_REF, "
+            "enable real_genome_tests_enabled with real_genome_test_path in the CLI "
+            "config.toml, or run the real benchmark smoke first"
         )
     return dataset
 
@@ -176,6 +231,37 @@ def _target_tab(dataset: RealDataset) -> Path:
         if matches:
             return matches[0]
     pytest.skip("microarray target tab not found; set WGSE_REF_VCF_TAB")
+
+
+def _microarray_template_roots(dataset: RealDataset) -> list[str]:
+    ref_root = dataset.ref if dataset.ref.is_dir() else dataset.ref.parent
+    return [str(ref_root), str(_target_tab(dataset).parent)]
+
+
+def test_microarray_template_roots_search_reference_directory(tmp_path: Path) -> None:
+    ref_dir = tmp_path / "reference"
+    target_dir = tmp_path / "microarray"
+    ref_dir.mkdir()
+    target_dir.mkdir()
+    target_tab = target_dir / "targets.tab.gz"
+    target_tab.touch()
+
+    dataset = RealDataset(
+        bam=tmp_path / "sample.bam",
+        vcf=tmp_path / "sample.vcf.gz",
+        ref=ref_dir,
+        target_tab=target_tab,
+        fastq_r1=None,
+        fastq_r2=None,
+        cram=None,
+    )
+
+    assert _microarray_template_roots(dataset) == [str(ref_dir), str(target_dir)]
+
+
+def _require_microarray_templates(dataset: RealDataset) -> None:
+    if not _resolve_templates_root(_microarray_template_roots(dataset)):
+        pytest.skip("microarray raw_file_templates not available for real smoke data")
 
 
 def _single_file(outdir: Path, pattern: str) -> Path:
@@ -265,6 +351,8 @@ def test_real_vcf_trio(real_dataset: RealDataset, tmp_path: Path) -> None:
 
 
 def test_real_vcf_microarray(real_dataset: RealDataset, tmp_path: Path) -> None:
+    _require_microarray_templates(real_dataset)
+
     _run_ok(
         [
             "microarray",
@@ -288,6 +376,8 @@ def test_real_vcf_microarray(real_dataset: RealDataset, tmp_path: Path) -> None:
 
 
 def test_real_bam_microarray(real_dataset: RealDataset, tmp_path: Path) -> None:
+    _require_microarray_templates(real_dataset)
+
     _run_ok(
         [
             "microarray",

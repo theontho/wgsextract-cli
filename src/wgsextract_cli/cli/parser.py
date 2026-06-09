@@ -47,6 +47,11 @@ DEFAULT_CONFIG = """# WGS Extract Configuration
 # input_vcf = "/path/to/sample.vcf.gz"
 # mother_vcf = "/path/to/mother.vcf.gz"
 # father_vcf = "/path/to/father.vcf.gz"
+
+# --- Local Developer Test Data ---
+# Path to a local real genome dataset used by real smoke tests.
+# real_genome_test_path = "~/genomes/sample"
+# real_genome_tests_enabled = false
 """
 
 

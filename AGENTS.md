@@ -6,6 +6,8 @@ You have a large budget and a lot of time to do things correctly.  Favor 'the be
 
 When outputting test run results, logs, or stdout captures, **always** put them in a gitignored `out/` or `tmp/` directory (or a subdirectory within them). Never output these files to the repository root.  Make scratch or temp scripts in the `scratch/` dir.
 
+Do not add new environment-variable configuration. Put persistent configuration in config.toml settings, and use command-line parameters for run-specific overrides.
+
 ## Python Formatting & Linting
 
 - **Always** run `pixi run ruff check --fix {file_path}` and `pixi run ruff format {file_path}` after editing a Python file in this directory.

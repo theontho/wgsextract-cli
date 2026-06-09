@@ -19,6 +19,17 @@ def _matching_fasta_chrom(chrom: str, fasta_chroms: set[str]) -> str | None:
     return None
 
 
+def _normalize_microarray_genotype(value: str) -> str | None:
+    genotype = value.replace("/", "").replace("|", "").replace(".", "-").upper()
+    if genotype in {"-", "--"}:
+        return "--"
+    if len(genotype) == 1 and genotype in {"A", "C", "G", "T", "N"}:
+        return genotype * 2
+    if len(genotype) == 2 and set(genotype) <= {"A", "C", "G", "T", "N"}:
+        return genotype
+    return None
+
+
 def _write_microarray_combined_kit(
     *,
     args: argparse.Namespace,
@@ -48,8 +59,11 @@ def _write_microarray_combined_kit(
                         parts = line.strip().split("\t")
                         if len(parts) >= 3:
                             chrom, pos, tgt = parts[0], parts[1], parts[2]
+                            genotype = _normalize_microarray_genotype(tgt)
+                            if genotype is None:
+                                continue
                             for alias in chromosome_aliases(chrom):
-                                variant_calls[(alias, pos)] = tgt
+                                variant_calls[(alias, pos)] = genotype
 
             logging.info(
                 f"Found {len(variant_calls)} variants in input VCF matching targets."
@@ -181,12 +195,7 @@ def _write_microarray_combined_kit(
                             chrom, pos, rsid = parts[0], parts[1], parts[2]
 
                             if (chrom, pos) in variant_calls:
-                                tgt = variant_calls[(chrom, pos)]
-                                genotype = (
-                                    tgt.replace("/", "")
-                                    .replace("|", "")
-                                    .replace(".", "-")
-                                )
+                                genotype = variant_calls[(chrom, pos)]
                             else:
                                 # MISSING in VCF -> Assume Homozygous Reference
                                 ref_base = None
@@ -200,7 +209,13 @@ def _write_microarray_combined_kit(
                                     ref_base = ref_alleles.get((chrom, pos))
 
                                 # 3. Fallback to N (NO slow subprocess calls here)
-                                if not ref_base:
+                                if not ref_base or ref_base not in {
+                                    "A",
+                                    "C",
+                                    "G",
+                                    "T",
+                                    "N",
+                                }:
                                     ref_base = "N"
 
                                 genotype = f"{ref_base}{ref_base}"

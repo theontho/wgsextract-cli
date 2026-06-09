@@ -12,6 +12,7 @@ from wgsextract_cli.core.microarray_utils import (
     liftover_hg38_to_hg19,
     write_formatted_line,
 )
+from wgsextract_cli.core.utils import WGSExtractError
 
 
 class FakeProcess:
@@ -75,7 +76,7 @@ def test_microarray_uses_diploid_ploidy_for_reference_model_aliases(
 
     def fake_prepare_microarray_vcf(**kwargs):
         captured["ploidy_args"] = kwargs["ploidy_args"]
-        return str(tmp_path / "sample_combined.vcf.gz")
+        return str(tmp_path / "sample_combined.vcf.gz"), str(ref_vcf_tab)
 
     with (
         patch.object(microarray, "verify_dependencies"),
@@ -119,6 +120,30 @@ def test_microarray_uses_diploid_ploidy_for_reference_model_aliases(
 )
 def test_microarray_format_aliases_match_template_names(format_key, expected):
     assert microarray._resolve_microarray_format(format_key) == expected
+
+
+def test_convert_microarray_outputs_preserves_vendor_wgsextract_error(tmp_path):
+    combined_kit = tmp_path / "sample_CombinedKit.txt"
+    ref_fasta = tmp_path / "ref.fa"
+    combined_kit.write_text("rs1\t1\t100\tAA\n")
+    ref_fasta.touch()
+    args = SimpleNamespace(formats="23andme_v5")
+    lib = SimpleNamespace(root=str(tmp_path), build="GRCh37")
+
+    with patch(
+        "wgsextract_cli.core.microarray_utils.convert_to_vendor_format",
+        side_effect=WGSExtractError("Template body not found: specific-template"),
+    ):
+        with pytest.raises(WGSExtractError, match="specific-template"):
+            microarray._convert_microarray_outputs(
+                args=args,
+                outdir=str(tmp_path),
+                base_name="sample",
+                lib=lib,
+                combined_kit_txt=str(combined_kit),
+                ref_fasta=str(ref_fasta),
+                start_total=0.0,
+            )
 
 
 def test_combined_kit_vcf_mode_preserves_existing_mt_chromosome(tmp_path):
@@ -190,6 +215,57 @@ def test_combined_kit_vcf_mode_matches_mito_aliases_for_hits_and_reference(tmp_p
     assert "rsHit\tMT\t100\tAA" in rows
     assert "rsRef\tMT\t101\tCC" in rows
     assert all("\tMTT\t" not in row for row in rows)
+
+
+def test_combined_kit_vcf_mode_emits_snp_shaped_genotypes(tmp_path):
+    ref_fasta = tmp_path / "ref.fa"
+    ref_vcf_tab = tmp_path / "targets.tsv"
+    ref_fasta.touch()
+    (tmp_path / "ref.fa.fai").write_text("chr1\t500\t0\t50\t51\n")
+    ref_vcf_tab.write_text(
+        "#CHROM\tPOS\tID\n"
+        "chr1\t100\trsHom\n"
+        "chr1\t101\trsNoCall\n"
+        "chr1\t102\trsHet\n"
+        "chr1\t103\trsRef\n"
+        "chr1\t104\trsAmbigRef\n"
+    )
+
+    def fake_popen(cmd, **_kwargs):
+        if cmd[:2] == ["bcftools", "query"]:
+            return FakeProcess(
+                "chr1\t100\tC\nchr1\t100\tC/CT\nchr1\t101\t.\nchr1\t102\tA/T\n"
+            )
+        if cmd[:2] == ["samtools", "faidx"]:
+            return FakeProcess(
+                ">chr1:100-100\nC\n"
+                ">chr1:101-101\nG\n"
+                ">chr1:102-102\nA\n"
+                ">chr1:103-103\nT\n"
+                ">chr1:104-104\nY\n"
+            )
+        if cmd[0] == "cat":
+            return FakeProcess(ref_vcf_tab.read_text())
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    args = SimpleNamespace(region=None)
+    with patch.object(_microarray_combined, "popen", side_effect=fake_popen):
+        combined_kit = _microarray_combined._write_microarray_combined_kit(
+            args=args,
+            outdir=str(tmp_path),
+            base_name="sample",
+            is_vcf=True,
+            out_vcf=str(tmp_path / "hits.vcf.gz"),
+            ref_fasta=str(ref_fasta),
+            ref_vcf_tab=str(ref_vcf_tab),
+        )
+
+    rows = Path(combined_kit).read_text().splitlines()
+    assert "rsHom\t1\t100\tCC" in rows
+    assert "rsNoCall\t1\t101\t--" in rows
+    assert "rsHet\t1\t102\tAT" in rows
+    assert "rsRef\t1\t103\tTT" in rows
+    assert "rsAmbigRef\t1\t104\tNN" in rows
 
 
 def test_combined_kit_bam_mode_normalizes_mito_chromosome_names(tmp_path):
@@ -337,6 +413,123 @@ def test_microarray_vcf_targets_normalize_to_input_vcf_chromosomes(tmp_path):
         ["bgzip", "-f", str(normalized_plain)],
         ["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", normalized],
     ]
+
+
+def test_microarray_alignment_targets_normalize_to_input_chromosomes(tmp_path):
+    ref_targets = tmp_path / "targets.tab.gz"
+    with gzip.open(ref_targets, "wt") as handle:
+        handle.write("1\t100\trs1\tA\n")
+        handle.write("MT\t200\trsM\tC\n")
+
+    args = SimpleNamespace(
+        input=str(tmp_path / "sample.cram"),
+        parallel=False,
+        region=None,
+    )
+    out_vcf = str(tmp_path / "sample_combined.vcf.gz")
+    run_commands = []
+    popen_commands = []
+
+    def fake_run_command(cmd, **_kwargs):
+        if cmd == ["tabix", "-l", str(ref_targets)]:
+            return SimpleNamespace(stdout="1\nMT\n", stderr="")
+        run_commands.append(cmd)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    def fake_popen(cmd, **_kwargs):
+        popen_commands.append(cmd)
+        return FakeProcess()
+
+    with (
+        patch.object(
+            _microarray_vcf,
+            "_alignment_chromosomes",
+            return_value=["chr1", "chrM"],
+        ),
+        patch.object(_microarray_vcf, "run_command", side_effect=fake_run_command),
+        patch.object(_microarray_vcf, "popen", side_effect=fake_popen),
+        patch.object(_microarray_vcf, "ensure_vcf_indexed"),
+    ):
+        _, normalized_targets = _microarray_vcf._prepare_microarray_vcf(
+            args=args,
+            outdir=str(tmp_path),
+            base_name="sample",
+            is_vcf=False,
+            ref_vcf_tab=str(ref_targets),
+            region_args=[],
+            ploidy_args=["--ploidy", "GRCh38"],
+            ref_fasta=str(tmp_path / "ref.fa"),
+            threads="2",
+            start_vcf=0.0,
+            out_vcf=out_vcf,
+        )
+
+    normalized_plain = Path(normalized_targets[:-3])
+    assert normalized_plain.read_text().splitlines() == [
+        "chr1\t100\trs1\tA",
+        "chrM\t200\trsM\tC",
+    ]
+    assert any(
+        command[:2] == ["bcftools", "mpileup"]
+        and command[command.index("--targets-file") + 1] == normalized_targets
+        for command in popen_commands
+    )
+    assert any(
+        command[:2] == ["bcftools", "annotate"] and command[3] == normalized_targets
+        for command in run_commands
+    )
+
+
+def test_microarray_vcf_returns_original_targets_for_reference_filling(tmp_path):
+    ref_targets = tmp_path / "targets.tab.gz"
+    with gzip.open(ref_targets, "wt") as handle:
+        handle.write("chr1\t100\trs1\tA\n")
+        handle.write("chrUn\t300\trsUn\tG\n")
+
+    args = SimpleNamespace(
+        input=str(tmp_path / "sample.vcf.gz"),
+        parallel=False,
+        region=None,
+    )
+    out_vcf = str(tmp_path / "sample_combined.vcf.gz")
+    run_commands = []
+
+    def fake_run_command(cmd, **_kwargs):
+        if cmd == ["tabix", "-l", str(ref_targets)]:
+            return SimpleNamespace(stdout="chr1\nchrUn\n", stderr="")
+        run_commands.append(cmd)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    with (
+        patch.object(_microarray_vcf, "vcf_index_chromosomes", return_value=["1"]),
+        patch.object(_microarray_vcf, "run_command", side_effect=fake_run_command),
+        patch.object(_microarray_vcf, "ensure_vcf_indexed"),
+    ):
+        _, combined_targets = _microarray_vcf._prepare_microarray_vcf(
+            args=args,
+            outdir=str(tmp_path),
+            base_name="sample",
+            is_vcf=True,
+            ref_vcf_tab=str(ref_targets),
+            region_args=[],
+            ploidy_args=["--ploidy", "GRCh38"],
+            ref_fasta=str(tmp_path / "ref.fa"),
+            threads="2",
+            start_vcf=0.0,
+            out_vcf=out_vcf,
+        )
+
+    normalized_targets = str(tmp_path / "input_chrom_targets.tab.gz")
+    assert combined_targets == str(ref_targets)
+    assert any(
+        command[:2] == ["bcftools", "view"]
+        and command[command.index("--targets-file") + 1] == normalized_targets
+        for command in run_commands
+    )
+    assert any(
+        command[:2] == ["bcftools", "annotate"] and command[3] == normalized_targets
+        for command in run_commands
+    )
 
 
 def test_vcf_index_chromosomes_returns_index_contigs():

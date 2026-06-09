@@ -5,6 +5,7 @@ import os
 import subprocess
 import time
 
+from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
@@ -96,13 +97,26 @@ def _normalize_region_args_for_input(
     return ["-r", f"{match}{sep}{rest}"]
 
 
+def _alignment_chromosomes(input_path: str, ref_fasta: str) -> list[str]:
+    header = get_bam_header(input_path, ref_fasta)
+    chroms: list[str] = []
+    for line in header.splitlines():
+        if not line.startswith("@SQ"):
+            continue
+        for field in line.split("\t")[1:]:
+            if field.startswith("SN:"):
+                chroms.append(field.removeprefix("SN:"))
+                break
+    return chroms
+
+
 def _prepare_vcf_target_tab_for_input(
     ref_vcf_tab: str,
     input_vcf: str,
     outdir: str,
     input_chroms: list[str] | None = None,
 ) -> str:
-    """Return a target tab whose chromosome names match the input VCF."""
+    """Return a target tab whose chromosome names match the input."""
     if input_chroms is None:
         input_chroms = vcf_index_chromosomes(input_vcf)
     target_chroms = _target_tab_chromosomes(ref_vcf_tab)
@@ -144,7 +158,7 @@ def _prepare_vcf_target_tab_for_input(
     run_command(["bgzip", "-f", normalized_tab])
     run_command(["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", normalized_tab_gz])
     logging.info(
-        "Normalized microarray target chromosome names to match input VCF "
+        "Normalized microarray target chromosome names to match input "
         f"({len(chrom_map)} contigs)."
     )
     return normalized_tab_gz
@@ -260,26 +274,36 @@ def _prepare_microarray_vcf(
     threads: str,
     start_vcf: float,
     out_vcf: str,
-) -> str:
+) -> tuple[str, str]:
+    original_ref_vcf_tab = ref_vcf_tab
+
+    try:
+        if is_vcf:
+            ensure_vcf_indexed(args.input)
+            input_chroms = vcf_index_chromosomes(args.input)
+        else:
+            input_chroms = _alignment_chromosomes(args.input, ref_fasta)
+
+        if input_chroms:
+            ref_vcf_tab = _prepare_vcf_target_tab_for_input(
+                ref_vcf_tab, args.input, outdir, input_chroms
+            )
+            region_args = _normalize_region_args_for_input(region_args, input_chroms)
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+        logging.error(f"Target chromosome normalization failed: {e}")
+        raise WGSExtractError("Microarray target normalization failed.") from e
+
     if is_vcf:
         logging.info(f"VCF input detected. Extracting target SNPs from {args.input}...")
         # For VCF input, we intersect our targets with the input VCF.
         # Any missing targets are assumed to be homozygous reference.
         try:
-            ensure_vcf_indexed(args.input)
-            input_chroms = vcf_index_chromosomes(args.input)
-            input_ref_vcf_tab = _prepare_vcf_target_tab_for_input(
-                ref_vcf_tab, args.input, outdir, input_chroms
-            )
-            input_region_args = _normalize_region_args_for_input(
-                region_args, input_chroms
-            )
             # Step 1: Get actual variants from the input VCF that match our targets
             hit_vcf = os.path.join(outdir, f"{base_name}_hits.vcf.gz")
             # Use long-form --targets-file to avoid version conflicts
             run_command(
-                ["bcftools", "view", "--targets-file", input_ref_vcf_tab]
-                + input_region_args
+                ["bcftools", "view", "--targets-file", ref_vcf_tab]
+                + region_args
                 + ["-Oz", "-o", hit_vcf, args.input],
                 check=True,
             )
@@ -300,7 +324,7 @@ def _prepare_microarray_vcf(
                     "bcftools",
                     "annotate",
                     "-a",
-                    input_ref_vcf_tab,
+                    ref_vcf_tab,
                     "-c",
                     "CHROM,POS,ID",
                     "-Oz",
@@ -468,4 +492,5 @@ def _prepare_microarray_vcf(
         ) as e:
             logging.error(f"Variant calling failed: {e}")
             raise WGSExtractError("Microarray variant calling failed.") from e
-    return out_vcf
+
+    return out_vcf, original_ref_vcf_tab if is_vcf else ref_vcf_tab
