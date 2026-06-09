@@ -19,7 +19,9 @@ set "SKIP_MINIMAP2_DOWNLOAD=0"
 set "FORCE_BWA_BUILD=0"
 set "FORCE_MINIMAP2_BUILD=0"
 set "BWA_BINARY_URL="
+set "BWA_BINARY_SHA256="
 set "MINIMAP2_BINARY_URL="
+set "MINIMAP2_BINARY_SHA256="
 set "SKIP_PIXI_BOOTSTRAP=0"
 set "SKIP_MSYS2_INSTALL=0"
 set "SKIP_CHECKS=0"
@@ -89,10 +91,24 @@ if /I "!ARG!"=="--bwa-binary-url" (
     shift
     goto parse_args
 )
+if /I "!ARG!"=="--bwa-binary-sha256" (
+    shift
+    if "%~1"=="" goto missing_bwa_binary_sha256
+    set "BWA_BINARY_SHA256=%~1"
+    shift
+    goto parse_args
+)
 if /I "!ARG!"=="--minimap2-binary-url" (
     shift
     if "%~1"=="" goto missing_minimap2_binary_url
     set "MINIMAP2_BINARY_URL=%~1"
+    shift
+    goto parse_args
+)
+if /I "!ARG!"=="--minimap2-binary-sha256" (
+    shift
+    if "%~1"=="" goto missing_minimap2_binary_sha256
+    set "MINIMAP2_BINARY_SHA256=%~1"
     shift
     goto parse_args
 )
@@ -209,12 +225,11 @@ if "%SKIP_PACMAN_SETUP%"=="0" (
     if "%SKIP_MINIMAP2_DOWNLOAD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipMinimap2Download"
     if "%FORCE_BWA_BUILD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -ForceBwaBuild"
     if "%FORCE_MINIMAP2_BUILD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -ForceMinimap2Build"
+    if not "%BWA_BINARY_URL%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -BwaBinaryUrl ""%BWA_BINARY_URL%"""
+    if not "%BWA_BINARY_SHA256%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -BwaBinarySha256 ""%BWA_BINARY_SHA256%"""
     if not "%MINIMAP2_BINARY_URL%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -Minimap2BinaryUrl ""%MINIMAP2_BINARY_URL%"""
-    if "%BWA_BINARY_URL%"=="" (
-        powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%scripts\setup_pacman_runtime.ps1" -Msys2Root "%WGSE_MSYS2_ROOT%" !PACMAN_SETUP_EXTRA_ARGS!
-    ) else (
-        powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%scripts\setup_pacman_runtime.ps1" -Msys2Root "%WGSE_MSYS2_ROOT%" !PACMAN_SETUP_EXTRA_ARGS! -BwaBinaryUrl "%BWA_BINARY_URL%"
-    )
+    if not "%MINIMAP2_BINARY_SHA256%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -Minimap2BinarySha256 ""%MINIMAP2_BINARY_SHA256%"""
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%scripts\setup_pacman_runtime.ps1" -Msys2Root "%WGSE_MSYS2_ROOT%" !PACMAN_SETUP_EXTRA_ARGS!
     if errorlevel 1 exit /b 1
 ) else (
     echo Skipping pacman runtime setup.
@@ -271,7 +286,11 @@ echo   --skip-bwa-download       Build BWA locally instead of downloading the re
 echo   --skip-minimap2-build     Pass -SkipMinimap2Build to the pacman setup helper.
 echo   --skip-minimap2-download  Build minimap2 locally instead of downloading the release binary.
 echo   --bwa-binary-url URL      Download BWA from this ZIP URL or local ZIP path.
+echo   --bwa-binary-sha256 SHA256
+echo                           SHA-256 for a custom BWA ZIP URL or local ZIP path.
 echo   --minimap2-binary-url URL Download minimap2 from this ZIP URL or local ZIP path.
+echo   --minimap2-binary-sha256 SHA256
+echo                           SHA-256 for a custom minimap2 ZIP URL or local ZIP path.
 echo   --force-bwa-build         Pass -ForceBwaBuild to the pacman setup helper.
 echo   --force-minimap2-build    Pass -ForceMinimap2Build to the pacman setup helper.
 echo   --skip-checks             Do not run the final wgsextract pacman dependency check.
@@ -298,8 +317,16 @@ exit /b 2
 echo ERROR: --bwa-binary-url requires a URL or path.
 exit /b 2
 
+:missing_bwa_binary_sha256
+echo ERROR: --bwa-binary-sha256 requires a SHA-256 digest.
+exit /b 2
+
 :missing_minimap2_binary_url
 echo ERROR: --minimap2-binary-url requires a URL or path.
+exit /b 2
+
+:missing_minimap2_binary_sha256
+echo ERROR: --minimap2-binary-sha256 requires a SHA-256 digest.
 exit /b 2
 
 :unknown_arg

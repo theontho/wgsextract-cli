@@ -7,8 +7,8 @@ param(
     [string]$BuildDir = "tmp\pacman-runtime-build",
     [string]$BwaBinaryUrl = $(if ($env:WGSEXTRACT_BWA_BINARY_URL) { $env:WGSEXTRACT_BWA_BINARY_URL } else { "" }),
     [string]$BwaBinarySha256 = $(if ($env:WGSEXTRACT_BWA_BINARY_SHA256) { $env:WGSEXTRACT_BWA_BINARY_SHA256 } else { "" }),
-    [string]$Minimap2BinaryUrl = $(if ($env:WGSEXTRACT_MINIMAP2_BINARY_URL) { $env:WGSEXTRACT_MINIMAP2_BINARY_URL } else { "" }),
-    [string]$Minimap2BinarySha256 = $(if ($env:WGSEXTRACT_MINIMAP2_BINARY_SHA256) { $env:WGSEXTRACT_MINIMAP2_BINARY_SHA256 } else { "" }),
+    [string]$Minimap2BinaryUrl = "",
+    [string]$Minimap2BinarySha256 = "",
     [switch]$ForceBwaBuild,
     [switch]$ForceMinimap2Build,
     [switch]$SkipBwaBuild,
@@ -237,7 +237,8 @@ function Resolve-BinaryPackageSha256 {
     param(
         [string]$ToolName,
         [string]$BinaryUrl,
-        [string]$ExplicitSha256
+        [string]$ExplicitSha256,
+        [string]$Sha256ParameterName
     )
 
     if ($ExplicitSha256) {
@@ -263,7 +264,8 @@ function Resolve-BinaryPackageSha256 {
         return $githubSha256
     }
 
-    throw "No $ToolName binary checksum was available. For non-GitHub release URLs or local ZIP files, set the matching SHA-256 environment variable."
+    $parameterHint = if ($Sha256ParameterName) { "pass -$Sha256ParameterName" } else { "pass the matching SHA-256 parameter" }
+    throw "No $ToolName binary checksum was available. For non-GitHub release URLs or local ZIP files, $parameterHint."
 }
 
 function Install-ZippedBinaryPackage {
@@ -315,7 +317,7 @@ function Install-BwaBinaryPackage {
         [string]$DestinationPath
     )
 
-    $expectedSha256 = Resolve-BinaryPackageSha256 -ToolName "BWA" -BinaryUrl $BinaryUrl -ExplicitSha256 $BwaBinarySha256
+    $expectedSha256 = Resolve-BinaryPackageSha256 -ToolName "BWA" -BinaryUrl $BinaryUrl -ExplicitSha256 $BwaBinarySha256 -Sha256ParameterName "BwaBinarySha256"
     Install-ZippedBinaryPackage -ToolName "BWA" -BinaryUrl $BinaryUrl -DestinationPath $DestinationPath -ExecutableName "bwa.exe" -ExpectedSha256 $expectedSha256
 }
 
@@ -325,7 +327,7 @@ function Install-Minimap2BinaryPackage {
         [string]$DestinationPath
     )
 
-    $expectedSha256 = Resolve-BinaryPackageSha256 -ToolName "minimap2" -BinaryUrl $BinaryUrl -ExplicitSha256 $Minimap2BinarySha256
+    $expectedSha256 = Resolve-BinaryPackageSha256 -ToolName "minimap2" -BinaryUrl $BinaryUrl -ExplicitSha256 $Minimap2BinarySha256 -Sha256ParameterName "Minimap2BinarySha256"
     Install-ZippedBinaryPackage -ToolName "minimap2" -BinaryUrl $BinaryUrl -DestinationPath $DestinationPath -ExecutableName "minimap2.exe" -ExpectedSha256 $expectedSha256
 }
 
@@ -584,7 +586,6 @@ if ($shouldBuildMinimap2) {
     try {
         if (-not $SkipPackageInstall) {
             $minimap2BuildPackages = @(
-                "curl",
                 "make",
                 "mingw-w64-ucrt-x86_64-gcc",
                 "mingw-w64-ucrt-x86_64-zlib"
@@ -623,6 +624,9 @@ install -m 755 "`$built_minimap2" /ucrt64/bin/minimap2.exe
 "@
     }
     catch {
+        if ($ForceMinimap2Build) {
+            throw "Failed to build required minimap2 native runtime: $($_.Exception.Message)"
+        }
         Write-Warning "Could not install optional minimap2 native runtime: $($_.Exception.Message)"
     }
 }

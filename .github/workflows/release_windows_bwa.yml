@@ -68,7 +68,7 @@ jobs:
             mingw-w64-ucrt-x86_64-samtools
             mingw-w64-ucrt-x86_64-zlib
 
-      - name: Build BWA with MSYS2 UCRT64 GCC
+      - name: Build native tools with MSYS2 UCRT64 GCC
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"

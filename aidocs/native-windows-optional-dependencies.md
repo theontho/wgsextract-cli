@@ -26,7 +26,7 @@ penalty, so the preferred order is:
 | `gatk` | Pixi `gatk4` | Bioconda noarch package solves on `win-64`; large but native enough for Windows. |
 | `haplogrep` | Pixi `haplogrep` | Bioconda noarch package solves on `win-64`; Java-oriented. |
 | `yleaf` | Pixi `yleaf` | Bioconda noarch Python package solves on `win-64`; smoke-test before treating as supported. |
-| `pbsv` | Pixi `pbsv`, experimental | Noarch package solves on `win-64`, but it is old and may wrap non-Windows binaries; validate before enabling by default. |
+| `pbsv` | Native source not confirmed | The current lockfile only includes a `linux-64` artifact. Do not advertise native Windows support unless a fresh `win-64` solve and smoke test succeeds. |
 | `minimap2` | Build/package native | Implemented in this branch as an MSYS2 UCRT64 build/install path and release asset workflow output. |
 | `samblaster` | Build/package native | Not available from MSYS2 UCRT64 or native Pixi. Good candidate for a release asset. |
 | `fastp` | Build/package native | Not available from MSYS2 UCRT64 or native Pixi. Good candidate for a release asset. |
