@@ -197,7 +197,6 @@ def _is_pixi_environment_active() -> bool:
         "PIXI_PROJECT_VERSION",
     )
     return any(os.environ.get(env_var) for env_var in pixi_env_vars)
-    return False
 
 
 def _is_relative_to(path: str, parent: str) -> bool:
