@@ -99,7 +99,14 @@ class TestOptionalDependencies(unittest.TestCase):
             python.write_bytes(b"")
 
             with (
-                patch.dict(os.environ, {"CONDA_PREFIX": str(prefix)}, clear=False),
+                patch.dict(
+                    os.environ,
+                    {
+                        "CONDA_PREFIX": str(prefix),
+                        "PIXI_PROJECT_ROOT": str(Path(tempdir)),
+                    },
+                    clear=True,
+                ),
                 patch("wgsextract_cli.core.dependency_checks.sys.executable", str(python)),
             ):
                 results = check_all_dependencies(mandatory=[], optional=[])

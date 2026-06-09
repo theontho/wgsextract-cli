@@ -241,8 +241,22 @@ class TestWSLRuntime(unittest.TestCase):
             tool.parent.mkdir(parents=True)
             tool.write_bytes(b"")
 
-            with patch.dict(os.environ, {"CONDA_PREFIX": str(prefix)}, clear=False):
+            with patch.dict(
+                os.environ,
+                {"CONDA_PREFIX": str(prefix), "PIXI_PROJECT_ROOT": str(Path(tempdir))},
+                clear=True,
+            ):
                 self.assertEqual(dependencies.get_tool_runtime(str(tool)), "pixi")
+
+    def test_get_tool_runtime_does_not_treat_plain_conda_env_as_pixi(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            prefix = Path(tempdir) / "envs" / "default"
+            tool = prefix / "bin" / "python"
+            tool.parent.mkdir(parents=True)
+            tool.write_bytes(b"")
+
+            with patch.dict(os.environ, {"CONDA_PREFIX": str(prefix)}, clear=True):
+                self.assertEqual(dependencies.get_tool_runtime(str(tool)), "native")
 
     def test_get_tool_runtime_detects_pixi_run_command(self):
         self.assertEqual(

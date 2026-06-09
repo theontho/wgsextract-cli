@@ -176,10 +176,27 @@ def is_pixi_tool_command(path: str) -> bool:
 def is_pixi_tool_path(path: str) -> bool:
     """Return whether a resolved executable lives inside the active Pixi env."""
     expanded_path = os.path.abspath(os.path.expanduser(path))
-    for env_var in ("CONDA_PREFIX", "PIXI_PREFIX"):
-        prefix = os.environ.get(env_var)
-        if prefix and _is_relative_to(expanded_path, prefix):
-            return True
+    pixi_prefix = os.environ.get("PIXI_PREFIX")
+    if pixi_prefix and _is_relative_to(expanded_path, pixi_prefix):
+        return True
+    conda_prefix = os.environ.get("CONDA_PREFIX")
+    return bool(
+        conda_prefix
+        and _is_pixi_environment_active()
+        and _is_relative_to(expanded_path, conda_prefix)
+    )
+
+
+def _is_pixi_environment_active() -> bool:
+    pixi_env_vars = (
+        "PIXI_EXE",
+        "PIXI_IN_SHELL",
+        "PIXI_PROJECT_MANIFEST",
+        "PIXI_PROJECT_NAME",
+        "PIXI_PROJECT_ROOT",
+        "PIXI_PROJECT_VERSION",
+    )
+    return any(os.environ.get(env_var) for env_var in pixi_env_vars)
     return False
 
 
