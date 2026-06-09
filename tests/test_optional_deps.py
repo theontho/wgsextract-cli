@@ -15,7 +15,10 @@ from wgsextract_cli.commands import _deps_runtime as deps_runtime_command  # noq
 from wgsextract_cli.commands import _deps_status as deps_status_command  # noqa: E402
 from wgsextract_cli.commands import deps as deps_command  # noqa: E402
 from wgsextract_cli.core import runtime  # noqa: E402
-from wgsextract_cli.core.dependency_checks import verify_dependencies  # noqa: E402
+from wgsextract_cli.core.dependency_checks import (  # noqa: E402
+    check_all_dependencies,
+    verify_dependencies,
+)
 from wgsextract_cli.core.utils import WGSExtractError  # noqa: E402
 
 
@@ -87,6 +90,28 @@ class TestOptionalDependencies(unittest.TestCase):
         self.assertTrue(any("deps cygwin setup" in msg for msg in warning_messages))
         self.assertTrue(any("deps msys2 setup" in msg for msg in warning_messages))
         self.assertTrue(any("deps pacman check" in msg for msg in warning_messages))
+
+    def test_python_runtime_is_attributed_to_pixi_when_running_inside_pixi_env(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            prefix = Path(tempdir) / "envs" / "default"
+            python = prefix / "bin" / "python"
+            python.parent.mkdir(parents=True)
+            python.write_bytes(b"")
+
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "CONDA_PREFIX": str(prefix),
+                        "PIXI_PROJECT_ROOT": str(Path(tempdir)),
+                    },
+                    clear=True,
+                ),
+                patch("wgsextract_cli.core.dependency_checks.sys.executable", str(python)),
+            ):
+                results = check_all_dependencies(mandatory=[], optional=[])
+
+        self.assertEqual(results["mandatory"][0]["runtime"], "pixi")
 
     def test_find_local_runtime_archive_uses_newest_matching_zip(self):
         with tempfile.TemporaryDirectory() as tempdir:

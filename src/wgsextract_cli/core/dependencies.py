@@ -3,6 +3,7 @@ import shlex
 import shutil
 import subprocess
 from functools import lru_cache
+from pathlib import Path
 
 from wgsextract_cli.core import (
     runtime,
@@ -156,7 +157,54 @@ def get_tool_runtime(path: str | None) -> str:
         return bundled_mode
     if runtime.is_pacman_tool_command(path) or runtime_paths.is_pacman_tool_path(path):
         return "pacman"
+    if is_pixi_tool_path(path) or is_pixi_tool_command(path):
+        return "pixi"
     return "native"
+
+
+def is_pixi_tool_command(path: str) -> bool:
+    """Return whether a resolved command is explicitly launched through Pixi."""
+    try:
+        command = shlex.split(os.path.expanduser(path), posix=not runtime.is_windows_host())
+    except ValueError:
+        return False
+    if not command:
+        return False
+    executable = os.path.basename(command[0]).lower()
+    return executable in {"pixi", "pixi.exe"} and "run" in command[1:]
+
+
+def is_pixi_tool_path(path: str) -> bool:
+    """Return whether a resolved executable lives inside the active Pixi env."""
+    expanded_path = os.path.abspath(os.path.expanduser(path))
+    pixi_prefix = os.environ.get("PIXI_PREFIX")
+    if pixi_prefix and _is_relative_to(expanded_path, pixi_prefix):
+        return True
+    conda_prefix = os.environ.get("CONDA_PREFIX")
+    return bool(
+        conda_prefix
+        and _is_pixi_environment_active()
+        and _is_relative_to(expanded_path, conda_prefix)
+    )
+
+
+def _is_pixi_environment_active() -> bool:
+    pixi_env_vars = (
+        "PIXI_EXE",
+        "PIXI_IN_SHELL",
+        "PIXI_PROJECT_MANIFEST",
+        "PIXI_PROJECT_NAME",
+        "PIXI_PROJECT_ROOT",
+        "PIXI_PROJECT_VERSION",
+    )
+    return any(os.environ.get(env_var) for env_var in pixi_env_vars)
+
+
+def _is_relative_to(path: str, parent: str) -> bool:
+    try:
+        return Path(path).resolve().is_relative_to(Path(parent).resolve())
+    except (OSError, RuntimeError, ValueError):
+        return False
 
 
 def get_repo_root() -> str:
