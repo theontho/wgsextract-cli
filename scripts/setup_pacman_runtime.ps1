@@ -2,17 +2,41 @@
 param(
     [string]$Msys2Root = $(if ($env:MSYS2_ROOT) { $env:MSYS2_ROOT } else { "C:\msys64" }),
     [string]$BwaVersion = "0.7.19",
+    [string]$Minimap2Version = "2.30",
     [string]$ReleaseTag = $(if ($env:WGSEXTRACT_RELEASE_TAG) { $env:WGSEXTRACT_RELEASE_TAG } else { "latest" }),
     [string]$BuildDir = "tmp\pacman-runtime-build",
     [string]$BwaBinaryUrl = $(if ($env:WGSEXTRACT_BWA_BINARY_URL) { $env:WGSEXTRACT_BWA_BINARY_URL } else { "" }),
     [string]$BwaBinarySha256 = $(if ($env:WGSEXTRACT_BWA_BINARY_SHA256) { $env:WGSEXTRACT_BWA_BINARY_SHA256 } else { "" }),
+    [string]$Minimap2BinaryUrl = "",
+    [string]$Minimap2BinarySha256 = "",
     [switch]$ForceBwaBuild,
+    [switch]$ForceMinimap2Build,
     [switch]$SkipBwaBuild,
+    [switch]$SkipMinimap2Build,
     [switch]$SkipBwaDownload,
+    [switch]$SkipMinimap2Download,
     [switch]$SkipPackageInstall
 )
 
 $ErrorActionPreference = "Stop"
+
+function Assert-SafeReleaseValue {
+    param(
+        [string]$Name,
+        [string]$Value,
+        [switch]$AllowEmpty
+    )
+
+    if (-not $Value) {
+        if ($AllowEmpty) {
+            return
+        }
+        throw "$Name is required."
+    }
+    if ($Value -notmatch '^[A-Za-z0-9._-]+$') {
+        throw "$Name contains unsupported characters. Use only letters, digits, '.', '_' or '-'."
+    }
+}
 
 function Resolve-RepoRelativePath {
     param([string]$Path)
@@ -227,11 +251,16 @@ function Resolve-GitHubReleaseAssetSha256 {
     return $match.Groups[1].Value.ToLowerInvariant()
 }
 
-function Resolve-BwaBinarySha256 {
-    param([string]$BinaryUrl)
+function Resolve-BinaryPackageSha256 {
+    param(
+        [string]$ToolName,
+        [string]$BinaryUrl,
+        [string]$ExplicitSha256,
+        [string]$Sha256ParameterName
+    )
 
-    if ($BwaBinarySha256) {
-        return ($BwaBinarySha256.Trim() -split "\s+")[0]
+    if ($ExplicitSha256) {
+        return ($ExplicitSha256.Trim() -split "\s+")[0]
     }
 
     if (-not $BinaryUrl) {
@@ -253,7 +282,51 @@ function Resolve-BwaBinarySha256 {
         return $githubSha256
     }
 
-    throw "No BWA binary checksum was available. For non-GitHub release URLs or local ZIP files, set WGSEXTRACT_BWA_BINARY_SHA256."
+    $parameterHint = if ($Sha256ParameterName) { "pass -$Sha256ParameterName" } else { "pass the matching SHA-256 parameter" }
+    throw "No $ToolName binary checksum was available. For non-GitHub release URLs or local ZIP files, $parameterHint."
+}
+
+function Install-ZippedBinaryPackage {
+    param(
+        [string]$ToolName,
+        [string]$BinaryUrl,
+        [string]$DestinationPath,
+        [string]$ExecutableName,
+        [string]$ExpectedSha256
+    )
+
+    if (-not $BinaryUrl) {
+        throw "No $ToolName binary URL was provided."
+    }
+
+    $tempZip = Join-Path $env:TEMP ("wgsextract-$ToolName-{0}.zip" -f ([guid]::NewGuid()))
+    $extractDir = Join-Path $env:TEMP ("wgsextract-$ToolName-{0}" -f ([guid]::NewGuid()))
+    try {
+        Write-Host "Downloading prebuilt $ToolName from $BinaryUrl"
+        Copy-UrlOrFile -Source $BinaryUrl -Destination $tempZip
+
+        if ($ExpectedSha256) {
+            $actualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $tempZip).Hash.ToLowerInvariant()
+            if ($actualSha256 -ne $ExpectedSha256.ToLowerInvariant()) {
+                throw "$ToolName binary checksum mismatch. Expected $ExpectedSha256 but got $actualSha256."
+            }
+            Write-Host "Verified $ToolName binary SHA256: $actualSha256"
+        }
+
+        New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
+        Expand-Archive -Path $tempZip -DestinationPath $extractDir -Force
+        $binary = Get-ChildItem -Path $extractDir -Recurse -Filter $ExecutableName | Select-Object -First 1
+        if (-not $binary) {
+            throw "Downloaded $ToolName package did not contain $ExecutableName."
+        }
+
+        Copy-Item -LiteralPath $binary.FullName -Destination $DestinationPath -Force
+        Write-Host "Installed prebuilt $ToolName to $DestinationPath"
+    }
+    finally {
+        Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
+        Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Install-BwaBinaryPackage {
@@ -262,40 +335,23 @@ function Install-BwaBinaryPackage {
         [string]$DestinationPath
     )
 
-    if (-not $BinaryUrl) {
-        throw "No BWA binary URL was provided."
-    }
-
-    $tempZip = Join-Path $env:TEMP ("wgsextract-bwa-{0}.zip" -f ([guid]::NewGuid()))
-    $extractDir = Join-Path $env:TEMP ("wgsextract-bwa-{0}" -f ([guid]::NewGuid()))
-    try {
-        Write-Host "Downloading prebuilt BWA from $BinaryUrl"
-        Copy-UrlOrFile -Source $BinaryUrl -Destination $tempZip
-
-        $expectedSha256 = Resolve-BwaBinarySha256 -BinaryUrl $BinaryUrl
-        if ($expectedSha256) {
-            $actualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $tempZip).Hash.ToLowerInvariant()
-            if ($actualSha256 -ne $expectedSha256.ToLowerInvariant()) {
-                throw "BWA binary checksum mismatch. Expected $expectedSha256 but got $actualSha256."
-            }
-            Write-Host "Verified BWA binary SHA256: $actualSha256"
-        }
-
-        New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
-        Expand-Archive -Path $tempZip -DestinationPath $extractDir -Force
-        $bwaBinary = Get-ChildItem -Path $extractDir -Recurse -Filter "bwa.exe" | Select-Object -First 1
-        if (-not $bwaBinary) {
-            throw "Downloaded BWA package did not contain bwa.exe."
-        }
-
-        Copy-Item -LiteralPath $bwaBinary.FullName -Destination $DestinationPath -Force
-        Write-Host "Installed prebuilt BWA to $DestinationPath"
-    }
-    finally {
-        Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
-        Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    $expectedSha256 = Resolve-BinaryPackageSha256 -ToolName "BWA" -BinaryUrl $BinaryUrl -ExplicitSha256 $BwaBinarySha256 -Sha256ParameterName "BwaBinarySha256"
+    Install-ZippedBinaryPackage -ToolName "BWA" -BinaryUrl $BinaryUrl -DestinationPath $DestinationPath -ExecutableName "bwa.exe" -ExpectedSha256 $expectedSha256
 }
+
+function Install-Minimap2BinaryPackage {
+    param(
+        [string]$BinaryUrl,
+        [string]$DestinationPath
+    )
+
+    $expectedSha256 = Resolve-BinaryPackageSha256 -ToolName "minimap2" -BinaryUrl $BinaryUrl -ExplicitSha256 $Minimap2BinarySha256 -Sha256ParameterName "Minimap2BinarySha256"
+    Install-ZippedBinaryPackage -ToolName "minimap2" -BinaryUrl $BinaryUrl -DestinationPath $DestinationPath -ExecutableName "minimap2.exe" -ExpectedSha256 $expectedSha256
+}
+
+Assert-SafeReleaseValue -Name "BwaVersion" -Value $BwaVersion
+Assert-SafeReleaseValue -Name "Minimap2Version" -Value $Minimap2Version
+Assert-SafeReleaseValue -Name "ReleaseTag" -Value $ReleaseTag -AllowEmpty
 
 $Msys2Root = [System.IO.Path]::GetFullPath($Msys2Root)
 if (-not $BwaBinaryUrl) {
@@ -303,6 +359,13 @@ if (-not $BwaBinaryUrl) {
         $BwaBinaryUrl = "https://github.com/theontho/wgsextract-cli/releases/latest/download/wgsextract-bwa-$BwaVersion-windows-ucrt64.zip"
     } else {
         $BwaBinaryUrl = "https://github.com/theontho/wgsextract-cli/releases/download/$ReleaseTag/wgsextract-bwa-$BwaVersion-windows-ucrt64.zip"
+    }
+}
+if (-not $Minimap2BinaryUrl) {
+    if ($ReleaseTag -eq "latest") {
+        $Minimap2BinaryUrl = "https://github.com/theontho/wgsextract-cli/releases/latest/download/wgsextract-minimap2-$Minimap2Version-windows-ucrt64.zip"
+    } else {
+        $Minimap2BinaryUrl = "https://github.com/theontho/wgsextract-cli/releases/download/$ReleaseTag/wgsextract-minimap2-$Minimap2Version-windows-ucrt64.zip"
     }
 }
 $script:BashPath = Join-Path $Msys2Root "usr\bin\bash.exe"
@@ -317,7 +380,7 @@ if (-not (Test-Path $pacmanPath)) {
 }
 
 if (-not $SkipPackageInstall) {
-    $runtimePackages = @(
+    $mandatoryRuntimePackages = @(
         "gzip",
         "tar",
         "mingw-w64-ucrt-x86_64-bcftools",
@@ -325,6 +388,12 @@ if (-not $SkipPackageInstall) {
         "mingw-w64-ucrt-x86_64-samtools",
         "mingw-w64-ucrt-x86_64-zlib"
     )
+    $optionalRuntimePackages = @(
+        # Optional tools currently available from MSYS2 UCRT64.
+        # htsfile is provided by mingw-w64-ucrt-x86_64-htslib above.
+        "mingw-w64-ucrt-x86_64-curl"
+    )
+    $runtimePackages = $mandatoryRuntimePackages + $optionalRuntimePackages
     Install-PacmanPackages "Installing MSYS2 UCRT64 runtime packages..." $runtimePackages
 }
 else {
@@ -519,6 +588,80 @@ else {
     Write-Host "BWA already exists at $bwaPath. Use -ForceBwaBuild to rebuild locally."
 }
 
+$minimap2Path = Join-Path $ucrt64Bin "minimap2.exe"
+$installedPrebuiltMinimap2 = $false
+
+if ((-not $SkipMinimap2Build) -and (-not $ForceMinimap2Build) -and (-not $SkipMinimap2Download) -and (-not (Test-Path $minimap2Path))) {
+    try {
+        Install-Minimap2BinaryPackage -BinaryUrl $Minimap2BinaryUrl -DestinationPath $minimap2Path
+        $installedPrebuiltMinimap2 = $true
+    }
+    catch {
+        Write-Warning "Prebuilt minimap2 install failed: $($_.Exception.Message)"
+        Write-Warning "Falling back to a local MSYS2 UCRT64 minimap2 build."
+    }
+}
+
+$shouldBuildMinimap2 = (-not $SkipMinimap2Build) -and ($ForceMinimap2Build -or -not (Test-Path $minimap2Path))
+
+if ($shouldBuildMinimap2) {
+    try {
+        if (-not $SkipPackageInstall) {
+            $minimap2BuildPackages = @(
+                "make",
+                "mingw-w64-ucrt-x86_64-gcc",
+                "mingw-w64-ucrt-x86_64-zlib"
+            )
+            Install-PacmanPackages "Installing MSYS2 UCRT64 minimap2 build packages..." $minimap2BuildPackages
+        }
+
+        $buildRoot = Resolve-RepoRelativePath $BuildDir
+        New-Item -ItemType Directory -Path $buildRoot -Force | Out-Null
+        $buildRootMsys = ConvertTo-MsysPath $buildRoot
+        $archiveName = "minimap2-$Minimap2Version.tar.gz"
+        $sourceDir = "minimap2-$Minimap2Version"
+        $sourceUrl = "https://github.com/lh3/minimap2/archive/refs/tags/v$Minimap2Version.tar.gz"
+
+        Write-Host "Building minimap2 $Minimap2Version for MSYS2 UCRT64..."
+        Invoke-Msys2Script @"
+mkdir -p '$buildRootMsys'
+cd '$buildRootMsys'
+rm -rf '$sourceDir' '$archiveName'
+if [ -t 2 ]; then
+    curl_progress='--progress-bar'
+else
+    curl_progress='--silent --show-error'
+fi
+curl -L `$curl_progress --retry 3 -o '$archiveName' '$sourceUrl'
+tar -xzf '$archiveName'
+cd '$sourceDir'
+make CC=gcc
+if [ -f minimap2.exe ]; then
+    built_minimap2=minimap2.exe
+else
+    built_minimap2=minimap2
+fi
+install -m 755 "`$built_minimap2" /ucrt64/bin/minimap2.exe
+/ucrt64/bin/minimap2.exe --version
+"@
+    }
+    catch {
+        if ($ForceMinimap2Build) {
+            throw "Failed to build required minimap2 native runtime: $($_.Exception.Message)"
+        }
+        Write-Warning "Could not install optional minimap2 native runtime: $($_.Exception.Message)"
+    }
+}
+elseif ($SkipMinimap2Build) {
+    Write-Host "Skipping minimap2 build."
+}
+elseif ($installedPrebuiltMinimap2) {
+    Write-Host "minimap2 installed from prebuilt release package."
+}
+else {
+    Write-Host "minimap2 already exists at $minimap2Path. Use -ForceMinimap2Build to rebuild locally."
+}
+
 $requiredTools = @("samtools", "bcftools", "bgzip", "tabix", "bwa")
 $missingTools = @()
 foreach ($tool in $requiredTools) {
@@ -533,6 +676,18 @@ if ($missingTools.Count -gt 0) {
 }
 
 Write-Host "Pacman runtime tools are present in $ucrt64Bin"
+
+$optionalPacmanTools = @("curl", "htsfile", "minimap2")
+$availableOptionalPacmanTools = @()
+foreach ($tool in $optionalPacmanTools) {
+    $toolPath = Join-Path $ucrt64Bin "$tool.exe"
+    if (Test-Path $toolPath) {
+        $availableOptionalPacmanTools += $tool
+    }
+}
+if ($availableOptionalPacmanTools.Count -gt 0) {
+    Write-Host "Optional pacman runtime tools are present: $($availableOptionalPacmanTools -join ', ')"
+}
 
 $pixiCommand = Get-Command pixi -ErrorAction SilentlyContinue
 if ($pixiCommand) {

@@ -1,4 +1,4 @@
-name: Release Windows BWA
+name: Release Windows Native Tools
 
 on:
   release:
@@ -9,6 +9,10 @@ on:
         description: BWA release tag version to build.
         required: false
         default: 0.7.19
+      minimap2_version:
+        description: minimap2 release tag version to build.
+        required: false
+        default: "2.30"
       release_tag:
         description: Existing GitHub release tag to receive the asset. Leave empty to upload only a workflow artifact.
         required: false
@@ -21,24 +25,51 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  build-windows-bwa:
+  build-windows-native-tools:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Resolve build inputs
         shell: powershell
+        env:
+          INPUT_BWA_VERSION: ${{ inputs.bwa_version }}
+          INPUT_MINIMAP2_VERSION: ${{ inputs.minimap2_version }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          EVENT_RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           $ErrorActionPreference = "Stop"
-          $bwaVersion = "${{ inputs.bwa_version }}"
-          if (-not $bwaVersion) {
-            $bwaVersion = "0.7.19"
+          function Resolve-SafeBuildInput {
+            param(
+              [string]$Name,
+              [string]$Value,
+              [string]$DefaultValue,
+              [switch]$AllowEmpty
+            )
+
+            if (-not $Value) {
+              $Value = $DefaultValue
+            }
+            if (-not $Value) {
+              if ($AllowEmpty) {
+                return ""
+              }
+              throw "$Name is required."
+            }
+            if ($Value -notmatch '^[A-Za-z0-9._-]+$') {
+              throw "$Name contains unsupported characters. Use only letters, digits, '.', '_' or '-'."
+            }
+            return $Value
           }
-          $releaseTag = "${{ github.event.release.tag_name }}"
+
+          $bwaVersion = Resolve-SafeBuildInput -Name "bwa_version" -Value $env:INPUT_BWA_VERSION -DefaultValue "0.7.19"
+          $minimap2Version = Resolve-SafeBuildInput -Name "minimap2_version" -Value $env:INPUT_MINIMAP2_VERSION -DefaultValue "2.30"
+          $releaseTag = Resolve-SafeBuildInput -Name "release_tag" -Value $env:EVENT_RELEASE_TAG -DefaultValue "" -AllowEmpty
           if (-not $releaseTag) {
-            $releaseTag = "${{ inputs.release_tag }}"
+            $releaseTag = Resolve-SafeBuildInput -Name "release_tag" -Value $env:INPUT_RELEASE_TAG -DefaultValue "" -AllowEmpty
           }
           "BWA_VERSION=$bwaVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MINIMAP2_VERSION=$minimap2Version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "RELEASE_TAG=$releaseTag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Set up MSYS2 UCRT64
@@ -59,11 +90,11 @@ jobs:
             mingw-w64-ucrt-x86_64-samtools
             mingw-w64-ucrt-x86_64-zlib
 
-      - name: Build BWA with MSYS2 UCRT64 GCC
+      - name: Build native tools with MSYS2 UCRT64 GCC
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          .\scripts\setup_pacman_runtime.ps1 -Msys2Root C:\msys64 -BwaVersion $env:BWA_VERSION -ForceBwaBuild -SkipBwaDownload
+          .\scripts\setup_pacman_runtime.ps1 -Msys2Root C:\msys64 -BwaVersion $env:BWA_VERSION -Minimap2Version $env:MINIMAP2_VERSION -ForceBwaBuild -ForceMinimap2Build -SkipBwaDownload -SkipMinimap2Download
 
       - name: Package BWA release asset
         shell: powershell
@@ -84,11 +115,32 @@ jobs:
           Compress-Archive -Path (Join-Path $assetDir "*") -DestinationPath $zipPath -Force
           "BWA_ZIP=$zipPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Package minimap2 release asset
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $assetName = "wgsextract-minimap2-$env:MINIMAP2_VERSION-windows-ucrt64"
+          $assetDir = Join-Path "out\release-minimap2" $assetName
+          New-Item -ItemType Directory -Force $assetDir | Out-Null
+          Copy-Item -LiteralPath "C:\msys64\ucrt64\bin\minimap2.exe" -Destination (Join-Path $assetDir "minimap2.exe") -Force
+          @"
+          WGSExtract Windows minimap2 binary
+          minimap2 version: $env:MINIMAP2_VERSION
+          Target runtime: MSYS2 UCRT64
+          Install path expected by wgsextract-cli: C:\msys64\ucrt64\bin\minimap2.exe
+          Built by: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
+          "@ | Set-Content -Path (Join-Path $assetDir "README.txt") -Encoding ASCII
+          $zipPath = Join-Path "out\release-minimap2" "$assetName.zip"
+          Compress-Archive -Path (Join-Path $assetDir "*") -DestinationPath $zipPath -Force
+          "MINIMAP2_ZIP=$zipPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Upload workflow artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: wgsextract-bwa-${{ env.BWA_VERSION }}-windows-ucrt64
-          path: ${{ env.BWA_ZIP }}
+          name: wgsextract-windows-ucrt64-native-tools
+          path: |
+            ${{ env.BWA_ZIP }}
+            ${{ env.MINIMAP2_ZIP }}
           if-no-files-found: error
 
       - name: Upload release asset
@@ -97,4 +149,6 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           fail_on_unmatched_files: true
-          files: ${{ env.BWA_ZIP }}
+          files: |
+            ${{ env.BWA_ZIP }}
+            ${{ env.MINIMAP2_ZIP }}
