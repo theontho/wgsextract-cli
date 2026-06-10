@@ -79,6 +79,9 @@ def _prepare_yleaf_vcf_data_dir(
         except OSError:
             with open(ref_fasta, "rb") as f_in, open(full_reference, "wb") as f_out:
                 f_out.write(f_in.read())
+    elif ref_fasta and ref_fasta.endswith((".fa.gz", ".fasta.gz", ".fna.gz")):
+        with gzip.open(ref_fasta, "rb") as f_in, open(full_reference, "wb") as f_out:
+            f_out.write(f_in.read())
     else:
         with open(full_reference, "w", encoding="utf-8") as f_out:
             f_out.write(">chrY\n")
