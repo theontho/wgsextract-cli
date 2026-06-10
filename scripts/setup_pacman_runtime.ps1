@@ -942,6 +942,10 @@ sed -i \
     -e 's/stat( s\.c_str(), \&status );/_stat64( s.c_str(), \&status );/g' \
     -e 's/stat( path\.c_str(), \&status );/_stat64( path.c_str(), \&status );/g' \
     src/util.h
+if [ "`$(grep -c '_stat64' src/util.h)" -lt 4 ]; then
+    echo "fastp Windows large-file patch did not apply cleanly." >&2
+    exit 1
+fi
 make CXX=g++
 if [ -f fastp.exe ]; then
     built_fastp=fastp.exe
