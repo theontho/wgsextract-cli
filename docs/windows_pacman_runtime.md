@@ -23,7 +23,7 @@ For the standard Windows setup, run the recommended batch installer from the rep
 install_windows.bat
 ```
 
-This bootstraps Pixi and MSYS2 if needed, installs the Pixi project environment, runs the pacman runtime setup helper, and persists `tool_runtime = "windows"` plus the UCRT64 bin path in the WGSExtract config file. The helper downloads prebuilt WGSExtract native release assets for tools such as BWA and minimap2 when available, so normal installs do not need a local C compiler.
+This bootstraps Pixi and MSYS2 if needed, installs the Pixi project environment, runs the pacman runtime setup helper, and persists `tool_runtime = "windows"` plus the UCRT64 bin path in the WGSExtract config file. The helper downloads prebuilt WGSExtract native release assets for tools such as BWA, minimap2, samblaster, and fastp when available, so normal installs do not need a local C compiler.
 
 If you run a standalone copy of `install_windows.bat` without the rest of the repository, place it in an empty directory. The source bootstrap refuses to copy into a non-empty directory unless you explicitly pass `--allow-nonempty-bootstrap-dir`.
 
@@ -57,6 +57,13 @@ The minimap2 release asset can be overridden the same way:
 
 ```bat
 install_windows.bat --minimap2-binary-url D:\tools\wgsextract-minimap2-2.30-windows-ucrt64.zip --minimap2-binary-sha256 <sha256>
+```
+
+Native samblaster and fastp assets also support the same override pattern:
+
+```bat
+install_windows.bat --samblaster-binary-url D:\tools\wgsextract-samblaster-0.1.26-windows-ucrt64.zip --samblaster-binary-sha256 <sha256>
+install_windows.bat --fastp-binary-url D:\tools\wgsextract-fastp-0.24.1-windows-ucrt64.zip --fastp-binary-sha256 <sha256>
 ```
 
 To remove the local project install and clear those pacman config defaults:
@@ -99,13 +106,13 @@ It does not fall back to WSL, so a machine with WSL installed will still use nat
 
 ## Why Some Tools Are Built
 
-MSYS2 UCRT64 publishes packages for the required HTS tools used by WGSExtract, including `samtools`, `bcftools`, `htslib`, `bgzip`, and `tabix`. It also provides optional pacman-runtime coverage for `curl` and `htsfile`. It does not currently publish every bioinformatics tool WGSExtract can use, so WGSExtract publishes prebuilt UCRT64 `.exe` assets for supported native build/package tools such as BWA and minimap2. The setup helper installs those binaries under:
+MSYS2 UCRT64 publishes packages for the required HTS tools used by WGSExtract, including `samtools`, `bcftools`, `htslib`, `bgzip`, and `tabix`. It also provides optional pacman-runtime coverage for `curl` and `htsfile`. It does not currently publish every bioinformatics tool WGSExtract can use, so WGSExtract publishes prebuilt UCRT64 `.exe` assets for supported native build/package tools such as BWA, minimap2, samblaster, and fastp. The setup helper installs those binaries under:
 
 ```text
 C:\msys64\ucrt64\bin
 ```
 
-The release binaries are produced by the `Release Windows Native Tools` GitHub Actions workflow and packaged as `wgsextract-<tool>-<version>-windows-ucrt64.zip`. For GitHub release asset URLs, the installer verifies the ZIP against the asset's GitHub-provided SHA-256 digest, using the same release-asset digest strategy as GitHub-hosted reference genome downloads. Set `GITHUB_TOKEN` to authenticate the GitHub API lookup if needed. If the digest lookup is unavailable, the helper warns and continues without that SHA-256 check; if GitHub metadata is fetched but lacks valid SHA-256 asset metadata, or if the downloaded ZIP does not match the digest, installation fails. For local ZIPs or non-GitHub URLs, pass the matching PowerShell parameter, such as `-BwaBinarySha256` or `-Minimap2BinarySha256`.
+The release binaries are produced by the `Release Windows Native Tools` GitHub Actions workflow and packaged as `wgsextract-<tool>-<version>-windows-ucrt64.zip`. For GitHub release asset URLs, the installer verifies the ZIP against the asset's GitHub-provided SHA-256 digest, using the same release-asset digest strategy as GitHub-hosted reference genome downloads. Set `GITHUB_TOKEN` to authenticate the GitHub API lookup if needed. If the digest lookup is unavailable, the helper warns and continues without that SHA-256 check; if GitHub metadata is fetched but lacks valid SHA-256 asset metadata, or if the downloaded ZIP does not match the digest, installation fails. For local ZIPs or non-GitHub URLs, pass the matching PowerShell parameter, such as `-BwaBinarySha256`, `-Minimap2BinarySha256`, `-SamblasterBinarySha256`, or `-FastpBinarySha256`.
 
 If the release asset cannot be downloaded, or if you pass a force-build flag, the helper builds supported tools locally. That fallback build uses the MSYS2 UCRT64 toolchain installed by pacman, specifically `mingw-w64-ucrt-x86_64-gcc` plus build helpers such as `base-devel`, `make`, `curl`, and `tar`. Windows does not include a built-in C compiler suitable for these builds. Visual Studio Build Tools or the Windows SDK are optional Microsoft installs and are not used by this helper; the script runs `make CC=gcc` inside MSYS2 UCRT64 for a consistent native Windows `.exe`.
 
@@ -121,6 +128,29 @@ You can rebuild minimap2 explicitly with:
 .\scripts\setup_pacman_runtime.ps1 -ForceMinimap2Build -SkipMinimap2Download
 ```
 
+You can rebuild samblaster and fastp explicitly with:
+
+```powershell
+.\scripts\setup_pacman_runtime.ps1 -ForceSamblasterBuild -SkipSamblasterDownload
+.\scripts\setup_pacman_runtime.ps1 -ForceFastpBuild -SkipFastpDownload
+```
+
+## Native-build TODO list
+
+These optional dependencies are not currently supplied by strict MSYS2/pacman packages or native Windows Pixi packages. The preferred path is to add WGSExtract UCRT64 release assets where the upstream tool can be built and smoke-tested as a native Windows `.exe`.
+
+| Tool | Native asset status | Notes |
+| --- | --- | --- |
+| `samblaster` | Implemented | Built from `v.0.1.26` with small Windows compatibility shims for POSIX allocation/timing helpers. |
+| `fastp` | Implemented | Built from `v0.24.1`; uses MSYS2 UCRT64 `isa-l`, `libdeflate`, `zlib`, and GCC runtime packages for DLL dependencies. |
+| `freebayes` | TODO | High-value variant caller, but has a larger C++ dependency stack. Investigate an MSYS2 UCRT64 build and package only if runtime DLLs can be satisfied by pacman packages. |
+| `delly` | TODO | High-value SV caller, but depends on a larger C++/HTS stack. Investigate after freebayes. |
+| `sambamba` | TODO / maybe defer | D/LDC-based build; likely harder to keep small and reproducible than C/C++ tools. |
+| `pbmm2` | TODO / maybe defer | PacBio C++ stack; likely higher complexity and less broadly useful than fastp/samblaster. |
+| `sniffles` | Defer | Native Pixi solve was not usable during the Windows optional dependency review; revisit before building from source. |
+| `vep` | Defer | Perl/cache stack remains high-friction on native Windows. Prefer a future WSL/container path if native packaging stays too expensive. |
+| `run_deepvariant` / `dv_call_variants.py` | Defer | DeepVariant remains Linux/container-oriented; avoid WSL for normal setup, but this is not a good native Windows `.exe` asset candidate. |
+
 ## Validation
 
 After setup, verify the runtime:
@@ -130,6 +160,8 @@ $env:WGSEXTRACT_TOOL_RUNTIME = "pacman"
 $env:WGSEXTRACT_PACMAN_UCRT64_BIN = "C:\msys64\ucrt64\bin"
 pixi run wgsextract deps pacman check
 pixi run wgsextract deps check --tool bwa
+pixi run wgsextract deps check --tool samblaster
+pixi run wgsextract deps check --tool fastp
 $env:WGSEXTRACT_TOOL_RUNTIME = "windows"
 pixi run wgsextract deps check --tool fastqc
 pixi run wgsextract benchmark --runtime pacman --profile smoke --suite core --outdir out\benchmark-pacman-smoke
@@ -152,7 +184,10 @@ gzip
 tar
 mingw-w64-ucrt-x86_64-bcftools
 mingw-w64-ucrt-x86_64-curl
+mingw-w64-ucrt-x86_64-gcc-libs
 mingw-w64-ucrt-x86_64-htslib
+mingw-w64-ucrt-x86_64-isa-l
+mingw-w64-ucrt-x86_64-libdeflate
 mingw-w64-ucrt-x86_64-samtools
 mingw-w64-ucrt-x86_64-zlib
 ```

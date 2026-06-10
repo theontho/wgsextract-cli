@@ -3,18 +3,30 @@ param(
     [string]$Msys2Root = $(if ($env:MSYS2_ROOT) { $env:MSYS2_ROOT } else { "C:\msys64" }),
     [string]$BwaVersion = "0.7.19",
     [string]$Minimap2Version = "2.30",
+    [string]$SamblasterVersion = "0.1.26",
+    [string]$FastpVersion = "0.24.1",
     [string]$ReleaseTag = $(if ($env:WGSEXTRACT_RELEASE_TAG) { $env:WGSEXTRACT_RELEASE_TAG } else { "latest" }),
     [string]$BuildDir = "tmp\pacman-runtime-build",
     [string]$BwaBinaryUrl = $(if ($env:WGSEXTRACT_BWA_BINARY_URL) { $env:WGSEXTRACT_BWA_BINARY_URL } else { "" }),
     [string]$BwaBinarySha256 = $(if ($env:WGSEXTRACT_BWA_BINARY_SHA256) { $env:WGSEXTRACT_BWA_BINARY_SHA256 } else { "" }),
     [string]$Minimap2BinaryUrl = "",
     [string]$Minimap2BinarySha256 = "",
+    [string]$SamblasterBinaryUrl = "",
+    [string]$SamblasterBinarySha256 = "",
+    [string]$FastpBinaryUrl = "",
+    [string]$FastpBinarySha256 = "",
     [switch]$ForceBwaBuild,
     [switch]$ForceMinimap2Build,
+    [switch]$ForceSamblasterBuild,
+    [switch]$ForceFastpBuild,
     [switch]$SkipBwaBuild,
     [switch]$SkipMinimap2Build,
+    [switch]$SkipSamblasterBuild,
+    [switch]$SkipFastpBuild,
     [switch]$SkipBwaDownload,
     [switch]$SkipMinimap2Download,
+    [switch]$SkipSamblasterDownload,
+    [switch]$SkipFastpDownload,
     [switch]$SkipPackageInstall
 )
 
@@ -349,8 +361,30 @@ function Install-Minimap2BinaryPackage {
     Install-ZippedBinaryPackage -ToolName "minimap2" -BinaryUrl $BinaryUrl -DestinationPath $DestinationPath -ExecutableName "minimap2.exe" -ExpectedSha256 $expectedSha256
 }
 
+function Install-SamblasterBinaryPackage {
+    param(
+        [string]$BinaryUrl,
+        [string]$DestinationPath
+    )
+
+    $expectedSha256 = Resolve-BinaryPackageSha256 -ToolName "samblaster" -BinaryUrl $BinaryUrl -ExplicitSha256 $SamblasterBinarySha256 -Sha256ParameterName "SamblasterBinarySha256"
+    Install-ZippedBinaryPackage -ToolName "samblaster" -BinaryUrl $BinaryUrl -DestinationPath $DestinationPath -ExecutableName "samblaster.exe" -ExpectedSha256 $expectedSha256
+}
+
+function Install-FastpBinaryPackage {
+    param(
+        [string]$BinaryUrl,
+        [string]$DestinationPath
+    )
+
+    $expectedSha256 = Resolve-BinaryPackageSha256 -ToolName "fastp" -BinaryUrl $BinaryUrl -ExplicitSha256 $FastpBinarySha256 -Sha256ParameterName "FastpBinarySha256"
+    Install-ZippedBinaryPackage -ToolName "fastp" -BinaryUrl $BinaryUrl -DestinationPath $DestinationPath -ExecutableName "fastp.exe" -ExpectedSha256 $expectedSha256
+}
+
 Assert-SafeReleaseValue -Name "BwaVersion" -Value $BwaVersion
 Assert-SafeReleaseValue -Name "Minimap2Version" -Value $Minimap2Version
+Assert-SafeReleaseValue -Name "SamblasterVersion" -Value $SamblasterVersion
+Assert-SafeReleaseValue -Name "FastpVersion" -Value $FastpVersion
 Assert-SafeReleaseValue -Name "ReleaseTag" -Value $ReleaseTag -AllowEmpty
 
 $Msys2Root = [System.IO.Path]::GetFullPath($Msys2Root)
@@ -366,6 +400,20 @@ if (-not $Minimap2BinaryUrl) {
         $Minimap2BinaryUrl = "https://github.com/theontho/wgsextract-cli/releases/latest/download/wgsextract-minimap2-$Minimap2Version-windows-ucrt64.zip"
     } else {
         $Minimap2BinaryUrl = "https://github.com/theontho/wgsextract-cli/releases/download/$ReleaseTag/wgsextract-minimap2-$Minimap2Version-windows-ucrt64.zip"
+    }
+}
+if (-not $SamblasterBinaryUrl) {
+    if ($ReleaseTag -eq "latest") {
+        $SamblasterBinaryUrl = "https://github.com/theontho/wgsextract-cli/releases/latest/download/wgsextract-samblaster-$SamblasterVersion-windows-ucrt64.zip"
+    } else {
+        $SamblasterBinaryUrl = "https://github.com/theontho/wgsextract-cli/releases/download/$ReleaseTag/wgsextract-samblaster-$SamblasterVersion-windows-ucrt64.zip"
+    }
+}
+if (-not $FastpBinaryUrl) {
+    if ($ReleaseTag -eq "latest") {
+        $FastpBinaryUrl = "https://github.com/theontho/wgsextract-cli/releases/latest/download/wgsextract-fastp-$FastpVersion-windows-ucrt64.zip"
+    } else {
+        $FastpBinaryUrl = "https://github.com/theontho/wgsextract-cli/releases/download/$ReleaseTag/wgsextract-fastp-$FastpVersion-windows-ucrt64.zip"
     }
 }
 $script:BashPath = Join-Path $Msys2Root "usr\bin\bash.exe"
@@ -391,7 +439,11 @@ if (-not $SkipPackageInstall) {
     $optionalRuntimePackages = @(
         # Optional tools currently available from MSYS2 UCRT64.
         # htsfile is provided by mingw-w64-ucrt-x86_64-htslib above.
-        "mingw-w64-ucrt-x86_64-curl"
+        "mingw-w64-ucrt-x86_64-curl",
+        # Runtime DLLs needed by optional native release assets.
+        "mingw-w64-ucrt-x86_64-gcc-libs",
+        "mingw-w64-ucrt-x86_64-isa-l",
+        "mingw-w64-ucrt-x86_64-libdeflate"
     )
     $runtimePackages = $mandatoryRuntimePackages + $optionalRuntimePackages
     Install-PacmanPackages "Installing MSYS2 UCRT64 runtime packages..." $runtimePackages
@@ -662,6 +714,252 @@ else {
     Write-Host "minimap2 already exists at $minimap2Path. Use -ForceMinimap2Build to rebuild locally."
 }
 
+$samblasterPath = Join-Path $ucrt64Bin "samblaster.exe"
+$installedPrebuiltSamblaster = $false
+
+if ((-not $SkipSamblasterBuild) -and (-not $ForceSamblasterBuild) -and (-not $SkipSamblasterDownload) -and (-not (Test-Path $samblasterPath))) {
+    try {
+        Install-SamblasterBinaryPackage -BinaryUrl $SamblasterBinaryUrl -DestinationPath $samblasterPath
+        $installedPrebuiltSamblaster = $true
+    }
+    catch {
+        Write-Warning "Prebuilt samblaster install failed: $($_.Exception.Message)"
+        Write-Warning "Falling back to a local MSYS2 UCRT64 samblaster build."
+    }
+}
+
+$shouldBuildSamblaster = (-not $SkipSamblasterBuild) -and ($ForceSamblasterBuild -or -not (Test-Path $samblasterPath))
+
+if ($shouldBuildSamblaster) {
+    try {
+        if (-not $SkipPackageInstall) {
+            $samblasterBuildPackages = @(
+                "make",
+                "mingw-w64-ucrt-x86_64-gcc"
+            )
+            Install-PacmanPackages "Installing MSYS2 UCRT64 samblaster build packages..." $samblasterBuildPackages
+        }
+
+        $buildRoot = Resolve-RepoRelativePath $BuildDir
+        New-Item -ItemType Directory -Path $buildRoot -Force | Out-Null
+        $buildRootMsys = ConvertTo-MsysPath $buildRoot
+        $archiveName = "samblaster-$SamblasterVersion.tar.gz"
+        $sourceDir = "samblaster-v.$SamblasterVersion"
+        $sourceUrl = "https://github.com/GregoryFaust/samblaster/archive/refs/tags/v.$SamblasterVersion.tar.gz"
+
+        Write-Host "Building samblaster $SamblasterVersion for MSYS2 UCRT64..."
+        Invoke-Msys2Script @"
+mkdir -p '$buildRootMsys'
+cd '$buildRootMsys'
+rm -rf '$sourceDir' '$archiveName'
+if [ -t 2 ]; then
+    curl_progress='--progress-bar'
+else
+    curl_progress='--silent --show-error'
+fi
+curl -L `$curl_progress --retry 3 -o '$archiveName' '$sourceUrl'
+tar -xzf '$archiveName'
+cd '$sourceDir'
+mkdir -p sys
+cat > sys/times.h <<'EOF'
+#ifndef WGSEXTRACT_SAMBLASTER_TIMES_H
+#define WGSEXTRACT_SAMBLASTER_TIMES_H
+#include <time.h>
+struct tms { clock_t tms_utime; clock_t tms_stime; clock_t tms_cutime; clock_t tms_cstime; };
+static inline clock_t times(struct tms *buffer) { (void)buffer; return 0; }
+#endif
+EOF
+cat > sys/resource.h <<'EOF'
+#ifndef WGSEXTRACT_SAMBLASTER_RESOURCE_H
+#define WGSEXTRACT_SAMBLASTER_RESOURCE_H
+#include <string.h>
+#include <sys/time.h>
+#ifndef RUSAGE_SELF
+#define RUSAGE_SELF 0
+#endif
+struct rusage { struct timeval ru_utime; struct timeval ru_stime; long ru_maxrss; };
+static inline int getrusage(int who, struct rusage *usage) { (void)who; memset(usage, 0, sizeof(*usage)); return 0; }
+#endif
+EOF
+cat > sys/mman.h <<'EOF'
+#ifndef WGSEXTRACT_SAMBLASTER_MMAN_H
+#define WGSEXTRACT_SAMBLASTER_MMAN_H
+#include <stddef.h>
+#include <stdlib.h>
+#define PROT_READ 1
+#define PROT_WRITE 2
+#define MAP_PRIVATE 2
+#define MAP_SHARED 1
+#define MAP_ANON 0x20
+#define MAP_ANONYMOUS MAP_ANON
+#define MAP_FAILED ((void *)-1)
+static inline void *mmap(void *addr, size_t length, int prot, int flags, int fd, long offset) { (void)addr; (void)prot; (void)flags; (void)fd; (void)offset; void *ptr = malloc(length); return ptr ? ptr : MAP_FAILED; }
+static inline int munmap(void *addr, size_t length) { (void)length; free(addr); return 0; }
+#endif
+EOF
+cat > win_compat.h <<'EOF'
+#ifndef WGSEXTRACT_SAMBLASTER_WIN_COMPAT_H
+#define WGSEXTRACT_SAMBLASTER_WIN_COMPAT_H
+#ifdef _WIN32
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/time.h>
+#ifndef ssize_t
+typedef long long ssize_t;
+#endif
+static inline int wgsextract_vasprintf(char **strp, const char *fmt, va_list ap) {
+    va_list copy;
+    va_copy(copy, ap);
+    int length = vsnprintf(NULL, 0, fmt, copy);
+    va_end(copy);
+    if (length < 0) { *strp = NULL; return -1; }
+    *strp = (char *)malloc((size_t)length + 1);
+    if (!*strp) { return -1; }
+    int written = vsnprintf(*strp, (size_t)length + 1, fmt, ap);
+    if (written < 0) { free(*strp); *strp = NULL; return -1; }
+    return written;
+}
+static inline int wgsextract_asprintf(char **strp, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    int result = wgsextract_vasprintf(strp, fmt, ap);
+    va_end(ap);
+    return result;
+}
+static inline ssize_t wgsextract_getline(char **lineptr, size_t *n, FILE *stream) {
+    if (!lineptr || !n || !stream) { return -1; }
+    if (!*lineptr || *n == 0) {
+        *n = 256;
+        *lineptr = (char *)malloc(*n);
+        if (!*lineptr) { return -1; }
+    }
+    size_t length = 0;
+    int ch;
+    while ((ch = fgetc(stream)) != EOF) {
+        if (length + 1 >= *n) {
+            size_t newSize = (*n) * 2;
+            char *newLine = (char *)realloc(*lineptr, newSize);
+            if (!newLine) { return -1; }
+            *lineptr = newLine;
+            *n = newSize;
+        }
+        (*lineptr)[length++] = (char)ch;
+        if (ch == '\n') { break; }
+    }
+    if (length == 0 && ch == EOF) { return -1; }
+    (*lineptr)[length] = '\0';
+    return (ssize_t)length;
+}
+#define asprintf wgsextract_asprintf
+#define getline wgsextract_getline
+#endif
+#endif
+EOF
+make CPP=g++ CPPFLAGS='-I. -include win_compat.h -Wall -O3 -D BUILDNUM=26'
+if [ -f samblaster.exe ]; then
+    built_samblaster=samblaster.exe
+else
+    built_samblaster=samblaster
+fi
+install -m 755 "`$built_samblaster" /ucrt64/bin/samblaster.exe
+/ucrt64/bin/samblaster.exe --version
+"@
+    }
+    catch {
+        if ($ForceSamblasterBuild) {
+            throw "Failed to build required samblaster native runtime: $($_.Exception.Message)"
+        }
+        Write-Warning "Could not install optional samblaster native runtime: $($_.Exception.Message)"
+    }
+}
+elseif ($SkipSamblasterBuild) {
+    Write-Host "Skipping samblaster build."
+}
+elseif ($installedPrebuiltSamblaster) {
+    Write-Host "samblaster installed from prebuilt release package."
+}
+else {
+    Write-Host "samblaster already exists at $samblasterPath. Use -ForceSamblasterBuild to rebuild locally."
+}
+
+$fastpPath = Join-Path $ucrt64Bin "fastp.exe"
+$installedPrebuiltFastp = $false
+
+if ((-not $SkipFastpBuild) -and (-not $ForceFastpBuild) -and (-not $SkipFastpDownload) -and (-not (Test-Path $fastpPath))) {
+    try {
+        Install-FastpBinaryPackage -BinaryUrl $FastpBinaryUrl -DestinationPath $fastpPath
+        $installedPrebuiltFastp = $true
+    }
+    catch {
+        Write-Warning "Prebuilt fastp install failed: $($_.Exception.Message)"
+        Write-Warning "Falling back to a local MSYS2 UCRT64 fastp build."
+    }
+}
+
+$shouldBuildFastp = (-not $SkipFastpBuild) -and ($ForceFastpBuild -or -not (Test-Path $fastpPath))
+
+if ($shouldBuildFastp) {
+    try {
+        if (-not $SkipPackageInstall) {
+            $fastpBuildPackages = @(
+                "make",
+                "mingw-w64-ucrt-x86_64-gcc",
+                "mingw-w64-ucrt-x86_64-isa-l",
+                "mingw-w64-ucrt-x86_64-libdeflate",
+                "mingw-w64-ucrt-x86_64-zlib"
+            )
+            Install-PacmanPackages "Installing MSYS2 UCRT64 fastp build packages..." $fastpBuildPackages
+        }
+
+        $buildRoot = Resolve-RepoRelativePath $BuildDir
+        New-Item -ItemType Directory -Path $buildRoot -Force | Out-Null
+        $buildRootMsys = ConvertTo-MsysPath $buildRoot
+        $archiveName = "fastp-$FastpVersion.tar.gz"
+        $sourceDir = "fastp-$FastpVersion"
+        $sourceUrl = "https://github.com/OpenGene/fastp/archive/refs/tags/v$FastpVersion.tar.gz"
+
+        Write-Host "Building fastp $FastpVersion for MSYS2 UCRT64..."
+        Invoke-Msys2Script @"
+mkdir -p '$buildRootMsys'
+cd '$buildRootMsys'
+rm -rf '$sourceDir' '$archiveName'
+if [ -t 2 ]; then
+    curl_progress='--progress-bar'
+else
+    curl_progress='--silent --show-error'
+fi
+curl -L `$curl_progress --retry 3 -o '$archiveName' '$sourceUrl'
+tar -xzf '$archiveName'
+cd '$sourceDir'
+make CXX=g++
+if [ -f fastp.exe ]; then
+    built_fastp=fastp.exe
+else
+    built_fastp=fastp
+fi
+install -m 755 "`$built_fastp" /ucrt64/bin/fastp.exe
+/ucrt64/bin/fastp.exe --version
+"@
+    }
+    catch {
+        if ($ForceFastpBuild) {
+            throw "Failed to build required fastp native runtime: $($_.Exception.Message)"
+        }
+        Write-Warning "Could not install optional fastp native runtime: $($_.Exception.Message)"
+    }
+}
+elseif ($SkipFastpBuild) {
+    Write-Host "Skipping fastp build."
+}
+elseif ($installedPrebuiltFastp) {
+    Write-Host "fastp installed from prebuilt release package."
+}
+else {
+    Write-Host "fastp already exists at $fastpPath. Use -ForceFastpBuild to rebuild locally."
+}
+
 $requiredTools = @("samtools", "bcftools", "bgzip", "tabix", "bwa")
 $missingTools = @()
 foreach ($tool in $requiredTools) {
@@ -677,7 +975,7 @@ if ($missingTools.Count -gt 0) {
 
 Write-Host "Pacman runtime tools are present in $ucrt64Bin"
 
-$optionalPacmanTools = @("curl", "htsfile", "minimap2")
+$optionalPacmanTools = @("curl", "htsfile", "minimap2", "samblaster", "fastp")
 $availableOptionalPacmanTools = @()
 foreach ($tool in $optionalPacmanTools) {
     $toolPath = Join-Path $ucrt64Bin "$tool.exe"

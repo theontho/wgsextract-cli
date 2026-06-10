@@ -28,8 +28,8 @@ penalty, so the preferred order is:
 | `yleaf` | Pixi `yleaf` | Bioconda noarch Python package solves on `win-64`; smoke-test before treating as supported. |
 | `pbsv` | Native source not confirmed | The current lockfile only includes a `linux-64` artifact. Do not advertise native Windows support unless a fresh `win-64` solve and smoke test succeeds. |
 | `minimap2` | Build/package native | Implemented in this branch as an MSYS2 UCRT64 build/install path and release asset workflow output. |
-| `samblaster` | Build/package native | Not available from MSYS2 UCRT64 or native Pixi. Good candidate for a release asset. |
-| `fastp` | Build/package native | Not available from MSYS2 UCRT64 or native Pixi. Good candidate for a release asset. |
+| `samblaster` | Build/package native | Implemented as an MSYS2 UCRT64 release asset using small Windows compatibility shims. |
+| `fastp` | Build/package native | Implemented as an MSYS2 UCRT64 release asset using pacman-provided `isa-l` and `libdeflate`. |
 | `freebayes` | Build/package native | Not available from MSYS2 UCRT64 or native Pixi. More complex dependency stack. |
 | `delly` | Build/package native | Not available from MSYS2 UCRT64 or native Pixi. More complex dependency stack. |
 | `sambamba` | Build/package native or defer | D/LDC-based; likely harder than C/C++ tools. |
@@ -72,8 +72,8 @@ Recommended order:
 
 1. `minimap2` - implemented first because it is a high-value aligner and
    builds cleanly under MSYS2 UCRT64.
-2. `samblaster`
-3. `fastp`
+2. `samblaster` - implemented with compatibility shims for POSIX helpers.
+3. `fastp` - implemented with MSYS2 UCRT64 `isa-l` and `libdeflate`.
 4. `freebayes`
 5. `delly`
 6. `sambamba`
