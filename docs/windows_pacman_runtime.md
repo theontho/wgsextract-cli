@@ -1,8 +1,8 @@
 # Windows Pacman Runtime Setup
 
-`wgsextract-cli` can run required bioinformatics tools on native Windows through an MSYS2 UCRT64 runtime. This is the recommended Windows runtime and is selected with `--runtime pacman` or `WGSEXTRACT_TOOL_RUNTIME=pacman`.
+`wgsextract-cli` can run required bioinformatics tools on native Windows through an MSYS2 UCRT64 runtime and selected optional tools through the host Pixi environment. The recommended normal Windows runtime is `tool_runtime = "windows"` or `WGSEXTRACT_TOOL_RUNTIME=windows`.
 
-The pacman runtime is different from the bundled `cygwin`, bundled `msys2`, and WSL2 runtimes: it uses tools installed into a normal MSYS2 installation, usually `C:\msys64\ucrt64\bin`, and invokes those Windows `.exe` files directly.
+The strict `pacman` runtime is different from the bundled `cygwin`, bundled `msys2`, and WSL2 runtimes: it uses tools installed into a normal MSYS2 installation, usually `C:\msys64\ucrt64\bin`, and invokes those Windows `.exe` files directly. The `windows` runtime keeps that native pacman behavior but also allows optional tools from host Pixi, and never falls back to WSL.
 
 ## Prerequisites
 
@@ -23,7 +23,7 @@ For the standard Windows setup, run the recommended batch installer from the rep
 install_windows.bat
 ```
 
-This bootstraps Pixi and MSYS2 if needed, installs the Pixi project environment, runs the pacman runtime setup helper, and persists `tool_runtime = "pacman"` plus the UCRT64 bin path in the WGSExtract config file. The helper downloads prebuilt WGSExtract native release assets for tools such as BWA and minimap2 when available, so normal installs do not need a local C compiler.
+This bootstraps Pixi and MSYS2 if needed, installs the Pixi project environment, runs the pacman runtime setup helper, and persists `tool_runtime = "windows"` plus the UCRT64 bin path in the WGSExtract config file. The helper downloads prebuilt WGSExtract native release assets for tools such as BWA and minimap2 when available, so normal installs do not need a local C compiler.
 
 If you run a standalone copy of `install_windows.bat` without the rest of the repository, place it in an empty directory. The source bootstrap refuses to copy into a non-empty directory unless you explicitly pass `--allow-nonempty-bootstrap-dir`.
 
@@ -85,7 +85,17 @@ For a non-default MSYS2 location:
 .\scripts\setup_pacman_runtime.ps1 -Msys2Root D:\tools\msys64
 ```
 
-The helper installs the required UCRT64 runtime packages with pacman, downloads prebuilt WGSExtract native release assets when available, copies executables into `ucrt64\bin`, and validates the runtime with `wgsextract deps pacman check` when Pixi is available. If a prebuilt binary is unavailable, it falls back to a local MSYS2 UCRT64 build when that tool has a native build path.
+The helper installs the required UCRT64 runtime packages with pacman, downloads prebuilt WGSExtract native release assets when available, copies executables into `ucrt64\bin`, and validates the strict pacman runtime with `wgsextract deps pacman check` when Pixi is available. If a prebuilt binary is unavailable, it falls back to a local MSYS2 UCRT64 build when that tool has a native build path.
+
+## Runtime modes
+
+Use `windows` for normal native Windows operation. It searches:
+
+1. normal host `PATH`;
+2. MSYS2 UCRT64 pacman paths;
+3. host Pixi environments.
+
+It does not fall back to WSL, so a machine with WSL installed will still use native Windows tools. Use `pacman` only when you want a strict diagnostic mode that ignores host Pixi optional tools.
 
 ## Why Some Tools Are Built
 
@@ -120,6 +130,8 @@ $env:WGSEXTRACT_TOOL_RUNTIME = "pacman"
 $env:WGSEXTRACT_PACMAN_UCRT64_BIN = "C:\msys64\ucrt64\bin"
 pixi run wgsextract deps pacman check
 pixi run wgsextract deps check --tool bwa
+$env:WGSEXTRACT_TOOL_RUNTIME = "windows"
+pixi run wgsextract deps check --tool fastqc
 pixi run wgsextract benchmark --runtime pacman --profile smoke --suite core --outdir out\benchmark-pacman-smoke
 Remove-Item Env:\WGSEXTRACT_TOOL_RUNTIME -ErrorAction SilentlyContinue
 Remove-Item Env:\WGSEXTRACT_PACMAN_UCRT64_BIN -ErrorAction SilentlyContinue
@@ -160,11 +172,11 @@ If you manage MSYS2 manually, install the packages above in an MSYS2 UCRT64 shel
 
 ## Configuration
 
-The runtime resolver searches common MSYS2 locations automatically. To pin the tool directory, set one of these:
+The runtime resolver searches common MSYS2 locations automatically. To pin the tool directory while using the native Windows hybrid runtime, set:
 
 ```powershell
 $env:WGSEXTRACT_PACMAN_UCRT64_BIN = "C:\msys64\ucrt64\bin"
-$env:WGSEXTRACT_TOOL_RUNTIME = "pacman"
+$env:WGSEXTRACT_TOOL_RUNTIME = "windows"
 ```
 
-Or set `pacman_ucrt64_bin` and `tool_runtime = "pacman"` in the WGSExtract config file.
+Or set `pacman_ucrt64_bin` and `tool_runtime = "windows"` in the WGSExtract config file.

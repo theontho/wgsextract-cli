@@ -59,3 +59,21 @@ def test_windows_installer_exposes_minimap2_checksum_passthrough() -> None:
     assert "--minimap2-binary-url" in installer
     assert "--minimap2-binary-sha256" in installer
     assert "-Minimap2BinarySha256" in installer
+
+
+def test_windows_installer_persists_hybrid_runtime() -> None:
+    installer = (ROOT / "install_windows.bat").read_text(encoding="utf-8")
+
+    assert "'tool_runtime':'windows'" in installer
+    assert "Runtime defaults were set to windows" in installer
+
+
+def test_pixi_declares_native_windows_optional_tools() -> None:
+    pixi = (ROOT / "pixi.toml").read_text(encoding="utf-8")
+
+    assert "[feature.gatk.target.win-64.dependencies]" in pixi
+    assert 'gatk4 = ">=4.5.0.0"' in pixi
+    assert "[feature.bio-tools.target.win-64.dependencies]" in pixi
+    assert 'fastqc = ">=0.12.1"' in pixi
+    assert 'haplogrep = ">=2.4.0"' in pixi
+    assert 'yleaf = ">=2.2"' in pixi

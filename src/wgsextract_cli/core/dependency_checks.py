@@ -119,7 +119,8 @@ def verify_dependencies(
                     "Warning: Missing required core tools on Windows. Some features may not work."
                 )
                 logging.warning(
-                    "Use 'wgsextract deps wsl check' for WSL, or "
+                    "Use tool_runtime='windows' for native Windows pacman+Pixi, "
+                    "'wgsextract deps wsl check' for WSL, or "
                     "'wgsextract deps cygwin setup' / 'wgsextract deps msys2 setup' "
                     "for bundled Windows runtimes, or 'wgsextract deps pacman check' "
                     "for MSYS2/UCRT64 pacman tools."

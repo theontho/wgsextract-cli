@@ -1,3 +1,4 @@
+import ctypes
 import os
 import shlex
 import shutil
@@ -74,6 +75,12 @@ PIXI_TOOL_ENVS = {
 }
 
 
+WINDOWS_PIXI_SCRIPT_LAUNCHERS = {
+    "fastqc": ("perl",),
+    "gatk": ("python",),
+}
+
+
 IGNORED_VERSION_OUTPUT_PREFIXES = ("wsl: Failed to mount ",)
 
 
@@ -143,7 +150,23 @@ def _tool_command_parts(cmd_base: str) -> list[str]:
         return [normalized_cmd]
     if os.path.exists(normalized_cmd):
         return [normalized_cmd]
+    if runtime.is_windows_host():
+        return _windows_command_line_split(normalized_cmd)
     return shlex.split(normalized_cmd)
+
+
+def _windows_command_line_split(command_line: str) -> list[str]:
+    argc = ctypes.c_int()
+    command_line_to_argv = ctypes.windll.shell32.CommandLineToArgvW
+    command_line_to_argv.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_int)]
+    command_line_to_argv.restype = ctypes.POINTER(ctypes.c_wchar_p)
+    argv = command_line_to_argv(command_line, ctypes.byref(argc))
+    if not argv:
+        raise ValueError(f"Could not parse Windows command line: {command_line}")
+    try:
+        return [argv[index] for index in range(argc.value)]
+    finally:
+        ctypes.windll.kernel32.LocalFree(argv)
 
 
 def get_tool_runtime(path: str | None) -> str:
@@ -165,7 +188,9 @@ def get_tool_runtime(path: str | None) -> str:
 def is_pixi_tool_command(path: str) -> bool:
     """Return whether a resolved command is explicitly launched through Pixi."""
     try:
-        command = shlex.split(os.path.expanduser(path), posix=not runtime.is_windows_host())
+        command = shlex.split(
+            os.path.expanduser(path), posix=not runtime.is_windows_host()
+        )
     except ValueError:
         return False
     if not command:
@@ -250,6 +275,97 @@ def _candidate_bundled_runtime_modes(runtime_mode: str) -> tuple[str, ...]:
     return ()
 
 
+def _resolve_pixi_command() -> str | None:
+    pixi_cmd = shutil.which("pixi")
+    if pixi_cmd:
+        return pixi_cmd
+
+    for path in [
+        "/opt/homebrew/bin/pixi",
+        "/usr/local/bin/pixi",
+        "~/.pixi/bin/pixi",
+    ]:
+        expanded = os.path.expanduser(path)
+        if os.path.exists(expanded):
+            return expanded
+    return None
+
+
+def _pixi_run_command(pixi_cmd: str, env: str, args: list[str]) -> str:
+    command = [pixi_cmd, "run", "-e", env, *args]
+    if runtime.is_windows_host():
+        return subprocess.list2cmdline(command)
+    return " ".join(shlex.quote(part) for part in command)
+
+
+def _host_pixi_tool_command(tool: str) -> str | None:
+    if tool not in PIXI_TOOL_ENVS:
+        return None
+
+    env = PIXI_TOOL_ENVS[tool]
+    pixi_cmd = _resolve_pixi_command()
+    if not pixi_cmd:
+        return None
+
+    probe = r"""
+import shutil
+import sys
+import os
+from pathlib import Path
+
+tool = sys.argv[1]
+path = shutil.which(tool)
+if path:
+    print("direct:" + path)
+    raise SystemExit(0)
+
+prefix = Path(sys.prefix)
+if tool == "haplogrep":
+    jar = prefix / "bin" / "haplogrep.jar"
+    if jar.exists():
+        print("haplogrep:" + str(jar.resolve()))
+        raise SystemExit(0)
+
+script = prefix / "bin" / tool
+if os.path.lexists(script):
+    print("script:" + str(script.resolve()))
+    raise SystemExit(0)
+
+raise SystemExit(1)
+"""
+    try:
+        result = subprocess.run(
+            [pixi_cmd, "run", "-e", env, "python", "-c", probe, tool],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    if result.returncode != 0:
+        return None
+
+    output = result.stdout.strip().splitlines()
+    if not output:
+        return None
+    kind, separator, value = output[-1].partition(":")
+    if not separator or not value:
+        return None
+
+    if kind == "direct":
+        return _pixi_run_command(pixi_cmd, env, [tool])
+    if kind == "haplogrep":
+        return _pixi_run_command(pixi_cmd, env, ["java", "-cp", value, "genepi.App"])
+    if kind == "script" and tool in WINDOWS_PIXI_SCRIPT_LAUNCHERS:
+        return _pixi_run_command(
+            pixi_cmd, env, [*WINDOWS_PIXI_SCRIPT_LAUNCHERS[tool], value]
+        )
+    if kind == "script" and not runtime.is_windows_host():
+        return _pixi_run_command(pixi_cmd, env, [value])
+    return None
+
+
 def get_tool_path(tool: str) -> str | None:
     """Returns the path to a tool if it exists in the system PATH or pixi environments."""
     runtime_mode = runtime.get_tool_runtime_mode()
@@ -262,6 +378,15 @@ def get_tool_path(tool: str) -> str | None:
         if pacman_path:
             return runtime.pacman_tool_command(pacman_path)
         return None
+
+    if runtime_mode == "windows":
+        path = shutil.which(tool)
+        if path:
+            return path
+        pacman_path = runtime_paths.pacman_tool_path(tool)
+        if pacman_path:
+            return runtime.pacman_tool_command(pacman_path)
+        return _host_pixi_tool_command(tool)
 
     if runtime_mode in runtime.BUNDLED_RUNTIME_MODES:
         for mode in bundled_modes:
@@ -305,37 +430,9 @@ def get_tool_path(tool: str) -> str | None:
         if runtime_paths.bundled_command_available(mode, tool):
             return runtime.bundled_tool_command(mode, tool)
 
-    # Check for pixi sub-environments
-    if tool in PIXI_TOOL_ENVS:
-        env = PIXI_TOOL_ENVS[tool]
-
-        # Resolve 'pixi' command
-        pixi_cmd = shutil.which("pixi")
-        if not pixi_cmd:
-            # Try some common locations
-            for p in [
-                "/opt/homebrew/bin/pixi",
-                "/usr/local/bin/pixi",
-                "~/.pixi/bin/pixi",
-            ]:
-                expanded = os.path.expanduser(p)
-                if os.path.exists(expanded):
-                    pixi_cmd = expanded
-                    break
-
-        if pixi_cmd:
-            try:
-                # Use absolute path to pixi to be safe
-                res = subprocess.run(
-                    [pixi_cmd, "run", "-e", env, "which", tool],
-                    capture_output=True,
-                    text=True,
-                    timeout=2,
-                )
-                if res.returncode == 0:
-                    return f"{pixi_cmd} run -e {env} {tool}"
-            except (OSError, subprocess.SubprocessError):
-                pass
+    host_pixi_command = _host_pixi_tool_command(tool)
+    if host_pixi_command:
+        return host_pixi_command
 
     return None
 

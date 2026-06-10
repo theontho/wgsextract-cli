@@ -235,8 +235,8 @@ if "%SKIP_PACMAN_SETUP%"=="0" (
     echo Skipping pacman runtime setup.
 )
 
-echo Persisting pacman as the default WGS Extract runtime...
-pixi run python -c "import os; from wgsextract_cli.core.config import get_config_path, save_config; save_config({'tool_runtime':'pacman','pacman_ucrt64_bin':os.environ['WGSEXTRACT_PACMAN_UCRT64_BIN']}); print(get_config_path())"
+echo Persisting native Windows hybrid as the default WGS Extract runtime...
+pixi run python -c "import os; from wgsextract_cli.core.config import get_config_path, save_config; save_config({'tool_runtime':'windows','pacman_ucrt64_bin':os.environ['WGSEXTRACT_PACMAN_UCRT64_BIN']}); print(get_config_path())"
 if errorlevel 1 exit /b 1
 
 if "%SKIP_CHECKS%"=="0" (
@@ -250,7 +250,7 @@ if "%SKIP_CHECKS%"=="0" (
 echo.
 echo Installation complete.
 echo Run: pixi run wgsextract --help
-echo Runtime defaults were set to pacman in the WGS Extract config file.
+echo Runtime defaults were set to windows in the WGS Extract config file.
 exit /b 0
 
 :bootstrap_source
