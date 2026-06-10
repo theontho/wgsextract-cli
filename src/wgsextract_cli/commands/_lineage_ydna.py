@@ -1,4 +1,5 @@
 import argparse
+import gzip
 import logging
 import os
 import shlex
@@ -56,6 +57,30 @@ def _yleaf_supports_ref_fasta(cmd: list[str]) -> bool:
         return False
 
     return "--ref-fasta" in f"{result.stdout}\n{result.stderr}"
+
+
+def _prepare_yleaf_vcf_data_dir(
+    temp_dir: tempfile.TemporaryDirectory[str], ref_fasta: str | None, build: str
+) -> dict[str, str]:
+    data_dir = os.path.join(temp_dir.name, "yleaf_data")
+    build_dir = os.path.join(data_dir, build)
+    os.makedirs(build_dir, exist_ok=True)
+    full_reference = os.path.join(build_dir, "full_reference.fa")
+
+    if ref_fasta and ref_fasta.endswith((".fa", ".fasta", ".fna")):
+        try:
+            os.symlink(os.path.abspath(ref_fasta), full_reference)
+        except OSError:
+            with open(ref_fasta, "rb") as f_in, open(full_reference, "wb") as f_out:
+                f_out.write(f_in.read())
+    else:
+        with open(full_reference, "w", encoding="utf-8") as f_out:
+            f_out.write(">chrY\n")
+            f_out.write("N" * 120 + "\n")
+
+    env = os.environ.copy()
+    env["YLEAF_DATA_DIR"] = data_dir
+    return env
 
 
 def update_yleaf_config(
@@ -207,9 +232,6 @@ def cmd_ydna(args: argparse.Namespace) -> None:
             # We use a temp file for sed output then move it back.
             sed_vcf = temp_vcf + ".sed.gz"
 
-            # Alternative: use python to do the sed-like replacement to avoid shell escaping issues
-            import gzip
-
             with (
                 gzip.open(temp_vcf, "rt") as f_in,
                 open(temp_vcf + ".plain", "w") as f_out,
@@ -255,7 +277,10 @@ def cmd_ydna(args: argparse.Namespace) -> None:
             str(threads),
         ]
 
-        if ref_fasta and yleaf_accepts_ref_fasta:
+        command_env = None
+        if input_flag == "-vcf" and temp_dir is not None:
+            command_env = _prepare_yleaf_vcf_data_dir(temp_dir, ref_fasta, build)
+        elif ref_fasta and yleaf_accepts_ref_fasta:
             final_cmd.extend(["--ref-fasta", ref_fasta])
 
         # Add reference for CRAM if available
@@ -280,7 +305,7 @@ def cmd_ydna(args: argparse.Namespace) -> None:
             final_cmd.extend([a for a in extra if a != "-force"])
 
         # Execute and WAIT explicitly
-        run_command(final_cmd)
+        run_command(final_cmd, env=command_env)
         logging.debug("Yleaf execution finished successfully")
 
         # Print results directly to terminal

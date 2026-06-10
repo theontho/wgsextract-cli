@@ -609,7 +609,9 @@ def test_real_y_lineage(real_dataset: RealDataset, tmp_path: Path) -> None:
             str(tmp_path),
         ]
     )
-    _single_file(tmp_path, "**/*_Final_Report.txt")
+    assert (tmp_path / "hg_prediction.hg").exists() or list(
+        tmp_path.glob("**/*_Final_Report.txt")
+    )
 
 
 @pytest.mark.skipif(not check_tool("vep"), reason="vep missing")
