@@ -147,4 +147,19 @@ def test_pixi_declares_native_windows_optional_tools() -> None:
     assert "[feature.bio-tools.target.win-64.dependencies]" in pixi
     assert 'fastqc = ">=0.12.1"' in pixi
     assert 'haplogrep = ">=2.4.0"' in pixi
-    assert 'yleaf = ">=2.2"' in pixi
+
+
+def test_pixi_installs_runnable_yleaf_from_upstream_package_data_source() -> None:
+    pixi = (ROOT / "pixi.toml").read_text(encoding="utf-8")
+
+    assert "[feature.bio-tools.pypi-dependencies]" in pixi
+    assert (
+        'yleaf = { git = "https://github.com/genid/Yleaf.git", tag = "v4.1.2" }' in pixi
+    )
+
+
+def test_pixi_declares_vep_for_macos_arm64_alt_env() -> None:
+    pixi = (ROOT / "pixi.toml").read_text(encoding="utf-8")
+
+    assert "[feature.vep.target.osx-arm64.dependencies]" in pixi
+    assert 'ensembl-vep = ">=110"' in pixi

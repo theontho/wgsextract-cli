@@ -55,15 +55,26 @@ def _stdout_can_encode(*values: str) -> bool:
     return True
 
 
-def _status_text(path: object, *, optional: bool = False) -> str:
+def _status_text(path: object, *, optional: bool = False, alt_env: bool = False) -> str:
     present = bool(path)
-    if _stdout_can_encode("✅", "❌", "⚠️"):
+    if _stdout_can_encode("✅", "❌", "⚠️", "🔵"):
+        if present and alt_env:
+            return "🔵"
         if present:
             return "✅"
         return "⚠️ " if optional else "❌"
+    if present and alt_env:
+        return "ALT"
     if present:
         return "OK"
     return "WARN" if optional else "MISS"
+
+
+def _tool_source(tool: dict[str, Any]) -> str:
+    alt_env = tool.get("alt_env")
+    if alt_env:
+        return f" [pixi alt env: {alt_env}]"
+    return f" [{tool['runtime']}]" if tool.get("runtime") else ""
 
 
 def run(args: argparse.Namespace) -> None:
@@ -87,8 +98,8 @@ def run(args: argparse.Namespace) -> None:
     print("-" * 60)
     all_mandatory_present = True
     for tool in results["mandatory"]:
-        status = _status_text(tool["path"])
-        source = f" [{tool['runtime']}]" if tool.get("runtime") else ""
+        status = _status_text(tool["path"], alt_env=bool(tool.get("alt_env")))
+        source = _tool_source(tool)
         version = f" ({tool['version']})" if tool["version"] else ""
         print(f"{status} {tool['name']:<20} {source}{version}")
         if not tool["path"]:
@@ -97,8 +108,10 @@ def run(args: argparse.Namespace) -> None:
     print("\nOptional Tools:")
     print("-" * 60)
     for tool in results["optional"]:
-        status = _status_text(tool["path"], optional=True)
-        source = f" [{tool['runtime']}]" if tool.get("runtime") else ""
+        status = _status_text(
+            tool["path"], optional=True, alt_env=bool(tool.get("alt_env"))
+        )
+        source = _tool_source(tool)
         version = f" ({tool['version']})" if tool["version"] else ""
         print(f"{status} {tool['name']:<20} {source}{version}")
 

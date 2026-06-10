@@ -139,7 +139,7 @@ class TestWSLRuntime(unittest.TestCase):
             self.assertIsNone(dependencies.get_tool_path("samtools"))
 
     def test_get_tool_path_uses_host_pixi_when_wsl_not_applicable(self):
-        completed = MagicMock(returncode=0, stdout="direct:/env/bin/samtools\n")
+        completed = MagicMock(returncode=0, stdout="direct-name:samtools\n")
         with (
             patch(
                 "wgsextract_cli.core.dependencies.shutil.which",
@@ -255,9 +255,7 @@ class TestWSLRuntime(unittest.TestCase):
         mock_subprocess_run.assert_not_called()
 
     def test_get_tool_path_windows_runtime_uses_host_pixi_without_wsl(self):
-        completed = MagicMock(
-            returncode=0, stdout=r"direct:C:\env\Scripts\yleaf.exe" + "\n"
-        )
+        completed = MagicMock(returncode=0, stdout="direct-name:yleaf\n")
         with (
             patch(
                 "wgsextract_cli.core.runtime.get_tool_runtime_mode",
@@ -289,7 +287,7 @@ class TestWSLRuntime(unittest.TestCase):
         mock_wsl_command.assert_not_called()
         mock_subprocess_run.assert_called_once()
         self.assertIn("python", mock_subprocess_run.call_args.args[0])
-        self.assertEqual(mock_subprocess_run.call_args.args[0][-1], "yleaf")
+        self.assertEqual(mock_subprocess_run.call_args.args[0][-2:], ["yleaf", "Yleaf"])
 
     def test_get_tool_path_windows_runtime_launches_pixi_noarch_script(self):
         completed = MagicMock(

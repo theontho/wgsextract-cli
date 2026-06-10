@@ -287,7 +287,7 @@ class TestOptionalDependencies(unittest.TestCase):
     def test_get_tool_path_can_return_pixi_fallback_without_wsl(self):
         from wgsextract_cli.core.dependencies import get_tool_path
 
-        completed = MagicMock(returncode=0, stdout="direct:/env/bin/samtools\n")
+        completed = MagicMock(returncode=0, stdout="direct-name:samtools\n")
         with (
             patch(
                 "wgsextract_cli.core.dependencies.shutil.which",
@@ -314,6 +314,39 @@ class TestOptionalDependencies(unittest.TestCase):
                 get_tool_path("samtools"),
                 "/usr/local/bin/pixi run -e default samtools",
             )
+
+    def test_get_tool_path_can_return_uppercase_yleaf_pixi_fallback(self):
+        from wgsextract_cli.core.dependencies import get_tool_path
+
+        completed = MagicMock(returncode=0, stdout="direct-name:Yleaf\n")
+        with (
+            patch(
+                "wgsextract_cli.core.dependencies.shutil.which",
+                side_effect=lambda tool: (
+                    "/usr/local/bin/pixi" if tool == "pixi" else None
+                ),
+            ),
+            patch(
+                "wgsextract_cli.core.runtime.should_consider_wsl", return_value=False
+            ),
+            patch(
+                "wgsextract_cli.core.runtime.get_tool_runtime_mode",
+                return_value="auto",
+            ),
+            patch(
+                "wgsextract_cli.core.runtime_paths.pacman_tool_path", return_value=None
+            ),
+            patch(
+                "wgsextract_cli.core.dependencies.subprocess.run",
+                return_value=completed,
+            ) as mock_run,
+        ):
+            self.assertEqual(
+                get_tool_path("yleaf"),
+                "/usr/local/bin/pixi run -e default Yleaf",
+            )
+
+        self.assertEqual(mock_run.call_args.args[0][-2:], ["yleaf", "Yleaf"])
 
     def test_version_output_filters_wsl_mount_warning(self):
         from wgsextract_cli.core.dependencies import _version_output
@@ -395,6 +428,40 @@ class TestOptionalDependencies(unittest.TestCase):
             self.assertIn("⚠️  minimap2", output)
             self.assertIn("Mandatory Tools:", output)
             self.assertIn("Optional Tools:", output)
+
+    @patch("wgsextract_cli.core.dependencies.MANDATORY_TOOLS", ["samtools"])
+    @patch("wgsextract_cli.core.dependencies.OPTIONAL_TOOLS", ["sniffles"])
+    @patch("wgsextract_cli.core.dependency_checks.get_tool_path")
+    @patch(
+        "wgsextract_cli.core.dependency_checks.get_tool_version", return_value="2.7.0"
+    )
+    def test_deps_check_output_marks_pixi_alt_env_tools(
+        self, mock_version, mock_tool_path
+    ):
+        from wgsextract_cli.commands.deps import run
+
+        mock_tool_path.side_effect = lambda tool: {
+            "samtools": "/usr/bin/samtools",
+            "sniffles": "/usr/local/bin/pixi run -e pacbio sniffles",
+        }.get(tool)
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            args = MagicMock()
+            args.tool = None
+            run(args)
+            output = fake_out.getvalue()
+
+        self.assertIn("🔵 sniffles", output)
+        self.assertIn("[pixi alt env: pacbio]", output)
+
+    def test_status_text_alt_env_ascii_fallback(self):
+        from wgsextract_cli.commands._deps_status import _status_text
+
+        with patch(
+            "wgsextract_cli.commands._deps_status._stdout_can_encode",
+            return_value=False,
+        ):
+            self.assertEqual(_status_text("/tool", alt_env=True), "ALT")
 
     def test_wsl_tune_uses_heuristic_defaults_with_overrides(self):
         from wgsextract_cli.commands.deps import run_wsl_tune

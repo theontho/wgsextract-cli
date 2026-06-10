@@ -648,8 +648,8 @@ class TestLineageSmoke:
             self.outdir,
         ]
         rc, stdout, stderr = run_cli(args)
-        # Even if it fails due to no Y markers in fake data, we check for execution
-        assert "Y-chromosome" in stdout or "Y-chromosome" in stderr
+        # Fake data may not contain Yleaf-informative markers; verify execution.
+        assert "Yleaf" in stdout or "Yleaf" in stderr
 
     def test_lineage_mt_haplogroup(self):
         # Requires haplogrep, usually a jar. This smoke test just checks if it tries to run.
