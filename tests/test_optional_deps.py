@@ -86,6 +86,9 @@ class TestOptionalDependencies(unittest.TestCase):
         verify_dependencies(["samtools"])
 
         warning_messages = [call.args[0] for call in mock_warning.call_args_list]
+        self.assertTrue(
+            any("tool_runtime='windows'" in msg for msg in warning_messages)
+        )
         self.assertTrue(any("deps wsl check" in msg for msg in warning_messages))
         self.assertTrue(any("deps cygwin setup" in msg for msg in warning_messages))
         self.assertTrue(any("deps msys2 setup" in msg for msg in warning_messages))
@@ -107,7 +110,9 @@ class TestOptionalDependencies(unittest.TestCase):
                     },
                     clear=True,
                 ),
-                patch("wgsextract_cli.core.dependency_checks.sys.executable", str(python)),
+                patch(
+                    "wgsextract_cli.core.dependency_checks.sys.executable", str(python)
+                ),
             ):
                 results = check_all_dependencies(mandatory=[], optional=[])
 
@@ -282,7 +287,7 @@ class TestOptionalDependencies(unittest.TestCase):
     def test_get_tool_path_can_return_pixi_fallback_without_wsl(self):
         from wgsextract_cli.core.dependencies import get_tool_path
 
-        completed = MagicMock(returncode=0)
+        completed = MagicMock(returncode=0, stdout="direct:/env/bin/samtools\n")
         with (
             patch(
                 "wgsextract_cli.core.dependencies.shutil.which",
@@ -327,6 +332,27 @@ class TestOptionalDependencies(unittest.TestCase):
         tool_path = r"C:\Windows\system32\tar.EXE"
 
         self.assertEqual(_tool_command_parts(tool_path), [tool_path])
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows command-line parsing")
+    def test_windows_pixi_command_parts_preserve_backslashes(self):
+        from wgsextract_cli.core.dependencies import _tool_command_parts
+
+        command = (
+            r"C:\Users\test\.pixi\bin\pixi.EXE run -e default perl "
+            r"C:\repo\.pixi\envs\default\opt\fastqc-0.12.1\fastqc"
+        )
+
+        self.assertEqual(
+            _tool_command_parts(command),
+            [
+                r"C:\Users\test\.pixi\bin\pixi.EXE",
+                "run",
+                "-e",
+                "default",
+                "perl",
+                r"C:\repo\.pixi\envs\default\opt\fastqc-0.12.1\fastqc",
+            ],
+        )
 
     def test_shared_required_dependency_policy_excludes_optional_gui_tools(self):
         from wgsextract_cli.core.dependencies import (

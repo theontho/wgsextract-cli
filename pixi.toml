@@ -41,6 +41,9 @@ gatk4 = ">=4.5.0.0"
 [feature.gatk.target.linux-64.dependencies]
 gatk4 = ">=4.5.0.0"
 
+[feature.gatk.target.win-64.dependencies]
+gatk4 = ">=4.5.0.0"
+
 [feature.bio-tools]
 
 [feature.bio-tools.target.osx-arm64.dependencies]
@@ -85,6 +88,11 @@ delly = ">=1.1.6"
 sambamba = ">=1.0"
 samblaster = ">=0.1.26"
 wget = ">=1.21"
+
+[feature.bio-tools.target.win-64.dependencies]
+fastqc = ">=0.12.1"
+haplogrep = ">=2.4.0"
+yleaf = ">=2.2"
 
 
 [feature.deepvariant.dependencies]

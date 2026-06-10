@@ -27,7 +27,7 @@ KNOWN_SETTINGS = {
     "quiet_mode": (False, "Enable quiet mode (errors only)"),
     "tool_runtime": (
         "auto",
-        "External tool runtime: auto, native, wsl, cygwin, msys2, or pacman",
+        "External tool runtime: auto, native, windows, wsl, cygwin, msys2, or pacman",
     ),
     "runtime_directory": (None, "Directory for bundled Windows runtimes"),
     "pacman_ucrt64_bin": (None, "MSYS2 UCRT64 bin directory for pacman tools"),

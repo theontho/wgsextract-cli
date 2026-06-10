@@ -79,18 +79,14 @@ Recommended order:
 6. `sambamba`
 7. `pbmm2`
 
-## Runtime mode implication
+## Runtime mode
 
-The Windows installer currently persists `tool_runtime = "pacman"`. That strict
-mode is correct for mandatory pacman validation, but it prevents host Pixi
-optional tools such as Java, FastQC, GATK, HaploGrep, and Yleaf from being
-discovered during a general `deps check`.
+The Windows installer persists `tool_runtime = "windows"`. That mode searches
+normal host `PATH`, MSYS2 UCRT64 pacman paths, then host Pixi environments, and
+never falls back to WSL. It is the normal native Windows mode for GUI and
+standalone installer use.
 
-Native Windows needs a no-WSL hybrid runtime mode that searches:
-
-1. normal host `PATH`;
-2. MSYS2 UCRT64 pacman paths;
-3. host Pixi environments;
-
-and never falls back to WSL. This should be implemented before promising Pixi
-optional coverage in the GUI setup experience.
+Strict `tool_runtime = "pacman"` remains available for diagnostics and setup
+validation when the caller wants to prove that a tool comes from MSYS2/pacman
+only. `tool_runtime = "auto"` can still use WSL on machines where WSL is
+installed, so native Windows setup should use `windows` rather than `auto`.

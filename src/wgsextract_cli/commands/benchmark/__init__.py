@@ -254,7 +254,7 @@ def register(
     parser.add_argument(
         "--runtime",
         choices=sorted(VALID_RUNTIME_MODES),
-        help="External tool runtime to benchmark: auto, native, wsl, cygwin, msys2, or pacman.",
+        help="External tool runtime to benchmark: auto, native, windows, wsl, cygwin, msys2, or pacman.",
     )
     parser.add_argument(
         "--dataset",

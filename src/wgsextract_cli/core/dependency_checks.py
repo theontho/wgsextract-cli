@@ -119,7 +119,8 @@ def verify_dependencies(
                     "Warning: Missing required core tools on Windows. Some features may not work."
                 )
                 logging.warning(
-                    "Use 'wgsextract deps wsl check' for WSL, or "
+                    "Use tool_runtime='windows' for native Windows pacman+Pixi, "
+                    "'wgsextract deps wsl check' for WSL, or "
                     "'wgsextract deps cygwin setup' / 'wgsextract deps msys2 setup' "
                     "for bundled Windows runtimes, or 'wgsextract deps pacman check' "
                     "for MSYS2/UCRT64 pacman tools."
@@ -156,7 +157,7 @@ def verify_dependencies(
 
     # Version Validation for critical tools
     for tool in ["bcftools", "samtools"]:
-        if tool in tool_list:
+        if tool in tool_list and tool not in missing:
             version_str = get_tool_version(tool)
             if not version_str:
                 continue

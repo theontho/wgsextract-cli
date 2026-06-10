@@ -23,7 +23,7 @@ RUNTIME_DIR_ENV_VAR = "WGSEXTRACT_RUNTIME_DIR"
 PACMAN_UCRT64_BIN_ENV_VAR = "WGSEXTRACT_PACMAN_UCRT64_BIN"
 
 
-VALID_RUNTIME_MODES = {"auto", "native", "wsl", "cygwin", "msys2", "pacman"}
+VALID_RUNTIME_MODES = {"auto", "native", "wsl", "cygwin", "msys2", "pacman", "windows"}
 
 
 BUNDLED_RUNTIME_MODES = {"cygwin", "msys2"}
@@ -134,7 +134,7 @@ def should_consider_bundled_runtime(mode: str | None = None) -> bool:
 
 def should_consider_pacman_runtime(mode: str | None = None) -> bool:
     selected = mode or get_tool_runtime_mode()
-    return is_windows_host() and selected == "pacman"
+    return is_windows_host() and selected in {"pacman", "windows"}
 
 
 def _sysctl_output(command: list[str]) -> str | None:

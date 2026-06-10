@@ -83,7 +83,7 @@ pixi run wgsextract --help
 - **macOS (Intel/Apple Silicon)**: Fully supported. Pixi installs all bioinformatics tools automatically.
 - **Linux**: Fully supported. Pixi installs all bioinformatics tools automatically.
 - **Windows**:
-  - **Native Windows (Recommended)**: Run `install_windows.bat` to bootstrap Pixi/MSYS2 when needed, install the Pixi project environment, and choose the MSYS2 UCRT64 pacman runtime as the default. Use `uninstall_windows.bat` to remove the local project install, or `uninstall_windows.bat --remove-prerequisites` to also remove bootstrapper-installed Pixi/MSYS2. See [docs/windows_pacman_runtime.md](docs/windows_pacman_runtime.md).
+  - **Native Windows (Recommended)**: Run `install_windows.bat` to bootstrap Pixi/MSYS2 when needed, install the Pixi project environment, and choose the native Windows hybrid runtime as the default. This uses MSYS2 UCRT64/pacman for mandatory bio tools and native Pixi packages for supported optional tools without falling back to WSL. Use `uninstall_windows.bat` to remove the local project install, or `uninstall_windows.bat --remove-prerequisites` to also remove bootstrapper-installed Pixi/MSYS2. See [docs/windows_pacman_runtime.md](docs/windows_pacman_runtime.md).
   - **WSL2**: Not recommended as the normal Windows runtime. It can be useful for separate Linux development, but native pacman avoids Windows feature changes, reboots, Linux user setup, and slower access to Windows-hosted files.
 
 The examples below use `wgsextract` for installed usage. If you have not added `wgsextract-cli` to `PATH`, use `./wgsextract-cli/wgsextract` instead. From a manual development checkout, use `pixi run wgsextract`.

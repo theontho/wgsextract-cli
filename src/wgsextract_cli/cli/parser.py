@@ -29,7 +29,7 @@ DEFAULT_CONFIG = """# WGS Extract Configuration
 # memory = "16G"
 
 # --- External Tools ---
-# Runtime for external tools: auto, native, wsl, cygwin, msys2, or pacman
+# Runtime for external tools: auto, native, windows, wsl, cygwin, msys2, or pacman
 # runtime = "auto"
 # runtime_dir = "runtime"
 # pacman_bin = "C:/msys64/ucrt64/bin"
