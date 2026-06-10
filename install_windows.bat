@@ -16,12 +16,22 @@ set "SKIP_BWA_BUILD=0"
 set "SKIP_BWA_DOWNLOAD=0"
 set "SKIP_MINIMAP2_BUILD=0"
 set "SKIP_MINIMAP2_DOWNLOAD=0"
+set "SKIP_SAMBLASTER_BUILD=0"
+set "SKIP_SAMBLASTER_DOWNLOAD=0"
+set "SKIP_FASTP_BUILD=0"
+set "SKIP_FASTP_DOWNLOAD=0"
 set "FORCE_BWA_BUILD=0"
 set "FORCE_MINIMAP2_BUILD=0"
+set "FORCE_SAMBLASTER_BUILD=0"
+set "FORCE_FASTP_BUILD=0"
 set "BWA_BINARY_URL="
 set "BWA_BINARY_SHA256="
 set "MINIMAP2_BINARY_URL="
 set "MINIMAP2_BINARY_SHA256="
+set "SAMBLASTER_BINARY_URL="
+set "SAMBLASTER_BINARY_SHA256="
+set "FASTP_BINARY_URL="
+set "FASTP_BINARY_SHA256="
 set "SKIP_PIXI_BOOTSTRAP=0"
 set "SKIP_MSYS2_INSTALL=0"
 set "SKIP_CHECKS=0"
@@ -74,6 +84,16 @@ if /I "!ARG!"=="--skip-minimap2-build" (
     shift
     goto parse_args
 )
+if /I "!ARG!"=="--skip-samblaster-build" (
+    set "SKIP_SAMBLASTER_BUILD=1"
+    shift
+    goto parse_args
+)
+if /I "!ARG!"=="--skip-fastp-build" (
+    set "SKIP_FASTP_BUILD=1"
+    shift
+    goto parse_args
+)
 if /I "!ARG!"=="--skip-bwa-download" (
     set "SKIP_BWA_DOWNLOAD=1"
     shift
@@ -81,6 +101,16 @@ if /I "!ARG!"=="--skip-bwa-download" (
 )
 if /I "!ARG!"=="--skip-minimap2-download" (
     set "SKIP_MINIMAP2_DOWNLOAD=1"
+    shift
+    goto parse_args
+)
+if /I "!ARG!"=="--skip-samblaster-download" (
+    set "SKIP_SAMBLASTER_DOWNLOAD=1"
+    shift
+    goto parse_args
+)
+if /I "!ARG!"=="--skip-fastp-download" (
+    set "SKIP_FASTP_DOWNLOAD=1"
     shift
     goto parse_args
 )
@@ -112,6 +142,34 @@ if /I "!ARG!"=="--minimap2-binary-sha256" (
     shift
     goto parse_args
 )
+if /I "!ARG!"=="--samblaster-binary-url" (
+    shift
+    if "%~1"=="" goto missing_samblaster_binary_url
+    set "SAMBLASTER_BINARY_URL=%~1"
+    shift
+    goto parse_args
+)
+if /I "!ARG!"=="--samblaster-binary-sha256" (
+    shift
+    if "%~1"=="" goto missing_samblaster_binary_sha256
+    set "SAMBLASTER_BINARY_SHA256=%~1"
+    shift
+    goto parse_args
+)
+if /I "!ARG!"=="--fastp-binary-url" (
+    shift
+    if "%~1"=="" goto missing_fastp_binary_url
+    set "FASTP_BINARY_URL=%~1"
+    shift
+    goto parse_args
+)
+if /I "!ARG!"=="--fastp-binary-sha256" (
+    shift
+    if "%~1"=="" goto missing_fastp_binary_sha256
+    set "FASTP_BINARY_SHA256=%~1"
+    shift
+    goto parse_args
+)
 if /I "!ARG!"=="--force-bwa-build" (
     set "FORCE_BWA_BUILD=1"
     shift
@@ -119,6 +177,16 @@ if /I "!ARG!"=="--force-bwa-build" (
 )
 if /I "!ARG!"=="--force-minimap2-build" (
     set "FORCE_MINIMAP2_BUILD=1"
+    shift
+    goto parse_args
+)
+if /I "!ARG!"=="--force-samblaster-build" (
+    set "FORCE_SAMBLASTER_BUILD=1"
+    shift
+    goto parse_args
+)
+if /I "!ARG!"=="--force-fastp-build" (
+    set "FORCE_FASTP_BUILD=1"
     shift
     goto parse_args
 )
@@ -223,12 +291,22 @@ if "%SKIP_PACMAN_SETUP%"=="0" (
     if "%SKIP_BWA_DOWNLOAD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipBwaDownload"
     if "%SKIP_MINIMAP2_BUILD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipMinimap2Build"
     if "%SKIP_MINIMAP2_DOWNLOAD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipMinimap2Download"
+    if "%SKIP_SAMBLASTER_BUILD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipSamblasterBuild"
+    if "%SKIP_SAMBLASTER_DOWNLOAD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipSamblasterDownload"
+    if "%SKIP_FASTP_BUILD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipFastpBuild"
+    if "%SKIP_FASTP_DOWNLOAD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipFastpDownload"
     if "%FORCE_BWA_BUILD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -ForceBwaBuild"
     if "%FORCE_MINIMAP2_BUILD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -ForceMinimap2Build"
+    if "%FORCE_SAMBLASTER_BUILD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -ForceSamblasterBuild"
+    if "%FORCE_FASTP_BUILD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -ForceFastpBuild"
     if not "%BWA_BINARY_URL%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -BwaBinaryUrl ""%BWA_BINARY_URL%"""
     if not "%BWA_BINARY_SHA256%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -BwaBinarySha256 ""%BWA_BINARY_SHA256%"""
     if not "%MINIMAP2_BINARY_URL%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -Minimap2BinaryUrl ""%MINIMAP2_BINARY_URL%"""
     if not "%MINIMAP2_BINARY_SHA256%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -Minimap2BinarySha256 ""%MINIMAP2_BINARY_SHA256%"""
+    if not "%SAMBLASTER_BINARY_URL%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SamblasterBinaryUrl ""%SAMBLASTER_BINARY_URL%"""
+    if not "%SAMBLASTER_BINARY_SHA256%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SamblasterBinarySha256 ""%SAMBLASTER_BINARY_SHA256%"""
+    if not "%FASTP_BINARY_URL%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -FastpBinaryUrl ""%FASTP_BINARY_URL%"""
+    if not "%FASTP_BINARY_SHA256%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -FastpBinarySha256 ""%FASTP_BINARY_SHA256%"""
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%scripts\setup_pacman_runtime.ps1" -Msys2Root "%WGSE_MSYS2_ROOT%" !PACMAN_SETUP_EXTRA_ARGS!
     if errorlevel 1 exit /b 1
 ) else (
@@ -285,14 +363,28 @@ echo   --skip-bwa-build          Pass -SkipBwaBuild to the pacman setup helper.
 echo   --skip-bwa-download       Build BWA locally instead of downloading the release binary.
 echo   --skip-minimap2-build     Pass -SkipMinimap2Build to the pacman setup helper.
 echo   --skip-minimap2-download  Build minimap2 locally instead of downloading the release binary.
+echo   --skip-samblaster-build   Pass -SkipSamblasterBuild to the pacman setup helper.
+echo   --skip-samblaster-download
+echo                           Build samblaster locally instead of downloading the release binary.
+echo   --skip-fastp-build        Pass -SkipFastpBuild to the pacman setup helper.
+echo   --skip-fastp-download     Build fastp locally instead of downloading the release binary.
 echo   --bwa-binary-url URL      Download BWA from this ZIP URL or local ZIP path.
 echo   --bwa-binary-sha256 SHA256
 echo                           SHA-256 for a custom BWA ZIP URL or local ZIP path.
 echo   --minimap2-binary-url URL Download minimap2 from this ZIP URL or local ZIP path.
 echo   --minimap2-binary-sha256 SHA256
 echo                           SHA-256 for a custom minimap2 ZIP URL or local ZIP path.
+echo   --samblaster-binary-url URL
+echo                           Download samblaster from this ZIP URL or local ZIP path.
+echo   --samblaster-binary-sha256 SHA256
+echo                           SHA-256 for a custom samblaster ZIP URL or local ZIP path.
+echo   --fastp-binary-url URL    Download fastp from this ZIP URL or local ZIP path.
+echo   --fastp-binary-sha256 SHA256
+echo                           SHA-256 for a custom fastp ZIP URL or local ZIP path.
 echo   --force-bwa-build         Pass -ForceBwaBuild to the pacman setup helper.
 echo   --force-minimap2-build    Pass -ForceMinimap2Build to the pacman setup helper.
+echo   --force-samblaster-build  Pass -ForceSamblasterBuild to the pacman setup helper.
+echo   --force-fastp-build       Pass -ForceFastpBuild to the pacman setup helper.
 echo   --skip-checks             Do not run the final wgsextract pacman dependency check.
 echo   --allow-nonempty-bootstrap-dir
 echo                           Allow standalone source bootstrap into a non-empty directory.
@@ -327,6 +419,22 @@ exit /b 2
 
 :missing_minimap2_binary_sha256
 echo ERROR: --minimap2-binary-sha256 requires a SHA-256 digest.
+exit /b 2
+
+:missing_samblaster_binary_url
+echo ERROR: --samblaster-binary-url requires a URL or path.
+exit /b 2
+
+:missing_samblaster_binary_sha256
+echo ERROR: --samblaster-binary-sha256 requires a SHA-256 digest.
+exit /b 2
+
+:missing_fastp_binary_url
+echo ERROR: --fastp-binary-url requires a URL or path.
+exit /b 2
+
+:missing_fastp_binary_sha256
+echo ERROR: --fastp-binary-sha256 requires a SHA-256 digest.
 exit /b 2
 
 :unknown_arg

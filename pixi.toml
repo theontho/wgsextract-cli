@@ -1,6 +1,6 @@
 [workspace]
 name = "wgsextract-cli"
-version = "0.3.11"
+version = "0.3.12"
 description = "A modern, standalone Command-Line Interface for WGS Extract."
 authors = ["WGS Extract Contributors"]
 channels = ["conda-forge", "bioconda"]
