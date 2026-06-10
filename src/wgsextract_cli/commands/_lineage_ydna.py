@@ -25,6 +25,39 @@ from wgsextract_cli.core.variant_files import (
 )
 
 
+def _resolve_yleaf_reference_fasta(ref_path: str | None, build: str) -> str | None:
+    if not ref_path:
+        return None
+
+    if os.path.isfile(ref_path):
+        return ref_path
+
+    lib = ReferenceLibrary(ref_path)
+    for filename in os.listdir(ref_path):
+        filename_upper = filename.upper()
+        if build.upper() in filename_upper and filename.endswith(
+            (".fa", ".fasta", ".fna", ".fa.gz", ".fasta.gz", ".fna.gz")
+        ):
+            return os.path.join(ref_path, filename)
+
+    return lib.fasta
+
+
+def _yleaf_supports_ref_fasta(cmd: list[str]) -> bool:
+    try:
+        result = subprocess.run(
+            cmd + ["--help"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError, RuntimeError, ValueError) as e:
+        logging.debug("Could not inspect Yleaf --help for --ref-fasta support: %s", e)
+        return False
+
+    return "--ref-fasta" in f"{result.stdout}\n{result.stderr}"
+
+
 def update_yleaf_config(
     yleaf_path: str | None, ref_path: str | None, build: str
 ) -> None:
@@ -40,10 +73,9 @@ def update_yleaf_config(
         # or relative to the executable if it's a wrapper.
         yleaf_dir = None
         if os.path.isfile(yleaf_path):
-            # Check if it's in a bin folder of a conda env
-            if "/bin/yleaf" in yleaf_path:
-                # Look for site-packages path
-                env_root = yleaf_path.split("/bin/yleaf")[0]
+            bin_dir = os.path.dirname(yleaf_path)
+            if os.path.basename(bin_dir).lower() == "bin":
+                env_root = os.path.dirname(bin_dir)
                 # Walk to find yleaf/config.txt
                 for d, _, files in os.walk(env_root):
                     if "config.txt" in files and "yleaf" in d:
@@ -63,24 +95,7 @@ def update_yleaf_config(
                 return
 
         # 2. Resolve the actual FASTA file from the reference library
-        lib = ReferenceLibrary(ref_path)
-        # Search explicitly for the build requested if not direct file
-        fasta_path = None
-        if os.path.isfile(ref_path):
-            fasta_path = ref_path
-        else:
-            # Look for hg38 or hg19 specific fasta in the root
-            for filename in os.listdir(ref_path):
-                filename_upper = filename.upper()
-                if build.upper() in filename_upper and filename.endswith(
-                    (".fa", ".fasta", ".fna", ".fa.gz", ".fasta.gz", ".fna.gz")
-                ):
-                    fasta_path = os.path.join(ref_path, filename)
-                    break
-
-        if not fasta_path:
-            fasta_path = lib.fasta
-
+        fasta_path = _resolve_yleaf_reference_fasta(ref_path, build)
         if not fasta_path:
             return
 
@@ -146,10 +161,6 @@ def cmd_ydna(args: argparse.Namespace) -> None:
         logging.warning(f"Build {build} not supported by Yleaf, defaulting to hg38")
         build = "hg38"
 
-    if args.ref:
-        logging.debug(f"Resolved reference: {args.ref}")
-        update_yleaf_config(yleaf_path, args.ref, build)
-
     logging.info(LOG_MESSAGES["running_yleaf"].format(input=args.input))
     temp_dir = None
     temp_vcf = None
@@ -158,6 +169,15 @@ def cmd_ydna(args: argparse.Namespace) -> None:
         cmd = shlex.split(yleaf_path)
         if yleaf_path.endswith(".py"):
             cmd = ["python3", yleaf_path]
+
+        ref_fasta = (
+            _resolve_yleaf_reference_fasta(args.ref, build) if args.ref else None
+        )
+        yleaf_accepts_ref_fasta = _yleaf_supports_ref_fasta(cmd)
+        if args.ref:
+            logging.debug(f"Resolved reference: {ref_fasta or args.ref}")
+            if not yleaf_accepts_ref_fasta:
+                update_yleaf_config(yleaf_path, args.ref, build)
 
         # Map input type to flag (Yleaf 3.2.1 style)
         input_ext = args.input.lower()
@@ -234,6 +254,9 @@ def cmd_ydna(args: argparse.Namespace) -> None:
             "-t",
             str(threads),
         ]
+
+        if ref_fasta and yleaf_accepts_ref_fasta:
+            final_cmd.extend(["--ref-fasta", ref_fasta])
 
         # Add reference for CRAM if available
         if input_flag == "-cram":

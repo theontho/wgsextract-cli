@@ -46,6 +46,11 @@ gatk4 = ">=4.5.0.0"
 
 [feature.bio-tools]
 
+[feature.bio-tools.pypi-dependencies]
+# Bioconda's yleaf 3.2.1 artifact omits yleaf/data/* marker tables, so install
+# upstream's packaged source for a runnable default Yleaf environment.
+yleaf = { git = "https://github.com/genid/Yleaf.git", tag = "v4.1.2" }
+
 [feature.bio-tools.target.osx-arm64.dependencies]
 samtools = ">=1.20"
 bcftools = ">=1.20"
@@ -92,7 +97,6 @@ wget = ">=1.21"
 [feature.bio-tools.target.win-64.dependencies]
 fastqc = ">=0.12.1"
 haplogrep = ">=2.4.0"
-yleaf = ">=2.2"
 
 
 [feature.deepvariant.dependencies]
@@ -128,6 +132,9 @@ pbmm2 = ">=1.7.0,<1.8.0"
 sniffles = ">=2.7.0"
 
 [feature.vep]
+
+[feature.vep.target.osx-arm64.dependencies]
+ensembl-vep = ">=110"
 
 [feature.vep.target.osx-64.dependencies]
 ensembl-vep = ">=110"

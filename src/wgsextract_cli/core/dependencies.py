@@ -75,6 +75,11 @@ PIXI_TOOL_ENVS = {
 }
 
 
+TOOL_EXECUTABLE_ALIASES = {
+    "yleaf": ("yleaf", "Yleaf"),
+}
+
+
 WINDOWS_PIXI_SCRIPT_LAUNCHERS = {
     "fastqc": ("perl",),
     "gatk": ("python",),
@@ -303,6 +308,18 @@ def _pixi_run_command(pixi_cmd: str, env: str, args: list[str]) -> str:
     return " ".join(shlex.quote(part) for part in command)
 
 
+def _tool_executable_names(tool: str) -> tuple[str, ...]:
+    return TOOL_EXECUTABLE_ALIASES.get(tool, (tool,))
+
+
+def _which_tool(tool: str) -> str | None:
+    for executable_name in _tool_executable_names(tool):
+        path = shutil.which(executable_name)
+        if path:
+            return path
+    return None
+
+
 def _host_pixi_tool_command(tool: str) -> str | None:
     if tool not in PIXI_TOOL_ENVS:
         return None
@@ -318,29 +335,32 @@ import sys
 import os
 from pathlib import Path
 
-tool = sys.argv[1]
-path = shutil.which(tool)
-if path:
-    print("direct:" + path)
-    raise SystemExit(0)
+tool_names = sys.argv[1:]
+for tool in tool_names:
+    path = shutil.which(tool)
+    if path:
+        print("direct-name:" + tool)
+        raise SystemExit(0)
 
 prefix = Path(sys.prefix)
-if tool == "haplogrep":
+if "haplogrep" in tool_names:
     jar = prefix / "bin" / "haplogrep.jar"
     if jar.exists():
         print("haplogrep:" + str(jar.resolve()))
         raise SystemExit(0)
 
-script = prefix / "bin" / tool
-if os.path.lexists(script):
-    print("script:" + str(script.resolve()))
-    raise SystemExit(0)
+for tool in tool_names:
+    script = prefix / "bin" / tool
+    if os.path.lexists(script):
+        print("script:" + str(script.resolve()))
+        raise SystemExit(0)
 
 raise SystemExit(1)
 """
+    executable_names = _tool_executable_names(tool)
     try:
         result = subprocess.run(
-            [pixi_cmd, "run", "-e", env, "python", "-c", probe, tool],
+            [pixi_cmd, "run", "-e", env, "python", "-c", probe, *executable_names],
             capture_output=True,
             text=True,
             timeout=10,
@@ -360,6 +380,8 @@ raise SystemExit(1)
 
     if kind == "direct":
         return _pixi_run_command(pixi_cmd, env, [tool])
+    if kind == "direct-name":
+        return _pixi_run_command(pixi_cmd, env, [value])
     if kind == "haplogrep":
         return _pixi_run_command(pixi_cmd, env, ["java", "-jar", value])
     if kind == "script" and tool in WINDOWS_PIXI_SCRIPT_LAUNCHERS:
@@ -385,7 +407,7 @@ def get_tool_path(tool: str) -> str | None:
         return None
 
     if runtime_mode == "windows":
-        path = shutil.which(tool)
+        path = _which_tool(tool)
         if path:
             return path
         pacman_path = runtime_paths.pacman_tool_path(tool)
@@ -399,19 +421,23 @@ def get_tool_path(tool: str) -> str | None:
                 return runtime.bundled_tool_command(mode, tool)
         return None
 
-    if should_consider_wsl and prefer_wsl and runtime_paths.wsl_command_available(tool):
-        return runtime.wsl_tool_command(tool)
+    if should_consider_wsl and prefer_wsl:
+        for executable_name in _tool_executable_names(tool):
+            if runtime_paths.wsl_command_available(executable_name):
+                return runtime.wsl_tool_command(executable_name)
 
     if prefer_wsl:
-        if tool in PIXI_TOOL_ENVS and runtime_paths.wsl_pixi_tool_available(
-            tool, PIXI_TOOL_ENVS[tool]
-        ):
-            return runtime.wsl_tool_command(
-                f"{_wsl_pixi_path()} run -e {PIXI_TOOL_ENVS[tool]} {tool}"
-            )
+        if tool in PIXI_TOOL_ENVS:
+            for executable_name in _tool_executable_names(tool):
+                if runtime_paths.wsl_pixi_tool_available(
+                    executable_name, PIXI_TOOL_ENVS[tool]
+                ):
+                    return runtime.wsl_tool_command(
+                        f"{_wsl_pixi_path()} run -e {PIXI_TOOL_ENVS[tool]} {executable_name}"
+                    )
         return None
 
-    path = shutil.which(tool)
+    path = _which_tool(tool)
     if path:
         return path
 
@@ -421,14 +447,17 @@ def get_tool_path(tool: str) -> str | None:
             return runtime.pacman_tool_command(pacman_path)
 
     if should_consider_wsl:
-        if runtime_paths.wsl_command_available(tool):
-            return runtime.wsl_tool_command(tool)
-        if tool in PIXI_TOOL_ENVS and runtime_paths.wsl_pixi_tool_available(
-            tool, PIXI_TOOL_ENVS[tool]
-        ):
-            return runtime.wsl_tool_command(
-                f"{_wsl_pixi_path()} run -e {PIXI_TOOL_ENVS[tool]} {tool}"
-            )
+        for executable_name in _tool_executable_names(tool):
+            if runtime_paths.wsl_command_available(executable_name):
+                return runtime.wsl_tool_command(executable_name)
+        if tool in PIXI_TOOL_ENVS:
+            for executable_name in _tool_executable_names(tool):
+                if runtime_paths.wsl_pixi_tool_available(
+                    executable_name, PIXI_TOOL_ENVS[tool]
+                ):
+                    return runtime.wsl_tool_command(
+                        f"{_wsl_pixi_path()} run -e {PIXI_TOOL_ENVS[tool]} {executable_name}"
+                    )
 
     auto_bundled_modes = bundled_modes if runtime_mode == "auto" else ()
     for mode in auto_bundled_modes:

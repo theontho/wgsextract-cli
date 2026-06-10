@@ -13,6 +13,7 @@ from wgsextract_cli.core.utils import WGSExtractError
 
 from .dependencies import (
     OPTIONAL_TOOLS,
+    PIXI_TOOL_ENVS,
     _tool_command_parts,
     _version_output,
     check_dependencies,
@@ -22,6 +23,15 @@ from .dependencies import (
     optional_dependency_tools,
     required_dependency_tools,
 )
+
+
+def _pixi_alt_env(tool: str, path: str | None) -> str | None:
+    env = PIXI_TOOL_ENVS.get(tool)
+    if not path or not env or env == "default":
+        return None
+    if get_tool_runtime(path) != "pixi":
+        return None
+    return env
 
 
 def get_tool_version(tool: str) -> str | None:
@@ -35,8 +45,9 @@ def get_tool_version(tool: str) -> str | None:
 
     try:
         # 1. Try --version first (standard)
+        version_arg = "--help" if tool == "yleaf" else "--version"
         res = subprocess.run(
-            runtime_wrappers.wrap_command(full_cmd + ["--version"]),
+            runtime_wrappers.wrap_command(full_cmd + [version_arg]),
             capture_output=True,
             text=True,
             timeout=10,
@@ -45,6 +56,10 @@ def get_tool_version(tool: str) -> str | None:
 
         if res.returncode == 0 and output and not output.startswith("[main]"):
             lines = [line.strip() for line in output.splitlines() if line.strip()]
+            if tool == "yleaf":
+                for line in lines:
+                    if line.startswith("Yleaf:") and " v" in line:
+                        return line
             if lines:
                 return lines[0]
 
@@ -230,13 +245,15 @@ def check_all_dependencies(
         path = get_tool_path(tool)
         version = get_tool_version(tool) if path else None
         is_broken = version and version.startswith("Error:")
+        present_path = path if not is_broken else None
 
         results["mandatory"].append(
             {
                 "name": tool,
-                "path": path if not is_broken else None,
-                "runtime": get_tool_runtime(path if not is_broken else None),
+                "path": present_path,
+                "runtime": get_tool_runtime(present_path),
                 "version": version,
+                "alt_env": _pixi_alt_env(tool, present_path),
             }
         )
 
@@ -251,13 +268,15 @@ def check_all_dependencies(
             display_name = f"{tool} (Bioconda)"
 
         is_broken = version and version.startswith("Error:")
+        present_path = path if not is_broken else None
 
         results["optional"].append(
             {
                 "name": display_name,
-                "path": path if not is_broken else None,
-                "runtime": get_tool_runtime(path if not is_broken else None),
+                "path": present_path,
+                "runtime": get_tool_runtime(present_path),
                 "version": version,
+                "alt_env": _pixi_alt_env(tool, present_path),
             }
         )
 

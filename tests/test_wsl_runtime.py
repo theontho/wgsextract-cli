@@ -289,7 +289,7 @@ class TestWSLRuntime(unittest.TestCase):
         mock_wsl_command.assert_not_called()
         mock_subprocess_run.assert_called_once()
         self.assertIn("python", mock_subprocess_run.call_args.args[0])
-        self.assertEqual(mock_subprocess_run.call_args.args[0][-1], "yleaf")
+        self.assertEqual(mock_subprocess_run.call_args.args[0][-2:], ["yleaf", "Yleaf"])
 
     def test_get_tool_path_windows_runtime_launches_pixi_noarch_script(self):
         completed = MagicMock(
