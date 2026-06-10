@@ -52,7 +52,7 @@ PIXI_TOOL_ENVS = {
     "curl": "default",
     "fastp": "default",
     "fastqc": "default",
-    "yleaf": "yleaf",
+    "yleaf": "default",
     "vep": "vep",
     "run_deepvariant": "deepvariant",
     "haplogrep": "default",
@@ -288,6 +288,7 @@ def _resolve_pixi_command() -> str | None:
         "/opt/homebrew/bin/pixi",
         "/usr/local/bin/pixi",
         "~/.pixi/bin/pixi",
+        "~/.pixi/bin/pixi.exe",
     ]:
         expanded = os.path.expanduser(path)
         if os.path.exists(expanded):
@@ -360,7 +361,7 @@ raise SystemExit(1)
     if kind == "direct":
         return _pixi_run_command(pixi_cmd, env, [tool])
     if kind == "haplogrep":
-        return _pixi_run_command(pixi_cmd, env, ["java", "-cp", value, "genepi.App"])
+        return _pixi_run_command(pixi_cmd, env, ["java", "-jar", value])
     if kind == "script" and tool in WINDOWS_PIXI_SCRIPT_LAUNCHERS:
         return _pixi_run_command(
             pixi_cmd, env, [*WINDOWS_PIXI_SCRIPT_LAUNCHERS[tool], value]

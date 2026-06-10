@@ -283,7 +283,7 @@ class TestWSLRuntime(unittest.TestCase):
         ):
             self.assertEqual(
                 dependencies.get_tool_path("yleaf"),
-                r"C:\Users\test\.pixi\bin\pixi.exe run -e yleaf yleaf",
+                r"C:\Users\test\.pixi\bin\pixi.exe run -e default yleaf",
             )
 
         mock_wsl_command.assert_not_called()
@@ -319,6 +319,51 @@ class TestWSLRuntime(unittest.TestCase):
             self.assertEqual(
                 dependencies.get_tool_path("fastqc"),
                 r"C:\Users\test\.pixi\bin\pixi.exe run -e default perl C:\repo\.pixi\envs\default\opt\fastqc-0.12.1\fastqc",
+            )
+
+    def test_get_tool_path_windows_runtime_launches_haplogrep_jar(self):
+        completed = MagicMock(
+            returncode=0,
+            stdout=r"haplogrep:C:\repo\.pixi\envs\default\bin\haplogrep.jar" + "\n",
+        )
+        with (
+            patch(
+                "wgsextract_cli.core.runtime.get_tool_runtime_mode",
+                return_value="windows",
+            ),
+            patch("wgsextract_cli.core.runtime.is_windows_host", return_value=True),
+            patch(
+                "wgsextract_cli.core.dependencies.shutil.which",
+                side_effect=lambda tool: (
+                    r"C:\Users\test\.pixi\bin\pixi.exe" if tool == "pixi" else None
+                ),
+            ),
+            patch(
+                "wgsextract_cli.core.runtime_paths.pacman_tool_path", return_value=None
+            ),
+            patch(
+                "wgsextract_cli.core.dependencies.subprocess.run",
+                return_value=completed,
+            ),
+        ):
+            self.assertEqual(
+                dependencies.get_tool_path("haplogrep"),
+                r"C:\Users\test\.pixi\bin\pixi.exe run -e default java -jar C:\repo\.pixi\envs\default\bin\haplogrep.jar",
+            )
+
+    def test_resolve_pixi_command_checks_windows_exe_fallback(self):
+        def exists(path):
+            return path == os.path.expanduser("~/.pixi/bin/pixi.exe")
+
+        with (
+            patch("wgsextract_cli.core.dependencies.shutil.which", return_value=None),
+            patch(
+                "wgsextract_cli.core.dependencies.os.path.exists", side_effect=exists
+            ),
+        ):
+            self.assertEqual(
+                dependencies._resolve_pixi_command(),
+                os.path.expanduser("~/.pixi/bin/pixi.exe"),
             )
 
     def test_get_tool_runtime_detects_pacman_path(self):
