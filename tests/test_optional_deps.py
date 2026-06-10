@@ -287,7 +287,7 @@ class TestOptionalDependencies(unittest.TestCase):
     def test_get_tool_path_can_return_pixi_fallback_without_wsl(self):
         from wgsextract_cli.core.dependencies import get_tool_path
 
-        completed = MagicMock(returncode=0, stdout="direct:/env/bin/samtools\n")
+        completed = MagicMock(returncode=0, stdout="direct-name:samtools\n")
         with (
             patch(
                 "wgsextract_cli.core.dependencies.shutil.which",

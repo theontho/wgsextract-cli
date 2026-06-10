@@ -378,8 +378,6 @@ raise SystemExit(1)
     if not separator or not value:
         return None
 
-    if kind == "direct":
-        return _pixi_run_command(pixi_cmd, env, [tool])
     if kind == "direct-name":
         return _pixi_run_command(pixi_cmd, env, [value])
     if kind == "haplogrep":

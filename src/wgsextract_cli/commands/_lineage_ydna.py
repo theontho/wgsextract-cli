@@ -34,25 +34,31 @@ def _resolve_yleaf_reference_fasta(ref_path: str | None, build: str) -> str | No
         return ref_path
 
     lib = ReferenceLibrary(ref_path)
-    for filename in os.listdir(ref_path):
-        filename_upper = filename.upper()
-        if build.upper() in filename_upper and filename.endswith(
-            (".fa", ".fasta", ".fna", ".fa.gz", ".fasta.gz", ".fna.gz")
-        ):
-            return os.path.join(ref_path, filename)
+    if os.path.isdir(ref_path):
+        for filename in os.listdir(ref_path):
+            filename_upper = filename.upper()
+            if build.upper() in filename_upper and filename.endswith(
+                (".fa", ".fasta", ".fna", ".fa.gz", ".fasta.gz", ".fna.gz")
+            ):
+                return os.path.join(ref_path, filename)
 
     return lib.fasta
 
 
 def _yleaf_supports_ref_fasta(cmd: list[str]) -> bool:
     try:
-        result = subprocess.run(
+        result = run_command(
             cmd + ["--help"],
             capture_output=True,
-            text=True,
-            timeout=10,
+            check=False,
         )
-    except (OSError, subprocess.SubprocessError, RuntimeError, ValueError) as e:
+    except (
+        OSError,
+        subprocess.SubprocessError,
+        RuntimeError,
+        ValueError,
+        TypeError,
+    ) as e:
         logging.debug("Could not inspect Yleaf --help for --ref-fasta support: %s", e)
         return False
 
@@ -198,7 +204,7 @@ def cmd_ydna(args: argparse.Namespace) -> None:
         ref_fasta = (
             _resolve_yleaf_reference_fasta(args.ref, build) if args.ref else None
         )
-        yleaf_accepts_ref_fasta = _yleaf_supports_ref_fasta(cmd)
+        yleaf_accepts_ref_fasta = _yleaf_supports_ref_fasta(cmd) if args.ref else False
         if args.ref:
             logging.debug(f"Resolved reference: {ref_fasta or args.ref}")
             if not yleaf_accepts_ref_fasta:
