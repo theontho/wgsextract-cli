@@ -156,8 +156,12 @@ def _tool_command_parts(cmd_base: str) -> list[str]:
 
 
 def _windows_command_line_split(command_line: str) -> list[str]:
+    windll = getattr(ctypes, "windll", None)
+    if windll is None:
+        return shlex.split(command_line, posix=False)
+
     argc = ctypes.c_int()
-    command_line_to_argv = ctypes.windll.shell32.CommandLineToArgvW
+    command_line_to_argv = windll.shell32.CommandLineToArgvW
     command_line_to_argv.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_int)]
     command_line_to_argv.restype = ctypes.POINTER(ctypes.c_wchar_p)
     argv = command_line_to_argv(command_line, ctypes.byref(argc))
@@ -166,7 +170,7 @@ def _windows_command_line_split(command_line: str) -> list[str]:
     try:
         return [argv[index] for index in range(argc.value)]
     finally:
-        ctypes.windll.kernel32.LocalFree(argv)
+        windll.kernel32.LocalFree(argv)
 
 
 def get_tool_runtime(path: str | None) -> str:

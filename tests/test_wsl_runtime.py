@@ -263,6 +263,7 @@ class TestWSLRuntime(unittest.TestCase):
                 "wgsextract_cli.core.runtime.get_tool_runtime_mode",
                 return_value="windows",
             ),
+            patch("wgsextract_cli.core.runtime.is_windows_host", return_value=True),
             patch(
                 "wgsextract_cli.core.dependencies.shutil.which",
                 side_effect=lambda tool: (
@@ -300,6 +301,7 @@ class TestWSLRuntime(unittest.TestCase):
                 "wgsextract_cli.core.runtime.get_tool_runtime_mode",
                 return_value="windows",
             ),
+            patch("wgsextract_cli.core.runtime.is_windows_host", return_value=True),
             patch(
                 "wgsextract_cli.core.dependencies.shutil.which",
                 side_effect=lambda tool: (

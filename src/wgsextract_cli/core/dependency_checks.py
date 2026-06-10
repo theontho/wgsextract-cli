@@ -157,7 +157,7 @@ def verify_dependencies(
 
     # Version Validation for critical tools
     for tool in ["bcftools", "samtools"]:
-        if tool in tool_list:
+        if tool in tool_list and tool not in missing:
             version_str = get_tool_version(tool)
             if not version_str:
                 continue
