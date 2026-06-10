@@ -13,6 +13,14 @@ on:
         description: minimap2 release tag version to build.
         required: false
         default: "2.30"
+      samblaster_version:
+        description: samblaster release tag version to build.
+        required: false
+        default: "0.1.26"
+      fastp_version:
+        description: fastp release tag version to build.
+        required: false
+        default: "0.24.1"
       release_tag:
         description: Existing GitHub release tag to receive the asset. Leave empty to upload only a workflow artifact.
         required: false
@@ -35,6 +43,8 @@ jobs:
         env:
           INPUT_BWA_VERSION: ${{ inputs.bwa_version }}
           INPUT_MINIMAP2_VERSION: ${{ inputs.minimap2_version }}
+          INPUT_SAMBLASTER_VERSION: ${{ inputs.samblaster_version }}
+          INPUT_FASTP_VERSION: ${{ inputs.fastp_version }}
           INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
           EVENT_RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
@@ -64,12 +74,16 @@ jobs:
 
           $bwaVersion = Resolve-SafeBuildInput -Name "bwa_version" -Value $env:INPUT_BWA_VERSION -DefaultValue "0.7.19"
           $minimap2Version = Resolve-SafeBuildInput -Name "minimap2_version" -Value $env:INPUT_MINIMAP2_VERSION -DefaultValue "2.30"
+          $samblasterVersion = Resolve-SafeBuildInput -Name "samblaster_version" -Value $env:INPUT_SAMBLASTER_VERSION -DefaultValue "0.1.26"
+          $fastpVersion = Resolve-SafeBuildInput -Name "fastp_version" -Value $env:INPUT_FASTP_VERSION -DefaultValue "0.24.1"
           $releaseTag = Resolve-SafeBuildInput -Name "release_tag" -Value $env:EVENT_RELEASE_TAG -DefaultValue "" -AllowEmpty
           if (-not $releaseTag) {
             $releaseTag = Resolve-SafeBuildInput -Name "release_tag" -Value $env:INPUT_RELEASE_TAG -DefaultValue "" -AllowEmpty
           }
           "BWA_VERSION=$bwaVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "MINIMAP2_VERSION=$minimap2Version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SAMBLASTER_VERSION=$samblasterVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "FASTP_VERSION=$fastpVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "RELEASE_TAG=$releaseTag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Set up MSYS2 UCRT64
@@ -86,7 +100,10 @@ jobs:
             tar
             mingw-w64-ucrt-x86_64-bcftools
             mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-gcc-libs
             mingw-w64-ucrt-x86_64-htslib
+            mingw-w64-ucrt-x86_64-isa-l
+            mingw-w64-ucrt-x86_64-libdeflate
             mingw-w64-ucrt-x86_64-samtools
             mingw-w64-ucrt-x86_64-zlib
 
@@ -94,7 +111,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          .\scripts\setup_pacman_runtime.ps1 -Msys2Root C:\msys64 -BwaVersion $env:BWA_VERSION -Minimap2Version $env:MINIMAP2_VERSION -ForceBwaBuild -ForceMinimap2Build -SkipBwaDownload -SkipMinimap2Download
+          .\scripts\setup_pacman_runtime.ps1 -Msys2Root C:\msys64 -BwaVersion $env:BWA_VERSION -Minimap2Version $env:MINIMAP2_VERSION -SamblasterVersion $env:SAMBLASTER_VERSION -FastpVersion $env:FASTP_VERSION -ForceBwaBuild -ForceMinimap2Build -ForceSamblasterBuild -ForceFastpBuild -SkipBwaDownload -SkipMinimap2Download -SkipSamblasterDownload -SkipFastpDownload
 
       - name: Package BWA release asset
         shell: powershell
@@ -134,6 +151,44 @@ jobs:
           Compress-Archive -Path (Join-Path $assetDir "*") -DestinationPath $zipPath -Force
           "MINIMAP2_ZIP=$zipPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Package samblaster release asset
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $assetName = "wgsextract-samblaster-$env:SAMBLASTER_VERSION-windows-ucrt64"
+          $assetDir = Join-Path "out\release-samblaster" $assetName
+          New-Item -ItemType Directory -Force $assetDir | Out-Null
+          Copy-Item -LiteralPath "C:\msys64\ucrt64\bin\samblaster.exe" -Destination (Join-Path $assetDir "samblaster.exe") -Force
+          @"
+          WGSExtract Windows samblaster binary
+          samblaster version: $env:SAMBLASTER_VERSION
+          Target runtime: MSYS2 UCRT64
+          Install path expected by wgsextract-cli: C:\msys64\ucrt64\bin\samblaster.exe
+          Built by: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
+          "@ | Set-Content -Path (Join-Path $assetDir "README.txt") -Encoding ASCII
+          $zipPath = Join-Path "out\release-samblaster" "$assetName.zip"
+          Compress-Archive -Path (Join-Path $assetDir "*") -DestinationPath $zipPath -Force
+          "SAMBLASTER_ZIP=$zipPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Package fastp release asset
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $assetName = "wgsextract-fastp-$env:FASTP_VERSION-windows-ucrt64"
+          $assetDir = Join-Path "out\release-fastp" $assetName
+          New-Item -ItemType Directory -Force $assetDir | Out-Null
+          Copy-Item -LiteralPath "C:\msys64\ucrt64\bin\fastp.exe" -Destination (Join-Path $assetDir "fastp.exe") -Force
+          @"
+          WGSExtract Windows fastp binary
+          fastp version: $env:FASTP_VERSION
+          Target runtime: MSYS2 UCRT64
+          Install path expected by wgsextract-cli: C:\msys64\ucrt64\bin\fastp.exe
+          Built by: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
+          "@ | Set-Content -Path (Join-Path $assetDir "README.txt") -Encoding ASCII
+          $zipPath = Join-Path "out\release-fastp" "$assetName.zip"
+          Compress-Archive -Path (Join-Path $assetDir "*") -DestinationPath $zipPath -Force
+          "FASTP_ZIP=$zipPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Upload workflow artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -141,6 +196,8 @@ jobs:
           path: |
             ${{ env.BWA_ZIP }}
             ${{ env.MINIMAP2_ZIP }}
+            ${{ env.SAMBLASTER_ZIP }}
+            ${{ env.FASTP_ZIP }}
           if-no-files-found: error
 
       - name: Upload release asset
@@ -152,3 +209,5 @@ jobs:
           files: |
             ${{ env.BWA_ZIP }}
             ${{ env.MINIMAP2_ZIP }}
+            ${{ env.SAMBLASTER_ZIP }}
+            ${{ env.FASTP_ZIP }}
