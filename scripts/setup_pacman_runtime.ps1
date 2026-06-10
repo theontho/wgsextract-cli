@@ -746,6 +746,10 @@ if ($shouldBuildSamblaster) {
         $archiveName = "samblaster-$SamblasterVersion.tar.gz"
         $sourceDir = "samblaster-v.$SamblasterVersion"
         $sourceUrl = "https://github.com/GregoryFaust/samblaster/archive/refs/tags/v.$SamblasterVersion.tar.gz"
+        if ($SamblasterVersion -notmatch '\.(\d+)$') {
+            throw "SamblasterVersion must end with a numeric build component."
+        }
+        $samblasterBuildNumber = $Matches[1]
 
         Write-Host "Building samblaster $SamblasterVersion for MSYS2 UCRT64..."
         Invoke-Msys2Script @"
@@ -857,7 +861,7 @@ static inline ssize_t wgsextract_getline(char **lineptr, size_t *n, FILE *stream
 #endif
 #endif
 EOF
-make CPP=g++ CPPFLAGS='-I. -include win_compat.h -Wall -O3 -D BUILDNUM=26'
+make CPP=g++ CPPFLAGS='-I. -include win_compat.h -Wall -O3 -D BUILDNUM=$samblasterBuildNumber'
 if [ -f samblaster.exe ]; then
     built_samblaster=samblaster.exe
 else

@@ -69,6 +69,9 @@ def test_pacman_setup_can_build_and_install_samblaster_and_fastp_assets() -> Non
     assert "wgsextract-fastp-$FastpVersion-windows-ucrt64.zip" in script
     assert "Building samblaster $SamblasterVersion for MSYS2 UCRT64" in script
     assert "Building fastp $FastpVersion for MSYS2 UCRT64" in script
+    assert 'SamblasterVersion -notmatch \'\\.(\\d+)$\'' in script
+    assert "BUILDNUM=$samblasterBuildNumber" in script
+    assert "BUILDNUM=26" not in script
     assert "/ucrt64/bin/samblaster.exe --version" in script
     assert "/ucrt64/bin/fastp.exe --version" in script
     assert 'throw "Failed to build required samblaster native runtime:' in script
@@ -105,9 +108,11 @@ def test_windows_installer_exposes_samblaster_fastp_checksum_passthrough() -> No
 
     assert "--samblaster-binary-url" in installer
     assert "--samblaster-binary-sha256" in installer
+    assert "-SamblasterBinaryUrl" in installer
     assert "-SamblasterBinarySha256" in installer
     assert "--fastp-binary-url" in installer
     assert "--fastp-binary-sha256" in installer
+    assert "-FastpBinaryUrl" in installer
     assert "-FastpBinarySha256" in installer
 
 
