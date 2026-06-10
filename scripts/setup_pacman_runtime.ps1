@@ -946,7 +946,7 @@ if [ "`$(grep -c '_stat64' src/util.h)" -lt 4 ]; then
     echo "fastp Windows large-file patch did not apply cleanly." >&2
     exit 1
 fi
-sed -i -E 's/long long/WGSE_LONG_LONG/g; s/\blong\b/long long/g; s/WGSE_LONG_LONG/long long/g' \
+sed -i -E 's/long double/WGSE_LONG_DOUBLE/g; s/long long/WGSE_LONG_LONG/g; s/\<long\>/long long/g; s/WGSE_LONG_LONG/long long/g; s/WGSE_LONG_DOUBLE/long double/g' \
     src/evaluator.h src/evaluator.cpp src/fastqreader.h \
     src/filterresult.h src/filterresult.cpp src/htmlreporter.h src/htmlreporter.cpp \
     src/jsonreporter.cpp src/main.cpp src/options.h src/peprocessor.h src/peprocessor.cpp \
@@ -958,8 +958,8 @@ if ! grep -q 'long long mBases' src/stats.h; then
     exit 1
 fi
 sed -i '1a #include <algorithm>' src/main.cpp
-sed -i '/command = ss.str();/a \    replace(command.begin(), command.end(), char(92), char(47));' src/main.cpp
-if ! grep -q 'char(92), char(47)' src/main.cpp; then
+sed -i '/^    command = ss.str();$/a\    replace(command.begin(), command.end(), char(92), char(47));' src/main.cpp
+if [ "`$(grep -c 'char(92), char(47)' src/main.cpp)" -ne 1 ]; then
     echo "fastp Windows report path patch did not apply cleanly." >&2
     exit 1
 fi
