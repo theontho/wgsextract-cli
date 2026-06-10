@@ -74,6 +74,10 @@ Recommended order:
    builds cleanly under MSYS2 UCRT64.
 2. `samblaster` - implemented with compatibility shims for POSIX helpers.
 3. `fastp` - implemented with MSYS2 UCRT64 `isa-l` and `libdeflate`.
+   The packaged Windows build includes compatibility patches for large input
+   files, 64-bit report counters, and JSON-safe reported command paths. A
+   real-data validation run over paired ~20 GB FASTQs produced positive
+   counters for more than 101 billion input bases.
 4. `freebayes`
 5. `delly`
 6. `sambamba`

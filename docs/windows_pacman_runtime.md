@@ -142,7 +142,7 @@ These optional dependencies are not currently supplied by strict MSYS2/pacman pa
 | Tool | Native asset status | Notes |
 | --- | --- | --- |
 | `samblaster` | Implemented | Built from `v.0.1.26` with small Windows compatibility shims for POSIX allocation/timing helpers. |
-| `fastp` | Implemented | Built from `v0.24.1`; uses MSYS2 UCRT64 `isa-l`, `libdeflate`, `zlib`, and GCC runtime packages for DLL dependencies. |
+| `fastp` | Implemented | Built from `v0.24.1`; uses MSYS2 UCRT64 `isa-l`, `libdeflate`, `zlib`, and GCC runtime packages for DLL dependencies. The Windows asset carries build-time patches for >2 GB input files, 64-bit report counters, and JSON-safe reported command paths; it has been full-file tested against paired ~20 GB FASTQs. |
 | `freebayes` | TODO | High-value variant caller, but has a larger C++ dependency stack. Investigate an MSYS2 UCRT64 build and package only if runtime DLLs can be satisfied by pacman packages. |
 | `delly` | TODO | High-value SV caller, but depends on a larger C++/HTS stack. Investigate after freebayes. |
 | `sambamba` | TODO / maybe defer | D/LDC-based build; likely harder to keep small and reproducible than C/C++ tools. |
