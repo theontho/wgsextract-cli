@@ -3,6 +3,7 @@ import gzip
 import logging
 import os
 import shlex
+import shutil
 import subprocess
 import tempfile
 
@@ -78,10 +79,10 @@ def _prepare_yleaf_vcf_data_dir(
             os.symlink(os.path.abspath(ref_fasta), full_reference)
         except OSError:
             with open(ref_fasta, "rb") as f_in, open(full_reference, "wb") as f_out:
-                f_out.write(f_in.read())
+                shutil.copyfileobj(f_in, f_out)
     elif ref_fasta and ref_fasta.endswith((".fa.gz", ".fasta.gz", ".fna.gz")):
         with gzip.open(ref_fasta, "rb") as f_in, open(full_reference, "wb") as f_out:
-            f_out.write(f_in.read())
+            shutil.copyfileobj(f_in, f_out)
     else:
         with open(full_reference, "w", encoding="utf-8") as f_out:
             f_out.write(">chrY\n")
