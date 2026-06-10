@@ -937,6 +937,11 @@ fi
 curl -L `$curl_progress --retry 3 -o '$archiveName' '$sourceUrl'
 tar -xzf '$archiveName'
 cd '$sourceDir'
+sed -i \
+    -e 's/struct stat status;/struct _stat64 status;/g' \
+    -e 's/stat( s\.c_str(), \&status );/_stat64( s.c_str(), \&status );/g' \
+    -e 's/stat( path\.c_str(), \&status );/_stat64( path.c_str(), \&status );/g' \
+    src/util.h
 make CXX=g++
 if [ -f fastp.exe ]; then
     built_fastp=fastp.exe
