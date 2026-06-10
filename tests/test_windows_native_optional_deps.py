@@ -72,6 +72,10 @@ def test_pacman_setup_can_build_and_install_samblaster_and_fastp_assets() -> Non
     assert 'SamblasterVersion -notmatch \'\\.(\\d+)$\'' in script
     assert "BUILDNUM=$samblasterBuildNumber" in script
     assert "BUILDNUM=26" not in script
+    assert "struct _stat64 status;" in script
+    assert "_stat64( s.c_str(), \\&status );" in script
+    assert "_stat64( path.c_str(), \\&status );" in script
+    assert "fastp Windows large-file patch did not apply cleanly." in script
     assert "/ucrt64/bin/samblaster.exe --version" in script
     assert "/ucrt64/bin/fastp.exe --version" in script
     assert 'throw "Failed to build required samblaster native runtime:' in script
