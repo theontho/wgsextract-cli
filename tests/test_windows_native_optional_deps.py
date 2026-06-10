@@ -76,6 +76,15 @@ def test_pacman_setup_can_build_and_install_samblaster_and_fastp_assets() -> Non
     assert "_stat64( s.c_str(), \\&status );" in script
     assert "_stat64( path.c_str(), \\&status );" in script
     assert "fastp Windows large-file patch did not apply cleanly." in script
+    assert "s/\\blong\\b/long long/g" in script
+    assert "src/evaluator.h src/evaluator.cpp src/fastqreader.h" in script
+    assert "src/seprocessor.h src/seprocessor.cpp src/stats.h src/stats.cpp" in script
+    assert "as long long as" in script
+    assert "long long mBases" in script
+    assert "fastp Windows 64-bit stats patch did not apply cleanly." in script
+    assert "#include <algorithm>" in script
+    assert "char(92), char(47)" in script
+    assert "fastp Windows report path patch did not apply cleanly." in script
     assert "/ucrt64/bin/samblaster.exe --version" in script
     assert "/ucrt64/bin/fastp.exe --version" in script
     assert 'throw "Failed to build required samblaster native runtime:' in script
