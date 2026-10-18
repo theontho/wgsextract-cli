@@ -28,7 +28,6 @@ reviews:
     - "!**/tmp/**"
     - "!**/scratch/**"
     - "!**/node_modules/**"
-    - "!uv.lock"
     - "!pixi.lock"
     - "!**/*.lock"
   path_instructions:

@@ -6,8 +6,6 @@ on:
   workflow_dispatch:
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  GITHUB_TOKEN: ${{ github.token }}
   WGSEXTRACT_TOOL_RUNTIME: pacman
   WGSEXTRACT_PACMAN_UCRT64_BIN: C:\msys64\ucrt64\bin
 
@@ -38,6 +36,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
+          $env:PIXI_VERSION = "v0.70.2"
           iwr -useb https://pixi.sh/install.ps1 | iex
           "$env:USERPROFILE\.pixi\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
@@ -53,6 +52,8 @@ jobs:
 
       - name: Build and validate pacman runtime
         shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = "Stop"
           .\scripts\setup_pacman_runtime.ps1 -Msys2Root C:\msys64 -ForceBwaBuild
@@ -61,6 +62,8 @@ jobs:
 
       - name: Run pacman smoke benchmark
         shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = "Stop"
           pixi run wgsextract benchmark --runtime pacman --dataset real --profile smoke --suite core --outdir out\ci-pacman-benchmark

@@ -50,7 +50,10 @@ def _wgsextract_launcher() -> Path:
 def main() -> int:
     uv = shutil.which("uv")
     if uv is None:
-        print("uv is required for package-smoke but was not found on PATH", file=sys.stderr)
+        print(
+            "uv is required for package-smoke but was not found on PATH",
+            file=sys.stderr,
+        )
         return 1
 
     shutil.rmtree(OUT_DIR, ignore_errors=True)

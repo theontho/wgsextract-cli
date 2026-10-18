@@ -24,7 +24,9 @@ rm -rf "$work_dir"
 mkdir -p "$source_dir" "$home_dir" "$pixi_cache_dir" "$pixi_env_dir" "$fake_bin" "$fake_pixi_source"
 
 cd "$repo_root"
-git ls-files | while IFS= read -r path; do
+git ls-files --cached --others --exclude-standard | while IFS= read -r path; do
+    # Mirror the working tree: skip tracked files deleted but not yet committed.
+    [ -e "$repo_root/$path" ] || [ -L "$repo_root/$path" ] || continue
     target_dir="$source_dir/$(dirname "$path")"
     mkdir -p "$target_dir"
     cp -pP "$repo_root/$path" "$source_dir/$path"
@@ -45,6 +47,10 @@ case "${1:-}" in
         ;;
     run)
         shift
+        if [ "${1:-}" = "--manifest-path" ]; then
+            test -f "${2:-}" || { printf 'missing manifest: %s\n' "${2:-}" >&2; exit 3; }
+            shift 2
+        fi
         if [ "${1:-}" = "wgsextract" ]; then
             shift
             case "${1:-}" in
@@ -153,6 +159,12 @@ test -x "$install_dir/uninstall.sh"
 test -f "$install_dir/install-manifest.json"
 grep -F "\"wgsextractRef\": \"$release_tag\"" "$install_dir/install-manifest.json" >/dev/null
 grep -F "# WGS Extract CLI installer launcher" "$install_dir/wgsextract" >/dev/null
+# The launcher must keep the caller's working directory so relative paths work.
+grep -F -- "--manifest-path" "$install_dir/wgsextract" >/dev/null
+if grep -E '^cd ' "$install_dir/wgsextract" >/dev/null; then
+    printf 'launcher changes directory; relative input paths would break\n' >&2
+    exit 1
+fi
 sh -n "$install_dir/uninstall.sh"
 "$install_dir/wgsextract" --help >/dev/null
 test -d "$install_dir/app/src/wgsextract_cli"

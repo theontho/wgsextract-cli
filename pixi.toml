@@ -7,9 +7,9 @@ channels = ["conda-forge", "bioconda"]
 platforms = ["osx-arm64", "osx-64", "linux-64", "win-64"]
 
 [dependencies]
+# Pinned to 3.10: the deepvariant environment needs Python <3.11, and the
+# default environment's gatk4 py310 build requires >=3.10,<3.11.
 python = "3.10.*"
-nodejs = ">=22,<26"
-actionlint = ">=1.7.12,<2"
 
 [target.osx-arm64.dependencies]
 curl = ">=8.0"
@@ -151,34 +151,28 @@ pysam = "*"
 [feature.pysam.target.win-64.pypi-dependencies]
 # pysam is not supported on native Windows
 
-[environments]
-default = { features = ["gatk", "bio-tools", "pysam"] }
-deepvariant = { features = ["deepvariant"], no-default-feature = true }
-pacbio = { features = ["bio-tools", "pacbio"], no-default-feature = true, solve-group = "pacbio-unix" }
-vep = { features = ["vep"], no-default-feature = true }
-
-[pypi-dependencies]
-python-dotenv = "*"
-pyliftover = "*"
-psutil = "*"
-# pysam = "*" (fails on Windows, added to platform-specific features below)
-# Dev tools
+# Developer tooling (tests, lint, type checking, packaging, site/CI checks).
+# Kept out of the default environment that end-user installers set up; tasks
+# defined here run in the `dev` environment automatically.
+[feature.dev.dependencies]
 pytest = "*"
-pytest-asyncio = "*"
 ruff = "*"
-isort = "*"
 mypy = "*"
-pathspec = "<0.10"
 pre-commit = "*"
 uv = "*"
-# Local projects
-wgsextract-cli = { path = ".", editable = true }
+nodejs = ">=22,<26"
+actionlint = ">=1.7.12,<2"
 
-[tasks]
-deps-check = "./wgsextract deps check"
+[feature.dev.tasks]
+pytest = "pytest"
+ruff = "ruff"
+mypy = "mypy"
+pre-commit = "pre-commit"
 test = "pytest --ignore=tests/test_e2e_fast_chrM.py --ignore=tests/test_e2e_full_genome.py --ignore=tests/test_microarray_real_data.py"
 test-e2e = "pytest tests/test_e2e_fast_chrM.py tests/test_e2e_full_genome.py tests/test_microarray_real_data.py"
-test-e2e-fake = "WGSE_USE_FAKE_DATA=1 pytest tests/test_e2e_fast_chrM.py tests/test_e2e_full_genome.py"
+test-e2e-fake = "pytest --fake-data tests/test_e2e_fast_chrM.py tests/test_e2e_full_genome.py"
+smoke-test = "pytest tests/test_smoke.py tests/test_smoke_real_basics.py tests/test_smoke_real_vcf.py tests/test_smoke_real_vcf_ann.py tests/test_smoke_real_expert.py tests/test_smoke_real_ref.py"
+smoke-test-full = "pytest tests/test_smoke.py tests/test_smoke_real_basics.py tests/test_smoke_real_vcf.py tests/test_smoke_real_vcf_ann.py tests/test_smoke_real_expert.py tests/test_smoke_real_ref.py tests/test_smoke_real_full.py tests/test_smoke_real_pet.py"
 actionlint = "actionlint"
 validate-actions = "python scripts/validate_github_actions.py"
 lint = "ruff check . && python scripts/validate_site_sources.py && actionlint && python scripts/validate_github_actions.py"
@@ -188,7 +182,20 @@ package-smoke = "python scripts/package_smoke.py"
 jscpd = "npx --yes jscpd@4.2.3 src/wgsextract_cli --reporters console,json --output out/jscpd --min-lines 5 --min-tokens 50 --ignore '**/__pycache__/**' --ignore '**/.mypy_cache/**'"
 site-build = "python scripts/build_site.py"
 stats = "python scripts/project_stats.py"
-clean = { cmd = "python scripts/clean_outputs.py", description = "Remove gitignored scratch dirs (out/, tmp/)." }
 stats-report = "python scripts/project_stats.py out/project_stats.txt"
-smoke-test = "pytest tests/test_smoke.py tests/test_smoke_real_basics.py tests/test_smoke_real_vcf.py tests/test_smoke_real_vcf_ann.py tests/test_smoke_real_expert.py tests/test_smoke_real_ref.py"
-smoke-test-full = "pytest tests/test_smoke.py tests/test_smoke_real_basics.py tests/test_smoke_real_vcf.py tests/test_smoke_real_vcf_ann.py tests/test_smoke_real_expert.py tests/test_smoke_real_ref.py tests/test_smoke_real_full.py tests/test_smoke_real_pet.py"
+benchmark-dataset = { cmd = "python scripts/build_benchmark_dataset.py", description = "Rebuild the release-backed hg19 mini-genome benchmark dataset archive." }
+
+[environments]
+default = { features = ["gatk", "bio-tools", "pysam"], solve-group = "default" }
+dev = { features = ["gatk", "bio-tools", "pysam", "dev"], solve-group = "default" }
+deepvariant = { features = ["deepvariant"], no-default-feature = true }
+pacbio = { features = ["bio-tools", "pacbio"], no-default-feature = true, solve-group = "pacbio-unix" }
+vep = { features = ["vep"], no-default-feature = true }
+
+[pypi-dependencies]
+# pysam is platform-specific (no native Windows build); see feature.pysam.
+wgsextract-cli = { path = ".", editable = true }
+
+[tasks]
+deps-check = "wgsextract deps check"
+clean = { cmd = "python scripts/clean_outputs.py", description = "Remove gitignored scratch dirs (out/, tmp/)." }

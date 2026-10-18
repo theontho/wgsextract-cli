@@ -21,17 +21,6 @@ dependencies = [
 [project.scripts]
 wgsextract = "wgsextract_cli.main:main"
 
-[dependency-groups]
-dev = [
-    "pytest>=7.0",
-    "pytest-asyncio",
-    "python-dotenv",
-    "ruff>=0.1.0",
-    "mypy>=1.0.0",
-    "pathspec<1.2",
-    "pre-commit>=3.0.0",
-]
-
 [tool.ruff]
 line-length = 88
 target-version = "py310"
@@ -69,7 +58,8 @@ files = "src/wgsextract_cli"
 packages = ["src/wgsextract_cli"]
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "function"
 pythonpath = [".", "src", "tests"]
 testpaths = ["tests"]
+markers = [
+    "real_config: reads the developer's real config.toml instead of an isolated empty one",
+]

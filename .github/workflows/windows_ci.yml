@@ -5,10 +5,6 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  GITHUB_TOKEN: ${{ github.token }}
-
 jobs:
   test-windows:
     runs-on: windows-latest
@@ -22,15 +18,17 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          wsl bash -lc "curl -fsSL https://pixi.sh/install.sh | bash"
+          wsl bash -lc "curl -fsSL https://pixi.sh/install.sh | PIXI_VERSION=v0.70.2 bash"
           $workspace = "${{ github.workspace }}".Replace('\', '/')
           $wslPath = (wsl wslpath -u "$workspace").Trim()
-          wsl bash -lc "rm -rf ~/wgsextract-cli && mkdir -p ~/wgsextract-cli && cd '$wslPath' && tar --exclude=.pixi --exclude=out --exclude=tmp -cf - . | tar -C ~/wgsextract-cli -xf - && cd ~/wgsextract-cli && ~/.pixi/bin/pixi install --locked"
+          wsl bash -lc "rm -rf ~/wgsextract-cli && mkdir -p ~/wgsextract-cli && cd '$wslPath' && tar --exclude=.pixi --exclude=out --exclude=tmp -cf - . | tar -C ~/wgsextract-cli -xf - && cd ~/wgsextract-cli && ~/.pixi/bin/pixi install --locked -e default -e dev"
       - name: Run Benchmark
         shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = "Stop"
-          $env:WSLENV = "GITHUB_STEP_SUMMARY/p"
+          $env:WSLENV = "GITHUB_STEP_SUMMARY/p:GITHUB_TOKEN"
           wsl bash -lc "cd ~/wgsextract-cli && ~/.pixi/bin/pixi run wgsextract benchmark --dataset real --profile smoke"
           "Benchmark timing is published in this job summary." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
       - name: Run Tests

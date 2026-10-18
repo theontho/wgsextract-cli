@@ -3,6 +3,7 @@ log/
 out/
 external/
 tmp/
+scratch/
 local_bin/
 runtime/
 reference_bootstrap/

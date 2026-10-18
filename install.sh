@@ -292,8 +292,7 @@ write_cli_launcher() {
             printf 'script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)\n'
             printf 'install_dir="$script_dir"\n'
             write_pixi_exports
-            printf 'cd "$install_dir/app" || exit 1\n'
-            printf 'exec %s run wgsextract "$@"\n' "$(quote_sh "$PIXI")"
+            printf 'exec %s run --manifest-path "$install_dir/app/pixi.toml" wgsextract "$@"\n' "$(quote_sh "$PIXI")"
         } > "$LAUNCHER"
     else
         {
@@ -302,8 +301,7 @@ write_cli_launcher() {
             printf 'set -eu\n'
             printf 'install_dir=%s\n' "$(quote_sh "$INSTALL_DIR")"
             write_pixi_exports
-            printf 'cd %s || exit 1\n' "$(quote_sh "$APP_DIR")"
-            printf 'exec %s run wgsextract "$@"\n' "$(quote_sh "$PIXI")"
+            printf 'exec %s run --manifest-path %s wgsextract "$@"\n' "$(quote_sh "$PIXI")" "$(quote_sh "$APP_DIR/pixi.toml")"
         } > "$LAUNCHER"
     fi
     chmod +x "$LAUNCHER"
