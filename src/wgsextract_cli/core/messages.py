@@ -13,14 +13,14 @@ CLI_HELP = {
     "arg_input": "Path to the input BAM/CRAM, FASTQ, or VCF file. Optional when --genome is used.",
     "arg_outdir": "Destination directory for outputs. Defaults to the selected --genome folder when set.",
     "arg_ref": "Path to the reference genome FASTA.",
-    "arg_threads": "CPU threads to use.",
+    "arg_threads": "CPU threads to use: a positive integer, or 'auto' (default).",
     "arg_memory": "Memory limit per thread (e.g., '2G').",
     "cmd_benchmark": "Benchmark the main CLI workflows using a deterministic generated BAM foundation.",
     "cmd_info": "Perform a rapid analysis of your BAM/CRAM file to identify the reference genome build, file integrity, and sequencing metrics. (Time: <1 min)",
     "arg_detailed": "Perform full index and body sample analysis (detailed mode)",
     "arg_csv": "Output the table as CSV instead of formatted text",
-    "cmd_calculate-coverage": "Generate a full breadth-of-coverage report. This accurately calculates how much of the genome was successfully sequenced. (Time: 1-3 hours, Space: 1-2 GB)",
-    "cmd_coverage-sample": "[DISCONTINUED] Quickly estimate sequencing coverage using statistical sampling. Provides a 'good enough' estimate. Warning: Not working properly.",
+    "cmd_calculate-coverage": "Generate a full breadth-of-coverage report. Uses samtools coverage to calculate exactly how much of each chromosome was sequenced. (Time: 15-30 mins for a 30x genome, Space: minimal)",
+    "cmd_coverage-sample": "Quickly estimate per-chromosome breadth of coverage by sampling ~1,000 evenly spaced, length-weighted 1 kb windows. An estimate; use calculate-coverage for exact numbers. (Time: ~1 min)",
     "cmd_align": "Map raw FASTQ reads to a reference genome. This is the primary step to convert raw data into a usable BAM/CRAM file. (Time: 8-160 hours, Space: 150-300 GB)",
     "cmd_realign": "Re-align an existing BAM/CRAM to a (possibly different) reference. Reuses previously extracted FASTQs when available, otherwise extracts on demand. Verifies free disk space up-front. (Time: 8-160 hours, Space: 150-300 GB)",
     "cmd_sort": "Sort alignments by genomic coordinates. Required by almost all downstream tools (like variant callers) to function correctly. (Time: 1-2 hours, Space: Input Size x 2)",
@@ -58,18 +58,9 @@ CLI_HELP = {
     "arg_batch": "Path to a CSV/TSV file for batch processing multiple samples.",
     "arg_directory": "Directory containing genome files to scan for batch generation.",
     "cmd_vcf-qc": "Generate statistical reports for your VCF file to check the quality and distribution of your variant calls. (Time: 1-5 mins)",
-    "cmd_revel": "Annotate VCF with REVEL pathogenicity scores. REVEL is an ensemble method for predicting the pathogenicity of missense variants. (Time: 5-10 mins)",
-    "cmd_phylop": "Annotate VCF with PhyloP conservation scores. PhyloP measures evolutionary conservation at individual nucleotides. (Time: 5-10 mins)",
-    "cmd_gnomad": "Annotate VCF with gnomAD population frequencies. Used to filter out common variants. (Time: 10-20 mins)",
-    "cmd_spliceai": "Annotate VCF with SpliceAI scores. Predicts whether a DNA change will break normal RNA splicing. (Time: 5-10 mins)",
-    "cmd_alphamissense": "Annotate VCF with AlphaMissense pathogenicity scores. Uses 3D protein structure to predict variant impact. (Time: 5-10 mins)",
-    "cmd_pharmgkb": "Annotate VCF with PharmGKB drug metabolism data. (Time: 1-5 mins)",
     "cmd_fake-data": "Generate fake BAM, CRAM, VCF, and FASTQ files for testing. BAM generation defaults to the fast streaming reference-backed SNP simulator.",
+    "cmd_vep": "Ensembl Variant Effect Predictor (VEP): annotate variants and manage the VEP cache.",
     "cmd_vep-run": "Ensembl Variant Effect Predictor. Predicts the functional impact of your variants (e.g., if a mutation likely breaks a gene or causes a specific disease). (Time: 15-60 mins)",
-    "arg_vcf_type": "Type of variants in the VCF (snp-indel, sv, cnv). Affects VEP parameters.",
-    "arg_add_chr": "Add 'chr' prefix to numeric chromosomes in VCF before running VEP.",
-    "arg_vep_cache_version": "VEP cache version to use (default: 115).",
-    "arg_force": "Force re-running VEP even if output already exists.",
     "cmd_vep-download": "Download the VEP cache (standard GRCh37/38) to your local machine for faster, offline annotation. (Time: 1-3 hours, Space: 20 GB)",
     "cmd_vep-verify": "Check your existing VEP cache for missing files or corruption. (Time: 5-10 mins)",
     "cmd_microarray": "Simulate a consumer microarray (like 23andMe or AncestryDNA) from your WGS data. (Time: 10-30 mins)",
@@ -81,17 +72,11 @@ CLI_HELP = {
     "cmd_check-deps": "Verify that all required bioinformatics tools (samtools, bcftools, etc.) are installed and accessible in your system path.",
     "cmd_bam-identify": "Analyze your BAM header to determine exactly which reference genome was used for the original alignment. (Time: <1 min)",
     "cmd_ref-index": "Prepare a FASTA file for use by indexing it. This is required before you can align reads or call variants against it. (Time: 30-60 mins, Space: FASTA Size x 2)",
-    "cmd_ref-download": "Download curated, standard-compliant reference genomes (hg19, hg38, T2T) optimized for use with this tool. (Time: 10-30 mins, Space: 3-5 GB)",
+    "cmd_ref-download": "Download a reference FASTA from a URL (--url) to a path (--out). For curated hg19/hg38/T2T genomes use 'ref library --install'.",
     "cmd_ref-verify": "Ensure your reference genome file isn't corrupted and has all the necessary companion files (indexes, dicts). (Time: 1-5 mins)",
     "cmd_ref-count-ns": "Calculate the percentage of 'N' (unknown) bases in a genome. Useful for understanding the 'mappability' of different reference builds. (Time: 5-10 mins)",
     "cmd_ref-gene-map": "Download or delete lightweight gene-to-coordinate mapping files (hg19/hg38), enabling you to filter VCFs by gene name (e.g. BRCA1). (Time: <1 min)",
     "cmd_ref-library": "Opens the interactive reference manager to help you organize and download genomic data.",
-    "cmd_ref-revel": "Download REVEL pathogenicity scores for hg19 and hg38. (Time: 10-20 mins, Space: 2 GB)",
-    "cmd_ref-phylop": "Download PhyloP conservation scores for hg19 and hg38. (Time: 10-20 mins, Space: 5-10 GB)",
-    "cmd_ref-gnomad": "Download gnomAD population frequencies for hg19 and hg38. (Time: 30-60 mins, Space: 100+ GB)",
-    "cmd_ref-spliceai": "Download SpliceAI precomputed scores for hg19 and hg38. (Time: 30-60 mins, Space: 100+ GB)",
-    "cmd_ref-alphamissense": "Download AlphaMissense scores for hg19 and hg38. (Time: 10-20 mins, Space: 2-5 GB)",
-    "cmd_ref-pharmgkb": "Download PharmGKB annotations. (Time: 1-5 mins)",
     "micro_formats_help": """Comma-separated list of formats to generate (default: all).
 Available formats:
   Everything:
@@ -113,44 +98,19 @@ Available formats:
     "arg_r2": "Read 2 FASTQ file (optional)",
     "arg_se": "Single-End FASTQ file",
     "arg_long_read": "Use minimap2 for long-read alignment",
-    "cmd_ref-bootstrap": "Download and initialize the reference library bootstrap (VCFs, chains, etc.). (Time: 5-10 mins, Space: 1-2 GB)",
     "cmd_bam_mgmt": "BAM/CRAM management commands.",
     "cmd_deps": "Manage system dependencies.",
+    "cmd_qc": "Quality control for raw reads and VCFs (fastp, FastQC, VCF stats) and test data generation.",
+    "cmd_vcf": "Variant calling (bcftools, freebayes, GATK, DeepVariant, Delly, pbsv, Sniffles), annotation, filtering, and trio analysis.",
 }
 
 # Log Messages
 LOG_MESSAGES = {
-    "running_cmd": "Running: {command}",
-    "finished_exit": "Finished (Exit {code})",
-    "cancelling_proc": "Cancelling process group {pid}...",
-    "cancel_error": "Cancel error: {error}",
-    "force_killed": "Force killed process group {pid}.",
-    "cleared_cache": "Cleared cache: {path}",
-    "no_cache_found": "No cache found to clear at {path}.",
-    "starting_vep_dl": "Starting VEP cache download...",
-    "vep_dl_success": "VEP Download Succeeded",
-    "vep_dl_failed": "VEP Download Failed/Cancelled",
-    "starting_lib_dl": "Starting {mode}: {label}...",
-    "lib_dl_success": "Download Succeeded: {label}",
-    "lib_dl_failed": "Download Failed: {label}",
-    "deleting_genome": "Deleting {filename} from {path}...",
     "delete_success": "Successfully deleted {filename}.",
-    "delete_failed": "Failed to delete {filename}.",
-    "unindexing": "Unindexing {filename} in {path}...",
-    "unindex_success": "Successfully removed index for {filename}.",
-    "unindex_failed": "Failed to remove index for {filename}.",
-    "deleting_ns": "Deleting N-count files for {filename} in {path}...",
-    "del_ns_success": "Successfully removed N-count files for {filename}.",
-    "del_ns_failed": "Failed to remove N-count files for {filename}.",
-    "cancelling_vep": "Cancelling VEP download...",
-    "cancelling_genemap": "Cancelling Gene Map download...",
-    "deleting_genemaps": "Deleting Gene Maps from {path}...",
     "del_genemap_success": "Successfully deleted Gene Maps.",
     "del_genemap_failed": "Failed to delete Gene Maps.",
-    "downloading_genemaps": "Downloading Gene Maps to {path}...",
     "dl_genemap_success": "Successfully downloaded Gene Maps.",
     "dl_genemap_failed": "Gene Map download cancelled or failed.",
-    "info_sampling": "Sampling reads from {filename} for metrics...",
     "info_loading_n": "Loading refined N counts from {file}",
     "info_rendering_name": "By Reference Sequence Name",
     "info_header1": "Seq        Model    Model    # Segs      Map    Map",
@@ -173,12 +133,8 @@ LOG_MESSAGES = {
     "info_file_stats": "File Stats",
     "info_could_not_compute": "Could not compute",
     "info_metrics_cached": "(Metrics cached to {path} for future runs)",
-    "info_full_coverage": "Calculating full coverage (1-3 hours)... saving to {path}",
-    "info_sampling_coverage": "Estimating coverage using random sampling...",
-    "fast_info_failed": "Fast info command failed with exit code {code}",
     "sampling_metrics": "Sampling reads from {filename} for metrics...",
     "analyzing_ns": "Analyzing N segments in {path}",
-    "verifying_integrity": "Verifying integrity of {path}...",
     "aligning_reads": "Aligning {input} to {output} using {tool}",
     "indexing_output": "Indexing output BAM...",
     "indexing_file": "Indexing {path}...",
@@ -194,12 +150,9 @@ LOG_MESSAGES = {
     "generating_consensus": "Generating consensus FASTA to {output}...",
     "calling_mito_variants": "Calling mitochondrial variants to {output}...",
     "calling_y_variants": "Calling Y-chromosome variants to {output}...",
-    "calling_variants": "Calling {type} variants to {output}",
-    "micro_generating_vcf": "Generating microarray VCF at {output}",
     "micro_liftover_warn": "Input build is hg38. Liftover to hg19 may be required for some formats.",
     "micro_generating_fmt": "Generating {format} output...",
     "pet_aligning": "Step 1/2: Aligning {species} reads...",
-    "pet_indexing": "Indexing {format}...",
     "pet_calling": "Step 2/2: Calling variants...",
     "pet_complete": "Pet Analysis complete!",
     "pet_results": "Results: {bam}, {vcf}",
@@ -208,9 +161,6 @@ LOG_MESSAGES = {
     "ref_indexing": "Indexing {path} with faidx",
     "ref_creating_dict": "Creating dict {path}",
     "ref_verifying": "Verifying integrity of {path}...",
-    "ref_md5_verifying": "Verifying MD5 checksum for {filename}...",
-    "ref_md5_ok": "MD5 checksum: OK",
-    "ref_md5_failed": "MD5 checksum FAILED!",
     "ref_gzip_test": "Running gzip integrity test...",
     "ref_gzip_ok": "Gzip integrity: OK",
     "ref_faidx_check": "Running samtools faidx check...",
@@ -240,12 +190,10 @@ LOG_MESSAGES = {
     "vcf_revel_start": "Annotating VCF with REVEL scores: {input}",
     "vcf_revel_resolve": "Auto-resolved REVEL file: {path}",
     "vcf_revel_missing": "REVEL data file not found. Please provide with --revel-file or place it in your 'ref/' directory as revel_hg38.tsv.gz.",
-    "vcf_revel_filtering": "Filtering for variants with REVEL score >= {min_score} to {output}",
     "vcf_revel_done": "REVEL annotation and filtering complete: {output}",
     "vcf_phylop_start": "Annotating VCF with PhyloP conservation scores: {input}",
     "vcf_phylop_resolve": "Auto-resolved PhyloP file: {path}",
     "vcf_phylop_missing": "PhyloP data file not found. Please provide with --phylop-file or place it in your 'ref/' directory as phylop_hg38.tsv.gz.",
-    "vcf_phylop_filtering": "Filtering for variants with PhyloP score >= {min_score} to {output}",
     "vcf_phylop_done": "PhyloP annotation and filtering complete: {output}",
     "vcf_gnomad_missing": "gnomAD data file not found. Please run 'ref gnomad' first.",
     "vcf_gnomad_done": "gnomAD annotation complete: {output}",
@@ -278,13 +226,6 @@ LOG_MESSAGES = {
     "vep_batch_item": "{filename:<30} | {status:<10} | {duration:<10}",
     "vep_running": "Running VEP: {command}",
     "vep_complete": "VEP analysis complete. Results saved to {path}",
-    "util_auto_resolved": "Auto-resolved {type}: {path}",
-    "util_required_file_not_found": "Required file for {arg} not found: {path}",
-    "util_required_file_is_dir": "Required file for {arg} is a directory: {path}",
-    "util_command_failed": "Command failed: {command}",
-    "util_auto_indexing_vcf": "Auto-indexing VCF: {path}",
-    "util_auto_indexing_failed": "Failed to auto-index {path}: {error}",
-    "util_skipping_auto_index": "Skipping auto-index for non-bgzipped file: {path}",
     "util_header_retry": "Header fetch failed with reference, retrying without reference...",
     "util_header_failed": "Failed to fetch BAM header for {path}: {error}",
     "running_fastp": "Running fastp on {input}",
@@ -295,10 +236,6 @@ LOG_MESSAGES = {
     "ref_required": "--ref is required.",
     "ref_required_for": "--ref is required for {task}.",
     "file_not_found": "{label} file not found: {path}",
-    "analyze_comprehensive_start": "Starting comprehensive analysis for {input}",
-    "analyze_vcf_merge": "Merging {count} VCF files into {output}",
-    "analyze_discovery_start": "Filtering for significant variants (rare, high impact, ClinVar pathogenic)...",
-    "analyze_discovery_complete": "Analysis complete. Significant variants found: {count}. Summary saved to {output}",
 }
 
 # System and Warning Messages
@@ -316,35 +253,6 @@ We estimate, on this machine, this will take {time} hours.""",
     "YorubaWarning": "Your BAM file uses the Yoruba reference genome for mitochondrial DNA. This is incompatible with the rCRS genome that tools use. We cannot convert this for you at this time.",
     "LowCoverageWarning": "This BAM file has a low mapped average read depth. This can lead to incorrect and fewer variant calls.",
     "LongReadSequenceWarning": "The BAM file appears to be from a long-read sequencer (e.g. Nanopore). Tools have not been tuned to handle this special case.",
-    "warnBAMNoStatsNoIndex": "The specified BAM File is not sorted and / or indexed. Some commands cannot run or will take longer to run without these features. We encourage you to sort and / or index your BAM File first; which takes ~30 min each.",
-    "warnCRAMNoStats": "The stats for a CRAM file take over 30 minutes to complete with 30x WGS and so are not automatically run. You may need to run 'info --detailed' once to calculate and cache these stats.",
     "insufficient_disk_title": "EXTRA LARGE WARNING: Insufficient Disk Space Detected!",
     "insufficient_disk_msg": "Detected: {detected} GB available on {path}\nEstimated: {needed} GB needed\nThis operation will likely consume more space than you have available.",
-}
-
-# Long Texts and Descriptions
-LONG_TEXTS = {
-    "about_pet_sequencing": """
-ABOUT PET SEQUENCING
-
-Pet sequencing allows you to explore the genetic makeup of your dogs and cats. While the process is similar to human sequencing, there are key differences in genomic structure, population genetics, and how you obtain the data.
-
-1. CHROMOSOME STRUCTURE:
-   - DOGS (Canis lupus familiaris): The dog genome (UU_Cfam_GSD_1.0) consists of 38 pairs of autosomes (numbered 1-38) plus the X and Y sex chromosomes.
-   - CATS (Felis catus): The cat genome (Fca126_mat1.0) is organized differently, with 18 pairs of autosomes plus X and Y. Cat chromosomes are named by groups: A1-A3, B1-B4, C1-C2, D1-D4, E1-E3, and F1-F2.
-
-2. POPULATION GENETICS:
-   - DOGS: Have a very high degree of genetic "structure" due to centuries of selective breeding. This created many distinct, isolated populations (breeds) with unique genetic signatures and varying risks for inherited diseases.
-   - CATS: Generally exhibit much less genetic structure. Most cats belong to a single, large, globally distributed population (random-bred cats). Purebred cats exist but represent a smaller fraction of the overall population, meaning most cats share a more homogeneous genetic background compared to the diverse "islands" of dog breeds.
-
-3. OBTAINING DATA (FASTQ/FASTA):
-   - Pet-Specific Services: Companies like Basepaws (cats) and Embark or Wisdom Panel (dogs) provide consumer kits. You can often request your "Raw Data" (FASTQ files) from their support teams.
-   - Human WGS Services (The "Bio-Hack"): Because human sequencing is a much larger industry, Whole Genome Sequencing (WGS) for humans is often cheaper than pet-specific WGS. Some advanced users use human WGS services (like Nebula Genomics or Dante Labs) by submitting their pet's cheek swab as if it were a human sample.
-   - CAVEAT: Most human services do not officially support non-human samples. The laboratory's Quality Control (QC) systems might flag the sample as "contaminated" or "failed" if they detect non-human DNA, potentially leading to a rejected sample without a refund. Furthermore, human-centric bioinformatics pipelines provided by these services will fail to analyze the data; you will only be able to use the raw FASTQ files with external tools like this one.
-
-4. ANALYSIS GOALS:
-   - Breed/Ancestry Identification: Discovering the ancestral mix of your pet.
-   - Health Screening: Identifying known genetic variants associated with specific conditions (e.g., HCM in cats or DM in dogs).
-   - Trait Discovery: Understanding the genetics behind coat color, patterns, and physical characteristics.
-"""
 }

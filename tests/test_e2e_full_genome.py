@@ -1,18 +1,9 @@
-import unittest
-
-from e2e_base import TestE2EBase
+from tests.e2e_base import E2EBase
 
 
-class TestE2EFull(TestE2EBase):
-    """
-    Full genome E2E tests. Slow and rigorous.
-    Removes region filters to process all available data.
-    """
+class TestE2EFull(E2EBase):
+    """Whole-genome E2E run (region filters removed). Slow and rigorous."""
 
     REGION = None
     MODE = "FULL GENOME"
     __test__ = True
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -1,7 +1,8 @@
 import argparse
 from pathlib import Path
 
-from wgsextract_cli.core.utils import run_command
+from wgsextract_cli.core.utils import WGSExtractError, run_command
+from wgsextract_cli.core.variant_files import chromosome_aliases
 
 from .execution import (
     _run_cli_step_with_io,
@@ -90,3 +91,64 @@ def _trio_benchmark_region(ref_path: Path) -> str | None:
         if chrom.upper().replace("CHR", "") in {"M", "MT"}:
             return f"{chrom}:1-{length}"
     return _default_heavy_region(ref_path)
+
+
+def _target_ranges(
+    contigs: list[tuple[str, int]], region: str | None
+) -> list[tuple[str, int, int]]:
+    if not region:
+        return [(chrom, 1, length) for chrom, length in contigs]
+
+    chrom_part, has_range, range_part = region.partition(":")
+    aliases = set(chromosome_aliases(chrom_part))
+    matching = [(chrom, length) for chrom, length in contigs if chrom in aliases]
+
+    ranges = []
+    for chrom, length in matching:
+        start = 1
+        end = length
+        if has_range:
+            raw_start, _sep, raw_end = range_part.replace(",", "").partition("-")
+            start = max(1, int(raw_start))
+            end = min(length, int(raw_end) if raw_end else length)
+        if start <= end:
+            ranges.append((chrom, start, end))
+    return ranges
+
+
+def _create_target_snp_tab(
+    ref_path: Path, target_tab_gz: Path, target_count: int, region: str | None
+) -> None:
+    fai_path = Path(str(ref_path) + ".fai")
+    if not fai_path.exists():
+        run_command(["samtools", "faidx", str(ref_path)])
+
+    contigs = _read_fai(fai_path)
+    ranges = _target_ranges(contigs, region)
+    if not ranges:
+        raise WGSExtractError(f"No reference contigs match benchmark region: {region}")
+
+    total_bases = sum(end - start + 1 for _name, start, end in ranges)
+    tab_path = target_tab_gz.with_suffix("")
+    bases = ["A", "C", "G", "T"]
+
+    with open(tab_path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write("#CHROM\tPOS\tID\tREF\tALT\n")
+        snp_index = 1
+        for chrom, start, end in ranges:
+            length = end - start + 1
+            contig_targets = max(1, round(target_count * (length / total_bases)))
+            step = max(1, length // (contig_targets + 1))
+            for offset in range(step, length, step):
+                if snp_index > target_count and len(ranges) == 1:
+                    break
+                pos = start + offset
+                ref = bases[(snp_index + len(chrom)) % len(bases)]
+                alt = bases[(snp_index + len(chrom) + 1) % len(bases)]
+                if ref == alt:
+                    alt = bases[(bases.index(ref) + 1) % len(bases)]
+                handle.write(f"{chrom}\t{pos}\tbench_rs{snp_index}\t{ref}\t{alt}\n")
+                snp_index += 1
+
+    run_command(["bgzip", "-f", str(tab_path)])
+    run_command(["tabix", "-f", "-p", "vcf", str(target_tab_gz)])

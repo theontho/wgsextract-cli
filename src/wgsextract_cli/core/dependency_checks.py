@@ -1,7 +1,5 @@
 import logging
-import os
 import re
-import shutil
 import subprocess
 import sys
 from typing import Any
@@ -17,7 +15,6 @@ from .dependencies import (
     _tool_command_parts,
     _version_output,
     check_dependencies,
-    get_jar_dir,
     get_tool_path,
     get_tool_runtime,
     optional_dependency_tools,
@@ -34,10 +31,13 @@ def _pixi_alt_env(tool: str, path: str | None) -> str | None:
     return env
 
 
-def get_tool_version(tool: str) -> str | None:
+_VERSION_LIKE_RE = re.compile(r"version|release|\bv\d", re.IGNORECASE)
+
+
+def get_tool_version(tool: str, runtime_mode: str | None = None) -> str | None:
     """Attempt to get the version of a tool by running it."""
     # Use the path/command from get_tool_path to handle pixi correctly
-    cmd_base = get_tool_path(tool)
+    cmd_base = get_tool_path(tool, runtime_mode)
     if not cmd_base:
         return None
 
@@ -101,9 +101,8 @@ def get_tool_version(tool: str) -> str | None:
 
         # Check first 5 lines for anything that looks like a version string
         for line in output.splitlines()[:5]:
-            if any(word in line.lower() for word in ["version", "release", "v[0-9]"]):
-                if len(line.strip()) < 60:
-                    return line.strip()
+            if _VERSION_LIKE_RE.search(line) and len(line.strip()) < 60:
+                return line.strip()
 
         return "Available"
     except (OSError, subprocess.SubprocessError, RuntimeError, ValueError) as e:
@@ -131,7 +130,7 @@ def verify_dependencies(
         else:
             if is_windows:
                 logging.warning(
-                    "Warning: Missing required core tools on Windows. Some features may not work."
+                    "Missing required core tools on Windows. Some features may not work."
                 )
                 logging.warning(
                     "Use tool_runtime='windows' for native Windows pacman+Pixi, "
@@ -141,7 +140,7 @@ def verify_dependencies(
                     "for MSYS2/UCRT64 pacman tools."
                 )
             else:
-                logging.error("Fatal Error: Missing required core tools or JAR files.")
+                logging.error("Missing required core tools or JAR files.")
 
         for t in missing:
             if is_windows and not is_optional:
@@ -151,7 +150,7 @@ def verify_dependencies(
 
         if is_optional:
             logging.info(
-                "\nPlease install the missing tools using your system package manager "
+                "Please install the missing tools using your system package manager "
                 "(e.g., brew, apt, conda) or follow the project installation guide."
             )
             raise WGSExtractError(
@@ -159,14 +158,14 @@ def verify_dependencies(
             )
         elif not is_windows:
             logging.error(
-                "\nPlease ensure all mandatory tools are installed and in your PATH."
+                "Please ensure all mandatory tools are installed and in your PATH."
             )
             raise WGSExtractError(
                 f"Missing required core tool(s): {', '.join(missing)}"
             )
         else:
             logging.warning(
-                "\nProceeding anyway, but expect failures in bio-tool commands "
+                "Proceeding anyway, but expect failures in bio-tool commands "
                 "unless WSL tools are configured."
             )
 
@@ -185,17 +184,14 @@ def verify_dependencies(
                 if major < 1:
                     if sys.platform == "win32":
                         logging.warning(
-                            f"Warning: {tool} version {version_str} is too old or unsupported on Windows."
+                            f"{tool} version {version_str} is too old or unsupported on Windows."
                         )
                     else:
-                        logging.error(
-                            f"Fatal Error: {tool} version {version_str} is too old."
-                        )
                         logging.error(
                             f"This tool requires {tool} version 1.0 or newer."
                         )
                         logging.info(
-                            f"\nYour current path for {tool} is: {shutil.which(tool)}"
+                            f"Your current path for {tool} is: {get_tool_path(tool)}"
                         )
                         logging.info(
                             "Please update your conda environment or system path."
@@ -205,19 +201,14 @@ def verify_dependencies(
                         )
 
 
-def get_jar_path(jar_name: str) -> str | None:
-    """Returns absolute path to a JAR file in jartools/."""
-    path = os.path.join(get_jar_dir(), jar_name)
-    if os.path.exists(path):
-        return path
-    return None
-
-
 def check_all_dependencies(
-    mandatory: list[str] | None = None, optional: list[str] | None = None
+    mandatory: list[str] | None = None,
+    optional: list[str] | None = None,
+    runtime_mode: str | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """
     Performs a simple dependency check and returns results.
+    runtime_mode overrides the configured tool runtime for this check.
     """
     if mandatory is None:
         mandatory = required_dependency_tools()
@@ -242,8 +233,8 @@ def check_all_dependencies(
     for tool in mandatory:
         if tool == "python3":
             continue  # Already checked above as Runtime
-        path = get_tool_path(tool)
-        version = get_tool_version(tool) if path else None
+        path = get_tool_path(tool, runtime_mode)
+        version = get_tool_version(tool, runtime_mode) if path else None
         is_broken = version and version.startswith("Error:")
         present_path = path if not is_broken else None
 
@@ -258,8 +249,8 @@ def check_all_dependencies(
         )
 
     for tool in optional:
-        path = get_tool_path(tool)
-        version = get_tool_version(tool) if path else None
+        path = get_tool_path(tool, runtime_mode)
+        version = get_tool_version(tool, runtime_mode) if path else None
 
         display_name = tool
         if tool == "run_deepvariant":

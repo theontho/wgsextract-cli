@@ -2,6 +2,8 @@ import argparse
 from collections.abc import Callable
 from pathlib import Path
 
+from wgsextract_cli.core.builds import ploidy_for_build
+
 from .execution import (
     _run_cli_step,
     _skipped_result,
@@ -10,10 +12,7 @@ from .models import (
     BenchmarkDataset,
     BenchmarkResult,
 )
-from .setup import (
-    _ploidy_for_build,
-    _run_core_benchmark_setup_steps,
-)
+from .setup import _run_core_benchmark_setup_steps
 
 
 def _run_core_benchmark_analysis_steps(
@@ -195,7 +194,7 @@ def _run_core_benchmark_analysis_steps(
         "--outdir",
         str(snp_dir),
         "--ploidy",
-        _ploidy_for_build(benchmark_build),
+        ploidy_for_build(benchmark_build),
     ]
     if region and region_allowed:
         snp_cmd += ["--region", str(region)]
@@ -222,7 +221,7 @@ def _run_core_benchmark_analysis_steps(
         "--outdir",
         str(indel_dir),
         "--ploidy",
-        _ploidy_for_build(benchmark_build),
+        ploidy_for_build(benchmark_build),
     ]
     if region and region_allowed:
         indel_cmd += ["--region", str(region)]

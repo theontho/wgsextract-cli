@@ -1,33 +1,173 @@
 import argparse
+import contextlib
 import gzip
 import logging
 import os
 import subprocess
+import tempfile
 import time
+from collections.abc import Iterator
+from typing import TextIO
 
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
 )
-from wgsextract_cli.core.variant_files import chromosome_aliases, popen
+from wgsextract_cli.core.variant_files import (
+    chromosome_aliases,
+    match_chromosome_name,
+)
 
-
-def _matching_fasta_chrom(chrom: str, fasta_chroms: set[str]) -> str | None:
-    for alias in chromosome_aliases(chrom):
-        if alias in fasta_chroms:
-            return alias
-    return None
+_BASES = {"A", "C", "G", "T", "N"}
 
 
 def _normalize_microarray_genotype(value: str) -> str | None:
+    """Return a two-letter SNP genotype (haploid calls doubled), "--", or None."""
     genotype = value.replace("/", "").replace("|", "").replace(".", "-").upper()
-    if genotype in {"-", "--"}:
+    if genotype in {"", "-", "--"}:
         return "--"
-    if len(genotype) == 1 and genotype in {"A", "C", "G", "T", "N"}:
+    if len(genotype) == 1 and genotype in _BASES:
         return genotype * 2
-    if len(genotype) == 2 and set(genotype) <= {"A", "C", "G", "T", "N"}:
+    if len(genotype) == 2 and set(genotype) <= _BASES:
         return genotype
     return None
+
+
+def _combined_kit_chrom(chrom: str) -> str:
+    return "MT" if chrom in ("chrM", "M", "chrMT") else chrom.removeprefix("chr")
+
+
+def _command_lines(cmd: list[str], workdir: str) -> Iterator[str]:
+    """Run ``cmd`` to completion (raising on failure), then yield its stdout lines."""
+    with tempfile.TemporaryFile("w+", dir=workdir) as out:
+        run_command(cmd, stdout=out)
+        out.seek(0)
+        yield from out
+
+
+def _open_text(path: str) -> TextIO:
+    if path.endswith((".gz", ".bgz")):
+        return gzip.open(path, "rt")
+    return open(path)
+
+
+def _fasta_chromosomes(ref_fasta: str) -> set[str]:
+    fai_path = ref_fasta + ".fai"
+    if not os.path.exists(fai_path):
+        # samtools faidx builds the .fai (and .gzi for bgzipped FASTA).
+        run_command(["samtools", "faidx", ref_fasta])
+    with open(fai_path) as f_fai:
+        return {line.split("\t", 1)[0] for line in f_fai}
+
+
+def _reference_alleles(
+    ref_fasta: str, ref_vcf_tab: str, outdir: str
+) -> dict[tuple[str, str], str]:
+    """Fetch the reference base of every target SNP in one samtools pass."""
+    fasta_chroms = _fasta_chromosomes(ref_fasta)
+    region_to_target: dict[str, tuple[str, str]] = {}
+    fd, region_file = tempfile.mkstemp(suffix=".regions", dir=outdir)
+    try:
+        with os.fdopen(fd, "w") as f_reg, _open_text(ref_vcf_tab) as f_in:
+            for line in f_in:
+                if line.startswith("#"):
+                    continue
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) < 2:
+                    continue
+                chrom, pos = parts[0], parts[1]
+                fasta_chrom = match_chromosome_name(chrom, fasta_chroms)
+                if fasta_chrom:
+                    region = f"{fasta_chrom}:{pos}-{pos}"
+                    f_reg.write(region + "\n")
+                    region_to_target[region] = (chrom, pos)
+
+        ref_alleles: dict[tuple[str, str], str] = {}
+        current = None
+        for line in _command_lines(
+            ["samtools", "faidx", "--region-file", region_file, ref_fasta], outdir
+        ):
+            if line.startswith(">"):
+                current = region_to_target.get(line[1:].strip())
+            elif current:
+                ref_alleles[current] = line.strip().upper()
+        return ref_alleles
+    finally:
+        os.remove(region_file)
+
+
+def _write_vcf_mode_kit(
+    f_out: TextIO,
+    *,
+    args: argparse.Namespace,
+    outdir: str,
+    out_vcf: str,
+    ref_fasta: str,
+    ref_vcf_tab: str,
+) -> None:
+    # Positions absent from the input VCF are assumed homozygous reference.
+    variant_calls: dict[tuple[str, str], str] = {}
+    for line in _command_lines(
+        ["bcftools", "query", "-f", "%CHROM\t%POS\t[%TGT]\n", out_vcf], outdir
+    ):
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) < 3:
+            continue
+        genotype = _normalize_microarray_genotype(parts[2])
+        if genotype is None:
+            continue
+        for alias in chromosome_aliases(parts[0]):
+            variant_calls[(alias, parts[1])] = genotype
+    logging.info(f"Found {len(variant_calls)} variants in input VCF matching targets.")
+
+    logging.info("Pre-fetching reference alleles for target SNPs...")
+    ref_alleles = _reference_alleles(ref_fasta, ref_vcf_tab, outdir)
+    logging.info(f"Pre-fetched {len(ref_alleles)} reference alleles.")
+
+    with contextlib.ExitStack() as stack:
+        targets: Iterator[str] = (
+            _command_lines(["tabix", ref_vcf_tab, args.region], outdir)
+            if args.region
+            else stack.enter_context(_open_text(ref_vcf_tab))
+        )
+        ref_col_idx = -1
+        for line in targets:
+            if line.startswith("#"):
+                header = line.strip().split("\t")
+                if "REF" in header:
+                    ref_col_idx = header.index("REF")
+                continue
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 3:
+                continue
+            chrom, pos, rsid = parts[0], parts[1], parts[2]
+
+            genotype = variant_calls.get((chrom, pos))
+            if genotype is None:
+                ref_base = ""
+                if ref_col_idx != -1 and len(parts) > ref_col_idx:
+                    ref_base = parts[ref_col_idx].upper()
+                if not ref_base:
+                    ref_base = ref_alleles.get((chrom, pos), "")
+                if ref_base not in _BASES:
+                    ref_base = "N"
+                genotype = ref_base * 2
+
+            f_out.write(f"{rsid}\t{_combined_kit_chrom(chrom)}\t{pos}\t{genotype}\n")
+
+
+def _write_alignment_mode_kit(f_out: TextIO, *, outdir: str, out_vcf: str) -> None:
+    for line in _command_lines(
+        ["bcftools", "query", "-f", "%ID\t%CHROM\t%POS\t[%TGT]\n", out_vcf], outdir
+    ):
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) < 4:
+            continue
+        snp_id, chrom, pos, tgt = parts[:4]
+        if snp_id == ".":
+            snp_id = f"pos_{chrom}_{pos}"
+        genotype = _normalize_microarray_genotype(tgt) or "--"
+        f_out.write(f"{snp_id}\t{_combined_kit_chrom(chrom)}\t{pos}\t{genotype}\n")
 
 
 def _write_microarray_combined_kit(
@@ -40,246 +180,31 @@ def _write_microarray_combined_kit(
     ref_fasta: str,
     ref_vcf_tab: str,
 ) -> str:
-    # 2. Extract results to a temporary CombinedKit.txt
     combined_kit_txt = os.path.join(outdir, f"{base_name}_CombinedKit.txt")
     logging.info(f"Extracting genotypes to {combined_kit_txt}...")
     start_ext = time.time()
 
+    tmp_txt = combined_kit_txt + ".tmp"
     try:
-        if is_vcf:
-            # VCF MODE: We need to fill in reference alleles for missing positions
-            # We iterate through the target list and check our 'hits' VCF
-
-            # Load hits into a lookup dict (CHROM, POS) -> Genotype
-            variant_calls = {}
-            cmd = ["bcftools", "query", "-f", "%CHROM\t%POS\t[%TGT]\n", out_vcf]
-            with popen(cmd, stdout=subprocess.PIPE, text=True) as proc:
-                if proc.stdout:
-                    for line in proc.stdout:
-                        parts = line.strip().split("\t")
-                        if len(parts) >= 3:
-                            chrom, pos, tgt = parts[0], parts[1], parts[2]
-                            genotype = _normalize_microarray_genotype(tgt)
-                            if genotype is None:
-                                continue
-                            for alias in chromosome_aliases(chrom):
-                                variant_calls[(alias, pos)] = genotype
-
-            logging.info(
-                f"Found {len(variant_calls)} variants in input VCF matching targets."
-            )
-
-            # OPTIMIZATION: Pre-fetch ALL reference alleles for targets in one pass
-            logging.info("Pre-fetching reference alleles for target SNPs...")
-            ref_alleles = {}
-            region_file = os.path.join(outdir, "targets.regions")
-
-            # 1. Detect FASTA chromosome naming to ensure faidx hits
-            # Use .fai file if it exists, as it is more portable than samtools faidx -l
-            fasta_chroms = set()
-            fai_path = ref_fasta + ".fai"
-            if os.path.exists(fai_path):
-                try:
-                    with open(fai_path) as f_fai:
-                        fasta_chroms = {line.split("\t")[0] for line in f_fai}
-                except OSError as e:
-                    logging.warning(f"Failed to read .fai file: {e}")
-
-            if not fasta_chroms:
-                res_l = run_command(
-                    ["samtools", "faidx", "-l", ref_fasta],
-                    capture_output=True,
+        with open(tmp_txt, "w") as f_out:
+            f_out.write("# RSID\tCHROM\tPOS\tRESULT\n")
+            if is_vcf:
+                _write_vcf_mode_kit(
+                    f_out,
+                    args=args,
+                    outdir=outdir,
+                    out_vcf=out_vcf,
+                    ref_fasta=ref_fasta,
+                    ref_vcf_tab=ref_vcf_tab,
                 )
-                if res_l.returncode == 0:
-                    fasta_chroms = set(res_l.stdout.splitlines())
+            else:
+                _write_alignment_mode_kit(f_out, outdir=outdir, out_vcf=out_vcf)
+        os.replace(tmp_txt, combined_kit_txt)
+    except (OSError, gzip.BadGzipFile, subprocess.SubprocessError, ValueError) as e:
+        raise WGSExtractError(f"Failed to generate CombinedKit.txt: {e}") from e
+    finally:
+        if os.path.exists(tmp_txt):
+            os.remove(tmp_txt)
 
-            try:
-                # 2. Generate region file (chr:pos-pos) with normalization
-                # Map FASTA-normalized name back to original SNP-tab name for reverse lookup
-                norm_to_orig = {}
-
-                with open(region_file, "w") as f_reg:
-                    # Use a stream that handles both compressed and uncompressed
-                    if ref_vcf_tab.endswith((".gz", ".bgz")):
-                        f_in = gzip.open(ref_vcf_tab, "rt")
-                    else:
-                        f_in = open(ref_vcf_tab)
-
-                    with f_in:
-                        for line in f_in:
-                            if line.startswith("#"):
-                                continue
-                            parts = line.strip().split("\t")
-                            if len(parts) < 2:
-                                continue
-                            c, p = parts[0], parts[1]
-                            fc = _matching_fasta_chrom(c, fasta_chroms)
-                            if fc:
-                                f_reg.write(f"{fc}:{p}-{p}\n")
-                                norm_to_orig[f"{fc}:{p}-{p}"] = (c, p)
-
-                # 3. Run samtools faidx --region-file
-                faidx_cmd = [
-                    "samtools",
-                    "faidx",
-                    "--region-file",
-                    region_file,
-                    ref_fasta,
-                ]
-                with popen(faidx_cmd, stdout=subprocess.PIPE, text=True) as proc_ref:
-                    curr_region = None
-                    if proc_ref.stdout:
-                        for line in proc_ref.stdout:
-                            if line.startswith(">"):
-                                curr_region = line.strip()[1:]
-                            else:
-                                if curr_region:
-                                    base = line.strip().upper()
-                                    # Map back to ORIGINAL chromosome name from the region string
-                                    if curr_region in norm_to_orig:
-                                        orig_c, orig_p = norm_to_orig[curr_region]
-                                        ref_alleles[(orig_c, orig_p)] = base
-                                    elif ":" in curr_region:
-                                        # Fallback parsing
-                                        c_norm, p_range = curr_region.split(":", 1)
-                                        p = p_range.split("-")[0]
-                                        ref_alleles[(c_norm, p)] = base
-                                        # Also store variations to be safe
-                                        for alias in chromosome_aliases(c_norm):
-                                            ref_alleles[(alias, p)] = base
-                logging.info(f"Pre-fetched {len(ref_alleles)} reference alleles.")
-                if os.path.exists(region_file):
-                    os.remove(region_file)
-            except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-                logging.warning(
-                    f"Fast reference pre-fetch failed: {e}. Falling back to SNP-tab column or 'N'."
-                )
-                if os.path.exists(region_file):
-                    os.remove(region_file)
-
-            with open(combined_kit_txt, "w") as f_out:
-                f_out.write("# RSID\tCHROM\tPOS\tRESULT\n")
-
-                if args.region:
-                    # Use popen for tabix streaming
-                    proc = popen(
-                        ["tabix", ref_vcf_tab, args.region],
-                        stdout=subprocess.PIPE,
-                        text=True,
-                    )
-                else:
-                    # Use gzip.open for streaming if possible, but popen is easier for unified loop below
-                    if ref_vcf_tab.endswith((".gz", ".bgz")):
-                        proc = popen(
-                            ["gzip", "-dc", ref_vcf_tab],
-                            stdout=subprocess.PIPE,
-                            text=True,
-                        )
-                    else:
-                        proc = popen(
-                            ["cat", ref_vcf_tab], stdout=subprocess.PIPE, text=True
-                        )
-
-                with proc:
-                    if proc.stdout:
-                        ref_col_idx = -1
-                        for line in proc.stdout:
-                            if line.startswith("#"):
-                                header = line.strip().split("\t")
-                                if "REF" in header:
-                                    ref_col_idx = header.index("REF")
-                                continue
-                            parts = line.strip().split("\t")
-                            if len(parts) < 3:
-                                continue
-                            chrom, pos, rsid = parts[0], parts[1], parts[2]
-
-                            if (chrom, pos) in variant_calls:
-                                genotype = variant_calls[(chrom, pos)]
-                            else:
-                                # MISSING in VCF -> Assume Homozygous Reference
-                                ref_base = None
-
-                                # 1. Try REF column from TAB file first (FASTEST)
-                                if ref_col_idx != -1 and len(parts) > ref_col_idx:
-                                    ref_base = parts[ref_col_idx].upper()
-
-                                # 2. Try pre-fetched alleles
-                                if not ref_base:
-                                    ref_base = ref_alleles.get((chrom, pos))
-
-                                # 3. Fallback to N (NO slow subprocess calls here)
-                                if not ref_base or ref_base not in {
-                                    "A",
-                                    "C",
-                                    "G",
-                                    "T",
-                                    "N",
-                                }:
-                                    ref_base = "N"
-
-                                genotype = f"{ref_base}{ref_base}"
-
-                            chrom_norm = (
-                                "MT"
-                                if chrom in ("chrM", "M")
-                                else chrom.removeprefix("chr")
-                            )
-                            f_out.write(f"{rsid}\t{chrom_norm}\t{pos}\t{genotype}\n")
-
-        else:
-            # CRAM/BAM MODE: Standard extraction
-            with open(combined_kit_txt, "w") as f_out:
-                # Add a header for GEDMatch compatibility
-                f_out.write("# RSID\tCHROM\tPOS\tRESULT\n")
-
-                # Run bcftools query
-                cmd = [
-                    "bcftools",
-                    "query",
-                    "-f",
-                    "%ID\t%CHROM\t%POS\t[%TGT]\n",
-                    out_vcf,
-                ]
-                with popen(cmd, stdout=subprocess.PIPE, text=True) as proc:
-                    if proc.stdout:
-                        for line in proc.stdout:
-                            parts = line.strip().split("\t")
-                            if len(parts) < 4:
-                                continue
-
-                            snp_id, chrom, pos, tgt = (
-                                parts[0],
-                                parts[1],
-                                parts[2],
-                                parts[3],
-                            )
-
-                            if snp_id == ".":
-                                snp_id = f"pos_{chrom}_{pos}"
-
-                            genotype = (
-                                tgt.replace("/", "").replace("|", "").replace(".", "-")
-                            )
-                            if not genotype:
-                                genotype = "--"
-
-                            chrom_norm = (
-                                "MT"
-                                if chrom in ("chrM", "M")
-                                else chrom.removeprefix("chr")
-                            )
-                            f_out.write(f"{snp_id}\t{chrom_norm}\t{pos}\t{genotype}\n")
-
-        ext_duration = time.time() - start_ext
-        logging.info(f"Extraction took {ext_duration:.2f}s")
-    except (
-        OSError,
-        gzip.BadGzipFile,
-        subprocess.SubprocessError,
-        WGSExtractError,
-        ValueError,
-    ) as e:
-        logging.error(f"Failed to generate CombinedKit.txt: {e}")
-        raise WGSExtractError("Failed to generate CombinedKit.txt.") from e
+    logging.info(f"Extraction took {time.time() - start_ext:.2f}s")
     return combined_kit_txt

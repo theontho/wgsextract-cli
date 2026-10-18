@@ -69,7 +69,7 @@ def test_pacman_setup_can_build_and_install_samblaster_and_fastp_assets() -> Non
     assert "wgsextract-fastp-$FastpVersion-windows-ucrt64.zip" in script
     assert "Building samblaster $SamblasterVersion for MSYS2 UCRT64" in script
     assert "Building fastp $FastpVersion for MSYS2 UCRT64" in script
-    assert 'SamblasterVersion -notmatch \'\\.(\\d+)$\'' in script
+    assert "SamblasterVersion -notmatch '\\.(\\d+)$'" in script
     assert "BUILDNUM=$samblasterBuildNumber" in script
     assert "BUILDNUM=26" not in script
     assert "struct _stat64 status;" in script

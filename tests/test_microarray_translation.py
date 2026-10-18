@@ -1,60 +1,45 @@
 import os
-import shutil
-
-# Ensure src is in sys.path
-import sys
-import tempfile
 import unittest
 from pathlib import Path
 
-cli_src = Path(__file__).resolve().parent.parent / "src"
-if str(cli_src) not in sys.path:
-    sys.path.insert(0, str(cli_src))
+import pytest
 
-from wgsextract_cli.core.microarray_utils import (  # noqa: E402
+from tests.smoke_utils import REPO_ROOT
+from wgsextract_cli.core.config import settings
+from wgsextract_cli.core.microarray_utils import (
     convert_to_vendor_format,
     liftover_hg38_to_hg19,
 )
-from wgsextract_cli.core.utils import WGSExtractError  # noqa: E402
+from wgsextract_cli.core.utils import WGSExtractError
 
 
+@pytest.mark.real_config
 class TestMicroarrayTranslation(unittest.TestCase):
     """
     Focused test for the translation logic from hg38 to hg19.
     Verifies coordinate shifts and chromosome normalization.
     """
 
-    def setUp(self) -> None:
-        self.test_dir = tempfile.mkdtemp(prefix="wgse_trans_test_")
+    @pytest.fixture(autouse=True)
+    def _setup(self, tmp_path: Path) -> None:
+        self.test_dir = str(tmp_path)
+        # Liftover needs a real chain file and vendor formatting needs the
+        # raw_file_templates: use the configured reference library when it has
+        # them, else the repo-local reference/ directory.
+        roots = [Path(settings.get("reference_library") or REPO_ROOT / "reference")]
+        roots.append(REPO_ROOT / "reference")
 
-        # We need a real chain file for pyliftover to work.
-        # We'll try to find it in the environment or workspace.
-        self.chain_file = os.environ.get("WGSE_REFERENCE_FASTA", "")
-        if self.chain_file:
-            self.chain_file = os.path.join(self.chain_file, "hg38ToHg19.over.chain.gz")
+        def first_root(*names: str) -> Path:
+            return next(
+                (r for r in roots if any((r / n).exists() for n in names)), roots[-1]
+            )
 
-        if not os.path.exists(self.chain_file):
-            # Fallback to standard workspace location
-            repo_root = Path(__file__).resolve().parent.parent
-            self.chain_file = str(repo_root / "reference" / "hg38ToHg19.over.chain.gz")
-
-        # Templates dir for vendor formatting
-        self.templates_dir = os.environ.get("WGSE_REFERENCE_FASTA", "")
-        if self.templates_dir:
-            if not os.path.exists(
-                os.path.join(self.templates_dir, "microarray", "raw_file_templates")
-            ):
-                if not os.path.exists(
-                    os.path.join(self.templates_dir, "raw_file_templates")
-                ):
-                    repo_root = Path(__file__).resolve().parent.parent
-                    self.templates_dir = str(repo_root / "reference" / "microarray")
-        else:
-            repo_root = Path(__file__).resolve().parent.parent
-            self.templates_dir = str(repo_root / "reference" / "microarray")
-
-    def tearDown(self) -> None:
-        shutil.rmtree(self.test_dir)
+        self.chain_file = str(
+            first_root("hg38ToHg19.over.chain.gz") / "hg38ToHg19.over.chain.gz"
+        )
+        self.templates_dir = str(
+            first_root("microarray/raw_file_templates", "raw_file_templates")
+        )
 
     def test_hg38_to_hg19_coordinate_shift(self) -> None:
         """

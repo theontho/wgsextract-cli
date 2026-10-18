@@ -3,12 +3,12 @@ import os
 import shutil
 import unittest
 
-from tests.smoke_utils import ensure_fake_data, run_cli
+from tests.smoke_utils import REPO_ROOT, ensure_fake_data, run_cli
 
 
 class TestAnalyzeBatch(unittest.TestCase):
     def setUp(self):
-        self.outdir = "tmp/analyze_batch_test"
+        self.outdir = str(REPO_ROOT / "out" / "tests" / "analyze_batch")
         if os.path.exists(self.outdir):
             shutil.rmtree(self.outdir)
         os.makedirs(self.outdir, exist_ok=True)
@@ -70,7 +70,7 @@ class TestAnalyzeBatch(unittest.TestCase):
             writer = csv.writer(f)
             writer.writerow(["name", "input", "vcf"])
             # Use real fake data to avoid immediate exit
-            fake_dir = "tmp/fake_data_batch"
+            fake_dir = str(REPO_ROOT / "out" / "fake_30x")
             ensure_fake_data(fake_dir)
             bam = os.path.abspath(os.path.join(fake_dir, "fake.bam"))
             vcf = os.path.abspath(os.path.join(fake_dir, "fake.vcf.gz"))

@@ -5,8 +5,10 @@ import json
 import logging
 import os
 import time
+from typing import Any
 
 from wgsextract_cli.core.alignment_metadata import get_bam_header
+from wgsextract_cli.core.builds import build_from_path
 from wgsextract_cli.core.constants import (
     REFERENCE_MODELS,
     REFGEN_BY_SNCOUNT,
@@ -16,6 +18,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
     is_sorted,
@@ -23,6 +26,7 @@ from wgsextract_cli.core.variant_files import (
 )
 
 from .metrics import (
+    contig_key,
     determine_sequencer,
     generate_chrom_table,
     get_file_stats,
@@ -31,401 +35,344 @@ from .metrics import (
     run_body_sample,
 )
 from .render import (
+    region_file_tag,
     render_info,
     run_full_coverage,
     run_sampled_coverage,
 )
 
+COVERAGE_COMMANDS = ("calculate-coverage", "coverage-sample")
+
+
+def _input_signature(path: str) -> dict[str, int]:
+    st = os.stat(path)
+    return {"size": st.st_size, "mtime_ns": st.st_mtime_ns}
+
+
+def _load_cache(path: str, signature: dict[str, int]) -> dict[str, Any]:
+    """Load the metrics cache, discarding it unless it was built from this exact input.
+
+    Caches written before input signatures were recorded are treated as stale.
+    """
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        logging.debug(f"No cache file at {path}")
+        return {}
+    except (OSError, ValueError) as e:
+        logging.debug(f"Ignoring unreadable cache {path}: {e}")
+        return {}
+    if not isinstance(data, dict) or data.get("input_signature") != signature:
+        logging.debug(f"Ignoring stale cache {path} (input changed or old format)")
+        return {}
+    logging.debug(f"Cache file found: {path}")
+    return data
+
+
+def _save_cache(path: str, data: dict[str, Any]) -> bool:
+    try:
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+    except (OSError, TypeError) as exc:
+        logging.warning(f"Failed to write metrics cache {path}: {exc}")
+        return False
+    logging.debug(f"Metrics cached to {path}")
+    return True
+
+
+def _print_detailed(data: dict[str, Any], as_csv: bool) -> None:
+    if as_csv:
+        print(data["chrom_table_csv"], end="")
+    else:
+        print(render_info(data, detailed=True))
+
+
+def _guess_ref_model(
+    md5_sig: str | None, header: str, resolved_ref: str | None
+) -> tuple[str, str]:
+    """Return (reference model description, suggested reference filename)."""
+    num_sns = sum(1 for line in header.splitlines() if line.startswith("@SQ"))
+    ref_model_name, ref_mito, ref_fname = REFERENCE_MODELS.get(
+        md5_sig or "", ("Unknown", "", "")
+    )
+
+    # Guess from SN count if MD5 is unknown
+    if ref_model_name == "Unknown" and num_sns in REFGEN_BY_SNCOUNT:
+        # Entry format: [is_primary, filename, mito_tag]
+        _, ref_fname_raw, ref_mito_raw = REFGEN_BY_SNCOUNT[num_sns]
+        ref_fname = str(ref_fname_raw)
+        ref_mito = str(ref_mito_raw)
+        fname = ref_fname.lower()
+        if "hg19" in fname or "grch37" in fname:
+            ref_model_name = "hg19"
+        elif "hg38" in fname or "grch38" in fname:
+            ref_model_name = "hg38"
+        else:
+            ref_model_name = ref_fname.split(".")[0]
+
+    # Guess from the reference filename if still unknown
+    if ref_model_name == "Unknown" and resolved_ref:
+        ref_model_name = (
+            build_from_path(os.path.basename(resolved_ref)) or ref_model_name
+        )
+
+    ref_model_str = (
+        f"{ref_model_name} (Chr), {ref_mito}, {num_sns} SNs"
+        if ref_model_name != "Unknown"
+        else f"Unknown, {num_sns} SNs"
+    )
+    return ref_model_str, ref_fname
+
+
+def _fast_metrics(
+    input_p: str,
+    header: str,
+    md5_sig: str | None,
+    resolved_ref: str | None,
+) -> dict[str, Any]:
+    from wgsextract_cli.core.variant_files import get_file_version
+
+    cram_opt = (
+        ["-T", resolved_ref] if resolved_ref and os.path.isfile(resolved_ref) else []
+    )
+
+    t0 = time.time()
+    sorted_status = is_sorted(input_p, cram_opt, header=header)
+    logging.debug(f"Sort check: {sorted_status} (took {time.time() - t0:.3f}s)")
+
+    size_gb, indexed = get_file_stats(input_p)
+    ref_model_str, ref_fname = _guess_ref_model(md5_sig, header, resolved_ref)
+
+    t0 = time.time()
+    _count, avg_len, std_len, avg_tlen, std_tlen, is_paired, first_qname = (
+        run_body_sample(input_p, cram_opt)
+    )
+    logging.debug(f"Body sampling took {time.time() - t0:.3f}s")
+
+    return {
+        "filename": os.path.basename(input_p),
+        "md5_signature": md5_sig,
+        "file_stats": {
+            "sorted": sorted_status,
+            "indexed": indexed,
+            "size_gb": size_gb,
+            "version": get_file_version(input_p),
+        },
+        "ref_model_str": ref_model_str,
+        "suggested_ref_file": ref_fname,
+        "avg_read_len": avg_len,
+        "std_read_len": std_len,
+        "is_paired": is_paired,
+        "avg_insert_size": avg_tlen,
+        "std_insert_size": std_tlen,
+        "sequencer": determine_sequencer(first_qname),
+        "first_qname": first_qname,
+    }
+
+
+def _coverage_map(
+    info_cmd: str | None,
+    input_p: str,
+    resolved_ref: str | None,
+    idx_stats: list[Any],
+    outdir: str,
+    region: str | None,
+) -> dict[str, str]:
+    stem = os.path.join(outdir, os.path.basename(input_p))
+    tag = region_file_tag(region)
+    if info_cmd == "calculate-coverage":
+        return run_full_coverage(
+            input_p,
+            resolved_ref,
+            f"{stem}{tag}_coverage.tsv",
+            region=region,
+            # Whole-file results from older releases (samtools depth | awk).
+            legacy_p=None if region else f"{stem}_bincvg.csv",
+        )
+    if info_cmd == "coverage-sample":
+        return run_sampled_coverage(
+            input_p, resolved_ref, idx_stats, f"{stem}{tag}_samplecvg.json", region
+        )
+    return {}
+
+
+def _detailed_metrics(
+    data: dict[str, Any],
+    idx_stats: list[Any],
+    total_unmapped: int,
+    coverage_map: dict[str, str],
+    n_counts: dict[str, int],
+) -> dict[str, Any]:
+    total_reads = sum(s["mapped"] + s["unmapped"] for s in idx_stats)
+    avg_len = data["avg_read_len"]
+    ref_model_str = data["ref_model_str"]
+    ref_model_name = (
+        ref_model_str.split(" (")[0] if " (" in ref_model_str else "Unknown"
+    )
+
+    mapped_by_key: dict[str, int] = {}
+    for s in idx_stats:
+        if s["name"] != "*":
+            key = contig_key(s["name"])
+            mapped_by_key[key] = mapped_by_key.get(key, 0) + s["mapped"]
+    y_reads = mapped_by_key.get("Y", 0)
+    x_reads = mapped_by_key.get("X", 0)
+    gender = (
+        ("Male" if y_reads > (x_reads * 0.05) else "Female")
+        if x_reads > 0
+        else "Unknown"
+    )
+
+    chrom_table = generate_chrom_table(
+        idx_stats, avg_len, gender, ref_model_name, coverage_map, n_counts=n_counts
+    )
+    total_row = next(r for r in chrom_table if r[1] == "Total")
+    mapped_segs = total_row[4] + next((r[4] for r in chrom_table if r[1] == "Other"), 0)
+    eff_len = total_row[2] - total_row[3] + 0.0001
+
+    present = {k for k, v in mapped_by_key.items() if v > 0}
+    content = {
+        "Auto": any(k.isdigit() for k in present),
+        "X": "X" in present,
+        "Y": "Y" in present,
+        "Mito": "M" in present,
+        "Other": any(not k.isdigit() and k not in {"X", "Y", "M"} for k in present),
+        "Unmap": total_unmapped > 0,
+    }
+
+    si = io.StringIO()
+    cw = csv.writer(si)
+    cw.writerow(
+        [
+            "Seq Name",
+            "Model Len",
+            "Model N Len",
+            "# Segs Map",
+            "Map Gbases",
+            "Map ARD",
+            "Breadth Coverage",
+        ]
+    )
+    for row in chrom_table:
+        cw.writerow(
+            [row[1], row[2], row[3], row[4], f"{row[5]:.2f}", f"{row[6]:.0f}", row[7]]
+        )
+
+    return {
+        "gender": gender,
+        "refined_ns": bool(n_counts),
+        "file_content": ", ".join(k for k, v in content.items() if v),
+        "metrics": {
+            "ard_mapped": (total_row[4] * avg_len) / eff_len,
+            "ard_raw": (total_reads * avg_len) / eff_len,
+            "gbases_mapped": (mapped_segs * avg_len) / (10**9),
+            "gbases_raw": (total_reads * avg_len) / (10**9),
+            "reads_mapped_m": mapped_segs / 1_000_000,
+            "reads_raw_m": total_reads / 1_000_000,
+            "reads_mapped_pct": (mapped_segs / total_reads * 100)
+            if total_reads > 0
+            else 0,
+            "reads_raw_pct": 100.0,
+        },
+        "chrom_table_csv": si.getvalue(),
+    }
+
 
 def run(args: argparse.Namespace) -> None:
     from wgsextract_cli.core.variant_files import resolve_reference
+    from wgsextract_cli.core.warnings import print_warning
 
     start_time = time.time()
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
     if not args.input:
-        return logging.error("--input required.")
+        raise WGSExtractError("--input required.")
 
-    if not verify_paths_exist({"--input": args.input}):
-        return
-
+    verify_paths_exist({"--input": args.input})
     logging.debug(f"Input file: {os.path.abspath(args.input)}")
 
-    # Fetch header once to avoid redundant subprocess calls
-    t0 = time.time()
-    # If it's a CRAM and we have a ref, try to resolve it early to help samtools read the header
+    info_cmd = getattr(args, "info_cmd", None)
+    region = getattr(args, "region", None) if info_cmd in COVERAGE_COMMANDS else None
+    detailed = bool(args.detailed or info_cmd in COVERAGE_COMMANDS)
+    as_csv = bool(getattr(args, "csv", False))
+
+    # If it's a CRAM and we have a ref, resolve it early so samtools can read the header
     initial_ref = None
     if args.input.lower().endswith(".cram") and args.ref:
         resolved = resolve_reference(args.ref, None)
         if resolved and os.path.isfile(resolved):
             initial_ref = resolved
-            logging.debug(
-                f"CRAM detected, using resolved reference for header: {initial_ref}"
-            )
         else:
             logging.debug("CRAM detected, but reference is not installed or invalid.")
 
+    t0 = time.time()
     header = get_bam_header(args.input, cram_opt=initial_ref)
     if not header:
-        logging.error(
-            f"Could not read header from {args.input}. Samtools might be missing, file is corrupt, or it requires a reference (-T)."
+        raise WGSExtractError(
+            f"Could not read header from {args.input}. Samtools might be missing, "
+            "the file is corrupt, or it requires a reference (--ref)."
         )
-        return
     logging.debug(f"Header fetch took {time.time() - t0:.3f}s")
 
-    # Calculate MD5 from header to identify reference genome
-    t0 = time.time()
     md5_sig = calculate_bam_md5(args.input, header=header)
-    logging.debug(f"MD5 signature: {md5_sig} (took {time.time() - t0:.3f}s)")
-
-    t0 = time.time()
     resolved_ref = resolve_reference(args.ref, md5_sig)
-    logging.debug(f"Resolved reference: {resolved_ref} (took {time.time() - t0:.3f}s)")
+    logging.debug(f"MD5 signature: {md5_sig}; resolved reference: {resolved_ref}")
 
-    if getattr(args, "info_cmd", None) in ["calculate-coverage", "coverage-sample"]:
-        args.detailed = True
-    if args.detailed and args.input.lower().endswith(".cram") and not resolved_ref:
-        return logging.error("--ref required for detailed mode with CRAM.")
+    if detailed and args.input.lower().endswith(".cram") and not resolved_ref:
+        raise WGSExtractError("--ref required for detailed mode with CRAM.")
 
-    outdir = (
-        args.outdir
-        if hasattr(args, "outdir") and args.outdir
-        else os.path.dirname(os.path.abspath(args.input))
-    )
-    # Ensure outdir exists if explicitly provided
-    if hasattr(args, "outdir") and args.outdir:
+    outdir = args.outdir or os.path.dirname(os.path.abspath(args.input))
+    if args.outdir:
         os.makedirs(outdir, exist_ok=True)
-
     logging.debug(f"Output directory: {os.path.abspath(outdir)}")
+
     json_cache = os.path.join(outdir, f"{os.path.basename(args.input)}.wgse_info.json")
+    signature = _input_signature(args.input)
+    data = _load_cache(json_cache, signature)
 
-    data = {}
-    if os.path.exists(json_cache):
-        logging.debug(f"Cache file found: {json_cache}")
-        try:
-            with open(json_cache) as f:
-                data = json.load(f)
-            if not isinstance(data, dict):
-                data = {}
-            # If we only wanted fast mode and we have it, we can return early
-            if not args.detailed and data.get("avg_read_len"):
-                logging.debug("Cache hit for fast metrics.")
-                print(render_info(data, detailed=False))
-                return
-            # If we wanted detailed mode and we have the chrom table, we can return early
-            if (
-                args.detailed
-                and data.get("chrom_table_csv")
-                and getattr(args, "info_cmd", None)
-                not in ["calculate-coverage", "coverage-sample"]
-            ):
-                logging.debug("Cache hit for detailed metrics.")
-                if getattr(args, "csv", False):
-                    print(data.get("chrom_table_csv", ""), end="")
-                else:
-                    print(render_info(data, detailed=True))
-                return
-            logging.debug(
-                f"Cache miss or partial: detailed={args.detailed}, has_read_len={bool(data.get('avg_read_len'))}, has_chrom_table={bool(data.get('chrom_table_csv'))}"
-            )
-        except (OSError, json.JSONDecodeError, TypeError) as e:
-            logging.debug(f"Cache read error: {e}")
-            pass
-    else:
-        logging.debug(f"No cache file at {json_cache}")
+    if info_cmd is None:
+        if not detailed and data.get("avg_read_len"):
+            logging.debug("Cache hit for fast metrics.")
+            print(render_info(data, detailed=False))
+            return
+        if detailed and data.get("chrom_table_csv"):
+            logging.debug("Cache hit for detailed metrics.")
+            _print_detailed(data, as_csv)
+            return
 
-    # 1. FAST METRICS (Compute if missing from cache)
     if not data.get("avg_read_len"):
         logging.debug("Generating fast metrics...")
-        cram_opt = []
-        if resolved_ref and os.path.isfile(resolved_ref):
-            cram_opt = ["-T", resolved_ref]
+        data = _fast_metrics(args.input, header, md5_sig, resolved_ref)
+    data["input_signature"] = signature
 
-        t0 = time.time()
-        sorted_status = is_sorted(args.input, cram_opt, header=header)
-        logging.debug(f"Sort check: {sorted_status} (took {time.time() - t0:.3f}s)")
-
-        t0 = time.time()
-        size_gb, indexed = get_file_stats(args.input)
-        logging.debug(
-            f"File stats: {size_gb:.2f}GB, indexed={indexed} (took {time.time() - t0:.3f}s)"
-        )
-
-        from wgsextract_cli.core.variant_files import get_file_version
-
-        file_version = get_file_version(args.input)
-
-        # Get SN count from header for fast mode
-        num_sns = len([line for line in header.splitlines() if line.startswith("@SQ")])
-
-        ref_model_name, ref_mito, ref_fname = REFERENCE_MODELS.get(
-            md5_sig, ("Unknown", "", "")
-        )
-
-        # Guess from SN count if MD5 is unknown
-        if ref_model_name == "Unknown" and num_sns in REFGEN_BY_SNCOUNT:
-            # Entry format: [is_primary, filename, mito_tag]
-            _, ref_fname_raw, ref_mito_raw = REFGEN_BY_SNCOUNT[num_sns]
-            ref_fname = str(ref_fname_raw)
-            ref_mito = str(ref_mito_raw)
-            # Deduce name from filename
-            if "hg19" in ref_fname.lower() or "grch37" in ref_fname.lower():
-                ref_model_name = "hg19"
-            elif "hg38" in ref_fname.lower() or "grch38" in ref_fname.lower():
-                ref_model_name = "hg38"
-            else:
-                ref_model_name = ref_fname.split(".")[0]
-
-        # Guess from filename if still unknown
-        if ref_model_name == "Unknown" and resolved_ref:
-            bn = os.path.basename(resolved_ref).upper()
-            if any(x in bn for x in ["38", "HG38", "GRCH38"]):
-                ref_model_name = "hg38"
-            elif any(x in bn for x in ["37", "HG19", "GRCH37"]):
-                ref_model_name = "hg19"
-            elif any(x in bn for x in ["T2T", "CHM13"]):
-                ref_model_name = "t2t"
-            elif "19" in bn:
-                ref_model_name = "hg19"
-
-        ref_model_str = (
-            f"{ref_model_name} (Chr), {ref_mito}, {num_sns} SNs"
-            if ref_model_name != "Unknown"
-            else f"Unknown, {num_sns} SNs"
-        )
-
-        t0 = time.time()
-        (
-            count,
-            avg_len,
-            std_len,
-            avg_tlen,
-            std_tlen,
-            is_paired,
-            first_qname,
-        ) = run_body_sample(args.input, cram_opt)
-        logging.debug(f"Body sampling took {time.time() - t0:.3f}s")
-
-        sequencer = determine_sequencer(first_qname)
-
-        # Populate data dict with fast metrics
-        data.update(
-            {
-                "filename": os.path.basename(args.input),
-                "md5_signature": md5_sig,
-                "file_stats": {
-                    "sorted": sorted_status,
-                    "indexed": indexed,
-                    "size_gb": size_gb,
-                    "version": file_version,
-                },
-                "ref_model_str": ref_model_str,
-                "suggested_ref_file": ref_fname,
-                "avg_read_len": avg_len,
-                "std_read_len": std_len,
-                "is_paired": is_paired,
-                "avg_insert_size": avg_tlen,
-                "std_insert_size": std_tlen,
-                "sequencer": sequencer,
-                "first_qname": first_qname,
-            }
-        )
-
-    if not args.detailed:
+    if not detailed:
         print(render_info(data, detailed=False))
-        # Save cache even in fast mode
-        try:
-            with open(json_cache, "w") as f:
-                json.dump(data, f, indent=2)
-            logging.debug(f"Fast metrics cached to {json_cache}")
-        except (OSError, TypeError) as exc:
-            logging.warning(
-                "Failed to write fast metrics cache %s: %s", json_cache, exc
-            )
+        _save_cache(json_cache, data)
         logging.debug(f"Total info time: {time.time() - start_time:.3f}s")
         return
 
-    # 2. DETAILED METRICS (Compute if missing from cache)
-    if not data.get("chrom_table_csv") or getattr(args, "info_cmd", None) in [
-        "calculate-coverage",
-        "coverage-sample",
-    ]:
-        t0 = time.time()
-        idx_stats, genome_len, total_mapped, total_unmapped = parse_idxstats(args.input)
-        logging.debug(f"Idxstats took {time.time() - t0:.3f}s")
+    t0 = time.time()
+    idx_stats, _genome_len, _total_mapped, total_unmapped = parse_idxstats(args.input)
+    logging.debug(f"Idxstats took {time.time() - t0:.3f}s")
 
-        total_reads = total_mapped + total_unmapped
-
-        # Extract variables from data for calculations
-        avg_len = data["avg_read_len"]
-        ref_model_name = (
-            data["ref_model_str"].split(" (")[0]
-            if " (" in data["ref_model_str"]
-            else "Unknown"
+    coverage_map = _coverage_map(
+        info_cmd, args.input, resolved_ref, idx_stats, outdir, region
+    )
+    data.update(
+        _detailed_metrics(
+            data, idx_stats, total_unmapped, coverage_map, load_n_counts(resolved_ref)
         )
-
-        cov_file, sample_file = (
-            os.path.join(outdir, f"{os.path.basename(args.input)}_bincvg.csv"),
-            os.path.join(outdir, f"{os.path.basename(args.input)}_samplecvg.json"),
-        )
-
-        info_cmd = getattr(args, "info_cmd", None)
-        region = getattr(args, "region", None)
-
-        coverage_map = {}
-        if info_cmd == "calculate-coverage":
-            run_full_coverage(args.input, resolved_ref, cov_file, region=region)
-            if os.path.exists(cov_file) and os.path.getsize(cov_file) > 120:
-                with open(cov_file) as f:
-                    for line in f.readlines()[1:]:
-                        p = line.split("\t")
-                        if len(p) > 7:
-                            coverage_map[
-                                p[0].upper().replace("CHR", "").replace("MT", "M")
-                            ] = f"{(int(p[2]) / int(p[7])) * 100:.0f} %"
-        elif info_cmd == "coverage-sample":
-            run_sampled_coverage(
-                args.input, resolved_ref, idx_stats, sample_file, region=region
-            )
-            if os.path.exists(sample_file):
-                try:
-                    with open(sample_file) as f:
-                        coverage_map = json.load(f)
-                    if not isinstance(coverage_map, dict):
-                        coverage_map = {}
-                except (OSError, json.JSONDecodeError, TypeError) as exc:
-                    logging.warning(
-                        "Failed to read sampled coverage %s: %s", sample_file, exc
-                    )
-
-        y_reads = next(
-            (
-                s["mapped"]
-                for s in idx_stats
-                if s["name"].upper().replace("CHR", "") == "Y"
-            ),
-            0,
-        )
-        x_reads = next(
-            (
-                s["mapped"]
-                for s in idx_stats
-                if s["name"].upper().replace("CHR", "") == "X"
-            ),
-            0,
-        )
-        gender = (
-            ("Male" if y_reads > (x_reads * 0.05) else "Female")
-            if x_reads > 0
-            else "Unknown"
-        )
-
-        n_counts = load_n_counts(resolved_ref)
-        if n_counts:
-            data["refined_ns"] = True
-
-        chrom_table = generate_chrom_table(
-            idx_stats, avg_len, gender, ref_model_name, coverage_map, n_counts=n_counts
-        )
-        total_row = next(r for r in chrom_table if r[1] == "Total")
-        mapped_segs = total_row[4] + next(
-            (r[4] for r in chrom_table if r[1] == "Other"), 0
-        )
-
-        # Detailed metrics update
-        data.update(
-            {
-                "gender": gender,
-                "file_content": ", ".join(
-                    [
-                        k
-                        for k, v in {
-                            "Auto": any(
-                                s["mapped"] > 0
-                                and s["name"].upper().replace("CHR", "").isdigit()
-                                for s in idx_stats
-                            ),
-                            "X": x_reads > 0,
-                            "Y": y_reads > 0,
-                            "Mito": any(
-                                s["mapped"] > 0
-                                and s["name"].upper().replace("CHR", "") in ["M", "MT"]
-                                for s in idx_stats
-                            ),
-                            "Other": any(
-                                s["mapped"] > 0
-                                and s["name"] != "*"
-                                and not s["name"].upper().replace("CHR", "").isdigit()
-                                and s["name"].upper().replace("CHR", "")
-                                not in ["X", "Y", "M", "MT"]
-                                for s in idx_stats
-                            ),
-                        }.items()
-                        if v
-                    ]
-                    + (["Unmap"] if total_unmapped > 0 else [])
-                ),
-                "metrics": {
-                    "ard_mapped": (total_row[4] * avg_len)
-                    / (total_row[2] - total_row[3] + 0.0001),
-                    "ard_raw": (total_reads * avg_len)
-                    / (total_row[2] - total_row[3] + 0.0001),
-                    "gbases_mapped": (mapped_segs * avg_len) / (10**9),
-                    "gbases_raw": (total_reads * avg_len) / (10**9),
-                    "reads_mapped_m": mapped_segs / 1_000_000,
-                    "reads_raw_m": total_reads / 1_000_000,
-                    "reads_mapped_pct": (mapped_segs / total_reads * 100)
-                    if total_reads > 0
-                    else 0,
-                    "reads_raw_pct": 100.0,
-                },
-            }
-        )
-
-        si = io.StringIO()
-        cw = csv.writer(si)
-        cw.writerow(
-            [
-                "Seq Name",
-                "Model Len",
-                "Model N Len",
-                "# Segs Map",
-                "Map Gbases",
-                "Map ARD",
-                "Breadth Coverage",
-            ]
-        )
-        for row in chrom_table:
-            cw.writerow(
-                [
-                    row[1],
-                    row[2],
-                    row[3],
-                    row[4],
-                    f"{row[5]:.2f}",
-                    f"{row[6]:.0f}",
-                    row[7],
-                ]
-            )
-        data["chrom_table_csv"] = si.getvalue()
-
-    # Common detailed output and final save
-    from wgsextract_cli.core.warnings import print_warning
+    )
 
     if data.get("avg_read_len", 0) > 410:
         print_warning("LongReadSequenceWarning")
-    if data.get("metrics", {}).get("ard_mapped", 0) < 10:
+    if data["metrics"]["ard_mapped"] < 10:
         print_warning("LowCoverageWarning")
 
-    if getattr(args, "csv", False):
-        print(data["chrom_table_csv"], end="")
-    else:
-        print(render_info(data, detailed=True))
-        try:
-            with open(json_cache, "w") as f:
-                json.dump(data, f, indent=2)
-            print(LOG_MESSAGES["info_metrics_cached"].format(path=json_cache))
-        except (OSError, TypeError) as exc:
-            logging.warning(
-                "Failed to write detailed metrics cache %s: %s", json_cache, exc
-            )
+    _print_detailed(data, as_csv)
+    # A region-limited coverage table describes only part of the file, so it
+    # must not replace the whole-file cache.
+    if not region and _save_cache(json_cache, data):
+        logging.info(LOG_MESSAGES["info_metrics_cached"].format(path=json_cache))
+    logging.debug(f"Total info time: {time.time() - start_time:.3f}s")

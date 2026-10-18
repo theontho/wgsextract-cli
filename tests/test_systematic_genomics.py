@@ -1,3 +1,4 @@
+import gzip
 import os
 
 import pytest
@@ -51,6 +52,20 @@ def fake_data_dir(tmp_path_factory):
     # BGZIP and Index the SNP tab
     run_command(["bgzip", snp_tab], check=True)
     run_command(["tabix", "-p", "vcf", snp_tab + ".gz"], check=True)
+
+    # Identity hg38->hg19 chain so microarray (which requires liftover for hg38
+    # input) can run end to end on the fake reference.
+    run_command(["samtools", "faidx", ref_path], check=True)
+    with (
+        open(ref_path + ".fai") as fai,
+        gzip.open(os.path.join(outdir, "hg38ToHg19.over.chain.gz"), "wt") as chain,
+    ):
+        for index, line in enumerate(fai, start=1):
+            name, length = line.split("\t")[:2]
+            chain.write(
+                f"chain 1000 {name} {length} + 0 {length} "
+                f"{name} {length} + 0 {length} {index}\n{length}\n\n"
+            )
 
     return outdir
 

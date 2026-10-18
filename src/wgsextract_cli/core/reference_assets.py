@@ -1,11 +1,18 @@
 import json
 import os
+import re
+from collections.abc import Iterable
 from fnmatch import fnmatch
 from typing import Any
 
-from wgsextract_cli.core.builds import build_from_path
+from wgsextract_cli.core.builds import (
+    BUILD_PATH_TOKENS,
+    build_from_path,
+    canonical_build,
+)
 
 FASTA_EXTENSIONS = (".fa", ".fasta", ".fna", ".fa.gz", ".fasta.gz", ".fna.gz")
+FASTA_SUFFIX_RE = re.compile(r"\.(fa|fasta|fna)(\.gz)?$", re.IGNORECASE)
 TARGET_PATTERNS = (
     "All_SNPs*.tab.gz",
     "All_SNPs*.vcf.gz",
@@ -26,6 +33,77 @@ def build_hint(*values: str | None) -> str:
 
 def is_fasta_path(path: str) -> bool:
     return path.lower().endswith(FASTA_EXTENSIONS)
+
+
+def fasta_prefix(fasta: str) -> str:
+    """Strip the FASTA extension: ref/hg38.fa.gz -> ref/hg38."""
+    return FASTA_SUFFIX_RE.sub("", fasta)
+
+
+def reference_dict_path(fasta: str) -> str:
+    """Sequence dictionary path GATK/Picard expect: hg38.fa.gz -> hg38.dict."""
+    return fasta_prefix(fasta) + ".dict"
+
+
+def n_count_paths(fasta: str, outdir: str | None = None) -> tuple[str, str]:
+    """Return the (_ncnt.csv, _nbin.csv) sidecar paths for a FASTA."""
+    prefix = fasta_prefix(fasta)
+    if outdir:
+        prefix = os.path.join(outdir, os.path.basename(prefix))
+    return prefix + "_ncnt.csv", prefix + "_nbin.csv"
+
+
+def default_reference_library() -> str:
+    from wgsextract_cli.core.runtime import repo_root
+
+    return str(repo_root() / "reference")
+
+
+def resolve_reference_library(explicit: str | None = None) -> str:
+    """Explicit path, else configured reference_library, else <repo>/reference."""
+    from wgsextract_cli.core.config import settings
+
+    configured = settings.get("reference_library")
+    reflib = explicit or (str(configured) if configured else None)
+    return os.path.abspath(os.path.expanduser(reflib or default_reference_library()))
+
+
+def read_fai_lengths(fasta: str) -> dict[str, int]:
+    """Contig lengths from the FASTA's .fai index; empty if it is missing or unreadable."""
+    lengths: dict[str, int] = {}
+    try:
+        with open(fasta + ".fai", encoding="utf-8") as fai:
+            for line in fai:
+                cols = line.split("\t")
+                if len(cols) >= 2:
+                    lengths[cols[0]] = int(cols[1])
+    except (OSError, ValueError):
+        return {}
+    return lengths
+
+
+def sequence_signature(contig_lengths: dict[str, int]) -> str:
+    """WGS Extract SN/LN signature, the same value calculate_bam_md5 gives a BAM header."""
+    from wgsextract_cli.core.variant_files import calculate_bam_md5
+
+    header = "".join(
+        f"@SQ\tSN:{name}\tLN:{length}\n" for name, length in contig_lengths.items()
+    )
+    return calculate_bam_md5("", header=header)
+
+
+def fasta_signature(fasta: str) -> str | None:
+    lengths = read_fai_lengths(fasta)
+    return sequence_signature(lengths) if lengths else None
+
+
+def find_fasta_by_signature(directories: Iterable[str], signature: str) -> str | None:
+    """Find an indexed FASTA whose sequence dictionary matches a BAM/CRAM signature."""
+    for directory in directories:
+        for candidate in reference_fasta_candidates(directory):
+            if fasta_signature(candidate) == signature:
+                return candidate
+    return None
 
 
 def find_reference_fasta(root: str, *hints: str | None) -> str:
@@ -72,8 +150,7 @@ def select_reference_fasta(candidates: list[str], *hints: str | None) -> str:
         return ""
     build = build_hint(*hints)
     if build:
-        preferred = _build_aliases(build)
-        for alias in preferred:
+        for alias in BUILD_PATH_TOKENS.get(build, (build,)):
             for candidate in candidates:
                 if alias in os.path.basename(candidate).lower():
                     return candidate
@@ -94,9 +171,9 @@ def find_annotation_vcf(reflib: str, build: str) -> str:
 
 
 def annotation_vcf_names(build: str) -> list[str]:
-    names = [
-        "All_SNPs.vcf.gz",
-        "common_all.vcf.gz",
+    """Candidate SNP target file names; with a known build, only that build's files."""
+    generic = ["All_SNPs.vcf.gz", "common_all.vcf.gz"]
+    build_specific = [
         "snps_hg19.vcf.gz",
         "snps_hg38.vcf.gz",
         "snps_grch37.vcf.gz",
@@ -110,16 +187,14 @@ def annotation_vcf_names(build: str) -> list[str]:
         "All_SNPs_grch37_ref.tab.gz",
         "All_SNPs_grch38_ref.tab.gz",
     ]
-    preferred: list[str] = []
-    if build == "hg19":
-        preferred = [
-            name for name in names if "hg19" in name.lower() or "grch37" in name.lower()
-        ]
-    elif build == "hg38":
-        preferred = [
-            name for name in names if "hg38" in name.lower() or "grch38" in name.lower()
-        ]
-    return preferred + [name for name in names if name not in preferred]
+    if not build:
+        return generic + build_specific
+    # A file for another build would silently give wrong-build coordinates.
+    tokens = {"hg19": ("hg19", "grch37"), "hg38": ("hg38", "grch38")}.get(
+        canonical_build(build) or "", ()
+    )
+    matching = [n for n in build_specific if any(t in n.lower() for t in tokens)]
+    return matching + generic
 
 
 def find_annotation_resource(
@@ -162,8 +237,11 @@ def find_reference_target_tab(reflib: str, build: str) -> str:
         os.path.join(reflib, "microarray"),
         os.path.join(reflib, "genomes", "microarray"),
     ]
-    named = first_existing_named_file(directories, annotation_vcf_names(build))
-    if named:
+    names = annotation_vcf_names(build)
+    # Genome-wide All_SNPs tabs before snps_*.vcf.gz (a Y-SNP set in the bootstrap).
+    names.sort(key=lambda name: not name.endswith("_ref.tab.gz"))
+    named = first_existing_named_file(directories, names)
+    if named or build:
         return named
     return first_matching_file(directories, list(TARGET_PATTERNS))
 
@@ -205,13 +283,3 @@ def first_matching_file(directories: list[str], patterns: list[str]) -> str:
                     if os.path.isfile(path):
                         return path
     return ""
-
-
-def _build_aliases(build: str) -> list[str]:
-    if build == "hg19":
-        return ["hg19", "hg37", "grch37", "hs37"]
-    if build == "hg38":
-        return ["hg38", "grch38", "hs38"]
-    if build == "t2t":
-        return ["t2t", "chm13"]
-    return [build]

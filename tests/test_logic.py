@@ -65,9 +65,8 @@ class TestAlignToolSelection(unittest.TestCase):
         def fake_which(tool):
             return "/usr/bin/sambamba" if tool == "sambamba" else None
 
-        def fake_popen(cmd, **_kwargs):
-            commands.append(cmd)
-            return DummyProcess()
+        def fake_run_pipeline(stages, **_kwargs):
+            commands.extend(stages)
 
         def fake_run_command(cmd, *_args, **_kwargs):
             run_commands.append(cmd)
@@ -81,8 +80,11 @@ class TestAlignToolSelection(unittest.TestCase):
             patch.object(align, "get_tool_path", side_effect=fake_get_tool_path),
             patch.object(align, "print_warning"),
             patch.object(align, "run_command", side_effect=fake_run_command),
-            patch.object(align, "popen", side_effect=fake_popen),
-            patch("wgsextract_cli.core.utils.shutil.which", side_effect=fake_which),
+            patch.object(align, "run_pipeline", side_effect=fake_run_pipeline),
+            patch(
+                "wgsextract_cli.core.samtools_commands.get_tool_path",
+                side_effect=fake_which,
+            ),
             patch("platform.system", return_value="Linux"),
         ):
             align.align_bwa(args)
@@ -112,9 +114,8 @@ class TestAlignToolSelection(unittest.TestCase):
         def fake_get_tool_path(tool):
             return tool
 
-        def fake_popen(cmd, **_kwargs):
-            commands.append(cmd)
-            return DummyProcess()
+        def fake_run_pipeline(stages, **_kwargs):
+            commands.extend(stages)
 
         with (
             patch.object(align, "verify_dependencies"),
@@ -124,7 +125,7 @@ class TestAlignToolSelection(unittest.TestCase):
             patch.object(align, "resolve_reference", return_value=self.ref),
             patch.object(align, "get_tool_path", side_effect=fake_get_tool_path),
             patch.object(align, "run_command"),
-            patch.object(align, "popen", side_effect=fake_popen),
+            patch.object(align, "run_pipeline", side_effect=fake_run_pipeline),
         ):
             align.align_minimap2(args)
 
@@ -152,9 +153,8 @@ class TestAlignToolSelection(unittest.TestCase):
         def fake_get_tool_path(tool):
             return tool
 
-        def fake_popen(cmd, **_kwargs):
-            commands.append(cmd)
-            return DummyProcess()
+        def fake_run_pipeline(stages, **_kwargs):
+            commands.extend(stages)
 
         with (
             patch.object(align, "verify_dependencies"),
@@ -164,7 +164,7 @@ class TestAlignToolSelection(unittest.TestCase):
             patch.object(align, "resolve_reference", return_value=self.ref),
             patch.object(align, "get_tool_path", side_effect=fake_get_tool_path),
             patch.object(align, "run_command"),
-            patch.object(align, "popen", side_effect=fake_popen),
+            patch.object(align, "run_pipeline", side_effect=fake_run_pipeline),
         ):
             align.align_minimap2(args)
 
@@ -192,9 +192,8 @@ class TestAlignToolSelection(unittest.TestCase):
         def fake_get_tool_path(tool):
             return tool
 
-        def fake_popen(cmd, **_kwargs):
-            commands.append(cmd)
-            return DummyProcess()
+        def fake_run_pipeline(stages, **_kwargs):
+            commands.extend(stages)
 
         with (
             patch.object(align, "verify_dependencies"),
@@ -204,7 +203,7 @@ class TestAlignToolSelection(unittest.TestCase):
             patch.object(align, "resolve_reference", return_value=self.ref),
             patch.object(align, "get_tool_path", side_effect=fake_get_tool_path),
             patch.object(align, "run_command"),
-            patch.object(align, "popen", side_effect=fake_popen),
+            patch.object(align, "run_pipeline", side_effect=fake_run_pipeline),
         ):
             align.align_minimap2(args)
 
@@ -327,7 +326,7 @@ class TestExamplesDownload(unittest.TestCase):
         settings.pop("genome_library", None)
         try:
             self.assertEqual(
-                examples._target_root(None), examples._repo_root() / "genomes"
+                examples._target_root(None), examples.runtime.repo_root() / "genomes"
             )
         finally:
             if old_value is not None:
@@ -547,7 +546,7 @@ class TestSamtoolsCommands(unittest.TestCase):
         from wgsextract_cli.core import samtools_commands
 
         with (
-            patch.object(samtools_commands.shutil, "which", return_value="sambamba"),
+            patch.object(samtools_commands, "get_tool_path", return_value="sambamba"),
             patch.object(samtools_commands.platform, "system", return_value="Linux"),
         ):
             gb_cmd = samtools_commands.get_sam_sort_cmd(
@@ -563,6 +562,19 @@ class TestSamtoolsCommands(unittest.TestCase):
         self.assertEqual(gb_cmd[gb_cmd.index("-m") + 1], "2G")
         self.assertEqual(decimal_cmd[decimal_cmd.index("-m") + 1], "3G")
         self.assertEqual(mb_cmd[mb_cmd.index("-m") + 1], "1024M")
+
+    def test_sam_input_sort_never_uses_sambamba(self):
+        from wgsextract_cli.core import samtools_commands
+
+        with (
+            patch.object(samtools_commands, "get_tool_path", return_value="sambamba"),
+            patch.object(samtools_commands.platform, "system", return_value="Linux"),
+        ):
+            cmd = samtools_commands.get_sam_sort_cmd(
+                "out.bam", "2", "1G", fmt="BAM", sam_input=True
+            )
+
+        self.assertEqual(cmd[:2], ["samtools", "sort"])
 
 
 class TestCLILogic(unittest.TestCase):
@@ -1030,7 +1042,8 @@ class TestCLILogic(unittest.TestCase):
                 pass
 
         with (
-            patch.object(vcf.shutil, "which", return_value="run_deepvariant"),
+            patch.object(vcf, "get_tool_path", return_value="run_deepvariant"),
+            patch.object(vcf, "verify_dependencies"),
             patch.object(
                 vcf,
                 "get_base_args",
@@ -1065,9 +1078,7 @@ class TestCLILogic(unittest.TestCase):
         def fake_run_command(cmd, *_args, **_kwargs):
             commands.append(cmd)
             if cmd[:2] == ["pbsv", "call"]:
-                Path(os.path.join(self.test_dir, "pbsv.vcf")).write_text(
-                    "##fileformat=VCFv4.2\n"
-                )
+                Path(cmd[-1]).write_text("##fileformat=VCFv4.2\n")
 
         class DummyReferenceLibrary:
             fasta = ref_path
@@ -1120,9 +1131,7 @@ class TestCLILogic(unittest.TestCase):
         def fake_run_command(cmd, *_args, **_kwargs):
             commands.append(cmd)
             if cmd[:2] == ["pbsv", "call"]:
-                Path(os.path.join(self.test_dir, "pbsv.vcf")).write_text(
-                    "##fileformat=VCFv4.2\n"
-                )
+                Path(cmd[-1]).write_text("##fileformat=VCFv4.2\n")
 
         class DummyReferenceLibrary:
             fasta = ref_path
@@ -1141,19 +1150,29 @@ class TestCLILogic(unittest.TestCase):
                 return_value=("2", self.test_dir, ref_path, DummyReferenceLibrary()),
             ),
             patch.object(vcf, "run_command", side_effect=fake_run_command),
+            patch("wgsextract_cli.commands.vcf.basic.run_command", fake_run_command),
             patch.object(vcf, "ensure_vcf_indexed"),
         ):
             vcf.cmd_sv_pbsv(args)
 
-        plain_ref = os.path.join(self.test_dir, "ref.fa")
-        self.assertTrue(os.path.isfile(plain_ref))
-        self.assertEqual(commands[0], ["samtools", "faidx", plain_ref])
+        # Decompressed into a temporary dir under outdir, indexed, then removed.
+        plain_ref = commands[0][-1]
+        self.assertEqual(commands[0][:2], ["samtools", "faidx"])
+        self.assertTrue(plain_ref.startswith(os.path.join(self.test_dir, ".wgse_ref_")))
+        self.assertEqual(os.path.basename(plain_ref), "ref.fa")
         self.assertEqual(commands[2][-3], plain_ref)
+        self.assertFalse(os.path.exists(plain_ref))
+        leftovers = [
+            f
+            for f in os.listdir(self.test_dir)
+            if f.startswith((".wgse", "pbsv.", "sniffles.vcf", "region.bed"))
+        ]
+        self.assertEqual(leftovers, [])
 
     def test_pacbio_sv_falls_back_to_sniffles_when_pbsv_missing(self):
         from wgsextract_cli.commands.vcf import structural as vcf
 
-        args = Namespace(pacbio=True, caller="delly", ccs=False)
+        args = Namespace(pacbio=True, caller=None, ccs=False)
 
         with (
             patch.object(vcf, "get_tool_path", return_value=None),
@@ -1164,6 +1183,13 @@ class TestCLILogic(unittest.TestCase):
         cmd_sv_sniffles.assert_called_once_with(args)
         self.assertEqual(args.caller, "sniffles")
         self.assertTrue(args.ccs)
+
+    def test_pacbio_sv_rejects_explicit_delly(self):
+        from wgsextract_cli.commands.vcf import structural as vcf
+
+        args = Namespace(pacbio=True, caller="delly", ccs=False)
+        with self.assertRaises(WGSExtractError):
+            vcf.cmd_sv(args)
 
     def test_sniffles_sv_builds_command(self):
         from wgsextract_cli.commands.vcf import structural as vcf
@@ -1182,12 +1208,15 @@ class TestCLILogic(unittest.TestCase):
         )
         commands = []
 
+        Path(ref_path + ".fai").write_text("chr20\t64444167\t7\t60\t61\n")
+        bed_lines = []
+
         def fake_run_command(cmd, *_args, **_kwargs):
             commands.append(cmd)
             if cmd[0] == "sniffles":
-                Path(os.path.join(self.test_dir, "sniffles.vcf")).write_text(
-                    "##fileformat=VCFv4.2\n"
-                )
+                Path(cmd[cmd.index("--vcf") + 1]).write_text("##fileformat=VCFv4.2\n")
+                bed = cmd[cmd.index("--regions") + 1]
+                bed_lines.extend(Path(bed).read_text().splitlines())
 
         class DummyReferenceLibrary:
             fasta = ref_path
@@ -1211,8 +1240,16 @@ class TestCLILogic(unittest.TestCase):
             vcf.cmd_sv_sniffles(args)
 
         self.assertEqual(commands[0][:3], ["sniffles", "--input", bam_path])
-        self.assertIn("--regions", commands[0])
+        # Sniffles2 --regions takes a BED file, not a region string.
+        self.assertEqual(bed_lines, ["chr20\t0\t64444167"])
+        self.assertEqual(commands[0][commands[0].index("--reference") + 1], ref_path)
         self.assertEqual(commands[1][:3], ["bcftools", "view", "-Oz"])
+        leftovers = [
+            f
+            for f in os.listdir(self.test_dir)
+            if f.startswith((".wgse", "pbsv.", "sniffles.vcf", "region.bed"))
+        ]
+        self.assertEqual(leftovers, [])
 
     def test_genome_library_resolves_vcf_input_for_qc_vcf(self):
         genome_root = os.path.join(self.test_dir, "genomes")
@@ -1658,7 +1695,7 @@ class TestReferenceSupportAssets(unittest.TestCase):
             patch.object(ref_library.catalog, "download_file", fake_download),
         ):
             self.assertTrue(
-                ref_library.install_standard_mappability_maps(self.test_dir)
+                ref_library.catalog.install_standard_mappability_maps(self.test_dir)
             )
 
         self.assertEqual(
@@ -1695,7 +1732,7 @@ class TestReferenceSupportAssets(unittest.TestCase):
             patch.object(ref_library.catalog, "download_file", fake_download),
         ):
             self.assertFalse(
-                ref_library.install_standard_mappability_maps(self.test_dir)
+                ref_library.catalog.install_standard_mappability_maps(self.test_dir)
             )
 
         self.assertEqual(

@@ -1,6 +1,6 @@
 import signal
 
-from wgsextract_cli.main import describe_signal
+from wgsextract_cli.cli.bootstrap import describe_signal
 
 
 def test_describe_signal_explains_keyboard_interrupt():

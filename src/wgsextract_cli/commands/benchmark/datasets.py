@@ -26,9 +26,6 @@ from wgsextract_cli.core.utils import (
     run_command,
 )
 
-from .heavy import (
-    _verified_checksum_path,
-)
 from .models import (
     BenchmarkDataset,
     BenchmarkDatasetSpec,
@@ -37,9 +34,7 @@ from .models import (
 )
 
 
-def _download_file(
-    url: str, destination: Path, *, checksum_hint: str | None = None
-) -> None:
+def _download_file(url: str, destination: Path) -> None:
     require_http_url(url, "benchmark dataset URL")
     tmp_path = destination.with_suffix(destination.suffix + ".tmp")
     request = urllib.request.Request(url, headers={"User-Agent": "wgsextract-cli"})
@@ -68,26 +63,28 @@ def _download_file(
         ) from exc
 
 
-def _md5(path: Path) -> str:
-    try:
-        digest = hashlib.md5(usedforsecurity=False)
-    except TypeError:
-        digest = hashlib.md5()
+def _file_digest(path: Path, algorithm: str) -> str:
+    digest = hashlib.new(algorithm, usedforsecurity=False)
     with open(path, "rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
 
 
-def _verify_md5(path: Path, expected: str) -> None:
+def _verify_digest(path: Path, algorithm: str, expected: str) -> None:
     normalized = expected.lower().strip()
     if not normalized:
         return
-    actual = _md5(path)
+    actual = _file_digest(path, algorithm)
     if actual != normalized:
         raise WGSExtractError(
-            f"MD5 mismatch for {path}: expected {normalized}, got {actual}"
+            f"{algorithm.upper()} mismatch for {path}: expected {normalized}, got {actual}"
         )
+
+
+def _verified_checksum_path(path: Path, checksum: str | None) -> Path:
+    suffix = checksum.lower().strip() if checksum else "unchecked"
+    return path.with_name(f".{path.name}.{suffix}.verified")
 
 
 def _write_verified_md5_marker(path: Path, marker_path: Path, md5: str) -> None:
@@ -141,7 +138,7 @@ def _cached_remote_dataset_file(remote: BenchmarkRemoteFile, cache_root: Path) -
         store_download_in_dev_cache(remote.url, path, checksum_hint=checksum_hint)
         return path
     if path.exists() and remote.md5:
-        _verify_md5(path, remote.md5)
+        _verify_digest(path, "md5", remote.md5)
         _write_verified_md5_marker(path, verified_path, remote.md5)
         store_download_in_dev_cache(remote.url, path, checksum_hint=checksum_hint)
         return path
@@ -149,15 +146,15 @@ def _cached_remote_dataset_file(remote: BenchmarkRemoteFile, cache_root: Path) -
         if restore_cached_download(remote.url, path, checksum_hint=checksum_hint):
             try:
                 if remote.md5:
-                    _verify_md5(path, remote.md5)
+                    _verify_digest(path, "md5", remote.md5)
                     _write_verified_md5_marker(path, verified_path, remote.md5)
                 return path
             except WGSExtractError:
                 drop_cached_download(remote.url, path, checksum_hint=checksum_hint)
                 path.unlink(missing_ok=True)
-        _download_file(remote.url, path, checksum_hint=checksum_hint)
+        _download_file(remote.url, path)
     if remote.md5:
-        _verify_md5(path, remote.md5)
+        _verify_digest(path, "md5", remote.md5)
         _write_verified_md5_marker(path, verified_path, remote.md5)
     store_download_in_dev_cache(remote.url, path, checksum_hint=checksum_hint)
     return path
@@ -272,20 +269,12 @@ def _real_dataset_cache_dir(args: argparse.Namespace, outdir: Path) -> Path:
     return outdir / "datasets"
 
 
-def _is_relative_to(path: Path, root: Path) -> bool:
-    try:
-        path.relative_to(root)
-        return True
-    except ValueError:
-        return False
-
-
 def _optional_dataset_file(root: Path, files: dict[str, Any], role: str) -> Path | None:
     value = files.get(role)
     if not isinstance(value, str) or not value:
         return None
     path = (root / value).resolve()
-    if not _is_relative_to(path, root.resolve()):
+    if not path.is_relative_to(root.resolve()):
         raise WGSExtractError(
             f"Benchmark dataset file role escapes dataset root: {role}"
         )
@@ -419,11 +408,3 @@ def _download_filename(url: str) -> str:
     if not filename:
         raise WGSExtractError(f"Dataset URL must end with a filename: {url}")
     return filename
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()

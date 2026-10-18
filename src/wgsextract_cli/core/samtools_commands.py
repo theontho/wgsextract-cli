@@ -1,6 +1,7 @@
 import platform
 import re
-import shutil
+
+from wgsextract_cli.core.dependencies import get_tool_path
 
 
 def _parse_memory(memory: str) -> tuple[float, str]:
@@ -14,6 +15,11 @@ def _format_memory(amount: float, unit: str) -> str:
     return f"{amount:g}{unit}"
 
 
+def _use_sambamba() -> bool:
+    """sambamba is preferred where installed, except on macOS."""
+    return platform.system() != "Darwin" and get_tool_path("sambamba") is not None
+
+
 def get_sam_sort_cmd(
     out_file: str,
     threads: str,
@@ -22,16 +28,17 @@ def get_sam_sort_cmd(
     reference: str | None = None,
     name_sort: bool = False,
     temp_dir: str | None = None,
+    sam_input: bool = False,
 ) -> list[str]:
     """
-    Return a command list for sorting BAM/CRAM.
-    Uses sambamba if available (except on macOS) and format is BAM, else samtools.
+    Return a command list for sorting BAM/CRAM read from stdin.
+    Uses sambamba for BAM output when available, else samtools. sambamba sort
+    cannot read SAM, so pass sam_input=True for aligner output streams.
     """
     threads_val = int(threads)
     mem_val, mem_unit = _parse_memory(memory)
-    is_macos = platform.system() == "Darwin"
 
-    if shutil.which("sambamba") and fmt == "BAM" and not is_macos:
+    if fmt == "BAM" and not sam_input and _use_sambamba():
         total_mem = mem_val * threads_val
         total_mem_str = _format_memory(total_mem, mem_unit)
         cmd = [
@@ -73,9 +80,7 @@ def get_sam_index_cmd(file_path: str, threads: str = "1") -> list[str]:
     Return a command list for indexing BAM/CRAM.
     Uses sambamba if available (except on macOS) and file is BAM, else samtools.
     """
-    is_macos = platform.system() == "Darwin"
-
-    if shutil.which("sambamba") and file_path.lower().endswith(".bam") and not is_macos:
+    if file_path.lower().endswith(".bam") and _use_sambamba():
         return ["sambamba", "index", "-t", threads, file_path]
     return ["samtools", "index", file_path]
 
@@ -90,9 +95,7 @@ def get_sam_view_cmd(
     Return a command list for viewing/converting BAM/CRAM.
     Uses sambamba if available (except on macOS) and fmt is BAM, else samtools.
     """
-    is_macos = platform.system() == "Darwin"
-
-    if shutil.which("sambamba") and fmt == "BAM" and not reference and not is_macos:
+    if fmt == "BAM" and not reference and _use_sambamba():
         cmd = ["sambamba", "view", "-t", threads, "-f", "bam"]
         if is_input_sam:
             cmd += ["-S"]

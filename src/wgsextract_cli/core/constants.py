@@ -114,28 +114,28 @@ REFERENCE_MODELS = {
         "rCRS",
         "GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.fna.gz",
     ],
-    "905953051416e9c20e2e5055b40d165f": [
+    "567b0b7efc021c69f64fe63d85dbc797": [
         "Dog_UU_GSD",
         "MT",
         "GCF_011100685.1_UU_Cfam_GSD_1.0_genomic.fna.gz",
     ],
-    "0c9873d63321ec89b0235339f40d265a": [
+    "492b4726909f048464fdd00232f63f47": [
         "Cat_Fca126",
         "MT",
         "GCF_018350175.1_F.catus_Fca126_mat1.0_genomic.fna.gz",
     ],
-    "7cee777f1939f4028926017158ed5512": ["T2Tv2.0", "rCRS", "chm13v2.0.fa.gz"],
+    "ed9f80c8e04c461cba35dd1b85a2e2e8": ["T2Tv2.0", "rCRS", "chm13v2.0.fa.gz"],
 }
 
 # New approach: Use SN count from BAM header to identify likely reference
 REFGEN_BY_SNCOUNT = {
     25: [True, "hg19_WGSEv2.fa.gz", "chrM"],
-    40: [
+    2197: [
         True,
         "GCF_011100685.1_UU_Cfam_GSD_1.0_genomic.fna.gz",
         "MT",
-    ],  # Dog (38 auto + X + MT)
-    62: [
+    ],  # Dog (UU_Cfam_GSD_1.0, incl. unplaced)
+    71: [
         True,
         "GCF_018350175.1_F.catus_Fca126_mat1.0_genomic.fna.gz",
         "MT",

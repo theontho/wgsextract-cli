@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+import shutil
 import subprocess
 
 from wgsextract_cli.core.dependency_checks import verify_dependencies
@@ -11,7 +12,65 @@ from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
 )
-from wgsextract_cli.core.variant_files import calculate_bsd_sum
+
+# Ensembl's useast/asia web mirrors do not serve /pub (HTTP 403).
+VEP_MIRRORS = {
+    "uk": "https://ftp.ensembl.org/pub",
+    "ebi": "https://ftp.ebi.ac.uk/ensemblorg/pub",
+}
+
+
+def _python_bsd_sum(file_path: str) -> int:
+    checksum = 0
+    with open(file_path, "rb") as f:
+        while chunk := f.read(1 << 20):
+            for byte in chunk:
+                checksum = (((checksum >> 1) | ((checksum & 1) << 15)) + byte) & 0xFFFF
+    return checksum
+
+
+def _native_bsd_sum(file_path: str) -> tuple[int, int] | None:
+    """BSD sum via the system tool (macOS `cksum -o 1`, GNU `sum -r`), if present."""
+    for cmd in (["cksum", "-o", "1"], ["sum", "-r"]):
+        if shutil.which(cmd[0]) is None:
+            continue
+        try:
+            res = run_command([*cmd, file_path], capture_output=True, check=False)
+            if res.returncode == 0:
+                fields = res.stdout.split()
+                return int(fields[0]), int(fields[1])
+        except (OSError, subprocess.SubprocessError, ValueError, IndexError) as e:
+            logging.debug(f"{cmd[0]} BSD checksum failed: {e}")
+    return None
+
+
+def calculate_bsd_sum(file_path: str) -> tuple[int, int]:
+    """
+    BSD `sum` checksum and 1 KiB block count, as listed in Ensembl CHECKSUMS.
+
+    The checksum is an inherently sequential rotate-and-add over every byte, so
+    the native tool (~GB/s) is preferred; pure Python manages ~10 MB/s.
+    """
+    native = _native_bsd_sum(file_path)
+    if native is not None:
+        return native
+    size = os.path.getsize(file_path)
+    if size > 512 * 1024 * 1024:
+        logging.warning(
+            "No native BSD sum tool found; computing the checksum in Python. "
+            "This can take a long time for large files."
+        )
+    return _python_bsd_sum(file_path), -(-size // 1024)
+
+
+def _expected_bsd_sum(checksums_path: str, filename: str) -> tuple[int, int] | None:
+    """Find `<sum> <blocks> <filename>` in an Ensembl CHECKSUMS file."""
+    with open(checksums_path) as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) >= 3 and parts[-1] == filename:
+                return int(parts[0]), int(parts[1])
+    return None
 
 
 def _resolve_vep_cache_root(args: argparse.Namespace) -> str:
@@ -24,96 +83,86 @@ def _resolve_vep_cache_root(args: argparse.Namespace) -> str:
     return os.path.expanduser("~/.vep")
 
 
-def cmd_vep_download(args: argparse.Namespace) -> bool:
+def _verify_vep_tarball(base_url: str, target_path: str, filename: str) -> None:
+    checksum_url = f"{base_url}/CHECKSUMS"
+    checksum_path = target_path + ".CHECKSUMS"
+    logging.info(LOG_MESSAGES["vep_verifying_checksums"])
+    try:
+        run_command(
+            ["curl", "--fail", "-sS", "-L", "-o", checksum_path, checksum_url],
+            capture_output=True,
+        )
+        expected = _expected_bsd_sum(checksum_path, filename)
+    except (OSError, subprocess.SubprocessError, ValueError) as e:
+        logging.warning(f"Checksum verification could not be completed: {e}")
+        return
+    finally:
+        if os.path.exists(checksum_path):
+            os.remove(checksum_path)
+
+    if expected is None:
+        logging.warning(f"{filename} is not listed in {checksum_url}; not verified.")
+        return
+    actual = calculate_bsd_sum(target_path)
+    if actual != expected:
+        # Drop the corrupt tarball so the next attempt downloads it afresh.
+        os.remove(target_path)
+        raise WGSExtractError(
+            LOG_MESSAGES["vep_checksum_failed"].format(
+                expected_sum=expected[0],
+                expected_blocks=expected[1],
+                actual_sum=actual[0],
+                actual_blocks=actual[1],
+            )
+        )
+    logging.info(
+        LOG_MESSAGES["vep_checksum_ok"].format(sum=actual[0], blocks=actual[1])
+    )
+
+
+def cmd_vep_download(args: argparse.Namespace) -> None:
     verify_dependencies(["curl", "tar"])
 
-    vep_version = args.vep_version
     species = args.species
-    assembly = args.assembly
-    mirror = args.mirror
-
-    mirror_hosts = {
-        "us-east": "useast.ensembl.org",
-        "uk": "ftp.ensembl.org",
-        "asia": "asia.ensembl.org",
-        "aws": "annotation-cache",
-    }
-    host = mirror_hosts.get(mirror, "useast.ensembl.org")
-
+    vep_version = args.vep_version
+    base_url = (
+        f"{VEP_MIRRORS[args.mirror]}/release-{vep_version}/variation/indexed_vep_cache"
+    )
     cache_root = _resolve_vep_cache_root(args)
     os.makedirs(cache_root, exist_ok=True)
 
-    filename = f"{species}_vep_{vep_version}_{assembly}.tar.gz"
-    url = f"https://{host}/pub/release-{vep_version}/variation/indexed_vep_cache/{filename}"
+    filename = f"{species}_vep_{vep_version}_{args.assembly}.tar.gz"
     target_path = os.path.join(cache_root, filename)
-
-    progress_callback = getattr(args, "progress_callback", None)
     cancel_event = getattr(args, "cancel_event", None)
 
-    logging.info(LOG_MESSAGES["vep_downloading"].format(host=host))
-    success = download_file(url, target_path, progress_callback, cancel_event)
-    if not success:
-        if cancel_event and cancel_event.is_set():
-            logging.info("Download cancelled.")
-        else:
-            logging.error("Download failed.")
-        return False
+    def cancelled() -> bool:
+        return bool(cancel_event and cancel_event.is_set())
 
+    logging.info(LOG_MESSAGES["vep_downloading"].format(host=base_url))
+    if not download_file(
+        f"{base_url}/{filename}",
+        target_path,
+        getattr(args, "progress_callback", None),
+        cancel_event,
+    ):
+        raise WGSExtractError(
+            "VEP cache download cancelled."
+            if cancelled()
+            else f"VEP cache download failed: {base_url}/{filename}"
+        )
+
+    _verify_vep_tarball(base_url, target_path, filename)
+    if cancelled():
+        raise WGSExtractError("VEP cache download cancelled before extraction.")
+
+    logging.info(LOG_MESSAGES["vep_extracting"].format(filename=filename))
     try:
-        checksum_url = f"https://{host}/pub/release-{vep_version}/variation/indexed_vep_cache/CHECKSUMS"
-        checksum_path = target_path + ".CHECKSUMS"
-        logging.info(LOG_MESSAGES["vep_verifying_checksums"])
-
-        try:
-            run_command(["curl", "-s", "-L", "-o", checksum_path, checksum_url])
-            found_sum = None
-            found_blocks = None
-            with open(checksum_path) as f:
-                for line in f:
-                    parts = line.split()
-                    if len(parts) >= 4 and parts[-1] == filename:
-                        found_sum = int(parts[0])
-                        found_blocks = int(parts[1])
-                        break
-
-            if found_sum is not None:
-                local_sum, local_blocks = calculate_bsd_sum(target_path)
-                if local_sum == found_sum and local_blocks == found_blocks:
-                    logging.info(
-                        LOG_MESSAGES["vep_checksum_ok"].format(
-                            sum=local_sum, blocks=local_blocks
-                        )
-                    )
-                else:
-                    raise WGSExtractError(
-                        LOG_MESSAGES["vep_checksum_failed"].format(
-                            expected_sum=found_sum,
-                            expected_blocks=found_blocks,
-                            actual_sum=local_sum,
-                            actual_blocks=local_blocks,
-                        )
-                    )
-        except WGSExtractError:
-            raise
-        except (OSError, subprocess.SubprocessError, ValueError) as e:
-            logging.warning(f"Checksum verification could not be completed: {e}")
-        finally:
-            if os.path.exists(checksum_path):
-                os.remove(checksum_path)
-
-        if cancel_event and cancel_event.is_set():
-            logging.info("Download cancelled before extraction.")
-            return False
-
-        logging.info(LOG_MESSAGES["vep_extracting"].format(filename=filename))
         run_command(["tar", "-xzf", target_path, "-C", cache_root])
-        logging.info(LOG_MESSAGES["vep_extraction_complete"])
-        logging.info(LOG_MESSAGES["vep_ready"].format(path=f"{cache_root}/{species}"))
-        os.remove(target_path)
-        return True
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.error(f"Post-download processing failed: {e}")
-        return False
+    except (OSError, subprocess.SubprocessError) as e:
+        raise WGSExtractError(f"Failed to extract {target_path}: {e}") from e
+    logging.info(LOG_MESSAGES["vep_extraction_complete"])
+    logging.info(LOG_MESSAGES["vep_ready"].format(path=f"{cache_root}/{species}"))
+    os.remove(target_path)
 
 
 def _chr_prefixed_standard_chrom(chrom: str) -> str | None:
@@ -143,7 +192,7 @@ def _prefix_contig_header_line(line: str) -> str:
     return line
 
 
-def cmd_vep_verify(args: argparse.Namespace) -> bool:
+def cmd_vep_verify(args: argparse.Namespace) -> None:
     vep_version = args.vep_version
     species = args.species
     assembly = args.assembly
@@ -160,9 +209,9 @@ def cmd_vep_verify(args: argparse.Namespace) -> bool:
     logging.info(LOG_MESSAGES["vep_location"].format(path=version_dir))
 
     if not os.path.exists(version_dir):
-        msg = LOG_MESSAGES["vep_cache_missing"].format(path=version_dir)
-        logging.error(msg)
-        raise WGSExtractError(msg)
+        raise WGSExtractError(
+            LOG_MESSAGES["vep_cache_missing"].format(path=version_dir)
+        )
 
     # Check for basic files
     info_file = os.path.join(version_dir, "info.txt")
@@ -186,7 +235,6 @@ def cmd_vep_verify(args: argparse.Namespace) -> bool:
         logging.info(LOG_MESSAGES["vep_chrs_ok"])
 
     logging.info(LOG_MESSAGES["vep_verification_complete"])
-    return True
 
 
 def preprocess_vcf_chr_prefix(input_path: str, output_path: str) -> None:

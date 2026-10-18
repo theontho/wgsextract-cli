@@ -3,6 +3,8 @@ import shlex
 from math import ceil
 from pathlib import Path
 
+import psutil
+
 from .runtime import (
     _WINDOWS_ABS_RE,
     DEFAULT_WSL_MEMORY_RATIO,
@@ -53,10 +55,6 @@ def translate_pacman_args(args: list[str]) -> list[str]:
     return [translate_pacman_arg(arg) for arg in args]
 
 
-def shell_join(args: list[str]) -> str:
-    return " ".join(shlex.quote(arg) for arg in args)
-
-
 def wrap_command(cmd: list[str], force_wsl: bool = False) -> list[str]:
     if not cmd:
         return cmd
@@ -79,21 +77,21 @@ def wrap_command(cmd: list[str], force_wsl: bool = False) -> list[str]:
     if not needs_wsl:
         if bundled_mode:
             translated = translate_windows_runtime_args(command_args)
-            script = _bundled_shell_prelude(bundled_mode) + shell_join(translated)
+            script = _bundled_shell_prelude(bundled_mode) + shlex.join(translated)
 
             cwd = os.getcwd()
             if _WINDOWS_ABS_RE.match(cwd):
                 script = (
                     _bundled_shell_prelude(bundled_mode)
                     + f"cd {shlex.quote(windows_runtime_path(cwd))} && "
-                    + shell_join(translated)
+                    + shlex.join(translated)
                 )
 
             return [str(bundled_runtime_bash(bundled_mode)), "-lc", script]
         return command_args
 
     translated = translate_wsl_args(command_args)
-    script = shell_join(translated)
+    script = shlex.join(translated)
 
     cwd = os.getcwd()
     if _WINDOWS_ABS_RE.match(cwd):
@@ -109,10 +107,8 @@ def get_wslconfig_path() -> Path:
 
 def _host_memory_bytes() -> int | None:
     try:
-        import psutil
-
         return int(psutil.virtual_memory().total)
-    except (ImportError, OSError, AttributeError):
+    except OSError:
         return None
 
 

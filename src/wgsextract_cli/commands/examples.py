@@ -81,10 +81,16 @@ def _planned_downloads(
     ]
 
 
+def _partial_path(destination: Path) -> Path:
+    return destination.with_name(destination.name + ".partial")
+
+
 def _download_file(
     source: str, destination: Path, method: str, aspera_key: str | None = None
 ) -> None:
-    logging.info(f"Downloading {source}")
+    """Download into <destination>.partial (resuming it if present), then rename."""
+    partial = _partial_path(destination)
+    logging.info(f"{'Resuming' if partial.exists() else 'Downloading'} {source}")
     try:
         if method == "aspera":
             key = _resolve_aspera_key(aspera_key)
@@ -105,11 +111,10 @@ def _download_file(
                     "-l",
                     ASPERA_MAX_BANDWIDTH,
                     source,
-                    str(destination),
+                    str(partial),
                 ]
             )
         else:
-            # Resume partial files if a previous large download was interrupted.
             run_command(
                 [
                     "curl",
@@ -119,12 +124,15 @@ def _download_file(
                     "--continue-at",
                     "-",
                     "--output",
-                    str(destination),
+                    str(partial),
                     source,
                 ]
             )
+        partial.replace(destination)
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        raise WGSExtractError(f"Download failed for {source}: {e}") from e
+        raise WGSExtractError(
+            f"Download failed for {source}: {e}. Re-run to resume from {partial}."
+        ) from e
 
 
 def _write_genome_config(example: GenomeExample, example_dir: Path) -> None:
@@ -168,7 +176,10 @@ def cmd_download(args: Namespace) -> None:
 
         example_dir.mkdir(parents=True, exist_ok=True)
         for source, destination, _role, transfer_method in planned:
-            if destination.exists() and not args.force:
+            if args.force:
+                destination.unlink(missing_ok=True)
+                _partial_path(destination).unlink(missing_ok=True)
+            elif destination.exists():
                 logging.info(f"Skipping existing {destination}")
                 continue
             _download_file(source, destination, transfer_method, aspera_key)
@@ -185,7 +196,6 @@ def register(
     """Register the example-genome list/download subcommands."""
     parser = subparsers.add_parser(
         "example-genome",
-        parents=[base_parser],
         help="Download curated 1000 Genomes example datasets.",
     )
     examples_subs = parser.add_subparsers(dest="examples_cmd", required=True)
@@ -198,8 +208,8 @@ def register(
     list_parser.add_argument(
         "--target-root",
         help=(
-            "Genome library root. Defaults to config genome_library, or repo-root "
-            "genomes/ when unset."
+            "Genome library root. Defaults to config genome_library, or genomes/ "
+            "in the source checkout (or user data directory) when unset."
         ),
     )
     list_parser.add_argument(
@@ -246,14 +256,15 @@ def register(
     download_parser.add_argument(
         "--target-root",
         help=(
-            "Genome library root. Defaults to config genome_library, or repo-root "
-            "genomes/ when unset."
+            "Genome library root. Defaults to config genome_library, or genomes/ "
+            "in the source checkout (or user data directory) when unset."
         ),
     )
     download_parser.add_argument(
         "--force",
         action="store_true",
-        help="Re-download files that already exist.",
+        help="Discard existing and partially downloaded files and download again. "
+        "Without it, completed files are kept and interrupted downloads resume.",
     )
     download_parser.add_argument(
         "--dry-run",

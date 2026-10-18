@@ -14,7 +14,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../s
 from wgsextract_cli.commands import _deps_runtime as deps_runtime_command  # noqa: E402
 from wgsextract_cli.commands import _deps_status as deps_status_command  # noqa: E402
 from wgsextract_cli.commands import deps as deps_command  # noqa: E402
-from wgsextract_cli.core import runtime  # noqa: E402
 from wgsextract_cli.core.dependency_checks import (  # noqa: E402
     check_all_dependencies,
     verify_dependencies,
@@ -26,7 +25,7 @@ class TestOptionalDependencies(unittest.TestCase):
     """Tests the new optional dependency handling."""
 
     @patch("wgsextract_cli.core.dependency_checks.check_dependencies")
-    @patch("wgsextract_cli.core.dependency_checks.get_jar_dir", return_value="/tmp")
+    @patch("wgsextract_cli.core.dependencies.get_jar_dir", return_value="/tmp")
     @patch("sys.exit")
     @patch("logging.error")
     @patch("logging.info")
@@ -53,7 +52,7 @@ class TestOptionalDependencies(unittest.TestCase):
         mock_exit.assert_not_called()
 
     @patch("wgsextract_cli.core.dependency_checks.check_dependencies")
-    @patch("wgsextract_cli.core.dependency_checks.get_jar_dir", return_value="/tmp")
+    @patch("wgsextract_cli.core.dependencies.get_jar_dir", return_value="/tmp")
     @patch("sys.exit")
     @patch("logging.error")
     @patch("wgsextract_cli.core.dependency_checks.sys.platform", "linux")
@@ -67,9 +66,7 @@ class TestOptionalDependencies(unittest.TestCase):
             verify_dependencies(["samtools"])
 
         # Check that it called logging.error with the fatal message
-        mock_error.assert_any_call(
-            "Fatal Error: Missing required core tools or JAR files."
-        )
+        mock_error.assert_any_call("Missing required core tools or JAR files.")
         mock_error.assert_any_call(" - samtools")
         mock_exit.assert_not_called()
 
@@ -78,7 +75,7 @@ class TestOptionalDependencies(unittest.TestCase):
         "wgsextract_cli.core.dependency_checks.check_dependencies",
         return_value=["samtools"],
     )
-    @patch("wgsextract_cli.core.dependency_checks.get_jar_dir", return_value="/tmp")
+    @patch("wgsextract_cli.core.dependencies.get_jar_dir", return_value="/tmp")
     @patch("logging.warning")
     def test_verify_mandatory_missing_on_windows_mentions_runtime_options(
         self, mock_warning, mock_jar, mock_tool_path
@@ -182,7 +179,7 @@ class TestOptionalDependencies(unittest.TestCase):
 
             with zipfile.ZipFile(archive_path) as archive:
                 with self.assertRaisesRegex(Exception, "unsafe path"):
-                    deps_status_command._safe_extract_zip(
+                    deps_runtime_command._safe_extract_zip(
                         archive, Path(tempdir) / "runtime"
                     )
 
@@ -209,7 +206,7 @@ class TestOptionalDependencies(unittest.TestCase):
             java.write_bytes(b"")
             destination = root / "runtime" / "msys2"
 
-            deps_status_command._copy_bundled_runtime_from_source(
+            deps_runtime_command._copy_bundled_runtime_from_source(
                 source, "msys2", destination
             )
 
@@ -235,7 +232,7 @@ class TestOptionalDependencies(unittest.TestCase):
             (source / "mnt").write_text("placeholder", encoding="utf-8")
             destination = root / "runtime" / "cygwin64"
 
-            deps_status_command._copy_bundled_runtime_from_source(
+            deps_runtime_command._copy_bundled_runtime_from_source(
                 source, "cygwin", destination
             )
 
@@ -245,27 +242,30 @@ class TestOptionalDependencies(unittest.TestCase):
     def test_copy_bundled_runtime_requires_expected_shell(self):
         with tempfile.TemporaryDirectory() as tempdir:
             with self.assertRaisesRegex(Exception, "expected shell"):
-                deps_status_command._copy_bundled_runtime_from_source(
+                deps_runtime_command._copy_bundled_runtime_from_source(
                     Path(tempdir), "cygwin", Path(tempdir) / "runtime" / "cygwin64"
                 )
 
-    def test_check_dependencies_with_runtime_restores_env(self):
-        env_name = runtime.RUNTIME_ENV_VAR
-        previous = os.environ.get(env_name)
-        os.environ[env_name] = "auto"
-        try:
-            with patch.object(
-                deps_status_command, "check_all_dependencies", return_value={}
-            ) as mock_check:
-                deps_status_command._check_dependencies_with_runtime("wsl")
+    def test_wsl_check_passes_runtime_explicitly_without_touching_env(self):
+        env_before = dict(os.environ)
+        results = {
+            "mandatory": [{"name": "samtools", "path": "wsl:samtools"}],
+            "optional": [],
+        }
+        with (
+            patch.object(
+                deps_status_command.runtime, "detect_wsl_available", return_value=True
+            ),
+            patch.object(deps_status_command, "_run_wsl_info", return_value="x"),
+            patch.object(
+                deps_status_command, "check_all_dependencies", return_value=results
+            ) as mock_check,
+            patch("sys.stdout", new_callable=StringIO),
+        ):
+            deps_status_command.run_wsl_check(Namespace())
 
-            mock_check.assert_called_once_with()
-            self.assertEqual(os.environ[env_name], "auto")
-        finally:
-            if previous is None:
-                os.environ.pop(env_name, None)
-            else:
-                os.environ[env_name] = previous
+        mock_check.assert_called_once_with(runtime_mode="wsl")
+        self.assertEqual(dict(os.environ), env_before)
 
     @patch("wgsextract_cli.core.dependencies.shutil.which", return_value=None)
     @patch("wgsextract_cli.core.runtime.should_consider_wsl", return_value=True)
@@ -412,7 +412,7 @@ class TestOptionalDependencies(unittest.TestCase):
         from wgsextract_cli.commands.deps import run
 
         # samtools present, minimap2 missing
-        mock_tool_path.side_effect = lambda x: (
+        mock_tool_path.side_effect = lambda x, _mode=None: (
             "/usr/bin/" + x if x == "samtools" else None
         )
 
@@ -440,7 +440,7 @@ class TestOptionalDependencies(unittest.TestCase):
     ):
         from wgsextract_cli.commands.deps import run
 
-        mock_tool_path.side_effect = lambda tool: {
+        mock_tool_path.side_effect = lambda tool, _mode=None: {
             "samtools": "/usr/bin/samtools",
             "sniffles": "/usr/local/bin/pixi run -e pacbio sniffles",
         }.get(tool)

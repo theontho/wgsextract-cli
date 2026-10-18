@@ -2,6 +2,7 @@ from argparse import Namespace
 from dataclasses import dataclass
 from pathlib import Path
 
+from wgsextract_cli.core import runtime
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.utils import WGSExtractError
 
@@ -242,10 +243,6 @@ def _filter_examples_by_tags(
     return [example for example in examples if wanted.issubset(set(example.tags))]
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
-
-
 def _target_root(override: str | None) -> Path:
     """Return a canonical genome-library root, resolving symlinks for consistency."""
     if override:
@@ -253,7 +250,7 @@ def _target_root(override: str | None) -> Path:
     elif settings.get("genome_library"):
         root = Path(settings["genome_library"]).expanduser()
     else:
-        root = _repo_root() / "genomes"
+        root = runtime.repo_root() / "genomes"
     return root.resolve()
 
 

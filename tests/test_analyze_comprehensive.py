@@ -2,17 +2,17 @@ import os
 import shutil
 import unittest
 
-from tests.smoke_utils import ensure_fake_data, run_cli
+from tests.smoke_utils import REPO_ROOT, ensure_fake_data, run_cli
 
 
 class TestAnalyzeComprehensive(unittest.TestCase):
     def setUp(self):
-        self.outdir = "tmp/analyze_test_out"
+        self.outdir = str(REPO_ROOT / "out" / "tests" / "analyze_comprehensive")
         if os.path.exists(self.outdir):
             shutil.rmtree(self.outdir)
         os.makedirs(self.outdir, exist_ok=True)
 
-        self.fake_data_dir = "tmp/fake_data_analyze"
+        self.fake_data_dir = str(REPO_ROOT / "out" / "fake_30x")
         ensure_fake_data(self.fake_data_dir)
 
         self.bam = os.path.join(self.fake_data_dir, "fake.bam")
@@ -77,9 +77,12 @@ class TestAnalyzeComprehensive(unittest.TestCase):
         print(stdout)
         print(stderr)
 
+        self.assertEqual(rc, 0, stderr)
         self.assertIn("Processing Input VCFs (2 files)", stdout)
-        # It should produce merged.vcf.gz
-        self.assertTrue(
+        # The test environment has no annotation databases, so discovery is
+        # skipped rather than reporting a misleading "0 significant variants".
+        self.assertIn("no annotation data is installed", stdout + stderr)
+        self.assertFalse(
             os.path.exists(
                 os.path.join(self.outdir, "significant_snp-indel_fake.vcf.gz")
             )

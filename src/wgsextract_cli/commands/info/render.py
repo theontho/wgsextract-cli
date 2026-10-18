@@ -3,15 +3,17 @@ import io
 import json
 import logging
 import os
+import re
 import subprocess
+import tempfile
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 from wgsextract_cli.core.messages import LOG_MESSAGES
-from wgsextract_cli.core.utils import run_command
-from wgsextract_cli.core.variant_files import popen
+from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
+from wgsextract_cli.core.variant_files import chromosome_aliases
 
-from .metrics import IdxStat
+from .metrics import IdxStat, contig_key, is_primary_contig
 
 
 def render_info(data: Mapping[str, Any], detailed: bool = False) -> str:
@@ -161,32 +163,175 @@ def render_info(data: Mapping[str, Any], detailed: bool = False) -> str:
     return "\n".join(output_lines) + "\n"
 
 
-def run_full_coverage(
-    input_p: str, ref_p: str | None, out_p: str, region: str | None = None
-) -> None:
-    """Long-running full breadth coverage pipeline."""
-    if os.path.exists(out_p) and os.path.getsize(out_p) > 120:
-        return
-    print(LOG_MESSAGES["info_full_coverage"].format(path=out_p))
-    awk = '{ names[$1]=$1 ; if($3==0){zero[$1]++} else {nz[$1]++ ; sumnz[$1]+=$3 ; if($3>7){nI[$1]++ ; sumnI[$1]+=$3} else {if($3>3){n7[$1]++ ; sumn7[$1]+=$3} else {n3[$1]++ ; sumn3[$1]+=$3} } } } END { printf("%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n","chr","zero","nonzero","sum nz","fract nz","avg nz","avg all","TotalBC","Bet1-3","sum Bet1-3","Bet4-7","sum Bet4-7","Gtr7","sum Gtr7"); for (x in names) { totalbc = zero[x]+nz[x]+1 ; printf("%s\\t%d\\t%d\\t%d\\t%f\\t%f\\t%f\\t%d\\t%d\\t%d\\t%d\\t%d\\t%d\\t%d\\n",x,zero[x],nz[x],sumnz[x],nz[x]/totalbc,sumnz[x]/(nz[x]+1),sumnz[x]/totalbc,totalbc-1,n3[x],sumn3[x],n7[x],sumn7[x],nI[x],sumnI[x]) } }'
+SAMPLE_WINDOW_BP = 1000
+SAMPLE_WINDOW_BUDGET = 1000
+SAMPLE_MIN_WINDOWS_PER_CONTIG = 10
 
-    opts = []
-    if input_p.lower().endswith(".cram") and ref_p:
-        if os.path.isfile(str(ref_p)):
-            opts = ["--reference", str(ref_p)]
 
+def region_file_tag(region: str | None) -> str:
+    """Filename-safe tag that keys per-region coverage outputs."""
+    if not region:
+        return ""
+    return "_" + (re.sub(r"[^A-Za-z0-9.]+", "_", region).strip("_") or "region")
+
+
+def _cram_reference_opts(input_p: str, ref_p: str | None) -> list[str]:
+    if input_p.lower().endswith(".cram") and ref_p and os.path.isfile(ref_p):
+        return ["--reference", ref_p]
+    return []
+
+
+def _is_fresh_output(path: str, input_p: str) -> bool:
+    """True when ``path`` is a non-empty file written after ``input_p`` last changed."""
     try:
-        region_args = ["-r", region] if region else []
-        cmd = ["samtools", "depth", "-aa"] + region_args + opts + [input_p]
-        cmd = [x for x in cmd if x is not None]
-        with open(out_p, "w") as output:
-            p1 = popen(cmd, stdout=subprocess.PIPE)
-            p2 = popen(["awk", awk], stdin=p1.stdout, stdout=output)
-            if p1.stdout:
-                p1.stdout.close()
-            p2.communicate()
-    except (OSError, subprocess.SubprocessError) as e:
-        logging.error(f"Coverage failed: {e}")
+        return os.path.getsize(path) > 0 and os.path.getmtime(path) >= os.path.getmtime(
+            input_p
+        )
+    except OSError:
+        return False
+
+
+def _breadth_map(
+    covered: Mapping[str, tuple[int, int]], with_total: bool, approx: bool = False
+) -> dict[str, str]:
+    """Format per-contig (covered, total) base counts as breadth percentages."""
+    prefix = "~" if approx else ""
+    result = {
+        contig_key(name): f"{prefix}{cov / total * 100:.0f} %"
+        for name, (cov, total) in covered.items()
+        if total > 0
+    }
+    if with_total:
+        primary = [v for k, v in covered.items() if is_primary_contig(k)]
+        total_bp = sum(total for _cov, total in primary)
+        if total_bp:
+            covered_bp = sum(cov for cov, _total in primary)
+            result["TOTAL_EST"] = f"{prefix}{covered_bp / total_bp * 100:.0f} %"
+    return result
+
+
+def _parse_samtools_coverage(path: str) -> dict[str, tuple[int, int]]:
+    covered: dict[str, tuple[int, int]] = {}
+    with open(path) as f:
+        for line in f:
+            if line.startswith("#"):
+                continue
+            p = line.rstrip("\n").split("\t")
+            if len(p) < 5:
+                continue
+            start, end, covbases = int(p[1]), int(p[2]), int(p[4])
+            covered[p[0]] = (covbases, end - start + 1)
+    return covered
+
+
+def _parse_legacy_bincvg(path: str) -> dict[str, tuple[int, int]]:
+    """Parse the older ``samtools depth | awk`` ``_bincvg.csv`` summary."""
+    covered: dict[str, tuple[int, int]] = {}
+    with open(path) as f:
+        next(f, None)
+        for line in f:
+            p = line.rstrip("\n").split("\t")
+            if len(p) > 7:
+                covered[p[0]] = (int(p[2]), int(p[7]))
+    return covered
+
+
+def run_full_coverage(
+    input_p: str,
+    ref_p: str | None,
+    out_p: str,
+    region: str | None = None,
+    legacy_p: str | None = None,
+) -> dict[str, str]:
+    """Exact per-contig breadth of coverage via ``samtools coverage``.
+
+    A previous result is reused only when it is newer than the input. For
+    whole-file runs an up-to-date legacy ``_bincvg.csv`` is also accepted.
+    """
+    with_total = not region
+    candidates = [(out_p, _parse_samtools_coverage)]
+    if legacy_p:
+        candidates.append((legacy_p, _parse_legacy_bincvg))
+    for cached, parser in candidates:
+        if _is_fresh_output(cached, input_p):
+            try:
+                covered = parser(cached)
+            except (OSError, ValueError, IndexError) as exc:
+                logging.warning(f"Ignoring unreadable coverage file {cached}: {exc}")
+                continue
+            if covered:
+                logging.info(f"Using existing coverage results from {cached}")
+                return _breadth_map(covered, with_total)
+
+    logging.info(f"Calculating breadth of coverage... saving to {out_p}")
+    tmp_p = out_p + ".tmp"
+    cmd = ["samtools", "coverage", *_cram_reference_opts(input_p, ref_p)]
+    if region:
+        cmd += ["-r", region]
+    try:
+        run_command(cmd + ["-o", tmp_p, input_p])
+        os.replace(tmp_p, out_p)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise WGSExtractError(f"samtools coverage failed for {input_p}: {exc}") from exc
+    finally:
+        if os.path.exists(tmp_p):
+            os.remove(tmp_p)
+    return _breadth_map(_parse_samtools_coverage(out_p), with_total)
+
+
+def _resolve_sample_targets(
+    idx_stats: Sequence[IdxStat], region: str | None
+) -> list[tuple[str, int, int]]:
+    """Return 1-based inclusive (contig, start, end) spans to sample."""
+    lengths = {s["name"]: s["length"] for s in idx_stats if s["name"] != "*"}
+    if not region:
+        return [
+            (name, 1, length)
+            for name, length in lengths.items()
+            if length > 100_000 and is_primary_contig(name)
+        ]
+
+    contig, start, end = region, 1, None
+    if region not in lengths and ":" in region:
+        contig, _sep, span = region.rpartition(":")
+        raw_start, _dash, raw_end = span.replace(",", "").partition("-")
+        try:
+            start = int(raw_start)
+            end = int(raw_end) if raw_end else None
+        except ValueError as exc:
+            raise WGSExtractError(f"Invalid region: {region}") from exc
+    name = next((a for a in chromosome_aliases(contig) if a in lengths), None)
+    if name is None:
+        raise WGSExtractError(f"Region contig {contig!r} is not in the input header.")
+    end = min(end or lengths[name], lengths[name])
+    if start < 1 or start > end:
+        raise WGSExtractError(f"Invalid region: {region}")
+    return [(name, start, end)]
+
+
+def _sample_windows(
+    targets: Sequence[tuple[str, int, int]],
+) -> list[tuple[str, int, int]]:
+    """Evenly spaced, non-overlapping windows (0-based half-open, BED style).
+
+    Windows are allocated in proportion to span length so the genome-wide
+    estimate is not dominated by short contigs.
+    """
+    total_len = sum(end - start + 1 for _name, start, end in targets)
+    windows = []
+    for name, start, end in targets:
+        span = end - start + 1
+        width = min(SAMPLE_WINDOW_BP, span)
+        count = max(
+            SAMPLE_MIN_WINDOWS_PER_CONTIG,
+            round(SAMPLE_WINDOW_BUDGET * span / total_len),
+        )
+        count = min(count, span // width)
+        spacing = span / count
+        for i in range(count):
+            win_start = start - 1 + int(i * spacing + (spacing - width) / 2)
+            windows.append((name, win_start, win_start + width))
+    return windows
 
 
 def run_sampled_coverage(
@@ -195,87 +340,64 @@ def run_sampled_coverage(
     idx_stats: Sequence[IdxStat],
     out_p: str,
     region: str | None = None,
-) -> None:
-    """Fast sampling-based coverage estimation."""
-    import random
-
-    print(LOG_MESSAGES["info_sampling_coverage"])
-    sample_results: dict[str, list[float]] = {}
-    total_b, covered_b = 0, 0
-
-    if region:
-        chroms = [
-            (
-                s["name"],
-                s["length"],
-                s["name"].upper().replace("CHR", "").replace("MT", "M"),
-            )
-            for s in idx_stats
-            if s["name"] == region
-        ]
-    else:
-        chroms = [
-            (
-                s["name"],
-                s["length"],
-                s["name"].upper().replace("CHR", "").replace("MT", "M"),
-            )
-            for s in idx_stats
-            if s["length"] > 100_000
-            and (
-                s["name"].upper().replace("CHR", "").isdigit()
-                or s["name"].upper().replace("CHR", "") in ["X", "Y"]
-            )
-        ]
-
-    if not chroms:
-        return
-
-    opts = []
-    if input_p.lower().endswith(".cram") and ref_p:
-        if os.path.isfile(str(ref_p)):
-            opts = ["--reference", str(ref_p)]
-
-    for _ in range(100):
-        cname, clen, cnum = random.choice(chroms)
-        start = random.randint(1, clen - 1000)
-        cmd = (
-            [
-                "samtools",
-                "depth",
-                "-a",
-                "-G",
-                "0",
-                "-Q",
-                "0",
-                "-r",
-                f"{cname}:{start}-{start + 999}",
-            ]
-            + opts
-            + [input_p]
+) -> dict[str, str]:
+    """Estimate breadth of coverage from evenly spaced 1 kb windows."""
+    targets = _resolve_sample_targets(idx_stats, region)
+    if not targets:
+        raise WGSExtractError(
+            "No primary chromosomes found to sample; use --region to choose one."
         )
-        cmd = [x for x in cmd if x is not None]
-        res = run_command(cmd, capture_output=True)
-        win_total = win_covered = 0
-        if res.stdout:
-            for line in res.stdout.splitlines():
+    windows = _sample_windows(targets)
+    logging.info(
+        f"Estimating breadth of coverage from {len(windows)} sampled windows..."
+    )
+
+    sampled = {name: 0 for name, _s, _e in targets}
+    for name, start, end in windows:
+        sampled[name] += end - start
+    covered_bp = dict.fromkeys(sampled, 0)
+    with tempfile.TemporaryDirectory(
+        dir=os.path.dirname(os.path.abspath(out_p))
+    ) as tmp:
+        bed_p = os.path.join(tmp, "windows.bed")
+        depth_p = os.path.join(tmp, "depth.tsv")
+        with open(bed_p, "w") as f:
+            f.writelines(f"{n}\t{s}\t{e}\n" for n, s, e in windows)
+        # view -M uses the index to fetch only reads overlapping the windows
+        # (depth -b alone scans the whole file). depth then reports covered
+        # positions inside the windows; -a/-aa would walk every genome position.
+        with open(depth_p, "wb") as depth_out:
+            run_pipeline(
+                [
+                    [
+                        "samtools",
+                        "view",
+                        "-u",
+                        "-M",
+                        "-L",
+                        bed_p,
+                        *_cram_reference_opts(input_p, ref_p),
+                        input_p,
+                    ],
+                    ["samtools", "depth", "-b", bed_p, "-"],
+                ],
+                stdout=depth_out,
+                description="Sampled coverage",
+            )
+        with open(depth_p) as f:
+            for line in f:
                 parts = line.split("\t")
-                if len(parts) < 3:
-                    continue
-                win_total += 1
-                if int(parts[2]) > 0:
-                    win_covered += 1
-        if win_total > 0:
-            if cnum not in sample_results:
-                sample_results[cnum] = []
-            sample_results[cnum].append(win_covered / win_total)
-            total_b += win_total
-            covered_b += win_covered
-    final_map = {
-        cnum: f"~{sum(scores) / len(scores) * 100:.0f} %"
-        for cnum, scores in sample_results.items()
+                if len(parts) >= 3 and parts[0] in covered_bp and int(parts[2]) > 0:
+                    covered_bp[parts[0]] += 1
+
+    # Scale each contig's sampled fraction to its full span so the total is
+    # length-weighted rather than window-weighted.
+    spans = {name: end - start + 1 for name, start, end in targets}
+    covered = {
+        name: (round(covered_bp[name] / sampled[name] * spans[name]), spans[name])
+        for name in sampled
     }
-    if total_b > 0:
-        final_map["TOTAL_EST"] = f"~{covered_b / total_b * 100:.0f} %"
+    final_map = _breadth_map(covered, with_total=not region, approx=True)
     with open(out_p, "w") as f:
         json.dump(final_map, f)
+    return final_map

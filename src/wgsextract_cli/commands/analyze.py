@@ -59,8 +59,7 @@ def cmd_comprehensive(args: argparse.Namespace) -> None:
     for i, v in enumerate(vcf_inputs):
         paths_to_verify[f"vcf-input-{i}"] = v
 
-    if not verify_paths_exist(paths_to_verify):
-        raise WGSExtractError("Input path verification failed.")
+    verify_paths_exist(paths_to_verify)
 
     outdir = args.outdir if args.outdir else os.getcwd()
     os.makedirs(outdir, exist_ok=True)
@@ -236,12 +235,10 @@ def cmd_batch_gen(args: argparse.Namespace) -> None:
                 samples[name]["input"] = full_path
 
             elif lower_f.endswith((".vcf.gz", ".vcf")):
-                # Avoid adding indexes as VCFs
-                if not lower_f.endswith((".tbi", ".csi")):
-                    name = clean_name(f)
-                    if name not in samples:
-                        samples[name] = {"input": None, "vcfs": []}
-                    samples[name]["vcfs"].append(full_path)
+                name = clean_name(f)
+                if name not in samples:
+                    samples[name] = {"input": None, "vcfs": []}
+                samples[name]["vcfs"].append(full_path)
 
     if not samples:
         logging.warning("No genomic files found in the directory.")
@@ -281,7 +278,8 @@ def register(
     comp_parser.add_argument(
         "--skip-calling",
         action="store_true",
-        help="Skip variant calling if --vcf-inputs is missing (fail instead).",
+        help="Without --vcf-inputs, don't call variants from --input; run only "
+        "the BAM/CRAM metrics and lineage steps.",
     )
     comp_parser.add_argument(
         "--batch",

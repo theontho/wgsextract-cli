@@ -55,6 +55,9 @@ PIXI_TOOL_ENVS = {
     "yleaf": "default",
     "vep": "vep",
     "run_deepvariant": "deepvariant",
+    "dv_make_examples.py": "deepvariant",
+    "dv_call_variants.py": "deepvariant",
+    "dv_postprocess_variants.py": "deepvariant",
     "haplogrep": "default",
     "gatk": "default",
     "delly": "default",
@@ -235,45 +238,24 @@ def _is_pixi_environment_active() -> bool:
 
 
 def _is_relative_to(path: str, parent: str) -> bool:
+    # resolve() can fail on broken Windows paths or symlink loops.
     try:
         return Path(path).resolve().is_relative_to(Path(parent).resolve())
-    except (OSError, RuntimeError, ValueError):
+    except (OSError, RuntimeError):
         return False
-
-
-def get_repo_root() -> str:
-    """
-    Attempts to find the repository root by looking for common markers.
-    Defaults to 4 levels up from this file if no markers are found.
-    """
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    # Check for pyproject.toml or .git in parents
-    probe = current_dir
-    while probe != os.path.dirname(probe):  # stop at filesystem root
-        if os.path.exists(os.path.join(probe, "pyproject.toml")) or os.path.exists(
-            os.path.join(probe, ".git")
-        ):
-            # If we found it in 'cli/', the real repo root is one level up
-            return probe
-        probe = os.path.dirname(probe)
-
-    # Fallback to hardcoded relative path if markers not found
-    return os.path.abspath(os.path.join(current_dir, "../../../.."))
 
 
 def get_jar_dir() -> str:
     """Returns the directory where JAR tools are expected to live."""
-    # Allow override via environment variable or config
     from wgsextract_cli.core.config import settings
 
-    env_path = settings.get("jar_directory")
-    if env_path and isinstance(env_path, str):
-        expanded_path = os.path.expanduser(str(env_path))
+    configured = settings.get("jar_directory")
+    if configured and isinstance(configured, str):
+        expanded_path = os.path.expanduser(configured)
         if os.path.isdir(expanded_path):
             return expanded_path
 
-    path: str = os.path.join(str(get_repo_root()), "jartools")
-    return path
+    return str(runtime.repo_root() / "jartools")
 
 
 def _candidate_bundled_runtime_modes(runtime_mode: str) -> tuple[str, ...]:
@@ -305,7 +287,7 @@ def _pixi_run_command(pixi_cmd: str, env: str, args: list[str]) -> str:
     command = [pixi_cmd, "run", "-e", env, *args]
     if runtime.is_windows_host():
         return subprocess.list2cmdline(command)
-    return " ".join(shlex.quote(part) for part in command)
+    return shlex.join(command)
 
 
 def _tool_executable_names(tool: str) -> tuple[str, ...]:
@@ -391,10 +373,23 @@ raise SystemExit(1)
     return None
 
 
-def get_tool_path(tool: str) -> str | None:
-    """Returns the path to a tool if it exists in the system PATH or pixi environments."""
-    runtime_mode = runtime.get_tool_runtime_mode()
-    should_consider_wsl = runtime.should_consider_wsl()
+def get_tool_path(tool: str, runtime_mode: str | None = None) -> str | None:
+    """Return how to invoke a tool (path or wrapper command), or None if missing.
+
+    Results are cached per process (resolution may spawn ``pixi run`` probes);
+    ``clear_tool_caches`` drops them, and config reloads call it.
+    """
+    return _resolve_tool_path(tool, runtime_mode or runtime.get_tool_runtime_mode())
+
+
+def clear_tool_caches() -> None:
+    _resolve_tool_path.cache_clear()
+    runtime_paths.clear_caches()
+
+
+@lru_cache(maxsize=256)
+def _resolve_tool_path(tool: str, runtime_mode: str) -> str | None:
+    should_consider_wsl = runtime.should_consider_wsl(runtime_mode)
     prefer_wsl = runtime_mode == "wsl"
     bundled_modes = _candidate_bundled_runtime_modes(runtime_mode)
 

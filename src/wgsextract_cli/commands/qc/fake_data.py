@@ -1,5 +1,7 @@
 import logging
 import os
+import random
+import subprocess
 
 from wgsextract_cli.core.builds import (
     is_hg37_build,
@@ -15,11 +17,18 @@ from wgsextract_cli.core.utils import (
 
 from .bam_writer import (
     _create_fast_fake_bam,
-    _write_fake_reference,
-)
-from .commands import (
     _reference_backed_sequence_provider,
+    _write_fake_reference,
+    _write_sam_header,
 )
+
+
+def fake_contig_name(chrom: str, build: str) -> str:
+    """Contig name the scaled fake-data generator uses for ``chrom`` under ``build``."""
+    bare = chrom.removeprefix("chr")
+    if bare.upper() in {"M", "MT"}:
+        return "MT" if is_hg37_build(build) else "chrM"
+    return bare if is_hg37_build(build) else f"chr{bare}"
 
 
 def generate_fake_genomics_data(
@@ -34,12 +43,10 @@ def generate_fake_genomics_data(
     legacy_bam: bool = False,
 ) -> None:
     """Generates a scaled-down or full human fake BAM, CRAM and VCF."""
-    import random
-
     if types is None:
         types = ["cram"]
 
-    random.seed(seed)
+    rng = random.Random(seed)
 
     if legacy_bam and full_size:
         raise WGSExtractError("--legacy-bam is only supported for scaled fake data.")
@@ -56,7 +63,7 @@ def generate_fake_genomics_data(
     # Pre-generate a noise buffer to use for both FASTA and BAM
     # 1MB of noise is enough to avoid obvious patterns
     noise_size = 1024 * 1024
-    noise_buffer = "".join(random.choices(["A", "C", "G", "T"], k=noise_size))
+    noise_buffer = "".join(rng.choices(["A", "C", "G", "T"], k=noise_size))
 
     def get_noise_seq(chrom_idx: int, pos: int, length: int) -> str:
         # Use a large prime offset per chromosome to ensure diversity
@@ -171,13 +178,13 @@ def generate_fake_genomics_data(
                 logging.error(msg)
                 raise WGSExtractError(msg)
     else:
-        chroms = {}
-        for i in range(1, 23):
-            name = f"chr{i}" if not is_hg19 else str(i)
-            chroms[name] = 500000 + (i * 1000)  # variety
-        chroms["chrX" if not is_hg19 else "X"] = 600000
-        chroms["chrY" if not is_hg19 else "Y"] = 400000
-        chroms["chrM" if not is_hg19 else "MT"] = 16569  # Real length for chrM
+        chroms = {
+            fake_contig_name(str(i), build): 500000 + (i * 1000)  # variety
+            for i in range(1, 23)
+        }
+        chroms[fake_contig_name("X", build)] = 600000
+        chroms[fake_contig_name("Y", build)] = 400000
+        chroms[fake_contig_name("M", build)] = 16569  # Real length for chrM
 
     # Add a dummy contig to avoid collision with known SN counts in info.py (e.g. 25)
     chroms["chrExtra" if not is_hg19 else "Extra"] = 1000
@@ -196,16 +203,16 @@ def generate_fake_genomics_data(
             # 1 variant every 2000 bp
             num_v = max(2, length // 2000)
             for _ in range(num_v):
-                v_pos = random.randint(100, length - 100)
-                v_type = random.random()
+                v_pos = rng.randint(100, length - 100)
+                v_type = rng.random()
                 if v_type < 0.8:  # SNP
                     v_list[v_pos] = (
-                        random.choice("ACGT"),
-                        random.choice("ACGT"),
+                        rng.choice("ACGT"),
+                        rng.choice("ACGT"),
                         False,
                     )
                 else:  # Indel (just a marker for now, we'll do real ones if possible)
-                    v_list[v_pos] = (random.choice("ACGT"), "AT", True)
+                    v_list[v_pos] = (rng.choice("ACGT"), "AT", True)
             consistent_variants[name] = v_list
 
     ref_path_was_provided = bool(ref_path)
@@ -254,20 +261,7 @@ def generate_fake_genomics_data(
             )
         else:
             with open(sam_path, "w") as f:
-                f.write("@HD\tVN:1.6\tSO:coordinate\n")
-
-                # Embed MD5 in Read Group Description so it survives into BAM and is visible to samtools view -H
-                rg_line = "@RG\tID:sample1\tSM:sample1\tPL:ILLUMINA"
-                if target_md5:
-                    rg_line += f"\tDS:MD5:{target_md5}"
-                f.write(rg_line + "\n")
-
-                if target_md5:
-                    f.write(f"@CO\tMD5:{target_md5}\n")
-
-                # Always write SQ lines from chroms dict for fake data
-                for name, length in chroms.items():
-                    f.write(f"@SQ\tSN:{name}\tLN:{length}\n")
+                _write_sam_header(f.write, chroms, target_md5)
 
                 # Generate reads chromosome by chromosome (sorted)
                 for idx, (name, length) in enumerate(chroms.items()):
@@ -282,16 +276,16 @@ def generate_fake_genomics_data(
                     cv = consistent_variants.get(name, {})
                     for i in range(num_pairs):
                         # Randomize read length and insert size
-                        rl1 = int(random.gauss(base_read_len, 2))
-                        rl2 = int(random.gauss(base_read_len, 2))
+                        rl1 = int(rng.gauss(base_read_len, 2))
+                        rl2 = int(rng.gauss(base_read_len, 2))
                         # Ensure lengths are reasonable
                         rl1 = max(50, min(150, rl1))
                         rl2 = max(50, min(150, rl2))
 
-                        ins = int(random.gauss(base_insert_size, 15))
+                        ins = int(rng.gauss(base_insert_size, 15))
                         ins = max(rl1 + rl2 + 10, ins)  # Ensure no weird overlaps
 
-                        pos1 = random.randint(1, length - ins - 100)
+                        pos1 = rng.randint(1, length - ins - 100)
                         pos2 = pos1 + ins - rl2
 
                         read_id = f"read_{name}_{i}"
@@ -434,7 +428,7 @@ def generate_fake_genomics_data(
                     num_variants = 2
 
                 positions = sorted(
-                    [random.randint(1, length) for _ in range(num_variants)]
+                    [rng.randint(1, length) for _ in range(num_variants)]
                 )
 
                 batch_size = 50000
@@ -443,10 +437,8 @@ def generate_fake_genomics_data(
                     lines = []
                     for pos in batch:
                         # Randomized REF/ALT using the seeded random generator
-                        ref = random.choice(["A", "C", "G", "T"])
-                        alt = random.choice(
-                            [b for b in ["A", "C", "G", "T"] if b != ref]
-                        )
+                        ref = rng.choice(["A", "C", "G", "T"])
+                        alt = rng.choice([b for b in ["A", "C", "G", "T"] if b != ref])
 
                         lines.append(
                             f"{name}\t{pos}\t.\t{ref}\t{alt}\t100\tPASS\t.\tGT\t0/1\n"
@@ -475,12 +467,10 @@ def generate_fake_genomics_data(
                 r1_path,
                 "-2",
                 r2_path,
-                "-0",
-                "/dev/null",  # Ignore any singleton reads
-                "-s",
-                "/dev/null",  # Ignore any shared reads
                 bam_path,
-            ]
+            ],
+            # Fake reads are all properly paired; discard anything else.
+            stdout=subprocess.DEVNULL,
         )
         logging.info(f"Created {r1_path}")
         logging.info(f"Created {r2_path}")

@@ -4,7 +4,9 @@ import os
 import time
 
 from wgsextract_cli.core.builds import (
+    is_hg37_build,
     is_hg38_build,
+    is_t2t_build,
     ploidy_for_build,
 )
 from wgsextract_cli.core.dependency_checks import (
@@ -12,6 +14,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
+from wgsextract_cli.core.reference_assets import input_stem
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -70,6 +73,22 @@ def _template_search_roots(ref_fasta: str, lib: ReferenceLibrary) -> list[str]:
     return roots
 
 
+def _liftover_chain_for(lib: ReferenceLibrary) -> str | None:
+    """Return the hg38->hg19 chain when liftover is needed (vendor templates use hg19)."""
+    if lib.build and is_t2t_build(lib.build):
+        raise WGSExtractError(
+            "Microarray formats use hg19 coordinates; T2T input is not supported."
+        )
+    if not (lib.build and is_hg38_build(lib.build)):
+        return None
+    if not lib.liftover_chain:
+        raise WGSExtractError(
+            "hg38 input needs the hg38ToHg19 liftover chain for microarray "
+            "formats, but none was found in the reference library."
+        )
+    return lib.liftover_chain
+
+
 def _convert_microarray_outputs(
     *,
     args: argparse.Namespace,
@@ -82,33 +101,30 @@ def _convert_microarray_outputs(
 ) -> None:
     from wgsextract_cli.core.microarray_utils import (
         convert_to_vendor_format,
+        get_template_format,
         liftover_hg38_to_hg19,
     )
 
     template_search_roots = _template_search_roots(ref_fasta, lib)
 
-    # 3. Liftover if needed (to hg19 for most vendors)
+    # 3. Liftover if needed (vendor templates use hg19 coordinates)
     final_txt = combined_kit_txt
-    if lib.build and is_hg38_build(lib.build):
-        hg19_txt = combined_kit_txt.replace(".txt", "_hg19.txt")
-        if lib.liftover_chain:
-            logging.info(LOG_MESSAGES["micro_liftover_warn"])
-            start_lift = time.time()
-            try:
-                liftover_hg38_to_hg19(
-                    combined_kit_txt,
-                    hg19_txt,
-                    lib.liftover_chain,
-                    templates_dir=template_search_roots,
-                )
-                final_txt = hg19_txt
-                lift_duration = time.time() - start_lift
-                logging.info(f"Liftover took {lift_duration:.2f}s")
-            except (OSError, ValueError, WGSExtractError) as e:
-                logging.error(f"Liftover failed: {e}")
-                raise WGSExtractError("Microarray liftover failed.") from e
-        else:
-            logging.warning("Liftover requested but chain file not found.")
+    chain = _liftover_chain_for(lib)
+    if chain:
+        hg19_txt = os.path.splitext(combined_kit_txt)[0] + "_hg19.txt"
+        logging.info(LOG_MESSAGES["micro_liftover_warn"])
+        start_lift = time.time()
+        try:
+            liftover_hg38_to_hg19(
+                combined_kit_txt,
+                hg19_txt,
+                chain,
+                templates_dir=template_search_roots,
+            )
+        except (OSError, ValueError) as e:
+            raise WGSExtractError(f"Microarray liftover failed: {e}") from e
+        final_txt = hg19_txt
+        logging.info(f"Liftover took {time.time() - start_lift:.2f}s")
 
     # 4. Convert to vendor formats
     requested_formats = args.formats.split(",")
@@ -120,21 +136,16 @@ def _convert_microarray_outputs(
 
         logging.info(LOG_MESSAGES["micro_generating_fmt"].format(format=real_fmt))
 
-        output_file = os.path.join(outdir, f"{base_name}_{real_fmt}.txt")
-        if "MyHeritage" in real_fmt or "FTDNA" in real_fmt:
-            output_file = output_file.replace(".txt", ".csv")
-
+        fmt_info = get_template_format(real_fmt)
+        suffix = fmt_info["suffix"] if fmt_info else ".txt"
+        output_file = os.path.join(outdir, f"{base_name}_{real_fmt}{suffix}")
         try:
             convert_to_vendor_format(
                 real_fmt, final_txt, output_file, template_search_roots
             )
-            logging.info(f"Generated {output_file}")
-        except WGSExtractError as e:
-            logging.error(f"Failed to generate {real_fmt}: {e}")
-            raise
-        except (OSError, ValueError) as e:
-            logging.error(f"Failed to generate {real_fmt}: {e}")
+        except (OSError, ValueError, WGSExtractError) as e:
             raise WGSExtractError(f"Failed to generate {real_fmt}: {e}") from e
+        logging.info(f"Generated {output_file}")
     fmt_duration = time.time() - start_fmt
     logging.info(f"Format conversion (all) took {fmt_duration:.2f}s")
 
@@ -143,15 +154,12 @@ def _convert_microarray_outputs(
 
 
 def run(args: argparse.Namespace) -> None:
-    verify_dependencies(["bcftools", "tabix", "samtools"])
-    log_dependency_info(["bcftools", "tabix", "samtools"])
-
     if not args.input:
-        logging.error(LOG_MESSAGES["input_required"])
-        return
+        raise WGSExtractError(LOG_MESSAGES["input_required"])
+    verify_paths_exist({"--input": args.input})
 
-    if not verify_paths_exist({"--input": args.input}):
-        return
+    verify_dependencies(["bcftools", "tabix", "bgzip", "samtools"])
+    log_dependency_info(["bcftools", "tabix", "bgzip", "samtools"])
 
     logging.debug(f"Input file: {os.path.abspath(args.input)}")
 
@@ -186,28 +194,31 @@ def run(args: argparse.Namespace) -> None:
         message = f"--ref-vcf-tab not found: {ref_vcf_tab}"
         raise WGSExtractError(message)
 
+    _liftover_chain_for(lib)  # fail before variant calling, not after
+    os.makedirs(outdir, exist_ok=True)
+
     start_total = time.time()
 
     print_warning("ButtonMicroarray", threads=threads)
 
     # 1. Variant Calling or VCF Extraction
-    base_name = os.path.basename(args.input).split(".")[0]
+    base_name = input_stem(args.input)
     out_vcf = os.path.join(outdir, f"{base_name}_combined.vcf.gz")
     is_vcf = args.input.endswith((".vcf", ".vcf.gz", ".bcf"))
 
     region_args = ["-r", args.region] if args.region else []
 
-    # Resolve ploidy alias from build if no file provided
-    ploidy_val = "1"  # Default to haploid if unknown
-    if lib.build:
-        try:
-            ploidy_val = ploidy_for_build(lib.build)
-        except ValueError:
-            pass
-
-    ploidy_args = (
-        ["--ploidy-file", ploidy_file] if ploidy_file else ["--ploidy", ploidy_val]
-    )
+    # Without a ploidy file, use the build's predefined ploidy; for an unknown
+    # build fall back to all-diploid (never haploid autosomes).
+    if ploidy_file:
+        ploidy_args = ["--ploidy-file", ploidy_file]
+    elif lib.build and (is_hg37_build(lib.build) or is_hg38_build(lib.build)):
+        ploidy_args = ["--ploidy", ploidy_for_build(lib.build)]
+    else:
+        logging.warning(
+            f"Unknown reference build {lib.build!r}; calling all chromosomes diploid."
+        )
+        ploidy_args = ["--ploidy", "2"]
 
     start_vcf = time.time()
 

@@ -1,18 +1,9 @@
-import unittest
-
-from e2e_base import TestE2EBase
+from tests.e2e_base import E2EBase
 
 
-class TestE2EFocused(TestE2EBase):
-    """
-    Focused E2E tests targeting specific regions (usually chrM).
-    Fast and suitable for routine verification.
-    """
+class TestE2EFocused(E2EBase):
+    """Focused E2E run restricted to chrM; fast enough for routine verification."""
 
     REGION = "chrM"
     MODE = "CHRM"
     __test__ = True
-
-
-if __name__ == "__main__":
-    unittest.main()

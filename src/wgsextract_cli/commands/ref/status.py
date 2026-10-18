@@ -5,9 +5,10 @@ from typing import Any
 
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.gene_map import are_gene_maps_installed
-from wgsextract_cli.core.ref_library import get_genome_status
+from wgsextract_cli.core.ref_library.catalog import get_genome_status
 from wgsextract_cli.core.reference_assets import (
     build_hint,
+    default_reference_library,
     find_annotation_resource,
     find_annotation_vcf,
     first_existing_file,
@@ -141,8 +142,7 @@ def _resolve_reference_library(args: argparse.Namespace) -> str:
             return ref_path
         if os.path.isfile(ref_path):
             return _reference_library_from_fasta(ref_path)
-    prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
-    return os.path.join(prog_root, "reference")
+    return default_reference_library()
 
 
 def _reference_library_from_fasta(ref_path: str) -> str:

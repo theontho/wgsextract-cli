@@ -106,7 +106,7 @@ def test_benchmark_accepts_real_coverage_dataset_tags() -> None:
     ],
 )
 def test_benchmark_ploidy_for_build_aliases(build: str, expected_ploidy: str) -> None:
-    assert benchmark._ploidy_for_build(build) == expected_ploidy
+    assert benchmark.ploidy_for_build(build) == expected_ploidy
 
 
 def test_benchmark_download_rejects_non_http_url(tmp_path: Path, monkeypatch) -> None:
@@ -556,7 +556,6 @@ def test_heavy_processing_steps_include_local_only_commands(
         args=args,
         record=record,
         analysis_bam=tmp_path / "sample.bam",
-        generated_bam=tmp_path / "fake.bam",
         ref_path=tmp_path / "ref.fa",
         target_tab_gz=tmp_path / "targets.tab.gz",
         snp_vcf=tmp_path / "snps.vcf.gz",
@@ -564,10 +563,12 @@ def test_heavy_processing_steps_include_local_only_commands(
         unalign_r2=tmp_path / "sample_R2.fastq.gz",
         steps_dir=tmp_path / "steps",
         logs_dir=tmp_path / "logs",
-        build="hg38",
         region="chrM",
     )
 
+    all_slugs = [result.slug for result in records]
+    step_ids = [slug.split("-", 1)[0] for slug in all_slugs]
+    assert len(step_ids) == len(set(step_ids)), "benchmark step numbers must be unique"
     assert "12a-ref-count-ns" in cli_slugs
     assert "12b-ref-verify" in cli_slugs
     assert "17b-analyze-batch-gen" in cli_slugs
@@ -603,9 +604,8 @@ def test_macos_benchmark_threads_use_performance_cores(monkeypatch) -> None:
 
     assert plan.label == "8"
     assert plan.default_threads == 8
-    assert plan.per_step_threads == {}
     args._benchmark_thread_plan = plan
-    assert benchmark._benchmark_threads_for_step(args, "04-fastq-align") == 8
+    assert benchmark._benchmark_threads(args) == 8
 
 
 def test_benchmark_keeps_explicit_thread_override(monkeypatch) -> None:
@@ -617,28 +617,20 @@ def test_benchmark_keeps_explicit_thread_override(monkeypatch) -> None:
 
     assert plan.label == "4"
     assert plan.default_threads == 4
-    assert plan.per_step_threads == {}
 
 
-def test_cli_command_uses_step_thread_selection() -> None:
+def test_cli_command_uses_thread_plan() -> None:
     args = Namespace(
         debug=False,
         quiet=False,
         memory=None,
-        _benchmark_thread_plan=benchmark.BenchmarkThreadPlan(
-            "mixed", 8, {"04-fastq-align": 10}, "test mixed policy"
-        ),
+        _benchmark_thread_plan=benchmark.BenchmarkThreadPlan("8", 8, "test policy"),
     )
 
-    align_threads = benchmark._benchmark_threads_for_step(args, "04-fastq-align")
-    sort_threads = benchmark._benchmark_threads_for_step(args, "05-bam-sort")
+    threads = benchmark._benchmark_threads(args)
 
-    assert align_threads == 10
-    assert sort_threads == 8
-    assert benchmark._cli_command(args, ["align"], align_threads)[-2:] == [
-        "--threads",
-        "10",
-    ]
+    assert threads == 8
+    assert benchmark._cli_command(args, ["align"], threads)[-2:] == ["--threads", "8"]
 
 
 def test_command_region_expands_whole_contig_region(tmp_path: Path) -> None:
@@ -723,15 +715,19 @@ def test_cached_remote_file_skips_current_verified_md5(
     )
     monkeypatch.setattr(
         benchmark,
-        "_md5",
-        lambda path: (_ for _ in ()).throw(AssertionError("md5 should be cached")),
+        "_file_digest",
+        lambda path, algorithm: (_ for _ in ()).throw(
+            AssertionError("md5 should be cached")
+        ),
     )
 
     assert benchmark._cached_remote_dataset_file(remote, tmp_path) == cached
 
 
 def test_direct_real_dataset_uses_cache_root(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("WGSEXTRACT_DEV_DOWNLOAD_CACHE", "0")
+    from wgsextract_cli.core.config import settings
+
+    monkeypatch.setitem(settings, "dev_download_cache", False)
     spec = benchmark.BenchmarkDatasetSpec(
         tag="real-test",
         dataset_id="real-test",
@@ -767,3 +763,55 @@ def test_direct_real_dataset_uses_cache_root(monkeypatch, tmp_path: Path) -> Non
     assert dataset.root == tmp_path / "datasets" / spec.dataset_id
     assert (tmp_path / "run-dataset" / "real-test-cache-root.txt").exists()
     assert not (tmp_path / "run-dataset" / spec.tag / "sample.bam").exists()
+
+
+@pytest.mark.parametrize(
+    ("build", "region", "expected"),
+    [
+        ("hg19", "chrM", "MT"),
+        ("hg37", "chr20:1-100", "20:1-100"),
+        ("hg38", "MT", "chrM"),
+        ("t2t", "20", "chr20"),
+        ("hg38", None, None),
+    ],
+)
+def test_normalize_region_for_fake_data(build, region, expected) -> None:
+    assert benchmark._normalize_region_for_fake_data(region, build) == expected
+
+
+def test_windows_machine_stats_use_powershell_cim(monkeypatch) -> None:
+    commands = []
+
+    def fake_command_output(command, match=None, first_value=False):
+        commands.append(command)
+        assert first_value
+        return benchmark._first_value_line("3200\n3200\n\n2667\n")
+
+    monkeypatch.setattr(benchmark.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(benchmark, "_command_output", fake_command_output)
+
+    assert benchmark._ram_speed() == "3200, 2667 MT/s"
+    assert commands[0][0] == "powershell"
+    assert "Get-CimInstance Win32_PhysicalMemory" in commands[0][-1]
+    assert not any("wmic" in part for command in commands for part in command)
+
+
+def test_dataset_zip_sha256_is_verified_once(monkeypatch, tmp_path: Path) -> None:
+    zip_path = tmp_path / "dataset.zip"
+    zip_path.write_bytes(b"zip")
+    digest = benchmark._file_digest(zip_path, "sha256")
+    calls = []
+    real_digest = benchmark._file_digest
+
+    def counting_digest(path, algorithm):
+        calls.append(algorithm)
+        return real_digest(path, algorithm)
+
+    monkeypatch.setattr(benchmark, "_file_digest", counting_digest)
+    args = Namespace(dataset_zip=str(zip_path), dataset_sha256=digest)
+
+    assert benchmark._real_dataset_zip_path(args, tmp_path) == zip_path.resolve()
+    assert calls == ["sha256"]
+    args.dataset_sha256 = "0" * 64
+    with pytest.raises(benchmark.WGSExtractError, match="SHA256 mismatch"):
+        benchmark._real_dataset_zip_path(args, tmp_path)

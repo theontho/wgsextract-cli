@@ -36,31 +36,6 @@ def chr_to_int(chrom: str | int) -> int:
         return 99  # Unknown
 
 
-def sort_microarray_file(input_file: str, output_file: str) -> None:
-    """
-    Sorts a microarray TSV file by chromosome and position.
-    """
-    data = []
-    header = []
-    with open(input_file) as f:
-        for line in f:
-            if line.startswith("#"):
-                header.append(line)
-                continue
-            parts = line.strip().split("\t")
-            if len(parts) >= 3:
-                data.append(parts)
-
-    # Sort by chromosome (using chr_to_int) and then position
-    data.sort(key=lambda x: (chr_to_int(x[1]), int(x[2])))
-
-    with open(output_file, "w") as f:
-        for line in header:
-            f.write(line)
-        for parts in data:
-            f.write("\t".join(parts) + "\n")
-
-
 def _chrom_for_liftover(chrom: str) -> str:
     if chrom in {"M", "MT", "chrM", "chrMT"}:
         return "chrM"
@@ -133,14 +108,6 @@ def _resolve_templates_roots(templates_dir: TemplateSearchInput) -> list[str]:
     return roots
 
 
-def _resolve_templates_root(templates_dir: TemplateSearchInput) -> str | None:
-    """Resolve the first available raw_file_templates root."""
-    roots = _resolve_templates_roots(templates_dir)
-    if roots:
-        return roots[0]
-    return None
-
-
 def _template_body_paths(
     templates_root: str, format_name: str, fmt_info: TemplateFormat
 ) -> list[str]:
@@ -194,56 +161,49 @@ def liftover_hg38_to_hg19(
     # Primary 25 sequences as in legacy code
     valid_chroms = [f"chr{i}" for i in range(1, 23)] + ["chrX", "chrY", "chrM"]
 
-    # Use a temporary file for unsorted liftover results
-    tmp_txt = output_txt + ".tmp"
-    headers = []
+    headers: list[str] = []
+    data: list[tuple[int, int, str]] = []
 
-    with open(tmp_txt, "w") as f_sink:
-        with open(input_txt) as f_source:
-            for line in f_source:
-                if line.startswith("#"):
-                    headers.append(line)
-                    continue
+    with open(input_txt) as f_source:
+        for line in f_source:
+            if line.startswith("#"):
+                headers.append(line)
+                continue
 
-                parts = line.strip().split("\t")
-                if len(parts) < 4:
-                    continue
+            parts = line.strip().split("\t")
+            if len(parts) < 4:
+                continue
 
-                snp_id, chrom, pos, result = parts[0], parts[1], parts[2], parts[3]
+            snp_id, chrom, pos, result = parts[0], parts[1], parts[2], parts[3]
 
-                # Normalize chromosome name for pyliftover
-                old_chrom = _chrom_for_liftover(chrom)
+            try:
+                new_coord = lo.convert_coordinate(_chrom_for_liftover(chrom), int(pos))
+            except (ValueError, TypeError):
+                continue
 
-                try:
-                    new_coord = lo.convert_coordinate(old_chrom, int(pos))
-                except (ValueError, TypeError):
-                    continue
-
-                if new_coord:
-                    new_chrom = new_coord[0][0]
-                    new_pos = new_coord[0][1]
-
-                    if new_chrom in valid_chroms:
-                        # Normalize back to legacy format (no 'chr', M->MT)
-                        out_chrom = _chrom_from_liftover(new_chrom)
-                        f_sink.write(f"{snp_id}\t{out_chrom}\t{new_pos}\t{result}\n")
-                    else:
-                        bad_chrom += 1
-                else:
-                    bad_pos += 1
+            if not new_coord:
+                bad_pos += 1
+                continue
+            new_chrom, new_pos = new_coord[0][0], new_coord[0][1]
+            if new_chrom not in valid_chroms:
+                bad_chrom += 1
+                continue
+            # Normalize back to legacy format (no 'chr', M->MT)
+            out_chrom = _chrom_from_liftover(new_chrom)
+            data.append(
+                (
+                    chr_to_int(out_chrom),
+                    int(new_pos),
+                    f"{snp_id}\t{out_chrom}\t{new_pos}\t{result}\n",
+                )
+            )
 
     if bad_chrom or bad_pos:
         logging.warning(
             f"Liftover partially failed: {bad_chrom} to AltContig, {bad_pos} not in new model"
         )
 
-    # Now sort the temporary file and add the header
-    data = []
-    with open(tmp_txt) as f:
-        for line in f:
-            data.append(line.strip().split("\t"))
-
-    data.sort(key=lambda x: (chr_to_int(x[1]), int(x[2])))
+    data.sort(key=lambda row: (row[0], row[1]))
 
     with open(output_txt, "w") as f:
         # 1. Use preserved headers from source if any
@@ -258,11 +218,7 @@ def liftover_hg38_to_hg19(
                         f.writelines(f_h.readlines())
                     break
 
-        for parts in data:
-            f.write("\t".join(parts) + "\n")
-
-    if os.path.exists(tmp_txt):
-        os.remove(tmp_txt)
+        f.writelines(row[2] for row in data)
 
 
 def get_template_format(format_name: str) -> TemplateFormat | None:
@@ -306,7 +262,7 @@ def write_formatted_line(
             chrom = "MT"
         f.write(f"{snp_id}\t{chrom}\t{pos}\t{result}\n")
 
-    elif format_name in ["FTDNA_V1_Affy", "MyHeritage_V2", "MyHeritage_V1"]:
+    elif format_name in ["MyHeritage_V2", "MyHeritage_V1"]:
         # MyHeritage V1 specific genotype swap
         if format_name == "MyHeritage_V1":
             if result == "CT":
@@ -356,51 +312,40 @@ def convert_to_vendor_format(
         templates_dir, format_name, fmt_info
     )
 
-    # Handle multiple parts (concatenated at the end)
-    temp_files: list[str] = []
-    for i, body_template in enumerate(body_templates, start=1):
-        part_out = output_path + f".part{i}"
-        temp_files.append(part_out)
-
-        with open(part_out, "w") as f_out:
-            with open(body_template) as f_temp:
-                for line in f_temp:
-                    line = line.strip().replace('"', "")
-                    if not line:
-                        continue
-
-                    # Parse template line
-                    parts = (
-                        line.split(",")
-                        if fmt_info["suffix"] == ".csv"
-                        else line.split("\t")
-                    )
-                    if len(parts) < 3:
-                        continue
-
-                    # Templates are usually: ID, CHROM, POS
-                    t_id, t_chrom, t_pos = parts[0], parts[1], parts[2]
-
-                    # Lookup called result
-                    result = called_variants.get((str(t_chrom), str(t_pos)), "--")
-                    if "Ancestry" in format_name and result == "--":
-                        result = "00"
-
-                    write_formatted_line(
-                        f_out, format_name, t_id, t_chrom, t_pos, result
-                    )
-
-    # Concatenate parts and add header
     head_template = os.path.join(
         templates_root, "head", f"{format_name}{fmt_info['suffix']}"
     )
-    with open(output_path, "wb") as f_final:
-        if os.path.exists(head_template):
-            with open(head_template, "rb") as f_h:
-                f_final.write(f_h.read())
+    # Write to a temp name so a failure never leaves a truncated vendor file.
+    # newline="" keeps LF line endings on every platform, as the legacy tool did.
+    tmp_path = output_path + ".tmp"
+    try:
+        with open(tmp_path, "w", newline="") as f_out:
+            if os.path.exists(head_template):
+                with open(head_template, newline="") as f_h:
+                    f_out.write(f_h.read())
 
-        for part_file in temp_files:
-            if os.path.exists(part_file):
-                with open(part_file, "rb") as f_p:
-                    f_final.write(f_p.read())
-                os.remove(part_file)
+            for body_template in body_templates:
+                with open(body_template) as f_temp:
+                    for line in f_temp:
+                        line = line.strip().replace('"', "")
+                        if not line:
+                            continue
+
+                        # Templates are: ID, CHROM, POS
+                        parts = (
+                            line.split(",")
+                            if fmt_info["suffix"] == ".csv"
+                            else line.split("\t")
+                        )
+                        if len(parts) < 3:
+                            continue
+                        t_id, t_chrom, t_pos = parts[0], parts[1], parts[2]
+
+                        result = called_variants.get((t_chrom, t_pos), "--")
+                        write_formatted_line(
+                            f_out, format_name, t_id, t_chrom, t_pos, result
+                        )
+        os.replace(tmp_path, output_path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)

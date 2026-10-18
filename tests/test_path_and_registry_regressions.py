@@ -12,7 +12,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../s
 from wgsextract_cli.core.dependencies import get_jar_dir
 from wgsextract_cli.core.process_registry import proc_registry
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
-from wgsextract_cli.core.variant_files import popen, verify_paths_exist
+from wgsextract_cli.core.utils import popen
+from wgsextract_cli.core.variant_files import verify_paths_exist
 
 
 class TestPathNormalizationAndProcessRegistry(unittest.TestCase):
@@ -26,7 +27,7 @@ class TestPathNormalizationAndProcessRegistry(unittest.TestCase):
 
             tilde_path = str(target).replace(str(Path.home()), "~", 1)
 
-            self.assertTrue(verify_paths_exist({"--input": tilde_path}))
+            verify_paths_exist({"--input": tilde_path})
 
     def test_reference_library_expands_tilde_root(self):
         with tempfile.TemporaryDirectory(dir=str(Path.home())) as tmp_dir:
@@ -60,7 +61,10 @@ class TestPathNormalizationAndProcessRegistry(unittest.TestCase):
 
         proc1.wait()
         proc2.wait()
-        time.sleep(0.2)
+        # Registry cleanup happens on a watcher thread; poll with a deadline.
+        deadline = time.monotonic() + 10
+        while cmd_key in proc_registry.processes and time.monotonic() < deadline:
+            time.sleep(0.01)
 
         self.assertNotIn(cmd_key, proc_registry.processes)
 

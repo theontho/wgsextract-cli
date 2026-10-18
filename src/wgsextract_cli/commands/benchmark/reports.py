@@ -1,28 +1,102 @@
 import json
+import os
+import platform
 import shlex
+import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from wgsextract_cli.core.utils import (
-    WGSExtractError,
-    run_command,
-)
-from wgsextract_cli.core.variant_files import (
-    chromosome_aliases,
-)
-
 from .machine import (
     MACHINE_STAT_FIELDS,
-    _format_stdout_report,
     _machine_stat_display_value,
-    _system_metadata,
-    _write_github_step_summary,
 )
-from .models import (
-    BenchmarkResult,
-    _read_fai,
-)
+from .models import BenchmarkResult
+
+
+def _system_metadata() -> dict[str, str]:
+    return {
+        "platform": platform.platform(),
+        "python": sys.version.replace("\n", " "),
+        "executable": sys.executable,
+    }
+
+
+def _format_tool_names(tools: list[dict[str, str | bool | None]]) -> str:
+    active_tools = [str(tool["name"]) for tool in tools if tool["active"]]
+    return ", ".join(active_tools) if active_tools else "none"
+
+
+def _format_machine_summary(stats: dict[str, str | int | None]) -> str:
+    cores = _machine_stat_display_value(stats, "cores") or "unknown cores"
+    ram = stats.get("ram_total") or "unknown RAM"
+    disk_free = stats.get("disk_free") or "unknown disk free"
+    os_name = stats.get("os") or "unknown OS"
+    cpu = stats.get("cpu_model") or "unknown CPU"
+    return f"{os_name} | {cpu} | {cores} | RAM {ram} | disk free {disk_free}"
+
+
+def _format_stdout_report(
+    metadata: dict[str, Any], results: list[BenchmarkResult], report_md: Path
+) -> str:
+    total = sum(result.seconds for result in results if result.status != "SKIP")
+    passed = sum(1 for result in results if result.status == "PASS")
+    failed = sum(1 for result in results if result.status == "FAIL")
+    skipped = sum(1 for result in results if result.status == "SKIP")
+
+    lines = [
+        "",
+        "WGSExtract CLI Benchmark Summary",
+        f"Profile: {metadata['profile']} | Suite: {metadata['suite']} | "
+        f"Coverage: {metadata['coverage']}x | Full size: {metadata['full_size']}",
+        f"Tool runtime: {metadata['tool_runtime']}",
+        f"Data source: {metadata['data_source']} ({metadata['data_source_description']})",
+        f"Fake BAM generator: {metadata['fake_bam_generator']}",
+        f"Threads: {metadata['threads']}",
+        f"Thread policy: {metadata['thread_policy']}",
+        f"Region: {metadata['region'] or 'whole generated genome'} | Seed: {metadata['seed']}",
+        f"Base file: {metadata['base_file']} ({metadata['base_file_size'] or 'not available'})",
+        "Machine: " + _format_machine_summary(metadata["machine_stats"]),
+        "External tools: " + _format_tool_names(metadata["external_tools"]),
+        f"Excluded operations: {metadata['excluded_operations']}",
+    ]
+    lines += [
+        f"Total measured time: {total:.2f}s",
+        f"Passed: {passed} | Failed: {failed} | Skipped: {skipped}",
+        f"Markdown report: {report_md}",
+    ]
+    return "\n".join(lines)
+
+
+def _write_github_step_summary(
+    metadata: dict[str, Any], results: list[BenchmarkResult], report_md: Path
+) -> None:
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+
+    total = sum(result.seconds for result in results if result.status != "SKIP")
+    passed = sum(1 for result in results if result.status == "PASS")
+    failed = sum(1 for result in results if result.status == "FAIL")
+    skipped = sum(1 for result in results if result.status == "SKIP")
+    lines = [
+        "## WGSExtract Benchmark",
+        "",
+        "| Metric | Value |",
+        "| --- | --- |",
+        f"| Total measured time | {total:.2f}s |",
+        f"| Passed | {passed} |",
+        f"| Failed | {failed} |",
+        f"| Skipped | {skipped} |",
+        f"| Suite | {metadata['suite']} |",
+        f"| Profile | {metadata['profile']} |",
+        f"| Data source | {metadata['data_source']} |",
+        f"| Base file size | {metadata['base_file_size'] or 'not available'} |",
+        f"| Report | `{report_md}` |",
+        "",
+    ]
+    with open(summary_path, "a", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
 
 
 def _format_markdown_report(
@@ -145,68 +219,3 @@ def _write_report(
 
     _write_github_step_summary(metadata, results, report_md)
     print(stdout_report)
-
-
-def _align_output_stem(fastq_path: Path) -> str:
-    return fastq_path.name.split(".")[0]
-
-
-def _target_ranges(
-    contigs: list[tuple[str, int]], region: str | None
-) -> list[tuple[str, int, int]]:
-    if not region:
-        return [(chrom, 1, length) for chrom, length in contigs]
-
-    chrom_part, has_range, range_part = region.partition(":")
-    aliases = set(chromosome_aliases(chrom_part))
-    matching = [(chrom, length) for chrom, length in contigs if chrom in aliases]
-
-    ranges = []
-    for chrom, length in matching:
-        start = 1
-        end = length
-        if has_range:
-            raw_start, _sep, raw_end = range_part.replace(",", "").partition("-")
-            start = max(1, int(raw_start))
-            end = min(length, int(raw_end) if raw_end else length)
-        if start <= end:
-            ranges.append((chrom, start, end))
-    return ranges
-
-
-def _create_target_snp_tab(
-    ref_path: Path, target_tab_gz: Path, target_count: int, region: str | None
-) -> None:
-    fai_path = Path(str(ref_path) + ".fai")
-    if not fai_path.exists():
-        run_command(["samtools", "faidx", str(ref_path)])
-
-    contigs = _read_fai(fai_path)
-    ranges = _target_ranges(contigs, region)
-    if not ranges:
-        raise WGSExtractError(f"No reference contigs match benchmark region: {region}")
-
-    total_bases = sum(end - start + 1 for _name, start, end in ranges)
-    tab_path = target_tab_gz.with_suffix("")
-    bases = ["A", "C", "G", "T"]
-
-    with open(tab_path, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write("#CHROM\tPOS\tID\tREF\tALT\n")
-        snp_index = 1
-        for chrom, start, end in ranges:
-            length = end - start + 1
-            contig_targets = max(1, round(target_count * (length / total_bases)))
-            step = max(1, length // (contig_targets + 1))
-            for offset in range(step, length, step):
-                if snp_index > target_count and len(ranges) == 1:
-                    break
-                pos = start + offset
-                ref = bases[(snp_index + len(chrom)) % len(bases)]
-                alt = bases[(snp_index + len(chrom) + 1) % len(bases)]
-                if ref == alt:
-                    alt = bases[(bases.index(ref) + 1) % len(bases)]
-                handle.write(f"{chrom}\t{pos}\tbench_rs{snp_index}\t{ref}\t{alt}\n")
-                snp_index += 1
-
-    run_command(["bgzip", "-f", str(tab_path)])
-    run_command(["tabix", "-f", "-p", "vcf", str(target_tab_gz)])

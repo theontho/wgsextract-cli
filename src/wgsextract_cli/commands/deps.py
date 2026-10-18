@@ -6,12 +6,12 @@ from wgsextract_cli.core import (
 from wgsextract_cli.core.messages import CLI_HELP
 
 from ._deps_runtime import (
+    DEFAULT_WINDOWS_RUNTIME_RELEASE_URL,
     run_bundled_runtime_check,
     run_bundled_runtime_setup,
     run_pacman_check,
 )
 from ._deps_status import (
-    DEFAULT_WINDOWS_RUNTIME_RELEASE_URL,
     run,
     run_wsl_check,
     run_wsl_tune,
@@ -21,9 +21,7 @@ from ._deps_status import (
 def register(
     subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
 ) -> None:
-    deps_parser = subparsers.add_parser(
-        "deps", parents=[base_parser], help=CLI_HELP["cmd_deps"]
-    )
+    deps_parser = subparsers.add_parser("deps", help=CLI_HELP["cmd_deps"])
     deps_subparsers = deps_parser.add_subparsers(dest="subcommand", required=True)
 
     check_parser = deps_subparsers.add_parser(
@@ -35,15 +33,17 @@ def register(
     check_parser.set_defaults(func=run)
 
     wsl_parser = deps_subparsers.add_parser(
-        "wsl", parents=[base_parser], help="Check or tune the Windows WSL runtime."
+        "wsl", help="Check or tune the Windows WSL runtime."
     )
     wsl_subparsers = wsl_parser.add_subparsers(dest="wsl_command", required=True)
 
     wsl_check_parser = wsl_subparsers.add_parser(
-        "check", help="Check WSL runtime availability."
+        "check", parents=[base_parser], help="Check WSL runtime availability."
     )
     wsl_check_parser.set_defaults(func=run_wsl_check)
 
+    # No base_parser here: its --memory (per-thread tool memory) would clash
+    # with tune's --memory (the WSL VM memory limit).
     wsl_tune_parser = wsl_subparsers.add_parser(
         "tune",
         help="Write WSL2 resource settings. Uses host-based defaults if omitted.",
@@ -65,7 +65,6 @@ def register(
         spec = runtime_paths.bundled_runtime_spec(mode)
         bundled_parser = deps_subparsers.add_parser(
             mode,
-            parents=[base_parser],
             help=f"Set up or check the bundled Windows {spec.display_name} runtime.",
         )
         bundled_subparsers = bundled_parser.add_subparsers(
@@ -73,12 +72,16 @@ def register(
         )
 
         bundled_check_parser = bundled_subparsers.add_parser(
-            "check", help=f"Check {spec.display_name} runtime availability."
+            "check",
+            parents=[base_parser],
+            help=f"Check {spec.display_name} runtime availability.",
         )
         bundled_check_parser.set_defaults(func=run_bundled_runtime_check, mode=mode)
 
         bundled_setup_parser = bundled_subparsers.add_parser(
-            "setup", help=f"Download and extract {spec.display_name} into runtime/."
+            "setup",
+            parents=[base_parser],
+            help=f"Download and extract {spec.display_name} into runtime/.",
         )
         bundled_setup_parser.add_argument(
             "--url",
@@ -113,19 +116,21 @@ def register(
         bundled_setup_parser.add_argument(
             "--force",
             action="store_true",
-            help="Replace the existing extracted runtime directory if present.",
+            help="Replace the existing extracted runtime directory if present. "
+            "The old runtime is restored if setup fails.",
         )
         bundled_setup_parser.set_defaults(func=run_bundled_runtime_setup, mode=mode)
 
     pacman_parser = deps_subparsers.add_parser(
         "pacman",
-        parents=[base_parser],
         help="Check native Windows bio tools installed by MSYS2 UCRT64 pacman.",
     )
     pacman_subparsers = pacman_parser.add_subparsers(
         dest="pacman_command", required=True
     )
     pacman_check_parser = pacman_subparsers.add_parser(
-        "check", help="Check MSYS2 UCRT64 pacman-installed tool availability."
+        "check",
+        parents=[base_parser],
+        help="Check MSYS2 UCRT64 pacman-installed tool availability.",
     )
     pacman_check_parser.set_defaults(func=run_pacman_check)

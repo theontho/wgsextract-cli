@@ -2,10 +2,6 @@ import argparse
 from collections.abc import Callable
 from pathlib import Path
 
-from wgsextract_cli.core.builds import (
-    ploidy_for_build,
-)
-
 from .datasets import (
     _existing_dataset_outputs,
 )
@@ -13,13 +9,10 @@ from .execution import (
     _run_cli_step,
     _run_internal_step,
 )
+from .fixtures import _create_target_snp_tab
 from .models import (
     BenchmarkDataset,
     BenchmarkResult,
-)
-from .reports import (
-    _align_output_stem,
-    _create_target_snp_tab,
 )
 
 
@@ -214,5 +207,5 @@ def _run_core_benchmark_setup_steps(
     return analysis_bam, unalign_r1, unalign_r2
 
 
-def _ploidy_for_build(build: str) -> str:
-    return ploidy_for_build(build)
+def _align_output_stem(fastq_path: Path) -> str:
+    return fastq_path.name.split(".")[0]

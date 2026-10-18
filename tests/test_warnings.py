@@ -74,7 +74,7 @@ class TestWarnings(unittest.TestCase):
 
         # Dynamic calculation (60GB file)
         mock_warning.reset_mock()
-        file_size = 60 * 10**9
+        file_size = 60 * 1024**3
         temp_needed, final_needed = get_free_space_needed(file_size, "Coord", False)
         # isize_gb = 60; temp_needed = 60*1 + 60 = 120; final_needed = 60
         self.assertEqual(temp_needed, 120)

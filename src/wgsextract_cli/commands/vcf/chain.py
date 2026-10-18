@@ -5,35 +5,70 @@ import shutil
 import subprocess
 import sys
 
+from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
-from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
-from wgsextract_cli.core.utils import (
-    WGSExtractError,
-    run_command,
-)
-from wgsextract_cli.core.variant_files import (
-    calculate_bam_md5,
-    ensure_vcf_prepared,
-)
+from wgsextract_cli.core.utils import WGSExtractError, run_command
+from wgsextract_cli.core.variant_files import calculate_bam_md5, ensure_vcf_prepared
+
+from .._vep_run import vep_output_paths
+from .basic import require_vcf_input
+from .clinvar_revel import CLINVAR_ANNOTATED, REVEL_ANNOTATED
+from .population import GNOMAD_ANNOTATED, PHYLOP_ANNOTATED
+from .splicing import ALPHAMISSENSE_ANNOTATED, PHARMGKB_ANNOTATED, SPLICEAI_ANNOTATED
+
+# annotation -> (ReferenceLibrary attribute holding its data, step output name)
+_VCF_STEPS = {
+    "clinvar": ("clinvar_vcf", CLINVAR_ANNOTATED),
+    "revel": ("revel_file", REVEL_ANNOTATED),
+    "phylop": ("phylop_file", PHYLOP_ANNOTATED),
+    "gnomad": ("gnomad_vcf", GNOMAD_ANNOTATED),
+    "spliceai": ("spliceai_vcf", SPLICEAI_ANNOTATED),
+    "alphamissense": ("alphamissense_vcf", ALPHAMISSENSE_ANNOTATED),
+    "pharmgkb": ("pharmgkb_vcf", PHARMGKB_ANNOTATED),
+}
+
+
+def _step_command(ann: str) -> list[str]:
+    if ann == "vep":
+        return ["vep", "run"]
+    return ["vcf", ann]
+
+
+def _step_output(ann: str, step_input: str, step_outdir: str) -> str:
+    if ann == "vep":
+        return vep_output_paths(step_input, step_outdir, "vcf")[1]
+    return os.path.join(step_outdir, _VCF_STEPS[ann][1])
+
+
+def skip_reason(ann: str, lib: ReferenceLibrary) -> str | None:
+    """Why an annotation step can't run here, or None if it can."""
+    tool = "vep" if ann == "vep" else "bcftools"
+    if not get_tool_path(tool):
+        return f"{tool} is not installed."
+    # chain-annotate is meant to run offline, so VEP also needs its cache.
+    attr = "vep_cache" if ann == "vep" else _VCF_STEPS[ann][0]
+    if not getattr(lib, attr, None):
+        return (
+            "required reference data not found. "
+            f"Run 'wgsextract ref {ann}' to download."
+        )
+    return None
 
 
 def cmd_chain_annotate(args: argparse.Namespace) -> None:
-
     verify_dependencies(["bcftools", "tabix"])
-    input_file = args.input if args.input else args.vcf_input
-    if not input_file:
-        logging.error(LOG_MESSAGES["input_required"])
-        raise WGSExtractError("VCF processing failed.")
-
-    outdir = (
-        args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_file))
-    )
+    input_file = require_vcf_input(args)
+    outdir = args.outdir or os.path.dirname(os.path.abspath(input_file))
     annotations = [a.strip().lower() for a in args.annotations.split(",") if a.strip()]
-
     if not annotations:
-        logging.error("No valid annotations provided in --annotations.")
-        return
+        raise WGSExtractError("No valid annotations provided in --annotations.")
+    unknown = [a for a in annotations if a != "vep" and a not in _VCF_STEPS]
+    if unknown:
+        raise WGSExtractError(
+            f"Unknown annotation type(s): {', '.join(unknown)}. Valid: "
+            f"{', '.join([*_VCF_STEPS, 'vep'])}"
+        )
 
     logging.info(f"Starting chained annotation with: {', '.join(annotations)}")
 
@@ -44,147 +79,64 @@ def cmd_chain_annotate(args: argparse.Namespace) -> None:
     )
     lib = ReferenceLibrary(args.ref, md5_sig, input_path=input_file)
 
-    current_input = ensure_vcf_prepared(input_file)
-    intermediate_files = []
+    current_input = prepared_input = ensure_vcf_prepared(input_file)
+    step_dirs: list[str] = []
     finalized = False
 
     try:
         for i, ann in enumerate(annotations):
+            step = f"[{i + 1}/{len(annotations)}]"
+            reason = skip_reason(ann, lib)
+            if reason:
+                logging.warning(f"{step} Skipping '{ann}': {reason}")
+                continue
+
             step_outdir = os.path.join(outdir, f"chain_step_{i + 1}_{ann}")
             os.makedirs(step_outdir, exist_ok=True)
+            step_dirs.append(step_outdir)
+            logging.info(f"{step} Running '{ann}' annotation...")
 
-            # Print status directly to terminal so user sees progress during silenced runs
-            print(f"  ➡️  Step [{i + 1}/{len(annotations)}]: Running '{ann}'...")
-
-            # Pre-check tool availability
-            from wgsextract_cli.core.dependencies import get_tool_path
-
-            tool_to_check = (
-                "vep" if ann == "vep" else "bcftools"
-            )  # most others use bcftools
-            if not get_tool_path(tool_to_check):
-                logging.warning(
-                    f"Skipping '{ann}': Tool '{tool_to_check}' not installed."
-                )
-                continue
-
-            # Pre-check data availability
-            missing_data = False
-            if ann == "clinvar" and not lib.clinvar_vcf:
-                missing_data = True
-            elif ann == "revel" and not lib.revel_file:
-                missing_data = True
-            elif ann == "phylop" and not lib.phylop_file:
-                missing_data = True
-            elif ann == "gnomad" and not lib.gnomad_vcf:
-                missing_data = True
-            elif ann == "spliceai" and not lib.spliceai_vcf:
-                missing_data = True
-            elif ann == "alphamissense" and not lib.alphamissense_vcf:
-                missing_data = True
-            elif ann == "pharmgkb" and not lib.pharmgkb_vcf:
-                missing_data = True
-            elif ann == "vep" and not lib.vep_cache:
-                # VEP can run in online mode, but for chain-annotate we generally want the cache
-                # Only skip if offline cache is missing? The user mentioned "haven't downloaded due to size".
-                # Let's just warn if cache is missing but maybe don't skip yet?
-                # Actually, the user wants a clean one-line skipped message.
-                missing_data = True
-
-            if missing_data:
-                logging.warning(
-                    f"Skipping '{ann}': Required reference data not found. Run 'wgsextract ref {ann}' to download."
-                )
-                continue
-
-            logging.info(f"[{i + 1}/{len(annotations)}] Running '{ann}' annotation...")
-
-            cmd = [sys.executable, "-m", "wgsextract_cli.main"]
-
-            if ann == "vep":
-                cmd.extend(["vep", "run"])
-            elif ann in [
-                "clinvar",
-                "revel",
-                "phylop",
-                "gnomad",
-                "spliceai",
-                "alphamissense",
-                "pharmgkb",
-            ]:
-                cmd.extend(["vcf", ann])
-            else:
-                logging.warning(f"Unknown annotation type '{ann}', skipping.")
-                continue
-
-            cmd.extend(["--input", current_input, "--outdir", step_outdir])
-
+            cmd = [sys.executable, "-m", "wgsextract_cli.main", *_step_command(ann)]
+            cmd += ["--input", current_input, "--outdir", step_outdir]
             if args.ref:
-                cmd.extend(["--ref", args.ref])
+                cmd += ["--ref", args.ref]
 
             try:
-                # Capture output to prevent spam during chained annotation
-                res = run_command(cmd, capture_output=True, check=True)
+                # Captured so chained runs stay readable; surfaced on failure.
+                res = run_command(cmd, capture_output=True)
             except subprocess.CalledProcessError as e:
-                logging.warning(f"Annotation step '{ann}' failed. Skipping.")
-                if e.stderr:
-                    for line in e.stderr.strip().split("\n"):
-                        logging.error(f"  [{ann} ERROR] {line}")
-                if e.stdout:
-                    for line in e.stdout.strip().split("\n"):
-                        logging.debug(f"  [{ann} STDOUT] {line}")
-                # Cleanup step directory if it failed
-                if os.path.exists(step_outdir):
-                    shutil.rmtree(step_outdir, ignore_errors=True)
-                continue
+                for line in (e.stderr or "").strip().splitlines():
+                    logging.error(f"  [{ann} ERROR] {line}")
+                raise WGSExtractError(f"{step} Annotation step '{ann}' failed.") from e
 
-            # Find the output VCF from this step
-            out_files = [
-                f
-                for f in os.listdir(step_outdir)
-                if f.endswith(".vcf.gz")
-                and not f.endswith(".norm.vcf.gz")
-                and "gt_" not in f
-            ]
+            step_out = _step_output(ann, current_input, step_outdir)
+            if not os.path.exists(step_out):
+                for line in (res.stderr or "").strip().splitlines():
+                    logging.error(f"  [{ann} STDERR] {line}")
+                raise WGSExtractError(f"{step} '{ann}' did not produce {step_out}.")
 
-            if not out_files:
-                logging.warning(f"No VCF output found for step '{ann}'. Skipping.")
-                if res.stderr:
-                    for line in res.stderr.strip().split("\n"):
-                        logging.warning(f"  [{ann} STDERR] {line}")
-                if os.path.exists(step_outdir):
-                    shutil.rmtree(step_outdir, ignore_errors=True)
-                continue
+            current_input = step_out
+            logging.info(f"{step} '{ann}' completed: {step_out}")
 
-            # Assume the newest VCF is the result
-            out_files_paths = [os.path.join(step_outdir, f) for f in out_files]
-            latest_out = max(out_files_paths, key=os.path.getmtime)
-
-            intermediate_files.append(latest_out)
-            current_input = latest_out
-            logging.info(f"Step '{ann}' completed. Intermediate file: {latest_out}")
-
-        # Finalize
+        if current_input == prepared_input:
+            raise WGSExtractError(
+                "No annotation was applied: every requested step was skipped."
+            )
         final_out = os.path.join(outdir, "chain_annotated.vcf.gz")
-
         shutil.copy2(current_input, final_out)
-        if os.path.exists(current_input + ".tbi"):
-            shutil.copy2(current_input + ".tbi", final_out + ".tbi")
-        if os.path.exists(current_input + ".csi"):
-            shutil.copy2(current_input + ".csi", final_out + ".csi")
+        for ext in (".tbi", ".csi"):
+            if os.path.exists(current_input + ext):
+                shutil.copy2(current_input + ext, final_out + ext)
         finalized = True
-
-        logging.info(f"✅ Chain annotation complete: {final_out}")
-
+        logging.info(f"Chain annotation complete: {final_out}")
     finally:
         if not getattr(args, "keep_intermediates", False):
             if finalized:
                 logging.info("Cleaning up intermediate files...")
-                for i, ann in enumerate(annotations):
-                    step_outdir = os.path.join(outdir, f"chain_step_{i + 1}_{ann}")
-                    if os.path.exists(step_outdir):
-                        shutil.rmtree(step_outdir, ignore_errors=True)
-            else:
+                for step_outdir in step_dirs:
+                    shutil.rmtree(step_outdir, ignore_errors=True)
+            elif step_dirs:
                 logging.warning(
-                    "Preserving chain annotation intermediates because finalization did not complete."
+                    "Preserving chain annotation intermediates because "
+                    "finalization did not complete."
                 )

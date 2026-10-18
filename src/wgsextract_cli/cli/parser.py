@@ -1,4 +1,6 @@
 import argparse
+import logging
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -6,6 +8,7 @@ from typing import Any
 from wgsextract_cli.commands.registry import COMMAND_MODULES
 from wgsextract_cli.core.config import KNOWN_SETTINGS, get_config_path, settings
 from wgsextract_cli.core.messages import CLI_HELP
+from wgsextract_cli.core.resource_policy import parse_thread_count
 
 DEFAULT_CONFIG = """# WGS Extract Configuration
 
@@ -26,7 +29,7 @@ DEFAULT_CONFIG = """# WGS Extract Configuration
 # --- Analysis Settings ---
 # System resources
 # threads = "auto"  # Apple Silicon perf cores, WSL balanced, otherwise all cores
-# memory = "16G"
+# memory = "2G"  # per thread; "auto" uses 25% of RAM split across threads
 
 # --- External Tools ---
 # Runtime for external tools: auto, native, windows, wsl, cygwin, msys2, or pacman
@@ -64,6 +67,12 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     parser = argparse.ArgumentParser(
         description=CLI_HELP["description"], parents=[base_parser]
     )
+    try:
+        default_threads = parse_thread_count(settings.get("cpu_threads"))
+    except ValueError as e:
+        # Don't block every command (even --threads N) on a bad config value.
+        logging.warning(f"Ignoring invalid cpu_threads in {get_config_path()}: {e}")
+        default_threads = None
     parser.set_defaults(
         debug=settings.get("debug_mode", False),
         quiet=settings.get("quiet_mode", False),
@@ -71,7 +80,7 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
         outdir=settings.get("output_directory"),
         genome=None,
         ref=settings.get("reference_fasta"),
-        threads=settings.get("cpu_threads"),
+        threads=default_threads,
         memory=settings.get("memory_limit"),
         parent_pid=None,
     )
@@ -136,7 +145,8 @@ def add_shared_arguments(base_parser: argparse.ArgumentParser) -> None:
     base_parser.add_argument(
         "--threads",
         "-t",
-        type=int,
+        type=_thread_count_arg,
+        metavar="N|auto",
         default=argparse.SUPPRESS,
         help=CLI_HELP["arg_threads"],
     )
@@ -153,6 +163,18 @@ def add_shared_arguments(base_parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _thread_count_arg(value: str) -> int | None:
+    try:
+        return parse_thread_count(value)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from e
+
+
+def _plain_help(text: str | None) -> str:
+    """Help strings are argparse %-format templates; render '%%' outside argparse."""
+    return (text or "").replace("%%", "%")
+
+
 def print_full_help(parser: argparse.ArgumentParser) -> None:
     """Print a concise tree of all commands and subcommands."""
     print("\n" + CLI_HELP["description"])
@@ -161,7 +183,7 @@ def print_full_help(parser: argparse.ArgumentParser) -> None:
         if not isinstance(action, argparse._SubParsersAction) and action.dest != "help":
             opts = ", ".join(action.option_strings)
             if opts:
-                print(f"  {opts:<25} {action.help}")
+                print(f"  {opts:<25} {_plain_help(action.help)}")
 
     print("\nCOMMAND TREE:")
     _print_tree_recursive(parser, 0)
@@ -182,7 +204,7 @@ def _print_tree_recursive(parser: argparse.ArgumentParser, indent: int) -> None:
                     help_text = subparser.description.split("\n")[0]
 
                 indent_str = "  " * indent
-                print(f"{indent_str}- {name:<20} {help_text}")
+                print(f"{indent_str}- {name:<20} {_plain_help(help_text)}")
                 _print_tree_recursive(subparser, indent + 1)
 
 
@@ -244,78 +266,27 @@ def parse_args(
     argv: Sequence[str] | None = None,
 ) -> tuple[argparse.Namespace, set[str]]:
     raw_argv = list(argv) if argv is not None else None
-    parse_argv = raw_argv if raw_argv is not None else None
-
-    subparsers = _subparsers_action(parser)
-    command_names = set(subparsers.choices)
     option_map = {
         option: action
         for action in base_parser._actions
         for option in action.option_strings
     }
-    effective_argv = raw_argv if raw_argv is not None else _sys_argv()
-    command_index = _find_subcommand_index(effective_argv, command_names, option_map)
+    effective_argv = raw_argv if raw_argv is not None else sys.argv[1:]
 
-    args = parser.parse_args(parse_argv)
+    args = parser.parse_args(raw_argv)
 
-    if command_index is not None:
-        pre_subcommand_args = _extract_shared_options(
-            effective_argv[:command_index], option_map
-        )
-        post_subcommand_args = _extract_shared_options(
-            effective_argv[command_index + 1 :], option_map
-        )
-        for dest, value in pre_subcommand_args.items():
-            if dest not in post_subcommand_args:
-                setattr(args, dest, value)
+    # Shared options are accepted at every level (`wgsextract --input X info ...`,
+    # `wgsextract info --input X coverage-sample`), but argparse keeps only what
+    # the leaf subparser saw. Re-apply them from the whole command line; a later
+    # occurrence wins, so options closer to the leaf command take precedence.
+    explicit_options = _extract_shared_options(effective_argv, option_map)
+    for dest, value in explicit_options.items():
+        setattr(args, dest, value)
+    explicit_dests = set(explicit_options)
 
-        explicit_dests = set(pre_subcommand_args) | set(post_subcommand_args)
-    else:
-        explicit_dests = set(_extract_shared_options(effective_argv, option_map))
-
+    # Commands read this to tell user-supplied options from config defaults.
     args._explicit_dests = set(explicit_dests)
     return args, explicit_dests
-
-
-def _sys_argv() -> list[str]:
-    import sys
-
-    return sys.argv[1:]
-
-
-def _subparsers_action(
-    parser: argparse.ArgumentParser,
-) -> argparse._SubParsersAction:
-    for action in parser._actions:
-        if isinstance(action, argparse._SubParsersAction):
-            return action
-    raise RuntimeError("Parser has no subparsers action.")
-
-
-def _find_subcommand_index(
-    argv: list[str],
-    command_names: set[str],
-    option_map: dict[str, argparse.Action],
-) -> int | None:
-    """Return the index of the first real subcommand in argv."""
-    i = 0
-    while i < len(argv):
-        token = argv[i]
-        if token in command_names:
-            return i
-
-        option_name = token.split("=", 1)[0]
-        action = option_map.get(option_name)
-        if action is None:
-            i += 1
-            continue
-
-        if action.nargs == 0 or "=" in token:
-            i += 1
-        else:
-            i += 2
-
-    return None
 
 
 def _extract_shared_options(

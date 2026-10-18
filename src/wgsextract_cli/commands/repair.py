@@ -1,18 +1,21 @@
 import argparse
 import gzip
+import io
 import logging
 import os
 import re
 import subprocess
 import sys
 import tempfile
-from typing import TextIO
+from typing import IO, TextIO
 
+from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
-from wgsextract_cli.core.utils import (
-    WGSExtractError,
-    run_command,
-)
+from wgsextract_cli.core.reference_assets import input_stem
+from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
+from wgsextract_cli.core.variant_files import calculate_bam_md5, resolve_reference
+
+from ._extract_helpers import cleanup_files
 
 
 def register(
@@ -46,74 +49,82 @@ def register(
     vcf_parser.set_defaults(func=repair_vcf)
 
 
-def get_script_path(script_name: str) -> str:
-    prog_dir = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "../../../../program")
-    )
-    return os.path.join(prog_dir, script_name)
-
-
 def repair_bam(args: argparse.Namespace) -> None:
-    if _input_was_explicit(args) and getattr(args, "input", None):
+    if _input_was_explicit(args) and args.input:
         repair_bam_file(args)
         return
-
-    script = get_script_path("fixFTDNAbam.py")
+    # Pipe mode: samtools view -h in.bam | wgsextract repair ftdna-bam | samtools view -b
     logging.info(LOG_MESSAGES["repair_bam"])
-    if not os.path.exists(script):
-        repair_bam_stream(sys.stdin, sys.stdout)
-        return
-
-    try:
-        # Note: This is designed to be part of a pipe: samtools view -h in.bam | wgsextract-cli repair ftdna-bam | samtools view -b > out.bam
-        run_command([sys.executable, script])
-    except WGSExtractError:
-        raise
-    except (OSError, subprocess.SubprocessError) as e:
-        raise WGSExtractError(f"Repair failed: {e}") from e
+    repair_bam_stream(sys.stdin, sys.stdout)
 
 
 def repair_vcf(args: argparse.Namespace) -> None:
-    if _input_was_explicit(args) and getattr(args, "input", None):
+    if _input_was_explicit(args) and args.input:
         repair_vcf_file(args)
         return
-
-    script = get_script_path("fixFTDNAvcf.py")
+    # Pipe mode: bcftools view in.vcf | wgsextract repair ftdna-vcf > out.vcf
     logging.info(LOG_MESSAGES["repair_vcf"])
-    if not os.path.exists(script):
-        repair_vcf_stream(sys.stdin, sys.stdout)
-        return
-
-    try:
-        # Note: Designed to be part of a pipe: bcftools view in.vcf | wgsextract-cli repair ftdna-vcf > out.vcf
-        run_command([sys.executable, script])
-    except WGSExtractError:
-        raise
-    except (OSError, subprocess.SubprocessError) as e:
-        raise WGSExtractError(f"Repair failed: {e}") from e
+    repair_vcf_stream(sys.stdin, sys.stdout)
 
 
 def repair_bam_file(args: argparse.Namespace) -> None:
+    """Stream samtools view -h | repair | samtools view -b without temp SAM files."""
     input_path = args.input
     if not os.path.isfile(input_path):
         raise WGSExtractError(f"Input BAM/CRAM does not exist: {input_path}")
+    verify_dependencies(["samtools"])
     output_path = _repair_output_path(args, ".bam")
-    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-    stem = _input_stem(input_path)
-    with tempfile.TemporaryDirectory(prefix=f"{stem}.repair.") as tmp_dir:
-        tmp_sam = os.path.join(tmp_dir, f"{stem}.sam")
-        tmp_repaired_sam = os.path.join(tmp_dir, f"{stem}.repaired.sam")
-        with open(tmp_sam, "wb") as sam_output:
-            run_command(["samtools", "view", "-h", input_path], stdout=sam_output)
-        with (
-            open(tmp_sam, encoding="utf-8", errors="replace") as sam_input,
-            open(tmp_repaired_sam, "w", encoding="utf-8") as repaired_output,
-        ):
-            repair_bam_stream(sam_input, repaired_output)
-        with open(tmp_repaired_sam, encoding="utf-8") as repaired_input:
-            run_command(
-                ["samtools", "view", "-b", "-o", output_path, "-"],
-                stdin=repaired_input,
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    cram_opt: list[str] = []
+    if input_path.lower().endswith(".cram") and args.ref:
+        ref = resolve_reference(args.ref, calculate_bam_md5(input_path, None))
+        if not ref or not os.path.isfile(ref):
+            raise WGSExtractError(f"No reference FASTA for {input_path} at {args.ref}")
+        cram_opt = ["-T", ref]
+
+    with (
+        cleanup_files(on_failure=[output_path]),
+        tempfile.TemporaryFile() as read_err,
+        tempfile.TemporaryFile() as write_err,
+    ):
+        reader = popen(
+            ["samtools", "view", "-h", *cram_opt, input_path],
+            stdout=subprocess.PIPE,
+            stderr=read_err,
+        )
+        writer = popen(
+            ["samtools", "view", "-b", "-o", output_path, "-"],
+            stdin=subprocess.PIPE,
+            stderr=write_err,
+        )
+        assert reader.stdout is not None and writer.stdin is not None
+        try:
+            try:
+                with (
+                    io.TextIOWrapper(
+                        reader.stdout, encoding="utf-8", errors="replace"
+                    ) as sam_in,
+                    io.TextIOWrapper(writer.stdin, encoding="utf-8") as sam_out,
+                ):
+                    repair_bam_stream(sam_in, sam_out)
+            except BrokenPipeError:
+                pass  # The writer exited early; its exit status says why.
+            read_code, write_code = reader.wait(), writer.wait()
+        finally:
+            for proc in (reader, writer):
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait()
+        if write_code or read_code:
+            # A failed writer also kills the reader with SIGPIPE; report the cause.
+            label, code, err = (
+                ("samtools view -b", write_code, write_err)
+                if write_code
+                else ("samtools view -h", read_code, read_err)
+            )
+            raise WGSExtractError(
+                f"FTDNA BAM repair failed in {label} (exit {code}): {_tail(err)}"
             )
     logging.info("Repaired FTDNA BAM written to %s", output_path)
 
@@ -174,14 +185,11 @@ def repair_vcf_stream(input_stream: TextIO, output_stream: TextIO) -> None:
 
 
 def _repair_output_path(args: argparse.Namespace, extension: str) -> str:
-    output = getattr(args, "output", None)
-    if output:
-        return os.path.abspath(str(output))
-    outdir = getattr(args, "outdir", None) or os.path.dirname(
-        os.path.abspath(args.input)
-    )
+    if args.output:
+        return os.path.abspath(str(args.output))
+    outdir = args.outdir or os.path.dirname(os.path.abspath(args.input))
     return os.path.abspath(
-        os.path.join(outdir, f"{_input_stem(args.input)}_repaired{extension}")
+        os.path.join(outdir, f"{input_stem(args.input)}_repaired{extension}")
     )
 
 
@@ -192,12 +200,9 @@ def _input_was_explicit(args: argparse.Namespace) -> bool:
     return "input" in explicit_dests
 
 
-def _input_stem(path: str) -> str:
-    name = os.path.basename(path)
-    for extension in (".vcf.gz", ".bam", ".cram", ".vcf", ".bcf"):
-        if name.lower().endswith(extension):
-            return name[: -len(extension)]
-    return os.path.splitext(name)[0]
+def _tail(stream: IO[bytes], max_chars: int = 2000) -> str:
+    stream.seek(0)
+    return stream.read().decode(errors="replace")[-max_chars:].strip()
 
 
 def _open_text_variant_input(path: str) -> TextIO:

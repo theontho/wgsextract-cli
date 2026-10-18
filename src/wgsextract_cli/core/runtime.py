@@ -8,6 +8,13 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+from platformdirs import user_data_path
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
+
 WSL_TOOL_PREFIX = "wsl:"
 
 
@@ -122,19 +129,14 @@ def get_tool_runtime_mode() -> str:
     return normalized
 
 
-def should_consider_wsl() -> bool:
-    mode = get_tool_runtime_mode()
-    return is_windows_host() and mode in {"auto", "wsl"}
+def should_consider_wsl(mode: str | None = None) -> bool:
+    selected = mode or get_tool_runtime_mode()
+    return is_windows_host() and selected in {"auto", "wsl"}
 
 
 def should_consider_bundled_runtime(mode: str | None = None) -> bool:
     selected = mode or get_tool_runtime_mode()
     return is_windows_host() and selected in BUNDLED_RUNTIME_MODES
-
-
-def should_consider_pacman_runtime(mode: str | None = None) -> bool:
-    selected = mode or get_tool_runtime_mode()
-    return is_windows_host() and selected in {"pacman", "windows"}
 
 
 def _sysctl_output(command: list[str]) -> str | None:
@@ -311,22 +313,43 @@ def strip_pacman_tool_prefix(command: str) -> str:
     )
 
 
+PROJECT_NAME = "wgsextract-cli"
+
+
+@lru_cache(maxsize=1)
+def source_checkout_root() -> Path | None:
+    """Return the wgsextract-cli source tree this package runs from, if any.
+
+    Only the nearest enclosing pyproject.toml is considered, and only when it
+    declares this project, so an installed copy that happens to live inside
+    some other repository never adopts that repository's directories.
+    """
+    for parent in Path(__file__).resolve().parents:
+        pyproject = parent / "pyproject.toml"
+        if not pyproject.is_file():
+            continue
+        try:
+            with pyproject.open("rb") as f:
+                name = tomllib.load(f).get("project", {}).get("name")
+        except (OSError, tomllib.TOMLDecodeError):
+            return None
+        return parent if name == PROJECT_NAME else None
+    return None
+
+
+def app_data_root() -> Path:
+    """Per-user data directory used when not running from a source checkout."""
+    return user_data_path(PROJECT_NAME, "WGSExtract")
+
+
 def repo_root() -> Path:
-    current = Path(__file__).resolve()
-    for parent in current.parents:
-        if (parent / "pyproject.toml").exists() or (parent / ".git").exists():
-            return parent
-    return current.parents[3]
+    """Base for default data folders (reference/, genomes/, jartools/): the
+    source checkout when running from one, else the per-user data directory."""
+    return source_checkout_root() or app_data_root()
 
 
 def default_runtime_root() -> Path:
-    root = repo_root()
-    if (root / ".git").exists():
+    root = source_checkout_root()
+    if root is not None and (root / ".git").exists():
         return root / "runtime"
-
-    try:
-        from platformdirs import user_data_path
-
-        return user_data_path("wgsextract-cli", "WGSExtract") / "runtime"
-    except ImportError:
-        return Path.home() / ".wgsextract" / "runtime"
+    return app_data_root() / "runtime"

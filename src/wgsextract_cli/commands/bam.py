@@ -11,20 +11,29 @@ from wgsextract_cli.core.dependency_checks import (
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
     WGSExtractError,
-    get_resource_defaults,
     get_sam_index_cmd,
     get_sam_sort_cmd,
     run_command,
+    run_pipeline,
 )
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
-    popen,
     resolve_reference,
     verify_paths_exist,
 )
-from wgsextract_cli.core.warnings import check_free_space, print_warning
+from wgsextract_cli.core.warnings import (
+    check_free_space,
+    get_free_space_needed,
+    print_warning,
+)
 
-from ._extract_helpers import resolve_region_or_gene
+from ._extract_helpers import (
+    alignments_to_fastq,
+    cleanup_files,
+    derive_output_path,
+    get_base_args,
+    resolve_region_or_gene,
+)
 
 
 def register(
@@ -93,64 +102,38 @@ def register(
     identify_parser.set_defaults(func=cmd_identify)
 
 
-def get_base_args(
-    args: argparse.Namespace,
-) -> tuple[str, str, str, list[str], str | None] | None:
+def _require_input(args: argparse.Namespace) -> None:
     if not args.input:
-        logging.error(LOG_MESSAGES["input_required"])
-        return None
+        raise WGSExtractError(LOG_MESSAGES["input_required"])
+    verify_paths_exist({"--input": args.input})
 
-    if not verify_paths_exist({"--input": args.input}):
-        return None
 
-    logging.debug(f"Input file: {os.path.abspath(args.input)}")
+def _alignment_format(path: str) -> tuple[str, str]:
+    """Return (samtools format name, file extension) matching an input file."""
+    return ("CRAM", ".cram") if path.lower().endswith(".cram") else ("BAM", ".bam")
 
-    threads, memory = get_resource_defaults(args.threads, args.memory)
-    outdir = (
-        args.outdir if args.outdir else os.path.dirname(os.path.abspath(args.input))
+
+def _preflight_sort_space(
+    input_path: str, outdir: str, sort_type: str, app_name: str, region: str | None
+) -> None:
+    """Refuse a whole-file sort that cannot fit in outdir (regions are smaller)."""
+    file_size = os.path.getsize(input_path)
+    is_cram = input_path.lower().endswith(".cram")
+    print_warning(
+        "infoFreeSpace", app_name=app_name, file_size=file_size, is_cram=is_cram
     )
-    logging.debug(f"Output directory: {os.path.abspath(outdir)}")
-
-    try:
-        md5_sig = calculate_bam_md5(args.input, None)
-        resolved_ref = resolve_reference(args.ref, md5_sig)
-        # Ensure it's a file, not a directory
-        if resolved_ref and os.path.isdir(resolved_ref):
-            from wgsextract_cli.core.constants import REF_GENOME_FILENAMES
-
-            for f in REF_GENOME_FILENAMES:
-                potential = os.path.join(resolved_ref, f)
-                if os.path.exists(potential):
-                    resolved_ref = potential
-                    break
-
-        logging.debug(f"Resolved reference: {resolved_ref}")
-    except (OSError, RuntimeError, ValueError, WGSExtractError) as e:
-        logging.error(f"Failed to initialize reference resolution: {e}")
-        return None
-
-    paths_to_check = {}
-    if resolved_ref:
-        paths_to_check["--ref"] = resolved_ref
-
-    # If we still have a directory or None but ref was requested/required, we might fail later
-    if not verify_paths_exist(paths_to_check):
-        return None
-
-    cram_opt = ["-T", resolved_ref] if resolved_ref else []
-    return threads, memory, outdir, cram_opt, resolved_ref
+    temp_needed, final_needed = get_free_space_needed(file_size, sort_type, is_cram)
+    needed = temp_needed + final_needed
+    if not check_free_space(outdir, needed) and not region:
+        raise WGSExtractError(
+            f"Insufficient free disk space at {outdir} (needs ~{needed} GB)."
+        )
 
 
 def cmd_identify(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
-    if not args.input:
-        logging.error(LOG_MESSAGES["input_required"])
-        return
-
-    if not verify_paths_exist({"--input": args.input}):
-        return
-
+    _require_input(args)
     logging.debug(f"Input file: {os.path.abspath(args.input)}")
 
     # Auto-resolve ref if a directory was provided
@@ -166,312 +149,163 @@ def cmd_identify(args: argparse.Namespace) -> None:
 def cmd_sort(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
-    base = get_base_args(args)
-    if not base:
-        return
-    threads, memory, outdir, cram_opt, resolved_ref = base
-
+    threads, memory, outdir, cram_opt, resolved_ref = get_base_args(args)
     region = resolve_region_or_gene(args, resolved_ref)
-    if (args.region or (hasattr(args, "gene") and args.gene)) and not region:
-        return
 
-    file_size = os.path.getsize(args.input)
-    is_cram = args.input.lower().endswith(".cram")
-    print_warning(
-        "infoFreeSpace", app_name="Coord Sort", file_size=file_size, is_cram=is_cram
-    )
+    _preflight_sort_space(args.input, outdir, "Coord", "Coord Sort", region)
     print_warning("GenSortedBAM", threads=threads)
 
-    # Calculate needed space to perform check_free_space
-    from wgsextract_cli.core.warnings import get_free_space_needed
+    fmt, ext = _alignment_format(args.input)
+    out_file = derive_output_path(args.input, outdir, f"_sorted{ext}")
+    view_cmd = ["samtools", "view", "-uh", "--no-PG", *cram_opt, args.input]
+    view_cmd += [region] if region else []
 
-    temp_needed, final_needed = get_free_space_needed(file_size, "Coord", is_cram)
-    check_free_space(outdir, temp_needed + final_needed)
-
-    out_file = os.path.join(
-        outdir,
-        os.path.basename(args.input).replace(".bam", "").replace(".cram", "")
-        + "_sorted.bam",
-    )
-    with tempfile.TemporaryDirectory() as tempdir:
-        region_args = [region] if region else []
-        view_cmd = (
-            ["samtools", "view", "-uh", "--no-PG"]
-            + cram_opt
-            + [args.input]
-            + region_args
-        )
+    logging.info(LOG_MESSAGES["sorting_file"].format(input=args.input, output=out_file))
+    with (
+        cleanup_files(on_failure=[out_file]),
+        tempfile.TemporaryDirectory(dir=outdir, prefix=".sort_") as tempdir,
+    ):
         sort_cmd = get_sam_sort_cmd(
-            out_file,
-            threads,
-            memory,
-            fmt="CRAM" if is_cram else "BAM",
-            reference=resolved_ref,
-            temp_dir=tempdir,
+            out_file, threads, memory, fmt=fmt, reference=resolved_ref, temp_dir=tempdir
         )
-
-        logging.info(
-            LOG_MESSAGES["sorting_file"].format(input=args.input, output=out_file)
-        )
-        try:
-            p1 = popen(view_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            p2 = popen(sort_cmd, stdin=p1.stdout, stderr=subprocess.PIPE)
-            if p1.stdout:
-                p1.stdout.close()
-            _, stderr2 = p2.communicate()
-            stderr1 = p1.stderr.read() if p1.stderr else b""
-            p1.wait()
-            if p1.returncode != 0:
-                err_msg = stderr1.decode() if stderr1 else "Unknown error"
-                raise WGSExtractError(f"View failed: {err_msg}")
-            if p2.returncode != 0:
-                err_msg = stderr2.decode() if stderr2 else "Unknown error"
-                if stderr1:
-                    err_msg += f" | View error: {stderr1.decode()}"
-                raise WGSExtractError(f"Sort failed: {err_msg}")
-        except WGSExtractError:
-            raise
-        except (OSError, subprocess.SubprocessError) as e:
-            raise WGSExtractError(f"Execution failed: {e}") from e
+        run_pipeline([view_cmd, sort_cmd], description="Coordinate sort")
 
 
 def cmd_index(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
-    if not args.input:
-        logging.error(LOG_MESSAGES["input_required"])
-        return
-
-    if not verify_paths_exist({"--input": args.input}):
-        return
+    _require_input(args)
 
     print_warning("GenBAMIndex")
 
     logging.info(LOG_MESSAGES["indexing_file"].format(path=args.input))
     try:
         run_command(get_sam_index_cmd(args.input))
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+    except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Indexing failed: {e}") from e
 
 
 def cmd_unindex(args: argparse.Namespace) -> None:
-    if not args.input:
-        logging.error(LOG_MESSAGES["input_required"])
-        return
+    _require_input(args)
+    if not os.path.isfile(args.input):
+        raise WGSExtractError(f"Input is not a valid file: {args.input}")
 
-    if not os.path.exists(args.input) or os.path.isdir(args.input):
-        logging.error(f"Input is not a valid file: {args.input}")
-        return
-
-    bai = args.input + ".bai"
-    crai = args.input + ".crai"
-    if os.path.exists(bai):
-        os.remove(bai)
-        logging.info(
-            LOG_MESSAGES["delete_success"].format(filename=os.path.basename(bai))
-        )
-    if os.path.exists(crai):
-        os.remove(crai)
-        logging.info(
-            LOG_MESSAGES["delete_success"].format(filename=os.path.basename(crai))
-        )
+    for index_path in (args.input + ".bai", args.input + ".crai"):
+        if os.path.exists(index_path):
+            os.remove(index_path)
+            logging.info(
+                LOG_MESSAGES["delete_success"].format(
+                    filename=os.path.basename(index_path)
+                )
+            )
 
 
 def cmd_unsort(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
-    base = get_base_args(args)
-    if not base:
-        return
-    threads, memory, outdir, cram_opt, resolved_ref = base
+    _, _, outdir, cram_opt, _ = get_base_args(args)
 
-    out_file = os.path.join(
-        outdir,
-        os.path.basename(args.input).replace(".bam", "").replace(".cram", "")
-        + "_unsorted.bam",
+    _, ext = _alignment_format(args.input)
+    out_file = derive_output_path(args.input, outdir, f"_unsorted{ext}")
+    logging.info(
+        LOG_MESSAGES["converting_file"].format(input=args.input, output=out_file)
     )
-    with tempfile.TemporaryDirectory() as tempdir:
-        newhead = os.path.join(tempdir, "newhead.sam")
-
-        view_cmd = ["samtools", "view", "-H"] + cram_opt + [args.input]
-        try:
-            res = run_command(view_cmd, capture_output=True)
-            header = res.stdout
-            header = header.replace("SO:coordinate", "SO:unsorted")
-
-            with open(newhead, "w") as f:
-                f.write(header)
-
-            logging.info(
-                LOG_MESSAGES["converting_file"].format(
-                    input=args.input, output=out_file
-                )
-            )
-            with open(out_file, "wb") as f_out:
-                p = popen(["samtools", "reheader", newhead, args.input], stdout=f_out)
-                p.communicate()
-                if p.returncode != 0:
-                    raise WGSExtractError(f"Reheader failed for {args.input}")
-
-        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-            raise WGSExtractError(f"Failed to unsort {args.input}: {e}") from e
+    try:
+        with cleanup_files(on_failure=[out_file]):
+            header = run_command(
+                ["samtools", "view", "-H", *cram_opt, args.input], capture_output=True
+            ).stdout
+            with tempfile.TemporaryDirectory() as tempdir:
+                newhead = os.path.join(tempdir, "newhead.sam")
+                with open(newhead, "w") as f:
+                    f.write(header.replace("SO:coordinate", "SO:unsorted"))
+                with open(out_file, "wb") as f_out:
+                    run_command(
+                        ["samtools", "reheader", newhead, args.input], stdout=f_out
+                    )
+    except (OSError, subprocess.SubprocessError) as e:
+        raise WGSExtractError(f"Failed to unsort {args.input}: {e}") from e
 
 
 def cmd_tocram(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
-    base = get_base_args(args)
-    if not base:
-        return
-    threads, memory, outdir, cram_opt, resolved_ref = base
-
+    threads, _, outdir, cram_opt, resolved_ref = get_base_args(args)
     region = resolve_region_or_gene(args, resolved_ref)
-    if (args.region or (hasattr(args, "gene") and args.gene)) and not region:
-        return
 
     print_warning("BAMtoCRAM", threads=threads)
 
-    out_file = os.path.join(
-        outdir, os.path.basename(args.input).replace(".bam", "") + ".cram"
-    )
+    out_file = derive_output_path(args.input, outdir, ".cram")
     logging.info(
         LOG_MESSAGES["converting_file"].format(input=args.input, output=out_file)
     )
     try:
-        region_args = [region] if region else []
-        run_command(
-            [
-                "samtools",
-                "view",
-                "-Ch",
-                "--output-fmt-option",
-                f"version={args.cram_version}",
-            ]
-            + cram_opt
-            + ["-@", threads, "-o", out_file, args.input]
-            + region_args
-        )
-        run_command(get_sam_index_cmd(out_file))
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+        with cleanup_files(on_failure=[out_file]):
+            run_command(
+                [
+                    "samtools",
+                    "view",
+                    "-Ch",
+                    "--output-fmt-option",
+                    f"version={args.cram_version}",
+                    *cram_opt,
+                    "-@",
+                    threads,
+                    "-o",
+                    out_file,
+                    args.input,
+                    *([region] if region else []),
+                ]
+            )
+            run_command(get_sam_index_cmd(out_file))
+    except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Conversion to CRAM failed: {e}") from e
 
 
 def cmd_tobam(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
-    base = get_base_args(args)
-    if not base:
-        return
-    threads, memory, outdir, cram_opt, resolved_ref = base
-
+    threads, _, outdir, cram_opt, resolved_ref = get_base_args(args)
     region = resolve_region_or_gene(args, resolved_ref)
-    if (args.region or (hasattr(args, "gene") and args.gene)) and not region:
-        return
 
     print_warning("CRAMtoBAM", threads=threads)
 
-    out_file = os.path.join(
-        outdir, os.path.basename(args.input).replace(".cram", "") + ".bam"
-    )
+    out_file = derive_output_path(args.input, outdir, ".bam")
     logging.info(
         LOG_MESSAGES["converting_file"].format(input=args.input, output=out_file)
     )
     try:
-        region_args = [region] if region else []
-        run_command(
-            ["samtools", "view", "-bh"]
-            + cram_opt
-            + ["-@", threads, "-o", out_file, args.input]
-            + region_args
-        )
-        run_command(get_sam_index_cmd(out_file))
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+        with cleanup_files(on_failure=[out_file]):
+            run_command(
+                ["samtools", "view", "-bh", *cram_opt, "-@", threads, "-o", out_file]
+                + [args.input, *([region] if region else [])]
+            )
+            run_command(get_sam_index_cmd(out_file))
+    except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Conversion to BAM failed: {e}") from e
 
 
 def cmd_unalign(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
-    base = get_base_args(args)
-    if not base:
-        return
-    threads, memory, outdir, cram_opt, resolved_ref = base
-
+    threads, memory, outdir, cram_opt, resolved_ref = get_base_args(args)
     region = resolve_region_or_gene(args, resolved_ref)
-    if (args.region or (hasattr(args, "gene") and args.gene)) and not region:
-        return
 
-    file_size = os.path.getsize(args.input)
-    is_cram = args.input.lower().endswith(".cram")
-    print_warning(
-        "infoFreeSpace", app_name="Name Sort", file_size=file_size, is_cram=is_cram
-    )
+    _preflight_sort_space(args.input, outdir, "Name", "Name Sort", region)
     print_warning("ButtonUnalignBAM", threads=threads)
 
-    # Calculate needed space to perform check_free_space
-    from wgsextract_cli.core.warnings import get_free_space_needed
+    def in_outdir(path: str) -> str:
+        return path if os.path.isabs(path) else os.path.join(outdir, path)
 
-    temp_needed, final_needed = get_free_space_needed(file_size, "Name", is_cram)
-    check_free_space(outdir, temp_needed + final_needed)
-
-    # Resolve output paths
-    out_r1 = args.r1 if os.path.isabs(args.r1) else os.path.join(outdir, args.r1)
-    out_r2 = args.r2 if os.path.isabs(args.r2) else os.path.join(outdir, args.r2)
-
-    out_se = "/dev/null"
-    if args.se:
-        out_se = args.se if os.path.isabs(args.se) else os.path.join(outdir, args.se)
-
-    se_arg = ["-0", out_se]
-
-    with tempfile.TemporaryDirectory() as tempdir:
-        region_args = [region] if region else []
-        view_cmd = (
-            ["samtools", "view", "-uh", "--no-PG"]
-            + cram_opt
-            + [args.input]
-            + region_args
-        )
-        sort_cmd = get_sam_sort_cmd(
-            "-",  # output to stdout
-            threads,
-            memory,
-            fmt="SAM",
-            name_sort=True,
-            temp_dir=tempdir,
-        )
-        fastq_cmd = (
-            ["samtools", "fastq", "-1", out_r1, "-2", out_r2]
-            + se_arg
-            + ["-s", "/dev/null", "-n", "-@", threads, "-"]
-        )
-
-        logging.info(LOG_MESSAGES["unaligning_reads"])
-        try:
-            p1 = popen(view_cmd, stdout=subprocess.PIPE)
-            p2 = popen(sort_cmd, stdin=p1.stdout, stdout=subprocess.PIPE)
-            if p1.stdout:
-                p1.stdout.close()
-            p3 = popen(fastq_cmd, stdin=p2.stdout)
-            if p2.stdout:
-                p2.stdout.close()
-            p3.communicate()
-            p2_returncode = p2.wait()
-            p1_returncode = p1.wait()
-            failed_stages = [
-                name
-                for name, returncode in (
-                    ("samtools view", p1_returncode),
-                    ("samtools sort", p2_returncode),
-                    ("samtools fastq", p3.returncode),
-                )
-                if returncode != 0
-            ]
-            if failed_stages:
-                raise WGSExtractError(
-                    f"Unalign failed in pipeline stage(s): {', '.join(failed_stages)}."
-                )
-        except WGSExtractError:
-            raise
-        except (OSError, subprocess.SubprocessError) as e:
-            raise WGSExtractError(f"Unalign failed: {e}") from e
+    logging.info(LOG_MESSAGES["unaligning_reads"])
+    alignments_to_fastq(
+        args.input,
+        in_outdir(args.r1),
+        in_outdir(args.r2),
+        threads=threads,
+        memory=memory,
+        temp_parent=outdir,
+        cram_opt=cram_opt,
+        region=region,
+        out_other=in_outdir(args.se) if args.se else None,
+    )

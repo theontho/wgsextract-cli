@@ -52,7 +52,9 @@ def get_available_genomes() -> list[dict[str, Any]]:
     if os.path.exists(csv_path):
         _GENOME_DATA_CACHE = load_genomes_from_csv(csv_path)
 
-    # Hardcoded fallback and MD5 source
+    # Hardcoded fallback and signature source. "md5" is the WGS Extract sequence
+    # dictionary signature (MD5 of the sorted SN/LN pairs, as calculate_bam_md5
+    # computes for a BAM header), not a checksum of the file bytes.
     core_genomes = [
         {
             "code": "hg38",
@@ -79,7 +81,7 @@ def get_available_genomes() -> list[dict[str, Any]]:
             "url": "https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/analysis_set/chm13v2.0.fa.gz",
             "label": "T2T_v2.0 (PGP/HPP chrN) (Rec)",
             "description": "T2T v2.0 (chm13 v1.1; HG002 Y v2.7; UCSC SN; @AWS)",
-            "md5": "7cee777f1939f4028926017158ed5512",
+            "md5": "ed9f80c8e04c461cba35dd1b85a2e2e8",
         },
         {
             "code": "hs37d5",
@@ -88,7 +90,7 @@ def get_available_genomes() -> list[dict[str, Any]]:
             "url": "https://ftp.ncbi.nlm.nih.gov/1000genomes/ftp/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz",
             "label": "hs37d5 (Dante) (NIH) (Rec)",
             "description": "hs37d5 (1K Genome; @US NIH)",
-            "md5": "5a23f5a85bd78221010561466907bf7d",
+            "md5": "92c90b84dac3d9d8402bf2f2dbe95961",
         },
     ]
 
@@ -109,7 +111,7 @@ def get_available_genomes() -> list[dict[str, Any]]:
             "url": "https://ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Canis_lupus_familiaris/latest_assembly_versions/GCF_011100685.1_UU_Cfam_GSD_1.0/GCF_011100685.1_UU_Cfam_GSD_1.0_genomic.fna.gz",
             "label": "Dog (Canis lupus familiaris) UU_Cfam_GSD_1.0 (NCBI)",
             "description": "Dog reference genome (Canis lupus familiaris; @NCBI UU_Cfam_GSD_1.0)",
-            "md5": "a6f017498a4fa2ec9efa0a4f12ccb42c",
+            "md5": "567b0b7efc021c69f64fe63d85dbc797",
         },
         {
             "code": "Fca126_mat1.0",
@@ -118,7 +120,7 @@ def get_available_genomes() -> list[dict[str, Any]]:
             "url": "https://ftp.ncbi.nlm.nih.gov/genomes/refseq/vertebrate_mammalian/Felis_catus/latest_assembly_versions/GCF_018350175.1_F.catus_Fca126_mat1.0/GCF_018350175.1_F.catus_Fca126_mat1.0_genomic.fna.gz",
             "label": "Cat (Felis catus) Fca126_mat1.0 (NCBI)",
             "description": "Cat reference genome (Felis catus; @NCBI Fca126_mat1.0)",
-            "md5": "d271b9b06c5270d2d662534df8a4fcd9",
+            "md5": "492b4726909f048464fdd00232f63f47",
         },
     ]
 
@@ -128,26 +130,6 @@ def get_available_genomes() -> list[dict[str, Any]]:
             _GENOME_DATA_CACHE.append(pg)
 
     return _GENOME_DATA_CACHE
-
-
-GENOME_DATA = get_available_genomes()
-
-
-def get_grouped_genomes() -> list[dict[str, Any]]:
-    all_data = get_available_genomes()
-    grouped = {}
-    for item in all_data:
-        fname = item["final"]
-        if fname not in grouped:
-            grouped[fname] = {
-                "final": fname,
-                "label": item["label"],
-                "description": item.get("description", ""),
-                "code": item.get("code", ""),
-                "sources": [],
-            }
-        grouped[fname]["sources"].append(item)
-    return list(grouped.values())
 
 
 def get_genome_status(final_name: str, reflib_dir: str) -> str:
@@ -167,10 +149,6 @@ def get_genome_status(final_name: str, reflib_dir: str) -> str:
     if os.path.exists(partial_path):
         return "incomplete"
     return "missing"
-
-
-def is_genome_installed(final_name: str, reflib_dir: str) -> bool:
-    return get_genome_status(final_name, reflib_dir) == "installed"
 
 
 def install_standard_mappability_maps(

@@ -7,22 +7,23 @@ from tests.smoke_utils import check_tool, run_cli, verify_bam, verify_vcf
 from wgsextract_cli.core.config import settings
 
 
+@pytest.mark.real_config
 @pytest.mark.skipif(
-    not (os.environ.get("WGSE_PET_R1") or settings.get("pet_r1_fastq"))
-    or not (os.environ.get("WGSE_PET_R2") or settings.get("pet_r2_fastq"))
-    or not (os.environ.get("WGSE_PET_REF") or settings.get("pet_reference_fasta")),
-    reason="pet FASTQ/reference settings or WGSE_PET_* variables not set",
+    not settings.get("pet_r1_fastq")
+    or not settings.get("pet_r2_fastq")
+    or not settings.get("pet_reference_fasta"),
+    reason="pet_r1_fastq/pet_r2_fastq/pet_reference_fasta settings not set",
 )
 class TestPetAlignSmoke:
     """Ported from test_pet_align_full.sh"""
 
     @pytest.fixture(autouse=True)
-    def setup_pet(self, tmp_path):
+    def setup_pet(self, tmp_path, pytestconfig):
         self.outdir = str(tmp_path)
-        self.r1 = os.environ.get("WGSE_PET_R1") or settings.get("pet_r1_fastq")
-        self.r2 = os.environ.get("WGSE_PET_R2") or settings.get("pet_r2_fastq")
-        self.ref = os.environ.get("WGSE_PET_REF") or settings.get("pet_reference_fasta")
-        self.species = os.environ.get("WGSE_PET_SPECIES", "dog")
+        self.r1 = settings.get("pet_r1_fastq")
+        self.r2 = settings.get("pet_r2_fastq")
+        self.ref = settings.get("pet_reference_fasta")
+        self.species = pytestconfig.getoption("pet_species")
 
     @pytest.mark.skipif(
         not check_tool("bwa") and not check_tool("bwa-mem2"),

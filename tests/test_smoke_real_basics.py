@@ -1,3 +1,4 @@
+import gzip
 import os
 
 import pytest
@@ -7,7 +8,6 @@ from tests.smoke_utils import (
     check_tool,
     ensure_fake_data,
     run_cli,
-    run_cli_pipe,
     verify_bam,
     verify_fastq,
     verify_vcf,
@@ -485,6 +485,12 @@ class TestMicroarraySmoke:
             if check_tool("samtools"):
                 subprocess.run(["samtools", "faidx", self.fake_hg38_fa + ".gz"])
 
+        # Identity hg38->hg19 chain so vendor formats can lift over.
+        with gzip.open(
+            os.path.join(self.ref_dir, "hg38ToHg19.over.chain.gz"), "wt"
+        ) as f:
+            f.write("chain 40 chr1 40 + 0 40 chr1 40 + 0 40 1\n40\n\n")
+
         # Create dummy SNP tab file
         tab_file = os.path.join(self.ref_dir, "microarray", "All_SNPs_hg38_ref.tab")
         with open(tab_file, "w") as f:
@@ -528,7 +534,7 @@ class TestMicroarraySmoke:
             "23andme_v5",
         ]
         rc, stdout, stderr = run_cli(args)
-        assert rc == 0
+        assert rc == 0, stderr
         output_file = os.path.join(self.outdir, "input_23andMe_V5.txt")
         assert os.path.exists(output_file)
         assert assert_file_contains(output_file, "rs1")
@@ -582,8 +588,8 @@ class TestRefBasicsSmoke:
 
         # 4. Test 'ref count-ns'
         rc, stdout, stderr = run_cli(["ref", "count-ns", "--ref", downloaded])
-        assert rc == 0
-        assert "Processing" in stdout or "Processing" in stderr
+        assert rc == 0, stderr
+        assert os.path.exists(os.path.join(self.outdir, "downloaded_nbin.csv"))
 
         # 5. Test 'ref verify'
         rc, stdout, stderr = run_cli(["ref", "verify", "--ref", downloaded])
@@ -604,7 +610,7 @@ class TestRepairBasicsSmoke:
             "@SQ\tSN:chr1\tLN:1000\n"
             "read 1\t99\tchr1\t100\t60\t100M\t=\t200\t100\tAAAAAAAAAA\t##########\n"
         )
-        rc, stdout, stderr = run_cli_pipe(["repair", "ftdna-bam"], sam_content)
+        rc, stdout, stderr = run_cli(["repair", "ftdna-bam"], stdin_str=sam_content)
         assert rc == 0
         assert "read:1" in stdout
 
@@ -618,7 +624,7 @@ class TestRepairBasicsSmoke:
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample\n"
             "chr1\t100\t.\tA\tG\t100\tDP=1\t.\tGT\t0/1\n"
         )
-        rc, stdout, stderr = run_cli_pipe(["repair", "ftdna-vcf"], vcf_content)
+        rc, stdout, stderr = run_cli(["repair", "ftdna-vcf"], stdin_str=vcf_content)
         assert rc == 0
         assert "DP1" in stdout
 

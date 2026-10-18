@@ -4,36 +4,9 @@ import shutil
 
 from wgsextract_cli.core.messages import SYSTEM_MESSAGES as MESSAGES
 
-# Internal machine benchmarks for high-performance reference
-# Obtained from 30x WGS (7.3GB CRAM) on M1 Pro class hardware
-M1_PRO_ESTIMATES = {
-    "GetBAMHeader": 0.03,
-    "LiftoverCleanup": 0.01,
-    "ButtonBAMStats": 0.04,
-    "ButtonBAMStats2": 50.53,
-    "CoverageStatsPoz": 49.09,
-    "GenBAMIndex": 1.98,
-    "BAMtoCRAM": 11.69,
-    "ButtonMitoBAM": 2.77,
-    "ButtonYonly": 3.03,
-    "ButtonUnmappedReads": 0.08,
-    "ButtonSNPVCF": 6085.92,
-    "ButtonInDelVCF": 6942.84,
-    "ButtonCombinedKit": 470.79,
-    "ButtonFastp": 1.69,
-    "ButtonFastqc": 5.65,
-    "CoverageStatsBIN": 3547.49,
-    "CoverageStatsWES": 177.89,
-    "CreateAlignIndices": 0.03,
-    "ButtonAlignBAM": 20.30,
-    "GenSortedBAM": 858.75,
-    "CRAMtoBAM": 234.73,
-    "ButtonUnalignBAM": 1907.09,
-    "GenBAMSubset": 391.29,
-}
+GB = 1024**3
 
-# Expected run times of various commands in seconds
-# Extracted from program/settings.py
+# Expected run times of various commands in seconds (from the WGS Extract GUI)
 EXPECTED_TIME = {
     "GetBAMHeader": 2,
     "LiftoverCleanup": 5,
@@ -90,13 +63,11 @@ def format_time(seconds: int) -> str:
 def get_free_space_needed(
     file_size_bytes: int, sort_type: str = "Coord", is_cram: bool = False
 ) -> tuple[int, int]:
-    """
-    Calculates the free space needed based on the logic in program/mainwindow.py:Adjust_Mem
-    """
+    """Estimate (temp GB, final GB) needed to sort/convert a file of this size."""
     cram_mult = 1.95 if is_cram else 1.0
     name_mult = 1.45 if sort_type == "Name" else 1.0
 
-    isize_gb = file_size_bytes * cram_mult / 10**9
+    isize_gb = file_size_bytes * cram_mult / GB
     temp_needed_gb = int(isize_gb * name_mult + isize_gb)
     final_needed_gb = int(isize_gb)
 
@@ -175,7 +146,7 @@ def check_free_space(path: str, required_gb: int) -> bool:
         return True  # Can't check if path doesn't exist yet
 
     total, used, free = shutil.disk_usage(path)
-    free_gb = free / (1024**3)
+    free_gb = free / GB
     if free_gb < required_gb:
         logging.warning(f"!!! {MESSAGES['insufficient_disk_title']} !!!")
         msg = MESSAGES["insufficient_disk_msg"].format(

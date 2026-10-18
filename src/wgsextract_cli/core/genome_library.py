@@ -1,8 +1,11 @@
 import logging
+import re
 import sys
 from argparse import Namespace
 from pathlib import Path
 from typing import Any
+
+import tomli_w
 
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.utils import WGSExtractError
@@ -16,6 +19,13 @@ ALIGNMENT_SUFFIXES = (".cram", ".bam")
 VCF_SUFFIXES = (".vcf.gz", ".vcf.bgz", ".vcf")
 FASTQ_SUFFIXES = (".fastq.gz", ".fq.gz", ".fastq", ".fq")
 GENOME_CONFIG_NAME = "genome-config.toml"
+GENOME_CONFIG_KEYS = ("alignment", "vcf", "fastq_r1", "fastq_r2")
+_FASTQ_EXT_RE = re.compile(r"\.(?:fastq|fq)(?:\.gz)?$", re.IGNORECASE)
+# Mate markers are whole name tokens (split on . _ -): an explicit R1/read2 token
+# anywhere (sample_R1_val_1, sample_R2.trimmed), else a trailing bare 1/2,
+# optionally followed by an Illumina segment number (sample_1, sample.2_001).
+_EXPLICIT_MATE_RE = re.compile(r"(?<![^._-])(?:r|read)([12])(?![^._-])", re.IGNORECASE)
+_TRAILING_MATE_RE = re.compile(r"(?<![^._-])([12])((?:[._-]\d{3})?)$")
 VCF_FILE_COMMANDS = {
     "annotate",
     "filter",
@@ -44,7 +54,7 @@ def apply_genome_selection(args: Namespace, explicit_dests: set[str]) -> None:
 
     root_dir = Path(root).expanduser()
     genome_dir = root_dir / str(genome_id)
-    if not _is_relative_to(genome_dir.resolve(), root_dir.resolve()):
+    if not genome_dir.resolve().is_relative_to(root_dir.resolve()):
         raise WGSExtractError(f"Genome ID cannot escape genome_library: {genome_id}")
     if not genome_dir.is_dir():
         raise WGSExtractError(
@@ -72,20 +82,17 @@ def apply_genome_selection(args: Namespace, explicit_dests: set[str]) -> None:
 
 def _load_or_create_genome_config(genome_dir: Path) -> dict[str, Any]:
     config_path = genome_dir / GENOME_CONFIG_NAME
-    existing = _load_genome_config(config_path)
+    raw = _load_genome_config(config_path)
+    existing = {key: value for key, value in raw.items() if isinstance(value, str)}
     discovered = _discover_genome_files(genome_dir, existing)
-    merged = dict(existing)
-    changed = False
+    additions = {
+        key: value for key, value in discovered.items() if value and key not in raw
+    }
 
-    for key, value in discovered.items():
-        if key not in merged and value:
-            merged[key] = value
-            changed = True
+    if additions or not config_path.exists():
+        _write_genome_config(config_path, {**raw, **additions})
 
-    if changed or not config_path.exists():
-        _write_genome_config(config_path, merged, discovered)
-
-    return merged
+    return {**existing, **additions}
 
 
 def _load_genome_config(config_path: Path) -> dict[str, Any]:
@@ -93,10 +100,9 @@ def _load_genome_config(config_path: Path) -> dict[str, Any]:
         return {}
     try:
         with open(config_path, "rb") as f:
-            data = tomllib.load(f)
+            return tomllib.load(f)
     except (OSError, tomllib.TOMLDecodeError) as e:
         raise WGSExtractError(f"Failed to read {config_path}: {e}") from e
-    return {key: value for key, value in data.items() if isinstance(value, str)}
 
 
 def _discover_genome_files(genome_dir: Path, config: dict[str, Any]) -> dict[str, str]:
@@ -124,22 +130,24 @@ def _discover_genome_files(genome_dir: Path, config: dict[str, Any]) -> dict[str
     return discovered
 
 
-def _write_genome_config(
-    config_path: Path, config: dict[str, Any], discovered: dict[str, str]
-) -> None:
+def _write_genome_config(config_path: Path, config: dict[str, Any]) -> None:
+    """Write the known path keys (or commented placeholders), keeping any other keys."""
     lines = [
         "# WGS Extract per-genome configuration",
         "# Paths are relative to this genome folder unless absolute.",
         "# Edit these values to resolve ambiguity when multiple files exist.",
         "",
     ]
-    for key in ["alignment", "vcf", "fastq_r1", "fastq_r2"]:
-        value = config.get(key) or discovered.get(key)
-        if value:
-            lines.append(f'{key} = "{_escape_toml_string(str(value))}"')
+    for key in GENOME_CONFIG_KEYS:
+        if key in config:
+            lines.append(tomli_w.dumps({key: config[key]}).rstrip("\n"))
         else:
             lines.append(f'# {key} = "relative/path/to/file"')
-    config_path.write_text("\n".join(lines) + "\n")
+    extra = {k: v for k, v in config.items() if k not in GENOME_CONFIG_KEYS}
+    text = "\n".join(lines) + "\n"
+    if extra:
+        text += "\n" + tomli_w.dumps(extra)
+    config_path.write_text(text)
 
 
 def _set_alignment_input(
@@ -364,17 +372,11 @@ def _matching_r1(r2: Path, fastqs: list[Path]) -> Path | None:
 
 
 def _fastq_pair_key(path: Path) -> str:
-    name = path.name.lower()
-    for old, new in [
-        ("_r1", "_r"),
-        ("_r2", "_r"),
-        ("_1", "_"),
-        ("_2", "_"),
-        (".r1", ".r"),
-        (".r2", ".r"),
-    ]:
-        name = name.replace(old, new)
-    return str(path.parent.resolve() / name)
+    """Name with every mate marker masked, so R1 and R2 of one sample share a key."""
+    stem = _FASTQ_EXT_RE.sub("", path.name.lower())
+    stem = _EXPLICIT_MATE_RE.sub(lambda m: m.group(0)[:-1] + "#", stem)
+    stem = _TRAILING_MATE_RE.sub(lambda m: "#" + m.group(2), stem)
+    return str(path.parent.resolve() / stem)
 
 
 def _is_data_file(path: Path) -> bool:
@@ -399,30 +401,15 @@ def _suffix_rank(path: Path, suffixes: tuple[str, ...]) -> int:
 
 
 def _fastq_rank(path: Path) -> int:
-    name = path.name.lower()
-    r1_markers = ("_r1", "_1", ".r1", ".1", "read1")
-    r2_markers = ("_r2", "_2", ".r2", ".2", "read2")
-    if any(marker in name for marker in r1_markers):
-        return 0
-    if any(marker in name for marker in r2_markers):
-        return 1
-    return 2
+    """0 for read 1, 1 for read 2, 2 for unpaired/unknown."""
+    stem = _FASTQ_EXT_RE.sub("", path.name)
+    explicit = list(_EXPLICIT_MATE_RE.finditer(stem))
+    match = explicit[-1] if explicit else _TRAILING_MATE_RE.search(stem)
+    return int(match.group(1)) - 1 if match else 2
 
 
 def _relative(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
-
-
-def _is_relative_to(path: Path, root: Path) -> bool:
-    try:
-        path.relative_to(root)
-    except ValueError:
-        return False
-    return True
-
-
-def _escape_toml_string(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _ambiguous_error(

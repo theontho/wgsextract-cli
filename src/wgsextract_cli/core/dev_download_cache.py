@@ -9,16 +9,14 @@ import time
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from wgsextract_cli.core.config import settings
+
 CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
-CACHE_ENV_VAR = "WGSEXTRACT_DEV_DOWNLOAD_CACHE"
-CACHE_TTL_ENV_VAR = "WGSEXTRACT_DEV_DOWNLOAD_CACHE_TTL_SECONDS"
 
 
 def dev_download_cache_enabled() -> bool:
-    override = os.environ.get(CACHE_ENV_VAR)
-    if override is not None:
-        return override.strip().lower() in {"1", "true", "yes", "on"}
-    return False
+    """Enabled by the dev_download_cache = true config.toml setting."""
+    return settings.get("dev_download_cache") is True
 
 
 def xdg_cache_home() -> Path:
@@ -57,9 +55,7 @@ def restore_cached_download(
 
     try:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = destination.with_name(f".{destination.name}.cache-{os.getpid()}.tmp")
-        shutil.copyfile(cached_path, tmp_path)
-        tmp_path.replace(destination)
+        _atomic_copy(cached_path, destination)
         mark_cache_item_used(cached_path)
         logging.info("Using dev download cache: %s", cached_path)
         return cached_path
@@ -93,9 +89,7 @@ def store_download_in_dev_cache(
             mark_cache_item_used(cached_path)
             return cached_path
 
-        tmp_path = cached_path.with_name(f".{cached_path.name}.{os.getpid()}.tmp")
-        shutil.copyfile(source, tmp_path)
-        tmp_path.replace(cached_path)
+        _atomic_copy(source, cached_path)
         mark_cache_item_used(cached_path)
         logging.info("Stored dev download cache item: %s", cached_path)
         return cached_path
@@ -104,6 +98,15 @@ def store_download_in_dev_cache(
             "Could not store dev download cache item %s: %s", cached_path, exc
         )
         return None
+
+
+def _atomic_copy(source: Path, destination: Path) -> None:
+    tmp_path = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
+    try:
+        shutil.copyfile(source, tmp_path)
+        tmp_path.replace(destination)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def drop_cached_download(
@@ -181,12 +184,13 @@ def _cache_filename(url: str, destination: Path) -> str:
 
 
 def _cache_ttl_seconds() -> int:
-    value = os.environ.get(CACHE_TTL_ENV_VAR)
-    if not value:
+    value = settings.get("dev_download_cache_ttl_seconds")
+    if value is None:
         return CACHE_TTL_SECONDS
     try:
-        ttl = int(value)
+        return max(0, int(str(value)))
     except ValueError:
-        logging.debug("Ignoring invalid %s=%r", CACHE_TTL_ENV_VAR, value)
+        logging.warning(
+            "Ignoring invalid dev_download_cache_ttl_seconds=%r in config.", value
+        )
         return CACHE_TTL_SECONDS
-    return max(0, ttl)

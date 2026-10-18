@@ -13,6 +13,7 @@ def test_tabix_annotation_preparation_indexes_tsv_with_coordinate_columns(
     commands = []
 
     monkeypatch.setattr(helpers, "get_tool_path", lambda tool: tool)
+    monkeypatch.setattr(helpers, "is_bgzf", lambda _path: True)
     monkeypatch.setattr(
         helpers, "run_command", lambda cmd, **_kwargs: commands.append(cmd)
     )
@@ -33,6 +34,7 @@ def test_tabix_annotation_preparation_rebuilds_stale_index(monkeypatch, tmp_path
     commands = []
 
     monkeypatch.setattr(helpers, "get_tool_path", lambda tool: tool)
+    monkeypatch.setattr(helpers, "is_bgzf", lambda _path: True)
     monkeypatch.setattr(
         helpers, "run_command", lambda cmd, **_kwargs: commands.append(cmd)
     )
@@ -71,19 +73,6 @@ def test_annotation_resolver_accepts_mixed_case_build_suffix(tmp_path):
     resolved = lib._resolve_annotation_file(None, "revel", [".tsv.gz"], [str(tmp_path)])
     assert resolved is not None
     assert resolved.lower() == str(resource).lower()
-
-
-def test_alignment_pipeline_reports_process_failure():
-    from wgsextract_cli.commands.align import _check_pipeline_process
-
-    class FailingProcess:
-        returncode = 1
-
-        def wait(self):
-            return self.returncode
-
-    with pytest.raises(WGSExtractError, match="aligner failed"):
-        _check_pipeline_process(FailingProcess(), "aligner")
 
 
 def test_gatk_prepares_regional_cram_as_temporary_bam(monkeypatch, tmp_path):

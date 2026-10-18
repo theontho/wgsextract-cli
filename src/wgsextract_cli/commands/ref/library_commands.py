@@ -1,7 +1,7 @@
 import argparse
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from wgsextract_cli.core.annotation_resources import (
     download_alphamissense,
@@ -14,12 +14,19 @@ from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
+from wgsextract_cli.core.gene_map import (
+    are_gene_maps_installed,
+    delete_gene_maps,
+    download_gene_maps,
+)
 from wgsextract_cli.core.messages import LOG_MESSAGES
-from wgsextract_cli.core.ref_library import (
+from wgsextract_cli.core.ref_library.catalog import (
     get_available_genomes,
     get_genome_status,
 )
+from wgsextract_cli.core.reference_assets import resolve_reference_library
 from wgsextract_cli.core.reference_processing import (
+    delete_genome,
     download_and_process_genome,
     download_gnomad,
     download_phylop,
@@ -30,11 +37,19 @@ from .core_commands import (
     cmd_library_list,
 )
 
+_MENU_DOWNLOADS: dict[str, tuple[str, Callable[[str], bool]]] = {
+    "C": ("ClinVar", download_clinvar),
+    "R": ("REVEL", download_revel),
+    "P": ("PhyloP", download_phylop),
+    "N": ("gnomAD", download_gnomad),
+    "S": ("SpliceAI", download_spliceai),
+    "A": ("AlphaMissense", download_alphamissense),
+    "K": ("PharmGKB", download_pharmgkb),
+}
+
 
 def cmd_library(args: argparse.Namespace) -> None:
     """Interactive or non-interactive library manager."""
-    from wgsextract_cli.core.config import settings
-
     if args.list:
         return cmd_library_list(args)
 
@@ -43,45 +58,20 @@ def cmd_library(args: argparse.Namespace) -> None:
     log_dependency_info(deps)
 
     genomes = get_available_genomes()
-
-    # Determine reference library directory
-    reflib_dir = args.ref
-    if not reflib_dir:
-        reflib_dir = settings.get("reference_library")
-    if not reflib_dir:
-        prog_root = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "../../../..")
-        )
-        reflib_dir = os.path.join(prog_root, "reference")
-
-    reflib_dir = os.path.abspath(reflib_dir)
+    reflib_dir = resolve_reference_library(args.ref)
 
     # Non-interactive install
     if args.install:
         choice = args.install.upper()
-        target_idx = -1
-        target_genome = None
-
-        # Try to find by code first
-        for i, g in enumerate(genomes):
-            if g["code"].upper() == choice:
-                target_idx = i
-                target_genome = g
-                break
-
-        # Then try by index
-        if target_idx == -1 and choice.isdigit():
+        target_genome = next((g for g in genomes if g["code"].upper() == choice), None)
+        if target_genome is None and choice.isdigit():
             idx = int(choice) - 1
             if 0 <= idx < len(genomes):
-                target_idx = idx
                 target_genome = genomes[idx]
-
-        if target_genome:
-            download_and_process_genome(target_genome, reflib_dir, interactive=False)
-            return
-        else:
-            logging.error(f"Genome '{args.install}' not found in library.")
-            raise WGSExtractError("Ref library installation failed.")
+        if target_genome is None:
+            raise WGSExtractError(f"Genome '{args.install}' not found in library.")
+        _install_genome(target_genome, reflib_dir)
+        return
 
     # Interactive menu
     print("\n" + "=" * 80)
@@ -91,22 +81,13 @@ def cmd_library(args: argparse.Namespace) -> None:
     print("Select an option:")
     print(" 0) Exit")
     print(" G) Gene Map (hg19/hg38)")
-    print(" C) ClinVar (hg19/hg38)")
-    print(" R) REVEL (hg19/hg38)")
-    print(" P) PhyloP (hg19/hg38)")
-    print(" N) gnomAD (hg19/hg38)")
-    print(" S) SpliceAI (hg19/hg38)")
-    print(" A) AlphaMissense (hg19/hg38)")
-    print(" K) PharmGKB")
+    for key, (name, _) in _MENU_DOWNLOADS.items():
+        suffix = "" if key == "K" else " (hg19/hg38)"
+        print(f" {key}) {name}{suffix}")
 
-    # Check for installed genomes
     for i, g in enumerate(genomes, 1):
         s = get_genome_status(g["final"], reflib_dir)
-        status = ""
-        if s == "installed":
-            status = " [Installed]"
-        elif s == "incomplete":
-            status = " [Incomplete]"
+        status = {"installed": " [Installed]", "incomplete": " [Incomplete]"}.get(s, "")
         print(f" {i:2}) {g['label']}{status}")
     print("=" * 80)
 
@@ -117,104 +98,82 @@ def cmd_library(args: argparse.Namespace) -> None:
             return
 
         if choice == "G":
-            from wgsextract_cli.core.gene_map import (
-                are_gene_maps_installed,
-                delete_gene_maps,
-                download_gene_maps,
-            )
-
             if are_gene_maps_installed(reflib_dir):
                 confirm = input("Gene maps already installed. Delete? (y/n): ").lower()
                 if confirm == "y":
-                    if delete_gene_maps(reflib_dir):
-                        print("Gene maps deleted.")
-                    else:
-                        print("Deletion failed.")
+                    _delete_gene_maps(reflib_dir)
             else:
-                download_gene_maps(reflib_dir)
+                _download_gene_maps(reflib_dir)
             return
 
-        if choice == "C":
-            from wgsextract_cli.core.annotation_resources import download_clinvar
-
-            download_clinvar(reflib_dir)
-            return
-
-        if choice == "R":
-            from wgsextract_cli.core.annotation_resources import download_revel
-
-            download_revel(reflib_dir)
-            return
-
-        if choice == "P":
-            from wgsextract_cli.core.reference_processing import download_phylop
-
-            download_phylop(reflib_dir)
-            return
-
-        if choice == "N":
-            from wgsextract_cli.core.reference_processing import download_gnomad
-
-            download_gnomad(reflib_dir)
-            return
-
-        if choice == "S":
-            from wgsextract_cli.core.annotation_resources import download_spliceai
-
-            download_spliceai(reflib_dir)
-            return
-
-        if choice == "A":
-            from wgsextract_cli.core.annotation_resources import download_alphamissense
-
-            download_alphamissense(reflib_dir)
-            return
-
-        if choice == "K":
-            from wgsextract_cli.core.annotation_resources import download_pharmgkb
-
-            download_pharmgkb(reflib_dir)
+        if choice in _MENU_DOWNLOADS:
+            name, downloader = _MENU_DOWNLOADS[choice]
+            _run_downloader(reflib_dir, name, downloader)
             return
 
         idx = int(choice) - 1
-        if 0 <= idx < len(genomes):
-            if not os.path.exists(reflib_dir):
-                os.makedirs(reflib_dir, exist_ok=True)
-
-            download_and_process_genome(genomes[idx], reflib_dir)
-        else:
+        if not 0 <= idx < len(genomes):
             print("Invalid choice.")
+            return
+        genome = genomes[idx]
+        status = get_genome_status(genome["final"], reflib_dir)
+        restart = False
+        if status == "installed":
+            print(f"\n{genome['final']} is already installed.")
+            if input("Re-download anyway? [y/N]: ").strip().lower() != "y":
+                return
+            restart = True
+        elif status == "incomplete":
+            print(f"\n{genome['final']} is incomplete.")
+            action = input("[R]esume, [D]elete, or [C]ancel? ").strip().lower()
+            if action == "c":
+                return
+            if action == "d":
+                delete_genome(genome["final"], reflib_dir)
+                return
+        _install_genome(genome, reflib_dir, restart=restart)
     except (ValueError, EOFError, KeyboardInterrupt):
         print("\nExiting library manager.")
 
 
+def _install_genome(
+    genome: Mapping[str, str], reflib_dir: str, restart: bool = False
+) -> None:
+    os.makedirs(reflib_dir, exist_ok=True)
+    if not download_and_process_genome(genome, reflib_dir, restart=restart):
+        raise WGSExtractError(f"Failed to install genome {genome['final']}.")
+
+
 def cmd_gene_map(args: argparse.Namespace) -> None:
-    from wgsextract_cli.core.gene_map import delete_gene_maps, download_gene_maps
-
-    prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    reflib = args.ref if args.ref else os.path.join(prog_root, "reference")
-
+    reflib = resolve_reference_library(args.ref)
     if getattr(args, "delete", False):
-        if delete_gene_maps(reflib):
-            print(LOG_MESSAGES["del_genemap_success"])
-        else:
-            print(LOG_MESSAGES["del_genemap_failed"])
+        _delete_gene_maps(reflib)
     else:
-        if download_gene_maps(reflib):
-            print(LOG_MESSAGES["dl_genemap_success"])
-        else:
-            print(LOG_MESSAGES["dl_genemap_failed"])
+        _download_gene_maps(reflib)
 
 
-def _resolve_reflib(args: argparse.Namespace) -> str:
-    from wgsextract_cli.core.config import settings
+def _download_gene_maps(reflib: str) -> None:
+    if not download_gene_maps(reflib):
+        raise WGSExtractError(LOG_MESSAGES["dl_genemap_failed"])
+    print(LOG_MESSAGES["dl_genemap_success"])
 
-    prog_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-    return (
-        args.ref
-        or settings.get("reference_library")
-        or os.path.join(prog_root, "reference")
-    )
+
+def _delete_gene_maps(reflib: str) -> None:
+    if not delete_gene_maps(reflib):
+        raise WGSExtractError(LOG_MESSAGES["del_genemap_failed"])
+    print(LOG_MESSAGES["del_genemap_success"])
+
+
+def _run_downloader(
+    reflib: str,
+    resource_name: str,
+    downloader: Callable[[str], bool],
+    action: str = "download and indexing",
+) -> None:
+    logging.info("Starting %s %s...", resource_name, action)
+    if not downloader(reflib):
+        raise WGSExtractError(f"{resource_name} setup failed.")
+    logging.info("%s setup complete.", resource_name)
 
 
 def _run_ref_download(
@@ -223,13 +182,9 @@ def _run_ref_download(
     downloader: Callable[[str], bool],
     action: str = "download and indexing",
 ) -> None:
-    reflib = _resolve_reflib(args)
-    logging.info("Starting %s %s...", resource_name, action)
-    if downloader(reflib):
-        logging.info("%s setup complete.", resource_name)
-        return
-    logging.error("%s setup failed.", resource_name)
-    raise WGSExtractError("Ref library installation failed.")
+    _run_downloader(
+        resolve_reference_library(args.ref), resource_name, downloader, action
+    )
 
 
 def cmd_clinvar_dl(args: argparse.Namespace) -> None:
@@ -262,42 +217,26 @@ def cmd_pharmgkb_dl(args: argparse.Namespace) -> None:
 
 def cmd_bootstrap(args: argparse.Namespace) -> None:
     from wgsextract_cli.core.config import save_config, settings
-    from wgsextract_cli.core.ref_library import install_mappability_maps
+    from wgsextract_cli.core.ref_library.catalog import install_mappability_maps
     from wgsextract_cli.core.reference_processing import download_bootstrap
 
-    reflib = args.ref
-    configured_reflib = settings.get("reference_library")
-    if not reflib:
-        reflib = configured_reflib
-    if not reflib:
-        prog_root = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "../../../..")
-        )
-        reflib = os.path.join(prog_root, "reference")
-    reflib = os.path.abspath(reflib)
-    should_save_reflib = not configured_reflib
+    should_save_reflib = not settings.get("reference_library")
+    reflib = resolve_reference_library(args.ref)
 
     logging.info("Starting reference library bootstrap...")
-    if download_bootstrap(reflib):
-        if should_save_reflib:
-            save_config({"reference_library": reflib})
-            logging.info(f"Saved reference library path to config.toml: {reflib}")
-        install_maps = (
-            getattr(args, "install_mappability_maps", False)
-            or os.environ.get("WGSEXTRACT_INSTALL_MAPPABILITY_MAPS") == "1"
-        )
-        if install_maps and not install_mappability_maps(reflib):
-            logging.error("Delly mappability map installation failed.")
-            raise WGSExtractError("Ref library installation failed.")
-        if not install_maps:
-            logging.info(
-                "Skipping optional Delly mappability maps. "
-                "Use --install-mappability-maps or "
-                "WGSEXTRACT_INSTALL_MAPPABILITY_MAPS=1 to preinstall them."
-            )
-        logging.info(
-            "Bootstrap complete. You can now install genomes via 'wgsextract ref library'."
-        )
+    if not download_bootstrap(reflib):
+        raise WGSExtractError("Reference library bootstrap failed.")
+    if should_save_reflib:
+        save_config({"reference_library": reflib})
+        logging.info(f"Saved reference library path to config.toml: {reflib}")
+    if getattr(args, "install_mappability_maps", False):
+        if not install_mappability_maps(reflib):
+            raise WGSExtractError("Delly mappability map installation failed.")
     else:
-        logging.error("Bootstrap failed.")
-        raise WGSExtractError("Ref library installation failed.")
+        logging.info(
+            "Skipping optional Delly mappability maps. "
+            "Use --install-mappability-maps to preinstall them."
+        )
+    logging.info(
+        "Bootstrap complete. You can now install genomes via 'wgsextract ref library'."
+    )

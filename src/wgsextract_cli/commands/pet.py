@@ -3,7 +3,6 @@
 import argparse
 import logging
 import os
-import shutil
 import subprocess
 
 from wgsextract_cli.core.dependency_checks import (
@@ -14,11 +13,23 @@ from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
-    get_sam_index_cmd,
-    get_sam_sort_cmd,
     run_command,
+    run_pipeline,
 )
-from wgsextract_cli.core.variant_files import popen
+from wgsextract_cli.core.variant_files import verify_paths_exist
+
+from ._extract_helpers import cleanup_files
+from .align import (
+    ensure_bwa_index,
+    reads_stem,
+    run_streamed_alignment,
+    use_samblaster,
+)
+
+_SPECIES_REFERENCES = {
+    "dog": "GCF_011100685.1_UU_Cfam_GSD_1.0_genomic.fna.gz",
+    "cat": "GCF_018350175.1_F.catus_Fca126_mat1.0_genomic.fna.gz",
+}
 
 
 def register(
@@ -44,147 +55,70 @@ def run(args: argparse.Namespace) -> None:
 
     if not args.r1:
         raise WGSExtractError("--r1 is required unless --genome resolves FASTQ inputs.")
-
-    logging.debug(f"Input file (R1): {os.path.abspath(args.r1)}")
+    paths_to_check = {"--r1": args.r1}
     if args.r2:
-        logging.debug(f"Input file (R2): {os.path.abspath(args.r2)}")
+        paths_to_check["--r2"] = args.r2
+    verify_paths_exist(paths_to_check)
 
-    threads, _ = get_resource_defaults(args.threads, None)
+    threads, memory = get_resource_defaults(args.threads, args.memory)
 
     if not args.ref:
         raise WGSExtractError(LOG_MESSAGES["ref_required"])
-
-    # Map species to filename
-    ref_map = {
-        "dog": "GCF_011100685.1_UU_Cfam_GSD_1.0_genomic.fna.gz",
-        "cat": "GCF_018350175.1_F.catus_Fca126_mat1.0_genomic.fna.gz",
-    }
-
     if os.path.isfile(args.ref):
         ref_file = args.ref
     else:
-        ref_file = os.path.join(args.ref, "genomes", ref_map[args.species])
-
+        ref_file = os.path.join(args.ref, "genomes", _SPECIES_REFERENCES[args.species])
     logging.debug(f"Resolved reference: {ref_file}")
-
     if not os.path.exists(ref_file):
-        logging.error(f"Reference genome for {args.species} not found at {ref_file}")
-        if not os.path.isfile(args.ref):
-            logging.info("Please download it with `wgsextract ref library --install`.")
+        hint = (
+            ""
+            if os.path.isfile(args.ref)
+            else " Download it with `wgsextract ref library --install`."
+        )
         raise WGSExtractError(
-            f"Reference genome for {args.species} not found at {ref_file}"
+            f"Reference genome for {args.species} not found at {ref_file}.{hint}"
         )
+    ensure_bwa_index(ref_file)
 
-    # Check for BWA index files, if missing, run indexing
-    bwt_index = ref_file + ".bwt"
-    if not os.path.exists(bwt_index):
-        logging.info(
-            f"BWA index missing for {ref_file}. Generating now (may take a while)..."
-        )
-        try:
-            run_command(["bwa", "index", ref_file])
-        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-            logging.error(f"Automatic indexing failed: {e}")
-            raise WGSExtractError("Automatic BWA indexing failed.") from e
-
-    outdir = args.outdir if args.outdir else os.getcwd()
+    outdir = args.outdir or os.path.dirname(os.path.abspath(args.r1))
+    os.makedirs(outdir, exist_ok=True)
     logging.debug(f"Output directory: {os.path.abspath(outdir)}")
-    base_name = os.path.basename(args.r1).split(".")[0]
-    out_bam = os.path.join(outdir, f"{base_name}_{args.species}.bam")
-    if args.format == "CRAM":
-        out_bam = os.path.join(outdir, f"{base_name}_{args.species}.cram")
+    base_name = f"{reads_stem(args.r1)}_{args.species}"
+    ext = ".cram" if args.format == "CRAM" else ".bam"
+    out_bam = os.path.join(outdir, base_name + ext)
+    out_vcf = os.path.join(outdir, f"{base_name}.vcf.gz")
 
-    out_vcf = os.path.join(outdir, f"{base_name}_{args.species}.vcf.gz")
-
-    # 1. Alignment
     logging.info(LOG_MESSAGES["pet_aligning"].format(species=args.species))
-    r2_args = [args.r2] if args.r2 else []
-
+    align_cmd = ["bwa", "mem", "-t", threads, ref_file, args.r1]
     try:
-        _, memory = get_resource_defaults(args.threads, None)
-        # 1. Mark duplicates (optional)
-        use_blaster = shutil.which("samblaster") is not None
-        if use_blaster:
-            logging.info("Using samblaster for marking duplicates...")
-
-        # 2. Samtools sort (BAM/CRAM)
-        sam_args = get_sam_sort_cmd(
-            out_bam, threads, memory, fmt=args.format, reference=ref_file
+        run_streamed_alignment(
+            align_cmd + ([args.r2] if args.r2 else []),
+            out_bam,
+            threads=threads,
+            memory=memory,
+            fmt=args.format,
+            ref=ref_file,
+            mark_duplicates=use_samblaster(paired=bool(args.r2)),
         )
-
-        p1 = popen(
-            ["bwa", "mem", "-t", threads, ref_file, args.r1] + r2_args,
-            stdout=subprocess.PIPE,
-        )
-
-        if use_blaster:
-            p_blaster = popen(["samblaster"], stdin=p1.stdout, stdout=subprocess.PIPE)
-            if p1.stdout:
-                p1.stdout.close()
-            p2 = popen(sam_args, stdin=p_blaster.stdout)
-            if p_blaster.stdout:
-                p_blaster.stdout.close()
-        else:
-            p2 = popen(sam_args, stdin=p1.stdout)
-            if p1.stdout:
-                p1.stdout.close()
-
-        p2.communicate()
-
-        if p2.returncode != 0:
-            raise WGSExtractError("Alignment failed.")
-
-        logging.info(LOG_MESSAGES["pet_indexing"].format(format=args.format))
-        run_command(get_sam_index_cmd(out_bam, threads=threads))
-
-    except WGSExtractError:
-        raise
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Alignment error: {e}") from e
 
-    # 2. Variant Calling (Simple MPileup + BCFTools)
     logging.info(LOG_MESSAGES["pet_calling"])
     try:
-        # bcftools mpileup | bcftools call -mv -Oz -o out.vcf.gz
-        p1 = popen(
-            [
-                "bcftools",
-                "mpileup",
-                "--threads",
-                threads,
-                "-f",
-                ref_file,
-                out_bam,
-            ],
-            stdout=subprocess.PIPE,
-        )
-        p2 = popen(
-            [
-                "bcftools",
-                "call",
-                "--threads",
-                threads,
-                "-mv",
-                "-Oz",
-                "-o",
-                out_vcf,
-            ],
-            stdin=p1.stdout,
-        )
-        if p1.stdout:
-            p1.stdout.close()
-        p2.communicate()
-
-        if p2.returncode != 0:
-            raise WGSExtractError("Variant calling failed.")
-
-        logging.info("Indexing VCF...")
-        run_command(["bcftools", "index", out_vcf])
-
-        logging.info(LOG_MESSAGES["pet_complete"])
-        logging.info(LOG_MESSAGES["pet_results"].format(bam=out_bam, vcf=out_vcf))
-
-    except WGSExtractError:
-        raise
+        with cleanup_files(on_failure=[out_vcf, out_vcf + ".csi"]):
+            run_pipeline(
+                [
+                    ["bcftools", "mpileup", "--threads", threads, "-Ou", "-f", ref_file]
+                    + [out_bam],
+                    ["bcftools", "call", "--threads", threads, "-mv", "-Oz"]
+                    + ["-o", out_vcf],
+                ],
+                description="Variant calling",
+            )
+            logging.info("Indexing VCF...")
+            run_command(["bcftools", "index", "-f", out_vcf])
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Variant calling error: {e}") from e
+
+    logging.info(LOG_MESSAGES["pet_complete"])
+    logging.info(LOG_MESSAGES["pet_results"].format(bam=out_bam, vcf=out_vcf))
