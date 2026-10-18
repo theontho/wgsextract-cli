@@ -201,12 +201,12 @@ Troubleshooting is faster when you reduce the problem. Run a command on a tiny r
 ::: grid two
 ::: card
 ### Command not found
-Run through Pixi: `pixi run wgsextract ...`. Check `pixi install` completed and `pixi run wgsextract deps check` passes. If a wrapped external tool is missing, verify that you are using the expected Pixi environment.
+Use the launcher that matches your install (see [Running the CLI](install.html#running){.inline-link}). Then run `wgsextract deps check`; it lists missing tools and exits 1 if a mandatory one is absent. If a wrapped external tool is missing, verify that the expected Pixi environment is installed.
 :::
 
 ::: card
 ### Reference errors
-Verify the FASTA exists, is indexed, and matches the build used by the input BAM, CRAM, or VCF. A CRAM may fail even when the path looks correct if the reference content does not match.
+Verify the FASTA exists, is indexed, and matches the build used by the input BAM, CRAM, or VCF. `wgsextract ref verify --ref <fasta>` checks the index and sequence-dictionary signature. A CRAM may fail even when the path looks correct if the reference content does not match.
 :::
 
 ::: card

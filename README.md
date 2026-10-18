@@ -1,44 +1,34 @@
-> [!WARNING]
-> A bit rough around the edges but I use it locally myself.  An AI agent can probably patch over any rough spots for you.
-
-# 🧬 WGS Extract CLI (`wgsextract-cli`)
+# WGS Extract CLI (`wgsextract-cli`)
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-A completely independent, modern, AI-optimized command-line recreation of the [WGS (Whole Genome Sequencing) Extract](https://github.com/WGSExtract/WGSExtract-Dev/) application.
+An independent command-line recreation of [WGS Extract](https://github.com/WGSExtract/WGSExtract-Dev/). It wraps samtools, bcftools, bwa/minimap2, GATK, Yleaf, Haplogrep, VEP and other tools so you can inspect BAM/CRAM files, simulate consumer microarray files, extract Y/mtDNA data, call and annotate variants, and manage reference genomes from scripts or the terminal. [Pixi](https://pixi.sh) provides Python and the bioinformatics tools on macOS, Linux, and Windows.
 
-Designed to be CLI-first for AI-friendliness, `wgsextract-cli` leverages [**Pixi**](https://pixi.sh) to provide a consistent, cross-platform environment for both Python and external bioinformatics tools (like samtools and bcftools).
+Documentation site: <https://theontho.github.io/wgsextract-cli/>. A separate graphical app is available from [gui-for-cli](https://github.com/theontho/gui-for-cli/releases).
 
+## Install
 
-
-## ⚙️ Installation & Setup Guide
-
-`wgsextract-cli` has a self-contained macOS/Linux installer based on [**Pixi**](https://pixi.sh), which manages Python, bioinformatics tools, and the application environment. Open the Terminal app on your machine, paste this command, and press Enter:
+macOS and Linux: open Terminal, paste this command, and press Enter.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh
 ```
 
-The command downloads the small bootstrap script from `main`, but the app payload is not installed from `main`. The installer resolves GitHub's latest published release, downloads that release tag's source archive, runs `pixi install`, and writes launchers inside the install directory. This keeps normal installs on tested release builds while allowing the install command itself to improve over time.
+The bootstrap script comes from `main`, but it installs the latest published GitHub release, not `main`. It creates `wgsextract-cli/` in the current directory (or next to a downloaded `install.sh`) containing the app (`app/`), Pixi files (`.pixi/`), the `wgsextract` launcher, and `uninstall.sh`. On macOS it checks for the Xcode Command Line Tools first.
 
-By default, a downloaded `install.sh` creates `wgsextract-cli/` next to itself; when run through `curl | sh`, it creates `wgsextract-cli/` in the current directory. The app lives in `wgsextract-cli/app/`, the CLI launcher lives at `wgsextract-cli/wgsextract`, Pixi files live under `wgsextract-cli/.pixi/`, and installer temporary files live under `wgsextract-cli/app/tmp/`. On macOS, the installer verifies Xcode Command Line Tools before setup and opens the install directory in Finder when it finishes. Remove the app with `wgsextract-cli/uninstall.sh`; interactive uninstalls ask whether to remove Pixi from `~/.pixi` too.
+Windows: clone or download the repository and run `install_windows.bat` from PowerShell. It bootstraps Pixi and MSYS2 when missing and configures the native MSYS2 UCRT64 runtime. See [docs/windows_pacman_runtime.md](docs/windows_pacman_runtime.md). WSL2 is not recommended for normal use.
 
-After install, the default launchers are:
-
-| Launcher | Purpose |
-| :--- | :--- |
-| `wgsextract-cli/wgsextract` | CLI launcher |
-| `wgsextract-cli/uninstall.sh` | macOS/Linux uninstaller |
+The [install guide](https://theontho.github.io/wgsextract-cli/install.html) covers platform notes, download verification, and the reference library in more detail.
 
 ### Installer options
 
-Set these environment variables before running the installer to customize it:
+Set these environment variables before running `install.sh`:
 
 | Variable | Default | Purpose |
 | :--- | :--- | :--- |
-| `WGSEXTRACT_INSTALL_DIR` | `wgsextract-cli` next to `install.sh`, or `./wgsextract-cli` for `curl | sh` | Install location |
+| `WGSEXTRACT_INSTALL_DIR` | `wgsextract-cli` next to `install.sh`, or `./wgsextract-cli` for `curl \| sh` | Install location |
 | `WGSEXTRACT_RELEASE_TAG` | latest GitHub release | Release tag to install, or `latest` |
 | `WGSEXTRACT_REF` | `WGSEXTRACT_RELEASE_TAG` | Git ref to install, or `latest` |
 | `WGSEXTRACT_ARCHIVE_URL` | GitHub source archive for `WGSEXTRACT_REF` | Exact source archive URL |
@@ -48,157 +38,158 @@ Set these environment variables before running the installer to customize it:
 | `WGSEXTRACT_PIXI_ENV_DIR` | `$WGSEXTRACT_INSTALL_DIR/.pixi/envs` | Pixi project environment directory |
 | `WGSEXTRACT_NO_OPEN` | unset | Set to `1` to skip opening Finder on macOS |
 
-Leave `WGSEXTRACT_BIN_DIR`, `WGSEXTRACT_PIXI_HOME`, `WGSEXTRACT_PIXI_CACHE_DIR`, and `WGSEXTRACT_PIXI_ENV_DIR` unset for clean one-directory uninstall behavior. Setting any of them outside `WGSEXTRACT_INSTALL_DIR` intentionally leaves that launcher, Pixi install, cache, or environment outside the install tree.
+Leave `WGSEXTRACT_BIN_DIR`, `WGSEXTRACT_PIXI_HOME`, `WGSEXTRACT_PIXI_CACHE_DIR`, and `WGSEXTRACT_PIXI_ENV_DIR` unset to keep everything inside one directory. For reproducible installs set `WGSEXTRACT_RELEASE_TAG=vX.Y.Z`; for testing unreleased code set `WGSEXTRACT_REF=main` or `WGSEXTRACT_ARCHIVE_URL=<url>`.
 
-For reproducible installs, set `WGSEXTRACT_RELEASE_TAG=vX.Y.Z` before running the installer. For development testing, set `WGSEXTRACT_REF=main` or `WGSEXTRACT_ARCHIVE_URL=<url>` to bypass latest-release resolution.
-
-### macOS/Linux uninstall
+### Uninstall
 
 ```bash
 ./wgsextract-cli/uninstall.sh --yes
 ```
 
-The uninstaller removes the install directory and the default launcher, Pixi environments, and Pixi cache under that directory. It keeps user configuration by default; add `--remove-config` to remove `config.toml` too. Interactive runs ask whether to remove Pixi from `~/.pixi`; `--yes` keeps Pixi unless you also pass `--remove-pixi`. Use `--keep-pixi` to skip the Pixi prompt. If you installed with custom `WGSEXTRACT_BIN_DIR`, `WGSEXTRACT_PIXI_CACHE_DIR`, or `WGSEXTRACT_PIXI_ENV_DIR` values outside the install directory, pass the same environment variables or matching `--bin-dir`, `--pixi-cache-dir`, and `--pixi-env-dir` options to remove those external paths.
+This removes the install directory, launcher, Pixi environments, and Pixi cache under it. `config.toml` is kept unless you add `--remove-config`. Interactive runs ask whether to remove Pixi from `~/.pixi`; with `--yes`, Pixi is kept unless you add `--remove-pixi`. If you installed with custom `WGSEXTRACT_BIN_DIR`, `WGSEXTRACT_PIXI_CACHE_DIR`, or `WGSEXTRACT_PIXI_ENV_DIR` values, pass the same variables or the matching `--bin-dir`, `--pixi-cache-dir`, and `--pixi-env-dir` options.
 
-### Release assets and checksums
+### Running the CLI
 
-Large reference genome bundles are versioned separately from the application release. The current reference bootstrap, bundled GitHub-hosted genome downloads, and benchmark dataset URLs intentionally point to the existing GitHub release assets that host those files, so routine app releases do not require reuploading multi-gigabyte reference bundles.
+How you invoke the CLI depends on how you installed it:
 
-When `ref bootstrap`, `ref library --install`, or `ref download` fetches a GitHub release asset URL, WGS Extract asks the GitHub Releases API for that asset's `sha256:<digest>` metadata and verifies the downloaded file before extracting or processing it. This covers the GitHub-hosted reference bootstrap archive and the GitHub-hosted reference genome bundles listed in `seed_genomes.csv` without requiring neighboring `.sha256` files.
-
-The reference verifier still performs its normal genome-level checks after installation, including known MD5 checks where available, gzip integrity, and `samtools faidx`. The GitHub release asset SHA-256 check protects the transfer before those later reference-specific checks run. If GitHub API rate limits are a concern in automation, set `GITHUB_TOKEN` in the environment so the digest lookup can authenticate. If WGS Extract cannot fetch GitHub's digest metadata because the lookup is unavailable, it logs a warning, continues the download, and still runs the later reference-specific verification steps. If GitHub metadata is fetched but does not contain valid SHA-256 asset metadata, or if the downloaded file does not match the digest, the download fails.
-
-Windows native installs use `install_windows.bat`, which bootstraps Pixi and MSYS2 when they are missing, then configures the MSYS2 UCRT64 pacman runtime. They can use a prebuilt MSYS2 UCRT64 BWA ZIP from GitHub Releases. For GitHub release asset URLs, `scripts/setup_pacman_runtime.ps1` uses the same GitHub asset `sha256:<digest>` metadata; no neighboring `.sha256` file is required for future releases. `GITHUB_TOKEN` has the same meaning for this BWA ZIP lookup. If the GitHub digest lookup is unavailable, the helper logs a warning and continues without that SHA-256 check; if GitHub metadata is fetched but does not contain valid SHA-256 asset metadata, or if the downloaded ZIP does not match the digest, installation fails. If you override the BWA ZIP with `WGSEXTRACT_BWA_BINARY_URL` or `--bwa-binary-url` and point at a local file or non-GitHub URL, set `WGSEXTRACT_BWA_BINARY_SHA256=<hex>` when you want checksum verification.
-
-### Manual development setup
-
-```bash
-git clone https://github.com/theontho/wgsextract-cli.git
-cd wgsextract-cli
-pixi install
-pixi run wgsextract --help
-```
-
-### Platform Support
-- **macOS (Intel/Apple Silicon)**: Fully supported. Pixi installs all bioinformatics tools automatically.
-- **Linux**: Fully supported. Pixi installs all bioinformatics tools automatically.
-- **Windows**:
-  - **Native Windows (Recommended)**: Run `install_windows.bat` to bootstrap Pixi/MSYS2 when needed, install the Pixi project environment, and choose the native Windows hybrid runtime as the default. This uses MSYS2 UCRT64/pacman for mandatory bio tools and native Pixi packages for supported optional tools without falling back to WSL. Use `uninstall_windows.bat` to remove the local project install, or `uninstall_windows.bat --remove-prerequisites` to also remove bootstrapper-installed Pixi/MSYS2. See [docs/windows_pacman_runtime.md](docs/windows_pacman_runtime.md).
-  - **WSL2**: Not recommended as the normal Windows runtime. It can be useful for separate Linux development, but native pacman avoids Windows feature changes, reboots, Linux user setup, and slower access to Windows-hosted files.
-
-The examples below use `wgsextract` for installed usage. If you have not added `wgsextract-cli` to `PATH`, use `./wgsextract-cli/wgsextract` instead. From a manual development checkout, use `pixi run wgsextract`.
-
-### Graphical WGS Extract interface
-
-`wgsextract-cli` is the command-line app. If you want the graphical WGS Extract interface, install the separate [gui-for-cli](https://github.com/theontho/gui-for-cli) project from its [GitHub Releases page](https://github.com/theontho/gui-for-cli/releases).
-
-Current GUI releases include Windows, macOS, and Linux packages. Open the latest release and choose the asset for your operating system:
-
-| Platform | GUI release asset |
+| Install type | Command |
 | :--- | :--- |
-| Windows x64 | Latest Windows setup executable |
-| macOS | Latest macOS DMG package |
-| macOS Apple Silicon web app | Latest aarch64 web-app DMG package, when available |
-| Linux portable | Latest AppImage package |
-| Debian/Ubuntu | Latest `.deb` package |
-| Fedora/RHEL | Latest `.rpm` package |
-| Arch Linux | Latest `pkg.tar.zst` package |
+| `install.sh` | `./wgsextract-cli/wgsextract` (or add `wgsextract-cli/` to your `PATH`) |
+| Source checkout or Windows install | `pixi run wgsextract`, from the repository directory |
 
-Use the GUI for interactive desktop workflows. Use this CLI install when you need repeatable terminal commands, scripts, batch processing, remote jobs, or AI-agent workflows.
+The rest of this README writes plain `wgsextract`; substitute the form that matches your install.
 
-### Initialize Reference Library
-Before running extraction tools, you must initialize the reference library (VCFs, liftover chains, metadata).
+## Quick start
 
 ```bash
-# Initialize library in the default 'reference/' folder
+# Download the reference library bootstrap (VCFs, liftover chains, metadata)
 wgsextract ref bootstrap
 
-# List available genomes
+# List and install a reference genome
 wgsextract ref library --list
-
-# Install a genome (e.g., hs38)
 wgsextract ref library --install hs38
+
+# Check that the required tools are available (exits 1 if a mandatory tool is missing)
+wgsextract deps check
+
+# Inspect a BAM/CRAM: reference build, file integrity, read metrics
+wgsextract --input sample.cram info --detailed
+
+# Simulate a 23andMe v5 raw-data file
+wgsextract --input sample.cram microarray --formats 23andme_v5
+
+# Mitochondrial variants and haplogroups
+wgsextract --input sample.cram extract mito-vcf
+wgsextract --input sample.cram lineage mt-haplogroup
+wgsextract --input sample.cram lineage y-haplogroup
 ```
 
-### Verification
-```bash
-# Verify tools and environment
-wgsextract info --detailed
-```
+Try commands on a small region (`--region chrM`, where supported) before running whole-genome jobs, which can take hours and hundreds of gigabytes of working space. Every command exits non-zero on failure, so they can be chained in scripts.
 
----
+Output files are named after the full input stem: `HG002.chr20.bam` produces `HG002.chr20_sorted.bam`, `HG002.chr20_coverage.tsv`, and so on. Outputs go to `--outdir`, the configured `outdir`, or the `--genome` folder.
 
-## ✨ Key Features
+## Commands
 
-- **🎯 Persistent Configuration**: Use a standard `config.toml` in your user directory to set global defaults for your reference library (`ref`) and input files (`input`).
-- **📂 Smart Resource Resolution**: The `ReferenceLibrary` engine automatically locates genomes, ploidy files, and SNP tables.
-- **⚡ Performance Optimized**: Native support for `--region` (e.g., `chrM`) allows rapid processing of specific chromosomal areas.
-- **🛡️ Robust Testing**: A comprehensive four-tier test suite (130+ tests) ensures reliability and behavioral correctness.
-- **🤖 AI-Ready**: Designed with a clean CLI interface that is easy for LLMs and automated scripts to interact with.
+Run `wgsextract help` for the full command tree, and `wgsextract <command> --help` for options.
 
----
+| Command | Subcommands / purpose |
+| :--- | :--- |
+| `info` | Reference build, file integrity, and read metrics. `calculate-coverage` (exact, via samtools coverage), `coverage-sample` (fast estimate) |
+| `bam` | `identify`, `sort`, `index`, `unindex`, `unsort`, `to-cram`, `to-bam`, `unalign` |
+| `extract` | `mito-fasta`, `mito-vcf`, `mt-bam`, `ydna-bam`, `ydna-vcf`, `y-mt-extract`, `unmapped`, `custom`, `bam-subset` |
+| `microarray` | Simulate 23andMe, AncestryDNA, FTDNA, Living DNA, MyHeritage, and combined (`all`) raw-data files |
+| `lineage` | `y-haplogroup` (Yleaf), `mt-haplogroup` (Haplogrep) |
+| `vcf` | Calling: `snp`, `indel`, `freebayes`, `gatk`, `deepvariant`, `sv`, `cnv`. Annotation: `annotate`, `chain-annotate`, `clinvar`, `gnomad`, `revel`, `phylop`, `spliceai`, `alphamissense`, `pharmgkb`. Other: `filter`, `trio` |
+| `vep` | `download`, `run`, `verify` (Ensembl Variant Effect Predictor) |
+| `align` | Align FASTQ reads with bwa, minimap2, or pbmm2 |
+| `realign` | Re-align an existing BAM/CRAM to another reference, reusing or extracting FASTQs |
+| `pet-align` | Align dog or cat FASTQs and call variants |
+| `qc` | `fastp`, `fastqc`, `vcf` (stats), `fake-data` (synthetic BAM/CRAM/VCF/FASTQ) |
+| `repair` | `ftdna-bam`, `ftdna-vcf` |
+| `analyze` | `comprehensive` (QC, lineage, calling, annotation in one run), `batch-gen` |
+| `ref` | Library: `bootstrap`, `library`, `library-list`, `status`, `download`, `index`, `verify`, `count-ns`, `gene-map`. Annotation data: `clinvar`, `gnomad`, `revel`, `phylop`, `spliceai`, `alphamissense`, `pharmgkb` |
+| `example-genome` | `list`, `download` curated 1000 Genomes / HGSVC2 datasets |
+| `deps` | `check`; Windows runtimes: `pacman check`, `msys2 check/setup`, `cygwin check/setup`, `wsl check/tune` |
+| `benchmark` | Benchmark the main workflows on generated or release-backed data |
+| `config` | Show the active config file and settings |
 
+Notes on a few commands:
 
+- `ref verify` checks gzip integrity, the FASTA index, and the sequence-dictionary signature of catalog genomes, and fails on mismatch. `ref count-ns` writes `_ncnt.csv`/`_nbin.csv` next to the FASTA, or into `--outdir`.
+- Gene-name filtering (`--gene`) needs gene maps from `ref gene-map` (hg19/hg38 only; T2T is rejected). Gene maps installed by older versions should be rebuilt with `ref gene-map`.
+- `microarray` uses hg19 coordinates. hg38 input needs the liftover chain from `ref bootstrap`; T2T input is not supported.
+- `ref spliceai` cannot download automatically because the scores sit behind an Illumina BaseSpace login; the command explains where to place the file.
+- `ref bootstrap --install-mappability-maps` also fetches the Delly mappability maps that `vcf cnv` needs.
+- `lineage y-haplogroup` writes Yleaf output to `<outdir>/yleaf/`, because Yleaf clears its output folder.
+- `pet-align` writes next to the R1 FASTQ unless `--outdir` is given.
+- `vcf sv` uses Delly by default and pbsv/Sniffles with `--pacbio`; an explicit `--caller` is always respected, and `--pacbio --caller delly` is rejected.
+- `vep download --mirror` accepts `uk` (default) or `ebi`.
 
-## ⚙️ Configuration
+### Pixi environments
 
-`wgsextract-cli` uses a cross-platform configuration system. Settings are stored in a `config.toml` file in your standard user configuration directory.
+Some tools live in their own Pixi environment. When such a tool is not on `PATH`, the CLI runs it through `pixi run -e <environment>` automatically; you can also run a whole command inside an environment from the app directory (`wgsextract-cli/app/`) or a source checkout:
 
-### Config Locations:
-- **macOS**: `~/.config/wgsextract/config.toml` (Used if `~/.config/` exists) or `~/Library/Application Support/wgsextract/config.toml`
-- **Linux**: `~/.config/wgsextract/config.toml`
-- **Windows**: `%LocalAppData%\theontho\wgsextract\config.toml`
+| Environment | Used for |
+| :--- | :--- |
+| `default` | All standard commands |
+| `pacbio` | `pbmm2`, `pbsv`, `sniffles`: `pixi run -e pacbio wgsextract vcf sv --pacbio` |
+| `deepvariant` | `pixi run -e deepvariant wgsextract vcf deepvariant` (Linux and Apple Silicon) |
+| `vep` | `pixi run -e vep wgsextract vep run` (not native Windows) |
+| `dev` | Contributor tooling (pytest, ruff, mypy); selected automatically by the development tasks below |
 
-### View Your Config:
-Run the following command to see your active configuration path and settings:
-```bash
-wgsextract config
-```
+## Configuration
 
-### Example `config.toml`:
+Settings live in `config.toml`. Run `wgsextract config` to see its path and every active value.
+
+- macOS: `~/.config/wgsextract/config.toml` if `~/.config/` exists, otherwise `~/Library/Application Support/wgsextract/config.toml`
+- Linux: `~/.config/wgsextract/config.toml`
+- Windows: `%LocalAppData%\theontho\wgsextract\config.toml`
+
 ```toml
-# Default input and output paths
-input = "/path/to/my/genome.bam"
-outdir = "/path/to/output"
+# Defaults for --input and --outdir
+input = "/data/genomes/joe/joe.cram"
+outdir = "/data/wgse-out"
 
-# Reference library location
-ref = "/path/to/reference/genomes"
+# Reference genome FASTA (same as --ref)
+ref = "/data/reference/genomes/hs38.fa.gz"
 
-# Per-person/sample genome folders
-genome_library = "/path/to/genome-library"
+# Reference library directory (default: reference/ in the app directory)
+reflib = "/data/reference"
 
-# System resources
-threads = 8
-memory = "16G"
+# One subfolder per person/sample, selected with --genome
+genome_library = "/data/genome-library"
 
-# External tool paths
-yleaf_path = "/usr/local/bin/yleaf"
-haplogrep_path = "/usr/local/bin/haplogrep"
+# Resources: a number, or "auto"
+threads = "auto"   # Apple Silicon performance cores, 3/4 of cores on WSL, otherwise all cores
+memory = "auto"    # per thread, e.g. "2G"; auto uses 25% of RAM split across threads
+
+# External tool overrides (optional when the tools are on PATH)
+yleaf_path = "/path/to/yleaf"
+haplogrep_path = "/path/to/haplogrep"
+vep_cache = "~/.vep"
+
+# Windows runtime (written by install_windows.bat)
+# tool_runtime = "windows"
+# pacman_ucrt64_bin = "C:/msys64/ucrt64/bin"
 ```
 
-> [!TIP]
-> Use `config.toml` (e.g., `~/.config/wgsextract/config.toml`) to set global paths and resource limits.
+The short keys above are aliases; `wgsextract config` shows the canonical names (`input_path`, `output_directory`, `reference_fasta`, `reference_library`, `cpu_threads`, `memory_limit`, `yleaf_executable`, and so on). Either form works. Command-line options override config values for a single run. Other settings cover annotation data paths (`clinvar_vcf_path`, `gnomad_vcf_path`, `revel_tsv_path`, ...), default trio VCFs (`mother_vcf`, `father_vcf`), and the developer settings listed under [Development](#development).
 
-### Genome Library
-Set `genome_library` to a directory containing one subfolder per person or sample. The subfolder name is the `--genome` ID.
+### Genome library
+
+Set `genome_library` to a directory with one subfolder per person or sample. The subfolder name is the `--genome` ID:
 
 ```text
-/path/to/genome-library/
+/data/genome-library/
   joe/
-    genome-config.toml
     joe.cram
     joe.vcf.gz
-    raw-fastqs/
-      joe_R1.fastq.gz
-      joe_R2.fastq.gz
+    raw-fastqs/joe_R1.fastq.gz, joe_R2.fastq.gz
   ken mcdonald/
-    bam files/
-      sample.bam
+    bam files/sample.bam
 ```
 
-When `--genome <genome_id>` is supplied, the CLI recursively resolves common inputs from that folder and writes outputs there unless `--outdir` is explicitly provided. A `genome-config.toml` file is created in the genome folder during discovery, even when there is no ambiguity.
-
-If multiple BAM/CRAM files, VCF files, or FASTQ sets are found, the command fails instead of guessing. Edit that genome's `genome-config.toml` to choose the intended files:
+With `--genome <id>`, the CLI finds inputs in that folder (recursively) and writes outputs there unless `--outdir` is given. It creates a `genome-config.toml` in the folder. If several BAM/CRAM files, VCFs, or FASTQ sets match, the command fails instead of guessing; pick the files in `genome-config.toml`:
 
 ```toml
 alignment = "bam files/sample.bam"
@@ -213,173 +204,54 @@ wgsextract --genome "ken mcdonald" microarray --formats 23andme_v5
 wgsextract --genome joe vcf filter --expr 'QUAL>30'
 ```
 
-### 1000 Genomes PacBio Examples
-Curated 1000 Genomes/HGSVC2 PacBio datasets are available through `example-genome`. These are large real PacBio movie files, so start with `--dry-run` and download intentionally.
+### Example genomes
+
+`example-genome` downloads curated 1000 Genomes and HGSVC2 datasets into the genome library. Some are very large, so check with `--dry-run` first. Interrupted downloads resume; `--force` starts over.
 
 ```bash
 wgsextract example-genome list
 wgsextract example-genome download hgsvc2-hg00733-pacbio-hifi-bam --dry-run
 wgsextract example-genome download hgsvc2-hg00733-pacbio-hifi-bam
 
-# Advanced PacBio/DeepVariant commands use dedicated Pixi environments.
-# Run them from a manual checkout or the installed app directory.
 pixi run -e pacbio wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam align --platform hifi --ref /path/to/hs38.fa
 pixi run -e pacbio wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam vcf sv --pacbio --ref /path/to/hs38.fa
-pixi run -e deepvariant wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam vcf deepvariant --pacbio --ref /path/to/hs38.fa
 ```
 
----
-
-## 📖 Usage Guide
-
-### Common Commands
-```bash
-# Identify BAM/CRAM file properties
-wgsextract bam identify
-
-# Calculate mitochondrial coverage
-wgsextract extract mito-vcf --region chrM
-
-# Generate a microarray simulation
-wgsextract microarray --kit 23andme_v5
-```
-
-### Available Subcommand Groups
-| Category | Commands |
-| :--- | :--- |
-| **BAM/CRAM** | `sort`, `index`, `to-cram`, `to-bam`, `unalign`, `identify` |
-| **Extraction** | `mito-vcf`, `ydna-vcf`, `y-mt-extract`, `bam-subset` |
-| **VCF/Variant** | `snp`, `indel`, `annotate`, `filter`, `freebayes`, `deepvariant`, `sv`, `vep-run` |
-| **Analysis** | `microarray`, `lineage`, `qc`, `pet-align` |
-| **System** | `info`, `ref download`, `ref index` |
-
-### Fake BAM Generation
-
-`wgsextract qc fake-data --type bam` uses the fast streaming BAM generator by default for both scaled and full-size fake data. It writes coordinate-sorted paired-end reads directly into `samtools view`, uses reference-backed read sequence when a resolved FASTA is available, and applies deterministic SNPs with `NM` tags without materializing a whole-genome SAM or variant map.
-
-The older scaled generator is still available with `--legacy-bam`. It is slower and only supports scaled fake data, but it has more randomized placement and indel CIGAR simulation. Use the default fast generator for benchmarks and throughput testing; use `--legacy-bam` when specifically testing the older indel-heavy synthetic behavior.
+## Development
 
 ```bash
-# Default fast scaled BAM
-wgsextract qc fake-data --type bam --coverage 1 --outdir out/fake-fast
-
-# Full-size fast BAM using real chromosome lengths
-wgsextract qc fake-data --type bam --coverage 0.1 --full-size --outdir out/fake-full
-
-# Older scaled generator
-wgsextract qc fake-data --type bam --coverage 1 --legacy-bam --outdir out/fake-legacy
-```
-
----
-
-## 🎨 UI Interfaces
-
-`wgsextract-cli` is CLI-only. Graphical interfaces are maintained outside this package in [gui-for-cli](https://github.com/theontho/gui-for-cli). Download the WGS Extract GUI from [gui-for-cli releases](https://github.com/theontho/gui-for-cli/releases), or install this CLI when you want terminal-first workflows.
-
----
-
-## 🧪 Testing
-
-We maintain high standards for code quality. You can run the test suite using `pixi`:
-
-```bash
-# Smoke Tests (Fast, verifies CLI plumbing)
-pixi run python tests/test_smoke.py
-
-# Robustness Tests (Ensures stability with bad inputs)
-pixi run python tests/test_robustness.py
-
-# End-to-End Tests (Requires real data)
-pixi run python tests/test_e2e_fast_chrM.py
-```
-
----
-
-## 🛠️ Development
-
-### Setup Environment
-```bash
-# Install all dependencies
+git clone https://github.com/theontho/wgsextract-cli.git
+cd wgsextract-cli
 pixi install
+pixi run wgsextract --help
 ```
 
-### Code Quality
-Always run linting and formatting before submitting changes:
+Developer tools live in the `dev` Pixi environment, which Pixi selects automatically for these tasks:
+
+| Task | What it runs |
+| :--- | :--- |
+| `pixi run test` | Unit and integration tests (excludes the end-to-end suites) |
+| `pixi run smoke-test` | CLI smoke tests (`smoke-test-full` adds full-genome and pet tests) |
+| `pixi run test-e2e` | End-to-end suites against real data |
+| `pixi run test-e2e-fake` | End-to-end suites against generated data (`pytest --fake-data`) |
+| `pixi run lint` | Ruff, site-source validation, and GitHub Actions checks |
+| `pixi run format` | `ruff format .` |
+| `pixi run typecheck` | mypy on `src/wgsextract_cli` |
+| `pixi run site-build` | Rebuild the documentation site (see [docs/site_generation.md](docs/site_generation.md)) |
+| `pixi run benchmark-dataset` | Rebuild the release-backed mini-genome benchmark dataset |
+| `pixi run stats` | Code statistics (needs [cloc](https://github.com/AlDanial/cloc) installed separately) |
+
+Real-data tests read their inputs from pytest options or from config:
+
 ```bash
-pixi run lint
-pixi run ruff format .
-pixi run typecheck
+pixi run pytest tests/test_smoke_real_basics.py \
+  --real-input /data/HG002.cram --real-ref /data/reference/hs38.fa --real-region chr20
 ```
 
----
+Options include `--real-input`, `--real-ref`, `--real-vcf`, `--real-region`, `--real-targets`, `--real-fastq-r1`/`--real-fastq-r2`, `--fake-data`, and `--full-data` (see `tests/conftest.py`). Alternatively, set `real_genome_test_path` and `real_genome_tests_enabled = true` in `config.toml`. Setting `dev_download_cache = true` caches downloads under `$XDG_CACHE_HOME/wgsextract/downloads` (`~/.cache/wgsextract/downloads` by default) for reuse across test runs, pruned after `dev_download_cache_ttl_seconds` (default one week).
 
-## 📊 Project Code Stats
+`wgsextract qc fake-data` generates synthetic BAM/CRAM/VCF/FASTQ files for tests and bug reports; see the [workflows page](https://theontho.github.io/wgsextract-cli/workflows.html#testing).
 
-Visualize the codebase complexity:
-```bash
-# Print stats to the console with cloc
-pixi run stats
+## License
 
-# Generate a gitignored report at out/project_stats.txt
-pixi run stats-report
-```
-
-On Windows, `cloc` is a developer tool installed outside Pixi. Install it with `winget install --id AlDanial.Cloc --exact --scope user` before running the stats tasks.
-
-Last stats run:
-```
-========================================================
-  WGS Extract CLI: Project Statistics
-========================================================
-
---- Full Project (Excluding generated data and external deps) ---
-github.com/AlDanial/cloc v 2.08  T=0.33 s (493.8 files/s, 124255.2 lines/s)
--------------------------------------------------------------------------------
-Language                     files          blank        comment           code
--------------------------------------------------------------------------------
-Python                         120           4615           1348          27082
-HTML                             6            101              0           1837
-Markdown                        14            458              0           1704
-PowerShell                       4            150             64           1028
-Bourne Shell                     6            120             13            966
-CSS                              1            105              0            631
-DOS Batch                        2             43              0            484
-TOML                             3             41              4            274
-YAML                             2              3              1             83
-JSON                             4              0              0             72
-CSV                              1              0              0             38
-Text                             1              0              0              2
--------------------------------------------------------------------------------
-SUM:                           164           5636           1430          34201
--------------------------------------------------------------------------------
-
---- Production Code (src/wgsextract_cli) ---
-github.com/AlDanial/cloc v 2.08  T=0.24 s (338.3 files/s, 91951.5 lines/s)
--------------------------------------------------------------------------------
-Language                     files          blank        comment           code
--------------------------------------------------------------------------------
-Python                          79           2923            944          18106
-CSV                              1              0              0             38
-Text                             1              0              0              2
--------------------------------------------------------------------------------
-SUM:                            81           2923            944          18146
--------------------------------------------------------------------------------
-
---- Test Code (tests/) ---
-github.com/AlDanial/cloc v 2.08  T=0.18 s (187.7 files/s, 51943.8 lines/s)
--------------------------------------------------------------------------------
-Language                     files          blank        comment           code
--------------------------------------------------------------------------------
-Python                          33           1424            379           7331
--------------------------------------------------------------------------------
-SUM:                            33           1424            379           7331
--------------------------------------------------------------------------------
-
-========================================================
-```
-
----
-
-## 📄 License
-
-Distributed under the **GPL-3.0 License**. See `LICENSE` for more information.
+Distributed under the GPL-3.0 License. See `LICENSE`.

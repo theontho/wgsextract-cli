@@ -1,65 +1,65 @@
-# WGS Extract Todo List
+# WGS Extract CLI Todo List
 
-This document outlines the planned features, improvements, and bug fixes for WGS Extract CLI.
+Planned features, improvements, and known bugs for WGS Extract CLI.
 
-## 🚀 Strategic & High Priority
-- [x] **Merge v5 Changes**: (Engine) Integrated major updates including DeepVariant, GATK, and Trio analysis.
-- [ ] **Automated Release Process**: (Infrastructure) Implement GitHub Actions for platform-specific installers.
-- [x] **Modernization**: (Technical Debt) Fully transitioned to `uv` and `pyproject.toml`.
-- [ ] **Move to GitHub Issues**: (Project Mgmt) Migrate this list to GitHub Issues for better tracking.
+## Project
 
----
+- [x] **Merge v5 changes**: DeepVariant, GATK, and trio analysis integrated.
+- [x] **Pixi environments**: Python and bioinformatics tools are managed by Pixi (`pixi.toml`), with separate `pacbio`, `deepvariant`, `vep`, and `dev` environments.
+- [ ] **Automated release process**: GitHub Actions for platform-specific installers.
+- [ ] **Move to GitHub Issues**: Migrate this list to GitHub Issues.
 
-## 💻 CLI & Core Engine (Functional Enhancements)
+## CLI and core engine
 
-### VCF & Variant Calling
-- [x] **VCF Action Buttons (Backend)**: Engine logic for InDel, CNV, SV, and Filtering is complete.
-- [x] **Robust InDel Support**: Insertions/Deletions included in microarray and variant calling.
-- [x] **VCF Annotator**: Engine-level annotation for rsIDs, SNPs, and gene info (VEP supported).
-- [x] **Additional Variant Callers**: FreeBayes and DeepVariant/GATK integrated.
-- [ ] **General Consensus Generation**: (New) Implement a general `vcf to-fasta` to generate a full consensus FASTA from VCF + Ref (currently only in `mito-fasta`).
-- [x] **Chain Annotation**: Sequentially apply multiple pathogenicity and frequency annotations in one pass.
+### VCF and variant calling
 
-### 🧬 Gene Analysis & Clinical Interpretation
-- [x] **Gene-Centric Workflows**: Filter VCFs and BAMs by Gene Name or HGNC ID.
-- [x] **Inheritance & Trio Analysis**: Detect De Novo mutations and Compound Heterozygotes.
-- [x] **Population Frequency Integration**: Annotate variants with gnomAD, ExAC, and 1000 Genomes.
-- [x] **ClinVar clinical significance**: Report "Pathogenic" status from ClinVar using `vcf clinvar`.
-- [x] **REVEL Pathogenicity Scores**: Annotate missense variants with REVEL scores.
-- [x] **Modern Pathogenicity Support**: Added AlphaMissense (Google DeepMind) and SpliceAI (Illumina).
-- [x] **Pharmacogenomics (PharmGKB)**: Support for annotating drug metabolism variants.
-- [x] **Pathogenicity & Conservation**: Support for CADD, SIFT, PolyPhen-2, PhyloP, and GERP++.
+- [x] **Callers**: bcftools SNP/InDel, FreeBayes, GATK HaplotypeCaller, DeepVariant, Delly SV/CNV, pbsv and Sniffles for PacBio.
+- [x] **Filtering**: `vcf filter` by expression, region, or gene name.
+- [x] **Annotation**: `vcf annotate` and VEP (`vep run`).
+- [x] **Chain annotation**: `vcf chain-annotate` applies several annotations in sequence.
+- [ ] **General consensus generation**: A `vcf to-fasta` command to build a full consensus FASTA from a VCF and reference (currently only `extract mito-fasta`).
 
-### BAM/CRAM Processing
-- [x] **mtDNA/Y-DNA Extraction**: Dedicated `mito` and `ydna` commands.
-- [ ] **BAM/CRAM Merging**: (New) Add `bam merge` utility for multiple alignment files.
-- [ ] **uBAM (Unaligned BAM) Creator**: (New) Convert FASTQ/BAM to unaligned BAM for GATK pipelines.
-- [x] **MD5 Integrity Checks**: Automated MD5sum checking for reference genomes.
-- [x] **Performance Boost**: Integrated `sambamba` and `samblaster` for faster processing (with macOS fallback).
+### Gene analysis and clinical annotation
 
-### Microarray & Specialized Analysis
-- [x] **Pet Sequencing Support**: Dog/cat genome support (align, extract, lineage).
-- [ ] **Legacy Format Support**: 23andMe v1, FTDNA v1, etc.
-- [ ] **Digital Signing**: Routine to digitally sign output files for verification.
-- [ ] **Advanced Typing**: HLA Typing and STR Variant Calling.
+- [x] **Gene-centric filtering**: Filter VCFs and BAMs by gene name (`--gene`, using `ref gene-map` data for hg19/hg38).
+- [x] **Trio analysis**: `vcf trio` with de novo, recessive, and compound-heterozygous modes.
+- [x] **Population frequencies**: gnomAD annotation (`vcf gnomad`).
+- [x] **ClinVar**: Clinical significance via `vcf clinvar`.
+- [x] **Pathogenicity and conservation scores**: REVEL, AlphaMissense, SpliceAI, and PhyloP annotators. SIFT/PolyPhen are only available through VEP.
+- [x] **Pharmacogenomics**: PharmGKB annotation (`vcf pharmgkb`).
+- [ ] **CADD and GERP++ annotation**: Not implemented.
 
-### CLI Improvements
-- [x] **CLI Robustness**: Improved parameter handling and "Auto Mode" reliability.
-- [x] **Pixi Environment Management**: Cross-platform dependency isolation and automatic fallback.
-- [ ] **Parallel Microarray Generation**: (In Progress) Implement `--parallel` flag for per-chromosome calling.
-- [x] **JSON/TSV Output**: Machine-readable formats for all stats and results.
-- [x] **Smoke Test Coverage**: Full CLI coverage with automated tests.
+### BAM/CRAM processing
 
----
+- [x] **mtDNA/Y-DNA extraction**: `extract mito-fasta`, `mito-vcf`, `mt-bam`, `ydna-bam`, `ydna-vcf`, and `y-mt-extract`.
+- [x] **Reference verification**: `ref verify` checks gzip integrity, the FASTA index, and the sequence-dictionary signature of catalog genomes.
+- [x] **sambamba and samblaster**: Used for faster processing where available.
+- [ ] **BAM/CRAM merging**: A `bam merge` command for multiple alignment files.
+- [ ] **uBAM creator**: Convert FASTQ/BAM to unaligned BAM for GATK pipelines.
 
-## 🛠️ Technical Debt & Known Bugs
+### Microarray and specialized analysis
 
-### Technical Debt
-- [x] **Python Integration**: Ported core Bash scripts to native Python.
-- [x] **Tooling Updates**: Updated samtools, bcftools, and other binaries.
-- [x] **Path Validation**: Fixed `verify_paths_exist` to support Pixi command strings and restricted environments.
+- [x] **Pet sequencing**: Dog and cat alignment and variant calling via `pet-align`. Extraction and lineage commands are human-only.
+- [x] **Parallel microarray generation**: `microarray --parallel` calls variants per chromosome.
+- [ ] **Legacy formats**: 23andMe v1, FTDNA v1, and similar.
+- [ ] **Digital signing**: Sign output files for verification.
+- [ ] **Advanced typing**: HLA typing and STR variant calling.
 
-### Known Bugs
-- [x] **Cross-Platform TTY Issues**: Resolved terminal TTY bugs.
-- [ ] **samtools Hangs**: Fix `markdup` and `fastq` hangs on specific MGI/Dante files.
-- [x] **yleaf Integration**: Fixed command naming and resolved execution issues on macOS ARM.
+### CLI
+
+- [x] **Exit codes**: Every command exits non-zero on failure.
+- [x] **Machine-readable output** for selected commands: `info --csv`, `ref status --json`, `vep run --format json|tab`.
+- [x] **Smoke tests**: Automated CLI smoke tests (`pixi run smoke-test`).
+
+## Technical debt and known bugs
+
+### Technical debt
+
+- [x] **Python port**: Core Bash scripts ported to Python.
+- [x] **Path validation**: `verify_paths_exist` supports Pixi command strings and restricted environments.
+
+### Known bugs
+
+- [x] **Cross-platform TTY issues**: Resolved.
+- [x] **Yleaf integration**: Fixed command naming and execution on macOS ARM; output now goes to `<outdir>/yleaf/`.
+- [ ] **samtools hangs**: `markdup` and `fastq` hang on some MGI/Dante files.

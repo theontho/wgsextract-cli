@@ -1,6 +1,13 @@
 # Windows Pacman Runtime Setup
 
-`wgsextract-cli` can run required bioinformatics tools on native Windows through an MSYS2 UCRT64 runtime and selected optional tools through the host Pixi environment. The recommended normal Windows runtime is `tool_runtime = "windows"` or `WGSEXTRACT_TOOL_RUNTIME=windows`.
+`wgsextract-cli` can run required bioinformatics tools on native Windows through an MSYS2 UCRT64 runtime and selected optional tools through the host Pixi environment. The recommended runtime is `tool_runtime = "windows"` in `config.toml`, which `install_windows.bat` sets for you.
+
+```toml
+tool_runtime = "windows"
+pacman_ucrt64_bin = "C:/msys64/ucrt64/bin"   # optional; common MSYS2 locations are searched automatically
+```
+
+Run `pixi run wgsextract config` to see the config file path and current values. Installers and CI can override these settings for one process with the `WGSEXTRACT_TOOL_RUNTIME` and `WGSEXTRACT_PACMAN_UCRT64_BIN` environment variables, which take precedence over `config.toml`.
 
 The strict `pacman` runtime is different from the bundled `cygwin`, bundled `msys2`, and WSL2 runtimes: it uses tools installed into a normal MSYS2 installation, usually `C:\msys64\ucrt64\bin`, and invokes those Windows `.exe` files directly. The `windows` runtime keeps that native pacman behavior but also allows optional tools from host Pixi, and never falls back to WSL.
 
@@ -112,7 +119,7 @@ MSYS2 UCRT64 publishes packages for the required HTS tools used by WGSExtract, i
 C:\msys64\ucrt64\bin
 ```
 
-The release binaries are produced by the `Release Windows Native Tools` GitHub Actions workflow and packaged as `wgsextract-<tool>-<version>-windows-ucrt64.zip`. For GitHub release asset URLs, the installer verifies the ZIP against the asset's GitHub-provided SHA-256 digest, using the same release-asset digest strategy as GitHub-hosted reference genome downloads. Set `GITHUB_TOKEN` to authenticate the GitHub API lookup if needed. If the digest lookup is unavailable, the helper warns and continues without that SHA-256 check; if GitHub metadata is fetched but lacks valid SHA-256 asset metadata, or if the downloaded ZIP does not match the digest, installation fails. For local ZIPs or non-GitHub URLs, pass the matching PowerShell parameter, such as `-BwaBinarySha256`, `-Minimap2BinarySha256`, `-SamblasterBinarySha256`, or `-FastpBinarySha256`.
+The release binaries are produced by the `Release Windows Native Tools` GitHub Actions workflow and packaged as `wgsextract-<tool>-<version>-windows-ucrt64.zip`. GitHub release asset URLs are verified against GitHub's SHA-256 asset digest, as described in [download verification](https://theontho.github.io/wgsextract-cli/install.html#checksums). For local ZIPs or non-GitHub URLs, pass the matching digest: `--bwa-binary-sha256` (or `WGSEXTRACT_BWA_BINARY_SHA256`) to the installer, or `-BwaBinarySha256`, `-Minimap2BinarySha256`, `-SamblasterBinarySha256`, or `-FastpBinarySha256` to the PowerShell helper.
 
 If the release asset cannot be downloaded, or if you pass a force-build flag, the helper builds supported tools locally. That fallback build uses the MSYS2 UCRT64 toolchain installed by pacman, specifically `mingw-w64-ucrt-x86_64-gcc` plus build helpers such as `base-devel`, `make`, `curl`, and `tar`. Windows does not include a built-in C compiler suitable for these builds. Visual Studio Build Tools or the Windows SDK are optional Microsoft installs and are not used by this helper; the script runs `make CC=gcc` inside MSYS2 UCRT64 for a consistent native Windows `.exe`.
 
@@ -135,39 +142,40 @@ You can rebuild samblaster and fastp explicitly with:
 .\scripts\setup_pacman_runtime.ps1 -ForceFastpBuild -SkipFastpDownload
 ```
 
-## Native-build TODO list
+## Optional tool coverage
 
-These optional dependencies are not currently supplied by strict MSYS2/pacman packages or native Windows Pixi packages. The preferred path is to add WGSExtract UCRT64 release assets where the upstream tool can be built and smoke-tested as a native Windows `.exe`.
+Native Windows sources for the optional tools that `deps check` reports. The preferred order is MSYS2 pacman packages, then native Pixi packages, then WGS Extract UCRT64 release assets; WSL is not used.
 
-| Tool | Native asset status | Notes |
+| Tool | Native Windows source | Notes |
 | --- | --- | --- |
-| `samblaster` | Implemented | Built from `v.0.1.26` with small Windows compatibility shims for POSIX allocation/timing helpers. |
-| `fastp` | Implemented | Built from `v0.24.1`; uses MSYS2 UCRT64 `isa-l`, `libdeflate`, `zlib`, and GCC runtime packages for DLL dependencies. The Windows asset carries build-time patches for >2 GB input files, 64-bit report counters, and JSON-safe reported command paths; it has been full-file tested against paired ~20 GB FASTQs. |
-| `freebayes` | TODO | High-value variant caller, but has a larger C++ dependency stack. Investigate an MSYS2 UCRT64 build and package only if runtime DLLs can be satisfied by pacman packages. |
-| `delly` | TODO | High-value SV caller, but depends on a larger C++/HTS stack. Investigate after freebayes. |
-| `sambamba` | TODO / maybe defer | D/LDC-based build; likely harder to keep small and reproducible than C/C++ tools. |
-| `pbmm2` | TODO / maybe defer | PacBio C++ stack; likely higher complexity and less broadly useful than fastp/samblaster. |
-| `sniffles` | Defer | Native Pixi solve was not usable during the Windows optional dependency review; revisit before building from source. |
-| `vep` | Defer | Perl/cache stack remains high-friction on native Windows. Prefer a future WSL/container path if native packaging stays too expensive. |
-| `run_deepvariant` / `dv_call_variants.py` | Defer | DeepVariant remains Linux/container-oriented; avoid WSL for normal setup, but this is not a good native Windows `.exe` asset candidate. |
+| `curl`, `htsfile` | MSYS2 pacman | `htsfile` comes with `mingw-w64-ucrt-x86_64-htslib`, which mandatory tools already need. |
+| `java`, `gatk` | Pixi (`openjdk`, `gatk4`) | Part of the default Pixi environment. |
+| `fastqc`, `haplogrep` | Pixi (bioconda noarch) | Java-based. |
+| `yleaf` | Pixi (PyPI) | Installed from the upstream Yleaf `v4.1.2` git tag, because the bioconda package lacks Yleaf's marker data. |
+| `bwa`, `minimap2` | WGS Extract release asset | Built with MSYS2 UCRT64; local build fallback available. |
+| `samblaster` | WGS Extract release asset | Built from `v.0.1.26` with small Windows shims for POSIX allocation/timing helpers. |
+| `fastp` | WGS Extract release asset | Built from `v0.24.1` against MSYS2 UCRT64 `isa-l`, `libdeflate`, `zlib`, and GCC runtime packages. Patched for >2 GB inputs, 64-bit report counters, and JSON-safe command paths; tested on paired ~20 GB FASTQs. |
+| `freebayes` | Not available | Larger C++ dependency stack. Candidate for a future release asset. |
+| `delly` | Not available | Larger C++/HTS stack. Candidate after freebayes. |
+| `sambamba` | Not available | D/LDC build; likely harder to keep small and reproducible. |
+| `pbmm2`, `pbsv` | Not available | PacBio stack; the `pacbio` Pixi environment has no `win-64` packages. |
+| `sniffles` | Not available | The native Pixi solve fails on `win-64`. |
+| `vep` | Not available | Perl/cache stack; the `vep` Pixi environment is macOS/Linux only. |
+| `run_deepvariant`, `dv_call_variants.py` | Not available | DeepVariant is Linux/container oriented. |
 
 ## Validation
 
 After setup, verify the runtime:
 
 ```powershell
-$env:WGSEXTRACT_TOOL_RUNTIME = "pacman"
-$env:WGSEXTRACT_PACMAN_UCRT64_BIN = "C:\msys64\ucrt64\bin"
 pixi run wgsextract deps pacman check
+pixi run wgsextract deps check
 pixi run wgsextract deps check --tool bwa
-pixi run wgsextract deps check --tool samblaster
-pixi run wgsextract deps check --tool fastp
-$env:WGSEXTRACT_TOOL_RUNTIME = "windows"
 pixi run wgsextract deps check --tool fastqc
 pixi run wgsextract benchmark --runtime pacman --profile smoke --suite core --outdir out\benchmark-pacman-smoke
-Remove-Item Env:\WGSEXTRACT_TOOL_RUNTIME -ErrorAction SilentlyContinue
-Remove-Item Env:\WGSEXTRACT_PACMAN_UCRT64_BIN -ErrorAction SilentlyContinue
 ```
+
+`deps check` exits 1 when a mandatory tool is missing, and `deps check --tool <name>` exits 1 when that tool is missing. With `tool_runtime = "windows"`, tools resolve from pacman paths and host Pixi. To prove that a tool comes from MSYS2/pacman only, use `deps pacman check`, or temporarily set `WGSEXTRACT_TOOL_RUNTIME=pacman` for that shell.
 
 For the default benchmark suite used in runtime comparisons:
 
@@ -207,11 +215,6 @@ If you manage MSYS2 manually, install the packages above in an MSYS2 UCRT64 shel
 
 ## Configuration
 
-The runtime resolver searches common MSYS2 locations automatically. To pin the tool directory while using the native Windows hybrid runtime, set:
+The runtime resolver searches common MSYS2 locations automatically. To pin the tool directory, set `pacman_ucrt64_bin` (alias `pacman_bin`) next to `tool_runtime` in `config.toml`, as shown at the top of this page. Valid `tool_runtime` values are `auto`, `native`, `windows`, `pacman`, `msys2`, `cygwin`, and `wsl`; `runtime_directory` sets where the bundled `msys2`/`cygwin` runtimes live.
 
-```powershell
-$env:WGSEXTRACT_PACMAN_UCRT64_BIN = "C:\msys64\ucrt64\bin"
-$env:WGSEXTRACT_TOOL_RUNTIME = "windows"
-```
-
-Or set `pacman_ucrt64_bin` and `tool_runtime = "windows"` in the WGSExtract config file.
+The environment variables `WGSEXTRACT_TOOL_RUNTIME`, `WGSEXTRACT_PACMAN_UCRT64_BIN`, and `WGSEXTRACT_RUNTIME_DIR` override the matching settings for a single process. They exist for installers, CI, and diagnostics; use `config.toml` for persistent setup.

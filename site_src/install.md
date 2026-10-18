@@ -1,11 +1,11 @@
 ---
 output: 'install.html'
 title: 'Install | WGS Extract CLI'
-description: 'Install WGS Extract CLI with the standalone macOS/Linux installer, native Windows installer, or developer Pixi workflow, and find the separate GUI releases.'
+description: 'Install WGS Extract CLI with the standalone macOS/Linux installer, native Windows installer, or developer Pixi workflow.'
 eyebrow: 'Setup guide'
 heading: 'Install once, then run repeatable genome workflows.'
-lede: 'WGS Extract CLI uses Pixi to manage Python, the app itself, and many external bioinformatics tools. macOS and Linux use the standalone terminal installer; Windows uses `install_windows.bat` from PowerShell with the MSYS2 UCRT64 pacman runtime. The graphical WGS Extract app is published separately by gui-for-cli.'
-toc: 'macOS/Linux|quickstart; GUI option|gui-option; Windows|windows; Developer Pixi setup|developer; Platforms|platforms; References|references; Configuration|config; Verify|verify'
+lede: 'WGS Extract CLI uses Pixi to manage Python, the app itself, and many external bioinformatics tools. macOS and Linux use the standalone terminal installer; Windows uses `install_windows.bat` from PowerShell with the MSYS2 UCRT64 pacman runtime.'
+toc: 'macOS/Linux|quickstart; Running the CLI|running; Windows|windows; Developer Pixi setup|developer; Platforms|platforms; References|references; Download checks|checksums; Configuration|config; Verify|verify'
 footer_title: 'WGS Extract CLI'
 footer_text: 'Install guide and environment reference.'
 footer_link_text: 'Next: CLI guide'
@@ -27,7 +27,7 @@ Copy the one-line installer below, paste it into Terminal, and press Enter. The 
 
 ::: step
 ### Use the standalone folder
-The app lives in `app/`, Pixi files live in `.pixi/`, installer temp files live in `app/tmp/`, and the CLI launcher sits beside `app/` at `wgsextract`. On macOS, Finder opens this folder when installation finishes.
+The installer resolves the latest published GitHub release (not the `main` branch) and installs it into `wgsextract-cli/`. The app lives in `app/`, Pixi files live in `.pixi/`, installer temp files live in `app/tmp/`, and the CLI launcher sits beside `app/` at `wgsextract`. On macOS, the installer checks for the Xcode Command Line Tools first and opens this folder in Finder when it finishes.
 :::
 
 ::: step
@@ -48,20 +48,16 @@ Use `info` and region-limited commands first. Whole-genome jobs can take hours a
 # 3. The installer creates ./wgsextract-cli.
 curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh
 
-# The bootstrap script resolves and installs the latest GitHub release,
-# not the latest main branch source.
+# Put the launcher on PATH for this shell (see "Running the CLI")
+export PATH="$PWD/wgsextract-cli:$PATH"
 
 # Initialize reference library data
-./wgsextract-cli/wgsextract ref bootstrap
-./wgsextract-cli/wgsextract ref library --list
-./wgsextract-cli/wgsextract ref library --install hs38
+wgsextract ref bootstrap
+wgsextract ref library --list
+wgsextract ref library --install hs38
 
-# Verify the app and environment
-./wgsextract-cli/wgsextract info --detailed
-./wgsextract-cli/wgsextract deps check
-
-# Optional graphical interface releases live in a separate project:
-# https://github.com/theontho/gui-for-cli/releases
+# Verify the environment (exits 1 if a mandatory tool is missing)
+wgsextract deps check
 
 # Uninstall the app if needed. Interactive runs ask whether to remove Pixi too.
 ./wgsextract-cli/uninstall.sh
@@ -70,35 +66,22 @@ curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/instal
 :::
 :::
 
-::: section id=gui-option
+::: section id=running
 ::: wrap
 ::: section-head
-## GUI option
-Install `wgsextract-cli` for terminal commands, scripts, automation, and remote jobs. If you want a graphical WGS Extract interface instead, download gui-for-cli from its [Releases page](https://github.com/theontho/gui-for-cli/releases){.inline-link}.
+## Running the CLI
+Commands on this site are written as plain `wgsextract`. Use the form that matches how you installed it.
 :::
 
-::: grid three
-::: card
-### Latest GUI release
-[gui-for-cli latest release](https://github.com/theontho/gui-for-cli/releases/latest){.inline-link} includes Windows, macOS, and Linux desktop packages for the graphical interface.
-
-{{ link: Open GUI downloads|gui.html|inline-link }}
+::: table-wrap
+| Install type | How to run | Notes |
+| --- | --- | --- |
+| Standalone installer (macOS/Linux) | `./wgsextract-cli/wgsextract`, or `wgsextract` after adding `wgsextract-cli/` to `PATH` | Relative paths resolve against your current directory. |
+| Windows installer or source checkout | `pixi run wgsextract`, from the project folder | |
+| Specialized Pixi environments | `pixi run -e pacbio wgsextract ...` (also `deepvariant`, `vep`), from the app or project folder | See [Pixi environments](cli.html#environments){.inline-link}. |
 :::
 
-::: card
-### All GUI releases
-Use the releases page for the newest builds, release notes, older versions, and checksum/signature assets.
-
-{{ link: Browse gui-for-cli releases|https://github.com/theontho/gui-for-cli/releases|inline-link }}
-:::
-
-::: card
-### CLI install stays here
-Use this install guide when you want the `wgsextract` command. The CLI is still the best fit for repeatable whole-genome workflows and automation.
-
-{{ link: Continue CLI install|#quickstart|inline-link }}
-:::
-:::
+To keep the standalone launcher on `PATH`, add `export PATH="/path/to/wgsextract-cli:$PATH"` to your shell profile.
 :::
 :::
 
@@ -135,7 +118,7 @@ cd wgsextract-cli
 
 # Verify the native Windows pacman runtime.
 pixi run wgsextract deps pacman check
-pixi run wgsextract --help
+pixi run wgsextract deps check
 
 # Uninstall the app-local environment and config defaults.
 .\uninstall_windows.bat
@@ -185,13 +168,14 @@ cd wgsextract-cli
 pixi install
 
 # Run through Pixi
-pixi run wgsextract --help
+pixi run wgsextract help
 pixi run wgsextract deps check
+pixi run test
 ```
 :::
 
 ::: callout
-{{ text: **Need a GUI?** `wgsextract-cli` stays command-line only. Use the [gui-for-cli releases](https://github.com/theontho/gui-for-cli/releases){.inline-link} or the local [GUI downloads page](gui.html){.inline-link} for the graphical interface. }}
+{{ text: **Contributor tooling** (pytest, ruff, mypy) lives in the `dev` Pixi environment. Tasks such as `pixi run test`, `pixi run lint`, and `pixi run typecheck` select it automatically. }}
 :::
 :::
 :::
@@ -206,7 +190,7 @@ Use the standalone installer on macOS/Linux and `install_windows.bat` on native 
 ::: grid three
 ::: card
 ### macOS
-Use the standalone installer by default. It opens the install folder in Finder and creates the `wgsextract` CLI launcher.
+Use the standalone installer. It opens the install folder in Finder and creates the `wgsextract` CLI launcher.
 
 {{ tag: osx-arm64 }}
 {{ tag: osx-64 }}
@@ -251,12 +235,12 @@ Most genome operations need a reference genome and companion files. The referenc
 `ref bootstrap` initializes the library scaffolding and common metadata. Then use the library commands to list and install supported builds such as hs38.
 
 ```
-./wgsextract-cli/wgsextract ref bootstrap
-./wgsextract-cli/wgsextract ref library --list
-./wgsextract-cli/wgsextract ref library --install hs38
+wgsextract ref bootstrap
+wgsextract ref library --list
+wgsextract ref library --install hs38
 ```
 
-GitHub-hosted reference downloads are checked against GitHub Releases SHA-256 asset metadata before WGS Extract extracts or processes them. Set `GITHUB_TOKEN` for authenticated API lookups. If the digest lookup is unavailable, WGS Extract warns and continues; if GitHub metadata is fetched but lacks valid SHA-256 asset metadata, or if the download does not match the digest, the download fails.
+`ref bootstrap --install-mappability-maps` also downloads the Delly mappability maps used by `vcf cnv`. Annotation data comes from `ref clinvar`, `ref gnomad`, `ref revel`, `ref phylop`, `ref alphamissense`, `ref pharmgkb`, and `ref gene-map`. SpliceAI scores require an Illumina BaseSpace login, so `ref spliceai` explains where to put a manually downloaded file.
 :::
 
 ::: card
@@ -264,9 +248,12 @@ GitHub-hosted reference downloads are checked against GitHub Releases SHA-256 as
 FASTA references need indexes and dictionaries before alignment and variant callers can use them efficiently.
 
 ```
-./wgsextract-cli/wgsextract ref index --ref /path/to/hs38.fa
-./wgsextract-cli/wgsextract ref verify --ref /path/to/hs38.fa
+wgsextract ref index --ref /path/to/hs38.fa
+wgsextract ref verify --ref /path/to/hs38.fa
+wgsextract ref status
 ```
+
+`ref verify` checks gzip integrity, the FASTA index, and, for catalog genomes, the sequence-dictionary signature; it fails on a mismatch.
 :::
 :::
 
@@ -276,16 +263,32 @@ FASTA references need indexes and dictionaries before alignment and variant call
 :::
 :::
 
+::: section id=checksums
+::: wrap
+::: section-head
+## Download verification
+Reference bundles and Windows native tool ZIPs are GitHub release assets, versioned separately from app releases so routine releases do not re-upload multi-gigabyte files.
+:::
+
+When `ref bootstrap`, `ref library --install`, or `ref download` fetches a GitHub release asset, WGS Extract asks the GitHub Releases API for that asset's `sha256:<digest>` metadata and verifies the file before extracting or processing it. No neighboring `.sha256` files are needed. The Windows installer's `scripts/setup_pacman_runtime.ps1` uses the same check for the BWA, minimap2, samblaster, and fastp ZIPs.
+
+- If the digest lookup is unavailable (for example, the API is unreachable or rate-limited), WGS Extract logs a warning and continues. Set `GITHUB_TOKEN` to authenticate the lookup in automation.
+- If GitHub metadata is fetched but has no valid SHA-256 digest, or the downloaded file does not match it, the download fails.
+- Reference genomes are checked again after installation: gzip integrity, `samtools faidx`, and the sequence-dictionary signature.
+- For local files or non-GitHub URLs on Windows, pass the expected digest explicitly (for example `install_windows.bat --bwa-binary-sha256 <hex>`); see the [Windows pacman runtime guide](https://github.com/theontho/wgsextract-cli/blob/main/docs/windows_pacman_runtime.md){.inline-link}.
+:::
+:::
+
 ::: section id=config
 ::: split
 ::: block
 ## Configuration
-{{ lede: Use `wgsextract config` to view the active config path and defaults. You can set input, output, reference, genome library, thread, memory, and external tool paths once instead of repeating them. }}
+{{ lede: Use `wgsextract config` to view the active config path and every setting. Set input, output, reference FASTA, reference library, genome library, threads, memory, and external tool paths once instead of repeating them. Command-line options override config values for a single run. }}
 
 ::: grid two style="margin-top: 22px"
 ::: card
 ### Config locations
-macOS: `~/.config/wgsextract/config.toml` or Application Support. Linux: `~/.config/wgsextract/config.toml`. Windows: under AppData.
+macOS: `~/.config/wgsextract/config.toml` if `~/.config/` exists, otherwise `~/Library/Application Support/wgsextract/`. Linux: `~/.config/wgsextract/config.toml`. Windows: `%LocalAppData%\theontho\wgsextract\config.toml`.
 :::
 
 ::: card
@@ -299,10 +302,14 @@ Set `genome_library` to a folder with one subfolder per person or sample. Then `
 ```toml
 input = "/data/genomes/joe/joe.cram"
 outdir = "/data/genomes/joe/out"
-ref = "/data/reference/hs38.fa"
+# Reference genome FASTA (same as --ref)
+ref = "/data/reference/genomes/hs38.fa.gz"
+# Reference library directory
+reflib = "/data/reference"
 genome_library = "/data/genome-library"
-threads = 8
-memory = "16G"
+# A number, or "auto"
+threads = "auto"
+memory = "auto"
 haplogrep_path = "/usr/local/bin/haplogrep"
 ```
 :::
@@ -318,10 +325,11 @@ Start with environment checks and tiny regions. It is much cheaper to catch miss
 
 ::: code-panel title=verification-recipes.sh subtitle="safe first commands"
 ```
-./wgsextract-cli/wgsextract deps check
-./wgsextract-cli/wgsextract --input sample.cram info --detailed
-./wgsextract-cli/wgsextract --input sample.bam extract mito-vcf --region chrM
-./wgsextract-cli/wgsextract --input sample.bam microarray --formats 23andme_v5 --region chrM
+wgsextract deps check
+wgsextract --input /data/sample.cram info --detailed
+wgsextract --input /data/sample.cram extract mito-vcf
+wgsextract --input /data/sample.cram vcf snp --region chrM
+wgsextract --input /data/sample.cram microarray --formats 23andme_v5 --region chrM
 ```
 :::
 :::
