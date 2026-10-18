@@ -1,9 +1,7 @@
 import argparse
-import gzip
 import io
 import logging
 import os
-import signal
 import subprocess
 import tempfile
 from collections.abc import Iterator
@@ -27,11 +25,6 @@ from wgsextract_cli.core.variant_files import (
 )
 
 from .basic import get_base_args, plain_reference
-
-DELLY_MACOS_HINT = (
-    "Hint: If using macOS, ensure 'delly' and 'boost' are correctly installed "
-    "via Homebrew."
-)
 
 
 def _cram_args(input_path: str, ref: str) -> list[str]:
@@ -165,18 +158,6 @@ def _extract_region_bam_with_reference_header(
             )
 
 
-def _validate_delly_map(map_file: str) -> None:
-    if not map_file.endswith(".gz"):
-        return
-    try:
-        with gzip.open(map_file, "rb") as handle:
-            handle.read(1)
-    except (OSError, EOFError) as e:
-        raise WGSExtractError(
-            f"Mappability map is not a valid gzip-compressed file: {map_file}"
-        ) from e
-
-
 def _write_indexed_vcf_from_bcf(out_bcf: str, out_vcf: str) -> None:
     run_command(["bcftools", "view", "-Oz", "-o", out_vcf, out_bcf])
     ensure_vcf_indexed(out_vcf)
@@ -187,40 +168,25 @@ def _write_indexed_vcf_from_bcf(out_bcf: str, out_vcf: str) -> None:
 
 def cmd_cnv(args: argparse.Namespace) -> None:
     verify_dependencies(["delly", "bcftools", "tabix", "samtools"])
-    _threads, outdir, ref, lib = get_base_args(args)
+    _threads, outdir, ref, _lib = get_base_args(args)
 
     out_bcf = os.path.join(outdir, "cnv.bcf")
     out_vcf = os.path.join(outdir, "cnv.vcf.gz")
     logging.info(LOG_MESSAGES["vcf_calling_cnv"].format(output=out_vcf))
 
-    map_file = getattr(args, "map", None) or getattr(lib, "mappability_map", None)
-    if not map_file or not os.path.exists(map_file):
-        raise WGSExtractError(
-            "Mappability map (-M/--map) is required for delly cnv.\n"
-            "You can download standard maps (e.g., hg38.map.gz) from:\n"
-            "https://github.com/dellytools/delly/tree/master/exclude\n"
-            "Or provide a custom .map file."
+    if args.map:
+        logging.warning(
+            "Ignoring --map: Delly 2 estimates mappability from the reads and no "
+            "longer takes a mappability map."
         )
-    _validate_delly_map(map_file)
-
-    map_args = ["-m", map_file]
-    if getattr(args, "ploidy", None) is not None:
-        map_args.extend(["-y", str(args.ploidy)])
+    ploidy_args = ["-y", str(args.ploidy)] if args.ploidy is not None else []
 
     with _region_input_bam(args, outdir, ref, "CNV") as input_file:
         try:
             run_command(
-                ["delly", "cnv", "-g", ref, "-o", out_bcf, *map_args, input_file]
+                ["delly", "cnv", "-g", ref, "-o", out_bcf, *ploidy_args, input_file]
             )
         except subprocess.CalledProcessError as e:
-            if e.returncode == -signal.SIGSEGV:
-                logging.error(
-                    "Delly segfaulted. This is common on macOS due to incompatible "
-                    "shared libraries (boost/htslib) in some environments.\n"
-                    "Hint: Try 'brew install delly' or run in a Linux container."
-                )
-            else:
-                logging.error(DELLY_MACOS_HINT)
             raise WGSExtractError(
                 f"CNV calling failed with exit code {e.returncode}"
             ) from e
@@ -341,7 +307,7 @@ def cmd_sv(args: argparse.Namespace) -> None:
         return
 
     verify_dependencies(["delly", "bcftools", "tabix", "samtools"])
-    _threads, outdir, ref, _lib = get_base_args(args)
+    threads, outdir, ref, _lib = get_base_args(args)
 
     out_bcf = os.path.join(outdir, "sv.bcf")
     out_vcf = os.path.join(outdir, "sv.vcf.gz")
@@ -349,9 +315,12 @@ def cmd_sv(args: argparse.Namespace) -> None:
 
     with _region_input_bam(args, outdir, ref, "SV") as input_file:
         try:
-            run_command(["delly", "call", "-g", ref, "-o", out_bcf, input_file])
+            # Delly 2 short-read SV discovery; note `-h` is its thread count.
+            run_command(
+                ["delly", "sr", "-g", ref, "-h", str(threads), "-o", out_bcf]
+                + [input_file]
+            )
         except subprocess.CalledProcessError as e:
-            logging.error(DELLY_MACOS_HINT)
             raise WGSExtractError(
                 f"SV calling failed with exit code {e.returncode}"
             ) from e

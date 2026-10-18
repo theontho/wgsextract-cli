@@ -148,11 +148,16 @@ pixi run -e deepvariant wgsextract vcf deepvariant
 
 ::: card
 ### vep
-Ensembl VEP for `vep run`, `vep download`, and `vep verify`. Not available on native Windows.
+Ensembl VEP for `vep run`, `vep download`, and `vep verify`. Not available on native Windows; Apple Silicon runs the Intel build under Rosetta.
 
 ```
 pixi run -e vep wgsextract vep run
 ```
+:::
+
+::: card
+### gatk and freebayes
+GATK (Python 3.10, Java 17) and FreeBayes live in their own environments for dependency reasons. `vcf gatk` and `vcf freebayes` use them automatically; the first run downloads the environment.
 :::
 
 ::: card

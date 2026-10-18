@@ -1546,13 +1546,10 @@ class TestReferenceSupportAssets(unittest.TestCase):
             self.test_dir, "microarray", "raw_file_templates", "body", "head", "ref"
         )
         os.makedirs(nested_ref)
-        os.makedirs(os.path.join(self.test_dir, "maps"))
         fasta = os.path.join(self.test_dir, "genomes", "hg19.fa.gz")
         snps = os.path.join(nested_ref, "snps_hg19.vcf.gz")
-        map_path = os.path.join(self.test_dir, "maps", "hg19.map.gz")
         Path(fasta).touch()
         Path(snps).touch()
-        Path(map_path).touch()
 
         input_path = os.path.join(self.test_dir, "inputs", "HG00096.hg19-mini.bam")
         os.makedirs(os.path.dirname(input_path))
@@ -1562,7 +1559,6 @@ class TestReferenceSupportAssets(unittest.TestCase):
 
         self.assertEqual(lib.build, "hg19")
         self.assertEqual(lib.ref_vcf_tab, snps)
-        self.assertEqual(lib.mappability_map, map_path)
 
     def test_reference_library_resolves_input_manifest_reference_fasta(self):
         from wgsextract_cli.core.reference_resolver import ReferenceLibrary
@@ -1634,21 +1630,6 @@ class TestReferenceSupportAssets(unittest.TestCase):
         self.assertEqual(ReferenceLibrary(hs38_ref, None).build, "hg38")
         self.assertEqual(ReferenceLibrary(hs37_ref, None).build, "hg19")
 
-    def test_reference_resolver_resolves_mappability_map(self):
-        from wgsextract_cli.core.reference_resolver import ReferenceLibrary
-
-        ref = os.path.join(self.test_dir, "GCA_hs38d1_analysis_set.fa")
-        maps_dir = os.path.join(self.test_dir, "maps")
-        map_path = os.path.join(maps_dir, "hg38.map.gz")
-        os.makedirs(maps_dir)
-        Path(ref).touch()
-        Path(map_path).touch()
-
-        lib = ReferenceLibrary(ref, None)
-
-        self.assertEqual(lib.build, "hg38")
-        self.assertEqual(lib.mappability_map, map_path)
-
     def test_reference_resolver_resolves_support_assets_from_input_build_hint(self):
         from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 
@@ -1669,92 +1650,3 @@ class TestReferenceSupportAssets(unittest.TestCase):
 
         self.assertEqual(lib.build, "hg19")
         self.assertEqual(lib.ref_vcf_tab, snps)
-
-    def test_install_standard_mappability_maps_skips_existing_files(self):
-        from wgsextract_cli.core import constants, ref_library
-
-        downloaded = []
-        maps = {
-            "hg19": {
-                "filename": "hg19.map.gz",
-                "url": "https://example.invalid/hg19.map.gz",
-                "sidecars": {".fai": "https://example.invalid/hg19.map.gz.fai"},
-            }
-        }
-        existing = os.path.join(self.test_dir, "maps", "hg19.map.gz")
-        os.makedirs(os.path.dirname(existing))
-        Path(existing).touch()
-
-        def fake_download(url, dest_path, *_args):
-            downloaded.append((url, dest_path))
-            Path(dest_path).touch()
-            return True
-
-        with (
-            patch.object(constants, "DELLY_MAPPABILITY_MAPS", maps),
-            patch.object(ref_library.catalog, "download_file", fake_download),
-        ):
-            self.assertTrue(
-                ref_library.catalog.install_standard_mappability_maps(self.test_dir)
-            )
-
-        self.assertEqual(
-            downloaded,
-            [
-                (
-                    "https://example.invalid/hg19.map.gz.fai",
-                    os.path.join(self.test_dir, "maps", "hg19.map.gz.fai"),
-                )
-            ],
-        )
-
-    def test_install_standard_mappability_maps_reports_download_failure(self):
-        from wgsextract_cli.core import constants, ref_library
-
-        downloaded = []
-        maps = {
-            "hg19": {
-                "filename": "hg19.map.gz",
-                "url": "https://example.invalid/hg19.map.gz",
-                "sidecars": {".fai": "https://example.invalid/hg19.map.gz.fai"},
-            }
-        }
-
-        def fake_download(url, dest_path, *_args):
-            downloaded.append((url, dest_path))
-            if url.endswith(".fai"):
-                return False
-            Path(dest_path).touch()
-            return True
-
-        with (
-            patch.object(constants, "DELLY_MAPPABILITY_MAPS", maps),
-            patch.object(ref_library.catalog, "download_file", fake_download),
-        ):
-            self.assertFalse(
-                ref_library.catalog.install_standard_mappability_maps(self.test_dir)
-            )
-
-        self.assertEqual(
-            downloaded,
-            [
-                (
-                    "https://example.invalid/hg19.map.gz",
-                    os.path.join(self.test_dir, "maps", "hg19.map.gz"),
-                ),
-                (
-                    "https://example.invalid/hg19.map.gz.fai",
-                    os.path.join(self.test_dir, "maps", "hg19.map.gz.fai"),
-                ),
-            ],
-        )
-        self.assertTrue(
-            os.path.exists(os.path.join(self.test_dir, "maps", "hg19.map.gz"))
-        )
-        self.assertFalse(
-            os.path.exists(os.path.join(self.test_dir, "maps", "hg19.map.gz.fai"))
-        )
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -1,4 +1,5 @@
 import ctypes
+import logging
 import os
 import shlex
 import shutil
@@ -59,9 +60,9 @@ PIXI_TOOL_ENVS = {
     "dv_call_variants.py": "deepvariant",
     "dv_postprocess_variants.py": "deepvariant",
     "haplogrep": "default",
-    "gatk": "default",
+    "gatk": "gatk",
     "delly": "default",
-    "freebayes": "default",
+    "freebayes": "freebayes",
     "samtools": "default",
     "bcftools": "default",
     "bgzip": "default",
@@ -283,8 +284,42 @@ def _resolve_pixi_command() -> str | None:
     return None
 
 
+def _pixi_manifest_args() -> list[str]:
+    """Point pixi at this app's manifest; the CLI may run from any directory."""
+    root = runtime.source_checkout_root()
+    if root and (root / "pixi.toml").is_file():
+        return ["--manifest-path", str(root / "pixi.toml")]
+    return []
+
+
+def _ensure_pixi_environment(pixi_cmd: str, env: str, tool: str) -> bool:
+    """Install or update a Pixi environment before probing it.
+
+    The first use of an optional environment downloads it (GATK plus Java is
+    ~400 MB), which must not run under the short probe timeout. A no-op install
+    of an up-to-date environment takes well under a second.
+    """
+    logging.info(f"Preparing the '{env}' Pixi environment for {tool}...")
+    try:
+        result = subprocess.run(
+            [pixi_cmd, "install", *_pixi_manifest_args(), "-e", env],
+            capture_output=True,
+            text=True,
+        )
+    except OSError as e:
+        logging.warning(f"Could not run pixi to install the '{env}' environment: {e}")
+        return False
+    if result.returncode != 0:
+        logging.warning(
+            f"Installing the '{env}' Pixi environment failed:\n"
+            f"{(result.stderr or result.stdout).strip()}"
+        )
+        return False
+    return True
+
+
 def _pixi_run_command(pixi_cmd: str, env: str, args: list[str]) -> str:
-    command = [pixi_cmd, "run", "-e", env, *args]
+    command = [pixi_cmd, "run", *_pixi_manifest_args(), "-e", env, *args]
     if runtime.is_windows_host():
         return subprocess.list2cmdline(command)
     return shlex.join(command)
@@ -314,6 +349,7 @@ def _host_pixi_tool_command(tool: str) -> str | None:
     probe = r"""
 import shutil
 import sys
+import logging
 import os
 from pathlib import Path
 
@@ -339,10 +375,22 @@ for tool in tool_names:
 
 raise SystemExit(1)
 """
+    if env != "default" and not _ensure_pixi_environment(pixi_cmd, env, tool):
+        return None
     executable_names = _tool_executable_names(tool)
     try:
         result = subprocess.run(
-            [pixi_cmd, "run", "-e", env, "python", "-c", probe, *executable_names],
+            [
+                pixi_cmd,
+                "run",
+                *_pixi_manifest_args(),
+                "-e",
+                env,
+                "python",
+                "-c",
+                probe,
+                *executable_names,
+            ],
             capture_output=True,
             text=True,
             timeout=10,

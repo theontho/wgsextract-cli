@@ -158,8 +158,12 @@
 </article>
 <article class="card">
 <h3>vep</h3>
-<p>Ensembl <a class="term-link" href="https://www.ensembl.org/info/docs/tools/vep/index.html" data-tooltip="VEP: Variant Effect Predictor: an annotation tool that predicts variant effects on genes and transcripts." aria-label="VEP: Variant Effect Predictor: an annotation tool that predicts variant effects on genes and transcripts.">VEP</a> for <code>vep run</code>, <code>vep download</code>, and <code>vep verify</code>. Not available on native Windows.</p>
+<p>Ensembl <a class="term-link" href="https://www.ensembl.org/info/docs/tools/vep/index.html" data-tooltip="VEP: Variant Effect Predictor: an annotation tool that predicts variant effects on genes and transcripts." aria-label="VEP: Variant Effect Predictor: an annotation tool that predicts variant effects on genes and transcripts.">VEP</a> for <code>vep run</code>, <code>vep download</code>, and <code>vep verify</code>. Not available on native Windows; Apple Silicon runs the Intel build under Rosetta.</p>
 <pre><code><span class="cmd">pixi run -e vep wgsextract vep run</span></code></pre>
+</article>
+<article class="card">
+<h3>gatk and <a class="term-link" href="https://github.com/freebayes/freebayes">freebayes</a></h3>
+<p><a class="term-link" href="https://gatk.broadinstitute.org/" data-tooltip="GATK: Genome Analysis Toolkit: a widely used suite of tools for variant discovery and genomics workflows." aria-label="GATK: Genome Analysis Toolkit: a widely used suite of tools for variant discovery and genomics workflows.">GATK</a> (<a class="term-link" href="https://www.python.org/">Python</a> 3.10, Java 17) and <a class="term-link" href="https://github.com/freebayes/freebayes">FreeBayes</a> live in their own environments for dependency reasons. <code>vcf gatk</code> and <code>vcf freebayes</code> use them automatically; the first run downloads the environment.</p>
 </article>
 <article class="card">
 <h3>dev</h3>

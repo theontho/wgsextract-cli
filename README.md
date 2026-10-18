@@ -100,6 +100,7 @@ Run `wgsextract help` for the full command tree, and `wgsextract <command> --hel
 | `microarray` | Simulate 23andMe, AncestryDNA, FTDNA, Living DNA, MyHeritage, and combined (`all`) raw-data files |
 | `lineage` | `y-haplogroup` (Yleaf), `mt-haplogroup` (Haplogrep) |
 | `vcf` | Calling: `snp`, `indel`, `freebayes`, `gatk`, `deepvariant`, `sv`, `cnv`. Annotation: `annotate`, `chain-annotate`, `clinvar`, `gnomad`, `revel`, `phylop`, `spliceai`, `alphamissense`, `pharmgkb`. Other: `filter`, `trio` |
+| `gatk`, `freebayes` | Used automatically by `vcf gatk` / `vcf freebayes`; the first run downloads the environment |
 | `vep` | `download`, `run`, `verify` (Ensembl Variant Effect Predictor) |
 | `align` | Align FASTQ reads with bwa, minimap2, or pbmm2 |
 | `realign` | Re-align an existing BAM/CRAM to another reference, reusing or extracting FASTQs |
@@ -119,7 +120,7 @@ Notes on a few commands:
 - Gene-name filtering (`--gene`) needs gene maps from `ref gene-map` (hg19/hg38 only; T2T is rejected). Gene maps installed by older versions should be rebuilt with `ref gene-map`.
 - `microarray` uses hg19 coordinates. hg38 input needs the liftover chain from `ref bootstrap`; T2T input is not supported.
 - `ref spliceai` cannot download automatically because the scores sit behind an Illumina BaseSpace login; the command explains where to place the file.
-- `ref bootstrap --install-mappability-maps` also fetches the Delly mappability maps that `vcf cnv` needs.
+- `vcf sv` and `vcf cnv` use Delly 2 (`delly sr` / `delly cnv`), which needs no mappability map; `vcf cnv --map` is accepted but ignored.
 - `lineage y-haplogroup` writes Yleaf output to `<outdir>/yleaf/`, because Yleaf clears its output folder.
 - `pet-align` writes next to the R1 FASTQ unless `--outdir` is given.
 - `vcf sv` uses Delly by default and pbsv/Sniffles with `--pacbio`; an explicit `--caller` is always respected, and `--pacbio --caller delly` is rejected.
@@ -134,7 +135,7 @@ Some tools live in their own Pixi environment. When such a tool is not on `PATH`
 | `default` | All standard commands |
 | `pacbio` | `pbmm2`, `pbsv`, `sniffles`: `pixi run -e pacbio wgsextract vcf sv --pacbio` |
 | `deepvariant` | `pixi run -e deepvariant wgsextract vcf deepvariant` (Linux and Apple Silicon) |
-| `vep` | `pixi run -e vep wgsextract vep run` (not native Windows) |
+| `vep` | `pixi run -e vep wgsextract vep run` (not native Windows; Apple Silicon runs the Intel build under Rosetta) |
 | `dev` | Contributor tooling (pytest, ruff, mypy); selected automatically by the development tasks below |
 
 ## Configuration

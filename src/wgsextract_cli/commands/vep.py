@@ -25,7 +25,7 @@ def _add_run_args(parser: argparse.ArgumentParser) -> None:
         help="Reference assembly for VEP (GRCh37 or GRCh38)",
     )
     parser.add_argument(
-        "--vep-cache-version", default="115", help="VEP cache version (default: 115)"
+        "--vep-cache-version", default="116", help="VEP cache version (default: 116)"
     )
     parser.add_argument(
         "--vcf-type",
@@ -74,7 +74,7 @@ def _add_cache_args(parser: argparse.ArgumentParser) -> None:
         help="Assembly (default: GRCh38)",
     )
     parser.add_argument(
-        "--vep-version", default="115", help="Ensembl release version (default: 115)"
+        "--vep-version", default="116", help="Ensembl release version (default: 116)"
     )
     parser.add_argument("--vep-cache", help="Path to VEP cache directory")
 

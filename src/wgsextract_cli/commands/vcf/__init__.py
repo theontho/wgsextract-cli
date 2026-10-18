@@ -166,7 +166,9 @@ def register(
     )
     _add_region(cnv_parser)
     cnv_parser.add_argument(
-        "-M", "--map", help="Mappability map file (required for delly cnv)"
+        "-M",
+        "--map",
+        help="Deprecated and ignored: Delly 2 no longer uses mappability maps.",
     )
     cnv_parser.add_argument(
         "--ploidy", type=int, help="Baseline ploidy for delly cnv (default: 2)"

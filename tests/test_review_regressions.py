@@ -1,8 +1,3 @@
-import pytest
-
-from wgsextract_cli.core.utils import WGSExtractError
-
-
 def test_tabix_annotation_preparation_indexes_tsv_with_coordinate_columns(
     monkeypatch, tmp_path
 ):
@@ -149,13 +144,3 @@ def test_structural_reference_header_keeps_reference_sq_order():
         "@RG\tID:sample",
         "@PG\tID:samtools",
     ]
-
-
-def test_delly_map_validation_rejects_bad_gzip(tmp_path):
-    from wgsextract_cli.commands.vcf import structural as _vcf_structural
-
-    bad_map = tmp_path / "hg38.map.gz"
-    bad_map.write_text("404: Not Found", encoding="utf-8")
-
-    with pytest.raises(WGSExtractError, match="not a valid gzip-compressed file"):
-        _vcf_structural._validate_delly_map(str(bad_map))

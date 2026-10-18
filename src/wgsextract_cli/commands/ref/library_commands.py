@@ -217,7 +217,6 @@ def cmd_pharmgkb_dl(args: argparse.Namespace) -> None:
 
 def cmd_bootstrap(args: argparse.Namespace) -> None:
     from wgsextract_cli.core.config import save_config, settings
-    from wgsextract_cli.core.ref_library.catalog import install_mappability_maps
     from wgsextract_cli.core.reference_processing import download_bootstrap
 
     should_save_reflib = not settings.get("reference_library")
@@ -229,14 +228,6 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
     if should_save_reflib:
         save_config({"reference_library": reflib})
         logging.info(f"Saved reference library path to config.toml: {reflib}")
-    if getattr(args, "install_mappability_maps", False):
-        if not install_mappability_maps(reflib):
-            raise WGSExtractError("Delly mappability map installation failed.")
-    else:
-        logging.info(
-            "Skipping optional Delly mappability maps. "
-            "Use --install-mappability-maps to preinstall them."
-        )
     logging.info(
         "Bootstrap complete. You can now install genomes via 'wgsextract ref library'."
     )

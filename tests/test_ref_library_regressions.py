@@ -396,3 +396,19 @@ def test_target_tab_never_uses_another_builds_file(tmp_path):
         microarray / "All_SNPs_hg19_ref.tab.gz"
     )
     assert find_reference_target_tab(str(tmp_path), "t2t") == ""
+
+
+def test_fasta_inside_library_genomes_dir_uses_library_root(tmp_path):
+    from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+
+    genomes = tmp_path / "genomes"
+    genomes.mkdir()
+    fasta = genomes / "hs38.fa.gz"
+    fasta.write_bytes(b"")
+    (tmp_path / "ploidy.txt").write_text("* * * * 2\n")
+
+    lib = ReferenceLibrary(str(fasta), None)
+
+    assert lib.fasta == str(fasta)
+    assert lib.root == str(tmp_path)
+    assert lib.ploidy_file == str(tmp_path / "ploidy.txt")

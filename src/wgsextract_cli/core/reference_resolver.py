@@ -66,7 +66,6 @@ class ReferenceLibrary:
         self.alphamissense_vcf: str | None = None
         self.pharmgkb_vcf: str | None = None
         self.ploidy_file: str | None = None
-        self.mappability_map: str | None = None
         self.vep_cache: str | None = None
         self.build: str | None = None
 
@@ -76,6 +75,10 @@ class ReferenceLibrary:
         if os.path.isfile(self.root) and is_fasta_path(self.root):
             self.fasta = self.root
             self.root = os.path.dirname(self.root)
+            # A FASTA in <library>/genomes/ belongs to that library, whose root
+            # holds the ploidy files, liftover chains and annotation data.
+            if os.path.basename(self.root) == "genomes":
+                self.root = os.path.dirname(self.root)
 
         signature_match = False
         if not self.fasta:
@@ -240,18 +243,6 @@ class ReferenceLibrary:
             [root, os.path.join(root, "ref"), os.path.join(root, "microarray")],
             [f"ploidy_{self.build}.txt", "ploidy.txt"],
         )
-        self.mappability_map = self._first_existing_file(
-            [
-                root,
-                os.path.join(root, "maps"),
-                os.path.join(root, "ref"),
-                os.path.join(root, "microarray"),
-                os.path.join(root, self.build),
-                os.path.join(root, "maps", self.build),
-                os.path.join(root, "ref", self.build),
-            ],
-            self._mappability_map_names(),
-        )
 
     def _resolve_vep_cache(self, configured_vep_cache: object) -> None:
         if isinstance(configured_vep_cache, str) and os.path.isdir(
@@ -392,24 +383,6 @@ class ReferenceLibrary:
                     if name in files:
                         return os.path.join(current_dir, name)
         return None
-
-    def _mappability_map_names(self) -> list[str]:
-        """Return build-compatible Delly map filenames in preference order."""
-        if self.build and is_hg38_build(self.build):
-            return [
-                "hg38.map.gz",
-                "grch38.map.gz",
-                "GRCh38.map.gz",
-                "Homo_sapiens.GRCh38.dna.primary_assembly.fa.r101.s501.blacklist.gz",
-            ]
-        if self.build and is_hg37_build(self.build):
-            return [
-                "hg19.map.gz",
-                "grch37.map.gz",
-                "GRCh37.map.gz",
-                "Homo_sapiens.GRCh37.dna.primary_assembly.fa.r101.s501.blacklist.gz",
-            ]
-        return []
 
     def _resolve_annotation_file(
         self,

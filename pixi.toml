@@ -7,160 +7,109 @@ channels = ["conda-forge", "bioconda"]
 platforms = ["osx-arm64", "osx-64", "linux-64", "win-64"]
 
 [dependencies]
-# Pinned to 3.10: the deepvariant environment needs Python <3.11, and the
-# default environment's gatk4 py310 build requires >=3.10,<3.11.
-python = "3.10.*"
+python = "3.13.*"
 
-[target.osx-arm64.dependencies]
-curl = ">=8.0"
-gzip = "*"
-tar = "*"
-
-[target.osx-64.dependencies]
-curl = ">=8.0"
-gzip = "*"
-tar = "*"
-
-[target.linux-64.dependencies]
-curl = ">=8.0"
-gzip = "*"
-tar = "*"
+[target.unix.dependencies]
+curl = ">=8.21,<9"
+gzip = ">=1.14,<2"
+tar = ">=1.35,<2"
 
 [target.win-64.dependencies]
-curl = ">=8.0"
+curl = ">=8.21,<9"
 
+# GATK4's Bioconda package requires Python 3.10, so it gets its own environment;
+# the CLI runs `gatk` through it automatically. GATK 4.6 is built for Java 17.
 [feature.gatk.dependencies]
+python = "3.10.*"
 openjdk = "17.*"
-
-[feature.gatk.target.osx-arm64.dependencies]
-gatk4 = ">=4.5.0.0"
-
-[feature.gatk.target.osx-64.dependencies]
-gatk4 = ">=4.5.0.0"
-
-[feature.gatk.target.linux-64.dependencies]
-gatk4 = ">=4.5.0.0"
-
-[feature.gatk.target.win-64.dependencies]
-gatk4 = ">=4.5.0.0"
-
-[feature.bio-tools]
+gatk4 = ">=4.6.2.0,<5"
 
 [feature.bio-tools.pypi-dependencies]
 # Bioconda's yleaf 3.2.1 artifact omits yleaf/data/* marker tables, so install
 # upstream's packaged source for a runnable default Yleaf environment.
 yleaf = { git = "https://github.com/genid/Yleaf.git", tag = "v4.1.2" }
 
-[feature.bio-tools.target.osx-arm64.dependencies]
-samtools = ">=1.20"
-bcftools = ">=1.20"
-htslib = ">=1.20"
-bwa = ">=0.7.17"
-minimap2 = ">=2.28"
-fastp = ">=0.23.4"
-fastqc = ">=0.12.1"
-freebayes = ">=1.3.6"
-haplogrep = ">=2.4.0"
-delly = ">=1.1.6"
-sambamba = ">=1.0"
-samblaster = ">=0.1.26"
-
-[feature.bio-tools.target.osx-64.dependencies]
-samtools = ">=1.20"
-bcftools = ">=1.20"
-htslib = ">=1.20"
-bwa = ">=0.7.17"
-minimap2 = ">=2.28"
-fastp = ">=0.23.4"
-fastqc = ">=0.12.1"
-freebayes = ">=1.3.6"
-haplogrep = ">=2.4.0"
-delly = ">=1.1.6"
-sambamba = ">=1.0"
-samblaster = ">=0.1.26"
+[feature.bio-tools.target.unix.dependencies]
+samtools = ">=1.24,<2"
+bcftools = ">=1.24,<2"
+htslib = ">=1.24,<2"
+bwa = ">=0.7.19,<0.8"
+minimap2 = ">=2.31,<3"
+fastp = ">=1.1,<2"
+fastqc = ">=0.13,<0.14"
+haplogrep = ">=2.4,<3"
+delly = ">=2.7,<3"
+sambamba = ">=1.0.1,<2"
+samblaster = ">=0.1.26,<0.2"
 
 [feature.bio-tools.target.linux-64.dependencies]
-samtools = ">=1.20"
-bcftools = ">=1.20"
-htslib = ">=1.20"
-bwa = ">=0.7.17"
-minimap2 = ">=2.28"
-fastp = ">=0.23.4"
-fastqc = ">=0.12.1"
-freebayes = ">=1.3.6"
-haplogrep = ">=2.4.0"
-delly = ">=1.1.6"
-sambamba = ">=1.0"
-samblaster = ">=0.1.26"
-wget = ">=1.21"
+wget = ">=1.25,<2"
 
 [feature.bio-tools.target.win-64.dependencies]
-fastqc = ">=0.12.1"
-haplogrep = ">=2.4.0"
+fastqc = ">=0.13,<0.14"
+haplogrep = ">=2.4,<3"
 
+# FreeBayes' only osx-arm64 build pins htslib 1.21, which conflicts with the
+# htslib 1.24 that Delly 2 needs, so it gets its own environment; the CLI runs
+# it there automatically. Fold it back into bio-tools once that is rebuilt.
+[feature.freebayes.target.unix.dependencies]
+freebayes = ">=1.3.10,<2"
 
+# DeepVariant's Bioconda package requires Python 3.10.
 [feature.deepvariant.dependencies]
 python = "3.10.*"
 
 [feature.deepvariant.target.linux-64.dependencies]
-deepvariant = ">=1.6.0"
+deepvariant = ">=1.10,<2"
 openjdk = "11.*"
 
 [feature.deepvariant.target.osx-arm64.dependencies]
-deepvariant = ">=1.6.0"
+deepvariant = ">=1.10,<2"
 openjdk = "11.*"
 
 [feature.deepvariant.pypi-dependencies]
 wgsextract-cli = { path = ".", editable = true }
 
 [feature.pacbio.dependencies]
-python = "3.10.*"
+python = "3.13.*"
 
 [feature.pacbio.pypi-dependencies]
 wgsextract-cli = { path = ".", editable = true }
 
 [feature.pacbio.target.linux-64.dependencies]
-pbmm2 = ">=1.17.0"
-pbsv = ">=2.10.0"
-sniffles = ">=2.7.0"
+pbmm2 = ">=26.2.99,<27"
+pbsv = ">=2.11,<3"
+sniffles = ">=2.8.1,<3"
 
 [feature.pacbio.target.osx-arm64.dependencies]
-sniffles = ">=2.7.0"
+sniffles = ">=2.8.1,<3"
 
 [feature.pacbio.target.osx-64.dependencies]
-pbmm2 = ">=1.7.0,<1.8.0"
-sniffles = ">=2.7.0"
+# No current pbmm2 for Intel macOS (1.7.0 needs zlib <1.3); use minimap2 map-hifi.
+sniffles = ">=2.8.1,<3"
 
 [feature.vep]
+# osx-arm64's libdb build is x86_64-only, so VEP's DB_File segfaults there;
+# Apple Silicon runs the osx-64 VEP environment under Rosetta instead.
+platforms = ["linux-64", "osx-64"]
 
-[feature.vep.target.osx-arm64.dependencies]
-ensembl-vep = ">=110"
+[feature.vep.target.unix.dependencies]
+ensembl-vep = ">=116.3,<117"
 
-[feature.vep.target.osx-64.dependencies]
-ensembl-vep = ">=110"
-
-[feature.vep.target.linux-64.dependencies]
-ensembl-vep = ">=110"
-
-[feature.pysam.target.osx-arm64.pypi-dependencies]
-pysam = "*"
-[feature.pysam.target.osx-64.pypi-dependencies]
-pysam = "*"
-[feature.pysam.target.linux-64.pypi-dependencies]
-pysam = "*"
-[feature.pysam.target.win-64.pypi-dependencies]
-# pysam is not supported on native Windows
+[feature.pysam.target.unix.pypi-dependencies]
+# pysam has no native Windows build.
+pysam = ">=0.24.1,<0.25"
 
 # Developer tooling (tests, lint, type checking, packaging, site/CI checks).
 # Kept out of the default environment that end-user installers set up; tasks
 # defined here run in the `dev` environment automatically.
 [feature.dev.dependencies]
-pytest = "*"
-ruff = "*"
-mypy = "*"
-pre-commit = "*"
-uv = "*"
-nodejs = ">=22,<26"
+pytest = ">=9.1.1,<10"
+ruff = ">=0.17.1,<0.18"
+mypy = ">=2.3.1,<3"
+pre-commit = ">=4.6.2,<5"
+uv = ">=0.13.1,<0.14"
+nodejs = ">=24"
 actionlint = ">=1.7.12,<2"
 
 [feature.dev.tasks]
@@ -186,8 +135,10 @@ stats-report = "python scripts/project_stats.py out/project_stats.txt"
 benchmark-dataset = { cmd = "python scripts/build_benchmark_dataset.py", description = "Rebuild the release-backed hg19 mini-genome benchmark dataset archive." }
 
 [environments]
-default = { features = ["gatk", "bio-tools", "pysam"], solve-group = "default" }
-dev = { features = ["gatk", "bio-tools", "pysam", "dev"], solve-group = "default" }
+default = { features = ["bio-tools", "pysam"], solve-group = "default" }
+dev = { features = ["bio-tools", "pysam", "dev"], solve-group = "default" }
+gatk = { features = ["gatk"], no-default-feature = true }
+freebayes = { features = ["freebayes"], no-default-feature = true }
 deepvariant = { features = ["deepvariant"], no-default-feature = true }
 pacbio = { features = ["bio-tools", "pacbio"], no-default-feature = true, solve-group = "pacbio-unix" }
 vep = { features = ["vep"], no-default-feature = true }

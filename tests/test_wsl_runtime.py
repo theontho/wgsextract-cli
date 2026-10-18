@@ -28,6 +28,12 @@ class TestWSLRuntime(unittest.TestCase):
         runtime_paths.bundled_command_available.cache_clear()
         runtime_paths.pacman_tool_path.cache_clear()
         runtime_paths.windows_to_wsl_path.cache_clear()
+        # These tests compare runtime selection; the manifest path is incidental.
+        manifest_patch = patch(
+            "wgsextract_cli.core.dependencies._pixi_manifest_args", return_value=[]
+        )
+        manifest_patch.start()
+        self.addCleanup(manifest_patch.stop)
 
     def tearDown(self):
         runtime.detect_wsl_available.cache_clear()

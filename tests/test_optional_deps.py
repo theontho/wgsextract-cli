@@ -1,4 +1,5 @@
 import os
+import shlex
 import sys
 import tempfile
 import unittest
@@ -18,7 +19,10 @@ from wgsextract_cli.core.dependency_checks import (  # noqa: E402
     check_all_dependencies,
     verify_dependencies,
 )
+from wgsextract_cli.core.runtime import source_checkout_root
 from wgsextract_cli.core.utils import WGSExtractError  # noqa: E402
+
+MANIFEST = shlex.quote(str(source_checkout_root() / "pixi.toml"))
 
 
 class TestOptionalDependencies(unittest.TestCase):
@@ -312,7 +316,7 @@ class TestOptionalDependencies(unittest.TestCase):
         ):
             self.assertEqual(
                 get_tool_path("samtools"),
-                "/usr/local/bin/pixi run -e default samtools",
+                f"/usr/local/bin/pixi run --manifest-path {MANIFEST} -e default samtools",
             )
 
     def test_get_tool_path_can_return_uppercase_yleaf_pixi_fallback(self):
@@ -343,7 +347,7 @@ class TestOptionalDependencies(unittest.TestCase):
         ):
             self.assertEqual(
                 get_tool_path("yleaf"),
-                "/usr/local/bin/pixi run -e default Yleaf",
+                f"/usr/local/bin/pixi run --manifest-path {MANIFEST} -e default Yleaf",
             )
 
         self.assertEqual(mock_run.call_args.args[0][-2:], ["yleaf", "Yleaf"])
@@ -496,3 +500,25 @@ class TestOptionalDependencies(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_optional_pixi_environment_is_installed_before_probing():
+    from wgsextract_cli.core import dependencies
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd[1])
+        # A probe must never run under a short timeout before the env exists.
+        if cmd[1] == "run":
+            assert calls[0] == "install"
+        return MagicMock(returncode=0, stdout="direct-name:gatk\n", stderr="")
+
+    with (
+        patch.object(dependencies.shutil, "which", return_value="/usr/bin/pixi"),
+        patch.object(dependencies.subprocess, "run", side_effect=fake_run),
+    ):
+        command = dependencies._host_pixi_tool_command("gatk")
+
+    assert calls == ["install", "run"]
+    assert command is not None and "-e gatk gatk" in command

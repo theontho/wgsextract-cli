@@ -240,7 +240,7 @@ wgsextract ref library --list
 wgsextract ref library --install hs38
 ```
 
-`ref bootstrap --install-mappability-maps` also downloads the Delly mappability maps used by `vcf cnv`. Annotation data comes from `ref clinvar`, `ref gnomad`, `ref revel`, `ref phylop`, `ref alphamissense`, `ref pharmgkb`, and `ref gene-map`. SpliceAI scores require an Illumina BaseSpace login, so `ref spliceai` explains where to put a manually downloaded file.
+Annotation data comes from `ref clinvar`, `ref gnomad`, `ref revel`, `ref phylop`, `ref alphamissense`, `ref pharmgkb`, and `ref gene-map`. SpliceAI scores require an Illumina BaseSpace login, so `ref spliceai` explains where to put a manually downloaded file.
 :::
 
 ::: card

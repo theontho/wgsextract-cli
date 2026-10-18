@@ -91,7 +91,7 @@ def cmd_fastqc(args: argparse.Namespace) -> None:
 
     logging.info(LOG_MESSAGES["running_fastqc"].format(input=args.input))
     try:
-        run_command(["fastqc", "-t", threads, "-o", outdir, args.input])
+        run_command(["fastqc", "-t", threads, "--outdir", outdir, args.input])
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"FastQC failed: {e}") from e
 

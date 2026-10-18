@@ -129,7 +129,7 @@ SNP and InDel workflows target small sequence changes. They are often the first 
 
 ::: card
 ### Structural and copy-number calls
-SV and CNV workflows look for larger changes. These can be sensitive to sequencing technology, read length, depth, and caller assumptions, so compare outputs cautiously. `vcf cnv` needs the Delly mappability maps from `ref bootstrap --install-mappability-maps` and takes an integer `--ploidy` (default 2). For PacBio data, `vcf sv --pacbio` uses pbsv or Sniffles, and combining `--pacbio` with `--caller delly` is an error.
+SV and CNV workflows look for larger changes. These can be sensitive to sequencing technology, read length, depth, and caller assumptions, so compare outputs cautiously. `vcf cnv` runs Delly 2, which estimates mappability from the reads itself (no map file needed), and takes an integer `--ploidy` (default 2). For PacBio data, `vcf sv --pacbio` uses pbsv or Sniffles, and combining `--pacbio` with `--caller delly` is an error.
 :::
 
 ::: card
