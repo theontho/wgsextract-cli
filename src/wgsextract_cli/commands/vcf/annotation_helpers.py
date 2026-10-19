@@ -128,10 +128,26 @@ def annotate_vcf(
             with open(header_path, "w") as f:
                 f.writelines(line + "\n" for line in header_lines)
             cmd += ["-h", header_path]
-        cmd += ["-Oz", "-o", ann_out, normalized]
+        annotated = (
+            ann_out
+            if normalized == input_vcf
+            else os.path.join(work, "annotated.vcf.gz")
+        )
+        cmd += ["-Oz", "-o", annotated, normalized]
         try:
             run_command(cmd, capture_output=True)
-            ensure_vcf_indexed(ann_out)
+            ensure_vcf_indexed(annotated)
+            if annotated != ann_out:
+                # Back to the input's contig names (chr1 vs 1), so a chain of
+                # annotations keeps them whatever each resource uses.
+                restored = normalize_vcf_chromosomes(
+                    annotated, vcf_index_chromosomes(input_vcf), work
+                )
+                os.replace(restored, ann_out)
+                for index in (ann_out + ".tbi", ann_out + ".csi"):
+                    if os.path.exists(index):
+                        os.remove(index)
+                ensure_vcf_indexed(ann_out)
         except (OSError, subprocess.SubprocessError) as e:
             stderr = getattr(e, "stderr", None)
             detail = f"{e}\n{stderr.strip()}" if stderr else str(e)
