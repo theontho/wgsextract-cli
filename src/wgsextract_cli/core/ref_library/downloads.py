@@ -6,7 +6,9 @@ import logging
 import os
 import re
 import subprocess
+import time
 from collections.abc import Callable
+from http.client import HTTPException, IncompleteRead
 from pathlib import Path
 from typing import BinaryIO, Literal, Protocol
 from urllib.error import HTTPError
@@ -20,6 +22,7 @@ from wgsextract_cli.core.dev_download_cache import (
 )
 from wgsextract_cli.core.download_progress import (
     DownloadCancelled,
+    DownloadIncomplete,
     copy_response_to_file,
     curl_progress_args,
     require_http_url,
@@ -35,6 +38,14 @@ ProgressCallback = Callable[[int, int, float], None]
 
 # Socket timeout (seconds) for stalled connections; not a cap on total download time.
 DOWNLOAD_TIMEOUT_SECONDS = 60
+# Attempts at one URL: an interrupted transfer resumes where it stopped.
+DOWNLOAD_ATTEMPTS = 5
+_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+)
+# Failures that leave a usable .partial behind.
+_RESUMABLE = (DownloadIncomplete, IncompleteRead, TimeoutError, ConnectionError)
 
 
 def resolve_github_release_asset_sha256(url: str) -> str | None:
@@ -170,9 +181,43 @@ def download_file(
         except (OSError, subprocess.SubprocessError) as e:
             logging.warning("curl download failed, falling back to urllib: %s", e)
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-    }
+    for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+        try:
+            return _urllib_download(
+                url,
+                dest,
+                progress_callback,
+                cancel_event,
+                expected_sha256,
+                checksum_hint,
+            )
+        except _RESUMABLE as e:
+            if attempt == DOWNLOAD_ATTEMPTS:
+                logging.error(
+                    f"Download error: {e} (gave up after {attempt} attempts; "
+                    "run the command again to resume)"
+                )
+                return False
+            logging.warning(
+                f"Download interrupted ({e}); resuming "
+                f"(attempt {attempt + 1} of {DOWNLOAD_ATTEMPTS})..."
+            )
+            time.sleep(min(30, 2**attempt))
+    return False
+
+
+def _urllib_download(
+    url: str,
+    dest: str,
+    progress_callback: ProgressCallback | None,
+    cancel_event: CancelEvent | None,
+    expected_sha256: str | None,
+    checksum_hint: str | None,
+) -> bool:
+    """One attempt; an interrupted transfer raises one of _RESUMABLE and leaves
+    dest.partial for the next attempt to resume."""
+    partial_dest = dest + ".partial"
+    headers = {"User-Agent": _USER_AGENT}
     initial_size = 0
     mode: Literal["ab", "wb"] = "wb"
 
@@ -197,10 +242,19 @@ def download_file(
             if e.code != 416 or initial_size == 0:
                 raise
             e.close()
-            if not _partial_is_complete(e.headers.get("Content-Range"), initial_size):
+            if not _partial_is_complete(
+                url, e.headers.get("Content-Range"), initial_size
+            ):
                 # The partial file does not fit the remote file; start over.
                 os.remove(partial_dest)
-                return download_file(url, dest, progress_callback, cancel_event)
+                return _urllib_download(
+                    url,
+                    dest,
+                    progress_callback,
+                    cancel_event,
+                    expected_sha256,
+                    checksum_hint,
+                )
             logging.info("%s is already fully downloaded.", os.path.basename(dest))
             return _finish_download(
                 url, dest, partial_dest, expected_sha256, checksum_hint
@@ -231,6 +285,8 @@ def download_file(
         return _finish_download(url, dest, partial_dest, expected_sha256, checksum_hint)
     except DownloadCancelled as e:
         logging.info(str(e))
+    except _RESUMABLE:
+        raise
     except (
         OSError,
         subprocess.SubprocessError,
@@ -240,10 +296,24 @@ def download_file(
     return False
 
 
-def _partial_is_complete(content_range: str | None, partial_size: int) -> bool:
-    """A 416 reply to `Range: bytes=N-` means done when the remote size is N."""
+def _partial_is_complete(
+    url: str, content_range: str | None, partial_size: int
+) -> bool:
+    """A 416 reply to `Range: bytes=N-` means done when the remote size is N.
+
+    The size is in the reply's Content-Range; servers that leave it out (such
+    as Ensembl's) are asked with a HEAD request.
+    """
     match = re.fullmatch(r"bytes \*/(\d+)", (content_range or "").strip())
-    return match is not None and int(match.group(1)) == partial_size
+    if match:
+        return int(match.group(1)) == partial_size
+    try:
+        request = Request(url, method="HEAD", headers={"User-Agent": _USER_AGENT})
+        with urlopen(request, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:
+            length = response.headers.get("Content-Length")
+    except (OSError, HTTPException):
+        return False
+    return length is not None and length.isdigit() and int(length) == partial_size
 
 
 def _finish_download(

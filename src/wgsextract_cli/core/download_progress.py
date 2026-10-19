@@ -15,6 +15,10 @@ class DownloadCancelled(Exception):
     """Raised when a cancellable download is interrupted."""
 
 
+class DownloadIncomplete(OSError):
+    """The server closed the connection before sending the whole body."""
+
+
 class DownloadResponse(Protocol):
     def read(self, size: int = -1) -> bytes: ...
 
@@ -158,9 +162,17 @@ def copy_response_to_file(
         if default_progress is not None:
             default_progress(bytes_downloaded, total_size, speed)
 
+    # http.client returns a short body without raising when the connection
+    # closes early, so a cut-off download would otherwise look complete.
+    received = bytes_downloaded - initial_size
+    if content_length > 0 and received < content_length:
+        raise DownloadIncomplete(
+            f"{progress_label}: connection closed after {format_bytes(received)} "
+            f"of {format_bytes(content_length)}"
+        )
     if default_progress is not None:
         elapsed = time.monotonic() - start_time
-        speed = (bytes_downloaded - initial_size) / elapsed if elapsed > 0 else 0.0
+        speed = received / elapsed if elapsed > 0 else 0.0
         default_progress.report_complete(bytes_downloaded, total_size, speed)
 
 
