@@ -633,7 +633,8 @@ def main() -> None:
     p.add_argument("target", choices=sorted(MACHINES))
     p.add_argument("--mode", choices=["install", "control"], default="install")
     p.add_argument("--sabotage", choices=sorted(SABOTAGES))
-    p.add_argument("--out", type=Path)
+    # Absolute: docker -v and a fresh host user resolve relative paths elsewhere.
+    p.add_argument("--out", type=lambda value: Path(value).resolve())
     p.set_defaults(func=cmd_run)
     p = sub.add_parser("selftest", help="Every sabotage must make the verdict FAIL.")
     p.add_argument("target", choices=sorted(MACHINES))
