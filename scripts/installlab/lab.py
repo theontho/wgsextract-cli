@@ -715,13 +715,13 @@ MUTATIONS = {
     "missing-output": lambda r: shutil.rmtree(r / "workload" / "align"),
     "empty-calls": lambda r: (r / "workload" / "snp" / "snps.vcf.gz").write_bytes(b""),
     "leftover-state": lambda r: _append(
-        r / "inventory-after_uninstall.txt", "dir\t/home/tester/.pixi"
+        r / "inventory-after_uninstall.txt", f"dir\t{_planted(r)['leftover']}"
     ),
     "invisible-install": lambda r: shutil.copy2(
         r / "inventory-baseline.txt", r / "inventory-after_install.txt"
     ),
     "contaminated-baseline": lambda r: _append(
-        r / "preexisting-tools.txt", "samtools\t/opt/homebrew/bin/samtools"
+        r / "preexisting-tools.txt", f"samtools\t{_planted(r)['tool']}"
     ),
     "silent-y-failure": lambda r: (
         r / "workload" / "evidence" / "y_haplo.log"
@@ -776,6 +776,19 @@ GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
     ),
     "no-window": lambda r: (r / "startup.txt").write_text(""),
 }
+
+
+def _planted(results: Path) -> dict[str, str]:
+    """Paths the mutations plant, in the form the run's own machine records."""
+    target = json.loads((results / "lab-run.json").read_text())["target"]
+    if target.startswith("windows"):
+        return {
+            "leftover": "C:/Users/lab user/.pixi",
+            "tool": "c:/msys64/ucrt64/bin/samtools.exe",
+        }
+    if target in ("macos", "host") and sys.platform == "darwin":
+        return {"leftover": "/Users/admin/.pixi", "tool": "/opt/homebrew/bin/samtools"}
+    return {"leftover": "/home/tester/.pixi", "tool": "/usr/local/bin/samtools"}
 
 
 def _rewrite(path: Path, old: str, new: str) -> None:
