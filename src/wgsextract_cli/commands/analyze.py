@@ -241,8 +241,8 @@ def cmd_batch_gen(args: argparse.Namespace) -> None:
                 samples[name]["vcfs"].append(full_path)
 
     if not samples:
-        logging.warning("No genomic files found in the directory.")
-        return
+        # Writing no batch file and exiting 0 looked like success for a wrong path.
+        raise WGSExtractError(f"No BAM, CRAM or VCF files found in {scan_dir}.")
 
     output_path = args.output
     _print(f"Writing batch file to: {output_path}")

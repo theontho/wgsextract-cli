@@ -32,6 +32,17 @@ class TestAnalyzeBatch(unittest.TestCase):
         with open(self.sampleB_cram, "w") as f:
             f.write("dummy")
 
+    def test_batch_gen_fails_for_a_directory_without_genomes(self):
+        empty = os.path.join(self.outdir, "empty")
+        os.makedirs(empty, exist_ok=True)
+        batch_file = os.path.join(self.outdir, "empty-batch.csv")
+        rc, stdout, stderr = run_cli(
+            ["analyze", "batch-gen", "--directory", empty, "--output", batch_file]
+        )
+        self.assertNotEqual(rc, 0)
+        self.assertIn("No BAM, CRAM or VCF files found", stdout + stderr)
+        self.assertFalse(os.path.exists(batch_file))
+
     def test_batch_gen(self):
         """Test generating a batch file from a directory."""
         batch_file = os.path.join(self.outdir, "batch.csv")
