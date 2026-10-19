@@ -422,3 +422,34 @@ def test_ydna_empty_prediction_is_an_error(tmp_path):
         pytest.raises(WGSExtractError, match="could not predict a Y haplogroup"),
     ):
         _lineage_ydna.cmd_ydna(_ydna_args(bam))
+
+
+def test_mt_haplogroup_resolves_reference_next_to_the_input(tmp_path):
+    """Without --ref (as the GUI's ancestry page calls it), the FASTA beside the
+    BAM must be found the same way the extract and vcf commands find it."""
+    from wgsextract_cli.commands import lineage
+
+    bam = tmp_path / "sample.bam"
+    bam.write_bytes(b"")
+    seen = {}
+
+    class StopAfterLookup(Exception):
+        pass
+
+    def fake_library(ref, md5, input_path=None):
+        seen["input_path"] = input_path
+        raise StopAfterLookup
+
+    args = SimpleNamespace(
+        input=str(bam), outdir=str(tmp_path / "out"), ref=None, haplogrep_path=None
+    )
+    with (
+        patch.object(lineage, "resolve_lineage_tool", return_value="haplogrep"),
+        patch.object(lineage, "verify_dependencies"),
+        patch.object(lineage, "log_dependency_info"),
+        patch.object(lineage, "calculate_bam_md5", return_value=None),
+        patch.object(lineage, "ReferenceLibrary", side_effect=fake_library),
+        pytest.raises(StopAfterLookup),
+    ):
+        lineage.cmd_mtdna(args)  # type: ignore[arg-type]
+    assert seen["input_path"] == str(bam)

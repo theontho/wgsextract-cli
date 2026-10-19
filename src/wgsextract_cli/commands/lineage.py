@@ -65,10 +65,12 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
             logging.info(
                 "Input is alignment. Extracting mitochondrial variants first..."
             )
-            lib = ReferenceLibrary(args.ref, calculate_bam_md5(input_file, None))
+            lib = ReferenceLibrary(
+                args.ref, calculate_bam_md5(input_file, None), input_path=input_file
+            )
             if not lib.fasta:
                 raise WGSExtractError(
-                    "Reference genome required to call mitochondrial variants."
+                    "Reference genome required to call mitochondrial variants; pass --ref."
                 )
             logging.debug(f"Resolved reference: {lib.fasta}")
 

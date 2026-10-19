@@ -133,7 +133,9 @@ def cmd_ydna(args: argparse.Namespace) -> None:
 
     lib = None
     if not is_vcf:
-        lib = ReferenceLibrary(args.ref, calculate_bam_md5(args.input, None))
+        lib = ReferenceLibrary(
+            args.ref, calculate_bam_md5(args.input, None), input_path=args.input
+        )
     build = get_vcf_build(args.input) if is_vcf else None
     if not build:
         lib = lib or ReferenceLibrary(args.ref, None)
