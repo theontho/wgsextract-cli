@@ -1,0 +1,6 @@
+# Extra noise on a GitHub-hosted macOS runner (target `host`), on top of
+# macos.txt. The runner image ships full Xcode with iOS simulators, whose
+# service creates a simulator device set for any account that uses developer
+# tools (git); a user's Mac with only the Command Line Tools doesn't, and the
+# macos VM target, which has only those, still checks this path.
+*/Library/Developer/CoreSimulator*
