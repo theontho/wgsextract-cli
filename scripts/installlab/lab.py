@@ -223,6 +223,9 @@ class Machine:
     guest_host = "127.0.0.1"  # how the guest reaches it
     results_in_guest = ""
     guest_scripts_in_guest = ""
+    # Packages beyond the documented prerequisites, e.g. what an earlier
+    # release required of the user it is being updated from.
+    prerequisites: tuple[str, ...] = ()
 
     def __init__(self, name: str, results: Path, guest: Path) -> None:
         self.name, self.results, self.guest = name, results, guest
@@ -352,8 +355,8 @@ class DockerMachine(Machine):
                 "sh",
                 "-c",
                 "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install "
-                "-y -qq curl ca-certificates >/dev/null && useradd -m -s /bin/bash "
-                "tester && chown tester /results",
+                f"-y -qq curl ca-certificates {' '.join(self.prerequisites)} >/dev/null "
+                "&& useradd -m -s /bin/bash tester && chown tester /results",
             ]  # fmt: skip
         )
 
@@ -478,6 +481,8 @@ def judge(results: Path, target: str) -> bool:
         )
     else:
         oracle = Oracle(results, meta["nonce"], find_tools())
+        if meta.get("install_dir"):
+            oracle.install_marker = f"/{meta['install_dir']}"
     if target == "macos" and meta.get("product") != "gui":
         oracle.check_gatekeeper_enabled()
     checks = oracle.run(dataset_dir(), noise_patterns(target))
@@ -509,12 +514,18 @@ def report_control(results: Path, target: str) -> bool:
     return True
 
 
+# Releases whose installer required git (it fetched Yleaf from its repository).
+RELEASES_NEEDING_GIT = {f"v0.3.{n}" for n in range(14)} | {"v0.4.0"}
+
+
 def run_scenario(
     target: str,
     mode: str,
     sabotage: str,
     out: Path | None,
     gui: argparse.Namespace | None = None,
+    install_dir: str | None = None,
+    update_from: str | None = None,
 ) -> Path:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     product = "gui" if gui else "cli"
@@ -530,6 +541,10 @@ def run_scenario(
     results.mkdir(parents=True)
     artifacts = build_artifacts(work)
     meta: dict[str, object] = {"product": product}
+    if install_dir:
+        meta["install_dir"] = install_dir
+    if update_from:
+        meta["update_from"] = update_from
     if gui:
         meta["signed"] = build_gui_artifacts(gui.gui_repo, gui.dmg, artifacts["serve"])
         meta["dmg_sha256"] = sha256(artifacts["serve"] / "WGSExtract.dmg")
@@ -550,7 +565,10 @@ def run_scenario(
     machine_cls = MACHINES[target]
     name = f"wgse-lab-{secrets.token_hex(4)}"
     # The machine first: a VM's host-side bridge address only exists once it runs.
-    with machine_cls(name, results, artifacts["guest"]) as machine:
+    machine = machine_cls(name, results, artifacts["guest"])
+    if isinstance(machine, DockerMachine) and update_from in RELEASES_NEEDING_GIT:
+        machine.prerequisites = ("git",)
+    with machine:
         with http_server(artifacts["serve"], machine.serve_host) as port:
             base = f"http://{machine.guest_host}:{port}"
             env = {
@@ -563,6 +581,10 @@ def run_scenario(
                 "LAB_DATASET_URL": f"{base}/dataset.tar.gz",
                 "LAB_DATASET_SHA256": sha256(artifacts["serve"] / "dataset.tar.gz"),
             }
+            if install_dir:
+                env["LAB_INSTALL_DIR"] = install_dir
+            if update_from:
+                env["LAB_UPDATE_FROM"] = update_from
             if gui:
                 env["LAB_DMG_URL"] = f"{base}/WGSExtract.dmg"
                 env["LAB_RUNNER_URL"] = f"{base}/gui-runner.tar.gz"
@@ -670,6 +692,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         args.sabotage or "",
         args.out,
         args if args.gui_repo else None,
+        install_dir=args.install_dir,
+        update_from=args.update_from,
     )
     if args.no_judge:
         log(f"Evidence collected (judge it elsewhere): {results}")
@@ -849,6 +873,16 @@ def main() -> None:
         "--cli-from-tree",
         action="store_true",
         help="With --gui-repo: setup installs this CLI tree, not the pinned release.",
+    )
+    p.add_argument(
+        "--install-dir",
+        help="Install into this folder under $HOME instead of the README default, "
+        'e.g. "WGS Extract" to test a path with a space.',
+    )
+    p.add_argument(
+        "--update-from",
+        metavar="TAG",
+        help="Install this published release first, then update it to this tree.",
     )
     p.set_defaults(func=cmd_run)
     p = sub.add_parser("selftest", help="Every sabotage must make the verdict FAIL.")

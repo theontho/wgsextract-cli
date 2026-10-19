@@ -12,6 +12,8 @@ python3 scripts/installlab/lab.py run macos                      # fresh macOS V
 python3 scripts/installlab/lab.py prepare windows                # once: Windows 11 ARM64 base image
 python3 scripts/installlab/lab.py run windows                    # fresh Windows VM (QEMU)
 python3 scripts/installlab/lab.py selftest linux                 # negative controls must fail
+python3 scripts/installlab/lab.py run linux --install-dir "WGS Extract"   # a path with a space
+python3 scripts/installlab/lab.py run linux --update-from v0.4.0        # update a real release
 python3 scripts/installlab/lab.py judge out/installlab/runs/<run>/results
 ```
 
@@ -45,7 +47,12 @@ state snapshots, outputs, and `verdict.json`.
    (bwa, from FASTQs), `vcf gatk` (first use of the optional `gatk` Pixi
    environment), and a command that must fail.
 4. Update by rerunning the installer; a marker in `app/reference/` must survive,
-   and the CLI must still work.
+   and the CLI must still work. With `--update-from <tag>` the run instead
+   installs that published release with its own installer (and the
+   prerequisites it had, e.g. git before 0.4.1), updates it to the tree under
+   test, and runs the workload on the result. `--install-dir` installs into
+   another folder under `$HOME`, such as one whose path has a space. CI runs
+   both on Linux, updating from the latest release.
 5. `uninstall.sh --yes --remove-config --remove-pixi`, then the final snapshot.
 
 ## The macOS app
