@@ -130,7 +130,7 @@ def build_artifacts(work: Path) -> dict[str, Path]:
             if source.exists() or source.is_symlink():
                 tar.add(source, arcname=f"wgsextract-cli-lab/{rel}", recursive=False)
 
-    dataset = fetch_dataset(REPO / "out" / "installlab" / "cache")
+    dataset = fetch_dataset(housekeeping.LAB / "cache")
     shutil.copy2(dataset, serve / "dataset.tar.gz")
 
     guest = work / "guest"
@@ -163,8 +163,8 @@ def fetch_dataset(cache: Path) -> Path:
 
 
 def dataset_dir() -> Path:
-    fetch_dataset(REPO / "out" / "installlab" / "cache")
-    return REPO / "out" / "installlab" / "cache" / "unpacked" / "hg19-mini-hg00096"
+    fetch_dataset(housekeeping.LAB / "cache")
+    return housekeeping.LAB / "cache" / "unpacked" / "hg19-mini-hg00096"
 
 
 class _QuietHandler(http.server.SimpleHTTPRequestHandler):
@@ -217,7 +217,7 @@ class Machine:
         raise NotImplementedError
 
 
-SSH_KEY = REPO / "out" / "installlab" / "ssh" / "id_ed25519"
+SSH_KEY = housekeeping.LAB / "ssh" / "id_ed25519"
 SSH_OPTS = [
     "-i", str(SSH_KEY),
     "-o", "StrictHostKeyChecking=no",
@@ -515,9 +515,7 @@ def run_scenario(
     product = "gui" if gui else "cli"
     work = (
         out
-        or REPO
-        / "out"
-        / "installlab"
+        or housekeeping.LAB
         / "runs"
         / f"{target}-{'gui-' if gui else ''}{sabotage or mode}-{stamp}"
     )
