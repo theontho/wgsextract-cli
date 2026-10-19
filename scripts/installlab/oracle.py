@@ -47,6 +47,12 @@ WORKLOAD_STEPS = [
     "gatk",
     "must_fail",
 ]
+# Extra steps a target's scenario must have run (Windows downloads the installer
+# as its own step, and the user deletes the downloaded folder after uninstall).
+TARGET_STEPS = {
+    "windows": ["installer_download", "remove_install_dir"],
+    "windows-host": ["installer_download", "remove_install_dir"],
+}
 # Steps that must fail, and the message that proves they failed for the right reason.
 EXPECTED_FAILURES = {
     "must_fail": "not found",
@@ -63,11 +69,19 @@ class Check:
 
 
 class Oracle:
+    # A path the install must visibly add, so a clean uninstall diff means something.
+    install_marker = "/wgsextract-cli"
+
     def __init__(self, results: Path, nonce: str, tools: dict[str, str]) -> None:
         self.results = results
         self.nonce = nonce
         self.tools = tools
         self.checks: list[Check] = []
+        try:
+            meta = json.loads((results / "lab-run.json").read_text())
+        except (OSError, ValueError):
+            meta = {}
+        self.target = str(meta.get("target", ""))
 
     # --- helpers ------------------------------------------------------------
 
@@ -118,6 +132,16 @@ class Oracle:
             f"expected {self.nonce}, got {nonce!r}",
         )
 
+    def check_gatekeeper_enabled(self) -> None:
+        """A macOS lab machine must have Gatekeeper on, like a user's Mac."""
+        try:
+            status = (self.results / "gatekeeper-status.txt").read_text().strip()
+        except OSError:
+            status = "no status recorded"
+        self.record(
+            "baseline.gatekeeper_enabled", status == "assessments enabled", status
+        )
+
     def check_clean_baseline(self) -> None:
         try:
             lines = (self.results / "preexisting-tools.txt").read_text().splitlines()
@@ -134,7 +158,7 @@ class Oracle:
         )
 
     def check_steps(self) -> None:
-        for step in REQUIRED_STEPS:
+        for step in REQUIRED_STEPS + TARGET_STEPS.get(self.target, []):
             rc = self.rc(step)
             self.record(f"step.{step}", rc == 0, f"exit code {rc}")
         for step in WORKLOAD_STEPS:
@@ -342,7 +366,14 @@ class Oracle:
             load("after_install"),
             load("after_uninstall"),
         )
-        if not self.record("state.snapshots", bool(baseline and installed and final)):
+        errors = sorted(
+            line for line in baseline | installed | final if line.startswith("error\t")
+        )
+        if not self.record(
+            "state.snapshots",
+            bool(baseline and installed and final) and not errors,
+            "\n  ".join(errors),
+        ):
             return
 
         def significant(lines: set[str]) -> list[str]:
@@ -361,8 +392,12 @@ class Oracle:
         crashes = sorted(
             line.split("\t")[1]
             for line in final | installed
-            if "/DiagnosticReports/" in line
-            and line.endswith((".ips", ".crash"))
+            if (
+                ("/DiagnosticReports/" in line and line.endswith((".ips", ".crash")))
+                # Windows Error Reporting and user-mode crash dumps
+                or re.search(r"/WER/Report(Archive|Queue)/[^/]+$", line)
+                or re.search(r"/CrashDumps/[^/]+\.dmp$", line, re.IGNORECASE)
+            )
             and line not in baseline
         )
         self.record(
@@ -375,7 +410,7 @@ class Oracle:
         installed_added = significant(installed - baseline)
         self.record(
             "state.install_visible",
-            any("/wgsextract-cli" in line for line in installed_added),
+            any(self.install_marker in line for line in installed_added),
             f"{len(installed_added)} paths added by install",
         )
         added = significant(final - baseline)

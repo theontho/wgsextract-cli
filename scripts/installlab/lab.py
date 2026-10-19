@@ -12,6 +12,9 @@ The guest only collects evidence; this host process judges it (see oracle.py).
   lab.py run linux --sabotage fake-launcher   negative control: must FAIL
   lab.py selftest linux         run every sabotage; each one must FAIL
   lab.py judge <results-dir>    re-judge collected evidence
+  lab.py run macos --gui-repo <path>   the macOS app instead of the CLI: build its
+                                DMG, drag-install it, let it run its own setup,
+                                run real actions, uninstall from the app
 
 Targets: `macos` (Tart VM from a vanilla macOS image + Command Line Tools),
 `linux` (fresh ubuntu:24.04 amd64 container + curl/git), `host` (the current
@@ -33,15 +36,19 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import threading
 import time
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 sys.path.insert(0, str(HERE))
+import windows_vm  # noqa: E402
+from gui_oracle import GuiOracle  # noqa: E402
 from oracle import Oracle, find_tools  # noqa: E402
 
 DATASET_URL = (
@@ -54,7 +61,9 @@ MACOS_BASE = "wgse-lab-macos-base"
 LINUX_IMAGE = "ubuntu:24.04"
 SABOTAGES = {
     # name: checks that must fail when the sabotage is applied
-    "noop-installer": ["step.install", "workload.help"],
+    # The installer "succeeds" without doing anything, so step.install passes;
+    # the CLI that isn't there must give it away.
+    "noop-installer": ["workload.help", "output.help"],
     "fake-launcher": ["output.help", "output.mt_haplogroup"],
     "break-samtools": ["workload.mt_bam"],
     "leftover": ["state.uninstall_restores_baseline"],
@@ -73,7 +82,10 @@ def log(message: str) -> None:
 
 
 def run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, text=True, check=True, **kwargs)  # type: ignore[call-overload]
+    result: subprocess.CompletedProcess[str] = subprocess.run(  # type: ignore[call-overload]
+        cmd, text=True, check=True, **kwargs
+    )
+    return result
 
 
 def sha256(path: Path) -> str:
@@ -85,6 +97,49 @@ def sha256(path: Path) -> str:
 
 
 # --- artifacts ------------------------------------------------------------------
+
+
+def build_gui_artifacts(gui_repo: Path, dmg: Path | None, serve: Path) -> bool:
+    """The app's DMG and the bundle-test runner; returns whether the app is
+    Developer ID signed. Builds both from gui_repo unless a DMG is given, so a
+    run never tests a stale build."""
+    apple = gui_repo / "platform" / "apple"
+    if dmg is None:
+        log("Packaging the macOS app (make package PLATFORM=swiftui-macos)...")
+        run(["make", "package", "PLATFORM=swiftui-macos"], cwd=gui_repo)
+        dmg = max(
+            (gui_repo / "out" / "release" / "swiftui").glob("WGSExtract*.dmg"),
+            key=lambda p: p.stat().st_mtime,
+        )
+    shutil.copy2(dmg, serve / "WGSExtract.dmg")
+    log("Building the gui-for-cli bundle-test runner...")
+    run(["swift", "build", "-c", "release", "--product", "gui-for-cli"], cwd=apple)
+    release = apple / ".build" / "release"
+    with tarfile.open(serve / "gui-runner.tar.gz", "w:gz") as tar:
+        for name in ("gui-for-cli", "gui-for-cli_GUIForCLICore.bundle"):
+            tar.add(release / name, arcname=name)
+    mount = Path(tempfile.mkdtemp(prefix="wgse-lab-dmg-"))
+    run(
+        [
+            "hdiutil",
+            "attach",
+            "-nobrowse",
+            "-readonly",
+            "-mountpoint",
+            str(mount),
+            str(dmg),
+        ]
+    )
+    try:
+        info = subprocess.run(
+            ["codesign", "-dv", "--verbose=2", str(mount / "WGSExtract.app")],
+            capture_output=True,
+            text=True,
+        ).stderr
+    finally:
+        run(["hdiutil", "detach", str(mount)])
+        mount.rmdir()
+    return "Authority=Developer ID Application" in info
 
 
 def build_artifacts(work: Path) -> dict[str, Path]:
@@ -110,6 +165,7 @@ def build_artifacts(work: Path) -> dict[str, Path]:
 
     guest = work / "guest"
     shutil.copytree(HERE / "guest", guest)
+    shutil.copy2(HERE / "gui" / "wgsextract-plan.json", guest / "gui-plan.json")
     return {"serve": serve, "guest": guest, "dataset": dataset}
 
 
@@ -183,7 +239,8 @@ class Machine:
 
     def create(self) -> None: ...
     def destroy(self) -> None: ...
-    def exec(self, env: dict[str, str], command: str) -> int: ...
+    def exec(self, env: dict[str, str], command: str) -> int:
+        raise NotImplementedError
 
 
 SSH_KEY = REPO / "out" / "installlab" / "ssh" / "id_ed25519"
@@ -295,7 +352,7 @@ class DockerMachine(Machine):
                 "sh",
                 "-c",
                 "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install "
-                "-y -qq curl ca-certificates git >/dev/null && useradd -m -s /bin/bash "
+                "-y -qq curl ca-certificates >/dev/null && useradd -m -s /bin/bash "
                 "tester && chown tester /results",
             ]  # fmt: skip
         )
@@ -382,7 +439,13 @@ class HostMachine(Machine):
         ).returncode
 
 
-MACHINES = {"macos": TartMachine, "linux": DockerMachine, "host": HostMachine}
+MACHINES: dict[str, type[Machine] | type[windows_vm.WindowsMachine]] = {
+    "macos": TartMachine,
+    "linux": DockerMachine,
+    "host": HostMachine,
+    "windows": windows_vm.QemuWindowsMachine,
+    "windows-host": windows_vm.WindowsHostMachine,
+}
 
 
 # --- commands -------------------------------------------------------------------
@@ -409,9 +472,15 @@ def judge(results: Path, target: str) -> bool:
     meta = json.loads((results / "lab-run.json").read_text())
     if meta.get("mode") == "control":
         return report_control(results, target)
-    checks = Oracle(results, meta["nonce"], find_tools()).run(
-        dataset_dir(), noise_patterns(target)
-    )
+    if meta.get("product") == "gui":
+        oracle: Oracle = GuiOracle(
+            results, meta["nonce"], find_tools(), signed=meta["signed"]
+        )
+    else:
+        oracle = Oracle(results, meta["nonce"], find_tools())
+    if target == "macos" and meta.get("product") != "gui":
+        oracle.check_gatekeeper_enabled()
+    checks = oracle.run(dataset_dir(), noise_patterns(target))
     failed = [c for c in checks if not c.ok]
     for check in checks:
         mark = "PASS" if check.ok else "FAIL"
@@ -440,15 +509,31 @@ def report_control(results: Path, target: str) -> bool:
     return True
 
 
-def run_scenario(target: str, mode: str, sabotage: str, out: Path | None) -> Path:
+def run_scenario(
+    target: str,
+    mode: str,
+    sabotage: str,
+    out: Path | None,
+    gui: argparse.Namespace | None = None,
+) -> Path:
     stamp = time.strftime("%Y%m%d-%H%M%S")
+    product = "gui" if gui else "cli"
     work = (
         out
-        or REPO / "out" / "installlab" / "runs" / f"{target}-{sabotage or mode}-{stamp}"
+        or REPO
+        / "out"
+        / "installlab"
+        / "runs"
+        / f"{target}-{'gui-' if gui else ''}{sabotage or mode}-{stamp}"
     )
     results = work / "results"
     results.mkdir(parents=True)
     artifacts = build_artifacts(work)
+    meta: dict[str, object] = {"product": product}
+    if gui:
+        meta["signed"] = build_gui_artifacts(gui.gui_repo, gui.dmg, artifacts["serve"])
+        meta["dmg_sha256"] = sha256(artifacts["serve"] / "WGSExtract.dmg")
+        meta["cli_from_tree"] = gui.cli_from_tree
     nonce = secrets.token_hex(16)
     (results / "lab-run.json").write_text(
         json.dumps(
@@ -458,6 +543,7 @@ def run_scenario(target: str, mode: str, sabotage: str, out: Path | None) -> Pat
                 "sabotage": sabotage,
                 "nonce": nonce,
                 "archive_sha256": sha256(artifacts["serve"] / "wgsextract-cli.tar.gz"),
+                **meta,
             }
         )
     )
@@ -477,14 +563,37 @@ def run_scenario(target: str, mode: str, sabotage: str, out: Path | None) -> Pat
                 "LAB_DATASET_URL": f"{base}/dataset.tar.gz",
                 "LAB_DATASET_SHA256": sha256(artifacts["serve"] / "dataset.tar.gz"),
             }
-            log(f"Running the {mode} scenario on {target} machine {name}...")
-            scenario = shlex.quote(f"{machine.guest_scripts_in_guest}/scenario.sh")
+            if gui:
+                env["LAB_DMG_URL"] = f"{base}/WGSExtract.dmg"
+                env["LAB_RUNNER_URL"] = f"{base}/gui-runner.tar.gz"
+                if not gui.cli_from_tree:
+                    # Setup installs the CLI release the app pins, like a user's.
+                    del env["LAB_ARCHIVE_URL"]
+            if target.startswith("windows"):
+                env["LAB_INSTALLER_URL"] = f"{base}/install_windows.bat"
+                env["LAB_ARCHIVE_URL"] = f"{base}/wgsextract-cli.zip"
+                log(f"Running the {mode} scenario on {target} machine {name}...")
+                machine.exec(env, "scenario.ps1")
+                return results
+            script = "gui-macos.sh" if gui else "scenario.sh"
+            log(f"Running the {product} {mode} scenario on {target} machine {name}...")
+            scenario = shlex.quote(f"{machine.guest_scripts_in_guest}/{script}")
             machine.exec(env, f"sh {scenario}")
     return results
 
 
+def enable_gatekeeper(ip: str) -> None:
+    """The vanilla image ships with Gatekeeper off; a user's Mac has it on."""
+    # The setting is written lazily; sync before the VM is stopped or it's lost.
+    run(["ssh", *SSH_OPTS, f"admin@{ip}",
+         "echo admin | sudo -S spctl --global-enable && spctl --status && sync && sleep 5"])  # fmt: skip
+
+
 def cmd_prepare(args: argparse.Namespace) -> None:
     """Clone the vanilla image, authorize the lab SSH key, install the CLT."""
+    if args.target == "windows":
+        windows_vm.prepare()
+        return
     if not SSH_KEY.exists():
         SSH_KEY.parent.mkdir(parents=True, exist_ok=True)
         run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "wgse-lab",
@@ -545,6 +654,7 @@ expect {{
             "xcode-select -p && xcrun --find clang"
         )
         run(["ssh", *SSH_OPTS, f"admin@{ip}", f"/bin/zsh -lc {shlex.quote(script)}"])
+        enable_gatekeeper(ip)
     finally:
         subprocess.run(["tart", "stop", MACOS_BASE])
         vm.wait(timeout=300)
@@ -552,7 +662,18 @@ expect {{
 
 
 def cmd_run(args: argparse.Namespace) -> None:
-    results = run_scenario(args.target, args.mode, args.sabotage or "", args.out)
+    if args.gui_repo and args.target != "macos":
+        raise SystemExit("--gui-repo needs the macos target")
+    results = run_scenario(
+        args.target,
+        args.mode,
+        args.sabotage or "",
+        args.out,
+        args if args.gui_repo else None,
+    )
+    if args.no_judge:
+        log(f"Evidence collected (judge it elsewhere): {results}")
+        return
     ok = judge(results, args.target)
     if args.sabotage:
         expected = SABOTAGES[args.sabotage]
@@ -608,6 +729,55 @@ MUTATIONS = {
 }
 
 
+def _json_edit(path: Path, edit: Callable[[Any], None]) -> None:
+    data = json.loads(path.read_text())
+    edit(data)
+    path.write_text(json.dumps(data))
+
+
+def _fail_action(report: Any, action: str) -> None:
+    for step in report["steps"]:
+        if step.get("id") == action:
+            step["status"] = "failed"
+
+
+# The app reports its own setup, actions and uninstall; corrupting what it
+# reports must fail the run as surely as corrupting the outputs.
+GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
+    "wrong-nonce": MUTATIONS["wrong-nonce"],
+    "missing-step": MUTATIONS["missing-step"],
+    "wrong-haplogroup": MUTATIONS["wrong-haplogroup"],
+    "missing-output": MUTATIONS["missing-output"],
+    "empty-calls": MUTATIONS["empty-calls"],
+    "leftover-state": lambda r: _append(
+        r / "inventory-after_uninstall.txt",
+        "dir\t/Users/admin/Library/Application Support/dev.guiforcli.embed.wgsextract",
+    ),
+    "invisible-install": MUTATIONS["invisible-install"],
+    "contaminated-baseline": MUTATIONS["contaminated-baseline"],
+    "setup-failed": lambda r: _json_edit(
+        r / "setup-result.json", lambda d: d.update(status="failed")
+    ),
+    "action-failed": lambda r: _json_edit(
+        r / "bundle-report.json", lambda d: _fail_action(d, "snp")
+    ),
+    "action-missing": lambda r: _json_edit(
+        r / "bundle-report.json", lambda d: d.update(steps=d["steps"][:-1])
+    ),
+    "uninstall-failed": lambda r: _json_edit(
+        r / "uninstall-result.json", lambda d: d.update(status="failed")
+    ),
+    "unsigned-accepted": lambda r: (
+        (r / "evidence" / "gatekeeper.rc").write_text("0"),
+        (r / "evidence" / "gatekeeper.log").write_text("accepted\n"),
+    ),
+    "gatekeeper-off": lambda r: (r / "gatekeeper-status.txt").write_text(
+        "assessments disabled\n"
+    ),
+    "no-window": lambda r: (r / "startup.txt").write_text(""),
+}
+
+
 def _rewrite(path: Path, old: str, new: str) -> None:
     path.write_text(path.read_text().replace(old, new))
 
@@ -622,7 +792,8 @@ def cmd_mutate(args: argparse.Namespace) -> None:
     if not judge(args.results, meta["target"]):
         raise SystemExit("mutate needs a passing run to start from.")
     missed = []
-    for name, mutate in MUTATIONS.items():
+    mutations = GUI_MUTATIONS if meta.get("product") == "gui" else MUTATIONS
+    for name, mutate in mutations.items():
         copy = args.results.parent / f"mutant-{name}"
         shutil.rmtree(copy, ignore_errors=True)
         shutil.copytree(args.results, copy, symlinks=True)
@@ -644,7 +815,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(required=True)
     p = sub.add_parser("prepare", help="Build the clean base image for a target.")
-    p.add_argument("target", choices=["macos"])
+    p.add_argument("target", choices=["macos", "windows"])
     p.set_defaults(func=cmd_prepare)
     p = sub.add_parser("run", help="Run one scenario on a fresh machine and judge it.")
     p.add_argument("target", choices=sorted(MACHINES))
@@ -652,6 +823,20 @@ def main() -> None:
     p.add_argument("--sabotage", choices=sorted(SABOTAGES))
     # Absolute: docker -v and a fresh host user resolve relative paths elsewhere.
     p.add_argument("--out", type=lambda value: Path(value).resolve())
+    p.add_argument(
+        "--no-judge",
+        action="store_true",
+        help="Only collect evidence (CI judges it on another machine).",
+    )
+    p.add_argument(
+        "--gui-repo", type=Path, help="Test the macOS app built from this checkout."
+    )
+    p.add_argument("--dmg", type=Path, help="With --gui-repo: test this DMG instead.")
+    p.add_argument(
+        "--cli-from-tree",
+        action="store_true",
+        help="With --gui-repo: setup installs this CLI tree, not the pinned release.",
+    )
     p.set_defaults(func=cmd_run)
     p = sub.add_parser("selftest", help="Every sabotage must make the verdict FAIL.")
     p.add_argument("target", choices=sorted(MACHINES))
