@@ -369,9 +369,41 @@ class WindowsHostMachine(WindowsMachine):
              str(HERE / "vm" / "windows" / "deprovision-runner.ps1")],
             check=True, env=windows_powershell_env(),
         )  # fmt: skip
-        wait_for_ssh(self.admin, self.port, 120)
-        wait_for_ssh(TESTER, self.port, 120)
+        try:
+            wait_for_ssh(self.admin, self.port, 120)
+            wait_for_ssh(TESTER, self.port, 120)
+        except SystemExit:
+            self.ssh_diagnostics()
+            raise
         self.stage()
+
+    def ssh_diagnostics(self) -> None:
+        """What sshd saw, so a failed CI round says why."""
+        log("SSH diagnostics:")
+        subprocess.run(
+            ["ssh", *ssh_opts(self.port), "-vvv", "-o", "LogLevel=DEBUG3",
+             "-l", TESTER, "127.0.0.1", "whoami"],
+        )  # fmt: skip
+        script = r"""
+$ErrorActionPreference = 'Continue'
+Get-Command ssh, sshd -All -ErrorAction SilentlyContinue | Format-Table -AutoSize Source | Out-String -Width 300
+Get-Service sshd | Format-List Name, Status, StartType, BinaryPathName | Out-String
+Get-CimInstance Win32_Service -Filter "Name='sshd'" | Format-List PathName, StartName | Out-String
+Get-LocalUser 'Lab User' | Format-List * | Out-String
+Get-LocalGroupMember Users | Out-String
+Get-Content C:\ProgramData\ssh\sshd_config | Where-Object { $_ -and $_ -notmatch '^\s*#' }
+foreach ($f in 'C:\ProgramData\ssh\administrators_authorized_keys', 'C:\ProgramData\ssh\labuser_authorized_keys') {
+    "--- $f"; icacls.exe $f; (Get-Acl -LiteralPath $f).Owner
+}
+Get-ChildItem C:\Users -Force | Format-Table Name | Out-String
+Get-WinEvent -LogName OpenSSH/Operational -MaxEvents 60 -ErrorAction SilentlyContinue |
+    Sort-Object TimeCreated | Format-Table -Wrap TimeCreated, Message | Out-String -Width 300
+Get-ChildItem C:\ProgramData\ssh\logs -ErrorAction SilentlyContinue | Get-Content -Tail 60
+"""
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command", script],
+            env=windows_powershell_env(),
+        )
 
 
 # --- base image -----------------------------------------------------------------
