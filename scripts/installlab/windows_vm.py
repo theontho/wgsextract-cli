@@ -362,12 +362,12 @@ class WindowsHostMachine(WindowsMachine):
             subprocess.run(
                 ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                  str(HERE / "vm" / "windows" / "lab-setup.ps1"), "-Media", media],
-                check=True,
+                check=True, env=windows_powershell_env(),
             )  # fmt: skip
         subprocess.run(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
              str(HERE / "vm" / "windows" / "deprovision-runner.ps1")],
-            check=True,
+            check=True, env=windows_powershell_env(),
         )  # fmt: skip
         wait_for_ssh(self.admin, self.port, 120)
         wait_for_ssh(TESTER, self.port, 120)
@@ -375,6 +375,13 @@ class WindowsHostMachine(WindowsMachine):
 
 
 # --- base image -----------------------------------------------------------------
+
+
+def windows_powershell_env() -> dict[str, str]:
+    """Environment for Windows PowerShell 5.1 started from PowerShell 7 (GitHub's
+    `pwsh` shell): 7's PSModulePath makes 5.1 fail to load its own modules
+    (ConvertTo-SecureString "could not be loaded"), so let 5.1 build its own."""
+    return {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
 
 
 def docker() -> str:
