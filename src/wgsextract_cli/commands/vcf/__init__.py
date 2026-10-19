@@ -93,7 +93,7 @@ def register(
 ) -> None:
     parser = subparsers.add_parser(
         "vcf",
-        help="Variant calling and processing using bcftools, delly, or freebayes.",
+        help=CLI_HELP["cmd_vcf"],
     )
     vcf_subs = parser.add_subparsers(dest="vcf_cmd", required=True)
 
@@ -166,9 +166,13 @@ def register(
     )
     _add_region(cnv_parser)
     cnv_parser.add_argument(
-        "-M", "--map", help="Mappability map file (required for delly cnv)"
+        "-M",
+        "--map",
+        help="Deprecated and ignored: Delly 2 no longer uses mappability maps.",
     )
-    cnv_parser.add_argument("--ploidy", help="Predefined ploidy name or value")
+    cnv_parser.add_argument(
+        "--ploidy", type=int, help="Baseline ploidy for delly cnv (default: 2)"
+    )
     cnv_parser.set_defaults(func=cmd_cnv)
 
     sv_parser = vcf_subs.add_parser(
@@ -178,13 +182,14 @@ def register(
     sv_parser.add_argument(
         "--caller",
         choices=["delly", "pbsv", "sniffles"],
-        default="delly",
-        help="SV caller to use. Use pbsv or sniffles for PacBio long-read BAMs.",
+        help="SV caller to use (default: delly, or pbsv/sniffles with --pacbio). "
+        "Use pbsv or sniffles for PacBio long-read BAMs.",
     )
     sv_parser.add_argument(
         "--pacbio",
         action="store_true",
-        help="Alias for --caller pbsv --ccs for PacBio HiFi/CCS data.",
+        help="PacBio HiFi/CCS data: use pbsv (or sniffles if pbsv is missing) "
+        "with CCS thresholds.",
     )
     sv_parser.add_argument(
         "--ccs",

@@ -27,69 +27,69 @@ EXPECTED_ACTIONS = {
     # Popular first-party actions. Keep these current so generated workflows do
     # not regress to stale majors from older training data.
     "actions/cache": ExpectedAction(
-        version="v5.0.5",
-        sha="27d5ce7f107fe9357f9df03efb73ab90386fccae",
+        version="v6.1.0",
+        sha="55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
     ),
     "actions/checkout": ExpectedAction(
-        version="v6.0.2",
-        sha="de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+        version="v7.0.1",
+        sha="3d3c42e5aac5ba805825da76410c181273ba90b1",
     ),
     "actions/configure-pages": ExpectedAction(
         version="v6.0.0",
         sha="45bfe0192ca1faeb007ade9deae92b16b8254a0d",
     ),
     "actions/deploy-pages": ExpectedAction(
-        version="v5.0.0",
-        sha="cd2ce8fcbc39b97be8ca5fce6e763baed58fa128",
+        version="v5.0.1",
+        sha="368f82528645a54fb793d4d04e342629a3f51346",
     ),
     "actions/download-artifact": ExpectedAction(
-        version="v8.0.1",
-        sha="3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+        version="v8.0.2",
+        sha="9000827ccba6bdab643e8b6fd33ac0654aef8333",
     ),
     "actions/setup-node": ExpectedAction(
-        version="v6.4.0",
-        sha="48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+        version="v7.1.0",
+        sha="949feb2413d6458794dcd2491c4babbbce0c15c1",
     ),
     "actions/setup-python": ExpectedAction(
-        version="v6.2.0",
-        sha="a309ff8b426b58ec0e2a45f0f869d46889d02405",
+        version="v7.0.0",
+        sha="5fda3b95a4ea91299a34e894583c3862153e4b97",
     ),
     "actions/upload-artifact": ExpectedAction(
-        version="v7.0.1",
-        sha="043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        version="v7.0.2",
+        sha="cf430e030ddbb5b0abf93d22962f4752f3646cd9",
     ),
     "actions/upload-pages-artifact": ExpectedAction(
         version="v5.0.0",
         sha="fc324d3547104276b827a68afc52ff2a11cc49c9",
     ),
     "github/codeql-action/analyze": ExpectedAction(
-        version="v4.36.0",
-        sha="7211b7c8077ea37d8641b6271f6a365a22a5fbfa",
+        version="v4.39.0",
+        sha="6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee",
     ),
     "github/codeql-action/init": ExpectedAction(
-        version="v4.36.0",
-        sha="7211b7c8077ea37d8641b6271f6a365a22a5fbfa",
+        version="v4.39.0",
+        sha="6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee",
     ),
     # Third-party actions currently used by this repository.
     "gitleaks/gitleaks-action": ExpectedAction(
-        version="v2.3.9",
-        sha="ff98106e4c7b2bc287b24eaf42907196329070c7",
+        version="v3.0.0",
+        sha="e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e",
     ),
     "msys2/setup-msys2": ExpectedAction(
-        version="v2.31.1",
-        sha="e9898307ac31d1a803454791be09ab9973336e1c",
+        version="v2.33.0",
+        sha="ec48f7c5447b3140e2b088413ae3a55687bccb6e",
     ),
     "prefix-dev/setup-pixi": ExpectedAction(
-        version="v0.9.6",
-        sha="5185adfbffb4bd703da3010310260805d89ebb11",
+        version="v0.11.2",
+        sha="ad1da6449d9e506fd127fd67ab2d054a769f6a94",
     ),
     "softprops/action-gh-release": ExpectedAction(
-        version="v3.0.0",
-        sha="b4309332981a82ec1c5618f44dd2e27cc8bfbfda",
+        version="v3.0.3",
+        sha="efb35369e0ad2afab669f228072c1b0d510eae64",
     ),
     "vampire/setup-wsl": ExpectedAction(
-        version="v7.0.0",
-        sha="d1da7f2c0322a5ee4f24975344f67fc0f5baf364",
+        version="v7.2.0",
+        sha="4c48163d9f981914dd8caa0fc335fe19cca5bff4",
     ),
 }
 

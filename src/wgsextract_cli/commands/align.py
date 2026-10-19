@@ -3,26 +3,51 @@ import logging
 import os
 import subprocess
 from pathlib import Path
+from typing import NamedTuple
 
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
+from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
     get_sam_index_cmd,
+    get_sam_sort_cmd,
     run_command,
+    run_pipeline,
 )
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
-    popen,
     resolve_reference,
     verify_paths_exist,
 )
 from wgsextract_cli.core.warnings import print_warning
+
+from ._extract_helpers import cleanup_files
+
+_PACBIO_PLATFORMS = {"pacbio", "hifi", "clr"}
+_LONG_READ_PLATFORMS = _PACBIO_PLATFORMS | {"ont", "nanopore"}
+# pbmm2-style preset names accepted by minimap2 under their minimap2 names.
+_MINIMAP2_PRESET_ALIASES = {"ccs": "map-hifi", "subread": "map-pb"}
+_PBMM2_PRESETS = {
+    "map-hifi": "CCS",
+    "ccs": "CCS",
+    "map-pb": "SUBREAD",
+    "subread": "SUBREAD",
+}
+_READ_FILE_SUFFIXES = (
+    ".fastq.gz",
+    ".fq.gz",
+    ".fastq",
+    ".fq",
+    ".subreads.bam",
+    ".ccs.bam",
+    ".bam",
+)
 
 
 def register(
@@ -62,246 +87,209 @@ def register(
     parser.set_defaults(func=run)
 
 
+def select_aligner(args: argparse.Namespace) -> str:
+    """Resolve --aligner auto and reject nonsensical aligner/platform/preset combos."""
+    long_read = args.long_read or args.platform in _LONG_READ_PLATFORMS
+    aligner: str = args.aligner
+    if aligner == "auto":
+        if args.platform in _PACBIO_PLATFORMS and get_tool_path("pbmm2") is not None:
+            aligner = "pbmm2"
+        elif long_read or args.preset:
+            aligner = "minimap2"
+        else:
+            aligner = "bwa"
+
+    if aligner == "bwa":
+        if long_read:
+            raise WGSExtractError(
+                "BWA-MEM is a short-read aligner; use --aligner minimap2 "
+                "(or pbmm2 for PacBio) for long reads."
+            )
+        if args.preset:
+            raise WGSExtractError("--preset applies to minimap2 and pbmm2, not BWA.")
+    elif aligner == "pbmm2":
+        if args.platform in {"ont", "nanopore"}:
+            raise WGSExtractError(
+                "pbmm2 only aligns PacBio reads; use --aligner minimap2 for ONT."
+            )
+        if args.preset and args.preset not in _PBMM2_PRESETS:
+            raise WGSExtractError(
+                "PacBio pbmm2 alignment supports --preset map-hifi, map-pb, ccs, "
+                "or subread."
+            )
+    return aligner
+
+
 def run(args: argparse.Namespace) -> None:
-    # Determine which aligner to use
-    platform = getattr(args, "platform", "illumina")
-    aligner = getattr(args, "aligner", "auto")
-    if aligner == "pbmm2" or (
-        aligner == "auto"
-        and platform in {"pacbio", "hifi", "clr"}
-        and get_tool_path("pbmm2") is not None
-    ):
+    aligner = select_aligner(args)
+    if aligner == "pbmm2":
         align_pbmm2(args)
-    elif (
-        aligner == "minimap2"
-        or args.long_read
-        or platform in {"pacbio", "hifi", "clr", "ont", "nanopore"}
-    ):
+    elif aligner == "minimap2":
         align_minimap2(args)
-    elif aligner == "bwa" or aligner == "auto":
+    else:
         align_bwa(args)
-    else:
-        raise WGSExtractError(f"Unsupported aligner: {aligner}")
 
 
-def _aligner_stream_sort_cmd(
-    out_bam: str, threads: str, memory: str, fmt: str, reference: str
-) -> list[str]:
-    cmd = ["samtools", "sort", "-@", threads, "-m", memory, "-o", out_bam]
-    if fmt == "CRAM":
-        cmd += ["-O", "CRAM", "--reference", reference]
-    else:
-        cmd += ["-O", "BAM"]
-    return cmd
+def reads_stem(path: str) -> str:
+    """File name of a FASTQ/unaligned-BAM read file without its read-file suffix."""
+    name = Path(path).name
+    for suffix in _READ_FILE_SUFFIXES:
+        if name.lower().endswith(suffix):
+            return name[: -len(suffix)]
+    return Path(name).stem
 
 
-def _check_pipeline_process(process: object, label: str) -> None:
-    wait = getattr(process, "wait", None)
-    if callable(wait):
-        wait()
-    returncode_obj = getattr(process, "returncode", 0)
-    returncode = returncode_obj if isinstance(returncode_obj, int) else 0
-    if returncode:
-        raise WGSExtractError(f"{label} failed with exit status {returncode}.")
+class _AlignSetup(NamedTuple):
+    threads: str
+    memory: str
+    outdir: str
+    ref: str
+    stem: str
 
 
-def _run_streamed_alignment(
-    align_cmd: list[str],
-    sort_cmd: list[str],
-    out_bam: str,
-    threads: str,
-    samblaster: str | None,
-) -> None:
-    p_align = popen(align_cmd, stdout=subprocess.PIPE)
-    p_blaster = None
-    if samblaster:
-        logging.info("Using samblaster for marking duplicates...")
-        p_blaster = popen([samblaster], stdin=p_align.stdout, stdout=subprocess.PIPE)
-        if p_align.stdout:
-            p_align.stdout.close()
-        p_sort = popen(sort_cmd, stdin=p_blaster.stdout)
-        if p_blaster.stdout:
-            p_blaster.stdout.close()
-    else:
-        p_sort = popen(sort_cmd, stdin=p_align.stdout)
-        if p_align.stdout:
-            p_align.stdout.close()
-
-    p_sort.communicate()
-    _check_pipeline_process(p_sort, "samtools sort")
-    if p_blaster:
-        _check_pipeline_process(p_blaster, "samblaster")
-    _check_pipeline_process(p_align, "aligner")
-
-    logging.info(LOG_MESSAGES["indexing_output"])
-    run_command(get_sam_index_cmd(out_bam, threads=threads))
-
-
-def align_bwa(args: argparse.Namespace) -> None:
-    verify_dependencies(["bwa", "samtools"])
-    log_dependency_info(["bwa", "samtools"])
+def _prepare_alignment(
+    args: argparse.Namespace, tools: list[str], task: str
+) -> _AlignSetup:
+    verify_dependencies(tools)
+    log_dependency_info(tools)
     threads, memory = get_resource_defaults(args.threads, args.memory)
 
     if not args.r1:
-        raise WGSExtractError("--r1 is required unless --genome resolves FASTQ inputs.")
-
-    # Use --input's path if outdir not set, or r1's path
-    input_path = args.input if args.input else args.r1
-    logging.debug(f"Input file: {os.path.abspath(input_path)}")
-
+        raise WGSExtractError("--r1 is required unless --genome resolves read inputs.")
     paths_to_check = {"--r1": args.r1}
     if args.r2:
         paths_to_check["--r2"] = args.r2
-    if not verify_paths_exist(paths_to_check):
-        return
+    verify_paths_exist(paths_to_check)
 
-    outdir = (
-        args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_path))
-    )
+    input_path = args.input or args.r1
+    outdir = args.outdir or os.path.dirname(os.path.abspath(input_path))
+    os.makedirs(outdir, exist_ok=True)
+    logging.debug(f"Input file: {os.path.abspath(input_path)}")
     logging.debug(f"Output directory: {os.path.abspath(outdir)}")
 
     md5_sig = calculate_bam_md5(input_path, None) if args.input else None
     resolved_ref = resolve_reference(args.ref, md5_sig)
     logging.debug(f"Resolved reference: {resolved_ref}")
-
     if not resolved_ref or not os.path.isfile(resolved_ref):
-        raise WGSExtractError(
-            LOG_MESSAGES["ref_required_for"].format(task="BWA alignment")
+        raise WGSExtractError(LOG_MESSAGES["ref_required_for"].format(task=task))
+
+    stem = reads_stem(args.r1)
+    if getattr(args, "r2", None):
+        # Both mates go into one output, so it shouldn't be named after R1.
+        stem = pair_stem(stem)
+    return _AlignSetup(threads, memory, outdir, resolved_ref, stem)
+
+
+def ensure_bwa_index(ref: str) -> None:
+    if os.path.exists(ref + ".bwt"):
+        return
+    logging.info(f"BWA index missing for {ref}. Generating now (may take a while)...")
+    try:
+        run_command(["bwa", "index", ref])
+    except (OSError, subprocess.SubprocessError) as e:
+        raise WGSExtractError(f"Automatic BWA indexing failed: {e}") from e
+
+
+def use_samblaster(paired: bool) -> bool:
+    """samblaster marks duplicates in paired short reads; it aborts on unpaired input."""
+    return paired and get_tool_path("samblaster") is not None
+
+
+def run_streamed_alignment(
+    align_cmd: list[str],
+    out_path: str,
+    *,
+    threads: str,
+    memory: str,
+    fmt: str,
+    ref: str,
+    mark_duplicates: bool,
+) -> None:
+    """Run aligner [| samblaster] | samtools sort, then index the output."""
+    stages = [align_cmd]
+    if mark_duplicates:
+        logging.info("Using samblaster for marking duplicates...")
+        stages.append(["samblaster"])
+    stages.append(
+        get_sam_sort_cmd(
+            out_path, threads, memory, fmt=fmt, reference=ref, sam_input=True
         )
+    )
+    partial = [out_path, out_path + ".bai", out_path + ".crai"]
+    with cleanup_files(on_failure=partial):
+        run_pipeline(stages, description="Alignment")
+        logging.info(LOG_MESSAGES["indexing_output"])
+        run_command(get_sam_index_cmd(out_path, threads=threads))
 
-    # Check for BWA index files, if missing, run indexing
-    bwt_index = resolved_ref + ".bwt"
-    if not os.path.exists(bwt_index):
-        logging.info(
-            f"BWA index missing for {resolved_ref}. Generating now (may take a while)..."
-        )
-        try:
-            bwa = get_tool_path("bwa")
-            run_command([bwa, "index", resolved_ref])
-        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-            logging.error(f"Automatic indexing failed: {e}")
-            raise WGSExtractError("Automatic BWA indexing failed.") from e
 
-    print_warning("ButtonBWAAlign", threads=threads)
+def align_bwa(args: argparse.Namespace) -> None:
+    setup = _prepare_alignment(args, ["bwa", "samtools"], "BWA alignment")
+    ensure_bwa_index(setup.ref)
 
-    base_name = os.path.basename(args.r1).split(".")[0]
+    print_warning("ButtonBWAAlign", threads=setup.threads)
+
     ext = ".cram" if args.format == "CRAM" else ".bam"
-    out_bam = os.path.join(outdir, f"{base_name}_aligned{ext}")
-
-    r2_args = [args.r2] if args.r2 else []
+    out_bam = os.path.join(setup.outdir, f"{setup.stem}_aligned{ext}")
 
     logging.info(
         LOG_MESSAGES["aligning_reads"].format(input=args.r1, output=out_bam, tool="BWA")
     )
+    align_cmd = ["bwa", "mem", "-t", setup.threads, setup.ref, args.r1]
     try:
-        # Resolve tools
-        bwa = get_tool_path("bwa")
-        samblaster = get_tool_path("samblaster")
-
-        # 1. Aligner command
-        align_cmd = [bwa, "mem", "-t", threads, resolved_ref, args.r1] + r2_args
-
-        sort_cmd = _aligner_stream_sort_cmd(
-            out_bam, threads, memory, args.format, resolved_ref
+        run_streamed_alignment(
+            align_cmd + ([args.r2] if args.r2 else []),
+            out_bam,
+            threads=setup.threads,
+            memory=setup.memory,
+            fmt=args.format,
+            ref=setup.ref,
+            mark_duplicates=use_samblaster(paired=bool(args.r2)),
         )
-        _run_streamed_alignment(align_cmd, sort_cmd, out_bam, threads, samblaster)
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.error(f"BWA alignment failed: {e}")
-        raise WGSExtractError("BWA alignment failed.") from e
+        raise WGSExtractError(f"BWA alignment failed: {e}") from e
+
+
+def _minimap2_preset(args: argparse.Namespace) -> str:
+    if args.preset:
+        preset: str = args.preset
+        return _MINIMAP2_PRESET_ALIASES.get(preset, preset)
+    if args.platform in {"hifi", "pacbio"}:
+        return "map-hifi"
+    if args.platform in {"ont", "nanopore"}:
+        return "map-ont"
+    if args.platform == "clr" or args.long_read:
+        return "map-pb"
+    return "sr"
 
 
 def align_minimap2(args: argparse.Namespace) -> None:
-    verify_dependencies(["minimap2", "samtools"])
-    log_dependency_info(["minimap2", "samtools"])
-    threads, memory = get_resource_defaults(args.threads, args.memory)
+    setup = _prepare_alignment(args, ["minimap2", "samtools"], "Minimap2 alignment")
 
-    if not args.r1:
-        raise WGSExtractError("--r1 is required unless --genome resolves FASTQ inputs.")
-
-    input_path = args.input if args.input else args.r1
-    paths_to_check = {"--r1": args.r1}
-    if args.r2:
-        paths_to_check["--r2"] = args.r2
-    if not verify_paths_exist(paths_to_check):
-        return
-
-    outdir = (
-        args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_path))
-    )
-    logging.debug(f"Input file: {os.path.abspath(input_path)}")
-    logging.debug(f"Output directory: {os.path.abspath(outdir)}")
-
-    md5_sig = calculate_bam_md5(input_path, None) if args.input else None
-    resolved_ref = resolve_reference(args.ref, md5_sig)
-    logging.debug(f"Resolved reference: {resolved_ref}")
-
-    if not resolved_ref or not os.path.isfile(resolved_ref):
-        raise WGSExtractError(
-            LOG_MESSAGES["ref_required_for"].format(task="Minimap2 alignment")
-        )
-
-    base_name = os.path.basename(args.r1).split(".")[0]
     ext = ".cram" if args.format == "CRAM" else ".bam"
-    out_bam = os.path.join(outdir, f"{base_name}_aligned{ext}")
-
-    r2_args = [args.r2] if args.r2 else []
+    out_bam = os.path.join(setup.outdir, f"{setup.stem}_aligned{ext}")
 
     logging.info(
         LOG_MESSAGES["aligning_reads"].format(
             input=args.r1, output=out_bam, tool="Minimap2"
         )
     )
+    preset = _minimap2_preset(args)
+    align_cmd = ["minimap2", "-ax", preset, "-t", setup.threads, setup.ref, args.r1]
     try:
-        # Resolve tools
-        minimap2 = get_tool_path("minimap2")
-        samblaster = get_tool_path("samblaster")
-
-        preset = getattr(args, "preset", None)
-        if not preset:
-            platform = getattr(args, "platform", "illumina")
-            if platform in {"hifi", "pacbio"}:
-                preset = "map-hifi"
-            elif platform in {"ont", "nanopore"}:
-                preset = "map-ont"
-            elif platform == "clr" or getattr(args, "long_read", False):
-                preset = "map-pb"
-            else:
-                preset = "sr"
-
-        # 1. Aligner command
-        align_cmd = [
-            minimap2,
-            "-ax",
-            preset,
-            "-t",
-            threads,
-            resolved_ref,
-            args.r1,
-        ] + r2_args
-
-        platform = getattr(args, "platform", "illumina")
-        use_blaster = (
-            samblaster is not None
-            and not getattr(args, "long_read", False)
-            and platform not in {"pacbio", "hifi", "clr", "ont", "nanopore"}
+        run_streamed_alignment(
+            align_cmd + ([args.r2] if args.r2 else []),
+            out_bam,
+            threads=setup.threads,
+            memory=setup.memory,
+            fmt=args.format,
+            ref=setup.ref,
+            mark_duplicates=preset == "sr" and use_samblaster(paired=bool(args.r2)),
         )
-        samblaster_cmd = samblaster if use_blaster else None
-        sort_cmd = _aligner_stream_sort_cmd(
-            out_bam, threads, memory, args.format, resolved_ref
-        )
-        _run_streamed_alignment(align_cmd, sort_cmd, out_bam, threads, samblaster_cmd)
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.error(f"Minimap2 alignment failed: {e}")
-        raise WGSExtractError("Minimap2 alignment failed.") from e
+        raise WGSExtractError(f"Minimap2 alignment failed: {e}") from e
 
 
 def align_pbmm2(args: argparse.Namespace) -> None:
-    verify_dependencies(["pbmm2", "samtools"])
-    log_dependency_info(["pbmm2", "samtools"])
-    threads, _memory = get_resource_defaults(args.threads, args.memory)
-
-    if not args.r1:
-        raise WGSExtractError("--r1 is required unless --genome resolves PacBio reads.")
     if args.r2:
         raise WGSExtractError(
             "PacBio alignment expects single-end BAM/FASTQ input; do not pass --r2."
@@ -310,86 +298,32 @@ def align_pbmm2(args: argparse.Namespace) -> None:
         raise WGSExtractError(
             "pbmm2 writes sorted BAM. Convert to CRAM with 'bam to-cram' after alignment."
         )
+    setup = _prepare_alignment(args, ["pbmm2", "samtools"], "PacBio alignment")
 
-    input_path = args.input if args.input else args.r1
-    if not verify_paths_exist({"--r1": args.r1}):
-        return
-
-    outdir = (
-        args.outdir if args.outdir else os.path.dirname(os.path.abspath(input_path))
-    )
-    logging.debug(f"Input file: {os.path.abspath(input_path)}")
-    logging.debug(f"Output directory: {os.path.abspath(outdir)}")
-
-    md5_sig = calculate_bam_md5(input_path, None) if args.input else None
-    resolved_ref = resolve_reference(args.ref, md5_sig)
-    logging.debug(f"Resolved reference: {resolved_ref}")
-
-    if not resolved_ref or not os.path.isfile(resolved_ref):
-        raise WGSExtractError(
-            LOG_MESSAGES["ref_required_for"].format(task="PacBio alignment")
-        )
-
-    platform = getattr(args, "platform", "pacbio")
-    preset = getattr(args, "preset", None) or (
-        "subread" if platform == "clr" else "ccs"
-    )
-    preset = preset.upper()
-    if preset == "MAP-PB":
-        preset = "SUBREAD"
-    elif preset == "MAP-HIFI":
-        preset = "CCS"
-    elif preset not in {"CCS", "SUBREAD"}:
+    preset_arg = args.preset or ("subread" if args.platform == "clr" else "ccs")
+    if preset_arg not in _PBMM2_PRESETS:
         raise WGSExtractError(
             "PacBio pbmm2 alignment supports --preset map-hifi, map-pb, ccs, or subread."
         )
+    preset = _PBMM2_PRESETS[preset_arg]
 
-    base_name = Path(args.r1).name
-    for suffix in (
-        ".fastq.gz",
-        ".fq.gz",
-        ".fastq",
-        ".fq",
-        ".subreads.bam",
-        ".ccs.bam",
-        ".bam",
-    ):
-        if base_name.endswith(suffix):
-            base_name = base_name[: -len(suffix)]
-            break
-    out_bam = os.path.join(outdir, f"{base_name}_aligned.bam")
-    sample = getattr(args, "sample", None) or base_name.split(".")[0]
+    out_bam = os.path.join(setup.outdir, f"{setup.stem}_aligned.bam")
+    sample = args.sample or setup.stem.split(".")[0]
 
     logging.info(
         LOG_MESSAGES["aligning_reads"].format(
             input=args.r1, output=out_bam, tool="pbmm2"
         )
     )
+    cmd = ["pbmm2", "align", setup.ref, args.r1, out_bam, "--sort"]
+    cmd += ["--preset", preset, "--sample", sample, "-j", setup.threads]
+    if preset == "SUBREAD":
+        cmd.append("--median-filter")
+    if args.r1.lower().endswith((".fastq", ".fastq.gz", ".fq", ".fq.gz")):
+        cmd.extend(["--rg", f"@RG\\tID:{setup.stem}\\tSM:{sample}"])
     try:
-        pbmm2 = get_tool_path("pbmm2")
-        cmd = [
-            pbmm2,
-            "align",
-            resolved_ref,
-            args.r1,
-            out_bam,
-            "--sort",
-            "--preset",
-            preset,
-            "--sample",
-            sample,
-            "-j",
-            threads,
-        ]
-        if preset == "SUBREAD":
-            cmd.append("--median-filter")
-        if args.r1.lower().endswith((".fastq", ".fastq.gz", ".fq", ".fq.gz")):
-            cmd.extend(["--rg", f"@RG\\tID:{base_name}\\tSM:{sample}"])
         run_command(cmd)
-
         logging.info(LOG_MESSAGES["indexing_output"])
-        index_cmd = get_sam_index_cmd(out_bam, threads=threads)
-        run_command(index_cmd)
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.error(f"pbmm2 alignment failed: {e}")
-        raise WGSExtractError("PacBio alignment failed.") from e
+        run_command(get_sam_index_cmd(out_bam, threads=setup.threads))
+    except (OSError, subprocess.SubprocessError) as e:
+        raise WGSExtractError(f"PacBio alignment failed: {e}") from e

@@ -1,34 +1,37 @@
 import logging
 import os
+import re
 import subprocess
 
 from wgsextract_cli.core.builds import (
     HG37_BUILD_ALIASES,
     HG38_BUILD_ALIASES,
+    build_from_chr1_length,
     build_from_path,
+    canonical_build,
     is_hg37_build,
     is_hg38_build,
 )
 from wgsextract_cli.core.constants import REF_GENOME_FILENAMES
 from wgsextract_cli.core.reference_assets import (
     build_hint,
+    find_fasta_by_signature,
     find_reference_fasta,
     find_reference_target_tab,
     is_fasta_path,
+    read_fai_lengths,
+    reference_dict_path,
     resolve_input_reference_fasta,
     resolve_input_target_tab,
 )
-
-try:
-    import psutil
-except ImportError:
-    psutil = None
-
 
 from .alignment_metadata import (
     get_bam_header,
     get_vcf_build,
 )
+
+_UNKNOWN_SIGNATURE = "0" * 32
+_VCF_CONTIG_RE = re.compile(r"^##contig=<.*?\bID=([^,>]+).*?\blength=(\d+)")
 
 
 class ReferenceLibrary:
@@ -63,7 +66,6 @@ class ReferenceLibrary:
         self.alphamissense_vcf: str | None = None
         self.pharmgkb_vcf: str | None = None
         self.ploidy_file: str | None = None
-        self.mappability_map: str | None = None
         self.vep_cache: str | None = None
         self.build: str | None = None
 
@@ -73,427 +75,290 @@ class ReferenceLibrary:
         if os.path.isfile(self.root) and is_fasta_path(self.root):
             self.fasta = self.root
             self.root = os.path.dirname(self.root)
+            # A FASTA in <library>/genomes/ belongs to that library, whose root
+            # holds the ploidy files, liftover chains and annotation data.
+            if os.path.basename(self.root) == "genomes":
+                self.root = os.path.dirname(self.root)
 
-        d = self.root
-
-        # Look for Fasta
+        signature_match = False
         if not self.fasta:
-            # Check direct directory and 'genomes' subdirectory
-            for search_dir in [d, os.path.join(d, "genomes")]:
-                if not os.path.isdir(search_dir):
-                    continue
-                for f in REF_GENOME_FILENAMES.values():
-                    potential = os.path.join(search_dir, f)
-                    if os.path.exists(potential):
-                        self.fasta = potential
-                        break
-                if self.fasta:
-                    break
+            self.fasta = self._fasta_matching_signature()
+            signature_match = bool(self.fasta)
         if not self.fasta:
-            self.fasta = find_reference_fasta(d, input_path, root_path) or None
-        if not self.fasta:
-            self.fasta = resolve_input_reference_fasta(input_path) or None
+            self.fasta = self._default_fasta(root_path)
 
-        # Resolve associated files
-        self.fai = self.fasta + ".fai" if self.fasta else None
-        if self.fai and not os.path.exists(self.fai):
-            self.fai = None
-
-        # Build identification from MD5 (if provided)
-        if self.md5:
-            from wgsextract_cli.core.constants import REFERENCE_MODELS
-
-            if self.md5 in REFERENCE_MODELS:
-                self.build = REFERENCE_MODELS[self.md5][0]
-                logging.debug(
-                    f"ReferenceLibrary: Identified build as {self.build} from MD5"
-                )
-                # Normalize hs37d5 etc to hg19 for file lookups
-                if self.build == "hs37d5":
-                    self.build = "hg19"
-                # Normalize hs38DH etc to hg38
-                if self.build == "hs38DH":
-                    self.build = "hg38"
-
-        # Build identification from SN count (contig count) as fallback
-        # Use input_path if provided, else root_path if it's a file
-        target_for_header = (
-            input_path
-            if input_path
-            else (root_path if root_path and os.path.isfile(root_path) else None)
+        header_target = input_path or (
+            root_path if root_path and os.path.isfile(root_path) else None
         )
-        if not self.build and target_for_header:
-            if target_for_header.lower().endswith((".vcf", ".vcf.gz", ".bcf")):
-                self.build = get_vcf_build(target_for_header)
-                if self.build:
-                    logging.debug(
-                        f"ReferenceLibrary: Identified build as {self.build} from VCF header"
-                    )
-
-        if not self.build and target_for_header:
-            try:
-                header = get_bam_header(target_for_header)
-                if header:
-                    from wgsextract_cli.core.constants import REFGEN_BY_SNCOUNT
-
-                    sq_lines = [
-                        line for line in header.splitlines() if line.startswith("@SQ")
-                    ]
-                    sn_count = len(sq_lines)
-                    logging.debug(f"ReferenceLibrary: Detected {sn_count} SQ lines")
-                    if not sn_count:
-                        # Try VCF contig count
-                        sn_count = len(
-                            [
-                                line
-                                for line in header.splitlines()
-                                if line.startswith("##contig=")
-                            ]
-                        )
-                        logging.debug(
-                            f"ReferenceLibrary: Detected {sn_count} VCF contigs"
-                        )
-
-                    if sn_count in REFGEN_BY_SNCOUNT:
-                        resolved_file = str(REFGEN_BY_SNCOUNT[sn_count][1]).lower()
-                        if (
-                            "37" in resolved_file
-                            or "hg19" in resolved_file
-                            or "hs37" in resolved_file
-                        ):
-                            self.build = "hg19"
-                        elif (
-                            "38" in resolved_file
-                            or "hg38" in resolved_file
-                            or "hs38" in resolved_file
-                            or "grch38" in resolved_file
-                        ):
-                            self.build = "hg38"
-                        else:
-                            # Fallback to heuristics if filename is ambiguous
-                            if sn_count > 190:
-                                self.build = "hg38"
-                            else:
-                                self.build = "hg19"
-                    elif sn_count > 190:  # Heuristic for hg38
-                        self.build = "hg38"
-                    elif sn_count > 80:  # Heuristic for hg19
-                        self.build = "hg19"
-
-                    logging.debug(
-                        f"ReferenceLibrary: Identified build as {self.build} from SN count {sn_count}"
-                    )
-                else:
-                    logging.debug(
-                        f"ReferenceLibrary: No header retrieved from {target_for_header}"
-                    )
-            except (
-                OSError,
-                subprocess.SubprocessError,
-                RuntimeError,
-                ValueError,
-                TypeError,
-            ) as e:
-                logging.debug(f"ReferenceLibrary: Error reading header: {e}")
-
-        # Build identification from path (fallback)
-        if not self.build and self.fasta:
-            self.build = build_from_path(self.fasta)
-
-        if not self.build:
-            self.build = build_from_path(d)
-
-        if not self.build and self.input_path:
-            self.build = build_from_path(self.input_path)
-        if not self.build:
-            self.build = build_hint(input_path, root_path)
-
-        # Re-resolve FASTA if build was found from MD5/Header but path-based resolution found something else
-        if self.build and self.fasta:
-            f_lower = self.fasta.lower()
-            path_build = build_from_path(f_lower)
-            is_hg38_path = is_hg38_build(path_build) if path_build else False
-            is_hg19_path = is_hg37_build(path_build) if path_build else False
-
-            mismatch = (is_hg38_build(self.build) and is_hg19_path) or (
-                is_hg37_build(self.build) and is_hg38_path
-            )
-
-            if mismatch:
-                logging.debug(
-                    f"Build mismatch detected (Build={self.build}, Path={f_lower}). Re-resolving FASTA..."
-                )
-                original_fasta = self.fasta
-                self.fasta = None
-                # Check direct directory and 'genomes' subdirectory for the CORRECT build
-                for search_dir in [d, os.path.join(d, "genomes")]:
-                    if not os.path.isdir(search_dir):
-                        continue
-                    # Prioritize genomes that match our build
-                    for build_key, f_name in REF_GENOME_FILENAMES.items():
-                        # We only want to match the target build (hg38 or hg19)
-                        match_hg19 = is_hg37_build(self.build) and (
-                            "37" in build_key or "19" in build_key
-                        )
-                        match_hg38 = is_hg38_build(self.build) and (
-                            "38" in build_key or "hs38" in build_key
-                        )
-
-                        if match_hg19 or match_hg38:
-                            potential = os.path.join(search_dir, f_name)
-                            if os.path.exists(potential):
-                                self.fasta = potential
-                                break
-                    if self.fasta:
-                        break
-
-                if not self.fasta:
-                    logging.warning(
-                        f"Could not find {self.build} genome, reverting to {original_fasta}"
-                    )
-                    self.fasta = original_fasta
+        self.build = self._detect_build(header_target, root_path)
+        if not signature_match:
+            self._reresolve_fasta_for_build()
 
         if not self.fasta:
             return
 
-        # Look for .dict
-        self.dict_file = (
-            self.fasta.replace(".fa.gz", ".dict")
-            .replace(".fasta.gz", ".dict")
-            .replace(".fa", ".dict")
-            .replace(".fasta", ".dict")
-        )
-        if not os.path.exists(self.dict_file):
-            self.dict_file = None
+        self.fai = self.fasta + ".fai" if os.path.exists(self.fasta + ".fai") else None
+        dict_file = reference_dict_path(self.fasta)
+        self.dict_file = dict_file if os.path.exists(dict_file) else None
 
-        # Look for ploidy
-        if self.build:
-            self.ploidy_file = self._first_existing_file(
-                [
-                    self.root,
-                    os.path.join(self.root, "ref"),
-                    os.path.join(self.root, "microarray"),
-                ],
-                [f"ploidy_{self.build}.txt", "ploidy.txt"],
-            )
-
-        # Look for Delly CNV mappability map
-        if self.build:
-            map_names = self._mappability_map_names()
-            for search_dir in [
-                self.root,
-                os.path.join(self.root, "maps"),
-                os.path.join(self.root, "ref"),
-                os.path.join(self.root, "microarray"),
-                os.path.join(self.root, self.build),
-                os.path.join(self.root, "maps", self.build),
-                os.path.join(self.root, "ref", self.build),
-            ]:
-                if not os.path.isdir(search_dir):
-                    continue
-                for name in map_names:
-                    potential = os.path.join(search_dir, name)
-                    if os.path.exists(potential):
-                        self.mappability_map = potential
-                        break
-                if self.mappability_map:
-                    break
-
-        # Look for vep cache
-        from wgsextract_cli.core.config import settings
-
-        env_vep_cache = settings.get("vep_cache_directory")
-        if env_vep_cache and os.path.isdir(env_vep_cache):
-            self.vep_cache = env_vep_cache
-        else:
-            for search_dir in [self.root, os.path.join(self.root, "vep")]:
-                if os.path.isdir(search_dir) and any(
-                    f.endswith("_GRCh38") or f.endswith("_GRCh37")
-                    for f in os.listdir(search_dir)
-                ):
-                    self.vep_cache = search_dir
-                    break
-                vep_sub = os.path.join(search_dir, "vep")
-                if os.path.isdir(vep_sub):
-                    self.vep_cache = vep_sub
-                    break
+        self._resolve_build_support_files()
+        self._resolve_vep_cache(settings.get("vep_cache_directory"))
 
         if skip_full_search:
             return
 
-        # Annotation VCFs / Microarray Tab files
-        potential_vcf_names = ["All_SNPs.vcf.gz", "common_all.vcf.gz"]
-        if self.build:
-            # e.g. All_SNPs_hg38_ref.tab.gz
-            build_suffix = self.build.lower()  # hg38 or hg19
-            # GRCh38 mapping
-            alt_build = (
-                "grch38"
-                if build_suffix == "hg38"
-                else "grch37"
-                if build_suffix == "hg19"
-                else None
-            )
+        self._resolve_ref_vcf_tab()
+        self._resolve_annotation_files()
 
-            potential_vcf_names.extend(
-                [
-                    f"snps_{build_suffix}.vcf.gz",
-                    f"All_SNPs_{build_suffix}_ref.tab.gz",
-                    f"All_SNPs_{build_suffix.upper()}_ref.tab.gz",
-                    f"All_SNPs_GRCh{build_suffix[-2:]}_ref.tab.gz",
-                    f"All_SNPs_grch{build_suffix[-2:]}_ref.tab.gz",
-                ]
-            )
-            if alt_build:
-                potential_vcf_names.extend(
-                    [
-                        f"snps_{alt_build.lower()}.vcf.gz",
-                        f"All_SNPs_{alt_build.lower()}_ref.tab.gz",
-                        f"All_SNPs_{alt_build.upper()}_ref.tab.gz",
-                        f"All_SNPs_{alt_build.capitalize()}_ref.tab.gz",
-                    ]
-                )
+    # --- FASTA resolution -------------------------------------------------
 
-        # Check in root, ref/, and microarray/ subdirectories, plus build-specific ones
-        search_dirs = [
-            self.root,
-            os.path.join(self.root, "ref"),
-            os.path.join(self.root, "microarray"),
-        ]
-        if self.build:
-            search_dirs.extend(
-                [
-                    os.path.join(self.root, self.build),
-                    os.path.join(self.root, "ref", self.build),
-                    os.path.join(self.root, "microarray", self.build),
-                ]
-            )
-            # Add alt build too
-            if alt_build:
-                search_dirs.extend(
-                    [
-                        os.path.join(self.root, alt_build),
-                        os.path.join(self.root, "ref", alt_build),
-                    ]
-                )
+    def _genome_dirs(self) -> list[str]:
+        assert self.root is not None
+        return [self.root, os.path.join(self.root, "genomes")]
 
-        for search_dir in search_dirs:
+    def _fasta_matching_signature(self) -> str | None:
+        """Pick the library FASTA whose sequence dictionary matches the input's."""
+        if not self.md5 or self.md5 == _UNKNOWN_SIGNATURE:
+            return None
+        fasta = find_fasta_by_signature(self._genome_dirs(), self.md5)
+        if fasta:
+            logging.debug(f"ReferenceLibrary: {fasta} matches signature {self.md5}")
+        return fasta
+
+    def _default_fasta(self, root_path: str | None) -> str | None:
+        for search_dir in self._genome_dirs():
             if not os.path.isdir(search_dir):
                 continue
-            for v in potential_vcf_names:
-                potential = os.path.join(search_dir, v)
+            for file_name in REF_GENOME_FILENAMES.values():
+                potential = os.path.join(search_dir, file_name)
                 if os.path.exists(potential):
-                    self.ref_vcf_tab = potential
-                    break
-            if self.ref_vcf_tab:
-                break
+                    return potential
+        assert self.root is not None
+        return (
+            find_reference_fasta(self.root, self.input_path, root_path)
+            or resolve_input_reference_fasta(self.input_path)
+            or None
+        )
 
-        if not self.ref_vcf_tab:
-            self.ref_vcf_tab = resolve_input_target_tab(self.input_path)
+    def _reresolve_fasta_for_build(self) -> None:
+        """Swap a path-guessed FASTA for one of the detected build when they disagree."""
+        target = canonical_build(self.build)
+        path_build = build_from_path(self.fasta) if self.fasta else None
+        if not target or not path_build or path_build == target:
+            return
 
-        if not self.ref_vcf_tab:
-            self.ref_vcf_tab = find_reference_target_tab(self.root, self.build or "")
-
-        if not self.ref_vcf_tab:
-            support_search_roots = [
-                os.path.join(self.root, "microarray"),
-                os.path.join(self.root, "ref"),
-                os.path.join(self.root, "genomes", "microarray"),
-            ]
-            for search_root in support_search_roots:
-                if not os.path.isdir(search_root):
+        logging.debug(
+            f"Build mismatch detected (Build={self.build}, Path={self.fasta}). Re-resolving FASTA..."
+        )
+        for search_dir in self._genome_dirs():
+            if not os.path.isdir(search_dir):
+                continue
+            for key, file_name in REF_GENOME_FILENAMES.items():
+                if build_from_path(f"{key} {file_name}") != target:
                     continue
-                for current_dir, _, files in os.walk(search_root):
-                    for v in potential_vcf_names:
-                        if v in files:
-                            self.ref_vcf_tab = os.path.join(current_dir, v)
-                            break
-                    if self.ref_vcf_tab:
-                        break
-                if self.ref_vcf_tab:
-                    break
+                potential = os.path.join(search_dir, file_name)
+                if os.path.exists(potential):
+                    self.fasta = potential
+                    return
+        logging.warning(
+            f"Could not find {self.build} genome, reverting to {self.fasta}"
+        )
 
-        # Look for ClinVar VCF
+    # --- Build detection --------------------------------------------------
+
+    def _detect_build(
+        self, header_target: str | None, root_path: str | None
+    ) -> str | None:
+        build = self._build_from_signature()
+        if not build and header_target:
+            if header_target.lower().endswith((".vcf", ".vcf.gz", ".bcf")):
+                build = get_vcf_build(header_target)
+                if build:
+                    logging.debug(
+                        f"ReferenceLibrary: Identified build as {build} from VCF header"
+                    )
+            if not build:
+                build = self._build_from_header(header_target)
+        if not build and self.fasta:
+            build = build_from_chr1_length(read_fai_lengths(self.fasta))
+            build = build or build_from_path(self.fasta)
+        assert self.root is not None
+        return (
+            build
+            or build_from_path(self.root)
+            or (build_from_path(self.input_path) if self.input_path else None)
+            or build_hint(self.input_path, root_path)
+            or None
+        )
+
+    def _build_from_signature(self) -> str | None:
+        if not self.md5:
+            return None
+        from wgsextract_cli.core.constants import REFERENCE_MODELS
+
+        model = REFERENCE_MODELS.get(self.md5)
+        if not model:
+            return None
+        build = canonical_build(model[0]) or model[0]
+        logging.debug(f"ReferenceLibrary: Identified build as {build} from MD5")
+        return build
+
+    @staticmethod
+    def _build_from_header(header_target: str) -> str | None:
+        try:
+            header = get_bam_header(header_target)
+        except (
+            OSError,
+            subprocess.SubprocessError,
+            RuntimeError,
+            ValueError,
+            TypeError,
+        ) as e:
+            logging.debug(f"ReferenceLibrary: Error reading header: {e}")
+            return None
+        if not header:
+            logging.debug(f"ReferenceLibrary: No header retrieved from {header_target}")
+            return None
+
+        lengths = _header_contig_lengths(header)
+        build = build_from_chr1_length(lengths)
+        if not build:
+            from wgsextract_cli.core.constants import REFGEN_BY_SNCOUNT
+
+            entry = REFGEN_BY_SNCOUNT.get(len(lengths))
+            build = build_from_path(str(entry[1])) if entry else None
+        logging.debug(
+            f"ReferenceLibrary: Identified build as {build} from {len(lengths)} header contigs"
+        )
+        return build
+
+    # --- Companion resources ----------------------------------------------
+
+    def _resolve_build_support_files(self) -> None:
+        if not self.build:
+            return
+        assert self.root is not None
+        root = self.root
+        self.ploidy_file = self._first_existing_file(
+            [root, os.path.join(root, "ref"), os.path.join(root, "microarray")],
+            [f"ploidy_{self.build}.txt", "ploidy.txt"],
+        )
+
+    def _resolve_vep_cache(self, configured_vep_cache: object) -> None:
+        if isinstance(configured_vep_cache, str) and os.path.isdir(
+            configured_vep_cache
+        ):
+            self.vep_cache = configured_vep_cache
+            return
+        assert self.root is not None
+        for search_dir in [self.root, os.path.join(self.root, "vep")]:
+            if os.path.isdir(search_dir) and any(
+                f.endswith(("_GRCh38", "_GRCh37")) for f in os.listdir(search_dir)
+            ):
+                self.vep_cache = search_dir
+                return
+            vep_sub = os.path.join(search_dir, "vep")
+            if os.path.isdir(vep_sub):
+                self.vep_cache = vep_sub
+                return
+
+    def _resolve_ref_vcf_tab(self) -> None:
+        """Microarray target: All_SNPs_<build>_ref.tab.gz wins over generic SNP VCFs.
+
+        snps_<build>.vcf.gz in the bootstrap is a Y-SNP set, so it is only a last
+        resort when no genome-wide target exists.
+        """
+        assert self.root is not None
+        root = self.root
+        search_dirs = [
+            os.path.join(root, "microarray"),
+            root,
+            os.path.join(root, "ref"),
+        ]
+        tab_names: list[str] = []
+        snp_vcf_names: list[str] = []
+        if self.build:
+            build = self.build.lower()
+            alt_build = {"hg38": "grch38", "hg19": "grch37"}.get(build)
+            spellings = [build, build.upper()]
+            if alt_build:
+                spellings += [alt_build, alt_build.upper(), f"GRCh{build[-2:]}"]
+            tab_names = list(
+                dict.fromkeys(f"All_SNPs_{name}_ref.tab.gz" for name in spellings)
+            )
+            snp_vcf_names = [f"snps_{build}.vcf.gz"]
+            if alt_build:
+                snp_vcf_names.append(f"snps_{alt_build}.vcf.gz")
+            search_dirs += [
+                os.path.join(root, "microarray", self.build),
+                os.path.join(root, self.build),
+                os.path.join(root, "ref", self.build),
+            ]
+            if alt_build:
+                search_dirs += [
+                    os.path.join(root, alt_build),
+                    os.path.join(root, "ref", alt_build),
+                ]
+        generic_names = ["All_SNPs.vcf.gz", "common_all.vcf.gz"]
+        walk_roots = [
+            os.path.join(root, "microarray"),
+            os.path.join(root, "ref"),
+            os.path.join(root, "genomes", "microarray"),
+        ]
+
+        self.ref_vcf_tab = (
+            self._first_existing_file(search_dirs, tab_names)
+            or self._walk_for_file(walk_roots, tab_names)
+            or resolve_input_target_tab(self.input_path)
+            or self._first_existing_file(search_dirs, generic_names)
+            or find_reference_target_tab(root, self.build or "")
+            or self._first_existing_file(search_dirs, snp_vcf_names)
+            or self._walk_for_file(walk_roots, generic_names + snp_vcf_names)
+        )
+
+    def _resolve_annotation_files(self) -> None:
+        from wgsextract_cli.core.config import settings
+
+        assert self.root is not None
+        dirs = [self.root, os.path.join(self.root, "ref")]
+        vcf_exts = [".vcf.gz", ".vcf.bgz"]
+        tsv_exts = [".tsv.gz", ".vcf.gz"]
         self.clinvar_vcf = self._resolve_annotation_file(
-            settings.get("clinvar_vcf_path"),
-            "clinvar",
-            [".vcf.gz"],
-            [self.root, os.path.join(self.root, "ref")],
+            settings.get("clinvar_vcf_path"), "clinvar", [".vcf.gz"], dirs
         )
-
-        # Look for REVEL data
         self.revel_file = self._resolve_annotation_file(
-            settings.get("revel_tsv_path"),
-            "revel",
-            [".tsv.gz", ".vcf.gz"],
-            [self.root, os.path.join(self.root, "ref")],
+            settings.get("revel_tsv_path"), "revel", tsv_exts, dirs
         )
-
-        # Look for PhyloP data
         self.phylop_file = self._resolve_annotation_file(
-            settings.get("phylop_tsv_path"),
-            "phylop",
-            [".tsv.gz", ".vcf.gz"],
-            [self.root, os.path.join(self.root, "ref")],
+            settings.get("phylop_tsv_path"), "phylop", tsv_exts, dirs
         )
-
-        # Look for gnomAD VCF
         self.gnomad_vcf = self._resolve_annotation_file(
-            settings.get("gnomad_vcf_path"),
-            "gnomad",
-            [".vcf.bgz", ".vcf.gz"],
-            [self.root, os.path.join(self.root, "ref")],
+            settings.get("gnomad_vcf_path"), "gnomad", [".vcf.bgz", ".vcf.gz"], dirs
         )
-
-        # Look for SpliceAI VCF
         self.spliceai_vcf = self._resolve_annotation_file(
-            settings.get("spliceai_vcf_path"),
-            "spliceai",
-            [".vcf.gz", ".vcf.bgz"],
-            [self.root, os.path.join(self.root, "ref")],
+            settings.get("spliceai_vcf_path"), "spliceai", vcf_exts, dirs
         )
-
-        # Look for AlphaMissense VCF
         self.alphamissense_vcf = self._resolve_annotation_file(
             settings.get("alphamissense_vcf_path"),
             "alphamissense",
-            [".vcf.gz", ".vcf.bgz"],
-            [self.root, os.path.join(self.root, "ref")],
+            [".tsv.gz", *vcf_exts],
+            dirs,
         )
 
-        # Look for PharmGKB VCF
-        env_pharmgkb = settings.get("pharmgkb_vcf_path")
-        if env_pharmgkb and os.path.exists(env_pharmgkb):
-            self.pharmgkb_vcf = env_pharmgkb
+        configured_pharmgkb = settings.get("pharmgkb_vcf_path")
+        if isinstance(configured_pharmgkb, str) and os.path.exists(configured_pharmgkb):
+            self.pharmgkb_vcf = configured_pharmgkb
         elif self.build:
-            # PharmGKB has slightly different naming (can be prefix only)
+            pharmgkb_exts = [".vcf.gz", ".vcf.bgz", ".tsv.gz"]
             self.pharmgkb_vcf = self._resolve_annotation_file(
-                None,
-                "pharmgkb",
-                [".vcf.gz", ".vcf.bgz", ".tsv.gz"],
-                [self.root, os.path.join(self.root, "ref")],
+                None, "pharmgkb", pharmgkb_exts, dirs
+            ) or self._first_existing_file(
+                dirs, [f"pharmgkb{ext}" for ext in pharmgkb_exts]
             )
-            if not self.pharmgkb_vcf:
-                # Try prefix only
-                for search_dir in [self.root, os.path.join(self.root, "ref")]:
-                    if not os.path.isdir(search_dir):
-                        continue
-                    for ext in [".vcf.gz", ".vcf.bgz", ".tsv.gz"]:
-                        potential = os.path.join(search_dir, f"pharmgkb{ext}")
-                        if os.path.exists(potential):
-                            self.pharmgkb_vcf = potential
-                            break
-                    if self.pharmgkb_vcf:
-                        break
 
-        # Look for Liftover Chain (hg38 -> hg19)
         if self.build and is_hg38_build(self.build):
             self.liftover_chain = self._first_existing_file(
-                [
-                    self.root,
-                    os.path.join(self.root, "ref"),
-                    os.path.join(self.root, "microarray"),
-                ],
+                [*dirs, os.path.join(self.root, "microarray")],
                 ["hg38ToHg19.over.chain.gz"],
             )
 
@@ -508,68 +373,61 @@ class ReferenceLibrary:
                     return potential
         return None
 
-    def _mappability_map_names(self) -> list[str]:
-        """Return build-compatible Delly map filenames in preference order."""
-        if self.build and is_hg38_build(self.build):
-            return [
-                "hg38.map.gz",
-                "grch38.map.gz",
-                "GRCh38.map.gz",
-                "Homo_sapiens.GRCh38.dna.primary_assembly.fa.r101.s501.blacklist.gz",
-            ]
-        if self.build and is_hg37_build(self.build):
-            return [
-                "hg19.map.gz",
-                "grch37.map.gz",
-                "GRCh37.map.gz",
-                "Homo_sapiens.GRCh37.dna.primary_assembly.fa.r101.s501.blacklist.gz",
-            ]
-        return []
+    @staticmethod
+    def _walk_for_file(search_roots: list[str], names: list[str]) -> str | None:
+        for search_root in search_roots:
+            if not os.path.isdir(search_root):
+                continue
+            for current_dir, _, files in os.walk(search_root):
+                for name in names:
+                    if name in files:
+                        return os.path.join(current_dir, name)
+        return None
 
     def _resolve_annotation_file(
         self,
-        env_path: str | None,
+        configured_path: object,
         prefix: str,
         extensions: list[str],
         search_dirs: list[str],
     ) -> str | None:
-        """Helper to resolve a specific annotation file across multiple directories and build aliases."""
-        if env_path and os.path.exists(env_path):
-            return env_path
+        """Resolve an annotation file across directories and build aliases."""
+        if isinstance(configured_path, str) and os.path.exists(configured_path):
+            return configured_path
 
         if not self.build:
             return None
 
+        aliases = [self.build]
+        if is_hg38_build(self.build):
+            aliases.extend([*sorted(HG38_BUILD_ALIASES), "GRCh38"])
+        elif is_hg37_build(self.build):
+            aliases.extend([*sorted(HG37_BUILD_ALIASES), "GRCh37"])
+        names = [f"{prefix}_{alias}{ext}" for alias in aliases for ext in extensions]
+        names.extend(f"{prefix}{ext}" for ext in extensions)
+
         for search_dir in search_dirs:
-            if not os.path.isdir(search_dir):
-                continue
-
-            aliases = [self.build, ""]
-            if is_hg38_build(self.build):
-                aliases.extend(sorted(HG38_BUILD_ALIASES))
-                aliases.append("GRCh38")
-            elif is_hg37_build(self.build):
-                aliases.extend(sorted(HG37_BUILD_ALIASES))
-                aliases.append("GRCh37")
-            for alt in aliases:
-                alt_key = alt.lower()
-                # Only check if it's potentially compatible with current build
-                is_hg38_compatible = is_hg38_build(self.build) and is_hg38_build(
-                    alt_key
-                )
-                is_hg19_compatible = is_hg37_build(self.build) and is_hg37_build(
-                    alt_key
-                )
-
-                if is_hg38_compatible or is_hg19_compatible:
-                    for ext in extensions:
-                        potential = os.path.join(search_dir, f"{prefix}_{alt}{ext}")
-                        if os.path.exists(potential):
-                            return potential
-                if alt == "":
-                    for ext in extensions:
-                        potential = os.path.join(search_dir, f"{prefix}{ext}")
-                        if os.path.exists(potential):
-                            return potential
-
+            found = self._first_existing_file([search_dir], names)
+            if found:
+                return found
         return None
+
+
+def _header_contig_lengths(header: str) -> dict[str, int]:
+    """Contig lengths from BAM @SQ lines, else from VCF ##contig lines."""
+    lengths: dict[str, int] = {}
+    for line in header.splitlines():
+        if not line.startswith("@SQ"):
+            continue
+        fields = dict(
+            part.split(":", 1) for part in line.split("\t")[1:] if ":" in part
+        )
+        if "SN" in fields and fields.get("LN", "").isdigit():
+            lengths[fields["SN"]] = int(fields["LN"])
+    if lengths:
+        return lengths
+    for line in header.splitlines():
+        match = _VCF_CONTIG_RE.match(line)
+        if match:
+            lengths[match.group(1)] = int(match.group(2))
+    return lengths

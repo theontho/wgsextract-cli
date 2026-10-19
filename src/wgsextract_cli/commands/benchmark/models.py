@@ -16,7 +16,7 @@ PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
         "target_count": 10_000,
     },
     "200mb": {
-        # The scaled reference produces ~104 MiB at 37x on current fake data.
+        # Sized so the scaled fake reference yields a ~200 MiB BAM.
         "coverage": 71.0,
         "full_size": False,
         "region": None,
@@ -106,7 +106,6 @@ class BenchmarkResult:
 class BenchmarkThreadPlan:
     label: str
     default_threads: int | None
-    per_step_threads: dict[str, int]
     reason: str
 
 

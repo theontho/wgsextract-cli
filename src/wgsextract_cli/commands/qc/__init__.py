@@ -53,8 +53,6 @@ def cmd_fake_data(args: argparse.Namespace) -> None:
             if target_md5:
                 logging.debug(f"Found target MD5 for {args.build}: {target_md5}")
             # See if it's installed
-            from wgsextract_cli.core.config import settings
-
             reflib_dir = settings.get("reference_library")
             if reflib_dir:
                 candidate = os.path.join(reflib_dir, "genomes", genome_info["final"])
@@ -88,9 +86,7 @@ def cmd_fake_data(args: argparse.Namespace) -> None:
 def register(
     subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
 ) -> None:
-    parser = subparsers.add_parser(
-        "qc", help="Runs quality control or calculates coverage."
-    )
+    parser = subparsers.add_parser("qc", help=CLI_HELP["cmd_qc"])
     qc_subs = parser.add_subparsers(dest="qc_cmd", required=True)
 
     fastp_parser = qc_subs.add_parser(

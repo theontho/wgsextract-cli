@@ -27,8 +27,13 @@ class TestWSLRuntime(unittest.TestCase):
         runtime_paths.detect_bundled_runtime_available.cache_clear()
         runtime_paths.bundled_command_available.cache_clear()
         runtime_paths.pacman_tool_path.cache_clear()
-        runtime_paths.pacman_tool_available.cache_clear()
         runtime_paths.windows_to_wsl_path.cache_clear()
+        # These tests compare runtime selection; the manifest path is incidental.
+        manifest_patch = patch(
+            "wgsextract_cli.core.dependencies._pixi_manifest_args", return_value=[]
+        )
+        manifest_patch.start()
+        self.addCleanup(manifest_patch.stop)
 
     def tearDown(self):
         runtime.detect_wsl_available.cache_clear()
@@ -37,7 +42,6 @@ class TestWSLRuntime(unittest.TestCase):
         runtime_paths.detect_bundled_runtime_available.cache_clear()
         runtime_paths.bundled_command_available.cache_clear()
         runtime_paths.pacman_tool_path.cache_clear()
-        runtime_paths.pacman_tool_available.cache_clear()
         runtime_paths.windows_to_wsl_path.cache_clear()
 
     def test_get_tool_path_prefers_native_tool(self):
@@ -433,19 +437,45 @@ class TestWSLRuntime(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
             (root / ".git").mkdir()
-            with patch("wgsextract_cli.core.runtime.repo_root", return_value=root):
+            with patch.object(runtime, "source_checkout_root", return_value=root):
                 self.assertEqual(runtime.default_runtime_root(), root / "runtime")
 
     def test_default_runtime_root_uses_user_data_dir_for_installed_context(self):
         with tempfile.TemporaryDirectory() as tempdir:
-            root = Path(tempdir) / "site-packages"
             data_dir = Path(tempdir) / "data"
-            root.mkdir()
             with (
-                patch("wgsextract_cli.core.runtime.repo_root", return_value=root),
-                patch("platformdirs.user_data_path", return_value=data_dir),
+                patch.object(runtime, "source_checkout_root", return_value=None),
+                patch.object(runtime, "user_data_path", return_value=data_dir),
             ):
                 self.assertEqual(runtime.default_runtime_root(), data_dir / "runtime")
+
+    def _checkout_root_for(self, module_file: Path) -> Path | None:
+        runtime.source_checkout_root.cache_clear()
+        try:
+            with patch.object(runtime, "__file__", str(module_file)):
+                return runtime.source_checkout_root()
+        finally:
+            runtime.source_checkout_root.cache_clear()
+
+    def test_source_checkout_root_finds_this_project(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir).resolve()
+            module = root / "src" / "wgsextract_cli" / "core" / "runtime.py"
+            module.parent.mkdir(parents=True)
+            (root / "pyproject.toml").write_text('[project]\nname = "wgsextract-cli"\n')
+            self.assertEqual(self._checkout_root_for(module), root)
+
+    def test_source_checkout_root_ignores_enclosing_foreign_project(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            other_repo = Path(tempdir).resolve()
+            (other_repo / ".git").mkdir()
+            (other_repo / "pyproject.toml").write_text('[project]\nname = "other"\n')
+            module = (
+                other_repo
+                / ".venv/lib/python3.12/site-packages/wgsextract_cli/core/runtime.py"
+            )
+            module.parent.mkdir(parents=True)
+            self.assertIsNone(self._checkout_root_for(module))
 
     def test_translate_windows_paths_without_touching_regions_flags_or_urls(self):
         with patch(

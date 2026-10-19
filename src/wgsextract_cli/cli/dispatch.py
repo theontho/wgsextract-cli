@@ -19,9 +19,6 @@ def dispatch_command(args: argparse.Namespace, explicit_dests: set[str]) -> None
     except WGSExtractError as e:
         logging.error(str(e))
         sys.exit(1)
-    except KeyboardInterrupt:
-        logging.info("Interrupted by user.")
-        sys.exit(130)
     except Exception as e:
         if args.debug:
             logging.exception("An unexpected error occurred:")

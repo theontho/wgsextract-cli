@@ -1,9 +1,11 @@
 import argparse
+import contextlib
 import logging
 import os
 import subprocess
 
 from wgsextract_cli.core.dependency_checks import (
+    log_dependency_info,
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
@@ -11,15 +13,24 @@ from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_sam_index_cmd,
     run_command,
+    run_pipeline,
 )
 from wgsextract_cli.core.variant_files import (
     ensure_vcf_indexed,
     get_chr_name,
-    popen,
 )
 from wgsextract_cli.core.warnings import print_warning
 
-from ._extract_helpers import get_base_args, resolve_region_or_gene
+from ._extract_helpers import (
+    BaseArgs,
+    cleanup_files,
+    derive_output_path,
+    get_base_args,
+    resolve_region_or_gene,
+)
+
+_SAMTOOLS = ["samtools"]
+_CALLING_TOOLS = ["samtools", "bcftools", "tabix"]
 
 
 def register(
@@ -91,340 +102,227 @@ def register(
     custom_parser.set_defaults(func=cmd_custom)
 
 
-def require_reference(resolved_ref: str | None, task: str) -> None:
-    if resolved_ref:
-        return
-    message = LOG_MESSAGES["ref_required_for"].format(task=task)
-    raise WGSExtractError(message)
+def _setup(args: argparse.Namespace, tools: list[str]) -> BaseArgs:
+    verify_dependencies(tools)
+    log_dependency_info(tools)
+    return get_base_args(args)
+
+
+def require_reference(resolved_ref: str | None, task: str) -> str:
+    if not resolved_ref:
+        raise WGSExtractError(LOG_MESSAGES["ref_required_for"].format(task=task))
+    return resolved_ref
+
+
+def _extract_regions(
+    base: BaseArgs,
+    input_path: str,
+    out_bam: str,
+    regions: list[str],
+    bed: str | None = None,
+) -> None:
+    with cleanup_files(on_failure=[out_bam, out_bam + ".bai"]):
+        run_command(
+            ["samtools", "view", "-bh", *base.cram_opt, "-@", base.threads]
+            + (["-L", bed] if bed else [])
+            + ["-o", out_bam, input_path, *regions]
+        )
+        run_command(get_sam_index_cmd(out_bam, threads=base.threads))
+
+
+def _call_haploid_variants(bam: str, ref: str, out_vcf: str) -> None:
+    """Call variants on a haploid contig (chrM / chrY) into an indexed VCF."""
+    for stale_index in (out_vcf + ".tbi", out_vcf + ".csi"):
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(stale_index)
+    run_pipeline(
+        [
+            ["bcftools", "mpileup", "-Ou", "-f", ref, bam],
+            ["bcftools", "call", "--ploidy", "1", "-mv", "-Oz", "-o", out_vcf],
+        ],
+        description="Variant calling",
+    )
+    ensure_vcf_indexed(out_vcf)
 
 
 def cmd_mito_fasta(args: argparse.Namespace) -> None:
-    verify_dependencies(["samtools", "bcftools", "tabix"])
-    base = get_base_args(args)
-    if not base:
-        return
-    threads, outdir, cram_opt, resolved_ref = base
+    base = _setup(args, _CALLING_TOOLS)
+    ref = require_reference(base.ref, "mitochondrial extraction")
 
-    require_reference(resolved_ref, "mitochondrial extraction")
-    assert resolved_ref is not None
+    print_warning("ButtonMitoFASTA", threads=base.threads)
 
-    print_warning("ButtonMitoFASTA", threads=threads)
+    chr_m = get_chr_name(args.input, "MT", base.cram_opt)
+    out_bam = derive_output_path(args.input, base.outdir, "_MT_temp.bam")
+    out_vcf = derive_output_path(args.input, base.outdir, "_MT_temp.vcf.gz")
+    out_fasta = derive_output_path(args.input, base.outdir, "_MT.fasta")
 
-    chr_m = get_chr_name(args.input, "MT", cram_opt)
-    base_name = os.path.basename(args.input).split(".")[0]
-    out_bam = os.path.join(outdir, f"{base_name}_MT_temp.bam")
-    out_vcf = os.path.join(outdir, f"{base_name}_MT_temp.vcf.gz")
-    out_fasta = os.path.join(outdir, f"{base_name}_MT.fasta")
-
+    temp = [out_bam, out_bam + ".bai", out_vcf, out_vcf + ".tbi"]
     try:
-        # 1. Extract temp BAM
-        run_command(
-            ["samtools", "view", "-bh"]
-            + cram_opt
-            + ["-@", threads, "-o", out_bam, args.input, chr_m]
-        )
-        run_command(get_sam_index_cmd(out_bam, threads=threads))
+        with cleanup_files(temp=temp, on_failure=[out_fasta]):
+            _extract_regions(base, args.input, out_bam, [chr_m])
+            _call_haploid_variants(out_bam, ref, out_vcf)
 
-        # 2. Call variants
-        p1 = popen(
-            ["bcftools", "mpileup", "-Ou", "-f", resolved_ref, out_bam],
-            stdout=subprocess.PIPE,
-        )
-        p2 = popen(["bcftools", "call", "-mv", "-Oz", "-o", out_vcf], stdin=p1.stdout)
-        if p1.stdout:
-            p1.stdout.close()
-        p2.communicate()
-        ensure_vcf_indexed(out_vcf)
-
-        # 3. Generate Consensus
-        logging.info(LOG_MESSAGES["generating_consensus"].format(output=out_fasta))
-        with open(out_fasta, "w") as f:
-            p_faidx = popen(
-                ["samtools", "faidx", resolved_ref, chr_m], stdout=subprocess.PIPE
-            )
-            run_command(
-                ["bcftools", "consensus", "-f", "-", "-H", "1", out_vcf],
-                stdin=p_faidx.stdout,
-                stdout=f,
-            )
-            if p_faidx.stdout:
-                p_faidx.stdout.close()
-            p_faidx.wait()
-
-        # Cleanup
-        os.remove(out_bam)
-        os.remove(out_bam + ".bai")
-        os.remove(out_vcf)
-        os.remove(out_vcf + ".tbi")
-
+            logging.info(LOG_MESSAGES["generating_consensus"].format(output=out_fasta))
+            with open(out_fasta, "wb") as f:
+                run_pipeline(
+                    [
+                        ["samtools", "faidx", ref, chr_m],
+                        ["bcftools", "consensus", "-f", "-", "-H", "1", out_vcf],
+                    ],
+                    stdout=f,
+                    description="Consensus generation",
+                )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.error(f"Mito FASTA extraction failed: {e}")
-        raise WGSExtractError("Mito FASTA extraction failed.") from e
+        raise WGSExtractError(f"Mito FASTA extraction failed: {e}") from e
 
 
 def cmd_mito_vcf(args: argparse.Namespace) -> None:
-    verify_dependencies(["samtools", "bcftools", "tabix"])
-    base = get_base_args(args)
-    if not base:
-        return
-    threads, outdir, cram_opt, resolved_ref = base
+    base = _setup(args, _CALLING_TOOLS)
+    ref = require_reference(base.ref, "mitochondrial extraction")
 
-    require_reference(resolved_ref, "mitochondrial extraction")
-    assert resolved_ref is not None
+    print_warning("ButtonMitoVCF", threads=base.threads)
 
-    print_warning("ButtonMitoVCF", threads=threads)
-
-    chr_m = get_chr_name(args.input, "MT", cram_opt)
-    base_name = os.path.basename(args.input).split(".")[0]
-    out_bam = os.path.join(outdir, f"{base_name}_MT_temp.bam")
-    out_vcf = os.path.join(outdir, f"{base_name}_MT.vcf.gz")
+    chr_m = get_chr_name(args.input, "MT", base.cram_opt)
+    out_bam = derive_output_path(args.input, base.outdir, "_MT_temp.bam")
+    out_vcf = derive_output_path(args.input, base.outdir, "_MT.vcf.gz")
 
     try:
-        run_command(
-            ["samtools", "view", "-bh"]
-            + cram_opt
-            + ["-@", threads, "-o", out_bam, args.input, chr_m]
-        )
-        run_command(get_sam_index_cmd(out_bam, threads=threads))
-
-        logging.info(LOG_MESSAGES["calling_mito_variants"].format(output=out_vcf))
-        p1 = popen(
-            ["bcftools", "mpileup", "-Ou", "-f", resolved_ref, out_bam],
-            stdout=subprocess.PIPE,
-        )
-        p2 = popen(["bcftools", "call", "-mv", "-Oz", "-o", out_vcf], stdin=p1.stdout)
-        if p1.stdout:
-            p1.stdout.close()
-        p2.communicate()
-        ensure_vcf_indexed(out_vcf)
-
-        os.remove(out_bam)
-        os.remove(out_bam + ".bai")
-
+        with cleanup_files(temp=[out_bam, out_bam + ".bai"], on_failure=[out_vcf]):
+            _extract_regions(base, args.input, out_bam, [chr_m])
+            logging.info(LOG_MESSAGES["calling_mito_variants"].format(output=out_vcf))
+            _call_haploid_variants(out_bam, ref, out_vcf)
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.error(f"Mito VCF extraction failed: {e}")
-        raise WGSExtractError("Mito VCF extraction failed.") from e
+        raise WGSExtractError(f"Mito VCF extraction failed: {e}") from e
 
 
 def cmd_mt_bam(args: argparse.Namespace) -> None:
-    verify_dependencies(["samtools"])
-    base = get_base_args(args)
-    if not base:
-        return
-    threads, outdir, cram_opt, resolved_ref = base
+    base = _setup(args, _SAMTOOLS)
 
-    mt_chr = get_chr_name(args.input, "MT", cram_opt)
-
-    out_file = os.path.join(
-        outdir,
-        os.path.basename(args.input).replace(".bam", "").replace(".cram", "")
-        + "_mtDNA.bam",
-    )
+    mt_chr = get_chr_name(args.input, "MT", base.cram_opt)
+    out_file = derive_output_path(args.input, base.outdir, "_mtDNA.bam")
 
     logging.info(LOG_MESSAGES["extracting_mt"].format(mt_chr=mt_chr, output=out_file))
     try:
-        run_command(
-            ["samtools", "view", "-bh"]
-            + cram_opt
-            + ["-@", threads, "-o", out_file, args.input, mt_chr]
-        )
-        run_command(get_sam_index_cmd(out_file, threads=threads))
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.error(f"mtDNA extraction failed: {e}")
-        raise WGSExtractError("mtDNA extraction failed.") from e
+        _extract_regions(base, args.input, out_file, [mt_chr])
+    except (OSError, subprocess.SubprocessError) as e:
+        raise WGSExtractError(f"mtDNA extraction failed: {e}") from e
 
 
 def cmd_bam_subset(args: argparse.Namespace) -> None:
-    verify_dependencies(["samtools"])
-    base = get_base_args(args)
-    if not base:
-        return
-    threads, outdir, cram_opt, resolved_ref = base
+    base = _setup(args, _SAMTOOLS)
+    region = resolve_region_or_gene(args, base.ref)
 
-    region = resolve_region_or_gene(args, resolved_ref)
-    if (args.region or (hasattr(args, "gene") and args.gene)) and not region:
-        return
-
-    out_file = os.path.join(
-        outdir,
-        os.path.basename(args.input).replace(".bam", "").replace(".cram", "")
-        + "_subset.bam",
-    )
+    out_file = derive_output_path(args.input, base.outdir, "_subset.bam")
     logging.info(
         LOG_MESSAGES["subsetting_file"].format(fraction=args.fraction, output=out_file)
     )
     try:
-        region_args = [region] if region else []
-        run_command(
-            ["samtools", "view", "-bh", "-s", str(args.fraction)]
-            + cram_opt
-            + ["-o", out_file, args.input]
-            + region_args
-        )
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.error(f"Subsetting failed: {e}")
-        raise WGSExtractError("BAM subsetting failed.") from e
+        with cleanup_files(on_failure=[out_file]):
+            run_command(
+                ["samtools", "view", "-bh", "-s", str(args.fraction), *base.cram_opt]
+                + ["-o", out_file, args.input, *([region] if region else [])]
+            )
+    except (OSError, subprocess.SubprocessError) as e:
+        raise WGSExtractError(f"BAM subsetting failed: {e}") from e
 
 
 def cmd_ydna_bam(args: argparse.Namespace) -> None:
-    verify_dependencies(["samtools"])
-    base = get_base_args(args)
-    if not base:
-        return
-    threads, outdir, cram_opt, resolved_ref = base
+    base = _setup(args, _SAMTOOLS)
 
-    print_warning("ButtonYOnlyBAM", threads=threads)
+    print_warning("ButtonYOnlyBAM", threads=base.threads)
 
-    chr_y = get_chr_name(args.input, "Y", cram_opt)
-    base_name = os.path.basename(args.input).split(".")[0]
-    out_bam = os.path.join(outdir, f"{base_name}_Y.bam")
+    chr_y = get_chr_name(args.input, "Y", base.cram_opt)
+    out_bam = derive_output_path(args.input, base.outdir, "_Y.bam")
 
     logging.info(LOG_MESSAGES["extracting_y"].format(chr_y=chr_y, output=out_bam))
     try:
-        run_command(
-            ["samtools", "view", "-bh"]
-            + cram_opt
-            + ["-@", threads, "-o", out_bam, args.input, chr_y]
-        )
-        run_command(get_sam_index_cmd(out_bam, threads=threads))
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.error(f"Y BAM extraction failed: {e}")
-        raise WGSExtractError("Y BAM extraction failed.") from e
+        _extract_regions(base, args.input, out_bam, [chr_y])
+    except (OSError, subprocess.SubprocessError) as e:
+        raise WGSExtractError(f"Y BAM extraction failed: {e}") from e
 
 
 def cmd_ydna_vcf(args: argparse.Namespace) -> None:
-    verify_dependencies(["samtools", "bcftools", "tabix"])
-    base = get_base_args(args)
-    if not base:
-        return
-    threads, outdir, cram_opt, resolved_ref = base
+    base = _setup(args, _CALLING_TOOLS)
+    ref = require_reference(base.ref, "Y extraction")
 
-    require_reference(resolved_ref, "Y extraction")
-    assert resolved_ref is not None
+    print_warning("ButtonYOnlyVCF", threads=base.threads)
 
-    print_warning("ButtonYOnlyVCF", threads=threads)
-
-    chr_y = get_chr_name(args.input, "Y", cram_opt)
-    base_name = os.path.basename(args.input).split(".")[0]
-    out_bam = os.path.join(outdir, f"{base_name}_Y_temp.bam")
-    out_vcf = os.path.join(outdir, f"{base_name}_Y.vcf.gz")
+    chr_y = get_chr_name(args.input, "Y", base.cram_opt)
+    out_bam = derive_output_path(args.input, base.outdir, "_Y_temp.bam")
+    out_vcf = derive_output_path(args.input, base.outdir, "_Y.vcf.gz")
 
     try:
-        run_command(
-            ["samtools", "view", "-bh"]
-            + cram_opt
-            + ["-@", threads, "-o", out_bam, args.input, chr_y]
-        )
-        run_command(get_sam_index_cmd(out_bam, threads=threads))
-
-        logging.info(LOG_MESSAGES["calling_y_variants"].format(output=out_vcf))
-        p1 = popen(
-            ["bcftools", "mpileup", "-Ou", "-f", resolved_ref, out_bam],
-            stdout=subprocess.PIPE,
-        )
-        p2 = popen(["bcftools", "call", "-mv", "-Oz", "-o", out_vcf], stdin=p1.stdout)
-        if p1.stdout:
-            p1.stdout.close()
-        p2.communicate()
-        ensure_vcf_indexed(out_vcf)
-
-        os.remove(out_bam)
-        os.remove(out_bam + ".bai")
-
+        with cleanup_files(temp=[out_bam, out_bam + ".bai"], on_failure=[out_vcf]):
+            _extract_regions(base, args.input, out_bam, [chr_y])
+            logging.info(LOG_MESSAGES["calling_y_variants"].format(output=out_vcf))
+            _call_haploid_variants(out_bam, ref, out_vcf)
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.error(f"Y VCF extraction failed: {e}")
-        raise WGSExtractError("Y VCF extraction failed.") from e
+        raise WGSExtractError(f"Y VCF extraction failed: {e}") from e
 
 
 def cmd_y_mt_extract(args: argparse.Namespace) -> None:
-    verify_dependencies(["samtools"])
-    base = get_base_args(args)
-    if not base:
-        return
-    threads, outdir, cram_opt, resolved_ref = base
+    base = _setup(args, _SAMTOOLS)
 
-    print_warning("ButtonYMTBAM", threads=threads)
+    print_warning("ButtonYMTBAM", threads=base.threads)
 
-    chr_y = get_chr_name(args.input, "Y", cram_opt)
-    chr_m = get_chr_name(args.input, "MT", cram_opt)
-    base_name = os.path.basename(args.input).split(".")[0]
-    out_bam = os.path.join(outdir, f"{base_name}_Y_MT.bam")
+    chr_y = get_chr_name(args.input, "Y", base.cram_opt)
+    chr_m = get_chr_name(args.input, "MT", base.cram_opt)
+    out_bam = derive_output_path(args.input, base.outdir, "_Y_MT.bam")
 
     logging.info(LOG_MESSAGES["extracting_y_mt"].format(output=out_bam))
     try:
-        run_command(
-            ["samtools", "view", "-bh"]
-            + cram_opt
-            + ["-@", threads, "-o", out_bam, args.input, chr_y, chr_m]
-        )
-        run_command(get_sam_index_cmd(out_bam, threads=threads))
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.error(f"Y+MT extraction failed: {e}")
-        raise WGSExtractError("Y+MT extraction failed.") from e
+        _extract_regions(base, args.input, out_bam, [chr_y, chr_m])
+    except (OSError, subprocess.SubprocessError) as e:
+        raise WGSExtractError(f"Y+MT extraction failed: {e}") from e
 
 
 def cmd_unmapped(args: argparse.Namespace) -> None:
-    verify_dependencies(["samtools"])
-    base = get_base_args(args)
-    if not base:
-        return
-    threads, outdir, cram_opt, resolved_ref = base
+    base = _setup(args, _SAMTOOLS)
 
-    print_warning("ButtonUnmappedBAM", threads=threads)
+    print_warning("ButtonUnmappedBAM", threads=base.threads)
 
-    base_name = os.path.basename(args.input).split(".")[0]
-    out_bam = os.path.join(outdir, f"{base_name}_unmapped.bam")
+    out_bam = derive_output_path(args.input, base.outdir, "_unmapped.bam")
 
     logging.info(LOG_MESSAGES["extracting_unmapped"].format(output=out_bam))
     try:
-        # -f 4 gets unmapped reads
-        run_command(
-            ["samtools", "view", "-bh", "-f", "4"]
-            + cram_opt
-            + ["-@", threads, "-o", out_bam, args.input]
-        )
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.error(f"Unmapped extraction failed: {e}")
-        raise WGSExtractError("Unmapped extraction failed.") from e
+        with cleanup_files(on_failure=[out_bam]):
+            # -f 4 gets unmapped reads
+            run_command(
+                [
+                    "samtools",
+                    "view",
+                    "-bh",
+                    "-f",
+                    "4",
+                    *base.cram_opt,
+                    "-@",
+                    base.threads,
+                ]
+                + ["-o", out_bam, args.input]
+            )
+    except (OSError, subprocess.SubprocessError) as e:
+        raise WGSExtractError(f"Unmapped extraction failed: {e}") from e
 
 
 def cmd_custom(args: argparse.Namespace) -> None:
-    verify_dependencies(["samtools"])
-    base = get_base_args(args)
-    if not base:
-        return
-    threads, outdir, cram_opt, resolved_ref = base
-
-    region = resolve_region_or_gene(args, resolved_ref)
+    base = _setup(args, _SAMTOOLS)
+    region = resolve_region_or_gene(args, base.ref)
     if not region:
-        logging.error("Region or Gene is required for custom extraction.")
-        return
+        raise WGSExtractError("--region or --gene is required for custom extraction.")
 
-    base_name = os.path.basename(args.input).split(".")[0]
-    region_suffix = (
-        os.path.basename(region).replace(":", "_").replace(",", "_")
-        if os.path.isfile(region)
-        else region.replace(":", "_").replace(",", "_")
-    )
-    out_bam = os.path.join(outdir, f"{base_name}_{region_suffix}.bam")
+    is_bed = os.path.isfile(region)
+    label = os.path.basename(region) if is_bed else region
+    region_suffix = label.replace(":", "_").replace(",", "_")
+    out_bam = derive_output_path(args.input, base.outdir, f"_{region_suffix}.bam")
 
     logging.info(
         LOG_MESSAGES["extracting_region"].format(region=region, output=out_bam)
     )
     try:
-        if os.path.isfile(region):
-            region_args = ["-L", region]
+        if is_bed:
+            _extract_regions(base, args.input, out_bam, [], bed=region)
         else:
             # Split comma-separated regions (e.g. chr1:1-100,chr2:200-300)
-            region_args = region.split(",")
-
-        run_command(
-            ["samtools", "view", "-bh"]
-            + cram_opt
-            + ["-@", threads, "-o", out_bam, args.input]
-            + region_args
-        )
-        run_command(get_sam_index_cmd(out_bam, threads=threads))
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.error(f"Custom extraction failed: {e}")
-        raise WGSExtractError("Custom extraction failed.") from e
+            _extract_regions(base, args.input, out_bam, region.split(","))
+    except (OSError, subprocess.SubprocessError) as e:
+        raise WGSExtractError(f"Custom extraction failed: {e}") from e

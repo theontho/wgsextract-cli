@@ -1,9 +1,12 @@
+import logging
 import os
 import sys
 from pathlib import Path
 from typing import Any, TypeVar, overload
 
 from platformdirs import user_config_dir
+
+from wgsextract_cli.core.utils import WGSExtractError
 
 # For Python < 3.11, use tomli
 if sys.version_info >= (3, 11):
@@ -21,8 +24,15 @@ KNOWN_SETTINGS = {
     "reference_fasta": (None, "Path to the reference genome FASTA"),
     "reference_library": (None, "Reference library directory (genomes/)"),
     "genome_library": (None, "Directory containing per-person genome folders"),
-    "cpu_threads": ("Auto", "Number of CPU threads to use"),
-    "memory_limit": ("1G", "Memory limit per thread"),
+    "cpu_threads": (
+        "auto",
+        "CPU threads: a positive integer, or auto (Apple Silicon performance "
+        "cores, WSL 3/4 of cores, otherwise all cores)",
+    ),
+    "memory_limit": (
+        "auto",
+        "Memory limit per thread, e.g. 2G (auto: 25% of RAM split across threads)",
+    ),
     "debug_mode": (False, "Enable verbose debug logging"),
     "quiet_mode": (False, "Enable quiet mode (errors only)"),
     "tool_runtime": (
@@ -54,6 +64,14 @@ KNOWN_SETTINGS = {
     "real_genome_tests_enabled": (
         False,
         "Test: Enable real smoke tests from real_genome_test_path",
+    ),
+    "dev_download_cache": (
+        False,
+        "Dev: Cache downloads under $XDG_CACHE_HOME/wgsextract for reuse",
+    ),
+    "dev_download_cache_ttl_seconds": (
+        7 * 24 * 60 * 60,
+        "Dev: Seconds before an unused dev download cache item is pruned",
     ),
 }
 
@@ -129,8 +147,25 @@ def get_config_dir() -> Path:
     return Path(user_config_dir(APP_NAME, APP_AUTHOR))
 
 
+# Set from --config: a caller (such as the GUI) keeping its own settings file.
+_config_path_override: Path | None = None
+
+
+def set_config_path(path: str | os.PathLike[str] | None) -> None:
+    """Use this config.toml instead of the per-user one (None restores it)."""
+    global _config_path_override
+    _config_path_override = Path(path).expanduser().resolve() if path else None
+
+
+def config_args() -> list[str]:
+    """Arguments that give a child wgsextract process the same config file."""
+    return ["--config", str(_config_path_override)] if _config_path_override else []
+
+
 def get_config_path() -> Path:
     """Get the path to the config.toml file."""
+    if _config_path_override is not None:
+        return _config_path_override
     # Priority for macOS: Use ~/.config/wgsextract/ if ~/.config exists
     if sys.platform == "darwin":
         dot_config = Path.home() / ".config"
@@ -153,7 +188,7 @@ def load_config() -> dict[str, Any]:
             with open(config_path, "rb") as f:
                 config = tomllib.load(f)
         except (OSError, tomllib.TOMLDecodeError) as e:
-            print(f"Error loading config from {config_path}: {e}", file=sys.stderr)
+            logging.warning(f"Ignoring unreadable config {config_path}: {e}")
 
     for old_key, new_key in CONFIG_ALIASES.items():
         if old_key in config and new_key not in config:
@@ -167,11 +202,13 @@ settings = load_config()
 
 
 def reload_settings() -> None:
-    """Re-load configuration from disk and environment."""
-    global settings
+    """Re-load configuration from disk and drop results derived from it."""
+    from wgsextract_cli.core.dependencies import clear_tool_caches
+
     new_settings = load_config()
     settings.clear()
     settings.update(new_settings)
+    clear_tool_caches()
 
 
 def save_config(updates: dict[str, Any]) -> None:
@@ -180,33 +217,35 @@ def save_config(updates: dict[str, Any]) -> None:
 
     config_path = get_config_path()
 
-    # Load existing config to merge
     current_config = {}
     if config_path.exists():
+        # Refuse to overwrite a config we cannot parse; that would drop the
+        # user's other settings.
         try:
             with open(config_path, "rb") as f:
                 current_config = tomllib.load(f)
-        except (OSError, tomllib.TOMLDecodeError):
-            pass
+        except tomllib.TOMLDecodeError as e:
+            raise WGSExtractError(
+                f"Cannot update {config_path}: it is not valid TOML ({e})."
+            ) from e
 
-    # Update with new values
     for key, value in updates.items():
-        if key in KNOWN_SETTINGS:
-            if value is None or value == "":
-                current_config.pop(key, None)
-            else:
-                current_config[key] = _normalize_path_setting(value)
+        if key not in KNOWN_SETTINGS:
+            continue
+        # Aliases are mapped onto the canonical key on load, so a stale alias
+        # would resurrect a cleared value or shadow nothing but confuse users.
+        for alias, canonical in CONFIG_ALIASES.items():
+            if canonical == key:
+                current_config.pop(alias, None)
+        if value is None or value == "":
+            current_config.pop(key, None)
+        else:
+            current_config[key] = _normalize_path_setting(value)
 
-    # Write back
-    try:
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(config_path, "wb") as f:
-            tomli_w.dump(current_config, f)
-        # Refresh global settings
-        reload_settings()
-    except OSError as e:
-        print(f"Error saving config to {config_path}: {e}", file=sys.stderr)
-        raise
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(config_path, "wb") as f:
+        tomli_w.dump(current_config, f)
+    reload_settings()
 
 
 @overload

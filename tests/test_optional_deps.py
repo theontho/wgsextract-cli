@@ -1,4 +1,5 @@
 import os
+import shlex
 import sys
 import tempfile
 import unittest
@@ -8,25 +9,29 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 # Ensure src is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 from wgsextract_cli.commands import _deps_runtime as deps_runtime_command  # noqa: E402
 from wgsextract_cli.commands import _deps_status as deps_status_command  # noqa: E402
 from wgsextract_cli.commands import deps as deps_command  # noqa: E402
-from wgsextract_cli.core import runtime  # noqa: E402
 from wgsextract_cli.core.dependency_checks import (  # noqa: E402
     check_all_dependencies,
     verify_dependencies,
 )
+from wgsextract_cli.core.runtime import source_checkout_root
 from wgsextract_cli.core.utils import WGSExtractError  # noqa: E402
+
+MANIFEST = shlex.quote(str(source_checkout_root() / "pixi.toml"))
 
 
 class TestOptionalDependencies(unittest.TestCase):
     """Tests the new optional dependency handling."""
 
     @patch("wgsextract_cli.core.dependency_checks.check_dependencies")
-    @patch("wgsextract_cli.core.dependency_checks.get_jar_dir", return_value="/tmp")
+    @patch("wgsextract_cli.core.dependencies.get_jar_dir", return_value="/tmp")
     @patch("sys.exit")
     @patch("logging.error")
     @patch("logging.info")
@@ -53,7 +58,7 @@ class TestOptionalDependencies(unittest.TestCase):
         mock_exit.assert_not_called()
 
     @patch("wgsextract_cli.core.dependency_checks.check_dependencies")
-    @patch("wgsextract_cli.core.dependency_checks.get_jar_dir", return_value="/tmp")
+    @patch("wgsextract_cli.core.dependencies.get_jar_dir", return_value="/tmp")
     @patch("sys.exit")
     @patch("logging.error")
     @patch("wgsextract_cli.core.dependency_checks.sys.platform", "linux")
@@ -67,9 +72,7 @@ class TestOptionalDependencies(unittest.TestCase):
             verify_dependencies(["samtools"])
 
         # Check that it called logging.error with the fatal message
-        mock_error.assert_any_call(
-            "Fatal Error: Missing required core tools or JAR files."
-        )
+        mock_error.assert_any_call("Missing required core tools or JAR files.")
         mock_error.assert_any_call(" - samtools")
         mock_exit.assert_not_called()
 
@@ -78,7 +81,7 @@ class TestOptionalDependencies(unittest.TestCase):
         "wgsextract_cli.core.dependency_checks.check_dependencies",
         return_value=["samtools"],
     )
-    @patch("wgsextract_cli.core.dependency_checks.get_jar_dir", return_value="/tmp")
+    @patch("wgsextract_cli.core.dependencies.get_jar_dir", return_value="/tmp")
     @patch("logging.warning")
     def test_verify_mandatory_missing_on_windows_mentions_runtime_options(
         self, mock_warning, mock_jar, mock_tool_path
@@ -182,7 +185,7 @@ class TestOptionalDependencies(unittest.TestCase):
 
             with zipfile.ZipFile(archive_path) as archive:
                 with self.assertRaisesRegex(Exception, "unsafe path"):
-                    deps_status_command._safe_extract_zip(
+                    deps_runtime_command._safe_extract_zip(
                         archive, Path(tempdir) / "runtime"
                     )
 
@@ -209,7 +212,7 @@ class TestOptionalDependencies(unittest.TestCase):
             java.write_bytes(b"")
             destination = root / "runtime" / "msys2"
 
-            deps_status_command._copy_bundled_runtime_from_source(
+            deps_runtime_command._copy_bundled_runtime_from_source(
                 source, "msys2", destination
             )
 
@@ -235,7 +238,7 @@ class TestOptionalDependencies(unittest.TestCase):
             (source / "mnt").write_text("placeholder", encoding="utf-8")
             destination = root / "runtime" / "cygwin64"
 
-            deps_status_command._copy_bundled_runtime_from_source(
+            deps_runtime_command._copy_bundled_runtime_from_source(
                 source, "cygwin", destination
             )
 
@@ -245,27 +248,30 @@ class TestOptionalDependencies(unittest.TestCase):
     def test_copy_bundled_runtime_requires_expected_shell(self):
         with tempfile.TemporaryDirectory() as tempdir:
             with self.assertRaisesRegex(Exception, "expected shell"):
-                deps_status_command._copy_bundled_runtime_from_source(
+                deps_runtime_command._copy_bundled_runtime_from_source(
                     Path(tempdir), "cygwin", Path(tempdir) / "runtime" / "cygwin64"
                 )
 
-    def test_check_dependencies_with_runtime_restores_env(self):
-        env_name = runtime.RUNTIME_ENV_VAR
-        previous = os.environ.get(env_name)
-        os.environ[env_name] = "auto"
-        try:
-            with patch.object(
-                deps_status_command, "check_all_dependencies", return_value={}
-            ) as mock_check:
-                deps_status_command._check_dependencies_with_runtime("wsl")
+    def test_wsl_check_passes_runtime_explicitly_without_touching_env(self):
+        env_before = dict(os.environ)
+        results = {
+            "mandatory": [{"name": "samtools", "path": "wsl:samtools"}],
+            "optional": [],
+        }
+        with (
+            patch.object(
+                deps_status_command.runtime, "detect_wsl_available", return_value=True
+            ),
+            patch.object(deps_status_command, "_run_wsl_info", return_value="x"),
+            patch.object(
+                deps_status_command, "check_all_dependencies", return_value=results
+            ) as mock_check,
+            patch("sys.stdout", new_callable=StringIO),
+        ):
+            deps_status_command.run_wsl_check(Namespace())
 
-            mock_check.assert_called_once_with()
-            self.assertEqual(os.environ[env_name], "auto")
-        finally:
-            if previous is None:
-                os.environ.pop(env_name, None)
-            else:
-                os.environ[env_name] = previous
+        mock_check.assert_called_once_with(runtime_mode="wsl")
+        self.assertEqual(dict(os.environ), env_before)
 
     @patch("wgsextract_cli.core.dependencies.shutil.which", return_value=None)
     @patch("wgsextract_cli.core.runtime.should_consider_wsl", return_value=True)
@@ -312,7 +318,7 @@ class TestOptionalDependencies(unittest.TestCase):
         ):
             self.assertEqual(
                 get_tool_path("samtools"),
-                "/usr/local/bin/pixi run -e default samtools",
+                f"/usr/local/bin/pixi run --manifest-path {MANIFEST} -e default samtools",
             )
 
     def test_get_tool_path_can_return_uppercase_yleaf_pixi_fallback(self):
@@ -343,7 +349,7 @@ class TestOptionalDependencies(unittest.TestCase):
         ):
             self.assertEqual(
                 get_tool_path("yleaf"),
-                "/usr/local/bin/pixi run -e default Yleaf",
+                f"/usr/local/bin/pixi run --manifest-path {MANIFEST} -e default Yleaf",
             )
 
         self.assertEqual(mock_run.call_args.args[0][-2:], ["yleaf", "Yleaf"])
@@ -412,7 +418,7 @@ class TestOptionalDependencies(unittest.TestCase):
         from wgsextract_cli.commands.deps import run
 
         # samtools present, minimap2 missing
-        mock_tool_path.side_effect = lambda x: (
+        mock_tool_path.side_effect = lambda x, _mode=None: (
             "/usr/bin/" + x if x == "samtools" else None
         )
 
@@ -440,7 +446,7 @@ class TestOptionalDependencies(unittest.TestCase):
     ):
         from wgsextract_cli.commands.deps import run
 
-        mock_tool_path.side_effect = lambda tool: {
+        mock_tool_path.side_effect = lambda tool, _mode=None: {
             "samtools": "/usr/bin/samtools",
             "sniffles": "/usr/local/bin/pixi run -e pacbio sniffles",
         }.get(tool)
@@ -496,3 +502,155 @@ class TestOptionalDependencies(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_uninstalled_optional_env_resolves_from_lockfile_without_installing():
+    from wgsextract_cli.core import dependencies
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd[1:])
+        if cmd[1] == "run":
+            # Probes must never install or update an environment.
+            assert "--no-install" in cmd
+            return MagicMock(returncode=1, stdout="", stderr="env not installed")
+        assert cmd[1] == "list" and "--no-install" in cmd
+        return MagicMock(returncode=0, stdout='[{"name": "gatk4"}]', stderr="")
+
+    with (
+        patch.object(dependencies.shutil, "which", return_value="/usr/bin/pixi"),
+        patch.object(dependencies.subprocess, "run", side_effect=fake_run),
+    ):
+        command = dependencies._host_pixi_tool_command("gatk")
+
+    assert [c[0] for c in calls] == ["run", "list"]
+    assert command is not None and command.endswith("-e gatk gatk")
+    assert not any(c[0] == "install" for c in calls)
+
+
+def test_tool_missing_from_platform_lock_is_unavailable():
+    from wgsextract_cli.core import dependencies
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1] == "run":
+            return MagicMock(returncode=1, stdout="", stderr="")
+        return MagicMock(returncode=0, stdout='[{"name": "sniffles"}]', stderr="")
+
+    with (
+        patch.object(dependencies.shutil, "which", return_value="/usr/bin/pixi"),
+        patch.object(dependencies.subprocess, "run", side_effect=fake_run),
+    ):
+        assert dependencies._host_pixi_tool_command("pbmm2") is None
+
+
+def test_resolve_pixi_command_prefers_running_pixi(tmp_path, monkeypatch):
+    from wgsextract_cli.core import dependencies
+
+    running = tmp_path / "pixi"
+    running.write_text("")
+    monkeypatch.setenv("PIXI_EXE", str(running))
+    with patch.object(
+        dependencies.shutil, "which", return_value="/opt/homebrew/bin/pixi"
+    ):
+        assert dependencies._resolve_pixi_command() == str(running)
+
+
+def _fake_pixi(prefix, tool_calls):
+    import json
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1:3] == ["info", "--json"]:
+            assert cmd[3:] == ["--manifest-path", "/app/pixi.toml"]
+            info = {"environments_info": [{"name": "pacbio", "prefix": str(prefix)}]}
+            return MagicMock(returncode=0, stdout=json.dumps(info), stderr="")
+        tool_calls.append(cmd)
+        return MagicMock(returncode=0, stdout="sniffles 2.6.3", stderr="")
+
+    return fake_run
+
+
+COMMAND = "/usr/bin/pixi run --manifest-path /app/pixi.toml -e pacbio sniffles"
+
+
+def test_version_probe_never_runs_a_tool_from_a_missing_env(tmp_path):
+    """`pixi run --no-install` runs the tool without the env when it's missing
+    (and `exit 0` succeeds), so installation is read from the env's prefix."""
+    from wgsextract_cli.core import dependency_checks
+
+    tool_calls: list[list[str]] = []
+    prefix = tmp_path / "envs" / "pacbio"  # never installed
+    with (
+        patch.object(dependency_checks, "get_tool_path", return_value=COMMAND),
+        patch.object(
+            dependency_checks.subprocess,
+            "run",
+            side_effect=_fake_pixi(prefix, tool_calls),
+        ),
+    ):
+        version = dependency_checks.get_tool_version("sniffles")
+
+    assert tool_calls == []
+    assert version == "Available (Pixi env 'pacbio', downloaded on first use)"
+
+
+def test_version_probe_runs_an_installed_env_without_installing(tmp_path):
+    from wgsextract_cli.core import dependency_checks
+
+    tool_calls: list[list[str]] = []
+    prefix = tmp_path / "envs" / "pacbio"
+    (prefix / "conda-meta").mkdir(parents=True)
+    (prefix / "conda-meta" / "pixi").write_text("{}")
+    with (
+        patch.object(dependency_checks, "get_tool_path", return_value=COMMAND),
+        patch.object(
+            dependency_checks.subprocess,
+            "run",
+            side_effect=_fake_pixi(prefix, tool_calls),
+        ),
+    ):
+        version = dependency_checks.get_tool_version("sniffles")
+
+    assert tool_calls and all("--no-install" in cmd for cmd in tool_calls)
+    assert version and "2.6.3" in version
+
+
+@pytest.mark.parametrize("returncode", [-11, 139])
+def test_version_probe_reports_a_crashing_tool(returncode):
+    from wgsextract_cli.core import dependency_checks
+
+    with (
+        patch.object(
+            dependency_checks, "get_tool_path", return_value="/env/bin/sambamba"
+        ),
+        patch.object(
+            dependency_checks.subprocess,
+            "run",
+            return_value=MagicMock(returncode=returncode, stdout="", stderr=""),
+        ),
+    ):
+        assert dependency_checks.get_tool_version("sambamba") == (
+            "Error: sambamba crashed (SIGSEGV)"
+        )
+
+
+@pytest.mark.parametrize("installed", [True, False])
+def test_embedded_pixi_is_used_only_in_an_install_layout(tmp_path, installed):
+    """install.sh puts pixi in <install>/.pixi beside app/; next to a plain
+    checkout (~/wgsextract-cli) that path is the user's own ~/.pixi."""
+    from wgsextract_cli.core import dependencies
+
+    app = tmp_path / "app"
+    app.mkdir()
+    embedded = tmp_path / ".pixi" / "bin" / "pixi"
+    embedded.parent.mkdir(parents=True)
+    embedded.write_text("")
+    if installed:
+        (tmp_path / "install-manifest.json").write_text("{}")
+    with (
+        patch.object(dependencies.runtime, "source_checkout_root", return_value=app),
+        patch.object(dependencies.runtime, "is_windows_host", return_value=False),
+        patch.object(dependencies.shutil, "which", return_value="/usr/local/bin/pixi"),
+    ):
+        expected = str(embedded) if installed else "/usr/local/bin/pixi"
+        assert dependencies._resolve_pixi_command() == expected

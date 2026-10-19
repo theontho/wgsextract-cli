@@ -1,0 +1,140 @@
+{
+  "name": "install lab - WGS Extract GUI on the HG00096 mini genome",
+  "inputs": {
+    "fieldValues": {
+      "bam_path": "{{bundleWorkspace}}/genomes/wgsextract-benchmark-hg19-mini/HG00096.hg19-mini.bam",
+      "ref_path": "{{bundleWorkspace}}/genomes/wgsextract-benchmark-hg19-mini/hg19-mini.fa.gz",
+      "ref_fasta": "{{bundleWorkspace}}/genomes/wgsextract-benchmark-hg19-mini/hg19-mini.fa.gz",
+      "realign_ref": "{{bundleWorkspace}}/genomes/wgsextract-benchmark-hg19-mini/hg19-mini.fa.gz",
+      "fastq_r1": "{{bundleWorkspace}}/genomes/wgsextract-benchmark-hg19-mini/HG00096.hg19-mini_R1.fastq.gz",
+      "fastq_r2": "{{bundleWorkspace}}/genomes/wgsextract-benchmark-hg19-mini/HG00096.hg19-mini_R2.fastq.gz",
+      "fastq_output_format": "BAM",
+      "genome_library": "{{bundleWorkspace}}/genomes",
+      "haplogrep_path": "haplogrep"
+    },
+    "checkedOptions": {
+      "microarray_formats": [
+        "23andme_v5"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "id": "download_test_genome",
+      "kind": "action",
+      "pageID": "library",
+      "sectionID": "databases-tools",
+      "actionID": "test-genome-download",
+      "timeoutSeconds": 1800,
+      "inputs": {
+        "fieldValues": {
+          "library.testGenomeInstalled": "false"
+        }
+      },
+      "requiredOutput": [
+        "WGS Extract hg19 mini benchmark genome"
+      ]
+    },
+    {
+      "id": "info",
+      "kind": "action",
+      "pageID": "info-bam",
+      "sectionID": "info-commands",
+      "actionID": "detailed-info",
+      "timeoutSeconds": 3600
+    },
+    {
+      "id": "mt_bam",
+      "kind": "action",
+      "pageID": "extract",
+      "sectionID": "extract-inputs",
+      "actionID": "mt-bam",
+      "timeoutSeconds": 3600,
+      "inputs": {
+        "fieldValues": {
+          "out_dir": "{{bundleWorkspace}}/lab-output/mt_bam"
+        }
+      }
+    },
+    {
+      "id": "mito_vcf",
+      "kind": "action",
+      "pageID": "extract",
+      "sectionID": "extract-inputs",
+      "actionID": "mito-vcf",
+      "timeoutSeconds": 3600,
+      "inputs": {
+        "fieldValues": {
+          "out_dir": "{{bundleWorkspace}}/lab-output/mito_vcf"
+        }
+      }
+    },
+    {
+      "id": "mt_haplo",
+      "kind": "action",
+      "pageID": "ancestry",
+      "sectionID": "ancestry-inputs",
+      "actionID": "run-haplogrep",
+      "timeoutSeconds": 3600,
+      "inputs": {
+        "fieldValues": {
+          "out_dir": "{{bundleWorkspace}}/lab-output/mt_haplo"
+        }
+      }
+    },
+    {
+      "id": "snp",
+      "kind": "action",
+      "pageID": "vcf",
+      "sectionID": "variant-calling",
+      "actionID": "vcf-snp",
+      "timeoutSeconds": 3600,
+      "inputs": {
+        "fieldValues": {
+          "out_dir": "{{bundleWorkspace}}/lab-output/snp",
+          "vcf_region": "20"
+        }
+      }
+    },
+    {
+      "id": "microarray",
+      "kind": "action",
+      "pageID": "microarray",
+      "sectionID": "microarray-formats",
+      "actionID": "microarray-generate",
+      "timeoutSeconds": 3600,
+      "inputs": {
+        "fieldValues": {
+          "out_dir": "{{bundleWorkspace}}/lab-output/microarray"
+        }
+      }
+    },
+    {
+      "id": "align",
+      "kind": "action",
+      "pageID": "fastq",
+      "sectionID": "fastq-align",
+      "actionID": "align",
+      "timeoutSeconds": 3600,
+      "inputs": {
+        "fieldValues": {
+          "out_dir": "{{bundleWorkspace}}/lab-output/align"
+        }
+      }
+    },
+    {
+      "id": "gatk",
+      "kind": "action",
+      "pageID": "vcf",
+      "sectionID": "variant-calling",
+      "actionID": "vcf-gatk",
+      "timeoutSeconds": 3600,
+      "inputs": {
+        "fieldValues": {
+          "out_dir": "{{bundleWorkspace}}/lab-output/gatk",
+          "vcf_region": "20:1-200000"
+        }
+      }
+    }
+  ]
+}

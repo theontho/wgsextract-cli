@@ -1,30 +1,29 @@
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.14
-    hooks:
-      - id: ruff
-        args: [ --fix ]
-        files: ^
-      - id: ruff-format
-        files: ^
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
-        files: ^
       - id: end-of-file-fixer
-        files: ^
       - id: check-yaml
-        files: ^
       - id: check-added-large-files
-        files: ^
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.11.0.1
     hooks:
       - id: shellcheck
-        files: ^
   - repo: local
     hooks:
+      # ruff and mypy run from the Pixi dev environment so hooks, CI, and
+      # `pixi run lint` all use the same tool versions.
+      - id: ruff
+        name: ruff (via pixi)
+        entry: pixi run ruff check --fix
+        language: system
+        types_or: [python, pyi]
+      - id: ruff-format
+        name: ruff format (via pixi)
+        entry: pixi run ruff format
+        language: system
+        types_or: [python, pyi]
       - id: actionlint
         name: actionlint
         entry: python scripts/run_actionlint.py

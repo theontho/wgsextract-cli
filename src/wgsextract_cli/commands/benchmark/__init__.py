@@ -19,6 +19,7 @@ from .core import (
 from .environment import (
     _benchmark_external_tools,
     _format_progress_result,
+    _normalize_region_for_fake_data,
     _normalize_region_for_ref,
     _prepare_real_benchmark_dataset,
     _print_external_tools,
@@ -97,6 +98,10 @@ def run(args: argparse.Namespace) -> None:
             region = real_dataset.default_region
         if region and real_dataset.region_safe:
             region = _normalize_region_for_ref(region, ref_path)
+    else:
+        # The generated reference does not exist yet; match its naming instead
+        # (e.g. the smoke profile's chrM is MT for hg19/hg37 fake data).
+        region = _normalize_region_for_fake_data(region, benchmark_build)
 
     region_allowed = real_dataset is None or real_dataset.region_safe
 
@@ -174,7 +179,6 @@ def run(args: argparse.Namespace) -> None:
             args=args,
             record=record,
             analysis_bam=analysis_bam,
-            generated_bam=generated_bam,
             ref_path=ref_path,
             target_tab_gz=target_tab_gz,
             snp_vcf=snp_vcf,
@@ -182,7 +186,6 @@ def run(args: argparse.Namespace) -> None:
             unalign_r2=unalign_r2,
             steps_dir=steps_dir,
             logs_dir=logs_dir,
-            build=benchmark_build,
             region=region,
         )
 

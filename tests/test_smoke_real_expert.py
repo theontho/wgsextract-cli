@@ -76,7 +76,7 @@ class TestPerformanceBoostSmoke:
             ]
         )
         assert rc == 0
-        assert verify_bam(os.path.join(self.outdir, "fake_R1_aligned.bam"))
+        assert verify_bam(os.path.join(self.outdir, "fake_aligned.bam"))
 
         # Check for optimized tools in logs if they are installed
         if check_tool("sambamba") and os.uname().sysname != "Darwin":

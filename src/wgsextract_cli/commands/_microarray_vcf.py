@@ -1,21 +1,26 @@
 import argparse
+import contextlib
 import gzip
 import logging
 import os
 import subprocess
+import tempfile
 import time
+from typing import TextIO
 
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
+    run_pipeline,
 )
 from wgsextract_cli.core.variant_files import (
-    chromosome_aliases,
     ensure_vcf_indexed,
-    popen,
+    match_chromosome_name,
     vcf_index_chromosomes,
 )
+
+from ._microarray_combined import _open_text
 
 
 def split_snps_by_chrom(ref_vcf_tab: str, outdir: str) -> dict[str, str]:
@@ -44,25 +49,19 @@ def split_snps_by_chrom(ref_vcf_tab: str, outdir: str) -> dict[str, str]:
         logging.warning(
             f"Failed to split SNPs using tabix: {e}. Falling back to linear scan."
         )
-        # Fallback: slow linear scan if tabix fails
-        # Use gzip.open if compressed, else regular open
-        if ref_vcf_tab.endswith((".gz", ".bgz")):
-            f_in = gzip.open(ref_vcf_tab, "rt")
-        else:
-            f_in = open(ref_vcf_tab)
-
-        with f_in:
+        # Fallback: one linear scan, one open handle per chromosome.
+        chrom_files.clear()
+        with contextlib.ExitStack() as stack:
+            handles: dict[str, TextIO] = {}
+            f_in = stack.enter_context(_open_text(ref_vcf_tab))
             for line in f_in:
                 if line.startswith("#"):
                     continue
-                parts = line.split("\t", 2)
-                if len(parts) < 2:
-                    continue
-                chrom = parts[0]
-                if chrom not in chrom_files:
+                chrom = line.split("\t", 1)[0]
+                if chrom not in handles:
                     chrom_files[chrom] = os.path.join(outdir, f"snps_{chrom}.tab")
-                with open(chrom_files[chrom], "a") as f:
-                    f.write(line)
+                    handles[chrom] = stack.enter_context(open(chrom_files[chrom], "w"))
+                handles[chrom].write(line)
 
     return chrom_files
 
@@ -76,13 +75,6 @@ def _target_tab_chromosomes(ref_vcf_tab: str) -> list[str]:
     return [line.strip() for line in (res.stdout or "").splitlines() if line.strip()]
 
 
-def _matching_input_chrom(target_chrom: str, input_chroms: set[str]) -> str | None:
-    for alias in chromosome_aliases(target_chrom):
-        if alias in input_chroms:
-            return alias
-    return None
-
-
 def _normalize_region_args_for_input(
     region_args: list[str], input_chroms: list[str]
 ) -> list[str]:
@@ -91,7 +83,7 @@ def _normalize_region_args_for_input(
 
     region = region_args[1]
     chrom, sep, rest = region.partition(":")
-    match = _matching_input_chrom(chrom, set(input_chroms))
+    match = match_chromosome_name(chrom, input_chroms)
     if not match:
         return region_args
     return ["-r", f"{match}{sep}{rest}"]
@@ -127,20 +119,13 @@ def _prepare_vcf_target_tab_for_input(
     chrom_map = {
         chrom: matched
         for chrom in target_chroms
-        if (matched := _matching_input_chrom(chrom, input_chrom_set))
+        if (matched := match_chromosome_name(chrom, input_chrom_set))
     }
     if not chrom_map or all(chrom_map.get(chrom) == chrom for chrom in target_chroms):
         return ref_vcf_tab
 
     normalized_tab = os.path.join(outdir, "input_chrom_targets.tab")
-    with (
-        (
-            gzip.open(ref_vcf_tab, "rt")
-            if ref_vcf_tab.endswith((".gz", ".bgz"))
-            else open(ref_vcf_tab)
-        ) as source,
-        open(normalized_tab, "w") as destination,
-    ):
+    with _open_text(ref_vcf_tab) as source, open(normalized_tab, "w") as destination:
         for line in source:
             if line.startswith("#") or not line.strip():
                 destination.write(line)
@@ -172,93 +157,31 @@ def process_chrom(
     ref_vcf_tab: str,
     ploidy_args: list[str],
     input_path: str,
-) -> str | None:
+) -> str:
     """Worker function for parallel chromosome processing. Must be at module level for pickling."""
     chrom_vcf = os.path.join(chrom_tmp_dir, f"{chrom}.vcf.gz")
-    # We combine mpileup | call | annotate into a single pipeline
-    try:
-        logging.debug(f"Processing chromosome {chrom}...")
-        p1 = popen(
-            [
-                "bcftools",
-                "mpileup",
-                "-r",
-                chrom,
-                "-B",
-                "-I",
-                "-C",
-                "50",
-                "-f",
-                ref_fasta,
-                "--targets-file",
-                snp_file,
-                input_path,
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-
-        p2 = popen(
-            ["bcftools", "call"]
-            + ploidy_args
+    logging.debug(f"Processing chromosome {chrom}...")
+    run_pipeline(
+        [
+            ["bcftools", "mpileup", "-r", chrom, "-B", "-I", "-C", "50"]
+            + ["-f", ref_fasta, "--targets-file", snp_file, input_path],
+            ["bcftools", "call", *ploidy_args]
             + ["-m", "-V", "indels", "-Oz", "-o", chrom_vcf],
-            stdin=p1.stdout,
-            stderr=subprocess.PIPE,
-        )
+        ],
+        stdout=subprocess.DEVNULL,
+        description=f"Variant calling for {chrom}",
+    )
+    ensure_vcf_indexed(chrom_vcf)
 
-        if p1.stdout:
-            p1.stdout.close()
-
-        _, stderr2 = p2.communicate()
-        stderr1 = p1.stderr.read() if p1.stderr else b""
-        p1_returncode = p1.wait()
-
-        if p1_returncode != 0:
-            logging.error(f"bcftools mpileup failed for {chrom}: {stderr1.decode()}")
-            raise RuntimeError(f"bcftools processing failed for {chrom}")
-
-        if p2.returncode != 0:
-            logging.error(f"bcftools call failed for {chrom}: {stderr2.decode()}")
-            raise RuntimeError(f"bcftools processing failed for {chrom}")
-
-        if not os.path.exists(chrom_vcf) or os.path.getsize(chrom_vcf) < 100:
-            logging.warning(f"No variants called for {chrom}, skipping.")
-            return None
-
-        ensure_vcf_indexed(chrom_vcf)
-
-        # Annotate RSIDs immediately
-        annotated_chrom_vcf = os.path.join(chrom_tmp_dir, f"{chrom}_ann.vcf.gz")
-        ann_res = run_command(
-            [
-                "bcftools",
-                "annotate",
-                "-a",
-                ref_vcf_tab,
-                "-c",
-                "CHROM,POS,ID",
-                "-Oz",
-                "-o",
-                annotated_chrom_vcf,
-                chrom_vcf,
-            ],
-            capture_output=True,
-            check=False,
-        )
-
-        if ann_res.returncode != 0:
-            logging.error(
-                f"bcftools annotate failed for {chrom}: {ann_res.stderr or ''}"
-            )
-            raise RuntimeError(f"bcftools processing failed for {chrom}")
-
-        os.remove(chrom_vcf)
-        if os.path.exists(chrom_vcf + ".tbi"):
-            os.remove(chrom_vcf + ".tbi")
-        return annotated_chrom_vcf
-    except (OSError, subprocess.SubprocessError, RuntimeError, WGSExtractError) as e:
-        logging.error(f"Error processing {chrom}: {e}")
-        raise
+    # Annotate RSIDs immediately
+    annotated_chrom_vcf = os.path.join(chrom_tmp_dir, f"{chrom}_ann.vcf.gz")
+    run_command(
+        ["bcftools", "annotate", "-a", ref_vcf_tab, "-c", "CHROM,POS,ID"]
+        + ["-Oz", "-o", annotated_chrom_vcf, chrom_vcf]
+    )
+    os.remove(chrom_vcf)
+    os.remove(chrom_vcf + ".tbi")
+    return annotated_chrom_vcf
 
 
 def _prepare_microarray_vcf(
@@ -290,8 +213,7 @@ def _prepare_microarray_vcf(
             )
             region_args = _normalize_region_args_for_input(region_args, input_chroms)
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.error(f"Target chromosome normalization failed: {e}")
-        raise WGSExtractError("Microarray target normalization failed.") from e
+        raise WGSExtractError(f"Microarray target normalization failed: {e}") from e
 
     if is_vcf:
         logging.info(f"VCF input detected. Extracting target SNPs from {args.input}...")
@@ -304,8 +226,7 @@ def _prepare_microarray_vcf(
             run_command(
                 ["bcftools", "view", "--targets-file", ref_vcf_tab]
                 + region_args
-                + ["-Oz", "-o", hit_vcf, args.input],
-                check=True,
+                + ["-Oz", "-o", hit_vcf, args.input]
             )
             ensure_vcf_indexed(hit_vcf)
 
@@ -320,26 +241,14 @@ def _prepare_microarray_vcf(
             # to ensure RSIDs match our master tab file
             annotated_vcf = os.path.join(outdir, f"{base_name}_annotated.vcf.gz")
             run_command(
-                [
-                    "bcftools",
-                    "annotate",
-                    "-a",
-                    ref_vcf_tab,
-                    "-c",
-                    "CHROM,POS,ID",
-                    "-Oz",
-                    "-o",
-                    annotated_vcf,
-                    out_vcf,
-                ],
-                check=True,
+                ["bcftools", "annotate", "-a", ref_vcf_tab, "-c", "CHROM,POS,ID"]
+                + ["-Oz", "-o", annotated_vcf, out_vcf]
             )
             out_vcf = annotated_vcf
             ensure_vcf_indexed(out_vcf)
 
-        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-            logging.error(f"VCF extraction failed: {e}")
-            raise WGSExtractError("Microarray VCF extraction failed.") from e
+        except (OSError, subprocess.SubprocessError) as e:
+            raise WGSExtractError(f"Microarray VCF extraction failed: {e}") from e
 
     elif args.parallel and not args.region:
         from concurrent.futures import ProcessPoolExecutor
@@ -347,36 +256,28 @@ def _prepare_microarray_vcf(
         logging.info(
             f"Enabling parallel variant calling across chromosomes using {threads} threads..."
         )
+        with tempfile.TemporaryDirectory(
+            prefix="chrom_chunks_", dir=outdir
+        ) as chrom_tmp_dir:
+            chrom_snps = split_snps_by_chrom(ref_vcf_tab, chrom_tmp_dir)
+            with ProcessPoolExecutor(max_workers=int(threads)) as executor:
+                futures = [
+                    executor.submit(
+                        process_chrom,
+                        chrom,
+                        snp_file,
+                        chrom_tmp_dir,
+                        ref_fasta,
+                        ref_vcf_tab,
+                        ploidy_args,
+                        args.input,
+                    )
+                    for chrom, snp_file in chrom_snps.items()
+                ]
+                vcf_chunks = [future.result() for future in futures]
+            if not vcf_chunks:
+                raise WGSExtractError("No VCF chunks were generated.")
 
-        # Create a temp dir for chromosome chunks
-        chrom_tmp_dir = os.path.join(outdir, "chrom_chunks")
-        os.makedirs(chrom_tmp_dir, exist_ok=True)
-
-        # Split SNPs by chrom
-        chrom_snps = split_snps_by_chrom(ref_vcf_tab, chrom_tmp_dir)
-
-        vcf_chunks = []
-        with ProcessPoolExecutor(max_workers=int(threads)) as executor:
-            futures = {
-                executor.submit(
-                    process_chrom,
-                    chrom,
-                    snp_file,
-                    chrom_tmp_dir,
-                    ref_fasta,
-                    ref_vcf_tab,
-                    ploidy_args,
-                    args.input,
-                ): chrom
-                for chrom, snp_file in chrom_snps.items()
-            }
-            for future in futures:
-                res = future.result()
-                if res:
-                    vcf_chunks.append(res)
-
-        # Merge results
-        if vcf_chunks:
             logging.info(f"Merging {len(vcf_chunks)} chromosome VCFs...")
 
             # Natural chromosome order (1..22, X, Y, MT) — bcftools concat preserves
@@ -393,104 +294,41 @@ def _prepare_microarray_vcf(
 
             run_command(
                 ["bcftools", "concat", "-Oz", "-o", out_vcf]
-                + sorted(vcf_chunks, key=_chrom_sort_key),
-                check=True,
+                + sorted(vcf_chunks, key=_chrom_sort_key)
             )
-            ensure_vcf_indexed(out_vcf)
-
-            # Use the merged VCF as the "annotated" source
-            annotated_vcf = out_vcf
-
-            # Cleanup chunks
-            import shutil
-
-            shutil.rmtree(chrom_tmp_dir)
-        else:
-            logging.error("No VCF chunks were generated.")
-            raise WGSExtractError("No VCF chunks were generated.")
-
-        vcf_duration = time.time() - start_vcf
-        logging.info(f"Parallel VCF generation and annotation took {vcf_duration:.2f}s")
+        ensure_vcf_indexed(out_vcf)
+        logging.info(
+            f"Parallel VCF generation and annotation took {time.time() - start_vcf:.2f}s"
+        )
 
     else:
-        # ORIGINAL SEQUENTIAL LOGIC
         try:
-            # mpileup restricted to target SNPs
-            mpileup_cmd = (
-                ["bcftools", "mpileup"]
-                + region_args
-                + [
-                    "-B",
-                    "-I",
-                    "-C",
-                    "50",
-                    "-f",
-                    ref_fasta,
-                    "--targets-file",
-                    ref_vcf_tab,
-                    args.input,
-                ]
+            run_pipeline(
+                [
+                    ["bcftools", "mpileup", *region_args]
+                    + ["-B", "-I", "-C", "50", "-f", ref_fasta]
+                    + ["--targets-file", ref_vcf_tab, args.input],
+                    ["bcftools", "call", *ploidy_args]
+                    + ["-m", "-V", "indels", "-Oz", "-o", out_vcf],
+                ],
+                stdout=subprocess.DEVNULL,
+                description="Microarray variant calling",
             )
-
-            p1 = popen(
-                mpileup_cmd,
-                stdout=subprocess.PIPE,
-            )
-            p2 = popen(
-                ["bcftools", "call"]
-                + ploidy_args
-                + ["-m", "-V", "indels", "-Oz", "-o", out_vcf],
-                stdin=p1.stdout,
-            )
-            if p1.stdout:
-                p1.stdout.close()
-            p2.communicate()
-            p1_returncode = p1.wait()
-            if p1_returncode != 0 or p2.returncode != 0:
-                raise RuntimeError(
-                    f"bcftools variant calling failed: mpileup={p1_returncode}, call={p2.returncode}"
-                )
-
             ensure_vcf_indexed(out_vcf)
-            vcf_duration = time.time() - start_vcf
-            logging.info(f"VCF generation took {vcf_duration:.2f}s")
+            logging.info(f"VCF generation took {time.time() - start_vcf:.2f}s")
 
-            # 1.5 Annotate the VCF with RSIDs from the reference tab file
+            # Annotate the VCF with RSIDs from the reference tab file
             annotated_vcf = os.path.join(outdir, f"{base_name}_annotated.vcf.gz")
             logging.info(f"Annotating VCF with RSIDs from {ref_vcf_tab}...")
             start_ann = time.time()
-            try:
-                # -a: annotation file, -c: columns to use (CHROM, POS, ID)
-                run_command(
-                    [
-                        "bcftools",
-                        "annotate",
-                        "-a",
-                        ref_vcf_tab,
-                        "-c",
-                        "CHROM,POS,ID",
-                        "-Oz",
-                        "-o",
-                        annotated_vcf,
-                        out_vcf,
-                    ],
-                    check=True,
-                )
-                # Use the annotated VCF for subsequent steps
-                out_vcf = annotated_vcf
-                ensure_vcf_indexed(out_vcf)
-                ann_duration = time.time() - start_ann
-                logging.info(f"Annotation took {ann_duration:.2f}s")
-            except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-                logging.warning(f"VCF annotation failed, IDs may be missing: {e}")
-
-        except (
-            OSError,
-            subprocess.SubprocessError,
-            RuntimeError,
-            WGSExtractError,
-        ) as e:
-            logging.error(f"Variant calling failed: {e}")
-            raise WGSExtractError("Microarray variant calling failed.") from e
+            run_command(
+                ["bcftools", "annotate", "-a", ref_vcf_tab, "-c", "CHROM,POS,ID"]
+                + ["-Oz", "-o", annotated_vcf, out_vcf]
+            )
+            out_vcf = annotated_vcf
+            ensure_vcf_indexed(out_vcf)
+            logging.info(f"Annotation took {time.time() - start_ann:.2f}s")
+        except (OSError, subprocess.SubprocessError) as e:
+            raise WGSExtractError(f"Microarray variant calling failed: {e}") from e
 
     return out_vcf, original_ref_vcf_tab if is_vcf else ref_vcf_tab

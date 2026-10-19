@@ -10,7 +10,6 @@ on:
       - .github/workflows/copilot-setup-steps.yml
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   WGSEXTRACT_TOOL_RUNTIME: native
 
 jobs:
@@ -20,13 +19,13 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Pixi
-        uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11 # v0.9.6
+        uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
         with:
-          pixi-version: latest
+          pixi-version: v0.81.0
           locked: false
       - name: Install project environment
-        run: pixi install
+        run: pixi install -e default -e dev
       - name: Verify CLI imports
         run: pixi run wgsextract --help >/dev/null

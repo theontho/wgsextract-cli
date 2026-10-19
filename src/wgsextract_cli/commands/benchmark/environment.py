@@ -3,6 +3,7 @@ import os
 import platform
 import subprocess
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 
 import psutil
@@ -18,16 +19,18 @@ from wgsextract_cli.core.dev_download_cache import (
     store_download_in_dev_cache,
 )
 from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.variant_files import chromosome_aliases
 
+from ..qc.fake_data import fake_contig_name
 from .datasets import (
     _download_file,
     _download_filename,
-    _is_relative_to,
+    _file_digest,
     _load_real_benchmark_dataset,
     _normalized_dataset_sha256,
     _prepare_direct_real_benchmark_dataset,
     _real_dataset_cache_dir,
-    _sha256,
+    _verify_digest,
 )
 from .execution import (
     _tool_active_for_benchmark,
@@ -45,22 +48,25 @@ from .models import (
 
 
 def _real_dataset_zip_path(args: argparse.Namespace, outdir: Path) -> Path:
+    """Return the dataset zip, verified against --dataset-sha256 when one is set."""
+    expected_sha256 = _normalized_dataset_sha256(args)
     local_zip = getattr(args, "dataset_zip", None)
     if local_zip:
         path = Path(str(local_zip)).expanduser().resolve()
         if not path.is_file():
             raise WGSExtractError(f"Benchmark dataset zip not found: {path}")
+        if expected_sha256:
+            _verify_digest(path, "sha256", expected_sha256)
         return path
 
     url = getattr(args, "dataset_url", None) or DEFAULT_REAL_DATASET_URL
-    expected_sha256 = _normalized_dataset_sha256(args)
     checksum_hint = f"sha256:{expected_sha256}" if expected_sha256 else None
     cache_dir = _real_dataset_cache_dir(args, outdir)
     cache_dir.mkdir(parents=True, exist_ok=True)
     zip_path = cache_dir / _download_filename(url)
     if zip_path.exists() and not expected_sha256:
         return zip_path
-    if zip_path.exists() and _sha256(zip_path) == expected_sha256:
+    if zip_path.exists() and _file_digest(zip_path, "sha256") == expected_sha256:
         store_download_in_dev_cache(url, zip_path, checksum_hint=checksum_hint)
         return zip_path
     if (
@@ -69,28 +75,17 @@ def _real_dataset_zip_path(args: argparse.Namespace, outdir: Path) -> Path:
         and restore_cached_download(url, zip_path, checksum_hint=checksum_hint)
     ):
         try:
-            _verify_sha256(zip_path, expected_sha256)
+            _verify_digest(zip_path, "sha256", expected_sha256)
             return zip_path
         except WGSExtractError:
             drop_cached_download(url, zip_path, checksum_hint=checksum_hint)
             zip_path.unlink(missing_ok=True)
 
-    _download_file(url, zip_path, checksum_hint=checksum_hint)
+    _download_file(url, zip_path)
     if expected_sha256:
-        _verify_sha256(zip_path, expected_sha256)
+        _verify_digest(zip_path, "sha256", expected_sha256)
         store_download_in_dev_cache(url, zip_path, checksum_hint=checksum_hint)
     return zip_path
-
-
-def _verify_sha256(path: Path, expected: str) -> None:
-    normalized = expected.lower().strip()
-    if not normalized:
-        return
-    actual = _sha256(path)
-    if actual != normalized:
-        raise WGSExtractError(
-            f"Checksum mismatch for {path}: expected {normalized}, got {actual}"
-        )
 
 
 def _extract_zip_safely(zip_path: Path, extract_dir: Path) -> None:
@@ -100,7 +95,7 @@ def _extract_zip_safely(zip_path: Path, extract_dir: Path) -> None:
         with zipfile.ZipFile(zip_path) as archive:
             for member in archive.infolist():
                 target = (extract_dir / member.filename).resolve()
-                if not _is_relative_to(target, root):
+                if not target.is_relative_to(root):
                     raise WGSExtractError(
                         f"Unsafe benchmark dataset zip entry: {member.filename}"
                     )
@@ -120,48 +115,35 @@ def _prepare_real_benchmark_dataset(
         return _prepare_direct_real_benchmark_dataset(args, dataset_dir, outdir, spec)
 
     zip_path = _real_dataset_zip_path(args, outdir)
-    expected_sha256 = _normalized_dataset_sha256(args)
-    if expected_sha256:
-        _verify_sha256(zip_path, expected_sha256)
-
     extract_dir = dataset_dir / "real"
     _extract_zip_safely(zip_path, extract_dir)
     return _load_real_benchmark_dataset(extract_dir)
 
 
-def _matching_ref_contig(ref_path: Path, chrom: str) -> str | None:
-    fai_path = Path(str(ref_path) + ".fai")
-    if not fai_path.exists():
-        return None
-    contigs = [contig for contig, _length in _read_fai(fai_path)]
-    if chrom in contigs:
-        return chrom
-    if chrom.startswith("chr"):
-        without_chr = chrom[3:]
-        if without_chr in contigs:
-            return without_chr
-    else:
-        with_chr = f"chr{chrom}"
-        if with_chr in contigs:
-            return with_chr
-    aliases = {
-        "M": ("MT", "chrM", "chrMT"),
-        "MT": ("M", "chrM", "chrMT"),
-        "chrM": ("MT", "M", "chrMT"),
-        "chrMT": ("MT", "M", "chrM"),
-    }
-    for alias in aliases.get(chrom, ()):
-        if alias in contigs:
-            return alias
-    return None
-
-
-def _normalize_region_for_ref(region: str | None, ref_path: Path) -> str | None:
+def _rename_region_contig(
+    region: str | None, rename: Callable[[str], str]
+) -> str | None:
     if not region:
         return None
     chrom, sep, range_part = region.partition(":")
-    normalized_chrom = _matching_ref_contig(ref_path, chrom) or chrom
-    return f"{normalized_chrom}:{range_part}" if sep else normalized_chrom
+    return f"{rename(chrom)}{sep}{range_part}"
+
+
+def _normalize_region_for_ref(region: str | None, ref_path: Path) -> str | None:
+    """Rewrite the region's contig to the reference's naming (chr20 vs 20, chrM vs MT)."""
+    fai_path = Path(str(ref_path) + ".fai")
+    if not fai_path.exists():
+        return region
+    contigs = {contig for contig, _length in _read_fai(fai_path)}
+
+    def rename(chrom: str) -> str:
+        return next((a for a in chromosome_aliases(chrom) if a in contigs), chrom)
+
+    return _rename_region_contig(region, rename)
+
+
+def _normalize_region_for_fake_data(region: str | None, build: str) -> str | None:
+    return _rename_region_contig(region, lambda c: fake_contig_name(c, build))
 
 
 def _print_progress_header() -> None:
@@ -290,20 +272,9 @@ def _first_matching_line(output: str | None, prefix: str) -> str | None:
 def _first_value_line(output: str | None) -> str | None:
     if not output:
         return None
-    values: list[str] = []
-    for line in output.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if "=" in stripped:
-            _key, _sep, value = stripped.partition("=")
-            if value.strip():
-                values.append(value.strip())
-        elif not stripped.lower().startswith(
-            ("model", "speed", "mediatype", "interfacetype")
-        ):
-            values.append(stripped)
-    return ", ".join(values[:3]) if values else None
+    values = dict.fromkeys(line.strip() for line in output.splitlines())
+    values.pop("", None)
+    return ", ".join(list(values)[:3]) or None
 
 
 def _command_output(
@@ -329,13 +300,29 @@ def _command_output(
     return output or None
 
 
+def _windows_cim_values(class_name: str, expression: str) -> str | None:
+    """Query WMI through PowerShell CIM (wmic is removed from recent Windows 11)."""
+    return _command_output(
+        [
+            "powershell",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            f"Get-CimInstance {class_name} | ForEach-Object {{ {expression} }}",
+        ],
+        first_value=True,
+    )
+
+
 def _cpu_model() -> str | None:
     system = platform.system()
     if system == "Darwin":
         return _command_output(["sysctl", "-n", "machdep.cpu.brand_string"])
     if system == "Windows":
-        return platform.processor() or _command_output(
-            ["wmic", "cpu", "get", "Name", "/value"]
+        return (
+            _windows_cim_values("Win32_Processor", "$_.Name")
+            or platform.processor()
+            or None
         )
     if system == "Linux":
         return _linux_cpu_model()
@@ -348,9 +335,8 @@ def _ram_speed() -> str | None:
         speed = _command_output(["system_profiler", "SPMemoryDataType"])
         return _first_matching_line(speed, "Speed:")
     if system == "Windows":
-        return _command_output(
-            ["wmic", "memorychip", "get", "Speed", "/value"], first_value=True
-        )
+        speed = _windows_cim_values("Win32_PhysicalMemory", "$_.Speed")
+        return f"{speed} MT/s" if speed else None
     if system == "Linux":
         return _command_output(["dmidecode", "-t", "memory"], match="Speed:")
     return None

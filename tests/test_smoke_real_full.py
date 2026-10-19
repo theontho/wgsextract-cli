@@ -1,16 +1,22 @@
 from __future__ import annotations
 
-import os
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cache
 from pathlib import Path
 
 import pytest
 
-from tests.smoke_utils import check_tool, run_cli, verify_bam, verify_fastq, verify_vcf
+from tests.smoke_utils import (
+    REPO_ROOT,
+    check_tool,
+    run_cli,
+    verify_bam,
+    verify_fastq,
+    verify_vcf,
+)
 from wgsextract_cli.core.config import settings
-from wgsextract_cli.core.microarray_utils import _resolve_templates_root
+from wgsextract_cli.core.microarray_utils import _resolve_templates_roots
 
 
 @dataclass(frozen=True)
@@ -22,6 +28,8 @@ class RealDataset:
     fastq_r1: Path | None
     fastq_r2: Path | None
     cram: Path | None
+    region: str | None = None
+    cnv_map: Path | None = None
 
 
 def _existing_path(value: str | None) -> Path | None:
@@ -45,8 +53,8 @@ def _first_existing_recursive(root: Path, patterns: list[str]) -> Path | None:
 
 def _latest_benchmark_dataset() -> Path | None:
     run_roots = [
-        Path("out/ci-real-data/benchmark/runs"),
-        Path("out/benchmark/runs"),
+        REPO_ROOT / "out" / "ci-real-data" / "benchmark" / "runs",
+        REPO_ROOT / "out" / "benchmark" / "runs",
     ]
     candidates: list[Path] = []
     for root in run_roots:
@@ -60,10 +68,10 @@ def _latest_benchmark_dataset() -> Path | None:
     return max(existing, key=lambda path: path.stat().st_mtime)
 
 
-def _dataset_from_env() -> RealDataset | None:
-    bam = _existing_path(os.environ.get("WGSE_INPUT"))
-    vcf = _existing_path(os.environ.get("WGSE_INPUT_VCF"))
-    ref = _existing_path(os.environ.get("WGSE_REF"))
+def _dataset_from_options(config: pytest.Config) -> RealDataset | None:
+    bam = _existing_path(config.getoption("real_input"))
+    vcf = _existing_path(config.getoption("real_vcf"))
+    ref = _existing_path(config.getoption("real_ref"))
     if not bam or not vcf or not ref:
         return None
 
@@ -71,9 +79,9 @@ def _dataset_from_env() -> RealDataset | None:
         bam=bam,
         vcf=vcf,
         ref=ref,
-        target_tab=_existing_path(os.environ.get("WGSE_REF_VCF_TAB")),
-        fastq_r1=_existing_path(os.environ.get("WGSE_FASTQ_R1")),
-        fastq_r2=_existing_path(os.environ.get("WGSE_FASTQ_R2")),
+        target_tab=_existing_path(config.getoption("real_targets")),
+        fastq_r1=_existing_path(config.getoption("real_fastq_r1")),
+        fastq_r2=_existing_path(config.getoption("real_fastq_r2")),
         cram=bam if bam.suffix == ".cram" else None,
     )
 
@@ -146,17 +154,23 @@ def _dataset_from_benchmark_cache() -> RealDataset | None:
 
 
 @pytest.fixture(scope="session")
-def real_dataset() -> RealDataset:
+def real_dataset(pytestconfig: pytest.Config) -> RealDataset:
     dataset = (
-        _dataset_from_env() or _dataset_from_config() or _dataset_from_benchmark_cache()
+        _dataset_from_options(pytestconfig)
+        or _dataset_from_config()
+        or _dataset_from_benchmark_cache()
     )
     if dataset is None:
         pytest.skip(
-            "real smoke data not configured; set WGSE_INPUT/WGSE_INPUT_VCF/WGSE_REF, "
+            "real smoke data not configured; pass --real-input/--real-vcf/--real-ref, "
             "enable real_genome_tests_enabled with real_genome_test_path in the CLI "
             "config.toml, or run the real benchmark smoke first"
         )
-    return dataset
+    return replace(
+        dataset,
+        region=pytestconfig.getoption("real_region"),
+        cnv_map=_existing_path(pytestconfig.getoption("cnv_map")),
+    )
 
 
 def _run_ok(args: list[str]) -> tuple[str, str]:
@@ -207,14 +221,13 @@ def _reference_contigs(ref: Path) -> list[str]:
     return contigs
 
 
-def _reference_region(ref: Path, *preferred: str) -> str:
-    override = os.environ.get("WGSE_REGION")
-    if override:
-        return override
+def _reference_region(dataset: RealDataset, *preferred: str) -> str:
+    if dataset.region:
+        return dataset.region
 
-    contigs = _reference_contigs(ref)
+    contigs = _reference_contigs(dataset.ref)
     if not contigs:
-        pytest.skip(f"reference index missing for {ref}")
+        pytest.skip(f"reference index missing for {dataset.ref}")
 
     for contig in preferred:
         if contig in contigs:
@@ -230,7 +243,7 @@ def _target_tab(dataset: RealDataset) -> Path:
         matches = sorted(root.glob("*.targets.tab.gz"))
         if matches:
             return matches[0]
-    pytest.skip("microarray target tab not found; set WGSE_REF_VCF_TAB")
+    pytest.skip("microarray target tab not found; pass --real-targets")
 
 
 def _microarray_template_roots(dataset: RealDataset) -> list[str]:
@@ -260,7 +273,7 @@ def test_microarray_template_roots_search_reference_directory(tmp_path: Path) ->
 
 
 def _require_microarray_templates(dataset: RealDataset) -> None:
-    if not _resolve_templates_root(_microarray_template_roots(dataset)):
+    if not _resolve_templates_roots(_microarray_template_roots(dataset)):
         pytest.skip("microarray raw_file_templates not available for real smoke data")
 
 
@@ -328,9 +341,7 @@ def _tool_unusable(tool: str, *args: str) -> bool:
 
 
 def test_real_vcf_trio(real_dataset: RealDataset, tmp_path: Path) -> None:
-    child = _existing_path(os.environ.get("WGSE_VCF_CHILD")) or real_dataset.vcf
-    mother = _existing_path(os.environ.get("WGSE_VCF_MOTHER")) or real_dataset.vcf
-    father = _existing_path(os.environ.get("WGSE_VCF_FATHER")) or real_dataset.vcf
+    child = mother = father = real_dataset.vcf
 
     _run_ok(
         [
@@ -429,7 +440,7 @@ def test_real_fastq_alignment(real_dataset: RealDataset, tmp_path: Path) -> None
 
 @pytest.mark.skipif(not check_tool("freebayes"), reason="freebayes missing")
 def test_real_variant_calling(real_dataset: RealDataset, tmp_path: Path) -> None:
-    region = _reference_region(real_dataset.ref, "20", "chr20", "MT", "chrM")
+    region = _reference_region(real_dataset, "20", "chr20", "MT", "chrM")
 
     _run_ok(
         [
@@ -488,7 +499,7 @@ def test_real_variant_calling(real_dataset: RealDataset, tmp_path: Path) -> None
 
 
 def _delly_region(real_dataset: RealDataset) -> str:
-    region = _reference_region(real_dataset.ref, "20", "chr20", "Y", "chrY")
+    region = _reference_region(real_dataset, "20", "chr20", "Y", "chrY")
     if _samtools_count(real_dataset.bam, region, real_dataset.ref) < 1000:
         pytest.skip(f"not enough reads in {region} for Delly library estimation")
     return region
@@ -519,9 +530,9 @@ def test_real_structural_variant_calling(
 @pytest.mark.skipif(_tool_unusable("delly", "--version"), reason="delly unavailable")
 def test_real_cnv_calling(real_dataset: RealDataset, tmp_path: Path) -> None:
     region = _delly_region(real_dataset)
-    cnv_map = _existing_path(os.environ.get("WGSE_CNV_MAP"))
+    cnv_map = real_dataset.cnv_map
     if not cnv_map:
-        pytest.skip("WGSE_CNV_MAP not configured")
+        pytest.skip("CNV mappability map not configured; pass --cnv-map")
 
     _run_ok(
         [
@@ -609,9 +620,7 @@ def test_real_y_lineage(real_dataset: RealDataset, tmp_path: Path) -> None:
             str(tmp_path),
         ]
     )
-    assert (tmp_path / "hg_prediction.hg").exists() or list(
-        tmp_path.glob("**/*_Final_Report.txt")
-    )
+    assert (tmp_path / "yleaf" / "hg_prediction.hg").exists()
 
 
 @pytest.mark.skipif(not check_tool("vep"), reason="vep missing")
@@ -632,7 +641,7 @@ def test_real_vep(real_dataset: RealDataset, tmp_path: Path) -> None:
             "--vep-cache",
             str(vep_cache),
             "--vep-assembly",
-            os.environ.get("WGSE_VEP_ASSEMBLY", "GRCh38"),
+            "GRCh38",
         ]
     )
     assert verify_vcf(str(_single_file(tmp_path, "*vep*.vcf.gz")), allow_empty=True)

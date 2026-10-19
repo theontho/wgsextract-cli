@@ -1,4 +1,10 @@
+import sys
 from pathlib import Path
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -69,7 +75,7 @@ def test_pacman_setup_can_build_and_install_samblaster_and_fastp_assets() -> Non
     assert "wgsextract-fastp-$FastpVersion-windows-ucrt64.zip" in script
     assert "Building samblaster $SamblasterVersion for MSYS2 UCRT64" in script
     assert "Building fastp $FastpVersion for MSYS2 UCRT64" in script
-    assert 'SamblasterVersion -notmatch \'\\.(\\d+)$\'' in script
+    assert "SamblasterVersion -notmatch '\\.(\\d+)$'" in script
     assert "BUILDNUM=$samblasterBuildNumber" in script
     assert "BUILDNUM=26" not in script
     assert "struct _stat64 status;" in script
@@ -139,14 +145,22 @@ def test_windows_installer_persists_hybrid_runtime() -> None:
     assert "Runtime defaults were set to windows" in installer
 
 
-def test_pixi_declares_native_windows_optional_tools() -> None:
-    pixi = (ROOT / "pixi.toml").read_text(encoding="utf-8")
+def _pixi_feature_deps(feature: str, platform: str) -> dict[str, object]:
+    """Conda deps a Pixi feature declares for a platform (feature-wide + targets)."""
+    manifest = tomllib.loads((ROOT / "pixi.toml").read_text(encoding="utf-8"))
+    table = manifest["feature"][feature]
+    selectors = {platform, "unix" if not platform.startswith("win") else "win"}
+    deps = dict(table.get("dependencies", {}))
+    for selector, target in table.get("target", {}).items():
+        if selector in selectors:
+            deps.update(target.get("dependencies", {}))
+    return deps
 
-    assert "[feature.gatk.target.win-64.dependencies]" in pixi
-    assert 'gatk4 = ">=4.5.0.0"' in pixi
-    assert "[feature.bio-tools.target.win-64.dependencies]" in pixi
-    assert 'fastqc = ">=0.12.1"' in pixi
-    assert 'haplogrep = ">=2.4.0"' in pixi
+
+def test_pixi_declares_native_windows_optional_tools() -> None:
+    assert "gatk4" in _pixi_feature_deps("gatk", "win-64")
+    bio_tools = _pixi_feature_deps("bio-tools", "win-64")
+    assert {"fastqc", "haplogrep"} <= set(bio_tools)
 
 
 def test_pixi_installs_runnable_yleaf_from_upstream_package_data_source() -> None:
@@ -158,8 +172,11 @@ def test_pixi_installs_runnable_yleaf_from_upstream_package_data_source() -> Non
     )
 
 
-def test_pixi_declares_vep_for_macos_arm64_alt_env() -> None:
-    pixi = (ROOT / "pixi.toml").read_text(encoding="utf-8")
-
-    assert "[feature.vep.target.osx-arm64.dependencies]" in pixi
-    assert 'ensembl-vep = ">=110"' in pixi
+def test_pixi_vep_runs_apple_silicon_through_rosetta() -> None:
+    # osx-arm64's libdb is an x86_64 binary, so VEP's DB_File segfaults natively;
+    # excluding osx-arm64 makes Pixi fall back to the osx-64 env under Rosetta.
+    manifest = tomllib.loads((ROOT / "pixi.toml").read_text(encoding="utf-8"))
+    platforms = manifest["feature"]["vep"]["platforms"]
+    assert "osx-arm64" not in platforms
+    assert "osx-64" in platforms
+    assert "ensembl-vep" in _pixi_feature_deps("vep", "osx-64")

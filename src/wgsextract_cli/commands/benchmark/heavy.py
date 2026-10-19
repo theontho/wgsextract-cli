@@ -2,12 +2,17 @@ import argparse
 from collections.abc import Callable
 from pathlib import Path
 
+from wgsextract_cli.core.reference_assets import input_stem
 from wgsextract_cli.core.runtime import default_thread_tuning_profile
 
+from .bam_helpers import (
+    _assert_bam_unindexed,
+    _copied_bam_index_path,
+    _copy_bam_with_index,
+)
 from .execution import (
     _missing_optional_tool_result,
     _run_cli_step,
-    _run_heavy_reference_and_bam_steps,
     _run_internal_step,
     _skipped_result,
 )
@@ -29,6 +34,160 @@ from .qc import (
     _benchmark_tool_available,
     _run_heavy_coverage_extract_and_qc_steps,
 )
+
+
+def _run_heavy_reference_and_bam_steps(
+    *,
+    args: argparse.Namespace,
+    record: Callable[[BenchmarkResult], BenchmarkResult],
+    analysis_bam: Path,
+    ref_path: Path,
+    steps_dir: Path,
+    logs_dir: Path,
+) -> None:
+    ref_count_dir = steps_dir / "ref-count-ns"
+    record(
+        _run_cli_step(
+            args,
+            name="Reference N-base counting",
+            slug="12a-ref-count-ns",
+            command_args=[
+                "ref",
+                "count-ns",
+                "--ref",
+                str(ref_path),
+                "--outdir",
+                str(ref_count_dir),
+            ],
+            output_dir=ref_count_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[],
+        )
+    )
+
+    ref_verify_dir = steps_dir / "ref-verify"
+    record(
+        _run_cli_step(
+            args,
+            name="Reference integrity verification",
+            slug="12b-ref-verify",
+            command_args=[
+                "ref",
+                "verify",
+                "--ref",
+                str(ref_path),
+                "--outdir",
+                str(ref_verify_dir),
+            ],
+            output_dir=ref_verify_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[Path(str(ref_path) + ".fai")],
+        )
+    )
+
+    identify_dir = steps_dir / "bam-identify"
+    record(
+        _run_cli_step(
+            args,
+            name="BAM reference identification",
+            slug="12c-bam-identify",
+            command_args=[
+                "bam",
+                "identify",
+                "--input",
+                str(analysis_bam),
+                "--ref",
+                str(ref_path),
+                "--outdir",
+                str(identify_dir),
+            ],
+            output_dir=identify_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[],
+        )
+    )
+
+    index_dir = steps_dir / "bam-index-cycle"
+    index_fixture = index_dir / "benchmark_index_fixture.bam"
+    record(
+        _run_internal_step(
+            name="Prepare BAM index benchmark fixture",
+            slug="12d-bam-index-fixture",
+            output_dir=index_dir,
+            func=lambda: _copy_bam_with_index(analysis_bam, index_fixture),
+            expected_outputs=[
+                index_fixture,
+                _copied_bam_index_path(analysis_bam, index_fixture),
+            ],
+        )
+    )
+    record(
+        _run_cli_step(
+            args,
+            name="BAM index removal",
+            slug="12e-bam-unindex",
+            command_args=[
+                "bam",
+                "unindex",
+                "--input",
+                str(index_fixture),
+                "--outdir",
+                str(index_dir),
+            ],
+            output_dir=index_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[index_fixture],
+        )
+    )
+    record(
+        _run_internal_step(
+            name="Verify BAM index removal",
+            slug="12f-bam-unindex-verify",
+            output_dir=index_dir,
+            func=lambda: _assert_bam_unindexed(index_fixture),
+            expected_outputs=[index_fixture],
+        )
+    )
+    record(
+        _run_cli_step(
+            args,
+            name="BAM index creation",
+            slug="12g-bam-index",
+            command_args=[
+                "bam",
+                "index",
+                "--input",
+                str(index_fixture),
+                "--outdir",
+                str(index_dir),
+            ],
+            output_dir=index_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[Path(str(index_fixture) + ".bai")],
+        )
+    )
+
+    unsort_dir = steps_dir / "bam-unsort"
+    record(
+        _run_cli_step(
+            args,
+            name="BAM header unsort conversion",
+            slug="12h-bam-unsort",
+            command_args=[
+                "bam",
+                "unsort",
+                "--input",
+                str(analysis_bam),
+                "--ref",
+                str(ref_path),
+                "--outdir",
+                str(unsort_dir),
+            ],
+            output_dir=unsort_dir,
+            logs_dir=logs_dir,
+            expected_outputs=[unsort_dir / f"{analysis_bam.stem}_unsorted.bam"],
+        )
+    )
 
 
 def _run_heavy_vcf_analysis_and_repair_steps(
@@ -289,7 +448,6 @@ def _run_heavy_processing_steps(
     args: argparse.Namespace,
     record: Callable[[BenchmarkResult], BenchmarkResult],
     analysis_bam: Path,
-    generated_bam: Path,
     ref_path: Path,
     target_tab_gz: Path,
     snp_vcf: Path,
@@ -297,11 +455,10 @@ def _run_heavy_processing_steps(
     unalign_r2: Path,
     steps_dir: Path,
     logs_dir: Path,
-    build: str,
     region: str | None,
 ) -> None:
-    del generated_bam, build
-    base_name = analysis_bam.name.split(".")[0]
+    # The stem the commands name their outputs after.
+    base_name = input_stem(str(analysis_bam))
     heavy_region = region or _default_heavy_region(ref_path)
     command_region = _command_region(region, ref_path)
     command_chrom = _chrom_only_region(command_region)
@@ -352,13 +509,8 @@ def _benchmark_root(args: argparse.Namespace) -> Path:
 def _benchmark_thread_plan(args: argparse.Namespace) -> BenchmarkThreadPlan:
     if getattr(args, "threads", None) is not None:
         return BenchmarkThreadPlan(
-            str(args.threads), int(args.threads), {}, "explicit --threads override"
+            str(args.threads), int(args.threads), "explicit --threads override"
         )
 
     tuning = default_thread_tuning_profile()
-    return BenchmarkThreadPlan(tuning.label, tuning.threads, {}, tuning.reason)
-
-
-def _verified_checksum_path(path: Path, checksum: str | None) -> Path:
-    suffix = checksum.lower().strip() if checksum else "unchecked"
-    return path.with_name(f".{path.name}.{suffix}.verified")
+    return BenchmarkThreadPlan(tuning.label, tuning.threads, tuning.reason)

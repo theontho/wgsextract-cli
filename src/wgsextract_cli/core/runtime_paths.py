@@ -67,12 +67,6 @@ def windows_runtime_path(path: str) -> str:
     return str(Path(path).expanduser()).replace("\\", "/")
 
 
-def bundled_runtime_path(mode: str) -> str:
-    return ":".join(
-        windows_runtime_path(str(path)) for path in bundled_runtime_path_entries(mode)
-    )
-
-
 def bundled_runtime_shell_path(mode: str) -> str:
     spec = bundled_runtime_spec(mode)
     return ":".join(
@@ -95,37 +89,15 @@ def pacman_ucrt64_bin_dirs() -> list[Path]:
     except (ImportError, AttributeError):
         logging.debug("Pacman UCRT64 bin setting could not be read.", exc_info=True)
 
-    candidates: list[Path | None] = [
-        Path(path).expanduser() for path in configured_paths
-    ]
-    candidates.extend(
-        [
-            Path(os.environ.get("MSYS2_ROOT", "")) / "ucrt64" / "bin"
-            if os.environ.get("MSYS2_ROOT")
-            else None,
-            Path("C:/msys64/ucrt64/bin"),
-            Path(os.environ.get("LOCALAPPDATA", ""))
-            / "Programs"
-            / "msys64"
-            / "ucrt64"
-            / "bin"
-            if os.environ.get("LOCALAPPDATA")
-            else None,
-        ]
-    )
-
-    seen: set[str] = set()
-    result: list[Path] = []
-    for candidate in candidates:
-        if candidate is None:
-            continue
-        normalized = candidate.resolve() if candidate.exists() else candidate
-        key = str(normalized).lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(normalized)
-    return result
+    candidates = [Path(path).expanduser() for path in configured_paths]
+    if msys2_root := os.environ.get("MSYS2_ROOT"):
+        candidates.append(Path(msys2_root) / "ucrt64" / "bin")
+    candidates.append(Path("C:/msys64/ucrt64/bin"))
+    if local_app_data := os.environ.get("LOCALAPPDATA"):
+        candidates.append(
+            Path(local_app_data) / "Programs" / "msys64" / "ucrt64" / "bin"
+        )
+    return _dedupe_paths(candidates)
 
 
 def _dedupe_paths(paths: list[Path]) -> list[Path]:
@@ -199,11 +171,6 @@ def pacman_tool_path(command: str) -> str | None:
     return None
 
 
-@lru_cache(maxsize=512)
-def pacman_tool_available(command: str) -> bool:
-    return pacman_tool_path(command) is not None
-
-
 def _bundled_shell_prelude(mode: str) -> str:
     spec = bundled_runtime_spec(mode)
     exports = [f"export {assignment}" for assignment in spec.shell_exports]
@@ -253,9 +220,11 @@ def bundled_command_available(mode: str, command: str) -> bool:
     return result.returncode == 0
 
 
+# Callers have already decided WSL is in play, so availability probes skip the
+# runtime-mode policy check (force=True).
 @lru_cache(maxsize=256)
 def wsl_command_available(command: str) -> bool:
-    if not detect_wsl_available():
+    if not detect_wsl_available(force=True):
         return False
 
     try:
@@ -272,7 +241,7 @@ def wsl_command_available(command: str) -> bool:
 
 @lru_cache(maxsize=256)
 def wsl_pixi_tool_available(tool: str, env: str) -> bool:
-    if not detect_wsl_available():
+    if not detect_wsl_available(force=True):
         return False
 
     quoted_tool = shlex.quote(tool)
@@ -303,7 +272,7 @@ def windows_to_wsl_path(path: str) -> str:
     if not _WINDOWS_ABS_RE.match(normalized):
         return path
 
-    if detect_wsl_available():
+    if detect_wsl_available(force=True):
         try:
             result = subprocess.run(
                 ["wsl", "wslpath", "-a", "-u", normalized],
@@ -352,3 +321,17 @@ def translate_wsl_arg(arg: str) -> str:
 
 def translate_wsl_args(args: list[str]) -> list[str]:
     return [translate_wsl_arg(arg) for arg in args]
+
+
+def clear_caches() -> None:
+    """Drop cached runtime probes; they depend on config and installed tools."""
+    for cached in (
+        detect_wsl_available,
+        pacman_tool_path,
+        detect_bundled_runtime_available,
+        bundled_command_available,
+        wsl_command_available,
+        wsl_pixi_tool_available,
+        windows_to_wsl_path,
+    ):
+        cached.cache_clear()

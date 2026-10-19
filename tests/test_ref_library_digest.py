@@ -1,12 +1,11 @@
 import hashlib
 import json
 import logging
-import zipfile
 from pathlib import Path
 
 import pytest
 
-from wgsextract_cli.core import constants, download_progress, ref_library
+from wgsextract_cli.core import download_progress, ref_library
 
 
 class _FakeResponse:
@@ -61,7 +60,9 @@ def _asset_payload(name: str, digest: str) -> dict:
 
 @pytest.fixture(autouse=True)
 def disable_dev_download_cache(monkeypatch):
-    monkeypatch.setenv("WGSEXTRACT_DEV_DOWNLOAD_CACHE", "0")
+    from wgsextract_cli.core.config import settings
+
+    monkeypatch.setitem(settings, "dev_download_cache", False)
 
 
 def test_resolve_github_release_asset_sha256_tagged_url(monkeypatch):
@@ -74,7 +75,7 @@ def test_resolve_github_release_asset_sha256_tagged_url(monkeypatch):
 
     monkeypatch.setattr(ref_library.downloads, "urlopen", fake_urlopen)
 
-    resolved = ref_library.resolve_github_release_asset_sha256(
+    resolved = ref_library.downloads.resolve_github_release_asset_sha256(
         "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz"
     )
 
@@ -96,7 +97,7 @@ def test_resolve_github_release_asset_sha256_latest_url(monkeypatch):
 
     monkeypatch.setattr(ref_library.downloads, "urlopen", fake_urlopen)
 
-    resolved = ref_library.resolve_github_release_asset_sha256(
+    resolved = ref_library.downloads.resolve_github_release_asset_sha256(
         "https://github.com/theontho/wgsextract-cli/releases/latest/download/wgsextract-reference-bootstrap.tar.gz"
     )
 
@@ -122,7 +123,7 @@ def test_download_file_verifies_github_release_asset_digest(tmp_path, monkeypatc
     monkeypatch.setattr(ref_library.downloads, "urlopen", fake_urlopen)
     monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
 
-    assert ref_library.download_file(
+    assert ref_library.downloads.download_file(
         "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
         str(dest),
     )
@@ -148,7 +149,7 @@ def test_download_file_resume_keeps_curl_output_argument_order(tmp_path, monkeyp
         ref_library.downloads, "resolve_github_release_asset_sha256", lambda url: None
     )
 
-    assert ref_library.download_file(
+    assert ref_library.downloads.download_file(
         "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
         str(dest),
     )
@@ -156,6 +157,7 @@ def test_download_file_resume_keeps_curl_output_argument_order(tmp_path, monkeyp
         [
             "curl",
             "-L",
+            "--fail",
             "--progress-bar",
             "-C",
             "-",
@@ -188,7 +190,7 @@ def test_download_file_uses_logged_progress_when_stderr_is_not_tty(
 
     caplog.set_level(logging.INFO)
 
-    assert ref_library.download_file(
+    assert ref_library.downloads.download_file(
         "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs37.fa.gz",
         str(dest),
     )
@@ -217,7 +219,7 @@ def test_download_file_rejects_github_release_asset_digest_mismatch(
     monkeypatch.setattr(ref_library.downloads, "urlopen", fake_urlopen)
     monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
 
-    assert not ref_library.download_file(
+    assert not ref_library.downloads.download_file(
         "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
         str(dest),
     )
@@ -243,7 +245,7 @@ def test_download_file_warns_and_continues_when_github_digest_lookup_fails(
     )
     monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
 
-    assert ref_library.download_file(
+    assert ref_library.downloads.download_file(
         "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
         str(dest),
     )
@@ -269,46 +271,8 @@ def test_download_file_rejects_invalid_github_digest_metadata(tmp_path, monkeypa
         ref_library.downloads, "resolve_github_release_asset_sha256", fail_resolve
     )
 
-    assert not ref_library.download_file(
+    assert not ref_library.downloads.download_file(
         "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
         str(dest),
     )
     assert not dest.exists()
-
-
-def test_install_mappability_maps_extracts_mirrored_archive(tmp_path, monkeypatch):
-    reflib = tmp_path / "reference"
-    payload = tmp_path / constants.MAPPABILITY_MAP_ARCHIVE_FILENAME
-    with zipfile.ZipFile(payload, "w") as archive:
-        for file_name in constants.MAPPABILITY_MAP_FILES:
-            archive.writestr(f"maps/{file_name}", f"contents for {file_name}")
-
-    def fake_download(url, destination, progress_callback=None, cancel_event=None):
-        assert url == constants.MAPPABILITY_MAP_ARCHIVE_URL
-        Path(destination).write_bytes(payload.read_bytes())
-        return True
-
-    monkeypatch.setattr(ref_library.catalog, "download_file", fake_download)
-    monkeypatch.setattr(
-        ref_library.catalog, "verify_download_sha256", lambda path, sha: True
-    )
-
-    assert ref_library.install_mappability_maps(str(reflib))
-    for file_name in constants.MAPPABILITY_MAP_FILES:
-        assert (reflib / "maps" / file_name).read_text() == f"contents for {file_name}"
-    assert not (reflib / constants.MAPPABILITY_MAP_ARCHIVE_FILENAME).exists()
-
-
-def test_install_mappability_maps_skips_when_complete(tmp_path, monkeypatch):
-    reflib = tmp_path / "reference"
-    maps_dir = reflib / "maps"
-    maps_dir.mkdir(parents=True)
-    for file_name in constants.MAPPABILITY_MAP_FILES:
-        (maps_dir / file_name).write_text("already installed")
-
-    def fail_download(*args, **kwargs):
-        raise AssertionError("complete mappability map set should not be downloaded")
-
-    monkeypatch.setattr(ref_library.catalog, "download_file", fail_download)
-
-    assert ref_library.install_mappability_maps(str(reflib))

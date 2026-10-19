@@ -1,8 +1,10 @@
 import ctypes
+import json
 import os
 import shlex
 import shutil
 import subprocess
+import sys
 from functools import lru_cache
 from pathlib import Path
 
@@ -55,10 +57,13 @@ PIXI_TOOL_ENVS = {
     "yleaf": "default",
     "vep": "vep",
     "run_deepvariant": "deepvariant",
+    "dv_make_examples.py": "deepvariant",
+    "dv_call_variants.py": "deepvariant",
+    "dv_postprocess_variants.py": "deepvariant",
     "haplogrep": "default",
-    "gatk": "default",
+    "gatk": "gatk",
     "delly": "default",
-    "freebayes": "default",
+    "freebayes": "freebayes",
     "samtools": "default",
     "bcftools": "default",
     "bgzip": "default",
@@ -123,9 +128,17 @@ def required_dependency_tools(include_python: bool = True) -> list[str]:
     return [tool for tool in MANDATORY_TOOLS if tool != "python3"]
 
 
+# Optional tools the CLI only uses on some platforms (sys.platform prefixes).
+PLATFORM_ONLY_TOOLS = {"sambamba": ("linux",)}
+
+
 def optional_dependency_tools() -> list[str]:
-    """Return the centrally-defined optional dependency tools."""
-    return list(OPTIONAL_TOOLS)
+    """Return the optional dependency tools that apply to this platform."""
+    return [
+        tool
+        for tool in OPTIONAL_TOOLS
+        if sys.platform.startswith(PLATFORM_ONLY_TOOLS.get(tool, ("",)))
+    ]
 
 
 def _version_output(stdout: str, stderr: str) -> str:
@@ -235,45 +248,24 @@ def _is_pixi_environment_active() -> bool:
 
 
 def _is_relative_to(path: str, parent: str) -> bool:
+    # resolve() can fail on broken Windows paths or symlink loops.
     try:
         return Path(path).resolve().is_relative_to(Path(parent).resolve())
-    except (OSError, RuntimeError, ValueError):
+    except (OSError, RuntimeError):
         return False
-
-
-def get_repo_root() -> str:
-    """
-    Attempts to find the repository root by looking for common markers.
-    Defaults to 4 levels up from this file if no markers are found.
-    """
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    # Check for pyproject.toml or .git in parents
-    probe = current_dir
-    while probe != os.path.dirname(probe):  # stop at filesystem root
-        if os.path.exists(os.path.join(probe, "pyproject.toml")) or os.path.exists(
-            os.path.join(probe, ".git")
-        ):
-            # If we found it in 'cli/', the real repo root is one level up
-            return probe
-        probe = os.path.dirname(probe)
-
-    # Fallback to hardcoded relative path if markers not found
-    return os.path.abspath(os.path.join(current_dir, "../../../.."))
 
 
 def get_jar_dir() -> str:
     """Returns the directory where JAR tools are expected to live."""
-    # Allow override via environment variable or config
     from wgsextract_cli.core.config import settings
 
-    env_path = settings.get("jar_directory")
-    if env_path and isinstance(env_path, str):
-        expanded_path = os.path.expanduser(str(env_path))
+    configured = settings.get("jar_directory")
+    if configured and isinstance(configured, str):
+        expanded_path = os.path.expanduser(configured)
         if os.path.isdir(expanded_path):
             return expanded_path
 
-    path: str = os.path.join(str(get_repo_root()), "jartools")
-    return path
+    return str(runtime.repo_root() / "jartools")
 
 
 def _candidate_bundled_runtime_modes(runtime_mode: str) -> tuple[str, ...]:
@@ -285,6 +277,20 @@ def _candidate_bundled_runtime_modes(runtime_mode: str) -> tuple[str, ...]:
 
 
 def _resolve_pixi_command() -> str | None:
+    # The pixi running this process (it exports PIXI_EXE into its environments),
+    # then the install's own embedded pixi, before anything on PATH: a system or
+    # Homebrew pixi may be a different version with different global config.
+    candidates = [os.environ.get("PIXI_EXE")]
+    root = runtime.source_checkout_root()
+    # Only an install.sh install has its own pixi beside app/ (marked by its
+    # manifest); next to a plain checkout that path is the user's ~/.pixi.
+    if root is not None and (root.parent / "install-manifest.json").is_file():
+        exe = "pixi.exe" if runtime.is_windows_host() else "pixi"
+        candidates.append(str(root.parent / ".pixi" / "bin" / exe))
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate):
+            return candidate
+
     pixi_cmd = shutil.which("pixi")
     if pixi_cmd:
         return pixi_cmd
@@ -301,11 +307,50 @@ def _resolve_pixi_command() -> str | None:
     return None
 
 
+def _pixi_manifest_args() -> list[str]:
+    """Point pixi at this app's manifest; the CLI may run from any directory."""
+    root = runtime.source_checkout_root()
+    if root and (root / "pixi.toml").is_file():
+        return ["--manifest-path", str(root / "pixi.toml")]
+    return []
+
+
+# Conda package that provides a tool in its Pixi environment, when the names differ.
+PIXI_TOOL_PACKAGES = {
+    "gatk": "gatk4",
+    "vep": "ensembl-vep",
+    "run_deepvariant": "deepvariant",
+    "dv_make_examples.py": "deepvariant",
+    "dv_call_variants.py": "deepvariant",
+    "dv_postprocess_variants.py": "deepvariant",
+}
+
+
+def _locked_package_available(pixi_cmd: str, env: str, tool: str) -> bool:
+    """Whether the lockfile gives this platform's `env` the package providing `tool`.
+
+    Reads the lockfile only, so nothing is downloaded just to answer `deps check`.
+    """
+    try:
+        result = subprocess.run(
+            [pixi_cmd, "list", *_pixi_manifest_args(), "-e", env, "--no-install"]
+            + ["--json"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        packages = json.loads(result.stdout) if result.returncode == 0 else []
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    package = PIXI_TOOL_PACKAGES.get(tool, tool)
+    return any(entry.get("name") == package for entry in packages)
+
+
 def _pixi_run_command(pixi_cmd: str, env: str, args: list[str]) -> str:
-    command = [pixi_cmd, "run", "-e", env, *args]
+    command = [pixi_cmd, "run", *_pixi_manifest_args(), "-e", env, *args]
     if runtime.is_windows_host():
         return subprocess.list2cmdline(command)
-    return " ".join(shlex.quote(part) for part in command)
+    return shlex.join(command)
 
 
 def _tool_executable_names(tool: str) -> tuple[str, ...]:
@@ -332,6 +377,7 @@ def _host_pixi_tool_command(tool: str) -> str | None:
     probe = r"""
 import shutil
 import sys
+import logging
 import os
 from pathlib import Path
 
@@ -360,7 +406,19 @@ raise SystemExit(1)
     executable_names = _tool_executable_names(tool)
     try:
         result = subprocess.run(
-            [pixi_cmd, "run", "-e", env, "python", "-c", probe, *executable_names],
+            [
+                pixi_cmd,
+                "run",
+                *_pixi_manifest_args(),
+                # Never install or update an environment just to probe it.
+                "--no-install",
+                "-e",
+                env,
+                "python",
+                "-c",
+                probe,
+                *executable_names,
+            ],
             capture_output=True,
             text=True,
             timeout=10,
@@ -369,6 +427,10 @@ raise SystemExit(1)
         return None
 
     if result.returncode != 0:
+        # An optional environment that isn't installed yet: `pixi run` installs it
+        # (with visible progress) the first time the tool is actually used.
+        if env != "default" and _locked_package_available(pixi_cmd, env, tool):
+            return _pixi_run_command(pixi_cmd, env, [executable_names[0]])
         return None
 
     output = result.stdout.strip().splitlines()
@@ -391,10 +453,23 @@ raise SystemExit(1)
     return None
 
 
-def get_tool_path(tool: str) -> str | None:
-    """Returns the path to a tool if it exists in the system PATH or pixi environments."""
-    runtime_mode = runtime.get_tool_runtime_mode()
-    should_consider_wsl = runtime.should_consider_wsl()
+def get_tool_path(tool: str, runtime_mode: str | None = None) -> str | None:
+    """Return how to invoke a tool (path or wrapper command), or None if missing.
+
+    Results are cached per process (resolution may spawn ``pixi run`` probes);
+    ``clear_tool_caches`` drops them, and config reloads call it.
+    """
+    return _resolve_tool_path(tool, runtime_mode or runtime.get_tool_runtime_mode())
+
+
+def clear_tool_caches() -> None:
+    _resolve_tool_path.cache_clear()
+    runtime_paths.clear_caches()
+
+
+@lru_cache(maxsize=256)
+def _resolve_tool_path(tool: str, runtime_mode: str) -> str | None:
+    should_consider_wsl = runtime.should_consider_wsl(runtime_mode)
     prefer_wsl = runtime_mode == "wsl"
     bundled_modes = _candidate_bundled_runtime_modes(runtime_mode)
 

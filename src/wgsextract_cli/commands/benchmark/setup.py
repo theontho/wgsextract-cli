@@ -2,9 +2,8 @@ import argparse
 from collections.abc import Callable
 from pathlib import Path
 
-from wgsextract_cli.core.builds import (
-    ploidy_for_build,
-)
+from wgsextract_cli.commands.align import reads_stem
+from wgsextract_cli.core.genome_library import pair_stem
 
 from .datasets import (
     _existing_dataset_outputs,
@@ -13,13 +12,10 @@ from .execution import (
     _run_cli_step,
     _run_internal_step,
 )
+from .fixtures import _create_target_snp_tab
 from .models import (
     BenchmarkDataset,
     BenchmarkResult,
-)
-from .reports import (
-    _align_output_stem,
-    _create_target_snp_tab,
 )
 
 
@@ -214,5 +210,6 @@ def _run_core_benchmark_setup_steps(
     return analysis_bam, unalign_r1, unalign_r2
 
 
-def _ploidy_for_build(build: str) -> str:
-    return ploidy_for_build(build)
+def _align_output_stem(fastq_path: Path) -> str:
+    # The name align gives a paired run's output, computed the way align does.
+    return pair_stem(reads_stem(str(fastq_path)))

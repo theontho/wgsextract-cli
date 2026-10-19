@@ -12,4 +12,4 @@ Do not add new environment-variable configuration. Put persistent configuration 
 
 - **Always** run `pixi run ruff check --fix {file_path}` and `pixi run ruff format {file_path}` after editing a Python file in this directory.
 - **Always** run `pixi run mypy {file_path}` (or `pixi run mypy src/wgsextract_cli`) to check for type errors before concluding a task.
-- Ensure that you are in the `cli` directory when running these commands if they are scoped to the `cli` project.
+- Run these commands from the repository root. Dev tools (ruff, mypy, pytest, pre-commit) live in the `dev` Pixi environment; `pixi run <tool>` selects it automatically.

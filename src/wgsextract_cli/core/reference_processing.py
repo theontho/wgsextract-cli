@@ -3,15 +3,21 @@ from __future__ import annotations
 import filecmp
 import logging
 import os
-import re
 import shutil
 import subprocess
 import sys
+import tarfile
+import tempfile
 from collections.abc import Callable, Mapping
+from pathlib import Path, PurePosixPath
 
 from wgsextract_cli.core.dependency_checks import verify_dependencies
-from wgsextract_cli.core.utils import WGSExtractError, run_command
-from wgsextract_cli.core.variant_files import popen
+from wgsextract_cli.core.reference_assets import (
+    fasta_prefix,
+    n_count_paths,
+    reference_dict_path,
+)
+from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
 
 from .annotation_resources import (
     GNOMAD_URLS,
@@ -21,10 +27,8 @@ from .annotation_resources import (
     ensure_bgzf,
     wait_with_cancel,
 )
-from .ref_library import (
-    download_file,
-    get_genome_status,
-)
+from .ref_library.catalog import get_genome_status
+from .ref_library.downloads import download_file
 
 _PLOIDY_TEMPLATES = {
     "GRCh37": """X 1 60000 M 1
@@ -74,7 +78,10 @@ def download_phylop(
             return False
 
         # Ensure BGZF format before indexing (Annovar mirrors are usually standard gzip)
-        dest_path = ensure_bgzf(dest_path, None, cancel_event) or dest_path
+        bgzf_path = ensure_bgzf(dest_path, None, cancel_event)
+        if bgzf_path is None:
+            return False
+        dest_path = bgzf_path
 
         # Index the TSV
         logging.info(f"Indexing PhyloP {build}...")
@@ -129,26 +136,12 @@ def download_gnomad(
 
 def delete_genome(final_name: str, reflib_dir: str) -> bool:
     base_path = os.path.join(reflib_dir, "genomes", final_name)
-    for ext in ["", ".partial", ".fai", ".gzi", ".dict"]:
-        p = base_path + ext
-        if os.path.exists(p):
-            os.remove(p)
-    prefix = re.sub(r"\.(fasta|fna|fa)\.gz$", "", base_path)
-    for ext in ["_ncnt.csv", "_nbin.csv", ".wgse"]:
-        p = prefix + ext
-        if os.path.exists(p):
-            os.remove(p)
-    return True
-
-
-def delete_ref_index(final_name: str, reflib_dir: str) -> bool:
-    """Deletes only the index and companion files for a reference genome."""
-    base_path = os.path.join(reflib_dir, "genomes", final_name)
-    # Delete index files but NOT the main genome file ("")
-    for ext in [".fai", ".gzi", ".dict"]:
-        p = base_path + ext
-        if os.path.exists(p):
-            os.remove(p)
+    paths = [base_path + ext for ext in ["", ".partial", ".fai", ".gzi", ".dict"]]
+    paths.extend([reference_dict_path(base_path), *n_count_paths(base_path)])
+    paths.append(fasta_prefix(base_path) + ".wgse")
+    for path in paths:
+        if os.path.exists(path):
+            os.remove(path)
     return True
 
 
@@ -157,22 +150,23 @@ def has_ref_ns(final_name: str, reflib_dir: str) -> bool:
     if not reflib_dir:
         return False
     base_path = os.path.join(reflib_dir, "genomes", final_name)
-    prefix = re.sub(r"\.(fasta|fna|fa)\.gz$", "", base_path)
-    for ext in ["_ncnt.csv", "_nbin.csv"]:
-        if os.path.exists(prefix + ext):
+    return any(os.path.exists(path) for path in n_count_paths(base_path))
+
+
+def _run_reference_tool(cmd: list[str], cancel_event: CancelEvent | None) -> bool:
+    """Run an indexing tool; False if cancelled, WGSExtractError with stderr on failure."""
+    with tempfile.TemporaryFile() as stderr_file:
+        process = popen(cmd, stdout=subprocess.DEVNULL, stderr=stderr_file)
+        if wait_with_cancel(process, cancel_event):
             return True
-    return False
-
-
-def delete_ref_ns(final_name: str, reflib_dir: str) -> bool:
-    """Deletes only the N-count CSV files for a reference genome."""
-    base_path = os.path.join(reflib_dir, "genomes", final_name)
-    prefix = re.sub(r"\.(fasta|fna|fa)\.gz$", "", base_path)
-    for ext in ["_ncnt.csv", "_nbin.csv"]:
-        p = prefix + ext
-        if os.path.exists(p):
-            os.remove(p)
-    return True
+        if cancel_event and cancel_event.is_set():
+            return False
+        stderr_file.seek(0)
+        stderr = stderr_file.read().decode(errors="replace").strip()
+    raise WGSExtractError(
+        f"{' '.join(cmd[:2])} failed with exit code {process.returncode}: "
+        f"{stderr[-2000:] or 'no error output'}"
+    )
 
 
 def process_reference_file(
@@ -189,29 +183,20 @@ def process_reference_file(
     if cancel_event and cancel_event.is_set():
         return False
 
-    base_name = re.sub(r"\.(fasta|fna|fa)\.gz$", "", bgzf_path)
-    dict_path = base_name + ".dict"
+    dict_path = reference_dict_path(bgzf_path)
     try:
         logging.info("Generating sequence dictionary...")
         if status_callback:
             status_callback("Processing: Generating Dictionary...")
-        p_dict = popen(
-            ["samtools", "dict", bgzf_path, "-o", dict_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        if not wait_with_cancel(p_dict, cancel_event):
+        if not _run_reference_tool(
+            ["samtools", "dict", bgzf_path, "-o", dict_path], cancel_event
+        ):
             return False
 
         logging.info("Indexing FASTA...")
         if status_callback:
             status_callback("Processing: Indexing FASTA...")
-        p_faidx = popen(
-            ["samtools", "faidx", bgzf_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        if not wait_with_cancel(p_faidx, cancel_event):
+        if not _run_reference_tool(["samtools", "faidx", bgzf_path], cancel_event):
             return False
 
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
@@ -230,12 +215,15 @@ def process_reference_file(
 def download_and_process_genome(
     genome_data: Mapping[str, str],
     reflib_dir: str,
-    interactive: bool = True,
     progress_callback: ProgressCallback | None = None,
     cancel_event: CancelEvent | None = None,
     restart: bool = False,
     status_callback: Callable[[str], None] | None = None,
 ) -> bool:
+    """Download (resuming a .partial) and index a genome; restart discards existing data.
+
+    An already-installed genome is only re-indexed unless restart is set.
+    """
     verify_dependencies(["samtools", "bgzip", "gzip"])
     target_dir = os.path.join(reflib_dir, "genomes")
     os.makedirs(target_dir, exist_ok=True)
@@ -248,24 +236,8 @@ def download_and_process_genome(
         if os.path.exists(partial_path):
             os.remove(partial_path)
 
-    status = get_genome_status(genome_data["final"], reflib_dir)
-    if status == "installed":
-        if not interactive:
-            return process_reference_file(final_path, status_callback, cancel_event)
-        print(f"\n{genome_data['final']} is already installed.")
-        choice = input("Re-download anyway? [y/N]: ").strip().lower()
-        if choice != "y":
-            return True
-        os.remove(final_path)
-    elif status == "incomplete" and interactive:
-        print(f"\n{genome_data['final']} is incomplete.")
-        choice = input("[R]esume, [D]elete, or [C]ancel? ").strip().lower()
-        if choice == "c":
-            return False
-        if choice == "d":
-            delete_genome(genome_data["final"], reflib_dir)
-            return False
-        # 'r' continues to download_file below
+    if get_genome_status(genome_data["final"], reflib_dir) == "installed":
+        return process_reference_file(final_path, status_callback, cancel_event)
 
     logging.info(f"Downloading {genome_data['label']} from {genome_data['source']}...")
 
@@ -306,27 +278,58 @@ def download_bootstrap(
 
     logging.info(f"Extracting bootstrap to {reflib_dir}...")
     try:
-        # Use tar -xvf -z (or bgzip -d | tar)
-        # Since we use bgzip, we can pipe bgzip -d to tar -xf -
-        # Use tar -xkf (keep existing files) and --no-xattrs to avoid macOS metadata warnings
-        cmd = ["tar", "-xkf", dest_path, "--no-xattrs", "-C", reflib_dir]
-        # Fallback if --no-xattrs is not supported (e.g. on very old tar)
-        try:
-            run_command(cmd, capture_output=True)
-        except subprocess.CalledProcessError:
-            cmd = ["tar", "-xkf", dest_path, "-C", reflib_dir]
-            run_command(cmd)
-
-        # Cleanup the archive after successful extraction
+        extract_archive_keep_existing(dest_path, reflib_dir)
         os.remove(dest_path)
         normalize_bootstrap_layout(reflib_dir)
         if not install_bootstrap_support_files(reflib_dir):
             return False
         logging.info("Bootstrap extraction complete.")
         return True
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+    except (OSError, tarfile.TarError, WGSExtractError) as e:
         logging.error(f"Failed to extract bootstrap: {e}")
         return False
+
+
+def extract_archive_keep_existing(archive_path: str, dest_dir: str) -> None:
+    """Extract regular files and directories from a tar archive, never overwriting.
+
+    Equivalent to `tar -xkf` on every platform. Members that would land outside
+    dest_dir are rejected; links and special files are skipped, as is macOS
+    AppleDouble/Finder metadata.
+    """
+    dest_root = Path(dest_dir).resolve()
+    with tarfile.open(archive_path, "r:*") as archive:
+        for member in archive:
+            name = PurePosixPath(member.name)
+            if (
+                name.name.startswith("._")
+                or name.name == ".DS_Store"
+                or "__MACOSX" in name.parts
+            ):
+                continue
+            target = (dest_root / name).resolve()
+            if (
+                name.is_absolute()
+                or ".." in name.parts
+                or not target.is_relative_to(dest_root)
+            ):
+                raise WGSExtractError(f"Unsafe path in archive: {member.name}")
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            if not member.isfile():
+                logging.warning("Skipping non-regular archive member: %s", member.name)
+                continue
+            if target.exists():
+                continue
+            source = archive.extractfile(member)
+            if source is None:
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            partial = target.with_name(target.name + ".partial")
+            with source, open(partial, "wb") as out:
+                shutil.copyfileobj(source, out, 1024 * 1024)
+            os.replace(partial, target)
 
 
 def bootstrap_has_support_assets(reflib_dir: str) -> bool:

@@ -75,26 +75,11 @@ Use the package format native to your distribution, or use the AppImage for a po
 ::: split
 ::: block
 ## Install the CLI option
-Install `wgsextract-cli` when you want terminal commands, scripts, automation, remote-machine workflows, or an explicit `wgsextract` command that you can run outside the GUI.
-
-The standalone macOS/Linux installer creates a self-contained `wgsextract-cli/` folder with the `wgsextract` launcher beside it. Windows users should use the native `install_windows.bat` path from the install guide.
+Install `wgsextract-cli` when you want terminal commands, scripts, automation, remote-machine workflows, or an explicit `wgsextract` command that you can run outside the GUI. macOS and Linux use a one-line terminal installer; Windows uses `install_windows.bat`.
 :::
 
-::: code-panel title=install-cli.sh subtitle="macOS/Linux CLI"
-```
-# Open Terminal, paste this line, then press Enter.
-curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh
-
-# Verify the CLI install.
-./wgsextract-cli/wgsextract info --detailed
-./wgsextract-cli/wgsextract deps check
-```
-:::
-:::
-
-::: wrap
-::: callout
-{{ text: **Windows CLI:** Clone or download `wgsextract-cli`, then run `.\install_windows.bat` from PowerShell. The Windows installer bootstraps Pixi and MSYS2 when needed and configures the native UCRT64 pacman runtime. }}
+::: actions
+{{ button: Open the CLI install guide|install.html|primary }}
 :::
 :::
 :::

@@ -52,8 +52,8 @@
 <div class="wrap split">
 <div>
 <h2>GUI releases live in gui-for-cli</h2>
-<p>Download the <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract graphical interface from the <a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases">gui-for-cli Releases page</a>. The latest release at the time this page was updated is <a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases/tag/v0.1.10">v0.1.10</a>, published 2026-05-24.</p>
-<p>Use the release page when you want the newest platform packages, signatures, release notes, or older versions. The links below point directly at the current release assets for convenience.</p>
+<p>Download the <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract graphical interface from the <a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases">gui-for-cli Releases page</a>. Use <a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases/latest">the latest gui-for-cli release</a> for current installers, release notes, signatures, and metadata.</p>
+<p>Use the release page when you want the newest platform packages, signatures, release notes, or older versions. The package names below describe what to choose on the latest release.</p>
 </div>
 <div class="actions">
 <a class="btn primary" href="https://github.com/theontho/gui-for-cli/releases/latest">Open latest GUI release</a>
@@ -72,23 +72,20 @@
 <article class="card">
 <h3>Windows</h3>
 <p>Use the x64 setup executable for a normal graphical install.</p>
-<a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/WGSExtract_0.1.10_x64-setup.exe">WGSExtract_0.1.10_x64-setup.exe</a>
+<a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases/latest">Open latest Windows GUI release</a>
 <p>The release also includes a quick uninstall <a class="term-link" href="https://learn.microsoft.com/powershell/">PowerShell</a> helper and signature assets.</p>
 </article>
 <article class="card">
 <h3>macOS</h3>
 <p>Use a DMG package, then drag the app into Applications when prompted.</p>
-<a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/WGSExtract-0.1.10.dmg">WGSExtract-0.1.10.dmg</a>
+<a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases/latest">Open latest macOS GUI release</a>
 <p>Apple Silicon users can also use the aarch64 web-app DMG when that package is the better fit.</p>
-<a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/WGSExtract.Web_0.1.10_aarch64.dmg">WGSExtract.Web_0.1.10_aarch64.dmg</a>
+<a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases/latest">Open latest Apple Silicon web-app release</a>
 </article>
 <article class="card">
 <h3>Linux</h3>
 <p>Use the package format native to your distribution, or use the AppImage for a portable desktop app.</p>
-<a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/WGSExtract_0.1.10_amd64.AppImage">AppImage</a>
-<a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/WGSExtract_0.1.10_amd64.deb">DEB</a>
-<a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/WGSExtract-0.1.10-1.x86_64.rpm">RPM</a>
-<a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases/download/v0.1.10/wgsextract-0.1.10-1-x86_64.pkg.tar.zst">Arch package</a>
+<a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases/latest">Open latest Linux GUI release</a>
 </article>
 </div>
 <div class="callout">
@@ -100,22 +97,10 @@
 <div class="wrap split">
 <div>
 <h2>Install the <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> option</h2>
-<p>Install <code>wgsextract-cli</code> when you want terminal commands, scripts, automation, remote-machine workflows, or an explicit <code>wgsextract</code> command that you can run outside the GUI.</p>
-<p>The standalone macOS/Linux installer creates a self-contained <code>wgsextract-cli/</code> folder with the <code>wgsextract</code> launcher beside it. Windows users should use the native <code>install_windows.bat</code> path from the install guide.</p>
+<p>Install <code>wgsextract-cli</code> when you want terminal commands, scripts, automation, remote-machine workflows, or an explicit <code>wgsextract</code> command that you can run outside the GUI. macOS and Linux use a one-line terminal installer; Windows uses <code>install_windows.bat</code>.</p>
 </div>
-<div class="code-panel">
-<header class="code-panel-top"><div class="window-controls" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div><span class="code-panel-title">install-cli.sh</span><button class="copy-button" type="button">Copy</button></header>
-<pre><code><span class="comment"># Open Terminal, paste this line, then press Enter.</span>
-<span class="cmd">curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh</span>
-
-<span class="comment"># Verify the CLI install.</span>
-<span class="cmd">./wgsextract-cli/wgsextract info --detailed</span>
-<span class="cmd">./wgsextract-cli/wgsextract deps check</span></code></pre>
-</div>
-</div>
-<div class="wrap">
-<div class="callout">
-<strong>Windows <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr>:</strong> Clone or download <code>wgsextract-cli</code>, then run <code>.\install_windows.bat</code> from <a class="term-link" href="https://learn.microsoft.com/powershell/">PowerShell</a>. The Windows installer bootstraps <a class="term-link" href="https://pixi.sh/">Pixi</a> and <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> when needed and configures the native <abbr data-tooltip="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime." aria-label="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime.">UCRT64</abbr> pacman runtime.
+<div class="actions">
+<a class="btn primary" href="install.html" data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">Open the CLI install guide</a>
 </div>
 </div>
 </section>

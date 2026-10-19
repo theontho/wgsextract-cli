@@ -1,14 +1,13 @@
-# Advanced Compression Benchmark Results
+# Reference Bundle Compression Benchmark
 
-This document summarizes the performance of various compression algorithms on the project's reference data.
+Historical measurements used to choose the format of the reference bootstrap bundle. The benchmark script that produced them has since been removed from the repository.
 
-**Source Data:** `reference/microarray/raw_file_templates`
-**Raw Size:** 335.76 MB
+**Source data:** `reference/microarray/raw_file_templates`
+**Raw size:** 335.76 MB
 
-## Summary Table
-| Method | Level | Size | Ratio | Comp Time (s) | Ext Time (s) |
+| Method | Level | Size | Ratio | Comp time (s) | Ext time (s) |
 |:---|:---|:---|:---|:---|:---|
-| **7z** | **9** | **56.48 MB** | **5.94x** | **195.08** | **3.79** |
+| 7z | 9 | 56.48 MB | 5.94x | 195.08 | 3.79 |
 | 7z | 5 | 74.33 MB | 4.52x | 48.06 | 5.42 |
 | xz | 9 | 72.58 MB | 4.63x | 180.85 | 2.95 |
 | xz | 6 | 83.27 MB | 4.03x | 44.10 | 1.18 |
@@ -37,27 +36,17 @@ This document summarizes the performance of various compression algorithms on th
 | lz4 | 9 | 148.91 MB | 2.25x | 2.25 | 0.30 |
 | lz4 | 1 | 195.64 MB | 1.72x | 0.42 | 0.30 |
 
-## Final Decision: 7-Zip (Level 9)
+## Decision: `.tar.gz` of bgzipped files
 
-### Reasoning
-For the distribution of reference datasets in this project, **7-Zip at level 9** has been selected as the primary format.
+7z at level 9 gave the best ratio, and a 7z archive of the uncompressed bundle was smaller still:
 
-1.  **Maximum Compression Ratio:** 7z Level 9 achieved a **5.94x** ratio, outperforming all other methods. It reduced the 336MB source to only **56MB**, which is significantly better than the next best alternative (XZ at 72MB).
-2.  **Static Data:** Since the reference datasets change infrequently, the high compression time (~3 minutes) is a one-time cost that is heavily outweighed by the bandwidth and storage savings for every download.
-3.  **Extraction Performance:** While compression is slow, extraction remains reasonably fast (~3.8s), ensuring that end-users and automated scripts can deploy the data efficiently.
-
-### Alternatives Considered
-*   **zstd (Level 3):** Ideal for development and frequent changes due to sub-second speed, but the file size (123MB) was deemed too large for distribution.
-*   **bgzip:** Excellent for genomic tools requiring random access, but for general distribution of a file bundle, 7z's superior ratio was preferred.
-*   **XZ:** Comparable to 7z in ratio but slightly less efficient at the highest levels for this specific dataset.
-
-## Distribution Optimization Note: 7z vs. Gzip
-
-We performed a comparison to see if compressing raw (un-gzipped) data with 7z would be more efficient than compressing already gzipped files.
-
-| Archive Type | Content State | Size |
+| Archive | Contents | Size |
 | :--- | :--- | :--- |
-| `wgsextract-reference-bootstrap.tar.gz` | BGZIP (.tar.gz) | **167 MB** |
-| `wgsextract-reference-raw.7z` | Raw (uncompressed) | **92 MB** |
+| `wgsextract-reference-bootstrap.tar.gz` | bgzipped files | 167 MB |
+| `wgsextract-reference-raw.7z` | uncompressed files | 92 MB |
 
-**Conclusion:** Although compressing raw data yields a smaller archive, we have chosen the **167MB (BGZIP)** version for distribution. This ensures that essential files (like VCFs and Liftover chains) are in their expected `.gz` state immediately upon extraction and that the archive can be handled by standard tools without 7z.
+The bootstrap bundle nevertheless ships as `wgsextract-reference-bootstrap.tar.gz` (see `BOOTSTRAP_URL` in `src/wgsextract_cli/core/constants.py`):
+
+- VCFs, liftover chains, and other genomic files are already in the bgzipped `.gz` form the tools expect, so nothing needs recompressing after extraction.
+- `tar` and `gzip` are available everywhere the CLI runs; 7z would be an extra dependency.
+- The bundle changes rarely, so the larger download is a one-time cost.

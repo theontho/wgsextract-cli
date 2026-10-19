@@ -162,9 +162,4 @@ def register(
         parents=[base_parser],
         help="Download and initialize the reference library bootstrap (VCFs, chains, etc.).",
     )
-    bootstrap_parser.add_argument(
-        "--install-mappability-maps",
-        action="store_true",
-        help="Also download the optional mirrored Delly hg19/hg38 mappability maps.",
-    )
     bootstrap_parser.set_defaults(func=cmd_bootstrap)

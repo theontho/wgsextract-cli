@@ -1,210 +1,146 @@
 import argparse
 import logging
 import os
+import shutil
 import subprocess
 
 from wgsextract_cli.core.config import settings
-from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
-from wgsextract_cli.core.regions import get_vcf_chr_name
 from wgsextract_cli.core.utils import (
     WGSExtractError,
-    get_resource_defaults,
     run_command,
+    run_pipeline,
 )
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
     get_chr_name,
-    popen,
     verify_paths_exist,
 )
 
 from ._lineage_ydna import (
+    VCF_SUFFIXES,
     cmd_ydna,
+    extract_vcf_chromosome,
+    resolve_lineage_tool,
+    tool_command,
 )
+
+
+def _haplogrep_command(haplogrep_path: str) -> list[str]:
+    """How to run Haplogrep. Bioconda's haplogrep 2.4 wrapper passes its own
+    path to java unquoted, so it fails whenever the install path has a space
+    (the GUI's runtime lives in "Application Support"); run its jar instead."""
+    jar = haplogrep_path
+    if not jar.endswith(".jar"):
+        resolved = shutil.which(haplogrep_path) or haplogrep_path
+        sibling = os.path.join(
+            os.path.dirname(os.path.realpath(resolved)), "haplogrep.jar"
+        )
+        if not os.path.isfile(sibling):
+            return tool_command(haplogrep_path)
+        jar = sibling
+    verify_dependencies(["java"])
+    return ["java", "-jar", jar]
 
 
 def cmd_mtdna(args: argparse.Namespace) -> None:
     if not args.input:
         raise WGSExtractError(LOG_MESSAGES["input_required"])
-    if not verify_paths_exist({"--input": args.input}):
-        return
+    verify_paths_exist({"--input": args.input})
 
     logging.info("Running mtDNA haplogroup analysis...")
 
     # Check dependencies only after cheap input validation so invalid invocations fail fast.
-    if not args.haplogrep_path:
-        verify_dependencies(["haplogrep", "bcftools"])
+    haplogrep_path = resolve_lineage_tool(
+        args.haplogrep_path, "haplogrep", "--haplogrep-path"
+    )
+    verify_dependencies(["bcftools"])
     log_dependency_info(["haplogrep", "bcftools"])
 
-    haplogrep_path = args.haplogrep_path or get_tool_path("haplogrep")
+    cmd = _haplogrep_command(haplogrep_path)
 
-    # If it's just a tool name, resolve it to a full path or pixi command first
-    # so that verify_paths_exist doesn't fail on it.
-    if (
-        haplogrep_path
-        and not os.path.isabs(haplogrep_path)
-        and "/" not in haplogrep_path
-    ):
-        resolved = get_tool_path(haplogrep_path)
-        if resolved:
-            haplogrep_path = resolved
-
-    if not haplogrep_path or not verify_paths_exist(
-        {"--haplogrep-path": haplogrep_path}
-    ):
-        raise WGSExtractError("Haplogrep path missing.")
-
-    outdir = (
-        args.outdir if args.outdir else os.path.dirname(os.path.abspath(args.input))
-    )
+    outdir = args.outdir or os.path.dirname(os.path.abspath(args.input))
+    os.makedirs(outdir, exist_ok=True)
     logging.debug(f"Input file: {os.path.abspath(args.input)}")
     logging.debug(f"Output directory: {os.path.abspath(outdir)}")
     out_file = os.path.join(outdir, "haplogrep_results.txt")
 
     input_file = args.input
-    temp_vcf = None
+    input_lower = input_file.lower()
+    temp_vcf = os.path.join(outdir, "temp_haplogrep_input.vcf.gz")
 
     try:
-        is_vcf = input_file.lower().endswith((".vcf", ".vcf.gz"))
-        is_alignment = input_file.lower().endswith((".bam", ".cram"))
-
-        if is_alignment:
+        if input_lower.endswith((".bam", ".cram")):
             logging.info(
                 "Input is alignment. Extracting mitochondrial variants first..."
             )
-            temp_vcf = os.path.join(outdir, "temp_haplogrep_input.vcf.gz")
-
-            threads, _ = get_resource_defaults(args.threads, None)
-            md5_sig = calculate_bam_md5(input_file, None)
-            lib = ReferenceLibrary(args.ref, md5_sig)
+            lib = ReferenceLibrary(
+                args.ref, calculate_bam_md5(input_file, None), input_path=input_file
+            )
             if not lib.fasta:
-                logging.error(
-                    "Reference genome required to call mitochondrial variants."
+                raise WGSExtractError(
+                    "Reference genome required to call mitochondrial variants; pass --ref."
                 )
-                return
-
             logging.debug(f"Resolved reference: {lib.fasta}")
 
-            cram_opt = ["-T", lib.fasta] if input_file.lower().endswith(".cram") else []
+            cram_opt = ["-T", lib.fasta] if input_lower.endswith(".cram") else []
             chr_m = get_chr_name(input_file, "MT", cram_opt)
-
-            # Fast variant calling for MT region
-            bcftools = get_tool_path("bcftools")
-            if bcftools is None:
-                raise WGSExtractError(
-                    "bcftools dependency is required for mtDNA variant calling."
-                )
-            p1 = popen(
+            run_pipeline(
                 [
-                    bcftools,
-                    "mpileup",
-                    "-Ou",
-                    "-r",
-                    chr_m,
-                    "-f",
-                    lib.fasta,
-                    input_file,
+                    ["bcftools", "mpileup", "-Ou", "-r", chr_m, "-f", lib.fasta]
+                    + [input_file],
+                    ["bcftools", "call", "--ploidy", "1", "-mv", "-Oz", "-o"]
+                    + [temp_vcf],
                 ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                description="Mitochondrial variant calling",
             )
-            p2 = popen(
-                [bcftools, "call", "-mv", "-Oz", "-o", temp_vcf],
-                stdin=p1.stdout,
-                stderr=subprocess.DEVNULL,
-            )
-            if p1.stdout:
-                p1.stdout.close()
-            p2.communicate()
-
-            if p2.returncode != 0:
-                logging.error("Failed to extract mitochondrial variants.")
-                raise WGSExtractError("Failed to extract mitochondrial variants.")
             input_file = temp_vcf
-
-        elif is_vcf:
+        elif input_lower.endswith(VCF_SUFFIXES):
             # Filter VCF to chrM to avoid Haplogrep errors on large VCFs
-            chr_m = get_vcf_chr_name(input_file, "MT")
-            logging.info(f"Filtering VCF to {chr_m} for Haplogrep...")
-            temp_vcf = os.path.join(outdir, "temp_haplogrep_filtered.vcf.gz")
-
-            bcftools = get_tool_path("bcftools")
-            if bcftools is None:
-                raise WGSExtractError(
-                    "bcftools dependency is required for mtDNA VCF filtering."
-                )
-            run_command(
-                [bcftools, "view", "-r", chr_m, "-Oz", "-o", temp_vcf, input_file]
-            )
+            extract_vcf_chromosome(input_file, "MT", temp_vcf)
             input_file = temp_vcf
 
         logging.info(LOG_MESSAGES["running_haplogrep"].format(input=input_file))
-        # Check if it's a JAR or a wrapper
-        if haplogrep_path.endswith(".jar"):
-            verify_dependencies(["java"])
-            java = get_tool_path("java")
-            if not java:
-                raise WGSExtractError("Java is required to run Haplogrep JAR.")
-            cmd = [java, "-jar", haplogrep_path]
-        else:
-            # haplogrep_path might already be a 'pixi run' string
-            import shlex
-
-            cmd = shlex.split(haplogrep_path)
-
-        run_command(
-            cmd
-            + [
-                "classify",
-                "--format",
-                "vcf",
-                "--in",
-                input_file,
-                "--out",
-                out_file,
-            ]
-        )
-
-        # Print results directly to terminal
-        if os.path.exists(out_file):
-            print("\n🧬 Haplogrep Lineage Result:")
-            print("-" * 30)
-            try:
-                with open(out_file) as f:
-                    lines = f.readlines()
-                    if len(lines) > 1:
-                        # Skip header if it exists and looks like it
-                        header = lines[0].strip().split("\t")
-                        data = lines[1].strip().split("\t")
-                        for h, d in zip(header, data, strict=False):
-                            if d:
-                                print(f"{h:<15} : {d}")
-                    elif len(lines) == 1:
-                        print(lines[0].strip())
-            except OSError as e:
-                logging.debug(f"Failed to print Haplogrep results: {e}")
-            print("-" * 30 + "\n")
-
-    except WGSExtractError:
-        raise
-    except (OSError, subprocess.SubprocessError, ValueError) as e:
-        raise WGSExtractError(f"Haplogrep failed: {e}") from e
+        try:
+            run_command(
+                cmd
+                + ["classify", "--format", "vcf", "--in", input_file]
+                + ["--out", out_file]
+            )
+        except (OSError, subprocess.SubprocessError) as e:
+            raise WGSExtractError(f"Haplogrep failed: {e}") from e
     finally:
-        if temp_vcf and os.path.exists(temp_vcf):
-            try:
-                os.remove(temp_vcf)
-                if os.path.exists(temp_vcf + ".tbi"):
-                    os.remove(temp_vcf + ".tbi")
-            except OSError as e:
-                logging.debug(
-                    "Failed to remove temporary Haplogrep VCF %s: %s", temp_vcf, e
-                )
+        for path in (temp_vcf, temp_vcf + ".tbi"):
+            if os.path.exists(path):
+                os.remove(path)
+
+    _print_haplogrep_result(out_file)
+
+
+def _print_haplogrep_result(out_file: str) -> None:
+    try:
+        with open(out_file) as f:
+            lines = f.readlines()
+    except OSError as e:
+        logging.warning(f"Could not read Haplogrep results {out_file}: {e}")
+        return
+    print("\n🧬 Haplogrep Lineage Result:")
+    print("-" * 30)
+    if len(lines) > 1:
+        header = lines[0].strip().split("\t")
+        data = lines[1].strip().split("\t")
+        for h, d in zip(header, data, strict=False):
+            if d:
+                print(f"{h:<15} : {d}")
+    elif lines:
+        print(lines[0].strip())
+    print("-" * 30 + "\n")
 
 
 def register(

@@ -2,9 +2,12 @@ import logging
 import os
 import shlex
 import shutil
+import signal
 import subprocess
+import tempfile
+import threading
 from collections.abc import Mapping, Sequence
-from typing import IO
+from typing import IO, Literal, TypeAlias, overload
 
 from wgsextract_cli.core.process_registry import (
     cleanup_processes as cleanup_processes,
@@ -30,6 +33,8 @@ from wgsextract_cli.core.samtools_commands import (
 )
 
 _process_group_kwargs = process_group_kwargs
+
+ProcessStream: TypeAlias = int | IO[bytes] | IO[str] | None
 
 
 class WGSExtractError(Exception):
@@ -156,3 +161,151 @@ def run_command(
         )
     finally:
         proc_registry.unregister_process(cmd_str, process)
+
+
+@overload
+def popen(
+    cmd: str | Sequence[object],
+    stdout: ProcessStream = None,
+    stderr: ProcessStream = None,
+    stdin: ProcessStream = None,
+    text: Literal[False] = False,
+    env: Mapping[str, str] | None = None,
+) -> subprocess.Popen[bytes]: ...
+
+
+@overload
+def popen(
+    cmd: str | Sequence[object],
+    stdout: ProcessStream = None,
+    stderr: ProcessStream = None,
+    stdin: ProcessStream = None,
+    text: Literal[True] = True,
+    env: Mapping[str, str] | None = None,
+) -> subprocess.Popen[str]: ...
+
+
+def popen(
+    cmd: str | Sequence[object],
+    stdout: ProcessStream = None,
+    stderr: ProcessStream = None,
+    stdin: ProcessStream = None,
+    text: bool = False,
+    env: Mapping[str, str] | None = None,
+) -> subprocess.Popen[str] | subprocess.Popen[bytes]:
+    """
+    Start a registered subprocess without waiting for it.
+    Default text=False to allow binary pipes (BAM/BCF).
+    """
+    cmd_list = _normalize_subprocess_cmd(cmd)
+
+    cmd_str = " ".join(cmd_list)
+    logging.debug(f"Popen: {cmd_str}")
+
+    process = subprocess.Popen(
+        cmd_list,
+        stdout=stdout,
+        stderr=stderr,
+        stdin=stdin,
+        text=text,
+        env=env,
+        **process_group_kwargs(),
+    )
+    proc_registry.register_process(cmd_str, process)
+
+    def _unregister_finished_process() -> None:
+        process.wait()
+        proc_registry.unregister_process(cmd_str, process)
+
+    threading.Thread(target=_unregister_finished_process, daemon=True).start()
+    return process
+
+
+def _stderr_tail(stream: IO[bytes], max_lines: int = 20) -> str:
+    stream.seek(0)
+    lines = stream.read().decode(errors="replace").strip().splitlines()
+    return "\n".join(lines[-max_lines:])
+
+
+def _is_sigpipe(returncode: int) -> bool:
+    sigpipe = getattr(signal, "SIGPIPE", None)
+    return sigpipe is not None and returncode in (-sigpipe, 128 + sigpipe)
+
+
+def run_pipeline(
+    stages: Sequence[str | Sequence[object]],
+    *,
+    stdin: ProcessStream = None,
+    stdout: ProcessStream = None,
+    env: Mapping[str, str] | None = None,
+    description: str = "Pipeline",
+) -> None:
+    """
+    Run commands connected stdout-to-stdin, wait for every stage, and raise
+    WGSExtractError naming each stage that failed.
+
+    Each stage's stderr is spooled to a temp file so a chatty stage cannot fill
+    an unread pipe and deadlock the pipeline; a failing stage's stderr tail is
+    included in the error. An upstream stage killed by SIGPIPE is not a failure
+    when every later stage succeeded (the consumer intentionally stopped early).
+    """
+    if not stages:
+        raise ValueError("run_pipeline requires at least one stage")
+
+    procs: list[subprocess.Popen[bytes]] = []
+    stderr_files: list[IO[bytes]] = []
+    try:
+        upstream: ProcessStream = stdin
+        for index, stage in enumerate(stages):
+            is_last = index == len(stages) - 1
+            err_file: IO[bytes] = tempfile.TemporaryFile()
+            stderr_files.append(err_file)
+            proc = popen(
+                stage,
+                stdin=upstream,
+                stdout=stdout if is_last else subprocess.PIPE,
+                stderr=err_file,
+                env=env,
+            )
+            # Close our copy of the previous stage's stdout so it sees SIGPIPE
+            # if this stage exits early.
+            if procs and procs[-1].stdout:
+                procs[-1].stdout.close()
+            procs.append(proc)
+            upstream = proc.stdout
+
+        returncodes = [proc.wait() for proc in procs]
+        failures: list[str] = []
+        for index, (stage, returncode) in enumerate(
+            zip(stages, returncodes, strict=True)
+        ):
+            # Label from the caller's argv, not the resolved (possibly wrapped) one.
+            args = (
+                shlex.split(stage)
+                if isinstance(stage, str)
+                else [str(a) for a in stage]
+            )
+            stage_name = (
+                " ".join([os.path.basename(args[0]), *args[1:2]]) if args else "?"
+            )
+            tail = _stderr_tail(stderr_files[index])
+            downstream_ok = all(code == 0 for code in returncodes[index + 1 :])
+            if returncode == 0 or (_is_sigpipe(returncode) and downstream_ok):
+                if tail:
+                    logging.debug(f"{stage_name} stderr:\n{tail}")
+                continue
+            detail = f"{stage_name} (exit {returncode})"
+            if tail:
+                detail += f":\n{tail}"
+            failures.append(detail)
+        if failures:
+            raise WGSExtractError(f"{description} failed in " + "\n".join(failures))
+    finally:
+        for proc in procs:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+            if proc.stdout:
+                proc.stdout.close()
+        for err_file in stderr_files:
+            err_file.close()

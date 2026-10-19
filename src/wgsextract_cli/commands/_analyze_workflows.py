@@ -2,11 +2,13 @@ import argparse
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Sequence
 from typing import TypedDict
 
+from wgsextract_cli.core.config import config_args
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -39,19 +41,25 @@ class AnalyzeResult(TypedDict):
     count: int
 
 
+_SV_NAME_TOKENS = {"sv", "svs", "pbsv", "sniffles"}
+
+
 def detect_vcf_type(vcf_path: str) -> str:
-    """Simple heuristic to detect SNV, CNV, or SV."""
-    fname = os.path.basename(vcf_path).lower()
-    if "cnv" in fname:
+    """Guess SNV/InDel, CNV, or SV from file-name tokens (e.g. sample_sv.vcf.gz)."""
+    tokens = set(re.split(r"[^a-z0-9]+", os.path.basename(vcf_path).lower()))
+    if "cnv" in tokens:
         return "cnv"
-    if "sv" in fname:
+    if tokens & _SV_NAME_TOKENS:
         return "sv"
     return "snp-indel"
 
 
-def run_discovery_filter(
-    args: argparse.Namespace, ann_vcf: str, v_type: str, out_vcf: str
-) -> int:
+# bcftools `~` uses POSIX basic regex: "|" and "()" are literals, so match each
+# SpliceAI delta score >= 0.8 (fields are "|0.85|" or "|1.00|") separately.
+SPLICEAI_HIGH_EXPR = 'INFO/SpliceAI ~ "[|]0[.][89]" || INFO/SpliceAI ~ "[|]1[.]0"'
+
+
+def run_discovery_filter(ann_vcf: str, v_type: str, out_vcf: str) -> int:
     """Dynamically builds filter based on type and headers."""
     try:
         res_h = run_command(
@@ -82,7 +90,7 @@ def run_discovery_filter(
         if "ID=REVEL," in header:
             filters.append("INFO/REVEL > 0.7")
         if "ID=SpliceAI," in header:
-            filters.append('INFO/SpliceAI ~ "|0.[89]"')
+            filters.append(SPLICEAI_HIGH_EXPR)
         if "ID=am_pathogenicity," in header:
             filters.append("INFO/am_pathogenicity > 0.7")
 
@@ -104,14 +112,13 @@ def run_discovery_filter(
         count = len(res.stdout.strip().split("\n")) if res.stdout.strip() else 0
         _print(f"Found {count} significant variants.")
         return count
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.error(f"Discovery filter failed for {v_type}: {e}")
-        return 0
+    except (OSError, subprocess.SubprocessError) as e:
+        raise WGSExtractError(f"Discovery filter failed for {v_type}: {e}") from e
 
 
 def run_cli_subcommand(cmd_args: list[str], args: argparse.Namespace) -> None:
     """Helper to run a wgsextract subcommand."""
-    cmd = [sys.executable, "-m", "wgsextract_cli.main"] + cmd_args
+    cmd = [sys.executable, "-m", "wgsextract_cli.main", *config_args(), *cmd_args]
 
     # Use explicit ref if provided, otherwise resolve from env/defaults
     ref_path = args.ref
@@ -137,18 +144,8 @@ def run_cli_subcommand(cmd_args: list[str], args: argparse.Namespace) -> None:
         cmd.append("--force")
 
     try:
-        # For curated commands, we want real-time output to show progress/results.
-        # For everything else, we capture to keep the UI clean.
-        curated_cmds = ["info", "lineage", "vcf", "vep"]
-        should_stream = any(c in cmd_args for c in curated_cmds)
-
-        if should_stream:
-            # Run without capturing to allow real-time progress updates to reach the terminal.
-            # Internal sub-sub-commands (like bcftools) are still captured at their level.
-            run_command(cmd)
-        else:
-            run_command(cmd, capture_output=True)
-
+        # Not captured, so the subcommand's progress reaches the terminal live.
+        run_command(cmd)
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.warning(f"Subcommand failed: {' '.join(cmd)}. Error: {e}")
         raise WGSExtractError("Subcommand failed: " + " ".join(cmd)) from e
@@ -170,6 +167,21 @@ def run_vcf_workflow(
         anns = "clinvar,gnomad"
     else:  # SV
         anns = "clinvar,gnomad"
+
+    # Imported here: vcf.chain -> _vep_run imports detect_vcf_type from this module.
+    from wgsextract_cli.commands.vcf.chain import skip_reason
+
+    lib = ReferenceLibrary(args.ref, None, input_path=vcf_path)
+    available = [a for a in anns.split(",") if not skip_reason(a, lib)]
+    if not available:
+        # A discovery filter over unannotated variants would report a misleading 0.
+        logging.warning(
+            f"Skipping annotation and discovery for {os.path.basename(vcf_path)}: "
+            f"no annotation data is installed for {anns}. Download it with "
+            "'wgsextract ref clinvar' (and the other 'ref' annotation commands)."
+        )
+        return None
+    anns = ",".join(available)
 
     work_dir = os.path.join(outdir, f"work_{v_type}_{base_name}")
     os.makedirs(work_dir, exist_ok=True)
@@ -196,7 +208,7 @@ def run_vcf_workflow(
 
     # Run Discovery Filter
     discovery_vcf = os.path.join(outdir, f"significant_{v_type}_{base_name}.vcf.gz")
-    count = run_discovery_filter(args, actual_ann_vcf, v_type, discovery_vcf)
+    count = run_discovery_filter(actual_ann_vcf, v_type, discovery_vcf)
 
     return {"type": v_type, "input": vcf_path, "output": discovery_vcf, "count": count}
 

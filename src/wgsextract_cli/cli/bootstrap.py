@@ -7,6 +7,8 @@ import time
 from types import FrameType
 from typing import TextIO
 
+import psutil
+
 from wgsextract_cli.core.utils import cleanup_processes
 
 SIGNAL_EXPLANATIONS = {
@@ -30,28 +32,7 @@ def describe_signal(signum: int) -> str:
 
 
 def _parent_process_is_alive(parent_pid: int) -> bool:
-    if parent_pid <= 0:
-        return False
-
-    try:
-        import psutil
-
-        return bool(psutil.pid_exists(parent_pid))
-    except ImportError:
-        pass
-
-    if sys.platform == "win32":
-        return True
-
-    try:
-        os.kill(parent_pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OSError:
-        return False
-    return True
+    return parent_pid > 0 and bool(psutil.pid_exists(parent_pid))
 
 
 class EmojiFormatter(logging.Formatter):
@@ -66,8 +47,9 @@ class EmojiFormatter(logging.Formatter):
     }
 
     def format(self, record: logging.LogRecord) -> str:
-        level_fmt = self.LEVEL_EMOJIS.get(record.levelno, record.levelname)
-        record.levelname = level_fmt
+        # Format a copy so other handlers still see the real level name.
+        record = logging.makeLogRecord(record.__dict__)
+        record.levelname = self.LEVEL_EMOJIS.get(record.levelno, record.levelname)
         return super().format(record)
 
 

@@ -1,8 +1,3 @@
-import pytest
-
-from wgsextract_cli.core.utils import WGSExtractError
-
-
 def test_tabix_annotation_preparation_indexes_tsv_with_coordinate_columns(
     monkeypatch, tmp_path
 ):
@@ -13,6 +8,7 @@ def test_tabix_annotation_preparation_indexes_tsv_with_coordinate_columns(
     commands = []
 
     monkeypatch.setattr(helpers, "get_tool_path", lambda tool: tool)
+    monkeypatch.setattr(helpers, "is_bgzf", lambda _path: True)
     monkeypatch.setattr(
         helpers, "run_command", lambda cmd, **_kwargs: commands.append(cmd)
     )
@@ -33,6 +29,7 @@ def test_tabix_annotation_preparation_rebuilds_stale_index(monkeypatch, tmp_path
     commands = []
 
     monkeypatch.setattr(helpers, "get_tool_path", lambda tool: tool)
+    monkeypatch.setattr(helpers, "is_bgzf", lambda _path: True)
     monkeypatch.setattr(
         helpers, "run_command", lambda cmd, **_kwargs: commands.append(cmd)
     )
@@ -71,19 +68,6 @@ def test_annotation_resolver_accepts_mixed_case_build_suffix(tmp_path):
     resolved = lib._resolve_annotation_file(None, "revel", [".tsv.gz"], [str(tmp_path)])
     assert resolved is not None
     assert resolved.lower() == str(resource).lower()
-
-
-def test_alignment_pipeline_reports_process_failure():
-    from wgsextract_cli.commands.align import _check_pipeline_process
-
-    class FailingProcess:
-        returncode = 1
-
-        def wait(self):
-            return self.returncode
-
-    with pytest.raises(WGSExtractError, match="aligner failed"):
-        _check_pipeline_process(FailingProcess(), "aligner")
 
 
 def test_gatk_prepares_regional_cram_as_temporary_bam(monkeypatch, tmp_path):
@@ -160,13 +144,3 @@ def test_structural_reference_header_keeps_reference_sq_order():
         "@RG\tID:sample",
         "@PG\tID:samtools",
     ]
-
-
-def test_delly_map_validation_rejects_bad_gzip(tmp_path):
-    from wgsextract_cli.commands.vcf import structural as _vcf_structural
-
-    bad_map = tmp_path / "hg38.map.gz"
-    bad_map.write_text("404: Not Found", encoding="utf-8")
-
-    with pytest.raises(WGSExtractError, match="not a valid gzip-compressed file"):
-        _vcf_structural._validate_delly_map(str(bad_map))

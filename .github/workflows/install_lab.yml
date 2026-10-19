@@ -1,0 +1,78 @@
+name: Install Lab
+
+# End-to-end install -> use -> update -> uninstall on machines that have never
+# seen WGS Extract. See docs/install_testing.md. No GITHUB_TOKEN reaches the
+# scenario: a real user doesn't have one.
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Host-side measuring tools for the oracle (samtools/bcftools); the guest
+      # container never sees this environment.
+      - name: Set up Pixi
+        uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
+        with:
+          pixi-version: v0.81.0
+          locked: true
+          environments: default
+      - name: Install, use, update and uninstall in a fresh Ubuntu container
+        run: python3 scripts/installlab/lab.py run linux --out out/installlab/ci-linux
+      - name: Every corruption of the evidence must fail the oracle
+        if: success()
+        run: python3 scripts/installlab/lab.py mutate out/installlab/ci-linux/results
+      - name: Every sabotaged install must fail
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: python3 scripts/installlab/lab.py selftest linux
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: install-lab-linux
+          path: out/installlab
+          retention-days: 14
+
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Pixi
+        uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
+        with:
+          pixi-version: v0.81.0
+          locked: true
+          environments: default
+      # Hosted macOS runners can't nest VMs, so the scenario runs as a brand-new
+      # user with only the system PATH. The image's Homebrew and JDK still reach
+      # every user (/etc/paths.d, the /usr/bin/java stub), and a real user's Mac
+      # has neither, so move them aside on this throwaway runner; the oracle
+      # fails the run if any pre-installed tool still leaks through.
+      - name: Hide the runner's preinstalled tools
+        run: |
+          for dir in /opt/homebrew /usr/local/Homebrew /Library/Java/JavaVirtualMachines; do
+            if [ -d "$dir" ]; then sudo mv "$dir" "$dir.lab-hidden"; fi
+          done
+      - name: Install, use, update and uninstall as a fresh macOS user
+        run: pixi run python scripts/installlab/lab.py run host --out out/installlab/ci-macos
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: install-lab-macos
+          path: out/installlab
+          retention-days: 14

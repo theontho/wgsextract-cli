@@ -1,6 +1,6 @@
 {
   "ruff.importStrategy": "fromEnvironment",
-  "ruff.interpreter": ["pixi", "run", "python"],
+  "ruff.interpreter": ["pixi", "run", "-e", "dev", "python"],
   "ruff.organizeImports": true,
   "ruff.fixAll": true,
   "[python]": {

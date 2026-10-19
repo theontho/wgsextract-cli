@@ -7,13 +7,14 @@ import subprocess
 from collections.abc import Mapping, Sequence
 from typing import Any, TypedDict
 
+from wgsextract_cli.core.builds import build_from_chr1_length, build_from_path
 from wgsextract_cli.core.constants import (
     N_ADJUST,
     SEQUENCERS,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
-from wgsextract_cli.core.utils import run_command
-from wgsextract_cli.core.variant_files import popen
+from wgsextract_cli.core.reference_assets import n_count_paths
+from wgsextract_cli.core.utils import popen, run_command
 
 
 class IdxStat(TypedDict):
@@ -21,6 +22,17 @@ class IdxStat(TypedDict):
     length: int
     mapped: int
     unmapped: int
+
+
+def contig_key(name: str) -> str:
+    """Normalize a contig name for table lookups (chr1 -> 1, chrMT/MT -> M)."""
+    key = name.upper().removeprefix("CHR")
+    return "M" if key == "MT" else key
+
+
+def is_primary_contig(name: str) -> bool:
+    key = contig_key(name)
+    return key.isdigit() or key in {"X", "Y"}
 
 
 def determine_sequencer(qname: str | None) -> str:
@@ -72,6 +84,7 @@ def run_body_sample(
     len_values = []
     first_qname = None
 
+    proc = None
     try:
         proc = popen(cmd, stdout=subprocess.PIPE, text=True, stderr=subprocess.DEVNULL)
         assert proc.stdout is not None
@@ -108,10 +121,17 @@ def run_body_sample(
             # and limit to 50k to match legacy behavior (avoids chimeric skews)
             if rnext == "=" and 0 < tlen < 50000:
                 tlen_values.append(tlen)
-
-        proc.terminate()
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
         logging.warning("Failed to sample read metrics from %s: %s", filepath, exc)
+    finally:
+        # We deliberately stop reading early, so samtools is terminated rather
+        # than drained; reap it so no zombie or open pipe is left behind.
+        if proc is not None:
+            if proc.poll() is None:
+                proc.terminate()
+            if proc.stdout:
+                proc.stdout.close()
+            proc.wait()
 
     avg_len = total_len / count if count > 0 else 0
     avg_tlen = sum(tlen_values) / len(tlen_values) if len(tlen_values) > 0 else 0
@@ -131,51 +151,45 @@ def run_body_sample(
 
 
 def load_n_counts(ref_path: str | None) -> dict[str, int]:
-    """Try to load chromosome N counts from a sidecar _ncnt.csv file."""
+    """Load per-contig N counts from the reference's ``<prefix>_ncnt.csv`` sidecar.
+
+    The sidecar is tab-separated with ``#`` comment/header lines and columns
+    SN, NumBP, NumNs, ... (numbers may contain thousands separators). A
+    two-column ``SN,NumNs`` CSV is also accepted.
+    """
     if not ref_path or not os.path.isfile(ref_path):
         return {}
 
-    prefix = re.sub(r"\.(fasta|fna|fa)(\.gz)?$", "", ref_path)
-    ncnt_file = prefix + "_ncnt.csv"
+    ncnt_file, _ = n_count_paths(ref_path)
     if not os.path.exists(ncnt_file):
         return {}
 
     logging.debug(LOG_MESSAGES["info_loading_n"].format(file=ncnt_file))
     n_counts: dict[str, int] = {}
     try:
-        with open(ncnt_file, newline="") as f:
-            # Try to detect if it's tab-separated or comma-separated
-            first_line = f.readline()
-            f.seek(0)
-            delimiter = "\t" if "\t" in first_line else ","
-            reader = csv.reader(f, delimiter=delimiter)
-            for row in reader:
-                if (
-                    len(row) >= 3
-                ):  # countingNs script uses SN, NumBP, NumNs (so index 2)
-                    chrom, count = row[0], row[2]
-                    if chrom.startswith("#"):
-                        continue
-                    # Normalize chrom name like generate_chrom_table does
-                    cnum = chrom.upper().replace("CHR", "").replace("MT", "M")
-                    try:
-                        # Remove commas from number if present (e.g. 1,234,567)
-                        clean_count = count.replace(",", "")
-                        n_counts[cnum] = int(float(clean_count))
-                    except ValueError:
-                        pass
-                elif len(row) >= 2:
-                    chrom, count = row[0], row[1]
-                    if chrom.startswith("#"):
-                        continue
-                    cnum = chrom.upper().replace("CHR", "").replace("MT", "M")
-                    try:
-                        clean_count = count.replace(",", "")
-                        n_counts[cnum] = int(float(clean_count))
-                    except ValueError:
-                        pass
-    except (OSError, csv.Error) as e:
-        logging.debug(f"Failed to read {ncnt_file}: {e}")
+        with open(ncnt_file, encoding="utf-8-sig", newline="") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("#TOTALS"):
+                    break  # the genome-wide totals row that follows is not a contig
+                if not line or line.startswith("#"):
+                    continue
+                if "\t" in line:
+                    row = line.split("\t")
+                else:
+                    row = next(csv.reader([line]))
+                if len(row) < 2:
+                    continue
+                count = row[2] if len(row) >= 3 else row[1]
+                try:
+                    n_counts[contig_key(row[0].strip())] = int(
+                        float(count.strip().replace(",", ""))
+                    )
+                except ValueError:
+                    continue
+    except (OSError, UnicodeDecodeError, csv.Error) as e:
+        logging.warning(f"Failed to read reference N counts {ncnt_file}: {e}")
+        return {}
 
     return n_counts
 
@@ -250,14 +264,8 @@ def generate_chrom_table(
         valid_mito = ["M"]
         build = "Cat"
     else:
-        build = (
-            "38"
-            if any(x in ref_model_name.upper() for x in ["38", "HG38", "GRCH38"])
-            else "37"
-            if any(x in ref_model_name.upper() for x in ["37", "HG19", "GRCH37"])
-            else "19"
-            if "19" in ref_model_name
-            else "99"
+        build = {"hg38": "38", "hg19": "37"}.get(
+            build_from_path(ref_model_name) or "", "99"
         )
 
     stats_autos: list[list[Any]] = []
@@ -266,8 +274,13 @@ def generate_chrom_table(
     if coverage_map is None:
         coverage_map = {}
 
-    # Use loaded N counts if available, otherwise fallback to hardcoded defaults
-    n_adjust_map = N_ADJUST.get(build, {}).copy()
+    # The hardcoded N counts describe the standard full-length assemblies, so use
+    # them only when chr1 has a canonical length; a trimmed or custom reference
+    # with the same contig names would otherwise get a negative effective length.
+    # N counts measured from the actual reference (ref count-ns) always apply.
+    contig_lengths = {s["name"]: s["length"] for s in idx_stats}
+    is_standard_assembly = build_from_chr1_length(contig_lengths) is not None
+    n_adjust_map = N_ADJUST.get(build, {}).copy() if is_standard_assembly else {}
     if n_counts:
         n_adjust_map.update(n_counts)
 
@@ -278,7 +291,7 @@ def generate_chrom_table(
         if s["mapped"] == 0:
             continue
         chromosome = s["name"]
-        chromnum = chromosome.upper().replace("CHR", "").replace("MT", "M")
+        chromnum = contig_key(chromosome)
         map_seg, mod_len = s["mapped"] + s["unmapped"], s["length"]
         n_count = n_adjust_map.get(chromnum, 0)
         cvg = coverage_map.get(chromnum, "")

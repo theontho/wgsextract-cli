@@ -1,0 +1,41 @@
+# Paths macOS changes by itself while the VM runs, measured with
+# `lab.py run macos --mode control` (nothing installed). Only Apple-owned
+# locations belong here; WGS Extract never writes to any of them. Each pattern is
+# generalized to its directory because the file names differ from run to run.
+*/Library/Application Support/com.apple.*
+*/Library/IdentityServices/*
+*/Library/DuetExpertCenter/*
+*/Library/Metadata/CoreSpotlight/*
+*/Library/Containers/com.apple.*
+*/Library/Application Scripts/com.apple.*
+*/Library/Group Containers/*.com.apple.*
+*/Library/Biome/*
+*/Library/MediaAnalysis*
+*/Library/Application Support/CrashReporter/*
+*/Movies/TV*
+*/Music/Music*
+*/Pictures/Photos Library.photoslibrary*
+# Daily rollovers of Apple daemons (seen when a run crosses midnight UTC).
+*/Library/Application Scripts/group.com.apple.*
+*/Library/Application Support/DifferentialPrivacy*
+*/Library/Application Support/locationaccessstored*
+*/Library/HTTPStorages/com.apple.*
+*/Library/Preferences/com.apple.*
+*/Library/PPM*
+*/Library/Assistant/*
+*/Library/HomeKit/*
+# Apple's reverse-DNS namespace anywhere in ~/Library (CloudKit caches, group
+# containers of system extensions, ...). WGS Extract's own ids are dev.guiforcli.*.
+*/Library/*com.apple.*
+*/Library/*homeenergyd*
+*/Library/Photos/Libraries/*
+# Sandbox containers of system daemons, named by UUID (seen holding
+# PrivateCloudCompute data); third-party software has no daemon containers.
+*/Library/Daemon Containers/*
+*/Library/Application Scripts/[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]-*
+*/Library/PrivateCloudCompute*
+# Created by macOS the first time the user mounts any disk image (the DMG).
+*/Library/Application Support/DiskImages*
+*/Library/PersonalizationPortrait/*
+# Created on a brand-new account's first logins (sandbox staging).
+*/Library/ContainerManager*

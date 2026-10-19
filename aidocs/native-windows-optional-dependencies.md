@@ -9,56 +9,33 @@ penalty, so the preferred order is:
 
 1. MSYS2 UCRT64 pacman packages.
 2. Native Windows Pixi packages that solve and run without WSL.
-3. WGS Extract release assets built for MSYS2 UCRT64, like the existing BWA
-   ZIP.
+3. WGS Extract release assets built for MSYS2 UCRT64 (BWA, minimap2,
+   samblaster, fastp).
 4. WSL or container-only fallback, deferred until native options are exhausted.
 
-## Current optional tool inventory
+## Current status
 
-`wgsextract_cli.core.dependencies.OPTIONAL_TOOLS` currently checks:
+The per-tool inventory of `wgsextract_cli.core.dependencies.OPTIONAL_TOOLS`
+on native Windows, including which tools come from pacman, Pixi, or WGS
+Extract release assets, is maintained in
+[docs/windows_pacman_runtime.md](../docs/windows_pacman_runtime.md#optional-tool-coverage).
+Keep that table as the single source of truth.
 
-| Tool | Native Windows source | Status / notes |
-| --- | --- | --- |
-| `curl` | MSYS2 pacman or Pixi | Available. Prefer pacman in the Windows runtime so the reported source is consistent with other UCRT64 tools. |
-| `htsfile` | MSYS2 pacman via `mingw-w64-ucrt-x86_64-htslib` | Available. This package is already installed for mandatory `tabix`/`bgzip`. |
-| `java` | Pixi `openjdk` | Available and already part of the default Pixi environment through the GATK feature. |
-| `fastqc` | Pixi `fastqc` | Bioconda noarch package solves on `win-64`; needs Java. |
-| `gatk` | Pixi `gatk4` | Bioconda noarch package solves on `win-64`; large but native enough for Windows. |
-| `haplogrep` | Pixi `haplogrep` | Bioconda noarch package solves on `win-64`; Java-oriented. |
-| `yleaf` | Pixi `yleaf` | Bioconda noarch Python package solves on `win-64`; smoke-test before treating as supported. |
-| `pbsv` | Native source not confirmed | The current lockfile only includes a `linux-64` artifact. Do not advertise native Windows support unless a fresh `win-64` solve and smoke test succeeds. |
-| `minimap2` | Build/package native | Implemented in this branch as an MSYS2 UCRT64 build/install path and release asset workflow output. |
-| `samblaster` | Build/package native | Implemented as an MSYS2 UCRT64 release asset using small Windows compatibility shims. |
-| `fastp` | Build/package native | Implemented as an MSYS2 UCRT64 release asset using pacman-provided `isa-l` and `libdeflate`. |
-| `freebayes` | Build/package native | Not available from MSYS2 UCRT64 or native Pixi. More complex dependency stack. |
-| `delly` | Build/package native | Not available from MSYS2 UCRT64 or native Pixi. More complex dependency stack. |
-| `sambamba` | Build/package native or defer | D/LDC-based; likely harder than C/C++ tools. |
-| `pbmm2` | Build/package native or defer | PacBio C++ stack; likely harder than first native asset candidates. |
-| `sniffles` | Defer / investigate | Native Pixi solve currently fails despite noarch metadata, likely dependency constraints. |
-| `vep` | Defer / WSL later | Perl/cache stack is high-friction on native Windows. |
-| `run_deepvariant` | Defer / WSL or container later | DeepVariant remains Linux/container-oriented. |
-| `dv_call_variants.py` | Defer / WSL or container later | Same DeepVariant constraint. |
+Notes that are not in that table:
 
-## Phase 1: pacman-native setup
+- `yleaf` is a PyPI git dependency (upstream Yleaf `v4.1.2`) in the
+  `bio-tools` Pixi feature, not the bioconda package, because bioconda's
+  artifact omits Yleaf's marker data. It is part of the default `win-64`
+  environment.
+- `pbsv` only has a `linux-64` artifact. Do not advertise native Windows
+  support unless a fresh `win-64` solve and smoke test succeeds.
+- `scripts/setup_pacman_runtime.ps1` installs the optional pacman packages
+  (`curl`, `htslib` for `htsfile`) explicitly so its output shows which
+  optional tools pacman covers.
 
-The first implementation phase should make the Windows setup/install path
-explicitly install and report every optional dependency that MSYS2 UCRT64 can
-provide directly.
+## Remaining native release assets
 
-Current MSYS2 UCRT64 coverage:
-
-- `curl` from `mingw-w64-ucrt-x86_64-curl`
-- `htsfile` from `mingw-w64-ucrt-x86_64-htslib`
-
-`htslib` is already installed because mandatory tools need `tabix`, `bgzip`,
-and `htsfile`. The useful change is to make optional pacman packages explicit
-in `scripts/setup_pacman_runtime.ps1`, so setup output tells users which
-optional tools are intentionally covered by pacman.
-
-## Phase 2: native release assets
-
-After pacman coverage is explicit and tested, add release-asset builds for
-missing native tools. Follow the BWA pattern:
+Follow the existing BWA/minimap2/samblaster/fastp pattern:
 
 - build in GitHub Actions on `windows-latest` with MSYS2 UCRT64;
 - package only the runtime executable and required adjacent files;
@@ -68,27 +45,21 @@ missing native tools. Follow the BWA pattern:
 - keep `-Skip...Download`, `-Skip...Build`, and `-Force...Build` style switches
   for installer/debug control.
 
-Recommended order:
+Recommended order for the tools still missing:
 
-1. `minimap2` - implemented first because it is a high-value aligner and
-   builds cleanly under MSYS2 UCRT64.
-2. `samblaster` - implemented with compatibility shims for POSIX helpers.
-3. `fastp` - implemented with MSYS2 UCRT64 `isa-l` and `libdeflate`.
-   The packaged Windows build includes compatibility patches for large input
-   files, 64-bit report counters, and JSON-safe reported command paths. A
-   real-data validation run over paired ~20 GB FASTQs produced positive
-   counters for more than 101 billion input bases.
-4. `freebayes`
-5. `delly`
-6. `sambamba`
-7. `pbmm2`
+1. `freebayes`
+2. `delly`
+3. `sambamba`
+4. `pbmm2`
+
+`sniffles`, `vep`, and DeepVariant stay deferred (see the table for reasons).
 
 ## Runtime mode
 
-The Windows installer persists `tool_runtime = "windows"`. That mode searches
-normal host `PATH`, MSYS2 UCRT64 pacman paths, then host Pixi environments, and
-never falls back to WSL. It is the normal native Windows mode for GUI and
-standalone installer use.
+The Windows installer persists `tool_runtime = "windows"` in `config.toml`.
+That mode searches normal host `PATH`, MSYS2 UCRT64 pacman paths, then host
+Pixi environments, and never falls back to WSL. It is the normal native
+Windows mode for GUI and standalone installer use.
 
 Strict `tool_runtime = "pacman"` remains available for diagnostics and setup
 validation when the caller wants to prove that a tool comes from MSYS2/pacman

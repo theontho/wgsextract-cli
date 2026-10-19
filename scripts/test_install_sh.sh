@@ -24,7 +24,9 @@ rm -rf "$work_dir"
 mkdir -p "$source_dir" "$home_dir" "$pixi_cache_dir" "$pixi_env_dir" "$fake_bin" "$fake_pixi_source"
 
 cd "$repo_root"
-git ls-files | while IFS= read -r path; do
+git ls-files --cached --others --exclude-standard | while IFS= read -r path; do
+    # Mirror the working tree: skip tracked files deleted but not yet committed.
+    [ -e "$repo_root/$path" ] || [ -L "$repo_root/$path" ] || continue
     target_dir="$source_dir/$(dirname "$path")"
     mkdir -p "$target_dir"
     cp -pP "$repo_root/$path" "$source_dir/$path"
@@ -45,6 +47,10 @@ case "${1:-}" in
         ;;
     run)
         shift
+        if [ "${1:-}" = "--manifest-path" ]; then
+            test -f "${2:-}" || { printf 'missing manifest: %s\n' "${2:-}" >&2; exit 3; }
+            shift 2
+        fi
         if [ "${1:-}" = "wgsextract" ]; then
             shift
             case "${1:-}" in
@@ -153,9 +159,48 @@ test -x "$install_dir/uninstall.sh"
 test -f "$install_dir/install-manifest.json"
 grep -F "\"wgsextractRef\": \"$release_tag\"" "$install_dir/install-manifest.json" >/dev/null
 grep -F "# WGS Extract CLI installer launcher" "$install_dir/wgsextract" >/dev/null
+# The launcher must keep the caller's working directory so relative paths work.
+grep -F -- "--manifest-path" "$install_dir/wgsextract" >/dev/null
+if grep -E '^cd ' "$install_dir/wgsextract" >/dev/null; then
+    printf 'launcher changes directory; relative input paths would break\n' >&2
+    exit 1
+fi
 sh -n "$install_dir/uninstall.sh"
 "$install_dir/wgsextract" --help >/dev/null
 test -d "$install_dir/app/src/wgsextract_cli"
+# A custom env dir must really hold the environments (pixi reads it from config).
+grep -F "detached-environments" "$install_dir/app/.pixi/config.toml" >/dev/null
+find "$pixi_env_dir" -path "*/envs/default/bin/python*" | grep . >/dev/null
+# Pixi may leave app/.pixi/envs as a symlink to the detached location, but the
+# environment itself must not be installed inside app/.
+if [ -e "$install_dir/app/.pixi/envs" ] && [ ! -L "$install_dir/app/.pixi/envs" ]; then
+    echo "Pixi environment was installed inside app/ despite detached-environments" >&2
+    exit 1
+fi
+
+# Updating must keep user data that lives inside app/.
+mkdir -p "$install_dir/app/reference/genomes"
+printf 'genome\n' > "$install_dir/app/reference/genomes/keep.fa"
+HOME="$home_dir" \
+PATH="$fake_bin:$PATH" \
+PIXI="$pixi_path" \
+WGSEXTRACT_INSTALLER_TEST_ARCHIVE="$archive" \
+WGSEXTRACT_INSTALLER_TEST_PIXI_ARCHIVE="$fake_pixi_archive" \
+WGSEXTRACT_INSTALLER_TEST_RELEASE_TAG="$release_tag" \
+WGSEXTRACT_INSTALLER_TEST_CURL_LOG="$curl_log" \
+WGSEXTRACT_INSTALL_DIR="$install_dir" \
+WGSEXTRACT_PIXI_CACHE_DIR="$pixi_cache_dir" \
+WGSEXTRACT_PIXI_ENV_DIR="$pixi_env_dir" \
+WGSEXTRACT_NO_OPEN=1 \
+sh "$repo_root/install.sh"
+test "$(cat "$install_dir/app/reference/genomes/keep.fa")" = "genome"
+"$install_dir/wgsextract" --help >/dev/null
+
+# Uninstall without repeating the custom directories: install-layout.txt has them.
+HOME="$home_dir" PATH="$fake_bin:$PATH" "$install_dir/uninstall.sh" --yes >/dev/null
+test ! -e "$install_dir"
+test ! -e "$pixi_env_dir"
+test ! -e "$pixi_cache_dir"
 
 embedded_install_dir="$work_dir/embedded-install"
 embedded_home_dir="$work_dir/embedded-home"

@@ -3,6 +3,11 @@ import shutil
 import subprocess
 import sys
 from glob import glob
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 _TOOL_CACHE: dict[str, bool] = {}
 
@@ -110,58 +115,47 @@ def get_cli_command() -> list[str]:
     return [sys.executable, "-m", "wgsextract_cli.main"]
 
 
-def run_cli(args: list[str], env: dict | None = None) -> tuple[int, str, str]:
-    """Runs the CLI as a subprocess and returns (returncode, stdout, stderr)."""
-    # Clean environment to prevent interference from .env files during tests
-    # Also skip loading .env files from the project root
-    clean_env = {k: v for k, v in os.environ.items() if not k.startswith("WGSE_")}
-    clean_env["WGSE_SKIP_DOTENV"] = "1"
-    test_home = os.path.abspath(os.path.join("tmp", "pytest_home"))
-    local_appdata = os.path.join(test_home, "AppData", "Local")
-    roaming_appdata = os.path.join(test_home, "AppData", "Roaming")
-    os.makedirs(local_appdata, exist_ok=True)
-    os.makedirs(roaming_appdata, exist_ok=True)
-    clean_env["USERPROFILE"] = test_home
-    clean_env["LOCALAPPDATA"] = local_appdata
-    clean_env["APPDATA"] = roaming_appdata
-    if env:
-        clean_env.update(env)
-
-    cmd = get_cli_command() + args
-    result = subprocess.run(cmd, capture_output=True, text=True, env=clean_env)
-    return result.returncode, result.stdout, result.stderr
-
-
-def run_cli_pipe(
-    args: list[str], stdin_str: str, env: dict | None = None
+def run_cli(
+    args: list[str],
+    env: dict | None = None,
+    stdin_str: str | None = None,
+    timeout: float | None = None,
 ) -> tuple[int, str, str]:
-    """Runs the CLI as a subprocess with stdin and returns (returncode, stdout, stderr)."""
-    clean_env = {k: v for k, v in os.environ.items() if not k.startswith("WGSE_")}
-    clean_env["WGSE_SKIP_DOTENV"] = "1"
-    test_home = os.path.abspath(os.path.join("tmp", "pytest_home"))
-    local_appdata = os.path.join(test_home, "AppData", "Local")
-    roaming_appdata = os.path.join(test_home, "AppData", "Roaming")
-    os.makedirs(local_appdata, exist_ok=True)
-    os.makedirs(roaming_appdata, exist_ok=True)
-    clean_env["USERPROFILE"] = test_home
-    clean_env["LOCALAPPDATA"] = local_appdata
-    clean_env["APPDATA"] = roaming_appdata
-    if env:
-        clean_env.update(env)
+    """Runs the CLI as a subprocess and returns (returncode, stdout, stderr).
 
-    cmd = get_cli_command() + args
+    The subprocess inherits the test's environment, whose home/config dirs the
+    autouse fixture in conftest.py points at an empty per-test home.
+    """
     result = subprocess.run(
-        cmd, input=stdin_str, capture_output=True, text=True, env=clean_env
+        get_cli_command() + args,
+        input=stdin_str,
+        capture_output=True,
+        text=True,
+        env={**os.environ, **env} if env else None,
+        timeout=timeout,
     )
     return result.returncode, result.stdout, result.stderr
 
 
-def assert_log_contains(stderr: str, pattern: str):
+def isolate_home(monkeypatch: pytest.MonkeyPatch, home: Path) -> None:
+    """Point every home/config location the CLI consults at ``home``."""
+    for name, path in {
+        "HOME": home,
+        "USERPROFILE": home,
+        "XDG_CONFIG_HOME": home / ".config",
+        "APPDATA": home / "AppData" / "Roaming",
+        "LOCALAPPDATA": home / "AppData" / "Local",
+    }.items():
+        path.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv(name, str(path))
+
+
+def assert_log_contains(stderr: str, pattern: str) -> None:
     """Asserts that the CLI log (stderr) contains a specific message."""
     assert pattern in stderr
 
 
-def ensure_fake_data(fake_dir: str):
+def ensure_fake_data(fake_dir: str) -> None:
     """Ensures that fake test data is generated in the specified directory."""
     required_files = [
         os.path.join(fake_dir, "fake.bam"),
@@ -219,8 +213,7 @@ def ensure_fake_data(fake_dir: str):
     repair_fake_data_indexes()
 
     if not all(os.path.exists(path) for path in required_files + required_index_files):
-        # Use the CLI to generate fake data
-        run_cli(
+        rc, stdout, stderr = run_cli(
             [
                 "qc",
                 "fake-data",
@@ -238,11 +231,13 @@ def ensure_fake_data(fake_dir: str):
                 fake_dir,
             ]
         )
+        if rc != 0:
+            raise RuntimeError(f"qc fake-data failed ({rc}):\n{stdout}\n{stderr}")
         normalize_fake_data_names()
         repair_fake_data_indexes()
 
 
-def setup_test_reference(tmp_path: str, ref_src: str):
+def setup_test_reference(tmp_path: str, ref_src: str) -> tuple[str, str]:
     """Sets up a reference genome in a temporary directory for testing."""
     ref_dir = os.path.join(tmp_path, "reference")
     os.makedirs(os.path.join(ref_dir, "genomes"), exist_ok=True)
@@ -259,7 +254,7 @@ def setup_test_reference(tmp_path: str, ref_src: str):
     return ref_dst, ref_dir
 
 
-def copy_resource_files(src_dir: str, dst_dir: str, build: str):
+def copy_resource_files(src_dir: str, dst_dir: str, build: str) -> None:
     """Copies resource files (ClinVar, REVEL, etc.) for a specific build."""
     if not os.path.exists(src_dir):
         return
@@ -281,7 +276,7 @@ def copy_resource_files(src_dir: str, dst_dir: str, build: str):
             shutil.copy(file, os.path.join(dst_dir, "ref", os.path.basename(file)))
 
 
-def prepare_vcf_for_test(vcf_src: str, outdir: str, ref: str):
+def prepare_vcf_for_test(vcf_src: str, outdir: str, ref: str) -> None:
     """Prepares a VCF for testing by copying and indexing it."""
     vcf_name = os.path.basename(vcf_src)
     vcf_dst = os.path.join(outdir, vcf_name)

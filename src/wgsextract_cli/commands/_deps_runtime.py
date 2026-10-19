@@ -1,35 +1,194 @@
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 
 from wgsextract_cli.core import (
     runtime,
     runtime_paths,
 )
-from wgsextract_cli.core.dependencies import required_dependency_tools
+from wgsextract_cli.core.dependencies import (
+    clear_tool_caches,
+    required_dependency_tools,
+)
 from wgsextract_cli.core.download_progress import (
     copy_response_to_file,
     require_http_url,
 )
 from wgsextract_cli.core.utils import WGSExtractError
 
-from ._deps_status import (
-    DOWNLOAD_USER_AGENT,
-    PACMAN_TOOL_NOTES,
-    PACMAN_TOOL_PACKAGES,
-    _clear_bundled_runtime_caches,
-    _copy_bundled_runtime_from_source,
-    _print_bundled_runtime_tool_status,
-    _safe_extract_zip,
-)
+DEFAULT_WINDOWS_RUNTIME_RELEASE_URL = "https://get.wgse.io/latest-release-Beta.json"
+
+
+DOWNLOAD_USER_AGENT = "wgsextract-cli-runtime-setup/1.0"
+
+
+PACMAN_TOOL_PACKAGES = {
+    "samtools": "mingw-w64-ucrt-x86_64-samtools",
+    "bcftools": "mingw-w64-ucrt-x86_64-bcftools",
+    "tabix": "mingw-w64-ucrt-x86_64-htslib",
+    "bgzip": "mingw-w64-ucrt-x86_64-htslib",
+    "htsfile": "mingw-w64-ucrt-x86_64-htslib",
+    "gzip": "gzip",
+    "tar": "tar",
+}
+
+
+PACMAN_TOOL_NOTES = {
+    "bwa": "MSYS2 UCRT64 does not currently publish a BWA package; "
+    "build or place bwa.exe in the UCRT64 bin directory.",
+}
+
+
+def _copy_sibling_runtime_tools(source_runtime_dir: Path, runtime_dir: Path) -> None:
+    for dirname in ("FastQC", "jre8"):
+        source_tool_dir = source_runtime_dir.parent / dirname
+        destination_tool_dir = runtime_dir / dirname
+        if not source_tool_dir.is_dir() or destination_tool_dir.exists():
+            continue
+
+        print(f"Copying {dirname} runtime tools from {source_tool_dir}")
+        shutil.copytree(source_tool_dir, destination_tool_dir)
+
+
+def _patch_fastqc_launcher(runtime_dir: Path) -> None:
+    launcher = runtime_dir / "FastQC" / "fastqc"
+    if not launcher.exists():
+        return
+
+    text = launcher.read_text(encoding="utf-8")
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    patched = re.sub(
+        r'"-jar\s+\$RealBin/FastQC\.jar"',
+        '"-jar", "$RealBin/FastQC.jar"',
+        normalized,
+    )
+
+    java_tail = re.compile(
+        r"if\s*\(\s*\$java_bin\s+ne\s+['\"]java['\"]\s*\)\s*\{\s*"
+        r"system\s+\$java_bin,\s*@java_args,\s*"
+        r'"-jar",\s*"\$RealBin/FastQC\.jar",\s*@files;\s*'
+        r"\}\s*else\s*\{\s*"
+        r"exec\s+\$java_bin,\s*@java_args,\s*"
+        r'"-jar",\s*"\$RealBin/FastQC\.jar",\s*@files;\s*'
+        r"\}",
+        re.MULTILINE,
+    )
+    replacement = (
+        'my $fastqc_jar = "$RealBin/FastQC.jar";\n'
+        "if ($^O eq 'cygwin') {\n"
+        '\tmy $converted_jar = `cygpath -w "$fastqc_jar" 2>/dev/null`;\n'
+        "\tchomp $converted_jar;\n"
+        "\t$fastqc_jar = $converted_jar if $converted_jar;\n"
+        "}\n"
+        "\n"
+        "if ($java_bin ne 'java') {\n"
+        '\tsystem $java_bin, @java_args, "-jar", $fastqc_jar, @files;\n'
+        "}\n"
+        "else {\n"
+        '\texec $java_bin, @java_args, "-jar", $fastqc_jar, @files;\n'
+        "}\n"
+    )
+    if "$fastqc_jar" not in patched:
+        patched = java_tail.sub(lambda _match: replacement, patched, count=1)
+    if patched == text:
+        return
+
+    launcher.write_text(patched, encoding="utf-8")
+
+
+def _source_runtime_copy_ignore(mode: str) -> Callable[[str, list[str]], set[str]]:
+    def ignore(_directory: str, names: list[str]) -> set[str]:
+        if mode == "cygwin":
+            return {name for name in names if name == "mnt"}
+        return set()
+
+    return ignore
+
+
+def _copy_bundled_runtime_from_source(
+    source_dir: Path, mode: str, runtime_dir: Path
+) -> None:
+    spec = runtime_paths.bundled_runtime_spec(mode)
+    source = source_dir.expanduser().resolve()
+    candidate = source / spec.dirname if (source / spec.dirname).exists() else source
+    expected_shell = candidate / Path(spec.bash_relpath)
+    if not expected_shell.exists():
+        raise WGSExtractError(
+            f"Runtime source does not contain expected shell for {spec.display_name}: "
+            f"{expected_shell}"
+        )
+
+    print(f"Copying {spec.display_name} runtime")
+    print(f"  from: {candidate}")
+    print(f"  to:   {runtime_dir}")
+    shutil.copytree(
+        candidate,
+        runtime_dir,
+        ignore=_source_runtime_copy_ignore(mode),
+    )
+    _copy_sibling_runtime_tools(candidate, runtime_dir)
+    _patch_fastqc_launcher(runtime_dir)
+
+
+def _clear_bundled_runtime_caches() -> None:
+    clear_tool_caches()
+
+
+def _safe_extract_zip(archive: zipfile.ZipFile, destination: Path) -> None:
+    root = destination.resolve()
+    for member in archive.infolist():
+        member_name = member.filename.replace("\\", "/")
+        target = (root / member_name).resolve()
+        try:
+            target.relative_to(root)
+        except ValueError as exc:
+            raise WGSExtractError(
+                f"Runtime archive contains unsafe path: {member.filename}"
+            ) from exc
+
+    archive.extractall(root)
+
+
+def _bundled_command_available_with_retry(mode: str, tool: str) -> bool:
+    for attempt in range(3):
+        if attempt:
+            time.sleep(0.2)
+        _clear_bundled_runtime_caches()
+        if runtime_paths.bundled_command_available(mode, tool):
+            return True
+    return False
+
+
+def _print_bundled_runtime_tool_status(
+    mode: str, *, fail_on_missing: bool = True
+) -> None:
+    print("\nMandatory tools")
+    print("-" * 60)
+    missing: list[str] = []
+    for tool in required_dependency_tools(include_python=False):
+        present = _bundled_command_available_with_retry(mode, tool)
+        print(f"{tool:<20} {'yes' if present else 'no'}")
+        if not present:
+            missing.append(tool)
+
+    if missing and fail_on_missing:
+        raise WGSExtractError("Missing bundled tool(s): " + ", ".join(missing))
+    if missing:
+        print("\nMissing bundled tool(s): " + ", ".join(missing))
+        print(
+            f"Run 'wgsextract deps {mode} check' after adding the bio tool collection."
+        )
 
 
 def _cygwin_local_mirror_dir(root: Path) -> Path | None:
@@ -60,7 +219,7 @@ def _post_extract_bundled_runtime(mode: str) -> None:
     if not setup_exe.exists() or mirror_dir is None:
         return
 
-    logs_dir = runtime.repo_root() / "tmp" / "runtime_setup"
+    logs_dir = root / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     stdout_log = logs_dir / "cygwin_setup.stdout.log"
     stderr_log = logs_dir / "cygwin_setup.stderr.log"
@@ -259,6 +418,21 @@ def _resolve_bundled_runtime_archive(args: argparse.Namespace, mode: str) -> Pat
     return archive_path
 
 
+def _install_bundled_runtime(
+    args: argparse.Namespace, mode: str, runtime_dir: Path
+) -> None:
+    if getattr(args, "source_dir", None):
+        _copy_bundled_runtime_from_source(Path(args.source_dir), mode, runtime_dir)
+    else:
+        archive_path = _resolve_bundled_runtime_archive(args, mode)
+        print(f"Extracting into {runtime_paths.runtime_root()}")
+        with zipfile.ZipFile(archive_path) as archive:
+            _safe_extract_zip(archive, runtime_paths.runtime_root())
+
+    _clear_bundled_runtime_caches()
+    _post_extract_bundled_runtime(mode)
+
+
 def run_bundled_runtime_setup(args: argparse.Namespace) -> None:
     mode = str(args.mode)
     spec = runtime_paths.bundled_runtime_spec(mode)
@@ -270,26 +444,32 @@ def run_bundled_runtime_setup(args: argparse.Namespace) -> None:
         print("Use --force to replace it.")
         return
 
-    if runtime_dir.exists() and args.force:
-        shutil.rmtree(runtime_dir)
-
     runtime_paths.runtime_root().mkdir(parents=True, exist_ok=True)
-    if getattr(args, "source_dir", None):
-        _copy_bundled_runtime_from_source(Path(args.source_dir), mode, runtime_dir)
-    else:
-        archive_path = _resolve_bundled_runtime_archive(args, mode)
+    # Keep any existing runtime aside until the replacement is complete, so a
+    # failed download or extraction leaves the user with a working runtime.
+    backup_dir: Path | None = None
+    if runtime_dir.exists():
+        backup_dir = runtime_dir.with_name(f".{runtime_dir.name}.previous")
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir)
+        runtime_dir.rename(backup_dir)
 
-        print(f"Extracting into {runtime_paths.runtime_root()}")
-        with zipfile.ZipFile(archive_path) as archive:
-            _safe_extract_zip(archive, runtime_paths.runtime_root())
-
-    _clear_bundled_runtime_caches()
-    _post_extract_bundled_runtime(mode)
-
-    if not bash_path.exists():
-        raise WGSExtractError(
-            f"Downloaded archive did not create expected shell: {bash_path}"
-        )
+    try:
+        _install_bundled_runtime(args, mode, runtime_dir)
+        if not bash_path.exists():
+            raise WGSExtractError(
+                f"Runtime setup did not create expected shell: {bash_path}"
+            )
+    except BaseException:
+        if backup_dir is not None:
+            print(f"Setup failed; restoring previous runtime at {runtime_dir}")
+            if runtime_dir.exists():
+                shutil.rmtree(runtime_dir)
+            backup_dir.rename(runtime_dir)
+        _clear_bundled_runtime_caches()
+        raise
+    if backup_dir is not None:
+        shutil.rmtree(backup_dir)
 
     _clear_bundled_runtime_caches()
     print(f"{spec.display_name} runtime ready at {runtime_dir}")

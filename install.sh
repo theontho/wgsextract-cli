@@ -25,6 +25,11 @@ fail() {
     exit 1
 }
 
+toml_string() {
+    # TOML basic string: escape backslashes and double quotes.
+    printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+}
+
 quote_sh() {
     printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
@@ -137,7 +142,7 @@ pixi_asset_name() {
 }
 
 install_embedded_pixi() {
-    pixi_version="${PIXI_VERSION:-latest}"
+    pixi_version="$PIXI_VERSION"
     pixi_repo_url="${PIXI_REPOURL:-https://github.com/prefix-dev/pixi}"
     pixi_home="${WGSEXTRACT_PIXI_HOME:-$INSTALL_DIR/.pixi}"
     pixi_home="$(expand_home_path "$pixi_home")"
@@ -260,10 +265,18 @@ APP_DIR="$INSTALL_DIR/app"
 TMP_DIR="$APP_DIR/tmp"
 DEFAULT_BIN_DIR="$INSTALL_DIR"
 DEFAULT_PIXI_CACHE_DIR="$INSTALL_DIR/.pixi/cache"
-DEFAULT_PIXI_ENV_DIR="$INSTALL_DIR/.pixi/envs"
+# Pixi keeps project environments in <project>/.pixi/envs unless told otherwise.
+DEFAULT_PIXI_ENV_DIR="$APP_DIR/.pixi/envs"
 BIN_DIR="$(absolute_path "${WGSEXTRACT_BIN_DIR:-$DEFAULT_BIN_DIR}")"
 LAUNCHER="$BIN_DIR/wgsextract"
 PIXI_CACHE_DIR="$(absolute_path "${WGSEXTRACT_PIXI_CACHE_DIR:-$DEFAULT_PIXI_CACHE_DIR}")"
+# The Pixi version this release is tested with (CI pins the same one); a user's
+# own PIXI_VERSION still wins.
+PIXI_VERSION="${PIXI_VERSION:-v0.81.0}"
+# Pixi writes its own markers (e.g. the telemetry notice) under the Rattler cache,
+# ~/.cache/rattler by default; keep them inside the install so uninstall is clean.
+RATTLER_CACHE_DIR="$PIXI_CACHE_DIR/rattler"
+export PIXI_VERSION RATTLER_CACHE_DIR
 PIXI_ENV_DIR="$(absolute_path "${WGSEXTRACT_PIXI_ENV_DIR:-$DEFAULT_PIXI_ENV_DIR}")"
 UNINSTALL_SH="$INSTALL_DIR/uninstall.sh"
 ARCHIVE_URL="${WGSEXTRACT_ARCHIVE_URL:-}"
@@ -276,10 +289,10 @@ uses_default_pixi_layout() {
 write_pixi_exports() {
     if uses_default_pixi_layout; then
         printf 'export PIXI_CACHE_DIR="$install_dir/.pixi/cache"\n'
-        printf 'export PIXI_PROJECT_ENVIRONMENT_DIR="$install_dir/.pixi/envs"\n'
+        printf 'export RATTLER_CACHE_DIR="$install_dir/.pixi/cache/rattler"\n'
     else
         printf 'export PIXI_CACHE_DIR=%s\n' "$(quote_sh "$PIXI_CACHE_DIR")"
-        printf 'export PIXI_PROJECT_ENVIRONMENT_DIR=%s\n' "$(quote_sh "$PIXI_ENV_DIR")"
+        printf 'export RATTLER_CACHE_DIR=%s\n' "$(quote_sh "$PIXI_CACHE_DIR/rattler")"
     fi
 }
 
@@ -292,8 +305,7 @@ write_cli_launcher() {
             printf 'script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)\n'
             printf 'install_dir="$script_dir"\n'
             write_pixi_exports
-            printf 'cd "$install_dir/app" || exit 1\n'
-            printf 'exec %s run wgsextract "$@"\n' "$(quote_sh "$PIXI")"
+            printf 'exec %s run --manifest-path "$install_dir/app/pixi.toml" wgsextract "$@"\n' "$(quote_sh "$PIXI")"
         } > "$LAUNCHER"
     else
         {
@@ -302,8 +314,7 @@ write_cli_launcher() {
             printf 'set -eu\n'
             printf 'install_dir=%s\n' "$(quote_sh "$INSTALL_DIR")"
             write_pixi_exports
-            printf 'cd %s || exit 1\n' "$(quote_sh "$APP_DIR")"
-            printf 'exec %s run wgsextract "$@"\n' "$(quote_sh "$PIXI")"
+            printf 'exec %s run --manifest-path %s wgsextract "$@"\n' "$(quote_sh "$PIXI")" "$(quote_sh "$APP_DIR/pixi.toml")"
         } > "$LAUNCHER"
     fi
     chmod +x "$LAUNCHER"
@@ -393,6 +404,9 @@ command_exists curl || fail "curl is required to download the installer payload.
 command_exists tar || fail "tar is required to extract the installer payload."
 command_exists gzip || fail "gzip is required to extract the installer payload."
 verify_xcode_command_line_tools
+# Pixi fetches Yleaf from its git repository. On macOS git comes with the
+# Command Line Tools checked above.
+command_exists git || fail "git is required to install the WGS Extract CLI environment (e.g. sudo apt install git)."
 
 ARCHIVE_FALLBACK_URL=""
 if [ -z "$ARCHIVE_URL" ]; then
@@ -440,6 +454,7 @@ PIXI="${PIXI:-}"
 PIXI_INSTALLED_BY_SETUP=0
 PIXI_INSTALL_ROOT=""
 PIXI_BIN_DIR=""
+CREATED_PROFILES=""
 if [ -n "$PIXI" ] && [ ! -x "$PIXI" ]; then
     fail "PIXI is set but is not executable: $PIXI"
 fi
@@ -457,7 +472,21 @@ if [ -z "$PIXI" ]; then
             pixi_home="$(expand_home_path "${PIXI_HOME:-$HOME/.pixi}")"
             PIXI_INSTALL_ROOT="$pixi_home"
             PIXI_BIN_DIR="$pixi_home/bin"
+            # pixi.sh adds itself to the shell profile and creates the file if
+            # needed; remember profiles that only exist because of this install.
+            missing_profiles=""
+            for profile_path in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.config/fish/config.fish" "$HOME/.tcshrc"; do
+                if [ ! -e "$profile_path" ]; then
+                    missing_profiles="$missing_profiles$profile_path
+"
+                fi
+            done
             curl -fsSL https://pixi.sh/install.sh | PIXI_HOME="$pixi_home" sh
+            CREATED_PROFILES="$(printf '%s' "$missing_profiles" | while IFS= read -r profile_path; do
+                if [ -e "$profile_path" ]; then
+                    printf '%s\n' "$profile_path"
+                fi
+            done)"
             if [ -x "$PIXI_BIN_DIR/pixi" ]; then
                 PIXI="$PIXI_BIN_DIR/pixi"
             elif command_exists pixi; then
@@ -494,15 +523,48 @@ fi
 
 rm -rf "$APP_DIR.new"
 mv "$SOURCE_DIR" "$APP_DIR.new"
+# An update replaces the app source, but reference genomes, example genomes,
+# downloaded jars and the Pixi environments inside app/ belong to the user (and
+# config.toml may point at them), so carry them into the new tree.
+for preserved in reference genomes jartools .pixi/envs; do
+    if [ -e "$APP_DIR/$preserved" ] && [ ! -e "$APP_DIR.new/$preserved" ]; then
+        mkdir -p "$(dirname "$APP_DIR.new/$preserved")"
+        mv "$APP_DIR/$preserved" "$APP_DIR.new/$preserved"
+    fi
+done
 rm -rf "$APP_DIR"
 mv "$APP_DIR.new" "$APP_DIR"
 mkdir -p "$TMP_DIR"
 
+if [ "$PIXI_ENV_DIR" != "$DEFAULT_PIXI_ENV_DIR" ]; then
+    # Pixi reads the environment location from project config, not from env vars.
+    mkdir -p "$APP_DIR/.pixi"
+    printf 'detached-environments = %s\n' "$(toml_string "$PIXI_ENV_DIR")" > "$APP_DIR/.pixi/config.toml"
+fi
+
 log "Installing Pixi environment..."
 cd "$APP_DIR"
 export PIXI_CACHE_DIR
-export PIXI_PROJECT_ENVIRONMENT_DIR="$PIXI_ENV_DIR"
-"$PIXI" install
+# --locked installs exactly the versions the release was tested with.
+"$PIXI" install --locked
+
+# The CLI creates its config directory on first save. Remember config parents
+# that don't exist yet, so `uninstall.sh --remove-config` can remove them again.
+case "$OS_NAME" in
+    Linux)
+        config_parent="${XDG_CONFIG_HOME:-$HOME/.config}"
+        if [ ! -e "$config_parent" ] && [ ! -e "$INSTALL_DIR/created-dirs.txt" ]; then
+            printf '%s\n' "$config_parent" > "$INSTALL_DIR/created-dirs.txt"
+        fi
+        ;;
+esac
+
+if [ -n "$CREATED_PROFILES" ]; then
+    printf '%s\n' "$CREATED_PROFILES" > "$INSTALL_DIR/created-profiles.txt"
+fi
+# Where this install put things, so uninstall.sh finds them without being told.
+printf 'bin_dir\t%s\npixi_cache_dir\t%s\npixi_env_dir\t%s\n' \
+    "$BIN_DIR" "$PIXI_CACHE_DIR" "$PIXI_ENV_DIR" > "$INSTALL_DIR/install-layout.txt"
 
 log "Writing launchers..."
 write_cli_launcher

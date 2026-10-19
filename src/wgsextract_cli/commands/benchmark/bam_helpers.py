@@ -1,7 +1,5 @@
 """BAM file + index helpers used by the benchmark execution layer."""
 
-from __future__ import annotations
-
 import shutil
 from pathlib import Path
 

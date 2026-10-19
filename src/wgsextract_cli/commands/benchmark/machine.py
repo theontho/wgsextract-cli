@@ -1,4 +1,3 @@
-import os
 import platform
 import sys
 from pathlib import Path
@@ -15,9 +14,7 @@ from .environment import (
     _linux_drive_model,
     _linux_sys_block_name,
     _ram_speed,
-)
-from .models import (
-    BenchmarkResult,
+    _windows_cim_values,
 )
 
 MACHINE_STAT_FIELDS = (
@@ -61,9 +58,7 @@ def _drive_model(path: Path) -> str | None:
             _macos_storage_profile_for_path(path), "Device Name:"
         )
     if system == "Windows":
-        return _command_output(
-            ["wmic", "diskdrive", "get", "Model", "/value"], first_value=True
-        )
+        return _windows_cim_values("Win32_DiskDrive", "$_.Model")
     if system == "Linux":
         return _linux_drive_model(path)
     return None
@@ -96,9 +91,8 @@ def _drive_speed(path: Path) -> str | None:
             return f"{medium}, {protocol}"
         return medium or protocol
     if system == "Windows":
-        return _command_output(
-            ["wmic", "diskdrive", "get", "MediaType,InterfaceType", "/value"],
-            first_value=True,
+        return _windows_cim_values(
+            "Win32_DiskDrive", '"$($_.MediaType) ($($_.InterfaceType))"'
         )
     if system == "Linux":
         rotational = _linux_drive_rotational(path)
@@ -177,88 +171,3 @@ def _record_base_file_size(metadata: dict[str, Any], base_file: Path) -> None:
     size_bytes = base_file.stat().st_size
     metadata["base_file_size"] = _format_bytes(size_bytes)
     metadata["base_file_size_bytes"] = size_bytes
-
-
-def _system_metadata() -> dict[str, str]:
-    return {
-        "platform": platform.platform(),
-        "python": sys.version.replace("\n", " "),
-        "executable": sys.executable,
-    }
-
-
-def _format_tool_names(tools: list[dict[str, str | bool | None]]) -> str:
-    active_tools = [str(tool["name"]) for tool in tools if tool["active"]]
-    return ", ".join(active_tools) if active_tools else "none"
-
-
-def _format_machine_summary(stats: dict[str, str | int | None]) -> str:
-    cores = _machine_stat_display_value(stats, "cores") or "unknown cores"
-    ram = stats.get("ram_total") or "unknown RAM"
-    disk_free = stats.get("disk_free") or "unknown disk free"
-    os_name = stats.get("os") or "unknown OS"
-    cpu = stats.get("cpu_model") or "unknown CPU"
-    return f"{os_name} | {cpu} | {cores} | RAM {ram} | disk free {disk_free}"
-
-
-def _format_stdout_report(
-    metadata: dict[str, Any], results: list[BenchmarkResult], report_md: Path
-) -> str:
-    total = sum(result.seconds for result in results if result.status != "SKIP")
-    passed = sum(1 for result in results if result.status == "PASS")
-    failed = sum(1 for result in results if result.status == "FAIL")
-    skipped = sum(1 for result in results if result.status == "SKIP")
-
-    lines = [
-        "",
-        "WGSExtract CLI Benchmark Summary",
-        f"Profile: {metadata['profile']} | Suite: {metadata['suite']} | "
-        f"Coverage: {metadata['coverage']}x | Full size: {metadata['full_size']}",
-        f"Tool runtime: {metadata['tool_runtime']}",
-        f"Data source: {metadata['data_source']} ({metadata['data_source_description']})",
-        f"Fake BAM generator: {metadata['fake_bam_generator']}",
-        f"Threads: {metadata['threads']}",
-        f"Thread policy: {metadata['thread_policy']}",
-        f"Region: {metadata['region'] or 'whole generated genome'} | Seed: {metadata['seed']}",
-        f"Base file: {metadata['base_file']} ({metadata['base_file_size'] or 'not available'})",
-        "Machine: " + _format_machine_summary(metadata["machine_stats"]),
-        "External tools: " + _format_tool_names(metadata["external_tools"]),
-        f"Excluded operations: {metadata['excluded_operations']}",
-    ]
-    lines += [
-        f"Total measured time: {total:.2f}s",
-        f"Passed: {passed} | Failed: {failed} | Skipped: {skipped}",
-        f"Markdown report: {report_md}",
-    ]
-    return "\n".join(lines)
-
-
-def _write_github_step_summary(
-    metadata: dict[str, Any], results: list[BenchmarkResult], report_md: Path
-) -> None:
-    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
-    if not summary_path:
-        return
-
-    total = sum(result.seconds for result in results if result.status != "SKIP")
-    passed = sum(1 for result in results if result.status == "PASS")
-    failed = sum(1 for result in results if result.status == "FAIL")
-    skipped = sum(1 for result in results if result.status == "SKIP")
-    lines = [
-        "## WGSExtract Benchmark",
-        "",
-        "| Metric | Value |",
-        "| --- | --- |",
-        f"| Total measured time | {total:.2f}s |",
-        f"| Passed | {passed} |",
-        f"| Failed | {failed} |",
-        f"| Skipped | {skipped} |",
-        f"| Suite | {metadata['suite']} |",
-        f"| Profile | {metadata['profile']} |",
-        f"| Data source | {metadata['data_source']} |",
-        f"| Base file size | {metadata['base_file_size'] or 'not available'} |",
-        f"| Report | `{report_md}` |",
-        "",
-    ]
-    with open(summary_path, "a", encoding="utf-8") as handle:
-        handle.write("\n".join(lines) + "\n")

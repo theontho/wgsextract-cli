@@ -3,27 +3,31 @@ import logging
 import os
 import subprocess
 import tempfile
+from collections.abc import Sequence
 
+from wgsextract_cli.core.annotation_resources import is_bgzf
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
-    chromosome_rename_mapping,
     ensure_vcf_indexed,
+    normalize_vcf_chromosomes,
+    vcf_index_chromosomes,
 )
+
+from .basic import require_vcf_input
+
+VCF_SUFFIXES = (".vcf", ".vcf.gz", ".vcf.bgz")
 
 
 def annotation_context(args: argparse.Namespace) -> tuple[str, str, ReferenceLibrary]:
-    input_file = getattr(args, "input", None) or getattr(args, "vcf_input", None)
-    if not input_file:
-        logging.error(LOG_MESSAGES["input_required"])
-        raise WGSExtractError("VCF processing failed.") from None
-
+    input_file = require_vcf_input(args)
     outdir = getattr(args, "outdir", None) or os.path.dirname(
         os.path.abspath(input_file)
     )
+    os.makedirs(outdir, exist_ok=True)
     md5_sig = (
         calculate_bam_md5(input_file, None)
         if input_file.lower().endswith((".bam", ".cram"))
@@ -33,6 +37,16 @@ def annotation_context(args: argparse.Namespace) -> tuple[str, str, ReferenceLib
     return input_file, outdir, lib
 
 
+def require_annotation_file(file_path: str | None, message_key: str, ann: str) -> str:
+    """Return the resolved annotation resource or raise with a fix-it hint."""
+    if not file_path:
+        msg = LOG_MESSAGES.get(message_key, f"Missing data file for {ann}")
+        raise WGSExtractError(
+            f"REQUIRED DATA MISSING: {msg}\nTo fix this, run: wgsextract ref {ann}"
+        )
+    return str(file_path)
+
+
 def prepare_tabix_annotation(
     annotation_path: str,
     label: str,
@@ -40,7 +54,7 @@ def prepare_tabix_annotation(
     begin_col: str = "2",
     end_col: str = "2",
 ) -> str:
-    if annotation_path.lower().endswith((".vcf", ".vcf.gz", ".vcf.bgz")):
+    if annotation_path.lower().endswith(VCF_SUFFIXES):
         from wgsextract_cli.core.variant_files import ensure_vcf_prepared
 
         return str(ensure_vcf_prepared(annotation_path))
@@ -58,6 +72,12 @@ def prepare_tabix_annotation(
             with open(prepared_path, "wb") as f_out:
                 run_command([bgzip, "-c", annotation_path], stdout=f_out)
 
+    if not is_bgzf(prepared_path):
+        raise WGSExtractError(
+            f"{label} resource {prepared_path} is plain gzip, not BGZF, so it cannot "
+            f"be indexed. Recompress it with 'gzip -dc FILE | bgzip -c > FILE.bgz' "
+            f"or re-download it with 'wgsextract ref'."
+        )
     index_path = prepared_path + ".tbi"
     needs_index = not os.path.exists(index_path) or (
         os.path.getmtime(index_path) <= os.path.getmtime(prepared_path)
@@ -65,106 +85,78 @@ def prepare_tabix_annotation(
     if needs_index:
         tabix = get_tool_path("tabix")
         logging.info("Indexing %s annotation resource: %s", label, prepared_path)
-        run_command(
-            [
-                tabix,
-                "-f",
-                "-s",
-                seq_col,
-                "-b",
-                begin_col,
-                "-e",
-                end_col,
-                prepared_path,
-            ]
-        )
+        try:
+            run_command(
+                [tabix, "-f", "-s", seq_col, "-b", begin_col, "-e", end_col]
+                + [prepared_path],
+                capture_output=True,
+            )
+        except (OSError, subprocess.SubprocessError) as e:
+            raise WGSExtractError(f"Indexing {prepared_path} failed: {e}") from e
     return prepared_path
 
 
-def normalize_to_annotation_chroms(
+def annotation_chromosomes(annotation_path: str) -> list[str]:
+    """Contigs in an indexed annotation resource (VCF or tabix-indexed TSV)."""
+    if annotation_path.lower().endswith(VCF_SUFFIXES):
+        return vcf_index_chromosomes(annotation_path)
+    try:
+        res = run_command(["tabix", "-l", annotation_path], capture_output=True)
+    except (OSError, subprocess.SubprocessError) as e:
+        logging.debug(f"Could not list contigs of {annotation_path}: {e}")
+        return []
+    return [line for line in (res.stdout or "").splitlines() if line.strip()]
+
+
+def annotate_vcf(
     input_vcf: str,
-    annotation_vcf: str,
+    annotation: str,
+    columns: str,
+    ann_out: str,
     outdir: str,
     label: str,
-    output_name: str,
-) -> tuple[str, bool]:
-    normalized_input = input_vcf
-    needs_cleanup = False
-    try:
-        res_v = run_command(["bcftools", "index", "-s", input_vcf], capture_output=True)
-        v_chroms = [line.split("\t")[0] for line in res_v.stdout.strip().split("\n")]
-
-        if annotation_vcf.lower().endswith((".vcf", ".vcf.gz")):
-            res_ann = run_command(
-                ["bcftools", "index", "-s", annotation_vcf], capture_output=True
-            )
-            ann_chroms = [
-                line.split("\t")[0] for line in res_ann.stdout.strip().split("\n")
-            ]
-        else:
-            res_ann = run_command(["tabix", "-l", annotation_vcf], capture_output=True)
-            ann_chroms = res_ann.stdout.strip().split("\n")
-
-        chrom_mapping = chromosome_rename_mapping(v_chroms, ann_chroms)
-        if chrom_mapping:
-            norm_out = os.path.join(outdir, output_name)
-            logging.info("Normalizing chromosome naming for %s", label)
-            fd, map_path = tempfile.mkstemp(suffix=".map", dir=outdir)
-            try:
-                with os.fdopen(fd, "w") as f:
-                    for source, target in chrom_mapping:
-                        f.write(f"{source} {target}\n")
-
-                run_command(
-                    [
-                        "bcftools",
-                        "annotate",
-                        "--rename-chrs",
-                        map_path,
-                        "-Oz",
-                        "-o",
-                        norm_out,
-                        input_vcf,
-                    ],
-                    check=True,
-                )
-            finally:
-                if os.path.exists(map_path):
-                    os.remove(map_path)
-            ensure_vcf_indexed(norm_out)
-            normalized_input = norm_out
-            needs_cleanup = True
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.warning(
-            "%s chromosome normalization failed; annotation may miss variants: %s",
-            label,
-            e,
-        )
-    return normalized_input, needs_cleanup
-
-
-def cleanup_annotation_temporaries(
-    header_tmp: str | None,
-    normalized_input: str,
-    needs_cleanup: bool,
+    header_lines: Sequence[str] = (),
 ) -> None:
-    if header_tmp and os.path.exists(header_tmp):
-        os.remove(header_tmp)
-    if needs_cleanup and os.path.exists(normalized_input):
-        os.remove(normalized_input)
-        if os.path.exists(normalized_input + ".tbi"):
-            os.remove(normalized_input + ".tbi")
+    """Run bcftools annotate after matching the input's contig naming to the resource."""
+    with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_annotate_") as work:
+        normalized = normalize_vcf_chromosomes(
+            input_vcf, annotation_chromosomes(annotation), work
+        )
+        cmd = ["bcftools", "annotate", "-a", annotation, "-c", columns]
+        if header_lines:
+            header_path = os.path.join(work, "annotation.hdr")
+            with open(header_path, "w") as f:
+                f.writelines(line + "\n" for line in header_lines)
+            cmd += ["-h", header_path]
+        cmd += ["-Oz", "-o", ann_out, normalized]
+        try:
+            run_command(cmd, capture_output=True)
+            ensure_vcf_indexed(ann_out)
+        except (OSError, subprocess.SubprocessError) as e:
+            stderr = getattr(e, "stderr", None)
+            detail = f"{e}\n{stderr.strip()}" if stderr else str(e)
+            raise WGSExtractError(f"{label} annotation failed: {detail}") from e
+
+
+def run_filter(ann_out: str, out_vcf: str, expr: str, label: str) -> None:
+    try:
+        run_command(
+            ["bcftools", "filter", "-i", expr, "-Oz", "-o", out_vcf, ann_out],
+            capture_output=True,
+        )
+        ensure_vcf_indexed(out_vcf)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise WGSExtractError(f"{label} filtering failed: {e}") from e
 
 
 def run_min_score_filter(
     ann_out: str,
     outdir: str,
-    min_score: object | None,
+    min_score: float | None,
     info_field: str,
     output_prefix: str,
-    log_filter_key: str,
-    log_done_key: str,
     label: str,
+    log_done_key: str,
 ) -> None:
     if min_score is None:
         logging.info(LOG_MESSAGES[log_done_key].format(output=ann_out))
@@ -172,24 +164,7 @@ def run_min_score_filter(
 
     path_out = os.path.join(outdir, f"{output_prefix}_gt_{min_score}.vcf.gz")
     logging.info(
-        LOG_MESSAGES[log_filter_key].format(min_score=min_score, output=path_out)
+        "Filtering for variants with %s score >= %s to %s", label, min_score, path_out
     )
-    try:
-        run_command(
-            [
-                "bcftools",
-                "filter",
-                "-i",
-                f"{info_field} >= {min_score}",
-                "-Oz",
-                "-o",
-                path_out,
-                ann_out,
-            ],
-            capture_output=True,
-        )
-        ensure_vcf_indexed(path_out)
-        logging.info(LOG_MESSAGES[log_done_key].format(output=path_out))
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.error("%s filtering failed: %s", label, e)
-        raise WGSExtractError(f"{label} filtering failed.") from e
+    run_filter(ann_out, path_out, f"{info_field} >= {min_score}", label)
+    logging.info(LOG_MESSAGES[log_done_key].format(output=path_out))

@@ -36,11 +36,12 @@ auto_hero: false
         <pre><code><span class="comment"># Open Terminal, paste this line, then press Enter</span>
 <span class="prompt">$</span> <span class="cmd">curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh</span>
 
-<span class="comment"># Check your setup</span>
-<span class="prompt">$</span> <span class="cmd">./wgsextract-cli/wgsextract info --detailed</span>
+<span class="comment"># Put the launcher on PATH, then check your setup</span>
+<span class="prompt">$</span> <span class="cmd">export PATH="$PWD/wgsextract-cli:$PATH"</span>
+<span class="prompt">$</span> <span class="cmd">wgsextract deps check</span>
 
 <span class="comment"># See available commands</span>
-<span class="prompt">$</span> <span class="cmd">./wgsextract-cli/wgsextract help</span></code></pre>
+<span class="prompt">$</span> <span class="cmd">wgsextract help</span></code></pre>
       </div>
       <div class="stats">
         <div class="stat"><strong>CLI</strong><span>Automation first</span></div>
@@ -80,17 +81,9 @@ Use the standalone macOS/Linux installer, the native Windows installer, or the d
 ::: card
 {{ kicker: CLI reference }}
 ### Command groups and recipes
-Learn the major command families for info, BAM/CRAM, extraction, VCF calling, annotation, lineage, FASTQ QC, references, and fake data.
+Learn the major command families for info, BAM/CRAM, extraction, VCF calling, annotation, lineage, alignment, FASTQ QC, references, and fake data.
 
 {{ link: Open the CLI guide|cli.html|inline-link }}
-:::
-
-::: card
-{{ kicker: Graphical interface }}
-### Download the separate WGS Extract GUI
-This package is CLI-only. Use the [gui-for-cli releases](https://github.com/theontho/gui-for-cli/releases){.inline-link} when you want a graphical interface, or install this CLI for terminal workflows.
-
-{{ link: Open GUI downloads|gui.html|inline-link }}
 :::
 
 ::: card

@@ -9,6 +9,7 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import BinaryIO, Literal, Protocol
+from urllib.error import HTTPError
 from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
 
@@ -31,6 +32,9 @@ class CancelEvent(Protocol):
 
 
 ProgressCallback = Callable[[int, int, float], None]
+
+# Socket timeout (seconds) for stalled connections; not a cap on total download time.
+DOWNLOAD_TIMEOUT_SECONDS = 60
 
 
 def resolve_github_release_asset_sha256(url: str) -> str | None:
@@ -151,8 +155,9 @@ def download_file(
         and "--progress-bar" in curl_args
     ):
         try:
-            # Use -L to follow redirects, -C - for resume
-            cmd = ["curl", "-L", *curl_args]
+            # -L follows redirects, --fail keeps HTTP error pages out of dest,
+            # -C - resumes.
+            cmd = ["curl", "-L", "--fail", *curl_args]
             if os.path.exists(dest):
                 cmd.extend(["-C", "-"])
             cmd.extend(["-o", dest, url])
@@ -174,7 +179,7 @@ def download_file(
     # If the final file exists but we are here, it might be incomplete (e.g. missing index)
     # Move it to .partial to attempt a resume/verify
     if not os.path.exists(partial_dest) and os.path.exists(dest):
-        os.rename(dest, partial_dest)
+        os.replace(dest, partial_dest)
 
     if os.path.exists(partial_dest):
         initial_size = os.path.getsize(partial_dest)
@@ -186,7 +191,21 @@ def download_file(
 
     try:
         req = Request(url, headers=headers)
-        with urlopen(req) as response:
+        try:
+            response_cm = urlopen(req, timeout=DOWNLOAD_TIMEOUT_SECONDS)
+        except HTTPError as e:
+            if e.code != 416 or initial_size == 0:
+                raise
+            e.close()
+            if not _partial_is_complete(e.headers.get("Content-Range"), initial_size):
+                # The partial file does not fit the remote file; start over.
+                os.remove(partial_dest)
+                return download_file(url, dest, progress_callback, cancel_event)
+            logging.info("%s is already fully downloaded.", os.path.basename(dest))
+            return _finish_download(
+                url, dest, partial_dest, expected_sha256, checksum_hint
+            )
+        with response_cm as response:
             code = response.getcode()
             # If we requested a range but got 200, the server doesn't support range or sent full file
             if initial_size > 0 and code == 200:
@@ -209,14 +228,7 @@ def download_file(
             with open(partial_dest, mode) as f:
                 write_partial(f)
 
-        # Rename to final destination on success
-        if os.path.exists(dest):
-            os.remove(dest)
-        os.rename(partial_dest, dest)
-        verified = verify_download_sha256(dest, expected_sha256)
-        if verified:
-            store_download_in_dev_cache(url, dest_path, checksum_hint=checksum_hint)
-        return verified
+        return _finish_download(url, dest, partial_dest, expected_sha256, checksum_hint)
     except DownloadCancelled as e:
         logging.info(str(e))
     except (
@@ -226,3 +238,23 @@ def download_file(
     ) as e:
         logging.error(f"Download error: {e}")
     return False
+
+
+def _partial_is_complete(content_range: str | None, partial_size: int) -> bool:
+    """A 416 reply to `Range: bytes=N-` means done when the remote size is N."""
+    match = re.fullmatch(r"bytes \*/(\d+)", (content_range or "").strip())
+    return match is not None and int(match.group(1)) == partial_size
+
+
+def _finish_download(
+    url: str,
+    dest: str,
+    partial_dest: str,
+    expected_sha256: str | None,
+    checksum_hint: str | None,
+) -> bool:
+    os.replace(partial_dest, dest)
+    verified = verify_download_sha256(dest, expected_sha256)
+    if verified:
+        store_download_in_dev_cache(url, Path(dest), checksum_hint=checksum_hint)
+    return verified

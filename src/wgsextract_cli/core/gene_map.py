@@ -5,7 +5,9 @@ import os
 from pathlib import Path
 
 from wgsextract_cli.core.annotation_resources import CancelEvent
-from wgsextract_cli.core.ref_library import download_file
+from wgsextract_cli.core.builds import canonical_build
+from wgsextract_cli.core.ref_library.downloads import download_file
+from wgsextract_cli.core.utils import WGSExtractError
 
 # Official UCSC RefGene database URLs
 # These files are approx 4-5MB compressed and contain all RefSeq gene models.
@@ -15,13 +17,34 @@ GENE_MAP_URLS = {
 }
 
 
+# Gene maps built by older versions merged a symbol's transcripts across contigs
+# into one bogus span. No human gene spans more than ~2.5 Mb, so longer rows are
+# ignored.
+_MAX_GENE_SPAN = 3_000_000
+
+
+def _is_primary_contig(chrom: str) -> bool:
+    return "_" not in chrom
+
+
+def gene_map_build(build: str | None) -> str:
+    """Map a reference build to the gene-map build key, refusing unsupported builds."""
+    key = canonical_build(build)
+    if key in GENE_MAP_URLS:
+        return key
+    raise WGSExtractError(
+        f"Gene name lookup is only available for hg19/hg38 references; "
+        f"no gene map exists for build {build or 'unknown'}. Pass --region instead."
+    )
+
+
 class GeneMap:
     def __init__(self, reflib_dir: str) -> None:
         self.reflib_dir = reflib_dir
         self.maps: dict[str, dict[str, str]] = {}
 
     def load(self, build: str = "hg38") -> bool:
-        build_key = "hg38" if "38" in build else "hg19"
+        build_key = gene_map_build(build)
         if build_key in self.maps:
             return True
 
@@ -40,31 +63,38 @@ class GeneMap:
             return False
 
         try:
-            gene_dict: dict[str, str] = {}
+            ranges: dict[str, tuple[str, int, int]] = {}
+            stale_rows = 0
             with open(map_file) as f:
-                reader = csv.DictReader(f, delimiter="\t")
-                for row in reader:
-                    symbol = row.get("symbol", "").upper()
-                    chrom = row.get("chrom", "")
-                    start = row.get("start", "")
-                    end = row.get("end", "")
-                    if symbol and chrom and start and end:
-                        # Store the largest range if multiple transcripts exist
-                        if symbol in gene_dict:
-                            old_coords = gene_dict[symbol].split(":")[-1].split("-")
-                            new_start = min(int(start), int(old_coords[0]))
-                            new_end = max(int(end), int(old_coords[1]))
-                            gene_dict[symbol] = f"{chrom}:{new_start}-{new_end}"
-                        else:
-                            gene_dict[symbol] = f"{chrom}:{start}-{end}"
-            self.maps[build_key] = gene_dict
+                for row in csv.DictReader(f, delimiter="\t"):
+                    symbol = (row.get("symbol") or "").upper()
+                    chrom = row.get("chrom") or ""
+                    if not (symbol and chrom and row.get("start") and row.get("end")):
+                        continue
+                    start, end = int(row["start"]), int(row["end"])
+                    if end - start > _MAX_GENE_SPAN:
+                        stale_rows += 1
+                        continue
+                    ranges[symbol] = _merge_gene_range(
+                        ranges.get(symbol), chrom, start, end
+                    )
+            if stale_rows:
+                logging.warning(
+                    f"Ignored {stale_rows} gene map rows spanning more than "
+                    f"{_MAX_GENE_SPAN:,} bp in {map_file}; "
+                    "run 'wgsextract ref gene-map' to rebuild the gene maps."
+                )
+            self.maps[build_key] = {
+                symbol: f"{chrom}:{start}-{end}"
+                for symbol, (chrom, start, end) in ranges.items()
+            }
             return True
         except (OSError, csv.Error, ValueError) as e:
             logging.error(f"Failed to load gene map {map_file}: {e}")
             return False
 
     def get_coords(self, gene_symbol: str, build: str = "hg38") -> str | None:
-        build_key = "hg38" if "38" in build else "hg19"
+        build_key = gene_map_build(build)
         if build_key not in self.maps:
             if not self.load(build):
                 return None
@@ -85,9 +115,9 @@ def are_gene_maps_installed(reflib_dir: str) -> bool:
 
 def gene_map_exists(reflib_dir: str | None, build: str = "hg38") -> bool:
     """Return True when a gene map for the requested build exists in a reflib."""
-    if not reflib_dir:
+    build_key = canonical_build(build)
+    if not reflib_dir or build_key not in GENE_MAP_URLS:
         return False
-    build_key = "hg38" if "38" in build else "hg19"
     root = Path(reflib_dir)
     return (root / "ref" / f"genes_{build_key}.tsv").exists() or (
         root / "microarray" / f"genes_{build_key}.tsv"
@@ -167,7 +197,7 @@ def download_gene_maps(
 
             # 2. Parse UCSC format to simple TSV
             # UCSC refGene columns: 2=chrom, 4=txStart, 5=txEnd, 12=name2(Symbol)
-            gene_data: dict[str, list[str | int]] = {}  # Symbol -> (chrom, start, end)
+            gene_data: dict[str, tuple[str, int, int]] = {}
 
             with gzip.open(gz_path, "rt") as f_in:
                 for i, line in enumerate(f_in):
@@ -178,17 +208,10 @@ def download_gene_maps(
                     if len(cols) < 13:
                         continue
 
-                    chrom = cols[2]
-                    start = int(cols[4])
-                    end = int(cols[5])
                     symbol = cols[12].upper()
-
-                    if symbol not in gene_data:
-                        gene_data[symbol] = [chrom, start, end]
-                    else:
-                        # Expand range to cover all transcripts/isoforms
-                        gene_data[symbol][1] = min(int(gene_data[symbol][1]), start)
-                        gene_data[symbol][2] = max(int(gene_data[symbol][2]), end)
+                    gene_data[symbol] = _merge_gene_range(
+                        gene_data.get(symbol), cols[2], int(cols[4]), int(cols[5])
+                    )
 
             # 3. Write processed TSV
             with open(tsv_path, "w") as f_out:
@@ -205,3 +228,23 @@ def download_gene_maps(
             success = False
 
     return success
+
+
+def _merge_gene_range(
+    current: tuple[str, int, int] | None, chrom: str, start: int, end: int
+) -> tuple[str, int, int]:
+    """Extend a gene's span with one transcript, never across contigs or loci.
+
+    Primary-assembly placements win over alt/fix/random contigs; otherwise the
+    first contig seen keeps the gene (e.g. PAR genes placed on both chrX and chrY).
+    """
+    if current is None:
+        return chrom, start, end
+    cur_chrom, cur_start, cur_end = current
+    if chrom == cur_chrom:
+        merged = (chrom, min(cur_start, start), max(cur_end, end))
+        # A second copy far along the same chromosome is a duplication, not an isoform.
+        return merged if merged[2] - merged[1] <= _MAX_GENE_SPAN else current
+    if _is_primary_contig(chrom) and not _is_primary_contig(cur_chrom):
+        return chrom, start, end
+    return current

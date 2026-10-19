@@ -1,12 +1,3 @@
-from typing import TypedDict
-
-
-class DellyMappabilityMap(TypedDict):
-    filename: str
-    url: str
-    sidecars: dict[str, str]
-
-
 SEQUENCERS = {
     "Illumina NS 6000 (Dante)": r"^(A00910|A00925|A00966|A01245):\d+:[a-zA-Z0-9]{9}:\d:\d+:\d+:\d+$",
     "Illumina NS 6000 (FTDNA)": r"^(A00186):\d+:[a-zA-Z0-9]{9}:\d:\d+:\d+:\d+$",
@@ -114,28 +105,28 @@ REFERENCE_MODELS = {
         "rCRS",
         "GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.fna.gz",
     ],
-    "905953051416e9c20e2e5055b40d165f": [
+    "567b0b7efc021c69f64fe63d85dbc797": [
         "Dog_UU_GSD",
         "MT",
         "GCF_011100685.1_UU_Cfam_GSD_1.0_genomic.fna.gz",
     ],
-    "0c9873d63321ec89b0235339f40d265a": [
+    "492b4726909f048464fdd00232f63f47": [
         "Cat_Fca126",
         "MT",
         "GCF_018350175.1_F.catus_Fca126_mat1.0_genomic.fna.gz",
     ],
-    "7cee777f1939f4028926017158ed5512": ["T2Tv2.0", "rCRS", "chm13v2.0.fa.gz"],
+    "ed9f80c8e04c461cba35dd1b85a2e2e8": ["T2Tv2.0", "rCRS", "chm13v2.0.fa.gz"],
 }
 
 # New approach: Use SN count from BAM header to identify likely reference
 REFGEN_BY_SNCOUNT = {
     25: [True, "hg19_WGSEv2.fa.gz", "chrM"],
-    40: [
+    2197: [
         True,
         "GCF_011100685.1_UU_Cfam_GSD_1.0_genomic.fna.gz",
         "MT",
-    ],  # Dog (38 auto + X + MT)
-    62: [
+    ],  # Dog (UU_Cfam_GSD_1.0, incl. unplaced)
+    71: [
         True,
         "GCF_018350175.1_F.catus_Fca126_mat1.0_genomic.fna.gz",
         "MT",
@@ -369,11 +360,7 @@ N_ADJUST["19"] = N_ADJUST["37"]
 BOOTSTRAP_URL = "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/wgsextract-reference-bootstrap.tar.gz"
 BOOTSTRAP_FILENAME = "wgsextract-reference-bootstrap.tar.gz"
 
-MAPPABILITY_MAP_ARCHIVE_URL = "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/wgsextract-delly-mappability-maps.zip"
-MAPPABILITY_MAP_ARCHIVE_FILENAME = "wgsextract-delly-mappability-maps.zip"
-MAPPABILITY_MAP_ARCHIVE_SHA256 = (
-    "cab55d8fe28f3c0da90cfdd0a8a4951dc5a33d182bbce3ef34392762eafe5d1b"
-)
+# Delly mappability map files `ref status` reports (Delly 2 no longer needs them).
 MAPPABILITY_MAP_FILES = (
     "hg19.map.gz",
     "hg19.map.gz.fai",
@@ -382,25 +369,3 @@ MAPPABILITY_MAP_FILES = (
     "hg38.map.gz.fai",
     "hg38.map.gz.gzi",
 )
-
-# Standard Delly CNV mappability maps. Delly hosts these as BGZF FASTA-like
-# tracks with sidecar indexes; store them under stable local names so callers
-# can resolve them from the reference build without user input.
-DELLY_MAPPABILITY_MAPS: dict[str, DellyMappabilityMap] = {
-    "hg19": {
-        "filename": "hg19.map.gz",
-        "url": "https://gear-genomics.embl.de/data/delly/Homo_sapiens.GRCh37.dna.primary_assembly.fa.r101.s501.blacklist.gz",
-        "sidecars": {
-            ".fai": "https://gear-genomics.embl.de/data/delly/Homo_sapiens.GRCh37.dna.primary_assembly.fa.r101.s501.blacklist.gz.fai",
-            ".gzi": "https://gear-genomics.embl.de/data/delly/Homo_sapiens.GRCh37.dna.primary_assembly.fa.r101.s501.blacklist.gz.gzi",
-        },
-    },
-    "hg38": {
-        "filename": "hg38.map.gz",
-        "url": "https://gear-genomics.embl.de/data/delly/Homo_sapiens.GRCh38.dna.primary_assembly.fa.r101.s501.blacklist.gz",
-        "sidecars": {
-            ".fai": "https://gear-genomics.embl.de/data/delly/Homo_sapiens.GRCh38.dna.primary_assembly.fa.r101.s501.blacklist.gz.fai",
-            ".gzi": "https://gear-genomics.embl.de/data/delly/Homo_sapiens.GRCh38.dna.primary_assembly.fa.r101.s501.blacklist.gz.gzi",
-        },
-    },
-}

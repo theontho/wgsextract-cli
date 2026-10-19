@@ -1,19 +1,10 @@
 import logging
-import os
 import subprocess
 from collections.abc import Sequence
 
 from wgsextract_cli.core.messages import LOG_MESSAGES
 
-try:
-    import psutil
-except ImportError:
-    psutil = None
-
-
-from .utils import (
-    run_command,
-)
+from .utils import run_command
 
 
 def get_bam_header(bam_path: str, cram_opt: Sequence[str] | str | None = None) -> str:
@@ -49,13 +40,7 @@ def get_bam_header(bam_path: str, cram_opt: Sequence[str] | str | None = None) -
     cmd = [samtools, "view", "-H"]
 
     if is_cram and cram_opt:
-        if not isinstance(cram_opt, str):
-            cmd.extend(cram_opt)
-        elif os.path.isfile(cram_opt):
-            cmd.extend(["-T", cram_opt])
-        else:
-            # Maybe it's a directory, samtools -T needs a file.
-            cmd.extend(["-T", cram_opt])
+        cmd.extend(["-T", cram_opt] if isinstance(cram_opt, str) else cram_opt)
 
     cmd.append(bam_path)
 
@@ -69,26 +54,8 @@ def get_bam_header(bam_path: str, cram_opt: Sequence[str] | str | None = None) -
         ValueError,
         TypeError,
     ) as e:
-        # Attempt 2: Try bcftools view -h (often more robust for CRAM)
-        try:
-            logging.debug("Header fetch with samtools failed, trying bcftools...")
-            bcftools = get_tool_path("bcftools")
-            if bcftools is None:
-                raise RuntimeError("bcftools is not available for header retry.")
-            bcftools_cmd = [bcftools, "view", "-h", bam_path]
-            result = run_command(bcftools_cmd, capture_output=True)
-            return result.stdout
-        except (
-            OSError,
-            subprocess.SubprocessError,
-            RuntimeError,
-            ValueError,
-            TypeError,
-        ):
-            logging.debug("Header fetch retry with bcftools failed.", exc_info=True)
-
-        # Attempt 3: If it's a CRAM and we had a reference, try WITHOUT it.
-        if is_cram:
+        # A CRAM header is readable without the reference; retry without -T.
+        if is_cram and cram_opt:
             try:
                 logging.debug(LOG_MESSAGES["util_header_retry"])
                 result = run_command(

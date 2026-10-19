@@ -5,34 +5,32 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  GITHUB_TOKEN: ${{ github.token }}
-
 jobs:
   test-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Pixi
-        uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11 # v0.9.6
+        uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
         with:
-          pixi-version: latest
+          pixi-version: v0.81.0
           locked: true
+          environments: >-
+            default
+            dev
       - name: Test installer
         run: scripts/test_install_sh.sh
       - name: Verify Tools
         run: chmod +x scripts/verify_tools.sh && pixi run scripts/verify_tools.sh
       - name: Configure and Bootstrap Library
         env:
-          HOME: ${{ github.workspace }}/.tmp_home
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p .tmp_home/.config/wgsextract
           pixi run python -c "from wgsextract_cli.core.config import save_config; save_config({'reference_library': 'reference'})"
           pixi run python -m wgsextract_cli.main ref bootstrap --ref reference
       - name: Install Reference Genome
         env:
-          HOME: ${{ github.workspace }}/.tmp_home
+          GITHUB_TOKEN: ${{ github.token }}
         run: pixi run python -m wgsextract_cli.main ref library --install hs38 --ref reference
       - name: Lint and Type Check
         run: |
@@ -41,6 +39,8 @@ jobs:
       - name: Build and Smoke Test Package
         run: pixi run package-smoke
       - name: Run Benchmark
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           pixi run wgsextract benchmark --dataset real --profile smoke
           echo "Benchmark timing is published in this job summary."

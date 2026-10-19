@@ -15,5 +15,5 @@
 ## Out of scope for review
 - Style/formatting (ruff handles it)
 - Generated/build artifacts: `.venv/`, `dist/`, `build/`, `__pycache__/`, `*.egg-info/`, `site/`
-- Lock files: `uv.lock`, `pixi.lock`
+- Lock files: `pixi.lock`
 - Throwaway dirs: `out/`, `tmp/`, `scratch/`

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from wgsextract_cli.core.dependencies import get_tool_path
 
+from ..info.render import region_file_tag
 from .execution import (
     _missing_optional_tool_result,
     _run_cli_step,
@@ -65,7 +66,10 @@ def _run_heavy_coverage_extract_and_qc_steps(
             command_args=full_coverage_cmd,
             output_dir=full_coverage_dir,
             logs_dir=logs_dir,
-            expected_outputs=[full_coverage_dir / f"{analysis_bam.name}_bincvg.csv"],
+            expected_outputs=[
+                full_coverage_dir
+                / f"{analysis_bam.name}{region_file_tag(command_region)}_coverage.tsv"
+            ],
         )
     )
 
@@ -91,7 +95,8 @@ def _run_heavy_coverage_extract_and_qc_steps(
             output_dir=sampled_coverage_dir,
             logs_dir=logs_dir,
             expected_outputs=[
-                sampled_coverage_dir / f"{analysis_bam.name}_samplecvg.json"
+                sampled_coverage_dir
+                / f"{analysis_bam.name}{region_file_tag(command_chrom)}_samplecvg.json"
             ],
         )
     )

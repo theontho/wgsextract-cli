@@ -62,11 +62,12 @@
         <pre><code><span class="comment"># Open Terminal, paste this line, then press Enter</span>
 <span class="prompt">$</span> <span class="cmd">curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh</span>
 
-<span class="comment"># Check your setup</span>
-<span class="prompt">$</span> <span class="cmd">./wgsextract-cli/wgsextract info --detailed</span>
+<span class="comment"># Put the launcher on PATH, then check your setup</span>
+<span class="prompt">$</span> <span class="cmd">export PATH="$PWD/wgsextract-cli:$PATH"</span>
+<span class="prompt">$</span> <span class="cmd">wgsextract deps check</span>
 
 <span class="comment"># See available commands</span>
-<span class="prompt">$</span> <span class="cmd">./wgsextract-cli/wgsextract help</span></code></pre>
+<span class="prompt">$</span> <span class="cmd">wgsextract help</span></code></pre>
       </div>
       <div class="stats">
         <div class="stat"><strong><abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr></strong><span>Automation first</span></div>
@@ -100,14 +101,8 @@
 <article class="card">
 <div class="kicker"><abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> reference</div>
 <h3>Command groups and recipes</h3>
-<p>Learn the major command families for info, <abbr data-tooltip="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome." aria-label="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome.">BAM</abbr>/<abbr data-tooltip="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome." aria-label="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome.">CRAM</abbr>, extraction, <abbr data-tooltip="VCF: Variant Call Format: a standard text format for variants and their annotations." aria-label="VCF: Variant Call Format: a standard text format for variants and their annotations.">VCF</abbr> calling, annotation, lineage, <abbr data-tooltip="FASTQ: FASTQ read format: raw sequencing reads with per-base quality scores." aria-label="FASTQ: FASTQ read format: raw sequencing reads with per-base quality scores.">FASTQ</abbr> <abbr data-tooltip="QC: Quality Control: checks that help assess whether data and outputs are usable." aria-label="QC: Quality Control: checks that help assess whether data and outputs are usable.">QC</abbr>, references, and fake data.</p>
+<p>Learn the major command families for info, <abbr data-tooltip="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome." aria-label="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome.">BAM</abbr>/<abbr data-tooltip="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome." aria-label="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome.">CRAM</abbr>, extraction, <abbr data-tooltip="VCF: Variant Call Format: a standard text format for variants and their annotations." aria-label="VCF: Variant Call Format: a standard text format for variants and their annotations.">VCF</abbr> calling, annotation, lineage, alignment, <abbr data-tooltip="FASTQ: FASTQ read format: raw sequencing reads with per-base quality scores." aria-label="FASTQ: FASTQ read format: raw sequencing reads with per-base quality scores.">FASTQ</abbr> <abbr data-tooltip="QC: Quality Control: checks that help assess whether data and outputs are usable." aria-label="QC: Quality Control: checks that help assess whether data and outputs are usable.">QC</abbr>, references, and fake data.</p>
 <a class="inline-link" href="cli.html" data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">Open the CLI guide</a>
-</article>
-<article class="card">
-<div class="kicker">Graphical interface</div>
-<h3>Download the separate <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract GUI</h3>
-<p>This package is CLI-only. Use the <a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases">gui-for-cli releases</a> when you want a graphical interface, or install this <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> for terminal workflows.</p>
-<a class="inline-link" href="gui.html">Open GUI downloads</a>
 </article>
 <article class="card">
 <div class="kicker">Workflows</div>

@@ -1,7 +1,7 @@
 ---
 output: 'cli.html'
 title: 'CLI Guide | WGS Extract CLI'
-description: 'WGS Extract CLI command guide with command groups, options, common recipes, and links to the separate GUI downloads.'
+description: 'WGS Extract CLI command guide with command groups, global options, common recipes, and Pixi environments.'
 eyebrow: 'Command reference'
 heading: 'A map of the WGS Extract command line.'
 lede: 'The CLI is the best interface for repeatable work: scripts, batch jobs, remote machines, AI-agent workflows, and long-running analyses where exact commands matter.'
@@ -16,17 +16,17 @@ footer_link_href: 'workflows.html'
 ::: split
 ::: block
 ## Global options
-{{ lede: Most commands accept shared options before the subcommand, and many commands also accept them after the subcommand because WGS Extract re-applies explicit shared options across parsers. }}
+{{ lede: Shared options can go before or after the subcommand. `--threads` and `--memory` accept `auto` (the default). Every command exits non-zero on failure, so commands can be chained safely in scripts. Examples write plain `wgsextract`; see [Running the CLI](install.html#running){.inline-link} for the launcher that matches your install. }}
 :::
 
 ::: code-panel title=global-options.sh subtitle="common flags"
 ```
-pixi run wgsextract \
-  --input sample.cram \
-  --outdir out/sample \
+wgsextract \
+  --input /data/sample.cram \
+  --outdir /data/out/sample \
   --ref /refs/hs38.fa \
-  --threads 8 \
-  --memory 16G \
+  --threads auto \
+  --memory 2G \
   info --detailed
 ```
 :::
@@ -37,42 +37,38 @@ pixi run wgsextract \
 ::: wrap
 ::: section-head
 ## Command groups
-Run `pixi run wgsextract help` or `pixi run wgsextract --full-help` for the live tree from your installed version.
-:::
-
-::: callout
-{{ text: **Need a GUI?** This package is CLI-only. Use the [gui-for-cli releases](https://github.com/theontho/gui-for-cli/releases){.inline-link} or the local [GUI downloads page](gui.html){.inline-link} for graphical workflows. Install the CLI when you need terminal commands, scripts, automation, or remote jobs. }}
+Run `wgsextract help` for the live tree from your installed version, `wgsextract --full-help` for every option, or `wgsextract <command> --help` for one command.
 :::
 
 ::: grid three
 ::: card
 ### Info and QC
-`info`, `info calculate-coverage`, `qc fastqc`, `qc fastp`, `qc vcf`, and `qc fake-data` help inspect inputs, test pipelines, and quality-check reads or variants.
+`info` (build, integrity, read metrics; `--csv` for machine-readable output), `info calculate-coverage` (exact breadth via samtools coverage, written to `<input>_coverage.tsv`), `info coverage-sample` (fast estimate), plus `qc fastqc`, `qc fastp`, `qc vcf`, and `qc fake-data`.
 :::
 
 ::: card
 ### BAM / CRAM
-`bam sort`, `bam index`, `bam to-cram`, `bam to-bam`, `bam unalign`, `bam identify`, plus repair helpers for FTDNA files.
+`bam identify`, `bam sort`, `bam index`, `bam unindex`, `bam unsort`, `bam to-cram`, `bam to-bam`, `bam unalign`, plus `repair ftdna-bam` and `repair ftdna-vcf` for FTDNA files.
 :::
 
 ::: card
 ### Extraction
-`extract mito-fasta`, `extract mito-vcf`, `extract mt-bam`, `extract ydna-bam`, `extract ydna-vcf`, `extract y-mt-extract`, `extract unmapped`, and `extract custom`.
+`extract mito-fasta`, `extract mito-vcf`, `extract mt-bam`, `extract ydna-bam`, `extract ydna-vcf`, `extract y-mt-extract`, `extract unmapped`, `extract custom`, and `extract bam-subset`. Mito and Y VCFs are called as haploid.
 :::
 
 ::: card
 ### Variant workflows
-`vcf snp`, `vcf indel`, `vcf sv`, `vcf cnv`, `vcf freebayes`, `vcf gatk`, `vcf deepvariant`, `vcf filter`, `vcf trio`, and annotation commands.
+Calling: `vcf snp`, `vcf indel`, `vcf freebayes`, `vcf gatk`, `vcf deepvariant`, `vcf sv`, `vcf cnv`. Annotation: `vcf annotate`, `vcf chain-annotate`, `vcf clinvar`, `vcf gnomad`, `vcf revel`, `vcf phylop`, `vcf spliceai`, `vcf alphamissense`, `vcf pharmgkb`. Also `vcf filter` and `vcf trio`.
 :::
 
 ::: card
 ### References and annotation
-`ref bootstrap`, `ref library`, `ref index`, `ref verify`, `ref gene-map`, annotation downloads, and `vep download/run/verify`.
+`ref bootstrap`, `ref library`, `ref library-list`, `ref status`, `ref download`, `ref index`, `ref verify`, `ref count-ns`, `ref gene-map`, the annotation downloads (`ref clinvar`, `gnomad`, `revel`, `phylop`, `spliceai`, `alphamissense`, `pharmgkb`), and `vep download`, `vep run`, `vep verify`.
 :::
 
 ::: card
-### Analysis helpers
-`microarray`, `lineage y-haplogroup`, `lineage mt-haplogroup`, `align`, `analyze comprehensive`, `example-genome`, `pet-align`, and `benchmark`.
+### Analysis and alignment
+`microarray`, `lineage y-haplogroup`, `lineage mt-haplogroup`, `align`, `realign`, `pet-align`, `analyze comprehensive`, `analyze batch-gen`, `example-genome list/download`, `benchmark`, `deps check`, and `config`.
 :::
 :::
 :::
@@ -82,34 +78,34 @@ Run `pixi run wgsextract help` or `pixi run wgsextract --full-help` for the live
 ::: wrap
 ::: section-head
 ## Common CLI recipes
-These examples are intentionally small and explicit. Replace paths and references with your own.
+These examples are intentionally small and explicit. Replace paths and references with your own. Output names keep the full input stem, so `HG002.chr20.bam` produces `HG002.chr20_sorted.bam`.
 :::
 
 ::: code-panel title=recipes.sh subtitle="copy, edit, run"
 ```
 # Identify a BAM/CRAM and inspect metadata
-pixi run wgsextract --input sample.cram info --detailed
+wgsextract --input sample.cram info --detailed
 
-# Sort and index an alignment
-pixi run wgsextract --input sample.bam --outdir out/sample bam sort
-pixi run wgsextract --input out/sample/sample.sorted.bam bam index
+# Sort and index an alignment (sample.bam -> out/sample/sample_sorted.bam)
+wgsextract --input sample.bam --outdir out/sample bam sort
+wgsextract --input out/sample/sample_sorted.bam bam index
 
 # Convert BAM to CRAM for storage
-pixi run wgsextract --input sample.bam --ref /refs/hs38.fa bam to-cram
+wgsextract --input sample.bam --ref /refs/hs38.fa bam to-cram
 
 # Generate consumer microarray-style outputs
-pixi run wgsextract --input sample.bam microarray --formats 23andme_v5,ancestry_v2
+wgsextract --input sample.bam microarray --formats 23andme_v5,ancestry_v2
 
 # Extract mitochondrial variants and Y-DNA reads
-pixi run wgsextract --input sample.bam extract mito-vcf --region chrM
-pixi run wgsextract --input sample.bam extract ydna-bam
+wgsextract --input sample.bam extract mito-vcf
+wgsextract --input sample.bam extract ydna-bam
 
 # Call and filter variants
-pixi run wgsextract --input sample.bam --ref /refs/hs38.fa vcf snp
-pixi run wgsextract vcf filter --vcf-input calls.vcf.gz --expr 'QUAL>30'
+wgsextract --input sample.bam --ref /refs/hs38.fa vcf snp
+wgsextract vcf filter --vcf-input calls.vcf.gz --expr 'QUAL>30'
 
 # Show the full command tree
-pixi run wgsextract help
+wgsextract help
 ```
 :::
 :::
@@ -119,13 +115,13 @@ pixi run wgsextract help
 ::: wrap
 ::: section-head
 ## Pixi environments
-Some specialized tools live in dedicated Pixi environments to keep dependency solving practical and platform-specific.
+Some specialized tools live in dedicated Pixi environments to keep dependency solving practical and platform-specific. When a tool such as `vep`, `pbsv`, or `run_deepvariant` is not on `PATH`, WGS Extract runs it through `pixi run -e <environment>` automatically. You can also run a whole command inside an environment, from the installed `app/` folder or a source checkout, as shown below.
 :::
 
 ::: grid three
 ::: card
 ### default
-General CLI, samtools/bcftools, bwa/minimap2, fastp/fastqc, freebayes, GATK, and common workflows.
+General CLI, samtools/bcftools, bwa/minimap2, fastp/fastqc, freebayes, delly, GATK, Yleaf, Haplogrep, and common workflows.
 
 ```
 pixi run wgsextract deps check
@@ -143,10 +139,34 @@ pixi run -e pacbio wgsextract vcf sv --pacbio
 
 ::: card
 ### deepvariant
-DeepVariant workflows, including WGS/WES and PacBio HiFi model options where supported.
+DeepVariant workflows, including WGS/WES and PacBio HiFi model options. Linux and Apple Silicon only.
 
 ```
 pixi run -e deepvariant wgsextract vcf deepvariant
+```
+:::
+
+::: card
+### vep
+Ensembl VEP for `vep run`, `vep download`, and `vep verify`. Not available on native Windows; Apple Silicon runs the Intel build under Rosetta.
+
+```
+pixi run -e vep wgsextract vep run
+```
+:::
+
+::: card
+### gatk and freebayes
+GATK (Python 3.10, Java 17) and FreeBayes live in their own environments for dependency reasons. `vcf gatk` and `vcf freebayes` use them automatically; the first run downloads the environment.
+:::
+
+::: card
+### dev
+Contributor tooling: pytest, ruff, mypy, pre-commit, actionlint. Development tasks select it automatically.
+
+```
+pixi run test
+pixi run lint
 ```
 :::
 :::
