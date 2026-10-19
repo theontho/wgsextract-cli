@@ -80,7 +80,7 @@ ALPHAMISSENSE_URLS = {
 
 
 PHARMGKB_URLS = {
-    "hg38": "https://api.pharmgkb.org/v1/download/file/data/annotations.zip",
+    "hg38": "https://api.clinpgx.org/v1/download/file/data/annotations.zip",
 }
 
 # tabix arguments for a VCF and for TSVs keyed on CHROM=col1, POS=col2.

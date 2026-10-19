@@ -17,6 +17,8 @@ from tests.smoke_utils import (
 )
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.microarray_utils import _resolve_templates_roots
+from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.variant_files import calculate_bam_md5
 
 
 @dataclass(frozen=True)
@@ -241,6 +243,14 @@ def _target_tab(dataset: RealDataset) -> Path:
         matches = sorted(root.glob("*.targets.tab.gz"))
         if matches:
             return matches[0]
+
+    # What the CLI itself uses when --ref-vcf-tab is not given.
+    input_path = str(dataset.cram or dataset.bam)
+    library = ReferenceLibrary(
+        str(dataset.ref), calculate_bam_md5(input_path, None), input_path=input_path
+    )
+    if library.ref_vcf_tab and Path(library.ref_vcf_tab).is_file():
+        return Path(library.ref_vcf_tab)
     pytest.skip("microarray target tab not found; pass --real-targets")
 
 
