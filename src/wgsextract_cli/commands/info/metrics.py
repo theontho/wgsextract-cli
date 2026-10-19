@@ -194,6 +194,19 @@ def load_n_counts(ref_path: str | None) -> dict[str, int]:
     return n_counts
 
 
+def infer_sex(idx_stats: list[IdxStat]) -> str:
+    """ "Male", "Female" or "Unknown" from chrY reads relative to chrX."""
+    mapped: dict[str, int] = {}
+    for s in idx_stats:
+        if s["name"] != "*":
+            key = contig_key(s["name"])
+            mapped[key] = mapped.get(key, 0) + s["mapped"]
+    y_reads, x_reads = mapped.get("Y", 0), mapped.get("X", 0)
+    if x_reads <= 0:
+        return "Unknown"
+    return "Male" if y_reads > x_reads * 0.05 else "Female"
+
+
 def parse_idxstats(filepath: str) -> tuple[list[IdxStat], int, int, int]:
     """Parse samtools idxstats for mapped/unmapped counts."""
     idx = run_command(["samtools", "idxstats", filepath], capture_output=True)

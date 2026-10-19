@@ -512,3 +512,65 @@ def test_windows_wrapper_commands_keep_backslashes():
     assert argv[0] == r"C:\Users\bob\.pixi\bin\pixi.exe"
     assert argv[3] == r"C:\Users\bob\w\pixi.toml"
     assert argv[-2:] == [r"C:\Users\bob\w\haplogrep.jar", "classify"]
+
+
+def _idx(x_reads, y_reads):
+    return [
+        {"name": "chrX", "length": 156_040_895, "mapped": x_reads, "unmapped": 0},
+        {"name": "chrY", "length": 57_227_415, "mapped": y_reads, "unmapped": 0},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("x_reads", "y_reads", "sex"),
+    [
+        (33_392_449, 674_020, "Female"),
+        (16_000_000, 6_000_000, "Male"),
+        (0, 50, "Unknown"),
+    ],
+)
+def test_infer_sex_from_x_and_y_reads(x_reads, y_reads, sex):
+    from wgsextract_cli.commands.info.metrics import infer_sex
+
+    assert infer_sex(_idx(x_reads, y_reads)) == sex
+
+
+def test_y_haplogroup_refuses_a_female_sample_before_yleaf(tmp_path):
+    """A female genome's mismapped chrY reads made Yleaf "predict" BT* with a full
+    QC score; the command must say there is no Y instead."""
+    import json
+
+    from wgsextract_cli.commands import _lineage_ydna as ydna
+
+    cram = tmp_path / "sample.cram"
+    cram.write_bytes(b"")
+    args = SimpleNamespace(
+        input=str(cram), outdir=str(tmp_path), ref=None, threads=None, yleaf_path=None
+    )
+    (tmp_path / "sample.cram.wgse_info.json").write_text(
+        json.dumps({"md5_signature": "sig", "gender": "Female"})
+    )
+    with (
+        patch.object(ydna, "calculate_bam_md5", return_value="sig"),
+        patch.object(ydna, "parse_idxstats") as idxstats,
+    ):
+        assert ydna._sample_sex(args) == "Female"
+        idxstats.assert_not_called()
+
+    # A cache for another file of the same name is ignored.
+    with (
+        patch.object(ydna, "calculate_bam_md5", return_value="other"),
+        patch.object(ydna, "parse_idxstats", return_value=(_idx(10, 6), 0, 0, 0)),
+    ):
+        assert ydna._sample_sex(args) == "Male"
+
+    with (
+        patch.object(ydna, "resolve_lineage_tool", return_value="yleaf"),
+        patch.object(ydna, "verify_dependencies"),
+        patch.object(ydna, "log_dependency_info"),
+        patch.object(ydna, "calculate_bam_md5", return_value="sig"),
+        patch.object(ydna, "run_command") as run,
+        pytest.raises(WGSExtractError, match="appears female"),
+    ):
+        ydna.cmd_ydna(args)
+    run.assert_not_called()

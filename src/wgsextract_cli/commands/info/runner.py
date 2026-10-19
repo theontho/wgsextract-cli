@@ -30,6 +30,7 @@ from .metrics import (
     determine_sequencer,
     generate_chrom_table,
     get_file_stats,
+    infer_sex,
     load_n_counts,
     parse_idxstats,
     run_body_sample,
@@ -216,13 +217,7 @@ def _detailed_metrics(
         if s["name"] != "*":
             key = contig_key(s["name"])
             mapped_by_key[key] = mapped_by_key.get(key, 0) + s["mapped"]
-    y_reads = mapped_by_key.get("Y", 0)
-    x_reads = mapped_by_key.get("X", 0)
-    gender = (
-        ("Male" if y_reads > (x_reads * 0.05) else "Female")
-        if x_reads > 0
-        else "Unknown"
-    )
+    gender = infer_sex(idx_stats)
 
     chrom_table = generate_chrom_table(
         idx_stats, avg_len, gender, ref_model_name, coverage_map, n_counts=n_counts
