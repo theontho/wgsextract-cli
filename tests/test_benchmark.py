@@ -450,7 +450,7 @@ def test_heavy_suite_runs_extra_processing_steps(
     assert "Suite: heavy" in stdout
     assert "Heavy sentinel benchmark" in stdout
     assert isinstance(called["analysis_bam"], Path)
-    assert called["analysis_bam"].name == "benchmark_R1_aligned.bam"
+    assert called["analysis_bam"].name == "benchmark_aligned.bam"
     assert isinstance(called["snp_vcf"], Path)
     assert called["snp_vcf"].name == "snps.vcf.gz"
     assert called["region"] == "chrM"

@@ -2,6 +2,9 @@ import argparse
 from collections.abc import Callable
 from pathlib import Path
 
+from wgsextract_cli.commands.align import reads_stem
+from wgsextract_cli.core.genome_library import pair_stem
+
 from .datasets import (
     _existing_dataset_outputs,
 )
@@ -208,4 +211,5 @@ def _run_core_benchmark_setup_steps(
 
 
 def _align_output_stem(fastq_path: Path) -> str:
-    return fastq_path.name.split(".")[0]
+    # The name align gives a paired run's output, computed the way align does.
+    return pair_stem(reads_stem(str(fastq_path)))

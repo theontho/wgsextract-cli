@@ -219,7 +219,7 @@ class TestAlignBasicsSmoke:
         rc, stdout, stderr = run_cli(args)
         assert rc == 0
         assert "Aligning" in stdout or "Aligning" in stderr
-        assert verify_bam(os.path.join(self.outdir, "bam", "fake_R1_aligned.bam"))
+        assert verify_bam(os.path.join(self.outdir, "bam", "fake_aligned.bam"))
 
     @pytest.mark.skipif(
         BWA_MISSING or SAMTOOLS_MISSING, reason="bwa or samtools not found in PATH"
@@ -266,7 +266,7 @@ class TestAlignBasicsSmoke:
         ]
         rc, stdout, stderr = run_cli(args)
         assert rc == 0
-        assert verify_bam(os.path.join(self.outdir, "cram", "fake_R1_aligned.cram"))
+        assert verify_bam(os.path.join(self.outdir, "cram", "fake_aligned.cram"))
 
 
 class TestBamBasicsSmoke:

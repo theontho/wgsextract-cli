@@ -364,3 +364,21 @@ def test_realign_cram_input_without_matching_reference_errors(tmp_path, monkeypa
     monkeypatch.setattr(realign, "calculate_bam_md5", lambda path: "0" * 32)
     with pytest.raises(WGSExtractError, match="--input-ref"):
         realign._input_cram_reference(Namespace(input="in.cram", input_ref=None))
+
+
+@pytest.mark.parametrize(
+    ("stem", "expected"),
+    [
+        ("HG00096.hg19-mini_R1", "HG00096.hg19-mini"),
+        ("sample_1", "sample"),
+        ("sample_R1_001", "sample_001"),
+        ("sample.2_001", "sample_001"),
+        ("R1_sample", "sample"),
+        ("sample_read1.trimmed", "sample.trimmed"),
+        ("sample", "sample"),
+    ],
+)
+def test_pair_stem_drops_only_the_mate_marker(stem, expected):
+    from wgsextract_cli.core.genome_library import pair_stem
+
+    assert pair_stem(stem) == expected

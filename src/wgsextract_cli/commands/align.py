@@ -10,6 +10,7 @@ from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
+from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -172,7 +173,11 @@ def _prepare_alignment(
     if not resolved_ref or not os.path.isfile(resolved_ref):
         raise WGSExtractError(LOG_MESSAGES["ref_required_for"].format(task=task))
 
-    return _AlignSetup(threads, memory, outdir, resolved_ref, reads_stem(args.r1))
+    stem = reads_stem(args.r1)
+    if getattr(args, "r2", None):
+        # Both mates go into one output, so it shouldn't be named after R1.
+        stem = pair_stem(stem)
+    return _AlignSetup(threads, memory, outdir, resolved_ref, stem)
 
 
 def ensure_bwa_index(ref: str) -> None:

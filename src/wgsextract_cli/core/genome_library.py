@@ -371,6 +371,23 @@ def _matching_r1(r2: Path, fastqs: list[Path]) -> Path | None:
     return None
 
 
+def pair_stem(stem: str) -> str:
+    """A read file's stem without its mate marker (HG00096_R1 -> HG00096), for
+    naming what both mates produce together."""
+    explicit = list(_EXPLICIT_MATE_RE.finditer(stem))
+    match = explicit[-1] if explicit else _TRAILING_MATE_RE.search(stem)
+    if not match:
+        return stem
+    start, end = match.span()
+    # A trailing match also covers the Illumina segment (_001), which stays.
+    kept = "" if explicit else match.group(2)
+    if start > 0 and stem[start - 1] in "._-":
+        start -= 1
+    elif end < len(stem) and stem[end] in "._-":
+        end += 1
+    return stem[:start] + kept + stem[end:] or stem
+
+
 def _fastq_pair_key(path: Path) -> str:
     """Name with every mate marker masked, so R1 and R2 of one sample share a key."""
     stem = _FASTQ_EXT_RE.sub("", path.name.lower())

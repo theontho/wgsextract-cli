@@ -316,7 +316,7 @@ class Oracle:
         )
 
     def _align(self) -> None:
-        bam = self.output("align", "HG00096.hg19-mini_R1_aligned.bam")
+        bam = self.output("align", "HG00096.hg19-mini_aligned.bam")
         flagstat = self.run_tool("samtools", "flagstat", str(bam))
         match = re.search(r"mapped \(([\d.]+)%", flagstat)
         mapped = float(match.group(1)) if match else 0.0
