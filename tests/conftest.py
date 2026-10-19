@@ -31,7 +31,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     group.addoption("--real-fastq-r1", help="Real FASTQ R1 for alignment smoke tests.")
     group.addoption("--real-fastq-r2", help="Real FASTQ R2 for alignment smoke tests.")
     group.addoption("--real-region", help="Region override for real-data smoke tests.")
-    group.addoption("--cnv-map", help="Mappability map for the real CNV smoke test.")
     group.addoption(
         "--pet-species", default="dog", help="Species for the real pet-align test."
     )

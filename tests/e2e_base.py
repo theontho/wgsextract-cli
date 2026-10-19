@@ -14,7 +14,7 @@ from typing import ClassVar, TypedDict
 
 import pytest
 
-from tests.smoke_utils import REPO_ROOT, ensure_fake_data, isolate_home
+from tests.smoke_utils import REPO_ROOT, ensure_fake_data, isolate_home, vep_cache_dir
 from wgsextract_cli.core.config import reload_settings, settings
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.utils import run_command, run_pipeline
@@ -23,7 +23,6 @@ from wgsextract_cli.core.warnings import EXPECTED_TIME
 from wgsextract_cli.main import main
 
 FAKE_DIR = REPO_ROOT / "out" / "fake_30x"
-FAKE_MAP = FAKE_DIR / "fake_map.fa.gz"
 OUT_ROOT = REPO_ROOT / "out" / "tests" / "e2e"
 
 # Reference timings from a 30x WGS (7.3GB CRAM) on M1 Pro class hardware.
@@ -64,20 +63,7 @@ class E2EResult(TypedDict):
 def _prepare_fake_data() -> tuple[str, str]:
     ensure_fake_data(str(FAKE_DIR))
     ref = FAKE_DIR / "fake_ref.fa"
-    # Delly mappability map (bgzipped, faidx-indexed FASTA matching the reference;
-    # all-"C" marks every position uniquely mappable) and a gene map for
-    # `vcf filter --gene`.
-    if not FAKE_MAP.with_suffix(".gz.fai").exists():
-        plain_map = FAKE_MAP.with_suffix("")
-        with ref.open() as src, plain_map.open("w") as dst:
-            for line in src:
-                dst.write(
-                    line
-                    if line.startswith(">")
-                    else "C" * len(line.rstrip("\n")) + "\n"
-                )
-        run_command(["bgzip", "-f", str(plain_map)])
-        run_command(["samtools", "faidx", str(FAKE_MAP)])
+    # A gene map for `vcf filter --gene`.
     gene_map = FAKE_DIR / "ref" / "genes_hg38.tsv"
     if not gene_map.exists():
         gene_map.parent.mkdir(parents=True, exist_ok=True)
@@ -407,8 +393,6 @@ class E2EBase:
         )
 
     def test_35_vcf_cnv_chrm(self) -> None:
-        if not self.fake:
-            pytest.skip("CNV fixture map only exists for synthetic data")
         self.run_real(
             "35 vcf cnv (chrM)",
             [
@@ -418,8 +402,6 @@ class E2EBase:
                 "{input}",
                 "--ref",
                 "{ref}",
-                "--map",
-                str(FAKE_MAP),
                 "--ploidy",
                 "1",
             ],
@@ -427,7 +409,7 @@ class E2EBase:
         )
 
     def test_36_vep_chrm_offline(self, tmp_path: Path) -> None:
-        if not (Path.home() / ".vep").exists():
+        if not (vep_cache_dir(self.ref) / "homo_sapiens").exists():
             pytest.skip("VEP cache not found, skipping offline E2E test")
 
         vcf = tmp_path / "test.vcf.gz"

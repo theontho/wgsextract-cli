@@ -28,6 +28,8 @@ import time
 import zipfile
 from pathlib import Path
 
+from housekeeping import lab_key, mark_used
+
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 WIN_DIR = REPO / "out" / "installlab" / "windows"
@@ -322,6 +324,7 @@ class QemuWindowsMachine(WindowsMachine):
     def create(self) -> None:
         if not self.base.exists():
             raise SystemExit(f"Run `{self.prepare_command}` first.")
+        mark_used(lab_key(self.base))
         self.workdir = WIN_DIR / "runs" / self.name
         self.workdir.mkdir(parents=True)
         self.disk = self.workdir / "disk.qcow2"
@@ -559,6 +562,8 @@ def prepare() -> None:
     if not ISO.exists():
         build_iso()
     fetch_virtio()
+    for download in (ISO, VIRTIO_ISO):
+        mark_used(lab_key(download))
     unattend = WIN_DIR / "unattend.iso"
     build_unattend_iso(unattend)
     for path in (BASE, BASE_VARS):

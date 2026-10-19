@@ -154,3 +154,4 @@ wgsextract-cli = { path = ".", editable = true }
 [tasks]
 deps-check = "wgsextract deps check"
 clean = { cmd = "python scripts/clean_outputs.py", description = "Remove gitignored scratch dirs (out/, tmp/)." }
+gc = { cmd = "python scripts/installlab/lab.py gc", description = "Remove expired install-lab runs, images and leftovers (--dry-run to preview)." }

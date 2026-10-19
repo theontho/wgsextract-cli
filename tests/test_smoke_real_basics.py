@@ -8,6 +8,7 @@ from tests.smoke_utils import (
     check_tool,
     ensure_fake_data,
     run_cli,
+    vep_cache_dir,
     verify_bam,
     verify_fastq,
     verify_vcf,
@@ -698,12 +699,19 @@ class TestVEPSmoke:
     """Ported from test_vep_basics.sh and test_vep_full.sh"""
 
     @pytest.fixture(autouse=True)
-    def setup_outdir(self, tmp_path):
+    def setup_outdir(self, tmp_path, pytestconfig):
         self.outdir = str(tmp_path)
         self.fake_vcf = os.path.join(FAKE_DIR, "fake.vcf.gz")
+        self.real_ref = pytestconfig.getoption("real_ref")
 
-    @pytest.mark.skipif(VEP_MISSING, reason="VEP not found in PATH")
+    @pytest.mark.skipif(VEP_MISSING, reason="VEP not available")
     def test_vep_basics(self):
+        # Offline against an installed cache: without one the CLI falls back
+        # to Ensembl's public database, which takes tens of minutes and fails
+        # whenever that server is slow.
+        cache = vep_cache_dir(self.real_ref)
+        if not (cache / "homo_sapiens").is_dir():
+            pytest.skip(f"no VEP cache at {cache}; pass --real-ref <library>")
         args = [
             "vep",
             "--input",
@@ -712,6 +720,8 @@ class TestVEPSmoke:
             self.outdir,
             "--format",
             "vcf",
+            "--vep-cache",
+            str(cache),
         ]
         rc, stdout, stderr = run_cli(args)
         assert rc == 0

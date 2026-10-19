@@ -30,6 +30,7 @@ import zipfile
 from pathlib import Path
 
 import windows_vm
+from housekeeping import lab_key, mark_used
 from windows_vm import ADMIN, BASE, BASE_VARS, TESTER, WIN_DIR, log, sha256
 
 GUI_BASE = WIN_DIR / "gui-base.qcow2"
@@ -86,6 +87,7 @@ def add_webview2_sdk(dest: Path) -> None:
         )
     if sha256(WEBVIEW2_SDK) != WEBVIEW2_SDK_SHA256:
         raise SystemExit(f"WebView2 SDK checksum mismatch: {WEBVIEW2_SDK}")
+    mark_used(lab_key(WEBVIEW2_SDK))
     dest.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(WEBVIEW2_SDK) as package:
         for member in (
@@ -145,6 +147,8 @@ def prepare_gui() -> None:
     if not BASE.exists():
         raise SystemExit("Run `lab.py prepare windows` first.")
     fetch_webview2()
+    for used in (BASE, WEBVIEW2):
+        mark_used(lab_key(used))
     building = WIN_DIR / "gui-base-building.qcow2"
     vars_fd = WIN_DIR / "gui-base-building-vars.fd"
     for path in (GUI_BASE, GUI_BASE_VARS, building, vars_fd):

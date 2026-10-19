@@ -9,13 +9,14 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from wgsextract_cli.core.download_progress import CancelEvent, ProgressCallback
+from wgsextract_cli.core.pharmgkb import download_pharmgkb
 from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
 
 from .ref_library import (
     download_file,
 )
 
-__all__ = ["CancelEvent", "ProgressCallback"]
+__all__ = ["CancelEvent", "ProgressCallback", "download_pharmgkb"]
 
 
 def get_genome_size(final_name: str, reflib_dir: str) -> str:
@@ -79,10 +80,6 @@ ALPHAMISSENSE_URLS = {
 }
 
 
-PHARMGKB_URLS = {
-    "hg38": "https://api.pharmgkb.org/v1/download/file/data/annotations.zip",
-}
-
 # tabix arguments for a VCF and for TSVs keyed on CHROM=col1, POS=col2.
 _TABIX_VCF = ("-p", "vcf")
 _TABIX_POS_TSV = ("-s", "1", "-b", "2", "-e", "2")
@@ -113,8 +110,6 @@ _ALPHAMISSENSE = _AnnotationResource(
     "alphamissense_{build}.tsv.gz",
     _TABIX_POS_TSV,
 )
-# PharmGKB ships a ZIP of TSVs; it is downloaded as-is.
-_PHARMGKB = _AnnotationResource("PharmGKB", PHARMGKB_URLS, "pharmgkb_{build}.zip", None)
 # Annovar REVEL TSV: #Chr, Start, End, Ref, Alt, REVEL (.tsv.gz for the resolver).
 _REVEL = _AnnotationResource(
     "REVEL", REVEL_URLS, "revel_{build}.tsv.gz", _TABIX_POS_TSV
@@ -210,15 +205,6 @@ def download_alphamissense(
     return _download_resource(
         _ALPHAMISSENSE, reflib_dir, cancel_event, progress_callback
     )
-
-
-def download_pharmgkb(
-    reflib_dir: str,
-    cancel_event: CancelEvent | None = None,
-    progress_callback: ProgressCallback | None = None,
-) -> bool:
-    """Downloads PharmGKB annotations (placeholder for full implementation)."""
-    return _download_resource(_PHARMGKB, reflib_dir, cancel_event, progress_callback)
 
 
 def download_revel(

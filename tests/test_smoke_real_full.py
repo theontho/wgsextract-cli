@@ -11,12 +11,15 @@ from tests.smoke_utils import (
     REPO_ROOT,
     check_tool,
     run_cli,
+    vep_cache_dir,
     verify_bam,
     verify_fastq,
     verify_vcf,
 )
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.microarray_utils import _resolve_templates_roots
+from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.variant_files import calculate_bam_md5
 
 
 @dataclass(frozen=True)
@@ -29,7 +32,6 @@ class RealDataset:
     fastq_r2: Path | None
     cram: Path | None
     region: str | None = None
-    cnv_map: Path | None = None
 
 
 def _existing_path(value: str | None) -> Path | None:
@@ -169,7 +171,6 @@ def real_dataset(pytestconfig: pytest.Config) -> RealDataset:
     return replace(
         dataset,
         region=pytestconfig.getoption("real_region"),
-        cnv_map=_existing_path(pytestconfig.getoption("cnv_map")),
     )
 
 
@@ -243,6 +244,14 @@ def _target_tab(dataset: RealDataset) -> Path:
         matches = sorted(root.glob("*.targets.tab.gz"))
         if matches:
             return matches[0]
+
+    # What the CLI itself uses when --ref-vcf-tab is not given.
+    input_path = str(dataset.cram or dataset.bam)
+    library = ReferenceLibrary(
+        str(dataset.ref), calculate_bam_md5(input_path, None), input_path=input_path
+    )
+    if library.ref_vcf_tab and Path(library.ref_vcf_tab).is_file():
+        return Path(library.ref_vcf_tab)
     pytest.skip("microarray target tab not found; pass --real-targets")
 
 
@@ -418,6 +427,13 @@ def test_real_fastq_alignment(real_dataset: RealDataset, tmp_path: Path) -> None
     assert verify_fastq(str(real_dataset.fastq_r1))
     assert verify_fastq(str(real_dataset.fastq_r2))
 
+    # FASTQs don't name their genome: align to the one the reads came from.
+    source = str(real_dataset.cram or real_dataset.bam)
+    ref = ReferenceLibrary(
+        str(real_dataset.ref), calculate_bam_md5(source, None), input_path=source
+    ).fasta
+    assert ref, f"no FASTA in {real_dataset.ref} matches {source}"
+
     _run_ok(
         [
             "align",
@@ -426,7 +442,7 @@ def test_real_fastq_alignment(real_dataset: RealDataset, tmp_path: Path) -> None
             "--r2",
             str(real_dataset.fastq_r2),
             "--ref",
-            str(real_dataset.ref),
+            ref,
             "--outdir",
             str(tmp_path),
             "--sample",
@@ -436,6 +452,17 @@ def test_real_fastq_alignment(real_dataset: RealDataset, tmp_path: Path) -> None
 
     aligned = _single_file(tmp_path, "*.bam")
     assert verify_bam(str(aligned))
+    # Reads extracted from the source genome must map back to it.
+    idxstats = subprocess.run(
+        ["samtools", "idxstats", str(aligned)],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    rows = [line.split("\t") for line in idxstats.splitlines()]
+    mapped = sum(int(row[2]) for row in rows)
+    unmapped = sum(int(row[3]) for row in rows)
+    assert mapped / (mapped + unmapped) > 0.95, (mapped, unmapped)
 
 
 @pytest.mark.skipif(not check_tool("freebayes"), reason="freebayes missing")
@@ -530,9 +557,6 @@ def test_real_structural_variant_calling(
 @pytest.mark.skipif(_tool_unusable("delly", "--version"), reason="delly unavailable")
 def test_real_cnv_calling(real_dataset: RealDataset, tmp_path: Path) -> None:
     region = _delly_region(real_dataset)
-    cnv_map = real_dataset.cnv_map
-    if not cnv_map:
-        pytest.skip("CNV mappability map not configured; pass --cnv-map")
 
     _run_ok(
         [
@@ -546,8 +570,6 @@ def test_real_cnv_calling(real_dataset: RealDataset, tmp_path: Path) -> None:
             str(tmp_path / "cnv"),
             "--region",
             region,
-            "--map",
-            str(cnv_map),
         ]
     )
     assert verify_vcf(str(tmp_path / "cnv" / "cnv.vcf.gz"), allow_empty=True)
@@ -625,7 +647,7 @@ def test_real_y_lineage(real_dataset: RealDataset, tmp_path: Path) -> None:
 
 @pytest.mark.skipif(not check_tool("vep"), reason="vep missing")
 def test_real_vep(real_dataset: RealDataset, tmp_path: Path) -> None:
-    vep_cache = Path.home() / ".vep"
+    vep_cache = vep_cache_dir(real_dataset.ref)
     if not (vep_cache / "homo_sapiens").exists():
         pytest.skip(f"VEP cache missing at {vep_cache / 'homo_sapiens'}")
 

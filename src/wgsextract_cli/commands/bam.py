@@ -87,9 +87,20 @@ def register(
     unalign_parser = bam_subs.add_parser(
         "unalign", parents=[base_parser], help=CLI_HELP["cmd_unalign"]
     )
-    unalign_parser.add_argument("--r1", required=True, help=CLI_HELP["arg_r1"])
-    unalign_parser.add_argument("--r2", required=True, help=CLI_HELP["arg_r2"])
-    unalign_parser.add_argument("--se", help=CLI_HELP["arg_se"])
+    # Output FASTQs: a bare file name goes in --outdir.
+    unalign_parser.add_argument(
+        "--r1",
+        required=True,
+        help="Read 1 FASTQ to write (a bare name goes in --outdir)",
+    )
+    unalign_parser.add_argument(
+        "--r2",
+        required=True,
+        help="Read 2 FASTQ to write (a bare name goes in --outdir)",
+    )
+    unalign_parser.add_argument(
+        "--se", help="FASTQ for reads without a mate (a bare name goes in --outdir)"
+    )
     unalign_parser.add_argument("-r", "--region", help=CLI_HELP["arg_region"])
     unalign_parser.add_argument(
         "--gene", help="Filter by Gene Name (e.g. BRCA1, KCNQ2)"
@@ -114,9 +125,20 @@ def _alignment_format(path: str) -> tuple[str, str]:
 
 
 def _preflight_sort_space(
-    input_path: str, outdir: str, sort_type: str, app_name: str, region: str | None
+    input_path: str,
+    outdir: str,
+    sort_type: str,
+    app_name: str,
+    region: str | None,
+    action_key: str,
+    threads: str,
 ) -> None:
-    """Refuse a whole-file sort that cannot fit in outdir (regions are smaller)."""
+    """Warn about, or refuse, a whole-file sort that cannot fit in outdir.
+
+    The space and time estimates are for the whole file, so a region skips them.
+    """
+    if region:
+        return
     file_size = os.path.getsize(input_path)
     is_cram = input_path.lower().endswith(".cram")
     print_warning(
@@ -124,10 +146,11 @@ def _preflight_sort_space(
     )
     temp_needed, final_needed = get_free_space_needed(file_size, sort_type, is_cram)
     needed = temp_needed + final_needed
-    if not check_free_space(outdir, needed) and not region:
+    if not check_free_space(outdir, needed):
         raise WGSExtractError(
             f"Insufficient free disk space at {outdir} (needs ~{needed} GB)."
         )
+    print_warning(action_key, threads=threads)
 
 
 def cmd_identify(args: argparse.Namespace) -> None:
@@ -152,8 +175,9 @@ def cmd_sort(args: argparse.Namespace) -> None:
     threads, memory, outdir, cram_opt, resolved_ref = get_base_args(args)
     region = resolve_region_or_gene(args, resolved_ref)
 
-    _preflight_sort_space(args.input, outdir, "Coord", "Coord Sort", region)
-    print_warning("GenSortedBAM", threads=threads)
+    _preflight_sort_space(
+        args.input, outdir, "Coord", "Coord Sort", region, "GenSortedBAM", threads
+    )
 
     fmt, ext = _alignment_format(args.input)
     out_file = derive_output_path(args.input, outdir, f"_sorted{ext}")
@@ -285,27 +309,30 @@ def cmd_tobam(args: argparse.Namespace) -> None:
         raise WGSExtractError(f"Conversion to BAM failed: {e}") from e
 
 
+def _fastq_output_path(path: str, outdir: str) -> str:
+    """A bare file name goes in --outdir; a path with a directory is used as given."""
+    return path if os.path.dirname(path) else os.path.join(outdir, path)
+
+
 def cmd_unalign(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
     threads, memory, outdir, cram_opt, resolved_ref = get_base_args(args)
     region = resolve_region_or_gene(args, resolved_ref)
 
-    _preflight_sort_space(args.input, outdir, "Name", "Name Sort", region)
-    print_warning("ButtonUnalignBAM", threads=threads)
-
-    def in_outdir(path: str) -> str:
-        return path if os.path.isabs(path) else os.path.join(outdir, path)
+    _preflight_sort_space(
+        args.input, outdir, "Name", "Name Sort", region, "ButtonUnalignBAM", threads
+    )
 
     logging.info(LOG_MESSAGES["unaligning_reads"])
     alignments_to_fastq(
         args.input,
-        in_outdir(args.r1),
-        in_outdir(args.r2),
+        _fastq_output_path(args.r1, outdir),
+        _fastq_output_path(args.r2, outdir),
         threads=threads,
         memory=memory,
         temp_parent=outdir,
         cram_opt=cram_opt,
         region=region,
-        out_other=in_outdir(args.se) if args.se else None,
+        out_other=_fastq_output_path(args.se, outdir) if args.se else None,
     )

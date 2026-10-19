@@ -20,10 +20,39 @@ python3 scripts/installlab/lab.py prepare windows-gui            # once: WebView
 python3 scripts/installlab/lab.py run windows --gui-repo ../gui-for-cli   # the Windows app
 python3 scripts/installlab/lab.py run linux --gui-repo ../gui-for-cli     # the Linux app
 python3 scripts/installlab/lab.py mutate out/installlab/runs/<run>/results  # must all FAIL
+python3 scripts/installlab/lab.py gc --dry-run                    # what disk cleanup would remove
 ```
 
 Results land in `out/installlab/runs/<target>-<mode>-<time>/`: the guest's evidence,
 state snapshots, outputs, and `verdict.json`.
+
+## Disk space
+
+A lab machine can hold 60 GB or more: base images, Tart's downloaded macOS
+images, per-run evidence, and the leftovers of a run that was killed. Everything
+the lab reuses is kept as a cache only while it's being used. `lab.py run`,
+`prepare` and `selftest` remove what has expired when they finish (afterwards,
+so the image a run just used is never the one removed), and `lab.py gc` does
+the same on demand:
+
+| What | Removed when |
+|---|---|
+| A killed run's VM clone, container, QEMU work dir or QMP socket dir | not running and over an hour old |
+| Run evidence (`out/installlab/runs/*`) and lab logs | 14 days old (`--runs-days`) |
+| A run's `serve/` dir (installer, archive and dataset copies) | 1 day old |
+| Base images (`wgse-lab-macos-base`, Windows `base`/`gui-base`), the dataset cache, the GUI build's Docker volumes and `ubuntu:24.04` | unused for 30 days (`--images-days`) |
+| What only `prepare` needs (Tart's OCI images, the Windows and virtio ISOs, the WebView2 installer) | unused for 7 days (`--downloads-days`) |
+| Pixi and Homebrew package caches | only with `--package-caches DAYS` |
+
+"Used" is when a run last cloned or booted it: Tart records this for its VMs
+and images, and the lab records it in `out/installlab/last-used.json` for the
+rest (falling back to the file's modification time). Windows' `base` is kept as
+long as `gui-base`, which is built on it. Only things the lab names and creates
+are touched; `ubuntu:24.04` only once a run has recorded using it.
+`pixi run clean` still removes all of `out/` and `tmp/` at once.
+
+Test runs clean up after themselves too: pytest keeps the temporary directories
+of failed tests only (`tmp_path_retention_policy = "failed"`).
 
 ## Why installs used to "pass" while being broken
 

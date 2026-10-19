@@ -266,6 +266,80 @@ def test_download_restarts_when_partial_does_not_fit_remote(tmp_path, monkeypatc
     assert calls == ["bytes=10-", None]
 
 
+class _ShortResponse(_FakeResponse):
+    """A body cut off before its Content-Length, as when a server drops the
+    connection (http.client then returns the short body without raising)."""
+
+    def __init__(self, data: bytes, length: int, code: int = 200):
+        super().__init__(data, code)
+        self.length = length
+
+    def info(self):
+        return {"Content-Length": str(self.length)}
+
+
+def test_download_416_without_size_asks_the_server_for_it(tmp_path, monkeypatch):
+    # Ensembl answers a range past the end with a bare 416 (no Content-Range);
+    # a complete 27 GB VEP cache was deleted and fetched again from scratch.
+    _no_curl_download(monkeypatch)
+    dest = tmp_path / "file.bin"
+    dest.write_bytes(b"complete")
+    methods = []
+
+    def fake_urlopen(request, timeout):
+        methods.append(request.get_method())
+        if request.get_method() == "HEAD":
+            head = _FakeResponse(b"")
+            head.headers = {"Content-Length": "8"}
+            return head
+        raise _http_416("")
+
+    monkeypatch.setattr(downloads, "urlopen", fake_urlopen)
+
+    assert downloads.download_file("https://example.org/f", str(dest))
+    assert dest.read_bytes() == b"complete"
+    assert methods == ["GET", "HEAD"]
+
+
+def test_download_resumes_a_cut_off_transfer(tmp_path, monkeypatch):
+    _no_curl_download(monkeypatch)
+    monkeypatch.setattr(downloads.time, "sleep", lambda s: None)
+    dest = tmp_path / "file.bin"
+    ranges = []
+
+    def fake_urlopen(request, timeout):
+        ranges.append(request.headers.get("Range"))
+        if request.headers.get("Range") == "bytes=4-":
+            return _FakeResponse(b"lete", code=206)
+        return _ShortResponse(b"comp", length=8)
+
+    monkeypatch.setattr(downloads, "urlopen", fake_urlopen)
+
+    assert downloads.download_file("https://example.org/f", str(dest))
+    assert dest.read_bytes() == b"complete"
+    assert ranges == [None, "bytes=4-"]
+
+
+def test_download_gives_up_but_keeps_what_it_has(tmp_path, monkeypatch):
+    _no_curl_download(monkeypatch)
+    monkeypatch.setattr(downloads.time, "sleep", lambda s: None)
+    dest = tmp_path / "file.bin"
+    calls = []
+
+    def fake_urlopen(request, timeout):
+        calls.append(request.headers.get("Range"))
+        if request.headers.get("Range"):
+            raise TimeoutError("timed out")
+        return _ShortResponse(b"comp", length=8)
+
+    monkeypatch.setattr(downloads, "urlopen", fake_urlopen)
+
+    assert not downloads.download_file("https://example.org/f", str(dest))
+    assert not dest.exists()
+    assert (tmp_path / "file.bin.partial").read_bytes() == b"comp"
+    assert len(calls) == downloads.DOWNLOAD_ATTEMPTS
+
+
 def _tar_with(tmp_path: Path, members: dict[str, bytes]) -> Path:
     archive = tmp_path / "bundle.tar.gz"
     with tarfile.open(archive, "w:gz") as tar:

@@ -119,6 +119,8 @@ Notes on a few commands:
 - `ref verify` checks gzip integrity, the FASTA index, and the sequence-dictionary signature of catalog genomes, and fails on mismatch. `ref count-ns` writes `_ncnt.csv`/`_nbin.csv` next to the FASTA, or into `--outdir`.
 - Gene-name filtering (`--gene`) needs gene maps from `ref gene-map` (hg19/hg38 only; T2T is rejected). Gene maps installed by older versions should be rebuilt with `ref gene-map`.
 - `microarray` uses hg19 coordinates. hg38 input needs the liftover chain from `ref bootstrap`; T2T input is not supported.
+- `ref pharmgkb` builds `ref/pharmgkb_hg38.tsv.gz` from ClinPGx's (formerly PharmGKB) clinical annotations and variant locations; `vcf pharmgkb` labels the records that carry an annotated SNV allele. Star-allele/haplotype annotations (e.g. CYP2D6*4) and indels are not included, and it is hg38 only.
+- `align` with FASTQs needs `--ref <FASTA>` when the reference library holds more than one genome, since reads don't say which genome they belong to.
 - `ref spliceai` cannot download automatically because the scores sit behind an Illumina BaseSpace login; the command explains where to place the file.
 - `vcf sv` and `vcf cnv` use Delly 2 (`delly sr` / `delly cnv`), which needs no mappability map; `vcf cnv --map` is accepted but ignored.
 - `lineage y-haplogroup` writes Yleaf output to `<outdir>/yleaf/`, because Yleaf clears its output folder.

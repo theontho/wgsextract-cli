@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from glob import glob
 from pathlib import Path
 
@@ -13,20 +14,34 @@ _TOOL_CACHE: dict[str, bool] = {}
 
 
 def check_tool(tool_name: str) -> bool:
-    """Checks if a tool is available in the system PATH and caches the result."""
-    if tool_name in _TOOL_CACHE:
-        return _TOOL_CACHE[tool_name]
+    """Whether the CLI, run the way these tests run it (an isolated home and no
+    PIXI_EXE, see conftest), can find a tool: on PATH or in a Pixi environment."""
+    if tool_name not in _TOOL_CACHE:
+        probe = (
+            "import sys; from wgsextract_cli.core.dependencies import get_tool_path; "
+            "sys.exit(0 if get_tool_path(sys.argv[1]) else 1)"
+        )
+        with tempfile.TemporaryDirectory() as home:
+            env = {**os.environ, **isolated_home_env(Path(home))}
+            # conftest's _fresh_tool_caches hides it from every test, too.
+            env.pop("PIXI_EXE", None)
+            result = subprocess.run(
+                [sys.executable, "-c", probe, tool_name],
+                env=env,
+                capture_output=True,
+                timeout=300,
+            )
+        _TOOL_CACHE[tool_name] = result.returncode == 0
+    return _TOOL_CACHE[tool_name]
 
-    # Try finding it in path
-    path = shutil.which(tool_name)
-    if path:
-        _TOOL_CACHE[tool_name] = True
-        return True
 
-    # Check common locations or via 'pixi run' if needed
-    # (Simplified for now)
-    _TOOL_CACHE[tool_name] = False
-    return False
+def vep_cache_dir(ref: str | Path | None) -> Path:
+    """Where the CLI looks for the VEP cache when --vep-cache isn't given."""
+    from argparse import Namespace
+
+    from wgsextract_cli.commands._vep_resources import _resolve_vep_cache_root
+
+    return Path(_resolve_vep_cache_root(Namespace(ref=ref and str(ref))))
 
 
 def verify_bam(file_path: str, allow_empty: bool = False) -> bool:
@@ -137,17 +152,24 @@ def run_cli(
     return result.returncode, result.stdout, result.stderr
 
 
-def isolate_home(monkeypatch: pytest.MonkeyPatch, home: Path) -> None:
-    """Point every home/config location the CLI consults at ``home``."""
-    for name, path in {
+def isolated_home_env(home: Path) -> dict[str, str]:
+    """Every home/config location the CLI consults, pointed at ``home``."""
+    paths = {
         "HOME": home,
         "USERPROFILE": home,
         "XDG_CONFIG_HOME": home / ".config",
         "APPDATA": home / "AppData" / "Roaming",
         "LOCALAPPDATA": home / "AppData" / "Local",
-    }.items():
+    }
+    for path in paths.values():
         path.mkdir(parents=True, exist_ok=True)
-        monkeypatch.setenv(name, str(path))
+    return {name: str(path) for name, path in paths.items()}
+
+
+def isolate_home(monkeypatch: pytest.MonkeyPatch, home: Path) -> None:
+    """Point every home/config location the CLI consults at ``home``."""
+    for name, value in isolated_home_env(home).items():
+        monkeypatch.setenv(name, value)
 
 
 def assert_log_contains(stderr: str, pattern: str) -> None:

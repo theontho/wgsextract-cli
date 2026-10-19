@@ -60,6 +60,8 @@ packages = ["src/wgsextract_cli"]
 [tool.pytest.ini_options]
 pythonpath = [".", "src", "tests"]
 testpaths = ["tests"]
+# Keep the temporary directories of failed tests only (the last 3 sessions').
+tmp_path_retention_policy = "failed"
 markers = [
     "real_config: reads the developer's real config.toml instead of an isolated empty one",
 ]
