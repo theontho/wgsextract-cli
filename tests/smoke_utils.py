@@ -13,20 +13,14 @@ _TOOL_CACHE: dict[str, bool] = {}
 
 
 def check_tool(tool_name: str) -> bool:
-    """Checks if a tool is available in the system PATH and caches the result."""
-    if tool_name in _TOOL_CACHE:
-        return _TOOL_CACHE[tool_name]
+    """Whether the CLI can run a tool: on PATH or in one of its Pixi environments."""
+    if tool_name not in _TOOL_CACHE:
+        from wgsextract_cli.core.dependencies import get_tool_path
 
-    # Try finding it in path
-    path = shutil.which(tool_name)
-    if path:
-        _TOOL_CACHE[tool_name] = True
-        return True
-
-    # Check common locations or via 'pixi run' if needed
-    # (Simplified for now)
-    _TOOL_CACHE[tool_name] = False
-    return False
+        _TOOL_CACHE[tool_name] = bool(
+            shutil.which(tool_name) or get_tool_path(tool_name)
+        )
+    return _TOOL_CACHE[tool_name]
 
 
 def verify_bam(file_path: str, allow_empty: bool = False) -> bool:

@@ -29,7 +29,6 @@ class RealDataset:
     fastq_r2: Path | None
     cram: Path | None
     region: str | None = None
-    cnv_map: Path | None = None
 
 
 def _existing_path(value: str | None) -> Path | None:
@@ -169,7 +168,6 @@ def real_dataset(pytestconfig: pytest.Config) -> RealDataset:
     return replace(
         dataset,
         region=pytestconfig.getoption("real_region"),
-        cnv_map=_existing_path(pytestconfig.getoption("cnv_map")),
     )
 
 
@@ -530,9 +528,6 @@ def test_real_structural_variant_calling(
 @pytest.mark.skipif(_tool_unusable("delly", "--version"), reason="delly unavailable")
 def test_real_cnv_calling(real_dataset: RealDataset, tmp_path: Path) -> None:
     region = _delly_region(real_dataset)
-    cnv_map = real_dataset.cnv_map
-    if not cnv_map:
-        pytest.skip("CNV mappability map not configured; pass --cnv-map")
 
     _run_ok(
         [
@@ -546,8 +541,6 @@ def test_real_cnv_calling(real_dataset: RealDataset, tmp_path: Path) -> None:
             str(tmp_path / "cnv"),
             "--region",
             region,
-            "--map",
-            str(cnv_map),
         ]
     )
     assert verify_vcf(str(tmp_path / "cnv" / "cnv.vcf.gz"), allow_empty=True)

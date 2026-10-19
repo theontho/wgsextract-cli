@@ -702,7 +702,7 @@ class TestVEPSmoke:
         self.outdir = str(tmp_path)
         self.fake_vcf = os.path.join(FAKE_DIR, "fake.vcf.gz")
 
-    @pytest.mark.skipif(VEP_MISSING, reason="VEP not found in PATH")
+    @pytest.mark.skipif(VEP_MISSING, reason="VEP not available")
     def test_vep_basics(self):
         args = [
             "vep",
