@@ -24,3 +24,16 @@
 */Library/PPM*
 */Library/Assistant/*
 */Library/HomeKit/*
+# Apple's reverse-DNS namespace anywhere in ~/Library (CloudKit caches, group
+# containers of system extensions, ...). WGS Extract's own ids are dev.guiforcli.*.
+*/Library/*com.apple.*
+*/Library/*homeenergyd*
+*/Library/Photos/Libraries/*
+# Sandbox containers of system daemons, named by UUID (seen holding
+# PrivateCloudCompute data); third-party software has no daemon containers.
+*/Library/Daemon Containers/*
+*/Library/Application Scripts/[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]-*
+*/Library/PrivateCloudCompute*
+# Created by macOS the first time the user mounts any disk image (the DMG).
+*/Library/Application Support/DiskImages*
+*/Library/PersonalizationPortrait/*

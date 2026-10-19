@@ -98,6 +98,9 @@ for tool in pixi samtools bcftools java brew conda mamba; do
     fi
     printf '%s\t%s\n' "$tool" "$found"
 done > "$R/preexisting-tools.txt"
+if [ "$(uname -s)" = Darwin ]; then
+    spctl --status > "$R/gatekeeper-status.txt" 2>&1
+fi
 if [ "$MODE" = "control" ]; then
     # Same timeline without installing anything: whatever changes is OS noise.
     sleep 60
@@ -132,4 +135,11 @@ fi
 # Remove what the test itself created, so any remaining change is the installer's.
 rm -rf "$DATA_PARENT"
 snapshot after_uninstall
+# Crash reports written during the run, for the host to read (the oracle fails
+# the run on any; the VM and its logs are gone afterwards).
+if [ -d "$HOME/Library/Logs/DiagnosticReports" ]; then
+    mkdir -p "$R/crash-reports"
+    find "$HOME/Library/Logs/DiagnosticReports" -newer "$R/nonce" -type f \
+        \( -name '*.ips' -o -name '*.crash' \) -exec cp {} "$R/crash-reports/" \;
+fi
 echo "scenario finished"

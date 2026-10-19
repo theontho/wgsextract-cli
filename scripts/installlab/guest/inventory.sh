@@ -9,16 +9,44 @@ set -u
 out="$1"
 exclude="${2:-}"
 
+# find can be interrupted mid-traversal (EINTR) and silently skip subtrees, which
+# would make a snapshot look like files appeared or vanished. Retry until a walk
+# finishes with no error other than a permission denial; otherwise emit an
+# error line, which fails the run instead of comparing an incomplete snapshot.
+walk() {
+    root="$1"
+    depth="$2"
+    errors="$(mktemp)"
+    attempt=1
+    while :; do
+        listing="$(find "$root" -maxdepth "$depth" \( -type f -o -type d -o -type l \) 2>"$errors")"
+        if ! grep -v -e 'Permission denied' -e 'Operation not permitted' "$errors" | grep -q .; then
+            break
+        fi
+        if [ "$attempt" -ge 5 ]; then
+            printf 'error\tinventory walk of %s failed: %s\n' "$root" "$(head -n 1 "$errors")"
+            break
+        fi
+        attempt=$((attempt + 1))
+        sleep 1
+    done
+    rm -f "$errors"
+    printf '%s\n' "$listing"
+}
+
 list_tree() {
     root="$1"
     depth="$2"
     [ -e "$root" ] || return 0
-    find "$root" -maxdepth "$depth" \( -type f -o -type d -o -type l \) 2>/dev/null |
+    walk "$root" "$depth" |
         while IFS= read -r path; do
+            case "$path" in
+                ""|error"	"*) [ -n "$path" ] && printf '%s\n' "$path"; continue ;;
+            esac
             if [ -n "$exclude" ]; then
                 case "$path" in "$exclude"|"$exclude"/*) continue ;; esac
             fi
-            if [ -L "$path" ]; then kind=link; elif [ -d "$path" ]; then kind=dir; else kind=file; fi
+            if [ -L "$path" ]; then kind="link"; elif [ -d "$path" ]; then kind="dir"; else kind="file"; fi
             printf '%s\t%s\n' "$kind" "$path"
         done
 }
