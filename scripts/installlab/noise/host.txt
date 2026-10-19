@@ -10,3 +10,8 @@
 # installing and using pixi), and the VM target still checks this path.
 */Library/Keychains/*
 */Library/Keychains
+# Standard ~/Library folders macOS adds to a brand-new account during its first
+# minutes (the VM target's account is fully set up, so it still checks them).
+*/Library/Application Scripts
+*/Library/Containers
+*/Library/Mail
