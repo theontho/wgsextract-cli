@@ -1,0 +1,17 @@
+# Paths macOS changes by itself while the VM runs, measured with
+# `lab.py run macos --mode control` (nothing installed). Only Apple-owned
+# locations belong here; WGS Extract never writes to any of them. Each pattern is
+# generalized to its directory because the file names differ from run to run.
+*/Library/Application Support/com.apple.*
+*/Library/IdentityServices/*
+*/Library/DuetExpertCenter/*
+*/Library/Metadata/CoreSpotlight/*
+*/Library/Containers/com.apple.*
+*/Library/Application Scripts/com.apple.*
+*/Library/Group Containers/*.com.apple.*
+*/Library/Biome/*
+*/Library/MediaAnalysis*
+*/Library/Application Support/CrashReporter/*
+*/Movies/TV*
+*/Music/Music*
+*/Pictures/Photos Library.photoslibrary*
