@@ -453,3 +453,25 @@ def test_mt_haplogroup_resolves_reference_next_to_the_input(tmp_path):
     ):
         lineage.cmd_mtdna(args)  # type: ignore[arg-type]
     assert seen["input_path"] == str(bam)
+
+
+def test_haplogrep_wrapper_is_bypassed_for_its_jar(tmp_path):
+    """Bioconda's haplogrep wrapper breaks on paths with spaces; use its jar."""
+    from wgsextract_cli.commands import lineage
+
+    env_bin = tmp_path / "Application Support" / "bin"
+    env_bin.mkdir(parents=True)
+    wrapper = env_bin / "haplogrep"
+    wrapper.write_text('#!/bin/bash\njava -cp $CLASS_PATH genepi.App "$@"\n')
+    wrapper.chmod(0o755)
+    (env_bin / "haplogrep.jar").write_bytes(b"")
+    with patch.object(lineage, "verify_dependencies"):
+        assert lineage._haplogrep_command(str(wrapper)) == [
+            "java",
+            "-jar",
+            str(env_bin / "haplogrep.jar"),
+        ]
+    (env_bin / "haplogrep.jar").unlink()
+    with patch.object(lineage, "tool_command", return_value=["tool"]) as tool:
+        assert lineage._haplogrep_command(str(wrapper)) == ["tool"]
+        tool.assert_called_once_with(str(wrapper))

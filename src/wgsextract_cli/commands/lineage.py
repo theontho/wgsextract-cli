@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+import shutil
 import subprocess
 
 from wgsextract_cli.core.config import settings
@@ -30,6 +31,23 @@ from ._lineage_ydna import (
 )
 
 
+def _haplogrep_command(haplogrep_path: str) -> list[str]:
+    """How to run Haplogrep. Bioconda's haplogrep 2.4 wrapper passes its own
+    path to java unquoted, so it fails whenever the install path has a space
+    (the GUI's runtime lives in "Application Support"); run its jar instead."""
+    jar = haplogrep_path
+    if not jar.endswith(".jar"):
+        resolved = shutil.which(haplogrep_path) or haplogrep_path
+        sibling = os.path.join(
+            os.path.dirname(os.path.realpath(resolved)), "haplogrep.jar"
+        )
+        if not os.path.isfile(sibling):
+            return tool_command(haplogrep_path)
+        jar = sibling
+    verify_dependencies(["java"])
+    return ["java", "-jar", jar]
+
+
 def cmd_mtdna(args: argparse.Namespace) -> None:
     if not args.input:
         raise WGSExtractError(LOG_MESSAGES["input_required"])
@@ -44,11 +62,7 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools"])
     log_dependency_info(["haplogrep", "bcftools"])
 
-    if haplogrep_path.endswith(".jar"):
-        verify_dependencies(["java"])
-        cmd = ["java", "-jar", haplogrep_path]
-    else:
-        cmd = tool_command(haplogrep_path)
+    cmd = _haplogrep_command(haplogrep_path)
 
     outdir = args.outdir or os.path.dirname(os.path.abspath(args.input))
     os.makedirs(outdir, exist_ok=True)
