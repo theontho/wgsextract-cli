@@ -14,8 +14,8 @@ _TOOL_CACHE: dict[str, bool] = {}
 
 
 def check_tool(tool_name: str) -> bool:
-    """Whether the CLI, run the way these tests run it (an isolated home, see
-    isolate_home), can find a tool: on PATH or in one of its Pixi environments."""
+    """Whether the CLI, run the way these tests run it (an isolated home and no
+    PIXI_EXE, see conftest), can find a tool: on PATH or in a Pixi environment."""
     if tool_name not in _TOOL_CACHE:
         probe = (
             "import sys; from wgsextract_cli.core.dependencies import get_tool_path; "
@@ -23,6 +23,8 @@ def check_tool(tool_name: str) -> bool:
         )
         with tempfile.TemporaryDirectory() as home:
             env = {**os.environ, **isolated_home_env(Path(home))}
+            # conftest's _fresh_tool_caches hides it from every test, too.
+            env.pop("PIXI_EXE", None)
             result = subprocess.run(
                 [sys.executable, "-c", probe, tool_name],
                 env=env,
