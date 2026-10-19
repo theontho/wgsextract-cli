@@ -7,6 +7,7 @@ cd /d "%SCRIPT_DIR%" || exit /b 1
 set "ASSUME_YES=0"
 set "DRY_RUN=0"
 set "KEEP_CONFIG=0"
+set "REMOVE_CONFIG=0"
 set "KEEP_PIXI_ENVS=0"
 set "REMOVE_PIXI_CACHE=1"
 set "REMOVE_PIXI=0"
@@ -41,6 +42,11 @@ if /I "!ARG!"=="--dry-run" (
 )
 if /I "!ARG!"=="--keep-config" (
     set "KEEP_CONFIG=1"
+    shift
+    goto parse_args
+)
+if /I "!ARG!"=="--remove-config" (
+    set "REMOVE_CONFIG=1"
     shift
     goto parse_args
 )
@@ -91,6 +97,7 @@ set "PIXI_PROJECT_ENVIRONMENT_DIR=%CD%\tmp\pixi-envs\windows"
 set "SHARED_PIXI_ENVS=%CD%\.pixi\envs"
 set "PIXI_HOME=%USERPROFILE%\.pixi"
 set "PIXI_BIN=%PIXI_HOME%\bin"
+set "PIXI_DEFAULT_CACHE=%LOCALAPPDATA%\rattler\cache"
 if defined LOCALAPPDATA (
     set "CONFIG_FILE=%LOCALAPPDATA%\theontho\wgsextract\config.toml"
 ) else (
@@ -106,6 +113,7 @@ echo Pixi cache:        %PIXI_CACHE_DIR%
 echo Config file:       %CONFIG_FILE%
 echo Legacy config:     %LEGACY_CONFIG_FILE%
 echo Pixi install:      %PIXI_HOME%
+echo Pixi default cache: %PIXI_DEFAULT_CACHE%
 echo MSYS2 root:        %WGSE_MSYS2_ROOT%
 echo.
 echo This removes local project Pixi environments and clears pacman runtime defaults.
@@ -132,7 +140,12 @@ if "%ASSUME_YES%"=="0" (
     )
 )
 
-if "%KEEP_CONFIG%"=="0" (
+if "%REMOVE_CONFIG%"=="1" (
+    call :remove_config_file "%CONFIG_FILE%"
+    if errorlevel 1 exit /b 1
+    call :remove_config_file "%LEGACY_CONFIG_FILE%"
+    if errorlevel 1 exit /b 1
+) else if "%KEEP_CONFIG%"=="0" (
     call :clear_pacman_config "%CONFIG_FILE%"
     if errorlevel 1 exit /b 1
     if /I not "%LEGACY_CONFIG_FILE%"=="%CONFIG_FILE%" (
@@ -164,6 +177,11 @@ if "%REMOVE_PIXI%"=="1" (
     if errorlevel 1 exit /b 1
     call :remove_user_path_entries "%PIXI_BIN%"
     if errorlevel 1 exit /b 1
+    rem Pixi's own package cache: "pixi run" outside this installer, and the first
+    rem use of an optional environment, download there, not into this folder.
+    call :remove_dir "%PIXI_DEFAULT_CACHE%"
+    if errorlevel 1 exit /b 1
+    rmdir "%LOCALAPPDATA%\rattler" 2>nul
 ) else (
     echo Keeping Pixi install.
 )
@@ -171,6 +189,7 @@ if "%REMOVE_PIXI%"=="1" (
 if "%REMOVE_MSYS2%"=="1" call :validate_msys2_root "%WGSE_MSYS2_ROOT%"
 if errorlevel 1 exit /b 1
 if "%REMOVE_MSYS2%"=="1" (
+    call :stop_msys2_processes "%WGSE_MSYS2_ROOT%"
     call :remove_dir "%WGSE_MSYS2_ROOT%"
     if errorlevel 1 exit /b 1
 ) else (
@@ -196,6 +215,24 @@ if errorlevel 1 exit /b 1
 move /y "%CONFIG_TMP%" "%TARGET_CONFIG%" >nul
 if errorlevel 1 exit /b 1
 echo Cleared pacman runtime defaults from config: %TARGET_CONFIG%
+rem A config that held only those defaults was the installer's; remove it.
+findstr /r /c:"[^ 	]" "%TARGET_CONFIG%" >nul 2>nul
+if errorlevel 1 call :remove_config_file "%TARGET_CONFIG%"
+exit /b 0
+
+:remove_config_file
+set "TARGET_CONFIG=%~1"
+if "%TARGET_CONFIG%"=="" exit /b 0
+if not exist "%TARGET_CONFIG%" exit /b 0
+echo Removing config: %TARGET_CONFIG%
+del /f /q "%TARGET_CONFIG%"
+if exist "%TARGET_CONFIG%" (
+    echo ERROR: Could not remove %TARGET_CONFIG%
+    exit /b 1
+)
+rem Its folders, if nothing else is in them: ...\wgsextract and the vendor folder.
+for %%P in ("%TARGET_CONFIG%\..") do rmdir "%%~fP" 2>nul
+for %%P in ("%TARGET_CONFIG%\..\..") do rmdir "%%~fP" 2>nul
 exit /b 0
 
 :remove_dir
@@ -206,7 +243,11 @@ if not exist "%TARGET_DIR%" (
 )
 echo Removing: %TARGET_DIR%
 rmdir /s /q "%TARGET_DIR%"
-if errorlevel 1 exit /b 1
+rem rmdir reports success even when files in use were left behind.
+if exist "%TARGET_DIR%" (
+    echo ERROR: Could not completely remove %TARGET_DIR%; close programs using it and rerun.
+    exit /b 1
+)
 exit /b 0
 
 :validate_msys2_root
@@ -220,11 +261,19 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$root = [System.IO.P
 if errorlevel 1 exit /b 1
 exit /b 0
 
+:stop_msys2_processes
+rem Background MSYS2 programs (e.g. pacman's gpg-agent) lock its DLLs.
+set "WGSE_STOP_ROOT=%~1"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$root = [System.IO.Path]::GetFullPath($env:WGSE_STOP_ROOT).TrimEnd('\') + '\'; Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Write-Host ('Stopping ' + $_.Path); Stop-Process -Id $_.Id -Force; $_.WaitForExit(10000) | Out-Null }"
+exit /b 0
+
 :remove_user_path_entries
 set "PATH_TO_REMOVE=%~1"
 if "%PATH_TO_REMOVE%"=="" exit /b 0
 set "WGSE_PATH_TO_REMOVE=%PATH_TO_REMOVE%"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$remove = [System.IO.Path]::GetFullPath($env:WGSE_PATH_TO_REMOVE).TrimEnd('\'); $current = [Environment]::GetEnvironmentVariable('Path', 'User'); if (-not $current) { exit 0 }; $kept = @(); foreach ($entry in ($current -split ';')) { if (-not $entry) { continue }; try { $normalized = [System.IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($entry)).TrimEnd('\') } catch { $normalized = $entry.TrimEnd('\') }; if ($normalized -ieq $remove) { continue }; $kept += $entry }; $updated = ($kept -join ';'); if ($updated -ne $current) { [Environment]::SetEnvironmentVariable('Path', $updated, 'User'); Write-Host ('Removed from user PATH: ' + $env:WGSE_PATH_TO_REMOVE) }"
+rem Edit the raw value (keeping REG_EXPAND_SZ, %%USERPROFILE%% forms and empty entries)
+rem so the PATH ends up exactly as it was before Pixi added itself.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$remove = [System.IO.Path]::GetFullPath($env:WGSE_PATH_TO_REMOVE).TrimEnd('\'); $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true); if (-not $key) { exit 0 }; $current = $key.GetValue('Path', $null, 'DoNotExpandEnvironmentNames'); if (-not $current) { exit 0 }; $kind = $key.GetValueKind('Path'); $kept = @(); $changed = $false; foreach ($entry in ($current -split ';')) { if ($entry) { try { $normalized = [System.IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($entry)).TrimEnd('\') } catch { $normalized = $entry.TrimEnd('\') }; if ($normalized -ieq $remove) { $changed = $true; continue } }; $kept += $entry }; if ($changed) { $key.SetValue('Path', ($kept -join ';'), $kind); [Environment]::SetEnvironmentVariable('WGSEXTRACT_UNINSTALL_NOTIFY', $null, 'User'); Write-Host ('Removed from user PATH: ' + $env:WGSE_PATH_TO_REMOVE) }"
 if errorlevel 1 exit /b 1
 exit /b 0
 
@@ -237,6 +286,7 @@ echo.
 echo Options:
 echo   --yes, -y             Do not prompt for confirmation.
 echo   --keep-config         Leave WGS Extract config.toml unchanged.
+echo   --remove-config       Delete WGS Extract config.toml, including your other settings.
 echo   --keep-pixi-envs      Leave local Pixi environments in place.
 echo   --keep-pixi-cache     Leave the local Windows Pixi cache in place.
 echo   --remove-prerequisites Remove Pixi and MSYS2 installs used by the Windows bootstrapper.

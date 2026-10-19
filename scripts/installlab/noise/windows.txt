@@ -1,0 +1,20 @@
+# Paths Windows changes by itself during a run, so a leftover there isn't the
+# installer's. Each entry is measured, not guessed.
+#
+# Seen in `lab.py run windows --mode control` (nothing installed): the lab's own
+# PowerShell writes .NET usage logs and PowerShell's module/startup caches.
+*/AppData/Local/Microsoft/CLR_v4.0*
+*/AppData/Local/Microsoft/Windows/PowerShell/ModuleAnalysisCache
+*/AppData/Local/Microsoft/Windows/PowerShell/StartupProfileData-*
+# Windows' certificate revocation (CRL/OCSP) cache, filled by any HTTPS use
+# (seen in control runs too), and the shell's per-user cache folder (install runs).
+*/AppData/LocalLow/Microsoft
+*/AppData/LocalLow/Microsoft/CryptnetUrlCache*
+*/AppData/Local/Microsoft/Windows/Caches
+# The user's temp folder (uv's lock files, Java's hsperfdata): disposable, like
+# /tmp, which the macOS/Linux scans don't cover either.
+*/AppData/Local/Temp/*
+# Windows' per-user DPAPI/CryptoAPI master keys, created on first use of
+# Windows' credential encryption (any interactive user already has them).
+*/AppData/Roaming/Microsoft/Crypto*
+*/AppData/Roaming/Microsoft/Protect*

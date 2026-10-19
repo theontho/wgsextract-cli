@@ -76,3 +76,46 @@ jobs:
           name: install-lab-macos
           path: out/installlab
           retention-days: 14
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The runner preinstalls MSYS2, Git, conda, Java, Python and more. lab.py
+      # hides them (renames C:\msys64, resets the machine PATH, drops non-default
+      # machine variables) and runs the scenario over SSH as a new standard user;
+      # the oracle fails the run if any pre-installed tool is still reachable.
+      # lab.py itself runs on the runner's Python, which the scenario never sees.
+      - name: Install, use, update and uninstall as a fresh Windows user
+        run: python scripts/installlab/lab.py run windows-host --no-judge --out out/installlab/ci-windows
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: install-lab-windows
+          path: out/installlab/ci-windows/results
+          retention-days: 14
+
+  # Judged on Linux: the oracle needs samtools/bcftools, which have no native
+  # Windows Pixi build, and the machine under test shouldn't judge itself.
+  windows-judge:
+    needs: windows
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Pixi
+        uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
+        with:
+          pixi-version: v0.81.0
+          locked: true
+          environments: default
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: install-lab-windows
+          path: out/installlab/ci-windows/results
+      - name: Judge the Windows evidence
+        run: python3 scripts/installlab/lab.py judge out/installlab/ci-windows/results
+      - name: Every corruption of the evidence must fail the oracle
+        run: python3 scripts/installlab/lab.py mutate out/installlab/ci-windows/results

@@ -634,6 +634,59 @@ def test_version_probe_reports_a_crashing_tool(returncode):
         )
 
 
+def test_uninstalled_windows_script_tool_runs_through_its_interpreter(tmp_path):
+    """On Windows `gatk` is an extensionless Python script, so the first-use
+    command can't name it; it runs it from the new env with its interpreter."""
+    from wgsextract_cli.core import dependencies
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1] == "run":
+            return MagicMock(returncode=1, stdout="", stderr="env not installed")
+        return MagicMock(returncode=0, stdout='[{"name": "gatk4"}]', stderr="")
+
+    with (
+        patch.object(dependencies.shutil, "which", return_value="/usr/bin/pixi"),
+        patch.object(dependencies.subprocess, "run", side_effect=fake_run),
+        patch.object(dependencies.runtime, "is_windows_host", return_value=True),
+    ):
+        command = dependencies._host_pixi_tool_command("gatk")
+        assert command is not None
+        argv = dependencies._tool_command_parts(command)
+    stub_at = argv.index("-c") + 1
+    assert argv[stub_at - 2 : stub_at - 1] == ["python"]
+    assert argv[stub_at + 1 :] == ["python", "gatk"]
+
+    # The stub finds the script in the env prefix and runs it with the launcher.
+    (tmp_path / "share" / "gatk4-4.6.2.0-1").mkdir(parents=True)
+    (tmp_path / "share" / "gatk4-4.6.2.0-1" / "gatk").write_text("")
+    calls = []
+    with (
+        patch.object(sys, "prefix", str(tmp_path)),
+        patch.object(sys, "argv", ["-c", "python", "gatk", "HaplotypeCaller"]),
+        patch("subprocess.call", side_effect=lambda cmd: calls.append(cmd) or 0),
+        pytest.raises(SystemExit) as exit_info,
+    ):
+        exec(argv[stub_at], {})
+    assert exit_info.value.code == 0
+    real_script = tmp_path / "share" / "gatk4-4.6.2.0-1" / "gatk"
+    assert calls == [["python", str(real_script), "HaplotypeCaller"]]
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        [r"C:\Users\lab user\.pixi\bin\pixi.exe", "run", "-c", "print('a b')"],
+        [r"C:\Users\bob\pixi.exe", r"C:\a\b", 'q"uote', "trail\\", ""],
+    ],
+)
+def test_windows_argv_split_inverts_list2cmdline(argv):
+    import subprocess
+
+    from wgsextract_cli.core.dependencies import _split_windows_argv
+
+    assert _split_windows_argv(subprocess.list2cmdline(argv)) == argv
+
+
 @pytest.mark.parametrize("installed", [True, False])
 def test_embedded_pixi_is_used_only_in_an_install_layout(tmp_path, installed):
     """install.sh puts pixi in <install>/.pixi beside app/; next to a plain

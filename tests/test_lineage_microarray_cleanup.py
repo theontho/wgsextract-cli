@@ -42,6 +42,23 @@ def test_resolve_lineage_tool_resolves_bare_names_only(tmp_path):
     get_tool.assert_called_once_with("haplogrep")
 
 
+def test_resolve_lineage_tool_accepts_resolved_wrapper_commands(tmp_path):
+    """On Windows Haplogrep resolves to a `pixi run ... java -jar` command, which
+    isn't a file; only a path the user passed is checked for existence."""
+    wrapper = (
+        '"C:\\Users\\lab user\\.pixi\\bin\\pixi.exe" run -e default java -jar "h.jar"'
+    )
+    with (
+        patch.object(_lineage_ydna, "verify_dependencies"),
+        patch.object(_lineage_ydna, "get_tool_path", return_value=wrapper),
+    ):
+        assert _lineage_ydna.resolve_lineage_tool(None, "haplogrep", "--x") == wrapper
+    with pytest.raises(WGSExtractError):
+        _lineage_ydna.resolve_lineage_tool(
+            str(tmp_path / "missing" / "haplogrep"), "haplogrep", "--x"
+        )
+
+
 def test_match_chromosome_name_handles_aliases():
     assert variant_files.match_chromosome_name("MT", ["chr1", "chrM"]) == "chrM"
     assert variant_files.match_chromosome_name("Y", ["1", "Y"]) == "Y"
@@ -475,3 +492,23 @@ def test_haplogrep_wrapper_is_bypassed_for_its_jar(tmp_path):
     with patch.object(lineage, "tool_command", return_value=["tool"]) as tool:
         assert lineage._haplogrep_command(str(wrapper)) == ["tool"]
         tool.assert_called_once_with(str(wrapper))
+
+
+def test_windows_wrapper_commands_keep_backslashes():
+    """Windows `pixi run` wrappers are list2cmdline-quoted; paths without spaces
+    stay unquoted, so POSIX splitting would strip their backslashes."""
+    from wgsextract_cli.core import runtime
+    from wgsextract_cli.core.utils import _normalize_subprocess_cmd
+
+    wrapper = (
+        r"C:\Users\bob\.pixi\bin\pixi.exe run --manifest-path C:\Users\bob\w\pixi.toml"
+        r" -e default java -jar C:\Users\bob\w\haplogrep.jar"
+    )
+    with (
+        patch.object(runtime, "is_windows_host", return_value=True),
+        patch("wgsextract_cli.core.runtime_wrappers.wrap_command", side_effect=list),
+    ):
+        argv = _normalize_subprocess_cmd([wrapper, "classify"])
+    assert argv[0] == r"C:\Users\bob\.pixi\bin\pixi.exe"
+    assert argv[3] == r"C:\Users\bob\w\pixi.toml"
+    assert argv[-2:] == [r"C:\Users\bob\w\haplogrep.jar", "classify"]

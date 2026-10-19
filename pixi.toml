@@ -1,6 +1,6 @@
 [workspace]
 name = "wgsextract-cli"
-version = "0.4.0"
+version = "0.4.1"
 description = "A modern, standalone Command-Line Interface for WGS Extract."
 authors = ["WGS Extract Contributors"]
 channels = ["conda-forge", "bioconda"]
@@ -26,8 +26,10 @@ gatk4 = ">=4.6.2.0,<5"
 
 [feature.bio-tools.pypi-dependencies]
 # Bioconda's yleaf 3.2.1 artifact omits yleaf/data/* marker tables, so install
-# upstream's packaged source for a runnable default Yleaf environment.
-yleaf = { git = "https://github.com/genid/Yleaf.git", tag = "v4.1.2" }
+# upstream's packaged source for a runnable default Yleaf environment. The tag's
+# source archive, not a git checkout: users mustn't need git (a new Windows PC
+# has none), and the lockfile pins the archive's sha256.
+yleaf = { url = "https://github.com/genid/Yleaf/archive/refs/tags/v4.1.2.tar.gz" }
 
 [feature.bio-tools.target.unix.dependencies]
 samtools = ">=1.24,<2"

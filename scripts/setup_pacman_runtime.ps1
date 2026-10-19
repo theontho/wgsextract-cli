@@ -167,8 +167,25 @@ function Install-PacmanPackages {
     }
 
     Write-Host $Description
-    Initialize-PacmanKeyring
-    Invoke-PacmanCommand ("pacman -Sy --needed --noconfirm " + ($Packages -join " "))
+    try {
+        Initialize-PacmanKeyring
+        Invoke-PacmanCommand ("pacman -Sy --needed --noconfirm " + ($Packages -join " "))
+    }
+    finally {
+        Stop-PacmanGpgAgent
+    }
+}
+
+function Stop-PacmanGpgAgent {
+    # pacman-key and pacman start a gpg-agent for pacman's keyring that keeps
+    # running after setup; it holds MSYS2's DLLs open, so MSYS2 couldn't be
+    # uninstalled, and installers shouldn't leave background processes behind.
+    try {
+        Invoke-Msys2Script "gpgconf --homedir /etc/pacman.d/gnupg --kill gpg-agent || true"
+    }
+    catch {
+        Write-Warning "Could not stop MSYS2's pacman gpg-agent: $($_.Exception.Message)"
+    }
 }
 
 function Copy-UrlOrFile {

@@ -43,7 +43,10 @@ def resolve_lineage_tool(explicit_path: str | None, tool: str, flag: str) -> str
         path = get_tool_path(path) or path
     if not path:
         raise WGSExtractError(f"{tool} path missing.")
-    verify_paths_exist({flag: path})
+    # Only a path the user gave can be missing; a resolved tool may be a
+    # `pixi run ...` wrapper command (Haplogrep's jar on Windows), not a file.
+    if path == explicit_path:
+        verify_paths_exist({flag: path})
     return path
 
 
