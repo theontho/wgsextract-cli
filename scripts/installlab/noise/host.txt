@@ -4,3 +4,9 @@
 # tools (git); a user's Mac with only the Command Line Tools doesn't, and the
 # macos VM target, which has only those, still checks this path.
 */Library/Developer/CoreSimulator*
+# The runner image gives a new account its data-protection keychain during the
+# run. A new account in the clean macos VM doesn't get one from anything the
+# install does (tested: curl over TLS, git's osxkeychain helper, `security`,
+# installing and using pixi), and the VM target still checks this path.
+*/Library/Keychains/*
+*/Library/Keychains

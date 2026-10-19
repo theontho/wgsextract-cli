@@ -342,10 +342,6 @@ class HostMachine(Machine):
             run(["sudo", "sysadminctl", "-addUser", self.user, "-password", password,
                  "-home", f"/Users/{self.user}"])  # fmt: skip
             run(["sudo", "createhomedir", "-c", "-u", self.user], capture_output=True)
-            # A real account already has its keychain from logging in; this one
-            # gets it on first TLS use. Make that happen before the baseline.
-            run(["sudo", "-u", self.user, "-H", "/usr/bin/curl", "-fsS", "-o",
-                 "/dev/null", "https://github.com"])  # fmt: skip
         else:
             run(["sudo", "useradd", "-m", "-s", "/bin/bash", self.user])
         # The results folder must be writable by the new user; nothing else is shared.
