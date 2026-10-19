@@ -15,3 +15,12 @@
 */Movies/TV*
 */Music/Music*
 */Pictures/Photos Library.photoslibrary*
+# Daily rollovers of Apple daemons (seen when a run crosses midnight UTC).
+*/Library/Application Scripts/group.com.apple.*
+*/Library/Application Support/DifferentialPrivacy*
+*/Library/Application Support/locationaccessstored*
+*/Library/HTTPStorages/com.apple.*
+*/Library/Preferences/com.apple.*
+*/Library/PPM*
+*/Library/Assistant/*
+*/Library/HomeKit/*
