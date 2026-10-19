@@ -11,6 +11,7 @@ from tests.smoke_utils import (
     REPO_ROOT,
     check_tool,
     run_cli,
+    vep_cache_dir,
     verify_bam,
     verify_fastq,
     verify_vcf,
@@ -628,7 +629,7 @@ def test_real_y_lineage(real_dataset: RealDataset, tmp_path: Path) -> None:
 
 @pytest.mark.skipif(not check_tool("vep"), reason="vep missing")
 def test_real_vep(real_dataset: RealDataset, tmp_path: Path) -> None:
-    vep_cache = Path.home() / ".vep"
+    vep_cache = vep_cache_dir(real_dataset.ref)
     if not (vep_cache / "homo_sapiens").exists():
         pytest.skip(f"VEP cache missing at {vep_cache / 'homo_sapiens'}")
 

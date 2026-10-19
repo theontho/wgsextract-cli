@@ -23,6 +23,15 @@ def check_tool(tool_name: str) -> bool:
     return _TOOL_CACHE[tool_name]
 
 
+def vep_cache_dir(ref: str | Path | None) -> Path:
+    """Where the CLI looks for the VEP cache when --vep-cache isn't given."""
+    from argparse import Namespace
+
+    from wgsextract_cli.commands._vep_resources import _resolve_vep_cache_root
+
+    return Path(_resolve_vep_cache_root(Namespace(ref=ref and str(ref))))
+
+
 def verify_bam(file_path: str, allow_empty: bool = False) -> bool:
     """Verifies that a BAM file exists and is valid using samtools quickcheck."""
     if not os.path.exists(file_path):

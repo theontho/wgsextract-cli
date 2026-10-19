@@ -14,7 +14,7 @@ from typing import ClassVar, TypedDict
 
 import pytest
 
-from tests.smoke_utils import REPO_ROOT, ensure_fake_data, isolate_home
+from tests.smoke_utils import REPO_ROOT, ensure_fake_data, isolate_home, vep_cache_dir
 from wgsextract_cli.core.config import reload_settings, settings
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.utils import run_command, run_pipeline
@@ -409,7 +409,7 @@ class E2EBase:
         )
 
     def test_36_vep_chrm_offline(self, tmp_path: Path) -> None:
-        if not (Path.home() / ".vep").exists():
+        if not (vep_cache_dir(self.ref) / "homo_sapiens").exists():
             pytest.skip("VEP cache not found, skipping offline E2E test")
 
         vcf = tmp_path / "test.vcf.gz"
