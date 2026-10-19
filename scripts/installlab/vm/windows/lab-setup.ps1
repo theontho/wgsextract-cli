@@ -69,6 +69,12 @@ $tester = "Lab User"
 $password = ConvertTo-SecureString ([guid]::NewGuid().ToString() + "aA1!") -AsPlainText -Force
 New-LocalUser -Name $tester -Password $password -PasswordNeverExpires -AccountNeverExpires | Out-Null
 Add-LocalGroupMember -Group Users -Member $tester
+# Windows' group for non-admin SSH users. A config with AllowGroups (GitHub's
+# runner image has `AllowGroups administrators "openssh users"`) admits only
+# its members; the stock config has none and ignores it.
+if (Get-LocalGroup -Name "OpenSSH Users" -ErrorAction SilentlyContinue) {
+    Add-LocalGroupMember -Group "OpenSSH Users" -Member $tester
+}
 Set-KeyFile "C:\ProgramData\ssh\labuser_authorized_keys" $tester
 Add-Content -LiteralPath "C:\ProgramData\ssh\sshd_config" -Value @"
 
