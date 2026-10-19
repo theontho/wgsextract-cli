@@ -164,12 +164,15 @@ def test_pixi_declares_native_windows_optional_tools() -> None:
 
 
 def test_pixi_installs_runnable_yleaf_from_upstream_package_data_source() -> None:
-    pixi = (ROOT / "pixi.toml").read_text(encoding="utf-8")
-
-    assert "[feature.bio-tools.pypi-dependencies]" in pixi
-    assert (
-        'yleaf = { git = "https://github.com/genid/Yleaf.git", tag = "v4.1.2" }' in pixi
-    )
+    # Upstream's tagged source (Bioconda's build lacks the marker tables), as an
+    # archive rather than a git checkout: a new Windows PC has no git, and the
+    # install lab showed `pixi install` failing there on the git source.
+    manifest = tomllib.loads((ROOT / "pixi.toml").read_text(encoding="utf-8"))
+    yleaf = manifest["feature"]["bio-tools"]["pypi-dependencies"]["yleaf"]
+    assert yleaf == {
+        "url": "https://github.com/genid/Yleaf/archive/refs/tags/v4.1.2.tar.gz"
+    }
+    assert "git" not in yleaf
 
 
 def test_pixi_vep_runs_apple_silicon_through_rosetta() -> None:

@@ -404,9 +404,6 @@ command_exists curl || fail "curl is required to download the installer payload.
 command_exists tar || fail "tar is required to extract the installer payload."
 command_exists gzip || fail "gzip is required to extract the installer payload."
 verify_xcode_command_line_tools
-# Pixi fetches Yleaf from its git repository. On macOS git comes with the
-# Command Line Tools checked above.
-command_exists git || fail "git is required to install the WGS Extract CLI environment (e.g. sudo apt install git)."
 
 ARCHIVE_FALLBACK_URL=""
 if [ -z "$ARCHIVE_URL" ]; then

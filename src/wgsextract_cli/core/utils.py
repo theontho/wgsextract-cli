@@ -57,6 +57,10 @@ def _normalize_subprocess_cmd(cmd: str | Sequence[object]) -> list[str]:
         runtime_wrappers,
     )
 
+    # Wrapper commands are built with each platform's quoting (list2cmdline on
+    # Windows), so split them the same way; POSIX shlex drops Windows backslashes.
+    from wgsextract_cli.core.dependencies import _tool_command_parts
+
     def split_wrapper_or_keep(value: str) -> list[str]:
         value = os.path.expanduser(value)
         if (
@@ -68,7 +72,7 @@ def _normalize_subprocess_cmd(cmd: str | Sequence[object]) -> list[str]:
         if os.path.exists(value):
             return [value]
         if "pixi run" in value or " " in value:
-            return shlex.split(value)
+            return _tool_command_parts(value)
         return [value]
 
     if isinstance(cmd, str):
@@ -91,7 +95,7 @@ def _normalize_subprocess_cmd(cmd: str | Sequence[object]) -> list[str]:
             return runtime_wrappers.wrap_command(cmd_list)
 
         if executable and " " in executable and not os.path.exists(executable):
-            cmd_list = shlex.split(executable) + cmd_list[1:]
+            cmd_list = _tool_command_parts(executable) + cmd_list[1:]
             executable = cmd_list[0]
 
         if (
@@ -112,7 +116,7 @@ def _normalize_subprocess_cmd(cmd: str | Sequence[object]) -> list[str]:
                 elif os.path.exists(resolved):
                     cmd_list = [resolved] + cmd_list[1:]
                 else:
-                    cmd_list = shlex.split(resolved) + cmd_list[1:]
+                    cmd_list = _tool_command_parts(resolved) + cmd_list[1:]
 
     return runtime_wrappers.wrap_command(cmd_list)
 

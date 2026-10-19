@@ -144,3 +144,39 @@ def test_structural_reference_header_keeps_reference_sq_order():
         "@RG\tID:sample",
         "@PG\tID:samtools",
     ]
+
+
+def test_gatk_region_goes_through_an_intervals_file(tmp_path):
+    """GATK on Windows parses `-L 20:1-200000` as a path (illegal ':'), so the
+    region is passed as an interval list."""
+    from wgsextract_cli.commands.vcf import callers as _vcf_callers
+
+    args, path = _vcf_callers._gatk_region_args("20:1-200000", str(tmp_path))
+    assert args == ["-L", path] and path.endswith(".intervals")
+    assert (tmp_path / "gatk_region.intervals").read_text() == "20:1-200000\n"
+    assert _vcf_callers._gatk_region_args(None, str(tmp_path)) == ([], None)
+
+
+def test_gatk_temp_dir_avoids_spaces_on_windows(monkeypatch, tmp_path):
+    """GATK can't load its codecs from a temp dir with a space, which every
+    Windows user with a space in their name has; the 8.3 short path has none."""
+    from wgsextract_cli.commands.vcf import callers as _vcf_callers
+
+    spaced = tmp_path / "lab user" / "wgse-gatk-x"
+    spaced.mkdir(parents=True)
+    monkeypatch.setattr(_vcf_callers.tempfile, "mkdtemp", lambda **_: str(spaced))
+    monkeypatch.setattr(_vcf_callers.sys, "platform", "win32")
+
+    class Kernel32:
+        @staticmethod
+        def GetShortPathNameW(path, buffer, size):
+            buffer.value = path.replace("lab user", "LABUSE~1")
+            return len(buffer.value)
+
+    monkeypatch.setattr(
+        _vcf_callers.ctypes,
+        "windll",
+        type("windll", (), {"kernel32": Kernel32})(),
+        raising=False,
+    )
+    assert " " not in _vcf_callers._gatk_tmp_dir()

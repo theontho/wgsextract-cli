@@ -90,6 +90,18 @@ WINDOWS_PIXI_SCRIPT_LAUNCHERS = {
     "gatk": ("python",),
 }
 
+# Runs <env prefix>/bin/<script> with its interpreter from inside `pixi run`, for
+# a Windows script tool whose environment isn't installed yet (its prefix, and
+# so the script's path, only exists once `pixi run` has installed it).
+_WINDOWS_FIRST_USE_STUB = (
+    "import glob, os, subprocess, sys; "
+    "name = sys.argv[2]; "
+    "found = sorted(glob.glob(os.path.join(sys.prefix, 'share', '*', name))) + "
+    "[p for p in (os.path.join(sys.prefix, d, name) for d in ('bin', 'Scripts')) "
+    "if os.path.exists(p)]; "
+    "sys.exit(subprocess.call([sys.argv[1], found[0] if found else name, *sys.argv[3:]]))"
+)
+
 
 IGNORED_VERSION_OUTPUT_PREFIXES = ("wsl: Failed to mount ",)
 
@@ -173,10 +185,50 @@ def _tool_command_parts(cmd_base: str) -> list[str]:
     return shlex.split(normalized_cmd)
 
 
+def _split_windows_argv(command_line: str) -> list[str]:
+    """CommandLineToArgvW's rules (the inverse of subprocess.list2cmdline), for
+    when the Windows API isn't available."""
+    args: list[str] = []
+    current: list[str] = []
+    in_token = in_quotes = False
+    i = 0
+    while i < len(command_line):
+        char = command_line[i]
+        if char == "\\":
+            run_end = i
+            while run_end < len(command_line) and command_line[run_end] == "\\":
+                run_end += 1
+            count = run_end - i
+            if run_end < len(command_line) and command_line[run_end] == '"':
+                current.append("\\" * (count // 2))
+                if count % 2:
+                    current.append('"')
+                    run_end += 1
+            else:
+                current.append("\\" * count)
+            in_token = True
+            i = run_end
+            continue
+        if char == '"':
+            in_quotes = not in_quotes
+            in_token = True
+        elif char in " \t" and not in_quotes:
+            if in_token:
+                args.append("".join(current))
+                current, in_token = [], False
+        else:
+            current.append(char)
+            in_token = True
+        i += 1
+    if in_token:
+        args.append("".join(current))
+    return args
+
+
 def _windows_command_line_split(command_line: str) -> list[str]:
     windll = getattr(ctypes, "windll", None)
     if windll is None:
-        return shlex.split(command_line, posix=False)
+        return _split_windows_argv(command_line)
 
     argc = ctypes.c_int()
     command_line_to_argv = windll.shell32.CommandLineToArgvW
@@ -396,6 +448,12 @@ if "haplogrep" in tool_names:
         raise SystemExit(0)
 
 for tool in tool_names:
+    # noarch packages keep the real script in share/<pkg>/ beside its data (GATK's
+    # jar) and link it into bin/; Windows gets no usable link, so look there first.
+    shared = sorted(p for p in prefix.glob("share/*/" + tool) if p.is_file())
+    if os.name == "nt" and shared:
+        print("script:" + str(shared[-1]))
+        raise SystemExit(0)
     script = prefix / "bin" / tool
     if os.path.lexists(script):
         print("script:" + str(script.resolve()))
@@ -430,6 +488,20 @@ raise SystemExit(1)
         # An optional environment that isn't installed yet: `pixi run` installs it
         # (with visible progress) the first time the tool is actually used.
         if env != "default" and _locked_package_available(pixi_cmd, env, tool):
+            launcher = WINDOWS_PIXI_SCRIPT_LAUNCHERS.get(tool)
+            if launcher and runtime.is_windows_host():
+                # Windows can't run the extensionless script by name.
+                return _pixi_run_command(
+                    pixi_cmd,
+                    env,
+                    [
+                        "python",
+                        "-c",
+                        _WINDOWS_FIRST_USE_STUB,
+                        *launcher,
+                        executable_names[0],
+                    ],
+                )
             return _pixi_run_command(pixi_cmd, env, [executable_names[0]])
         return None
 

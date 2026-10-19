@@ -1,7 +1,11 @@
 import argparse
+import ctypes
 import logging
 import os
+import shutil
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 from wgsextract_cli.core.dependencies import get_tool_path
@@ -57,6 +61,33 @@ def _prepare_gatk_input(
     return temp_bam, temp_bam
 
 
+def _gatk_region_args(region: str | None, outdir: str) -> tuple[list[str], str | None]:
+    """-L through an interval-list file: on Windows GATK parses a bare `20:1-200`
+    as a file path and fails on the ':'; a .intervals file reads the same everywhere."""
+    if not region:
+        return [], None
+    intervals = os.path.join(outdir, "gatk_region.intervals")
+    Path(intervals).write_text(region + "\n", encoding="utf-8")
+    return ["-L", intervals], intervals
+
+
+def _gatk_tmp_dir() -> str:
+    """A temp dir for GATK without spaces. GATK 4.6 can't load its codecs'
+    bundled config from a temp path with a space ("Unable to automatically
+    instantiate codec"), and on Windows %TEMP% is under the user's profile, so
+    any user whose name has a space would hit it; use the 8.3 short path there."""
+    path = tempfile.mkdtemp(prefix="wgse-gatk-")
+    if " " in path and sys.platform == "win32":
+        buffer = ctypes.create_unicode_buffer(32768)
+        if ctypes.windll.kernel32.GetShortPathNameW(path, buffer, len(buffer)):
+            path = buffer.value
+    if " " in path:
+        logging.warning(
+            f"GATK's temp directory has a space ({path}); GATK may fail to start."
+        )
+    return path
+
+
 def _cleanup_gatk_temp_input(temp_input: str | None) -> None:
     if not temp_input:
         return
@@ -107,9 +138,10 @@ def cmd_gatk(args: argparse.Namespace) -> None:
             raise WGSExtractError(f"Failed to generate GATK dict file: {e}") from e
 
     logging.info(LOG_MESSAGES["vcf_calling_gatk"].format(output=out_vcf))
-    region_args = ["-L", args.region] if args.region else []
+    region_args, region_file = _gatk_region_args(args.region, outdir)
     gatk_input = args.input
     temp_gatk_input = None
+    gatk_tmp = _gatk_tmp_dir()
 
     try:
         gatk_input, temp_gatk_input = _prepare_gatk_input(args, ref, outdir)
@@ -122,6 +154,8 @@ def cmd_gatk(args: argparse.Namespace) -> None:
             gatk_input,
             "-O",
             out_vcf,
+            "--tmp-dir",
+            gatk_tmp,
         ] + region_args
         run_command(cmd)
         ensure_vcf_indexed(out_vcf)
@@ -135,3 +169,6 @@ def cmd_gatk(args: argparse.Namespace) -> None:
         raise WGSExtractError("GATK failed.") from e
     finally:
         _cleanup_gatk_temp_input(temp_gatk_input)
+        if region_file:
+            Path(region_file).unlink(missing_ok=True)
+        shutil.rmtree(gatk_tmp, ignore_errors=True)
