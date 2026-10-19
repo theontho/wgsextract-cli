@@ -35,6 +35,14 @@ jobs:
       - name: Every corruption of the evidence must fail the oracle
         if: success()
         run: python3 scripts/installlab/lab.py mutate out/installlab/ci-linux/results
+      # Paths with spaces broke tools before (Haplogrep's wrapper), and users
+      # update existing installs rather than installing fresh.
+      - name: Install into a folder whose path has a space
+        run: python3 scripts/installlab/lab.py run linux --install-dir "WGS Extract" --out out/installlab/ci-linux-spaced
+      - name: Update the latest published release to this tree
+        run: |
+          latest=$(curl -fsIL -o /dev/null -w '%{url_effective}' https://github.com/theontho/wgsextract-cli/releases/latest)
+          python3 scripts/installlab/lab.py run linux --update-from "${latest##*/}" --out out/installlab/ci-linux-update
       - name: Every sabotaged install must fail
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: python3 scripts/installlab/lab.py selftest linux

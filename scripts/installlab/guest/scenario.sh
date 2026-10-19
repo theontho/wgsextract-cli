@@ -14,6 +14,10 @@
 #   LAB_SABOTAGE         optional negative control (see lab.py)
 #   LAB_MODE             "install" (default) or "control" (no install; measures
 #                        background noise in the state snapshots)
+#   LAB_INSTALL_DIR      optional install folder name under $HOME, e.g. one with
+#                        a space ("WGS Extract"); default is the README's
+#   LAB_UPDATE_FROM      optional published release tag to install first with
+#                        its own installer, then update to the tree under test
 #
 # Nothing here decides pass/fail; the host's oracle does, from the evidence.
 set -u
@@ -25,7 +29,10 @@ mkdir -p "$EVIDENCE"
 printf '%s\n' "${LAB_NONCE:?}" > "$R/nonce"
 SABOTAGE="${LAB_SABOTAGE:-}"
 MODE="${LAB_MODE:-install}"
-INSTALL_DIR="$HOME/wgsextract-cli"
+INSTALL_DIR="$HOME/${LAB_INSTALL_DIR:-wgsextract-cli}"
+if [ -n "${LAB_INSTALL_DIR:-}" ]; then
+    export WGSEXTRACT_INSTALL_DIR="$INSTALL_DIR"
+fi
 WGSE="$INSTALL_DIR/wgsextract"
 DATA_PARENT="$HOME/lab-data"
 
@@ -111,17 +118,38 @@ if [ "$MODE" = "control" ]; then
     exit 0
 fi
 
-step install install_cli
-snapshot after_install
-step dataset fetch_dataset
-apply_post_install_sabotage
-DATA="$DATA_PARENT/hg19-mini-hg00096"
-step workload sh "$HERE/workload.sh" "$WGSE" "$DATA" "$R/workload"
+install_release() {
+    # What a user who installed that release ran then: its own installer.
+    cd "$HOME" || return 1
+    curl -fsSL "https://raw.githubusercontent.com/theontho/wgsextract-cli/$LAB_UPDATE_FROM/install.sh" |
+        WGSEXTRACT_RELEASE_TAG="$LAB_UPDATE_FROM" WGSEXTRACT_NO_OPEN=1 sh
+}
 
-# An update must keep user data that lives inside app/.
-mkdir -p "$INSTALL_DIR/app/reference"
-printf '%s\n' "$LAB_NONCE" > "$INSTALL_DIR/app/reference/lab-marker"
-step update install_cli
+mark_user_data() {
+    # An update must keep user data that lives inside app/.
+    mkdir -p "$INSTALL_DIR/app/reference"
+    printf '%s\n' "$LAB_NONCE" > "$INSTALL_DIR/app/reference/lab-marker"
+}
+
+DATA="$DATA_PARENT/hg19-mini-hg00096"
+if [ -n "${LAB_UPDATE_FROM:-}" ]; then
+    # Update a real earlier release, then test what the update produced.
+    step install install_release
+    mark_user_data
+    step update install_cli
+    snapshot after_install
+    step dataset fetch_dataset
+    apply_post_install_sabotage
+    step workload sh "$HERE/workload.sh" "$WGSE" "$DATA" "$R/workload"
+else
+    step install install_cli
+    snapshot after_install
+    step dataset fetch_dataset
+    apply_post_install_sabotage
+    step workload sh "$HERE/workload.sh" "$WGSE" "$DATA" "$R/workload"
+    mark_user_data
+    step update install_cli
+fi
 step update_kept_data cat "$INSTALL_DIR/app/reference/lab-marker"
 step post_update_mt "$WGSE" lineage mt-haplogroup --input "$DATA/HG00096.hg19-mini.bam" \
     --ref "$DATA/hg19-mini.fa.gz" --outdir "$R/post_update_mt"
