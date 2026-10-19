@@ -65,6 +65,8 @@ Add-Tree $env:ProgramFiles 1
 Add-Tree ${env:ProgramFiles(x86)} 1
 Add-Tree $env:ProgramData 1
 Add-Tree "$env:ProgramData\Microsoft\Windows\Start Menu\Programs" 2
+# The user's Start menu is deeper than the profile walk reaches.
+Add-Tree "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" 2
 # Crash reports (Windows Error Reporting) and user crash dumps.
 Add-Tree "$env:ProgramData\Microsoft\Windows\WER" 3
 Add-Tree "$env:LOCALAPPDATA\Microsoft\Windows\WER" 3

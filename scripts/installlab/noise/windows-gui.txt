@@ -1,0 +1,26 @@
+# What Windows changes by itself while Lab User is signed in to a desktop (the
+# app's VM, `lab.py run windows --gui-*`), on top of windows.txt. Each entry is
+# measured, not guessed: seen in `lab.py run windows --gui-installer <exe>
+# --mode control` (signed in, nothing installed, 30 minutes) and in app runs.
+#
+# OneDrive, which Windows starts at sign-in, updating itself (its updater's
+# config and cached setup, and the RunOnce entries that delete the cache).
+*/AppData/Local/Microsoft/OneDrive/StandaloneUpdater*
+*/AppData/Local/Microsoft/OneDrive/Update/OneDriveSetup.exe
+HKCU:/Software/Microsoft/Windows/CurrentVersion/RunOnce/Delete Cached*
+# The shell's notification icons and Web Account Manager's token cache.
+*/AppData/Local/Microsoft/Windows/ActionCenterCache/*
+*/AppData/Local/Microsoft/TokenBroker/Cache/*
+# The shell's per-user cache databases (windows.txt has only their folder).
+*/AppData/Local/Microsoft/Windows/Caches/*
+# WinINet's cache database logs.
+*/AppData/Local/Microsoft/Windows/WebCache/V01*.log
+# The Direct3D shader cache of the WebView2 runtime's GPU process, which every
+# WebView2 app's window shares: the control run's own minimal WebView2 window
+# (webview2-window.ps1, open 4 minutes) leaves the same D3DSCache/714b5208d22d390f
+# entries the app's window does. Windows owns it (Disk Cleanup's "DirectX Shader
+# Cache"); no app's uninstaller removes it.
+*/AppData/Local/D3DSCache*
+# Packaged system apps that set up their per-user folders on first use.
+*/AppData/Local/Packages/Microsoft.Windows.NarratorQuickStart_8wekyb3d8bbwe*
+*/AppData/Local/Packages/Microsoft.Windows.ShellExperienceHost_cw5n1h2txyewy*
