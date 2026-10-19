@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 
+from wgsextract_cli.core.config import config_args
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
@@ -96,7 +97,13 @@ def cmd_chain_annotate(args: argparse.Namespace) -> None:
             step_dirs.append(step_outdir)
             logging.info(f"{step} Running '{ann}' annotation...")
 
-            cmd = [sys.executable, "-m", "wgsextract_cli.main", *_step_command(ann)]
+            cmd = [
+                sys.executable,
+                "-m",
+                "wgsextract_cli.main",
+                *config_args(),
+                *_step_command(ann),
+            ]
             cmd += ["--input", current_input, "--outdir", step_outdir]
             if args.ref:
                 cmd += ["--ref", args.ref]

@@ -147,8 +147,25 @@ def get_config_dir() -> Path:
     return Path(user_config_dir(APP_NAME, APP_AUTHOR))
 
 
+# Set from --config: a caller (such as the GUI) keeping its own settings file.
+_config_path_override: Path | None = None
+
+
+def set_config_path(path: str | os.PathLike[str] | None) -> None:
+    """Use this config.toml instead of the per-user one (None restores it)."""
+    global _config_path_override
+    _config_path_override = Path(path).expanduser().resolve() if path else None
+
+
+def config_args() -> list[str]:
+    """Arguments that give a child wgsextract process the same config file."""
+    return ["--config", str(_config_path_override)] if _config_path_override else []
+
+
 def get_config_path() -> Path:
     """Get the path to the config.toml file."""
+    if _config_path_override is not None:
+        return _config_path_override
     # Priority for macOS: Use ~/.config/wgsextract/ if ~/.config exists
     if sys.platform == "darwin":
         dot_config = Path.home() / ".config"

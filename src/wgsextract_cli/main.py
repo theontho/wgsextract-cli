@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import sys
 from collections.abc import Sequence
 
 from .cli.bootstrap import (
@@ -9,14 +10,15 @@ from .cli.bootstrap import (
     start_parent_monitor,
 )
 from .cli.dispatch import dispatch_command
-from .cli.parser import build_parser, parse_args, print_full_help
-from .core.config import reload_settings
+from .cli.parser import build_parser, config_path_from_argv, parse_args, print_full_help
+from .core.config import reload_settings, set_config_path
 
 __all__ = ["main"]
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     configure_stdio_encoding()
+    set_config_path(config_path_from_argv(sys.argv[1:] if argv is None else argv))
     reload_settings()
 
     parser, base_parser = build_parser()

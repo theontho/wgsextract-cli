@@ -8,6 +8,7 @@ import sys
 from collections.abc import Sequence
 from typing import TypedDict
 
+from wgsextract_cli.core.config import config_args
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -117,7 +118,7 @@ def run_discovery_filter(ann_vcf: str, v_type: str, out_vcf: str) -> int:
 
 def run_cli_subcommand(cmd_args: list[str], args: argparse.Namespace) -> None:
     """Helper to run a wgsextract subcommand."""
-    cmd = [sys.executable, "-m", "wgsextract_cli.main"] + cmd_args
+    cmd = [sys.executable, "-m", "wgsextract_cli.main", *config_args(), *cmd_args]
 
     # Use explicit ref if provided, otherwise resolve from env/defaults
     ref_path = args.ref

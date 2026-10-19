@@ -9,6 +9,8 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import IO, TextIO
 
+from wgsextract_cli.core.config import config_args
+
 from .models import (
     BenchmarkResult,
     BenchmarkThreadPlan,
@@ -32,6 +34,7 @@ def _cli_command(
         "wgsextract_cli.main",
         "--parent-pid",
         str(os.getpid()),
+        *config_args(),
     ]
     if getattr(args, "debug", False):
         command.append("--debug")

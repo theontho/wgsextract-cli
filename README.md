@@ -146,6 +146,8 @@ Settings live in `config.toml`. Run `wgsextract config` to see its path and ever
 - Linux: `~/.config/wgsextract/config.toml`
 - Windows: `%LocalAppData%\theontho\wgsextract\config.toml`
 
+`--config FILE` (accepted anywhere on the command line) reads and saves settings in another file instead, so a tool that bundles the CLI, such as the GUI, keeps its settings out of your own config.
+
 ```toml
 # Defaults for --input and --outdir
 input = "/data/genomes/joe/joe.cram"

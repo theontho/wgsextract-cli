@@ -157,10 +157,32 @@ def add_shared_arguments(base_parser: argparse.ArgumentParser) -> None:
         help=CLI_HELP["arg_memory"],
     )
     base_parser.add_argument(
+        "--config",
+        dest="config_path",
+        metavar="FILE",
+        default=argparse.SUPPRESS,
+        help="Read and save settings in this config.toml instead of the per-user one.",
+    )
+    base_parser.add_argument(
         "--parent-pid",
         type=int,
         help="Parent Process ID to monitor. If the parent dies, this process will exit.",
     )
+
+
+def config_path_from_argv(argv: Sequence[str]) -> str | None:
+    """The --config value, read before the parser is built (it reads defaults
+    from the config); the last occurrence wins, as for other shared options."""
+    found = None
+    tokens = list(argv)
+    for index, token in enumerate(tokens):
+        if token == "--":
+            break
+        if token == "--config" and index + 1 < len(tokens):
+            found = tokens[index + 1]
+        elif token.startswith("--config="):
+            found = token.split("=", 1)[1]
+    return found
 
 
 def _thread_count_arg(value: str) -> int | None:

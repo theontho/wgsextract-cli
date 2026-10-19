@@ -2,6 +2,7 @@
 
 import logging
 import subprocess
+import sys
 import threading
 from argparse import Namespace
 from pathlib import Path
@@ -235,3 +236,48 @@ def test_shared_options_apply_at_every_subcommand_level(argv, expected):
     args, explicit = parser.parse_args(cli_parser, base_parser, argv)
     assert args.input == expected
     assert "input" in explicit
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (["info", "--input", "x.bam"], None),
+        (["--config", "a.toml", "info"], "a.toml"),
+        (["info", "--config=b.toml"], "b.toml"),
+        (["--config", "a.toml", "info", "--config", "c.toml"], "c.toml"),
+        (["info", "--", "--config", "d.toml"], None),
+    ],
+)
+def test_config_path_from_argv(argv, expected):
+    assert parser.config_path_from_argv(argv) == expected
+
+
+def test_config_flag_reads_and_saves_only_that_file(tmp_path):
+    own = tmp_path / "own.toml"
+    own.write_text('output_directory = "/from/own/config"\n')
+    user_config = config.get_config_path()
+    try:
+        config.set_config_path(own)
+        config.reload_settings()
+        assert config.settings.get("output_directory") == "/from/own/config"
+        config.save_config({"reference_library": str(tmp_path / "ref")})
+        assert config.config_args() == ["--config", str(own.resolve())]
+    finally:
+        config.set_config_path(None)
+        config.reload_settings()
+    assert "reference_library" in own.read_text()
+    assert not user_config.exists()
+
+
+def test_config_flag_reaches_the_cli(tmp_path):
+    own = tmp_path / "own.toml"
+    outdir = tmp_path / "from-own-config"
+    own.write_text(f'output_directory = "{outdir}"\n')
+    result = subprocess.run(
+        [sys.executable, "-m", "wgsextract_cli.main", "--config", str(own), "config"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert f"Config File:      {own.resolve()}" in result.stdout
+    assert "from-own-config" in result.stdout
