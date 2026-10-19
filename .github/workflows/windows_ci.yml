@@ -10,7 +10,18 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The distribution download sometimes stalls until the job's timeout;
+      # give it a bounded first try and one retry.
       - name: Set up WSL
+        id: wsl
+        timeout-minutes: 10
+        continue-on-error: true
+        uses: Vampire/setup-wsl@4c48163d9f981914dd8caa0fc335fe19cca5bff4 # v7.2.0
+        with:
+          distribution: Ubuntu-24.04
+      - name: Set up WSL (retry)
+        if: steps.wsl.outcome == 'failure'
+        timeout-minutes: 10
         uses: Vampire/setup-wsl@4c48163d9f981914dd8caa0fc335fe19cca5bff4 # v7.2.0
         with:
           distribution: Ubuntu-24.04
