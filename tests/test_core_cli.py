@@ -281,3 +281,13 @@ def test_config_flag_reaches_the_cli(tmp_path):
     )
     assert f"Config File:      {own.resolve()}" in result.stdout
     assert "from-own-config" in result.stdout
+
+
+def test_version_flag(capsys):
+    from wgsextract_cli import __version__
+    from wgsextract_cli.main import main
+
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--version"])
+    assert exit_info.value.code == 0
+    assert capsys.readouterr().out.strip() == f"wgsextract {__version__}"

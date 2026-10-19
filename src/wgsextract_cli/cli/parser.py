@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from wgsextract_cli import __version__
 from wgsextract_cli.commands.registry import COMMAND_MODULES
 from wgsextract_cli.core.config import KNOWN_SETTINGS, get_config_path, settings
 from wgsextract_cli.core.messages import CLI_HELP
@@ -83,6 +84,9 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
         threads=default_threads,
         memory=settings.get("memory_limit"),
         parent_pid=None,
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"wgsextract {__version__}"
     )
     parser.add_argument(
         "--full-help",
