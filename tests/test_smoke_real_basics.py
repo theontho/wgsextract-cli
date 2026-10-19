@@ -724,8 +724,12 @@ class TestVEPSmoke:
             str(cache),
         ]
         rc, stdout, stderr = run_cli(args)
-        assert rc == 0
-        assert os.path.exists(os.path.join(self.outdir, "vep_annotated.vcf.gz"))
+        assert rc == 0, stderr
+        # vep writes <input stem>_vep.vcf.gz, its consequences in INFO/CSQ.
+        out = os.path.join(self.outdir, "fake_vep.vcf.gz")
+        assert verify_vcf(out)
+        with gzip.open(out, "rt") as vcf:
+            assert any(line.startswith("##INFO=<ID=CSQ") for line in vcf)
 
 
 class TestRobustnessSmoke:
