@@ -389,14 +389,19 @@ MACHINES = {"macos": TartMachine, "linux": DockerMachine, "host": HostMachine}
 
 
 def noise_patterns(target: str) -> list[str]:
-    noise_file = HERE / "noise" / f"{target}.txt"
+    names = [target]
+    if target == "host" and sys.platform == "darwin":
+        # A fresh user on a macOS runner sees the same Apple background activity.
+        names.append("macos")
     patterns = list(GENERIC_NOISE)
-    if noise_file.is_file():
-        patterns += [
-            line.strip()
-            for line in noise_file.read_text().splitlines()
-            if line.strip() and not line.startswith("#")
-        ]
+    for name in names:
+        noise_file = HERE / "noise" / f"{name}.txt"
+        if noise_file.is_file():
+            patterns += [
+                line.strip()
+                for line in noise_file.read_text().splitlines()
+                if line.strip() and not line.startswith("#")
+            ]
     return patterns
 
 

@@ -282,7 +282,9 @@ def _resolve_pixi_command() -> str | None:
     # Homebrew pixi may be a different version with different global config.
     candidates = [os.environ.get("PIXI_EXE")]
     root = runtime.source_checkout_root()
-    if root is not None:
+    # Only an install.sh install has its own pixi beside app/ (marked by its
+    # manifest); next to a plain checkout that path is the user's ~/.pixi.
+    if root is not None and (root.parent / "install-manifest.json").is_file():
         exe = "pixi.exe" if runtime.is_windows_host() else "pixi"
         candidates.append(str(root.parent / ".pixi" / "bin" / exe))
     for candidate in candidates:

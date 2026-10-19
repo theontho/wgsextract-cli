@@ -632,3 +632,25 @@ def test_version_probe_reports_a_crashing_tool(returncode):
         assert dependency_checks.get_tool_version("sambamba") == (
             "Error: sambamba crashed (SIGSEGV)"
         )
+
+
+@pytest.mark.parametrize("installed", [True, False])
+def test_embedded_pixi_is_used_only_in_an_install_layout(tmp_path, installed):
+    """install.sh puts pixi in <install>/.pixi beside app/; next to a plain
+    checkout (~/wgsextract-cli) that path is the user's own ~/.pixi."""
+    from wgsextract_cli.core import dependencies
+
+    app = tmp_path / "app"
+    app.mkdir()
+    embedded = tmp_path / ".pixi" / "bin" / "pixi"
+    embedded.parent.mkdir(parents=True)
+    embedded.write_text("")
+    if installed:
+        (tmp_path / "install-manifest.json").write_text("{}")
+    with (
+        patch.object(dependencies.runtime, "source_checkout_root", return_value=app),
+        patch.object(dependencies.runtime, "is_windows_host", return_value=False),
+        patch.object(dependencies.shutil, "which", return_value="/usr/local/bin/pixi"),
+    ):
+        expected = str(embedded) if installed else "/usr/local/bin/pixi"
+        assert dependencies._resolve_pixi_command() == expected

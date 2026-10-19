@@ -37,3 +37,5 @@
 # Created by macOS the first time the user mounts any disk image (the DMG).
 */Library/Application Support/DiskImages*
 */Library/PersonalizationPortrait/*
+# Created on a brand-new account's first logins (sandbox staging).
+*/Library/ContainerManager*

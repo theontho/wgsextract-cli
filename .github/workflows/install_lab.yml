@@ -58,10 +58,17 @@ jobs:
           locked: true
           environments: default
       # Hosted macOS runners can't nest VMs, so the scenario runs as a brand-new
-      # user with only the system PATH (the runner's Homebrew etc. stay invisible;
-      # the oracle fails the run if any pre-installed tool leaks through).
+      # user with only the system PATH. The image's Homebrew and JDK still reach
+      # every user (/etc/paths.d, the /usr/bin/java stub), and a real user's Mac
+      # has neither, so move them aside on this throwaway runner; the oracle
+      # fails the run if any pre-installed tool still leaks through.
+      - name: Hide the runner's preinstalled tools
+        run: |
+          for dir in /opt/homebrew /usr/local/Homebrew /Library/Java/JavaVirtualMachines; do
+            if [ -d "$dir" ]; then sudo mv "$dir" "$dir.lab-hidden"; fi
+          done
       - name: Install, use, update and uninstall as a fresh macOS user
-        run: python3 scripts/installlab/lab.py run host --out out/installlab/ci-macos
+        run: pixi run python scripts/installlab/lab.py run host --out out/installlab/ci-macos
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
