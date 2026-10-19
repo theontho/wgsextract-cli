@@ -556,26 +556,63 @@ def test_resolve_pixi_command_prefers_running_pixi(tmp_path, monkeypatch):
         assert dependencies._resolve_pixi_command() == str(running)
 
 
-def test_version_probe_never_installs_an_optional_env():
-    from wgsextract_cli.core import dependency_checks
-
-    calls = []
+def _fake_pixi(prefix, tool_calls):
+    import json
 
     def fake_run(cmd, **kwargs):
-        calls.append(cmd)
-        # Only the "is the env installed?" check may run; the tool itself must not.
-        assert cmd[-2:] == ["exit", "0"]
-        return MagicMock(returncode=1, stdout="", stderr="environment not installed")
+        if cmd[1:3] == ["info", "--json"]:
+            assert cmd[3:] == ["--manifest-path", "/app/pixi.toml"]
+            info = {"environments_info": [{"name": "pacbio", "prefix": str(prefix)}]}
+            return MagicMock(returncode=0, stdout=json.dumps(info), stderr="")
+        tool_calls.append(cmd)
+        return MagicMock(returncode=0, stdout="sniffles 2.6.3", stderr="")
 
-    command = "/usr/bin/pixi run --manifest-path /app/pixi.toml -e pacbio sniffles"
+    return fake_run
+
+
+COMMAND = "/usr/bin/pixi run --manifest-path /app/pixi.toml -e pacbio sniffles"
+
+
+def test_version_probe_never_runs_a_tool_from_a_missing_env(tmp_path):
+    """`pixi run --no-install` runs the tool without the env when it's missing
+    (and `exit 0` succeeds), so installation is read from the env's prefix."""
+    from wgsextract_cli.core import dependency_checks
+
+    tool_calls: list[list[str]] = []
+    prefix = tmp_path / "envs" / "pacbio"  # never installed
     with (
-        patch.object(dependency_checks, "get_tool_path", return_value=command),
-        patch.object(dependency_checks.subprocess, "run", side_effect=fake_run),
+        patch.object(dependency_checks, "get_tool_path", return_value=COMMAND),
+        patch.object(
+            dependency_checks.subprocess,
+            "run",
+            side_effect=_fake_pixi(prefix, tool_calls),
+        ),
     ):
         version = dependency_checks.get_tool_version("sniffles")
 
-    assert all("--no-install" in cmd for cmd in calls)
+    assert tool_calls == []
     assert version == "Available (Pixi env 'pacbio', downloaded on first use)"
+
+
+def test_version_probe_runs_an_installed_env_without_installing(tmp_path):
+    from wgsextract_cli.core import dependency_checks
+
+    tool_calls: list[list[str]] = []
+    prefix = tmp_path / "envs" / "pacbio"
+    (prefix / "conda-meta").mkdir(parents=True)
+    (prefix / "conda-meta" / "pixi").write_text("{}")
+    with (
+        patch.object(dependency_checks, "get_tool_path", return_value=COMMAND),
+        patch.object(
+            dependency_checks.subprocess,
+            "run",
+            side_effect=_fake_pixi(prefix, tool_calls),
+        ),
+    ):
+        version = dependency_checks.get_tool_version("sniffles")
+
+    assert tool_calls and all("--no-install" in cmd for cmd in tool_calls)
+    assert version and "2.6.3" in version
 
 
 @pytest.mark.parametrize("returncode", [-11, 139])

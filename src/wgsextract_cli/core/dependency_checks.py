@@ -1,8 +1,10 @@
+import json
 import logging
 import re
 import signal
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 from wgsextract_cli.core import (
@@ -48,6 +50,37 @@ def _optional_pixi_env(command: list[str]) -> str | None:
     return None if env == "default" else env
 
 
+def _pixi_env_installed(pixi_run: list[str], env: str) -> bool:
+    """Whether `pixi run ... -e env` would find the environment already installed.
+
+    `pixi run --no-install` can't tell: it runs the command without the
+    environment when it's missing. Pixi marks a finished install with
+    conda-meta/pixi in the environment's prefix, which `pixi info` reports.
+    """
+    run_at = pixi_run.index("run")
+    options = pixi_run[run_at + 1 : pixi_run.index("-e")]
+    manifest = [
+        arg
+        for index, arg in enumerate(options)
+        if arg.startswith("--manifest-path")
+        or (index > 0 and options[index - 1] == "--manifest-path")
+    ]
+    try:
+        info = subprocess.run(
+            [*pixi_run[:run_at], "info", "--json", *manifest],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        environments = json.loads(info.stdout).get("environments_info", [])
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    for environment in environments:
+        if environment.get("name") == env and environment.get("prefix"):
+            return (Path(environment["prefix"]) / "conda-meta" / "pixi").is_file()
+    return False
+
+
 def _crash_description(returncode: int) -> str | None:
     """Describe a death by signal (negative code, or 128+N from a wrapper shell)."""
     signum = -returncode if returncode < 0 else returncode - 128
@@ -70,14 +103,9 @@ def get_tool_version(tool: str, runtime_mode: str | None = None) -> str | None:
     optional_env = _optional_pixi_env(full_cmd)
     if optional_env:
         # A version probe must never download an optional environment.
-        full_cmd.insert(full_cmd.index("run") + 1, "--no-install")
-        env_prefix = full_cmd[: full_cmd.index("-e") + 2]
-        # `exit 0` runs in pixi's built-in shell, so this works on every platform.
-        installed = subprocess.run(
-            env_prefix + ["exit", "0"], capture_output=True, timeout=30
-        )
-        if installed.returncode != 0:
+        if not _pixi_env_installed(full_cmd, optional_env):
             return f"Available (Pixi env '{optional_env}', downloaded on first use)"
+        full_cmd.insert(full_cmd.index("run") + 1, "--no-install")
 
     try:
         # 1. Try --version first (standard)
