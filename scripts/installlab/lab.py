@@ -255,6 +255,15 @@ class DockerMachine(Machine):
         )
 
     def create(self) -> None:
+        if sys.platform.startswith("linux"):
+            # Docker Desktop and OrbStack forward host.docker.internal to the
+            # host's loopback; plain Linux Docker maps it to the bridge gateway,
+            # so serve there (reachable from containers, not from the network).
+            self.serve_host = subprocess.run(
+                [self.docker, "network", "inspect", "bridge", "--format",
+                 "{{(index .IPAM.Config 0).Gateway}}"],
+                capture_output=True, text=True, check=True,
+            ).stdout.strip()  # fmt: skip
         run(
             [
                 self.docker,
@@ -337,10 +346,13 @@ class HostMachine(Machine):
             run(["sudo", "useradd", "-m", "-s", "/bin/bash", self.user])
         # The results folder must be writable by the new user; nothing else is shared.
         os.chmod(self.results, 0o777)
-        for parent in (self.results, *self.results.parents):
-            if parent == Path("/"):
-                break
-            os.chmod(parent, os.stat(parent).st_mode | 0o011)
+        for parent in self.results.parents:
+            mode = os.stat(parent).st_mode
+            if mode & 0o001:
+                continue
+            if os.stat(parent).st_uid != os.getuid():
+                raise SystemExit(f"{parent} isn't traversable by other users.")
+            os.chmod(parent, mode | 0o011)
 
     def exec(self, env: dict[str, str], command: str) -> int:
         home = (

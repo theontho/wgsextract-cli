@@ -2,6 +2,7 @@ import argparse
 from collections.abc import Callable
 from pathlib import Path
 
+from wgsextract_cli.core.reference_assets import input_stem
 from wgsextract_cli.core.runtime import default_thread_tuning_profile
 
 from .bam_helpers import (
@@ -456,7 +457,8 @@ def _run_heavy_processing_steps(
     logs_dir: Path,
     region: str | None,
 ) -> None:
-    base_name = analysis_bam.name.split(".")[0]
+    # The stem the commands name their outputs after.
+    base_name = input_stem(str(analysis_bam))
     heavy_region = region or _default_heavy_region(ref_path)
     command_region = _command_region(region, ref_path)
     command_chrom = _chrom_only_region(command_region)
