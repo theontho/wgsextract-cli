@@ -7,6 +7,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.pharmgkb import INFO_HEADER as PHARMGKB_INFO_HEADER
 from wgsextract_cli.core.variant_files import ensure_vcf_prepared
 
 from .annotation_helpers import (
@@ -105,12 +106,24 @@ def cmd_pharmgkb(args: argparse.Namespace) -> None:
         args.pharmgkb_file or lib.pharmgkb_vcf, "vcf_pharmgkb_missing", "pharmgkb"
     )
     ann_out = os.path.join(outdir, PHARMGKB_ANNOTATED)
-    annotate_vcf(
-        ensure_vcf_prepared(input_file),
-        ensure_vcf_prepared(pharmgkb_file),
-        "PHARMGKB",
-        ann_out,
-        outdir,
-        "PharmGKB",
-    )
+    if pharmgkb_file.lower().endswith(VCF_SUFFIXES):
+        annotate_vcf(
+            ensure_vcf_prepared(input_file),
+            ensure_vcf_prepared(pharmgkb_file),
+            "INFO/PHARMGKB",
+            ann_out,
+            outdir,
+            "PharmGKB",
+        )
+    else:
+        # The table `ref pharmgkb` builds: #CHROM, POS, REF, ALT, PHARMGKB.
+        annotate_vcf(
+            ensure_vcf_prepared(input_file),
+            prepare_tabix_annotation(pharmgkb_file, "PharmGKB"),
+            "CHROM,POS,REF,ALT,INFO/PHARMGKB",
+            ann_out,
+            outdir,
+            "PharmGKB",
+            [PHARMGKB_INFO_HEADER],
+        )
     logging.info(f"PharmGKB annotation complete: {ann_out}")
