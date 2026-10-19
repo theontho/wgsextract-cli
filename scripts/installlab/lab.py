@@ -19,6 +19,8 @@ The guest only collects evidence; this host process judges it (see oracle.py).
   lab.py run windows --gui-repo <path>   the Windows app (or --gui-installer <exe>)
   lab.py run linux --gui-repo <path>     the Linux app (or --gui-installer <deb>)
   lab.py mutate <results-dir>   corrupted copies of a passing run must FAIL
+  lab.py gc [--dry-run]         remove expired runs, images and leftovers (run,
+                                prepare and selftest do this when they finish)
 
 Targets: `macos` (Tart VM from a vanilla macOS image + Command Line Tools),
 `linux` (fresh ubuntu:24.04 amd64 container + curl/git), `host` (the current
@@ -51,6 +53,7 @@ from typing import Any
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 sys.path.insert(0, str(HERE))
+import housekeeping  # noqa: E402
 import windows_gui_vm  # noqa: E402
 import windows_vm  # noqa: E402
 from gui_build import (  # noqa: E402
@@ -140,6 +143,7 @@ def fetch_dataset(cache: Path) -> Path:
     """Download (once) and verify the mini genome; repackage as tar.gz for guests
     without unzip."""
     cache.mkdir(parents=True, exist_ok=True)
+    housekeeping.mark_used(housekeeping.lab_key(cache))
     archive = cache / "dataset.tar.gz"
     if archive.exists():
         return archive
@@ -282,6 +286,7 @@ class DockerMachine(Machine):
         )
 
     def create(self) -> None:
+        housekeeping.mark_used(f"docker:{LINUX_IMAGE}")
         if sys.platform.startswith("linux"):
             # Docker Desktop and OrbStack forward host.docker.internal to the
             # host's loopback; plain Linux Docker maps it to the bridge gateway,
@@ -1002,11 +1007,24 @@ def main() -> None:
     p = sub.add_parser("mutate", help="Corrupted copies of a passing run must FAIL.")
     p.add_argument("results", type=Path)
     p.set_defaults(func=cmd_mutate)
+    p = sub.add_parser(
+        "gc", help="Remove expired runs, images and leftovers (see housekeeping.py)."
+    )
+    housekeeping.add_arguments(p)
+    p.set_defaults(func=lambda args: housekeeping.from_arguments(args))
     p = sub.add_parser("judge", help="Judge an existing results directory.")
     p.add_argument("results", type=Path)
     p.set_defaults(func=cmd_judge)
     args = parser.parse_args()
-    args.func(args)
+    if args.func not in (cmd_run, cmd_prepare, cmd_selftest):
+        args.func(args)
+        return
+    try:
+        args.func(args)
+    finally:
+        # Afterwards, so a base image this run just used is never the one expired.
+        log("Removing expired lab runs, images and leftovers...")
+        housekeeping.collect_garbage()
 
 
 if __name__ == "__main__":

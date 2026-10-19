@@ -13,6 +13,7 @@ import tempfile
 from pathlib import Path
 
 import windows_vm
+from housekeeping import mark_used
 
 LINUX_IMAGE = "ubuntu:24.04"
 
@@ -129,6 +130,8 @@ def build_linux_gui_package(
                 if (gui_repo / rel).exists():
                     tar.add(gui_repo / rel, arcname=rel, recursive=False)
         docker = windows_vm.docker()
+        for used in ("docker:gui-build", f"docker:{LINUX_IMAGE}"):
+            mark_used(used)
         run([docker, "run", "--rm", "--platform", "linux/amd64",
              "-v", f"{out}:/out", "-v", "wgse-lab-gui-cargo:/root/.cargo",
              "-v", "wgse-lab-gui-rustup:/root/.rustup",
