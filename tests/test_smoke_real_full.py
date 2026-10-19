@@ -427,6 +427,13 @@ def test_real_fastq_alignment(real_dataset: RealDataset, tmp_path: Path) -> None
     assert verify_fastq(str(real_dataset.fastq_r1))
     assert verify_fastq(str(real_dataset.fastq_r2))
 
+    # FASTQs don't name their genome: align to the one the reads came from.
+    source = str(real_dataset.cram or real_dataset.bam)
+    ref = ReferenceLibrary(
+        str(real_dataset.ref), calculate_bam_md5(source, None), input_path=source
+    ).fasta
+    assert ref, f"no FASTA in {real_dataset.ref} matches {source}"
+
     _run_ok(
         [
             "align",
@@ -435,7 +442,7 @@ def test_real_fastq_alignment(real_dataset: RealDataset, tmp_path: Path) -> None
             "--r2",
             str(real_dataset.fastq_r2),
             "--ref",
-            str(real_dataset.ref),
+            ref,
             "--outdir",
             str(tmp_path),
             "--sample",
@@ -445,6 +452,20 @@ def test_real_fastq_alignment(real_dataset: RealDataset, tmp_path: Path) -> None
 
     aligned = _single_file(tmp_path, "*.bam")
     assert verify_bam(str(aligned))
+    # Reads extracted from one contig of the source genome must map back to it.
+    idxstats = subprocess.run(
+        ["samtools", "idxstats", str(aligned)],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    mapped = {
+        fields[0]: int(fields[2])
+        for fields in (line.split("\t") for line in idxstats.splitlines())
+    }
+    total = sum(mapped.values())
+    top_contig, top_reads = max(mapped.items(), key=lambda item: item[1])
+    assert total and top_reads / total > 0.95, (top_contig, top_reads, total)
 
 
 @pytest.mark.skipif(not check_tool("freebayes"), reason="freebayes missing")
