@@ -29,6 +29,8 @@ from wgsextract_cli.core.download_progress import (
 )
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
+from . import segmented
+
 
 class CancelEvent(Protocol):
     def is_set(self) -> bool: ...
@@ -156,6 +158,36 @@ def download_file(
                 return True
             drop_cached_download(url, dest_path, checksum_hint=checksum_hint)
             dest_path.unlink(missing_ok=True)
+
+    # A large file over several connections (servers that cap each one), unless
+    # an earlier single-connection attempt left a partial to resume.
+    single_partial = partial_path.exists() and not os.path.exists(
+        partial_dest + ".segments"
+    )
+    if not dest_path.exists() and not single_partial:
+        size = segmented.ranged_size(url)
+        if size is not None and size >= segmented.SEGMENTED_MIN_SIZE:
+            try:
+                segmented.download_segmented(
+                    url, dest, size, progress_callback, cancel_event
+                )
+            except segmented.RangesUnsupported:
+                logging.info("Server ignores byte ranges; using one connection.")
+                for leftover in (partial_dest, partial_dest + ".segments"):
+                    Path(leftover).unlink(missing_ok=True)
+            except DownloadCancelled as e:
+                logging.info(str(e))
+                return False
+            except (OSError, HTTPException) as e:
+                logging.error(f"Download error: {e} (run the command again to resume)")
+                return False
+            else:
+                verified = verify_download_sha256(dest, expected_sha256)
+                if verified:
+                    store_download_in_dev_cache(
+                        url, dest_path, checksum_hint=checksum_hint
+                    )
+                return verified
 
     # Use curl only when it can surface its native progress bar directly.
     # Non-TTY runs should take the urllib path so progress is emitted as logs.

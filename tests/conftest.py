@@ -58,6 +58,16 @@ def _isolate_user_config(
 
 
 @pytest.fixture(autouse=True)
+def _no_segmented_size_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """download_file asks a server for the file's size (HEAD) before a large
+    download; keep tests that mock urlopen off the network. Tests of the
+    segmented path call it directly."""
+    from wgsextract_cli.core.ref_library import segmented
+
+    monkeypatch.setattr(segmented, "ranged_size", lambda url: None)
+
+
+@pytest.fixture(autouse=True)
 def _fresh_tool_caches(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Tool resolution is cached per process; isolate tests that mock it.
 
