@@ -81,16 +81,22 @@ class Item:
         return now - self.last_used > self.max_age
 
 
+def _disk_usage(stat: os.stat_result) -> int:
+    # Allocated blocks where the OS reports them (not Windows): sparse VM disks.
+    blocks = getattr(stat, "st_blocks", None)
+    return blocks * 512 if blocks is not None else stat.st_size
+
+
 def _size(path: Path) -> int:
     if path.is_symlink() or not path.exists():
         return 0
     if path.is_file():
-        return path.stat().st_blocks * 512
+        return _disk_usage(path.stat())
     total = 0
     for root, _dirs, files in os.walk(path):
         for name in files:
             with contextlib.suppress(OSError):
-                total += os.lstat(os.path.join(root, name)).st_blocks * 512
+                total += _disk_usage(os.lstat(os.path.join(root, name)))
     return total
 
 

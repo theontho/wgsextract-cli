@@ -452,20 +452,17 @@ def test_real_fastq_alignment(real_dataset: RealDataset, tmp_path: Path) -> None
 
     aligned = _single_file(tmp_path, "*.bam")
     assert verify_bam(str(aligned))
-    # Reads extracted from one contig of the source genome must map back to it.
+    # Reads extracted from the source genome must map back to it.
     idxstats = subprocess.run(
         ["samtools", "idxstats", str(aligned)],
         capture_output=True,
         text=True,
         check=True,
     ).stdout
-    mapped = {
-        fields[0]: int(fields[2])
-        for fields in (line.split("\t") for line in idxstats.splitlines())
-    }
-    total = sum(mapped.values())
-    top_contig, top_reads = max(mapped.items(), key=lambda item: item[1])
-    assert total and top_reads / total > 0.95, (top_contig, top_reads, total)
+    rows = [line.split("\t") for line in idxstats.splitlines()]
+    mapped = sum(int(row[2]) for row in rows)
+    unmapped = sum(int(row[3]) for row in rows)
+    assert mapped / (mapped + unmapped) > 0.95, (mapped, unmapped)
 
 
 @pytest.mark.skipif(not check_tool("freebayes"), reason="freebayes missing")
