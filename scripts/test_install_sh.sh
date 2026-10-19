@@ -196,6 +196,12 @@ sh "$repo_root/install.sh"
 test "$(cat "$install_dir/app/reference/genomes/keep.fa")" = "genome"
 "$install_dir/wgsextract" --help >/dev/null
 
+# Uninstall without repeating the custom directories: install-layout.txt has them.
+HOME="$home_dir" PATH="$fake_bin:$PATH" "$install_dir/uninstall.sh" --yes >/dev/null
+test ! -e "$install_dir"
+test ! -e "$pixi_env_dir"
+test ! -e "$pixi_cache_dir"
+
 embedded_install_dir="$work_dir/embedded-install"
 embedded_home_dir="$work_dir/embedded-home"
 rm -f "$curl_log"

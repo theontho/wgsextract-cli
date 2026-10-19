@@ -436,6 +436,20 @@ INSTALL_DIR="$(absolute_path "$INSTALL_DIR_RAW")"
 DEFAULT_BIN_DIR="$INSTALL_DIR"
 DEFAULT_PIXI_CACHE_DIR="$INSTALL_DIR/.pixi/cache"
 DEFAULT_PIXI_ENV_DIR="$INSTALL_DIR/app/.pixi/envs"
+# install.sh records the directories it used; options and env vars still win.
+if [ -f "$INSTALL_DIR/install-layout.txt" ]; then
+    while IFS="$(printf '\t')" read -r layout_key layout_path; do
+        case "$layout_path" in
+            /*) ;;
+            *) continue ;;
+        esac
+        case "$layout_key" in
+            bin_dir) DEFAULT_BIN_DIR="$layout_path" ;;
+            pixi_cache_dir) DEFAULT_PIXI_CACHE_DIR="$layout_path" ;;
+            pixi_env_dir) DEFAULT_PIXI_ENV_DIR="$layout_path" ;;
+        esac
+    done < "$INSTALL_DIR/install-layout.txt"
+fi
 BIN_DIR="$(absolute_path "${BIN_DIR_RAW:-$DEFAULT_BIN_DIR}")"
 LAUNCHER="$BIN_DIR/wgsextract"
 PIXI_CACHE_DIR="$(absolute_path "${PIXI_CACHE_DIR_RAW:-$DEFAULT_PIXI_CACHE_DIR}")"

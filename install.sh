@@ -562,6 +562,9 @@ esac
 if [ -n "$CREATED_PROFILES" ]; then
     printf '%s\n' "$CREATED_PROFILES" > "$INSTALL_DIR/created-profiles.txt"
 fi
+# Where this install put things, so uninstall.sh finds them without being told.
+printf 'bin_dir\t%s\npixi_cache_dir\t%s\npixi_env_dir\t%s\n' \
+    "$BIN_DIR" "$PIXI_CACHE_DIR" "$PIXI_ENV_DIR" > "$INSTALL_DIR/install-layout.txt"
 
 log "Writing launchers..."
 write_cli_launcher
