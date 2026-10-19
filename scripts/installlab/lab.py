@@ -15,6 +15,10 @@ The guest only collects evidence; this host process judges it (see oracle.py).
   lab.py run macos --gui-repo <path>   the macOS app instead of the CLI: build its
                                 DMG, drag-install it, let it run its own setup,
                                 run real actions, uninstall from the app
+  lab.py prepare windows-gui    one-time: add WebView2 and a signed-in desktop
+  lab.py run windows --gui-repo <path>   the Windows app (or --gui-installer <exe>)
+  lab.py run linux --gui-repo <path>     the Linux app (or --gui-installer <deb>)
+  lab.py mutate <results-dir>   corrupted copies of a passing run must FAIL
 
 Targets: `macos` (Tart VM from a vanilla macOS image + Command Line Tools),
 `linux` (fresh ubuntu:24.04 amd64 container + curl/git), `host` (the current
@@ -33,10 +37,10 @@ import os
 import secrets
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
-import tempfile
 import threading
 import time
 import zipfile
@@ -47,7 +51,13 @@ from typing import Any
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 sys.path.insert(0, str(HERE))
+import windows_gui_vm  # noqa: E402
 import windows_vm  # noqa: E402
+from gui_build import (  # noqa: E402
+    build_gui_artifacts,
+    build_linux_gui_package,
+    build_windows_gui_installer,
+)
 from gui_oracle import GuiOracle  # noqa: E402
 from oracle import Oracle, find_tools  # noqa: E402
 
@@ -97,49 +107,6 @@ def sha256(path: Path) -> str:
 
 
 # --- artifacts ------------------------------------------------------------------
-
-
-def build_gui_artifacts(gui_repo: Path, dmg: Path | None, serve: Path) -> bool:
-    """The app's DMG and the bundle-test runner; returns whether the app is
-    Developer ID signed. Builds both from gui_repo unless a DMG is given, so a
-    run never tests a stale build."""
-    apple = gui_repo / "platform" / "apple"
-    if dmg is None:
-        log("Packaging the macOS app (make package PLATFORM=swiftui-macos)...")
-        run(["make", "package", "PLATFORM=swiftui-macos"], cwd=gui_repo)
-        dmg = max(
-            (gui_repo / "out" / "release" / "swiftui").glob("WGSExtract*.dmg"),
-            key=lambda p: p.stat().st_mtime,
-        )
-    shutil.copy2(dmg, serve / "WGSExtract.dmg")
-    log("Building the gui-for-cli bundle-test runner...")
-    run(["swift", "build", "-c", "release", "--product", "gui-for-cli"], cwd=apple)
-    release = apple / ".build" / "release"
-    with tarfile.open(serve / "gui-runner.tar.gz", "w:gz") as tar:
-        for name in ("gui-for-cli", "gui-for-cli_GUIForCLICore.bundle"):
-            tar.add(release / name, arcname=name)
-    mount = Path(tempfile.mkdtemp(prefix="wgse-lab-dmg-"))
-    run(
-        [
-            "hdiutil",
-            "attach",
-            "-nobrowse",
-            "-readonly",
-            "-mountpoint",
-            str(mount),
-            str(dmg),
-        ]
-    )
-    try:
-        info = subprocess.run(
-            ["codesign", "-dv", "--verbose=2", str(mount / "WGSExtract.app")],
-            capture_output=True,
-            text=True,
-        ).stderr
-    finally:
-        run(["hdiutil", "detach", str(mount)])
-        mount.rmdir()
-    return "Authority=Developer ID Application" in info
 
 
 def build_artifacts(work: Path) -> dict[str, Path]:
@@ -356,7 +323,14 @@ class DockerMachine(Machine):
                 "-c",
                 "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install "
                 f"-y -qq curl ca-certificates {' '.join(self.prerequisites)} >/dev/null "
-                "&& useradd -m -s /bin/bash tester && chown tester /results",
+                "&& useradd -m -s /bin/bash tester && chown tester /results"
+                + (
+                    # An Ubuntu desktop's first user, who may install packages.
+                    " && echo 'tester ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/tester"
+                    " && chmod 440 /etc/sudoers.d/tester"
+                    if "sudo" in self.prerequisites
+                    else ""
+                ),
             ]  # fmt: skip
         )
 
@@ -454,8 +428,11 @@ MACHINES: dict[str, type[Machine] | type[windows_vm.WindowsMachine]] = {
 # --- commands -------------------------------------------------------------------
 
 
-def noise_patterns(target: str) -> list[str]:
+def noise_patterns(target: str, product: str = "cli") -> list[str]:
     names = [target]
+    if target in ("windows", "linux") and product == "gui":
+        # An app's machine has a desktop, with its own background activity.
+        names.append(f"{target}-gui")
     if target == "host" and sys.platform == "darwin":
         # A fresh user on a macOS runner sees the same Apple background activity.
         names.append("macos")
@@ -485,7 +462,9 @@ def judge(results: Path, target: str) -> bool:
             oracle.install_marker = f"/{meta['install_dir']}"
     if target == "macos" and meta.get("product") != "gui":
         oracle.check_gatekeeper_enabled()
-    checks = oracle.run(dataset_dir(), noise_patterns(target))
+    checks = oracle.run(
+        dataset_dir(), noise_patterns(target, meta.get("product", "cli"))
+    )
     failed = [c for c in checks if not c.ok]
     for check in checks:
         mark = "PASS" if check.ok else "FAIL"
@@ -545,7 +524,26 @@ def run_scenario(
         meta["install_dir"] = install_dir
     if update_from:
         meta["update_from"] = update_from
-    if gui:
+    if gui and target == "linux":
+        if mode != "control":
+            meta["installer"] = build_linux_gui_package(
+                gui.gui_repo, gui.gui_installer, artifacts["serve"]
+            )
+            meta["installer_sha256"] = sha256(
+                artifacts["serve"] / str(meta["installer"])
+            )
+        # A local .deb is installed without a signature check, as apt does.
+        meta["signed"] = False
+        meta["cli_from_tree"] = gui.cli_from_tree
+    elif gui and target == "windows":
+        if mode != "control":
+            installer, meta["signed"] = build_windows_gui_installer(
+                gui.gui_repo, gui.gui_installer, artifacts["serve"]
+            )
+            meta["installer"] = installer
+            meta["installer_sha256"] = sha256(artifacts["serve"] / installer)
+        meta["cli_from_tree"] = gui.cli_from_tree
+    elif gui:
         meta["signed"] = build_gui_artifacts(gui.gui_repo, gui.dmg, artifacts["serve"])
         meta["dmg_sha256"] = sha256(artifacts["serve"] / "WGSExtract.dmg")
         meta["cli_from_tree"] = gui.cli_from_tree
@@ -563,11 +561,18 @@ def run_scenario(
         )
     )
     machine_cls = MACHINES[target]
+    if gui and target == "windows":
+        machine_cls = windows_gui_vm.QemuWindowsGuiMachine
     name = f"wgse-lab-{secrets.token_hex(4)}"
     # The machine first: a VM's host-side bridge address only exists once it runs.
     machine = machine_cls(name, results, artifacts["guest"])
     if isinstance(machine, DockerMachine) and update_from in RELEASES_NEEDING_GIT:
         machine.prerequisites = ("git",)
+    if isinstance(machine, DockerMachine) and gui:
+        # An Ubuntu desktop: its user may use sudo, it has Python and fontconfig
+        # (whose setup makes /usr/local/share/fonts), and Xvfb stands in for its
+        # display.
+        machine.prerequisites = ("sudo", "python3", "fontconfig", "xvfb", "xauth")
     with machine:
         with http_server(artifacts["serve"], machine.serve_host) as port:
             base = f"http://{machine.guest_host}:{port}"
@@ -591,6 +596,29 @@ def run_scenario(
                 if not gui.cli_from_tree:
                     # Setup installs the CLI release the app pins, like a user's.
                     del env["LAB_ARCHIVE_URL"]
+            if gui and target == "linux":
+                env.pop("LAB_INSTALLER_URL")
+                env.pop("LAB_ARCHIVE_URL", None)
+                if "installer" in meta:
+                    env["LAB_GUI_INSTALLER_URL"] = f"{base}/{meta['installer']}"
+                    env["LAB_GUI_INSTALLER_NAME"] = str(meta["installer"])
+                if gui.cli_from_tree:
+                    env["LAB_CLI_ARCHIVE_URL"] = f"{base}/wgsextract-cli.tar.gz"
+                log(f"Running the app {mode} scenario on {target} machine {name}...")
+                scenario = shlex.quote(f"{machine.guest_scripts_in_guest}/gui-linux.sh")
+                machine.exec(env, f"sh {scenario}")
+                return results
+            if gui and target == "windows":
+                env.pop("LAB_INSTALLER_URL")
+                env.pop("LAB_ARCHIVE_URL", None)
+                if "installer" in meta:
+                    env["LAB_GUI_INSTALLER_URL"] = f"{base}/{meta['installer']}"
+                    env["LAB_GUI_INSTALLER_NAME"] = str(meta["installer"])
+                if gui.cli_from_tree:
+                    env["LAB_CLI_ARCHIVE_URL"] = f"{base}/wgsextract-cli.zip"
+                log(f"Running the app {mode} scenario on {target} machine {name}...")
+                machine.exec(env, "gui-scenario.ps1")
+                return results
             if target.startswith("windows"):
                 env["LAB_INSTALLER_URL"] = f"{base}/install_windows.bat"
                 env["LAB_ARCHIVE_URL"] = f"{base}/wgsextract-cli.zip"
@@ -615,6 +643,9 @@ def cmd_prepare(args: argparse.Namespace) -> None:
     """Clone the vanilla image, authorize the lab SSH key, install the CLT."""
     if args.target == "windows":
         windows_vm.prepare()
+        return
+    if args.target == "windows-gui":
+        windows_gui_vm.prepare_gui()
         return
     if not SSH_KEY.exists():
         SSH_KEY.parent.mkdir(parents=True, exist_ok=True)
@@ -684,14 +715,19 @@ expect {{
 
 
 def cmd_run(args: argparse.Namespace) -> None:
-    if args.gui_repo and args.target != "macos":
-        raise SystemExit("--gui-repo needs the macos target")
+    gui = args.gui_repo or args.gui_installer
+    if gui and args.target not in ("macos", "windows", "linux"):
+        raise SystemExit("The app is tested on the macos, windows and linux targets.")
+    if args.gui_installer and args.target == "macos":
+        raise SystemExit(
+            "--gui-installer is a Windows .exe or Linux .deb; use --dmg on macos"
+        )
     results = run_scenario(
         args.target,
         args.mode,
         args.sabotage or "",
         args.out,
-        args if args.gui_repo else None,
+        args if gui else None,
         install_dir=args.install_dir,
         update_from=args.update_from,
     )
@@ -800,6 +836,65 @@ GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
     ),
     "no-window": lambda r: (r / "startup.txt").write_text(""),
 }
+_WIN_HOME = "C:/Users/lab user"
+_WIN_COMMON = [
+    "wrong-nonce",
+    "missing-step",
+    "wrong-haplogroup",
+    "missing-output",
+    "empty-calls",
+    "invisible-install",
+    "contaminated-baseline",
+    "setup-failed",
+    "action-failed",
+    "action-missing",
+    "uninstall-failed",
+]
+# The Windows app: the same, plus what a Windows uninstall can leave behind.
+WINDOWS_GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
+    **{name: GUI_MUTATIONS[name] for name in _WIN_COMMON},
+    "leftover-state": lambda r: _append(
+        r / "inventory-after_uninstall.txt",
+        f"dir\t{_WIN_HOME}/AppData/Local/dev.guiforcli.web.embed.wgsextract",
+    ),
+    "apps-entry-left": lambda r: _append(
+        r / "inventory-after_uninstall.txt",
+        "regkey\tHKEY_CURRENT_USER/Software/Microsoft/Windows/CurrentVersion/Uninstall/WGSExtract",
+    ),
+    "shortcut-left": lambda r: _append(
+        r / "inventory-after_uninstall.txt",
+        f"file\t{_WIN_HOME}/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/WGSExtract.lnk",
+    ),
+    "user-path-left": lambda r: _append(
+        r / "inventory-after_uninstall.txt",
+        f"reg\tHKCU:/Environment/Path\tExpandString:{_WIN_HOME}/.pixi/bin",
+    ),
+    "app-still-running": lambda r: _append(
+        r / "inventory-after_uninstall.txt",
+        f"proc\t{_WIN_HOME}/AppData/Local/WGSExtract/node/node.exe",
+    ),
+    "unsigned-accepted": lambda r: (
+        (r / "evidence" / "signature.rc").write_text("0"),
+        (r / "evidence" / "signature.log").write_text("Status: Valid\n"),
+    ),
+    "no-window": lambda r: (r / "app-stdout.txt").write_text(""),
+}
+# The Linux app: the same, plus what removing a package can leave behind.
+LINUX_GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
+    **{name: GUI_MUTATIONS[name] for name in _WIN_COMMON},
+    "leftover-state": lambda r: _append(
+        r / "inventory-after_uninstall.txt",
+        "dir\t/home/tester/.local/share/dev.guiforcli.web.embed.wgsextract",
+    ),
+    "pixi-left": lambda r: _append(
+        r / "inventory-after_uninstall.txt", "dir\t/home/tester/.pixi"
+    ),
+    "desktop-entry-left": lambda r: _append(
+        r / "inventory-after_uninstall.txt",
+        "file\t/usr/share/applications/WGSExtract.desktop",
+    ),
+    "no-window": lambda r: (r / "app-stdout.txt").write_text(""),
+}
 
 
 def _planted(results: Path) -> dict[str, str]:
@@ -829,7 +924,14 @@ def cmd_mutate(args: argparse.Namespace) -> None:
     if not judge(args.results, meta["target"]):
         raise SystemExit("mutate needs a passing run to start from.")
     missed = []
-    mutations = GUI_MUTATIONS if meta.get("product") == "gui" else MUTATIONS
+    if meta.get("product") != "gui":
+        mutations = MUTATIONS
+    elif meta["target"] == "windows":
+        mutations = WINDOWS_GUI_MUTATIONS
+    elif meta["target"] == "linux":
+        mutations = LINUX_GUI_MUTATIONS
+    else:
+        mutations = GUI_MUTATIONS
     for name, mutate in mutations.items():
         copy = args.results.parent / f"mutant-{name}"
         shutil.rmtree(copy, ignore_errors=True)
@@ -849,10 +951,12 @@ def cmd_judge(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    # Stopping the lab (kill, Ctrl-C) still destroys its machines.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(required=True)
     p = sub.add_parser("prepare", help="Build the clean base image for a target.")
-    p.add_argument("target", choices=["macos", "windows"])
+    p.add_argument("target", choices=["macos", "windows", "windows-gui"])
     p.set_defaults(func=cmd_prepare)
     p = sub.add_parser("run", help="Run one scenario on a fresh machine and judge it.")
     p.add_argument("target", choices=sorted(MACHINES))
@@ -866,9 +970,16 @@ def main() -> None:
         help="Only collect evidence (CI judges it on another machine).",
     )
     p.add_argument(
-        "--gui-repo", type=Path, help="Test the macOS app built from this checkout."
+        "--gui-repo",
+        type=Path,
+        help="Test the app (macOS DMG, or Windows installer) built from this checkout.",
     )
     p.add_argument("--dmg", type=Path, help="With --gui-repo: test this DMG instead.")
+    p.add_argument(
+        "--gui-installer",
+        type=Path,
+        help="Test this Windows installer (*-setup.exe) instead of building one.",
+    )
     p.add_argument(
         "--cli-from-tree",
         action="store_true",

@@ -1,0 +1,8 @@
+# What a desktop app's window leaves on Linux that isn't the app's (the app's
+# runs, `lab.py run linux --gui-*`), on top of the generic patterns. Measured:
+# `lab.py run linux --gui-installer <deb> --mode control` opens a different
+# WebKitGTK app (webkit-window.py) for 4 minutes and removes it again.
+#
+# Mesa's shader cache, shared by every OpenGL program of the user: the control
+# run's window leaves the same kind of entries the app's window does.
+*/.cache/mesa_shader_cache*

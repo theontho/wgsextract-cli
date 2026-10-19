@@ -57,6 +57,7 @@ list_tree() {
     list_tree /usr/local 3
     list_tree /opt 2
     list_tree /etc/paths.d 1
+    list_tree /usr/share/applications 1
     list_tree /Library/LaunchAgents 1
     list_tree /Library/LaunchDaemons 1
     # Shell startup files: content matters, not just existence.

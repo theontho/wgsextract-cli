@@ -119,7 +119,8 @@ def wait_for_ssh(
 
 def add_windows_artifacts(serve: Path) -> None:
     """install_windows.bat and a .zip of this tree, as GitHub's release archive
-    would contain it (git's eol attributes applied, like `git archive`)."""
+    would contain it (git's eol attributes applied and symlinks kept as
+    symlinks, like `git archive`)."""
     shutil.copy2(REPO / "install_windows.bat", serve / "install_windows.bat")
     listed = subprocess.run(
         ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
@@ -128,7 +129,11 @@ def add_windows_artifacts(serve: Path) -> None:
         text=True,
         check=True,
     ).stdout.split("\0")
-    files = [rel for rel in listed if rel and (REPO / rel).is_file()]
+    files = [
+        rel
+        for rel in listed
+        if rel and ((REPO / rel).is_symlink() or (REPO / rel).is_file())
+    ]
     attrs = subprocess.run(
         ["git", "check-attr", "-z", "--stdin", "eol"],
         cwd=REPO,
@@ -140,10 +145,22 @@ def add_windows_artifacts(serve: Path) -> None:
     crlf = {attrs[i] for i in range(0, len(attrs) - 2, 3) if attrs[i + 2] == "crlf"}
     with zipfile.ZipFile(serve / "wgsextract-cli.zip", "w", zipfile.ZIP_DEFLATED) as z:
         for rel in files:
-            data = (REPO / rel).read_bytes()
-            if rel in crlf:
-                data = data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
-            z.writestr(f"wgsextract-cli-lab/{rel}", data)
+            entry = zipfile.ZipInfo(f"wgsextract-cli-lab/{rel}")
+            entry.compress_type = zipfile.ZIP_DEFLATED
+            entry.create_system = (
+                3  # Unix modes in external_attr, as git archive writes
+            )
+            if (REPO / rel).is_symlink():
+                entry.external_attr = 0o120777 << 16
+                data = os.readlink(REPO / rel).encode()
+            else:
+                entry.external_attr = (
+                    (REPO / rel).stat().st_mode & 0o777 | 0o100000
+                ) << 16
+                data = (REPO / rel).read_bytes()
+                if rel in crlf:
+                    data = data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+            z.writestr(entry, data)
 
 
 # --- machines -------------------------------------------------------------------
@@ -168,7 +185,12 @@ class WindowsMachine:
 
     def __enter__(self) -> WindowsMachine:
         add_windows_artifacts(self.serve)
-        self.create()
+        try:
+            self.create()
+        except BaseException:
+            # A VM that never came up (or was interrupted) must not keep running.
+            self.destroy()
+            raise
         return self
 
     def __exit__(self, *exc: object) -> None:
@@ -295,20 +317,21 @@ def screenshot(qmp: Path, out: Path) -> None:
 
 class QemuWindowsMachine(WindowsMachine):
     guest_host = "10.0.2.2"  # QEMU user networking's address for the host
+    base, base_vars, prepare_command = BASE, BASE_VARS, "lab.py prepare windows"
 
     def create(self) -> None:
-        if not BASE.exists():
-            raise SystemExit("Run `lab.py prepare windows` first.")
+        if not self.base.exists():
+            raise SystemExit(f"Run `{self.prepare_command}` first.")
         self.workdir = WIN_DIR / "runs" / self.name
         self.workdir.mkdir(parents=True)
         self.disk = self.workdir / "disk.qcow2"
         subprocess.run(
-            ["qemu-img", "create", "-q", "-f", "qcow2", "-F", "qcow2", "-b", str(BASE),
+            ["qemu-img", "create", "-q", "-f", "qcow2", "-F", "qcow2", "-b", str(self.base),
              str(self.disk)],
             check=True,
         )  # fmt: skip
         vars_fd = self.workdir / "vars.fd"
-        shutil.copy2(BASE_VARS, vars_fd)
+        shutil.copy2(self.base_vars, vars_fd)
         os.chmod(vars_fd, 0o644)
         self.port = free_port()
         self.qmp = qmp_socket()
@@ -319,7 +342,10 @@ class QemuWindowsMachine(WindowsMachine):
         )
         log(f"Booting Windows VM {self.name} (ssh port {self.port})...")
         wait_for_ssh(self.admin, self.port, 900, self.vm)
+        self.after_boot()
         self.stage()
+
+    def after_boot(self) -> None: ...
 
     def destroy(self) -> None:
         vm = getattr(self, "vm", None)

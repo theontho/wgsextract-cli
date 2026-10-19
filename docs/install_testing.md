@@ -15,6 +15,11 @@ python3 scripts/installlab/lab.py selftest linux                 # negative cont
 python3 scripts/installlab/lab.py run linux --install-dir "WGS Extract"   # a path with a space
 python3 scripts/installlab/lab.py run linux --update-from v0.4.0        # update a real release
 python3 scripts/installlab/lab.py judge out/installlab/runs/<run>/results
+python3 scripts/installlab/lab.py run macos --gui-repo ../gui-for-cli     # the macOS app
+python3 scripts/installlab/lab.py prepare windows-gui            # once: WebView2 + a desktop
+python3 scripts/installlab/lab.py run windows --gui-repo ../gui-for-cli   # the Windows app
+python3 scripts/installlab/lab.py run linux --gui-repo ../gui-for-cli     # the Linux app
+python3 scripts/installlab/lab.py mutate out/installlab/runs/<run>/results  # must all FAIL
 ```
 
 Results land in `out/installlab/runs/<target>-<mode>-<time>/`: the guest's evidence,
@@ -82,6 +87,65 @@ reports as evidence, not verdicts: every planned action must have passed, and
 its outputs get the same biology checks as the CLI's. The app's microarray
 action has no `--ref-vcf-tab`, so on the rebased mini genome only the kit's
 format is checked there; the CLI lab measures concordance.
+
+## The Windows app
+
+`lab.py run windows --gui-repo <gui-for-cli checkout>` tests the WGS Extract
+Windows app (Tauri, NSIS installer) the same way. It cross-builds the x64
+installer from that checkout every time (`make package
+PLATFORM=tauri-windows-cross`, which needs cargo-xwin, NSIS and LLVM; it says
+which are missing); `--gui-installer <setup.exe>` tests a given installer
+instead, such as a release. An app needs a signed-in desktop and the WebView2
+runtime, so `prepare windows-gui` (once, after `prepare windows`) adds a
+second read-only layer, `gui-base.qcow2`, on top of the CLI's base image: the
+WebView2 Evergreen runtime (pinned by SHA-256; every Windows 11 PC has it, the
+image built from Windows Update files doesn't), and Lab User signed in at
+boot (autologon). Lab User's first desktop sign-in happens while preparing,
+so a run's baseline is a user who has used their PC before. Each run records
+the VM's screen once a minute (`screens/` next to `results/`). In the VM, as
+the standard user Lab User:
+
+1. The installer is downloaded and given the Mark of the Web a browser adds.
+   Its Authenticode signature is checked: a release must verify (`Valid`), a
+   local build must be reported unsigned (`NotSigned`). Then it is unblocked,
+   as clicking SmartScreen's "Run anyway" does.
+2. The installer runs with its defaults (`/S`); the Apps entry, the Start menu
+   shortcut and the app must exist.
+3. The app is opened on Lab User's desktop (through a scheduled task that only
+   runs in their signed-in session) and runs its own setup
+   (`GUI_FOR_CLI_AUTO_RUN_SETUP`); the setup events it logs are the evidence.
+   The window must report that the page drew (`webAppRendered`). Then the
+   window is closed, and nothing the app started may still run.
+4. The real actions run through the app's own runtime: its bundled Node and
+   the bundle-test runner it ships (`bundle-test-cli.js`), on the installed
+   bundle and the app's workspace.
+5. Uninstall is Settings > Apps > Uninstall: the registered UninstallString
+   opens the uninstaller's wizard, where UI Automation ticks "Delete the
+   application data" and clicks Uninstall and Close, so the controls used are
+   the wizard's real ones. The machine must then match the baseline,
+   including the registry (Apps entries, user `Path`), the Start menu and
+   `%LOCALAPPDATA%`.
+
+Setup installs the CLI release the app pins, or this tree with
+`--cli-from-tree`. `lab.py mutate` has Windows-specific corruptions too (an
+Apps entry, shortcut, `Path` entry or running process left behind, an unsigned
+installer reported as signed).
+
+## The Linux app
+
+`lab.py run linux --gui-repo <gui-for-cli checkout>` tests the Linux app (Tauri,
+`.deb`). Tauri can't cross-build Linux packages, so the lab builds the `.deb` the
+way `make package PLATFORM=tauri` does, in an `amd64` `ubuntu:24.04` container
+(Cargo and the build tree are kept in Docker volumes between builds);
+`--gui-installer <deb>` tests a given package. The scenario
+(`guest/gui-linux.sh`) runs in a fresh `ubuntu:24.04` container as a desktop
+user who may use `sudo`, as Ubuntu's first user can, with Xvfb as the display:
+`sudo apt install ./WGSExtract.deb`, the app runs its own setup, the plan's
+actions run through the app's bundled Node and runner, then the app's own
+**Uninstall** (File menu; `GUI_FOR_CLI_AUTO_RUN_UNINSTALL`), since a package
+manager can't remove what setup put in the user's home, and finally
+`sudo apt remove --autoremove`. The desktop entry must have been installed,
+and the home folder must end as it started.
 
 ## Targets
 
