@@ -168,6 +168,33 @@ fi
 sh -n "$install_dir/uninstall.sh"
 "$install_dir/wgsextract" --help >/dev/null
 test -d "$install_dir/app/src/wgsextract_cli"
+# A custom env dir must really hold the environments (pixi reads it from config).
+grep -F "detached-environments" "$install_dir/app/.pixi/config.toml" >/dev/null
+find "$pixi_env_dir" -path "*/envs/default/bin/python*" | grep . >/dev/null
+# Pixi may leave app/.pixi/envs as a symlink to the detached location, but the
+# environment itself must not be installed inside app/.
+if [ -e "$install_dir/app/.pixi/envs" ] && [ ! -L "$install_dir/app/.pixi/envs" ]; then
+    echo "Pixi environment was installed inside app/ despite detached-environments" >&2
+    exit 1
+fi
+
+# Updating must keep user data that lives inside app/.
+mkdir -p "$install_dir/app/reference/genomes"
+printf 'genome\n' > "$install_dir/app/reference/genomes/keep.fa"
+HOME="$home_dir" \
+PATH="$fake_bin:$PATH" \
+PIXI="$pixi_path" \
+WGSEXTRACT_INSTALLER_TEST_ARCHIVE="$archive" \
+WGSEXTRACT_INSTALLER_TEST_PIXI_ARCHIVE="$fake_pixi_archive" \
+WGSEXTRACT_INSTALLER_TEST_RELEASE_TAG="$release_tag" \
+WGSEXTRACT_INSTALLER_TEST_CURL_LOG="$curl_log" \
+WGSEXTRACT_INSTALL_DIR="$install_dir" \
+WGSEXTRACT_PIXI_CACHE_DIR="$pixi_cache_dir" \
+WGSEXTRACT_PIXI_ENV_DIR="$pixi_env_dir" \
+WGSEXTRACT_NO_OPEN=1 \
+sh "$repo_root/install.sh"
+test "$(cat "$install_dir/app/reference/genomes/keep.fa")" = "genome"
+"$install_dir/wgsextract" --help >/dev/null
 
 embedded_install_dir="$work_dir/embedded-install"
 embedded_home_dir="$work_dir/embedded-home"

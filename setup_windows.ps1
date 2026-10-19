@@ -177,6 +177,7 @@ function Ensure-WindowsPixi {
     Write-Step "Installing native Windows pixi"
     $installScript = Join-Path $env:TEMP "pixi-install.ps1"
     Invoke-WebRequest -Uri "https://pixi.sh/install.ps1" -OutFile $installScript
+    if (-not $env:PIXI_VERSION) { $env:PIXI_VERSION = "v0.81.0" }
     powershell -NoProfile -ExecutionPolicy Bypass -File $installScript
     Add-PathForCurrentProcess (Join-Path $env:USERPROFILE ".pixi\bin")
 
@@ -236,7 +237,7 @@ function Ensure-WslPixi {
 
     Write-Step "Installing pixi inside WSL"
     Invoke-WslBash "command -v curl >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y curl ca-certificates)"
-    Invoke-WslBash "curl -fsSL https://pixi.sh/install.sh | bash"
+    Invoke-WslBash "curl -fsSL https://pixi.sh/install.sh | PIXI_VERSION=v0.81.0 bash"
     Invoke-WslBash "~/.pixi/bin/pixi --version"
     Write-Ok "WSL pixi installed."
 }

@@ -240,6 +240,10 @@ config_paths() {
     esac
 }
 
+is_created_profile() {
+    printf '%s\n' "$created_profiles" | grep -Fx -- "$1" >/dev/null 2>&1
+}
+
 remove_pixi_shell_profile_entries() {
     for profile_path in "$HOME/.profile" "$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.config/fish/config.fish"; do
         if [ ! -f "$profile_path" ]; then
@@ -285,6 +289,14 @@ remove_pixi_shell_profile_entries() {
         }
         if cmp -s "$profile_path" "$profile_tmp"; then
             rm -f "$profile_tmp"
+        elif is_created_profile "$profile_path" && ! grep -q '[^[:space:]]' "$profile_tmp"; then
+            # The install created this profile and nothing else was added since.
+            rm -f "$profile_tmp" "$profile_path"
+            log "Removed shell profile created by the install: $profile_path"
+            profile_parent="$(dirname "$profile_path")"
+            while [ "$profile_parent" != "$HOME" ] && rmdir "$profile_parent" 2>/dev/null; do
+                profile_parent="$(dirname "$profile_parent")"
+            done
         else
             profile_backup="$profile_path.wgsextract-uninstall-backup.$(date +%Y%m%d%H%M%S).$$"
             cp -p "$profile_path" "$profile_backup" || {
@@ -423,7 +435,7 @@ fi
 INSTALL_DIR="$(absolute_path "$INSTALL_DIR_RAW")"
 DEFAULT_BIN_DIR="$INSTALL_DIR"
 DEFAULT_PIXI_CACHE_DIR="$INSTALL_DIR/.pixi/cache"
-DEFAULT_PIXI_ENV_DIR="$INSTALL_DIR/.pixi/envs"
+DEFAULT_PIXI_ENV_DIR="$INSTALL_DIR/app/.pixi/envs"
 BIN_DIR="$(absolute_path "${BIN_DIR_RAW:-$DEFAULT_BIN_DIR}")"
 LAUNCHER="$BIN_DIR/wgsextract"
 PIXI_CACHE_DIR="$(absolute_path "${PIXI_CACHE_DIR_RAW:-$DEFAULT_PIXI_CACHE_DIR}")"
@@ -511,12 +523,27 @@ else
     log "Keeping Pixi cache."
 fi
 
+created_dirs=""
+if [ -f "$INSTALL_DIR/created-dirs.txt" ]; then
+    created_dirs="$(cat "$INSTALL_DIR/created-dirs.txt")"
+fi
+created_profiles=""
+if [ -f "$INSTALL_DIR/created-profiles.txt" ]; then
+    created_profiles="$(cat "$INSTALL_DIR/created-profiles.txt")"
+fi
+
 remove_dir "$INSTALL_DIR"
 
 if [ "$REMOVE_CONFIG" = "1" ]; then
     config_paths | while IFS= read -r config_path; do
         remove_file "$config_path"
         remove_empty_dir "$(dirname "$config_path")"
+    done
+    # Config parents that only exist because of this install (recorded by install.sh).
+    printf '%s\n' "$created_dirs" | while IFS= read -r created_dir; do
+        if [ -n "$created_dir" ]; then
+            remove_empty_dir "$created_dir"
+        fi
     done
 else
     log "Keeping WGS Extract config.toml."
