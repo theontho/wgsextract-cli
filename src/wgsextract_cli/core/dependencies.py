@@ -1,9 +1,10 @@
 import ctypes
-import logging
+import json
 import os
 import shlex
 import shutil
 import subprocess
+import sys
 from functools import lru_cache
 from pathlib import Path
 
@@ -127,9 +128,17 @@ def required_dependency_tools(include_python: bool = True) -> list[str]:
     return [tool for tool in MANDATORY_TOOLS if tool != "python3"]
 
 
+# Optional tools the CLI only uses on some platforms (sys.platform prefixes).
+PLATFORM_ONLY_TOOLS = {"sambamba": ("linux",)}
+
+
 def optional_dependency_tools() -> list[str]:
-    """Return the centrally-defined optional dependency tools."""
-    return list(OPTIONAL_TOOLS)
+    """Return the optional dependency tools that apply to this platform."""
+    return [
+        tool
+        for tool in OPTIONAL_TOOLS
+        if sys.platform.startswith(PLATFORM_ONLY_TOOLS.get(tool, ("",)))
+    ]
 
 
 def _version_output(stdout: str, stderr: str) -> str:
@@ -268,6 +277,18 @@ def _candidate_bundled_runtime_modes(runtime_mode: str) -> tuple[str, ...]:
 
 
 def _resolve_pixi_command() -> str | None:
+    # The pixi running this process (it exports PIXI_EXE into its environments),
+    # then the install's own embedded pixi, before anything on PATH: a system or
+    # Homebrew pixi may be a different version with different global config.
+    candidates = [os.environ.get("PIXI_EXE")]
+    root = runtime.source_checkout_root()
+    if root is not None:
+        exe = "pixi.exe" if runtime.is_windows_host() else "pixi"
+        candidates.append(str(root.parent / ".pixi" / "bin" / exe))
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate):
+            return candidate
+
     pixi_cmd = shutil.which("pixi")
     if pixi_cmd:
         return pixi_cmd
@@ -292,30 +313,35 @@ def _pixi_manifest_args() -> list[str]:
     return []
 
 
-def _ensure_pixi_environment(pixi_cmd: str, env: str, tool: str) -> bool:
-    """Install or update a Pixi environment before probing it.
+# Conda package that provides a tool in its Pixi environment, when the names differ.
+PIXI_TOOL_PACKAGES = {
+    "gatk": "gatk4",
+    "vep": "ensembl-vep",
+    "run_deepvariant": "deepvariant",
+    "dv_make_examples.py": "deepvariant",
+    "dv_call_variants.py": "deepvariant",
+    "dv_postprocess_variants.py": "deepvariant",
+}
 
-    The first use of an optional environment downloads it (GATK plus Java is
-    ~400 MB), which must not run under the short probe timeout. A no-op install
-    of an up-to-date environment takes well under a second.
+
+def _locked_package_available(pixi_cmd: str, env: str, tool: str) -> bool:
+    """Whether the lockfile gives this platform's `env` the package providing `tool`.
+
+    Reads the lockfile only, so nothing is downloaded just to answer `deps check`.
     """
-    logging.info(f"Preparing the '{env}' Pixi environment for {tool}...")
     try:
         result = subprocess.run(
-            [pixi_cmd, "install", *_pixi_manifest_args(), "-e", env],
+            [pixi_cmd, "list", *_pixi_manifest_args(), "-e", env, "--no-install"]
+            + ["--json"],
             capture_output=True,
             text=True,
+            timeout=60,
         )
-    except OSError as e:
-        logging.warning(f"Could not run pixi to install the '{env}' environment: {e}")
+        packages = json.loads(result.stdout) if result.returncode == 0 else []
+    except (OSError, subprocess.SubprocessError, ValueError):
         return False
-    if result.returncode != 0:
-        logging.warning(
-            f"Installing the '{env}' Pixi environment failed:\n"
-            f"{(result.stderr or result.stdout).strip()}"
-        )
-        return False
-    return True
+    package = PIXI_TOOL_PACKAGES.get(tool, tool)
+    return any(entry.get("name") == package for entry in packages)
 
 
 def _pixi_run_command(pixi_cmd: str, env: str, args: list[str]) -> str:
@@ -375,8 +401,6 @@ for tool in tool_names:
 
 raise SystemExit(1)
 """
-    if env != "default" and not _ensure_pixi_environment(pixi_cmd, env, tool):
-        return None
     executable_names = _tool_executable_names(tool)
     try:
         result = subprocess.run(
@@ -384,6 +408,8 @@ raise SystemExit(1)
                 pixi_cmd,
                 "run",
                 *_pixi_manifest_args(),
+                # Never install or update an environment just to probe it.
+                "--no-install",
                 "-e",
                 env,
                 "python",
@@ -399,6 +425,10 @@ raise SystemExit(1)
         return None
 
     if result.returncode != 0:
+        # An optional environment that isn't installed yet: `pixi run` installs it
+        # (with visible progress) the first time the tool is actually used.
+        if env != "default" and _locked_package_available(pixi_cmd, env, tool):
+            return _pixi_run_command(pixi_cmd, env, [executable_names[0]])
         return None
 
     output = result.stdout.strip().splitlines()

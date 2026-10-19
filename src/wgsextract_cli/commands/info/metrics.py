@@ -7,7 +7,7 @@ import subprocess
 from collections.abc import Mapping, Sequence
 from typing import Any, TypedDict
 
-from wgsextract_cli.core.builds import build_from_path
+from wgsextract_cli.core.builds import build_from_chr1_length, build_from_path
 from wgsextract_cli.core.constants import (
     N_ADJUST,
     SEQUENCERS,
@@ -274,8 +274,13 @@ def generate_chrom_table(
     if coverage_map is None:
         coverage_map = {}
 
-    # Use loaded N counts if available, otherwise fallback to hardcoded defaults
-    n_adjust_map = N_ADJUST.get(build, {}).copy()
+    # The hardcoded N counts describe the standard full-length assemblies, so use
+    # them only when chr1 has a canonical length; a trimmed or custom reference
+    # with the same contig names would otherwise get a negative effective length.
+    # N counts measured from the actual reference (ref count-ns) always apply.
+    contig_lengths = {s["name"]: s["length"] for s in idx_stats}
+    is_standard_assembly = build_from_chr1_length(contig_lengths) is not None
+    n_adjust_map = N_ADJUST.get(build, {}).copy() if is_standard_assembly else {}
     if n_counts:
         n_adjust_map.update(n_counts)
 

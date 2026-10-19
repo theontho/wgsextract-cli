@@ -65,6 +65,15 @@ def test_ydna_without_outdir_never_points_yleaf_at_the_input_directory(tmp_path)
     bam.touch()
     commands = []
 
+    def fake_yleaf(cmd, **kwargs):
+        commands.append((cmd, kwargs))
+        if "-o" in cmd:
+            outdir = Path(cmd[cmd.index("-o") + 1])
+            outdir.mkdir(parents=True, exist_ok=True)
+            (outdir / "hg_prediction.hg").write_text(
+                "Sample_name\tHg\tHg_marker\nsample\tR1b\tR-M269\n"
+            )
+
     with (
         patch.object(_lineage_ydna, "resolve_lineage_tool", return_value="yleaf"),
         patch.object(_lineage_ydna, "log_dependency_info"),
@@ -74,11 +83,7 @@ def test_ydna_without_outdir_never_points_yleaf_at_the_input_directory(tmp_path)
             "ReferenceLibrary",
             return_value=SimpleNamespace(build="hs38DH", fasta=None),
         ),
-        patch.object(
-            _lineage_ydna,
-            "run_command",
-            side_effect=lambda cmd, **kwargs: commands.append((cmd, kwargs)),
-        ),
+        patch.object(_lineage_ydna, "run_command", side_effect=fake_yleaf),
     ):
         _lineage_ydna.cmd_ydna(_ydna_args(bam))
 
@@ -392,3 +397,28 @@ def test_ensure_vcf_prepared_requires_bgzip(tmp_path):
         pytest.raises(WGSExtractError, match="bgzip"),
     ):
         variant_files.ensure_vcf_prepared(str(vcf))
+
+
+def test_ydna_empty_prediction_is_an_error(tmp_path):
+    bam = tmp_path / "sample.bam"
+    bam.touch()
+
+    def empty_prediction(cmd, **kwargs):
+        if "-o" in cmd:
+            outdir = Path(cmd[cmd.index("-o") + 1])
+            outdir.mkdir(parents=True, exist_ok=True)
+            (outdir / "hg_prediction.hg").write_text("Sample_name\tHg\tHg_marker\n")
+
+    with (
+        patch.object(_lineage_ydna, "resolve_lineage_tool", return_value="yleaf"),
+        patch.object(_lineage_ydna, "log_dependency_info"),
+        patch.object(_lineage_ydna, "calculate_bam_md5", return_value=None),
+        patch.object(
+            _lineage_ydna,
+            "ReferenceLibrary",
+            return_value=SimpleNamespace(build="hs38DH", fasta=None),
+        ),
+        patch.object(_lineage_ydna, "run_command", side_effect=empty_prediction),
+        pytest.raises(WGSExtractError, match="could not predict a Y haplogroup"),
+    ):
+        _lineage_ydna.cmd_ydna(_ydna_args(bam))

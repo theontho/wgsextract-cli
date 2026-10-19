@@ -212,20 +212,20 @@ def cmd_ydna(args: argparse.Namespace) -> None:
         except (OSError, subprocess.SubprocessError) as e:
             raise WGSExtractError(f"Yleaf failed: {e}") from e
 
-    _print_result_file(
-        os.path.join(yleaf_outdir, "hg_prediction.hg"),
-        f"Yleaf Lineage Result ({input_stem(args.input)}):",
-    )
-
-
-def _print_result_file(path: str, title: str) -> None:
+    prediction = os.path.join(yleaf_outdir, "hg_prediction.hg")
     try:
-        with open(path) as f:
+        with open(prediction) as f:
             content = f.read().strip()
     except OSError as e:
-        logging.warning(f"Could not read result file {path}: {e}")
-        return
-    print(f"\n🧬 {title}")
+        raise WGSExtractError(f"Yleaf did not write {prediction}: {e}") from e
+    # Header line plus one row per sample; a header alone means no markers matched.
+    if len(content.splitlines()) < 2:
+        raise WGSExtractError(
+            "Yleaf could not predict a Y haplogroup: no Y-chromosome markers "
+            "matched. Check that the input has chrY reads and that its reference "
+            f"build is correct; details are in {os.path.join(yleaf_outdir, 'run.log')}."
+        )
+    print(f"\n🧬 Yleaf Lineage Result ({input_stem(args.input)}):")
     print("-" * 30)
-    print(content or "(empty result)")
+    print(content)
     print("-" * 30 + "\n")

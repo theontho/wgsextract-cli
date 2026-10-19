@@ -620,3 +620,28 @@ def test_ensure_bgzf_raises_on_tool_failure(tmp_path_factory):
     with pytest.raises(WGSExtractError):
         ensure_bgzf(str(bogus))
     assert os.listdir(tmp_path) == ["x.tsv.gz"]
+
+
+@pytest.mark.parametrize(
+    ("build", "expected"),
+    [
+        ("hg19", ["--ploidy", "GRCh37"]),
+        ("hg38", ["--ploidy", "GRCh38"]),
+    ],
+)
+def test_ploidy_falls_back_to_reference_build(build, expected):
+    from wgsextract_cli.commands.vcf.basic import _ploidy_args
+
+    lib = argparse.Namespace(ploidy_file=None, build=build)
+    args = argparse.Namespace(ploidy=None, ploidy_file=None)
+    assert _ploidy_args(args, lib) == expected  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("build", ["t2t", None])
+def test_ploidy_requires_explicit_value_without_known_build(build):
+    from wgsextract_cli.commands.vcf.basic import _ploidy_args
+
+    lib = argparse.Namespace(ploidy_file=None, build=build)
+    args = argparse.Namespace(ploidy=None, ploidy_file=None)
+    with pytest.raises(WGSExtractError, match="Ploidy"):
+        _ploidy_args(args, lib)  # type: ignore[arg-type]

@@ -564,7 +564,6 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/osx-64/htslib-1.24-h73339c1_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/k8-1.2-h2ec61ea_6.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/minimap2-2.31-h17d07ba_0.conda
-      - conda: https://conda.anaconda.org/bioconda/osx-64/sambamba-1.0.1-h976bfc5_4.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/samblaster-0.1.26-h5fa12a8_7.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/samtools-1.24-he9a8aba_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.2.25-hbd8a1cb_0.conda
@@ -616,7 +615,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/libxcrypt-4.4.38-ha3d0635_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/libzlib-1.3.2-hbb4bfdb_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/llvm-openmp-22.1.2-h0d3cbff_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/lz4-c-1.9.4-hf0c8a7f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/ncurses-6.6-hcc0dc9a_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/openjdk-25.0.2-h3ebe2c2_26.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/openssl-3.6.1-hb6871ef_1.conda
@@ -653,7 +651,6 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/htslib-1.24-hd3c6ec9_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/k8-1.2-hda5e58c_6.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/minimap2-2.31-h6bd33b9_0.conda
-      - conda: https://conda.anaconda.org/bioconda/osx-arm64/sambamba-1.0.1-h0a88d6e_4.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/samblaster-0.1.26-h4675bf2_7.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/samtools-1.24-h36b3a25_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.2.25-hbd8a1cb_0.conda
@@ -705,7 +702,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libxcrypt-4.4.38-h1a92334_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libzlib-1.3.2-h8088a28_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/llvm-openmp-22.1.2-hc7d1edf_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/lz4-c-1.9.4-hb7217d7_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ncurses-6.6-he64c551_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/openjdk-25.0.2-hff8554d_26.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/openssl-3.6.1-hd24854e_1.conda
@@ -975,7 +971,6 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/osx-64/htslib-1.24-h73339c1_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/k8-1.2-h2ec61ea_6.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/minimap2-2.31-h17d07ba_0.conda
-      - conda: https://conda.anaconda.org/bioconda/osx-64/sambamba-1.0.1-h976bfc5_4.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/samblaster-0.1.26-h5fa12a8_7.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/samtools-1.24-he9a8aba_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_3.conda
@@ -1058,7 +1053,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/libxcrypt-4.4.38-ha3d0635_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/libzlib-1.3.2-hbb4bfdb_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/llvm-openmp-22.1.2-h0d3cbff_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/lz4-c-1.9.4-hf0c8a7f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/mypy-2.4.0-py313h4b81b55_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/ncurses-6.6-hcc0dc9a_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/nodejs-25.2.1-h5523da6_1.conda
@@ -1103,7 +1097,6 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/htslib-1.24-hd3c6ec9_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/k8-1.2-hda5e58c_6.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/minimap2-2.31-h6bd33b9_0.conda
-      - conda: https://conda.anaconda.org/bioconda/osx-arm64/sambamba-1.0.1-h0a88d6e_4.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/samblaster-0.1.26-h4675bf2_7.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/samtools-1.24-h36b3a25_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_3.conda
@@ -1186,7 +1179,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libxcrypt-4.4.38-h1a92334_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libzlib-1.3.2-h8088a28_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/llvm-openmp-22.1.2-hc7d1edf_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/lz4-c-1.9.4-hb7217d7_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/mypy-2.4.0-py313h2f871a8_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ncurses-6.6-he64c551_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/nodejs-25.2.1-h5230ea7_1.conda
@@ -1740,7 +1732,6 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/osx-64/pysam-0.24.0-py313hd584dab_1.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/pyspoa-0.3.2-py313h95f5313_1.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/python-edlib-1.3.9.post1-py313h3e9524a_3.conda
-      - conda: https://conda.anaconda.org/bioconda/osx-64/sambamba-1.0.1-hce90c57_2.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/samblaster-0.1.26-h5fa12a8_7.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/samtools-1.24-he9a8aba_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.4.22-hbd8a1cb_0.conda
@@ -1784,7 +1775,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/libxcrypt-4.4.38-ha3d0635_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/libzlib-1.3.2-hbb4bfdb_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/llvm-openmp-22.1.4-h0d3cbff_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/lz4-c-1.9.4-hf0c8a7f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/ncurses-6.6-hcc0dc9a_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/numpy-2.5.4-py313ha2a7659_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/openjdk-22.0.1-h2d185b6_0.conda
@@ -1825,7 +1815,6 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/pysam-0.24.0-py313hae41486_1.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/pyspoa-0.3.2-py313h05f0e27_1.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/python-edlib-1.3.9.post1-py313h3c47c90_3.conda
-      - conda: https://conda.anaconda.org/bioconda/osx-arm64/sambamba-1.0.1-h0a88d6e_4.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/samblaster-0.1.26-h4675bf2_7.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/samtools-1.24-h36b3a25_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.4.22-hbd8a1cb_0.conda
@@ -1872,7 +1861,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libxcrypt-4.4.38-h1a92334_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libzlib-1.3.2-h8088a28_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/llvm-openmp-22.1.4-hc7d1edf_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/lz4-c-1.9.4-hb7217d7_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ncurses-6.6-h1d4f5a5_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/numpy-2.5.4-py313h24c19cf_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/openjdk-25.0.2-h258754b_0.conda
@@ -4747,36 +4735,6 @@ packages:
   license: GPL
   size: 2615253
   timestamp: 1734058436788
-- conda: https://conda.anaconda.org/bioconda/osx-64/sambamba-1.0.1-h976bfc5_4.tar.bz2
-  sha256: a18fd331a76aaeda7decbb07e4d5039597f53eb9ef7e3b2eeb13a5aa9afb6989
-  md5: 6bb0160054686b9efe64aedb65e19455
-  depends:
-  - bzip2 >=1.0.8,<2.0a0
-  - liblzma >=5.6.4,<6.0a0
-  - libzlib >=1.3.1,<2.0a0
-  - lz4-c >=1.9.3,<1.10.0a0
-  license: GPL-2.0-only
-  license_family: GPL2
-  purls: []
-  run_exports:
-    weak:
-    - sambamba >=1.0.1,<2.0a0
-  size: 1401211
-  timestamp: 1740594172973
-- conda: https://conda.anaconda.org/bioconda/osx-64/sambamba-1.0.1-hce90c57_2.tar.bz2
-  sha256: 4436cfe9b8bc013aaed614fe4e263e86922f5317bb1453ba294e35f162cc9712
-  md5: f97b579ef3492611c5e67438ded1149e
-  depends:
-  - libzlib >=1.2.13,<2.0a0
-  - lz4-c >=1.9.3,<1.10.0a0
-  license: GPL2
-  license_family: GPL2
-  purls: []
-  run_exports:
-    weak:
-    - sambamba >=1.0.1,<1.1.0a0
-  size: 1391310
-  timestamp: 1720030893511
 - conda: https://conda.anaconda.org/bioconda/osx-64/samblaster-0.1.26-h5fa12a8_7.conda
   sha256: a342d00c963b0fdcbae6b317728825848ec458830f2e1045ccea88fd671648c1
   md5: 6f2c26c86d9247cb64b61ae37aa4e53f
@@ -5166,22 +5124,6 @@ packages:
     - python-edlib >=1.3.9.0inf.1,<2.0a0
   size: 69061
   timestamp: 1772448093719
-- conda: https://conda.anaconda.org/bioconda/osx-arm64/sambamba-1.0.1-h0a88d6e_4.tar.bz2
-  sha256: a3eeac13a45e39e157bc83bc3a38584e95733d7ae087fd245d5f963a196d9e4a
-  md5: 8a0cb79dfa9f077723e84d614d86fcc1
-  depends:
-  - bzip2 >=1.0.8,<2.0a0
-  - liblzma >=5.6.4,<6.0a0
-  - libzlib >=1.3.1,<2.0a0
-  - lz4-c >=1.9.3,<1.10.0a0
-  license: GPL-2.0-only
-  license_family: GPL2
-  purls: []
-  run_exports:
-    weak:
-    - sambamba >=1.0.1,<2.0a0
-  size: 1450547
-  timestamp: 1740593241427
 - conda: https://conda.anaconda.org/bioconda/osx-arm64/samblaster-0.1.26-h4675bf2_7.conda
   sha256: a303a46e43094a66f80e2007effb9ef0bcdf2e3d7826c1aef7d5634f82cf1d1c
   md5: a900f14fdd1f26d54eb61411a8581ddb
@@ -15866,16 +15808,6 @@ packages:
     - llvm-openmp >=23.1.3
   size: 287944
   timestamp: 1791950643503
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/lz4-c-1.9.4-hb7217d7_0.conda
-  sha256: fc343b8c82efe40819b986e29ba748366514e5ab94a1e1138df195af5f45fa24
-  md5: 45505bec548634f7d05e02fb25262cb9
-  depends:
-  - libcxx >=14.0.6
-  license: BSD-2-Clause
-  license_family: BSD
-  purls: []
-  size: 141188
-  timestamp: 1674727268278
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/markupsafe-3.0.3-py310hb46c203_1.conda
   sha256: c1a7cf542e15d5bcd1efbae5a60a75223f36f4870cc96c19ab05fcde642b0394
   md5: 4d372362aa5dd174b9300828ac29f806

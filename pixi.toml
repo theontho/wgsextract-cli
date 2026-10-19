@@ -39,11 +39,13 @@ fastp = ">=1.1,<2"
 fastqc = ">=0.13,<0.14"
 haplogrep = ">=2.4,<3"
 delly = ">=2.7,<3"
-sambamba = ">=1.0.1,<2"
 samblaster = ">=0.1.26,<0.2"
 
 [feature.bio-tools.target.linux-64.dependencies]
 wget = ">=1.25,<2"
+# Only Linux uses sambamba (macOS sorts with samtools); its osx-arm64 build
+# segfaults even on --version.
+sambamba = ">=1.0.1,<2"
 
 [feature.bio-tools.target.win-64.dependencies]
 fastqc = ">=0.13,<0.14"

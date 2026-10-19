@@ -1,5 +1,6 @@
 import logging
 import re
+import signal
 import subprocess
 import sys
 from typing import Any
@@ -34,6 +35,30 @@ def _pixi_alt_env(tool: str, path: str | None) -> str | None:
 _VERSION_LIKE_RE = re.compile(r"version|release|\bv\d", re.IGNORECASE)
 
 
+def _optional_pixi_env(command: list[str]) -> str | None:
+    """The environment of a `pixi run ... -e <env> <tool>` command, unless default."""
+    if not command or "run" not in command[:2]:
+        return None
+    if not re.split(r"[\\/]", command[0])[-1].lower().startswith("pixi"):
+        return None
+    try:
+        env = command[command.index("-e") + 1]
+    except (ValueError, IndexError):
+        return None
+    return None if env == "default" else env
+
+
+def _crash_description(returncode: int) -> str | None:
+    """Describe a death by signal (negative code, or 128+N from a wrapper shell)."""
+    signum = -returncode if returncode < 0 else returncode - 128
+    if returncode < 0 or 128 < returncode < 160:
+        try:
+            return f"crashed ({signal.Signals(signum).name})"
+        except ValueError:
+            return f"crashed (signal {signum})"
+    return None
+
+
 def get_tool_version(tool: str, runtime_mode: str | None = None) -> str | None:
     """Attempt to get the version of a tool by running it."""
     # Use the path/command from get_tool_path to handle pixi correctly
@@ -42,6 +67,17 @@ def get_tool_version(tool: str, runtime_mode: str | None = None) -> str | None:
         return None
 
     full_cmd = _tool_command_parts(cmd_base)
+    optional_env = _optional_pixi_env(full_cmd)
+    if optional_env:
+        # A version probe must never download an optional environment.
+        full_cmd.insert(full_cmd.index("run") + 1, "--no-install")
+        env_prefix = full_cmd[: full_cmd.index("-e") + 2]
+        # `exit 0` runs in pixi's built-in shell, so this works on every platform.
+        installed = subprocess.run(
+            env_prefix + ["exit", "0"], capture_output=True, timeout=30
+        )
+        if installed.returncode != 0:
+            return f"Available (Pixi env '{optional_env}', downloaded on first use)"
 
     try:
         # 1. Try --version first (standard)
@@ -52,6 +88,8 @@ def get_tool_version(tool: str, runtime_mode: str | None = None) -> str | None:
             text=True,
             timeout=10,
         )
+        if crashed := _crash_description(res.returncode):
+            return f"Error: {tool} {crashed}"
         output = _version_output(res.stdout, res.stderr)
 
         if res.returncode == 0 and output and not output.startswith("[main]"):
@@ -70,6 +108,8 @@ def get_tool_version(tool: str, runtime_mode: str | None = None) -> str | None:
             text=True,
             timeout=10,
         )
+        if crashed := _crash_description(res.returncode):
+            return f"Error: {tool} {crashed}"
         output = _version_output(res.stdout, res.stderr)
 
         # Check for dyld/library errors

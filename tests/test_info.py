@@ -349,3 +349,28 @@ def test_coverage_commands_against_real_samtools(tiny_bam, tmp_path):
     assert render.run_sampled_coverage(
         str(tiny_bam), None, idx_stats, str(tmp_path / "c2.json"), "chr2"
     ) == {"2": "~0 %"}
+
+
+def _stat(name, length, mapped):
+    return {"name": name, "length": length, "mapped": mapped, "unmapped": 0}
+
+
+def test_chrom_table_skips_full_assembly_n_counts_for_trimmed_contigs():
+    # A 1 Mb slice of hg19 chr20 must not get chr20's ~3.5 Mb of N gaps.
+    table = metrics.generate_chrom_table(
+        [_stat("20", 1_000_001, 50_000)], 100.0, "Unknown", "hg19 (Chr)"
+    )
+    chr20 = next(row for row in table if row[1] == "20")
+    assert chr20[3] == 0
+    assert chr20[6] > 0  # positive average read depth
+
+
+def test_chrom_table_applies_n_counts_to_standard_assembly():
+    table = metrics.generate_chrom_table(
+        [_stat("1", 249_250_621, 10), _stat("20", 63_025_520, 10)],
+        100.0,
+        "Unknown",
+        "hg19 (Chr)",
+    )
+    chr20 = next(row for row in table if row[1] == "20")
+    assert chr20[3] > 0

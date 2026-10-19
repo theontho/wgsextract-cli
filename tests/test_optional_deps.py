@@ -9,6 +9,8 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 # Ensure src is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
@@ -502,17 +504,19 @@ if __name__ == "__main__":
     unittest.main()
 
 
-def test_optional_pixi_environment_is_installed_before_probing():
+def test_uninstalled_optional_env_resolves_from_lockfile_without_installing():
     from wgsextract_cli.core import dependencies
 
     calls = []
 
     def fake_run(cmd, **kwargs):
-        calls.append(cmd[1])
-        # A probe must never run under a short timeout before the env exists.
+        calls.append(cmd[1:])
         if cmd[1] == "run":
-            assert calls[0] == "install"
-        return MagicMock(returncode=0, stdout="direct-name:gatk\n", stderr="")
+            # Probes must never install or update an environment.
+            assert "--no-install" in cmd
+            return MagicMock(returncode=1, stdout="", stderr="env not installed")
+        assert cmd[1] == "list" and "--no-install" in cmd
+        return MagicMock(returncode=0, stdout='[{"name": "gatk4"}]', stderr="")
 
     with (
         patch.object(dependencies.shutil, "which", return_value="/usr/bin/pixi"),
@@ -520,5 +524,74 @@ def test_optional_pixi_environment_is_installed_before_probing():
     ):
         command = dependencies._host_pixi_tool_command("gatk")
 
-    assert calls == ["install", "run"]
-    assert command is not None and "-e gatk gatk" in command
+    assert [c[0] for c in calls] == ["run", "list"]
+    assert command is not None and command.endswith("-e gatk gatk")
+    assert not any(c[0] == "install" for c in calls)
+
+
+def test_tool_missing_from_platform_lock_is_unavailable():
+    from wgsextract_cli.core import dependencies
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1] == "run":
+            return MagicMock(returncode=1, stdout="", stderr="")
+        return MagicMock(returncode=0, stdout='[{"name": "sniffles"}]', stderr="")
+
+    with (
+        patch.object(dependencies.shutil, "which", return_value="/usr/bin/pixi"),
+        patch.object(dependencies.subprocess, "run", side_effect=fake_run),
+    ):
+        assert dependencies._host_pixi_tool_command("pbmm2") is None
+
+
+def test_resolve_pixi_command_prefers_running_pixi(tmp_path, monkeypatch):
+    from wgsextract_cli.core import dependencies
+
+    running = tmp_path / "pixi"
+    running.write_text("")
+    monkeypatch.setenv("PIXI_EXE", str(running))
+    with patch.object(
+        dependencies.shutil, "which", return_value="/opt/homebrew/bin/pixi"
+    ):
+        assert dependencies._resolve_pixi_command() == str(running)
+
+
+def test_version_probe_never_installs_an_optional_env():
+    from wgsextract_cli.core import dependency_checks
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        # Only the "is the env installed?" check may run; the tool itself must not.
+        assert cmd[-2:] == ["exit", "0"]
+        return MagicMock(returncode=1, stdout="", stderr="environment not installed")
+
+    command = "/usr/bin/pixi run --manifest-path /app/pixi.toml -e pacbio sniffles"
+    with (
+        patch.object(dependency_checks, "get_tool_path", return_value=command),
+        patch.object(dependency_checks.subprocess, "run", side_effect=fake_run),
+    ):
+        version = dependency_checks.get_tool_version("sniffles")
+
+    assert all("--no-install" in cmd for cmd in calls)
+    assert version == "Available (Pixi env 'pacbio', downloaded on first use)"
+
+
+@pytest.mark.parametrize("returncode", [-11, 139])
+def test_version_probe_reports_a_crashing_tool(returncode):
+    from wgsextract_cli.core import dependency_checks
+
+    with (
+        patch.object(
+            dependency_checks, "get_tool_path", return_value="/env/bin/sambamba"
+        ),
+        patch.object(
+            dependency_checks.subprocess,
+            "run",
+            return_value=MagicMock(returncode=returncode, stdout="", stderr=""),
+        ),
+    ):
+        assert dependency_checks.get_tool_version("sambamba") == (
+            "Error: sambamba crashed (SIGSEGV)"
+        )

@@ -14,7 +14,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
-from wgsextract_cli.core.reference_assets import input_stem
+from wgsextract_cli.core.reference_assets import input_stem, resolve_reference_library
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -68,8 +68,11 @@ def _template_search_roots(ref_fasta: str, lib: ReferenceLibrary) -> list[str]:
     ref_dir = os.path.dirname(ref_fasta)
     if ref_dir:
         roots.append(ref_dir)
-    if lib.root and lib.root not in roots:
-        roots.append(lib.root)
+    # Templates ship with the reference library (`ref bootstrap`); search it too
+    # when --ref is a FASTA kept elsewhere.
+    for root in (lib.root, resolve_reference_library()):
+        if root and root not in roots:
+            roots.append(root)
     return roots
 
 

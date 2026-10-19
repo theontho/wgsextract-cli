@@ -59,8 +59,13 @@ def _isolate_user_config(
 
 
 @pytest.fixture(autouse=True)
-def _fresh_tool_caches() -> Iterator[None]:
-    """Tool resolution is cached per process; isolate tests that mock it."""
+def _fresh_tool_caches(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Tool resolution is cached per process; isolate tests that mock it.
+
+    `pixi run` exports PIXI_EXE, which pixi resolution prefers; hide it so tests
+    that mock pixi lookup don't depend on how the test runner was launched.
+    """
+    monkeypatch.delenv("PIXI_EXE", raising=False)
     clear_tool_caches()
     yield
     clear_tool_caches()

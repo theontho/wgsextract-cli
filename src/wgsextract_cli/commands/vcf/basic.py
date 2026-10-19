@@ -8,6 +8,7 @@ import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+from wgsextract_cli.core.builds import is_hg37_build, is_hg38_build, ploidy_for_build
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -97,9 +98,13 @@ def _ploidy_args(args: argparse.Namespace, lib: ReferenceLibrary) -> list[str]:
         return ["--ploidy-file", ploidy_file]
     if ploidy:
         return ["--ploidy", ploidy]
+    # bcftools' predefined GRCh37/GRCh38 ploidy covers both X and chrX naming.
+    # T2T's sex-chromosome coordinates differ, so it needs a ploidy file.
+    if lib.build and (is_hg37_build(lib.build) or is_hg38_build(lib.build)):
+        return ["--ploidy", ploidy_for_build(lib.build)]
     raise WGSExtractError(
         "Ploidy (--ploidy or --ploidy-file) is required and could not be "
-        "auto-resolved from --ref."
+        f"auto-resolved from --ref (reference build: {lib.build or 'unknown'})."
     )
 
 
