@@ -3,8 +3,17 @@ import os
 import shutil
 
 from wgsextract_cli.core.messages import SYSTEM_MESSAGES as MESSAGES
+from wgsextract_cli.core.samtools_commands import alignment_index
+from wgsextract_cli.core.utils import run_command
 
 GB = 1024**3
+
+# A file's size alone misjudges sort and FASTQ space: CRAMs take from about 12 to
+# 50 bytes per read. Measured on a 30x MGI CRAM (680M 149 bp reads, binned
+# qualities, 12 bytes per read): samtools sort/collate temp files peaked at 74
+# bytes per read and the gzipped FASTQ pair took 68.
+TEMP_BYTES_PER_READ = 80
+FASTQ_BYTES_PER_READ = 75
 
 # Expected run times of various commands in seconds (from the WGS Extract GUI)
 EXPECTED_TIME = {
@@ -60,18 +69,52 @@ def format_time(seconds: int) -> str:
         return f"{seconds / 3600:.1f} hours"
 
 
+def indexed_read_count(path: str, threads: str | int = 1) -> int | None:
+    """Reads in an indexed BAM/CRAM per samtools idxstats (seconds even for a
+    whole-genome CRAM); None when it has no index or idxstats fails."""
+    # Without an index, idxstats silently decodes the whole file instead.
+    if not alignment_index(path):
+        return None
+    logging.info(f"Counting reads in {path} to estimate the disk space needed...")
+    # CRAM idxstats decodes every container; more than 4 threads only slows it.
+    threads = min(int(threads), 4)
+    try:
+        res = run_command(
+            ["samtools", "idxstats", "-@", str(threads), path],
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if res.returncode != 0:
+        return None
+    rows = [line.split("\t") for line in res.stdout.splitlines()]
+    return sum(int(r[2]) + int(r[3]) for r in rows if len(r) >= 4) or None
+
+
 def get_free_space_needed(
-    file_size_bytes: int, sort_type: str = "Coord", is_cram: bool = False
+    file_size_bytes: int,
+    sort_type: str = "Coord",
+    is_cram: bool = False,
+    reads: int | None = None,
 ) -> tuple[int, int]:
-    """Estimate (temp GB, final GB) needed to sort/convert a file of this size."""
+    """Estimate (temp GB, final GB) needed to sort/convert a file of this size.
+
+    ``reads`` (from `indexed_read_count`) raises the estimate for compact CRAMs;
+    a "Name" final output is a gzipped FASTQ pair or unaligned BAM.
+    """
     cram_mult = 1.95 if is_cram else 1.0
     name_mult = 1.45 if sort_type == "Name" else 1.0
 
     isize_gb = file_size_bytes * cram_mult / GB
-    temp_needed_gb = int(isize_gb * name_mult + isize_gb)
-    final_needed_gb = int(isize_gb)
+    temp_needed_gb = isize_gb * name_mult + isize_gb
+    final_needed_gb = isize_gb
+    if reads:
+        temp_needed_gb = max(temp_needed_gb, reads * TEMP_BYTES_PER_READ / GB)
+        if sort_type == "Name":
+            final_needed_gb = max(final_needed_gb, reads * FASTQ_BYTES_PER_READ / GB)
 
-    return temp_needed_gb, final_needed_gb
+    return int(temp_needed_gb), int(final_needed_gb)
 
 
 def print_warning(

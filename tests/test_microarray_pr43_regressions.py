@@ -344,6 +344,9 @@ def test_normalize_vcf_chromosomes_renames_chr_m_to_target_mt(tmp_path):
         if "--rename-chrs" in cmd:
             map_path = cmd[cmd.index("--rename-chrs") + 1]
             rename_map["text"] = Path(map_path).read_text()
+            # bcftools must create the output itself: a 0600 mkstemp placeholder
+            # would keep its mode when the file becomes a final output.
+            rename_map["precreated"] = Path(cmd[cmd.index("-o") + 1]).exists()
             return SimpleNamespace(stdout="", stderr="")
         raise AssertionError(f"unexpected command: {cmd}")
 
@@ -360,6 +363,7 @@ def test_normalize_vcf_chromosomes_renames_chr_m_to_target_mt(tmp_path):
 
     assert normalized != str(input_vcf)
     assert rename_map["text"].splitlines() == ["chr1 1", "chrM MT"]
+    assert rename_map["precreated"] is False
     Path(normalized).unlink(missing_ok=True)
 
 

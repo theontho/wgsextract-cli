@@ -13,6 +13,7 @@ from .alignment_metadata import (
 )
 from .reference_resolver import (
     ReferenceLibrary,
+    header_contig_lengths,
 )
 from .utils import (
     WGSExtractError,
@@ -153,6 +154,23 @@ def match_chromosome_name(target: str, available: Iterable[str]) -> str | None:
     return next((alias for alias in chromosome_aliases(target) if alias in names), None)
 
 
+def check_vcf_build(vcf_path: str, lengths: Mapping[str, int], against: str) -> None:
+    """Fail when the VCF's ##contig lengths show a build other than ``against``'s."""
+    contigs = list(lengths)
+    mismatched = [
+        f"{name} ({length:,} vs {lengths[other]:,})"
+        for name, length in header_contig_lengths(get_bam_header(vcf_path)).items()
+        if (other := match_chromosome_name(name, contigs)) and lengths[other] != length
+    ]
+    if mismatched:
+        raise WGSExtractError(
+            f"The VCF was called against a different reference than {against}; "
+            f"contig lengths differ (VCF vs {against}): "
+            + ", ".join(mismatched[:5])
+            + (f" and {len(mismatched) - 5} more" if len(mismatched) > 5 else "")
+        )
+
+
 def chromosome_rename_mapping(
     source_chroms: Sequence[str], target_chroms: Sequence[str]
 ) -> list[tuple[str, str]]:
@@ -217,11 +235,14 @@ def normalize_vcf_chromosomes(
     with os.fdopen(fd, "w") as f:
         f.write("\n".join(f"{source} {target}" for source, target in mapping))
 
-    # Use a unique temporary file for the normalized VCF to avoid collisions
+    # Use a unique temporary file for the normalized VCF to avoid collisions.
+    # Free the name again so bcftools creates the file with the usual umask
+    # permissions rather than mkstemp's 0600, which a final output would keep.
     fd_out, norm_vcf = tempfile.mkstemp(
         suffix=".vcf.gz", dir=workdir or os.path.dirname(vcf_path)
     )
     os.close(fd_out)
+    os.remove(norm_vcf)
 
     logging.info(f"Normalizing chromosomes in {vcf_path}...")
     try:

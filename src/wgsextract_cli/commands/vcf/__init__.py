@@ -19,9 +19,11 @@ from .clinvar_revel import (
     cmd_clinvar,
     cmd_revel,
 )
+from .consensus import HAPLOTYPE_OPTIONS, cmd_to_fasta
 from .deepvariant import (
     cmd_deepvariant,
 )
+from .deleteriousness import cmd_cadd, cmd_gerp
 from .filter_trio import (
     cmd_filter,
     cmd_trio,
@@ -137,6 +139,52 @@ def register(
     )
     _add_region(filter_parser)
     filter_parser.set_defaults(func=cmd_filter)
+
+    to_fasta_parser = vcf_subs.add_parser(
+        "to-fasta", parents=[base_parser], help=CLI_HELP["cmd_vcf-to-fasta"]
+    )
+    _add_vcf_input(to_fasta_parser, CLI_HELP["arg_vcf_input"])
+    _add_region(
+        to_fasta_parser,
+        "Only build this region (e.g. chr21 or 21:30000000-31000000); "
+        "default: the whole reference.",
+    )
+    to_fasta_parser.add_argument(
+        "--sample", help="Sample to use from a multi-sample VCF."
+    )
+    to_fasta_parser.add_argument(
+        "--haplotype",
+        choices=list(HAPLOTYPE_OPTIONS),
+        default="iupac",
+        help="How genotypes are applied: iupac (default) writes heterozygous "
+        "SNVs as IUPAC codes (e.g. R for A/G) and applies homozygous ALTs; alt "
+        "applies every ALT; 1 or 2 applies that haplotype of a phased VCF (for "
+        "unphased genotypes, the first or second allele, so 1 keeps the "
+        "reference at heterozygous sites).",
+    )
+    to_fasta_parser.add_argument(
+        "--uncalled",
+        choices=["auto", "n", "ref"],
+        default="auto",
+        help="What to write where the VCF has no passing call: n (an N), ref "
+        "(the reference base), or auto (default): n for a gVCF, whose reference "
+        "blocks say which positions were called, ref for a variant-only VCF.",
+    )
+    to_fasta_parser.add_argument(
+        "--include-filtered",
+        action="store_true",
+        help="Also apply variants whose FILTER is not PASS.",
+    )
+    to_fasta_parser.add_argument(
+        "--mask", help="BED file of regions to replace with N (e.g. low coverage)."
+    )
+    to_fasta_parser.add_argument(
+        "--chain",
+        action="store_true",
+        help="Also write a chain file mapping reference coordinates to the "
+        "consensus (indels shift positions).",
+    )
+    to_fasta_parser.set_defaults(func=cmd_to_fasta)
 
     trio_parser = vcf_subs.add_parser(
         "trio", parents=[base_parser], help=CLI_HELP["cmd_trio"]
@@ -281,6 +329,42 @@ def register(
     _add_min_score(phylop_parser, "PhyloP", "2.0")
     phylop_parser.set_defaults(func=cmd_phylop)
 
+    cadd_parser = vcf_subs.add_parser(
+        "cadd",
+        parents=[base_parser],
+        help="Annotate VCF with CADD deleteriousness scores (CADD_RAW, CADD_PHRED).",
+    )
+    _add_vcf_input(cadd_parser)
+    _add_annotation_resource(
+        cadd_parser,
+        "--cadd-file",
+        "cadd_tsv_path",
+        "Path to the CADD whole-genome SNV TSV (cadd_<build>.tsv.gz).",
+    )
+    _add_annotation_resource(
+        cadd_parser,
+        "--cadd-indel-file",
+        "cadd_indel_tsv_path",
+        "Path to a CADD indel TSV (cadd_indel_<build>.tsv.gz); used when present.",
+    )
+    _add_min_score(cadd_parser, "CADD PHRED", "20")
+    cadd_parser.set_defaults(func=cmd_cadd)
+
+    gerp_parser = vcf_subs.add_parser(
+        "gerp",
+        parents=[base_parser],
+        help="Annotate VCF with GERP++ conservation scores (GERP).",
+    )
+    _add_vcf_input(gerp_parser)
+    _add_annotation_resource(
+        gerp_parser,
+        "--gerp-file",
+        "gerp_bigwig_path",
+        "Path to a GERP++ RS bigWig (gerp_<build>.bw).",
+    )
+    _add_min_score(gerp_parser, "GERP", "2.0")
+    gerp_parser.set_defaults(func=cmd_gerp)
+
     gnomad_parser = vcf_subs.add_parser(
         "gnomad",
         parents=[base_parser],
@@ -291,7 +375,8 @@ def register(
         gnomad_parser,
         "--gnomad-file",
         "gnomad_vcf_path",
-        "Path to gnomAD VCF data file.",
+        "Path to gnomAD data: a sites VCF, or the allele-frequency table "
+        "from 'ref gnomad --release 4.1'.",
     )
     gnomad_parser.add_argument(
         "--max-af",
@@ -361,6 +446,13 @@ def register(
         action="store_true",
         help="Treat positions absent from the VCF as reference. Only for a "
         "whole-genome VCF that lists variants only (not a gVCF).",
+    )
+    pharmcat_parser.add_argument(
+        "--outside-call",
+        action="append",
+        metavar="FILE",
+        help="PharmCAT outside-call file (gene<TAB>diplotype), e.g. from "
+        "`typing cyp2d6` or `typing hla`. Repeatable; one call per gene.",
     )
     pharmcat_parser.set_defaults(func=cmd_pharmcat)
 

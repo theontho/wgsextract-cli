@@ -1,5 +1,6 @@
 import os
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -12,6 +13,7 @@ from wgsextract_cli.core.warnings import (
     check_free_space,
     format_time,
     get_free_space_needed,
+    indexed_read_count,
     print_warning,
 )
 
@@ -85,6 +87,31 @@ class TestWarnings(unittest.TestCase):
         )
         expected_msg_dynamic = f"!!! {MESSAGES['infoFreeSpace'].format(app='Coord Sort', size=120, final=60)} !!!"
         mock_warning.assert_any_call(expected_msg_dynamic)
+
+    def test_read_count_raises_the_estimate_for_compact_crams(self):
+        # The 30x MGI CRAM the per-read constants were measured on: 7.9 GB,
+        # 680M reads, which needed ~50 GB of temp files and ~46 GB of FASTQ.
+        size, reads = 7_859_324_055, 681_927_272
+        self.assertEqual(get_free_space_needed(size, "Name", True), (34, 14))
+        self.assertEqual(get_free_space_needed(size, "Name", True, reads), (50, 47))
+        self.assertEqual(get_free_space_needed(size, "Coord", True, reads), (50, 14))
+        # A BAM whose size already exceeds the per-read figures keeps its estimate.
+        self.assertEqual(
+            get_free_space_needed(60 * 1024**3, "Coord", False, 10_000_000), (120, 60)
+        )
+
+    @patch("wgsextract_cli.core.warnings.run_command")
+    def test_indexed_read_count(self, mock_run):
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = "chr1\t248956422\t100\t2\n*\t0\t0\t5\n"
+        with tempfile.TemporaryDirectory() as d:
+            cram = os.path.join(d, "x.cram")
+            open(cram + ".crai", "w").close()
+            self.assertEqual(indexed_read_count(cram, 4), 107)
+            # Without an index idxstats would decode the whole file, so skip it.
+            mock_run.reset_mock()
+            self.assertIsNone(indexed_read_count(os.path.join(d, "unindexed.bam")))
+            mock_run.assert_not_called()
 
     @patch("logging.warning")
     def test_print_warning_realign(self, mock_warning):

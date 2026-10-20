@@ -43,6 +43,7 @@ def cmd_clinvar(args: argparse.Namespace) -> None:
         ann_out,
         outdir,
         "ClinVar",
+        threads=getattr(args, "threads", None),
     )
 
     path_out = os.path.join(outdir, "clinvar_pathogenic.vcf.gz")
@@ -78,6 +79,7 @@ def cmd_revel(args: argparse.Namespace) -> None:
             ann_out,
             outdir,
             "REVEL",
+            threads=getattr(args, "threads", None),
         )
     else:
         # Annovar REVEL TSV: #Chr, Start, End, Ref, Alt, REVEL
@@ -89,6 +91,7 @@ def cmd_revel(args: argparse.Namespace) -> None:
             outdir,
             "REVEL",
             ['##INFO=<ID=REVEL,Number=1,Type=Float,Description="REVEL score">'],
+            threads=getattr(args, "threads", None),
         )
 
     run_min_score_filter(

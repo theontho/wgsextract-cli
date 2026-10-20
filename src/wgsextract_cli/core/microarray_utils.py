@@ -12,7 +12,12 @@ TemplateSearchInput = TemplateSearchPath | Sequence[TemplateSearchPath | None] |
 _TEMPLATE_SEARCH_PARENT_LIMIT = 3
 
 
-class TemplateFormat(TypedDict):
+class _TemplateFormatOptions(TypedDict, total=False):
+    # Match calls by rsID: the template's positions are from another build.
+    match_rsid: bool
+
+
+class TemplateFormat(_TemplateFormatOptions):
     suffix: str
     parts: int
 
@@ -230,6 +235,7 @@ def get_template_format(format_name: str) -> TemplateFormat | None:
         "23andMe_V5": {"suffix": ".txt", "parts": 2},
         "Ancestry_V1": {"suffix": ".txt", "parts": 4},
         "Ancestry_V2": {"suffix": ".txt", "parts": 5},
+        "FTDNA_V1_Affy": {"suffix": ".csv", "parts": 1, "match_rsid": True},
         "FTDNA_V2": {"suffix": ".csv", "parts": 1},
         "FTDNA_V3": {"suffix": ".csv", "parts": 3},
         "MyHeritage_V1": {"suffix": ".csv", "parts": 1},
@@ -271,6 +277,10 @@ def write_formatted_line(
                 result = "TG"
         f.write(f'"{snp_id}","{chrom}","{pos}","{result}"\n')
 
+    elif format_name == "FTDNA_V1_Affy":
+        # FTDNA's Affymetrix export: unquoted CSV with CRLF line endings.
+        f.write(f"{snp_id},{chrom},{pos},{result}\r\n")
+
     elif format_name == "FTDNA_V2":
         f.write(f'"{snp_id}","{chrom}","{pos}","{result}"\n')
 
@@ -298,15 +308,19 @@ def convert_to_vendor_format(
         fmt_info = {"suffix": ".txt", "parts": 1}
 
     # Load all called variants into memory for fast lookup
+    match_rsid = fmt_info.get("match_rsid", False)
     called_variants: dict[tuple[str, str], str] = {}
+    called_by_rsid: dict[str, str] = {}
     with open(combined_kit_txt) as f:
         for line in f:
             if line.startswith("#"):
                 continue
             parts = line.strip().split("\t")
             if len(parts) >= 4:
-                # Key is (chrom, pos)
-                called_variants[(str(parts[1]), str(parts[2]))] = parts[3]
+                if match_rsid:
+                    called_by_rsid[parts[0]] = parts[3]
+                else:
+                    called_variants[(str(parts[1]), str(parts[2]))] = parts[3]
 
     templates_root, body_templates = _resolve_templates_for_format(
         templates_dir, format_name, fmt_info
@@ -341,7 +355,10 @@ def convert_to_vendor_format(
                             continue
                         t_id, t_chrom, t_pos = parts[0], parts[1], parts[2]
 
-                        result = called_variants.get((t_chrom, t_pos), "--")
+                        if match_rsid:
+                            result = called_by_rsid.get(t_id, "--")
+                        else:
+                            result = called_variants.get((t_chrom, t_pos), "--")
                         write_formatted_line(
                             f_out, format_name, t_id, t_chrom, t_pos, result
                         )

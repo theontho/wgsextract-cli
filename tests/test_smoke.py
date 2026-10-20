@@ -107,6 +107,11 @@ COMMANDS: list[tuple[str, list[str]]] = [
     ),
     ("vep", ["vep", "--input", "{vcf}", "--format", "vcf"]),
     ("vep download", ["vep", "download", "--assembly", "GRCh38"]),
+    ("sign create", ["sign", "create", "{bam}"]),
+    ("sign verify", ["sign", "verify", "{dir}/SHA256SUMS"]),
+    ("typing cyp2d6", ["typing", "cyp2d6", "--input", "{bam}"]),
+    ("typing hla", ["typing", "hla", "--input", "{bam}", "--hla-index", "x.fa"]),
+    ("typing str", ["typing", "str", "--input", "{bam}", "--sex", "male"]),
 ]
 
 

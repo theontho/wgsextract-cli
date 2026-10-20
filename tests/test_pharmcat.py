@@ -3,7 +3,11 @@ from argparse import Namespace
 
 import pytest
 
-from wgsextract_cli.commands.vcf.pharmcat import pharmcat_directory, summarize
+from wgsextract_cli.commands.vcf.pharmcat import (
+    merge_outside_calls,
+    pharmcat_directory,
+    summarize,
+)
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import WGSExtractError
 
@@ -57,3 +61,18 @@ def test_summary_lists_called_genes_and_skips_unknown(tmp_path):
     assert summarize(str(phenotype)) == [
         ("CYP2C19", "*17/*17", "Ultrarapid Metabolizer")
     ]
+
+
+def test_outside_calls_merge_and_reject_a_gene_called_twice(tmp_path):
+    cyp2d6 = tmp_path / "s.cyp2d6.pharmcat.tsv"
+    cyp2d6.write_text("CYP2D6\t*1/*2\u22653\n", encoding="utf-8")
+    hla = tmp_path / "s.hla.pharmcat.tsv"
+    hla.write_text("# T1K\nHLA-A\t*02:01/*24:02\nHLA-B\t*07:02/*57:01", "utf-8")
+    merged = tmp_path / "merged.tsv"
+
+    merge_outside_calls([str(cyp2d6), str(hla)], str(merged))
+    assert merged.read_text(encoding="utf-8") == (
+        "CYP2D6\t*1/*2\u22653\nHLA-A\t*02:01/*24:02\nHLA-B\t*07:02/*57:01\n"
+    )
+    with pytest.raises(WGSExtractError, match="CYP2D6 is called in both"):
+        merge_outside_calls([str(cyp2d6), str(cyp2d6)], str(merged))

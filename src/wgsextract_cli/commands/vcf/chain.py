@@ -15,6 +15,7 @@ from wgsextract_cli.core.variant_files import calculate_bam_md5, ensure_vcf_prep
 from .._vep_run import vep_output_paths
 from .basic import require_vcf_input
 from .clinvar_revel import CLINVAR_ANNOTATED, REVEL_ANNOTATED
+from .deleteriousness import CADD_ANNOTATED, GERP_ANNOTATED
 from .population import GNOMAD_ANNOTATED, PHYLOP_ANNOTATED
 from .splicing import ALPHAMISSENSE_ANNOTATED, PHARMGKB_ANNOTATED, SPLICEAI_ANNOTATED
 
@@ -23,6 +24,8 @@ _VCF_STEPS = {
     "clinvar": ("clinvar_vcf", CLINVAR_ANNOTATED),
     "revel": ("revel_file", REVEL_ANNOTATED),
     "phylop": ("phylop_file", PHYLOP_ANNOTATED),
+    "cadd": ("cadd_file", CADD_ANNOTATED),
+    "gerp": ("gerp_file", GERP_ANNOTATED),
     "gnomad": ("gnomad_vcf", GNOMAD_ANNOTATED),
     "spliceai": ("spliceai_vcf", SPLICEAI_ANNOTATED),
     "alphamissense": ("alphamissense_vcf", ALPHAMISSENSE_ANNOTATED),

@@ -1,5 +1,4 @@
 import argparse
-import json
 import logging
 import os
 import shlex
@@ -7,10 +6,9 @@ import subprocess
 import sys
 import tempfile
 
-from wgsextract_cli.commands.info.metrics import infer_sex, parse_idxstats
+from wgsextract_cli.commands.info.metrics import sample_sex
 from wgsextract_cli.core.alignment_metadata import get_vcf_build
 from wgsextract_cli.core.builds import is_hg37_build, is_hg38_build, is_t2t_build
-from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -79,34 +77,6 @@ def extract_vcf_chromosome(input_vcf: str, target_chr: str, out_vcf: str) -> str
     return chrom
 
 
-def _sample_sex(args: argparse.Namespace) -> str:
-    """Sex from `info`'s cached metrics for this file when present (counting
-    chrY reads in a CRAM takes about a minute), else from samtools idxstats."""
-    name = f"{os.path.basename(args.input)}.wgse_info.json"
-    signature = calculate_bam_md5(args.input, None)
-    for folder in (
-        args.outdir,
-        os.path.dirname(os.path.abspath(args.input)),
-        settings.get("output_directory"),
-    ):
-        cache = os.path.join(folder, name) if folder else ""
-        try:
-            with open(cache) as f:
-                info = json.load(f)
-        except (OSError, ValueError):
-            continue
-        if info.get("md5_signature") == signature and info.get("gender"):
-            return str(info["gender"])
-    logging.info("Checking chrY coverage before running Yleaf...")
-    try:
-        idx_stats, *_ = parse_idxstats(args.input)
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        # Only a positive "female" stops the run; an unreadable index doesn't.
-        logging.warning(f"Could not check chrY coverage of {args.input}: {e}")
-        return "Unknown"
-    return infer_sex(idx_stats)
-
-
 def _yleaf_build(build: str | None) -> str:
     if build and is_hg38_build(build):
         return "hg38"
@@ -167,7 +137,10 @@ def cmd_ydna(args: argparse.Namespace) -> None:
 
     # Yleaf still "predicts" from a female sample's few mismapped chrY reads
     # (BT* with hundreds of exclusions, at full QC score); say there's no Y.
-    if input_lower.endswith((".bam", ".cram")) and _sample_sex(args) == "Female":
+    if (
+        input_lower.endswith((".bam", ".cram"))
+        and sample_sex(args.input, args.outdir) == "Female"
+    ):
         raise WGSExtractError(
             f"{args.input} has almost no chrY reads (the sample appears female), "
             "so there is no Y haplogroup to predict."

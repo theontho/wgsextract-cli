@@ -79,7 +79,7 @@
 </article>
 <article class="card">
 <h3><abbr data-tooltip="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome." aria-label="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome.">BAM</abbr> / <abbr data-tooltip="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome." aria-label="CRAM: Compressed Reference-oriented Alignment Map: a space-saving alignment format that depends on a matching reference genome.">CRAM</abbr></h3>
-<p><code>bam identify</code>, <code>bam sort</code>, <code>bam index</code>, <code>bam unindex</code>, <code>bam unsort</code>, <code>bam to-cram</code>, <code>bam to-bam</code>, <code>bam unalign</code>, plus <code>repair ftdna-bam</code> and <code>repair ftdna-vcf</code> for <abbr data-tooltip="FTDNA: FamilyTreeDNA: a consumer genealogy service and raw-data format target." aria-label="FTDNA: FamilyTreeDNA: a consumer genealogy service and raw-data format target.">FTDNA</abbr> files.</p>
+<p><code>bam identify</code>, <code>bam sort</code>, <code>bam index</code>, <code>bam unindex</code>, <code>bam unsort</code>, <code>bam to-cram</code>, <code>bam to-bam</code>, <code>bam unalign</code>, <code>bam merge</code>, <code>bam to-ubam</code> (unaligned <abbr data-tooltip="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome." aria-label="BAM: Binary Alignment Map: a compressed binary file of sequencing reads aligned to a reference genome.">BAM</abbr> for <a class="term-link" href="https://gatk.broadinstitute.org/" data-tooltip="GATK: Genome Analysis Toolkit: a widely used suite of tools for variant discovery and genomics workflows." aria-label="GATK: Genome Analysis Toolkit: a widely used suite of tools for variant discovery and genomics workflows.">GATK</a>), plus <code>repair ftdna-bam</code> and <code>repair ftdna-vcf</code> for <abbr data-tooltip="FTDNA: FamilyTreeDNA: a consumer genealogy service and raw-data format target." aria-label="FTDNA: FamilyTreeDNA: a consumer genealogy service and raw-data format target.">FTDNA</abbr> files.</p>
 </article>
 <article class="card">
 <h3>Extraction</h3>
@@ -87,15 +87,15 @@
 </article>
 <article class="card">
 <h3>Variant workflows</h3>
-<p>Calling: <code>vcf snp</code>, <code>vcf indel</code>, <code>vcf freebayes</code>, <code>vcf gatk</code>, <code>vcf deepvariant</code>, <code>vcf sv</code>, <code>vcf cnv</code>. Annotation: <code>vcf annotate</code>, <code>vcf chain-annotate</code>, <code>vcf clinvar</code>, <code>vcf gnomad</code>, <code>vcf revel</code>, <code>vcf phylop</code>, <code>vcf spliceai</code>, <code>vcf alphamissense</code>, <code>vcf pharmgkb</code>. Also <code>vcf filter</code> and <code>vcf trio</code>.</p>
+<p>Calling: <code>vcf snp</code>, <code>vcf indel</code>, <code>vcf freebayes</code>, <code>vcf gatk</code>, <code>vcf deepvariant</code>, <code>vcf sv</code>, <code>vcf cnv</code>. Annotation: <code>vcf annotate</code>, <code>vcf chain-annotate</code>, <code>vcf clinvar</code>, <code>vcf gnomad</code>, <code>vcf revel</code>, <code>vcf phylop</code>, <code>vcf cadd</code>, <code>vcf gerp</code>, <code>vcf spliceai</code>, <code>vcf alphamissense</code>, <code>vcf pharmgkb</code>, <code>vcf pharmcat</code>. Also <code>vcf filter</code>, <code>vcf trio</code>, and <code>vcf to-fasta</code> (personal consensus genome).</p>
 </article>
 <article class="card">
 <h3>References and annotation</h3>
-<p><code>ref bootstrap</code>, <code>ref library</code>, <code>ref library-list</code>, <code>ref status</code>, <code>ref download</code>, <code>ref index</code>, <code>ref verify</code>, <code>ref count-ns</code>, <code>ref gene-map</code>, the annotation downloads (<code>ref clinvar</code>, <code>gnomad</code>, <code>revel</code>, <code>phylop</code>, <code>spliceai</code>, <code>alphamissense</code>, <code>pharmgkb</code>), and <code>vep download</code>, <code>vep run</code>, <code>vep verify</code>.</p>
+<p><code>ref bootstrap</code>, <code>ref library</code>, <code>ref library-list</code>, <code>ref status</code>, <code>ref download</code>, <code>ref index</code>, <code>ref verify</code>, <code>ref count-ns</code>, <code>ref gene-map</code>, the annotation downloads (<code>ref clinvar</code>, <code>gnomad</code>, <code>revel</code>, <code>phylop</code>, <code>cadd</code>, <code>gerp</code>, <code>spliceai</code>, <code>alphamissense</code>, <code>pharmgkb</code>), and <code>vep download</code>, <code>vep run</code>, <code>vep verify</code>.</p>
 </article>
 <article class="card">
 <h3>Analysis and alignment</h3>
-<p><code>microarray</code>, <code>lineage y-haplogroup</code>, <code>lineage mt-haplogroup</code>, <code>align</code>, <code>realign</code>, <code>pet-align</code>, <code>analyze comprehensive</code>, <code>analyze batch-gen</code>, <code>example-genome list/download</code>, <code>benchmark</code>, <code>deps check</code>, and <code>config</code>.</p>
+<p><code>microarray</code>, <code>lineage y-haplogroup</code>, <code>lineage mt-haplogroup</code>, <code>typing cyp2d6</code>, <code>typing hla</code>, <code>typing str</code>, <code>sign create</code>, <code>sign verify</code>, <code>align</code>, <code>realign</code>, <code>pet-align</code>, <code>analyze comprehensive</code>, <code>analyze batch-gen</code>, <code>example-genome list/download</code>, <code>benchmark</code>, <code>deps check</code>, and <code>config</code>.</p>
 </article>
 </div>
 </div>
@@ -164,6 +164,10 @@
 <article class="card">
 <h3>gatk and <a class="term-link" href="https://github.com/freebayes/freebayes">freebayes</a></h3>
 <p><a class="term-link" href="https://gatk.broadinstitute.org/" data-tooltip="GATK: Genome Analysis Toolkit: a widely used suite of tools for variant discovery and genomics workflows." aria-label="GATK: Genome Analysis Toolkit: a widely used suite of tools for variant discovery and genomics workflows.">GATK</a> (<a class="term-link" href="https://www.python.org/">Python</a> 3.10, Java 17) and <a class="term-link" href="https://github.com/freebayes/freebayes">FreeBayes</a> live in their own environments for dependency reasons. <code>vcf gatk</code> and <code>vcf freebayes</code> use them automatically; the first run downloads the environment.</p>
+</article>
+<article class="card">
+<h3>cyrius, t1k, and expansionhunter</h3>
+<p>Gene and repeat typing: <code>typing cyp2d6</code> (Cyrius), <code>typing hla</code> (T1K), and <code>typing str</code> (ExpansionHunter). Linux and macOS. These aren't downloaded on first use: install them once with <code>pixi install -e &lt;environment&gt;</code>; Cyrius is licensed for noncommercial use only.</p>
 </article>
 <article class="card">
 <h3>dev</h3>

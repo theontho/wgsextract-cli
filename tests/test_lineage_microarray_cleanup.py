@@ -541,6 +541,7 @@ def test_y_haplogroup_refuses_a_female_sample_before_yleaf(tmp_path):
     import json
 
     from wgsextract_cli.commands import _lineage_ydna as ydna
+    from wgsextract_cli.commands.info import metrics
 
     cram = tmp_path / "sample.cram"
     cram.write_bytes(b"")
@@ -551,24 +552,24 @@ def test_y_haplogroup_refuses_a_female_sample_before_yleaf(tmp_path):
         json.dumps({"md5_signature": "sig", "gender": "Female"})
     )
     with (
-        patch.object(ydna, "calculate_bam_md5", return_value="sig"),
-        patch.object(ydna, "parse_idxstats") as idxstats,
+        patch.object(metrics, "calculate_bam_md5", return_value="sig"),
+        patch.object(metrics, "parse_idxstats") as idxstats,
     ):
-        assert ydna._sample_sex(args) == "Female"
+        assert metrics.sample_sex(args.input, args.outdir) == "Female"
         idxstats.assert_not_called()
 
     # A cache for another file of the same name is ignored.
     with (
-        patch.object(ydna, "calculate_bam_md5", return_value="other"),
-        patch.object(ydna, "parse_idxstats", return_value=(_idx(10, 6), 0, 0, 0)),
+        patch.object(metrics, "calculate_bam_md5", return_value="other"),
+        patch.object(metrics, "parse_idxstats", return_value=(_idx(10, 6), 0, 0, 0)),
     ):
-        assert ydna._sample_sex(args) == "Male"
+        assert metrics.sample_sex(args.input, args.outdir) == "Male"
 
     with (
         patch.object(ydna, "resolve_lineage_tool", return_value="yleaf"),
         patch.object(ydna, "verify_dependencies"),
         patch.object(ydna, "log_dependency_info"),
-        patch.object(ydna, "calculate_bam_md5", return_value="sig"),
+        patch.object(metrics, "calculate_bam_md5", return_value="sig"),
         patch.object(ydna, "run_command") as run,
         pytest.raises(WGSExtractError, match="appears female"),
     ):

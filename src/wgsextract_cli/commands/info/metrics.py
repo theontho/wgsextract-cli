@@ -1,4 +1,5 @@
 import csv
+import json
 import logging
 import math
 import os
@@ -8,13 +9,15 @@ from collections.abc import Mapping, Sequence
 from typing import Any, TypedDict
 
 from wgsextract_cli.core.builds import build_from_chr1_length, build_from_path
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.constants import (
     N_ADJUST,
     SEQUENCERS,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.reference_assets import n_count_paths
-from wgsextract_cli.core.utils import popen, run_command
+from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
+from wgsextract_cli.core.variant_files import calculate_bam_md5
 
 
 class IdxStat(TypedDict):
@@ -205,6 +208,33 @@ def infer_sex(idx_stats: list[IdxStat]) -> str:
     if x_reads <= 0:
         return "Unknown"
     return "Male" if y_reads > x_reads * 0.05 else "Female"
+
+
+def sample_sex(input_path: str, outdir: str | None = None) -> str:
+    """Sex from `info`'s cached metrics for this file when present (counting
+    chrY reads in a CRAM takes about a minute), else from samtools idxstats."""
+    name = f"{os.path.basename(input_path)}.wgse_info.json"
+    signature = calculate_bam_md5(input_path, None)
+    for folder in (
+        outdir,
+        os.path.dirname(os.path.abspath(input_path)),
+        settings.get("output_directory"),
+    ):
+        cache = os.path.join(folder, name) if folder else ""
+        try:
+            with open(cache) as f:
+                info = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if info.get("md5_signature") == signature and info.get("gender"):
+            return str(info["gender"])
+    logging.info("Checking chrX/chrY coverage to infer the sample's sex...")
+    try:
+        idx_stats, *_ = parse_idxstats(input_path)
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+        logging.warning(f"Could not check chrY coverage of {input_path}: {e}")
+        return "Unknown"
+    return infer_sex(idx_stats)
 
 
 def parse_idxstats(filepath: str) -> tuple[list[IdxStat], int, int, int]:

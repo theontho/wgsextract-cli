@@ -44,6 +44,7 @@ def cmd_phylop(args: argparse.Namespace) -> None:
             ann_out,
             outdir,
             "PhyloP",
+            threads=getattr(args, "threads", None),
         )
     else:
         # Annovar PhyloP TSV: #Chr, Start, End, Score
@@ -58,6 +59,7 @@ def cmd_phylop(args: argparse.Namespace) -> None:
                 "##INFO=<ID=PHYLOP,Number=1,Type=Float,"
                 'Description="PhyloP conservation score">'
             ],
+            threads=getattr(args, "threads", None),
         )
 
     run_min_score_filter(
@@ -78,17 +80,25 @@ def cmd_gnomad(args: argparse.Namespace) -> None:
 
     # Transfer AF as GNOMAD_AF to avoid colliding with the caller's AF.
     ann_out = os.path.join(outdir, GNOMAD_ANNOTATED)
+    header = [
+        '##INFO=<ID=GNOMAD_AF,Number=A,Type=Float,Description="gnomAD Allele Frequency">'
+    ]
+    if gnomad_file.lower().endswith(VCF_SUFFIXES):
+        annotation = ensure_vcf_prepared(gnomad_file)
+        columns = "INFO/GNOMAD_AF:=INFO/AF"
+    else:
+        # `ref gnomad --release 4.1` table: #CHROM, POS, REF, ALT, AF
+        annotation = prepare_tabix_annotation(gnomad_file, "gnomAD")
+        columns = "CHROM,POS,REF,ALT,INFO/GNOMAD_AF"
     annotate_vcf(
         ensure_vcf_prepared(input_file),
-        ensure_vcf_prepared(gnomad_file),
-        "INFO/GNOMAD_AF:=INFO/AF",
+        annotation,
+        columns,
         ann_out,
         outdir,
         "gnomAD",
-        [
-            "##INFO=<ID=GNOMAD_AF,Number=A,Type=Float,"
-            'Description="gnomAD Allele Frequency">'
-        ],
+        header,
+        threads=getattr(args, "threads", None),
     )
 
     if args.max_af is None:
