@@ -171,6 +171,7 @@ def test_pixi_installs_runnable_yleaf_from_upstream_package_data_source() -> Non
     yleaf = manifest["feature"]["bio-tools"]["pypi-dependencies"]["yleaf"]
     assert yleaf == {
         "url": "https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz"
+        "#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422"
     }
     assert "git" not in yleaf
 

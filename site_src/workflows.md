@@ -82,7 +82,7 @@ wgsextract --input sample.bam extract ydna-vcf
 wgsextract --input sample.bam lineage y-haplogroup
 ```
 
-Yleaf results go to `<outdir>/yleaf/`. Use `lineage mt-haplogroup` for the maternal haplogroup with Haplogrep.
+Yleaf results go to `<outdir>/yleaf/`. A missing or `NA` haplogroup is reported as an error, not a successful prediction. WGS Extract disables Yleaf's own update check when supported; Pixi manages its version. Use `lineage mt-haplogroup` for the maternal haplogroup with Haplogrep.
 :::
 :::
 :::

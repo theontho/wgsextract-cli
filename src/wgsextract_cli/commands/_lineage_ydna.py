@@ -1,4 +1,6 @@
 import argparse
+import csv
+import io
 import logging
 import os
 import shlex
@@ -88,13 +90,13 @@ def _yleaf_build(build: str | None) -> str:
     return "hg38"
 
 
-def _yleaf_supports_ref_fasta(cmd: list[str]) -> bool:
+def _yleaf_help(cmd: list[str]) -> str:
     try:
         result = run_command(cmd + ["--help"], capture_output=True, check=False)
     except (OSError, subprocess.SubprocessError) as e:
-        logging.debug("Could not inspect Yleaf --help for --ref-fasta support: %s", e)
-        return False
-    return "--ref-fasta" in f"{result.stdout}\n{result.stderr}"
+        logging.debug("Could not inspect Yleaf --help for supported options: %s", e)
+        return ""
+    return f"{result.stdout}\n{result.stderr}"
 
 
 def _placeholder_yleaf_data_dir(work_dir: str) -> dict[str, str]:
@@ -190,13 +192,17 @@ def cmd_ydna(args: argparse.Namespace) -> None:
                 f"Unsupported Yleaf input type (expected BAM, CRAM, VCF or FASTQ): {args.input}"
             )
 
+        help_text = _yleaf_help(cmd)
+        # Updates are managed by Pixi; avoid upstream network probes and home caches.
+        if "--no-update-check" in help_text:
+            extra.append("--no-update-check")
         if input_flag == "-fastq":
             # FASTQ is aligned by Yleaf itself, which needs the real reference.
             ref_fasta = lib.fasta if lib else None
             if (
                 ref_fasta
                 and ref_fasta.endswith(_UNCOMPRESSED_FASTA_SUFFIXES)
-                and _yleaf_supports_ref_fasta(cmd)
+                and "--ref-fasta" in help_text
             ):
                 extra += ["--ref-fasta", ref_fasta]
             else:
@@ -235,11 +241,14 @@ def cmd_ydna(args: argparse.Namespace) -> None:
             content = f.read().strip()
     except OSError as e:
         raise WGSExtractError(f"Yleaf did not write {prediction}: {e}") from e
-    # Header line plus one row per sample; a header alone means no markers matched.
-    if len(content.splitlines()) < 2:
+    rows = list(csv.DictReader(io.StringIO(content), delimiter="\t"))
+    # Newer Yleaf writes an NA row instead of a header alone when no call is possible.
+    if not rows or not any(
+        (row.get("Hg") or "").strip() not in ("", "NA") for row in rows
+    ):
         raise WGSExtractError(
             "Yleaf could not predict a Y haplogroup: no Y-chromosome markers "
-            "matched. Check that the input has chrY reads and that its reference "
+            "matched or passed QC. Check that the input has chrY reads and that its reference "
             f"build is correct; details are in {os.path.join(yleaf_outdir, 'run.log')}."
         )
     print(f"\n🧬 Yleaf Lineage Result ({input_stem(args.input)}):")
