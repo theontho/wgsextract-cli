@@ -1,5 +1,10 @@
+import platform
+import shutil
+import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -184,3 +189,22 @@ def test_pixi_vep_runs_natively_on_apple_silicon() -> None:
     assert "ensembl-vep" in _pixi_feature_deps("vep", "osx-arm64")
     activation = vep["target"]["osx-arm64"]["activation"]
     assert activation["env"]["PERL_DL_NONLAZY"] == "1"
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or platform.machine() != "arm64", reason="Apple Silicon"
+)
+def test_native_vep_starts_on_apple_silicon() -> None:
+    perl = ROOT / ".pixi" / "envs" / "vep" / "bin" / "perl"
+    pixi = shutil.which("pixi")
+    if not pixi or not perl.exists():
+        pytest.skip("vep Pixi environment not installed")
+    result = subprocess.run(
+        [pixi, "run", "--manifest-path", str(ROOT / "pixi.toml"), "--frozen"]
+        + ["--no-install", "-e", "vep", "vep", "--help"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "ENSEMBL VARIANT EFFECT PREDICTOR" in result.stdout
