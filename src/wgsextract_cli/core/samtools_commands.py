@@ -1,10 +1,19 @@
+import os
 import platform
 import re
 
 from wgsextract_cli.core.dependencies import get_tool_path
 
 
-def _parse_memory(memory: str) -> tuple[float, str]:
+def alignment_index(path: str) -> str | None:
+    """The index of a BAM/CRAM (x.bam.bai, x.bai, x.cram.crai, ...), if any."""
+    stem = os.path.splitext(path)[0]
+    candidates = [path + ext for ext in (".bai", ".csi", ".crai")]
+    candidates += [stem + ".bai", stem + ".crai"]
+    return next((index for index in candidates if os.path.exists(index)), None)
+
+
+def parse_memory(memory: str) -> tuple[float, str]:
     match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([GgMm])(?:[Bb])?\s*", memory)
     if not match:
         raise ValueError(f"Invalid memory value: {memory}")
@@ -36,7 +45,7 @@ def get_sam_sort_cmd(
     cannot read SAM, so pass sam_input=True for aligner output streams.
     """
     threads_val = int(threads)
-    mem_val, mem_unit = _parse_memory(memory)
+    mem_val, mem_unit = parse_memory(memory)
 
     if fmt == "BAM" and not sam_input and _use_sambamba():
         total_mem = mem_val * threads_val

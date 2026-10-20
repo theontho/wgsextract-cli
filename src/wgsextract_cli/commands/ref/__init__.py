@@ -12,8 +12,10 @@ from .core_commands import (
 from .library_commands import (
     cmd_alphamissense_dl,
     cmd_bootstrap,
+    cmd_cadd_dl,
     cmd_clinvar_dl,
     cmd_gene_map,
+    cmd_gerp_dl,
     cmd_gnomad_dl,
     cmd_library,
     cmd_pharmgkb_dl,
@@ -132,7 +134,17 @@ def register(
     gnomad_dl_parser = ref_subs.add_parser(
         "gnomad",
         parents=[base_parser],
-        help="Download gnomAD sites VCF for hg19 and hg38.",
+        help="Download gnomAD population allele frequencies.",
+    )
+    gnomad_dl_parser.add_argument(
+        "--release",
+        choices=["2.1.1", "4.1"],
+        default="2.1.1",
+        help=(
+            "2.1.1: exome sites VCFs for hg19 and hg38 (hg38 lifted over). "
+            "4.1: native hg38 exomes+genomes, streamed (~900 GB, hours) into an "
+            "allele-frequency-only table of ~5 GB; --threads sets parallel streams."
+        ),
     )
     gnomad_dl_parser.set_defaults(func=cmd_gnomad_dl)
 
@@ -156,6 +168,28 @@ def register(
         help="Download PharmGKB annotations.",
     )
     pharmgkb_dl_parser.set_defaults(func=cmd_pharmgkb_dl)
+
+    cadd_dl_parser = ref_subs.add_parser(
+        "cadd", parents=[base_parser], help=CLI_HELP["cmd_ref-cadd"]
+    )
+    cadd_dl_parser.add_argument(
+        "--build",
+        choices=["hg38", "hg19"],
+        default="hg38",
+        help="Genome build to download (default: hg38). Each is about 85 GB.",
+    )
+    cadd_dl_parser.set_defaults(func=cmd_cadd_dl)
+
+    gerp_dl_parser = ref_subs.add_parser(
+        "gerp", parents=[base_parser], help=CLI_HELP["cmd_ref-gerp"]
+    )
+    gerp_dl_parser.add_argument(
+        "--build",
+        choices=["hg38", "hg19"],
+        default="hg38",
+        help="Genome build to download (default: hg38).",
+    )
+    gerp_dl_parser.set_defaults(func=cmd_gerp_dl)
 
     bootstrap_parser = ref_subs.add_parser(
         "bootstrap",

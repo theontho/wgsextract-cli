@@ -161,7 +161,9 @@ def run_vcf_workflow(
     # Define targeted annotations per type
     if v_type == "snp-indel":
         # Full chain for SNPs, now including VEP
-        anns = "clinvar,revel,phylop,gnomad,spliceai,alphamissense,pharmgkb,vep"
+        anns = (
+            "clinvar,revel,phylop,cadd,gerp,gnomad,spliceai,alphamissense,pharmgkb,vep"
+        )
     elif v_type == "cnv":
         # ClinVar and gnomAD are most relevant for CNVs
         anns = "clinvar,gnomad"

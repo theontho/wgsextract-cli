@@ -95,11 +95,12 @@ Run `wgsextract help` for the full command tree, and `wgsextract <command> --hel
 | Command | Subcommands / purpose |
 | :--- | :--- |
 | `info` | Reference build, file integrity, and read metrics. `calculate-coverage` (exact, via samtools coverage), `coverage-sample` (fast estimate) |
-| `bam` | `identify`, `sort`, `index`, `unindex`, `unsort`, `to-cram`, `to-bam`, `unalign` |
+| `bam` | `identify`, `sort`, `index`, `unindex`, `unsort`, `to-cram`, `to-bam`, `unalign`, `merge`, `to-ubam` (unaligned BAM for GATK) |
 | `extract` | `mito-fasta`, `mito-vcf`, `mt-bam`, `ydna-bam`, `ydna-vcf`, `y-mt-extract`, `unmapped`, `custom`, `bam-subset` |
 | `microarray` | Simulate 23andMe, AncestryDNA, FTDNA, Living DNA, MyHeritage, and combined (`all`) raw-data files |
 | `lineage` | `y-haplogroup` (Yleaf), `mt-haplogroup` (Haplogrep) |
-| `vcf` | Calling: `snp`, `indel`, `freebayes`, `gatk`, `deepvariant`, `sv`, `cnv`. Annotation: `annotate`, `chain-annotate`, `clinvar`, `gnomad`, `revel`, `phylop`, `spliceai`, `alphamissense`, `pharmgkb`. Other: `filter`, `trio` |
+| `vcf` | Calling: `snp`, `indel`, `freebayes`, `gatk`, `deepvariant`, `sv`, `cnv`. Annotation: `annotate`, `chain-annotate`, `clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb`, `pharmcat`. Other: `filter`, `trio`, `to-fasta` (personal consensus genome) |
+| `typing` | From a WGS BAM/CRAM: `cyp2d6` (Cyrius), `hla` (T1K), `str` (ExpansionHunter repeat expansions) |
 | `gatk`, `freebayes` | Used automatically by `vcf gatk` / `vcf freebayes`; the first run downloads the environment |
 | `vep` | `download`, `run`, `verify` (Ensembl Variant Effect Predictor) |
 | `align` | Align FASTQ reads with bwa, minimap2, or pbmm2 |
@@ -108,7 +109,8 @@ Run `wgsextract help` for the full command tree, and `wgsextract <command> --hel
 | `qc` | `fastp`, `fastqc`, `vcf` (stats), `fake-data` (synthetic BAM/CRAM/VCF/FASTQ) |
 | `repair` | `ftdna-bam`, `ftdna-vcf` |
 | `analyze` | `comprehensive` (QC, lineage, calling, annotation in one run), `batch-gen` |
-| `ref` | Library: `bootstrap`, `library`, `library-list`, `status`, `download`, `index`, `verify`, `count-ns`, `gene-map`. Annotation data: `clinvar`, `gnomad`, `revel`, `phylop`, `spliceai`, `alphamissense`, `pharmgkb` |
+| `ref` | Library: `bootstrap`, `library`, `library-list`, `status`, `download`, `index`, `verify`, `count-ns`, `gene-map`. Annotation data: `clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb` |
+| `sign` | `create` (SHA256SUMS manifest, optionally signed with an OpenSSH key), `verify` |
 | `example-genome` | `list`, `download` curated 1000 Genomes / HGSVC2 datasets |
 | `deps` | `check`; Windows runtimes: `pacman check`, `msys2 check/setup`, `cygwin check/setup`, `wsl check/tune` |
 | `benchmark` | Benchmark the main workflows on generated or release-backed data |
@@ -120,7 +122,11 @@ Notes on a few commands:
 - Gene-name filtering (`--gene`) needs gene maps from `ref gene-map` (hg19/hg38 only; T2T is rejected). Gene maps installed by older versions should be rebuilt with `ref gene-map`.
 - `microarray` uses hg19 coordinates. hg38 input needs the liftover chain from `ref bootstrap`; T2T input is not supported.
 - `ref pharmgkb` builds `ref/pharmgkb_hg38.tsv.gz` from ClinPGx's (formerly PharmGKB) clinical annotations and variant locations; `vcf pharmgkb` labels the records that carry an annotated SNV allele. Star-allele/haplotype annotations (e.g. CYP2D6*4) and indels are not included, and it is hg38 only.
-- `vcf pharmcat` calls star-allele diplotypes and drug-response phenotypes (CYP2C19, CYP2C9, DPYD, TPMT, ...) with [PharmCAT](https://pharmcat.org) and writes its prescribing report. PharmCAT isn't on conda: extract `pharmcat-pipeline-<version>.tar.gz` from its [releases](https://github.com/PharmGKB/PharmCAT/releases) into `<reference library>/pharmcat` (or set `pharmcat_directory`); `pixi install -e pharmcat` provides its runtime (macOS/Linux). Input must be GRCh38; gVCFs are handled. CYP2D6 and HLA can't be called from a VCF.
+- `vcf pharmcat` calls star-allele diplotypes and drug-response phenotypes (CYP2C19, CYP2C9, DPYD, TPMT, ...) with [PharmCAT](https://pharmcat.org) and writes its prescribing report. PharmCAT isn't on conda: extract `pharmcat-pipeline-<version>.tar.gz` from its [releases](https://github.com/PharmGKB/PharmCAT/releases) into `<reference library>/pharmcat` (or set `pharmcat_directory`); `pixi install -e pharmcat` provides its runtime (macOS/Linux). Input must be GRCh38; gVCFs are handled. CYP2D6 and HLA can't be called from a VCF: pass the `<stem>.cyp2d6.pharmcat.tsv` and `<stem>.hla.pharmcat.tsv` files written by `typing cyp2d6` and `typing hla` with `--outside-call` (repeatable); they are merged into `<stem>.outside.tsv` in the output directory, which PharmCAT also picks up on later runs.
+- `typing cyp2d6`, `typing hla`, and `typing str` need a whole-genome BAM/CRAM (about 30x) with an index. Their tools live in the `cyrius`, `t1k`, and `expansionhunter` Pixi environments (Linux and macOS; install each with `pixi install -e <environment>`). Cyrius is licensed for noncommercial use only. The first `typing hla` run builds T1K's allele index from IPD-IMGT/HLA into `<reference library>/ref/t1k_hla`. `typing str` compares repeat sizes with [STRchive](https://strchive.org)'s ranges; give `--sex` when known, otherwise it is inferred from read depth.
+- `ref gnomad --release 4.1` streams gnomAD v4.1's native-GRCh38 exome and genome VCFs (about 880 GB, hours) into one allele-frequency-only table; the default 2.1.1 release is exome-only and lifted over to hg38.
+- `ref cadd` downloads CADD v1.7 (about 85 GB per build) and `ref gerp` the GERP++ bigWig; `vcf cadd` and `vcf gerp` add `CADD_RAW`/`CADD_PHRED` and `GERP` to a VCF.
+- `sign create` writes a `SHA256SUMS` manifest that `sha256sum -c` also reads, signed with `ssh-keygen -Y sign` when `--key` is given; `sign verify` checks the signature against a trusted key, then re-hashes every file.
 - `align` with FASTQs needs `--ref <FASTA>` when the reference library holds more than one genome, since reads don't say which genome they belong to.
 - `ref spliceai` cannot download automatically because the scores sit behind an Illumina BaseSpace login; the command explains where to place the file.
 - `vcf sv` and `vcf cnv` use Delly 2 (`delly sr` / `delly cnv`), which needs no mappability map; `vcf cnv --map` is accepted but ignored.
@@ -131,7 +137,7 @@ Notes on a few commands:
 
 ### Pixi environments
 
-Some tools live in their own Pixi environment. When such a tool is not on `PATH`, the CLI runs it through `pixi run -e <environment>` automatically; you can also run a whole command inside an environment from the app directory (`wgsextract-cli/app/`) or a source checkout:
+Some tools live in their own Pixi environment. When such a tool is not on `PATH`, the CLI runs it through `pixi run -e <environment>` automatically, downloading the environment on first use. The `cyrius`, `t1k`, `expansionhunter`, and `pharmcat` environments are the exception: install them yourself with `pixi install -e <environment>` (Cyrius is licensed for noncommercial use only). You can also run a whole command inside an environment from the app directory (`wgsextract-cli/app/`) or a source checkout:
 
 | Environment | Used for |
 | :--- | :--- |
@@ -139,6 +145,8 @@ Some tools live in their own Pixi environment. When such a tool is not on `PATH`
 | `pacbio` | `pbmm2`, `pbsv`, `sniffles`: `pixi run -e pacbio wgsextract vcf sv --pacbio` |
 | `deepvariant` | `pixi run -e deepvariant wgsextract vcf deepvariant` (Linux and Apple Silicon) |
 | `vep` | `pixi run -e vep wgsextract vep run` (not native Windows) |
+| `cyrius`, `t1k`, `expansionhunter` | `typing cyp2d6`, `typing hla`, `typing str` (Linux and macOS) |
+| `pharmcat` | PharmCAT's Python runtime for `vcf pharmcat` (Linux and macOS) |
 | `dev` | Contributor tooling (pytest, ruff, mypy); selected automatically by the development tasks below |
 
 ## Configuration

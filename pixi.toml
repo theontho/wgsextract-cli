@@ -57,6 +57,8 @@ fastqc = ">=0.13,<0.14"
 haplogrep = ">=2.4,<3"
 delly = ">=2.7,<3"
 samblaster = ">=0.1.26,<0.2"
+# Reads GERP bigWig scores for `vcf gerp`; Bioconda builds Linux and macOS.
+pybigwig = ">=0.3.24,<0.4"
 
 [feature.bio-tools.target.linux-64.dependencies]
 wget = ">=1.25,<2"
@@ -73,6 +75,15 @@ haplogrep = ">=2.4,<3"
 # it there automatically. Fold it back into bio-tools once that is rebuilt.
 [feature.freebayes.target.unix.dependencies]
 freebayes = ">=1.3.10,<2"
+
+# HLA typing with T1K (`typing hla`) and repeat expansions with ExpansionHunter
+# (`typing str`). T1K's package pins samtools 0.1 and ExpansionHunter's (on macOS)
+# htslib 1.22, so each gets its own environment; the CLI runs them there.
+[feature.t1k.target.unix.dependencies]
+t1k = ">=1.0.10,<2"
+
+[feature.expansionhunter.target.unix.dependencies]
+expansionhunter = ">=5.0.0,<6"
 
 # DeepVariant's Bioconda package requires Python 3.10.
 [feature.deepvariant.dependencies]
@@ -124,6 +135,22 @@ PERL_DL_NONLAZY = "1"
 # pysam has no native Windows build.
 pysam = ">=0.24.1,<0.25"
 
+# Cyrius calls CYP2D6 star alleles from a WGS BAM/CRAM (`typing cyp2d6`). Its
+# PolyForm Strict license allows noncommercial use only, so it's an opt-in
+# environment (`pixi install -e cyrius`) that the CLI runs automatically.
+[feature.cyrius]
+platforms = ["linux-64", "osx-64", "osx-arm64"]
+
+[feature.cyrius.dependencies]
+python = "3.12.*"
+numpy = ">=2"
+scipy = ">=1.14"
+statsmodels = ">=0.14"
+
+[feature.cyrius.pypi-dependencies]
+# Brings pysam's PyPI wheel (a conda pysam would be installed twice).
+cyrius = "==1.1.1"
+
 # Developer tooling (tests, lint, type checking, packaging, site/CI checks).
 # Kept out of the default environment that end-user installers set up; tasks
 # defined here run in the `dev` environment automatically.
@@ -163,10 +190,13 @@ default = { features = ["bio-tools", "pysam"], solve-group = "default" }
 dev = { features = ["bio-tools", "pysam", "dev"], solve-group = "default" }
 gatk = { features = ["gatk"], no-default-feature = true }
 freebayes = { features = ["freebayes"], no-default-feature = true }
+t1k = { features = ["t1k"], no-default-feature = true }
+expansionhunter = { features = ["expansionhunter"], no-default-feature = true }
 deepvariant = { features = ["deepvariant"], no-default-feature = true }
 pacbio = { features = ["bio-tools", "pacbio"], no-default-feature = true, solve-group = "pacbio-unix" }
 vep = { features = ["vep"], no-default-feature = true }
 pharmcat = { features = ["pharmcat"], no-default-feature = true }
+cyrius = { features = ["cyrius"], no-default-feature = true }
 
 [pypi-dependencies]
 # pysam is platform-specific (no native Windows build); see feature.pysam.

@@ -175,8 +175,22 @@ def test_fastq_extraction_avoids_dev_null_and_system_temp(tmp_path, monkeypatch)
     argv = [str(arg) for stage in stages for arg in stage]
     assert "/dev/null" not in argv
     assert kwargs["stdout"] == subprocess.DEVNULL
-    sort_cmd = stages[1]
-    assert sort_cmd[sort_cmd.index("-T") + 1].startswith(str(tmp_path))
+    collate_cmd = stages[1]
+    assert collate_cmd[collate_cmd.index("-T") + 1].startswith(str(tmp_path))
+    # Standard (randomising) collate: fast mode skews aligners' insert sizes.
+    assert collate_cmd[1] == "collate" and "-f" not in collate_cmd
+
+
+def test_collate_buckets_fit_the_memory_budget(tmp_path):
+    from wgsextract_cli.commands._extract_helpers import _collate_buckets
+
+    cram = tmp_path / "x.cram"
+    with open(cram, "wb") as f:
+        f.truncate(8 * 1024**3)  # 30x CRAM: ~560 GB of records in memory
+    assert _collate_buckets(str(cram), "12", "1300M") == 64
+    assert _collate_buckets(str(cram), "4", "1G") == 140
+    assert _collate_buckets(str(cram), "1", "512M") == 200
+    assert _collate_buckets(str(tmp_path / "missing.bam"), "1", "1G") == 64
 
 
 def test_extract_custom_requires_region(tmp_path, monkeypatch):

@@ -1,14 +1,26 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 from collections.abc import Callable, Mapping
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
+from http.client import HTTPException
+from typing import Any
+from urllib.request import Request, urlopen
 
-from wgsextract_cli.core.download_progress import CancelEvent, ProgressCallback
+from wgsextract_cli.core.download_progress import (
+    CancelEvent,
+    ProgressCallback,
+    format_bytes,
+)
 from wgsextract_cli.core.pharmgkb import download_pharmgkb
 from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
 
@@ -78,6 +90,17 @@ ALPHAMISSENSE_URLS = {
     "hg38": "https://storage.googleapis.com/dm_alphamissense/AlphaMissense_hg38.tsv.gz",
     "hg19": "https://storage.googleapis.com/dm_alphamissense/AlphaMissense_hg19.tsv.gz",
 }
+
+
+# CADD v1.7 precomputed scores, BGZF with published .tbi and .md5 files:
+# build -> (remote directory, gnomAD indel file). The SNV file covers every
+# possible SNV (~85 GB); indels are only those seen in gnomAD.
+CADD_BASE_URL = "https://krishna.gs.washington.edu/download/CADD/v1.7"
+CADD_FILES = {
+    "hg38": ("GRCh38", "gnomad.genomes.r4.0.indel.tsv.gz"),
+    "hg19": ("GRCh37", "gnomad.genomes-exomes.r4.0.indel.tsv.gz"),
+}
+CADD_SNV_FILE = "whole_genome_SNVs.tsv.gz"
 
 
 # tabix arguments for a VCF and for TSVs keyed on CHROM=col1, POS=col2.
@@ -214,6 +237,319 @@ def download_revel(
 ) -> bool:
     """Downloads and indexes REVEL pathogenicity scores for hg19 and hg38."""
     return _download_resource(_REVEL, reflib_dir, cancel_event, progress_callback)
+
+
+def _verify_published_md5(path: str, url: str) -> None:
+    """Check path against the <url>.md5 file published next to it."""
+    with urlopen(url + ".md5", timeout=60) as response:
+        expected = response.read().decode().split()[0].lower()
+    logging.info(f"Verifying MD5 of {os.path.basename(path)}...")
+    digest = hashlib.md5(usedforsecurity=False)
+    with open(path, "rb") as f:
+        while chunk := f.read(8 << 20):
+            digest.update(chunk)
+    if digest.hexdigest() != expected:
+        os.remove(path)
+        raise WGSExtractError(
+            f"{path} failed its MD5 check and was removed; rerun to download it again."
+        )
+
+
+def download_cadd(
+    reflib_dir: str,
+    build: str = "hg38",
+    cancel_event: CancelEvent | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> bool:
+    """Downloads CADD v1.7 SNV and gnomAD-indel scores, with their tabix indexes."""
+    remote_dir, indel_name = CADD_FILES[build]
+    target_dir = os.path.join(reflib_dir, "ref")
+    os.makedirs(target_dir, exist_ok=True)
+    files = [
+        (indel_name, f"cadd_indel_{build}.tsv.gz"),
+        (CADD_SNV_FILE, f"cadd_{build}.tsv.gz"),
+    ]
+    for remote_name, local_name in files:
+        dest = os.path.join(target_dir, local_name)
+        if os.path.isfile(dest) and os.path.isfile(dest + ".tbi"):
+            logging.info(f"{local_name} is already installed.")
+            continue
+        url = f"{CADD_BASE_URL}/{remote_dir}/{remote_name}"
+        # The data before its index, so the index is never older than the data.
+        for suffix in ("", ".tbi"):
+            logging.info(f"Downloading CADD {build} {remote_name}{suffix}...")
+            if not download_file(
+                url + suffix, dest + suffix, progress_callback, cancel_event
+            ):
+                return False
+            try:
+                _verify_published_md5(dest + suffix, url + suffix)
+            except (OSError, WGSExtractError) as e:
+                logging.error(f"CADD {build} {remote_name}{suffix}: {e}")
+                return False
+    return True
+
+
+# GERP++ rejected-substitution scores, one per base. Ensembl publishes the
+# GRCh38 file (contigs 1, 2, ...); UCSC still serves the original hg19 one.
+GERP_URLS = {
+    "hg38": "https://ftp.ensembl.org/pub/release-114/compara/conservation_scores/"
+    "91_mammals.gerp_conservation_score/"
+    "gerp_conservation_scores.homo_sapiens.GRCh38.bw",
+    "hg19": "https://hgdownload.soe.ucsc.edu/gbdb/hg19/bbi/All_hg19_RS.bw",
+}
+
+
+def open_bigwig(path: str) -> Any:
+    """Open a bigWig with pyBigWig, raising WGSExtractError if it can't be read."""
+    try:
+        import pyBigWig
+    except ImportError as e:
+        raise WGSExtractError(
+            "Reading GERP scores needs the pyBigWig Python package, which the "
+            "default Pixi environment provides on macOS and Linux."
+        ) from e
+    try:
+        bw = pyBigWig.open(path)
+    except RuntimeError:
+        bw = None
+    if bw is None or not bw.isBigWig() or not bw.chroms():
+        if bw is not None:
+            bw.close()
+        raise WGSExtractError(f"{path} is not a readable bigWig file.")
+    return bw
+
+
+def download_gerp(
+    reflib_dir: str,
+    build: str = "hg38",
+    cancel_event: CancelEvent | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> bool:
+    """Downloads the GERP++ RS bigWig for one build into <library>/ref."""
+    target_dir = os.path.join(reflib_dir, "ref")
+    os.makedirs(target_dir, exist_ok=True)
+    dest = os.path.join(target_dir, f"gerp_{build}.bw")
+    if os.path.isfile(dest):
+        logging.info(f"gerp_{build}.bw is already installed.")
+        return True
+    logging.info(f"Downloading GERP {build} scores...")
+    if not download_file(GERP_URLS[build], dest, progress_callback, cancel_event):
+        return False
+    try:
+        open_bigwig(dest).close()
+    except WGSExtractError as e:
+        os.remove(dest)
+        logging.error(f"{e} It was removed; rerun to download it again.")
+        return False
+    return True
+
+
+# gnomAD v4.1 joint (exomes + genomes) sites are GRCh38-only and ~900 GB of
+# per-chromosome VCFs with ~660 INFO fields, so `ref gnomad --release 4.1`
+# streams them into a small CHROM/POS/REF/ALT/AF table instead of storing them.
+GNOMAD_V4_URL = (
+    "https://storage.googleapis.com/gcp-public-data--gnomad/release/4.1/vcf/joint/"
+    "gnomad.joint.v4.1.sites.{contig}.vcf.bgz"
+)
+GNOMAD_V4_CONTIGS = [f"chr{c}" for c in (*range(1, 23), "X", "Y")]
+GNOMAD_AF_TABLE = "gnomad_hg38.tsv.gz"
+# Sites gnomAD itself filtered out count as absent, so rare-variant filtering
+# keeps the user's call rather than trusting an artifact's frequency.
+_GNOMAD_V4_QUERY = (
+    "-i",
+    'FILTER="PASS" && AF_joint>0',
+    "-f",
+    "%CHROM\t%POS\t%REF\t%ALT\t%AF_joint\n",
+)
+_GNOMAD_V4_HEADER = (
+    "## gnomAD v4.1 joint exomes+genomes, PASS sites with AF_joint > 0\n"
+    "#CHROM\tPOS\tREF\tALT\tAF\n"
+)
+
+
+def _remote_size(url: str) -> int:
+    with urlopen(Request(url, method="HEAD"), timeout=60) as response:
+        return int(response.headers.get("Content-Length") or 0)
+
+
+def _stream_gnomad_contig(
+    url: str,
+    part: str,
+    cancel_event: CancelEvent | None,
+    on_bytes: Callable[[int], None],
+) -> str | None:
+    """Write one contig's AF rows to part (BGZF); return an error message or None.
+
+    The download is fed to bcftools here (not opened by htslib) so progress is
+    exact, and so a cut-off download fails instead of leaving a short table.
+    """
+    partial = part + ".partial"
+    download_error: list[str] = []
+    with open(partial, "wb") as out, tempfile.TemporaryFile() as err:
+        query = popen(
+            ["bcftools", "query", *_GNOMAD_V4_QUERY, "-"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=err,
+        )
+        compress = popen(["bgzip", "-c"], stdin=query.stdout, stdout=out)
+        assert query.stdin is not None and query.stdout is not None
+        query.stdout.close()
+        sink = query.stdin
+
+        def feed() -> None:
+            try:
+                with urlopen(url, timeout=120) as response:
+                    while chunk := response.read(1 << 20):
+                        sink.write(chunk)
+                        on_bytes(len(chunk))
+            except BrokenPipeError:
+                pass  # bcftools exited; its status says why
+            except (OSError, HTTPException) as e:
+                download_error.append(f"download failed: {e}")
+                query.kill()
+            finally:
+                try:
+                    sink.close()
+                except OSError:
+                    pass
+
+        feeder = threading.Thread(target=feed, daemon=True)
+        feeder.start()
+        queried = wait_with_cancel(query, cancel_event)
+        feeder.join()
+        compressed = compress.wait() == 0
+        if queried and compressed and not download_error:
+            os.replace(partial, part)
+            return None
+        err.seek(0)
+        detail = err.read().decode(errors="replace").strip().splitlines()[-3:]
+    os.remove(partial)
+    return (
+        "; ".join(download_error + detail) or f"bcftools exited with {query.returncode}"
+    )
+
+
+def build_gnomad_af(
+    reflib_dir: str,
+    workers: int = 6,
+    cancel_event: CancelEvent | None = None,
+    progress_callback: ProgressCallback | None = None,
+    attempts: int = 3,
+) -> bool:
+    """
+    Build <library>/ref/gnomad_hg38.tsv.gz from the gnomAD v4.1 joint VCFs.
+
+    Contigs stream in parallel (the build is network-bound) into resumable
+    per-contig parts, which are then concatenated (BGZF allows that) and indexed.
+    """
+    target_dir = os.path.join(reflib_dir, "ref")
+    dest = os.path.join(target_dir, GNOMAD_AF_TABLE)
+    if os.path.isfile(dest) and os.path.isfile(dest + ".tbi"):
+        logging.info(f"{GNOMAD_AF_TABLE} is already installed.")
+        return True
+    parts_dir = os.path.join(target_dir, ".gnomad_hg38_parts")
+    os.makedirs(parts_dir, exist_ok=True)
+
+    def part_path(contig: str) -> str:
+        return os.path.join(parts_dir, f"{contig}.tsv.gz")
+
+    urls = {c: GNOMAD_V4_URL.format(contig=c) for c in GNOMAD_V4_CONTIGS}
+    try:
+        sizes = {c: _remote_size(url) for c, url in urls.items()}
+    except OSError as e:
+        logging.error(f"Could not reach the gnomAD v4.1 bucket: {e}")
+        return False
+    total = sum(sizes.values())
+    resumed = sum(sizes[c] for c in urls if os.path.isfile(part_path(c)))
+    todo = sorted(
+        (c for c in urls if not os.path.isfile(part_path(c))),
+        key=sizes.__getitem__,
+        reverse=True,  # biggest first, so the last contig to finish is short
+    )
+    logging.info(
+        f"Streaming {len(todo)} gnomAD v4.1 contigs ({format_bytes(total - resumed)} "
+        f"of VCF, {workers} at a time) into an allele-frequency table..."
+    )
+
+    progress_lock = threading.Lock()
+    streamed = dict.fromkeys(todo, 0)
+
+    def stream(contig: str) -> str | None:
+        def count(n: int) -> None:
+            with progress_lock:
+                streamed[contig] += n
+
+        error = None
+        for attempt in range(1, attempts + 1):
+            if cancel_event and cancel_event.is_set():
+                return "cancelled"
+            with progress_lock:
+                streamed[contig] = 0
+            error = _stream_gnomad_contig(
+                urls[contig], part_path(contig), cancel_event, count
+            )
+            if error is None:
+                return None
+            logging.warning(f"gnomAD {contig} attempt {attempt} failed: {error}")
+        return error
+
+    def report(note: str) -> None:
+        with progress_lock:
+            done = resumed + sum(streamed.values())
+        rate = (done - resumed) / max(time.monotonic() - start, 1e-9)
+        eta = f", about {(total - done) / rate / 60:.0f} min left" if rate else ""
+        logging.info(
+            f"gnomAD {note}{format_bytes(done)} of {format_bytes(total)} "
+            f"at {format_bytes(rate)}/s{eta}"
+        )
+        if progress_callback:
+            progress_callback(done, total, rate)
+
+    start = time.monotonic()
+    failed: list[str] = []
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        pending = {pool.submit(stream, c): c for c in todo}
+        while pending:
+            finished, _ = wait(pending, timeout=60, return_when=FIRST_COMPLETED)
+            if not finished:
+                report("")
+            for future in finished:
+                contig = pending.pop(future)
+                if future.result() is None:
+                    report(f"{contig} done: ")
+                else:
+                    failed.append(contig)
+    if cancel_event and cancel_event.is_set():
+        return False
+    if failed:
+        logging.error(
+            f"gnomAD contigs failed: {', '.join(failed)}. Rerun to resume; "
+            "finished contigs are kept."
+        )
+        return False
+
+    partial = dest + ".partial"
+    with open(partial, "wb") as out:
+        header = popen(["bgzip", "-c"], stdin=subprocess.PIPE, stdout=out)
+        header.communicate(_GNOMAD_V4_HEADER.encode())
+        if header.returncode != 0:
+            raise WGSExtractError("bgzip failed to write the gnomAD table header.")
+        out.flush()
+        for contig in GNOMAD_V4_CONTIGS:
+            with open(part_path(contig), "rb") as part:
+                shutil.copyfileobj(part, out, 8 << 20)
+    os.replace(partial, dest)
+    logging.info(f"Indexing {GNOMAD_AF_TABLE}...")
+    try:
+        run_command(["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", dest])
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+        os.remove(dest)
+        logging.error(f"Indexing {dest} failed: {e}")
+        return False
+    shutil.rmtree(parts_dir)
+    return True
 
 
 def wait_with_cancel(

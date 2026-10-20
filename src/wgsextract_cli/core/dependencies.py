@@ -45,6 +45,9 @@ OPTIONAL_TOOLS = [
     "yleaf",
     "haplogrep",
     "htsfile",
+    "cyrius",
+    "run-t1k",
+    "ExpansionHunter",
 ]
 
 
@@ -77,14 +80,26 @@ PIXI_TOOL_ENVS = {
     "pbsv": "pacbio",
     "sniffles": "pacbio",
     "htsfile": "default",
-    # Only through its own environment (never a `python` on PATH): pixi_env_tool.
+    "cyrius": "cyrius",
+    "run-t1k": "t1k",
+    "t1k-build.pl": "t1k",
+    "ExpansionHunter": "expansionhunter",
+    # Only through their own environments (never a `python` on PATH): pixi_env_tool.
     "pharmcat_python": "pharmcat",
+    "cyrius_python": "cyrius",
 }
+
+
+# Optional environments the user installs explicitly (`pixi install -e <env>`, as
+# documented) and that are never downloaded on first use: Cyrius's license
+# allows noncommercial use only, so installing it must be the user's choice.
+INSTALL_FIRST_PIXI_ENVS = frozenset({"cyrius", "t1k", "expansionhunter", "pharmcat"})
 
 
 TOOL_EXECUTABLE_ALIASES = {
     "yleaf": ("yleaf", "Yleaf"),
     "pharmcat_python": ("python",),
+    "cyrius_python": ("python",),
 }
 
 
@@ -144,7 +159,12 @@ def required_dependency_tools(include_python: bool = True) -> list[str]:
 
 
 # Optional tools the CLI only uses on some platforms (sys.platform prefixes).
-PLATFORM_ONLY_TOOLS = {"sambamba": ("linux",)}
+PLATFORM_ONLY_TOOLS = {
+    "sambamba": ("linux",),
+    "cyrius": ("linux", "darwin"),
+    "run-t1k": ("linux", "darwin"),
+    "ExpansionHunter": ("linux", "darwin"),
+}
 
 
 def optional_dependency_tools() -> list[str]:
@@ -379,6 +399,10 @@ PIXI_TOOL_PACKAGES = {
     "dv_call_variants.py": "deepvariant",
     "dv_postprocess_variants.py": "deepvariant",
     "pharmcat_python": "pandas",
+    "cyrius_python": "cyrius",
+    "run-t1k": "t1k",
+    "t1k-build.pl": "t1k",
+    "ExpansionHunter": "expansionhunter",
 }
 
 
@@ -491,7 +515,11 @@ raise SystemExit(1)
     if result.returncode != 0:
         # An optional environment that isn't installed yet: `pixi run` installs it
         # (with visible progress) the first time the tool is actually used.
-        if env != "default" and _locked_package_available(pixi_cmd, env, tool):
+        if (
+            env != "default"
+            and env not in INSTALL_FIRST_PIXI_ENVS
+            and _locked_package_available(pixi_cmd, env, tool)
+        ):
             launcher = WINDOWS_PIXI_SCRIPT_LAUNCHERS.get(tool)
             if launcher and runtime.is_windows_host():
                 # Windows can't run the extensionless script by name.
@@ -532,6 +560,28 @@ raise SystemExit(1)
 def pixi_env_tool(tool: str) -> str | None:
     """How to run a tool from its Pixi environment only (not from PATH)."""
     return _host_pixi_tool_command(tool)
+
+
+def pixi_env_prefix(env: str) -> Path | None:
+    """An installed Pixi environment's prefix (for data its packages ship)."""
+    pixi_cmd = _resolve_pixi_command()
+    if not pixi_cmd:
+        return None
+    try:
+        result = subprocess.run(
+            [pixi_cmd, "info", *_pixi_manifest_args(), "--json"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        envs = json.loads(result.stdout)["environments_info"]
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+        return None
+    for info in envs:
+        if info.get("name") == env and info.get("prefix"):
+            prefix = Path(info["prefix"])
+            return prefix if prefix.is_dir() else None
+    return None
 
 
 def get_tool_path(tool: str, runtime_mode: str | None = None) -> str | None:

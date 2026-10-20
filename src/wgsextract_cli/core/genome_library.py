@@ -32,6 +32,8 @@ VCF_FILE_COMMANDS = {
     "clinvar",
     "revel",
     "phylop",
+    "cadd",
+    "gerp",
     "gnomad",
     "spliceai",
     "alphamissense",

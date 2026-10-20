@@ -529,6 +529,26 @@ def test_uninstalled_optional_env_resolves_from_lockfile_without_installing():
     assert not any(c[0] == "install" for c in calls)
 
 
+def test_install_first_env_is_not_downloaded_on_first_use():
+    from wgsextract_cli.core import dependencies
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd[1])
+        if cmd[1] == "run":
+            return MagicMock(returncode=1, stdout="", stderr="env not installed")
+        return MagicMock(returncode=0, stdout='[{"name": "cyrius"}]', stderr="")
+
+    with (
+        patch.object(dependencies.shutil, "which", return_value="/usr/bin/pixi"),
+        patch.object(dependencies.subprocess, "run", side_effect=fake_run),
+    ):
+        # Locked for this platform, but Cyrius's license needs an explicit opt-in.
+        assert dependencies._host_pixi_tool_command("cyrius") is None
+    assert calls == ["run"]
+
+
 def test_tool_missing_from_platform_lock_is_unavailable():
     from wgsextract_cli.core import dependencies
 

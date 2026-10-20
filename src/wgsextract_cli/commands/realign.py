@@ -36,6 +36,7 @@ from wgsextract_cli.core.variant_files import calculate_bam_md5, verify_paths_ex
 from wgsextract_cli.core.warnings import (
     check_free_space,
     get_free_space_needed,
+    indexed_read_count,
 )
 
 from . import align as align_cmd
@@ -134,22 +135,26 @@ def _find_existing_fastqs(input_path: str, outdir: str) -> tuple[str, str] | Non
     return None
 
 
-def _preflight_disk_space(input_path: str, outdir: str, need_extract: bool) -> None:
-    """Estimate the worst-case disk usage and bail out if outdir lacks space."""
+def _preflight_disk_space(
+    input_path: str, outdir: str, need_extract: bool, threads: str
+) -> None:
+    """Estimate the peak disk usage and bail out if outdir lacks space."""
     file_size = os.path.getsize(input_path)
     is_cram = input_path.lower().endswith(".cram")
+    reads = indexed_read_count(input_path, threads)
 
     extract_temp_gb, extract_final_gb = (0, 0)
     if need_extract:
         extract_temp_gb, extract_final_gb = get_free_space_needed(
-            file_size, sort_type="Name", is_cram=is_cram
+            file_size, sort_type="Name", is_cram=is_cram, reads=reads
         )
 
     align_temp_gb, align_final_gb = get_free_space_needed(
-        file_size, sort_type="Coord", is_cram=is_cram
+        file_size, sort_type="Coord", is_cram=is_cram, reads=reads
     )
 
-    total_gb = extract_temp_gb + extract_final_gb + align_temp_gb + align_final_gb
+    # Extraction's temp files are gone before alignment; its FASTQs are not.
+    total_gb = max(extract_temp_gb, extract_final_gb + align_temp_gb + align_final_gb)
     logging.warning(
         "Realign pre-flight: ~%d GB free space required at %s "
         "(extract %d+%d, align %d+%d).",
@@ -225,7 +230,9 @@ def run(args: argparse.Namespace) -> None:
 
     # 2. Disk-space pre-flight.
     if not args.no_preflight:
-        _preflight_disk_space(args.input, outdir, need_extract=need_extract)
+        _preflight_disk_space(
+            args.input, outdir, need_extract=need_extract, threads=threads
+        )
 
     # 3. Extract if needed.
     if need_extract:

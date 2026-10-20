@@ -126,7 +126,10 @@ def test_ref_status_reports_every_annotation_vep_cache_and_genome(tmp_path, caps
     reflib = tmp_path / "reference"
     ref_dir = reflib / "ref"
     ref_dir.mkdir(parents=True)
-    for name in ("gnomad_hg38.vcf.bgz", "clinvar_hg19.vcf.gz", "revel_hg38.tsv.gz"):
+    for name in (
+        "gnomad_hg38.vcf.bgz", "clinvar_hg19.vcf.gz", "revel_hg38.tsv.gz",
+        "gerp_hg38.bw",
+    ):  # fmt: skip
         (ref_dir / name).write_text("x", encoding="utf-8")
     (ref_dir / "gnomad_hg38.vcf.bgz.tbi").write_text("x", encoding="utf-8")
     (ref_dir / "clinvar_hg19.vcf.gz.tbi").write_text("x", encoding="utf-8")
@@ -147,6 +150,7 @@ def test_ref_status_reports_every_annotation_vep_cache_and_genome(tmp_path, caps
     annotations = status["annotations"]
     assert annotations["gnomad"]["hg38"]["installed"] is True
     assert annotations["clinvar"]["hg19"]["installed"] is True
+    assert annotations["gerp"]["hg38"]["installed"] is True  # bigWig: self-indexed
     # Present but not tabix-indexed is not usable.
     assert annotations["revel"]["hg38"] == {
         "file": str(ref_dir / "revel_hg38.tsv.gz"),
