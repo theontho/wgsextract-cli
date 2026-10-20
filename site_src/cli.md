@@ -148,7 +148,7 @@ pixi run -e deepvariant wgsextract vcf deepvariant
 
 ::: card
 ### vep
-Ensembl VEP for `vep run`, `vep download`, and `vep verify`. Not available on native Windows; Apple Silicon runs the Intel build under Rosetta.
+Ensembl VEP for `vep run`, `vep download`, and `vep verify`. Not available on native Windows.
 
 ```
 pixi run -e vep wgsextract vep run
