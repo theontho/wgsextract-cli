@@ -8,10 +8,14 @@ on:
 jobs:
   test-windows:
     runs-on: windows-latest
+    # A run takes about 6 minutes.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The distribution download sometimes stalls until the job's timeout;
-      # give it a bounded first try and one retry.
+      # A stalled distribution download gets a bounded first try and one
+      # retry. The hosted runner itself also sometimes dies during WSL setup
+      # ("lost communication with the server"); no step setting helps there,
+      # so rerun the job.
       - name: Set up WSL
         id: wsl
         timeout-minutes: 10
