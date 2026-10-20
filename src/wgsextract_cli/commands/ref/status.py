@@ -1,6 +1,8 @@
 import argparse
+import contextlib
 import json
 import os
+import re
 from typing import Any
 
 from wgsextract_cli.core.config import settings
@@ -97,6 +99,7 @@ def build_ref_status(args: argparse.Namespace) -> dict[str, Any]:
         },
         "annotations": _annotation_status(reflib),
         "vepCache": _vep_cache_status(lib, reflib),
+        "pharmcat": _pharmcat_status(reflib),
         "genomes": _genome_status(reflib),
         "ploidy": _ploidy_status(reflib),
         "mappabilityMaps": _mappability_map_status(reflib),
@@ -130,6 +133,7 @@ def ref_status_values(status: dict[str, Any]) -> dict[str, str]:
             if key not in ("spliceai", "alphamissense", "pharmgkb")
         },
         "library.vepCacheInstalled": _json_bool(bool(status["vepCache"]["versions"])),
+        "library.pharmcatInstalled": _json_bool(status["pharmcat"]["installed"]),
         "library.testGenomeInstalled": _json_bool(status["testGenome"]["installed"]),
         "library.testGenomeStatus": status["testGenome"]["status"],
         "library.testGenomePath": status["testGenome"]["path"],
@@ -157,6 +161,12 @@ def print_ref_status(status: dict[str, Any]) -> None:
     vep = status["vepCache"]
     versions = ", ".join(vep["versions"]) or "missing"
     print(f"\nVEP cache: {versions}" + (f" ({vep['path']})" if vep["versions"] else ""))
+    pharmcat = status["pharmcat"]
+    print(
+        f"PharmCAT: {pharmcat['version']} ({pharmcat['path']})"
+        if pharmcat["installed"]
+        else "PharmCAT: missing"
+    )
     print("\nGenomes:" if status["genomes"] else "\nGenomes: none")
     width = max((len(genome["name"]) for genome in status["genomes"]), default=0) + 2
     for genome in status["genomes"]:
@@ -208,6 +218,21 @@ def _vep_cache_status(lib: ReferenceLibrary, reflib: str) -> dict[str, Any]:
         else []
     )
     return {"path": path, "versions": versions}
+
+
+def _pharmcat_status(reflib: str) -> dict[str, Any]:
+    from wgsextract_cli.commands.vcf.pharmcat import PIPELINE_FILES
+
+    path = str(settings.get("pharmcat_directory") or os.path.join(reflib, "pharmcat"))
+    installed = all(os.path.isfile(os.path.join(path, n)) for n in PIPELINE_FILES)
+    version = ""
+    if installed:
+        common = os.path.join(path, "pcat", "common.py")
+        with contextlib.suppress(OSError):
+            with open(common) as f:
+                match = re.search(r"PHARMCAT_VERSION = '([^']+)'", f.read())
+            version = match.group(1) if match else ""
+    return {"installed": installed, "path": path, "version": version or "installed"}
 
 
 def _genome_status(reflib: str) -> list[dict[str, Any]]:
