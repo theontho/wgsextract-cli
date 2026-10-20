@@ -44,6 +44,8 @@ htslib = ">=1.18"
 # upstream's packaged source for a runnable default Yleaf environment. The tag's
 # source archive, not a git checkout: users mustn't need git (a new Windows PC
 # has none). Pin the archive digest explicitly as well as in the lockfile.
+# Pixi does not generate hashes for direct URLs: retain the Yleaf package's
+# explicit sha256 field in pixi.lock when refreshing it (guarded by tests).
 yleaf = { url = "https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422" }
 
 [feature.bio-tools.target.unix.dependencies]

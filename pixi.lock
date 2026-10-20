@@ -18604,6 +18604,7 @@ packages:
 - pypi: direct+https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422
   name: yleaf
   version: 4.1.6
+  sha256: ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422
   requires_dist:
   - setuptools
   - graphviz
