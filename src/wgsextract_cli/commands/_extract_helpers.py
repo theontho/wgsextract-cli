@@ -1,6 +1,7 @@
 import argparse
 import contextlib
 import logging
+import math
 import os
 import subprocess
 import tempfile
@@ -9,10 +10,10 @@ from typing import NamedTuple
 
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.reference_assets import input_stem
+from wgsextract_cli.core.samtools_commands import parse_memory
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
-    get_sam_sort_cmd,
     run_pipeline,
 )
 from wgsextract_cli.core.variant_files import (
@@ -130,6 +131,24 @@ def resolve_region_or_gene(
     return str(resolved_region)
 
 
+def _collate_buckets(input_path: str, threads: str, memory: str) -> int:
+    """Temp files for `samtools collate`, which holds one in memory at a time.
+
+    Records in memory take about 70x their CRAM size and 20x their BAM size
+    (generous for highly compressed files), so this keeps a bucket within the
+    sort memory budget (threads x per-thread memory). At most 200 files stay
+    under macOS's default limit of 256 open files.
+    """
+    try:
+        size = os.path.getsize(input_path)
+    except OSError:
+        size = 0
+    in_memory = size * (70 if input_path.lower().endswith(".cram") else 20)
+    amount, unit = parse_memory(memory)
+    budget = int(threads) * amount * (1024**3 if unit == "G" else 1024**2)
+    return min(200, max(64, math.ceil(in_memory / budget)))
+
+
 def alignments_to_fastq(
     input_path: str,
     out_r1: str,
@@ -143,28 +162,31 @@ def alignments_to_fastq(
     out_other: str | None = None,
 ) -> None:
     """
-    Name-sort a BAM/CRAM and write paired FASTQs (samtools view | sort -n | fastq).
+    Pair up a BAM/CRAM's reads and write FASTQs (samtools view | collate | fastq).
 
-    Name-sort temp files go under ``temp_parent`` (the output directory) because
-    a whole genome needs far more space than the system temp dir usually has.
-    Singletons are discarded; READ_OTHER reads go to ``out_other`` if given.
+    Standard collate groups mates in pseudo-random order, as a name sort does,
+    but faster. Its fast mode (-f) would keep reads in genomic order, which skews
+    aligners that estimate insert sizes per batch. Temp files go under
+    ``temp_parent`` (the output directory) because a whole genome needs far more
+    space than the system temp dir usually has. Singletons are discarded;
+    READ_OTHER reads go to ``out_other`` if given.
     """
     with (
         cleanup_files(on_failure=[out_r1, out_r2, *([out_other] if out_other else [])]),
-        tempfile.TemporaryDirectory(dir=temp_parent, prefix=".namesort_") as tmp,
+        tempfile.TemporaryDirectory(dir=temp_parent, prefix=".collate_") as tmp,
     ):
         view_cmd = ["samtools", "view", "-uh", "--no-PG", *(cram_opt or [])]
         view_cmd += [input_path, *([region] if region else [])]
-        sort_cmd = get_sam_sort_cmd(
-            "-", threads, memory, fmt="SAM", name_sort=True, temp_dir=tmp
-        )
+        buckets = _collate_buckets(input_path, threads, memory)
+        collate_cmd = ["samtools", "collate", "-u", "-O", "--no-PG", "-@", threads]
+        collate_cmd += ["-n", str(buckets), "-T", os.path.join(tmp, "collate"), "-"]
         fastq_cmd = ["samtools", "fastq", "-1", out_r1, "-2", out_r2]
         fastq_cmd += ["-s", os.path.join(tmp, "singletons.fastq")]
         if out_other:
             fastq_cmd += ["-0", out_other]
         fastq_cmd += ["-n", "-@", threads, "-"]
         run_pipeline(
-            [view_cmd, sort_cmd, fastq_cmd],
+            [view_cmd, collate_cmd, fastq_cmd],
             stdout=subprocess.DEVNULL,
             description="FASTQ extraction",
         )

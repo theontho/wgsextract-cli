@@ -24,7 +24,9 @@ needs_bcftools = pytest.mark.skipif(
 )
 
 
-def _write_vcf(path: Path, body: str, contig: str = "chr1", sample: str = "") -> str:
+def _write_vcf(
+    path: Path, body: str, contig: str = "chr1", sample: str = "", header: str = ""
+) -> str:
     """Write and index a tiny bgzipped VCF; body lines use '{c}' for the contig."""
     fmt = "\tFORMAT\t" + sample if sample else ""
     text = (
@@ -32,7 +34,9 @@ def _write_vcf(path: Path, body: str, contig: str = "chr1", sample: str = "") ->
         f"##contig=<ID={contig},length=1000>\n"
         '##INFO=<ID=SpliceAI,Number=.,Type=String,Description="s">\n'
         '##FORMAT=<ID=GT,Number=1,Type=String,Description="g">\n'
-        f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO{fmt}\n" + body.format(c=contig)
+        + header
+        + f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO{fmt}\n"
+        + body.format(c=contig)
     )
     plain = path.with_suffix("")
     plain.write_text(text)
@@ -435,6 +439,213 @@ def test_clinvar_normalizes_contigs_and_leaves_no_temporaries(tmp_path):
     ]
 
 
+@needs_bcftools
+def test_cadd_scores_snvs_and_indels_per_allele(tmp_path):
+    from wgsextract_cli.commands.vcf import deleteriousness
+
+    sample = _write_vcf(
+        tmp_path / "sample.vcf.gz",
+        "{c}\t100\tm\tC\tT,CA\t.\tPASS\t.\n"
+        "{c}\t150\tblock\tG\t<NON_REF>\t.\tPASS\t.\n"
+        "{c}\t200\ts\tG\tA\t.\tPASS\t.\n"
+        "{c}\t300\ti\tTA\tT\t.\tPASS\t.\n"
+        "{c}\t400\tn\tG\tC\t.\tPASS\t.\n",
+    )
+
+    def cadd_tsv(name: str, rows: str) -> str:
+        path = tmp_path / name
+        text = "## CADD GRCh38-v1.7\n#Chrom\tPos\tRef\tAlt\tRawScore\tPHRED\n" + rows
+        with open(path, "wb") as out:
+            subprocess.run(
+                [get_tool_path("bgzip"), "-c"],
+                input=text.encode(),
+                stdout=out,
+                check=True,
+            )
+        return str(path)
+
+    snvs = cadd_tsv("cadd_hg38.tsv.gz", "1\t100\tC\tT\t1.5\t21\n1\t200\tG\tA\t0.5\t5\n")
+    indels = cadd_tsv(
+        "cadd_indel_hg38.tsv.gz", "1\t100\tC\tCA\t0.9\t9\n1\t300\tTA\tT\t2.5\t25\n"
+    )
+    outdir = tmp_path / "out"
+    args = argparse.Namespace(
+        input=sample, vcf_input=None, outdir=str(outdir), ref=None,
+        cadd_file=snvs, cadd_indel_file=indels, min_score=20.0,
+    )  # fmt: skip
+    with (
+        patch.object(deleteriousness, "verify_dependencies"),
+        patch.object(deleteriousness, "log_dependency_info"),
+    ):
+        deleteriousness.cmd_cadd(args)
+
+    # Matched against CADD's "1", one value per ALT, back on the sample's "chr1".
+    assert _query(
+        str(outdir / "cadd_annotated.vcf.gz"), "%CHROM:%ID:%CADD_PHRED\n"
+    ) == [
+        "chr1:m:21,9",
+        "chr1:block:.",
+        "chr1:s:5",
+        "chr1:i:25",
+        "chr1:n:.",
+    ]
+    assert _query(str(outdir / "cadd_gt_20.0.vcf.gz")) == ["m", "i"]
+    assert not [n for n in os.listdir(outdir) if n.startswith(".wgse")]
+
+
+@needs_bcftools
+def test_gerp_scores_variants_by_max_over_ref_span(tmp_path):
+    pyBigWig = pytest.importorskip("pyBigWig")
+    from wgsextract_cli.commands.vcf import deleteriousness
+
+    bigwig = str(tmp_path / "gerp_hg38.bw")
+    bw = pyBigWig.open(bigwig, "w")
+    bw.addHeader([("1", 1000)])
+    bw.addEntries("1", 99, values=[1.5, 4.25, -2.0, 0.5], span=1, step=1)
+    bw.close()
+    sample = _write_vcf(
+        tmp_path / "sample.vcf.gz",
+        "{c}\t100\tsnv\tC\tT\t.\tPASS\t.\n"
+        "{c}\t100\tdel\tCAT\tC\t.\tPASS\t.\n"
+        "{c}\t102\tblock\tT\t<NON_REF>\t.\tPASS\t.\n"
+        "{c}\t500\tnodata\tG\tA\t.\tPASS\t.\n",
+    )
+    outdir = tmp_path / "out"
+    args = argparse.Namespace(
+        input=sample, vcf_input=None, outdir=str(outdir), ref=None,
+        gerp_file=bigwig, min_score=2.0,
+    )  # fmt: skip
+    with (
+        patch.object(deleteriousness, "verify_dependencies"),
+        patch.object(deleteriousness, "log_dependency_info"),
+    ):
+        deleteriousness.cmd_gerp(args)
+
+    assert _query(str(outdir / "gerp_annotated.vcf.gz"), "%CHROM:%ID:%GERP\n") == [
+        "chr1:snv:1.5",
+        "chr1:del:4.25",
+        "chr1:block:.",
+        "chr1:nodata:.",
+    ]
+    assert _query(str(outdir / "gerp_gt_2.0.vcf.gz")) == ["del"]
+    assert not [n for n in os.listdir(outdir) if n.startswith(".wgse")]
+
+    # chr1 is 1,000 bp in the VCF but 2,000 bp in these scores: another build.
+    bw = pyBigWig.open(bigwig, "w")
+    bw.addHeader([("1", 2000)])
+    bw.addEntries("1", 99, values=[1.0], span=1, step=1)
+    bw.close()
+    with (
+        patch.object(deleteriousness, "verify_dependencies"),
+        patch.object(deleteriousness, "log_dependency_info"),
+        pytest.raises(WGSExtractError, match="different reference"),
+    ):
+        deleteriousness.cmd_gerp(args)
+
+
+@needs_bcftools
+def test_gnomad_v4_af_table_build_and_annotation(tmp_path):
+    from wgsextract_cli.commands.vcf import population
+    from wgsextract_cli.core import annotation_resources as ar
+
+    info = (
+        '##FILTER=<ID=AC0,Description="a">\n'
+        '##INFO=<ID=AF_joint,Number=A,Type=Float,Description="f">\n'
+    )
+    src = tmp_path / "src"
+    src.mkdir()
+    _write_vcf(
+        src / "chr1.vcf.bgz",
+        "{c}\t100\t.\tC\tT\t.\tPASS\tAF_joint=0.25\n"
+        "{c}\t100\t.\tC\tG\t.\tPASS\tAF_joint=0.5\n"
+        "{c}\t200\t.\tG\tA\t.\tAC0\tAF_joint=0.1\n"  # filtered by gnomAD
+        "{c}\t300\t.\tTA\tT\t.\tPASS\tAF_joint=0\n",  # never seen
+        header=info,
+    )
+    _write_vcf(src / "chr2.vcf.bgz", "{c}\t50\t.\tA\tG\t.\tPASS\tAF_joint=0.01\n",
+               contig="chr2", header=info)  # fmt: skip
+    reflib = tmp_path / "lib"
+    url = src.as_uri() + "/{contig}.vcf.bgz"
+    with (
+        patch.object(ar, "GNOMAD_V4_URL", url),
+        patch.object(ar, "GNOMAD_V4_CONTIGS", ["chr1", "chr2", "chr3"]),
+        patch.object(ar, "_remote_size", lambda u: 1),
+    ):
+        # chr3 doesn't exist: the build fails but keeps the finished contigs.
+        assert not ar.build_gnomad_af(str(reflib), workers=2, attempts=1)
+        parts = reflib / "ref" / ".gnomad_hg38_parts"
+        assert sorted(os.listdir(parts)) == ["chr1.tsv.gz", "chr2.tsv.gz"]
+
+        _write_vcf(src / "chr3.vcf.bgz", "", contig="chr3", header=info)
+        os.remove(src / "chr1.vcf.bgz")  # resumed, so never read again
+        assert ar.build_gnomad_af(str(reflib), workers=2)
+
+    table = reflib / "ref" / "gnomad_hg38.tsv.gz"
+    assert not parts.exists() and (reflib / "ref" / "gnomad_hg38.tsv.gz.tbi").exists()
+    with gzip.open(table, "rt") as f:
+        assert f.read().splitlines()[1:] == [
+            "#CHROM\tPOS\tREF\tALT\tAF",
+            "chr1\t100\tC\tT\t0.25",
+            "chr1\t100\tC\tG\t0.5",
+            "chr2\t50\tA\tG\t0.01",
+        ]
+
+    sample = _write_vcf(
+        tmp_path / "sample.vcf.gz",
+        "{c}\t100\tm\tC\tG,T\t.\tPASS\t.\n"
+        "{c}\t200\tf\tG\tA\t.\tPASS\t.\n"
+        "{c}\t300\tn\tTA\tT\t.\tPASS\t.\n",
+        contig="1",
+    )
+    outdir = tmp_path / "out"
+    args = argparse.Namespace(
+        input=sample, vcf_input=None, outdir=str(outdir), ref=None,
+        gnomad_file=str(table), max_af=0.2,
+    )  # fmt: skip
+    with (
+        patch.object(population, "verify_dependencies"),
+        patch.object(population, "log_dependency_info"),
+    ):
+        population.cmd_gnomad(args)
+    assert _query(
+        str(outdir / "gnomad_annotated.vcf.gz"), "%CHROM:%ID:%GNOMAD_AF\n"
+    ) == ["1:m:0.5,0.25", "1:f:.", "1:n:."]
+    assert _query(str(outdir / "gnomad_af_lt_0.2.vcf.gz")) == ["f", "n"]
+
+
+@needs_bcftools
+def test_annotate_vcf_per_contig_threads_match_single_process(tmp_path):
+    from wgsextract_cli.commands.vcf.annotation_helpers import annotate_vcf
+
+    # hs38DH's HLA contig names contain ':', which `bcftools -r` can't parse.
+    hla = "HLA-A*01:01:01:01"
+    contigs = f"##contig=<ID=chr2,length=1000>\n##contig=<ID={hla},length=1000>\n"
+    body = "".join(
+        f"{c}\t{p}\t{c}_{p}\tA\tG\t.\tPASS\t.\n"
+        for c in ("chr1", "chr2", hla)
+        for p in (5, 9)
+    )
+    sample = _write_vcf(tmp_path / "s.vcf.gz", body, header=contigs)
+    table = tmp_path / "t.tsv"
+    table.write_text("1\t5\tA\tG\t0.1\n1\t9\tA\tG\t0.2\n2\t9\tA\tG\t0.3\n")
+    subprocess.run([get_tool_path("bgzip"), "-f", str(table)], check=True)
+    subprocess.run(
+        [get_tool_path("tabix"), "-s1", "-b2", "-e2", f"{table}.gz"], check=True
+    )
+    results = []
+    for threads in (1, 4):
+        out = str(tmp_path / f"out{threads}.vcf.gz")
+        annotate_vcf(
+            sample, f"{table}.gz", "CHROM,POS,REF,ALT,INFO/X", out, str(tmp_path),
+            "X", ['##INFO=<ID=X,Number=A,Type=Float,Description="x">'],
+            threads=threads,
+        )  # fmt: skip
+        results.append(_query(out, "%ID:%X\n"))
+    assert results[0] == results[1] == [
+        "chr1_5:0.1", "chr1_9:0.2", "chr2_5:.", "chr2_9:0.3", f"{hla}_5:.", f"{hla}_9:."
+    ]  # fmt: skip
+
+
 def test_missing_annotation_resource_raises():
     from wgsextract_cli.commands.vcf.annotation_helpers import require_annotation_file
 
@@ -666,3 +877,108 @@ def test_vep_fast_preset_replaces_everything(tmp_path):
     assert "--everything" not in fast
     assert {"--symbol", "--mane", "--sift", "--polyphen"} <= set(fast)
     assert "--af_gnomadg" not in fast and "--hgvs" not in fast
+
+
+# --- vcf to-fasta ---------------------------------------------------------------
+
+_CONSENSUS_HEADER = (
+    '##FILTER=<ID=FAIL,Description="f">\n'
+    '##INFO=<ID=END,Number=1,Type=Integer,Description="e">\n'
+)
+
+
+def _consensus(tmp_path: Path, vcf: str, **overrides) -> str:
+    from wgsextract_cli.commands.vcf.consensus import cmd_to_fasta
+
+    ref = tmp_path / "ref.fa"
+    if not ref.exists():
+        ref.write_text(">chr1\n" + "ACGT" * 250 + "\n")
+    args = argparse.Namespace(
+        vcf_input=vcf,
+        input=None,
+        outdir=str(tmp_path / "out"),
+        ref=str(ref),
+        threads="2",
+        region=None,
+        sample=None,
+        haplotype="iupac",
+        uncalled="auto",
+        include_filtered=False,
+        mask=None,
+        chain=False,
+    )
+    for key, value in overrides.items():
+        setattr(args, key, value)
+    cmd_to_fasta(args)
+    out = (
+        tmp_path / "out" / (Path(vcf).name.removesuffix(".vcf.gz") + "_consensus.fa.gz")
+    )
+    with gzip.open(out, "rt") as f:
+        return "".join(line.strip() for line in f if not line.startswith(">"))
+
+
+@needs_bcftools
+def test_to_fasta_applies_passing_variants_with_iupac_hets(tmp_path):
+    # Reference positions 10/20/30 are C/T/C.
+    body = (
+        "{c}\t10\t.\tC\tA\t50\tPASS\t.\tGT\t0/1\n"
+        "{c}\t20\t.\tT\tG\t50\tPASS\t.\tGT\t1/1\n"
+        "{c}\t30\t.\tC\tT\t50\tFAIL\t.\tGT\t1/1\n"
+    )
+    vcf = _write_vcf(tmp_path / "v.vcf.gz", body, "1", "S", _CONSENSUS_HEADER)
+    seq = _consensus(tmp_path, vcf)
+    assert len(seq) == 1000
+    assert (seq[9], seq[19], seq[29]) == ("M", "G", "C")
+    assert "N" not in seq  # variant-only VCF: unlisted sites are reference
+
+    seq = _consensus(tmp_path, vcf, haplotype="alt", include_filtered=True)
+    assert (seq[9], seq[19], seq[29]) == ("A", "G", "T")
+
+
+@needs_bcftools
+def test_to_fasta_masks_sites_missing_from_gvcf(tmp_path):
+    from wgsextract_cli.commands.vcf.consensus import is_gvcf
+
+    body = (
+        "{c}\t1\t.\tA\t<NON_REF>\t.\tPASS\tEND=100\tGT\t0/0\n"
+        "{c}\t102\t.\tC\tG\t50\tPASS\t.\tGT\t1/1\n"
+    )
+    vcf = _write_vcf(tmp_path / "g.vcf.gz", body, "chr1", "S", _CONSENSUS_HEADER)
+    assert is_gvcf(vcf)
+    seq = _consensus(tmp_path, vcf, region="1:1-110")
+    assert seq == ("ACGT" * 25) + "N" + "G" + "N" * 8
+
+
+@needs_bcftools
+def test_to_fasta_needs_sample_for_multisample_vcf(tmp_path):
+    body = "{c}\t10\t.\tC\tA\t50\tPASS\t.\tGT\t0/1\t1/1\n"
+    vcf = _write_vcf(tmp_path / "m.vcf.gz", body, "chr1", "S1\tS2", _CONSENSUS_HEADER)
+    with pytest.raises(WGSExtractError, match="--sample"):
+        _consensus(tmp_path, vcf)
+    assert _consensus(tmp_path, vcf, sample="S2")[9] == "A"
+
+
+@needs_bcftools
+def test_to_fasta_fixes_n_ref_at_reference_iupac_code(tmp_path):
+    # Callers write REF N where the reference has an IUPAC code (hs38 chr7 R).
+    (tmp_path / "ref.fa").write_text(
+        ">chr1\n" + "ACGTACGT" + "R" + "CGT" + "ACGT" * 247 + "\n"
+    )
+    body = (
+        "{c}\t9\t.\tN\tNTT\t50\tPASS\t.\tGT\t0/1\n"
+        "{c}\t13\t.\tA\tG\t50\tPASS\t.\tGT\t1/1\n"
+        "chrUn\t5\t.\tA\tG\t50\tPASS\t.\tGT\t1/1\n"
+    )
+    header = _CONSENSUS_HEADER + "##contig=<ID=chrUn,length=50>\n"
+    vcf = _write_vcf(tmp_path / "n.vcf.gz", body, "chr1", "S", header)
+    seq = _consensus(tmp_path, vcf, haplotype="alt")
+    assert seq.startswith("ACGTACGT" + "RTT" + "CGT" + "G" + "CGT")
+
+
+@needs_bcftools
+def test_to_fasta_rejects_vcf_from_another_build(tmp_path):
+    (tmp_path / "ref.fa").write_text(">chr1\n" + "ACGT" * 200 + "\n")
+    body = "{c}\t10\t.\tC\tA\t50\tPASS\t.\tGT\t0/1\n"
+    vcf = _write_vcf(tmp_path / "b.vcf.gz", body, "1", "S", _CONSENSUS_HEADER)
+    with pytest.raises(WGSExtractError, match="different reference"):
+        _consensus(tmp_path, vcf)

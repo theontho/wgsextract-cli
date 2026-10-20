@@ -41,6 +41,7 @@ def cmd_spliceai(args: argparse.Namespace) -> None:
         ann_out,
         outdir,
         "SpliceAI",
+        threads=getattr(args, "threads", None),
     )
     logging.info(LOG_MESSAGES["vcf_spliceai_done"].format(output=ann_out))
 
@@ -66,6 +67,7 @@ def cmd_alphamissense(args: argparse.Namespace) -> None:
             ann_out,
             outdir,
             "AlphaMissense",
+            threads=getattr(args, "threads", None),
         )
     else:
         # TSV: CHROM POS REF ALT genome uniprot_id transcript_id protein_variant
@@ -83,6 +85,7 @@ def cmd_alphamissense(args: argparse.Namespace) -> None:
                 "##INFO=<ID=am_class,Number=1,Type=String,"
                 'Description="AlphaMissense classification">',
             ],
+            threads=getattr(args, "threads", None),
         )
 
     run_min_score_filter(
@@ -114,6 +117,7 @@ def cmd_pharmgkb(args: argparse.Namespace) -> None:
             ann_out,
             outdir,
             "PharmGKB",
+            threads=getattr(args, "threads", None),
         )
     else:
         # The table `ref pharmgkb` builds: #CHROM, POS, REF, ALT, PHARMGKB.
@@ -125,5 +129,6 @@ def cmd_pharmgkb(args: argparse.Namespace) -> None:
             outdir,
             "PharmGKB",
             [PHARMGKB_INFO_HEADER],
+            threads=getattr(args, "threads", None),
         )
     logging.info(f"PharmGKB annotation complete: {ann_out}")

@@ -11,6 +11,7 @@ from wgsextract_cli.core.dependency_checks import (
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.utils import (
     WGSExtractError,
+    get_resource_defaults,
     get_sam_index_cmd,
     get_sam_sort_cmd,
     run_command,
@@ -18,15 +19,19 @@ from wgsextract_cli.core.utils import (
 )
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
+    get_bam_header,
+    is_sorted,
     resolve_reference,
     verify_paths_exist,
 )
 from wgsextract_cli.core.warnings import (
     check_free_space,
     get_free_space_needed,
+    indexed_read_count,
     print_warning,
 )
 
+from ._bam_ubam import UBAM_PLATFORMS, cmd_to_ubam
 from ._extract_helpers import (
     alignments_to_fastq,
     cleanup_files,
@@ -112,6 +117,54 @@ def register(
     )
     identify_parser.set_defaults(func=cmd_identify)
 
+    merge_parser = bam_subs.add_parser(
+        "merge", parents=[base_parser], help=CLI_HELP["cmd_bam-merge"]
+    )
+    merge_parser.add_argument(
+        "inputs",
+        nargs="+",
+        metavar="FILE",
+        help="Coordinate-sorted BAM/CRAM files aligned to the same reference.",
+    )
+    merge_parser.add_argument(
+        "--output",
+        help="Output file name or path (a bare name goes in --outdir; "
+        "default: merged.bam, or merged.cram with --cram).",
+    )
+    merge_parser.add_argument(
+        "--cram", action="store_true", help="Write CRAM instead of BAM."
+    )
+    merge_parser.add_argument(
+        "--attach-rg",
+        action="store_true",
+        help="Tag each read with a read group named after its input file, for "
+        "inputs without @RG lines (so reads stay traceable to their lane).",
+    )
+    merge_parser.set_defaults(func=cmd_merge)
+
+    ubam_parser = bam_subs.add_parser(
+        "to-ubam", parents=[base_parser], help=CLI_HELP["cmd_bam-to-ubam"]
+    )
+    ubam_parser.add_argument(
+        "--r1", help="Read 1 FASTQ (instead of an aligned --input BAM/CRAM)."
+    )
+    ubam_parser.add_argument("--r2", help="Read 2 FASTQ for paired-end --r1.")
+    ubam_parser.add_argument(
+        "--sample",
+        help="Sample name (SM) for FASTQ input, or for a BAM/CRAM without @RG "
+        "lines (default: the input file name).",
+    )
+    ubam_parser.add_argument(
+        "--library", default="lib1", help="Library name (LB) for a new read group."
+    )
+    ubam_parser.add_argument(
+        "--platform",
+        choices=list(UBAM_PLATFORMS),
+        help="Sequencing platform (PL) for a new read group (default: detected "
+        "from the read names).",
+    )
+    ubam_parser.set_defaults(func=cmd_to_ubam)
+
 
 def _require_input(args: argparse.Namespace) -> None:
     if not args.input:
@@ -136,16 +189,24 @@ def _preflight_sort_space(
     """Warn about, or refuse, a whole-file sort that cannot fit in outdir.
 
     The space and time estimates are for the whole file, so a region skips them.
+    A name sort is done by `samtools collate`, which deletes each temp file as it
+    writes that part of the output, so it peaks at the larger of the two.
     """
     if region:
         return
-    file_size = os.path.getsize(input_path)
-    is_cram = input_path.lower().endswith(".cram")
-    print_warning(
-        "infoFreeSpace", app_name=app_name, file_size=file_size, is_cram=is_cram
+    temp_needed, final_needed = get_free_space_needed(
+        os.path.getsize(input_path),
+        sort_type,
+        is_cram=input_path.lower().endswith(".cram"),
+        reads=indexed_read_count(input_path, threads),
     )
-    temp_needed, final_needed = get_free_space_needed(file_size, sort_type, is_cram)
-    needed = temp_needed + final_needed
+    print_warning(
+        "infoFreeSpace", app_name=app_name, size_gb=temp_needed, final_gb=final_needed
+    )
+    if sort_type == "Name":
+        needed = max(temp_needed, final_needed)
+    else:
+        needed = temp_needed + final_needed
     if not check_free_space(outdir, needed):
         raise WGSExtractError(
             f"Insufficient free disk space at {outdir} (needs ~{needed} GB)."
@@ -335,4 +396,136 @@ def cmd_unalign(args: argparse.Namespace) -> None:
         cram_opt=cram_opt,
         region=region,
         out_other=_fastq_output_path(args.se, outdir) if args.se else None,
+    )
+
+
+def _merge_output_path(args: argparse.Namespace, outdir: str) -> str:
+    ext = ".cram" if args.cram else ".bam"
+    name = args.output or f"merged{ext}"
+    if not name.lower().endswith((".bam", ".cram")):
+        name += ext
+    elif name.lower().endswith(".cram") != args.cram:
+        raise WGSExtractError(
+            f"--output {name} does not match the output format "
+            f"({'CRAM' if args.cram else 'BAM'}); add or drop --cram."
+        )
+    return _fastq_output_path(name, outdir)
+
+
+def _sequence_dictionary(header: str) -> tuple[tuple[str, str], ...]:
+    """Ordered (SN, LN) pairs from the @SQ lines of a SAM header."""
+    entries = []
+    for line in header.splitlines():
+        if line.startswith("@SQ"):
+            fields = dict(f.split(":", 1) for f in line.split("\t")[1:] if ":" in f)
+            entries.append((fields.get("SN", ""), fields.get("LN", "")))
+    return tuple(entries)
+
+
+def _read_groups(header: str) -> dict[str, str]:
+    """@RG lines keyed by ID."""
+    groups = {}
+    for line in header.splitlines():
+        if line.startswith("@RG"):
+            for field in line.split("\t")[1:]:
+                if field.startswith("ID:"):
+                    groups[field[3:]] = line
+    return groups
+
+
+def _is_cram(path: str) -> bool:
+    return path.lower().endswith(".cram")
+
+
+def cmd_merge(args: argparse.Namespace) -> None:
+    verify_dependencies(["samtools"])
+    log_dependency_info(["samtools"])
+    inputs: list[str] = args.inputs
+    if len(inputs) < 2:
+        raise WGSExtractError("bam merge needs at least two input files.")
+    verify_paths_exist({f"input {i}": path for i, path in enumerate(inputs, 1)})
+    if len({os.path.realpath(p) for p in inputs}) != len(inputs):
+        raise WGSExtractError("The same file is listed more than once.")
+
+    first_header = ""
+    first_dict: tuple[tuple[str, str], ...] = ()
+    read_groups: dict[str, set[str]] = {}
+    for path in inputs:
+        header = get_bam_header(path)
+        if not header:
+            raise WGSExtractError(f"Could not read the header of {path}.")
+        if not is_sorted(path, header=header):
+            raise WGSExtractError(
+                f"{path} is not coordinate-sorted; run 'wgsextract bam sort' first."
+            )
+        for rg_id, line in _read_groups(header).items():
+            read_groups.setdefault(rg_id, set()).add(line)
+        seq_dict = _sequence_dictionary(header)
+        if not first_header:
+            first_header, first_dict = header, seq_dict
+        elif seq_dict != first_dict:
+            raise WGSExtractError(
+                f"{path} has a different sequence dictionary (@SQ lines) than "
+                f"{inputs[0]}; merge only files aligned to the same reference."
+            )
+
+    threads, _ = get_resource_defaults(args.threads, None)
+    outdir = args.outdir or os.path.dirname(os.path.abspath(inputs[0]))
+    os.makedirs(outdir, exist_ok=True)
+    out_file = _merge_output_path(args, outdir)
+    if any(os.path.realpath(out_file) == os.path.realpath(p) for p in inputs):
+        raise WGSExtractError(f"Output {out_file} would overwrite an input file.")
+
+    ref = None
+    if args.cram or any(_is_cram(p) for p in inputs):
+        ref = resolve_reference(
+            args.ref, calculate_bam_md5(inputs[0], header=first_header), inputs[0]
+        )
+        if not (ref and os.path.isfile(ref)):
+            raise WGSExtractError(
+                LOG_MESSAGES["ref_required_for"].format(task="merging CRAM files")
+            )
+
+    # Output is about the size of the inputs; CRAM is roughly half of BAM.
+    out_bytes = 0.0
+    for path in inputs:
+        ratio = 1.0 if _is_cram(path) == args.cram else (0.5 if args.cram else 2.0)
+        out_bytes += os.path.getsize(path) * ratio
+    needed_gb = int(out_bytes / 1024**3) + 1
+    if not check_free_space(outdir, needed_gb):
+        raise WGSExtractError(
+            f"Insufficient free disk space at {outdir} (needs ~{needed_gb} GB)."
+        )
+
+    # Name the index explicitly: samtools would otherwise write .csi for BAM,
+    # which GATK/htsjdk tools cannot read.
+    index = out_file + (".crai" if args.cram else ".bai")
+    cmd = ["samtools", "merge", "-@", threads, "--write-index"]
+    cmd += ["-O", "CRAM" if args.cram else "BAM", "-o", f"{out_file}##idx##{index}"]
+    if ref:
+        cmd += ["--reference", ref]
+    if args.attach_rg:
+        cmd.append("-r")
+    conflicting = sorted(i for i, lines in read_groups.items() if len(lines) > 1)
+    if conflicting:
+        logging.warning(
+            f"Read group ID(s) {', '.join(conflicting)} are defined differently in "
+            "different inputs; samtools will give them distinct IDs."
+        )
+    else:
+        # Identical @RG lines are the same read group split across files.
+        cmd.append("-c")
+    logging.info(f"Merging {len(inputs)} files into {out_file}...")
+    try:
+        with cleanup_files(on_failure=[out_file, index]):
+            run_command(cmd + inputs, capture_output=True)
+    except (OSError, subprocess.SubprocessError) as e:
+        stderr = getattr(e, "stderr", None)
+        raise WGSExtractError(
+            f"Merging failed: {e}" + (f"\n{stderr.strip()}" if stderr else "")
+        ) from e
+    logging.info(f"Merged file written to {out_file}")
+    logging.info(
+        "If the inputs are lanes of one library, mark duplicates again on the "
+        "merged file before variant calling."
     )

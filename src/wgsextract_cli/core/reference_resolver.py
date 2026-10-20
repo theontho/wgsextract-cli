@@ -75,6 +75,9 @@ class ReferenceLibrary:
         self.clinvar_vcf: str | None = None
         self.revel_file: str | None = None
         self.phylop_file: str | None = None
+        self.cadd_file: str | None = None
+        self.cadd_indel_file: str | None = None
+        self.gerp_file: str | None = None
         self.gnomad_vcf: str | None = None
         self.spliceai_vcf: str | None = None
         self.alphamissense_vcf: str | None = None
@@ -234,7 +237,7 @@ class ReferenceLibrary:
             logging.debug(f"ReferenceLibrary: No header retrieved from {header_target}")
             return None
 
-        lengths = _header_contig_lengths(header)
+        lengths = header_contig_lengths(header)
         build = build_from_chr1_length(lengths)
         if not build:
             from wgsextract_cli.core.constants import REFGEN_BY_SNCOUNT
@@ -346,8 +349,22 @@ class ReferenceLibrary:
         self.phylop_file = self._resolve_annotation_file(
             settings.get("phylop_tsv_path"), "phylop", tsv_exts, dirs
         )
+        self.cadd_file = self._resolve_annotation_file(
+            settings.get("cadd_tsv_path"), "cadd", [".tsv.gz"], dirs
+        )
+        self.cadd_indel_file = self._resolve_annotation_file(
+            settings.get("cadd_indel_tsv_path"), "cadd_indel", [".tsv.gz"], dirs
+        )
+        self.gerp_file = self._resolve_annotation_file(
+            settings.get("gerp_bigwig_path"), "gerp", [".bw", ".bigWig"], dirs
+        )
+        # The v4.1 allele-frequency table (`ref gnomad --release 4.1`) wins over
+        # the v2.1.1 exome VCF when both are installed.
         self.gnomad_vcf = self._resolve_annotation_file(
-            settings.get("gnomad_vcf_path"), "gnomad", [".vcf.bgz", ".vcf.gz"], dirs
+            settings.get("gnomad_vcf_path"),
+            "gnomad",
+            [".tsv.gz", ".vcf.bgz", ".vcf.gz"],
+            dirs,
         )
         self.spliceai_vcf = self._resolve_annotation_file(
             settings.get("spliceai_vcf_path"), "spliceai", vcf_exts, dirs
@@ -427,7 +444,7 @@ class ReferenceLibrary:
         return None
 
 
-def _header_contig_lengths(header: str) -> dict[str, int]:
+def header_contig_lengths(header: str) -> dict[str, int]:
     """Contig lengths from BAM @SQ lines, else from VCF ##contig lines."""
     lengths: dict[str, int] = {}
     for line in header.splitlines():

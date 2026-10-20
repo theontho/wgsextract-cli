@@ -252,6 +252,32 @@ class TestMicroarrayTranslation(unittest.TestCase):
             ],
         )
 
+    def test_ftdna_v1_matches_by_rsid_and_keeps_build36_positions(self) -> None:
+        """FTDNA V1 (Affymetrix) templates use NCBI36 positions, unlike the
+        hg19 CombinedKit, so calls are matched by rsID."""
+        root = os.path.join(self.test_dir, "raw_file_templates")
+        os.makedirs(os.path.join(root, "head"))
+        os.makedirs(os.path.join(root, "body"))
+        with open(os.path.join(root, "head", "FTDNA_V1_Affy.csv"), "w") as f:
+            f.write("RSID,CHROMOSOME,POSITION,RESULT\r\n")
+        with open(os.path.join(root, "body", "FTDNA_V1_Affy.csv"), "w") as f:
+            f.write("rs3094315,1,742429,\r\nrs12184325,1,743968,\r\n")
+
+        kit = os.path.join(self.test_dir, "kit_hg19.txt")
+        with open(kit, "w") as f:
+            f.write("rs3094315\t1\t752566\tAG\n")
+            f.write("rs_other\t1\t743968\tTT\n")  # V1's position, other SNP
+
+        out_path = os.path.join(self.test_dir, "ftdna_v1.csv")
+        convert_to_vendor_format("FTDNA_V1_Affy", kit, out_path, self.test_dir)
+        with open(out_path, newline="") as f:
+            self.assertEqual(
+                f.read(),
+                "RSID,CHROMOSOME,POSITION,RESULT\r\n"
+                "rs3094315,1,742429,AG\r\n"
+                "rs12184325,1,743968,--\r\n",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

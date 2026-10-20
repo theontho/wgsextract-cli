@@ -23,9 +23,11 @@ from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 # (key, label, file extensions, builds): <key>_<build><ext>, tabix-indexed.
 ANNOTATION_DATA = [
     ("clinvar", "ClinVar", (".vcf.gz",), ("hg19", "hg38")),
-    ("gnomad", "gnomAD", (".vcf.bgz", ".vcf.gz"), ("hg19", "hg38")),
+    ("gnomad", "gnomAD", (".tsv.gz", ".vcf.bgz", ".vcf.gz"), ("hg19", "hg38")),
     ("revel", "REVEL", (".tsv.gz",), ("hg19", "hg38")),
     ("phylop", "PhyloP", (".tsv.gz",), ("hg19", "hg38")),
+    ("cadd", "CADD", (".tsv.gz",), ("hg19", "hg38")),
+    ("gerp", "GERP", (".bw",), ("hg19", "hg38")),
     ("spliceai", "SpliceAI", (".vcf.gz", ".vcf.bgz"), ("hg19", "hg38")),
     ("alphamissense", "AlphaMissense", (".tsv.gz",), ("hg19", "hg38")),
     ("pharmgkb", "PharmGKB", (".tsv.gz", ".vcf.gz"), ("hg38",)),

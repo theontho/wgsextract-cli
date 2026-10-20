@@ -128,6 +128,7 @@ def run_command(
     env: Mapping[str, str] | None = None,
     stdin: IO[bytes] | IO[str] | int | None = None,
     stdout: IO[bytes] | IO[str] | int | None = None,
+    cwd: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Helper to run subprocess with logging and registry."""
     cmd_list = _normalize_subprocess_cmd(cmd)
@@ -147,6 +148,7 @@ def run_command(
         stdin=stdin,
         text=True if capture_output or (stdout is None) else False,
         env=env,
+        cwd=cwd,
         **process_group_kwargs(),
     )
 

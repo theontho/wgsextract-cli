@@ -151,6 +151,11 @@ GATK and DeepVariant are high-accuracy variant calling workflows with different 
 ### VEP
 VEP annotations add consequences, genes, transcripts, impact, and plugin/cache-driven metadata. A VEP result should be interpreted with the cache version and reference build in mind.
 :::
+
+::: card
+### Cyrius / T1K / ExpansionHunter / PharmCAT
+Genotyping that a VCF can't capture: CYP2D6 star alleles with copy-number changes and hybrids (Cyrius), HLA alleles (T1K), and repeat expansions (ExpansionHunter), all from a whole-genome BAM/CRAM. PharmCAT turns VCF calls plus the CYP2D6 and HLA results into drug-response phenotypes.
+:::
 :::
 :::
 :::
@@ -174,7 +179,7 @@ WGS Extract is designed for local workflows. Be intentional before uploading BAM
 
 ::: card
 ### Keep raw data backed up
-Preserve original FASTQ/BAM/CRAM files, reference build notes, checksums, and tool commands. Derived files can often be regenerated, but raw data may be expensive or impossible to replace.
+Preserve original FASTQ/BAM/CRAM files, reference build notes, checksums, and tool commands. `wgsextract sign create` writes a `SHA256SUMS` manifest (optionally signed with an SSH key) that `sign verify` checks later. Derived files can often be regenerated, but raw data may be expensive or impossible to replace.
 :::
 
 ::: card
