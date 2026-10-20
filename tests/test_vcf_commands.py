@@ -646,3 +646,23 @@ def test_ploidy_requires_explicit_value_without_known_build(build):
     args = argparse.Namespace(ploidy=None, ploidy_file=None)
     with pytest.raises(WGSExtractError, match="Ploidy"):
         _ploidy_args(args, lib)  # type: ignore[arg-type]
+
+
+def test_vep_fast_preset_replaces_everything(tmp_path):
+    from types import SimpleNamespace
+
+    from wgsextract_cli.commands._vep_run import _build_vep_command
+
+    def command(preset):
+        args = SimpleNamespace(
+            format="vcf", vep_assembly="GRCh38", vep_cache=str(tmp_path),
+            vep_cache_version="116", vep_args=None, preset=preset,
+        )  # fmt: skip
+        lib = SimpleNamespace(build="hg38", fasta=None, vep_cache=None)
+        return _build_vep_command(args, "in.vcf.gz", "out.vcf", "snp-indel", lib, "4")
+
+    assert "--everything" in command("everything")
+    fast = command("fast")
+    assert "--everything" not in fast
+    assert {"--symbol", "--mane", "--sift", "--polyphen"} <= set(fast)
+    assert "--af_gnomadg" not in fast and "--hgvs" not in fast

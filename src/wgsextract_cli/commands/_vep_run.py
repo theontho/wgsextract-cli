@@ -32,6 +32,25 @@ GENOMIC_SUFFIXES = (".vcf", ".vcf.gz", ".bcf", ".bam", ".cram")
 _FORMAT_EXT = {"vcf": ".vcf", "tab": ".txt", "json": ".json"}
 
 
+# The VEP options of each --preset. 'fast' leaves out what makes VEP slow,
+# looking up known variants (population frequencies) and HGVS: about half the
+# time of --everything on a genome's chr20.
+VEP_PRESETS = {
+    "everything": ["--everything"],
+    "fast": [
+        "--symbol",
+        "--canonical",
+        "--mane",
+        "--biotype",
+        "--variant_class",
+        "--sift",
+        "b",
+        "--polyphen",
+        "b",
+    ],  # fmt: skip
+}
+
+
 def vep_output_paths(input_path: str, outdir: str, fmt: str) -> tuple[str, str]:
     """Return (path VEP writes, final output path) for an input file."""
     base_name = os.path.basename(input_path).split(".")[0]
@@ -139,7 +158,7 @@ def _build_vep_command(
         logging.warning(LOG_MESSAGES["vep_no_cache_warn"].format(path=cache_dir))
         vep_cmd.append("--database")
 
-    vep_cmd.append("--everything")
+    vep_cmd += VEP_PRESETS[getattr(args, "preset", "everything")]
     if vcf_type in ("sv", "cnv"):
         vep_cmd += ["--overlaps", "--max_sv_size", "300000000", "--buffer_size", "500"]
     if args.vep_args:
