@@ -170,7 +170,7 @@ def test_pixi_installs_runnable_yleaf_from_upstream_package_data_source() -> Non
     manifest = tomllib.loads((ROOT / "pixi.toml").read_text(encoding="utf-8"))
     yleaf = manifest["feature"]["bio-tools"]["pypi-dependencies"]["yleaf"]
     assert yleaf == {
-        "url": "https://github.com/genid/Yleaf/archive/refs/tags/v4.1.2.tar.gz"
+        "url": "https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz"
     }
     assert "git" not in yleaf
 
