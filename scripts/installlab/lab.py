@@ -236,15 +236,26 @@ def boot_vm(name: str, dirs: list[str]) -> tuple[subprocess.Popen[bytes], str]:
         stderr=subprocess.DEVNULL,
     )
     deadline = time.monotonic() + 600
+    key_rejected = False
     while time.monotonic() < deadline:
         ip = subprocess.run(["tart", "ip", name], capture_output=True, text=True)
         if ip.returncode == 0 and ip.stdout.strip():
             address = ip.stdout.strip()
-            probe = subprocess.run(["ssh", *SSH_OPTS, f"admin@{address}", "true"])
+            probe = subprocess.run(
+                ["ssh", *SSH_OPTS, f"admin@{address}", "true"],
+                capture_output=True,
+                text=True,
+            )
             if probe.returncode == 0:
                 return vm, address
+            key_rejected = key_rejected or "Permission denied" in probe.stderr
         time.sleep(3)
     vm.terminate()
+    if key_rejected:
+        raise SystemExit(
+            f"VM {name} refused the lab's SSH key ({SSH_KEY}): the base image was "
+            f"prepared with another one. Run `lab.py prepare macos` again."
+        )
     raise SystemExit(f"VM {name} did not accept SSH")
 
 
