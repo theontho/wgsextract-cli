@@ -1,3 +1,4 @@
+import json
 import platform
 import shutil
 import subprocess
@@ -195,13 +196,21 @@ def test_pixi_vep_runs_natively_on_apple_silicon() -> None:
     sys.platform != "darwin" or platform.machine() != "arm64", reason="Apple Silicon"
 )
 def test_native_vep_starts_on_apple_silicon() -> None:
-    perl = ROOT / ".pixi" / "envs" / "vep" / "bin" / "perl"
     pixi = shutil.which("pixi")
-    if not pixi or not perl.exists():
+    if not pixi:
+        pytest.skip("pixi not found")
+    manifest = ["--manifest-path", str(ROOT / "pixi.toml")]
+    # Pixi's own prefix, which honours its detached-environments setting.
+    info = subprocess.run(
+        [pixi, "info", *manifest, "--json"], capture_output=True, text=True, timeout=60
+    )
+    envs = json.loads(info.stdout)["environments_info"]
+    prefix = next(env["prefix"] for env in envs if env["name"] == "vep")
+    if not (Path(prefix) / "bin" / "perl").exists():
         pytest.skip("vep Pixi environment not installed")
     result = subprocess.run(
-        [pixi, "run", "--manifest-path", str(ROOT / "pixi.toml"), "--frozen"]
-        + ["--no-install", "-e", "vep", "vep", "--help"],
+        [pixi, "run", *manifest, "--frozen", "--no-install", "-e", "vep"]
+        + ["vep", "--help"],
         capture_output=True,
         text=True,
         timeout=120,
