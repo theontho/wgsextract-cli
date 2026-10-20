@@ -1,0 +1,38 @@
+name: Rerun Lost Runners
+
+# A hosted runner sometimes dies mid-job ("The hosted runner lost communication
+# with the server"), most often on Windows during WSL setup. That says nothing
+# about the change, so rerun the failed jobs once; a failure the run itself
+# caused is left alone.
+on:
+  workflow_run:
+    workflows: ["CI Ubuntu", "CI macOS", "CI Windows", "CI Windows Pacman Runtime", "Install Lab"]
+    types: [completed]
+
+permissions:
+  actions: write
+  checks: read
+
+jobs:
+  rerun:
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Rerun if a runner was lost
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs" \
+            -q '.jobs[] | select(.conclusion == "failure") | .id')
+          for job in $jobs; do
+            if gh api "repos/$GITHUB_REPOSITORY/check-runs/$job/annotations" -q '.[].message' \
+                | grep -qE "lost communication with the server|runner has received a shutdown signal"; then
+              echo "Job $job lost its runner; rerunning the failed jobs of run $RUN_ID."
+              gh run rerun "$RUN_ID" --failed --repo "$GITHUB_REPOSITORY"
+              exit 0
+            fi
+          done
+          echo "No lost runner in run $RUN_ID; not rerunning."

@@ -77,11 +77,14 @@ PIXI_TOOL_ENVS = {
     "pbsv": "pacbio",
     "sniffles": "pacbio",
     "htsfile": "default",
+    # Only through its own environment (never a `python` on PATH): pixi_env_tool.
+    "pharmcat_python": "pharmcat",
 }
 
 
 TOOL_EXECUTABLE_ALIASES = {
     "yleaf": ("yleaf", "Yleaf"),
+    "pharmcat_python": ("python",),
 }
 
 
@@ -375,6 +378,7 @@ PIXI_TOOL_PACKAGES = {
     "dv_make_examples.py": "deepvariant",
     "dv_call_variants.py": "deepvariant",
     "dv_postprocess_variants.py": "deepvariant",
+    "pharmcat_python": "pandas",
 }
 
 
@@ -523,6 +527,11 @@ raise SystemExit(1)
     if kind == "script" and not runtime.is_windows_host():
         return _pixi_run_command(pixi_cmd, env, [value])
     return None
+
+
+def pixi_env_tool(tool: str) -> str | None:
+    """How to run a tool from its Pixi environment only (not from PATH)."""
+    return _host_pixi_tool_command(tool)
 
 
 def get_tool_path(tool: str, runtime_mode: str | None = None) -> str | None:

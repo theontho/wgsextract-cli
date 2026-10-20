@@ -26,6 +26,7 @@ from .filter_trio import (
     cmd_filter,
     cmd_trio,
 )
+from .pharmcat import cmd_pharmcat
 from .population import (
     cmd_gnomad,
     cmd_phylop,
@@ -341,6 +342,27 @@ def register(
         "Path to PharmGKB VCF or data file.",
     )
     pharmgkb_parser.set_defaults(func=cmd_pharmgkb)
+
+    pharmcat_parser = vcf_subs.add_parser(
+        "pharmcat",
+        parents=[base_parser],
+        help="Call star-allele diplotypes and drug-response phenotypes (CYP2C19, "
+        "CYP2C9, DPYD, ...) with PharmCAT, and write its prescribing report.",
+    )
+    _add_vcf_input(pharmcat_parser)
+    _add_annotation_resource(
+        pharmcat_parser,
+        "--pharmcat-dir",
+        "pharmcat_directory",
+        "Extracted PharmCAT pipeline release (default: <reference library>/pharmcat).",
+    )
+    pharmcat_parser.add_argument(
+        "--absent-to-ref",
+        action="store_true",
+        help="Treat positions absent from the VCF as reference. Only for a "
+        "whole-genome VCF that lists variants only (not a gVCF).",
+    )
+    pharmcat_parser.set_defaults(func=cmd_pharmcat)
 
     chain_annotate_parser = vcf_subs.add_parser(
         "chain-annotate",

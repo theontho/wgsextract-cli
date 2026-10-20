@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from dataclasses import dataclass, replace
 from functools import cache
@@ -694,6 +695,31 @@ def test_real_reference_library_robustness(
     assert any(
         build in stdout + stderr for build in ("hg19", "hg38", "GRCh37", "GRCh38")
     )
+
+
+def test_real_pharmcat(real_dataset: RealDataset, tmp_path: Path) -> None:
+    if not (real_dataset.ref / "pharmcat" / "pharmcat_pipeline").is_file():
+        pytest.skip("PharmCAT not extracted into <library>/pharmcat")
+
+    _run_ok(
+        [
+            "vcf",
+            "pharmcat",
+            "--input",
+            str(real_dataset.vcf),
+            "--ref",
+            str(real_dataset.ref),
+            "--outdir",
+            str(tmp_path),
+        ]
+    )
+
+    stem = real_dataset.vcf.name.split(".")[0]
+    assert (tmp_path / f"{stem}.report.html").stat().st_size > 0
+    reports = json.loads((tmp_path / f"{stem}.phenotype.json").read_text())
+    cyp2c19 = reports["geneReports"]["CYP2C19"]["recommendationDiplotypes"]
+    # A genome's CYP2C19 is always callable from a VCF (unlike CYP2D6).
+    assert cyp2c19 and cyp2c19[0]["allele1"]["name"] != "Unknown"
 
 
 def _first_record_with(vcf: Path, tag: str) -> str:

@@ -40,6 +40,14 @@ def _add_run_args(parser: argparse.ArgumentParser) -> None:
         "--force", action="store_true", help="Force re-run even if output exists"
     )
     parser.add_argument(
+        "--preset",
+        choices=["everything", "fast"],
+        default="everything",
+        help="What VEP annotates: 'everything' (default), or 'fast' (about twice as "
+        "fast: consequences, genes, MANE transcripts, SIFT and PolyPhen; no "
+        "population frequencies, for which use 'vcf gnomad', and no HGVS)",
+    )
+    parser.add_argument(
         "--vep-args",
         help="Additional raw arguments to pass to VEP (e.g., '--everything --pick')",
     )
