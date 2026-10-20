@@ -12,9 +12,22 @@ from wgsextract_cli.core.reference_assets import (
     find_annotation_resource,
     find_annotation_vcf,
     first_existing_file,
+    is_fasta_path,
 )
 from wgsextract_cli.core.reference_processing import bootstrap_has_support_assets
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+
+# Annotation data the ref commands download into <library>/ref, as
+# (key, label, file extensions, builds): <key>_<build><ext>, tabix-indexed.
+ANNOTATION_DATA = [
+    ("clinvar", "ClinVar", (".vcf.gz",), ("hg19", "hg38")),
+    ("gnomad", "gnomAD", (".vcf.bgz", ".vcf.gz"), ("hg19", "hg38")),
+    ("revel", "REVEL", (".tsv.gz",), ("hg19", "hg38")),
+    ("phylop", "PhyloP", (".tsv.gz",), ("hg19", "hg38")),
+    ("spliceai", "SpliceAI", (".vcf.gz", ".vcf.bgz"), ("hg19", "hg38")),
+    ("alphamissense", "AlphaMissense", (".tsv.gz",), ("hg19", "hg38")),
+    ("pharmgkb", "PharmGKB", (".tsv.gz", ".vcf.gz"), ("hg38",)),
+]
 
 
 def cmd_ref_status(args: argparse.Namespace) -> None:
@@ -82,6 +95,9 @@ def build_ref_status(args: argparse.Namespace) -> dict[str, Any]:
             "installed": bool(pharmgkb_file),
             "file": pharmgkb_file,
         },
+        "annotations": _annotation_status(reflib),
+        "vepCache": _vep_cache_status(lib, reflib),
+        "genomes": _genome_status(reflib),
         "ploidy": _ploidy_status(reflib),
         "mappabilityMaps": _mappability_map_status(reflib),
         "testGenome": test_genome,
@@ -106,6 +122,14 @@ def ref_status_values(status: dict[str, Any]) -> dict[str, str]:
         "library.alphamissenseFile": status["alphamissense"]["file"],
         "library.pharmgkbInstalled": _json_bool(status["pharmgkb"]["installed"]),
         "library.pharmgkbFile": status["pharmgkb"]["file"],
+        **{
+            f"library.{key}Installed": _json_bool(
+                any(entry["installed"] for entry in builds.values())
+            )
+            for key, builds in status["annotations"].items()
+            if key not in ("spliceai", "alphamissense", "pharmgkb")
+        },
+        "library.vepCacheInstalled": _json_bool(bool(status["vepCache"]["versions"])),
         "library.testGenomeInstalled": _json_bool(status["testGenome"]["installed"]),
         "library.testGenomeStatus": status["testGenome"]["status"],
         "library.testGenomePath": status["testGenome"]["path"],
@@ -113,14 +137,100 @@ def ref_status_values(status: dict[str, Any]) -> dict[str, str]:
 
 
 def print_ref_status(status: dict[str, Any]) -> None:
-    print(f"Reference library: {status['referenceLibrary']['path']}")
+    library = status["referenceLibrary"]
+    print(f"Reference library: {library['path']}")
+    if not library["exists"]:
+        print("  (this folder does not exist; set reference_library or pass --ref)")
     print(f"Bootstrap assets: {_status_label(status['bootstrap']['installed'])}")
     print(f"Gene maps: {_status_label(status['geneMap']['installed'])}")
-    print(f"Annotation VCF: {_path_status(status['annotationVcf'])}")
-    print(f"SpliceAI: {_path_status(status['spliceai'])}")
-    print(f"AlphaMissense: {_path_status(status['alphamissense'])}")
-    print(f"PharmGKB: {_path_status(status['pharmgkb'])}")
+    print(f"Microarray targets: {_path_status(status['annotationVcf'])}")
     print(f"Test genome: {status['testGenome']['status']}")
+    print()
+    print(f"{'Annotation data':<16}{'hg19':<14}hg38")
+    labels = {key: label for key, label, _exts, _builds in ANNOTATION_DATA}
+    for key, builds in status["annotations"].items():
+        cells = [
+            _annotation_label(builds[build]) if build in builds else "-"
+            for build in ("hg19", "hg38")
+        ]
+        print(f"  {labels[key]:<14}{cells[0]:<14}{cells[1]}")
+    vep = status["vepCache"]
+    versions = ", ".join(vep["versions"]) or "missing"
+    print(f"\nVEP cache: {versions}" + (f" ({vep['path']})" if vep["versions"] else ""))
+    print("\nGenomes:" if status["genomes"] else "\nGenomes: none")
+    width = max((len(genome["name"]) for genome in status["genomes"]), default=0) + 2
+    for genome in status["genomes"]:
+        ready = (
+            "aligner index (bwa)"
+            if genome["bwaIndex"]
+            else "FASTA index"
+            if genome["faiIndex"]
+            else "not indexed"
+        )
+        print(f"  {genome['name']:<{width}}{ready}")
+
+
+def _annotation_label(entry: dict[str, Any]) -> str:
+    if entry["installed"]:
+        return "installed"
+    return "not indexed" if entry["file"] else "missing"
+
+
+def _annotation_status(reflib: str) -> dict[str, dict[str, dict[str, Any]]]:
+    status: dict[str, dict[str, dict[str, Any]]] = {}
+    for key, _label, extensions, builds in ANNOTATION_DATA:
+        status[key] = {}
+        for build in builds:
+            path = first_existing_file(
+                [
+                    os.path.join(directory, f"{key}_{build}{extension}")
+                    for directory in (os.path.join(reflib, "ref"), reflib)
+                    for extension in extensions
+                ]
+            )
+            indexed = bool(path) and any(
+                os.path.isfile(path + index) for index in (".tbi", ".csi")
+            )
+            status[key][build] = {"file": path, "installed": indexed}
+    return status
+
+
+def _vep_cache_status(lib: ReferenceLibrary, reflib: str) -> dict[str, Any]:
+    path = lib.vep_cache or os.path.join(reflib, "vep")
+    species = os.path.join(path, "homo_sapiens")
+    versions = (
+        sorted(
+            name
+            for name in os.listdir(species)
+            if os.path.isdir(os.path.join(species, name))
+        )
+        if os.path.isdir(species)
+        else []
+    )
+    return {"path": path, "versions": versions}
+
+
+def _genome_status(reflib: str) -> list[dict[str, Any]]:
+    genomes_dir = os.path.join(reflib, "genomes")
+    if not os.path.isdir(genomes_dir):
+        return []
+    genomes = []
+    for name in sorted(os.listdir(genomes_dir)):
+        path = os.path.join(genomes_dir, name)
+        if not is_fasta_path(name) or not os.path.isfile(path):
+            continue
+        genomes.append(
+            {
+                "name": name,
+                "path": path,
+                "faiIndex": os.path.isfile(path + ".fai"),
+                "bwaIndex": all(
+                    os.path.isfile(path + ext)
+                    for ext in (".amb", ".ann", ".bwt", ".pac", ".sa")
+                ),
+            }
+        )
+    return genomes
 
 
 def _resolve_reference_library(args: argparse.Namespace) -> str:
