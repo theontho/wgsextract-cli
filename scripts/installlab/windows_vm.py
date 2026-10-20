@@ -15,6 +15,7 @@ copy the evidence back for the host's oracle.
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import json
 import os
@@ -98,10 +99,15 @@ def free_port() -> int:
         return int(s.getsockname()[1])
 
 
+class KeyRejected(Exception):
+    """SSH is up, but the image doesn't trust the lab's key."""
+
+
 def wait_for_ssh(
     user: str, port: int, timeout: float, alive: subprocess.Popen[bytes] | None = None
 ) -> None:
     deadline = time.monotonic() + timeout
+    rejections = 0
     while time.monotonic() < deadline:
         if alive is not None and alive.poll() is not None:
             raise SystemExit("The VM exited before SSH came up.")
@@ -112,8 +118,37 @@ def wait_for_ssh(
         )
         if probe.returncode == 0:
             return
+        if "Permission denied" in probe.stderr:
+            rejections += 1
+            if rejections >= 3:
+                raise KeyRejected(user)
         time.sleep(10)
     raise SystemExit(f"SSH as {user} did not come up within {timeout:.0f}s")
+
+
+def authorize_key_by_password(port: int) -> None:
+    """Trust the lab's current key in this VM: log in as the admin with the
+    image's password (autounattend.xml) and rewrite both key files, which keeps
+    their permissions. Only the run's own overlay changes."""
+    pub = ssh_key().with_suffix(".pub").read_text().strip()
+    script = "".join(
+        f"Set-Content -LiteralPath 'C:\\ProgramData\\ssh\\{name}' -Value '{pub}' "
+        "-Encoding ascii; "
+        for name in ("administrators_authorized_keys", "labuser_authorized_keys")
+    )
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode()
+    expect = f"""
+set timeout 120
+spawn ssh -p {port} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PubkeyAuthentication=no {ADMIN}@127.0.0.1 "powershell -NoProfile -EncodedCommand {encoded}"
+expect {{
+    "assword:" {{ send "{ADMIN}\\r"; exp_continue }}
+    eof
+}}
+catch wait result
+exit [lindex $result 3]
+"""
+    if subprocess.run(["expect", "-c", expect]).returncode != 0:
+        raise SystemExit("Could not authorize the lab's SSH key in the Windows VM.")
 
 
 # --- artifacts ------------------------------------------------------------------
@@ -344,7 +379,14 @@ class QemuWindowsMachine(WindowsMachine):
             stderr=subprocess.STDOUT,
         )
         log(f"Booting Windows VM {self.name} (ssh port {self.port})...")
-        wait_for_ssh(self.admin, self.port, 900, self.vm)
+        try:
+            wait_for_ssh(self.admin, self.port, 900, self.vm)
+        except KeyRejected:
+            # The lab's key changed since the image was built (its state moved);
+            # fix this run's overlay rather than rebuilding the image.
+            log("The image doesn't trust the lab's current SSH key; authorizing it...")
+            authorize_key_by_password(self.port)
+            wait_for_ssh(self.admin, self.port, 120, self.vm)
         self.after_boot()
         self.stage()
 

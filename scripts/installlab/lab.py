@@ -228,15 +228,22 @@ SSH_OPTS = [
 ]  # fmt: skip
 
 
+class KeyRejected(Exception):
+    """The VM answers SSH but doesn't trust the lab's key."""
+
+
 def boot_vm(name: str, dirs: list[str]) -> tuple[subprocess.Popen[bytes], str]:
-    """Start a Tart VM headless; return the process and its IP once SSH answers."""
+    """Start a Tart VM headless; return the process and its IP once SSH answers.
+
+    Raises KeyRejected (with the VM stopped) if it refuses the lab's key.
+    """
     vm = subprocess.Popen(
         ["tart", "run", name, "--no-graphics", *(f"--dir={d}" for d in dirs)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
     deadline = time.monotonic() + 600
-    key_rejected = False
+    rejections = 0
     while time.monotonic() < deadline:
         ip = subprocess.run(["tart", "ip", name], capture_output=True, text=True)
         if ip.returncode == 0 and ip.stdout.strip():
@@ -248,15 +255,78 @@ def boot_vm(name: str, dirs: list[str]) -> tuple[subprocess.Popen[bytes], str]:
             )
             if probe.returncode == 0:
                 return vm, address
-            key_rejected = key_rejected or "Permission denied" in probe.stderr
+            if "Permission denied" in probe.stderr:
+                rejections += 1
+                if rejections >= 3:  # sshd is up; the key is the problem
+                    stop_vm(name, vm)
+                    raise KeyRejected(name)
         time.sleep(3)
     vm.terminate()
-    if key_rejected:
-        raise SystemExit(
-            f"VM {name} refused the lab's SSH key ({SSH_KEY}): the base image was "
-            f"prepared with another one. Run `lab.py prepare macos` again."
-        )
     raise SystemExit(f"VM {name} did not accept SSH")
+
+
+def stop_vm(name: str, vm: subprocess.Popen[bytes]) -> None:
+    subprocess.run(["tart", "stop", name], capture_output=True)
+    vm.wait(timeout=300)
+
+
+def authorize_lab_key(ip: str) -> None:
+    """Add the lab's public key to admin's authorized_keys over password login
+    (the vanilla image's admin/admin), with macOS's built-in expect."""
+    pub = SSH_KEY.with_suffix(".pub").read_text().strip()
+    expect = f"""
+set timeout 300
+spawn ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PubkeyAuthentication=no admin@{ip} "mkdir -p ~/.ssh && chmod 700 ~/.ssh && grep -qxF '{pub}' ~/.ssh/authorized_keys 2>/dev/null || echo '{pub}' >> ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys; sync"
+expect {{
+    "assword:" {{ send "admin\\r"; exp_continue }}
+    "Connection refused" {{ sleep 3; exit 2 }}
+    eof
+}}
+"""
+    for _ in range(60):
+        if subprocess.run(["/usr/bin/expect", "-c", expect]).returncode == 0 and (
+            subprocess.run(["ssh", *SSH_OPTS, f"admin@{ip}", "true"]).returncode == 0
+        ):
+            return
+        time.sleep(5)
+    raise SystemExit(f"Could not authorize the lab SSH key on {ip}.")
+
+
+def ssh_retry(ip: str, command: str, attempts: int = 5) -> None:
+    """Run an idempotent command in a just-booted VM, whose SSH may still drop
+    (or drop as the command changes its network settings)."""
+    for attempt in range(1, attempts + 1):
+        if subprocess.run(["ssh", *SSH_OPTS, f"admin@{ip}", command]).returncode == 0:
+            return
+        if attempt < attempts:
+            time.sleep(10)
+    raise SystemExit(f"Failed in the VM at {ip}: {command[:80]}")
+
+
+def repair_base_key() -> None:
+    """Make the macOS base trust the lab's current key, in about a minute
+    instead of rebuilding it: the key changes when the lab's state moves."""
+    log(f"{MACOS_BASE} doesn't trust {SSH_KEY}; authorizing it there...")
+    vm = subprocess.Popen(
+        ["tart", "run", MACOS_BASE, "--no-graphics"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        ip = ""
+        for _ in range(200):
+            result = subprocess.run(
+                ["tart", "ip", MACOS_BASE], capture_output=True, text=True
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                ip = result.stdout.strip()
+                break
+            time.sleep(3)
+        if not ip:
+            raise SystemExit(f"{MACOS_BASE} never got an IP address.")
+        authorize_lab_key(ip)
+    finally:
+        stop_vm(MACOS_BASE, vm)
 
 
 class TartMachine(Machine):
@@ -266,10 +336,15 @@ class TartMachine(Machine):
     guest_scripts_in_guest = "/Volumes/My Shared Files/guest"
 
     def create(self) -> None:
+        dirs = [f"results:{self.results}", f"guest:{self.guest}:ro"]
         run(["tart", "clone", MACOS_BASE, self.name])
-        self.vm, self.ip = boot_vm(
-            self.name, [f"results:{self.results}", f"guest:{self.guest}:ro"]
-        )
+        try:
+            self.vm, self.ip = boot_vm(self.name, dirs)
+        except KeyRejected:
+            subprocess.run(["tart", "delete", self.name], capture_output=True)
+            repair_base_key()
+            run(["tart", "clone", MACOS_BASE, self.name])
+            self.vm, self.ip = boot_vm(self.name, dirs)
 
     def destroy(self) -> None:
         subprocess.run(["tart", "stop", self.name], capture_output=True)
@@ -649,8 +724,10 @@ def run_scenario(
 def enable_gatekeeper(ip: str) -> None:
     """The vanilla image ships with Gatekeeper off; a user's Mac has it on."""
     # The setting is written lazily; sync before the VM is stopped or it's lost.
-    run(["ssh", *SSH_OPTS, f"admin@{ip}",
-         "echo admin | sudo -S spctl --global-enable && spctl --status && sync && sleep 5"])  # fmt: skip
+    ssh_retry(
+        ip,
+        "echo admin | sudo -S spctl --global-enable && spctl --status && sync && sleep 5",
+    )
 
 
 def cmd_prepare(args: argparse.Namespace) -> None:
@@ -685,33 +762,16 @@ def cmd_prepare(args: argparse.Namespace) -> None:
             time.sleep(3)
         if not ip:
             raise SystemExit("The base VM never got an IP address.")
-        # The vanilla image only has password login (admin/admin); use it once,
-        # through macOS's built-in expect, to authorize the lab key.
-        pub = SSH_KEY.with_suffix(".pub").read_text().strip()
-        expect = f"""
-set timeout 300
-spawn ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PubkeyAuthentication=no admin@{ip} "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '{pub}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
-expect {{
-    "assword:" {{ send "admin\\r"; exp_continue }}
-    "Connection refused" {{ sleep 3; exit 2 }}
-    eof
-}}
-"""
-        for _ in range(60):
-            if subprocess.run(["/usr/bin/expect", "-c", expect]).returncode == 0 and (
-                subprocess.run(["ssh", *SSH_OPTS, f"admin@{ip}", "true"]).returncode
-                == 0
-            ):
-                break
-            time.sleep(5)
-        else:
-            raise SystemExit("Could not authorize the lab SSH key in the base VM.")
+        # The vanilla image only has password login (admin/admin).
+        authorize_lab_key(ip)
         # The installer requires the Command Line Tools, a documented user
         # prerequisite; install them headlessly the way softwareupdate allows.
         # The host's DNS forwarder for Tart's bridge doesn't answer on some hosts
         # (seen alongside OrbStack); use public resolvers inside the lab VM.
-        run(["ssh", *SSH_OPTS, f"admin@{ip}",
-             "echo admin | sudo -S networksetup -setdnsservers Ethernet 1.1.1.1 8.8.8.8"])  # fmt: skip
+        ssh_retry(
+            ip,
+            "echo admin | sudo -S networksetup -setdnsservers Ethernet 1.1.1.1 8.8.8.8",
+        )
         script = (
             "touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress; "
             "label=$(softwareupdate -l 2>/dev/null | sed -n 's/^\\* Label: //p' | "
@@ -720,7 +780,7 @@ expect {{
             "rm -f /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress; "
             "xcode-select -p && xcrun --find clang"
         )
-        run(["ssh", *SSH_OPTS, f"admin@{ip}", f"/bin/zsh -lc {shlex.quote(script)}"])
+        ssh_retry(ip, f"/bin/zsh -lc {shlex.quote(script)}")
         enable_gatekeeper(ip)
     finally:
         subprocess.run(["tart", "stop", MACOS_BASE])
