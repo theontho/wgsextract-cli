@@ -170,6 +170,8 @@ def _run_downloader(
     downloader: Callable[[str], bool],
     action: str = "download and indexing",
 ) -> None:
+    if not os.path.isdir(reflib):
+        logging.info("Creating a new reference library at %s.", reflib)
     logging.info("Starting %s %s...", resource_name, action)
     if not downloader(reflib):
         raise WGSExtractError(f"{resource_name} setup failed.")
