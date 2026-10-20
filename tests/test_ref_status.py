@@ -120,3 +120,47 @@ def test_ref_status_infers_library_from_reference_fasta(tmp_path):
             settings["reference_library"] = old_reflib
 
     assert status["referenceLibrary"]["path"] == str(reflib)
+
+
+def test_ref_status_reports_every_annotation_vep_cache_and_genome(tmp_path, capsys):
+    reflib = tmp_path / "reference"
+    ref_dir = reflib / "ref"
+    ref_dir.mkdir(parents=True)
+    for name in ("gnomad_hg38.vcf.bgz", "clinvar_hg19.vcf.gz", "revel_hg38.tsv.gz"):
+        (ref_dir / name).write_text("x", encoding="utf-8")
+    (ref_dir / "gnomad_hg38.vcf.bgz.tbi").write_text("x", encoding="utf-8")
+    (ref_dir / "clinvar_hg19.vcf.gz.tbi").write_text("x", encoding="utf-8")
+    (reflib / "vep" / "homo_sapiens" / "116_GRCh38").mkdir(parents=True)
+    genomes = reflib / "genomes"
+    genomes.mkdir()
+    for name in ("hg38.fa.gz", "hg19.fa.gz"):
+        (genomes / name).write_text(">chr1\nA\n", encoding="utf-8")
+    for ext in (".fai", ".amb", ".ann", ".bwt", ".pac", ".sa"):
+        (genomes / f"hg38.fa.gz{ext}").write_text("x", encoding="utf-8")
+
+    args = Namespace(
+        ref=str(reflib), genome_library=str(tmp_path / "g"), annotation_vcf="",
+        input=None, json=False, values=False,
+    )  # fmt: skip
+    status = build_ref_status(args)
+
+    annotations = status["annotations"]
+    assert annotations["gnomad"]["hg38"]["installed"] is True
+    assert annotations["clinvar"]["hg19"]["installed"] is True
+    # Present but not tabix-indexed is not usable.
+    assert annotations["revel"]["hg38"] == {
+        "file": str(ref_dir / "revel_hg38.tsv.gz"),
+        "installed": False,
+    }
+    assert annotations["phylop"]["hg19"] == {"file": "", "installed": False}
+    assert "hg19" not in annotations["pharmgkb"]
+    assert status["vepCache"]["versions"] == ["116_GRCh38"]
+    by_name = {genome["name"]: genome for genome in status["genomes"]}
+    assert by_name["hg38.fa.gz"]["bwaIndex"] is True
+    assert by_name["hg19.fa.gz"]["faiIndex"] is False
+
+    cmd_ref_status(args)
+    printed = capsys.readouterr().out
+    assert "gnomAD        missing       installed" in printed
+    assert "REVEL         missing       not indexed" in printed
+    assert "VEP cache: 116_GRCh38" in printed

@@ -1,3 +1,4 @@
+import functools
 import logging
 import os
 import re
@@ -34,6 +35,17 @@ _UNKNOWN_SIGNATURE = "0" * 32
 _VCF_CONTIG_RE = re.compile(r"^##contig=<.*?\bID=([^,>]+).*?\blength=(\d+)")
 
 
+@functools.cache
+def _warn_missing_configured_library(path: str) -> None:
+    """Once per run: a configured library that isn't there finds no data."""
+    from wgsextract_cli.core.config import get_config_path
+
+    logging.warning(
+        f"reference_library in {get_config_path()} is {path}, which doesn't "
+        "exist. Point it at your reference library, or pass --ref."
+    )
+
+
 class ReferenceLibrary:
     """Helper to manage and resolve reference genome paths."""
 
@@ -49,6 +61,8 @@ class ReferenceLibrary:
         self.root: str | None = root_path or settings.get("reference_library")
         if isinstance(self.root, str):
             self.root = os.path.expanduser(self.root)
+            if not root_path and not os.path.isdir(self.root):
+                _warn_missing_configured_library(self.root)
         self.md5: str | None = md5_sig
         self.input_path: str | None = input_path
         if isinstance(self.input_path, str):

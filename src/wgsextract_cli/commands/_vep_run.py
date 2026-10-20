@@ -204,16 +204,28 @@ def _run_vep_on_input(
                 if args.vcf_type == "auto"
                 else args.vcf_type
             )
-            vep_cmd = _build_vep_command(
-                args, vep_input_vcf, output_file, vcf_type, lib, threads
+            vep_output = (
+                os.path.join(work, "vep.vcf.gz")
+                if args.format == "vcf"
+                else output_file
             )
+            vep_cmd = _build_vep_command(
+                args, vep_input_vcf, vep_output, vcf_type, lib, threads
+            )
+            if args.format == "vcf":
+                # bgzipped as it's written: a genome's uncompressed VEP VCF is
+                # ~25 GB.
+                vep_cmd += ["--compress_output", "bgzip"]
             logging.info(LOG_MESSAGES["vep_running"].format(command=" ".join(vep_cmd)))
             run_command(vep_cmd)
 
-        if args.format == "vcf":
-            logging.info(f"Compressing output to {final_output}...")
-            run_command(["bgzip", "-f", output_file])
-            run_command(["tabix", "-f", "-p", "vcf", final_output])
+            if args.format == "vcf":
+                # VEP's report files, where they were before it wrote into work.
+                for suffix in ("_summary.html", "_warnings.txt"):
+                    if os.path.exists(vep_output + suffix):
+                        os.replace(vep_output + suffix, output_file + suffix)
+                os.replace(vep_output, final_output)
+                run_command(["tabix", "-f", "-p", "vcf", final_output])
     except (OSError, subprocess.SubprocessError, WGSExtractError, ValueError) as e:
         logging.error(f"VEP failed for {current_input}: {e}")
         return "FAILED", "-"
