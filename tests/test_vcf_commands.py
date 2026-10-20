@@ -936,6 +936,24 @@ def test_to_fasta_applies_passing_variants_with_iupac_hets(tmp_path):
 
 
 @needs_bcftools
+def test_to_fasta_failure_before_writing_keeps_earlier_output(tmp_path, monkeypatch):
+    from wgsextract_cli.commands.vcf import consensus
+
+    body = "{c}\t10\t.\tC\tA\t50\tPASS\t.\tGT\t1/1\n"
+    vcf = _write_vcf(tmp_path / "k.vcf.gz", body, "chr1", "S", _CONSENSUS_HEADER)
+    assert _consensus(tmp_path, vcf)[9] == "A"
+
+    def fail(*_args):
+        raise WGSExtractError("boom")
+
+    monkeypatch.setattr(consensus, "_prepare_vcf", fail)
+    with pytest.raises(WGSExtractError, match="boom"):
+        _consensus(tmp_path, vcf)
+    out = tmp_path / "out" / "k_consensus.fa.gz"
+    assert out.exists() and Path(f"{out}.fai").exists()
+
+
+@needs_bcftools
 def test_to_fasta_masks_sites_missing_from_gvcf(tmp_path):
     from wgsextract_cli.commands.vcf.consensus import is_gvcf
 

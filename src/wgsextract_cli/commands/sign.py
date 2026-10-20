@@ -162,10 +162,11 @@ def _read_manifest(manifest: str) -> list[tuple[str, str]]:
     entries = []
     with open(manifest) as f:
         for number, line in enumerate(f, 1):
-            digest, sep, name = line.rstrip("\n").partition("  ")
-            if not sep or not re.fullmatch(r"[0-9a-fA-F]{64}", digest):
+            # "<digest> <mode><name>": mode is " " (text) or "*" (binary).
+            match = re.fullmatch(r"([0-9a-fA-F]{64}) [ *](.+)", line.rstrip("\n"))
+            if not match:
                 raise WGSExtractError(f"{manifest}:{number}: not a SHA-256 line.")
-            entries.append((digest.lower(), name.removeprefix("*")))
+            entries.append((match[1].lower(), match[2]))
     return entries
 
 

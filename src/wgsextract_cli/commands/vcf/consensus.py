@@ -357,6 +357,9 @@ def cmd_to_fasta(args: argparse.Namespace) -> None:
         + (f" (region {region})" if region else "")
     )
     partials = [out_fasta, out_fasta + ".fai", out_fasta + ".gzi"]
+    # Only remove outputs this run started writing, so a failure while
+    # preparing inputs leaves an earlier result intact.
+    writing = False
     try:
         with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_consensus_") as w:
             vcf = _prepare_vcf(input_vcf, contigs, region, sample, gvcf, threads, w)
@@ -373,11 +376,13 @@ def cmd_to_fasta(args: argparse.Namespace) -> None:
                     consensus_cmd + ["--fasta-ref", "-", vcf],
                 ]
             stages.append(["bgzip", "--threads", threads, "-c"])
+            writing = True
             with open(out_fasta, "wb") as f:
                 run_pipeline(stages, stdout=f, description="Consensus generation")
         run_command(["samtools", "faidx", out_fasta], capture_output=True)
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        for path in partials + ([out_chain] if out_chain else []):
+        outputs = partials + ([out_chain] if out_chain else [])
+        for path in outputs if writing else []:
             if os.path.exists(path):
                 os.remove(path)
         raise WGSExtractError(f"Consensus generation failed: {e}") from e

@@ -109,7 +109,14 @@ def test_to_ubam_adds_read_group_to_fastq(tmp_path):
     r1, r2 = tmp_path / "x_R1.fq", tmp_path / "x_R2.fq"
     r1.write_text(f"@{name} 1:N:0:ACGT\n{_SEQ}\n+\n{_QUAL}\n")
     r2.write_text(f"@{name} 2:N:0:ACGT\n{_SEQ}\n+\n{_QUAL}\n")
-    cmd_to_ubam(_ubam_args(tmp_path, r1=str(r1), r2=str(r2), sample="NA1"))
+    # --r1 overrides a configured default input (not given on the command line).
+    configured = str(tmp_path / "configured.bam")
+    cmd_to_ubam(
+        _ubam_args(
+            tmp_path, r1=str(r1), r2=str(r2), sample="NA1", input=configured,
+            _explicit_dests={"r1", "r2", "sample"},
+        )
+    )  # fmt: skip
 
     out = str(tmp_path / "out" / "x_unaligned.bam")
     assert (
@@ -141,6 +148,7 @@ def test_merge_combines_identical_read_groups(tmp_path):
     a = _bam(tmp_path / "a.bam", _pair("r1", "chr1", 100) + _pair("r3", "chr2", 5))
     b = _bam(tmp_path / "b.bam", _pair("r2", "chr1", 120))
     cmd_merge(_merge_args(tmp_path, [a, b]))
+    cmd_merge(_merge_args(tmp_path, [a, b]))  # a rerun replaces the result
 
     out = tmp_path / "out" / "merged.bam"
     assert (tmp_path / "out" / "merged.bam.bai").exists()

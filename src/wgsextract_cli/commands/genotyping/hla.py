@@ -166,6 +166,7 @@ def extract_reads(aln: Alignment, work: str) -> tuple[str, str]:
                 "-F",
                 "0x900",
                 "-M",
+                "--fetch-pairs",  # mates mapped outside the regions, too
                 "-L",
                 bed,
                 *aln.ref_opt,

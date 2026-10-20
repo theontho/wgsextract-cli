@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from wgsextract_cli.cli.parser import build_parser
-from wgsextract_cli.commands.sign import cmd_create, cmd_verify
+from wgsextract_cli.commands.sign import _read_manifest, cmd_create, cmd_verify
 from wgsextract_cli.core.utils import WGSExtractError
 
 pytestmark = pytest.mark.skipif(
@@ -70,6 +70,19 @@ def test_verify_rejects_other_key_and_edited_manifest(tmp_path, outputs):
         cmd_verify(
             _parse("sign", "verify", str(manifest), "--public-key", f"{key}.pub")
         )
+
+
+def test_manifest_reader_keeps_names_and_accepts_binary_mode(tmp_path):
+    digest = "ab" * 32
+    manifest = tmp_path / "SHA256SUMS"
+    manifest.write_text(f"{digest}  *star.txt\n{digest} *binary mode.bam\n")
+    assert _read_manifest(str(manifest)) == [
+        (digest, "*star.txt"),
+        (digest, "binary mode.bam"),
+    ]
+    manifest.write_text(f"{digest}\tname\n")
+    with pytest.raises(WGSExtractError, match="not a SHA-256 line"):
+        _read_manifest(str(manifest))
 
 
 def test_unsigned_manifest_checks_hashes_only(outputs):

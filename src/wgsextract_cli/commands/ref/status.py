@@ -20,7 +20,8 @@ from wgsextract_cli.core.reference_processing import bootstrap_has_support_asset
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 
 # Annotation data the ref commands download into <library>/ref, as
-# (key, label, file extensions, builds): <key>_<build><ext>, tabix-indexed.
+# (key, label, file extensions, builds): <key>_<build><ext>, tabix-indexed
+# (bigWig files are self-indexed).
 ANNOTATION_DATA = [
     ("clinvar", "ClinVar", (".vcf.gz",), ("hg19", "hg38")),
     ("gnomad", "gnomAD", (".tsv.gz", ".vcf.bgz", ".vcf.gz"), ("hg19", "hg38")),
@@ -200,8 +201,10 @@ def _annotation_status(reflib: str) -> dict[str, dict[str, dict[str, Any]]]:
                     for extension in extensions
                 ]
             )
-            indexed = bool(path) and any(
-                os.path.isfile(path + index) for index in (".tbi", ".csi")
+            # bigWig files carry their own index; the rest need a tabix sidecar.
+            indexed = bool(path) and (
+                path.endswith(".bw")
+                or any(os.path.isfile(path + index) for index in (".tbi", ".csi"))
             )
             status[key][build] = {"file": path, "installed": indexed}
     return status

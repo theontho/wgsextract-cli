@@ -179,6 +179,9 @@ def _fastq_stages(args: argparse.Namespace, threads: str) -> list[list[str]]:
 
 
 def cmd_to_ubam(args: argparse.Namespace) -> None:
+    explicit = getattr(args, "_explicit_dests", None)
+    if args.r1 and explicit is not None and "input" not in explicit:
+        args.input = None  # a configured default input yields to --r1
     if bool(args.input) == bool(args.r1):
         raise WGSExtractError(
             "Pass either --input (aligned BAM/CRAM) or --r1 [--r2] (FASTQ)."

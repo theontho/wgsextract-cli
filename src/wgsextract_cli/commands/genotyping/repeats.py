@@ -137,6 +137,8 @@ def classify(call: RepeatCall, threshold: Threshold | None) -> str:
         for allele, (_low, high) in zip(call.alleles, call.intervals, strict=True)
     ):
         status += " (CI reaches pathogenic)"
+    if expanded and call.variant_id in MOTIF_UNCHECKED:
+        status = f"{status}-length expansion, motif unchecked"
     return status
 
 
@@ -222,14 +224,11 @@ def write_summary(path: str, calls: list[RepeatCall]) -> list[tuple[str, str]]:
                 + "\n"
             )
             if status not in ("normal", "-"):
-                note = (
-                    " (motif not checked)" if call.variant_id in MOTIF_UNCHECKED else ""
-                )
                 flagged.append(
                     (
                         call.variant_id,
                         f"{call.variant_id} ({known.disease}, {known.inheritance}): "
-                        f"{call.repeat_unit} {genotype} [CI {ci}] {status}{note}",
+                        f"{call.repeat_unit} {genotype} [CI {ci}] {status}",
                     )
                 )
     return flagged

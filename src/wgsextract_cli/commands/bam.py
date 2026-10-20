@@ -500,7 +500,9 @@ def cmd_merge(args: argparse.Namespace) -> None:
     # Name the index explicitly: samtools would otherwise write .csi for BAM,
     # which GATK/htsjdk tools cannot read.
     index = out_file + (".crai" if args.cram else ".bai")
-    cmd = ["samtools", "merge", "-@", threads, "--write-index"]
+    # -f: replace an earlier result like the other commands do. (samtools'
+    # exists check doesn't see through ##idx##, but don't rely on that.)
+    cmd = ["samtools", "merge", "-f", "-@", threads, "--write-index"]
     cmd += ["-O", "CRAM" if args.cram else "BAM", "-o", f"{out_file}##idx##{index}"]
     if ref:
         cmd += ["--reference", ref]

@@ -113,6 +113,8 @@ def _repeat(locus: str, *alleles: int, high: int | None = None) -> RepeatCall:
         (_repeat("FMR1", 30, 80), "premutation"),
         (_repeat("FMR1", 30, 250), "pathogenic"),
         (_repeat("RFC1", 9, 31), "normal"),
+        (_repeat("RFC1", 9, 500), "carrier-length expansion, motif unchecked"),
+        (_repeat("RFC1", 500, 600), "pathogenic-length expansion, motif unchecked"),
         (_repeat("HTT", 17, 20, high=40), "normal (CI reaches pathogenic)"),
         (_repeat("DIP2B", 7, 300), "-"),
     ],
