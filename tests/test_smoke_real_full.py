@@ -19,7 +19,7 @@ from tests.smoke_utils import (
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.microarray_utils import _resolve_templates_roots
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
-from wgsextract_cli.core.variant_files import calculate_bam_md5
+from wgsextract_cli.core.variant_files import calculate_bam_md5, vcf_index_chromosomes
 
 
 @dataclass(frozen=True)
@@ -696,6 +696,20 @@ def test_real_reference_library_robustness(
     )
 
 
+def _first_record_with(vcf: Path, tag: str) -> str:
+    """The first record carrying INFO/tag, reading only as far as it."""
+    with subprocess.Popen(
+        ["bcftools", "view", "-H", "-i", f'INFO/{tag}!="."', str(vcf)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    ) as proc:
+        assert proc.stdout is not None
+        line = proc.stdout.readline()
+        proc.kill()
+    return line
+
+
 def test_real_clinical_annotation_stack(
     real_dataset: RealDataset, tmp_path: Path
 ) -> None:
@@ -721,23 +735,18 @@ def test_real_clinical_annotation_stack(
             f"{', '.join(missing)}"
         )
 
+    # (command, output, the INFO tag it adds); each step reads the last one.
     steps = [
-        ("clinvar", real_dataset.vcf, "clinvar_annotated.vcf.gz"),
-        ("gnomad", tmp_path / "clinvar_annotated.vcf.gz", "gnomad_annotated.vcf.gz"),
-        ("revel", tmp_path / "gnomad_annotated.vcf.gz", "revel_annotated.vcf.gz"),
-        (
-            "alphamissense",
-            tmp_path / "revel_annotated.vcf.gz",
-            "alphamissense_annotated.vcf.gz",
-        ),
-        (
-            "pharmgkb",
-            tmp_path / "alphamissense_annotated.vcf.gz",
-            "pharmgkb_annotated.vcf.gz",
-        ),
+        ("clinvar", "clinvar_annotated.vcf.gz", "CLNSIG"),
+        ("gnomad", "gnomad_annotated.vcf.gz", "GNOMAD_AF"),
+        ("revel", "revel_annotated.vcf.gz", "REVEL"),
+        ("alphamissense", "alphamissense_annotated.vcf.gz", "am_pathogenicity"),
+        ("pharmgkb", "pharmgkb_annotated.vcf.gz", "PHARMGKB"),
     ]
 
-    for command, input_vcf, output_name in steps:
+    input_vcf = real_dataset.vcf
+    contigs = set(vcf_index_chromosomes(str(input_vcf)))
+    for command, output_name, tag in steps:
         _run_ok(
             [
                 "vcf",
@@ -750,4 +759,11 @@ def test_real_clinical_annotation_stack(
                 str(tmp_path),
             ]
         )
-        assert verify_vcf(str(tmp_path / output_name), allow_empty=True)
+        output = tmp_path / output_name
+        assert verify_vcf(str(output), allow_empty=True)
+        # A genome's worth of variants must pick up some of each annotation,
+        # keeping the input's contig names (chr1 vs 1) whatever the resource's.
+        record = _first_record_with(output, tag)
+        assert record, f"no {tag} in {output_name}"
+        assert record.split("\t")[0] in contigs, (output_name, record[:40])
+        input_vcf = output

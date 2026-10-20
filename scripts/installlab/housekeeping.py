@@ -3,17 +3,17 @@
 Kept as caches while they're used, removed once they're not:
 
   leftovers   machines and work dirs of runs that were killed      1 hour old
-  runs        out/installlab/runs/* evidence and loose logs        --runs-days (14)
+  runs        runs/* evidence and loose logs                       --runs-days (14)
               (a run's serve/ dir, rebuilt for every run, goes after 1 day)
   images      the clean base images and caches runs reuse          --images-days (30)
   downloads   what only `prepare` needs to rebuild a base image    --downloads-days (7)
   packages    Pixi's and Homebrew's package caches (--package-caches only)
 
 "Used" is when a run last cloned or booted it: Tart records that for its VMs;
-for the rest the lab records it in out/installlab/last-used.json (mark_used),
-falling back to the file's modification time. Only things the lab names and
-creates are touched: wgse-lab-* VMs, containers and volumes, and the files under
-out/installlab. `lab.py run` and `lab.py prepare` collect garbage first;
+for the rest the lab records it in last-used.json (mark_used), falling back to
+the file's modification time. Only things the lab names and creates are
+touched: wgse-lab-* VMs, containers and volumes, and the files under LAB, the
+main checkout's out/installlab, which every worktree shares. `lab.py run` and `lab.py prepare` collect garbage first;
 `lab.py gc --dry-run` shows what would go.
 """
 
@@ -35,7 +35,25 @@ from datetime import datetime
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-LAB = REPO / "out" / "installlab"
+
+
+def _main_checkout(repo: Path) -> Path:
+    """The main checkout of repo's git repository (repo itself unless it's a
+    linked worktree)."""
+    try:
+        common = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--path-format=absolute",
+             "--git-common-dir"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()  # fmt: skip
+    except (OSError, subprocess.CalledProcessError):
+        return repo
+    return Path(common).parent if Path(common).name == ".git" else repo
+
+
+# Shared by every worktree: base images take hours to build, and a worktree's
+# out/ goes with the worktree (merging its branch can remove it).
+LAB = _main_checkout(REPO) / "out" / "installlab"
 WIN = LAB / "windows"
 LEDGER = LAB / "last-used.json"
 DAY = 86400.0
@@ -128,7 +146,9 @@ def _file_item(group: str, path: Path, max_age: float, *also: Path) -> Item:
     used = _ledger().get(lab_key(path)) or max(p.stat().st_mtime for p in paths)
     return Item(
         group,
-        str(path.relative_to(REPO)) if path.is_relative_to(REPO) else str(path),
+        str(path.relative_to(LAB.parent.parent))
+        if path.is_relative_to(LAB)
+        else str(path),
         used,
         max_age,
         sum(_size(p) for p in paths),

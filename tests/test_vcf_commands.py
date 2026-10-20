@@ -420,9 +420,10 @@ def test_clinvar_normalizes_contigs_and_leaves_no_temporaries(tmp_path):
         clinvar_revel.cmd_clinvar(args)
 
     annotated = str(outdir / "clinvar_annotated.vcf.gz")
+    # Matched against ClinVar's "1", written back with the sample's "chr1".
     assert _query(annotated, "%CHROM:%POS:%CLNSIG\n") == [
-        "1:10:Pathogenic",
-        "1:20:Benign",
+        "chr1:10:Pathogenic",
+        "chr1:20:Benign",
     ]
     assert _query(str(outdir / "clinvar_pathogenic.vcf.gz"), "%POS\n") == ["10"]
     assert sorted(os.listdir(inputs)) == ["sample.vcf.gz", "sample.vcf.gz.tbi"]

@@ -28,11 +28,11 @@ import time
 import zipfile
 from pathlib import Path
 
-from housekeeping import lab_key, mark_used
+from housekeeping import LAB, lab_key, mark_used
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
-WIN_DIR = REPO / "out" / "installlab" / "windows"
+WIN_DIR = LAB / "windows"
 BASE = WIN_DIR / "base.qcow2"
 BASE_VARS = WIN_DIR / "base-vars.fd"
 ISO = WIN_DIR / "win11-arm64.iso"
@@ -67,7 +67,7 @@ def sha256(path: Path) -> str:
 
 
 def ssh_key() -> Path:
-    key = REPO / "out" / "installlab" / "ssh" / "id_ed25519"
+    key = LAB / "ssh" / "id_ed25519"
     if not key.exists():
         key.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(
@@ -556,7 +556,7 @@ def build_unattend_iso(out: Path) -> None:
 
 
 def prepare() -> None:
-    """Build out/installlab/windows/base.qcow2: stock Windows 11 Pro ARM64 plus
+    """Build <lab>/windows/base.qcow2: stock Windows 11 Pro ARM64 plus
     OpenSSH and the lab users (see vm/windows/autounattend.xml)."""
     WIN_DIR.mkdir(parents=True, exist_ok=True)
     if not ISO.exists():

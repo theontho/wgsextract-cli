@@ -1,5 +1,6 @@
 import importlib.util
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -20,7 +21,6 @@ def hk(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "housekeeping", module)
     spec.loader.exec_module(module)
     lab = tmp_path / "out" / "installlab"
-    monkeypatch.setattr(module, "REPO", tmp_path)
     monkeypatch.setattr(module, "LAB", lab)
     monkeypatch.setattr(module, "WIN", lab / "windows")
     monkeypatch.setattr(module, "LEDGER", lab / "last-used.json")
@@ -113,3 +113,19 @@ def test_dry_run_removes_nothing(hk, capsys):
 
     assert old.exists() and freed > 0
     assert "would remove" in capsys.readouterr().out
+
+
+def test_worktrees_share_the_main_checkouts_lab(hk, tmp_path):
+    # A linked worktree's out/ goes with the worktree; base images must not.
+    main = tmp_path / "main"
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run([*git, "init", "-q", str(main)], check=True)
+    subprocess.run([*git, "-C", str(main), "commit", "-q", "--allow-empty", "-m", "x"],
+                   check=True)  # fmt: skip
+    linked = tmp_path / "linked"
+    subprocess.run([*git, "-C", str(main), "worktree", "add", "-q", str(linked)],
+                   check=True)  # fmt: skip
+
+    assert hk._main_checkout(linked).resolve() == main.resolve()
+    assert hk._main_checkout(main).resolve() == main.resolve()
+    assert hk._main_checkout(tmp_path / "not-a-repo") == tmp_path / "not-a-repo"

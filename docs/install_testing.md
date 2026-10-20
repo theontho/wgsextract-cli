@@ -24,7 +24,10 @@ python3 scripts/installlab/lab.py gc --dry-run                    # what disk cl
 ```
 
 Results land in `out/installlab/runs/<target>-<mode>-<time>/`: the guest's evidence,
-state snapshots, outputs, and `verdict.json`.
+state snapshots, outputs, and `verdict.json`. The lab's state (runs, base
+images, downloads, SSH key) lives in the **main checkout's** `out/installlab`,
+shared by every git worktree: base images take hours to build, and a linked
+worktree's `out/` is deleted with the worktree.
 
 ## Disk space
 
@@ -45,7 +48,7 @@ the same on demand:
 | Pixi and Homebrew package caches | only with `--package-caches DAYS` |
 
 "Used" is when a run last cloned or booted it: Tart records this for its VMs
-and images, and the lab records it in `out/installlab/last-used.json` for the
+and images, and the lab records it in `out/installlab/last-used.json` (main checkout) for the
 rest (falling back to the file's modification time). Windows' `base` is kept as
 long as `gui-base`, which is built on it. Only things the lab names and creates
 are touched; `ubuntu:24.04` only once a run has recorded using it.
