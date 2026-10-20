@@ -175,11 +175,12 @@ def test_pixi_installs_runnable_yleaf_from_upstream_package_data_source() -> Non
     assert "git" not in yleaf
 
 
-def test_pixi_vep_runs_apple_silicon_through_rosetta() -> None:
-    # osx-arm64's libdb is an x86_64 binary, so VEP's DB_File segfaults natively;
-    # excluding osx-arm64 makes Pixi fall back to the osx-64 env under Rosetta.
+def test_pixi_vep_runs_natively_on_apple_silicon() -> None:
+    # osx-arm64's libdb is an x86_64 binary, so loading DB_File segfaults unless
+    # PERL_DL_NONLAZY turns that into a load error BioPerl's AnyDBM_File skips.
     manifest = tomllib.loads((ROOT / "pixi.toml").read_text(encoding="utf-8"))
-    platforms = manifest["feature"]["vep"]["platforms"]
-    assert "osx-arm64" not in platforms
-    assert "osx-64" in platforms
-    assert "ensembl-vep" in _pixi_feature_deps("vep", "osx-64")
+    vep = manifest["feature"]["vep"]
+    assert "osx-arm64" in vep["platforms"]
+    assert "ensembl-vep" in _pixi_feature_deps("vep", "osx-arm64")
+    activation = vep["target"]["osx-arm64"]["activation"]
+    assert activation["env"]["PERL_DL_NONLAZY"] == "1"

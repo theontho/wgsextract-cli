@@ -54,7 +54,7 @@ Planned features, improvements, and known bugs for WGS Extract CLI.
 - [x] **Exit codes**: Every command exits non-zero on failure.
 - [x] **Machine-readable output** for selected commands: `info --csv`, `ref status --json`, `vep run --format json|tab`.
 - [x] **Smoke tests**: Automated CLI smoke tests (`pixi run smoke-test`).
-- [ ] **VEP on Apple Silicon**: VEP's Pixi environment runs under Rosetta (bioconda's osx-arm64 libdb build is x86_64-only). A native build, or the `fast` preset by default, would cut whole-genome runs (3.7 h with `--preset everything`).
+- [x] **VEP on Apple Silicon**: VEP's Pixi environment runs natively on osx-arm64 (`PERL_DL_NONLAZY` works around conda-forge's x86_64-only libdb build); a whole-genome `--preset everything` run takes 1.9 h instead of 3.7 h under Rosetta.
 
 ## Install lab
 

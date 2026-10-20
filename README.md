@@ -138,7 +138,7 @@ Some tools live in their own Pixi environment. When such a tool is not on `PATH`
 | `default` | All standard commands |
 | `pacbio` | `pbmm2`, `pbsv`, `sniffles`: `pixi run -e pacbio wgsextract vcf sv --pacbio` |
 | `deepvariant` | `pixi run -e deepvariant wgsextract vcf deepvariant` (Linux and Apple Silicon) |
-| `vep` | `pixi run -e vep wgsextract vep run` (not native Windows; Apple Silicon runs the Intel build under Rosetta) |
+| `vep` | `pixi run -e vep wgsextract vep run` (not native Windows) |
 | `dev` | Contributor tooling (pytest, ruff, mypy); selected automatically by the development tasks below |
 
 ## Configuration
