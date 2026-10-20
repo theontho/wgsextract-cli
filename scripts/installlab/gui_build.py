@@ -107,6 +107,9 @@ export PATH=/opt/node-v24.22.0-linux-x64/bin:$PATH
 mkdir -p /build/src && tar -xzf /out/src.tar.gz -C /build/src
 cd /build/src/platform/typescript
 npm ci --no-audit --no-fund >/dev/null
+# The target volume persists between builds (for speed); an earlier version's
+# .deb would still be in the bundle dir.
+rm -rf /build/target/release/bundle/deb
 CARGO_TARGET_DIR=/build/target TAURI_DIST_BUNDLES=deb npm run tauri:dist
 cp /build/target/release/bundle/deb/*.deb /out/
 """

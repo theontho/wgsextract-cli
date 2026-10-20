@@ -15,6 +15,7 @@ copy the evidence back for the host's oracle.
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import json
 import os
@@ -67,7 +68,10 @@ def sha256(path: Path) -> str:
 
 
 def ssh_key() -> Path:
-    key = LAB / "ssh" / "id_ed25519"
+    """The key the Windows images trust. It lives with them in WIN_DIR, so it
+    can't drift from them; an image's admin can't rewrite its key files over
+    SSH anyway (Windows filters an admin's token on network logons)."""
+    key = WIN_DIR / "ssh" / "id_ed25519"
     if not key.exists():
         key.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(
@@ -102,6 +106,7 @@ def wait_for_ssh(
     user: str, port: int, timeout: float, alive: subprocess.Popen[bytes] | None = None
 ) -> None:
     deadline = time.monotonic() + timeout
+    rejections = 0
     while time.monotonic() < deadline:
         if alive is not None and alive.poll() is not None:
             raise SystemExit("The VM exited before SSH came up.")
@@ -112,6 +117,13 @@ def wait_for_ssh(
         )
         if probe.returncode == 0:
             return
+        if "Permission denied" in probe.stderr:
+            rejections += 1
+            if rejections >= 3:  # sshd is up; the image doesn't trust this key
+                raise SystemExit(
+                    f"The Windows image refuses {ssh_key()}: it was built with "
+                    "another key. Run `lab.py prepare windows` again."
+                )
         time.sleep(10)
     raise SystemExit(f"SSH as {user} did not come up within {timeout:.0f}s")
 
@@ -211,7 +223,6 @@ class WindowsMachine:
 
     def admin_ps(self, script: str) -> None:
         # -EncodedCommand sidesteps cmd.exe quoting entirely.
-        import base64
 
         script = "$ProgressPreference = 'SilentlyContinue'; " + script
         encoded = base64.b64encode(script.encode("utf-16-le")).decode()

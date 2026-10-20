@@ -29,6 +29,16 @@ images, downloads, SSH key) lives in the **main checkout's** `out/installlab`,
 shared by every git worktree: base images take hours to build, and a linked
 worktree's `out/` is deleted with the worktree.
 
+## SSH keys
+
+The lab logs into its VMs with its own key. The macOS base image trusts
+`out/installlab/ssh/id_ed25519`; if that key changes (the lab's state moved, or
+the key was deleted), the next macOS run authorizes the current key in the base
+over the vanilla image's password login, in about a minute, instead of needing
+`prepare macos` again. The Windows images trust `out/installlab/windows/ssh/`,
+kept beside them: Windows filters an admin's token on network logons, so a key
+file can't be rewritten over SSH, and the key moves and expires with the images.
+
 ## Disk space
 
 A lab machine can hold 60 GB or more: base images, Tart's downloaded macOS
