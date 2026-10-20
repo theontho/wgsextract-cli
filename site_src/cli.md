@@ -162,7 +162,7 @@ GATK (Python 3.10, Java 17) and FreeBayes live in their own environments for dep
 
 ::: card
 ### cyrius, t1k, and expansionhunter
-Gene and repeat typing: `typing cyp2d6` (Cyrius), `typing hla` (T1K), and `typing str` (ExpansionHunter). Linux and macOS. Install them once with `pixi install -e <environment>`; Cyrius is licensed for noncommercial use only.
+Gene and repeat typing: `typing cyp2d6` (Cyrius), `typing hla` (T1K), and `typing str` (ExpansionHunter). Linux and macOS. These aren't downloaded on first use: install them once with `pixi install -e <environment>`; Cyrius is licensed for noncommercial use only.
 :::
 
 ::: card

@@ -137,7 +137,7 @@ Notes on a few commands:
 
 ### Pixi environments
 
-Some tools live in their own Pixi environment. When such a tool is not on `PATH`, the CLI runs it through `pixi run -e <environment>` automatically; you can also run a whole command inside an environment from the app directory (`wgsextract-cli/app/`) or a source checkout:
+Some tools live in their own Pixi environment. When such a tool is not on `PATH`, the CLI runs it through `pixi run -e <environment>` automatically, downloading the environment on first use. The `cyrius`, `t1k`, `expansionhunter`, and `pharmcat` environments are the exception: install them yourself with `pixi install -e <environment>` (Cyrius is licensed for noncommercial use only). You can also run a whole command inside an environment from the app directory (`wgsextract-cli/app/`) or a source checkout:
 
 | Environment | Used for |
 | :--- | :--- |

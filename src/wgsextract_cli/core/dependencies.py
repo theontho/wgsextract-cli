@@ -90,6 +90,12 @@ PIXI_TOOL_ENVS = {
 }
 
 
+# Optional environments the user installs explicitly (`pixi install -e <env>`, as
+# documented) and that are never downloaded on first use: Cyrius's license
+# allows noncommercial use only, so installing it must be the user's choice.
+INSTALL_FIRST_PIXI_ENVS = frozenset({"cyrius", "t1k", "expansionhunter", "pharmcat"})
+
+
 TOOL_EXECUTABLE_ALIASES = {
     "yleaf": ("yleaf", "Yleaf"),
     "pharmcat_python": ("python",),
@@ -509,7 +515,11 @@ raise SystemExit(1)
     if result.returncode != 0:
         # An optional environment that isn't installed yet: `pixi run` installs it
         # (with visible progress) the first time the tool is actually used.
-        if env != "default" and _locked_package_available(pixi_cmd, env, tool):
+        if (
+            env != "default"
+            and env not in INSTALL_FIRST_PIXI_ENVS
+            and _locked_package_available(pixi_cmd, env, tool)
+        ):
             launcher = WINDOWS_PIXI_SCRIPT_LAUNCHERS.get(tool)
             if launcher and runtime.is_windows_host():
                 # Windows can't run the extensionless script by name.
