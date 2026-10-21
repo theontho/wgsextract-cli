@@ -1,10 +1,12 @@
 import logging
 import os
 from collections.abc import Iterator, Sequence
+from pathlib import Path
 from typing import TextIO, TypedDict
 
 from pyliftover import LiftOver
 
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.utils import WGSExtractError
 
 TemplateSearchPath = str | os.PathLike[str]
@@ -85,7 +87,7 @@ def _resolve_templates_roots(templates_dir: TemplateSearchInput) -> list[str]:
     seen_roots: set[str] = set()
 
     for search_dir in _iter_template_search_dirs(templates_dir):
-        current = os.path.abspath(search_dir)
+        current = str(absolute_path(search_dir))
 
         for _ in range(_TEMPLATE_SEARCH_PARENT_LIMIT + 1):
             if not current or current in visited_dirs:
@@ -93,19 +95,19 @@ def _resolve_templates_roots(templates_dir: TemplateSearchInput) -> list[str]:
             visited_dirs.add(current)
 
             candidates = [
-                os.path.join(current, "microarray", "raw_file_templates"),
-                os.path.join(current, "raw_file_templates"),
+                str(Path(current, "microarray", "raw_file_templates")),
+                str(Path(current, "raw_file_templates")),
             ]
-            if os.path.basename(current.rstrip(os.sep)) == "raw_file_templates":
+            if Path(current.rstrip(os.sep)).name == "raw_file_templates":
                 candidates.insert(0, current)
 
             for candidate in candidates:
-                candidate = os.path.abspath(candidate)
-                if os.path.isdir(candidate) and candidate not in seen_roots:
+                candidate = str(absolute_path(candidate))
+                if Path(candidate).is_dir() and candidate not in seen_roots:
                     roots.append(candidate)
                     seen_roots.add(candidate)
 
-            parent = os.path.dirname(current)
+            parent = str(Path(current).parent)
             if parent == current:
                 break
             current = parent
@@ -120,7 +122,7 @@ def _template_body_paths(
     for i in range(1, fmt_info["parts"] + 1):
         part_suffix = f"_{i}" if fmt_info["parts"] > 1 else ""
         template_name = f"{format_name}{part_suffix}{fmt_info['suffix']}"
-        body_templates.append(os.path.join(templates_root, "body", template_name))
+        body_templates.append(str(Path(templates_root, "body", template_name)))
     return body_templates
 
 
@@ -137,7 +139,7 @@ def _resolve_templates_for_format(
     first_missing: str | None = None
     for templates_root in roots:
         body_templates = _template_body_paths(templates_root, format_name, fmt_info)
-        missing = [path for path in body_templates if not os.path.exists(path)]
+        missing = [path for path in body_templates if not Path(path).exists()]
         if not missing:
             return templates_root, body_templates
         if first_missing is None:
@@ -156,7 +158,7 @@ def liftover_hg38_to_hg19(
     Performs liftover from hg38 to hg19 using pyliftover.
     Ported from legacy program/hg38tohg19.py.
     """
-    if not os.path.exists(chain_file):
+    if not Path(chain_file).exists():
         raise FileNotFoundError(f"Liftover chain file not found: {chain_file}")
 
     lo = LiftOver(chain_file)
@@ -217,8 +219,8 @@ def liftover_hg38_to_hg19(
         # 2. Fallback: If no headers and templates_dir provided, try finding 23andMe_V3 head
         elif templates_dir:
             for templates_root in _resolve_templates_roots(templates_dir):
-                head_path = os.path.join(templates_root, "head", "23andMe_V3.txt")
-                if os.path.exists(head_path):
+                head_path = str(Path(templates_root, "head", "23andMe_V3.txt"))
+                if Path(head_path).exists():
                     with open(head_path) as f_h:
                         f.writelines(f_h.readlines())
                     break
@@ -326,15 +328,15 @@ def convert_to_vendor_format(
         templates_dir, format_name, fmt_info
     )
 
-    head_template = os.path.join(
-        templates_root, "head", f"{format_name}{fmt_info['suffix']}"
+    head_template = str(
+        Path(templates_root, "head", f"{format_name}{fmt_info['suffix']}")
     )
     # Write to a temp name so a failure never leaves a truncated vendor file.
     # newline="" keeps LF line endings on every platform, as the legacy tool did.
     tmp_path = output_path + ".tmp"
     try:
         with open(tmp_path, "w", newline="") as f_out:
-            if os.path.exists(head_template):
+            if Path(head_template).exists():
                 with open(head_template, newline="") as f_h:
                     f_out.write(f_h.read())
 
@@ -362,7 +364,7 @@ def convert_to_vendor_format(
                         write_formatted_line(
                             f_out, format_name, t_id, t_chrom, t_pos, result
                         )
-        os.replace(tmp_path, output_path)
+        Path(tmp_path).replace(output_path)
     finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        if Path(tmp_path).exists():
+            Path(tmp_path).unlink()

@@ -2,10 +2,10 @@ import csv
 import json
 import logging
 import math
-import os
 import re
 import subprocess
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any, TypedDict
 
 from wgsextract_cli.core.builds import build_from_chr1_length, build_from_path
@@ -15,6 +15,7 @@ from wgsextract_cli.core.constants import (
     SEQUENCERS,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import n_count_paths
 from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
 from wgsextract_cli.core.variant_files import calculate_bam_md5
@@ -54,20 +55,20 @@ def determine_sequencer(qname: str | None) -> str:
 
 def get_file_stats(filepath: str) -> tuple[float, bool]:
     """Retrieve file size and check for index existence."""
-    size_bytes = os.path.getsize(filepath)
+    size_bytes = Path(filepath).stat().st_size
     size_gb = size_bytes / (1024**3)
 
     indexed = False
     # Check for direct appended index (e.g. file.bam.bai, file.cram.crai)
-    if os.path.exists(filepath + ".bai") or os.path.exists(filepath + ".crai"):
+    if Path(filepath + ".bai").exists() or Path(filepath + ".crai").exists():
         indexed = True
     # Check for replaced extension index (e.g. file.bai, file.crai)
-    elif filepath.lower().endswith(".bam") and os.path.exists(filepath[:-4] + ".bai"):
+    elif filepath.lower().endswith(".bam") and Path(filepath[:-4] + ".bai").exists():
         indexed = True
-    elif filepath.lower().endswith(".cram") and os.path.exists(filepath[:-5] + ".crai"):
+    elif filepath.lower().endswith(".cram") and Path(filepath[:-5] + ".crai").exists():
         indexed = True
     # Check for .csi index (sometimes used for large files)
-    elif os.path.exists(filepath + ".csi"):
+    elif Path(filepath + ".csi").exists():
         indexed = True
 
     return size_gb, indexed
@@ -77,9 +78,7 @@ def run_body_sample(
     filepath: str, cram_opt: Sequence[str]
 ) -> tuple[int, float, float, float, float, bool, str | None]:
     """Sample first 20k reads to calculate length, insert size, and read type."""
-    logging.info(
-        LOG_MESSAGES["sampling_metrics"].format(filename=os.path.basename(filepath))
-    )
+    logging.info(LOG_MESSAGES["sampling_metrics"].format(filename=Path(filepath).name))
     cmd = ["samtools", "view", *cram_opt, filepath]
 
     total_len = count = paired_count = 0
@@ -160,11 +159,11 @@ def load_n_counts(ref_path: str | None) -> dict[str, int]:
     SN, NumBP, NumNs, ... (numbers may contain thousands separators). A
     two-column ``SN,NumNs`` CSV is also accepted.
     """
-    if not ref_path or not os.path.isfile(ref_path):
+    if not ref_path or not Path(ref_path).is_file():
         return {}
 
     ncnt_file, _ = n_count_paths(ref_path)
-    if not os.path.exists(ncnt_file):
+    if not Path(ncnt_file).exists():
         return {}
 
     logging.debug(LOG_MESSAGES["info_loading_n"].format(file=ncnt_file))
@@ -213,14 +212,14 @@ def infer_sex(idx_stats: list[IdxStat]) -> str:
 def sample_sex(input_path: str, outdir: str | None = None) -> str:
     """Sex from `info`'s cached metrics for this file when present (counting
     chrY reads in a CRAM takes about a minute), else from samtools idxstats."""
-    name = f"{os.path.basename(input_path)}.wgse_info.json"
+    name = f"{Path(input_path).name}.wgse_info.json"
     signature = calculate_bam_md5(input_path, None)
     for folder in (
         outdir,
-        os.path.dirname(os.path.abspath(input_path)),
+        str(absolute_path(input_path).parent),
         settings.get("output_directory"),
     ):
-        cache = os.path.join(folder, name) if folder else ""
+        cache = str(Path(folder, name)) if folder else ""
         try:
             with open(cache) as f:
                 info = json.load(f)

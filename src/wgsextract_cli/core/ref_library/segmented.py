@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import threading
 import time
 from concurrent.futures import FIRST_EXCEPTION, Future, ThreadPoolExecutor, wait
 from http.client import HTTPException, IncompleteRead
+from pathlib import Path
 from urllib.request import Request, urlopen
 
 from wgsextract_cli.core.download_progress import (
@@ -83,7 +83,7 @@ def download_segmented(
     partial = dest + ".partial"
     state_path = partial + ".segments"
     starts = list(range(0, size, SEGMENT_SIZE))
-    received = _load_state(state_path, url, size) if os.path.exists(partial) else None
+    received = _load_state(state_path, url, size) if Path(partial).exists() else None
     if received is None:
         with open(partial, "wb") as f:
             f.truncate(size)
@@ -97,7 +97,7 @@ def download_segmented(
         tmp = state_path + ".tmp"
         with open(tmp, "w") as f:
             json.dump({"url": url, "size": size, "received": snapshot}, f)
-        os.replace(tmp, state_path)
+        Path(tmp).replace(state_path)
 
     def fetch(start: int) -> None:
         end = min(start + SEGMENT_SIZE, size)
@@ -137,7 +137,7 @@ def download_segmented(
                 logging.debug(f"Retrying {url} bytes {pos}-{end - 1}: {e}")
                 time.sleep(min(30, 2**attempt))
 
-    label = os.path.basename(dest)
+    label = Path(dest).name
     report = progress_callback or PercentProgressLogger(label)
     logging.info(f"Downloading {label} over {CONNECTIONS} connections...")
     start_time = time.monotonic()
@@ -170,6 +170,6 @@ def download_segmented(
 
     if sum(received.values()) != size:
         raise DownloadIncomplete(f"{label}: {sum(received.values())} of {size} bytes")
-    os.replace(partial, dest)
-    os.remove(state_path)
+    Path(partial).replace(dest)
+    Path(state_path).unlink()
     return True

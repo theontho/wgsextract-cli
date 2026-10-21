@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import shutil
 import subprocess
 import sys
@@ -13,6 +12,7 @@ from collections.abc import Callable, Mapping
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from http.client import HTTPException
+from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
 
@@ -35,13 +35,13 @@ def get_genome_size(final_name: str, reflib_dir: str) -> str:
     """Returns human-readable local size of the genome and its index files."""
     if not reflib_dir:
         return ""
-    base_path = os.path.join(reflib_dir, "genomes", final_name)
+    base_path = str(Path(reflib_dir, "genomes", final_name))
     total_bytes = 0
     # Include .partial, .fai, .gzi, .dict etc
     for ext in ["", ".partial", ".fai", ".gzi", ".dict"]:
         p = base_path + ext
-        if os.path.exists(p):
-            total_bytes += os.path.getsize(p)
+        if Path(p).exists():
+            total_bytes += Path(p).stat().st_size
 
     if total_bytes == 0:
         return ""
@@ -151,8 +151,8 @@ def _download_resource(
     progress_callback: ProgressCallback | None,
 ) -> bool:
     """Download (or pick up a manual copy of) each build, then BGZF + tabix it."""
-    target_dir = os.path.join(reflib_dir, "ref")
-    os.makedirs(target_dir, exist_ok=True)
+    target_dir = str(Path(reflib_dir, "ref"))
+    Path(target_dir).mkdir(parents=True, exist_ok=True)
 
     def cancelled() -> bool:
         return bool(cancel_event and cancel_event.is_set())
@@ -162,10 +162,10 @@ def _download_resource(
         if cancelled():
             return False
         label = f"{resource.label} {build}"
-        dest_path = os.path.join(target_dir, resource.dest_name.format(build=build))
+        dest_path = str(Path(target_dir, resource.dest_name.format(build=build)))
 
         if url is None:
-            if not os.path.exists(dest_path):
+            if not Path(dest_path).exists():
                 hint = resource.manual_hint or "{dest} must be downloaded manually."
                 logging.error(hint.format(build=build, dest=dest_path))
                 success = False
@@ -183,7 +183,7 @@ def _download_resource(
             continue
         try:
             if not _has_gzip_magic(dest_path):
-                os.remove(dest_path)
+                Path(dest_path).unlink()
                 raise WGSExtractError(
                     f"{dest_path} is not gzip data (an error or login page?); removed."
                 )
@@ -243,13 +243,13 @@ def _verify_published_md5(path: str, url: str) -> None:
     """Check path against the <url>.md5 file published next to it."""
     with urlopen(url + ".md5", timeout=60) as response:
         expected = response.read().decode().split()[0].lower()
-    logging.info(f"Verifying MD5 of {os.path.basename(path)}...")
+    logging.info(f"Verifying MD5 of {Path(path).name}...")
     digest = hashlib.md5(usedforsecurity=False)
     with open(path, "rb") as f:
         while chunk := f.read(8 << 20):
             digest.update(chunk)
     if digest.hexdigest() != expected:
-        os.remove(path)
+        Path(path).unlink()
         raise WGSExtractError(
             f"{path} failed its MD5 check and was removed; rerun to download it again."
         )
@@ -263,15 +263,15 @@ def download_cadd(
 ) -> bool:
     """Downloads CADD v1.7 SNV and gnomAD-indel scores, with their tabix indexes."""
     remote_dir, indel_name = CADD_FILES[build]
-    target_dir = os.path.join(reflib_dir, "ref")
-    os.makedirs(target_dir, exist_ok=True)
+    target_dir = str(Path(reflib_dir, "ref"))
+    Path(target_dir).mkdir(parents=True, exist_ok=True)
     files = [
         (indel_name, f"cadd_indel_{build}.tsv.gz"),
         (CADD_SNV_FILE, f"cadd_{build}.tsv.gz"),
     ]
     for remote_name, local_name in files:
-        dest = os.path.join(target_dir, local_name)
-        if os.path.isfile(dest) and os.path.isfile(dest + ".tbi"):
+        dest = str(Path(target_dir, local_name))
+        if Path(dest).is_file() and Path(dest + ".tbi").is_file():
             logging.info(f"{local_name} is already installed.")
             continue
         url = f"{CADD_BASE_URL}/{remote_dir}/{remote_name}"
@@ -327,10 +327,10 @@ def download_gerp(
     progress_callback: ProgressCallback | None = None,
 ) -> bool:
     """Downloads the GERP++ RS bigWig for one build into <library>/ref."""
-    target_dir = os.path.join(reflib_dir, "ref")
-    os.makedirs(target_dir, exist_ok=True)
-    dest = os.path.join(target_dir, f"gerp_{build}.bw")
-    if os.path.isfile(dest):
+    target_dir = str(Path(reflib_dir, "ref"))
+    Path(target_dir).mkdir(parents=True, exist_ok=True)
+    dest = str(Path(target_dir, f"gerp_{build}.bw"))
+    if Path(dest).is_file():
         logging.info(f"gerp_{build}.bw is already installed.")
         return True
     logging.info(f"Downloading GERP {build} scores...")
@@ -339,7 +339,7 @@ def download_gerp(
     try:
         open_bigwig(dest).close()
     except WGSExtractError as e:
-        os.remove(dest)
+        Path(dest).unlink()
         logging.error(f"{e} It was removed; rerun to download it again.")
         return False
     return True
@@ -421,11 +421,11 @@ def _stream_gnomad_contig(
         feeder.join()
         compressed = compress.wait() == 0
         if queried and compressed and not download_error:
-            os.replace(partial, part)
+            Path(partial).replace(part)
             return None
         err.seek(0)
         detail = err.read().decode(errors="replace").strip().splitlines()[-3:]
-    os.remove(partial)
+    Path(partial).unlink()
     return (
         "; ".join(download_error + detail) or f"bcftools exited with {query.returncode}"
     )
@@ -444,16 +444,16 @@ def build_gnomad_af(
     Contigs stream in parallel (the build is network-bound) into resumable
     per-contig parts, which are then concatenated (BGZF allows that) and indexed.
     """
-    target_dir = os.path.join(reflib_dir, "ref")
-    dest = os.path.join(target_dir, GNOMAD_AF_TABLE)
-    if os.path.isfile(dest) and os.path.isfile(dest + ".tbi"):
+    target_dir = str(Path(reflib_dir, "ref"))
+    dest = str(Path(target_dir, GNOMAD_AF_TABLE))
+    if Path(dest).is_file() and Path(dest + ".tbi").is_file():
         logging.info(f"{GNOMAD_AF_TABLE} is already installed.")
         return True
-    parts_dir = os.path.join(target_dir, ".gnomad_hg38_parts")
-    os.makedirs(parts_dir, exist_ok=True)
+    parts_dir = str(Path(target_dir, ".gnomad_hg38_parts"))
+    Path(parts_dir).mkdir(parents=True, exist_ok=True)
 
     def part_path(contig: str) -> str:
-        return os.path.join(parts_dir, f"{contig}.tsv.gz")
+        return str(Path(parts_dir, f"{contig}.tsv.gz"))
 
     urls = {c: GNOMAD_V4_URL.format(contig=c) for c in GNOMAD_V4_CONTIGS}
     try:
@@ -462,9 +462,9 @@ def build_gnomad_af(
         logging.error(f"Could not reach the gnomAD v4.1 bucket: {e}")
         return False
     total = sum(sizes.values())
-    resumed = sum(sizes[c] for c in urls if os.path.isfile(part_path(c)))
+    resumed = sum(sizes[c] for c in urls if Path(part_path(c)).is_file())
     todo = sorted(
-        (c for c in urls if not os.path.isfile(part_path(c))),
+        (c for c in urls if not Path(part_path(c)).is_file()),
         key=sizes.__getitem__,
         reverse=True,  # biggest first, so the last contig to finish is short
     )
@@ -540,12 +540,12 @@ def build_gnomad_af(
         for contig in GNOMAD_V4_CONTIGS:
             with open(part_path(contig), "rb") as part:
                 shutil.copyfileobj(part, out, 8 << 20)
-    os.replace(partial, dest)
+    Path(partial).replace(dest)
     logging.info(f"Indexing {GNOMAD_AF_TABLE}...")
     try:
         run_command(["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", dest])
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        os.remove(dest)
+        Path(dest).unlink()
         logging.error(f"Indexing {dest} failed: {e}")
         return False
     shutil.rmtree(parts_dir)
@@ -624,9 +624,9 @@ def ensure_bgzf(
             raise WGSExtractError(
                 f"BGZF recompression of {path} failed ({', '.join(failed)})."
             )
-        os.replace(tmp_path, new_path)
+        Path(tmp_path).replace(new_path)
         if new_path != path:
-            os.remove(path)
+            Path(path).unlink()
     except FileNotFoundError as e:
         if sys.platform == "win32":
             logging.warning(
@@ -641,7 +641,7 @@ def ensure_bgzf(
             if p.poll() is None:
                 p.kill()
                 p.wait()
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        if Path(tmp_path).exists():
+            Path(tmp_path).unlink()
     logging.info(f"Recompression to {new_path} complete.")
     return new_path

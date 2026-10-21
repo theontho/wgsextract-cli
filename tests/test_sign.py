@@ -96,3 +96,40 @@ def test_unsigned_manifest_checks_hashes_only(outputs):
         cmd_verify(_parse("sign", "verify", str(manifest)))
     with pytest.raises(WGSExtractError, match="Signature not found"):
         cmd_verify(_parse("sign", "verify", str(manifest), "--public-key", "x.pub"))
+
+
+def test_manifest_outside_inputs_keeps_portable_parent_paths(tmp_path, outputs):
+    outdir = tmp_path / "manifests"
+    cmd_create(_parse("sign", "create", str(outputs), "--outdir", str(outdir)))
+    manifest = outdir / "SHA256SUMS"
+    assert [name for _, name in _read_manifest(manifest)] == [
+        "../data/a.txt",
+        "../data/sub/b name.vcf",
+    ]
+    cmd_verify(_parse("sign", "verify", str(manifest)))
+
+
+def test_manifest_uses_common_input_parent(tmp_path, outputs):
+    other = tmp_path / "other.txt"
+    other.write_text("gamma\n")
+    cmd_create(_parse("sign", "create", str(outputs), str(other)))
+    manifest = tmp_path / "SHA256SUMS"
+    assert [name for _, name in _read_manifest(manifest)] == [
+        "data/a.txt",
+        "data/sub/b name.vcf",
+        "other.txt",
+    ]
+    cmd_verify(_parse("sign", "verify", str(manifest)))
+
+
+def test_manifest_deduplicates_dot_segment_inputs(tmp_path, outputs):
+    alias = outputs / "sub" / ".."
+    argv = ("sign", "create", str(outputs), str(alias))
+    cmd_create(_parse(*argv))
+    cmd_create(_parse(*argv))
+    manifest = outputs / "SHA256SUMS"
+    assert [name for _, name in _read_manifest(manifest)] == [
+        "a.txt",
+        "sub/b name.vcf",
+    ]
+    cmd_verify(_parse("sign", "verify", str(manifest)))

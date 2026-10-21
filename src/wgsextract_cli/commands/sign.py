@@ -9,9 +9,11 @@ import shutil
 import subprocess
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.messages import CLI_HELP
+from wgsextract_cli.core.paths import PathInput, absolute_path, append_suffix
 from wgsextract_cli.core.utils import WGSExtractError, get_resource_defaults
 
 MANIFEST_NAME = "SHA256SUMS"
@@ -74,60 +76,79 @@ def _ssh_keygen() -> str:
     return path
 
 
-def _sha256(path: str) -> str:
+def _sha256(path: PathInput) -> str:
     digest = hashlib.sha256()
-    with open(path, "rb") as f:
+    with Path(path).open("rb") as f:
         while chunk := f.read(_CHUNK):
             digest.update(chunk)
     return digest.hexdigest()
 
 
-def _hash_files(paths: list[str], threads: str) -> list[str]:
+def _hash_files(paths: list[Path], threads: str) -> list[str]:
     # hashlib releases the GIL, so threads hash several files at once.
     with ThreadPoolExecutor(max_workers=max(1, int(threads))) as pool:
         return list(pool.map(_sha256, paths))
 
 
-def _collect_files(paths: list[str], exclude: set[str]) -> list[str]:
-    files: list[str] = []
-    for path in paths:
-        if os.path.isdir(path):
+def _collect_files(paths: list[str], exclude: set[Path]) -> list[Path]:
+    files: list[Path] = []
+    for value in paths:
+        path = Path(value)
+        if path.is_dir():
             for root, dirs, names in os.walk(path):
                 dirs.sort()
-                files += [os.path.join(root, n) for n in sorted(names)]
-        elif os.path.isfile(path):
+                files += [Path(root) / n for n in sorted(names)]
+        elif path.is_file():
             files.append(path)
         else:
             raise WGSExtractError(f"Not a file or directory: {path}")
-    unique = dict.fromkeys(os.path.abspath(f) for f in files)
+    unique = dict.fromkeys(absolute_path(f) for f in files)
     return [f for f in unique if f not in exclude]
 
 
-def _manifest_path(args: argparse.Namespace) -> str:
+def _manifest_path(args: argparse.Namespace) -> Path:
     if args.output:
-        return os.path.abspath(str(args.output))
+        return absolute_path(args.output)
     if args.outdir:
-        return os.path.abspath(os.path.join(args.outdir, MANIFEST_NAME))
+        return absolute_path(Path(args.outdir) / MANIFEST_NAME)
     parents = [
-        os.path.abspath(p if os.path.isdir(p) else os.path.dirname(p) or ".")
-        for p in args.paths
+        absolute_path(p if p.is_dir() else p.parent) for p in map(Path, args.paths)
     ]
-    return os.path.join(os.path.commonpath(parents), MANIFEST_NAME)
+    common = parents[0]
+    for parent in parents[1:]:
+        if common.anchor != parent.anchor:
+            raise WGSExtractError(
+                "Inputs on different drives need --output or --outdir."
+            )
+        while not parent.is_relative_to(common):
+            common = common.parent
+    return common / MANIFEST_NAME
+
+
+def _manifest_name(path: Path, base: Path) -> str:
+    """Relative names may leave --outdir; walk_up isn't available on Python 3.10."""
+    if path.anchor != base.anchor:
+        raise WGSExtractError("Manifest and inputs must be on the same drive.")
+    common = base
+    while not path.is_relative_to(common):
+        common = common.parent
+    upward = [".."] * len(base.relative_to(common).parts)
+    return Path(*upward, path.relative_to(common)).as_posix()
 
 
 def cmd_create(args: argparse.Namespace) -> None:
     manifest = _manifest_path(args)
-    signature = manifest + ".sig"
+    signature = append_suffix(manifest, ".sig")
     key = args.key or settings.get("signing_key")
-    if key and not os.path.isfile(str(key)):
+    if key and not Path(str(key)).is_file():
         raise WGSExtractError(f"Signing key not found: {key}")
     keygen = _ssh_keygen() if key else None
 
     files = _collect_files(args.paths, {manifest, signature})
     if not files:
         raise WGSExtractError("No files to sign.")
-    base = os.path.dirname(manifest)
-    names = [os.path.relpath(f, base).replace(os.sep, "/") for f in files]
+    base = manifest.parent
+    names = [_manifest_name(f, base) for f in files]
     if any("\n" in n or "\\" in n for n in names):
         raise WGSExtractError(
             "File names with newlines or backslashes can't be listed."
@@ -137,20 +158,20 @@ def cmd_create(args: argparse.Namespace) -> None:
     logging.info(f"Hashing {len(files)} file(s)...")
     digests = _hash_files(files, threads)
 
-    os.makedirs(base, exist_ok=True)
-    if os.path.exists(signature):
-        os.remove(signature)  # it would no longer match the new manifest
-    tmp = manifest + ".tmp"
-    with open(tmp, "w", newline="\n") as f:
+    base.mkdir(parents=True, exist_ok=True)
+    if signature.exists():
+        signature.unlink()  # it would no longer match the new manifest
+    tmp = append_suffix(manifest, ".tmp")
+    with tmp.open("w", newline="\n") as f:
         # GNU coreutils format, so `sha256sum -c SHA256SUMS` verifies it too.
         f.writelines(f"{d}  {n}\n" for d, n in zip(digests, names, strict=True))
-    os.replace(tmp, manifest)
+    tmp.replace(manifest)
     logging.info(f"Checksum manifest written to {manifest}")
 
     if keygen:
         # Inherit the terminal so ssh-keygen can prompt for a key passphrase.
-        cmd = [keygen, "-Y", "sign", "-f", str(key), "-n", NAMESPACE, manifest]
-        if subprocess.run(cmd).returncode != 0 or not os.path.isfile(signature):
+        cmd = [keygen, "-Y", "sign", "-f", str(key), "-n", NAMESPACE, str(manifest)]
+        if subprocess.run(cmd).returncode != 0 or not signature.is_file():
             raise WGSExtractError("ssh-keygen could not sign the manifest.")
         logging.info(
             f"Signature written to {signature}. Share your public key so others "
@@ -158,9 +179,9 @@ def cmd_create(args: argparse.Namespace) -> None:
         )
 
 
-def _read_manifest(manifest: str) -> list[tuple[str, str]]:
+def _read_manifest(manifest: PathInput) -> list[tuple[str, str]]:
     entries = []
-    with open(manifest) as f:
+    with Path(manifest).open() as f:
         for number, line in enumerate(f, 1):
             # "<digest> <mode><name>": mode is " " (text) or "*" (binary).
             match = re.fullmatch(r"([0-9a-fA-F]{64}) [ *](.+)", line.rstrip("\n"))
@@ -170,24 +191,26 @@ def _read_manifest(manifest: str) -> list[tuple[str, str]]:
     return entries
 
 
-def _verify_signature(args: argparse.Namespace, manifest: str, signature: str) -> None:
+def _verify_signature(
+    args: argparse.Namespace, manifest: Path, signature: Path
+) -> None:
     keygen = _ssh_keygen()
     with tempfile.TemporaryDirectory() as tmp:
         if args.public_key:
             with open(args.public_key) as f:
                 key_type, key_data = f.read().split()[:2]
-            allowed = os.path.join(tmp, "allowed_signers")
-            with open(allowed, "w") as f:
+            allowed = Path(tmp) / "allowed_signers"
+            with allowed.open("w") as f:
                 f.write(f'{_SIGNER} namespaces="{NAMESPACE}" {key_type} {key_data}\n')
-            trust = ["verify", "-f", allowed, "-I", _SIGNER]
+            trust = ["verify", "-f", str(allowed), "-I", _SIGNER]
         elif args.allowed_signers:
             if not args.identity:
                 raise WGSExtractError("--allowed-signers needs --identity.")
             trust = ["verify", "-f", args.allowed_signers, "-I", args.identity]
         else:
             trust = ["check-novalidate"]
-        cmd = [keygen, "-Y", *trust, "-n", NAMESPACE, "-s", signature]
-        with open(manifest, "rb") as stdin:
+        cmd = [keygen, "-Y", *trust, "-n", NAMESPACE, "-s", str(signature)]
+        with manifest.open("rb") as stdin:
             res = subprocess.run(cmd, stdin=stdin, capture_output=True, text=True)
     message = (res.stdout + res.stderr).strip()
     if res.returncode != 0:
@@ -205,11 +228,13 @@ def _verify_signature(args: argparse.Namespace, manifest: str, signature: str) -
 
 
 def cmd_verify(args: argparse.Namespace) -> None:
-    manifest = os.path.abspath(args.manifest)
-    if not os.path.isfile(manifest):
+    manifest = absolute_path(args.manifest)
+    if not manifest.is_file():
         raise WGSExtractError(f"Manifest not found: {args.manifest}")
-    signature = args.signature or manifest + ".sig"
-    if os.path.isfile(signature):
+    signature = (
+        Path(args.signature) if args.signature else append_suffix(manifest, ".sig")
+    )
+    if signature.is_file():
         _verify_signature(args, manifest, signature)
     elif args.signature or args.public_key or args.allowed_signers:
         raise WGSExtractError(f"Signature not found: {signature}")
@@ -217,14 +242,12 @@ def cmd_verify(args: argparse.Namespace) -> None:
         logging.warning("The manifest is not signed; checking file hashes only.")
 
     entries = _read_manifest(manifest)
-    base = os.path.dirname(manifest)
-    paths = [os.path.join(base, *name.split("/")) for _, name in entries]
+    base = manifest.parent
+    paths = [base.joinpath(*name.split("/")) for _, name in entries]
     missing = [
-        name
-        for (_, name), p in zip(entries, paths, strict=True)
-        if not os.path.isfile(p)
+        name for (_, name), p in zip(entries, paths, strict=True) if not p.is_file()
     ]
-    present = [(e, p) for e, p in zip(entries, paths, strict=True) if os.path.isfile(p)]
+    present = [(e, p) for e, p in zip(entries, paths, strict=True) if p.is_file()]
     threads, _ = get_resource_defaults(args.threads, None)
     logging.info(f"Checking {len(entries)} file(s)...")
     digests = _hash_files([p for _, p in present], threads)

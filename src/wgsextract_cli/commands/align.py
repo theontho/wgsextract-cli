@@ -12,6 +12,7 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import is_fasta_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
@@ -153,15 +154,15 @@ def _require_unambiguous_library(ref: str | None, task: str) -> None:
     """FASTQs don't say which genome they belong to, so a reference library
     holding several can't be picked from silently (it would be the first
     known name, e.g. hg19 for hg38 reads)."""
-    if ref and os.path.isfile(ref):
+    if ref and Path(ref).is_file():
         return
     root = ReferenceLibrary(ref, skip_full_search=True).root
-    if not root or not os.path.isdir(root):
+    if not root or not Path(root).is_dir():
         return
     fastas = sorted(
-        os.path.join(d, name)
-        for d in (root, os.path.join(root, "genomes"))
-        if os.path.isdir(d)
+        str(Path(d, name))
+        for d in (root, str(Path(root, "genomes")))
+        if Path(d).is_dir()
         for name in os.listdir(d)
         if is_fasta_path(name)
     )
@@ -188,16 +189,16 @@ def _prepare_alignment(
     verify_paths_exist(paths_to_check)
 
     input_path = args.input or args.r1
-    outdir = args.outdir or os.path.dirname(os.path.abspath(input_path))
-    os.makedirs(outdir, exist_ok=True)
-    logging.debug(f"Input file: {os.path.abspath(input_path)}")
-    logging.debug(f"Output directory: {os.path.abspath(outdir)}")
+    outdir = args.outdir or str(absolute_path(input_path).parent)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
+    logging.debug(f"Input file: {str(absolute_path(input_path))}")
+    logging.debug(f"Output directory: {str(absolute_path(outdir))}")
 
     md5_sig = calculate_bam_md5(input_path, None) if args.input else None
     if not md5_sig:
         _require_unambiguous_library(args.ref, task)
     resolved_ref = resolve_reference(args.ref, md5_sig)
-    if not resolved_ref or not os.path.isfile(resolved_ref):
+    if not resolved_ref or not Path(resolved_ref).is_file():
         raise WGSExtractError(LOG_MESSAGES["ref_required_for"].format(task=task))
     logging.info(f"Aligning to {resolved_ref}")
 
@@ -209,7 +210,7 @@ def _prepare_alignment(
 
 
 def ensure_bwa_index(ref: str) -> None:
-    if os.path.exists(ref + ".bwt"):
+    if Path(ref + ".bwt").exists():
         return
     logging.info(f"BWA index missing for {ref}. Generating now (may take a while)...")
     try:
@@ -257,7 +258,7 @@ def align_bwa(args: argparse.Namespace) -> None:
     print_warning("ButtonBWAAlign", threads=setup.threads)
 
     ext = ".cram" if args.format == "CRAM" else ".bam"
-    out_bam = os.path.join(setup.outdir, f"{setup.stem}_aligned{ext}")
+    out_bam = str(Path(setup.outdir, f"{setup.stem}_aligned{ext}"))
 
     logging.info(
         LOG_MESSAGES["aligning_reads"].format(input=args.r1, output=out_bam, tool="BWA")
@@ -294,7 +295,7 @@ def align_minimap2(args: argparse.Namespace) -> None:
     setup = _prepare_alignment(args, ["minimap2", "samtools"], "Minimap2 alignment")
 
     ext = ".cram" if args.format == "CRAM" else ".bam"
-    out_bam = os.path.join(setup.outdir, f"{setup.stem}_aligned{ext}")
+    out_bam = str(Path(setup.outdir, f"{setup.stem}_aligned{ext}"))
 
     logging.info(
         LOG_MESSAGES["aligning_reads"].format(
@@ -335,7 +336,7 @@ def align_pbmm2(args: argparse.Namespace) -> None:
         )
     preset = _PBMM2_PRESETS[preset_arg]
 
-    out_bam = os.path.join(setup.outdir, f"{setup.stem}_aligned.bam")
+    out_bam = str(Path(setup.outdir, f"{setup.stem}_aligned.bam"))
     sample = args.sample or setup.stem.split(".")[0]
 
     logging.info(

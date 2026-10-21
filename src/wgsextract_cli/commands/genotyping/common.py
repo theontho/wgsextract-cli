@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import re
 import shlex
 from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
 
 from wgsextract_cli.core.builds import build_from_chr1_length
 from wgsextract_cli.core.dependencies import pixi_env_tool
 from wgsextract_cli.core.dependency_checks import verify_dependencies
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem
 from wgsextract_cli.core.reference_resolver import header_contig_lengths
 from wgsextract_cli.core.samtools_commands import alignment_index
@@ -97,12 +98,12 @@ def open_alignment(args: argparse.Namespace) -> Alignment:
     reference = resolve_reference(
         args.ref, calculate_bam_md5(args.input, header=header), args.input
     )
-    if not (reference and os.path.isfile(reference)):
+    if not (reference and Path(reference).is_file()):
         reference = None
 
     threads, _memory = get_resource_defaults(args.threads, None)
-    outdir = args.outdir or os.path.dirname(os.path.abspath(args.input))
-    os.makedirs(outdir, exist_ok=True)
+    outdir = args.outdir or str(absolute_path(args.input).parent)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
     aln = Alignment(
         path=args.input,
         lengths=lengths,
@@ -138,8 +139,8 @@ def write_bed(path: str, regions: Iterable[tuple[str, int, int]]) -> str:
 def write_outside_calls(path: str, calls: list[tuple[str, str]]) -> str | None:
     """A PharmCAT outside-call file (gene, diplotype), or None without calls."""
     if not calls:
-        if os.path.exists(path):
-            os.remove(path)
+        if Path(path).exists():
+            Path(path).unlink()
         return None
     # PharmCAT reads outside calls as UTF-8 (CYP2D6 copy numbers use "≥").
     with open(path, "w", encoding="utf-8") as f:

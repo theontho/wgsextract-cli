@@ -1,8 +1,8 @@
 import argparse
 import logging
-import os
 import shutil
 import subprocess
+from pathlib import Path
 
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependency_checks import (
@@ -10,6 +10,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -38,10 +39,8 @@ def _haplogrep_command(haplogrep_path: str) -> list[str]:
     jar = haplogrep_path
     if not jar.endswith(".jar"):
         resolved = shutil.which(haplogrep_path) or haplogrep_path
-        sibling = os.path.join(
-            os.path.dirname(os.path.realpath(resolved)), "haplogrep.jar"
-        )
-        if not os.path.isfile(sibling):
+        sibling = str(Path(resolved).resolve().parent / "haplogrep.jar")
+        if not Path(sibling).is_file():
             return tool_command(haplogrep_path)
         jar = sibling
     verify_dependencies(["java"])
@@ -64,15 +63,15 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
 
     cmd = _haplogrep_command(haplogrep_path)
 
-    outdir = args.outdir or os.path.dirname(os.path.abspath(args.input))
-    os.makedirs(outdir, exist_ok=True)
-    logging.debug(f"Input file: {os.path.abspath(args.input)}")
-    logging.debug(f"Output directory: {os.path.abspath(outdir)}")
-    out_file = os.path.join(outdir, "haplogrep_results.txt")
+    outdir = args.outdir or str(absolute_path(args.input).parent)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
+    logging.debug(f"Input file: {str(absolute_path(args.input))}")
+    logging.debug(f"Output directory: {str(absolute_path(outdir))}")
+    out_file = str(Path(outdir, "haplogrep_results.txt"))
 
     input_file = args.input
     input_lower = input_file.lower()
-    temp_vcf = os.path.join(outdir, "temp_haplogrep_input.vcf.gz")
+    temp_vcf = str(Path(outdir, "temp_haplogrep_input.vcf.gz"))
 
     try:
         if input_lower.endswith((".bam", ".cram")):
@@ -117,8 +116,8 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
             raise WGSExtractError(f"Haplogrep failed: {e}") from e
     finally:
         for path in (temp_vcf, temp_vcf + ".tbi"):
-            if os.path.exists(path):
-                os.remove(path)
+            if Path(path).exists():
+                Path(path).unlink()
 
     _print_haplogrep_result(out_file)
 

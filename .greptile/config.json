@@ -11,7 +11,7 @@
   "rules": [
     {"id": "no-bare-except", "scope": ["src/**/*.py", "scripts/**/*.py"], "rule": "Avoid bare `except:` and overly broad `except Exception:`. Catch specific exception types.", "severity": "medium", "enabled": true},
     {"id": "redact-secrets", "scope": ["src/**/*.py", "scripts/**/*.py"], "rule": "Configuration display, logs, and error messages must redact keys, tokens, and credentials.", "severity": "low", "enabled": true},
-    {"id": "prefer-pathlib", "scope": ["src/**/*.py", "scripts/**/*.py"], "rule": "Prefer pathlib.Path over os.path string manipulation in new code.", "severity": "high", "enabled": true},
+    {"id": "prefer-pathlib", "scope": ["src/**/*.py", "scripts/**/*.py"], "rule": "Use pathlib.Path for filesystem path operations; do not introduce os.path calls. Shared path helpers accept str | os.PathLike[str]. Keep Path values while manipulating paths and convert explicitly at string-based CLI, configuration, subprocess-wrapper, and public return-value boundaries. Preserve known compound genomic extensions with input_stem/fasta_prefix and append index sidecars with append_suffix, not with_suffix. Tool wrapper commands and samtools out##idx##index arguments are strings, not filesystem paths. Use native path strings except for portable checksum-manifest entries.", "severity": "high", "enabled": true},
     {"id": "type-annotations", "scope": ["src/**/*.py"], "rule": "Public functions and methods should have type annotations on parameters and return values.", "severity": "high", "enabled": true}
   ]
 }

@@ -58,8 +58,8 @@ def download_phylop(
     progress_callback: ProgressCallback | None = None,
 ) -> bool:
     """Downloads and indexes PhyloP conservation scores for hg19 and hg38."""
-    target_dir = os.path.join(reflib_dir, "ref")
-    os.makedirs(target_dir, exist_ok=True)
+    target_dir = str(Path(reflib_dir, "ref"))
+    Path(target_dir).mkdir(parents=True, exist_ok=True)
 
     success = True
     for build, url in PHYLOP_URLS.items():
@@ -67,7 +67,7 @@ def download_phylop(
             return False
 
         # We use .tsv.gz suffix for consistency in our app's search logic
-        dest_path = os.path.join(target_dir, f"phylop_{build}.tsv.gz")
+        dest_path = str(Path(target_dir, f"phylop_{build}.tsv.gz"))
         logging.info(f"Downloading PhyloP {build} from Annovar mirrors...")
 
         if not download_file(url, dest_path, progress_callback, cancel_event):
@@ -102,15 +102,15 @@ def download_gnomad(
     progress_callback: ProgressCallback | None = None,
 ) -> bool:
     """Downloads and indexes gnomAD sites VCFs for hg19 and hg38."""
-    target_dir = os.path.join(reflib_dir, "ref")
-    os.makedirs(target_dir, exist_ok=True)
+    target_dir = str(Path(reflib_dir, "ref"))
+    Path(target_dir).mkdir(parents=True, exist_ok=True)
 
     success = True
     for build, url in GNOMAD_URLS.items():
         if cancel_event and cancel_event.is_set():
             return False
 
-        dest_path = os.path.join(target_dir, f"gnomad_{build}.vcf.bgz")
+        dest_path = str(Path(target_dir, f"gnomad_{build}.vcf.bgz"))
         logging.info(f"Downloading gnomAD {build} from Google Storage...")
 
         if not download_file(url, dest_path, progress_callback, cancel_event):
@@ -135,13 +135,13 @@ def download_gnomad(
 
 
 def delete_genome(final_name: str, reflib_dir: str) -> bool:
-    base_path = os.path.join(reflib_dir, "genomes", final_name)
+    base_path = str(Path(reflib_dir, "genomes", final_name))
     paths = [base_path + ext for ext in ["", ".partial", ".fai", ".gzi", ".dict"]]
     paths.extend([reference_dict_path(base_path), *n_count_paths(base_path)])
     paths.append(fasta_prefix(base_path) + ".wgse")
     for path in paths:
-        if os.path.exists(path):
-            os.remove(path)
+        if Path(path).exists():
+            Path(path).unlink()
     return True
 
 
@@ -149,8 +149,8 @@ def has_ref_ns(final_name: str, reflib_dir: str) -> bool:
     """Checks if N-count files exist for a reference genome."""
     if not reflib_dir:
         return False
-    base_path = os.path.join(reflib_dir, "genomes", final_name)
-    return any(os.path.exists(path) for path in n_count_paths(base_path))
+    base_path = str(Path(reflib_dir, "genomes", final_name))
+    return any(Path(path).exists() for path in n_count_paths(base_path))
 
 
 def _run_reference_tool(cmd: list[str], cancel_event: CancelEvent | None) -> bool:
@@ -225,16 +225,16 @@ def download_and_process_genome(
     An already-installed genome is only re-indexed unless restart is set.
     """
     verify_dependencies(["samtools", "bgzip", "gzip"])
-    target_dir = os.path.join(reflib_dir, "genomes")
-    os.makedirs(target_dir, exist_ok=True)
-    final_path = os.path.join(target_dir, genome_data["final"])
+    target_dir = str(Path(reflib_dir, "genomes"))
+    Path(target_dir).mkdir(parents=True, exist_ok=True)
+    final_path = str(Path(target_dir, genome_data["final"]))
     partial_path = final_path + ".partial"
 
     if restart:
-        if os.path.exists(final_path):
-            os.remove(final_path)
-        if os.path.exists(partial_path):
-            os.remove(partial_path)
+        if Path(final_path).exists():
+            Path(final_path).unlink()
+        if Path(partial_path).exists():
+            Path(partial_path).unlink()
 
     if get_genome_status(genome_data["final"], reflib_dir) == "installed":
         return process_reference_file(final_path, status_callback, cancel_event)
@@ -258,15 +258,15 @@ def download_bootstrap(
     """Downloads and extracts the reference library bootstrap."""
     from wgsextract_cli.core.constants import BOOTSTRAP_FILENAME, BOOTSTRAP_URL
 
-    if not os.path.exists(reflib_dir):
-        os.makedirs(reflib_dir, exist_ok=True)
+    if not Path(reflib_dir).exists():
+        Path(reflib_dir).mkdir(parents=True, exist_ok=True)
 
     normalize_bootstrap_layout(reflib_dir)
     if bootstrap_has_support_assets(reflib_dir):
         logging.info("Reference bootstrap assets are already installed.")
         return install_bootstrap_support_files(reflib_dir)
 
-    dest_path = os.path.join(reflib_dir, BOOTSTRAP_FILENAME)
+    dest_path = str(Path(reflib_dir, BOOTSTRAP_FILENAME))
     logging.info(f"Downloading bootstrap from {BOOTSTRAP_URL}...")
 
     for attempt in range(1, 4):
@@ -279,7 +279,7 @@ def download_bootstrap(
     logging.info(f"Extracting bootstrap to {reflib_dir}...")
     try:
         extract_archive_keep_existing(dest_path, reflib_dir)
-        os.remove(dest_path)
+        Path(dest_path).unlink()
         normalize_bootstrap_layout(reflib_dir)
         if not install_bootstrap_support_files(reflib_dir):
             return False
@@ -329,11 +329,11 @@ def extract_archive_keep_existing(archive_path: str, dest_dir: str) -> None:
             partial = target.with_name(target.name + ".partial")
             with source, open(partial, "wb") as out:
                 shutil.copyfileobj(source, out, 1024 * 1024)
-            os.replace(partial, target)
+            Path(partial).replace(target)
 
 
 def bootstrap_has_support_assets(reflib_dir: str) -> bool:
-    if not os.path.isdir(reflib_dir):
+    if not Path(reflib_dir).is_dir():
         return False
     names = {
         "All_SNPs.vcf.gz",
@@ -355,14 +355,14 @@ def bootstrap_has_support_assets(reflib_dir: str) -> bool:
 
 
 def normalize_bootstrap_layout(reflib_dir: str) -> None:
-    nested = os.path.join(reflib_dir, "reference")
-    if not os.path.isdir(nested):
+    nested = str(Path(reflib_dir, "reference"))
+    if not Path(nested).is_dir():
         _remove_macos_metadata(reflib_dir)
         return
     _merge_directory(nested, reflib_dir)
     _remove_empty_directories(nested)
-    if os.path.isdir(nested) and not os.listdir(nested):
-        os.rmdir(nested)
+    if Path(nested).is_dir() and not os.listdir(nested):
+        Path(nested).rmdir()
     _remove_macos_metadata(reflib_dir)
 
 
@@ -375,12 +375,12 @@ def install_bootstrap_support_files(reflib_dir: str) -> bool:
 
 def install_ploidy_files(reflib_dir: str) -> bool:
     outputs = {
-        "GRCh37": os.path.join(reflib_dir, "ploidy_hg19.txt"),
-        "GRCh38": os.path.join(reflib_dir, "ploidy_hg38.txt"),
+        "GRCh37": str(Path(reflib_dir, "ploidy_hg19.txt")),
+        "GRCh38": str(Path(reflib_dir, "ploidy_hg38.txt")),
     }
     ok = True
     for alias, output in outputs.items():
-        if os.path.isfile(output):
+        if Path(output).is_file():
             logging.info("Ploidy file already installed: %s", output)
             continue
         logging.info("Installing ploidy file for %s: %s", alias, output)
@@ -411,52 +411,52 @@ def _ploidy_content(alias: str) -> str:
 
 
 def _merge_directory(src: str, dst: str) -> None:
-    os.makedirs(dst, exist_ok=True)
+    Path(dst).mkdir(parents=True, exist_ok=True)
     for name in os.listdir(src):
-        source = os.path.join(src, name)
+        source = str(Path(src, name))
         if name.startswith("._") or name == ".DS_Store":
             _remove_path(source)
             continue
-        target = os.path.join(dst, name)
-        if os.path.isdir(source) and not os.path.islink(source):
+        target = str(Path(dst, name))
+        if Path(source).is_dir() and not Path(source).is_symlink():
             _merge_directory(source, target)
             if not os.listdir(source):
-                os.rmdir(source)
-        elif not os.path.exists(target):
+                Path(source).rmdir()
+        elif not Path(target).exists():
             shutil.move(source, target)
         elif (
-            os.path.isfile(source)
-            and os.path.isfile(target)
+            Path(source).is_file()
+            and Path(target).is_file()
             and filecmp.cmp(source, target, shallow=False)
         ):
-            os.remove(source)
+            Path(source).unlink()
         else:
             logging.warning("Leaving duplicate bootstrap file in place: %s", source)
 
 
 def _remove_macos_metadata(root: str) -> None:
-    if not os.path.isdir(root):
+    if not Path(root).is_dir():
         return
     for current_dir, dirs, files in os.walk(root):
         for file_name in files:
             if file_name.startswith("._") or file_name == ".DS_Store":
-                _remove_path(os.path.join(current_dir, file_name))
+                _remove_path(str(Path(current_dir, file_name)))
         for directory in list(dirs):
             if directory == "__MACOSX":
-                _remove_path(os.path.join(current_dir, directory))
+                _remove_path(str(Path(current_dir, directory)))
                 dirs.remove(directory)
 
 
 def _remove_empty_directories(root: str) -> None:
-    if not os.path.isdir(root):
+    if not Path(root).is_dir():
         return
     for current_dir, _, _ in os.walk(root, topdown=False):
         if current_dir != root and not os.listdir(current_dir):
-            os.rmdir(current_dir)
+            Path(current_dir).rmdir()
 
 
 def _remove_path(path: str) -> None:
-    if os.path.isdir(path) and not os.path.islink(path):
+    if Path(path).is_dir() and not Path(path).is_symlink():
         shutil.rmtree(path)
-    elif os.path.exists(path):
-        os.remove(path)
+    elif Path(path).exists():
+        Path(path).unlink()

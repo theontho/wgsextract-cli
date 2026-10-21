@@ -240,6 +240,16 @@ pixi install
 pixi run wgsextract --help
 ```
 
+Use `pathlib.Path` for filesystem operations. Shared path helpers accept strings
+and `os.PathLike[str]` (the `PathInput` alias in `core.paths`); keep path objects
+while manipulating paths and convert at string-based CLI, configuration, tool
+wrapper, and public return-value boundaries. Use `input_stem` / `fasta_prefix`
+for compound genomic extensions and `append_suffix` for sidecars such as
+`.vcf.gz.tbi` and `.cram.crai`. `absolute_path` normalizes `..` without following
+symlinks; use `Path.resolve()` when comparing real targets. Wrapper commands and samtools'
+`out##idx##index` arguments must remain strings; native filesystem paths must
+not be converted to POSIX spelling for Windows.
+
 Developer tools live in the `dev` Pixi environment, which Pixi selects automatically for these tasks:
 
 | Task | What it runs |

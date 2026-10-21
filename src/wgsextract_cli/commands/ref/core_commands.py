@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 import subprocess
+from pathlib import Path
 
 from wgsextract_cli.core.annotation_resources import get_genome_size
 from wgsextract_cli.core.builds import build_from_path
@@ -11,6 +12,7 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.gene_map import are_gene_maps_installed
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.ref_library.catalog import (
     get_available_genomes,
     get_genome_status,
@@ -36,7 +38,7 @@ from wgsextract_cli.core.variant_files import (
 
 
 def cmd_download(args: argparse.Namespace) -> None:
-    if os.path.isdir(args.out):
+    if Path(args.out).is_dir():
         raise WGSExtractError(f"Output path is a directory: {args.out}")
 
     logging.info(LOG_MESSAGES["ref_downloading"].format(url=args.url, path=args.out))
@@ -52,7 +54,7 @@ def cmd_index(args: argparse.Namespace) -> None:
 
     verify_paths_exist({"--ref": args.ref})
 
-    logging.debug(f"Resolved reference: {os.path.abspath(args.ref)}")
+    logging.debug(f"Resolved reference: {str(absolute_path(args.ref))}")
     logging.info(LOG_MESSAGES["ref_indexing"].format(path=args.ref))
     try:
         logging.info("Indexing FASTA with samtools faidx...")
@@ -82,7 +84,7 @@ def cmd_count_ns(args: argparse.Namespace) -> None:
     if explicit_dests is not None and "outdir" not in explicit_dests:
         outdir = None  # configured output_directory must not relocate sidecars
     if outdir:
-        os.makedirs(outdir, exist_ok=True)
+        Path(outdir).mkdir(parents=True, exist_ok=True)
     ncnt_path, nbin_path = n_count_paths(args.ref, outdir)
 
     logging.info(LOG_MESSAGES["analyzing_ns"].format(path=args.ref))
@@ -111,7 +113,7 @@ def cmd_ref_verify(args: argparse.Namespace) -> None:
     # Auto-resolve ref if a directory was provided
     resolved_ref = resolve_reference(args.ref, "")
     logging.debug(f"Resolved reference: {resolved_ref}")
-    if resolved_ref is None or not os.path.isfile(resolved_ref):
+    if resolved_ref is None or not Path(resolved_ref).is_file():
         raise WGSExtractError(f"Reference file not found: {resolved_ref or args.ref}")
 
     logging.info(LOG_MESSAGES["ref_verifying"].format(path=resolved_ref))
@@ -141,7 +143,7 @@ def cmd_ref_verify(args: argparse.Namespace) -> None:
     logging.info(LOG_MESSAGES["ref_faidx_ok"])
 
     # 3. Sequence dictionary signature against the library catalog (if known)
-    filename = os.path.basename(resolved_ref)
+    filename = Path(resolved_ref).name
     signature = sequence_signature(lengths)
     expected = next(
         (g.get("md5") for g in get_available_genomes() if g["final"] == filename),
@@ -159,7 +161,7 @@ def cmd_ref_verify(args: argparse.Namespace) -> None:
     else:
         logging.info(f"Sequence dictionary signature: {signature}")
 
-    if not os.path.exists(reference_dict_path(resolved_ref)):
+    if not Path(reference_dict_path(resolved_ref)).exists():
         logging.warning(
             f"No sequence dictionary {reference_dict_path(resolved_ref)}; "
             "run 'wgsextract ref index' if GATK tools need it."
@@ -200,13 +202,13 @@ def cmd_library_list(args: argparse.Namespace) -> None:
             species = "felis_catus"
 
         if species:
-            vep_path = os.path.join(reflib_dir, "vep", species)
-            if os.path.exists(vep_path):
+            vep_path = str(Path(reflib_dir, "vep", species))
+            if Path(vep_path).exists():
                 # If human, check for specific assembly
                 if species == "homo_sapiens" and assembly:
                     # Look for any directory starting with [version]_[assembly]
                     found_asm = False
-                    if os.path.isdir(vep_path):
+                    if Path(vep_path).is_dir():
                         for d in os.listdir(vep_path):
                             if assembly in d:
                                 found_asm = True
@@ -224,30 +226,30 @@ def cmd_library_list(args: argparse.Namespace) -> None:
     print(f"{'Gene Maps (hg19/hg38)':<40} {gm_installed}")
 
     # Check for ClinVar, REVEL, gnomAD
-    ref_dir = os.path.join(reflib_dir, "ref")
+    ref_dir = str(Path(reflib_dir, "ref"))
     for build in ["hg19", "hg38"]:
         cv = (
             "INSTALLED"
-            if os.path.exists(os.path.join(ref_dir, f"clinvar_{build}.vcf.gz"))
+            if Path(ref_dir, f"clinvar_{build}.vcf.gz").exists()
             else "MISSING"
         )
         print(f"{f'ClinVar ({build})':<40} {cv}")
         rv = (
             "INSTALLED"
-            if os.path.exists(os.path.join(ref_dir, f"revel_{build}.tsv.gz"))
+            if Path(ref_dir, f"revel_{build}.tsv.gz").exists()
             else "MISSING"
         )
         print(f"{f'REVEL ({build})':<40} {rv}")
         ph = (
             "INSTALLED"
-            if os.path.exists(os.path.join(ref_dir, f"phylop_{build}.tsv.gz"))
+            if Path(ref_dir, f"phylop_{build}.tsv.gz").exists()
             else "MISSING"
         )
         print(f"{f'PhyloP ({build})':<40} {ph}")
         gn = (
             "INSTALLED"
             if any(
-                os.path.exists(os.path.join(ref_dir, f"gnomad_{build}{ext}"))
+                Path(ref_dir, f"gnomad_{build}{ext}").exists()
                 for ext in [".vcf.bgz", ".vcf.gz"]
             )
             else "MISSING"

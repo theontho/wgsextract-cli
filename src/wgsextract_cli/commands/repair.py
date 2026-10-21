@@ -2,15 +2,16 @@ import argparse
 import gzip
 import io
 import logging
-import os
 import re
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 from typing import IO, TextIO
 
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem
 from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
 from wgsextract_cli.core.variant_files import calculate_bam_md5, resolve_reference
@@ -70,16 +71,16 @@ def repair_vcf(args: argparse.Namespace) -> None:
 def repair_bam_file(args: argparse.Namespace) -> None:
     """Stream samtools view -h | repair | samtools view -b without temp SAM files."""
     input_path = args.input
-    if not os.path.isfile(input_path):
+    if not Path(input_path).is_file():
         raise WGSExtractError(f"Input BAM/CRAM does not exist: {input_path}")
     verify_dependencies(["samtools"])
     output_path = _repair_output_path(args, ".bam")
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
     cram_opt: list[str] = []
     if input_path.lower().endswith(".cram") and args.ref:
         ref = resolve_reference(args.ref, calculate_bam_md5(input_path, None))
-        if not ref or not os.path.isfile(ref):
+        if not ref or not Path(ref).is_file():
             raise WGSExtractError(f"No reference FASTA for {input_path} at {args.ref}")
         cram_opt = ["-T", ref]
 
@@ -131,10 +132,10 @@ def repair_bam_file(args: argparse.Namespace) -> None:
 
 def repair_vcf_file(args: argparse.Namespace) -> None:
     input_path = args.input
-    if not os.path.isfile(input_path):
+    if not Path(input_path).is_file():
         raise WGSExtractError(f"Input VCF/BCF does not exist: {input_path}")
     output_path = _repair_output_path(args, ".vcf")
-    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     if input_path.lower().endswith(".bcf"):
         with tempfile.NamedTemporaryFile(
             mode="w+", suffix=".vcf", delete=False, encoding="utf-8"
@@ -150,7 +151,7 @@ def repair_vcf_file(args: argparse.Namespace) -> None:
                 repair_vcf_stream(vcf_input, repaired_output)
         finally:
             try:
-                os.remove(tmp_path)
+                Path(tmp_path).unlink()
             except OSError:
                 pass
     else:
@@ -186,10 +187,10 @@ def repair_vcf_stream(input_stream: TextIO, output_stream: TextIO) -> None:
 
 def _repair_output_path(args: argparse.Namespace, extension: str) -> str:
     if args.output:
-        return os.path.abspath(str(args.output))
-    outdir = args.outdir or os.path.dirname(os.path.abspath(args.input))
-    return os.path.abspath(
-        os.path.join(outdir, f"{input_stem(args.input)}_repaired{extension}")
+        return str(absolute_path(str(args.output)))
+    outdir = args.outdir or str(absolute_path(args.input).parent)
+    return str(
+        absolute_path(Path(outdir, f"{input_stem(args.input)}_repaired{extension}"))
     )
 
 

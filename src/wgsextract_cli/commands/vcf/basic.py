@@ -1,12 +1,12 @@
 import argparse
 import gzip
 import logging
-import os
 import shutil
 import subprocess
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 
 from wgsextract_cli.core.builds import is_hg37_build, is_hg38_build, ploidy_for_build
 from wgsextract_cli.core.config import settings
@@ -15,6 +15,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -64,11 +65,11 @@ def get_base_args(args: argparse.Namespace) -> tuple[str, str, str, ReferenceLib
     if not input_file:
         raise WGSExtractError(LOG_MESSAGES["input_required"])
 
-    logging.debug(f"Input file: {os.path.abspath(input_file)}")
+    logging.debug(f"Input file: {str(absolute_path(input_file))}")
     threads, _ = get_resource_defaults(args.threads, None)
-    outdir = args.outdir or os.path.dirname(os.path.abspath(input_file))
-    os.makedirs(outdir, exist_ok=True)
-    logging.debug(f"Output directory: {os.path.abspath(outdir)}")
+    outdir = args.outdir or str(absolute_path(input_file).parent)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
+    logging.debug(f"Output directory: {str(absolute_path(outdir))}")
 
     lib = ReferenceLibrary(
         args.ref, calculate_bam_md5(input_file, None), input_path=input_file
@@ -81,7 +82,7 @@ def get_base_args(args: argparse.Namespace) -> tuple[str, str, str, ReferenceLib
         paths_to_check["--ref"] = resolved_ref
     verify_paths_exist(paths_to_check)
 
-    if not resolved_ref or not os.path.isfile(resolved_ref):
+    if not resolved_ref or not Path(resolved_ref).is_file():
         raise WGSExtractError(
             LOG_MESSAGES["ref_required_for"].format(task="variant calling")
         )
@@ -121,17 +122,17 @@ def plain_reference(ref: str, outdir: str) -> Iterator[str]:
         yield ref
         return
     sibling = ref[:-3]
-    if os.path.isfile(sibling):
-        if not os.path.isfile(sibling + ".fai"):
+    if Path(sibling).is_file():
+        if not Path(sibling + ".fai").is_file():
             try:
                 run_command(["samtools", "faidx", sibling], capture_output=True)
             except (OSError, subprocess.SubprocessError) as e:
                 logging.debug(f"Could not index {sibling} in place: {e}")
-        if os.path.isfile(sibling + ".fai"):
+        if Path(sibling + ".fai").is_file():
             yield sibling
             return
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_ref_") as tmp:
-        target = os.path.join(tmp, os.path.basename(sibling))
+        target = str(Path(tmp, Path(sibling).name))
         logging.info(f"Decompressing reference for this tool to {target}...")
         try:
             with gzip.open(ref, "rb") as src, open(target, "wb") as dst:
@@ -150,7 +151,7 @@ def cmd_snp(args: argparse.Namespace) -> None:
     threads, outdir, ref, lib = get_base_args(args)
     print_warning("ButtonSNPVCF", threads=threads)
 
-    out_vcf = os.path.join(outdir, "snps.vcf.gz")
+    out_vcf = str(Path(outdir, "snps.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_snps"].format(output=out_vcf))
     region_args = ["-r", args.region] if args.region else []
     ploidy_args = _ploidy_args(args, lib)
@@ -176,7 +177,7 @@ def cmd_indel(args: argparse.Namespace) -> None:
     threads, outdir, ref, lib = get_base_args(args)
     print_warning("ButtonInDelVCF", threads=threads)
 
-    out_vcf = os.path.join(outdir, "indels.vcf.gz")
+    out_vcf = str(Path(outdir, "indels.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_indels"].format(output=out_vcf))
     region_args = ["-r", args.region] if args.region else []
     ploidy_args = _ploidy_args(args, lib)
@@ -243,11 +244,11 @@ def cmd_annotate(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
     input_file = require_vcf_input(args)
-    logging.debug(f"Input file: {os.path.abspath(input_file)}")
+    logging.debug(f"Input file: {str(absolute_path(input_file))}")
 
-    outdir = args.outdir or os.path.dirname(os.path.abspath(input_file))
-    logging.debug(f"Output directory: {os.path.abspath(outdir)}")
-    out_vcf = os.path.join(outdir, "annotated.vcf.gz")
+    outdir = args.outdir or str(absolute_path(input_file).parent)
+    logging.debug(f"Output directory: {str(absolute_path(outdir))}")
+    out_vcf = str(Path(outdir, "annotated.vcf.gz"))
 
     ann_vcf = args.ann_vcf
     if not ann_vcf:

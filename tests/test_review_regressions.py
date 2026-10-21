@@ -1,3 +1,6 @@
+import os
+
+
 def test_tabix_annotation_preparation_indexes_tsv_with_coordinate_columns(
     monkeypatch, tmp_path
 ):
@@ -33,11 +36,8 @@ def test_tabix_annotation_preparation_rebuilds_stale_index(monkeypatch, tmp_path
     monkeypatch.setattr(
         helpers, "run_command", lambda cmd, **_kwargs: commands.append(cmd)
     )
-    monkeypatch.setattr(
-        helpers.os.path,
-        "getmtime",
-        lambda path: 20 if str(path).endswith(".tsv.gz") else 10,
-    )
+    os.utime(resource, (20, 20))
+    os.utime(index, (10, 10))
 
     assert helpers.prepare_tabix_annotation(str(resource), "PhyloP") == str(resource)
     assert commands == [["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", str(resource)]]
