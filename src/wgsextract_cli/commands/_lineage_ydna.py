@@ -7,6 +7,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 from wgsextract_cli.commands.info.metrics import sample_sex
 from wgsextract_cli.core.alignment_metadata import get_vcf_build
@@ -17,6 +18,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
@@ -42,7 +44,7 @@ def resolve_lineage_tool(explicit_path: str | None, tool: str, flag: str) -> str
         verify_dependencies([tool])
     path = explicit_path or get_tool_path(tool)
     # A bare command name (no directory part) is resolved like any other tool.
-    if path and not os.path.isabs(path) and os.path.basename(path) == path:
+    if path and not Path(path).is_absolute() and Path(path).name == path:
         path = get_tool_path(path) or path
     if not path:
         raise WGSExtractError(f"{tool} path missing.")
@@ -63,7 +65,7 @@ def tool_command(path: str) -> list[str]:
 def extract_vcf_chromosome(input_vcf: str, target_chr: str, out_vcf: str) -> str:
     """Write the records of one chromosome (e.g. MT, Y) of ``input_vcf`` to ``out_vcf``."""
     ensure_vcf_indexed(input_vcf)
-    indexed = any(os.path.exists(input_vcf + ext) for ext in (".tbi", ".csi"))
+    indexed = any(Path(input_vcf + ext).exists() for ext in (".tbi", ".csi"))
     if indexed:
         chrom = get_vcf_chr_name(input_vcf, target_chr)
         region_args = ["-r", chrom]
@@ -106,11 +108,11 @@ def _placeholder_yleaf_data_dir(work_dir: str) -> dict[str, str]:
     the bundled marker tables plus -cr for CRAM decoding. Point YLEAF_DATA_DIR
     at a placeholder so those runs never trigger the download.
     """
-    data_dir = os.path.join(work_dir, "yleaf_data")
+    data_dir = str(Path(work_dir, "yleaf_data"))
     for build in ("hg19", "hg38", "t2t"):
-        build_dir = os.path.join(data_dir, build)
-        os.makedirs(build_dir, exist_ok=True)
-        with open(os.path.join(build_dir, "full_reference.fa"), "w") as f_out:
+        build_dir = str(Path(data_dir, build))
+        Path(build_dir).mkdir(parents=True, exist_ok=True)
+        with open(str(Path(build_dir, "full_reference.fa")), "w") as f_out:
             f_out.write(">placeholder\n" + "N" * 120 + "\n")
     return {**os.environ, "YLEAF_DATA_DIR": data_dir}
 
@@ -128,13 +130,11 @@ def cmd_ydna(args: argparse.Namespace) -> None:
         verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["yleaf", "bcftools"])
 
-    outdir = os.path.abspath(
-        args.outdir or os.path.dirname(os.path.abspath(args.input))
-    )
+    outdir = str(absolute_path(args.outdir or str(Path(args.input).absolute().parent)))
     # Yleaf deletes and recreates its -o folder, so never hand it the user's
     # output directory itself.
-    yleaf_outdir = os.path.join(outdir, "yleaf")
-    logging.debug(f"Input file: {os.path.abspath(args.input)}")
+    yleaf_outdir = str(Path(outdir, "yleaf"))
+    logging.debug(f"Input file: {str(absolute_path(args.input))}")
     logging.debug(f"Output directory: {yleaf_outdir}")
 
     # Yleaf still "predicts" from a female sample's few mismapped chrY reads
@@ -161,7 +161,7 @@ def cmd_ydna(args: argparse.Namespace) -> None:
 
     cmd = tool_command(yleaf_path)
     threads, _ = get_resource_defaults(args.threads, None)
-    os.makedirs(outdir, exist_ok=True)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
 
     logging.info(LOG_MESSAGES["running_yleaf"].format(input=args.input))
     with tempfile.TemporaryDirectory(prefix="yleaf_", dir=outdir) as work_dir:
@@ -171,14 +171,14 @@ def cmd_ydna(args: argparse.Namespace) -> None:
         if is_vcf:
             input_flag = "-vcf"
             # Yleaf rejects VCFs with several Y-like contigs, so pass chrY only.
-            input_file = os.path.join(work_dir, f"{input_stem(args.input)}.vcf.gz")
+            input_file = str(Path(work_dir, f"{input_stem(args.input)}.vcf.gz"))
             extract_vcf_chromosome(args.input, "Y", input_file)
         elif input_lower.endswith(".bam"):
             input_flag = "-bam"
         elif input_lower.endswith(".cram"):
             input_flag = "-cram"
             cram_ref = (lib.fasta if lib else None) or (
-                args.ref if args.ref and os.path.isfile(args.ref) else None
+                args.ref if args.ref and Path(args.ref).is_file() else None
             )
             if not cram_ref:
                 raise WGSExtractError(
@@ -235,7 +235,7 @@ def cmd_ydna(args: argparse.Namespace) -> None:
         except (OSError, subprocess.SubprocessError) as e:
             raise WGSExtractError(f"Yleaf failed: {e}") from e
 
-    prediction = os.path.join(yleaf_outdir, "hg_prediction.hg")
+    prediction = str(Path(yleaf_outdir, "hg_prediction.hg"))
     try:
         with open(prediction) as f:
             content = f.read().strip()
@@ -249,7 +249,7 @@ def cmd_ydna(args: argparse.Namespace) -> None:
         raise WGSExtractError(
             "Yleaf could not predict a Y haplogroup: no Y-chromosome markers "
             "matched or passed QC. Check that the input has chrY reads and that its reference "
-            f"build is correct; details are in {os.path.join(yleaf_outdir, 'run.log')}."
+            f"build is correct; details are in {str(Path(yleaf_outdir, 'run.log'))}."
         )
     print(f"\n🧬 Yleaf Lineage Result ({input_stem(args.input)}):")
     print("-" * 30)

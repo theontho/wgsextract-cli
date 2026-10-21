@@ -1,6 +1,6 @@
 import argparse
 import logging
-import os
+from pathlib import Path
 
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -35,7 +35,7 @@ def cmd_clinvar(args: argparse.Namespace) -> None:
     logging.info(LOG_MESSAGES["vcf_clinvar_resolve"].format(path=clinvar_vcf))
 
     # Transfer CLNSIG (significance) and CLNDN (disease name).
-    ann_out = os.path.join(outdir, CLINVAR_ANNOTATED)
+    ann_out = str(Path(outdir, CLINVAR_ANNOTATED))
     annotate_vcf(
         ensure_vcf_prepared(input_file),
         ensure_vcf_prepared(clinvar_vcf),
@@ -46,7 +46,7 @@ def cmd_clinvar(args: argparse.Namespace) -> None:
         threads=getattr(args, "threads", None),
     )
 
-    path_out = os.path.join(outdir, "clinvar_pathogenic.vcf.gz")
+    path_out = str(Path(outdir, "clinvar_pathogenic.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_clinvar_filtering"].format(output=path_out))
     # Substring match also covers Pathogenic/Likely_pathogenic combinations.
     run_filter(
@@ -70,7 +70,7 @@ def cmd_revel(args: argparse.Namespace) -> None:
     logging.info(LOG_MESSAGES["vcf_revel_resolve"].format(path=revel_file))
 
     revel_vcf = prepare_tabix_annotation(revel_file, "REVEL")
-    ann_out = os.path.join(outdir, REVEL_ANNOTATED)
+    ann_out = str(Path(outdir, REVEL_ANNOTATED))
     if revel_vcf.lower().endswith(VCF_SUFFIXES):
         annotate_vcf(
             ensure_vcf_prepared(input_file),

@@ -1,7 +1,7 @@
 import logging
-import os
 import random
 import subprocess
+from pathlib import Path
 
 from wgsextract_cli.core.builds import (
     is_hg37_build,
@@ -219,15 +219,15 @@ def generate_fake_genomics_data(
 
     # 1. Create a reference if none provided
     if not ref_path:
-        ref_path = os.path.join(
-            outdir, f"fake_ref_{build}_{mode.lower().replace(' ', '_')}.fa"
+        ref_path = str(
+            Path(outdir, f"fake_ref_{build}_{mode.lower().replace(' ', '_')}.fa")
         )
 
     # Preserve scaled fake-data behavior by creating a small reference, but avoid
     # writing a full human FASTA unless a caller explicitly requested it or CRAM
     # output requires a reference.
     should_create_reference = ref_path_was_provided or not full_size or "cram" in types
-    ref_exists = os.path.exists(str(ref_path))
+    ref_exists = Path(str(ref_path)).exists()
     if ref_exists:
         logging.info(f"Using reference: {ref_path}")
     elif should_create_reference:
@@ -242,8 +242,8 @@ def generate_fake_genomics_data(
 
     # 2. Create fake BAM with reads on all chromosomes based on coverage
     # We generate reads in sorted order to avoid a massive sort operation
-    sam_path = os.path.join(outdir, "fake.sam")
-    bam_path = os.path.join(outdir, "fake.bam")
+    sam_path = str(Path(outdir, "fake.sam"))
+    bam_path = str(Path(outdir, "fake.bam"))
     base_read_len = 100
     base_insert_size = 300
 
@@ -389,13 +389,13 @@ def generate_fake_genomics_data(
             )
 
         run_command(get_sam_index_cmd(bam_path))
-        if os.path.exists(sam_path):
-            os.remove(sam_path)
+        if Path(sam_path).exists():
+            Path(sam_path).unlink()
         logging.info(f"Created {bam_path} ({len(chroms)} chromosomes)")
 
     # 3. Create fake CRAM
     if "cram" in types:
-        cram_path = os.path.join(outdir, "fake.cram")
+        cram_path = str(Path(outdir, "fake.cram"))
         run_command(
             get_sam_view_cmd(threads="1", fmt="CRAM", reference=ref_path)
             + [bam_path, "-o", cram_path]
@@ -405,7 +405,7 @@ def generate_fake_genomics_data(
 
     # 4. Create fake VCF with variants on all chroms
     if "vcf" in types:
-        vcf_path = os.path.join(outdir, "fake.vcf")
+        vcf_path = str(Path(outdir, "fake.vcf"))
         with open(vcf_path, "w") as f:
             f.write("##fileformat=VCFv4.2\n")
             f.write('##FILTER=<ID=PASS,Description="All filters passed">\n')
@@ -449,13 +449,13 @@ def generate_fake_genomics_data(
         with open(vcf_gz, "wb") as f_gz:
             run_command(["bgzip", "-c", vcf_path], stdout=f_gz)
         run_command(["tabix", "-p", "vcf", vcf_gz])
-        os.remove(vcf_path)
+        Path(vcf_path).unlink()
         logging.info(f"Created {vcf_gz}")
 
     # 5. Create fake FASTQ (R1 and R2)
     if "fastq" in types:
-        r1_path = os.path.join(outdir, "fake_R1.fastq.gz")
-        r2_path = os.path.join(outdir, "fake_R2.fastq.gz")
+        r1_path = str(Path(outdir, "fake_R1.fastq.gz"))
+        r2_path = str(Path(outdir, "fake_R2.fastq.gz"))
 
         # We can use samtools fastq to generate these from the BAM we just made
         # -1 and -2 for paired end
@@ -477,8 +477,8 @@ def generate_fake_genomics_data(
 
     # Cleanup intermediate BAM if not requested
     if need_bam and "bam" not in types:
-        if os.path.exists(bam_path):
-            os.remove(bam_path)
-        if os.path.exists(bam_path + ".bai"):
-            os.remove(bam_path + ".bai")
+        if Path(bam_path).exists():
+            Path(bam_path).unlink()
+        if Path(bam_path + ".bai").exists():
+            Path(bam_path + ".bai").unlink()
         logging.debug(f"Removed intermediate BAM {bam_path}")

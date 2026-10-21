@@ -66,7 +66,7 @@ def _gatk_region_args(region: str | None, outdir: str) -> tuple[list[str], str |
     as a file path and fails on the ':'; a .intervals file reads the same everywhere."""
     if not region:
         return [], None
-    intervals = os.path.join(outdir, "gatk_region.intervals")
+    intervals = str(Path(outdir, "gatk_region.intervals"))
     Path(intervals).write_text(region + "\n", encoding="utf-8")
     return ["-L", intervals], intervals
 
@@ -102,7 +102,7 @@ def cmd_freebayes(args: argparse.Namespace) -> None:
     verify_dependencies(["freebayes", "bcftools", "tabix", "samtools"])
     _threads, outdir, ref, _lib = get_base_args(args)
 
-    out_vcf = os.path.join(outdir, "freebayes.vcf.gz")
+    out_vcf = str(Path(outdir, "freebayes.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_freebayes"].format(output=out_vcf))
 
     # FreeBayes needs an uncompressed reference.
@@ -125,7 +125,7 @@ def cmd_gatk(args: argparse.Namespace) -> None:
     verify_dependencies(["gatk", "samtools"])
     _threads, outdir, ref, lib = get_base_args(args)
 
-    out_vcf = os.path.join(outdir, "gatk.vcf.gz")
+    out_vcf = str(Path(outdir, "gatk.vcf.gz"))
 
     # GATK requires a .dict file
     if not lib.dict_file:

@@ -1,14 +1,15 @@
 import argparse
 import logging
-import os
 import subprocess
 import tempfile
+from pathlib import Path
 
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import n_count_paths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
@@ -37,7 +38,7 @@ def write_gaps_bed(ref_path: str, bed_path: str) -> bool:
     Returns False when the sidecar is missing.
     """
     nbin_file = n_count_paths(ref_path)[1]
-    if not os.path.exists(nbin_file):
+    if not Path(nbin_file).exists():
         return False
     with open(nbin_file, encoding="utf-8") as f_in, open(bed_path, "w") as f_out:
         for line in f_in:
@@ -60,12 +61,12 @@ def cmd_filter(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
 
-    logging.debug(f"Input file: {os.path.abspath(input_file)}")
+    logging.debug(f"Input file: {str(absolute_path(input_file))}")
 
-    outdir = args.outdir or os.path.dirname(os.path.abspath(input_file))
-    os.makedirs(outdir, exist_ok=True)
-    logging.debug(f"Output directory: {os.path.abspath(outdir)}")
-    out_vcf = os.path.join(outdir, "filtered.vcf.gz")
+    outdir = args.outdir or str(absolute_path(input_file).parent)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
+    logging.debug(f"Output directory: {str(absolute_path(outdir))}")
+    out_vcf = str(Path(outdir, "filtered.vcf.gz"))
 
     # Resolve reference if needed for gap filtering or gene resolution
     md5_sig = calculate_bam_md5(input_file, None)
@@ -77,9 +78,7 @@ def cmd_filter(args: argparse.Namespace) -> None:
     if args.gene:
         from wgsextract_cli.core.gene_map import GeneMap
 
-        gm = GeneMap(
-            lib.root if lib.root else os.path.dirname(os.path.abspath(input_file))
-        )
+        gm = GeneMap(lib.root if lib.root else str(absolute_path(input_file).parent))
         resolved_region = gm.get_coords(args.gene, lib.build or "hg38")
 
         if not resolved_region:
@@ -95,7 +94,7 @@ def cmd_filter(args: argparse.Namespace) -> None:
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_filter_") as work:
         exclude_args = []
         if getattr(args, "exclude_near_gaps", False):
-            gaps_bed = os.path.join(work, "gaps.bed")
+            gaps_bed = str(Path(work, "gaps.bed"))
             if not lib.fasta:
                 logging.warning(
                     "Gap exclusion requested but reference genome not resolved."
@@ -180,8 +179,8 @@ def cmd_trio(args: argparse.Namespace) -> None:
         )
     verify_paths_exist({"--proband": proband, "--mother": mother, "--father": father})
 
-    outdir = args.outdir or os.path.dirname(os.path.abspath(proband))
-    os.makedirs(outdir, exist_ok=True)
+    outdir = args.outdir or str(absolute_path(proband).parent)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
 
     p_vcf = ensure_vcf_prepared(proband)
     m_vcf = ensure_vcf_prepared(mother)
@@ -196,7 +195,7 @@ def cmd_trio(args: argparse.Namespace) -> None:
         m_norm = normalize_vcf_chromosomes(m_vcf, target_chroms, work)
         f_norm = normalize_vcf_chromosomes(f_vcf, target_chroms, work)
 
-        merged_vcf = os.path.join(work, "merged_trio.vcf.gz")
+        merged_vcf = str(Path(work, "merged_trio.vcf.gz"))
         try:
             run_command(
                 ["bcftools", "merge", "--force-samples", "-Oz", "-o", merged_vcf]
@@ -209,7 +208,7 @@ def cmd_trio(args: argparse.Namespace) -> None:
             raise WGSExtractError(f"VCF trio merge failed: {e}") from e
 
         for mode in modes:
-            out_vcf = os.path.join(outdir, f"trio_{mode}.vcf.gz")
+            out_vcf = str(Path(outdir, f"trio_{mode}.vcf.gz"))
             logging.info(
                 LOG_MESSAGES["vcf_trio_analysis"].format(mode=mode, output=out_vcf)
             )

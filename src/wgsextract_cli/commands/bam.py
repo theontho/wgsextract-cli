@@ -1,14 +1,15 @@
 import argparse
 import logging
-import os
 import subprocess
 import tempfile
+from pathlib import Path
 
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -195,7 +196,7 @@ def _preflight_sort_space(
     if region:
         return
     temp_needed, final_needed = get_free_space_needed(
-        os.path.getsize(input_path),
+        Path(input_path).stat().st_size,
         sort_type,
         is_cram=input_path.lower().endswith(".cram"),
         reads=indexed_read_count(input_path, threads),
@@ -218,7 +219,7 @@ def cmd_identify(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
     _require_input(args)
-    logging.debug(f"Input file: {os.path.abspath(args.input)}")
+    logging.debug(f"Input file: {str(absolute_path(args.input))}")
 
     # Auto-resolve ref if a directory was provided
     resolved_ref = resolve_reference(args.ref, "")
@@ -272,16 +273,14 @@ def cmd_index(args: argparse.Namespace) -> None:
 
 def cmd_unindex(args: argparse.Namespace) -> None:
     _require_input(args)
-    if not os.path.isfile(args.input):
+    if not Path(args.input).is_file():
         raise WGSExtractError(f"Input is not a valid file: {args.input}")
 
     for index_path in (args.input + ".bai", args.input + ".crai"):
-        if os.path.exists(index_path):
-            os.remove(index_path)
+        if Path(index_path).exists():
+            Path(index_path).unlink()
             logging.info(
-                LOG_MESSAGES["delete_success"].format(
-                    filename=os.path.basename(index_path)
-                )
+                LOG_MESSAGES["delete_success"].format(filename=Path(index_path).name)
             )
 
 
@@ -301,7 +300,7 @@ def cmd_unsort(args: argparse.Namespace) -> None:
                 ["samtools", "view", "-H", *cram_opt, args.input], capture_output=True
             ).stdout
             with tempfile.TemporaryDirectory() as tempdir:
-                newhead = os.path.join(tempdir, "newhead.sam")
+                newhead = str(Path(tempdir, "newhead.sam"))
                 with open(newhead, "w") as f:
                     f.write(header.replace("SO:coordinate", "SO:unsorted"))
                 with open(out_file, "wb") as f_out:
@@ -372,7 +371,7 @@ def cmd_tobam(args: argparse.Namespace) -> None:
 
 def _fastq_output_path(path: str, outdir: str) -> str:
     """A bare file name goes in --outdir; a path with a directory is used as given."""
-    return path if os.path.dirname(path) else os.path.join(outdir, path)
+    return str(Path(outdir, path)) if Path(path).name == path else path
 
 
 def cmd_unalign(args: argparse.Namespace) -> None:
@@ -444,7 +443,7 @@ def cmd_merge(args: argparse.Namespace) -> None:
     if len(inputs) < 2:
         raise WGSExtractError("bam merge needs at least two input files.")
     verify_paths_exist({f"input {i}": path for i, path in enumerate(inputs, 1)})
-    if len({os.path.realpath(p) for p in inputs}) != len(inputs):
+    if len({str(Path(p).resolve()) for p in inputs}) != len(inputs):
         raise WGSExtractError("The same file is listed more than once.")
 
     first_header = ""
@@ -470,10 +469,10 @@ def cmd_merge(args: argparse.Namespace) -> None:
             )
 
     threads, _ = get_resource_defaults(args.threads, None)
-    outdir = args.outdir or os.path.dirname(os.path.abspath(inputs[0]))
-    os.makedirs(outdir, exist_ok=True)
+    outdir = args.outdir or str(absolute_path(inputs[0]).parent)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
     out_file = _merge_output_path(args, outdir)
-    if any(os.path.realpath(out_file) == os.path.realpath(p) for p in inputs):
+    if any(Path(out_file).resolve() == Path(p).resolve() for p in inputs):
         raise WGSExtractError(f"Output {out_file} would overwrite an input file.")
 
     ref = None
@@ -481,7 +480,7 @@ def cmd_merge(args: argparse.Namespace) -> None:
         ref = resolve_reference(
             args.ref, calculate_bam_md5(inputs[0], header=first_header), inputs[0]
         )
-        if not (ref and os.path.isfile(ref)):
+        if not (ref and Path(ref).is_file()):
             raise WGSExtractError(
                 LOG_MESSAGES["ref_required_for"].format(task="merging CRAM files")
             )
@@ -490,7 +489,7 @@ def cmd_merge(args: argparse.Namespace) -> None:
     out_bytes = 0.0
     for path in inputs:
         ratio = 1.0 if _is_cram(path) == args.cram else (0.5 if args.cram else 2.0)
-        out_bytes += os.path.getsize(path) * ratio
+        out_bytes += Path(path).stat().st_size * ratio
     needed_gb = int(out_bytes / 1024**3) + 1
     if not check_free_space(outdir, needed_gb):
         raise WGSExtractError(

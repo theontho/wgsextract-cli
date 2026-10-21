@@ -2,14 +2,15 @@ import csv
 import io
 import json
 import logging
-import os
 import re
 import subprocess
 import tempfile
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 from wgsextract_cli.core.variant_files import chromosome_aliases
 
@@ -176,7 +177,7 @@ def region_file_tag(region: str | None) -> str:
 
 
 def _cram_reference_opts(input_p: str, ref_p: str | None) -> list[str]:
-    if input_p.lower().endswith(".cram") and ref_p and os.path.isfile(ref_p):
+    if input_p.lower().endswith(".cram") and ref_p and Path(ref_p).is_file():
         return ["--reference", ref_p]
     return []
 
@@ -184,8 +185,9 @@ def _cram_reference_opts(input_p: str, ref_p: str | None) -> list[str]:
 def _is_fresh_output(path: str, input_p: str) -> bool:
     """True when ``path`` is a non-empty file written after ``input_p`` last changed."""
     try:
-        return os.path.getsize(path) > 0 and os.path.getmtime(path) >= os.path.getmtime(
-            input_p
+        return (
+            Path(path).stat().st_size > 0
+            and Path(path).stat().st_mtime >= Path(input_p).stat().st_mtime
         )
     except OSError:
         return False
@@ -270,12 +272,12 @@ def run_full_coverage(
         cmd += ["-r", region]
     try:
         run_command(cmd + ["-o", tmp_p, input_p])
-        os.replace(tmp_p, out_p)
+        Path(tmp_p).replace(out_p)
     except (OSError, subprocess.SubprocessError) as exc:
         raise WGSExtractError(f"samtools coverage failed for {input_p}: {exc}") from exc
     finally:
-        if os.path.exists(tmp_p):
-            os.remove(tmp_p)
+        if Path(tmp_p).exists():
+            Path(tmp_p).unlink()
     return _breadth_map(_parse_samtools_coverage(out_p), with_total)
 
 
@@ -356,11 +358,9 @@ def run_sampled_coverage(
     for name, start, end in windows:
         sampled[name] += end - start
     covered_bp = dict.fromkeys(sampled, 0)
-    with tempfile.TemporaryDirectory(
-        dir=os.path.dirname(os.path.abspath(out_p))
-    ) as tmp:
-        bed_p = os.path.join(tmp, "windows.bed")
-        depth_p = os.path.join(tmp, "depth.tsv")
+    with tempfile.TemporaryDirectory(dir=str(absolute_path(out_p).parent)) as tmp:
+        bed_p = str(Path(tmp, "windows.bed"))
+        depth_p = str(Path(tmp, "depth.tsv"))
         with open(bed_p, "w") as f:
             f.writelines(f"{n}\t{s}\t{e}\n" for n, s, e in windows)
         # view -M uses the index to fetch only reads overlapping the windows

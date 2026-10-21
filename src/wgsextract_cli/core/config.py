@@ -6,6 +6,7 @@ from typing import Any, TypeVar, overload
 
 from platformdirs import user_config_dir
 
+from wgsextract_cli.core.paths import expand_path
 from wgsextract_cli.core.utils import WGSExtractError
 
 # For Python < 3.11, use tomli
@@ -120,7 +121,7 @@ def _normalize_path_setting(value: Any) -> Any:
     if isinstance(value, Path):
         return str(value.expanduser())
     if isinstance(value, str):
-        return os.path.expanduser(value)
+        return expand_path(value)
     return value
 
 

@@ -5,8 +5,11 @@ import shutil
 import subprocess
 import tempfile
 from collections.abc import Iterable, Mapping, Sequence
+from os import fspath
+from pathlib import Path
 
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.paths import PathInput, append_suffix, expand_path
 
 from .alignment_metadata import (
     get_bam_header,
@@ -22,16 +25,18 @@ from .utils import (
 
 
 def resolve_reference(
-    ref_path: str | None, md5_sig: str | None, input_path: str | None = None
+    ref_path: PathInput | None,
+    md5_sig: str | None,
+    input_path: PathInput | None = None,
 ) -> str | None:
     """Find specific .fa.gz from directory or direct path."""
     lib = ReferenceLibrary(
         ref_path, md5_sig, skip_full_search=True, input_path=input_path
     )
-    return lib.fasta if lib.fasta else ref_path
+    return lib.fasta or (fspath(ref_path) if ref_path is not None else None)
 
 
-def verify_paths_exist(paths_dict: Mapping[str, str | None]) -> None:
+def verify_paths_exist(paths_dict: Mapping[str, PathInput | None]) -> None:
     """Raise WGSExtractError unless every labelled path exists as a file."""
     problems: list[str] = []
     for label, path in paths_dict.items():
@@ -41,17 +46,17 @@ def verify_paths_exist(paths_dict: Mapping[str, str | None]) -> None:
             )
             continue
 
-        normalized_path = os.path.expanduser(str(path))
+        normalized_path = expand_path(path)
 
         # Skip check for commands (like pixi run)
         if "pixi run" in normalized_path:
             continue
 
-        if not os.path.exists(normalized_path) and not shutil.which(normalized_path):
+        if not Path(normalized_path).exists() and not shutil.which(normalized_path):
             problems.append(
                 LOG_MESSAGES["file_not_found"].format(label=label, path=normalized_path)
             )
-        elif os.path.isdir(normalized_path) and not shutil.which(normalized_path):
+        elif Path(normalized_path).is_dir() and not shutil.which(normalized_path):
             problems.append(
                 f"{label} path is a directory, but a file is expected: {normalized_path}"
             )
@@ -59,15 +64,15 @@ def verify_paths_exist(paths_dict: Mapping[str, str | None]) -> None:
         raise WGSExtractError("\n".join(problems))
 
 
-def ensure_vcf_indexed(vcf_path: str) -> None:
+def ensure_vcf_indexed(vcf_path: PathInput) -> None:
     """Ensure VCF has a .tbi index, creating it if needed."""
-    if not (vcf_path.endswith(".gz") or vcf_path.endswith(".bgz")):
+    if Path(vcf_path).suffix not in {".gz", ".bgz"}:
         # We can't index plain VCF easily with tabix
         return
 
-    index_path = vcf_path + ".tbi"
-    csi_index_path = vcf_path + ".csi"
-    if not os.path.exists(index_path) and not os.path.exists(csi_index_path):
+    index_path = append_suffix(vcf_path, ".tbi")
+    csi_index_path = append_suffix(vcf_path, ".csi")
+    if not index_path.exists() and not csi_index_path.exists():
         from wgsextract_cli.core.dependencies import get_tool_path
 
         tabix = get_tool_path("tabix")
@@ -77,10 +82,11 @@ def ensure_vcf_indexed(vcf_path: str) -> None:
         run_command([tabix, "-p", "vcf", vcf_path])
 
 
-def ensure_vcf_prepared(vcf_path: str | None) -> str:
+def ensure_vcf_prepared(vcf_path: PathInput | None) -> str:
     """Ensure VCF is bgzipped and indexed, returns path to compressed file."""
     if not vcf_path:
         raise WGSExtractError("VCF input path is required.")
+    vcf_path = fspath(vcf_path)
 
     # If it's a BAM or CRAM, don't try to prepare it as a VCF
     if vcf_path.lower().endswith((".bam", ".cram")):
@@ -91,12 +97,10 @@ def ensure_vcf_prepared(vcf_path: str | None) -> str:
         return vcf_path
 
     # Need to bgzip
-    gz_path = vcf_path + ".gz"
-    if os.path.exists(gz_path) and os.path.getmtime(gz_path) > os.path.getmtime(
-        vcf_path
-    ):
+    gz_path = append_suffix(vcf_path, ".gz")
+    if gz_path.exists() and gz_path.stat().st_mtime > Path(vcf_path).stat().st_mtime:
         ensure_vcf_indexed(gz_path)
-        return gz_path
+        return str(gz_path)
 
     from wgsextract_cli.core.dependencies import get_tool_path
 
@@ -106,19 +110,19 @@ def ensure_vcf_prepared(vcf_path: str | None) -> str:
     logging.info(f"Compressing VCF: {vcf_path}")
     # Write to a temp name so an interrupted run never leaves a truncated .gz
     # that looks newer than the source and gets reused next time.
-    tmp_path = gz_path + ".tmp"
+    tmp_path = append_suffix(gz_path, ".tmp")
     try:
-        with open(tmp_path, "wb") as f_out:
+        with tmp_path.open("wb") as f_out:
             run_command([bgzip, "-c", vcf_path], stdout=f_out)
-        os.replace(tmp_path, gz_path)
+        tmp_path.replace(gz_path)
     finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        if tmp_path.exists():
+            tmp_path.unlink()
     ensure_vcf_indexed(gz_path)
-    return gz_path
+    return str(gz_path)
 
 
-def get_vcf_samples(vcf_path: str) -> list[str]:
+def get_vcf_samples(vcf_path: PathInput) -> list[str]:
     """Retrieve sample names from VCF header."""
     try:
         res = run_command(["bcftools", "query", "-l", vcf_path], capture_output=True)
@@ -154,7 +158,9 @@ def match_chromosome_name(target: str, available: Iterable[str]) -> str | None:
     return next((alias for alias in chromosome_aliases(target) if alias in names), None)
 
 
-def check_vcf_build(vcf_path: str, lengths: Mapping[str, int], against: str) -> None:
+def check_vcf_build(
+    vcf_path: PathInput, lengths: Mapping[str, int], against: str
+) -> None:
     """Fail when the VCF's ##contig lengths show a build other than ``against``'s."""
     contigs = list(lengths)
     mismatched = [
@@ -193,7 +199,7 @@ def chromosome_rename_mapping(
     return mapping
 
 
-def vcf_index_chromosomes(vcf_path: str) -> list[str]:
+def vcf_index_chromosomes(vcf_path: PathInput) -> list[str]:
     """Return contigs listed in a bgzipped VCF index."""
     try:
         res = run_command(["bcftools", "index", "-s", vcf_path], capture_output=True)
@@ -208,9 +214,9 @@ def vcf_index_chromosomes(vcf_path: str) -> list[str]:
 
 
 def normalize_vcf_chromosomes(
-    vcf_path: str | None,
+    vcf_path: PathInput | None,
     target_chroms: Sequence[str],
-    workdir: str | None = None,
+    workdir: PathInput | None = None,
 ) -> str:
     """
     Ensure VCF chromosome naming (chr1 vs 1) matches the targets.
@@ -221,6 +227,7 @@ def normalize_vcf_chromosomes(
         raise WGSExtractError(
             "VCF input path is required for chromosome normalization."
         )
+    vcf_path = fspath(vcf_path)
 
     v_chroms = vcf_index_chromosomes(vcf_path)
     if not v_chroms:
@@ -239,10 +246,10 @@ def normalize_vcf_chromosomes(
     # Free the name again so bcftools creates the file with the usual umask
     # permissions rather than mkstemp's 0600, which a final output would keep.
     fd_out, norm_vcf = tempfile.mkstemp(
-        suffix=".vcf.gz", dir=workdir or os.path.dirname(vcf_path)
+        suffix=".vcf.gz", dir=workdir or str(Path(vcf_path).parent)
     )
     os.close(fd_out)
-    os.remove(norm_vcf)
+    Path(norm_vcf).unlink()
 
     logging.info(f"Normalizing chromosomes in {vcf_path}...")
     try:
@@ -261,17 +268,19 @@ def normalize_vcf_chromosomes(
         ensure_vcf_indexed(norm_vcf)
         return norm_vcf
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        if os.path.exists(norm_vcf):
-            os.remove(norm_vcf)
+        if Path(norm_vcf).exists():
+            Path(norm_vcf).unlink()
         raise WGSExtractError(
             f"Chromosome normalization failed for {vcf_path}: {e}"
         ) from e
     finally:
-        os.remove(map_file)
+        Path(map_file).unlink()
 
 
 def get_chr_name(
-    bam_path: str, target_chr: str, cram_opt: Sequence[str] | str | None = None
+    bam_path: PathInput,
+    target_chr: str,
+    cram_opt: Sequence[str] | PathInput | None = None,
 ) -> str:
     """
     Dynamically map a target chromosome (like MT or Y) to the specific
@@ -288,7 +297,7 @@ def get_chr_name(
     return match_chromosome_name(target_chr, sn_names) or target_chr
 
 
-def get_vcf_chr_name(vcf_path: str, target_chr: str) -> str:
+def get_vcf_chr_name(vcf_path: PathInput, target_chr: str) -> str:
     """Map a target chromosome (like MT or Y) to the naming used in a VCF index."""
     return (
         match_chromosome_name(target_chr, vcf_index_chromosomes(vcf_path)) or target_chr
@@ -296,8 +305,8 @@ def get_vcf_chr_name(vcf_path: str, target_chr: str) -> str:
 
 
 def calculate_bam_md5(
-    bam_path: str,
-    cram_opt: Sequence[str] | str | None = None,
+    bam_path: PathInput,
+    cram_opt: Sequence[str] | PathInput | None = None,
     header: str | None = None,
 ) -> str:
     """
@@ -342,8 +351,8 @@ def calculate_bam_md5(
 
 
 def is_sorted(
-    bam_path: str,
-    cram_opt: Sequence[str] | str | None = None,
+    bam_path: PathInput,
+    cram_opt: Sequence[str] | PathInput | None = None,
     header: str | None = None,
 ) -> bool:
     """Verifies if BAM is coordinate sorted."""
@@ -358,7 +367,7 @@ def is_sorted(
     return False
 
 
-def get_file_version(filepath: str) -> str:
+def get_file_version(filepath: PathInput) -> str:
     """Retrieve the format and version of a genomic file using htsfile."""
     try:
         res = run_command(["htsfile", filepath], capture_output=True, check=False)

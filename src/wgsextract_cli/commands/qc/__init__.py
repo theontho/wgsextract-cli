@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+from pathlib import Path
 
 from wgsextract_cli.core.builds import (
     BUILD_CHOICES,
@@ -28,7 +29,7 @@ def cmd_fake_data(args: argparse.Namespace) -> None:
     log_dependency_info(["samtools", "bcftools"])
 
     outdir = args.outdir if args.outdir else os.getcwd()
-    os.makedirs(outdir, exist_ok=True)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
 
     from wgsextract_cli.core.ref_library import get_available_genomes
     from wgsextract_cli.core.variant_files import resolve_reference
@@ -55,14 +56,14 @@ def cmd_fake_data(args: argparse.Namespace) -> None:
             # See if it's installed
             reflib_dir = settings.get("reference_library")
             if reflib_dir:
-                candidate = os.path.join(reflib_dir, "genomes", genome_info["final"])
-                if os.path.exists(candidate):
+                candidate = str(Path(reflib_dir, "genomes", genome_info["final"]))
+                if Path(candidate).exists():
                     lib_ref = candidate
 
     ref_path = resolve_reference(args.ref, None) if args.ref else lib_ref
 
     # If the resolved path is still a directory, it means it didn't find a fasta file there.
-    if ref_path and os.path.isdir(ref_path):
+    if ref_path and Path(ref_path).is_dir():
         ref_path = None
 
     # Parse types

@@ -15,12 +15,12 @@ from __future__ import annotations
 import csv
 import io
 import logging
-import os
 import re
 import tempfile
 import zipfile
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
+from pathlib import Path
 
 from wgsextract_cli.core.download_progress import CancelEvent, ProgressCallback
 from wgsextract_cli.core.utils import run_command
@@ -140,13 +140,13 @@ def download_pharmgkb(
 ) -> bool:
     """Download ClinPGx's clinical annotations and variant locations and build
     ref/pharmgkb_hg38.tsv.gz from them."""
-    target_dir = os.path.join(reflib_dir, "ref")
-    os.makedirs(target_dir, exist_ok=True)
+    target_dir = str(Path(reflib_dir, "ref"))
+    Path(target_dir).mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=target_dir, prefix=".pharmgkb_") as work:
         downloads = {}
         for name, url in (("clinical", CLINICAL_URL), ("variants", VARIANTS_URL)):
             logging.info(f"Downloading PharmGKB {name} from ClinPGx...")
-            path = os.path.join(work, f"{name}.zip")
+            path = str(Path(work, f"{name}.zip"))
             if not download_file(url, path, progress_callback, cancel_event):
                 return False
             downloads[name] = path
@@ -157,11 +157,11 @@ def download_pharmgkb(
         if not sites:
             logging.error("PharmGKB: no clinical annotation could be placed on hg38.")
             return False
-        dest = os.path.join(target_dir, DEST_NAME)
+        dest = str(Path(target_dir, DEST_NAME))
         write_table(sites, dest)
     # Earlier versions saved ClinPGx's archive unconverted; nothing reads it.
-    stale = os.path.join(target_dir, "pharmgkb_hg38.zip")
-    if os.path.exists(stale):
-        os.remove(stale)
+    stale = str(Path(target_dir, "pharmgkb_hg38.zip"))
+    if Path(stale).exists():
+        Path(stale).unlink()
     logging.info(f"PharmGKB table ready: {dest}")
     return True

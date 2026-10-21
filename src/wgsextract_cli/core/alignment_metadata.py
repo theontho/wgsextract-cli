@@ -1,16 +1,21 @@
 import logging
 import subprocess
 from collections.abc import Sequence
+from os import PathLike, fspath
 
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.paths import PathInput
 
 from .utils import run_command
 
 
-def get_bam_header(bam_path: str, cram_opt: Sequence[str] | str | None = None) -> str:
+def get_bam_header(
+    bam_path: PathInput, cram_opt: Sequence[str] | PathInput | None = None
+) -> str:
     """Retrieve header using samtools view -H."""
     from wgsextract_cli.core.dependencies import get_tool_path
 
+    bam_path = fspath(bam_path)
     is_cram = bam_path.lower().endswith(".cram")
     is_vcf = bam_path.lower().endswith((".vcf", ".vcf.gz", ".bgz", ".bcf"))
 
@@ -40,7 +45,11 @@ def get_bam_header(bam_path: str, cram_opt: Sequence[str] | str | None = None) -
     cmd = [samtools, "view", "-H"]
 
     if is_cram and cram_opt:
-        cmd.extend(["-T", cram_opt] if isinstance(cram_opt, str) else cram_opt)
+        cmd.extend(
+            ["-T", fspath(cram_opt)]
+            if isinstance(cram_opt, (str, PathLike))
+            else cram_opt
+        )
 
     cmd.append(bam_path)
 

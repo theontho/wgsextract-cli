@@ -1,8 +1,8 @@
 import argparse
 import contextlib
 import logging
-import os
 import subprocess
+from pathlib import Path
 
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -134,7 +134,7 @@ def _call_haploid_variants(bam: str, ref: str, out_vcf: str) -> None:
     """Call variants on a haploid contig (chrM / chrY) into an indexed VCF."""
     for stale_index in (out_vcf + ".tbi", out_vcf + ".csi"):
         with contextlib.suppress(FileNotFoundError):
-            os.remove(stale_index)
+            Path(stale_index).unlink()
     run_pipeline(
         [
             ["bcftools", "mpileup", "-Ou", "-f", ref, bam],
@@ -310,8 +310,8 @@ def cmd_custom(args: argparse.Namespace) -> None:
     if not region:
         raise WGSExtractError("--region or --gene is required for custom extraction.")
 
-    is_bed = os.path.isfile(region)
-    label = os.path.basename(region) if is_bed else region
+    is_bed = Path(region).is_file()
+    label = Path(region).name if is_bed else region
     region_suffix = label.replace(":", "_").replace(",", "_")
     out_bam = derive_output_path(args.input, base.outdir, f"_{region_suffix}.bam")
 

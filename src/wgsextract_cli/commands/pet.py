@@ -2,14 +2,15 @@
 
 import argparse
 import logging
-import os
 import subprocess
+from pathlib import Path
 
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -64,15 +65,15 @@ def run(args: argparse.Namespace) -> None:
 
     if not args.ref:
         raise WGSExtractError(LOG_MESSAGES["ref_required"])
-    if os.path.isfile(args.ref):
+    if Path(args.ref).is_file():
         ref_file = args.ref
     else:
-        ref_file = os.path.join(args.ref, "genomes", _SPECIES_REFERENCES[args.species])
+        ref_file = str(Path(args.ref, "genomes", _SPECIES_REFERENCES[args.species]))
     logging.debug(f"Resolved reference: {ref_file}")
-    if not os.path.exists(ref_file):
+    if not Path(ref_file).exists():
         hint = (
             ""
-            if os.path.isfile(args.ref)
+            if Path(args.ref).is_file()
             else " Download it with `wgsextract ref library --install`."
         )
         raise WGSExtractError(
@@ -80,13 +81,13 @@ def run(args: argparse.Namespace) -> None:
         )
     ensure_bwa_index(ref_file)
 
-    outdir = args.outdir or os.path.dirname(os.path.abspath(args.r1))
-    os.makedirs(outdir, exist_ok=True)
-    logging.debug(f"Output directory: {os.path.abspath(outdir)}")
+    outdir = args.outdir or str(absolute_path(args.r1).parent)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
+    logging.debug(f"Output directory: {str(absolute_path(outdir))}")
     base_name = f"{reads_stem(args.r1)}_{args.species}"
     ext = ".cram" if args.format == "CRAM" else ".bam"
-    out_bam = os.path.join(outdir, base_name + ext)
-    out_vcf = os.path.join(outdir, f"{base_name}.vcf.gz")
+    out_bam = str(Path(outdir, base_name + ext))
+    out_vcf = str(Path(outdir, f"{base_name}.vcf.gz"))
 
     logging.info(LOG_MESSAGES["pet_aligning"].format(species=args.species))
     align_cmd = ["bwa", "mem", "-t", threads, ref_file, args.r1]

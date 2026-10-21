@@ -3,6 +3,7 @@ import logging
 import os
 import subprocess
 import tempfile
+from pathlib import Path
 
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
@@ -84,7 +85,7 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools", "tabix", *dv_tools])
 
     threads, outdir, ref, _lib = get_base_args(args)
-    out_vcf = os.path.join(outdir, "deepvariant.vcf.gz")
+    out_vcf = str(Path(outdir, "deepvariant.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_deepvariant"].format(output=out_vcf))
     model_type = _model_type(args)
     region_args = ["--regions", args.region] if args.region else []
@@ -118,7 +119,7 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"DeepVariant failed: {e}") from e
 
-    if not os.path.exists(out_vcf):
+    if not Path(out_vcf).exists():
         raise WGSExtractError("DeepVariant failed to produce output VCF.")
     ensure_vcf_indexed(out_vcf)
 
@@ -136,11 +137,11 @@ def _run_bioconda_pipeline(
         str(get_tool_path(script)) for script in BIOCONDA_SCRIPTS
     )
     sample = _sample_name(args.input, ref)
-    examples_dir = os.path.join(work, "examples")
-    log_dir = os.path.join(work, "logs")
-    calls = os.path.join(work, "calls.tfrecord.gz")
-    os.makedirs(examples_dir)
-    os.makedirs(log_dir)
+    examples_dir = str(Path(work, "examples"))
+    log_dir = str(Path(work, "logs"))
+    calls = str(Path(work, "calls.tfrecord.gz"))
+    Path(examples_dir).mkdir(parents=True)
+    Path(log_dir).mkdir(parents=True)
 
     logging.info("DeepVariant Step 1/3: Making examples...")
     _run_dv(

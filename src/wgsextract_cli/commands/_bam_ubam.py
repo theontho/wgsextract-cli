@@ -3,15 +3,17 @@
 import argparse
 import gzip
 import logging
-import os
 import re
 import subprocess
 import tempfile
+from os import fspath
+from pathlib import Path
 
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
+from wgsextract_cli.core.paths import PathInput, absolute_path
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -85,8 +87,8 @@ def _first_fastq_name(path: str) -> str:
     return line[1:].split()[0].removesuffix("/1").removesuffix("/2")
 
 
-def _input_stem(path: str) -> str:
-    name = os.path.basename(path)
+def _input_stem(path: PathInput) -> str:
+    name = Path(path).name
     for ext in (".gz", ".bgz", ".fastq", ".fq", ".bam", ".cram", ".sam"):
         name = name.removesuffix(ext) if name.lower().endswith(ext) else name
     return re.sub(r"[._-](R?1|read1)$", "", name, flags=re.IGNORECASE) or "sample"
@@ -112,11 +114,13 @@ def _new_read_group(
     return fields
 
 
-def _sort_cmd(out_file: str, threads: str, memory: str, temp_dir: str) -> list[str]:
+def _sort_cmd(
+    out_file: PathInput, threads: str, memory: str, temp_dir: PathInput
+) -> list[str]:
     # -N is Picard/GATK queryname order (strcmp), unlike -n's natural order.
-    tmp_prefix = os.path.join(temp_dir, "sort")
+    tmp_prefix = str(Path(temp_dir, "sort"))
     cmd = ["samtools", "sort", "-N", "-@", threads, "-m", memory]
-    return cmd + ["-T", tmp_prefix, "-o", out_file, "-"]
+    return cmd + ["-T", tmp_prefix, "-o", fspath(out_file), "-"]
 
 
 def _bam_stages(
@@ -141,7 +145,7 @@ def _bam_stages(
         ref = resolve_reference(
             args.ref, calculate_bam_md5(args.input, header=header), args.input
         )
-        if not (ref and os.path.isfile(ref)):
+        if not (ref and Path(ref).is_file()):
             raise WGSExtractError("--ref is required to read a CRAM file.")
         ref_opt = ["--reference", ref]
     stages = [reset + ref_opt + ["-O", "BAM,level=0", "-o", "-", args.input]]
@@ -196,13 +200,13 @@ def cmd_to_ubam(args: argparse.Namespace) -> None:
     log_dependency_info(["samtools"])
 
     threads, memory = get_resource_defaults(args.threads, args.memory)
-    outdir = args.outdir or os.path.dirname(os.path.abspath(source))
-    os.makedirs(outdir, exist_ok=True)
-    out_file = os.path.join(outdir, f"{_input_stem(source)}_unaligned.bam")
-    if os.path.realpath(out_file) == os.path.realpath(source):
+    outdir = Path(args.outdir) if args.outdir else absolute_path(source).parent
+    outdir.mkdir(parents=True, exist_ok=True)
+    out_file = outdir / f"{_input_stem(source)}_unaligned.bam"
+    if out_file.resolve() == Path(source).resolve():
         raise WGSExtractError(f"Output {out_file} would overwrite the input.")
 
-    size = sum(os.path.getsize(p) for p in (source, args.r2) if p)
+    size = sum(Path(p).stat().st_size for p in (source, args.r2) if p)
     temp_gb, final_gb = get_free_space_needed(
         size,
         "Name",
