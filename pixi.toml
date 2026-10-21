@@ -43,8 +43,10 @@ htslib = ">=1.18"
 # Bioconda's yleaf 3.2.1 artifact omits yleaf/data/* marker tables, so install
 # upstream's packaged source for a runnable default Yleaf environment. The tag's
 # source archive, not a git checkout: users mustn't need git (a new Windows PC
-# has none), and the lockfile pins the archive's sha256.
-yleaf = { url = "https://github.com/genid/Yleaf/archive/refs/tags/v4.1.2.tar.gz" }
+# has none). Pin the archive digest explicitly as well as in the lockfile.
+# Pixi does not generate hashes for direct URLs: retain the Yleaf package's
+# explicit sha256 field in pixi.lock when refreshing it (guarded by tests).
+yleaf = { url = "https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422" }
 
 [feature.bio-tools.target.unix.dependencies]
 samtools = ">=1.24,<2"
@@ -179,7 +181,7 @@ lint = "ruff check . && python scripts/validate_site_sources.py && actionlint &&
 format = "ruff format ."
 typecheck = "mypy src/wgsextract_cli"
 package-smoke = "python scripts/package_smoke.py"
-jscpd = "npx --yes jscpd@4.2.3 src/wgsextract_cli --reporters console,json --output out/jscpd --min-lines 5 --min-tokens 50 --ignore '**/__pycache__/**' --ignore '**/.mypy_cache/**'"
+jscpd = "npx --yes jscpd@5.4.2 src/wgsextract_cli --reporters console,json --output out/jscpd --min-lines 5 --min-tokens 50 --ignore '**/__pycache__/**' --ignore '**/.mypy_cache/**'"
 site-build = "python scripts/build_site.py"
 stats = "python scripts/project_stats.py"
 stats-report = "python scripts/project_stats.py out/project_stats.txt"

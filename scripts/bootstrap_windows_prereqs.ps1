@@ -180,7 +180,7 @@ function Ensure-Pixi {
         Copy-UrlOrFile -Source $PixiInstallUrl -Destination $installScript
         Assert-FileSha256 -Path $installScript -ExpectedSha256 $PixiInstallSha256 -Label "Pixi installer"
         # The Pixi version this release is tested with; a user-set PIXI_VERSION wins.
-        if (-not $env:PIXI_VERSION) { $env:PIXI_VERSION = "v0.81.0" }
+        if (-not $env:PIXI_VERSION) { $env:PIXI_VERSION = "v0.82.0" }
         powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installScript
         Add-PathForCurrentProcess (Join-Path $env:USERPROFILE ".pixi\bin")
         $pixi = Get-Command pixi -ErrorAction SilentlyContinue

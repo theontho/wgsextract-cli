@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import subprocess
 from dataclasses import dataclass, replace
@@ -631,7 +632,7 @@ def test_real_mt_lineage(real_dataset: RealDataset, tmp_path: Path) -> None:
 
 @pytest.mark.skipif(not check_tool("yleaf"), reason="yleaf missing")
 def test_real_y_lineage(real_dataset: RealDataset, tmp_path: Path) -> None:
-    _run_ok(
+    rc, stdout, stderr = run_cli(
         [
             "lineage",
             "y-haplogroup",
@@ -643,7 +644,25 @@ def test_real_y_lineage(real_dataset: RealDataset, tmp_path: Path) -> None:
             str(tmp_path),
         ]
     )
-    assert (tmp_path / "yleaf" / "hg_prediction.hg").exists()
+    manifest_path = real_dataset.ref.parent / "manifest.json"
+    rebased_y = False
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text())
+        rebased_y = manifest.get("regions", {}).get("Y", {}).get("start", 1) > 1
+    with (tmp_path / "yleaf" / "hg_prediction.hg").open() as prediction:
+        calls = [
+            row["Hg"]
+            for row in csv.DictReader(prediction, delimiter="\t")
+            if row["Hg"] not in ("", "NA")
+        ]
+    if rebased_y:
+        # The mini genome rebases chrY; its positions cannot match hg19 markers.
+        assert rc == 1, (stdout, stderr)
+        assert "could not predict a Y haplogroup" in stderr
+        assert not calls
+    else:
+        assert rc == 0, (stdout, stderr)
+        assert calls
 
 
 @pytest.mark.skipif(not check_tool("vep"), reason="vep missing")

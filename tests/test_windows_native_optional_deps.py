@@ -176,9 +176,16 @@ def test_pixi_installs_runnable_yleaf_from_upstream_package_data_source() -> Non
     manifest = tomllib.loads((ROOT / "pixi.toml").read_text(encoding="utf-8"))
     yleaf = manifest["feature"]["bio-tools"]["pypi-dependencies"]["yleaf"]
     assert yleaf == {
-        "url": "https://github.com/genid/Yleaf/archive/refs/tags/v4.1.2.tar.gz"
+        "url": "https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz"
+        "#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422"
     }
     assert "git" not in yleaf
+    lockfile = (ROOT / "pixi.lock").read_text(encoding="utf-8")
+    _, marker, locked_entry = lockfile.partition(f"\n- pypi: direct+{yleaf['url']}\n")
+    assert marker, "Yleaf's source archive must be present in the lockfile"
+    # Pixi verifies this field, not a direct URL's hash fragment.
+    digest = yleaf["url"].split("#sha256=", 1)[1]
+    assert f"\n  sha256: {digest}\n" in locked_entry.split("\n- ", 1)[0]
 
 
 def test_pixi_vep_runs_natively_on_apple_silicon() -> None:

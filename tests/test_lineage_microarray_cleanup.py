@@ -77,13 +77,18 @@ def _ydna_args(input_path, outdir=None):
     )
 
 
-def test_ydna_without_outdir_never_points_yleaf_at_the_input_directory(tmp_path):
+@pytest.mark.parametrize("help_text", ["", "--no-update-check"])
+def test_ydna_without_outdir_never_points_yleaf_at_the_input_directory(
+    tmp_path, help_text
+):
     bam = tmp_path / "sample.bam"
     bam.touch()
     commands = []
 
     def fake_yleaf(cmd, **kwargs):
         commands.append((cmd, kwargs))
+        if "--help" in cmd:
+            return SimpleNamespace(stdout=help_text, stderr="")
         if "-o" in cmd:
             outdir = Path(cmd[cmd.index("-o") + 1])
             outdir.mkdir(parents=True, exist_ok=True)
@@ -109,6 +114,7 @@ def test_ydna_without_outdir_never_points_yleaf_at_the_input_directory(tmp_path)
     assert cmd[cmd.index("-o") + 1] == str(tmp_path / "yleaf")
     assert cmd[cmd.index("-rg") + 1] == "hg38"
     assert "YLEAF_DATA_DIR" in kwargs["env"]
+    assert ("--no-update-check" in cmd) == bool(help_text)
     assert bam.exists()
 
 
@@ -416,15 +422,25 @@ def test_ensure_vcf_prepared_requires_bgzip(tmp_path):
         variant_files.ensure_vcf_prepared(str(vcf))
 
 
-def test_ydna_empty_prediction_is_an_error(tmp_path):
+@pytest.mark.parametrize(
+    "content",
+    [
+        "Sample_name\tHg\tHg_marker\n",
+        "Sample_name\tHg\tHg_marker\tValid_markers\nsample\tNA\t\t0\n",
+        "Sample_name\tHg\tHg_marker\tValid_markers\nsample\tNA\t\t3\n",
+    ],
+)
+def test_ydna_empty_prediction_is_an_error(tmp_path, content):
     bam = tmp_path / "sample.bam"
     bam.touch()
 
     def empty_prediction(cmd, **kwargs):
+        if "--help" in cmd:
+            return SimpleNamespace(stdout="", stderr="")
         if "-o" in cmd:
             outdir = Path(cmd[cmd.index("-o") + 1])
             outdir.mkdir(parents=True, exist_ok=True)
-            (outdir / "hg_prediction.hg").write_text("Sample_name\tHg\tHg_marker\n")
+            (outdir / "hg_prediction.hg").write_text(content)
 
     with (
         patch.object(_lineage_ydna, "resolve_lineage_tool", return_value="yleaf"),

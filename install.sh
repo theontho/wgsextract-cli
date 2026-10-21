@@ -272,7 +272,7 @@ LAUNCHER="$BIN_DIR/wgsextract"
 PIXI_CACHE_DIR="$(absolute_path "${WGSEXTRACT_PIXI_CACHE_DIR:-$DEFAULT_PIXI_CACHE_DIR}")"
 # The Pixi version this release is tested with (CI pins the same one); a user's
 # own PIXI_VERSION still wins.
-PIXI_VERSION="${PIXI_VERSION:-v0.81.0}"
+PIXI_VERSION="${PIXI_VERSION:-v0.82.0}"
 # Pixi writes its own markers (e.g. the telemetry notice) under the Rattler cache,
 # ~/.cache/rattler by default; keep them inside the install so uninstall is clean.
 RATTLER_CACHE_DIR="$PIXI_CACHE_DIR/rattler"
