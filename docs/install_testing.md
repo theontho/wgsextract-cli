@@ -131,6 +131,29 @@ its outputs get the same biology checks as the CLI's. The app's microarray
 action has no `--ref-vcf-tab`, so on the rebased mini genome only the kit's
 format is checked there; the CLI lab measures concordance.
 
+### Published macOS release acceptance
+
+Test the DMG downloaded from the published release, not a locally packaged app
+or a manually dispatched Actions artifact. Use a gui-for-cli checkout matching
+the release tag to build the bundle-test runner:
+
+```bash
+mkdir -p out/installlab/releases/v0.4.2
+gh release download v0.4.2 --repo theontho/gui-for-cli \
+  --pattern WGSExtract-0.4.2.dmg --dir out/installlab/releases/v0.4.2
+pixi run -e dev python scripts/installlab/lab.py run macos \
+  --gui-repo ../gui-for-cli \
+  --dmg out/installlab/releases/v0.4.2/WGSExtract-0.4.2.dmg
+```
+
+Do not add `--cli-from-tree`: acceptance must exercise the CLI pinned by the
+released app. Retain the release URL, tag commit, downloaded DMG's SHA-256
+(matching GitHub's asset digest), and run verdict. Require both standard
+Gatekeeper policy and artifact acceptance, all planned actions, and strict
+uninstall baseline restoration; a successful signing job alone is not release
+acceptance. Use the DMG rather than a raw `.app` artifact, whose framework
+symlinks can be lost during artifact upload.
+
 ### macOS base policy
 
 Cirrus's vanilla image disables Developer ID and notarization rules as well as
