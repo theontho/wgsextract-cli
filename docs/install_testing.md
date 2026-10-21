@@ -7,7 +7,8 @@ over and over on the same computer, and to make false passes hard.
 
 ```bash
 pixi run -e dev python scripts/installlab/lab.py run linux       # fresh Ubuntu container
-python3 scripts/installlab/lab.py prepare macos                  # once: clean macOS base image
+pixi run -e dev python scripts/installlab/lab.py prepare macos    # once: clean macOS base image
+pixi run -e dev python scripts/installlab/lab.py prepare macos --repair-policy # repair an existing base
 python3 scripts/installlab/lab.py run macos                      # fresh macOS VM
 python3 scripts/installlab/lab.py prepare windows                # once: Windows 11 ARM64 base image
 python3 scripts/installlab/lab.py run windows                    # fresh Windows VM (QEMU)
@@ -76,7 +77,7 @@ of failed tests only (`tmp_path_retention_policy = "failed"`).
 | "It exited 0" counted as success; a command that does nothing passes | The guest never judges. It records exit codes, logs and outputs; the **host oracle** checks the outputs against values that come from biology, not from a previous run: HG00096's published mtDNA haplogroup (H16a1), recall and precision against its 1000 Genomes genotypes, read and mapping counts measured with the host's own samtools/bcftools. |
 | Steps silently skipped | The oracle **fails closed**: every required step must leave evidence, and a missing step fails the run. A per-run nonce ties the evidence to this run. |
 | Uninstall leaves files, rc edits, caches or config behind | The guest snapshots the machine (home, `/Applications`, `/usr/local`, `/opt`, launch agents, shell rc contents, `PATH`) **before install, after install and after uninstall**. The host diffs them: after uninstall the machine must match the baseline. The after-install snapshot must show the install, which proves the snapshots can see it. |
-| The lab machine is more permissive than a user's (the vanilla macOS image ships with Gatekeeper off) | `prepare` turns Gatekeeper on, every macOS run records `spctl --status`, and the oracle fails a run whose machine had it off. |
+| The lab machine's policy differs from a normal Mac (the vanilla macOS image disables both Gatekeeper and its Developer ID rules) | `prepare` restores the normal policy through authenticated Settings input. Every macOS clone verifies the master switch, Developer ID and notarized Developer ID before running the product; the oracle checks the recorded policy as well as the actual artifact assessment. |
 | OS background activity makes state diffs flaky, tempting broad ignore lists | `--mode control` runs the same timeline **without installing** and prints what the OS changed by itself. Only those measured paths go in `noise/<target>.txt`, so ignore rules are evidence-based and reviewable. |
 | The test harness itself is broken and passes everything | **Negative controls**: `--sabotage` deliberately breaks a run (installer does nothing, launcher returns 0 without working, samtools deleted, a file left behind, uninstall skipped). `selftest` runs them all; each must make the verdict FAIL on the expected checks. A harness that can't fail is caught. |
 | Testing the developer build instead of what users get | Runs install the archive of the tree under test. The same scenario can point at a published release by leaving `LAB_ARCHIVE_URL` unset, so the installer resolves `releases/latest` like a user. |
@@ -111,7 +112,7 @@ be what passes. In the VM:
 
 1. The DMG is downloaded and given the quarantine flag a browser sets;
    Gatekeeper must accept a Developer ID build and must reject a local ad-hoc
-   one (the base image has Gatekeeper on, and every run records its status).
+   one (the base image has standard Gatekeeper policy, and every run records its status).
 2. The app is copied to `/Applications` as a drag install would, then
    launched; it runs its own setup (`GUI_FOR_CLI_AUTO_RUN_SETUP`) and writes the
    result. Setup installs the CLI release the app pins, or this CLI tree with
@@ -129,6 +130,36 @@ reports as evidence, not verdicts: every planned action must have passed, and
 its outputs get the same biology checks as the CLI's. The app's microarray
 action has no `--ref-vcf-tab`, so on the rebased mini genome only the kit's
 format is checked there; the CLI lab measures concordance.
+
+### macOS base policy
+
+Cirrus's vanilla image disables Developer ID and notarization rules as well as
+Gatekeeper's master switch. `spctl --global-enable` alone leaves an App Store-only
+machine: even a correctly notarized app is rejected. On macOS 26 the old
+`spctl --enable` and native policy-update interfaces cannot restore those rules.
+
+`prepare macos` uses Tart's authenticated, loopback-only VNC display to select
+**App Store & Known Developers** in System Settings and approve the normal
+authorization dialog with the disposable image's public `admin` account.
+Apple Vision reads the screenshots to locate controls instead of relying on
+screen coordinates. Swift (the host's Command Line Tools) and the dev Pixi
+environment are prerequisites; the lab does not install host tools. No host
+credentials, TCC changes, policy-database edits, Gatekeeper bypasses, or app
+exceptions are involved.
+
+To repair an existing base without rebuilding or reinstalling its prerequisites:
+
+```bash
+pixi run -e dev python scripts/installlab/lab.py prepare macos --repair-policy
+```
+
+The repair is a no-op when the native read-only policy checks already pass.
+Provisioning screenshots and before/after state live in the shared lab's
+`out/installlab/macos-policy/`; its `vnc.private.log` is mode 0600 because the
+temporary VNC connection URL contains authentication material. Do not publish
+that file. A missing, ambiguous or unverified control fails provisioning rather
+than accepting a less secure policy. Each subsequent test boots a fresh clone
+and verifies the persisted policy before any product code runs.
 
 ## The Windows app
 

@@ -18,6 +18,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from macos_policy import standard_policy
+
 # HG00096's mtDNA haplogroup as published by 1000 Genomes / PhyloTree.
 HG00096_MT_HAPLOGROUP = "H16a1"
 
@@ -141,6 +143,15 @@ class Oracle:
         self.record(
             "baseline.gatekeeper_enabled", status == "assessments enabled", status
         )
+        try:
+            policy = json.loads((self.results / "gatekeeper-policy.json").read_text())
+            self.record(
+                "baseline.gatekeeper_policy", standard_policy(policy), str(policy)
+            )
+        except (OSError, ValueError) as e:
+            self.record(
+                "baseline.gatekeeper_policy", False, f"no valid policy state: {e}"
+            )
 
     def check_clean_baseline(self) -> None:
         try:

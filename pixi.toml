@@ -153,6 +153,9 @@ stats = "python scripts/project_stats.py"
 stats-report = "python scripts/project_stats.py out/project_stats.txt"
 benchmark-dataset = { cmd = "python scripts/build_benchmark_dataset.py", description = "Rebuild the release-backed hg19 mini-genome benchmark dataset archive." }
 
+[feature.dev.target.osx-arm64.pypi-dependencies]
+vncdotool = ">=1.2, <2"
+
 [environments]
 default = { features = ["bio-tools", "pysam"], solve-group = "default" }
 dev = { features = ["bio-tools", "pysam", "dev"], solve-group = "default" }

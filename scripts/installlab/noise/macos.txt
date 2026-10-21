@@ -39,3 +39,6 @@
 */Library/PersonalizationPortrait/*
 # Created on a brand-new account's first logins (sandbox staging).
 */Library/ContainerManager*
+# Observed in the no-install control run: Apple Suggestions and AirDrop databases.
+*/Library/Suggestions/*
+*/Library/Sharing/AirDropHashDB/*

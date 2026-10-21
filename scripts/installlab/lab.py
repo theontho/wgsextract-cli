@@ -54,6 +54,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 import housekeeping  # noqa: E402
+import macos_policy  # noqa: E402
 import windows_gui_vm  # noqa: E402
 import windows_vm  # noqa: E402
 from gui_build import (  # noqa: E402
@@ -345,6 +346,17 @@ class TartMachine(Machine):
             repair_base_key()
             run(["tart", "clone", MACOS_BASE, self.name])
             self.vm, self.ip = boot_vm(self.name, dirs)
+        with contextlib.ExitStack() as cleanup:
+            cleanup.callback(self.destroy)
+            policy = macos_policy.check(["ssh", *SSH_OPTS, f"admin@{self.ip}"])
+            (self.results / "gatekeeper-policy.json").write_text(policy.stdout)
+            if policy.returncode:
+                raise SystemExit(
+                    "The macOS base lacks the standard Gatekeeper policy. Run "
+                    "'pixi run -e dev python scripts/installlab/lab.py prepare macos "
+                    "--repair-policy' before testing."
+                )
+            cleanup.pop_all()
 
     def destroy(self) -> None:
         subprocess.run(["tart", "stop", self.name], capture_output=True)
@@ -721,38 +733,54 @@ def run_scenario(
     return results
 
 
-def enable_gatekeeper(ip: str) -> None:
-    """The vanilla image ships with Gatekeeper off; a user's Mac has it on."""
+def enable_gatekeeper(ip: str, vnc_log: Path, evidence: Path) -> None:
+    """Restore both the master switch and the normal identified-developer rules."""
     # The setting is written lazily; sync before the VM is stopped or it's lost.
     ssh_retry(
         ip,
         "echo admin | sudo -S spctl --global-enable && spctl --status && sync && sleep 5",
     )
+    macos_policy.restore(["ssh", *SSH_OPTS, f"admin@{ip}"], vnc_log, evidence)
 
 
 def cmd_prepare(args: argparse.Namespace) -> None:
     """Clone the vanilla image, authorize the lab SSH key, install the CLT."""
+    if args.repair_policy and args.target != "macos":
+        raise SystemExit("--repair-policy is only supported for macos.")
     if args.target == "windows":
         windows_vm.prepare()
         return
     if args.target == "windows-gui":
         windows_gui_vm.prepare_gui()
         return
+    macos_policy.require_ui_tools()
     if not SSH_KEY.exists():
         SSH_KEY.parent.mkdir(parents=True, exist_ok=True)
         run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "wgse-lab",
              "-f", str(SSH_KEY)])  # fmt: skip
-    log(f"Building {MACOS_BASE} from {MACOS_VANILLA} (+ Xcode Command Line Tools)...")
-    subprocess.run(["tart", "delete", MACOS_BASE], capture_output=True)
-    run(["tart", "clone", MACOS_VANILLA, MACOS_BASE])
-    vm = subprocess.Popen(
-        ["tart", "run", MACOS_BASE, "--no-graphics"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    if not args.repair_policy:
+        log(
+            f"Building {MACOS_BASE} from {MACOS_VANILLA} (+ Xcode Command Line Tools)..."
+        )
+        subprocess.run(["tart", "delete", MACOS_BASE], capture_output=True)
+        run(["tart", "clone", MACOS_VANILLA, MACOS_BASE])
+    else:
+        log(f"Repairing the standard Gatekeeper policy in {MACOS_BASE}...")
+    evidence = housekeeping.LAB / "macos-policy"
+    evidence.mkdir(parents=True, exist_ok=True)
+    vnc_log = evidence / "vnc.private.log"
+    with vnc_log.open("w") as output:
+        vnc_log.chmod(0o600)
+        vm = subprocess.Popen(
+            ["tart", "run", MACOS_BASE, "--no-graphics", "--vnc-experimental"],
+            stdout=output,
+            stderr=subprocess.STDOUT,
+        )
     try:
         ip = ""
         for _ in range(200):
+            if vm.poll() is not None:
+                raise SystemExit(f"{MACOS_BASE} stopped unexpectedly; see {vnc_log}.")
             result = subprocess.run(
                 ["tart", "ip", MACOS_BASE], capture_output=True, text=True
             )
@@ -764,6 +792,10 @@ def cmd_prepare(args: argparse.Namespace) -> None:
             raise SystemExit("The base VM never got an IP address.")
         # The vanilla image only has password login (admin/admin).
         authorize_lab_key(ip)
+        if args.repair_policy:
+            enable_gatekeeper(ip, vnc_log, evidence)
+            log("Standard Gatekeeper policy verified.")
+            return
         # The installer requires the Command Line Tools, a documented user
         # prerequisite; install them headlessly the way softwareupdate allows.
         # The host's DNS forwarder for Tart's bridge doesn't answer on some hosts
@@ -781,7 +813,7 @@ def cmd_prepare(args: argparse.Namespace) -> None:
             "xcode-select -p && xcrun --find clang"
         )
         ssh_retry(ip, f"/bin/zsh -lc {shlex.quote(script)}")
-        enable_gatekeeper(ip)
+        enable_gatekeeper(ip, vnc_log, evidence)
     finally:
         subprocess.run(["tart", "stop", MACOS_BASE])
         vm.wait(timeout=300)
@@ -1031,6 +1063,11 @@ def main() -> None:
     sub = parser.add_subparsers(required=True)
     p = sub.add_parser("prepare", help="Build the clean base image for a target.")
     p.add_argument("target", choices=["macos", "windows", "windows-gui"])
+    p.add_argument(
+        "--repair-policy",
+        action="store_true",
+        help="Repair normal Gatekeeper policy in an existing macOS base, without rebuilding.",
+    )
     p.set_defaults(func=cmd_prepare)
     p = sub.add_parser("run", help="Run one scenario on a fresh machine and judge it.")
     p.add_argument("target", choices=sorted(MACHINES))
