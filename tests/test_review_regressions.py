@@ -70,6 +70,32 @@ def test_annotation_resolver_accepts_mixed_case_build_suffix(tmp_path):
     assert resolved.lower() == str(resource).lower()
 
 
+def test_empty_resource_settings_discover_installed_library_data(monkeypatch, tmp_path):
+    from wgsextract_cli.core.config import settings
+    from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+
+    ref = tmp_path / "ref"
+    ref.mkdir()
+    clinvar = ref / "clinvar_hg38.vcf.gz"
+    pharmgkb = ref / "pharmgkb_hg38.tsv.gz"
+    clinvar.touch()
+    pharmgkb.touch()
+    cache = tmp_path / "vep"
+    (cache / "homo_sapiens" / "116_GRCh38").mkdir(parents=True)
+    for name in ("clinvar_vcf_path", "pharmgkb_vcf_path", "vep_cache_directory"):
+        monkeypatch.setitem(settings, name, "")
+
+    lib = ReferenceLibrary.__new__(ReferenceLibrary)
+    lib.root = str(tmp_path)
+    lib.build = "hg38"
+    lib._resolve_annotation_files()
+    lib._resolve_vep_cache(settings["vep_cache_directory"])
+
+    assert lib.clinvar_vcf == str(clinvar)
+    assert lib.pharmgkb_vcf == str(pharmgkb)
+    assert lib.vep_cache == str(cache)
+
+
 def test_gatk_prepares_regional_cram_as_temporary_bam(monkeypatch, tmp_path):
     from types import SimpleNamespace
 

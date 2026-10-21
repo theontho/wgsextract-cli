@@ -1,5 +1,6 @@
 import shutil
 import subprocess
+import sys
 from pathlib import Path, PureWindowsPath
 
 import pytest
@@ -158,3 +159,21 @@ def test_manifest_names_reject_different_windows_drives():
         _manifest_name(
             PureWindowsPath(r"C:\data\result.txt"), PureWindowsPath(r"D:\out")
         )
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Native Windows paths required")
+@pytest.mark.parametrize("explicit_outdir", [False, True])
+def test_manifest_creation_accepts_mixed_case_windows_drives(
+    tmp_path, outputs, explicit_outdir
+):
+    alternate = str(outputs / "sub" / "b name.vcf")
+    alternate = alternate[0].swapcase() + alternate[1:]
+    argv = ["sign", "create", str(outputs / "a.txt"), alternate]
+    destination = tmp_path / "manifests" if explicit_outdir else outputs
+    if explicit_outdir:
+        outdir = str(destination)
+        argv += ["--outdir", outdir[0].swapcase() + outdir[1:]]
+    cmd_create(_parse(*argv))
+    manifest = destination / "SHA256SUMS"
+    assert len(_read_manifest(manifest)) == 2
+    cmd_verify(_parse("sign", "verify", str(manifest)))

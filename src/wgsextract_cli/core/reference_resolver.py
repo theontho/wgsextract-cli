@@ -268,6 +268,7 @@ class ReferenceLibrary:
     def _resolve_vep_cache(self, configured_vep_cache: object) -> None:
         if (
             isinstance(configured_vep_cache, str)
+            and configured_vep_cache
             and Path(configured_vep_cache).is_dir()
         ):
             self.vep_cache = configured_vep_cache
@@ -382,7 +383,11 @@ class ReferenceLibrary:
         )
 
         configured_pharmgkb = settings.get("pharmgkb_vcf_path")
-        if isinstance(configured_pharmgkb, str) and Path(configured_pharmgkb).exists():
+        if (
+            isinstance(configured_pharmgkb, str)
+            and configured_pharmgkb
+            and Path(configured_pharmgkb).exists()
+        ):
             self.pharmgkb_vcf = configured_pharmgkb
         elif self.build:
             pharmgkb_exts = [".vcf.gz", ".vcf.bgz", ".tsv.gz"]
@@ -428,7 +433,11 @@ class ReferenceLibrary:
         search_dirs: list[str],
     ) -> str | None:
         """Resolve an annotation file across directories and build aliases."""
-        if isinstance(configured_path, str) and Path(configured_path).exists():
+        if (
+            isinstance(configured_path, str)
+            and configured_path
+            and Path(configured_path).exists()
+        ):
             return configured_path
 
         if not self.build:
