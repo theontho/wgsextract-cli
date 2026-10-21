@@ -51,14 +51,14 @@ def pharmcat_directory(args: argparse.Namespace, lib: ReferenceLibrary) -> str:
         for name in PIPELINE_FILES
         if not directory or not os.path.isfile(os.path.join(directory, name))
     ]
-    if missing:
+    if missing or directory is None:
         raise WGSExtractError(
             f"PharmCAT not found in {directory or '(no reference library)'} "
             f"(missing {', '.join(missing)}). Download pharmcat-pipeline-<version>"
             f".tar.gz from {RELEASES_URL}, extract it there (or set "
             "pharmcat_directory in config.toml, or pass --pharmcat-dir)."
         )
-    return directory  # type: ignore[return-value]
+    return os.path.abspath(directory)
 
 
 def _python(directory: str) -> list[str]:
@@ -127,6 +127,32 @@ def prepare_input(input_vcf: str, directory: str, reference: str, work: str) -> 
     return prepared
 
 
+def merge_outside_calls(paths: list[str], merged: str) -> str:
+    """One PharmCAT outside-call file from several (e.g. `typing cyp2d6` and
+    `typing hla` output); each gene may be called by only one of them."""
+    seen: dict[str, str] = {}
+    lines = []
+    for path in paths:
+        if not os.path.isfile(path):
+            raise WGSExtractError(f"Outside-call file not found: {path}")
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                if not line.strip() or line.startswith("#"):
+                    continue
+                gene = line.split("\t", 1)[0].strip()
+                if gene in seen:
+                    raise WGSExtractError(
+                        f"{gene} is called in both {seen[gene]} and {path}; "
+                        "give PharmCAT one call per gene."
+                    )
+                seen[gene] = path
+                lines.append(line.rstrip("\r\n") + "\n")
+    with open(merged, "w", encoding="utf-8") as f:
+        f.writelines(lines)
+    logging.info(f"Outside calls for PharmCAT: {', '.join(seen) or 'none'}")
+    return merged
+
+
 def summarize(phenotype_json: str) -> list[tuple[str, str, str]]:
     """(gene, diplotype, phenotype) for each gene PharmCAT called."""
     with open(phenotype_json) as f:
@@ -148,7 +174,7 @@ def summarize(phenotype_json: str) -> list[tuple[str, str, str]]:
 def cmd_pharmcat(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
     input_vcf = require_vcf_input(args)
-    outdir = args.outdir or os.path.dirname(os.path.abspath(input_vcf))
+    outdir = os.path.abspath(args.outdir or os.path.dirname(input_vcf))
     os.makedirs(outdir, exist_ok=True)
     lib = ReferenceLibrary(getattr(args, "ref", None), None, input_path=input_vcf)
     if lib.build and "38" not in lib.build:
@@ -170,9 +196,17 @@ def cmd_pharmcat(args: argparse.Namespace) -> None:
         ]  # fmt: skip
         if args.absent_to_ref:
             command.append("--absent-to-ref")
+        # The pipeline has no outside-call flag: it uses `<base name>.outside.tsv`
+        # beside its preprocessed VCF, which it writes to the output directory.
+        outside = os.path.join(outdir, f"{stem}.outside.tsv")
+        if args.outside_call:
+            merge_outside_calls(args.outside_call, outside)
+        elif os.path.exists(outside):
+            logging.warning(f"PharmCAT will also use the outside calls in {outside}.")
         logging.info("Running PharmCAT...")
         try:
-            run_command(command)
+            # PharmCAT writes pharmcat.log to its working directory.
+            run_command(command, cwd=outdir)
         except subprocess.CalledProcessError as e:
             raise WGSExtractError(f"PharmCAT failed (exit {e.returncode}).") from e
 
@@ -181,7 +215,9 @@ def cmd_pharmcat(args: argparse.Namespace) -> None:
         os.path.join(outdir, f"{stem}.phenotype.json")
     ):
         logging.info(f"  {gene:<9} {diplotype:<22} {phenotype}")
-    logging.info(
-        f"PharmCAT report: {report} (CYP2D6 and HLA genes need calls from "
-        "dedicated tools; PharmCAT can't call them from a VCF)"
-    )
+    logging.info(f"PharmCAT report: {report}")
+    if not args.outside_call:
+        logging.info(
+            "CYP2D6 and HLA-A/HLA-B need calls PharmCAT can't make from a VCF: "
+            "pass them with --outside-call (from `typing cyp2d6` / `typing hla`)."
+        )

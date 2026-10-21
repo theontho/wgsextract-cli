@@ -8,6 +8,7 @@ from . import (
     deps,
     examples,
     extract,
+    genotyping,
     info,
     lineage,
     microarray,
@@ -16,6 +17,7 @@ from . import (
     realign,
     ref,
     repair,
+    sign,
     vcf,
     vep,
 )
@@ -38,4 +40,6 @@ COMMAND_MODULES: tuple[ModuleType, ...] = (
     pet,
     vep,
     analyze,
+    sign,
+    genotyping,
 )

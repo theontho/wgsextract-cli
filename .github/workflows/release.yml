@@ -1,0 +1,75 @@
+name: Release
+
+# Pushing a version tag (vX.Y.Z) creates a draft GitHub release once the tag
+# matches the version in pyproject.toml, pixi.toml and the package and the
+# checks pass. Edit the generated notes and publish it: publishing triggers
+# release_windows_bwa.yml, and install.sh installs the latest published release.
+
+on:
+  push:
+    tags: [ "v*" ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Tag matches the package version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 - "$TAG" <<'EOF'
+          import re, sys, tomllib
+          tag = sys.argv[1]
+          with open("pyproject.toml", "rb") as f:
+              pyproject = tomllib.load(f)["project"]["version"]
+          with open("pixi.toml", "rb") as f:
+              pixi = tomllib.load(f)["workspace"]["version"]
+          with open("src/wgsextract_cli/__init__.py") as f:
+              package = re.search(r'__version__ = "([^"]+)"', f.read())[1]
+          versions = {"pyproject.toml": pyproject, "pixi.toml": pixi,
+                      "src/wgsextract_cli/__init__.py": package}
+          wrong = {path: v for path, v in versions.items() if f"v{v}" != tag}
+          if wrong:
+              sys.exit(f"Tag {tag} doesn't match: {wrong}")
+          print(f"{tag} matches {', '.join(versions)}")
+          EOF
+      - name: Set up Pixi
+        uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
+        with:
+          pixi-version: v0.81.0
+          locked: true
+          environments: >-
+            default
+            dev
+      - name: Lint and type check
+        run: |
+          pixi run lint
+          pixi run typecheck
+      - name: Tests
+        run: pixi run test
+      - name: Build and smoke test the package
+        run: pixi run package-smoke
+
+  draft:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Create a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: >-
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag
+          --draft --generate-notes --title "wgsextract-cli $TAG"

@@ -50,6 +50,7 @@ CLI_HELP = {
     "cmd_deepvariant": "Google's Deep Variant variant caller. Supports WGS/WES and PacBio HiFi models; uses a neural network to achieve superior accuracy by 'looking' at read alignments as images. (Not tested on macOS. Time: 2-6 hours)",
     "cmd_annotate": "Add external metadata (like population frequencies or disease risk) to your VCF file. (Time: 5-15 mins)",
     "cmd_filter": "Filter your results. Use this to focus on specific genes of interest or to remove low-quality 'noisy' variant calls. (Time: <1 min)",
+    "cmd_vcf-to-fasta": "Build your personal consensus genome: the reference FASTA with your variants applied (heterozygous SNVs as IUPAC codes by default), and N where a gVCF has no call. (Time: 5-15 mins)",
     "cmd_trio": "Analyze inheritance patterns. Compares a child's VCF with their parents to identify de novo (new) mutations or inherited conditions. (Time: 5-10 mins)",
     "cmd_analyze": "Comprehensive genomic analysis combining multiple tools into a single workflow.",
     "cmd_comprehensive": "Run a full-chain analysis: QC, lineage, variant calling, annotation, and significant variant filtering.",
@@ -71,6 +72,17 @@ CLI_HELP = {
     "cmd_fastp": "An ultra-fast all-in-one pre-processor. Automatically trims adapters and filters low-quality reads while generating a QC report. (Time: 15-30 mins)",
     "cmd_check-deps": "Verify that all required bioinformatics tools (samtools, bcftools, etc.) are installed and accessible in your system path.",
     "cmd_bam-identify": "Analyze your BAM header to determine exactly which reference genome was used for the original alignment. (Time: <1 min)",
+    "cmd_bam-merge": "Merge several coordinate-sorted BAM/CRAM files (e.g. per-lane files) aligned to the same reference into one indexed file. (Time: 10-60 mins)",
+    "cmd_bam-to-ubam": "Convert an aligned BAM/CRAM or FASTQ reads into a queryname-sorted unaligned BAM (uBAM) for GATK pipelines. (Time: 30-90 mins)",
+    "cmd_sign": "Write SHA-256 checksum manifests for output files, sign them with an OpenSSH key, and verify them later.",
+    "cmd_sign-create": "Hash files or directories into a sha256sum-compatible SHA256SUMS manifest, signed with ssh-keygen when a key is given. (Time: 1-3 mins per 100 GB)",
+    "cmd_sign-verify": "Check a SHA256SUMS manifest's OpenSSH signature against a trusted key, then re-hash every listed file.",
+    "cmd_typing": "Genotype genes and repeats a VCF can't capture from a 30x WGS BAM/CRAM: CYP2D6 star alleles (Cyrius), HLA alleles (T1K) and repeat expansions (ExpansionHunter).",
+    "cmd_typing-cyp2d6": "Call CYP2D6 star alleles, including copy-number and hybrid alleles, with Cyrius, and write a PharmCAT outside call. Cyrius is for noncommercial use only. (Time: 1-3 mins)",
+    "cmd_typing-hla": "Call HLA class I and II alleles with T1K from reads in the MHC, and write a PharmCAT outside call for HLA-A/HLA-B. (Time: 2-3 mins; first run downloads 45 MB)",
+    "cmd_typing-str": "Size the disease-causing repeats of ExpansionHunter's catalog (HTT, FMR1, C9ORF72, ...) and flag those outside STRchive's normal range. (Time: under 1 min)",
+    "cmd_ref-cadd": "Download CADD v1.7 deleteriousness scores (all possible SNVs plus gnomAD indels, ~85 GB per build) with their tabix indexes. (Time: 30-90 mins)",
+    "cmd_ref-gerp": "Download GERP++ conservation scores as a bigWig (hg38 from Ensembl, ~9.6 GB; hg19 from UCSC, ~7.6 GB). (Time: 5-30 mins)",
     "cmd_ref-index": "Prepare a FASTA file for use by indexing it. This is required before you can align reads or call variants against it. (Time: 30-60 mins, Space: FASTA Size x 2)",
     "cmd_ref-download": "Download a reference FASTA from a URL (--url) to a path (--out). For curated hg19/hg38/T2T genomes use 'ref library --install'.",
     "cmd_ref-verify": "Ensure your reference genome file isn't corrupted and has all the necessary companion files (indexes, dicts). (Time: 1-5 mins)",
@@ -86,7 +98,7 @@ Available formats:
   AncestryDNA:
     ancestry_v1, ancestry_v2
   Family Tree DNA:
-    ftdna_v2, ftdna_v3
+    ftdna_v1 (Affymetrix, NCBI36 positions), ftdna_v2, ftdna_v3
   Living DNA:
     ldna_v1, ldna_v2
   MyHeritage:
@@ -195,6 +207,15 @@ LOG_MESSAGES = {
     "vcf_phylop_resolve": "Auto-resolved PhyloP file: {path}",
     "vcf_phylop_missing": "PhyloP data file not found. Please provide with --phylop-file or place it in your 'ref/' directory as phylop_hg38.tsv.gz.",
     "vcf_phylop_done": "PhyloP annotation and filtering complete: {output}",
+    "vcf_cadd_start": "Annotating VCF with CADD scores: {input}",
+    "vcf_cadd_resolve": "Auto-resolved CADD file: {path}",
+    "vcf_cadd_missing": "CADD data file not found. Please provide with --cadd-file or place it in your 'ref/' directory as cadd_hg38.tsv.gz.",
+    "vcf_cadd_no_indels": "No CADD indel file (cadd_indel_<build>.tsv.gz) found; only SNVs will be scored.",
+    "vcf_cadd_done": "CADD annotation and filtering complete: {output}",
+    "vcf_gerp_start": "Annotating VCF with GERP++ conservation scores: {input}",
+    "vcf_gerp_resolve": "Auto-resolved GERP file: {path}",
+    "vcf_gerp_missing": "GERP data file not found. Please provide with --gerp-file or place it in your 'ref/' directory as gerp_hg38.bw.",
+    "vcf_gerp_done": "GERP annotation and filtering complete: {output}",
     "vcf_gnomad_missing": "gnomAD data file not found. Please run 'ref gnomad' first.",
     "vcf_gnomad_done": "gnomAD annotation complete: {output}",
     "vcf_spliceai_missing": "SpliceAI data file not found. Please run 'ref spliceai' first.",

@@ -48,7 +48,7 @@ Run `wgsextract help` for the live tree from your installed version, `wgsextract
 
 ::: card
 ### BAM / CRAM
-`bam identify`, `bam sort`, `bam index`, `bam unindex`, `bam unsort`, `bam to-cram`, `bam to-bam`, `bam unalign`, plus `repair ftdna-bam` and `repair ftdna-vcf` for FTDNA files.
+`bam identify`, `bam sort`, `bam index`, `bam unindex`, `bam unsort`, `bam to-cram`, `bam to-bam`, `bam unalign`, `bam merge`, `bam to-ubam` (unaligned BAM for GATK), plus `repair ftdna-bam` and `repair ftdna-vcf` for FTDNA files.
 :::
 
 ::: card
@@ -58,17 +58,17 @@ Run `wgsextract help` for the live tree from your installed version, `wgsextract
 
 ::: card
 ### Variant workflows
-Calling: `vcf snp`, `vcf indel`, `vcf freebayes`, `vcf gatk`, `vcf deepvariant`, `vcf sv`, `vcf cnv`. Annotation: `vcf annotate`, `vcf chain-annotate`, `vcf clinvar`, `vcf gnomad`, `vcf revel`, `vcf phylop`, `vcf spliceai`, `vcf alphamissense`, `vcf pharmgkb`. Also `vcf filter` and `vcf trio`.
+Calling: `vcf snp`, `vcf indel`, `vcf freebayes`, `vcf gatk`, `vcf deepvariant`, `vcf sv`, `vcf cnv`. Annotation: `vcf annotate`, `vcf chain-annotate`, `vcf clinvar`, `vcf gnomad`, `vcf revel`, `vcf phylop`, `vcf cadd`, `vcf gerp`, `vcf spliceai`, `vcf alphamissense`, `vcf pharmgkb`, `vcf pharmcat`. Also `vcf filter`, `vcf trio`, and `vcf to-fasta` (personal consensus genome).
 :::
 
 ::: card
 ### References and annotation
-`ref bootstrap`, `ref library`, `ref library-list`, `ref status`, `ref download`, `ref index`, `ref verify`, `ref count-ns`, `ref gene-map`, the annotation downloads (`ref clinvar`, `gnomad`, `revel`, `phylop`, `spliceai`, `alphamissense`, `pharmgkb`), and `vep download`, `vep run`, `vep verify`.
+`ref bootstrap`, `ref library`, `ref library-list`, `ref status`, `ref download`, `ref index`, `ref verify`, `ref count-ns`, `ref gene-map`, the annotation downloads (`ref clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb`), and `vep download`, `vep run`, `vep verify`.
 :::
 
 ::: card
 ### Analysis and alignment
-`microarray`, `lineage y-haplogroup`, `lineage mt-haplogroup`, `align`, `realign`, `pet-align`, `analyze comprehensive`, `analyze batch-gen`, `example-genome list/download`, `benchmark`, `deps check`, and `config`.
+`microarray`, `lineage y-haplogroup`, `lineage mt-haplogroup`, `typing cyp2d6`, `typing hla`, `typing str`, `sign create`, `sign verify`, `align`, `realign`, `pet-align`, `analyze comprehensive`, `analyze batch-gen`, `example-genome list/download`, `benchmark`, `deps check`, and `config`.
 :::
 :::
 :::
@@ -148,7 +148,7 @@ pixi run -e deepvariant wgsextract vcf deepvariant
 
 ::: card
 ### vep
-Ensembl VEP for `vep run`, `vep download`, and `vep verify`. Not available on native Windows; Apple Silicon runs the Intel build under Rosetta.
+Ensembl VEP for `vep run`, `vep download`, and `vep verify`. Not available on native Windows.
 
 ```
 pixi run -e vep wgsextract vep run
@@ -158,6 +158,11 @@ pixi run -e vep wgsextract vep run
 ::: card
 ### gatk and freebayes
 GATK (Python 3.10, Java 17) and FreeBayes live in their own environments for dependency reasons. `vcf gatk` and `vcf freebayes` use them automatically; the first run downloads the environment.
+:::
+
+::: card
+### cyrius, t1k, and expansionhunter
+Gene and repeat typing: `typing cyp2d6` (Cyrius), `typing hla` (T1K), and `typing str` (ExpansionHunter). Linux and macOS. These aren't downloaded on first use: install them once with `pixi install -e <environment>`; Cyrius is licensed for noncommercial use only.
 :::
 
 ::: card

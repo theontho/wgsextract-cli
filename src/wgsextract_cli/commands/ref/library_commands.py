@@ -4,8 +4,11 @@ import os
 from collections.abc import Callable, Mapping
 
 from wgsextract_cli.core.annotation_resources import (
+    build_gnomad_af,
     download_alphamissense,
+    download_cadd,
     download_clinvar,
+    download_gerp,
     download_pharmgkb,
     download_revel,
     download_spliceai,
@@ -45,6 +48,9 @@ _MENU_DOWNLOADS: dict[str, tuple[str, Callable[[str], bool]]] = {
     "S": ("SpliceAI", download_spliceai),
     "A": ("AlphaMissense", download_alphamissense),
     "K": ("PharmGKB", download_pharmgkb),
+    "D": ("CADD hg38 (~88 GB)", download_cadd),
+    "E": ("GERP hg38 (~9.6 GB)", download_gerp),
+    "F": ("gnomAD v4.1 frequencies hg38 (streams ~900 GB)", build_gnomad_af),
 }
 
 
@@ -82,7 +88,7 @@ def cmd_library(args: argparse.Namespace) -> None:
     print(" 0) Exit")
     print(" G) Gene Map (hg19/hg38)")
     for key, (name, _) in _MENU_DOWNLOADS.items():
-        suffix = "" if key == "K" else " (hg19/hg38)"
+        suffix = "" if key == "K" or "hg38" in name else " (hg19/hg38)"
         print(f" {key}) {name}{suffix}")
 
     for i, g in enumerate(genomes, 1):
@@ -202,6 +208,15 @@ def cmd_phylop_dl(args: argparse.Namespace) -> None:
 
 
 def cmd_gnomad_dl(args: argparse.Namespace) -> None:
+    if getattr(args, "release", "2.1.1") == "4.1":
+        workers = int(args.threads) if getattr(args, "threads", None) else 6
+        _run_ref_download(
+            args,
+            "gnomAD v4.1",
+            lambda lib: build_gnomad_af(lib, workers),
+            "build",
+        )
+        return
     _run_ref_download(args, "gnomAD", download_gnomad)
 
 
@@ -215,6 +230,24 @@ def cmd_alphamissense_dl(args: argparse.Namespace) -> None:
 
 def cmd_pharmgkb_dl(args: argparse.Namespace) -> None:
     _run_ref_download(args, "PharmGKB", download_pharmgkb, "download")
+
+
+def cmd_cadd_dl(args: argparse.Namespace) -> None:
+    _run_ref_download(
+        args,
+        f"CADD {args.build}",
+        lambda lib: download_cadd(lib, args.build),
+        "download",
+    )
+
+
+def cmd_gerp_dl(args: argparse.Namespace) -> None:
+    _run_ref_download(
+        args,
+        f"GERP {args.build}",
+        lambda lib: download_gerp(lib, args.build),
+        "download",
+    )
 
 
 def cmd_bootstrap(args: argparse.Namespace) -> None:

@@ -4,12 +4,17 @@ import os
 import subprocess
 import tempfile
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 
 from wgsextract_cli.core.annotation_resources import is_bgzf
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
-from wgsextract_cli.core.utils import WGSExtractError, run_command
+from wgsextract_cli.core.utils import (
+    WGSExtractError,
+    get_resource_defaults,
+    run_command,
+)
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
     ensure_vcf_indexed,
@@ -108,6 +113,55 @@ def annotation_chromosomes(annotation_path: str) -> list[str]:
     return [line for line in (res.stdout or "").splitlines() if line.strip()]
 
 
+def _contigs_by_size(vcf_path: str) -> list[str]:
+    """Indexed contigs that hold records, longest first (for load balancing)."""
+    try:
+        res = run_command(["bcftools", "index", "-s", vcf_path], capture_output=True)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    rows = [line.split("\t") for line in (res.stdout or "").splitlines() if line]
+    rows.sort(key=lambda r: -int(r[1]) if r[1].isdigit() else 0)
+    return [r[0] for r in rows]
+
+
+def _run_annotate(cmd: list[str], vcf: str, out: str, work: str, threads: int) -> None:
+    """Run bcftools annotate, splitting by contig across threads when it helps."""
+    contigs = _contigs_by_size(vcf) if threads > 1 else []
+    if len(contigs) < 2:
+        run_command([*cmd, "-Oz", "-o", out, vcf], capture_output=True)
+        return
+    # Each contig streams its own slice of the resource, so whole genomes scale
+    # with cores; --no-version keeps the part headers identical for --naive.
+    parts = {c: os.path.join(work, f"part{i}.vcf.gz") for i, c in enumerate(contigs)}
+    # A regions file, as `-r` can't parse contig names with ':' (hs38DH's HLA-*).
+    regions = {}
+    for c, part in parts.items():
+        regions[c] = part[: -len(".vcf.gz")] + ".regions.txt"
+        with open(regions[c], "w") as f:
+            f.write(f"{c}\t1\t2147483647\n")
+    with ThreadPoolExecutor(max_workers=threads) as pool:
+        futures = [
+            pool.submit(
+                run_command,
+                [*cmd, "--no-version", "-R", regions[c], "-Oz", "-o", part, vcf],
+                capture_output=True,
+            )
+            for c, part in parts.items()
+        ]
+        for future in futures:
+            future.result()
+    in_order = [parts[c] for c in vcf_index_chromosomes(vcf)]
+    list_file = os.path.join(work, "parts.txt")
+    with open(list_file, "w") as f:
+        f.writelines(p + "\n" for p in in_order)
+    run_command(
+        ["bcftools", "concat", "--naive", "-f", list_file, "-Oz", "-o", out],
+        capture_output=True,
+    )
+    for path in (*in_order, *regions.values()):
+        os.remove(path)
+
+
 def annotate_vcf(
     input_vcf: str,
     annotation: str,
@@ -116,13 +170,20 @@ def annotate_vcf(
     outdir: str,
     label: str,
     header_lines: Sequence[str] = (),
+    threads: int | str | None = None,
 ) -> None:
     """Run bcftools annotate after matching the input's contig naming to the resource."""
+    n_threads = int(get_resource_defaults(threads)[0])
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_annotate_") as work:
         normalized = normalize_vcf_chromosomes(
             input_vcf, annotation_chromosomes(annotation), work
         )
         cmd = ["bcftools", "annotate", "-a", annotation, "-c", columns]
+        if {"REF", "ALT"} <= set(columns.split(",")):
+            # Allele-matched scores can never apply to gVCF reference blocks, and
+            # looking up every resource line under their END spans makes whole
+            # genomes ~25x slower; pass those records through untouched.
+            cmd += ["-e", 'TYPE="ref"', "-k"]
         if header_lines:
             header_path = os.path.join(work, "annotation.hdr")
             with open(header_path, "w") as f:
@@ -133,9 +194,8 @@ def annotate_vcf(
             if normalized == input_vcf
             else os.path.join(work, "annotated.vcf.gz")
         )
-        cmd += ["-Oz", "-o", annotated, normalized]
         try:
-            run_command(cmd, capture_output=True)
+            _run_annotate(cmd, normalized, annotated, work, n_threads)
             ensure_vcf_indexed(annotated)
             if annotated != ann_out:
                 # Back to the input's contig names (chr1 vs 1), so a chain of

@@ -1,14 +1,13 @@
 # WGS Extract CLI Todo List
 
-Planned features, improvements, and known bugs for WGS Extract CLI.
+Completed work on WGS Extract CLI. Open work is tracked in [GitHub Issues](https://github.com/theontho/wgsextract-cli/issues).
 
 ## Project
 
 - [x] **Merge v5 changes**: DeepVariant, GATK, and trio analysis integrated.
 - [x] **Pixi environments**: Python and bioinformatics tools are managed by Pixi (`pixi.toml`), with separate `pacbio`, `deepvariant`, `vep`, and `dev` environments.
-- [ ] **Automated release process**: GitHub Actions for platform-specific installers.
-- [ ] **Move to GitHub Issues**: Migrate this list to GitHub Issues.
-- [ ] **Signed, notarized app builds from GitHub**: The app's Distribution workflow signs on GitHub's macOS runners, but notarization fails with HTTP 403 until Apple's current developer agreements are accepted (gui-for-cli #143).
+- [x] **Automated release process**: Pushing a `vX.Y.Z` tag runs `release.yml`: it checks the tag against the versions in `pyproject.toml`, `pixi.toml` and the package, runs lint, type checks, tests and the package smoke test, and creates a draft release with generated notes. Publishing the draft builds and attaches the Windows native tools (`release_windows_bwa.yml`); `install.sh` installs the latest published release.
+- [x] **Move to GitHub Issues**: Open items are now issues: #93 (notarized app builds), #94 (SpliceAI download), #95 (VEP on Apple Silicon), #96 (Windows installer wizard), #97 (signed installers), #98 (`webAppRendered` on Windows), #99 (23andMe v1/v2 templates).
 
 ## CLI and core engine
 
@@ -18,51 +17,47 @@ Planned features, improvements, and known bugs for WGS Extract CLI.
 - [x] **Filtering**: `vcf filter` by expression, region, or gene name.
 - [x] **Annotation**: `vcf annotate` and VEP (`vep run`).
 - [x] **Chain annotation**: `vcf chain-annotate` applies several annotations in sequence.
-- [ ] **General consensus generation**: A `vcf to-fasta` command to build a full consensus FASTA from a VCF and reference (currently only `extract mito-fasta`).
+- [x] **General consensus generation**: `vcf to-fasta` applies a VCF to the reference (heterozygous SNVs as IUPAC codes by default; `--haplotype` picks one allele), writes N where a gVCF has no call, and can write a chain file.
 
 ### Gene analysis and clinical annotation
 
 - [x] **Gene-centric filtering**: Filter VCFs and BAMs by gene name (`--gene`, using `ref gene-map` data for hg19/hg38).
 - [x] **Trio analysis**: `vcf trio` with de novo, recessive, and compound-heterozygous modes.
 - [x] **Population frequencies**: gnomAD annotation (`vcf gnomad`).
-- [ ] **gnomAD v4.1**: `ref gnomad` downloads v2.1.1 (2019): exomes only, and its hg38 file is lifted over from hg19. v4.1 is native GRCh38 with genomes and exomes but several hundred GB in per-chromosome files; offer an allele-frequency-only download built from them.
+- [x] **gnomAD v4.1**: `ref gnomad --release 4.1` streams the native-GRCh38 joint exome+genome VCFs (817 GiB, about 2.5 h at 90 MiB/s) into a 4.6 GB PASS-site allele-frequency table, used by `vcf gnomad`. The default stays v2.1.1 (exomes, lifted over to hg38).
 - [x] **ClinVar**: Clinical significance via `vcf clinvar`.
 - [x] **Pathogenicity and conservation scores**: REVEL, AlphaMissense, SpliceAI, and PhyloP annotators. SIFT/PolyPhen are only available through VEP.
 - [x] **Pharmacogenomics**: PharmGKB annotation (`vcf pharmgkb`) and star-allele diplotypes and phenotypes with PharmCAT (`vcf pharmcat`).
-- [ ] **CYP2D6 calling**: PharmCAT can't call CYP2D6 from a VCF (copy-number and hybrid alleles). Add a BAM/CRAM-based caller (e.g. Cyrius or StellarPGx) and pass its call to PharmCAT as an outside call.
-- [ ] **SpliceAI download**: Precomputed scores sit behind an Illumina BaseSpace login, so `ref spliceai` only indexes a manually downloaded file.
-- [ ] **CADD and GERP++ annotation**: Not implemented.
+- [x] **CYP2D6 calling**: `typing cyp2d6` runs Cyrius (noncommercial license, opt-in `cyrius` environment) on a WGS BAM/CRAM and writes a PharmCAT outside call; `vcf pharmcat --outside-call` passes it on.
+- [x] **CADD and GERP++ annotation**: `ref cadd` / `vcf cadd` (CADD v1.7, SNVs plus gnomAD indels) and `ref gerp` / `vcf gerp` (GERP++ bigWig). Large annotation files are split by contig and annotated in parallel.
 
 ### BAM/CRAM processing
 
 - [x] **mtDNA/Y-DNA extraction**: `extract mito-fasta`, `mito-vcf`, `mt-bam`, `ydna-bam`, `ydna-vcf`, and `y-mt-extract`.
 - [x] **Reference verification**: `ref verify` checks gzip integrity, the FASTA index, and the sequence-dictionary signature of catalog genomes.
 - [x] **sambamba and samblaster**: Used for faster processing where available.
-- [ ] **BAM/CRAM merging**: A `bam merge` command for multiple alignment files.
-- [ ] **uBAM creator**: Convert FASTQ/BAM to unaligned BAM for GATK pipelines.
+- [x] **BAM/CRAM merging**: `bam merge` merges coordinate-sorted files aligned to the same reference into one indexed BAM or CRAM.
+- [x] **uBAM creator**: `bam to-ubam` converts an aligned BAM/CRAM or FASTQs into a queryname-sorted unaligned BAM with read groups.
 
 ### Microarray and specialized analysis
 
 - [x] **Pet sequencing**: Dog and cat alignment and variant calling via `pet-align`. Extraction and lineage commands are human-only.
 - [x] **Parallel microarray generation**: `microarray --parallel` calls variants per chromosome.
-- [ ] **Legacy formats**: 23andMe v1, FTDNA v1, and similar.
-- [ ] **Digital signing**: Sign output files for verification.
-- [ ] **Advanced typing**: HLA typing (also needed for PharmCAT's HLA-A/HLA-B guidance) and STR variant calling.
+- [x] **Legacy formats**: `microarray --formats ftdna_v1` (Affymetrix chip, NCBI36 positions). 23andMe v1/v2 need templates (#99).
+- [x] **Digital signing**: `sign create` writes a `sha256sum`-compatible `SHA256SUMS` manifest, signed with `ssh-keygen -Y sign` when given a key; `sign verify` checks the signature, then every file's hash.
+- [x] **Advanced typing**: `typing hla` (T1K on MHC reads, with a PharmCAT outside call for HLA-A/HLA-B) and `typing str` (ExpansionHunter, classified against STRchive's normal and pathogenic ranges).
 
 ### CLI
 
 - [x] **Exit codes**: Every command exits non-zero on failure.
 - [x] **Machine-readable output** for selected commands: `info --csv`, `ref status --json`, `vep run --format json|tab`.
 - [x] **Smoke tests**: Automated CLI smoke tests (`pixi run smoke-test`).
-- [ ] **VEP on Apple Silicon**: VEP's Pixi environment runs under Rosetta (bioconda's osx-arm64 libdb build is x86_64-only). A native build, or the `fast` preset by default, would cut whole-genome runs (3.7 h with `--preset everything`).
+- [x] **VEP on Apple Silicon**: VEP's Pixi environment runs natively on osx-arm64 (`PERL_DL_NONLAZY` works around conda-forge's x86_64-only libdb build); a whole-genome `--preset everything` run takes 1.9 h instead of 3.7 h under Rosetta.
 
 ## Install lab
 
 - [x] **Install, use, update, uninstall on fresh machines**: macOS (Tart), Linux (container), Windows 11 (QEMU) and GitHub's runners, for the CLI and the WGS Extract app, with negative controls and mutation tests (`docs/install_testing.md`).
 - [x] **Disk use**: Expired runs, images and leftovers are removed (`pixi run gc`).
-- [ ] **Windows installer wizard**: The app's installer is run with `/S`; only uninstall goes through the real wizard.
-- [ ] **Signed installers**: No signed release installer has been tested yet; the "must verify" check is covered only by a mutation.
-- [ ] **`webAppRendered` on Windows**: The app's startup metric is never printed on Windows (the page works); the lab uses the page-load metric instead.
 
 ## Technical debt and known bugs
 
@@ -75,4 +70,4 @@ Planned features, improvements, and known bugs for WGS Extract CLI.
 
 - [x] **Cross-platform TTY issues**: Resolved.
 - [x] **Yleaf integration**: Fixed command naming and execution on macOS ARM; output now goes to `<outdir>/yleaf/`.
-- [ ] **samtools hangs**: `markdup` and `fastq` hang on some MGI/Dante files.
+- [x] **samtools hangs**: Not reproduced. Whole-genome `fastq`, `collate`, and `sort` all finished on a 680M-read MGI CRAM; the CLI uses samblaster rather than `samtools markdup`; and pipeline stderr is spooled, so a full pipe can't deadlock. FASTQ export now uses `samtools collate` instead of a name sort (whole genome: 26 min down to 23 min; peak temp space about the same). Related: in samtools ≤1.24, `samtools view x.cram '*'` returns only the last unplaced container ([samtools#2396](https://github.com/samtools/samtools/issues/2396)); the CLI selects unmapped reads with `-f 4` instead.

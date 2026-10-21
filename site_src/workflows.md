@@ -118,6 +118,12 @@ wgsextract vcf chain-annotate --vcf-input calls.vcf.gz --annotations clinvar,gno
 wgsextract ref gene-map
 wgsextract vcf filter --vcf-input calls.vcf.gz --gene BRCA1
 wgsextract vcf filter --vcf-input calls.vcf.gz --expr 'QUAL>30'
+
+# Pharmacogenomics: CYP2D6 and HLA from the reads, the rest from the VCF
+wgsextract --input sample.cram --outdir out typing cyp2d6
+wgsextract --input sample.cram --outdir out typing hla
+wgsextract vcf pharmcat --vcf-input calls.vcf.gz \
+  --outside-call out/sample.cyp2d6.pharmcat.tsv --outside-call out/sample.hla.pharmcat.tsv
 ```
 :::
 
@@ -134,7 +140,7 @@ SV and CNV workflows look for larger changes. These can be sensitive to sequenci
 
 ::: card
 ### Annotation and filtering
-Annotation tools such as VEP add biological context. Download annotation data with the `ref` commands first; SpliceAI scores need a manual download because they sit behind an Illumina BaseSpace login. Gene filters need gene maps from `ref gene-map` (hg19/hg38 only). Filtering is useful for exploration, but a filtered list is not a diagnosis and should not be used as medical advice.
+Annotation tools such as VEP add biological context. Download annotation data with the `ref` commands first; SpliceAI scores need a manual download because they sit behind an Illumina BaseSpace login. Gene filters need gene maps from `ref gene-map` (hg19/hg38 only). Filtering is useful for exploration, but a filtered list is not a diagnosis and should not be used as medical advice. Some genes need the reads rather than a VCF: the `typing` commands call CYP2D6, HLA, and repeat expansions from a whole-genome BAM/CRAM.
 :::
 :::
 :::
