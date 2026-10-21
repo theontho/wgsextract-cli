@@ -1,7 +1,6 @@
 import functools
 import logging
 import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -27,6 +26,7 @@ from wgsextract_cli.core.reference_assets import (
     resolve_input_reference_fasta,
     resolve_input_target_tab,
 )
+from wgsextract_cli.core.reference_models import identify_reference, sequence_lengths
 
 from .alignment_metadata import (
     get_bam_header,
@@ -34,7 +34,6 @@ from .alignment_metadata import (
 )
 
 _UNKNOWN_SIGNATURE = "0" * 32
-_VCF_CONTIG_RE = re.compile(r"^##contig=<.*?\bID=([^,>]+).*?\blength=(\d+)")
 
 
 @functools.cache
@@ -241,15 +240,11 @@ class ReferenceLibrary:
             logging.debug(f"ReferenceLibrary: No header retrieved from {header_target}")
             return None
 
-        lengths = header_contig_lengths(header)
-        build = build_from_chr1_length(lengths)
-        if not build:
-            from wgsextract_cli.core.constants import REFGEN_BY_SNCOUNT
-
-            entry = REFGEN_BY_SNCOUNT.get(len(lengths))
-            build = build_from_path(str(entry[1])) if entry else None
+        model = identify_reference(header)
+        build = canonical_build(model.name) if model else None
         logging.debug(
-            f"ReferenceLibrary: Identified build as {build} from {len(lengths)} header contigs"
+            f"ReferenceLibrary: Identified build as {build} from the header"
+            + (f" ({model.evidence})" if model else "")
         )
         return build
 
@@ -460,19 +455,4 @@ class ReferenceLibrary:
 
 def header_contig_lengths(header: str) -> dict[str, int]:
     """Contig lengths from BAM @SQ lines, else from VCF ##contig lines."""
-    lengths: dict[str, int] = {}
-    for line in header.splitlines():
-        if not line.startswith("@SQ"):
-            continue
-        fields = dict(
-            part.split(":", 1) for part in line.split("\t")[1:] if ":" in part
-        )
-        if "SN" in fields and fields.get("LN", "").isdigit():
-            lengths[fields["SN"]] = int(fields["LN"])
-    if lengths:
-        return lengths
-    for line in header.splitlines():
-        match = _VCF_CONTIG_RE.match(line)
-        if match:
-            lengths[match.group(1)] = int(match.group(2))
-    return lengths
+    return sequence_lengths(header)

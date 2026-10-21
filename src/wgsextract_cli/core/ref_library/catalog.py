@@ -26,7 +26,7 @@ def load_genomes_from_csv(csv_path: str) -> list[dict[str, Any]]:
                         "url": row.get("URL"),
                         "label": row.get("Library Menu Label"),
                         "description": row.get("Description", ""),
-                        "md5": "",
+                        "md5": row.get("Signature") or "",
                     }
                 )
     except (OSError, csv.Error) as e:
@@ -45,9 +45,10 @@ def get_available_genomes() -> list[dict[str, Any]]:
     if Path(csv_path).exists():
         _GENOME_DATA_CACHE = load_genomes_from_csv(str(csv_path))
 
-    # Hardcoded fallback and signature source. "md5" is the WGS Extract sequence
+    # Fallback when the catalog is missing. "md5" is the WGS Extract sequence
     # dictionary signature (MD5 of the sorted SN/LN pairs, as calculate_bam_md5
-    # computes for a BAM header), not a checksum of the file bytes.
+    # computes for a BAM header), not a checksum of the file bytes; the catalog
+    # has it in its Signature column.
     core_genomes = [
         {
             "code": "hg38",
@@ -89,12 +90,6 @@ def get_available_genomes() -> list[dict[str, Any]]:
 
     if not _GENOME_DATA_CACHE:
         _GENOME_DATA_CACHE = core_genomes
-    else:
-        # Merge MD5s from core into CSV-loaded data
-        for cg in core_genomes:
-            for g in _GENOME_DATA_CACHE:
-                if g["code"] == cg["code"] and not g.get("md5"):
-                    g["md5"] = cg["md5"]
 
     pet_genomes = [
         {
@@ -119,7 +114,7 @@ def get_available_genomes() -> list[dict[str, Any]]:
 
     # Append pet genomes if not already present
     for pg in pet_genomes:
-        if not any(g["code"] == pg["code"] for g in _GENOME_DATA_CACHE):
+        if not any(g["final"] == pg["final"] for g in _GENOME_DATA_CACHE):
             _GENOME_DATA_CACHE.append(pg)
 
     return _GENOME_DATA_CACHE
