@@ -1,14 +1,15 @@
 import argparse
 import logging
-import os
 import subprocess
 import tempfile
+from pathlib import Path
 
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem
 from wgsextract_cli.core.reference_resolver import (
     ReferenceLibrary,
@@ -71,7 +72,7 @@ def is_gvcf(vcf_path: str) -> bool:
 
 def _reference_lengths(ref: str) -> dict[str, int]:
     fai = ref + ".fai"
-    if not os.path.isfile(fai):
+    if not Path(fai).is_file():
         run_command(["samtools", "faidx", ref], capture_output=True)
     with open(fai) as f:
         rows = (line.split("\t", 2) for line in f if line.strip())
@@ -145,7 +146,7 @@ def _prepare_vcf(
                 ", ".join(skipped[:10]) + (" ..." if len(skipped) > 10 else ""),
             )
             # A file, as names like HLA-A*01:01:01:01 break comma region lists.
-            regions_file = os.path.join(workdir, "contigs.tsv")
+            regions_file = str(Path(workdir, "contigs.tsv"))
             with open(regions_file, "w") as f:
                 f.write("".join(f"{c}\t1\t{2**31 - 1}\n" for c in shared))
             view += ["--regions-file", regions_file]
@@ -155,10 +156,10 @@ def _prepare_vcf(
         view += ["--samples", sample]
     if gvcf:
         view.append("--trim-alt-alleles")
-    prepared = os.path.join(workdir, "prepared.bcf")
+    prepared = str(Path(workdir, "prepared.bcf"))
     output = ["--threads", threads, "-Ob", "-o", prepared, "--write-index"]
     if mapping:
-        map_file = os.path.join(workdir, "contigs.txt")
+        map_file = str(Path(workdir, "contigs.txt"))
         with open(map_file, "w") as f:
             f.write("".join(f"{src} {dst}\n" for src, dst in mapping))
         rename = ["bcftools", "annotate", "--rename-chrs", map_file, *output, "-"]
@@ -219,13 +220,13 @@ def _match_ambiguous_ref_bases(vcf: str, ref: str, threads: str, workdir: str) -
         sum(1 for fix in fixes if fix),
     )
     header = run_command(["bcftools", "view", "-h", vcf], capture_output=True).stdout
-    fixed_vcf = os.path.join(workdir, "ambiguous.vcf")
+    fixed_vcf = str(Path(workdir, "ambiguous.vcf"))
     with open(fixed_vcf, "w") as f:
         f.write(header)
         f.writelines(fix or line for line, fix in zip(records, fixes, strict=True))
-    fixed_bcf = os.path.join(workdir, "ambiguous.bcf")
-    rest = os.path.join(workdir, "unambiguous.bcf")
-    out = os.path.join(workdir, "prepared_fixed.bcf")
+    fixed_bcf = str(Path(workdir, "ambiguous.bcf"))
+    rest = str(Path(workdir, "unambiguous.bcf"))
+    out = str(Path(workdir, "prepared_fixed.bcf"))
     write = ["--threads", threads, "-Ob", "--write-index", "-o"]
     for cmd in (
         ["bcftools", "view", *write, fixed_bcf, fixed_vcf],
@@ -309,19 +310,19 @@ def cmd_to_fasta(args: argparse.Namespace) -> None:
     if args.mask:
         verify_paths_exist({"--mask": args.mask})
     threads, _ = get_resource_defaults(args.threads, None)
-    outdir = args.outdir or os.path.dirname(os.path.abspath(input_vcf))
-    os.makedirs(outdir, exist_ok=True)
+    outdir = args.outdir or str(absolute_path(input_vcf).parent)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
 
     ref = ReferenceLibrary(args.ref, None, input_path=input_vcf).fasta
-    if not ref or not os.path.isfile(ref):
+    if not ref or not Path(ref).is_file():
         raise WGSExtractError(
             LOG_MESSAGES["ref_required_for"].format(task="consensus generation")
         )
     verify_paths_exist({"--ref": ref})
 
     stem = input_stem(input_vcf)
-    out_fasta = os.path.join(outdir, f"{stem}_consensus.fa.gz")
-    out_chain = os.path.join(outdir, f"{stem}_consensus.chain") if args.chain else None
+    out_fasta = str(Path(outdir, f"{stem}_consensus.fa.gz"))
+    out_chain = str(Path(outdir, f"{stem}_consensus.chain")) if args.chain else None
     input_vcf = ensure_vcf_prepared(input_vcf)
     sample = _pick_sample(input_vcf, args.sample)
 
@@ -365,7 +366,7 @@ def cmd_to_fasta(args: argparse.Namespace) -> None:
             vcf = _prepare_vcf(input_vcf, contigs, region, sample, gvcf, threads, w)
             vcf = _match_ambiguous_ref_bases(vcf, ref, threads, w)
             if uncalled == "n":
-                uncalled_bed = os.path.join(w, "uncalled.bed")
+                uncalled_bed = str(Path(w, "uncalled.bed"))
                 logging.info("Finding positions the VCF does not cover...")
                 write_uncalled_mask(vcf, lengths, uncalled_bed, region, include)
                 consensus_cmd += ["--mask", uncalled_bed]
@@ -383,8 +384,8 @@ def cmd_to_fasta(args: argparse.Namespace) -> None:
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         outputs = partials + ([out_chain] if out_chain else [])
         for path in outputs if writing else []:
-            if os.path.exists(path):
-                os.remove(path)
+            if Path(path).exists():
+                Path(path).unlink()
         raise WGSExtractError(f"Consensus generation failed: {e}") from e
 
     logging.info(f"Consensus FASTA written to {out_fasta}")

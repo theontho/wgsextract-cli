@@ -1,9 +1,9 @@
 import argparse
 import logging
-import os
 import subprocess
 import tempfile
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 from wgsextract_cli.core.annotation_resources import open_bigwig
@@ -60,7 +60,7 @@ def cmd_cadd(args: argparse.Namespace) -> None:
     else:
         logging.warning(LOG_MESSAGES["vcf_cadd_no_indels"])
 
-    ann_out = os.path.join(outdir, CADD_ANNOTATED)
+    ann_out = str(Path(outdir, CADD_ANNOTATED))
     snv_tsv = prepare_tabix_annotation(snv_file, "CADD")
     vcf_in = ensure_vcf_prepared(input_file)
     if not indel_file:
@@ -78,7 +78,7 @@ def cmd_cadd(args: argparse.Namespace) -> None:
         indel_tsv = prepare_tabix_annotation(indel_file, "CADD indel")
         # Number=A values merge per allele, so the indel pass keeps SNV scores.
         with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_cadd_") as work:
-            snv_out = os.path.join(work, "snv.vcf.gz")
+            snv_out = str(Path(work, "snv.vcf.gz"))
             annotate_vcf(
                 vcf_in,
                 snv_tsv,
@@ -169,12 +169,12 @@ def cmd_gerp(args: argparse.Namespace) -> None:
     )
     logging.info(LOG_MESSAGES["vcf_gerp_resolve"].format(path=gerp_file))
     vcf_in = ensure_vcf_prepared(input_file)
-    ann_out = os.path.join(outdir, GERP_ANNOTATED)
+    ann_out = str(Path(outdir, GERP_ANNOTATED))
     bw = open_bigwig(gerp_file)
     try:
         check_vcf_build(vcf_in, bw.chroms(), "the GERP scores")
         with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_gerp_") as work:
-            scores = os.path.join(work, "gerp.tsv.gz")
+            scores = str(Path(work, "gerp.tsv.gz"))
             with open(scores, "wb") as out:
                 bgzip = popen(
                     ["bgzip", "-c"], stdin=subprocess.PIPE, stdout=out, text=True

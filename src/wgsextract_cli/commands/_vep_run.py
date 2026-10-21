@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import time
 from datetime import timedelta
+from pathlib import Path
 
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import (
@@ -13,6 +14,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.paths import absolute_path, expand_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -53,20 +55,20 @@ VEP_PRESETS = {
 
 def vep_output_paths(input_path: str, outdir: str, fmt: str) -> tuple[str, str]:
     """Return (path VEP writes, final output path) for an input file."""
-    base_name = os.path.basename(input_path).split(".")[0]
-    output_file = os.path.join(outdir, f"{base_name}_vep{_FORMAT_EXT[fmt]}")
+    base_name = Path(input_path).name.split(".")[0]
+    output_file = str(Path(outdir, f"{base_name}_vep{_FORMAT_EXT[fmt]}"))
     return output_file, output_file + ".gz" if fmt == "vcf" else output_file
 
 
 def _vep_input_files(input_path: str) -> list[str]:
-    if not os.path.isdir(input_path):
+    if not Path(input_path).is_dir():
         if not input_path.lower().endswith(GENOMIC_SUFFIXES):
             raise WGSExtractError(
                 f"Unsupported VEP input (expected VCF/BCF/BAM/CRAM): {input_path}"
             )
         return [input_path]
     input_files = sorted(
-        os.path.join(input_path, f)
+        str(Path(input_path, f))
         for f in os.listdir(input_path)
         if f.lower().endswith(GENOMIC_SUFFIXES)
     )
@@ -149,9 +151,9 @@ def _build_vep_command(
     if lib.fasta:
         vep_cmd += ["--fasta", lib.fasta]
 
-    cache_dir = args.vep_cache or lib.vep_cache or os.path.expanduser("~/.vep")
+    cache_dir = args.vep_cache or lib.vep_cache or expand_path("~/.vep")
     vep_cmd += ["--dir_cache", cache_dir, "--cache_version", args.vep_cache_version]
-    if os.path.exists(cache_dir):
+    if Path(cache_dir).exists():
         vep_cmd.append("--offline")
         logging.info(LOG_MESSAGES["vep_using_cache"].format(path=cache_dir))
     else:
@@ -171,13 +173,13 @@ def _run_vep_on_input(
 ) -> tuple[str, str]:
     """Annotate one input; returns a (status, duration) batch summary row."""
     is_bam = current_input.lower().endswith((".bam", ".cram"))
-    outdir = args.outdir or os.path.dirname(os.path.abspath(current_input))
-    os.makedirs(outdir, exist_ok=True)
-    logging.debug(f"Input file: {os.path.abspath(current_input)}")
-    logging.debug(f"Output directory: {os.path.abspath(outdir)}")
+    outdir = args.outdir or str(absolute_path(current_input).parent)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
+    logging.debug(f"Input file: {str(absolute_path(current_input))}")
+    logging.debug(f"Output directory: {str(absolute_path(outdir))}")
 
     output_file, final_output = vep_output_paths(current_input, outdir, args.format)
-    if os.path.exists(final_output) and not args.force:
+    if Path(final_output).exists() and not args.force:
         logging.info(
             LOG_MESSAGES["vep_skipping_exists"].format(
                 input=current_input, output=final_output
@@ -208,13 +210,13 @@ def _run_vep_on_input(
             if is_bam:
                 assert lib.fasta is not None
                 logging.info(LOG_MESSAGES["vep_calling_pre"])
-                vep_input_vcf = os.path.join(work, "variants.vcf.gz")
+                vep_input_vcf = str(Path(work, "variants.vcf.gz"))
                 _call_variants_for_vep(
                     args, current_input, lib.fasta, lib, threads, vep_input_vcf
                 )
 
             if args.add_chr:
-                chr_vcf = os.path.join(work, "with_chr.vcf")
+                chr_vcf = str(Path(work, "with_chr.vcf"))
                 preprocess_vcf_chr_prefix(vep_input_vcf, chr_vcf)
                 vep_input_vcf = chr_vcf
 
@@ -224,9 +226,7 @@ def _run_vep_on_input(
                 else args.vcf_type
             )
             vep_output = (
-                os.path.join(work, "vep.vcf.gz")
-                if args.format == "vcf"
-                else output_file
+                str(Path(work, "vep.vcf.gz")) if args.format == "vcf" else output_file
             )
             vep_cmd = _build_vep_command(
                 args, vep_input_vcf, vep_output, vcf_type, lib, threads
@@ -241,9 +241,9 @@ def _run_vep_on_input(
             if args.format == "vcf":
                 # VEP's report files, where they were before it wrote into work.
                 for suffix in ("_summary.html", "_warnings.txt"):
-                    if os.path.exists(vep_output + suffix):
-                        os.replace(vep_output + suffix, output_file + suffix)
-                os.replace(vep_output, final_output)
+                    if Path(vep_output + suffix).exists():
+                        Path(vep_output + suffix).replace(output_file + suffix)
+                Path(vep_output).replace(final_output)
                 run_command(["tabix", "-f", "-p", "vcf", final_output])
     except (OSError, subprocess.SubprocessError, WGSExtractError, ValueError) as e:
         logging.error(f"VEP failed for {current_input}: {e}")
@@ -263,7 +263,7 @@ def cmd_vep(args: argparse.Namespace) -> None:
     threads, _ = get_resource_defaults(args.threads, None)
 
     batch_stats = [
-        (os.path.basename(path), *_run_vep_on_input(args, path, threads))
+        (Path(path).name, *_run_vep_on_input(args, path, threads))
         for path in input_files
     ]
 

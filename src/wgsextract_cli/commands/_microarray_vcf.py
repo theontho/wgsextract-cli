@@ -2,10 +2,10 @@ import argparse
 import contextlib
 import gzip
 import logging
-import os
 import subprocess
 import tempfile
 import time
+from pathlib import Path
 from typing import TextIO
 
 from wgsextract_cli.core.alignment_metadata import get_bam_header
@@ -34,7 +34,7 @@ def split_snps_by_chrom(ref_vcf_tab: str, outdir: str) -> dict[str, str]:
         chroms = res.stdout.strip().splitlines()
 
         for chrom in chroms:
-            chrom_out = os.path.join(outdir, f"snps_{chrom}.tab")
+            chrom_out = str(Path(outdir, f"snps_{chrom}.tab"))
             # tabix extraction is very fast
             with open(chrom_out, "w") as f:
                 run_command(["tabix", ref_vcf_tab, chrom], stdout=f)
@@ -59,7 +59,7 @@ def split_snps_by_chrom(ref_vcf_tab: str, outdir: str) -> dict[str, str]:
                     continue
                 chrom = line.split("\t", 1)[0]
                 if chrom not in handles:
-                    chrom_files[chrom] = os.path.join(outdir, f"snps_{chrom}.tab")
+                    chrom_files[chrom] = str(Path(outdir, f"snps_{chrom}.tab"))
                     handles[chrom] = stack.enter_context(open(chrom_files[chrom], "w"))
                 handles[chrom].write(line)
 
@@ -124,7 +124,7 @@ def _prepare_vcf_target_tab_for_input(
     if not chrom_map or all(chrom_map.get(chrom) == chrom for chrom in target_chroms):
         return ref_vcf_tab
 
-    normalized_tab = os.path.join(outdir, "input_chrom_targets.tab")
+    normalized_tab = str(Path(outdir, "input_chrom_targets.tab"))
     with _open_text(ref_vcf_tab) as source, open(normalized_tab, "w") as destination:
         for line in source:
             if line.startswith("#") or not line.strip():
@@ -159,7 +159,7 @@ def process_chrom(
     input_path: str,
 ) -> str:
     """Worker function for parallel chromosome processing. Must be at module level for pickling."""
-    chrom_vcf = os.path.join(chrom_tmp_dir, f"{chrom}.vcf.gz")
+    chrom_vcf = str(Path(chrom_tmp_dir, f"{chrom}.vcf.gz"))
     logging.debug(f"Processing chromosome {chrom}...")
     run_pipeline(
         [
@@ -174,13 +174,13 @@ def process_chrom(
     ensure_vcf_indexed(chrom_vcf)
 
     # Annotate RSIDs immediately
-    annotated_chrom_vcf = os.path.join(chrom_tmp_dir, f"{chrom}_ann.vcf.gz")
+    annotated_chrom_vcf = str(Path(chrom_tmp_dir, f"{chrom}_ann.vcf.gz"))
     run_command(
         ["bcftools", "annotate", "-a", ref_vcf_tab, "-c", "CHROM,POS,ID"]
         + ["-Oz", "-o", annotated_chrom_vcf, chrom_vcf]
     )
-    os.remove(chrom_vcf)
-    os.remove(chrom_vcf + ".tbi")
+    Path(chrom_vcf).unlink()
+    Path(chrom_vcf + ".tbi").unlink()
     return annotated_chrom_vcf
 
 
@@ -221,7 +221,7 @@ def _prepare_microarray_vcf(
         # Any missing targets are assumed to be homozygous reference.
         try:
             # Step 1: Get actual variants from the input VCF that match our targets
-            hit_vcf = os.path.join(outdir, f"{base_name}_hits.vcf.gz")
+            hit_vcf = str(Path(outdir, f"{base_name}_hits.vcf.gz"))
             # Use long-form --targets-file to avoid version conflicts
             run_command(
                 ["bcftools", "view", "--targets-file", ref_vcf_tab]
@@ -239,7 +239,7 @@ def _prepare_microarray_vcf(
 
             # For VCF input, annotation is usually already present, but we run it
             # to ensure RSIDs match our master tab file
-            annotated_vcf = os.path.join(outdir, f"{base_name}_annotated.vcf.gz")
+            annotated_vcf = str(Path(outdir, f"{base_name}_annotated.vcf.gz"))
             run_command(
                 ["bcftools", "annotate", "-a", ref_vcf_tab, "-c", "CHROM,POS,ID"]
                 + ["-Oz", "-o", annotated_vcf, out_vcf]
@@ -283,7 +283,7 @@ def _prepare_microarray_vcf(
             # Natural chromosome order (1..22, X, Y, MT) — bcftools concat preserves
             # input order, so lexical sort would emit 10, 11, ..., 1, 20, ..., 9.
             def _chrom_sort_key(path: str) -> tuple[int, str]:
-                chrom = os.path.basename(path).split("_ann.")[0].removeprefix("chr")
+                chrom = Path(path).name.split("_ann.")[0].removeprefix("chr")
                 order = {"X": 23, "Y": 24, "MT": 25, "M": 25}
                 if chrom in order:
                     return (order[chrom], chrom)
@@ -318,7 +318,7 @@ def _prepare_microarray_vcf(
             logging.info(f"VCF generation took {time.time() - start_vcf:.2f}s")
 
             # Annotate the VCF with RSIDs from the reference tab file
-            annotated_vcf = os.path.join(outdir, f"{base_name}_annotated.vcf.gz")
+            annotated_vcf = str(Path(outdir, f"{base_name}_annotated.vcf.gz"))
             logging.info(f"Annotating VCF with RSIDs from {ref_vcf_tab}...")
             start_ann = time.time()
             run_command(

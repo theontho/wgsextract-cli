@@ -1,8 +1,8 @@
 import logging
-import os
 import subprocess
 from collections.abc import Callable
 from heapq import heappop, heappush
+from pathlib import Path
 
 from wgsextract_cli.core import runtime_wrappers
 from wgsextract_cli.core.dependencies import _tool_command_parts, get_tool_path
@@ -19,11 +19,11 @@ def _reference_backed_sequence_provider(
     chroms: dict[str, int],
     fallback: SequenceProvider,
 ) -> SequenceProvider:
-    if not ref_path or not os.path.exists(str(ref_path)):
+    if not ref_path or not Path(str(ref_path)).exists():
         return fallback
 
     fai_path = str(ref_path) + ".fai"
-    if not os.path.exists(fai_path):
+    if not Path(fai_path).exists():
         try:
             run_command(["samtools", "faidx", str(ref_path)], capture_output=True)
         except (OSError, subprocess.SubprocessError, WGSExtractError) as exc:

@@ -1,7 +1,6 @@
 import csv
 import gzip
 import logging
-import os
 from pathlib import Path
 
 from wgsextract_cli.core.annotation_resources import CancelEvent
@@ -49,16 +48,16 @@ class GeneMap:
             return True
 
         # Look for local file in reflib (ref/genes_hg38.tsv)
-        map_file = os.path.join(self.reflib_dir, "ref", f"genes_{build_key}.tsv")
+        map_file = str(Path(self.reflib_dir, "ref", f"genes_{build_key}.tsv"))
         logging.debug(f"GeneMap: Searching for {map_file}")
-        if not os.path.exists(map_file):
+        if not Path(map_file).exists():
             # Try root/microarray as fallback
-            map_file = os.path.join(
-                self.reflib_dir, "microarray", f"genes_{build_key}.tsv"
+            map_file = str(
+                Path(self.reflib_dir, "microarray", f"genes_{build_key}.tsv")
             )
             logging.debug(f"GeneMap: Searching for {map_file}")
 
-        if not os.path.exists(map_file):
+        if not Path(map_file).exists():
             logging.debug("GeneMap: No gene map file found.")
             return False
 
@@ -105,10 +104,10 @@ def are_gene_maps_installed(reflib_dir: str) -> bool:
     """Checks if gene mapping files for both hg19 and hg38 are installed."""
     if not reflib_dir:
         return False
-    target_dir = os.path.join(reflib_dir, "ref")
+    target_dir = str(Path(reflib_dir, "ref"))
     for build in GENE_MAP_URLS.keys():
-        tsv_path = os.path.join(target_dir, f"genes_{build}.tsv")
-        if not os.path.exists(tsv_path):
+        tsv_path = str(Path(target_dir, f"genes_{build}.tsv"))
+        if not Path(tsv_path).exists():
             return False
     return True
 
@@ -155,13 +154,13 @@ def delete_gene_maps(reflib_dir: str) -> bool:
     """Deletes gene mapping files from the reference library."""
     if not reflib_dir:
         return False
-    target_dir = os.path.join(reflib_dir, "ref")
+    target_dir = str(Path(reflib_dir, "ref"))
     success = True
     for build in GENE_MAP_URLS.keys():
-        tsv_path = os.path.join(target_dir, f"genes_{build}.tsv")
-        if os.path.exists(tsv_path):
+        tsv_path = str(Path(target_dir, f"genes_{build}.tsv"))
+        if Path(tsv_path).exists():
             try:
-                os.remove(tsv_path)
+                Path(tsv_path).unlink()
             except OSError as e:
                 logging.error(f"Failed to delete {tsv_path}: {e}")
                 success = False
@@ -172,16 +171,16 @@ def download_gene_maps(
     reflib_dir: str, cancel_event: CancelEvent | None = None
 ) -> bool:
     """Downloads and processes official UCSC RefGene maps."""
-    target_dir = os.path.join(reflib_dir, "ref")
-    os.makedirs(target_dir, exist_ok=True)
+    target_dir = str(Path(reflib_dir, "ref"))
+    Path(target_dir).mkdir(parents=True, exist_ok=True)
 
     success = True
     for build, url in GENE_MAP_URLS.items():
         if cancel_event and cancel_event.is_set():
             return False
 
-        gz_path = os.path.join(target_dir, f"refGene_{build}.txt.gz")
-        tsv_path = os.path.join(target_dir, f"genes_{build}.tsv")
+        gz_path = str(Path(target_dir, f"refGene_{build}.txt.gz"))
+        tsv_path = str(Path(target_dir, f"genes_{build}.tsv"))
 
         logging.info(f"Downloading {build} gene database from UCSC...")
         try:
@@ -191,8 +190,8 @@ def download_gene_maps(
                 continue
 
             if cancel_event and cancel_event.is_set():
-                if os.path.exists(gz_path):
-                    os.remove(gz_path)
+                if Path(gz_path).exists():
+                    Path(gz_path).unlink()
                 return False
 
             # 2. Parse UCSC format to simple TSV
@@ -221,7 +220,7 @@ def download_gene_maps(
                     f_out.write(f"{symbol}\t{c}\t{s}\t{e}\n")
 
             logging.info(f"Successfully processed {len(gene_data)} genes for {build}")
-            os.remove(gz_path)  # Cleanup
+            Path(gz_path).unlink()  # Cleanup
 
         except (OSError, gzip.BadGzipFile, ValueError) as e:
             logging.error(f"Failed to setup {build} gene map: {e}")

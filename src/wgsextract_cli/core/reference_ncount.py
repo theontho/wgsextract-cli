@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import gzip
 import math
-import os
 import re
 import statistics
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import BinaryIO, TextIO, cast
 
 NUM_BUCKETS = 1000
@@ -59,7 +59,7 @@ def write_n_count_files(fasta: str, ncnt_path: str, nbin_path: str) -> NCountTot
 
     Outputs are written to temporary names and moved into place only on success.
     """
-    name = os.path.basename(fasta)
+    name = Path(fasta).name
     totals = NCountTotals()
     ncnt_tmp, nbin_tmp = ncnt_path + ".partial", nbin_path + ".partial"
     try:
@@ -85,12 +85,12 @@ def write_n_count_files(fasta: str, ncnt_path: str, nbin_path: str) -> NCountTot
                 f"{totals.sequences}\t{totals.length:,}\t{totals.n_count:,}\t"
                 f"{totals.large_runs}\t\t\t{totals.small_runs}\n"
             )
-        os.replace(ncnt_tmp, ncnt_path)
-        os.replace(nbin_tmp, nbin_path)
+        Path(ncnt_tmp).replace(ncnt_path)
+        Path(nbin_tmp).replace(nbin_path)
     finally:
         for tmp in (ncnt_tmp, nbin_tmp):
-            if os.path.exists(tmp):
-                os.remove(tmp)
+            if Path(tmp).exists():
+                Path(tmp).unlink()
     return totals
 
 

@@ -1,6 +1,6 @@
 import argparse
 import logging
-import os
+from pathlib import Path
 
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -35,7 +35,7 @@ def cmd_phylop(args: argparse.Namespace) -> None:
     logging.info(LOG_MESSAGES["vcf_phylop_resolve"].format(path=phylop_file))
 
     phylop_vcf = prepare_tabix_annotation(phylop_file, "PhyloP")
-    ann_out = os.path.join(outdir, PHYLOP_ANNOTATED)
+    ann_out = str(Path(outdir, PHYLOP_ANNOTATED))
     if phylop_vcf.lower().endswith(VCF_SUFFIXES):
         annotate_vcf(
             ensure_vcf_prepared(input_file),
@@ -79,7 +79,7 @@ def cmd_gnomad(args: argparse.Namespace) -> None:
     logging.info(f"Using gnomAD file: {gnomad_file}")
 
     # Transfer AF as GNOMAD_AF to avoid colliding with the caller's AF.
-    ann_out = os.path.join(outdir, GNOMAD_ANNOTATED)
+    ann_out = str(Path(outdir, GNOMAD_ANNOTATED))
     header = [
         '##INFO=<ID=GNOMAD_AF,Number=A,Type=Float,Description="gnomAD Allele Frequency">'
     ]
@@ -105,7 +105,7 @@ def cmd_gnomad(args: argparse.Namespace) -> None:
         logging.info(LOG_MESSAGES["vcf_gnomad_done"].format(output=ann_out))
         return
 
-    filter_out = os.path.join(outdir, f"gnomad_af_lt_{args.max_af}.vcf.gz")
+    filter_out = str(Path(outdir, f"gnomad_af_lt_{args.max_af}.vcf.gz"))
     logging.info(
         f"Filtering for variants with gnomAD Allele Frequency < {args.max_af} "
         f"to {filter_out}"

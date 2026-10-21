@@ -3,10 +3,12 @@ import contextlib
 import json
 import os
 import re
+from pathlib import Path
 from typing import Any
 
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.gene_map import are_gene_maps_installed
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.ref_library.catalog import get_genome_status
 from wgsextract_cli.core.reference_assets import (
     build_hint,
@@ -69,11 +71,11 @@ def build_ref_status(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "referenceLibrary": {
             "path": reflib,
-            "exists": os.path.isdir(reflib),
+            "exists": Path(reflib).is_dir(),
         },
         "genomeLibrary": {
             "path": genome_library,
-            "exists": os.path.isdir(genome_library),
+            "exists": Path(genome_library).is_dir(),
         },
         "build": build,
         "bootstrap": {
@@ -196,30 +198,26 @@ def _annotation_status(reflib: str) -> dict[str, dict[str, dict[str, Any]]]:
         for build in builds:
             path = first_existing_file(
                 [
-                    os.path.join(directory, f"{key}_{build}{extension}")
-                    for directory in (os.path.join(reflib, "ref"), reflib)
+                    str(Path(directory, f"{key}_{build}{extension}"))
+                    for directory in (str(Path(reflib, "ref")), reflib)
                     for extension in extensions
                 ]
             )
             # bigWig files carry their own index; the rest need a tabix sidecar.
             indexed = bool(path) and (
                 path.endswith(".bw")
-                or any(os.path.isfile(path + index) for index in (".tbi", ".csi"))
+                or any(Path(path + index).is_file() for index in (".tbi", ".csi"))
             )
             status[key][build] = {"file": path, "installed": indexed}
     return status
 
 
 def _vep_cache_status(lib: ReferenceLibrary, reflib: str) -> dict[str, Any]:
-    path = lib.vep_cache or os.path.join(reflib, "vep")
-    species = os.path.join(path, "homo_sapiens")
+    path = lib.vep_cache or str(Path(reflib, "vep"))
+    species = str(Path(path, "homo_sapiens"))
     versions = (
-        sorted(
-            name
-            for name in os.listdir(species)
-            if os.path.isdir(os.path.join(species, name))
-        )
-        if os.path.isdir(species)
+        sorted(name for name in os.listdir(species) if Path(species, name).is_dir())
+        if Path(species).is_dir()
         else []
     )
     return {"path": path, "versions": versions}
@@ -228,11 +226,11 @@ def _vep_cache_status(lib: ReferenceLibrary, reflib: str) -> dict[str, Any]:
 def _pharmcat_status(reflib: str) -> dict[str, Any]:
     from wgsextract_cli.commands.vcf.pharmcat import PIPELINE_FILES
 
-    path = str(settings.get("pharmcat_directory") or os.path.join(reflib, "pharmcat"))
-    installed = all(os.path.isfile(os.path.join(path, n)) for n in PIPELINE_FILES)
+    path = str(settings.get("pharmcat_directory") or str(Path(reflib, "pharmcat")))
+    installed = all(Path(path, n).is_file() for n in PIPELINE_FILES)
     version = ""
     if installed:
-        common = os.path.join(path, "pcat", "common.py")
+        common = str(Path(path, "pcat", "common.py"))
         with contextlib.suppress(OSError):
             with open(common) as f:
                 match = re.search(r"PHARMCAT_VERSION = '([^']+)'", f.read())
@@ -241,21 +239,21 @@ def _pharmcat_status(reflib: str) -> dict[str, Any]:
 
 
 def _genome_status(reflib: str) -> list[dict[str, Any]]:
-    genomes_dir = os.path.join(reflib, "genomes")
-    if not os.path.isdir(genomes_dir):
+    genomes_dir = str(Path(reflib, "genomes"))
+    if not Path(genomes_dir).is_dir():
         return []
     genomes = []
     for name in sorted(os.listdir(genomes_dir)):
-        path = os.path.join(genomes_dir, name)
-        if not is_fasta_path(name) or not os.path.isfile(path):
+        path = str(Path(genomes_dir, name))
+        if not is_fasta_path(name) or not Path(path).is_file():
             continue
         genomes.append(
             {
                 "name": name,
                 "path": path,
-                "faiIndex": os.path.isfile(path + ".fai"),
+                "faiIndex": Path(path + ".fai").is_file(),
                 "bwaIndex": all(
-                    os.path.isfile(path + ext)
+                    Path(path + ext).is_file()
                     for ext in (".amb", ".ann", ".bwt", ".pac", ".sa")
                 ),
             }
@@ -269,26 +267,26 @@ def _resolve_reference_library(args: argparse.Namespace) -> str:
     explicit_dests = getattr(args, "_explicit_dests", None)
     ref_is_explicit = explicit_dests is None or "ref" in explicit_dests
     if ref and ref_is_explicit:
-        ref_path = os.path.abspath(str(ref))
-        if os.path.isdir(ref_path):
+        ref_path = str(absolute_path(str(ref)))
+        if Path(ref_path).is_dir():
             return ref_path
-        if os.path.isfile(ref_path):
+        if Path(ref_path).is_file():
             return _reference_library_from_fasta(ref_path)
     if configured_reflib:
-        return os.path.abspath(str(configured_reflib))
+        return str(absolute_path(str(configured_reflib)))
     if ref:
-        ref_path = os.path.abspath(str(ref))
-        if os.path.isdir(ref_path):
+        ref_path = str(absolute_path(str(ref)))
+        if Path(ref_path).is_dir():
             return ref_path
-        if os.path.isfile(ref_path):
+        if Path(ref_path).is_file():
             return _reference_library_from_fasta(ref_path)
     return default_reference_library()
 
 
 def _reference_library_from_fasta(ref_path: str) -> str:
-    ref_dir = os.path.dirname(ref_path)
-    if os.path.basename(ref_dir).lower() == "genomes":
-        return os.path.dirname(ref_dir)
+    ref_dir = str(Path(ref_path).parent)
+    if Path(ref_dir).name.lower() == "genomes":
+        return str(Path(ref_dir).parent)
     return ref_dir
 
 
@@ -297,24 +295,24 @@ def _resolve_genome_library(args: argparse.Namespace, reflib: str) -> str:
         "genome_library"
     )
     if genome_library:
-        return os.path.abspath(str(genome_library))
-    return os.path.join(os.path.dirname(reflib), "genomes")
+        return str(absolute_path(str(genome_library)))
+    return str(Path(reflib).parent / "genomes")
 
 
 def _ploidy_status(reflib: str) -> dict[str, Any]:
     files = {
         "hg19": first_existing_file(
             [
-                os.path.join(reflib, "ploidy_hg19.txt"),
-                os.path.join(reflib, "ref", "ploidy_hg19.txt"),
-                os.path.join(reflib, "microarray", "ploidy_hg19.txt"),
+                str(Path(reflib, "ploidy_hg19.txt")),
+                str(Path(reflib, "ref", "ploidy_hg19.txt")),
+                str(Path(reflib, "microarray", "ploidy_hg19.txt")),
             ]
         ),
         "hg38": first_existing_file(
             [
-                os.path.join(reflib, "ploidy_hg38.txt"),
-                os.path.join(reflib, "ref", "ploidy_hg38.txt"),
-                os.path.join(reflib, "microarray", "ploidy_hg38.txt"),
+                str(Path(reflib, "ploidy_hg38.txt")),
+                str(Path(reflib, "ref", "ploidy_hg38.txt")),
+                str(Path(reflib, "microarray", "ploidy_hg38.txt")),
             ]
         ),
     }
@@ -327,28 +325,25 @@ def _ploidy_status(reflib: str) -> dict[str, Any]:
 def _mappability_map_status(reflib: str) -> dict[str, Any]:
     from wgsextract_cli.core.constants import MAPPABILITY_MAP_FILES
 
-    maps_dir = os.path.join(reflib, "maps")
+    maps_dir = str(Path(reflib, "maps"))
     files = {
-        file_name: os.path.join(maps_dir, file_name)
-        for file_name in MAPPABILITY_MAP_FILES
+        file_name: str(Path(maps_dir, file_name)) for file_name in MAPPABILITY_MAP_FILES
     }
     return {
-        "installed": all(os.path.isfile(path) for path in files.values()),
+        "installed": all(Path(path).is_file() for path in files.values()),
         "files": files,
     }
 
 
 def _test_genome_status(genome_library: str) -> dict[str, Any]:
-    path = os.path.join(genome_library, "wgsextract-benchmark-hg19-mini")
-    partial = os.path.join(
-        genome_library, ".downloads", "wgsextract-benchmark-hg19-mini.zip.partial"
+    path = str(Path(genome_library, "wgsextract-benchmark-hg19-mini"))
+    partial = str(
+        Path(genome_library, ".downloads", "wgsextract-benchmark-hg19-mini.zip.partial")
     )
-    installed = os.path.isdir(path) and os.path.isfile(
-        os.path.join(path, "genome-config.toml")
-    )
+    installed = Path(path).is_dir() and Path(path, "genome-config.toml").is_file()
     if installed:
         status = "installed"
-    elif os.path.isfile(partial):
+    elif Path(partial).is_file():
         status = "incomplete"
     else:
         status = get_genome_status("wgsextract-benchmark-hg19-mini", genome_library)

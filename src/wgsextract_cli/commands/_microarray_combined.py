@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Iterator
+from pathlib import Path
 from typing import TextIO
 
 from wgsextract_cli.core.utils import (
@@ -53,7 +54,7 @@ def _open_text(path: str) -> TextIO:
 
 def _fasta_chromosomes(ref_fasta: str) -> set[str]:
     fai_path = ref_fasta + ".fai"
-    if not os.path.exists(fai_path):
+    if not Path(fai_path).exists():
         # samtools faidx builds the .fai (and .gzi for bgzipped FASTA).
         run_command(["samtools", "faidx", ref_fasta])
     with open(fai_path) as f_fai:
@@ -93,7 +94,7 @@ def _reference_alleles(
                 ref_alleles[current] = line.strip().upper()
         return ref_alleles
     finally:
-        os.remove(region_file)
+        Path(region_file).unlink()
 
 
 def _write_vcf_mode_kit(
@@ -180,7 +181,7 @@ def _write_microarray_combined_kit(
     ref_fasta: str,
     ref_vcf_tab: str,
 ) -> str:
-    combined_kit_txt = os.path.join(outdir, f"{base_name}_CombinedKit.txt")
+    combined_kit_txt = str(Path(outdir, f"{base_name}_CombinedKit.txt"))
     logging.info(f"Extracting genotypes to {combined_kit_txt}...")
     start_ext = time.time()
 
@@ -199,12 +200,12 @@ def _write_microarray_combined_kit(
                 )
             else:
                 _write_alignment_mode_kit(f_out, outdir=outdir, out_vcf=out_vcf)
-        os.replace(tmp_txt, combined_kit_txt)
+        Path(tmp_txt).replace(combined_kit_txt)
     except (OSError, gzip.BadGzipFile, subprocess.SubprocessError, ValueError) as e:
         raise WGSExtractError(f"Failed to generate CombinedKit.txt: {e}") from e
     finally:
-        if os.path.exists(tmp_txt):
-            os.remove(tmp_txt)
+        if Path(tmp_txt).exists():
+            Path(tmp_txt).unlink()
 
     logging.info(f"Extraction took {time.time() - start_ext:.2f}s")
     return combined_kit_txt

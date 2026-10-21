@@ -11,9 +11,9 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 from wgsextract_cli.commands.info.metrics import sample_sex
 from wgsextract_cli.core.dependencies import pixi_env_prefix
@@ -144,7 +144,7 @@ def classify(call: RepeatCall, threshold: Threshold | None) -> str:
 
 def _catalog(aln: Alignment, catalog: str | None) -> str:
     if catalog:
-        if not os.path.isfile(catalog):
+        if not Path(catalog).is_file():
             raise WGSExtractError(f"Variant catalog not found: {catalog}")
         return catalog
     prefix = pixi_env_prefix("expansionhunter")
@@ -241,7 +241,7 @@ def cmd_str(args: argparse.Namespace) -> None:
     catalog = _catalog(aln, args.catalog)
     sex = _sex(aln, args.sex)
 
-    prefix = os.path.join(aln.outdir, f"{aln.stem}.str")
+    prefix = str(Path(aln.outdir, f"{aln.stem}.str"))
     logging.info("Sizing repeat expansions with ExpansionHunter...")
     try:
         run_command(

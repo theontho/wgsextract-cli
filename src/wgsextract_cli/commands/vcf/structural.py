@@ -1,11 +1,11 @@
 import argparse
 import io
 import logging
-import os
 import subprocess
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import IO
 
 from wgsextract_cli.core.dependencies import get_tool_path
@@ -41,7 +41,7 @@ def _region_input_bam(
         return
 
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_region_") as tmp:
-        temp_bam = os.path.join(tmp, "region.bam")
+        temp_bam = str(Path(tmp, "region.bam"))
         logging.info(f"Extracting region {args.region} to temporary BAM...")
         try:
             _extract_region_bam_with_reference_header(args, ref, temp_bam)
@@ -55,7 +55,7 @@ def _region_input_bam(
 
 def _reference_contigs(ref: str) -> list[tuple[str, int]]:
     fai_path = ref + ".fai"
-    if not os.path.isfile(fai_path):
+    if not Path(fai_path).is_file():
         run_command(["samtools", "faidx", ref], capture_output=True)
 
     contigs = []
@@ -162,16 +162,16 @@ def _write_indexed_vcf_from_bcf(out_bcf: str, out_vcf: str) -> None:
     run_command(["bcftools", "view", "-Oz", "-o", out_vcf, out_bcf])
     ensure_vcf_indexed(out_vcf)
     for path in (out_bcf, out_bcf + ".csi"):
-        if os.path.exists(path):
-            os.remove(path)
+        if Path(path).exists():
+            Path(path).unlink()
 
 
 def cmd_cnv(args: argparse.Namespace) -> None:
     verify_dependencies(["delly", "bcftools", "tabix", "samtools"])
     _threads, outdir, ref, _lib = get_base_args(args)
 
-    out_bcf = os.path.join(outdir, "cnv.bcf")
-    out_vcf = os.path.join(outdir, "cnv.vcf.gz")
+    out_bcf = str(Path(outdir, "cnv.bcf"))
+    out_vcf = str(Path(outdir, "cnv.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_cnv"].format(output=out_vcf))
 
     if args.map:
@@ -198,7 +198,7 @@ def cmd_sv_pbsv(args: argparse.Namespace) -> None:
     log_dependency_info(["pbsv", "bcftools", "tabix", "samtools"])
     threads, outdir, ref, _lib = get_base_args(args)
 
-    out_vcf = os.path.join(outdir, "pbsv.vcf.gz")
+    out_vcf = str(Path(outdir, "pbsv.vcf.gz"))
     region = getattr(args, "region", None)
     tandem_repeats = getattr(args, "tandem_repeats", None)
     if tandem_repeats:
@@ -210,8 +210,8 @@ def cmd_sv_pbsv(args: argparse.Namespace) -> None:
         # pbsv call does not accept .fa.gz input.
         plain_reference(ref, outdir) as pbsv_ref,
     ):
-        svsig = os.path.join(work, "pbsv.svsig.gz")
-        raw_vcf = os.path.join(work, "pbsv.vcf")
+        svsig = str(Path(work, "pbsv.svsig.gz"))
+        raw_vcf = str(Path(work, "pbsv.vcf"))
         discover_cmd = ["pbsv", "discover"]
         if region:
             discover_cmd.extend(["--region", region])
@@ -261,17 +261,17 @@ def cmd_sv_sniffles(args: argparse.Namespace) -> None:
     log_dependency_info(["sniffles", "bcftools", "tabix", "samtools"])
     threads, outdir, ref, _lib = get_base_args(args)
 
-    out_vcf = os.path.join(outdir, "sniffles.vcf.gz")
+    out_vcf = str(Path(outdir, "sniffles.vcf.gz"))
     region = getattr(args, "region", None)
 
     logging.info(LOG_MESSAGES["vcf_calling_sv"].format(output=out_vcf))
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_sniffles_") as work:
-        raw_vcf = os.path.join(work, "sniffles.vcf")
+        raw_vcf = str(Path(work, "sniffles.vcf"))
         # --reference is needed to decode CRAM and to emit deletion sequences.
         cmd = ["sniffles", "--input", args.input, "--vcf", raw_vcf]
         cmd += ["--reference", ref, "--threads", threads]
         if region:
-            bed_path = os.path.join(work, "region.bed")
+            bed_path = str(Path(work, "region.bed"))
             _write_region_bed(region, ref, bed_path)
             cmd.extend(["--regions", bed_path])
         try:
@@ -309,8 +309,8 @@ def cmd_sv(args: argparse.Namespace) -> None:
     verify_dependencies(["delly", "bcftools", "tabix", "samtools"])
     threads, outdir, ref, _lib = get_base_args(args)
 
-    out_bcf = os.path.join(outdir, "sv.bcf")
-    out_vcf = os.path.join(outdir, "sv.vcf.gz")
+    out_bcf = str(Path(outdir, "sv.bcf"))
+    out_vcf = str(Path(outdir, "sv.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_sv"].format(output=out_vcf))
 
     with _region_input_bam(args, outdir, ref, "SV") as input_file:

@@ -12,6 +12,7 @@ from wgsextract_cli.core import (
     runtime,
     runtime_paths,
 )
+from wgsextract_cli.core.paths import absolute_path, command_is_path, expand_path
 
 MANDATORY_TOOLS = [
     "samtools",
@@ -112,12 +113,12 @@ WINDOWS_PIXI_SCRIPT_LAUNCHERS = {
 # a Windows script tool whose environment isn't installed yet (its prefix, and
 # so the script's path, only exists once `pixi run` has installed it).
 _WINDOWS_FIRST_USE_STUB = (
-    "import glob, os, subprocess, sys; "
+    "import subprocess, sys; from pathlib import Path; "
     "name = sys.argv[2]; "
-    "found = sorted(glob.glob(os.path.join(sys.prefix, 'share', '*', name))) + "
-    "[p for p in (os.path.join(sys.prefix, d, name) for d in ('bin', 'Scripts')) "
-    "if os.path.exists(p)]; "
-    "sys.exit(subprocess.call([sys.argv[1], found[0] if found else name, *sys.argv[3:]]))"
+    "root = Path(sys.prefix); "
+    "found = sorted((root / 'share').glob('*/' + name)) + "
+    "[p for p in (root / d / name for d in ('bin', 'Scripts')) if p.exists()]; "
+    "sys.exit(subprocess.call([sys.argv[1], str(found[0]) if found else name, *sys.argv[3:]]))"
 )
 
 
@@ -194,14 +195,14 @@ def _version_output(stdout: str, stderr: str) -> str:
 
 def _tool_command_parts(cmd_base: str) -> list[str]:
     """Split wrapper commands without corrupting native executable paths."""
-    normalized_cmd = os.path.expanduser(cmd_base)
+    normalized_cmd = expand_path(cmd_base)
     if (
         runtime.is_wsl_tool_command(normalized_cmd)
         or runtime.is_bundled_tool_command(normalized_cmd)
         or runtime.is_pacman_tool_command(normalized_cmd)
     ):
         return [normalized_cmd]
-    if os.path.exists(normalized_cmd):
+    if command_is_path(normalized_cmd):
         return [normalized_cmd]
     if runtime.is_windows_host():
         return _windows_command_line_split(normalized_cmd)
@@ -285,20 +286,18 @@ def get_tool_runtime(path: str | None) -> str:
 def is_pixi_tool_command(path: str) -> bool:
     """Return whether a resolved command is explicitly launched through Pixi."""
     try:
-        command = shlex.split(
-            os.path.expanduser(path), posix=not runtime.is_windows_host()
-        )
+        command = shlex.split(expand_path(path), posix=not runtime.is_windows_host())
     except ValueError:
         return False
     if not command:
         return False
-    executable = os.path.basename(command[0]).lower()
+    executable = Path(command[0]).name.lower()
     return executable in {"pixi", "pixi.exe"} and "run" in command[1:]
 
 
 def is_pixi_tool_path(path: str) -> bool:
     """Return whether a resolved executable lives inside the active Pixi env."""
-    expanded_path = os.path.abspath(os.path.expanduser(path))
+    expanded_path = str(absolute_path(expand_path(path)))
     pixi_prefix = os.environ.get("PIXI_PREFIX")
     if pixi_prefix and _is_relative_to(expanded_path, pixi_prefix):
         return True
@@ -336,8 +335,8 @@ def get_jar_dir() -> str:
 
     configured = settings.get("jar_directory")
     if configured and isinstance(configured, str):
-        expanded_path = os.path.expanduser(configured)
-        if os.path.isdir(expanded_path):
+        expanded_path = expand_path(configured)
+        if Path(expanded_path).is_dir():
             return expanded_path
 
     return str(runtime.repo_root() / "jartools")
@@ -363,7 +362,7 @@ def _resolve_pixi_command() -> str | None:
         exe = "pixi.exe" if runtime.is_windows_host() else "pixi"
         candidates.append(str(root.parent / ".pixi" / "bin" / exe))
     for candidate in candidates:
-        if candidate and os.path.isfile(candidate):
+        if candidate and Path(candidate).is_file():
             return candidate
 
     pixi_cmd = shutil.which("pixi")
@@ -376,8 +375,8 @@ def _resolve_pixi_command() -> str | None:
         "~/.pixi/bin/pixi",
         "~/.pixi/bin/pixi.exe",
     ]:
-        expanded = os.path.expanduser(path)
-        if os.path.exists(expanded):
+        expanded = expand_path(path)
+        if Path(expanded).exists():
             return expanded
     return None
 
@@ -483,7 +482,7 @@ for tool in tool_names:
         print("script:" + str(shared[-1]))
         raise SystemExit(0)
     script = prefix / "bin" / tool
-    if os.path.lexists(script):
+    if script.exists() or script.is_symlink():
         print("script:" + str(script.resolve()))
         raise SystemExit(0)
 
@@ -686,7 +685,7 @@ def check_dependencies(tool_list: list[str], jar_dir: str | None = None) -> list
 
     for tool in tool_list:
         if tool.endswith(".jar"):
-            if not os.path.exists(os.path.join(jar_dir, tool)):
+            if not Path(jar_dir, tool).exists():
                 missing.append(f"{tool} (in {jar_dir})")
         else:
             if get_tool_path(tool) is None:

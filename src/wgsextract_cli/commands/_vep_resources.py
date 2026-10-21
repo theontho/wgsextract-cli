@@ -1,11 +1,12 @@
 import argparse
 import logging
-import os
 import shutil
 import subprocess
+from pathlib import Path
 
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.paths import expand_path
 from wgsextract_cli.core.ref_library import download_file
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
@@ -54,7 +55,7 @@ def calculate_bsd_sum(file_path: str) -> tuple[int, int]:
     native = _native_bsd_sum(file_path)
     if native is not None:
         return native
-    size = os.path.getsize(file_path)
+    size = Path(file_path).stat().st_size
     if size > 512 * 1024 * 1024:
         logging.warning(
             "No native BSD sum tool found; computing the checksum in Python. "
@@ -78,9 +79,9 @@ def _resolve_vep_cache_root(args: argparse.Namespace) -> str:
     if cache_root:
         return str(cache_root)
     lib = ReferenceLibrary(getattr(args, "ref", None))
-    if lib.root and os.path.isdir(lib.root):
-        return os.path.join(lib.root, "vep")
-    return os.path.expanduser("~/.vep")
+    if lib.root and Path(lib.root).is_dir():
+        return str(Path(lib.root, "vep"))
+    return expand_path("~/.vep")
 
 
 def _verify_vep_tarball(base_url: str, target_path: str, filename: str) -> None:
@@ -97,8 +98,8 @@ def _verify_vep_tarball(base_url: str, target_path: str, filename: str) -> None:
         logging.warning(f"Checksum verification could not be completed: {e}")
         return
     finally:
-        if os.path.exists(checksum_path):
-            os.remove(checksum_path)
+        if Path(checksum_path).exists():
+            Path(checksum_path).unlink()
 
     if expected is None:
         logging.warning(f"{filename} is not listed in {checksum_url}; not verified.")
@@ -106,7 +107,7 @@ def _verify_vep_tarball(base_url: str, target_path: str, filename: str) -> None:
     actual = calculate_bsd_sum(target_path)
     if actual != expected:
         # Drop the corrupt tarball so the next attempt downloads it afresh.
-        os.remove(target_path)
+        Path(target_path).unlink()
         raise WGSExtractError(
             LOG_MESSAGES["vep_checksum_failed"].format(
                 expected_sum=expected[0],
@@ -129,10 +130,10 @@ def cmd_vep_download(args: argparse.Namespace) -> None:
         f"{VEP_MIRRORS[args.mirror]}/release-{vep_version}/variation/indexed_vep_cache"
     )
     cache_root = _resolve_vep_cache_root(args)
-    os.makedirs(cache_root, exist_ok=True)
+    Path(cache_root).mkdir(parents=True, exist_ok=True)
 
     filename = f"{species}_vep_{vep_version}_{args.assembly}.tar.gz"
-    target_path = os.path.join(cache_root, filename)
+    target_path = str(Path(cache_root, filename))
     cancel_event = getattr(args, "cancel_event", None)
 
     def cancelled() -> bool:
@@ -162,7 +163,7 @@ def cmd_vep_download(args: argparse.Namespace) -> None:
         raise WGSExtractError(f"Failed to extract {target_path}: {e}") from e
     logging.info(LOG_MESSAGES["vep_extraction_complete"])
     logging.info(LOG_MESSAGES["vep_ready"].format(path=f"{cache_root}/{species}"))
-    os.remove(target_path)
+    Path(target_path).unlink()
 
 
 def _chr_prefixed_standard_chrom(chrom: str) -> str | None:
@@ -198,8 +199,8 @@ def cmd_vep_verify(args: argparse.Namespace) -> None:
     assembly = args.assembly
 
     cache_root = _resolve_vep_cache_root(args)
-    species_dir = os.path.join(cache_root, species)
-    version_dir = os.path.join(species_dir, f"{vep_version}_{assembly}")
+    species_dir = str(Path(cache_root, species))
+    version_dir = str(Path(species_dir, f"{vep_version}_{assembly}"))
 
     logging.info(
         LOG_MESSAGES["vep_verifying"].format(
@@ -208,14 +209,14 @@ def cmd_vep_verify(args: argparse.Namespace) -> None:
     )
     logging.info(LOG_MESSAGES["vep_location"].format(path=version_dir))
 
-    if not os.path.exists(version_dir):
+    if not Path(version_dir).exists():
         raise WGSExtractError(
             LOG_MESSAGES["vep_cache_missing"].format(path=version_dir)
         )
 
     # Check for basic files
-    info_file = os.path.join(version_dir, "info.txt")
-    if os.path.exists(info_file):
+    info_file = str(Path(version_dir, "info.txt"))
+    if Path(info_file).exists():
         logging.info(LOG_MESSAGES["vep_info_found"])
     else:
         logging.warning(LOG_MESSAGES["vep_info_missing"])
@@ -223,8 +224,8 @@ def cmd_vep_verify(args: argparse.Namespace) -> None:
     # Check for chromosomal directories
     missing_chrs = []
     for c in list(range(1, 23)) + ["X", "Y", "MT"]:
-        chr_dir = os.path.join(version_dir, str(c))
-        if not os.path.exists(chr_dir):
+        chr_dir = str(Path(version_dir, str(c)))
+        if not Path(chr_dir).exists():
             missing_chrs.append(str(c))
 
     if missing_chrs:

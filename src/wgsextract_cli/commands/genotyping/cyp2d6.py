@@ -17,13 +17,14 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 
 from wgsextract_cli.core.dependency_checks import verify_dependencies
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 
 from .common import Alignment, env_tool, open_alignment, write_bed, write_outside_calls
@@ -80,12 +81,13 @@ def cyrius_genome(aln: Alignment) -> str:
 def _region_bed(genome: str) -> str:
     python = env_tool("cyrius_python", "cyrius", LICENSE_NOTE)
     locate = (
-        "import os, sys, cyrius; print(os.path.join(os.path.dirname("
-        "cyrius.__file__), 'data', f'CYP2D6_region_{sys.argv[1]}.bed'))"
+        "import sys, cyrius; from pathlib import Path; "
+        "print(Path(cyrius.__file__).parent / 'data' / "
+        "f'CYP2D6_region_{sys.argv[1]}.bed')"
     )
     result = run_command([*python, "-c", locate, genome], capture_output=True)
     path = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
-    if not os.path.isfile(path):
+    if not Path(path).is_file():
         raise WGSExtractError(f"Cyrius's region file {path or '(none)'} is missing.")
     return path
 
@@ -107,17 +109,17 @@ def rescue_alt_reads(
             for fields in (line.split("\t") for line in f)
             if len(fields) > 4 and fields[4] == "norm"
         ]
-    norm_bam = os.path.join(work, "norm.bam")
+    norm_bam = str(Path(work, "norm.bam"))
     run_command(
         ["samtools", "view", "-@", threads, "-b", "-M", "-L",
-         write_bed(os.path.join(work, "norm.bed"), norm), *aln.ref_opt,
+         write_bed(str(Path(work, "norm.bed")), norm), *aln.ref_opt,
          "-o", norm_bam, aln.path]
     )  # fmt: skip
 
-    chrom_fasta = os.path.join(work, f"{chrom}.fa")
+    chrom_fasta = str(Path(work, f"{chrom}.fa"))
     run_command(["samtools", "faidx", "-o", chrom_fasta, reference, chrom])
-    window_bed = write_bed(os.path.join(work, "window.bed"), [(chrom, start, end)])
-    locus_bam = os.path.join(work, "locus.bam")
+    window_bed = write_bed(str(Path(work, "window.bed")), [(chrom, start, end)])
+    locus_bam = str(Path(work, "locus.bam"))
     logging.info(
         f"Realigning the CYP2D6 locus and {len(alts)} {chrom} ALT contigs' reads "
         f"to primary {chrom} (the input has ALT contigs)..."
@@ -143,7 +145,7 @@ def rescue_alt_reads(
                 "-@",
                 threads,
                 "-",
-                os.path.join(work, "collate"),
+                str(Path(work, "collate")),
             ],
             # Interleaved, so minimap2 pairs mates and maps orphans single-ended.
             ["samtools", "fastq", "-n", "-"],
@@ -156,7 +158,7 @@ def rescue_alt_reads(
                 "-@",
                 threads,
                 "-T",
-                os.path.join(work, "sort"),
+                str(Path(work, "sort")),
                 "-",
             ],
             ["samtools", "markdup", "-u", "-", "-"],
@@ -165,7 +167,7 @@ def rescue_alt_reads(
         ],  # fmt: skip
         description="CYP2D6 ALT rescue",
     )
-    mini_bam = os.path.join(work, "cyp2d6.bam")
+    mini_bam = str(Path(work, "cyp2d6.bam"))
     run_command(["samtools", "merge", "-f", "-@", threads, "-o", mini_bam,
                  norm_bam, locus_bam])  # fmt: skip
     run_command(["samtools", "index", mini_bam])
@@ -184,9 +186,9 @@ def cmd_cyp2d6(args: argparse.Namespace) -> None:
     prefix = f"{aln.stem}.cyrius"
     with tempfile.TemporaryDirectory(dir=aln.outdir, prefix=".wgse_cyp2d6_") as work:
         reads = rescue_alt_reads(aln, region_bed, alts, work) if alts else aln.path
-        manifest = os.path.join(work, "manifest.txt")
+        manifest = str(Path(work, "manifest.txt"))
         with open(manifest, "w") as f:
-            f.write(os.path.abspath(reads) + "\n")
+            f.write(str(absolute_path(reads)) + "\n")
         command = [*cyrius, "-m", manifest, "-g", genome, "-o", work, "-p", prefix]
         if reads.lower().endswith(".cram"):
             command += ["-r", aln.require_reference()]
@@ -197,11 +199,11 @@ def cmd_cyp2d6(args: argparse.Namespace) -> None:
             raise WGSExtractError(f"Cyrius failed (exit {e.returncode}).") from e
         for suffix in (".tsv", ".json"):
             shutil.move(
-                os.path.join(work, prefix + suffix),
-                os.path.join(aln.outdir, prefix + suffix),
+                str(Path(work, prefix + suffix)),
+                str(Path(aln.outdir, prefix + suffix)),
             )
 
-    call = parse_cyrius(os.path.join(aln.outdir, f"{prefix}.json"))
+    call = parse_cyrius(str(Path(aln.outdir, f"{prefix}.json")))
     depth = f"{call.median_depth}x" if call.median_depth is not None else "unknown"
     logging.info(
         f"CYP2D6: {call.genotype or 'no call'} (filter {call.filter}, "
@@ -223,7 +225,7 @@ def cmd_cyp2d6(args: argparse.Namespace) -> None:
             f"median depth ({depth}) and that the input is WGS, not exome."
         )
     write_outside_calls(
-        os.path.join(aln.outdir, f"{aln.stem}.cyp2d6.pharmcat.tsv"),
+        str(Path(aln.outdir, f"{aln.stem}.cyp2d6.pharmcat.tsv")),
         [("CYP2D6", call.outside_call)] if call.outside_call else [],
     )
-    logging.info(f"Cyrius results: {os.path.join(aln.outdir, prefix + '.tsv')}")
+    logging.info(f"Cyrius results: {str(Path(aln.outdir, prefix + '.tsv'))}")

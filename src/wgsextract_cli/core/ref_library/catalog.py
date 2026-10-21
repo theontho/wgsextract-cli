@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import csv
 import logging
-import os
+from pathlib import Path
 from typing import Any
+
+from wgsextract_cli.core.paths import absolute_path
 
 _GENOME_DATA_CACHE: list[dict[str, Any]] = []
 
 
 def load_genomes_from_csv(csv_path: str) -> list[dict[str, Any]]:
-    if not os.path.exists(csv_path):
+    if not Path(csv_path).exists():
         return []
     genomes = []
     try:
@@ -37,11 +39,11 @@ def get_available_genomes() -> list[dict[str, Any]]:
     if _GENOME_DATA_CACHE:
         return _GENOME_DATA_CACHE
 
-    cli_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    csv_path = os.path.join(cli_root, "assets/reference/seed_genomes.csv")
+    cli_root = absolute_path(__file__).parents[2]
+    csv_path = cli_root / "assets" / "reference" / "seed_genomes.csv"
 
-    if os.path.exists(csv_path):
-        _GENOME_DATA_CACHE = load_genomes_from_csv(csv_path)
+    if Path(csv_path).exists():
+        _GENOME_DATA_CACHE = load_genomes_from_csv(str(csv_path))
 
     # Hardcoded fallback and signature source. "md5" is the WGS Extract sequence
     # dictionary signature (MD5 of the sorted SN/LN pairs, as calculate_bam_md5
@@ -127,16 +129,16 @@ def get_genome_status(final_name: str, reflib_dir: str) -> str:
     """Returns 'installed', 'unindexed', 'incomplete', or 'missing'."""
     if not reflib_dir:
         return "missing"
-    target_dir = os.path.join(reflib_dir, "genomes")
-    final_path = os.path.join(target_dir, final_name)
+    target_dir = str(Path(reflib_dir, "genomes"))
+    final_path = str(Path(target_dir, final_name))
     partial_path = final_path + ".partial"
     fai_path = final_path + ".fai"
 
-    if os.path.exists(final_path):
-        if os.path.exists(fai_path):
+    if Path(final_path).exists():
+        if Path(fai_path).exists():
             return "installed"
         else:
             return "unindexed"
-    if os.path.exists(partial_path):
+    if Path(partial_path).exists():
         return "incomplete"
     return "missing"
