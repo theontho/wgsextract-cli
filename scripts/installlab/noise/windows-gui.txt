@@ -4,9 +4,11 @@
 # --mode control` (signed in, nothing installed, 30 minutes) and in app runs.
 #
 # OneDrive, which Windows starts at sign-in, updating itself (its updater's
-# config and cached setup, and the RunOnce entries that delete the cache).
+# config, update manifest and cached setup, and the RunOnce entries that delete
+# the cache).
 */AppData/Local/Microsoft/OneDrive/StandaloneUpdater*
 */AppData/Local/Microsoft/OneDrive/Update/OneDriveSetup.exe
+*/AppData/Local/Microsoft/OneDrive/Update/update.xml
 HKCU:/Software/Microsoft/Windows/CurrentVersion/RunOnce/Delete Cached*
 # The shell's notification icons and Web Account Manager's token cache.
 */AppData/Local/Microsoft/Windows/ActionCenterCache/*

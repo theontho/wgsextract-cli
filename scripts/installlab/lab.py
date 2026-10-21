@@ -426,6 +426,14 @@ class DockerMachine(Machine):
         )
 
     def destroy(self) -> None:
+        if sys.platform.startswith("linux"):
+            # The container's users own what they wrote to /results; give it
+            # back to the host user (Docker Desktop and OrbStack map ownership).
+            subprocess.run(
+                [self.docker, "exec", self.name, "chown", "-R",
+                 f"{os.getuid()}:{os.getgid()}", "/results"],
+                capture_output=True,
+            )  # fmt: skip
         subprocess.run([self.docker, "rm", "-f", self.name], capture_output=True)
 
     def exec(self, env: dict[str, str], command: str) -> int:

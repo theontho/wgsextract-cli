@@ -68,10 +68,9 @@ WINDOWS = AppPlatform(
     signature_step="signature",
     signed_text="Status: Valid",
     unsigned_text="Status: NotSigned",
-    # The window loaded the page (main.rs); that the page ran is shown by the setup it
-    # started. (Its webAppRendered metric isn't printed on Windows.)
+    # The page drew: the app is ready and titled (main.rs).
     window_file="app-stdout.txt",
-    window_text="metric webNavigationDidFinish_ms=",
+    window_text="metric webAppRendered_ms=",
     installed=[
         f"file\t{_WIN_APP}/gui-for-cli-webui-tauri.exe",
         "regkey\tHKEY_CURRENT_USER/Software/Microsoft/Windows/CurrentVersion/Uninstall/WGSExtract",
@@ -86,7 +85,7 @@ LINUX = AppPlatform(
     signed_text="",
     unsigned_text="",
     window_file="app-stdout.txt",
-    window_text="metric webNavigationDidFinish_ms=",
+    window_text="metric webAppRendered_ms=",
     installed=["file\t/usr/share/applications/WGSExtract.desktop"],
     install_marker="/dev.guiforcli.web.embed.wgsextract/BundleWorkspaces",
 )

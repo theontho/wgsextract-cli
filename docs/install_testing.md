@@ -9,7 +9,7 @@ over and over on the same computer, and to make false passes hard.
 pixi run -e dev python scripts/installlab/lab.py run linux       # fresh Ubuntu container
 python3 scripts/installlab/lab.py prepare macos                  # once: clean macOS base image
 python3 scripts/installlab/lab.py run macos                      # fresh macOS VM
-python3 scripts/installlab/lab.py prepare windows                # once: Windows 11 ARM64 base image
+python3 scripts/installlab/lab.py prepare windows                # once: Windows 11 base image
 python3 scripts/installlab/lab.py run windows                    # fresh Windows VM (QEMU)
 python3 scripts/installlab/lab.py selftest linux                 # negative controls must fail
 python3 scripts/installlab/lab.py run linux --install-dir "WGS Extract"   # a path with a space
@@ -134,10 +134,11 @@ format is checked there; the CLI lab measures concordance.
 
 `lab.py run windows --gui-repo <gui-for-cli checkout>` tests the WGS Extract
 Windows app (Tauri, NSIS installer) the same way. It cross-builds the x64
-installer from that checkout every time (`make package
-PLATFORM=tauri-windows-cross`, which needs cargo-xwin, NSIS and LLVM; it says
-which are missing); `--gui-installer <setup.exe>` tests a given installer
-instead, such as a release. An app needs a signed-in desktop and the WebView2
+installer from that checkout every time: on macOS with `make package
+PLATFORM=tauri-windows-cross` (which needs cargo-xwin, NSIS and LLVM, and says
+which are missing), on Linux the same way in an Ubuntu container, since
+distributions don't all package NSIS. `--gui-installer <setup.exe>` tests a
+given installer instead, such as a release. An app needs a signed-in desktop and the WebView2
 runtime, so `prepare windows-gui` (once, after `prepare windows`) adds a
 second read-only layer, `gui-base.qcow2`, on top of the CLI's base image: the
 WebView2 Evergreen runtime (pinned by SHA-256; every Windows 11 PC has it, the
@@ -151,8 +152,11 @@ the standard user Lab User:
    Its Authenticode signature is checked: a release must verify (`Valid`), a
    local build must be reported unsigned (`NotSigned`). Then it is unblocked,
    as clicking SmartScreen's "Run anyway" does.
-2. The installer runs with its defaults (`/S`); the Apps entry, the Start menu
-   shortcut and the app must exist.
+2. The installer is opened as a double-click would, on Lab User's desktop, and
+   UI Automation clicks through its wizard's defaults (Next, Install, Finish),
+   logging each page. The Apps entry, the Start menu shortcut and the app must
+   exist, and the app must open from the Finish page's ticked "Run" box; it is
+   closed again.
 3. The app is opened on Lab User's desktop (through a scheduled task that only
    runs in their signed-in session) and runs its own setup
    (`GUI_FOR_CLI_AUTO_RUN_SETUP`); the setup events it logs are the evidence.
@@ -197,15 +201,21 @@ and the home folder must end as it started.
   clone), boots it headless, shares only the results and guest-script folders,
   and deletes it.
 - **linux** – `ubuntu:24.04` `linux/amd64` container (Docker or OrbStack), with a
-  non-root `tester` user.
+  non-root `tester` user. On a Linux host the container downloads from the
+  lab's file server on the Docker bridge's address (`172.17.0.1`), so a host
+  firewall must let the bridge reach it, e.g. with ufw:
+  `ufw allow in on docker0 from 172.17.0.0/16 to 172.17.0.1 proto tcp`.
 - **host** – the current machine, for disposable CI runners only (refuses to run
   without `CI` set).
 
-- **windows** – Windows 11 Pro ARM64 in QEMU (`-accel hvf`, Apple Silicon
-  hosts). `prepare windows` builds `out/installlab/windows/base.qcow2` once; each
-  run boots a throwaway qcow2 overlay of it (the base is read-only), reaches it
-  over SSH on a forwarded localhost port, and deletes the overlay afterwards.
-  The guest downloads artifacts from the host at `10.0.2.2`.
+- **windows** – Windows 11 Pro in QEMU, with the host's architecture so it runs
+  under hardware virtualization: ARM64 under `hvf` on Apple Silicon Macs
+  (`out/installlab/windows/`), x64 under KVM on x86_64 Linux
+  (`out/installlab/windows-x64/`; needs `/dev/kvm`, OVMF, `bsdtar` and Docker).
+  `prepare windows` builds that directory's `base.qcow2` once; each run boots a
+  throwaway qcow2 overlay of it (the base is read-only), reaches it over SSH on
+  a forwarded localhost port, and deletes the overlay afterwards. The guest
+  downloads artifacts from the host at `10.0.2.2`.
 - **windows-host** – a new standard user on a disposable GitHub Windows runner
   (CI only; see below).
 
@@ -243,9 +253,11 @@ Microsoft's own ISO download refuses scripted requests, so `prepare windows`
 builds the install media from the files Windows Update serves (UUP dump), each
 checked against the hash in Microsoft's update metadata. The conversion runs in
 an `ubuntu:24.04` container (cabextract, wimlib, chntpw, genisoimage); the Linux
-converter doesn't fold in cumulative updates, so the image is the 24H2 GA build
-(26100.1). The virtio-win ISO (pinned by SHA-256) supplies the ARM64 NetKVM
-driver for the VM's network card.
+converter doesn't fold in cumulative updates, so the image is the newest
+release's base build (`win11-<arch>.json` records which). The virtio-win ISO
+(pinned by SHA-256) supplies the NetKVM driver for the VM's network card. On
+Linux, the files are taken from it with `bsdtar` and the setup ISO is made with
+`genisoimage` in a container (macOS uses `hdiutil` for both).
 
 Deviations from a user's PC, all needed only to drive the VM headlessly, are
 listed in `vm/windows/autounattend.xml`: Setup's TPM/Secure Boot checks are
@@ -256,9 +268,10 @@ the Lab User account, and turns off automatic Windows Update installs so a run
 isn't rebooted halfway. Windows' firewall rule for SSH is opened on the Public profile (QEMU's NAT is an
 unidentified, Public network, as on a user's PC). Defender stays on. Nothing WGS
 Extract needs is in the base image; Lab User has logged in once (over SSH), so
-the baseline isn't Windows' first-logon setup. The VM is ARM64, so Pixi
-installs the win-64 environments under Windows' x64 emulation and MSYS2 runs
-emulated too, as on a Snapdragon laptop.
+the baseline isn't Windows' first-logon setup. On a Mac the VM is ARM64, so
+Pixi installs the win-64 environments under Windows' x64 emulation and MSYS2
+runs emulated too, as on a Snapdragon laptop; on an x64 host they run natively,
+as on most PCs.
 
 ### On GitHub's Windows runners
 

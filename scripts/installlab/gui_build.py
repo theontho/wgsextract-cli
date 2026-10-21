@@ -6,8 +6,10 @@ build is never what passes.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 from pathlib import Path
@@ -80,15 +82,47 @@ def build_windows_gui_installer(
     guest checks that it verifies)."""
     if installer is None:
         assert gui_repo is not None
-        log(
-            "Building the Windows installer (make package PLATFORM=tauri-windows-cross)..."
-        )
-        run(["make", "package", "PLATFORM=tauri-windows-cross"], cwd=gui_repo)
-        (installer,) = (gui_repo / "out" / "release" / "tauri-windows").glob(
-            "*-setup.exe"
-        )
+        if sys.platform == "darwin":
+            log(
+                "Building the Windows installer (make package PLATFORM=tauri-windows-cross)..."
+            )
+            run(["make", "package", "PLATFORM=tauri-windows-cross"], cwd=gui_repo)
+            (installer,) = (gui_repo / "out" / "release" / "tauri-windows").glob(
+                "*-setup.exe"
+            )
+        else:
+            log("Cross-building the Windows installer in an Ubuntu container...")
+            out = serve.parent / "windows-build"
+            out.mkdir()
+            in_container(gui_repo, out, WINDOWS_GUI_BUILD)
+            (installer,) = out.glob("*-setup.exe")
     shutil.copy2(installer, serve / installer.name)
     return installer.name, pe_has_signature(installer)
+
+
+# The same cross-build on Linux hosts, whose distributions may not package NSIS
+# or cargo-xwin: in an Ubuntu container, with the Linux build's Cargo volumes.
+WINDOWS_GUI_BUILD = """
+set -eu
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq curl ca-certificates git build-essential make unzip nsis lld llvm clang clang-tools \
+  python3 python3-defusedxml >/dev/null
+# clang-cl, llvm-rc and lld-link live in LLVM's own bin directory.
+export PATH="$(ls -d /usr/lib/llvm-*/bin | sort -V | tail -1):$PATH"
+/root/.cargo/bin/cargo --version 2>/dev/null || curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
+. /root/.cargo/env
+rustup target add x86_64-pc-windows-msvc
+cargo xwin --version 2>/dev/null || cargo install --locked cargo-xwin
+curl -fsSL https://nodejs.org/dist/v24.22.0/node-v24.22.0-linux-x64.tar.xz | tar -xJ -C /opt
+export PATH=/opt/node-v24.22.0-linux-x64/bin:$PATH
+mkdir -p /build/src && tar -xzf /out/src.tar.gz -C /build/src
+cd /build/src
+npm ci --prefix platform/typescript --no-audit --no-fund >/dev/null
+make package PLATFORM=tauri-windows-cross PYTHON=python3
+cp out/release/tauri-windows/*-setup.exe /out/
+chown -R "$HOST_UID:$HOST_GID" /out
+"""
 
 
 # Builds the Linux packages the way `make package PLATFORM=tauri` does on Linux,
@@ -112,6 +146,7 @@ npm ci --no-audit --no-fund >/dev/null
 rm -rf /build/target/release/bundle/deb
 CARGO_TARGET_DIR=/build/target TAURI_DIST_BUNDLES=deb npm run tauri:dist
 cp /build/target/release/bundle/deb/*.deb /out/
+chown -R "$HOST_UID:$HOST_GID" /out
 """
 
 
@@ -124,25 +159,32 @@ def build_linux_gui_package(
         log("Building the Linux .deb in an amd64 Ubuntu container (takes a while)...")
         out = serve.parent / "linux-build"
         out.mkdir()
-        listed = run(
-            ["git", "ls-files", "-co", "--exclude-standard", "-z"],
-            cwd=gui_repo, capture_output=True,
-        ).stdout.split("\0")  # fmt: skip
-        with tarfile.open(out / "src.tar.gz", "w:gz") as tar:
-            for rel in filter(None, listed):
-                if (gui_repo / rel).exists():
-                    tar.add(gui_repo / rel, arcname=rel, recursive=False)
-        docker = windows_vm.docker()
-        for used in ("docker:gui-build", f"docker:{LINUX_IMAGE}"):
-            mark_used(used)
-        run([docker, "run", "--rm", "--platform", "linux/amd64",
-             "-v", f"{out}:/out", "-v", "wgse-lab-gui-cargo:/root/.cargo",
-             "-v", "wgse-lab-gui-rustup:/root/.rustup",
-             "-v", "wgse-lab-gui-target:/build/target",
-             LINUX_IMAGE, "bash", "-c", LINUX_GUI_BUILD])  # fmt: skip
+        in_container(gui_repo, out, LINUX_GUI_BUILD)
         (package,) = out.glob("*.deb")
     shutil.copy2(package, serve / package.name)
     return package.name
+
+
+def in_container(gui_repo: Path, out: Path, script: str) -> None:
+    """Run a build script in an amd64 Ubuntu container on a tarball of the
+    checkout's files (at /out/src.tar.gz); it leaves its products in out."""
+    listed = run(
+        ["git", "ls-files", "-co", "--exclude-standard", "-z"],
+        cwd=gui_repo, capture_output=True,
+    ).stdout.split("\0")  # fmt: skip
+    with tarfile.open(out / "src.tar.gz", "w:gz") as tar:
+        for rel in filter(None, listed):
+            if (gui_repo / rel).exists():
+                tar.add(gui_repo / rel, arcname=rel, recursive=False)
+    docker = windows_vm.docker()
+    for used in ("docker:gui-build", f"docker:{LINUX_IMAGE}"):
+        mark_used(used)
+    run([docker, "run", "--rm", "--platform", "linux/amd64",
+         "-e", f"HOST_UID={os.getuid()}", "-e", f"HOST_GID={os.getgid()}",
+         "-v", f"{out}:/out", "-v", "wgse-lab-gui-cargo:/root/.cargo",
+         "-v", "wgse-lab-gui-rustup:/root/.rustup",
+         "-v", "wgse-lab-gui-target:/build/target",
+         LINUX_IMAGE, "bash", "-c", script])  # fmt: skip
 
 
 def pe_has_signature(path: Path) -> bool:
