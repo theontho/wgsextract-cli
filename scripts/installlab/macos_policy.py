@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,13 +36,21 @@ def require_ui_tools() -> None:
 
 
 def check(ssh: list[str]) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
-        [*ssh, "/usr/bin/python3 -"],
-        input=(HERE / "guest" / "macos-policy.py").read_text(),
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+    for attempt in range(5):
+        result = subprocess.run(
+            [*ssh, "/usr/bin/python3 -"],
+            input=(HERE / "guest" / "macos-policy.py").read_text(),
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode != 255 or attempt == 4:
+            break
+        print(
+            f"SSH dropped during Gatekeeper verification; retrying: {result.stderr.strip()}",
+            file=sys.stderr,
+        )
+        time.sleep(10)
     if result.returncode not in (0, 1):
         result.check_returncode()
     state = json.loads(result.stdout)

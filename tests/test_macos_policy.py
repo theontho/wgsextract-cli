@@ -4,6 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
+from unittest.mock import Mock
 
 import pytest
 
@@ -50,6 +51,61 @@ def test_contradictory_native_evidence_is_an_error(
     monkeypatch.setattr(policy.subprocess, "run", lambda *args, **kwargs: result)
     with pytest.raises(ValueError, match="Inconsistent Gatekeeper"):
         policy.check(["ssh", "admin@fixture"])
+
+
+def test_boot_ssh_drop_is_retried(
+    policy: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    healthy = subprocess.CompletedProcess(
+        ["ssh"],
+        0,
+        stdout=json.dumps(dict.fromkeys(policy.POLICY_KEYS, True)),
+        stderr="",
+    )
+    run = Mock(
+        side_effect=[
+            subprocess.CompletedProcess(
+                ["ssh"], 255, stdout="", stderr="Connection reset"
+            ),
+            healthy,
+        ]
+    )
+    sleep = Mock()
+    monkeypatch.setattr(policy.subprocess, "run", run)
+    monkeypatch.setattr(policy.time, "sleep", sleep)
+    assert policy.check(["ssh", "admin@fixture"]) is healthy
+    assert run.call_count == 2
+    sleep.assert_called_once_with(10)
+
+
+def test_confirmed_nonstandard_policy_is_not_retried(
+    policy: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rejected = subprocess.CompletedProcess(
+        ["ssh"], 1, stdout='{"assessments_enabled": true}', stderr="Nonstandard policy"
+    )
+    run = Mock(return_value=rejected)
+    sleep = Mock()
+    monkeypatch.setattr(policy.subprocess, "run", run)
+    monkeypatch.setattr(policy.time, "sleep", sleep)
+    assert policy.check(["ssh", "admin@fixture"]) is rejected
+    assert run.call_count == 1
+    sleep.assert_not_called()
+
+
+def test_persistent_ssh_failure_is_not_a_policy_success(
+    policy: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = Mock(
+        return_value=subprocess.CompletedProcess(
+            ["ssh"], 255, stdout="", stderr="Connection refused"
+        )
+    )
+    monkeypatch.setattr(policy.subprocess, "run", run)
+    monkeypatch.setattr(policy.time, "sleep", Mock())
+    with pytest.raises(subprocess.CalledProcessError):
+        policy.check(["ssh", "admin@fixture"])
+    assert run.call_count == 5
 
 
 def test_healthy_policy_does_not_reconfigure_settings(
