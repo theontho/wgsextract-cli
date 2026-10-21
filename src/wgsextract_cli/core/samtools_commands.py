@@ -1,16 +1,18 @@
-import os
 import platform
 import re
+from os import fspath
+from pathlib import Path
 
 from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.paths import PathInput, append_suffix
 
 
-def alignment_index(path: str) -> str | None:
+def alignment_index(path: PathInput) -> str | None:
     """The index of a BAM/CRAM (x.bam.bai, x.bai, x.cram.crai, ...), if any."""
-    stem = os.path.splitext(path)[0]
-    candidates = [path + ext for ext in (".bai", ".csi", ".crai")]
-    candidates += [stem + ".bai", stem + ".crai"]
-    return next((index for index in candidates if os.path.exists(index)), None)
+    file = Path(path)
+    candidates = [append_suffix(file, ext) for ext in (".bai", ".csi", ".crai")]
+    candidates += [file.with_suffix(".bai"), file.with_suffix(".crai")]
+    return next((str(index) for index in candidates if index.exists()), None)
 
 
 def parse_memory(memory: str) -> tuple[float, str]:
@@ -30,13 +32,13 @@ def _use_sambamba() -> bool:
 
 
 def get_sam_sort_cmd(
-    out_file: str,
+    out_file: PathInput,
     threads: str,
     memory: str,
     fmt: str = "BAM",
-    reference: str | None = None,
+    reference: PathInput | None = None,
     name_sort: bool = False,
-    temp_dir: str | None = None,
+    temp_dir: PathInput | None = None,
     sam_input: bool = False,
 ) -> list[str]:
     """
@@ -58,25 +60,25 @@ def get_sam_sort_cmd(
             "-m",
             total_mem_str,
             "-o",
-            out_file,
+            fspath(out_file),
             "/dev/stdin",
         ]
         if name_sort:
             cmd.insert(2, "-n")
         if temp_dir:
             cmd.insert(2, "--tmpdir")
-            cmd.insert(3, temp_dir)
+            cmd.insert(3, fspath(temp_dir))
         return cmd
 
-    cmd = ["samtools", "sort", "-@", threads, "-m", memory, "-o", out_file]
+    cmd = ["samtools", "sort", "-@", threads, "-m", memory, "-o", fspath(out_file)]
     if name_sort:
         cmd.append("-n")
     if temp_dir:
-        cmd += ["-T", temp_dir]
+        cmd += ["-T", fspath(temp_dir)]
     if fmt == "CRAM":
         cmd += ["-O", "CRAM"]
         if reference:
-            cmd += ["--reference", reference]
+            cmd += ["--reference", fspath(reference)]
     elif fmt == "SAM":
         cmd += ["-O", "SAM"]
     else:
@@ -84,20 +86,21 @@ def get_sam_sort_cmd(
     return cmd
 
 
-def get_sam_index_cmd(file_path: str, threads: str = "1") -> list[str]:
+def get_sam_index_cmd(file_path: PathInput, threads: str = "1") -> list[str]:
     """
     Return a command list for indexing BAM/CRAM.
     Uses sambamba if available (except on macOS) and file is BAM, else samtools.
     """
-    if file_path.lower().endswith(".bam") and _use_sambamba():
-        return ["sambamba", "index", "-t", threads, file_path]
-    return ["samtools", "index", file_path]
+    file = fspath(file_path)
+    if file.lower().endswith(".bam") and _use_sambamba():
+        return ["sambamba", "index", "-t", threads, file]
+    return ["samtools", "index", file]
 
 
 def get_sam_view_cmd(
     threads: str = "1",
     fmt: str = "BAM",
-    reference: str | None = None,
+    reference: PathInput | None = None,
     is_input_sam: bool = False,
 ) -> list[str]:
     """
@@ -114,7 +117,7 @@ def get_sam_view_cmd(
     if fmt == "CRAM":
         cmd += ["-O", "CRAM"]
         if reference:
-            cmd += ["-T", reference]
+            cmd += ["-T", fspath(reference)]
     elif fmt == "BAM":
         cmd += ["-b"]
 

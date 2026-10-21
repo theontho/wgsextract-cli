@@ -19,13 +19,14 @@ Workflow:
 import argparse
 import contextlib
 import logging
-import os
+from pathlib import Path
 
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import (
     find_fasta_by_signature,
     input_stem,
@@ -125,12 +126,12 @@ def register(
 def _find_existing_fastqs(input_path: str, outdir: str) -> tuple[str, str] | None:
     """Look beside ``input_path`` and in ``outdir`` for an extracted R1/R2 pair."""
     base = input_stem(input_path)
-    bam_dir = os.path.dirname(os.path.abspath(input_path))
-    for directory in dict.fromkeys([bam_dir, os.path.abspath(outdir)]):
+    bam_dir = str(absolute_path(input_path).parent)
+    for directory in dict.fromkeys([bam_dir, str(absolute_path(outdir))]):
         for r1_suffix, r2_suffix in _FASTQ_PATTERNS:
-            r1 = os.path.join(directory, base + r1_suffix)
-            r2 = os.path.join(directory, base + r2_suffix)
-            if os.path.isfile(r1) and os.path.isfile(r2):
+            r1 = str(Path(directory, base + r1_suffix))
+            r2 = str(Path(directory, base + r2_suffix))
+            if Path(r1).is_file() and Path(r2).is_file():
                 return r1, r2
     return None
 
@@ -139,7 +140,7 @@ def _preflight_disk_space(
     input_path: str, outdir: str, need_extract: bool, threads: str
 ) -> None:
     """Estimate the peak disk usage and bail out if outdir lacks space."""
-    file_size = os.path.getsize(input_path)
+    file_size = Path(input_path).stat().st_size
     is_cram = input_path.lower().endswith(".cram")
     reads = indexed_read_count(input_path, threads)
 
@@ -182,9 +183,7 @@ def _input_cram_reference(args: argparse.Namespace) -> list[str]:
         return ["-T", args.input_ref]
     reflib = resolve_reference_library()
     signature = calculate_bam_md5(args.input)
-    fasta = find_fasta_by_signature(
-        [reflib, os.path.join(reflib, "genomes")], signature
-    )
+    fasta = find_fasta_by_signature([reflib, str(Path(reflib, "genomes"))], signature)
     if not fasta:
         raise WGSExtractError(
             f"No FASTA in the reference library ({reflib}) matches the sequence "
@@ -206,8 +205,8 @@ def run(args: argparse.Namespace) -> None:
     align_cmd.select_aligner(args)
 
     threads, memory = get_resource_defaults(args.threads, args.memory)
-    outdir = args.outdir or os.path.dirname(os.path.abspath(args.input))
-    os.makedirs(outdir, exist_ok=True)
+    outdir = args.outdir or str(absolute_path(args.input).parent)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
 
     # 1. Resolve FASTQs.
     if args.r1:
@@ -224,8 +223,8 @@ def run(args: argparse.Namespace) -> None:
         logging.info("Reusing existing FASTQs:\n  R1: %s\n  R2: %s", r1_path, r2_path)
     else:
         base = input_stem(args.input)
-        r1_path = os.path.join(outdir, f"{base}_R1.fastq.gz")
-        r2_path = os.path.join(outdir, f"{base}_R2.fastq.gz")
+        r1_path = str(Path(outdir, f"{base}_R1.fastq.gz"))
+        r2_path = str(Path(outdir, f"{base}_R2.fastq.gz"))
         need_extract = True
 
     # 2. Disk-space pre-flight.
@@ -253,7 +252,7 @@ def run(args: argparse.Namespace) -> None:
             # Never leave truncated FASTQs behind for a later run to "reuse".
             for path in (r1_path, r2_path):
                 with contextlib.suppress(FileNotFoundError):
-                    os.remove(path)
+                    Path(path).unlink()
             raise
 
     # 4. Delegate to align.
@@ -267,6 +266,6 @@ def run(args: argparse.Namespace) -> None:
     if need_extract and not args.keep_fastq:
         for path in (r1_path, r2_path):
             try:
-                os.remove(path)
+                Path(path).unlink()
             except OSError as exc:
                 logging.warning("Could not remove %s: %s", path, exc)

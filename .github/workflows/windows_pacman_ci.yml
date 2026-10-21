@@ -36,7 +36,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $env:PIXI_VERSION = "v0.81.0"
+          $env:PIXI_VERSION = "v0.82.0"
           iwr -useb https://pixi.sh/install.ps1 | iex
           "$env:USERPROFILE\.pixi\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 

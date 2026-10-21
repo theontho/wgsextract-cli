@@ -1,7 +1,7 @@
 import argparse
 import logging
-import os
 import time
+from pathlib import Path
 
 from wgsextract_cli.core.builds import (
     is_hg37_build,
@@ -14,6 +14,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem, resolve_reference_library
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
@@ -68,7 +69,7 @@ def _resolve_microarray_format(format_key: str) -> str | None:
 
 def _template_search_roots(ref_fasta: str, lib: ReferenceLibrary) -> list[str]:
     roots = []
-    ref_dir = os.path.dirname(ref_fasta)
+    ref_dir = str(Path(ref_fasta).parent)
     if ref_dir:
         roots.append(ref_dir)
     # Templates ship with the reference library (`ref bootstrap`); search it too
@@ -117,7 +118,8 @@ def _convert_microarray_outputs(
     final_txt = combined_kit_txt
     chain = _liftover_chain_for(lib)
     if chain:
-        hg19_txt = os.path.splitext(combined_kit_txt)[0] + "_hg19.txt"
+        combined_path = Path(combined_kit_txt)
+        hg19_txt = str(combined_path.with_name(combined_path.stem + "_hg19.txt"))
         logging.info(LOG_MESSAGES["micro_liftover_warn"])
         start_lift = time.time()
         try:
@@ -144,7 +146,7 @@ def _convert_microarray_outputs(
 
         fmt_info = get_template_format(real_fmt)
         suffix = fmt_info["suffix"] if fmt_info else ".txt"
-        output_file = os.path.join(outdir, f"{base_name}_{real_fmt}{suffix}")
+        output_file = str(Path(outdir, f"{base_name}_{real_fmt}{suffix}"))
         try:
             convert_to_vendor_format(
                 real_fmt, final_txt, output_file, template_search_roots
@@ -167,13 +169,11 @@ def run(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix", "bgzip", "samtools"])
     log_dependency_info(["bcftools", "tabix", "bgzip", "samtools"])
 
-    logging.debug(f"Input file: {os.path.abspath(args.input)}")
+    logging.debug(f"Input file: {str(absolute_path(args.input))}")
 
     threads, _ = get_resource_defaults(args.threads, None)
-    outdir = (
-        args.outdir if args.outdir else os.path.dirname(os.path.abspath(args.input))
-    )
-    logging.debug(f"Output directory: {os.path.abspath(outdir)}")
+    outdir = args.outdir if args.outdir else str(absolute_path(args.input).parent)
+    logging.debug(f"Output directory: {str(absolute_path(outdir))}")
 
     md5_sig = calculate_bam_md5(args.input, None)
     lib = ReferenceLibrary(args.ref, md5_sig, input_path=args.input)
@@ -188,7 +188,7 @@ def run(args: argparse.Namespace) -> None:
     if lib.liftover_chain:
         logging.debug(f"Resolved Liftover Chain: {lib.liftover_chain}")
 
-    if not ref_fasta or not os.path.isfile(ref_fasta):
+    if not ref_fasta or not Path(ref_fasta).is_file():
         message = LOG_MESSAGES["ref_required_for"].format(task="microarray generation")
         raise WGSExtractError(message)
 
@@ -196,12 +196,12 @@ def run(args: argparse.Namespace) -> None:
         message = "--ref-vcf-tab is required and could not be auto-resolved."
         raise WGSExtractError(message)
 
-    if not os.path.isfile(ref_vcf_tab):
+    if not Path(ref_vcf_tab).is_file():
         message = f"--ref-vcf-tab not found: {ref_vcf_tab}"
         raise WGSExtractError(message)
 
     _liftover_chain_for(lib)  # fail before variant calling, not after
-    os.makedirs(outdir, exist_ok=True)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
 
     start_total = time.time()
 
@@ -209,7 +209,7 @@ def run(args: argparse.Namespace) -> None:
 
     # 1. Variant Calling or VCF Extraction
     base_name = input_stem(args.input)
-    out_vcf = os.path.join(outdir, f"{base_name}_combined.vcf.gz")
+    out_vcf = str(Path(outdir, f"{base_name}_combined.vcf.gz"))
     is_vcf = args.input.endswith((".vcf", ".vcf.gz", ".bcf"))
 
     region_args = ["-r", args.region] if args.region else []

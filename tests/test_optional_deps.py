@@ -364,7 +364,7 @@ class TestOptionalDependencies(unittest.TestCase):
 
         self.assertEqual(output, "fastp 0.23.4")
 
-    @patch("wgsextract_cli.core.dependencies.os.path.exists", return_value=True)
+    @patch("wgsextract_cli.core.dependencies.Path.exists", return_value=True)
     def test_native_windows_tool_path_is_not_shlex_split(self, mock_exists):
         from wgsextract_cli.core.dependencies import _tool_command_parts
 

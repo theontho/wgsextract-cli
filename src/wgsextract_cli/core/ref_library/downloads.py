@@ -118,7 +118,7 @@ def verify_download_sha256(path: str, expected_sha256: str | None) -> bool:
     logging.error(f"Expected SHA256: {expected_sha256.lower()}")
     logging.error(f"Actual SHA256:   {actual_sha256}")
     try:
-        os.remove(path)
+        Path(path).unlink()
     except OSError:
         pass
     return False
@@ -161,8 +161,8 @@ def download_file(
 
     # A large file over several connections (servers that cap each one), unless
     # an earlier single-connection attempt left a partial to resume.
-    single_partial = partial_path.exists() and not os.path.exists(
-        partial_dest + ".segments"
+    single_partial = (
+        partial_path.exists() and not Path(partial_dest + ".segments").exists()
     )
     if not dest_path.exists() and not single_partial:
         size = segmented.ranged_size(url)
@@ -201,7 +201,7 @@ def download_file(
             # -L follows redirects, --fail keeps HTTP error pages out of dest,
             # -C - resumes.
             cmd = ["curl", "-L", "--fail", *curl_args]
-            if os.path.exists(dest):
+            if Path(dest).exists():
                 cmd.extend(["-C", "-"])
             cmd.extend(["-o", dest, url])
 
@@ -255,11 +255,11 @@ def _urllib_download(
 
     # If the final file exists but we are here, it might be incomplete (e.g. missing index)
     # Move it to .partial to attempt a resume/verify
-    if not os.path.exists(partial_dest) and os.path.exists(dest):
-        os.replace(dest, partial_dest)
+    if not Path(partial_dest).exists() and Path(dest).exists():
+        Path(dest).replace(partial_dest)
 
-    if os.path.exists(partial_dest):
-        initial_size = os.path.getsize(partial_dest)
+    if Path(partial_dest).exists():
+        initial_size = Path(partial_dest).stat().st_size
         if initial_size > 0:
             headers["Range"] = f"bytes={initial_size}-"
             mode = "ab"
@@ -278,7 +278,7 @@ def _urllib_download(
                 url, e.headers.get("Content-Range"), initial_size
             ):
                 # The partial file does not fit the remote file; start over.
-                os.remove(partial_dest)
+                Path(partial_dest).unlink()
                 return _urllib_download(
                     url,
                     dest,
@@ -287,7 +287,7 @@ def _urllib_download(
                     expected_sha256,
                     checksum_hint,
                 )
-            logging.info("%s is already fully downloaded.", os.path.basename(dest))
+            logging.info("%s is already fully downloaded.", Path(dest).name)
             return _finish_download(
                 url, dest, partial_dest, expected_sha256, checksum_hint
             )
@@ -307,7 +307,7 @@ def _urllib_download(
                     f,
                     initial_size=initial_size,
                     progress_callback=progress_callback,
-                    progress_label=os.path.basename(dest),
+                    progress_label=Path(dest).name,
                     cancel_event=cancel_event,
                 )
 
@@ -355,7 +355,7 @@ def _finish_download(
     expected_sha256: str | None,
     checksum_hint: str | None,
 ) -> bool:
-    os.replace(partial_dest, dest)
+    Path(partial_dest).replace(dest)
     verified = verify_download_sha256(dest, expected_sha256)
     if verified:
         store_download_in_dev_cache(url, Path(dest), checksum_hint=checksum_hint)

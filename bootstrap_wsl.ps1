@@ -127,7 +127,7 @@ function Install-Ubuntu {
 
 function Setup-Pixi {
     Write-Host "Setting up Pixi inside WSL..." -ForegroundColor Cyan
-    $installCmd = "curl -fsSL https://pixi.sh/install.sh | PIXI_VERSION=v0.81.0 bash"
+    $installCmd = "curl -fsSL https://pixi.sh/install.sh | PIXI_VERSION=v0.82.0 bash"
     wsl bash -c $installCmd
 
     $checkCmd = "~/.pixi/bin/pixi --version"

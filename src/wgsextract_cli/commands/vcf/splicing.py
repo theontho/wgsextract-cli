@@ -1,6 +1,6 @@
 import argparse
 import logging
-import os
+from pathlib import Path
 
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -33,7 +33,7 @@ def cmd_spliceai(args: argparse.Namespace) -> None:
     spliceai_file = require_annotation_file(
         args.spliceai_file or lib.spliceai_vcf, "vcf_spliceai_missing", "spliceai"
     )
-    ann_out = os.path.join(outdir, SPLICEAI_ANNOTATED)
+    ann_out = str(Path(outdir, SPLICEAI_ANNOTATED))
     annotate_vcf(
         ensure_vcf_prepared(input_file),
         ensure_vcf_prepared(spliceai_file),
@@ -58,7 +58,7 @@ def cmd_alphamissense(args: argparse.Namespace) -> None:
         "alphamissense",
     )
     am_vcf = prepare_tabix_annotation(am_file, "AlphaMissense")
-    ann_out = os.path.join(outdir, ALPHAMISSENSE_ANNOTATED)
+    ann_out = str(Path(outdir, ALPHAMISSENSE_ANNOTATED))
     if am_vcf.lower().endswith(VCF_SUFFIXES):
         annotate_vcf(
             ensure_vcf_prepared(input_file),
@@ -108,7 +108,7 @@ def cmd_pharmgkb(args: argparse.Namespace) -> None:
     pharmgkb_file = require_annotation_file(
         args.pharmgkb_file or lib.pharmgkb_vcf, "vcf_pharmgkb_missing", "pharmgkb"
     )
-    ann_out = os.path.join(outdir, PHARMGKB_ANNOTATED)
+    ann_out = str(Path(outdir, PHARMGKB_ANNOTATED))
     if pharmgkb_file.lower().endswith(VCF_SUFFIXES):
         annotate_vcf(
             ensure_vcf_prepared(input_file),

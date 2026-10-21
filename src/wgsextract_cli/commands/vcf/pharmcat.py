@@ -17,13 +17,14 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import shlex
 import subprocess
 import tempfile
+from pathlib import Path
 
 from wgsextract_cli.core.dependencies import pixi_env_tool
 from wgsextract_cli.core.dependency_checks import verify_dependencies
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import (
@@ -44,12 +45,12 @@ def pharmcat_directory(args: argparse.Namespace, lib: ReferenceLibrary) -> str:
     """The extracted PharmCAT pipeline: --pharmcat-dir, pharmcat_directory, or
     <reference library>/pharmcat."""
     directory = args.pharmcat_dir or (
-        os.path.join(lib.root, "pharmcat") if lib.root else None
+        str(Path(lib.root, "pharmcat")) if lib.root else None
     )
     missing = [
         name
         for name in PIPELINE_FILES
-        if not directory or not os.path.isfile(os.path.join(directory, name))
+        if not directory or not Path(directory, name).is_file()
     ]
     if missing or directory is None:
         raise WGSExtractError(
@@ -58,7 +59,7 @@ def pharmcat_directory(args: argparse.Namespace, lib: ReferenceLibrary) -> str:
             f".tar.gz from {RELEASES_URL}, extract it there (or set "
             "pharmcat_directory in config.toml, or pass --pharmcat-dir)."
         )
-    return os.path.abspath(directory)
+    return str(absolute_path(directory))
 
 
 def _python(directory: str) -> list[str]:
@@ -72,8 +73,8 @@ def _python(directory: str) -> list[str]:
 
 
 def _ensure_reference(python: list[str], directory: str) -> str:
-    reference = os.path.join(directory, REFERENCE_FASTA)
-    if not os.path.isfile(reference):
+    reference = str(Path(directory, REFERENCE_FASTA))
+    if not Path(reference).is_file():
         logging.info("Fetching PharmCAT's GRCh38 reference (about 1 GB, once)...")
         fetch = (
             "import sys; sys.path.insert(0, sys.argv[1]); import pcat; "
@@ -86,7 +87,7 @@ def _ensure_reference(python: list[str], directory: str) -> str:
 def prepare_input(input_vcf: str, directory: str, reference: str, work: str) -> str:
     """input_vcf cut to PharmCAT's regions, in its contig names, with gVCF
     blocks expanded to positions and only GT kept."""
-    regions = os.path.join(directory, "pharmcat_regions.bed")
+    regions = str(Path(directory, "pharmcat_regions.bed"))
     with open(regions) as f:
         bed_lines = [line.split("\t") for line in f if line.strip()]
     pharmcat_chroms = sorted({fields[0] for fields in bed_lines})
@@ -94,13 +95,13 @@ def prepare_input(input_vcf: str, directory: str, reference: str, work: str) -> 
 
     # The regions, in the input's names.
     to_input = dict(chromosome_rename_mapping(pharmcat_chroms, input_chroms))
-    local_bed = os.path.join(work, "regions.bed")
+    local_bed = str(Path(work, "regions.bed"))
     with open(local_bed, "w") as f:
         f.writelines(
             "\t".join([to_input.get(fields[0], fields[0]), *fields[1:]])
             for fields in bed_lines
         )
-    subset = os.path.join(work, "regions.vcf.gz")
+    subset = str(Path(work, "regions.vcf.gz"))
     run_command(["bcftools", "view", "-R", local_bed, "-Oz", "-o", subset, input_vcf])
     ensure_vcf_indexed(subset)
 
@@ -109,16 +110,16 @@ def prepare_input(input_vcf: str, directory: str, reference: str, work: str) -> 
         vcf_index_chromosomes(subset), pharmcat_chroms
     )
     if to_pharmcat:
-        names = os.path.join(work, "names.txt")
+        names = str(Path(work, "names.txt"))
         with open(names, "w") as f:
             f.writelines(f"{source} {target}\n" for source, target in to_pharmcat)
-        renamed = os.path.join(work, "renamed.vcf.gz")
+        renamed = str(Path(work, "renamed.vcf.gz"))
         run_command(["bcftools", "annotate", "--rename-chrs", names, "-Oz", "-o",
                      renamed, subset])  # fmt: skip
         ensure_vcf_indexed(renamed)
 
-    prepared = os.path.join(work, "prepared.vcf.gz")
-    expanded = os.path.join(work, "expanded.vcf.gz")
+    prepared = str(Path(work, "prepared.vcf.gz"))
+    expanded = str(Path(work, "expanded.vcf.gz"))
     run_command(["bcftools", "convert", "--gvcf2vcf", "-f", reference, "-Oz", "-o",
                  expanded, renamed])  # fmt: skip
     run_command(["bcftools", "annotate", "-x", "INFO,^FORMAT/GT", "-Oz", "-o",
@@ -133,7 +134,7 @@ def merge_outside_calls(paths: list[str], merged: str) -> str:
     seen: dict[str, str] = {}
     lines = []
     for path in paths:
-        if not os.path.isfile(path):
+        if not Path(path).is_file():
             raise WGSExtractError(f"Outside-call file not found: {path}")
         with open(path, encoding="utf-8") as f:
             for line in f:
@@ -174,8 +175,8 @@ def summarize(phenotype_json: str) -> list[tuple[str, str, str]]:
 def cmd_pharmcat(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
     input_vcf = require_vcf_input(args)
-    outdir = os.path.abspath(args.outdir or os.path.dirname(input_vcf))
-    os.makedirs(outdir, exist_ok=True)
+    outdir = str(absolute_path(args.outdir or str(Path(input_vcf).parent)))
+    Path(outdir).mkdir(parents=True, exist_ok=True)
     lib = ReferenceLibrary(getattr(args, "ref", None), None, input_path=input_vcf)
     if lib.build and "38" not in lib.build:
         raise WGSExtractError(
@@ -185,23 +186,23 @@ def cmd_pharmcat(args: argparse.Namespace) -> None:
     python = _python(directory)
     ensure_vcf_indexed(input_vcf)
     reference = _ensure_reference(python, directory)
-    stem = os.path.basename(input_vcf).split(".")[0]
+    stem = Path(input_vcf).name.split(".")[0]
 
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_pharmcat_") as work:
         logging.info("Preparing the VCF for PharmCAT (its gene regions only)...")
         prepared = prepare_input(input_vcf, directory, reference, work)
         command = [
-            *python, os.path.join(directory, "pharmcat_pipeline"), prepared,
+            *python, str(Path(directory, "pharmcat_pipeline")), prepared,
             "-o", outdir, "-bf", stem, "-reporterHtml", "-reporterJson",
         ]  # fmt: skip
         if args.absent_to_ref:
             command.append("--absent-to-ref")
         # The pipeline has no outside-call flag: it uses `<base name>.outside.tsv`
         # beside its preprocessed VCF, which it writes to the output directory.
-        outside = os.path.join(outdir, f"{stem}.outside.tsv")
+        outside = str(Path(outdir, f"{stem}.outside.tsv"))
         if args.outside_call:
             merge_outside_calls(args.outside_call, outside)
-        elif os.path.exists(outside):
+        elif Path(outside).exists():
             logging.warning(f"PharmCAT will also use the outside calls in {outside}.")
         logging.info("Running PharmCAT...")
         try:
@@ -210,9 +211,9 @@ def cmd_pharmcat(args: argparse.Namespace) -> None:
         except subprocess.CalledProcessError as e:
             raise WGSExtractError(f"PharmCAT failed (exit {e.returncode}).") from e
 
-    report = os.path.join(outdir, f"{stem}.report.html")
+    report = str(Path(outdir, f"{stem}.report.html"))
     for gene, diplotype, phenotype in summarize(
-        os.path.join(outdir, f"{stem}.phenotype.json")
+        str(Path(outdir, f"{stem}.phenotype.json"))
     ):
         logging.info(f"  {gene:<9} {diplotype:<22} {phenotype}")
     logging.info(f"PharmCAT report: {report}")

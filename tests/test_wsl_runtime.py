@@ -355,12 +355,14 @@ class TestWSLRuntime(unittest.TestCase):
 
     def test_resolve_pixi_command_checks_windows_exe_fallback(self):
         def exists(path):
-            return path == os.path.expanduser("~/.pixi/bin/pixi.exe")
+            return str(path) == os.path.expanduser("~/.pixi/bin/pixi.exe")
 
         with (
             patch("wgsextract_cli.core.dependencies.shutil.which", return_value=None),
             patch(
-                "wgsextract_cli.core.dependencies.os.path.exists", side_effect=exists
+                "wgsextract_cli.core.dependencies.Path.exists",
+                autospec=True,
+                side_effect=exists,
             ),
         ):
             self.assertEqual(
@@ -639,7 +641,7 @@ class TestWSLRuntime(unittest.TestCase):
 
     def test_normalize_subprocess_cmd_keeps_existing_executable_with_spaces(self):
         executable = r"C:\Program Files\Tool Suite\tool.exe"
-        with patch("wgsextract_cli.core.utils.os.path.exists", return_value=True):
+        with patch("wgsextract_cli.core.utils.Path.exists", return_value=True):
             normalized = _normalize_subprocess_cmd([executable, "--version"])
 
         self.assertEqual(normalized, [executable, "--version"])

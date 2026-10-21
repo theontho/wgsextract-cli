@@ -1,8 +1,9 @@
 import logging
-import os
 import shutil
+from pathlib import Path
 
 from wgsextract_cli.core.messages import SYSTEM_MESSAGES as MESSAGES
+from wgsextract_cli.core.paths import PathInput
 from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.utils import run_command
 
@@ -69,7 +70,7 @@ def format_time(seconds: int) -> str:
         return f"{seconds / 3600:.1f} hours"
 
 
-def indexed_read_count(path: str, threads: str | int = 1) -> int | None:
+def indexed_read_count(path: PathInput, threads: str | int = 1) -> int | None:
     """Reads in an indexed BAM/CRAM per samtools idxstats (seconds even for a
     whole-genome CRAM); None when it has no index or idxstats fails."""
     # Without an index, idxstats silently decodes the whole file instead.
@@ -183,9 +184,9 @@ def print_warning(
         logging.warning(f"!!! {MESSAGES[action_key]} !!!")
 
 
-def check_free_space(path: str, required_gb: int) -> bool:
+def check_free_space(path: PathInput, required_gb: int) -> bool:
     """Helper to check if a path has enough free space."""
-    if not os.path.exists(path):
+    if not Path(path).exists():
         return True  # Can't check if path doesn't exist yet
 
     total, used, free = shutil.disk_usage(path)

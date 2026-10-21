@@ -1,7 +1,7 @@
 import argparse
 import logging
-import os
 from collections.abc import Callable, Mapping
+from pathlib import Path
 
 from wgsextract_cli.core.annotation_resources import (
     build_gnomad_af,
@@ -145,7 +145,7 @@ def cmd_library(args: argparse.Namespace) -> None:
 def _install_genome(
     genome: Mapping[str, str], reflib_dir: str, restart: bool = False
 ) -> None:
-    os.makedirs(reflib_dir, exist_ok=True)
+    Path(reflib_dir).mkdir(parents=True, exist_ok=True)
     if not download_and_process_genome(genome, reflib_dir, restart=restart):
         raise WGSExtractError(f"Failed to install genome {genome['final']}.")
 
@@ -176,7 +176,7 @@ def _run_downloader(
     downloader: Callable[[str], bool],
     action: str = "download and indexing",
 ) -> None:
-    if not os.path.isdir(reflib):
+    if not Path(reflib).is_dir():
         logging.info("Creating a new reference library at %s.", reflib)
     logging.info("Starting %s %s...", resource_name, action)
     if not downloader(reflib):

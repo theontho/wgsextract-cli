@@ -1,11 +1,11 @@
 import argparse
 import json
 import logging
-import os
 import re
 import subprocess
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 from typing import TypedDict
 
 from wgsextract_cli.core.config import config_args
@@ -46,7 +46,7 @@ _SV_NAME_TOKENS = {"sv", "svs", "pbsv", "sniffles"}
 
 def detect_vcf_type(vcf_path: str) -> str:
     """Guess SNV/InDel, CNV, or SV from file-name tokens (e.g. sample_sv.vcf.gz)."""
-    tokens = set(re.split(r"[^a-z0-9]+", os.path.basename(vcf_path).lower()))
+    tokens = set(re.split(r"[^a-z0-9]+", Path(vcf_path).name.lower()))
     if "cnv" in tokens:
         return "cnv"
     if tokens & _SV_NAME_TOKENS:
@@ -155,8 +155,8 @@ def run_vcf_workflow(
     args: argparse.Namespace, vcf_path: str, v_type: str, outdir: str
 ) -> AnalyzeResult | None:
     """Annotates and filters a single VCF file based on its type."""
-    base_name = os.path.basename(vcf_path).split(".")[0]
-    _print(f"\nSub-Stage: Processing {v_type.upper()} ({os.path.basename(vcf_path)})")
+    base_name = Path(vcf_path).name.split(".")[0]
+    _print(f"\nSub-Stage: Processing {v_type.upper()} ({Path(vcf_path).name})")
 
     # Define targeted annotations per type
     if v_type == "snp-indel":
@@ -178,15 +178,15 @@ def run_vcf_workflow(
     if not available:
         # A discovery filter over unannotated variants would report a misleading 0.
         logging.warning(
-            f"Skipping annotation and discovery for {os.path.basename(vcf_path)}: "
+            f"Skipping annotation and discovery for {Path(vcf_path).name}: "
             f"no annotation data is installed for {anns}. Download it with "
             "'wgsextract ref clinvar' (and the other 'ref' annotation commands)."
         )
         return None
     anns = ",".join(available)
 
-    work_dir = os.path.join(outdir, f"work_{v_type}_{base_name}")
-    os.makedirs(work_dir, exist_ok=True)
+    work_dir = str(Path(outdir, f"work_{v_type}_{base_name}"))
+    Path(work_dir).mkdir(parents=True, exist_ok=True)
 
     run_cli_subcommand(
         [
@@ -203,13 +203,13 @@ def run_vcf_workflow(
     )
 
     # Locate the final annotated file
-    actual_ann_vcf = os.path.join(work_dir, "chain_annotated.vcf.gz")
-    if not os.path.exists(actual_ann_vcf):
+    actual_ann_vcf = str(Path(work_dir, "chain_annotated.vcf.gz"))
+    if not Path(actual_ann_vcf).exists():
         logging.warning(f"Annotation failed for {vcf_path}")
         return None
 
     # Run Discovery Filter
-    discovery_vcf = os.path.join(outdir, f"significant_{v_type}_{base_name}.vcf.gz")
+    discovery_vcf = str(Path(outdir, f"significant_{v_type}_{base_name}.vcf.gz"))
     count = run_discovery_filter(actual_ann_vcf, v_type, discovery_vcf)
 
     return {"type": v_type, "input": vcf_path, "output": discovery_vcf, "count": count}
@@ -223,7 +223,7 @@ def generate_summary_report(results: Sequence[AnalyzeResult], outdir: str) -> No
 
     total_sig = 0
     for res in results:
-        _print(f"[{res['type'].upper()}] {os.path.basename(res['input'])}")
+        _print(f"[{res['type'].upper()}] {Path(res['input']).name}")
         _print(f"  Significant variants: {res['count']}")
         _print(f"  Results file: {res['output']}")
         total_sig += res["count"]
@@ -245,8 +245,8 @@ def run_bam_chain(args: argparse.Namespace, input_file: str, outdir: str) -> str
 
     # 2. Detect gender from the (newly updated) cache to drive subsequent logic
     gender = "Unknown"
-    cache_file = os.path.join(outdir, f"{os.path.basename(input_file)}.wgse_info.json")
-    if os.path.exists(cache_file):
+    cache_file = str(Path(outdir, f"{Path(input_file).name}.wgse_info.json"))
+    if Path(cache_file).exists():
         try:
             with open(cache_file) as f:
                 data = json.load(f)

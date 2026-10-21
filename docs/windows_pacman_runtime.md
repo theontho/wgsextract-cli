@@ -151,7 +151,7 @@ Native Windows sources for the optional tools that `deps check` reports. The pre
 | `curl`, `htsfile` | MSYS2 pacman | `htsfile` comes with `mingw-w64-ucrt-x86_64-htslib`, which mandatory tools already need. |
 | `java`, `gatk` | Pixi (`openjdk`, `gatk4`) | Part of the default Pixi environment. |
 | `fastqc`, `haplogrep` | Pixi (bioconda noarch) | Java-based. |
-| `yleaf` | Pixi (PyPI) | Installed from the upstream Yleaf `v4.1.2` release archive (pinned by checksum in `pixi.lock`), because the bioconda package lacks Yleaf's marker data. |
+| `yleaf` | Pixi (PyPI) | Installed from the upstream Yleaf `v4.1.6` release archive (SHA-256 pinned in `pixi.toml` and `pixi.lock`), because the bioconda package lacks Yleaf's marker data. |
 | `bwa`, `minimap2` | WGS Extract release asset | Built with MSYS2 UCRT64; local build fallback available. |
 | `samblaster` | WGS Extract release asset | Built from `v.0.1.26` with small Windows shims for POSIX allocation/timing helpers. |
 | `fastp` | WGS Extract release asset | Built from `v0.24.1` against MSYS2 UCRT64 `isa-l`, `libdeflate`, `zlib`, and GCC runtime packages. Patched for >2 GB inputs, 64-bit report counters, and JSON-safe command paths; tested on paired ~20 GB FASTQs. |

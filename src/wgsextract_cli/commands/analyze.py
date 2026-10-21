@@ -4,6 +4,7 @@ import csv
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import TypedDict
 
 from wgsextract_cli.core.dependency_checks import (
@@ -11,6 +12,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.core.variant_files import verify_paths_exist
 
@@ -62,7 +64,7 @@ def cmd_comprehensive(args: argparse.Namespace) -> None:
     verify_paths_exist(paths_to_verify)
 
     outdir = args.outdir if args.outdir else os.getcwd()
-    os.makedirs(outdir, exist_ok=True)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     _print(f"\nSTAGE: Starting Comprehensive Analysis ({now})")
@@ -86,18 +88,18 @@ def cmd_comprehensive(args: argparse.Namespace) -> None:
     elif input_file and not args.skip_calling:
         _print("\nSTAGE: Variant Calling (No input VCFs provided)")
         # Call SNV and InDels if nothing else provided
-        snps_vcf = os.path.join(outdir, "snps.vcf.gz")
+        snps_vcf = str(Path(outdir, "snps.vcf.gz"))
         run_cli_subcommand(
             ["vcf", "snp", "--input", input_file, "--outdir", outdir], args
         )
 
-        indels_vcf = os.path.join(outdir, "indels.vcf.gz")
+        indels_vcf = str(Path(outdir, "indels.vcf.gz"))
         run_cli_subcommand(
             ["vcf", "indel", "--input", input_file, "--outdir", outdir], args
         )
 
         for vcf, v_type in [(snps_vcf, "snp-indel"), (indels_vcf, "snp-indel")]:
-            if os.path.exists(vcf):
+            if Path(vcf).exists():
                 res = run_vcf_workflow(args, vcf, v_type, outdir)
                 if res:
                     results.append(res)
@@ -109,7 +111,7 @@ def cmd_comprehensive(args: argparse.Namespace) -> None:
 def run_batch_comprehensive(args: argparse.Namespace, batch_file: str) -> None:
     """Runs comprehensive analysis for multiple samples defined in batch_file."""
 
-    if not os.path.exists(batch_file):
+    if not Path(batch_file).exists():
         raise WGSExtractError(f"Batch file not found: {batch_file}")
 
     with open(batch_file) as f:
@@ -149,10 +151,8 @@ def run_batch_comprehensive(args: argparse.Namespace, batch_file: str) -> None:
             _print("#" * 80)
 
             # Create sample-specific outdir
-            sample_outdir = os.path.join(
-                args.outdir if args.outdir else os.getcwd(), name
-            )
-            os.makedirs(sample_outdir, exist_ok=True)
+            sample_outdir = str(Path(args.outdir if args.outdir else os.getcwd(), name))
+            Path(sample_outdir).mkdir(parents=True, exist_ok=True)
 
             # Build dummy args for this sample
             sample_args = copy.deepcopy(args)
@@ -176,7 +176,7 @@ def run_batch_comprehensive(args: argparse.Namespace, batch_file: str) -> None:
 def cmd_batch_gen(args: argparse.Namespace) -> None:
     """Generates a batch file by scanning a directory."""
     scan_dir = args.directory
-    if not os.path.exists(scan_dir):
+    if not Path(scan_dir).exists():
         raise WGSExtractError(f"Directory not found: {scan_dir}")
 
     _print(f"Scanning directory: {scan_dir}")
@@ -185,7 +185,7 @@ def cmd_batch_gen(args: argparse.Namespace) -> None:
 
     for root, _, files in os.walk(scan_dir):
         for f in files:
-            full_path = os.path.abspath(os.path.join(root, f))
+            full_path = str(absolute_path(Path(root, f)))
             lower_f = f.lower()
 
             # Heuristic: sample1.bam -> name sample1
@@ -195,7 +195,7 @@ def cmd_batch_gen(args: argparse.Namespace) -> None:
                 # Strip all extensions first
                 name = n
                 while "." in name:
-                    base, ext = os.path.splitext(name)
+                    base, ext = Path(name).stem, Path(name).suffix
                     if ext.lower() in [
                         ".vcf",
                         ".gz",

@@ -1,7 +1,7 @@
 import argparse
 import logging
-import os
 import sys
+from pathlib import Path
 
 from wgsextract_cli.core.genome_library import apply_genome_selection
 from wgsextract_cli.core.utils import WGSExtractError
@@ -14,7 +14,7 @@ def dispatch_command(args: argparse.Namespace, explicit_dests: set[str]) -> None
     try:
         apply_genome_selection(args, set(explicit_dests))
         if args.outdir:
-            os.makedirs(args.outdir, exist_ok=True)
+            Path(args.outdir).mkdir(parents=True, exist_ok=True)
         args.func(args)
     except WGSExtractError as e:
         logging.error(str(e))

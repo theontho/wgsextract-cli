@@ -20,13 +20,14 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 
 from .common import Alignment, env_tool, open_alignment, write_bed, write_outside_calls
 
-INDEX_DIR = os.path.join("ref", "t1k_hla")
+INDEX_DIR = str(Path("ref", "t1k_hla"))
 INDEX_FASTA = "hla_dna_seq.fa"
 RELEASE_FILE = "release.txt"
 # The MHC (GRCh38 chr6:28,510,120-33,480,577, GRCh37 chr6:28,477,797-33,448,354).
@@ -85,8 +86,8 @@ def two_field(allele: str) -> str:
 
 def _build_index(directory: str) -> None:
     build = env_tool("t1k-build.pl", "t1k")
-    parent = os.path.dirname(directory)
-    os.makedirs(parent, exist_ok=True)
+    parent = str(Path(directory).parent)
+    Path(parent).mkdir(parents=True, exist_ok=True)
     logging.info(
         "Building the T1K HLA index from the current IPD-IMGT/HLA release "
         "(downloads 45 MB, once)..."
@@ -102,41 +103,41 @@ def _build_index(directory: str) -> None:
                 f"Building the T1K HLA index failed: {(e.stderr or '').strip()[-500:]}"
             ) from e
         release = "unknown"
-        with open(os.path.join(work, "hla.dat")) as f:
+        with open(str(Path(work, "hla.dat"))) as f:
             for line in f:
                 if "IPD-IMGT/HLA Release Version" in line:
                     release = line.rsplit(" ", 1)[-1].strip()
                     break
-        index = os.path.join(work, "index")
-        os.makedirs(index)
-        shutil.move(os.path.join(work, INDEX_FASTA), index)
-        with open(os.path.join(index, RELEASE_FILE), "w") as f:
+        index = str(Path(work, "index"))
+        Path(index).mkdir(parents=True)
+        shutil.move(str(Path(work, INDEX_FASTA)), index)
+        with open(str(Path(index, RELEASE_FILE)), "w") as f:
             f.write(f"IPD-IMGT/HLA {release}\n")
-        os.replace(index, directory)
+        Path(index).replace(directory)
     logging.info(f"T1K HLA index (IPD-IMGT/HLA {release}): {directory}")
 
 
 def hla_index(args: argparse.Namespace) -> str:
     """--hla-index, or the library's index (built when missing)."""
     if args.hla_index:
-        if not os.path.isfile(args.hla_index):
+        if not Path(args.hla_index).is_file():
             raise WGSExtractError(f"HLA index not found: {args.hla_index}")
         return str(args.hla_index)
     root = ReferenceLibrary(args.ref, skip_full_search=True).root
-    if not root or not os.path.isdir(root):
+    if not root or not Path(root).is_dir():
         raise WGSExtractError(
             "No reference library to keep the T1K HLA index in: set "
             "reference_library in config.toml, or pass --hla-index."
         )
-    directory = os.path.join(root, INDEX_DIR)
-    if not os.path.isfile(os.path.join(directory, INDEX_FASTA)):
+    directory = str(Path(root, INDEX_DIR))
+    if not Path(directory, INDEX_FASTA).is_file():
         _build_index(directory)
-    return os.path.join(directory, INDEX_FASTA)
+    return str(Path(directory, INDEX_FASTA))
 
 
 def _index_release(index: str) -> str | None:
     try:
-        with open(os.path.join(os.path.dirname(index), RELEASE_FILE)) as f:
+        with (Path(index).parent / RELEASE_FILE).open() as f:
             return f.read().strip()
     except OSError:
         return None
@@ -152,8 +153,8 @@ def extract_reads(aln: Alignment, work: str) -> tuple[str, str]:
         for name, length in aln.lengths.items()
         if _EXTRA_CONTIG.match(name)
     ]
-    bed = write_bed(os.path.join(work, "mhc.bed"), regions)
-    r1, r2 = os.path.join(work, "r1.fq"), os.path.join(work, "r2.fq")
+    bed = write_bed(str(Path(work, "mhc.bed")), regions)
+    r1, r2 = str(Path(work, "r1.fq")), str(Path(work, "r2.fq"))
     logging.info(
         f"Extracting reads from the MHC and {len(regions) - 1} HLA/chr6 ALT contigs..."
     )
@@ -182,7 +183,7 @@ def extract_reads(aln: Alignment, work: str) -> tuple[str, str]:
                 "-@",
                 aln.threads,
                 "-",
-                os.path.join(work, "collate"),
+                str(Path(work, "collate")),
             ],
             [
                 "samtools",
@@ -227,11 +228,11 @@ def cmd_hla(args: argparse.Namespace) -> None:
             detail = (e.stderr or "").strip()[-500:]
             raise WGSExtractError(f"T1K failed (exit {e.returncode}). {detail}") from e
         for suffix, name in outputs.items():
-            source = os.path.join(work, "t1k" + suffix)
-            if os.path.exists(source):
-                shutil.move(source, os.path.join(aln.outdir, name))
+            source = str(Path(work, "t1k" + suffix))
+            if Path(source).exists():
+                shutil.move(source, str(Path(aln.outdir, name)))
 
-    genotype_tsv = os.path.join(aln.outdir, outputs["_genotype.tsv"])
+    genotype_tsv = str(Path(aln.outdir, outputs["_genotype.tsv"]))
     calls = {call.gene: call for call in parse_t1k(genotype_tsv)}
     release = _index_release(index)
     logging.info(f"HLA alleles{f' ({release})' if release else ''}:")
@@ -249,7 +250,5 @@ def cmd_hla(args: argparse.Namespace) -> None:
             pharmcat.append((gene, diplotype))
         else:
             logging.warning(f"No confident {gene} call; it's left out for PharmCAT.")
-    write_outside_calls(
-        os.path.join(aln.outdir, f"{aln.stem}.hla.pharmcat.tsv"), pharmcat
-    )
+    write_outside_calls(str(Path(aln.outdir, f"{aln.stem}.hla.pharmcat.tsv")), pharmcat)
     logging.info(f"T1K genotypes: {genotype_tsv}")

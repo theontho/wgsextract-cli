@@ -1,14 +1,15 @@
 import argparse
 import logging
-import os
 import subprocess
 import tempfile
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from wgsextract_cli.core.annotation_resources import is_bgzf
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -29,10 +30,8 @@ VCF_SUFFIXES = (".vcf", ".vcf.gz", ".vcf.bgz")
 
 def annotation_context(args: argparse.Namespace) -> tuple[str, str, ReferenceLibrary]:
     input_file = require_vcf_input(args)
-    outdir = getattr(args, "outdir", None) or os.path.dirname(
-        os.path.abspath(input_file)
-    )
-    os.makedirs(outdir, exist_ok=True)
+    outdir = getattr(args, "outdir", None) or str(absolute_path(input_file).parent)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
     md5_sig = (
         calculate_bam_md5(input_file, None)
         if input_file.lower().endswith((".bam", ".cram"))
@@ -67,9 +66,11 @@ def prepare_tabix_annotation(
     prepared_path = annotation_path
     if not annotation_path.lower().endswith((".gz", ".bgz")):
         prepared_path = annotation_path + ".gz"
-        if not os.path.exists(prepared_path) or os.path.getmtime(
-            prepared_path
-        ) <= os.path.getmtime(annotation_path):
+        if (
+            not Path(prepared_path).exists()
+            or Path(prepared_path).stat().st_mtime
+            <= Path(annotation_path).stat().st_mtime
+        ):
             bgzip = get_tool_path("bgzip")
             logging.info(
                 "Compressing %s annotation resource: %s", label, annotation_path
@@ -84,8 +85,8 @@ def prepare_tabix_annotation(
             f"or re-download it with 'wgsextract ref'."
         )
     index_path = prepared_path + ".tbi"
-    needs_index = not os.path.exists(index_path) or (
-        os.path.getmtime(index_path) <= os.path.getmtime(prepared_path)
+    needs_index = not Path(index_path).exists() or (
+        Path(index_path).stat().st_mtime <= Path(prepared_path).stat().st_mtime
     )
     if needs_index:
         tabix = get_tool_path("tabix")
@@ -132,7 +133,7 @@ def _run_annotate(cmd: list[str], vcf: str, out: str, work: str, threads: int) -
         return
     # Each contig streams its own slice of the resource, so whole genomes scale
     # with cores; --no-version keeps the part headers identical for --naive.
-    parts = {c: os.path.join(work, f"part{i}.vcf.gz") for i, c in enumerate(contigs)}
+    parts = {c: str(Path(work, f"part{i}.vcf.gz")) for i, c in enumerate(contigs)}
     # A regions file, as `-r` can't parse contig names with ':' (hs38DH's HLA-*).
     regions = {}
     for c, part in parts.items():
@@ -151,7 +152,7 @@ def _run_annotate(cmd: list[str], vcf: str, out: str, work: str, threads: int) -
         for future in futures:
             future.result()
     in_order = [parts[c] for c in vcf_index_chromosomes(vcf)]
-    list_file = os.path.join(work, "parts.txt")
+    list_file = str(Path(work, "parts.txt"))
     with open(list_file, "w") as f:
         f.writelines(p + "\n" for p in in_order)
     run_command(
@@ -159,7 +160,7 @@ def _run_annotate(cmd: list[str], vcf: str, out: str, work: str, threads: int) -
         capture_output=True,
     )
     for path in (*in_order, *regions.values()):
-        os.remove(path)
+        Path(path).unlink()
 
 
 def annotate_vcf(
@@ -185,14 +186,12 @@ def annotate_vcf(
             # genomes ~25x slower; pass those records through untouched.
             cmd += ["-e", 'TYPE="ref"', "-k"]
         if header_lines:
-            header_path = os.path.join(work, "annotation.hdr")
+            header_path = str(Path(work, "annotation.hdr"))
             with open(header_path, "w") as f:
                 f.writelines(line + "\n" for line in header_lines)
             cmd += ["-h", header_path]
         annotated = (
-            ann_out
-            if normalized == input_vcf
-            else os.path.join(work, "annotated.vcf.gz")
+            ann_out if normalized == input_vcf else str(Path(work, "annotated.vcf.gz"))
         )
         try:
             _run_annotate(cmd, normalized, annotated, work, n_threads)
@@ -203,10 +202,10 @@ def annotate_vcf(
                 restored = normalize_vcf_chromosomes(
                     annotated, vcf_index_chromosomes(input_vcf), work
                 )
-                os.replace(restored, ann_out)
+                Path(restored).replace(ann_out)
                 for index in (ann_out + ".tbi", ann_out + ".csi"):
-                    if os.path.exists(index):
-                        os.remove(index)
+                    if Path(index).exists():
+                        Path(index).unlink()
                 ensure_vcf_indexed(ann_out)
         except (OSError, subprocess.SubprocessError) as e:
             stderr = getattr(e, "stderr", None)
@@ -238,7 +237,7 @@ def run_min_score_filter(
         logging.info(LOG_MESSAGES[log_done_key].format(output=ann_out))
         return
 
-    path_out = os.path.join(outdir, f"{output_prefix}_gt_{min_score}.vcf.gz")
+    path_out = str(Path(outdir, f"{output_prefix}_gt_{min_score}.vcf.gz"))
     logging.info(
         "Filtering for variants with %s score >= %s to %s", label, min_score, path_out
     )

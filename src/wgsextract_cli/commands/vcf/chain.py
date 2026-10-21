@@ -1,13 +1,14 @@
 import argparse
 import logging
-import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 from wgsextract_cli.core.config import config_args
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import calculate_bam_md5, ensure_vcf_prepared
@@ -42,7 +43,7 @@ def _step_command(ann: str) -> list[str]:
 def _step_output(ann: str, step_input: str, step_outdir: str) -> str:
     if ann == "vep":
         return vep_output_paths(step_input, step_outdir, "vcf")[1]
-    return os.path.join(step_outdir, _VCF_STEPS[ann][1])
+    return str(Path(step_outdir, _VCF_STEPS[ann][1]))
 
 
 def skip_reason(ann: str, lib: ReferenceLibrary) -> str | None:
@@ -63,7 +64,7 @@ def skip_reason(ann: str, lib: ReferenceLibrary) -> str | None:
 def cmd_chain_annotate(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
     input_file = require_vcf_input(args)
-    outdir = args.outdir or os.path.dirname(os.path.abspath(input_file))
+    outdir = args.outdir or str(absolute_path(input_file).parent)
     annotations = [a.strip().lower() for a in args.annotations.split(",") if a.strip()]
     if not annotations:
         raise WGSExtractError("No valid annotations provided in --annotations.")
@@ -95,8 +96,8 @@ def cmd_chain_annotate(args: argparse.Namespace) -> None:
                 logging.warning(f"{step} Skipping '{ann}': {reason}")
                 continue
 
-            step_outdir = os.path.join(outdir, f"chain_step_{i + 1}_{ann}")
-            os.makedirs(step_outdir, exist_ok=True)
+            step_outdir = str(Path(outdir, f"chain_step_{i + 1}_{ann}"))
+            Path(step_outdir).mkdir(parents=True, exist_ok=True)
             step_dirs.append(step_outdir)
             logging.info(f"{step} Running '{ann}' annotation...")
 
@@ -120,7 +121,7 @@ def cmd_chain_annotate(args: argparse.Namespace) -> None:
                 raise WGSExtractError(f"{step} Annotation step '{ann}' failed.") from e
 
             step_out = _step_output(ann, current_input, step_outdir)
-            if not os.path.exists(step_out):
+            if not Path(step_out).exists():
                 for line in (res.stderr or "").strip().splitlines():
                     logging.error(f"  [{ann} STDERR] {line}")
                 raise WGSExtractError(f"{step} '{ann}' did not produce {step_out}.")
@@ -132,10 +133,10 @@ def cmd_chain_annotate(args: argparse.Namespace) -> None:
             raise WGSExtractError(
                 "No annotation was applied: every requested step was skipped."
             )
-        final_out = os.path.join(outdir, "chain_annotated.vcf.gz")
+        final_out = str(Path(outdir, "chain_annotated.vcf.gz"))
         shutil.copy2(current_input, final_out)
         for ext in (".tbi", ".csi"):
-            if os.path.exists(current_input + ext):
+            if Path(current_input + ext).exists():
                 shutil.copy2(current_input + ext, final_out + ext)
         finalized = True
         logging.info(f"Chain annotation complete: {final_out}")

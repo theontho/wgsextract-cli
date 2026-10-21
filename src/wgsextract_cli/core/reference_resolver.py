@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import subprocess
+from pathlib import Path
 
 from wgsextract_cli.core.builds import (
     HG37_BUILD_ALIASES,
@@ -14,6 +15,7 @@ from wgsextract_cli.core.builds import (
     is_hg38_build,
 )
 from wgsextract_cli.core.constants import REF_GENOME_FILENAMES
+from wgsextract_cli.core.paths import PathInput, expand_path
 from wgsextract_cli.core.reference_assets import (
     build_hint,
     find_fasta_by_signature,
@@ -51,22 +53,24 @@ class ReferenceLibrary:
 
     def __init__(
         self,
-        root_path: str | None,
+        root_path: PathInput | None,
         md5_sig: str | None = None,
         skip_full_search: bool = False,
-        input_path: str | None = None,
+        input_path: PathInput | None = None,
     ) -> None:
         from wgsextract_cli.core.config import settings
 
+        root_path = expand_path(root_path) if root_path is not None else None
+        input_path = expand_path(input_path) if input_path is not None else None
         self.root: str | None = root_path or settings.get("reference_library")
         if isinstance(self.root, str):
-            self.root = os.path.expanduser(self.root)
-            if not root_path and not os.path.isdir(self.root):
+            self.root = expand_path(self.root)
+            if not root_path and not Path(self.root).is_dir():
                 _warn_missing_configured_library(self.root)
         self.md5: str | None = md5_sig
         self.input_path: str | None = input_path
         if isinstance(self.input_path, str):
-            self.input_path = os.path.expanduser(self.input_path)
+            self.input_path = expand_path(self.input_path)
         self.fasta: str | None = None
         self.dict_file: str | None = None
         self.fai: str | None = None
@@ -89,13 +93,13 @@ class ReferenceLibrary:
         if not self.root:
             return
 
-        if os.path.isfile(self.root) and is_fasta_path(self.root):
+        if Path(self.root).is_file() and is_fasta_path(self.root):
             self.fasta = self.root
-            self.root = os.path.dirname(self.root)
+            self.root = str(Path(self.root).parent)
             # A FASTA in <library>/genomes/ belongs to that library, whose root
             # holds the ploidy files, liftover chains and annotation data.
-            if os.path.basename(self.root) == "genomes":
-                self.root = os.path.dirname(self.root)
+            if Path(self.root).name == "genomes":
+                self.root = str(Path(self.root).parent)
 
         signature_match = False
         if not self.fasta:
@@ -105,7 +109,7 @@ class ReferenceLibrary:
             self.fasta = self._default_fasta(root_path)
 
         header_target = input_path or (
-            root_path if root_path and os.path.isfile(root_path) else None
+            root_path if root_path and Path(root_path).is_file() else None
         )
         self.build = self._detect_build(header_target, root_path)
         if not signature_match:
@@ -114,9 +118,9 @@ class ReferenceLibrary:
         if not self.fasta:
             return
 
-        self.fai = self.fasta + ".fai" if os.path.exists(self.fasta + ".fai") else None
+        self.fai = self.fasta + ".fai" if Path(self.fasta + ".fai").exists() else None
         dict_file = reference_dict_path(self.fasta)
-        self.dict_file = dict_file if os.path.exists(dict_file) else None
+        self.dict_file = dict_file if Path(dict_file).exists() else None
 
         self._resolve_build_support_files()
         self._resolve_vep_cache(settings.get("vep_cache_directory"))
@@ -131,7 +135,7 @@ class ReferenceLibrary:
 
     def _genome_dirs(self) -> list[str]:
         assert self.root is not None
-        return [self.root, os.path.join(self.root, "genomes")]
+        return [self.root, str(Path(self.root, "genomes"))]
 
     def _fasta_matching_signature(self) -> str | None:
         """Pick the library FASTA whose sequence dictionary matches the input's."""
@@ -144,11 +148,11 @@ class ReferenceLibrary:
 
     def _default_fasta(self, root_path: str | None) -> str | None:
         for search_dir in self._genome_dirs():
-            if not os.path.isdir(search_dir):
+            if not Path(search_dir).is_dir():
                 continue
             for file_name in REF_GENOME_FILENAMES.values():
-                potential = os.path.join(search_dir, file_name)
-                if os.path.exists(potential):
+                potential = str(Path(search_dir, file_name))
+                if Path(potential).exists():
                     return potential
         assert self.root is not None
         return (
@@ -168,13 +172,13 @@ class ReferenceLibrary:
             f"Build mismatch detected (Build={self.build}, Path={self.fasta}). Re-resolving FASTA..."
         )
         for search_dir in self._genome_dirs():
-            if not os.path.isdir(search_dir):
+            if not Path(search_dir).is_dir():
                 continue
             for key, file_name in REF_GENOME_FILENAMES.items():
                 if build_from_path(f"{key} {file_name}") != target:
                     continue
-                potential = os.path.join(search_dir, file_name)
-                if os.path.exists(potential):
+                potential = str(Path(search_dir, file_name))
+                if Path(potential).exists():
                     self.fasta = potential
                     return
         logging.warning(
@@ -257,25 +261,27 @@ class ReferenceLibrary:
         assert self.root is not None
         root = self.root
         self.ploidy_file = self._first_existing_file(
-            [root, os.path.join(root, "ref"), os.path.join(root, "microarray")],
+            [root, str(Path(root, "ref")), str(Path(root, "microarray"))],
             [f"ploidy_{self.build}.txt", "ploidy.txt"],
         )
 
     def _resolve_vep_cache(self, configured_vep_cache: object) -> None:
-        if isinstance(configured_vep_cache, str) and os.path.isdir(
-            configured_vep_cache
+        if (
+            isinstance(configured_vep_cache, str)
+            and configured_vep_cache
+            and Path(configured_vep_cache).is_dir()
         ):
             self.vep_cache = configured_vep_cache
             return
         assert self.root is not None
-        for search_dir in [self.root, os.path.join(self.root, "vep")]:
-            if os.path.isdir(search_dir) and any(
+        for search_dir in [self.root, str(Path(self.root, "vep"))]:
+            if Path(search_dir).is_dir() and any(
                 f.endswith(("_GRCh38", "_GRCh37")) for f in os.listdir(search_dir)
             ):
                 self.vep_cache = search_dir
                 return
-            vep_sub = os.path.join(search_dir, "vep")
-            if os.path.isdir(vep_sub):
+            vep_sub = str(Path(search_dir, "vep"))
+            if Path(vep_sub).is_dir():
                 self.vep_cache = vep_sub
                 return
 
@@ -288,9 +294,9 @@ class ReferenceLibrary:
         assert self.root is not None
         root = self.root
         search_dirs = [
-            os.path.join(root, "microarray"),
+            str(Path(root, "microarray")),
             root,
-            os.path.join(root, "ref"),
+            str(Path(root, "ref")),
         ]
         tab_names: list[str] = []
         snp_vcf_names: list[str] = []
@@ -307,20 +313,20 @@ class ReferenceLibrary:
             if alt_build:
                 snp_vcf_names.append(f"snps_{alt_build}.vcf.gz")
             search_dirs += [
-                os.path.join(root, "microarray", self.build),
-                os.path.join(root, self.build),
-                os.path.join(root, "ref", self.build),
+                str(Path(root, "microarray", self.build)),
+                str(Path(root, self.build)),
+                str(Path(root, "ref", self.build)),
             ]
             if alt_build:
                 search_dirs += [
-                    os.path.join(root, alt_build),
-                    os.path.join(root, "ref", alt_build),
+                    str(Path(root, alt_build)),
+                    str(Path(root, "ref", alt_build)),
                 ]
         generic_names = ["All_SNPs.vcf.gz", "common_all.vcf.gz"]
         walk_roots = [
-            os.path.join(root, "microarray"),
-            os.path.join(root, "ref"),
-            os.path.join(root, "genomes", "microarray"),
+            str(Path(root, "microarray")),
+            str(Path(root, "ref")),
+            str(Path(root, "genomes", "microarray")),
         ]
 
         self.ref_vcf_tab = (
@@ -337,7 +343,7 @@ class ReferenceLibrary:
         from wgsextract_cli.core.config import settings
 
         assert self.root is not None
-        dirs = [self.root, os.path.join(self.root, "ref")]
+        dirs = [self.root, str(Path(self.root, "ref"))]
         vcf_exts = [".vcf.gz", ".vcf.bgz"]
         tsv_exts = [".tsv.gz", ".vcf.gz"]
         self.clinvar_vcf = self._resolve_annotation_file(
@@ -377,7 +383,11 @@ class ReferenceLibrary:
         )
 
         configured_pharmgkb = settings.get("pharmgkb_vcf_path")
-        if isinstance(configured_pharmgkb, str) and os.path.exists(configured_pharmgkb):
+        if (
+            isinstance(configured_pharmgkb, str)
+            and configured_pharmgkb
+            and Path(configured_pharmgkb).exists()
+        ):
             self.pharmgkb_vcf = configured_pharmgkb
         elif self.build:
             pharmgkb_exts = [".vcf.gz", ".vcf.bgz", ".tsv.gz"]
@@ -389,30 +399,30 @@ class ReferenceLibrary:
 
         if self.build and is_hg38_build(self.build):
             self.liftover_chain = self._first_existing_file(
-                [*dirs, os.path.join(self.root, "microarray")],
+                [*dirs, str(Path(self.root, "microarray"))],
                 ["hg38ToHg19.over.chain.gz"],
             )
 
     @staticmethod
     def _first_existing_file(search_dirs: list[str], names: list[str]) -> str | None:
         for search_dir in search_dirs:
-            if not os.path.isdir(search_dir):
+            if not Path(search_dir).is_dir():
                 continue
             for name in names:
-                potential = os.path.join(search_dir, name)
-                if os.path.exists(potential):
+                potential = str(Path(search_dir, name))
+                if Path(potential).exists():
                     return potential
         return None
 
     @staticmethod
     def _walk_for_file(search_roots: list[str], names: list[str]) -> str | None:
         for search_root in search_roots:
-            if not os.path.isdir(search_root):
+            if not Path(search_root).is_dir():
                 continue
             for current_dir, _, files in os.walk(search_root):
                 for name in names:
                     if name in files:
-                        return os.path.join(current_dir, name)
+                        return str(Path(current_dir, name))
         return None
 
     def _resolve_annotation_file(
@@ -423,7 +433,11 @@ class ReferenceLibrary:
         search_dirs: list[str],
     ) -> str | None:
         """Resolve an annotation file across directories and build aliases."""
-        if isinstance(configured_path, str) and os.path.exists(configured_path):
+        if (
+            isinstance(configured_path, str)
+            and configured_path
+            and Path(configured_path).exists()
+        ):
             return configured_path
 
         if not self.build:

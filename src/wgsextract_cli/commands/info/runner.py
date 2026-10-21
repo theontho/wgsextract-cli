@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Any
 
 from wgsextract_cli.core.alignment_metadata import get_bam_header
@@ -18,6 +19,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
@@ -114,9 +116,7 @@ def _guess_ref_model(
 
     # Guess from the reference filename if still unknown
     if ref_model_name == "Unknown" and resolved_ref:
-        ref_model_name = (
-            build_from_path(os.path.basename(resolved_ref)) or ref_model_name
-        )
+        ref_model_name = build_from_path(Path(resolved_ref).name) or ref_model_name
 
     ref_model_str = (
         f"{ref_model_name} (Chr), {ref_mito}, {num_sns} SNs"
@@ -135,7 +135,7 @@ def _fast_metrics(
     from wgsextract_cli.core.variant_files import get_file_version
 
     cram_opt = (
-        ["-T", resolved_ref] if resolved_ref and os.path.isfile(resolved_ref) else []
+        ["-T", resolved_ref] if resolved_ref and Path(resolved_ref).is_file() else []
     )
 
     t0 = time.time()
@@ -152,7 +152,7 @@ def _fast_metrics(
     logging.debug(f"Body sampling took {time.time() - t0:.3f}s")
 
     return {
-        "filename": os.path.basename(input_p),
+        "filename": Path(input_p).name,
         "md5_signature": md5_sig,
         "file_stats": {
             "sorted": sorted_status,
@@ -180,7 +180,7 @@ def _coverage_map(
     outdir: str,
     region: str | None,
 ) -> dict[str, str]:
-    stem = os.path.join(outdir, os.path.basename(input_p))
+    stem = str(Path(outdir, Path(input_p).name))
     tag = region_file_tag(region)
     if info_cmd == "calculate-coverage":
         return run_full_coverage(
@@ -285,7 +285,7 @@ def run(args: argparse.Namespace) -> None:
         raise WGSExtractError("--input required.")
 
     verify_paths_exist({"--input": args.input})
-    logging.debug(f"Input file: {os.path.abspath(args.input)}")
+    logging.debug(f"Input file: {str(absolute_path(args.input))}")
 
     info_cmd = getattr(args, "info_cmd", None)
     region = getattr(args, "region", None) if info_cmd in COVERAGE_COMMANDS else None
@@ -296,7 +296,7 @@ def run(args: argparse.Namespace) -> None:
     initial_ref = None
     if args.input.lower().endswith(".cram") and args.ref:
         resolved = resolve_reference(args.ref, None)
-        if resolved and os.path.isfile(resolved):
+        if resolved and Path(resolved).is_file():
             initial_ref = resolved
         else:
             logging.debug("CRAM detected, but reference is not installed or invalid.")
@@ -317,12 +317,12 @@ def run(args: argparse.Namespace) -> None:
     if detailed and args.input.lower().endswith(".cram") and not resolved_ref:
         raise WGSExtractError("--ref required for detailed mode with CRAM.")
 
-    outdir = args.outdir or os.path.dirname(os.path.abspath(args.input))
+    outdir = args.outdir or str(absolute_path(args.input).parent)
     if args.outdir:
-        os.makedirs(outdir, exist_ok=True)
-    logging.debug(f"Output directory: {os.path.abspath(outdir)}")
+        Path(outdir).mkdir(parents=True, exist_ok=True)
+    logging.debug(f"Output directory: {str(absolute_path(outdir))}")
 
-    json_cache = os.path.join(outdir, f"{os.path.basename(args.input)}.wgse_info.json")
+    json_cache = str(Path(outdir, f"{Path(args.input).name}.wgse_info.json"))
     signature = _input_signature(args.input)
     data = _load_cache(json_cache, signature)
 

@@ -1,5 +1,4 @@
 import logging
-import os
 import shlex
 import shutil
 import signal
@@ -7,8 +6,11 @@ import subprocess
 import tempfile
 import threading
 from collections.abc import Mapping, Sequence
+from os import PathLike
+from pathlib import Path
 from typing import IO, Literal, TypeAlias, overload
 
+from wgsextract_cli.core.paths import PathInput, command_is_path, expand_path
 from wgsextract_cli.core.process_registry import (
     cleanup_processes as cleanup_processes,
 )
@@ -50,7 +52,7 @@ def get_resource_defaults(
     )
 
 
-def _normalize_subprocess_cmd(cmd: str | Sequence[object]) -> list[str]:
+def _normalize_subprocess_cmd(cmd: PathInput | Sequence[object]) -> list[str]:
     """Expand shell-style command strings and configured Pixi tool wrappers."""
     from wgsextract_cli.core import (
         runtime,
@@ -62,30 +64,36 @@ def _normalize_subprocess_cmd(cmd: str | Sequence[object]) -> list[str]:
     from wgsextract_cli.core.dependencies import _tool_command_parts
 
     def split_wrapper_or_keep(value: str) -> list[str]:
-        value = os.path.expanduser(value)
+        value = expand_path(value)
         if (
             runtime.is_wsl_tool_command(value)
             or runtime.is_bundled_tool_command(value)
             or runtime.is_pacman_tool_command(value)
         ):
             return [value]
-        if os.path.exists(value):
+        if command_is_path(value):
             return [value]
         if "pixi run" in value or " " in value:
             return _tool_command_parts(value)
         return [value]
 
-    if isinstance(cmd, str):
-        cmd_list = [os.path.expanduser(part) for part in shlex.split(cmd)]
+    literal_executable = isinstance(cmd, PathLike)
+    if isinstance(cmd, PathLike):
+        cmd_list = [expand_path(cmd)]
+    elif isinstance(cmd, str):
+        cmd_list = [expand_path(part) for part in shlex.split(cmd)]
     else:
         cmd_list = []
         for index, item in enumerate(cmd):
-            if index == 0 and isinstance(item, str):
+            if index == 0 and isinstance(item, PathLike):
+                literal_executable = True
+                cmd_list.append(expand_path(item))
+            elif index == 0 and isinstance(item, str):
                 cmd_list.extend(split_wrapper_or_keep(item))
             else:
                 cmd_list.append(
-                    os.path.expanduser(str(item))
-                    if isinstance(item, str)
+                    expand_path(item)
+                    if isinstance(item, (str, PathLike))
                     else str(item)
                 )
 
@@ -94,13 +102,18 @@ def _normalize_subprocess_cmd(cmd: str | Sequence[object]) -> list[str]:
         if runtime.is_wsl_tool_command(executable):
             return runtime_wrappers.wrap_command(cmd_list)
 
-        if executable and " " in executable and not os.path.exists(executable):
+        if (
+            not literal_executable
+            and executable
+            and " " in executable
+            and not command_is_path(executable)
+        ):
             cmd_list = _tool_command_parts(executable) + cmd_list[1:]
             executable = cmd_list[0]
 
         if (
             executable
-            and os.path.basename(executable) == executable
+            and Path(executable).name == executable
             and shutil.which(executable) is None
         ):
             from wgsextract_cli.core.dependencies import get_tool_path
@@ -113,7 +126,7 @@ def _normalize_subprocess_cmd(cmd: str | Sequence[object]) -> list[str]:
                     or runtime.is_pacman_tool_command(resolved)
                 ):
                     cmd_list = [resolved] + cmd_list[1:]
-                elif os.path.exists(resolved):
+                elif command_is_path(resolved):
                     cmd_list = [resolved] + cmd_list[1:]
                 else:
                     cmd_list = _tool_command_parts(resolved) + cmd_list[1:]
@@ -122,13 +135,13 @@ def _normalize_subprocess_cmd(cmd: str | Sequence[object]) -> list[str]:
 
 
 def run_command(
-    cmd: str | Sequence[object],
+    cmd: PathInput | Sequence[object],
     capture_output: bool = False,
     check: bool = True,
     env: Mapping[str, str] | None = None,
     stdin: IO[bytes] | IO[str] | int | None = None,
     stdout: IO[bytes] | IO[str] | int | None = None,
-    cwd: str | None = None,
+    cwd: PathInput | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Helper to run subprocess with logging and registry."""
     cmd_list = _normalize_subprocess_cmd(cmd)
@@ -171,33 +184,36 @@ def run_command(
 
 @overload
 def popen(
-    cmd: str | Sequence[object],
+    cmd: PathInput | Sequence[object],
     stdout: ProcessStream = None,
     stderr: ProcessStream = None,
     stdin: ProcessStream = None,
     text: Literal[False] = False,
     env: Mapping[str, str] | None = None,
+    cwd: PathInput | None = None,
 ) -> subprocess.Popen[bytes]: ...
 
 
 @overload
 def popen(
-    cmd: str | Sequence[object],
+    cmd: PathInput | Sequence[object],
     stdout: ProcessStream = None,
     stderr: ProcessStream = None,
     stdin: ProcessStream = None,
     text: Literal[True] = True,
     env: Mapping[str, str] | None = None,
+    cwd: PathInput | None = None,
 ) -> subprocess.Popen[str]: ...
 
 
 def popen(
-    cmd: str | Sequence[object],
+    cmd: PathInput | Sequence[object],
     stdout: ProcessStream = None,
     stderr: ProcessStream = None,
     stdin: ProcessStream = None,
     text: bool = False,
     env: Mapping[str, str] | None = None,
+    cwd: PathInput | None = None,
 ) -> subprocess.Popen[str] | subprocess.Popen[bytes]:
     """
     Start a registered subprocess without waiting for it.
@@ -215,6 +231,7 @@ def popen(
         stdin=stdin,
         text=text,
         env=env,
+        cwd=cwd,
         **process_group_kwargs(),
     )
     proc_registry.register_process(cmd_str, process)
@@ -239,7 +256,7 @@ def _is_sigpipe(returncode: int) -> bool:
 
 
 def run_pipeline(
-    stages: Sequence[str | Sequence[object]],
+    stages: Sequence[PathInput | Sequence[object]],
     *,
     stdin: ProcessStream = None,
     stdout: ProcessStream = None,
@@ -286,14 +303,13 @@ def run_pipeline(
             zip(stages, returncodes, strict=True)
         ):
             # Label from the caller's argv, not the resolved (possibly wrapped) one.
-            args = (
-                shlex.split(stage)
-                if isinstance(stage, str)
-                else [str(a) for a in stage]
-            )
-            stage_name = (
-                " ".join([os.path.basename(args[0]), *args[1:2]]) if args else "?"
-            )
+            if isinstance(stage, PathLike):
+                args = [expand_path(stage)]
+            elif isinstance(stage, str):
+                args = shlex.split(stage)
+            else:
+                args = [str(a) for a in stage]
+            stage_name = " ".join([Path(args[0]).name, *args[1:2]]) if args else "?"
             tail = _stderr_tail(stderr_files[index])
             downstream_ok = all(code == 0 for code in returncodes[index + 1 :])
             if returncode == 0 or (_is_sigpipe(returncode) and downstream_ok):
