@@ -165,6 +165,11 @@ app_uninstall() {
     wait_for_file "$R/uninstall-result.json" 600 || return 1
     cat "$R/uninstall-result.json"
     wait_for_app_exit 60 || return 1
+    preferences="$HOME/Library/Preferences/$BUNDLE_ID.plist"
+    if [ -f "$preferences" ]; then
+        cp "$preferences" "$R/uninstall-preferences.plist" || return 1
+        plutil -p "$preferences"
+    fi
     # The user empties the Trash.
     rm -rf "$HOME/.Trash/WGSExtract.app"
     [ ! -e "$APP" ]
@@ -180,6 +185,8 @@ for tool in pixi samtools bcftools java brew conda mamba; do
 done > "$R/preexisting-tools.txt"
 if [ "$(uname -s)" = Darwin ]; then
     spctl --status > "$R/gatekeeper-status.txt" 2>&1
+    /usr/bin/python3 "$HERE/macos-policy.py" > "$R/gatekeeper-policy.json" \
+        2> "$R/gatekeeper-policy.log"
 fi
 if [ "$MODE" = "control" ]; then
     sleep 60
