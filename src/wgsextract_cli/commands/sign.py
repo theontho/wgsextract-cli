@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
+from pathlib import Path, PurePath
 
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.messages import CLI_HELP
@@ -116,7 +116,7 @@ def _manifest_path(args: argparse.Namespace) -> Path:
     ]
     common = parents[0]
     for parent in parents[1:]:
-        if common.anchor != parent.anchor:
+        if not parent.is_relative_to(common.anchor):
             raise WGSExtractError(
                 "Inputs on different drives need --output or --outdir."
             )
@@ -125,15 +125,15 @@ def _manifest_path(args: argparse.Namespace) -> Path:
     return common / MANIFEST_NAME
 
 
-def _manifest_name(path: Path, base: Path) -> str:
+def _manifest_name(path: PurePath, base: PurePath) -> str:
     """Relative names may leave --outdir; walk_up isn't available on Python 3.10."""
-    if path.anchor != base.anchor:
+    if not path.is_relative_to(base.anchor):
         raise WGSExtractError("Manifest and inputs must be on the same drive.")
     common = base
     while not path.is_relative_to(common):
         common = common.parent
     upward = [".."] * len(base.relative_to(common).parts)
-    return Path(*upward, path.relative_to(common)).as_posix()
+    return "/".join([*upward, path.relative_to(common).as_posix()])
 
 
 def cmd_create(args: argparse.Namespace) -> None:

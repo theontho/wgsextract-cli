@@ -1,11 +1,16 @@
 import shutil
 import subprocess
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 
 from wgsextract_cli.cli.parser import build_parser
-from wgsextract_cli.commands.sign import _read_manifest, cmd_create, cmd_verify
+from wgsextract_cli.commands.sign import (
+    _manifest_name,
+    _read_manifest,
+    cmd_create,
+    cmd_verify,
+)
 from wgsextract_cli.core.utils import WGSExtractError
 
 pytestmark = pytest.mark.skipif(
@@ -133,3 +138,23 @@ def test_manifest_deduplicates_dot_segment_inputs(tmp_path, outputs):
         "sub/b name.vcf",
     ]
     cmd_verify(_parse("sign", "verify", str(manifest)))
+
+
+@pytest.mark.parametrize(
+    ("source", "base"),
+    [
+        (r"C:\data\sub\result.txt", r"c:\DATA\manifests"),
+        (r"\\SERVER\SHARE\data\sub\result.txt", r"\\server\share\data\manifests"),
+    ],
+)
+def test_manifest_names_accept_windows_anchor_case(source, base):
+    assert _manifest_name(PureWindowsPath(source), PureWindowsPath(base)) == (
+        "../sub/result.txt"
+    )
+
+
+def test_manifest_names_reject_different_windows_drives():
+    with pytest.raises(WGSExtractError, match="same drive"):
+        _manifest_name(
+            PureWindowsPath(r"C:\data\result.txt"), PureWindowsPath(r"D:\out")
+        )

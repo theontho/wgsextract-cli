@@ -7,7 +7,12 @@ from pathlib import Path
 import pytest
 
 from wgsextract_cli.commands._extract_helpers import cleanup_files, derive_output_path
-from wgsextract_cli.core import dependencies, runtime_wrappers, samtools_commands
+from wgsextract_cli.core import (
+    config,
+    dependencies,
+    runtime_wrappers,
+    samtools_commands,
+)
 from wgsextract_cli.core.paths import absolute_path, append_suffix, expand_path
 from wgsextract_cli.core.reference_assets import input_stem, reference_dict_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
@@ -185,6 +190,21 @@ def test_expansion_preserves_command_syntax_and_empty_settings() -> None:
     assert expand_path(command) == command
     assert expand_path("") == ""
     assert expand_path("~/reference") == str(Path.home() / "reference")
+
+
+def test_unresolved_config_home_does_not_block_cli_startup() -> None:
+    missing = "~wgsextract-no-such-user-101/reference"
+    settings_file = config.get_config_path()
+    settings_file.parent.mkdir(parents=True, exist_ok=True)
+    settings_file.write_text(f'reference_library = "{missing}"\n', encoding="utf-8")
+    result = run_command(
+        [sys.executable, "-m", "wgsextract_cli.main", "config"],
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert missing in result.stdout
+    assert "Could not expand home directory" in result.stderr
 
 
 def test_absolute_path_normalizes_parents_without_following_links(

@@ -24,7 +24,16 @@ def absolute_path(path: PathInput) -> Path:
 def expand_path(path: PathInput) -> str:
     """Expand a leading tilde without changing command strings or empty settings."""
     value = fspath(path)
-    return str(Path(value).expanduser()) if value.startswith("~") else value
+    if not value.startswith("~"):
+        return value
+    try:
+        return str(Path(value).expanduser())
+    except RuntimeError:
+        logging.warning(
+            "Could not expand home directory in %s; keeping the path unchanged.",
+            value,
+        )
+        return value
 
 
 def command_is_path(command: str) -> bool:
