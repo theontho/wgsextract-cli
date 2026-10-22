@@ -16,3 +16,13 @@
 */AppData/Local/Microsoft/Windows/PPBCompat*
 */AppData/LocalLow/Microsoft/Internet Explorer*
 HKEY_CURRENT_USER/Software/ChangeTracker
+# The Direct3D shader cache of the WebView2 runtime's GPU process and Web
+# Account Manager's token cache: the control's own WebView2 window
+# (webview2-window.ps1) leaves the same D3DSCache/714b5208d22d390f entry and
+# TokenBroker files the app's window does. Windows owns both.
+*/AppData/Local/D3DSCache*
+*/AppData/Local/Microsoft/TokenBroker/Cache/*
+# The shell's per-user cache databases (windows-host.txt has only their
+# folder), updated when Explorer shows the new Start menu and desktop
+# shortcuts; seen in app runs, as in the VM's windows-gui.txt. Windows owns them.
+*/AppData/Local/Microsoft/Windows/Caches/*
