@@ -518,6 +518,9 @@ class HostMachine(Machine):
         password = secrets.token_hex(16)
         if sys.platform == "darwin":
             deprovision_macos_runner()
+            # Evidence for the oracle, as TartMachine records it for its VMs.
+            policy = macos_policy.check(["sh", "-c"])
+            (self.results / "gatekeeper-policy.json").write_text(policy.stdout)
             run(["sudo", "sysadminctl", "-addUser", self.user, "-password", password,
                  "-home", self.home])  # fmt: skip
             run(["sudo", "createhomedir", "-c", "-u", self.user], capture_output=True)

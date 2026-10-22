@@ -147,6 +147,22 @@ class QemuWindowsGuiMachine(windows_vm.QemuWindowsMachine):
         super().destroy()
 
 
+# What Remote Desktop did, when Lab User's sign-in doesn't come up.
+RDP_DIAGNOSTICS = r"""
+foreach ($log in 'Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational',
+                 'Microsoft-Windows-TerminalServices-LocalSessionManager/Operational',
+                 'Microsoft-Windows-RemoteDesktopServices-RdpCoreTS/Operational') {
+    "--- $log"
+    Get-WinEvent -LogName $log -MaxEvents 30 -ErrorAction SilentlyContinue |
+        Sort-Object TimeCreated | Format-Table -Wrap TimeCreated, Id, Message | Out-String -Width 250
+}
+"--- Security logon failures"
+Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4625} -MaxEvents 10 -ErrorAction SilentlyContinue |
+    Format-List TimeCreated, Message | Out-String -Width 250
+Get-Process mstsc -ErrorAction SilentlyContinue | Format-Table Id, SessionId, MainWindowTitle | Out-String
+"""
+
+
 class WindowsHostGuiMachine(windows_vm.WindowsHostMachine):
     """A new standard user's desktop on a disposable GitHub Windows runner.
 
@@ -160,15 +176,17 @@ class WindowsHostGuiMachine(windows_vm.WindowsHostMachine):
     sign-in settles before the baseline, as in the VM's prepared image.
     """
 
+    signing_in = False
+
     def create(self) -> None:
         add_webview2_sdk(self.guest / "windows" / "webview2-sdk")
         super().create()
         self.ensure_webview2()
-        self.sign_in()
         self.screens = self.guest.parent / "screens"
         self.screens.mkdir(exist_ok=True)
         self.recording = threading.Event()
         threading.Thread(target=self.record_screen, daemon=True).start()
+        self.sign_in()
         log(f"Letting {TESTER}'s first sign-in settle for 3 minutes...")
         time.sleep(180)
 
@@ -210,21 +228,24 @@ Set-ItemProperty $client AuthenticationLevelOverride 0 -Type DWord
         )  # fmt: skip
         log(f"Signing {TESTER} in over Remote Desktop...")
         self.client = subprocess.Popen(["mstsc", "/v:127.0.0.2", "/w:1280", "/h:800"])
+        self.signing_in = True
         try:
             wait_for_session(self, 600)
         except SystemExit:
             self.screenshot("sign-in-failed")
             subprocess.run(["query", "session"])
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", RDP_DIAGNOSTICS],
+                env=windows_vm.windows_powershell_env(),
+            )
             raise
+        finally:
+            self.signing_in = False
 
     def screenshot(self, name: str) -> None:
         """The runner's own screen, where the Remote Desktop window shows Lab
         User's desktop."""
-        path = (
-            self.screens / f"{name}.png"
-            if hasattr(self, "screens")
-            else (self.results.parent / f"{name}.png")
-        )
+        path = self.screens / f"{name}.png"
         subprocess.run(
             ["powershell", "-NoProfile", "-Command", f"""
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
@@ -237,7 +258,7 @@ $bmp.Save('{path}')
         )  # fmt: skip
 
     def record_screen(self) -> None:
-        while not self.recording.wait(60):
+        while not self.recording.wait(20 if self.signing_in else 60):
             self.screenshot(time.strftime("%H%M%S"))
 
     def destroy(self) -> None:

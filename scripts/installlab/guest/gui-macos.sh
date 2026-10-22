@@ -193,9 +193,14 @@ if [ "$(uname -s)" = Darwin ]; then
         2> "$R/gatekeeper-policy.log"
 fi
 if [ "$MODE" = "control" ]; then
-    sleep 60
+    # A different WebKit app (Safari, which every Mac has) is open for 4
+    # minutes: what macOS keeps for any app with a web view.
+    open -n -a Safari "file://$HERE/gui-plan.json" > "$R/control-window.log" 2>&1
+    sleep 120
     snapshot after_install
-    sleep 60
+    sleep 120
+    pkill -x Safari >> "$R/control-window.log" 2>&1
+    sleep 5
     snapshot after_uninstall
     echo "scenario finished"
     exit 0
