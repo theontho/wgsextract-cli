@@ -669,8 +669,30 @@ def judge(results: Path, target: str) -> bool:
     return not failed
 
 
+# An app's control run opens a stand-in app (TextEdit, a minimal WebKitGTK or
+# WebView2 window) and must prove it ran: a control whose stand-in never opened
+# measures less noise than an app run makes, which would hide real leftovers.
+CONTROL_WINDOW_EVIDENCE = {
+    "macos": "control-window.log",
+    "host": "control-window.log",
+    "linux": "control-window.log",
+    "windows": "webview2-window-stdout.txt",
+    "windows-host": "webview2-window-stdout.txt",
+}
+
+
 def report_control(results: Path, target: str) -> bool:
     """Print what changed on an untouched machine: candidates for noise/<target>.txt."""
+    meta = json.loads((results / "lab-run.json").read_text())
+    if meta.get("product") == "gui":
+        evidence = results / CONTROL_WINDOW_EVIDENCE[target]
+        text = evidence.read_text(errors="replace") if evidence.exists() else ""
+        if "page loaded: True" not in text:
+            print(
+                f"Control run FAILED: its stand-in app never loaded ({evidence.name}):"
+            )
+            print(text or "  (no output)")
+            return False
     base = set((results / "inventory-baseline.txt").read_text().splitlines())
     final = set((results / "inventory-after_uninstall.txt").read_text().splitlines())
     changed = sorted((final - base) | (base - final))

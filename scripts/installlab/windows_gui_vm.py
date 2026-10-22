@@ -223,7 +223,7 @@ Set-ItemProperty $client AuthenticationLevelOverride 0 -Type DWord
             check=True, env=windows_vm.windows_powershell_env(),
         )  # fmt: skip
         log(f"Signing {TESTER} in over Remote Desktop...")
-        self.client = subprocess.Popen(["mstsc", "/v:127.0.0.2", "/w:1280", "/h:800"])
+        self.client = subprocess.Popen(["mstsc", "/v:127.0.0.2", "/f"])
         # The client asks for the credentials; type them in, as a person does.
         self.typist = subprocess.Popen(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",

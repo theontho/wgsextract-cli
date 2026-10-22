@@ -198,6 +198,8 @@ if [ "$MODE" = "control" ]; then
     printf 'WGS Extract install lab control\n' > "$R/control.txt"
     open -n -a TextEdit "$R/control.txt" > "$R/control-window.log" 2>&1
     sleep 120
+    # The control's evidence that the app really ran (lab.py checks it).
+    pgrep -x TextEdit > /dev/null && echo "page loaded: True" >> "$R/control-window.log"
     snapshot after_install
     sleep 120
     pkill -x TextEdit >> "$R/control-window.log" 2>&1

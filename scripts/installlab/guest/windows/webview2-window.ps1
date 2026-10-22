@@ -7,6 +7,11 @@
 param([string]$Sdk, [int]$Seconds = 20)
 
 $ErrorActionPreference = "Stop"
+# Each stage goes to stdout: the control's evidence that its window really drew
+# (lab.py fails a control run without "page loaded").
+# Event handlers' pipeline output is discarded, so write to stdout directly.
+function Say($Message) { [Console]::Out.WriteLine($Message); [Console]::Out.Flush() }
+trap { Say "error: $_"; exit 1 }
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -Path (Join-Path $Sdk "Microsoft.Web.WebView2.Core.dll")
 Add-Type -Path (Join-Path $Sdk "Microsoft.Web.WebView2.WinForms.dll")
@@ -26,13 +31,23 @@ $view.CreationProperties.UserDataFolder = $data
 $page = "<body style='margin:0'><pre id=t style='height:100vh;overflow:auto;margin:0'></pre><script>" +
     "let n=0;setInterval(()=>{const t=document.getElementById('t');" +
     "t.textContent+='line '+(n++)+' downloading package '+Math.random()+'\n';t.scrollTop=t.scrollHeight},20)</script></body>"
+$view.Add_CoreWebView2InitializationCompleted({
+    param($sender, $e)
+    if ($e.IsSuccess) { Say "webview2 ready" } else { Say "error: $($e.InitializationException)" }
+})
+$view.Add_NavigationCompleted({
+    param($sender, $e)
+    Say "page loaded: $($e.IsSuccess)"
+})
 $view.Source = [Uri]("data:text/html," + [Uri]::EscapeDataString($page))
 $form.Controls.Add($view)
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = $Seconds * 1000
 $timer.Add_Tick({ $form.Close() })
 $timer.Start()
+$form.Add_Shown({ Say "window shown" })
 [System.Windows.Forms.Application]::Run($form)
+Say "window closed"
 $view.Dispose()
 Start-Sleep -Seconds 5
 Remove-Item -LiteralPath $data -Recurse -Force -ErrorAction SilentlyContinue
