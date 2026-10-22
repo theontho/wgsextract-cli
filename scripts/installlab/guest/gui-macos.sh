@@ -193,13 +193,14 @@ if [ "$(uname -s)" = Darwin ]; then
         2> "$R/gatekeeper-policy.log"
 fi
 if [ "$MODE" = "control" ]; then
-    # A different WebKit app (Safari, which every Mac has) is open for 4
-    # minutes: what macOS keeps for any app with a web view.
-    open -n -a Safari "file://$HERE/gui-plan.json" > "$R/control-window.log" 2>&1
+    # A different native app with editable text (TextEdit, which every Mac
+    # has) is open for 4 minutes: what macOS keeps for any such app.
+    printf 'WGS Extract install lab control\n' > "$R/control.txt"
+    open -n -a TextEdit "$R/control.txt" > "$R/control-window.log" 2>&1
     sleep 120
     snapshot after_install
     sleep 120
-    pkill -x Safari >> "$R/control-window.log" 2>&1
+    pkill -x TextEdit >> "$R/control-window.log" 2>&1
     sleep 5
     snapshot after_uninstall
     echo "scenario finished"

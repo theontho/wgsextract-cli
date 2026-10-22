@@ -1,0 +1,7 @@
+# The app on a GitHub macOS runner (target `host`, run as the runner's signed-in
+# account), on top of macos.txt. Measured with `lab.py run host --gui-repo ...
+# --mode control` on the runner (nothing installed; TextEdit open instead).
+#
+# macOS's experimentation framework (trial daemon) downloads its factor packs
+# into the signed-in account on its own schedule.
+*/Library/Trial/*

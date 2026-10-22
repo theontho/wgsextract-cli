@@ -219,6 +219,14 @@ Start-Service TermService
 $client = 'HKCU:\\Software\\Microsoft\\Terminal Server Client'
 New-Item -Path $client -Force | Out-Null
 Set-ItemProperty $client AuthenticationLevelOverride 0 -Type DWord
+# CredSSP only hands a saved password to a server it can't verify with
+# Kerberos (a local account) if policy allows it; allow it for this one only.
+$cd = 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\CredentialsDelegation'
+New-Item -Path "$cd\\AllowSavedCredentialsWhenNTLMOnly" -Force | Out-Null
+Set-ItemProperty $cd AllowSavedCredentialsWhenNTLMOnly 1 -Type DWord
+Set-ItemProperty $cd ConcatenateDefaults_AllowSavedNTLMOnly 1 -Type DWord
+Set-ItemProperty "$cd\\AllowSavedCredentialsWhenNTLMOnly" 1 'TERMSRV/127.0.0.2'
+gpupdate /target:computer /force | Out-Null
 """],
             check=True, env=windows_vm.windows_powershell_env(),
         )  # fmt: skip
