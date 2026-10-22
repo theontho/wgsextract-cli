@@ -311,6 +311,9 @@ def x64_uefi_firmware() -> tuple[Path, Path]:
                 for t in fw.get("targets", [])
             )
             and "nvram-template" in mapping
+            # qemu_command() opens both flash images as raw.
+            and mapping["executable"].get("format", "raw") == "raw"
+            and mapping["nvram-template"].get("format", "raw") == "raw"
         ):
             code = Path(mapping["executable"]["filename"])
             template = Path(mapping["nvram-template"]["filename"])

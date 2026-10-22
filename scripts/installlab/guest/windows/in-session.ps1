@@ -101,11 +101,12 @@ function Read-MessageBoxes($Window, [string]$TitlePattern) {
     }
 }
 
-function Wait-WindowClosed($Window, [int]$Seconds) {
-    $handle = $Window.Current.NativeWindowHandle
+# By handle, read before the closing click: a closed window's element can't be
+# read any more.
+function Wait-WindowClosed([int]$Handle, [int]$Seconds) {
     $deadline = (Get-Date).AddSeconds($Seconds)
     while ((Get-Date) -lt $deadline) {
-        if (-not (Get-TopWindows | Where-Object { $_.Current.NativeWindowHandle -eq $handle })) { return }
+        if (-not (Get-TopWindows | Where-Object { $_.Current.NativeWindowHandle -eq $Handle })) { return }
         Start-Sleep -Milliseconds 500
     }
     throw "The wizard is still open after $Seconds s."
@@ -153,7 +154,7 @@ function Invoke-InstallWizard {
         $wait = (Get-Date).AddSeconds(30)
         while ((Get-Date) -lt $wait -and (Get-PageText $window) -eq $page) { Start-Sleep -Milliseconds 200 }
     }
-    Wait-WindowClosed $window 60
+    Wait-WindowClosed $handle 60
     Note "wizard closed"
     if ($complaints) { throw "The installer reported a problem: $($complaints -join '; ')" }
 }
@@ -170,6 +171,7 @@ function Invoke-UninstallWizard {
     Note "Settings > Apps > Uninstall runs: $command"
     if ($arguments) { Start-Process -FilePath $exe -ArgumentList $arguments } else { Start-Process -FilePath $exe }
     $window = Find-Window "$($req.displayName)*Uninstall*" 120
+    $handle = $window.Current.NativeWindowHandle
     Note "wizard: $($window.Current.Name)"
     Set-Ticked (Find-Button $window $req.deleteAppDataLabel)
     Note "ticked '$($req.deleteAppDataLabel)'"
@@ -188,7 +190,7 @@ function Invoke-UninstallWizard {
     Click $close
     Note "clicked Close"
     if ($complaints) { throw "The uninstaller reported a problem: $($complaints -join '; ')" }
-    Wait-WindowClosed $window 60
+    Wait-WindowClosed $handle 60
     Note "wizard closed"
 }
 
