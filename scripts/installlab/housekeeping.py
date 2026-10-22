@@ -54,7 +54,8 @@ def _main_checkout(repo: Path) -> Path:
 # Shared by every worktree: base images take hours to build, and a worktree's
 # out/ goes with the worktree (merging its branch can remove it).
 LAB = _main_checkout(REPO) / "out" / "installlab"
-WIN = LAB / "windows"
+# The Windows VMs' images: ARM64 (Apple Silicon hosts) and x64 (x86_64 Linux).
+WIN_DIRS = (LAB / "windows", LAB / "windows-x64")
 LEDGER = LAB / "last-used.json"
 DAY = 86400.0
 LEFTOVER_AGE = 3600.0
@@ -238,32 +239,41 @@ def _lab_file_items(runs: float, images: float, downloads: float) -> list[Item]:
         serve = run / "serve"
         if serve.is_dir():
             items.append(_file_item("runs", serve, DAY))
-    for log in [*LAB.glob("*.log"), *WIN.glob("*.log")]:
+    for log in LAB.glob("*.log"):
         items.append(_file_item("runs", log, runs))
     qemu = _qemu_command_lines()
-    for workdir in (WIN / "runs").glob("*"):
-        if str(workdir) not in qemu:
-            items.append(_file_item("leftovers", workdir, LEFTOVER_AGE))
     for qmp in Path(tempfile.gettempdir()).glob("wgse-qmp-*"):
         if str(qmp) not in qemu:
             items.append(_file_item("leftovers", qmp, LEFTOVER_AGE))
     if (LAB / "cache").exists():
         items.append(_file_item("images", LAB / "cache", images))
+    for win in WIN_DIRS:
+        items += _windows_items(win, qemu, runs, images, downloads)
+    return items
+
+
+def _windows_items(
+    win: Path, qemu: str, runs: float, images: float, downloads: float
+) -> list[Item]:
+    items = [_file_item("runs", log, runs) for log in win.glob("*.log")]
+    for workdir in (win / "runs").glob("*"):
+        if str(workdir) not in qemu:
+            items.append(_file_item("leftovers", workdir, LEFTOVER_AGE))
     # The GUI base is an overlay of the base, so the base outlives it.
-    gui_base = WIN / "gui-base.qcow2"
+    gui_base = win / "gui-base.qcow2"
     if gui_base.exists():
-        items.append(_file_item("images", gui_base, images, WIN / "gui-base-vars.fd"))
-    base = WIN / "base.qcow2"
+        items.append(_file_item("images", gui_base, images, win / "gui-base-vars.fd"))
+    base = win / "base.qcow2"
     if base.exists():
-        item = _file_item("images", base, images, WIN / "base-vars.fd")
+        item = _file_item("images", base, images, win / "base-vars.fd")
         if gui_base.exists():
             item.last_used = max(item.last_used, items[-1].last_used)
         items.append(item)
-    for name in ("win11-arm64.iso", "virtio-win-0.1.302.iso",
-                 "MicrosoftEdgeWebView2RuntimeInstallerARM64.exe"):  # fmt: skip
-        if (WIN / name).exists():
-            items.append(_file_item("downloads", WIN / name, downloads))
-    for nupkg in WIN.glob("microsoft.web.webview2.*.nupkg"):
+    for pattern in ("win11-*.iso", "virtio-win-*.iso",
+                    "MicrosoftEdgeWebView2RuntimeInstaller*.exe"):  # fmt: skip
+        for download in win.glob(pattern):
+            items.append(_file_item("downloads", download, downloads))
+    for nupkg in win.glob("microsoft.web.webview2.*.nupkg"):
         items.append(_file_item("images", nupkg, images))
     return items
 

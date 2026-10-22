@@ -31,16 +31,25 @@ from pathlib import Path
 
 import windows_vm
 from housekeeping import lab_key, mark_used
-from windows_vm import ADMIN, BASE, BASE_VARS, TESTER, WIN_DIR, log, sha256
+from windows_vm import ADMIN, BASE, BASE_VARS, TESTER, WIN_DIR, X64_HOST, log, sha256
 
 GUI_BASE = WIN_DIR / "gui-base.qcow2"
 GUI_BASE_VARS = WIN_DIR / "gui-base-vars.fd"
-WEBVIEW2_URL = (
-    "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/"
-    "a8eefc09-1989-4d69-b834-689bb46de37d/MicrosoftEdgeWebView2RuntimeInstallerARM64.exe"
+# The Evergreen standalone installer for the guest's architecture.
+WEBVIEW2_URL, WEBVIEW2_SHA256 = (
+    (
+        "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/"
+        "35871e19-d11b-432d-9d1e-7be0ff286540/MicrosoftEdgeWebView2RuntimeInstallerX64.exe",
+        "0625fb5c1e75be58a164e14f95aa58a3e5badb859b3d17c952385f3e4a9ff3e8",
+    )
+    if X64_HOST
+    else (
+        "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/"
+        "a8eefc09-1989-4d69-b834-689bb46de37d/MicrosoftEdgeWebView2RuntimeInstallerARM64.exe",
+        "216324c5433da0e82f83c379a171c847eca53f655053d5699e5fef6f5b951d8d",
+    )
 )
-WEBVIEW2_SHA256 = "216324c5433da0e82f83c379a171c847eca53f655053d5699e5fef6f5b951d8d"
-WEBVIEW2 = WIN_DIR / "MicrosoftEdgeWebView2RuntimeInstallerARM64.exe"
+WEBVIEW2 = WIN_DIR / WEBVIEW2_URL.rsplit("/", 1)[1]
 WEBVIEW2_SDK_URL = (
     "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.2903.40"
 )
@@ -93,8 +102,8 @@ def add_webview2_sdk(dest: Path) -> None:
         for member in (
             "lib/net462/Microsoft.Web.WebView2.Core.dll",
             "lib/net462/Microsoft.Web.WebView2.WinForms.dll",
-            # The VM is ARM64, and so is its PowerShell.
-            "runtimes/win-arm64/native/WebView2Loader.dll",
+            # The guest's PowerShell has the guest's architecture.
+            f"runtimes/win-{'x64' if X64_HOST else 'arm64'}/native/WebView2Loader.dll",
         ):
             (dest / Path(member).name).write_bytes(package.read(member))
 

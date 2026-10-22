@@ -22,7 +22,8 @@ def hk(tmp_path, monkeypatch):
     spec.loader.exec_module(module)
     lab = tmp_path / "out" / "installlab"
     monkeypatch.setattr(module, "LAB", lab)
-    monkeypatch.setattr(module, "WIN", lab / "windows")
+    monkeypatch.setattr(module, "WIN_DIRS", (lab / "windows", lab / "windows-x64"))
+    module.WIN = lab / "windows"  # the ARM64 images, which most tests use
     monkeypatch.setattr(module, "LEDGER", lab / "last-used.json")
     # No Tart, Docker, Pixi or Homebrew: only the files under out/installlab.
     monkeypatch.setattr(module, "_tool", lambda name: None)
@@ -104,6 +105,18 @@ def test_downloads_expire_sooner_than_images(hk):
     hk.collect_garbage(verbose=False)
 
     assert not iso.exists() and cache.exists()
+
+
+def test_x64_windows_images_are_collected_too(hk):
+    x64 = hk.LAB / "windows-x64"
+    iso = make(x64 / "win11-amd64.iso", 10)
+    base = make(x64 / "base.qcow2", 90)
+    make(x64 / "base-vars.fd", 90)
+    fresh = make(x64 / "MicrosoftEdgeWebView2RuntimeInstallerX64.exe", 1)
+
+    hk.collect_garbage(verbose=False)
+
+    assert not iso.exists() and not base.exists() and fresh.exists()
 
 
 def test_dry_run_removes_nothing(hk, capsys):

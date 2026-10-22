@@ -1,9 +1,11 @@
 """Windows targets for the install lab.
 
-`windows`: a Windows 11 ARM64 VM under QEMU (hvf) on an Apple Silicon host. The
-base image is built once by `lab.py prepare windows` from Microsoft's own files;
-every run boots a throwaway qcow2 overlay of it, so the base never changes and
-nothing survives between runs.
+`windows`: a Windows 11 VM under QEMU with the host's CPU architecture, so it
+runs under hardware virtualization: ARM64 under hvf on an Apple Silicon Mac,
+x64 under KVM on an x86_64 Linux host. The base image is built once by
+`lab.py prepare windows` from Microsoft's own files; every run boots a
+throwaway qcow2 overlay of it, so the base never changes and nothing survives
+between runs.
 
 `windows-host`: a brand-new standard user on a disposable GitHub Windows runner,
 after hiding the runner's preinstalled MSYS2/conda/Java/etc. (CI only).
@@ -19,6 +21,7 @@ import base64
 import contextlib
 import json
 import os
+import platform
 import re
 import shutil
 import socket
@@ -33,10 +36,17 @@ from housekeeping import LAB, lab_key, mark_used
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
-WIN_DIR = LAB / "windows"
+# The guest's architecture is the host's. Each architecture's images, downloads
+# and SSH key live in their own directory.
+X64_HOST = sys.platform.startswith("linux") and platform.machine().lower() in (
+    "x86_64",
+    "amd64",
+)
+ARCH = "amd64" if X64_HOST else "arm64"
+WIN_DIR = LAB / ("windows-x64" if X64_HOST else "windows")
 BASE = WIN_DIR / "base.qcow2"
 BASE_VARS = WIN_DIR / "base-vars.fd"
-ISO = WIN_DIR / "win11-arm64.iso"
+ISO = WIN_DIR / f"win11-{ARCH}.iso"
 VIRTIO_URL = (
     "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/"
     "archive-virtio/virtio-win-0.1.302-1/virtio-win-0.1.302.iso"
@@ -271,23 +281,82 @@ class WindowsMachine:
             shutil.copytree(Path(tmp) / "results", self.results, dirs_exist_ok=True)
 
 
+def qemu_binary() -> str:
+    return "qemu-system-x86_64" if X64_HOST else "qemu-system-aarch64"
+
+
 def qemu_share() -> Path:
-    qemu = shutil.which("qemu-system-aarch64")
+    qemu = shutil.which(qemu_binary())
     if not qemu:
-        raise SystemExit("The windows target needs QEMU (qemu-system-aarch64).")
+        raise SystemExit(f"The windows target needs QEMU ({qemu_binary()}).")
     return Path(qemu).resolve().parents[1] / "share" / "qemu"
+
+
+def x64_uefi_firmware() -> tuple[Path, Path]:
+    """OVMF's code and variable-store template for a q35 VM, without Secure Boot,
+    found through QEMU's firmware descriptors (the same files libvirt reads), so
+    no distribution's paths are hard-coded."""
+    dirs = [Path("/etc/qemu/firmware"), qemu_share() / "firmware",
+            Path("/usr/share/qemu/firmware")]  # fmt: skip
+    for descriptor in sorted(p for d in dirs if d.is_dir() for p in d.glob("*.json")):
+        fw = json.loads(descriptor.read_text())
+        mapping = fw.get("mapping", {})
+        if (
+            "uefi" in fw.get("interface-types", [])
+            and mapping.get("device") == "flash"
+            and not {"secure-boot", "enrolled-keys"} & set(fw.get("features", []))
+            and any(
+                t.get("architecture") == "x86_64"
+                and any(m.startswith("pc-q35") for m in t.get("machines", []))
+                for t in fw.get("targets", [])
+            )
+            and "nvram-template" in mapping
+            # qemu_command() opens both flash images as raw.
+            and mapping["executable"].get("format", "raw") == "raw"
+            and mapping["nvram-template"].get("format", "raw") == "raw"
+        ):
+            code = Path(mapping["executable"]["filename"])
+            template = Path(mapping["nvram-template"]["filename"])
+            if code.exists() and template.exists():
+                return code, template
+    raise SystemExit(
+        "No OVMF (x64 UEFI firmware for QEMU) found; install edk2-ovmf or ovmf."
+    )
+
+
+def firmware() -> tuple[Path, Path]:
+    """The VM's UEFI code and the template for its variable store."""
+    if X64_HOST:
+        return x64_uefi_firmware()
+    return qemu_share() / "edk2-aarch64-code.fd", qemu_share() / "edk2-arm-vars.fd"
 
 
 def qemu_command(
     disk: Path, vars_fd: Path, port: int, qmp: Path, cdroms: list[Path]
 ) -> list[str]:
+    if X64_HOST:
+        machine = [
+            "qemu-system-x86_64",
+            "-M", "q35", "-accel", "kvm",
+            # Hyper-V enlightenments: Windows runs much faster with them.
+            "-cpu", "host,hv-passthrough",
+            # 6 GB, which Windows and the app run in comfortably: a Linux
+            # workstation tends to have less memory to spare than a lab Mac.
+            "-smp", "6", "-m", "6144",
+            "-device", "VGA",
+        ]  # fmt: skip
+    else:
+        machine = [
+            "qemu-system-aarch64",
+            "-M", "virt,highmem=on", "-accel", "hvf", "-cpu", "host",
+            "-smp", "6", "-m", "8192",
+            "-device", "ramfb",
+        ]  # fmt: skip
     cmd = [
-        "qemu-system-aarch64",
-        "-M", "virt,highmem=on", "-accel", "hvf", "-cpu", "host",
-        "-smp", "6", "-m", "8192",
-        "-drive", f"if=pflash,format=raw,readonly=on,file={qemu_share() / 'edk2-aarch64-code.fd'}",
+        *machine,
+        "-drive", f"if=pflash,format=raw,readonly=on,file={firmware()[0]}",
         "-drive", f"if=pflash,format=raw,file={vars_fd}",
-        "-device", "ramfb", "-device", "qemu-xhci",
+        "-device", "qemu-xhci",
         "-device", "usb-kbd", "-device", "usb-tablet",
         "-drive", f"if=none,id=disk0,format=qcow2,file={disk},discard=unmap",
         # Disk first: an empty disk falls through to the install ISO, and after
@@ -463,8 +532,14 @@ def docker() -> str:
     )
 
 
+def give_back(path: str) -> str:
+    """Shell command returning a container's root-owned output to the host user
+    (Docker on Linux keeps root's ownership; Docker Desktop and OrbStack map it)."""
+    return f"chown -R {os.getuid()}:{os.getgid()} {path}"
+
+
 def build_iso() -> None:
-    """Windows 11 ARM64 install ISO from Windows Update files (UUP dump).
+    """Windows 11 install ISO from Windows Update files (UUP dump).
 
     Microsoft's own ISO download refuses scripted requests, so build the same
     media from the files Windows Update serves; each is checked against the
@@ -474,14 +549,12 @@ def build_iso() -> None:
     """
     builds = json.loads(
         subprocess.run(
-            ["curl", "-fsSL", f"{UUP_API}/listid.php?search=Windows%2011%20arm64&sortByDate=1"],
+            ["curl", "-fsSL", f"{UUP_API}/listid.php?search=Windows%2011%20{ARCH}&sortByDate=1"],
             capture_output=True, text=True, check=True,
         ).stdout
     )["response"]["builds"]  # fmt: skip
     items = builds.values() if isinstance(builds, dict) else builds
-    build = next(
-        b for b in items if b["arch"] == "arm64" and UUP_TITLE.match(b["title"])
-    )
+    build = next(b for b in items if b["arch"] == ARCH and UUP_TITLE.match(b["title"]))
     log(f"Building the ISO from {build['title']} ({build['uuid']})...")
     work = WIN_DIR / "uup"
     shutil.rmtree(work, ignore_errors=True)
@@ -501,7 +574,7 @@ def build_iso() -> None:
         # Patch convert.sh after the script downloads it, right before it runs.
         "sed -i 's#^  ./files/convert.sh wim#  sed -i s,efisys.bin,efisys_noprompt.bin, "
         "./files/convert.sh\\n&#' uup_download_linux.sh; "
-        "bash uup_download_linux.sh"
+        f"bash uup_download_linux.sh; {give_back('/w')}"
     )
     subprocess.run(
         [docker(), "run", "--rm", "-v", f"{work}:/w", "-w", "/w", "ubuntu:24.04",
@@ -510,7 +583,7 @@ def build_iso() -> None:
     )  # fmt: skip
     built = next(p for p in work.iterdir() if p.suffix.lower() == ".iso")
     built.rename(ISO)
-    (WIN_DIR / "win11-arm64.json").write_text(
+    (WIN_DIR / f"win11-{ARCH}.json").write_text(
         json.dumps({"build": build, "sha256": sha256(ISO)}, indent=2)
     )
     shutil.rmtree(work)
@@ -527,47 +600,85 @@ def fetch_virtio() -> None:
         raise SystemExit(f"virtio-win checksum mismatch: {VIRTIO_ISO}")
 
 
+def extract_from_iso(iso: Path, member: str, dest: Path) -> None:
+    """Copy a directory out of an ISO image into dest."""
+    with tempfile.TemporaryDirectory(prefix="wgse-iso-") as tmp:
+        if sys.platform == "darwin":
+            mount = Path(tmp) / "mnt"
+            mount.mkdir()
+            subprocess.run(
+                ["hdiutil", "attach", "-nobrowse", "-readonly", "-mountpoint",
+                 str(mount), str(iso)],
+                check=True, capture_output=True,
+            )  # fmt: skip
+            try:
+                # copyfile, not copy2: the ISO's read-only modes would make dest
+                # undeletable.
+                shutil.copytree(mount / member, dest, copy_function=shutil.copyfile)
+            finally:
+                subprocess.run(["hdiutil", "detach", str(mount)], capture_output=True)
+        else:
+            # The whole top-level directory: the ISO stores duplicate files as
+            # hard links, whose targets may sit outside member.
+            top = member.split("/", 1)[0]
+            subprocess.run(["bsdtar", "-xf", str(iso), "-C", tmp, top], check=True)
+            shutil.copytree(Path(tmp) / member, dest, copy_function=shutil.copyfile)
+            # The ISO's read-only directories would keep tmp from being removed.
+            subprocess.run(["chmod", "-R", "u+w", tmp], check=True)
+    for d in [dest, *(p for p in dest.rglob("*") if p.is_dir())]:
+        os.chmod(d, 0o755)
+
+
+def make_iso(media: Path, out: Path, label: str) -> None:
+    """A small ISO 9660 + Joliet image of a directory."""
+    out.unlink(missing_ok=True)
+    if sys.platform == "darwin":
+        subprocess.run(
+            ["hdiutil", "makehybrid", "-iso", "-joliet", "-default-volume-name", label,
+             "-o", str(out), str(media)],
+            check=True, capture_output=True,
+        )  # fmt: skip
+        return
+    script = (
+        "apt-get update -qq && apt-get install -y -qq genisoimage >/dev/null && "
+        f"genisoimage -quiet -J -r -V {label} -o /out/{out.name} /media && "
+        f"{give_back('/out/' + out.name)}"
+    )
+    subprocess.run(
+        [docker(), "run", "--rm", "-v", f"{media}:/media:ro", "-v", f"{out.parent}:/out",
+         "ubuntu:24.04", "sh", "-c", script],
+        check=True,
+    )  # fmt: skip
+
+
 def build_unattend_iso(out: Path) -> None:
     """autounattend.xml, the first-logon script, the lab's public key and the
-    ARM64 NetKVM driver, on a small ISO that Windows Setup scans."""
+    guest's NetKVM driver, on a small ISO that Windows Setup scans."""
     media = out.parent / "unattend-media"
     shutil.rmtree(media, ignore_errors=True)
     media.mkdir()
     for name in ("autounattend.xml", "lab-setup.ps1", "lab-apply.cmd"):
         data = (HERE / "vm" / "windows" / name).read_bytes()
+        if name == "autounattend.xml":
+            data = data.replace(
+                b'processorArchitecture="arm64"',
+                f'processorArchitecture="{ARCH}"'.encode(),
+            )
         # Windows tools want CRLF (cmd.exe misparses LF-only batch files).
         (media / name).write_bytes(data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
     shutil.copy2(ssh_key().with_suffix(".pub"), media / "lab_ed25519.pub")
-    mount = Path(tempfile.mkdtemp(prefix="wgse-virtio-"))
-    subprocess.run(
-        ["hdiutil", "attach", "-nobrowse", "-readonly", "-mountpoint", str(mount),
-         str(VIRTIO_ISO)],
-        check=True, capture_output=True,
-    )  # fmt: skip
-    try:
-        # copyfile, not copy2: the ISO's read-only modes would make media
-        # undeletable (directory modes are fixed below).
-        shutil.copytree(
-            mount / "NetKVM" / "w11" / "ARM64",
-            media / "drivers" / "NetKVM",
-            copy_function=shutil.copyfile,
-        )
-        for d in (media / "drivers", media / "drivers" / "NetKVM"):
-            os.chmod(d, 0o755)
-    finally:
-        subprocess.run(["hdiutil", "detach", str(mount)], capture_output=True)
-        mount.rmdir()
-    out.unlink(missing_ok=True)
-    subprocess.run(
-        ["hdiutil", "makehybrid", "-iso", "-joliet", "-default-volume-name", "LABSETUP",
-         "-o", str(out), str(media)],
-        check=True, capture_output=True,
-    )  # fmt: skip
+    extract_from_iso(
+        VIRTIO_ISO,
+        f"NetKVM/w11/{'amd64' if X64_HOST else 'ARM64'}",
+        media / "drivers" / "NetKVM",
+    )
+    os.chmod(media / "drivers", 0o755)
+    make_iso(media, out, "LABSETUP")
     shutil.rmtree(media)
 
 
 def prepare() -> None:
-    """Build <lab>/windows/base.qcow2: stock Windows 11 Pro ARM64 plus
+    """Build WIN_DIR/base.qcow2: stock Windows 11 Pro for the host's architecture plus
     OpenSSH and the lab users (see vm/windows/autounattend.xml)."""
     WIN_DIR.mkdir(parents=True, exist_ok=True)
     if not ISO.exists():
@@ -586,7 +697,7 @@ def prepare() -> None:
     subprocess.run(
         ["qemu-img", "create", "-q", "-f", "qcow2", str(building), "80G"], check=True
     )
-    shutil.copy2(qemu_share() / "edk2-arm-vars.fd", vars_fd)
+    shutil.copy2(firmware()[1], vars_fd)
     os.chmod(vars_fd, 0o644)
     port = free_port()
     qmp = qmp_socket()

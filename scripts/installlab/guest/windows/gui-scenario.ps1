@@ -1,7 +1,8 @@
 # Install-lab guest scenario for the WGS Extract app on Windows (Tauri, NSIS).
 #
 # baseline snapshot -> download the installer like a browser (Mark of the Web)
-# -> Authenticode signature -> install -> the app runs its own setup in Lab
+# -> Authenticode signature -> install with the wizard's defaults (its Finish page
+# opens the app; it is closed) -> the app runs its own setup in Lab
 # User's desktop session -> close the window -> real actions through the app's
 # bundled runtime -> snapshot -> Settings > Apps > Uninstall with "Delete the
 # application data" -> snapshot
@@ -27,7 +28,8 @@ $Mode = if ($lab.LAB_MODE) { $lab.LAB_MODE } else { "install" }
 $Inventory = Join-Path $PSScriptRoot "inventory.ps1"
 $Downloads = Join-Path $env:USERPROFILE "Downloads"
 $Installer = Join-Path $Downloads $lab.LAB_GUI_INSTALLER_NAME
-$UninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WGSExtract"
+$ProductName = "WGSExtract"
+$UninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductName"
 $AppIdentifier = "dev.guiforcli.web.embed.wgsextract"
 $AppProcess = "gui-for-cli-webui-tauri"
 $Workspace = Join-Path $env:LOCALAPPDATA "$AppIdentifier\BundleWorkspaces\wgs-extract"
@@ -143,12 +145,10 @@ PsStep "signature" {
 Unblock-File -LiteralPath $Installer
 
 PsStep "install_app" {
-    # The wizard's defaults, without clicking through it.
-    $p = Start-Process -FilePath $Installer -ArgumentList "/S" -PassThru
-    $null = $p.Handle
-    $p.WaitForExit()
-    "installer exit code: $($p.ExitCode)"
-    if ($p.ExitCode -ne 0) { throw "installer failed" }
+    # Double-clicking the download and clicking through the wizard's defaults.
+    Invoke-InSession "install" @{
+        installer = $Installer; windowPattern = "$ProductName*Setup*"; titlePrefix = $ProductName
+    } 3700
     $key = Get-ItemProperty -LiteralPath $UninstallKey
     "Apps entry: $($key.DisplayName) $($key.DisplayVersion) at $($key.InstallLocation)"
     "UninstallString: $($key.UninstallString)"
@@ -157,6 +157,19 @@ PsStep "install_app" {
     $shortcut = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\$($key.DisplayName).lnk"
     if (-not (Test-Path -LiteralPath $shortcut)) { throw "no Start menu shortcut $shortcut" }
     "Start menu: $shortcut"
+    # The Finish page's "Run" box is ticked by default, so the app opens. The
+    # user closes it here; setup below opens it again with the lab's settings.
+    $deadline = (Get-Date).AddSeconds(120)
+    while (-not (Get-Process -Name $AppProcess -ErrorAction SilentlyContinue)) {
+        if ((Get-Date) -ge $deadline) { throw "the app did not open from the Finish page" }
+        Start-Sleep -Seconds 2
+    }
+    "the app opened from the Finish page"
+    Start-Sleep -Seconds 20
+    Invoke-InSession "close" @{ processName = $AppProcess } 120
+    Start-Sleep -Seconds 5
+    $left = @(Get-AppProcesses)
+    if ($left.Count -gt 0) { throw "still running after the window closed: $($left.Path -join ', ')" }
 }
 $app = Get-ItemProperty -LiteralPath $UninstallKey -ErrorAction SilentlyContinue
 $InstallDir = if ($app) { $app.InstallLocation.Trim('"') } else { Join-Path $env:LOCALAPPDATA "WGSExtract" }
