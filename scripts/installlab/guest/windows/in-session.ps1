@@ -205,6 +205,13 @@ try {
             if ($req.args) { $launch.ArgumentList = [string[]]$req.args }
             $app = Start-Process @launch
             Note "started $($req.exe) (pid $($app.Id))"
+            if ($req.wait) {
+                # Kept inside this task: a task's leftover console processes
+                # don't outlive it on every Windows (a runner's don't).
+                $app.WaitForExit()
+                Note "exited with $($app.ExitCode)"
+                if ($app.ExitCode -ne 0) { throw "$($req.exe) exited with $($app.ExitCode)" }
+            }
         }
         "close" {
             # Clicking the window's close button.

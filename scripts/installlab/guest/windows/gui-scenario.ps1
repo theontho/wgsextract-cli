@@ -122,8 +122,9 @@ if ($Mode -eq "control") {
         args = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $PSScriptRoot "webview2-window.ps1"),
             (Join-Path $PSScriptRoot "webview2-sdk"), "240")
         stdout = Join-Path $R "webview2-window-stdout.txt"; stderr = Join-Path $R "webview2-window-stderr.txt"
-    } 120
-    Start-Sleep -Seconds 900
+        wait = $true
+    } 420
+    Start-Sleep -Seconds 660
     Save-Snapshot "after_install"
     Start-Sleep -Seconds 900
     Save-Snapshot "after_uninstall"

@@ -5,36 +5,6 @@ on:
 permissions:
   contents: read
 jobs:
-  macos-app-control:
-    runs-on: macos-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.13"
-      - run: |
-          latest=$(ls -d /Applications/Xcode_*.app | sort -V | tail -n 1)
-          sudo xcode-select -s "$latest/Contents/Developer"
-      - id: app
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tag=$(gh release view -R theontho/gui-for-cli --json tagName -q .tagName)
-          gh release download "$tag" -R theontho/gui-for-cli -p '*.dmg' -D out/app
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: theontho/gui-for-cli
-          ref: ${{ steps.app.outputs.tag }}
-          path: out/gui-for-cli
-          persist-credentials: false
-      - run: python scripts/installlab/lab.py run host --gui-repo out/gui-for-cli --dmg out/app/*.dmg --mode control --out out/installlab/control
-      - if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: control-macos-app
-          path: out/installlab/control
   windows-app-control:
     runs-on: windows-latest
     timeout-minutes: 60
@@ -52,29 +22,3 @@ jobs:
         with:
           name: control-windows-app
           path: out/installlab/control
-  linux-app-control:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release download -R theontho/gui-for-cli -p '*_amd64.deb' -D out/app
-      - run: python3 scripts/installlab/lab.py run linux --gui-installer out/app/*_amd64.deb --mode control --out out/installlab/control
-      - if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: control-linux-app
-          path: out/installlab/control
-  webview2-window-debug:
-    runs-on: windows-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Stage the WebView2 SDK
-        run: python -c "import sys; sys.path.insert(0, 'scripts/installlab'); import windows_gui_vm, pathlib; windows_gui_vm.add_webview2_sdk(pathlib.Path('out/sdk'))"
-      - name: Windows PowerShell 5.1, as the control runs it
-        run: |
-          $p = Start-Process powershell.exe -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "$PWD\scripts\installlab\guest\windows\webview2-window.ps1", "$PWD\out\sdk", '20') -RedirectStandardOutput out\o.txt -RedirectStandardError out\e.txt -PassThru -Wait
-          "exit $($p.ExitCode)"; "--- stdout"; Get-Content out\o.txt; "--- stderr"; Get-Content out\e.txt
-          Get-ExecutionPolicy -List | Out-String
