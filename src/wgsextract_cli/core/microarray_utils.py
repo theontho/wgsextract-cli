@@ -1,3 +1,4 @@
+import gzip
 import logging
 import os
 from collections.abc import Iterator, Sequence
@@ -122,8 +123,17 @@ def _template_body_paths(
     for i in range(1, fmt_info["parts"] + 1):
         part_suffix = f"_{i}" if fmt_info["parts"] > 1 else ""
         template_name = f"{format_name}{part_suffix}{fmt_info['suffix']}"
-        body_templates.append(str(Path(templates_root, "body", template_name)))
+        path = Path(templates_root, "body", template_name)
+        # Templates shipped with the CLI are gzipped (see assets/microarray).
+        gzipped = path.with_name(path.name + ".gz")
+        body_templates.append(str(gzipped if gzipped.exists() else path))
     return body_templates
+
+
+def _open_template(path: str) -> TextIO:
+    if path.endswith(".gz"):
+        return gzip.open(path, "rt")
+    return open(path)
 
 
 def _resolve_templates_for_format(
@@ -232,6 +242,8 @@ def get_template_format(format_name: str) -> TemplateFormat | None:
     """Returns metadata for known microarray formats."""
     # Ported from legacy program/aconv.py logic
     formats: dict[str, TemplateFormat] = {
+        # v1 and v2 chips share one marker list (see assets/microarray).
+        "23andMe_V2": {"suffix": ".txt", "parts": 1},
         "23andMe_V3": {"suffix": ".txt", "parts": 1},
         "23andMe_V4": {"suffix": ".txt", "parts": 2},
         "23andMe_V5": {"suffix": ".txt", "parts": 2},
@@ -341,7 +353,7 @@ def convert_to_vendor_format(
                     f_out.write(f_h.read())
 
             for body_template in body_templates:
-                with open(body_template) as f_temp:
+                with _open_template(body_template) as f_temp:
                     for line in f_temp:
                         line = line.strip().replace('"', "")
                         if not line:

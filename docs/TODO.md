@@ -43,7 +43,7 @@ Completed work on WGS Extract CLI. Open work is tracked in [GitHub Issues](https
 
 - [x] **Pet sequencing**: Dog and cat alignment and variant calling via `pet-align`. Extraction and lineage commands are human-only.
 - [x] **Parallel microarray generation**: `microarray --parallel` calls variants per chromosome.
-- [x] **Legacy formats**: `microarray --formats ftdna_v1` (Affymetrix chip, NCBI36 positions). 23andMe v1/v2 need templates (#99).
+- [x] **Legacy formats**: `microarray --formats ftdna_v1` (Affymetrix chip, NCBI36 positions) and `23andme_v2` (also `23andme_v1`: both chips export the same marker list; template shipped with the CLI, built from openSNP's CC0 data).
 - [x] **Digital signing**: `sign create` writes a `sha256sum`-compatible `SHA256SUMS` manifest, signed with `ssh-keygen -Y sign` when given a key; `sign verify` checks the signature, then every file's hash.
 - [x] **Advanced typing**: `typing hla` (T1K on MHC reads, with a PharmCAT outside call for HLA-A/HLA-B) and `typing str` (ExpansionHunter, classified against STRchive's normal and pathogenic ranges).
 

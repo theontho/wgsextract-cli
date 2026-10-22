@@ -93,8 +93,8 @@ class TestMicroarrayRealData:
         """
         Runs microarray command for multiple vendors and verifies results.
         """
-        # 1. Run CLI for 23andMe, Ancestry, and MyHeritage
-        formats_to_test = ["23andme_v3", "ancestry_v2", "myheritage_v2"]
+        # 1. Run CLI for 23andMe (v2 template shipped with the CLI), Ancestry, MyHeritage
+        formats_to_test = ["23andme_v2", "23andme_v3", "ancestry_v2", "myheritage_v2"]
         args = [
             "--outdir",
             self.test_dir,
@@ -134,6 +134,7 @@ class TestMicroarrayRealData:
         }
 
         vendor_files = {
+            "23andme_v2": f"{output_prefix}_23andMe_V2.txt",
             "23andme_v3": f"{output_prefix}_23andMe_V3.txt",
             "ancestry_v2": f"{output_prefix}_Ancestry_V2.txt",
             "myheritage_v2": f"{output_prefix}_MyHeritage_V2.csv",
