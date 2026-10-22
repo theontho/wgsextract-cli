@@ -120,7 +120,12 @@ be what passes. In the VM:
 3. The real actions run on the HG00096 mini genome through the same
    GUIForCLICore runner the app uses (`gui-for-cli bundle test`) with the
    installed app's bundle and workspace. Clicking isn't simulated; everything
-   the click would start is.
+   the click would start is. The reference-genome dropdowns' data sources are
+   loaded the same way (`dataSource` steps): each script must resolve for the
+   platform, run on the app's own runtime and print its list (gui-for-cli#140
+   was these failing with `spawn python ENOENT` on Windows). The mini genome
+   isn't a catalog genome, so the lists may be empty here; gui-for-cli's own
+   default plan checks that they offer a downloaded hg19.
 4. The app's own **Uninstall** (`GUI_FOR_CLI_AUTO_RUN_UNINSTALL`) runs the bundle's
    uninstall steps, removes the app's data and moves it to the Trash; the Trash
    is emptied and the machine must match the baseline. One exception: macOS's
