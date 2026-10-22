@@ -54,6 +54,7 @@ from typing import Any
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 sys.path.insert(0, str(HERE))
+import gui_oracle  # noqa: E402
 import housekeeping  # noqa: E402
 import macos_policy  # noqa: E402
 import windows_gui_vm  # noqa: E402
@@ -612,12 +613,14 @@ MACHINES: dict[str, type[Machine] | type[windows_vm.WindowsMachine]] = {
 # --- commands -------------------------------------------------------------------
 
 
-def noise_patterns(target: str, product: str = "cli") -> list[str]:
+def noise_patterns(
+    target: str, product: str = "cli", platform: str = sys.platform
+) -> list[str]:
     names = [target]
     if product == "gui":
         # An app's machine has a desktop, with its own background activity.
         names.append(f"{target}-gui")
-    if target == "host" and sys.platform == "darwin":
+    if target == "host" and platform == "darwin":
         # A fresh user on a macOS runner sees the same Apple background activity.
         names.append("macos")
     patterns = list(GENERIC_NOISE)
@@ -650,7 +653,13 @@ def judge(results: Path, target: str) -> bool:
     if on_mac and meta.get("product") != "gui":
         oracle.check_gatekeeper_enabled()
     checks = oracle.run(
-        dataset_dir(), noise_patterns(target, meta.get("product", "cli"))
+        dataset_dir(),
+        noise_patterns(
+            target,
+            meta.get("product", "cli"),
+            # Where the run happened, not where it is judged.
+            meta.get("host_platform", sys.platform),
+        ),
     )
     failed = [c for c in checks if not c.ok]
     for check in checks:
@@ -1030,6 +1039,15 @@ def _fail_action(report: Any, action: str) -> None:
             step["status"] = "failed"
 
 
+def _flip_signature(r: Path, step: str, app: gui_oracle.AppPlatform) -> None:
+    """The opposite of what the signature check saw: a local build accepted, or
+    a signed release refused (CI tests releases); either must fail the run."""
+    signed = json.loads((r / "lab-run.json").read_text())["signed"]
+    (r / "evidence" / f"{step}.rc").write_text("1" if signed else "0")
+    text = app.unsigned_text if signed else app.signed_text
+    (r / "evidence" / f"{step}.log").write_text(text + "\n")
+
+
 # The app reports its own setup, actions and uninstall; corrupting what it
 # reports must fail the run as surely as corrupting the outputs.
 GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
@@ -1056,10 +1074,7 @@ GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
     "uninstall-failed": lambda r: _json_edit(
         r / "uninstall-result.json", lambda d: d.update(status="failed")
     ),
-    "unsigned-accepted": lambda r: (
-        (r / "evidence" / "gatekeeper.rc").write_text("0"),
-        (r / "evidence" / "gatekeeper.log").write_text("accepted\n"),
-    ),
+    "signature-flipped": lambda r: _flip_signature(r, "gatekeeper", gui_oracle.MACOS),
     "gatekeeper-off": lambda r: (r / "gatekeeper-status.txt").write_text(
         "assessments disabled\n"
     ),
@@ -1102,10 +1117,7 @@ WINDOWS_GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
         r / "inventory-after_uninstall.txt",
         f"proc\t{_WIN_HOME}/AppData/Local/WGSExtract/node/node.exe",
     ),
-    "unsigned-accepted": lambda r: (
-        (r / "evidence" / "signature.rc").write_text("0"),
-        (r / "evidence" / "signature.log").write_text("Status: Valid\n"),
-    ),
+    "signature-flipped": lambda r: _flip_signature(r, "signature", gui_oracle.WINDOWS),
     "no-window": lambda r: (r / "app-stdout.txt").write_text(""),
 }
 # The Linux app: the same, plus what removing a package can leave behind.
