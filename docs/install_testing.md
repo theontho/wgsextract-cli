@@ -364,6 +364,12 @@ sabotaged run's evidence (`--sabotage --no-judge`) is judged as a negative
 control: `lab.py judge` passes it only if it fails on the checks the sabotage
 breaks.
 
+To try an app fix before releasing it, run gui-for-cli's Distribution workflow
+on its branch, then this workflow with that run's ID:
+`gh workflow run install_lab.yml -f app_run=<run id>`. The app jobs then test
+that run's signed builds, and `macos-app` checks out the app source at its
+commit.
+
 Runners aren't new machines, so each run first makes its runner look like one,
 and the oracle still checks the result:
 

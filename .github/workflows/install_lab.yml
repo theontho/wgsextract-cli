@@ -17,13 +17,21 @@ on:
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:
+    inputs:
+      app_run:
+        description: >-
+          A gui-for-cli Distribution run ID: test its app builds instead of the
+          latest release (to try a fix before releasing it)
+        required: false
 
 permissions:
   contents: read
 
 env:
-  # The app as users get it: the latest WGS Extract app release.
+  # The app as users get it: the latest WGS Extract app release, or the builds
+  # of the Distribution run given as app_run.
   GUI_REPO: theontho/gui-for-cli
+  APP_RUN: ${{ inputs.app_run }}
   # `tree`: the app sets up this CLI tree. `pinned` (weekly): the CLI release the
   # app pins, exactly as a user's app does.
   WEEKLY: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
@@ -81,11 +89,17 @@ jobs:
           pixi-version: v0.82.0
           locked: true
           environments: default
-      - name: Download the app's latest .deb
+      - name: Download the app's .deb
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download -R "$GUI_REPO" -p '*_amd64.deb' -D out/app
+          if [ -n "$APP_RUN" ]; then
+            gh run download "$APP_RUN" -R "$GUI_REPO" -n tauri-linux -D out/app-run
+            mkdir -p out/app
+            find out/app-run -name '*_amd64.deb' -exec mv {} out/app/ \;
+          else
+            gh release download -R "$GUI_REPO" -p '*_amd64.deb' -D out/app
+          fi
           ls -l out/app
       # A fresh ubuntu:24.04 desktop user (Xvfb display): apt install, the app's
       # own setup, its actions, its own Uninstall, apt remove.
@@ -161,21 +175,28 @@ jobs:
           latest=$(find /Applications -maxdepth 1 -name 'Xcode_*.app' | sort -V | tail -n 1)
           sudo xcode-select -s "$latest/Contents/Developer"
           xcodebuild -version
-      - name: Download the app's latest DMG
+      - name: Download the app's DMG
         id: app
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag=$(gh release view -R "$GUI_REPO" --json tagName -q .tagName)
-          gh release download "$tag" -R "$GUI_REPO" -p '*.dmg' -D out/app
+          if [ -n "$APP_RUN" ]; then
+            ref=$(gh run view "$APP_RUN" -R "$GUI_REPO" --json headSha -q .headSha)
+            gh run download "$APP_RUN" -R "$GUI_REPO" -n swiftui-macos -D out/app-run
+            mkdir -p out/app
+            find out/app-run -name '*.dmg' -exec mv {} out/app/ \;
+          else
+            ref=$(gh release view -R "$GUI_REPO" --json tagName -q .tagName)
+            gh release download "$ref" -R "$GUI_REPO" -p '*.dmg' -D out/app
+          fi
           ls -l out/app
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
       # The bundle-test runner drives the app's actions; it must match the app.
-      - name: Check out the app's release source (for its bundle-test runner)
+      - name: Check out the app's source (for its bundle-test runner)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ env.GUI_REPO }}
-          ref: ${{ steps.app.outputs.tag }}
+          ref: ${{ steps.app.outputs.ref }}
           path: out/gui-for-cli
           persist-credentials: false
       - name: Install, use and uninstall the app as the runner's macOS user
@@ -253,11 +274,19 @@ jobs:
         cli: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["tree", "pinned"]' || '["tree"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Download the app's latest installer
+      - name: Download the app's installer
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download -R "$env:GUI_REPO" -p '*_x64-setup.exe' -D out/app
+          if ($env:APP_RUN) {
+            gh run download $env:APP_RUN -R $env:GUI_REPO -n tauri-windows -D out/app-run
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            New-Item -ItemType Directory -Force out/app | Out-Null
+            Get-ChildItem -Recurse out/app-run -Filter *_x64-setup.exe | Move-Item -Destination out/app
+          } else {
+            gh release download -R "$env:GUI_REPO" -p '*_x64-setup.exe' -D out/app
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
           Get-ChildItem out/app
       # A new standard user signed in to their own desktop (Remote Desktop to
       # 127.0.0.2; see WindowsHostGuiMachine), with the runner's tools hidden as
