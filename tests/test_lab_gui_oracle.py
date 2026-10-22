@@ -53,3 +53,21 @@ def test_other_platforms_excuse_nothing(oracle):
     save(oracle, {})
     oracle.app = gui_oracle.WINDOWS
     assert oracle.excuse_leftovers([f"file\t{PLIST}"]) == ([f"file\t{PLIST}"], [])
+
+
+@pytest.mark.parametrize(
+    ("meta", "home"),
+    [
+        ({"target": "linux", "host_platform": "darwin"}, "/home/tester"),
+        ({"target": "macos", "host_platform": "darwin"}, "/Users/admin"),
+        ({"target": "host", "host_platform": "darwin", "home": "/Users/x"}, "/Users/x"),
+        ({"target": "host", "host_platform": "linux", "home": "/home/x"}, "/home/x"),
+    ],
+)
+def test_mutations_plant_the_run_machines_paths(tmp_path, monkeypatch, meta, home):
+    # Where lab.py ran says nothing about a container's or VM's paths.
+    monkeypatch.syspath_prepend(str(LAB_SCRIPTS))
+    import lab
+
+    (tmp_path / "lab-run.json").write_text(json.dumps(meta))
+    assert lab._planted(tmp_path)["home"] == home

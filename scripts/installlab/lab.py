@@ -1164,7 +1164,10 @@ def _planted(results: Path) -> dict[str, str]:
             "leftover": "C:/Users/lab user/.pixi",
             "tool": "c:/msys64/ucrt64/bin/samtools.exe",
         }
-    if target == "macos" or meta.get("host_platform") == "darwin":
+    # host_platform is where lab.py ran; only for `host` is that the machine.
+    if target == "macos" or (
+        target == "host" and meta.get("host_platform") == "darwin"
+    ):
         home = meta.get("home", "/Users/admin")
         return {
             "home": home,

@@ -42,6 +42,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # Host-side measuring tools for the oracle (samtools/bcftools); the guest
       # container never sees this environment.
       - name: Set up Pixi
@@ -83,6 +85,8 @@ jobs:
         cli: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["tree", "pinned"]' || '["tree"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Set up Pixi
         uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
         with:
@@ -125,6 +129,8 @@ jobs:
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # pixi installs into the runner's account; the scenario runs as a new
       # account that can't see it.
       - name: Set up Pixi
@@ -162,6 +168,8 @@ jobs:
         cli: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["tree", "pinned"]' || '["tree"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # The app runs as the runner's own signed-in account (a new account can't
       # get a desktop session on a runner; see HostGuiMachine), so nothing the
       # lab uses may live in that account's home before the scenario: lab.py
@@ -232,6 +240,8 @@ jobs:
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # The runner preinstalls MSYS2, Git, conda, Java, Python and more. lab.py
       # hides them (renames C:\msys64, resets the machine PATH, drops non-default
       # machine variables) and runs the scenario over SSH as a new standard user;
@@ -258,6 +268,8 @@ jobs:
         sabotage: [noop-installer, fake-launcher, break-samtools, leftover, skip-uninstall]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Run the sabotaged install as a fresh Windows user
         run: python scripts/installlab/lab.py run windows-host --sabotage ${{ matrix.sabotage }} --no-judge --out out/installlab/ci-windows
       - name: Upload evidence
@@ -277,6 +289,8 @@ jobs:
         cli: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["tree", "pinned"]' || '["tree"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Download the app's installer
         env:
           GH_TOKEN: ${{ github.token }}
@@ -322,6 +336,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Set up Pixi
         uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
         with:
