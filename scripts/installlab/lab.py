@@ -488,7 +488,7 @@ MACOS_RUNNER_EXTRAS = (
 def deprovision_macos_runner() -> None:
     """Make a disposable macOS runner look like a user's Mac before a run."""
     for extra in MACOS_RUNNER_EXTRAS:
-        if os.path.isdir(extra):
+        if Path(extra).is_dir():
             run(["sudo", "mv", extra, f"{extra}.lab-hidden"])
     # The runner image turns Gatekeeper off; a user's Mac has it on. Every macOS
     # run records its status and the oracle fails a run that had it off.
