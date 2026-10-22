@@ -424,15 +424,24 @@ class Oracle:
             any(self.install_marker in line for line in installed_added),
             f"{len(installed_added)} paths added by install",
         )
-        added = significant(final - baseline)
+        added, excused = self.excuse_leftovers(significant(final - baseline))
         removed = significant(baseline - final)
         self.record(
             "state.uninstall_restores_baseline",
             not added and not removed,
             "left behind:\n  " + "\n  ".join(added[:40])
             if added
-            else ("removed:\n  " + "\n  ".join(removed[:40]) if removed else "clean"),
+            else (
+                "removed:\n  " + "\n  ".join(removed[:40])
+                if removed
+                else "clean" + "".join(f"\n  {e}" for e in excused)
+            ),
         )
+
+    def excuse_leftovers(self, added: list[str]) -> tuple[list[str], list[str]]:
+        """Leftovers that evidence shows hold nothing of the product's, and why;
+        none for the CLI."""
+        return added, []
 
     def run(self, dataset: Path, noise_patterns: list[str]) -> list[Check]:
         self.check_run_identity()

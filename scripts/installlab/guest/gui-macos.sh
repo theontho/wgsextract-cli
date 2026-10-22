@@ -165,11 +165,6 @@ app_uninstall() {
     wait_for_file "$R/uninstall-result.json" 600 || return 1
     cat "$R/uninstall-result.json"
     wait_for_app_exit 60 || return 1
-    preferences="$HOME/Library/Preferences/$BUNDLE_ID.plist"
-    if [ -f "$preferences" ]; then
-        cp "$preferences" "$R/uninstall-preferences.plist" || return 1
-        plutil -p "$preferences"
-    fi
     # The user empties the Trash.
     rm -rf "$HOME/.Trash/WGSExtract.app"
     [ ! -e "$APP" ]
@@ -183,15 +178,27 @@ for tool in pixi samtools bcftools java brew conda mamba; do
     fi
     printf '%s\t%s\n' "$tool" "$found"
 done > "$R/preexisting-tools.txt"
+# Installers reuse a Pixi in its default place even when PATH doesn't reach it.
+pixi_home="$HOME/.pixi/bin/pixi"
+[ -e "$pixi_home" ] || pixi_home=""
+printf 'pixi-home\t%s\n' "$pixi_home" >> "$R/preexisting-tools.txt"
 if [ "$(uname -s)" = Darwin ]; then
     spctl --status > "$R/gatekeeper-status.txt" 2>&1
     /usr/bin/python3 "$HERE/macos-policy.py" > "$R/gatekeeper-policy.json" \
         2> "$R/gatekeeper-policy.log"
 fi
 if [ "$MODE" = "control" ]; then
-    sleep 60
+    # A different native app with editable text (TextEdit, which every Mac
+    # has) is open for 4 minutes: what macOS keeps for any such app.
+    printf 'WGS Extract install lab control\n' > "$R/control.txt"
+    open -n -a TextEdit "$R/control.txt" > "$R/control-window.log" 2>&1
+    sleep 120
+    # The control's evidence that the app really ran (lab.py checks it).
+    pgrep -x TextEdit > /dev/null && echo "page loaded: True" >> "$R/control-window.log"
     snapshot after_install
-    sleep 60
+    sleep 120
+    pkill -x TextEdit >> "$R/control-window.log" 2>&1
+    sleep 5
     snapshot after_uninstall
     echo "scenario finished"
     exit 0
@@ -215,6 +222,14 @@ fi
 rm -f "$DMG" "$CLI_ARCHIVE"
 rm -rf "$RUNNER_DIR" "$HOME/Library/Application Support/$GUI_FOR_CLI_APP_SUPPORT_NAME_RUNNER"
 snapshot after_uninstall
+# What the snapshot's preferences file holds (the oracle excuses it only if
+# empty): cfprefsd writes it back up to seconds after the app exits, so it is
+# read here, after the snapshot, not when the app exits.
+preferences="$HOME/Library/Preferences/$BUNDLE_ID.plist"
+if [ -f "$preferences" ]; then
+    cp "$preferences" "$R/uninstall-preferences.plist"
+    plutil -p "$preferences"
+fi
 # Crash reports written during the run, for the host to read (the oracle fails
 # the run on any; the VM and its logs are gone afterwards).
 if [ -d "$HOME/Library/Logs/DiagnosticReports" ]; then

@@ -21,9 +21,11 @@ from __future__ import annotations
 
 import contextlib
 import os
+import platform
 import secrets
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import zipfile
@@ -33,6 +35,10 @@ import windows_vm
 from housekeeping import lab_key, mark_used
 from windows_vm import ADMIN, BASE, BASE_VARS, TESTER, WIN_DIR, X64_HOST, log, sha256
 
+# The app's Windows: a VM with the host's architecture, or the runner itself.
+GUEST_X64 = X64_HOST or (
+    sys.platform == "win32" and platform.machine().lower() in ("amd64", "x86_64")
+)
 GUI_BASE = WIN_DIR / "gui-base.qcow2"
 GUI_BASE_VARS = WIN_DIR / "gui-base-vars.fd"
 # The Evergreen standalone installer for the guest's architecture.
@@ -42,7 +48,7 @@ WEBVIEW2_URL, WEBVIEW2_SHA256 = (
         "35871e19-d11b-432d-9d1e-7be0ff286540/MicrosoftEdgeWebView2RuntimeInstallerX64.exe",
         "0625fb5c1e75be58a164e14f95aa58a3e5badb859b3d17c952385f3e4a9ff3e8",
     )
-    if X64_HOST
+    if GUEST_X64
     else (
         "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/"
         "a8eefc09-1989-4d69-b834-689bb46de37d/MicrosoftEdgeWebView2RuntimeInstallerARM64.exe",
@@ -81,6 +87,7 @@ def wait_for_session(machine: windows_vm.WindowsMachine, timeout: float) -> None
 def add_webview2_sdk(dest: Path) -> None:
     """The WebView2 SDK's WinForms control (pinned NuGet package), for
     guest/windows/webview2-window.ps1: the control runs' other WebView2 app."""
+    WIN_DIR.mkdir(parents=True, exist_ok=True)
     if not WEBVIEW2_SDK.exists() or sha256(WEBVIEW2_SDK) != WEBVIEW2_SDK_SHA256:
         subprocess.run(
             [
@@ -103,7 +110,7 @@ def add_webview2_sdk(dest: Path) -> None:
             "lib/net462/Microsoft.Web.WebView2.Core.dll",
             "lib/net462/Microsoft.Web.WebView2.WinForms.dll",
             # The guest's PowerShell has the guest's architecture.
-            f"runtimes/win-{'x64' if X64_HOST else 'arm64'}/native/WebView2Loader.dll",
+            f"runtimes/win-{'x64' if GUEST_X64 else 'arm64'}/native/WebView2Loader.dll",
         ):
             (dest / Path(member).name).write_bytes(package.read(member))
 
@@ -140,9 +147,134 @@ class QemuWindowsGuiMachine(windows_vm.QemuWindowsMachine):
         super().destroy()
 
 
+# What Remote Desktop did, when Lab User's sign-in doesn't come up.
+RDP_DIAGNOSTICS = r"""
+foreach ($log in 'Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational',
+                 'Microsoft-Windows-TerminalServices-LocalSessionManager/Operational',
+                 'Microsoft-Windows-RemoteDesktopServices-RdpCoreTS/Operational') {
+    "--- $log"
+    Get-WinEvent -LogName $log -MaxEvents 30 -ErrorAction SilentlyContinue |
+        Sort-Object TimeCreated | Format-Table -Wrap TimeCreated, Id, Message | Out-String -Width 250
+}
+"--- Security logon failures"
+Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4625} -MaxEvents 10 -ErrorAction SilentlyContinue |
+    Format-List TimeCreated, Message | Out-String -Width 250
+Get-Process mstsc -ErrorAction SilentlyContinue | Format-Table Id, SessionId, MainWindowTitle | Out-String
+"""
+
+
+class WindowsHostGuiMachine(windows_vm.WindowsHostMachine):
+    """A new standard user's desktop on a disposable GitHub Windows runner.
+
+    The CLI's runner machine (a new standard user, the runner's tools hidden),
+    plus what an app needs: Lab User signed in to a desktop session of their
+    own, and the WebView2 runtime. A runner can't reboot into autologon, but
+    it is Windows Server, which hosts a Remote Desktop session beside the
+    runner's own, so Lab User signs in over Remote Desktop to 127.0.0.2 (the
+    client refuses 127.0.0.1, its own console). The account joins Remote
+    Desktop Users for that; it stays a standard user. Lab User's first
+    sign-in settles before the baseline, as in the VM's prepared image.
+    """
+
+    signing_in = False
+
+    def create(self) -> None:
+        add_webview2_sdk(self.guest / "windows" / "webview2-sdk")
+        super().create()
+        self.ensure_webview2()
+        self.screens = self.guest.parent / "screens"
+        self.screens.mkdir(exist_ok=True)
+        self.recording = threading.Event()
+        threading.Thread(target=self.record_screen, daemon=True).start()
+        self.sign_in()
+        log(f"Letting {TESTER}'s first sign-in settle for 3 minutes...")
+        time.sleep(180)
+
+    def ensure_webview2(self) -> None:
+        """Every Windows 11 PC has WebView2; the Server image may lack it."""
+        has_it = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             f"if (-not (Get-ItemProperty '{WEBVIEW2_CLIENT}' -ErrorAction SilentlyContinue).pv) {{ exit 1 }}"],
+            env=windows_vm.windows_powershell_env(),
+        ).returncode == 0  # fmt: skip
+        if has_it:
+            log("The runner has the WebView2 runtime.")
+            return
+        fetch_webview2()
+        log("Installing the WebView2 runtime...")
+        subprocess.run([str(WEBVIEW2), "/silent", "/install"], check=True)
+
+    def sign_in(self) -> None:
+        password = f"Lab-{secrets.token_hex(8)}aA1!"
+        user = f"{os.environ['COMPUTERNAME']}\\{TESTER}"
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command", f"""
+$ErrorActionPreference = 'Stop'
+net user '{TESTER}' '{password}' | Out-Null
+Add-LocalGroupMember -Group 'Remote Desktop Users' -Member '{TESTER}'
+Set-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server' fDenyTSConnections 0
+Set-Service TermService -StartupType Manual
+Start-Service TermService
+# The client's certificate prompt for the server: it's this machine.
+$client = 'HKCU:\\Software\\Microsoft\\Terminal Server Client'
+New-Item -Path $client -Force | Out-Null
+Set-ItemProperty $client AuthenticationLevelOverride 0 -Type DWord
+"""],
+            check=True, env=windows_vm.windows_powershell_env(),
+        )  # fmt: skip
+        log(f"Signing {TESTER} in over Remote Desktop...")
+        self.client = subprocess.Popen(["mstsc", "/v:127.0.0.2", "/f"])
+        # The client asks for the credentials; type them in, as a person does.
+        self.typist = subprocess.Popen(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+             str(windows_vm.HERE / "vm" / "windows" / "rdp-sign-in.ps1"), "-User", user],
+            env={**windows_vm.windows_powershell_env(), "LAB_RDP_PASSWORD": password},
+        )  # fmt: skip
+        self.signing_in = True
+        try:
+            wait_for_session(self, 600)
+        except SystemExit:
+            self.screenshot("sign-in-failed")
+            subprocess.run(["query", "session"])
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", RDP_DIAGNOSTICS],
+                env=windows_vm.windows_powershell_env(),
+            )
+            raise
+        finally:
+            self.signing_in = False
+            self.typist.kill()
+
+    def screenshot(self, name: str) -> None:
+        """The runner's own screen, where the Remote Desktop window shows Lab
+        User's desktop."""
+        path = self.screens / f"{name}.png"
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command", f"""
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+$b = [System.Windows.Forms.SystemInformation]::VirtualScreen
+$bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+[System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size)
+$bmp.Save('{path}')
+"""],
+            env=windows_vm.windows_powershell_env(),
+        )  # fmt: skip
+
+    def record_screen(self) -> None:
+        while not self.recording.wait(20 if self.signing_in else 60):
+            self.screenshot(time.strftime("%H%M%S"))
+
+    def destroy(self) -> None:
+        if getattr(self, "recording", None):
+            self.recording.set()
+        if getattr(self, "client", None):
+            self.client.kill()
+
+
 def fetch_webview2() -> None:
     if WEBVIEW2.exists() and sha256(WEBVIEW2) == WEBVIEW2_SHA256:
         return
+    WIN_DIR.mkdir(parents=True, exist_ok=True)
     log("Downloading the WebView2 runtime installer...")
     subprocess.run(
         ["curl", "-fsSL", "--retry", "3", "-o", str(WEBVIEW2), WEBVIEW2_URL], check=True

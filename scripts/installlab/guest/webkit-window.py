@@ -29,6 +29,14 @@ manager = WebKit2.WebsiteDataManager(
 view = WebKit2.WebView.new_with_context(
     WebKit2.WebContext.new_with_website_data_manager(manager)
 )
+# The control's evidence that its window really drew (lab.py fails a control
+# run without "page loaded").
+view.connect(
+    "load-changed",
+    lambda _view, event: (
+        event == WebKit2.LoadEvent.FINISHED and print("page loaded: True", flush=True)
+    ),
+)
 view.load_html(PAGE, None)
 window = Gtk.Window(title="WebKitGTK control window")
 window.set_default_size(800, 600)

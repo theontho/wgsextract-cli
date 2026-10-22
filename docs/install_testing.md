@@ -123,7 +123,12 @@ be what passes. In the VM:
    the click would start is.
 4. The app's own **Uninstall** (`GUI_FOR_CLI_AUTO_RUN_UNINSTALL`) runs the bundle's
    uninstall steps, removes the app's data and moves it to the Trash; the Trash
-   is emptied and the machine must match the baseline.
+   is emptied and the machine must match the baseline. One exception: macOS's
+   preferences daemon (cfprefsd) writes the app's deleted preferences file
+   back, empty, up to seconds after the app exits, whatever the app does (even
+   `defaults delete` leaves it). The scenario saves the file as the final
+   snapshot sees it, and the oracle excuses it only if that copy has no keys;
+   `lab.py mutate` checks that a kept setting, or a missing copy, still fails.
 
 The oracle (`gui_oracle.py`) treats the app's own setup, uninstall and test
 reports as evidence, not verdicts: every planned action must have passed, and
@@ -228,8 +233,9 @@ the standard user Lab User:
 
 Setup installs the CLI release the app pins, or this tree with
 `--cli-from-tree`. `lab.py mutate` has Windows-specific corruptions too (an
-Apps entry, shortcut, `Path` entry or running process left behind, an unsigned
-installer reported as signed).
+Apps entry, shortcut, `Path` entry or running process left behind, and the
+signature check reversed: an unsigned installer reported as signed, or a
+signed release reported as unsigned).
 
 ## The Linux app
 
@@ -260,7 +266,8 @@ and the home folder must end as it started.
   firewall must let the bridge reach it, e.g. with ufw:
   `ufw allow in on docker0 from 172.17.0.0/16 to 172.17.0.1 proto tcp`.
 - **host** – the current machine, for disposable CI runners only (refuses to run
-  without `CI` set).
+  without `CI` set). The CLI runs as a new account; on a macOS runner the app
+  runs as the runner's signed-in account (see [In CI](#in-ci)).
 
 - **windows** – Windows 11 Pro in QEMU, with the host's architecture so it runs
   under hardware virtualization: ARM64 under `hvf` on Apple Silicon Macs
@@ -271,7 +278,7 @@ and the home folder must end as it started.
   a forwarded localhost port, and deletes the overlay afterwards. The guest
   downloads artifacts from the host at `10.0.2.2`.
 - **windows-host** – a new standard user on a disposable GitHub Windows runner
-  (CI only; see below).
+  (CI only; see below), for the CLI and the app.
 
 ## Windows
 
@@ -338,3 +345,70 @@ tool survey (`pixi`, `samtools`, `bcftools`, `java`, `python`, `conda`, `bash`,
 `gcc`, `perl`, MSYS2) fails the run if anything is still reachable. The oracle
 needs samtools/bcftools, which have no native Windows Pixi build, so the
 evidence is uploaded and judged (and mutated) by a separate Linux job.
+
+## In CI
+
+`.github/workflows/install_lab.yml` runs the lab on every pull request and push
+to `main`, and weekly:
+
+| Job | Machine | What runs |
+| --- | --- | --- |
+| `linux` | a fresh `ubuntu:24.04` container on `ubuntu-latest` | the CLI; again into a folder with a space; an update from the latest release; weekly, `selftest` |
+| `linux-app` | the same | the latest app release's `.deb` |
+| `macos` | a new account on `macos-latest` | the CLI; weekly, `selftest` |
+| `macos-app` | the runner's signed-in account | the latest app release's DMG |
+| `windows` | a new standard user on `windows-latest` | the CLI; weekly, each sabotage on its own runner |
+| `windows-app` | a new standard user's desktop on `windows-latest` | the latest app release's installer |
+| `windows-judge` | `ubuntu-latest` | judges every Windows job's evidence |
+
+Every passing run is then corrupted (`lab.py mutate`) and every corruption must
+fail. The app jobs test the latest app release, as users get it, with
+`--cli-from-tree`, so the app sets up the CLI under test. Weekly runs also test
+the release with the CLI release it pins, exactly as on a user's machine. A
+sabotaged run's evidence (`--sabotage --no-judge`) is judged as a negative
+control: `lab.py judge` passes it only if it fails on the checks the sabotage
+breaks.
+
+To try an app fix before releasing it, run gui-for-cli's Distribution workflow
+on its branch, then this workflow with that run's ID:
+`gh workflow run install_lab.yml -f app_run=<run id>`. The app jobs then test
+that run's signed builds, and `macos-app` checks out the app source at its
+commit.
+
+Runners aren't new machines, so each run first makes its runner look like one,
+and the oracle still checks the result:
+
+- **macOS**: `lab.py` moves Homebrew and the JDKs aside and turns Gatekeeper
+  on (the runner image has it off). The oracle fails a macOS run whose
+  recorded Gatekeeper status isn't on, or whose tool survey finds `pixi`,
+  `samtools`, `bcftools`, Java, Homebrew or conda, including a Pixi in
+  `~/.pixi`, where installers look for it.
+- **The macOS app**: an app needs a desktop session, and a runner can't sign a
+  new account in (that takes the login window or a reboot), so the app runs as
+  the account signed in at the runner's console. Launch Services gives it
+  launchd's environment, as on any Mac, and the run is judged against that
+  account's own baseline like any other. `lab.py` runs on a tool-cache Python,
+  not Homebrew's, and Pixi, which the oracle needs, is installed only after
+  the scenario, so nothing the lab uses is in that account's home while the
+  app runs.
+- **Windows**: as above (`deprovision-runner.ps1`).
+- **The Windows app**: Lab User needs a signed-in desktop. A runner can't
+  reboot into autologon, but it is Windows Server, which hosts a second
+  desktop session, so Lab User (added to Remote Desktop Users, still a
+  standard user) signs in over Remote Desktop to `127.0.0.2` (the client
+  refuses `127.0.0.1`, its own console). The runner image doesn't let the
+  client use a saved password, so `vm/windows/rdp-sign-in.ps1` types it into
+  the client's credentials dialog with UI Automation, as a person would. Their
+  first sign-in settles for three minutes before the baseline. If the runner
+  lacks the WebView2 runtime, which every Windows 11 PC has, the pinned
+  installer adds it. The runner's screen, showing Lab User's full-screen
+  desktop, is saved once a minute in `screens/`.
+
+Noise lists for runners (`noise/host*.txt`, `noise/windows-host*.txt`) come from
+`--mode control` runs on the runners themselves. An app's control run opens a
+stand-in app for as long as the app's window is open: TextEdit on macOS (the
+app is native, with editable text), a minimal WebKitGTK window on Linux and a
+minimal WebView2 window on Windows. The stand-in must report that it loaded,
+or the control run fails: a control whose stand-in never opened measures less
+than an app run causes, and would make real leftovers look like noise.
+

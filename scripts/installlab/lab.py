@@ -32,10 +32,12 @@ from __future__ import annotations
 import argparse
 import contextlib
 import functools
+import getpass
 import hashlib
 import http.server
 import json
 import os
+import plistlib
 import secrets
 import shlex
 import shutil
@@ -53,6 +55,7 @@ from typing import Any
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 sys.path.insert(0, str(HERE))
+import gui_oracle  # noqa: E402
 import housekeeping  # noqa: E402
 import macos_policy  # noqa: E402
 import windows_gui_vm  # noqa: E402
@@ -472,6 +475,27 @@ class DockerMachine(Machine):
         ).returncode
 
 
+# What a GitHub macOS runner adds that a user's Mac doesn't have. The image's
+# Homebrew and JDKs reach every account (/etc/paths.d, the /usr/bin/java stub);
+# moved aside on the throwaway runner, the oracle's tool survey still fails the
+# run if a preinstalled tool leaks through.
+MACOS_RUNNER_EXTRAS = (
+    "/opt/homebrew",
+    "/usr/local/Homebrew",
+    "/Library/Java/JavaVirtualMachines",
+)
+
+
+def deprovision_macos_runner() -> None:
+    """Make a disposable macOS runner look like a user's Mac before a run."""
+    for extra in MACOS_RUNNER_EXTRAS:
+        if Path(extra).is_dir():
+            run(["sudo", "mv", extra, f"{extra}.lab-hidden"])
+    # The runner image turns Gatekeeper off; a user's Mac has it on. Every macOS
+    # run records its status and the oracle fails a run that had it off.
+    run(["sudo", "spctl", "--global-enable"])
+
+
 class HostMachine(Machine):
     """A brand-new user account on a disposable CI runner (never a dev machine).
 
@@ -482,6 +506,12 @@ class HostMachine(Machine):
 
     user = "wgselab"
 
+    @property
+    def home(self) -> str:
+        return (
+            f"/Users/{self.user}" if sys.platform == "darwin" else f"/home/{self.user}"
+        )
+
     def create(self) -> None:
         if not os.environ.get("CI"):
             raise SystemExit("The host target is only for disposable CI runners.")
@@ -489,12 +519,19 @@ class HostMachine(Machine):
         self.guest_scripts_in_guest = str(self.guest)
         password = secrets.token_hex(16)
         if sys.platform == "darwin":
+            deprovision_macos_runner()
+            # Evidence for the oracle, as TartMachine records it for its VMs.
+            policy = macos_policy.check(["sh", "-c"])
+            (self.results / "gatekeeper-policy.json").write_text(policy.stdout)
             run(["sudo", "sysadminctl", "-addUser", self.user, "-password", password,
-                 "-home", f"/Users/{self.user}"])  # fmt: skip
+                 "-home", self.home])  # fmt: skip
             run(["sudo", "createhomedir", "-c", "-u", self.user], capture_output=True)
         else:
             run(["sudo", "useradd", "-m", "-s", "/bin/bash", self.user])
-        # The results folder must be writable by the new user; nothing else is shared.
+        self.share_results()
+
+    def share_results(self) -> None:
+        """The results folder must be writable by the user; nothing else is shared."""
         os.chmod(self.results, 0o777)
         for parent in self.results.parents:
             mode = os.stat(parent).st_mode
@@ -504,32 +541,65 @@ class HostMachine(Machine):
                 raise SystemExit(f"{parent} isn't traversable by other users.")
             os.chmod(parent, mode | 0o011)
 
+    def destroy(self) -> None:
+        # selftest runs one scenario after another on the same runner.
+        if sys.platform == "darwin":
+            subprocess.run(["sudo", "sysadminctl", "-deleteUser", self.user])
+            subprocess.run(["sudo", "rm", "-rf", self.home])
+        else:
+            subprocess.run(["sudo", "userdel", "-r", self.user])
+
+    def run_as(self) -> list[str]:
+        return ["sudo", "-u", self.user]
+
     def exec(self, env: dict[str, str], command: str) -> int:
-        home = (
-            f"/Users/{self.user}" if sys.platform == "darwin" else f"/home/{self.user}"
-        )
         shell = "/bin/zsh" if sys.platform == "darwin" else "/bin/bash"
         clean_env = [
-            f"HOME={home}",
+            f"HOME={self.home}",
             f"USER={self.user}",
             "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
             *(f"{k}={v}" for k, v in env.items()),
         ]
         return subprocess.run(
-            [
-                "sudo",
-                "-u",
-                self.user,
-                "env",
-                "-i",
-                *clean_env,
-                shell,
-                "-l",
-                "-c",
-                command,
-            ],
+            [*self.run_as(), "env", "-i", *clean_env, shell, "-l", "-c", command],
             cwd="/",
         ).returncode
+
+
+class HostGuiMachine(HostMachine):
+    """The signed-in account of a disposable macOS CI runner, for the app.
+
+    An app needs a desktop session, and a runner can't sign a new account in
+    (that takes the login window or a reboot), so the app scenario runs as the
+    account signed in at the runner's console, with the runner's tools hidden
+    (deprovision_macos_runner). Launch Services gives the app launchd's
+    environment, as on any Mac, and the run is judged against this account's own
+    baseline: the tool survey, the state diffs and the uninstall check are the
+    same as for a new account. The workflow installs the oracle's tools only
+    after the scenario, so nothing the lab uses is in this account's home.
+    """
+
+    def __init__(self, name: str, results: Path, guest: Path) -> None:
+        super().__init__(name, results, guest)
+        self.user = getpass.getuser()
+
+    @property
+    def home(self) -> str:
+        return str(Path.home())
+
+    def create(self) -> None:
+        if not os.environ.get("CI") or sys.platform != "darwin":
+            raise SystemExit(
+                "The host app target is only for disposable macOS runners."
+            )
+        self.results_in_guest = str(self.results)
+        self.guest_scripts_in_guest = str(self.guest)
+        deprovision_macos_runner()
+
+    def destroy(self) -> None: ...
+
+    def run_as(self) -> list[str]:
+        return []
 
 
 MACHINES: dict[str, type[Machine] | type[windows_vm.WindowsMachine]] = {
@@ -544,12 +614,14 @@ MACHINES: dict[str, type[Machine] | type[windows_vm.WindowsMachine]] = {
 # --- commands -------------------------------------------------------------------
 
 
-def noise_patterns(target: str, product: str = "cli") -> list[str]:
+def noise_patterns(
+    target: str, product: str = "cli", platform: str = sys.platform
+) -> list[str]:
     names = [target]
-    if target in ("windows", "linux") and product == "gui":
+    if product == "gui":
         # An app's machine has a desktop, with its own background activity.
         names.append(f"{target}-gui")
-    if target == "host" and sys.platform == "darwin":
+    if target == "host" and platform == "darwin":
         # A fresh user on a macOS runner sees the same Apple background activity.
         names.append("macos")
     patterns = list(GENERIC_NOISE)
@@ -576,10 +648,19 @@ def judge(results: Path, target: str) -> bool:
         oracle = Oracle(results, meta["nonce"], find_tools())
         if meta.get("install_dir"):
             oracle.install_marker = f"/{meta['install_dir']}"
-    if target == "macos" and meta.get("product") != "gui":
+    on_mac = target == "macos" or (
+        target == "host" and meta.get("host_platform") == "darwin"
+    )
+    if on_mac and meta.get("product") != "gui":
         oracle.check_gatekeeper_enabled()
     checks = oracle.run(
-        dataset_dir(), noise_patterns(target, meta.get("product", "cli"))
+        dataset_dir(),
+        noise_patterns(
+            target,
+            meta.get("product", "cli"),
+            # Where the run happened, not where it is judged.
+            meta.get("host_platform", sys.platform),
+        ),
     )
     failed = [c for c in checks if not c.ok]
     for check in checks:
@@ -598,8 +679,30 @@ def judge(results: Path, target: str) -> bool:
     return not failed
 
 
+# An app's control run opens a stand-in app (TextEdit, a minimal WebKitGTK or
+# WebView2 window) and must prove it ran: a control whose stand-in never opened
+# measures less noise than an app run makes, which would hide real leftovers.
+CONTROL_WINDOW_EVIDENCE = {
+    "macos": "control-window.log",
+    "host": "control-window.log",
+    "linux": "control-window.log",
+    "windows": "webview2-window-stdout.txt",
+    "windows-host": "webview2-window-stdout.txt",
+}
+
+
 def report_control(results: Path, target: str) -> bool:
     """Print what changed on an untouched machine: candidates for noise/<target>.txt."""
+    meta = json.loads((results / "lab-run.json").read_text())
+    if meta.get("product") == "gui":
+        evidence = results / CONTROL_WINDOW_EVIDENCE[target]
+        text = evidence.read_text(errors="replace") if evidence.exists() else ""
+        if "page loaded: True" not in text:
+            print(
+                f"Control run FAILED: its stand-in app never loaded ({evidence.name}):"
+            )
+            print(text or "  (no output)")
+            return False
     base = set((results / "inventory-baseline.txt").read_text().splitlines())
     final = set((results / "inventory-after_uninstall.txt").read_text().splitlines())
     changed = sorted((final - base) | (base - final))
@@ -649,7 +752,7 @@ def run_scenario(
         # A local .deb is installed without a signature check, as apt does.
         meta["signed"] = False
         meta["cli_from_tree"] = gui.cli_from_tree
-    elif gui and target == "windows":
+    elif gui and target.startswith("windows"):
         if mode != "control":
             installer, meta["signed"] = build_windows_gui_installer(
                 gui.gui_repo, gui.gui_installer, artifacts["serve"]
@@ -661,6 +764,18 @@ def run_scenario(
         meta["signed"] = build_gui_artifacts(gui.gui_repo, gui.dmg, artifacts["serve"])
         meta["dmg_sha256"] = sha256(artifacts["serve"] / "WGSExtract.dmg")
         meta["cli_from_tree"] = gui.cli_from_tree
+    machine_cls = MACHINES[target]
+    if gui and target == "windows":
+        machine_cls = windows_gui_vm.QemuWindowsGuiMachine
+    elif gui and target == "windows-host":
+        machine_cls = windows_gui_vm.WindowsHostGuiMachine
+    elif gui and target == "host":
+        machine_cls = HostGuiMachine
+    name = f"wgse-lab-{secrets.token_hex(4)}"
+    machine = machine_cls(name, results, artifacts["guest"])
+    if isinstance(machine, HostMachine):
+        # The account the scenario runs as: mutations plant paths in its home.
+        meta["home"] = machine.home
     nonce = secrets.token_hex(16)
     (results / "lab-run.json").write_text(
         json.dumps(
@@ -668,18 +783,14 @@ def run_scenario(
                 "target": target,
                 "mode": mode,
                 "sabotage": sabotage,
+                "host_platform": sys.platform,
                 "nonce": nonce,
                 "archive_sha256": sha256(artifacts["serve"] / "wgsextract-cli.tar.gz"),
                 **meta,
             }
         )
     )
-    machine_cls = MACHINES[target]
-    if gui and target == "windows":
-        machine_cls = windows_gui_vm.QemuWindowsGuiMachine
-    name = f"wgse-lab-{secrets.token_hex(4)}"
     # The machine first: a VM's host-side bridge address only exists once it runs.
-    machine = machine_cls(name, results, artifacts["guest"])
     if isinstance(machine, DockerMachine) and update_from in RELEASES_NEEDING_GIT:
         machine.prerequisites = ("git",)
     if isinstance(machine, DockerMachine) and gui:
@@ -722,7 +833,7 @@ def run_scenario(
                 scenario = shlex.quote(f"{machine.guest_scripts_in_guest}/gui-linux.sh")
                 machine.exec(env, f"sh {scenario}")
                 return results
-            if gui and target == "windows":
+            if gui and target.startswith("windows"):
                 env.pop("LAB_INSTALLER_URL")
                 env.pop("LAB_ARCHIVE_URL", None)
                 if "installer" in meta:
@@ -835,9 +946,11 @@ def cmd_prepare(args: argparse.Namespace) -> None:
 
 def cmd_run(args: argparse.Namespace) -> None:
     gui = args.gui_repo or args.gui_installer
-    if gui and args.target not in ("macos", "windows", "linux"):
+    if gui and args.target not in ("macos", "windows", "linux", "host", "windows-host"):
         raise SystemExit("The app is tested on the macos, windows and linux targets.")
-    if args.gui_installer and args.target == "macos":
+    if gui and args.target == "host" and sys.platform != "darwin":
+        raise SystemExit("On a Linux runner, test the app with the linux target.")
+    if args.gui_installer and args.target in ("macos", "host"):
         raise SystemExit(
             "--gui-installer is a Windows .exe or Linux .deb; use --dmg on macos"
         )
@@ -853,18 +966,25 @@ def cmd_run(args: argparse.Namespace) -> None:
     if args.no_judge:
         log(f"Evidence collected (judge it elsewhere): {results}")
         return
-    ok = judge(results, args.target)
-    if args.sabotage:
-        expected = SABOTAGES[args.sabotage]
-        verdict = json.loads((results / "verdict.json").read_text())
-        failed = {c["name"] for c in verdict["checks"] if not c["ok"]}
-        caught = all(name in failed for name in expected)
-        print(
-            f"Negative control {args.sabotage}: "
-            f"{'caught' if caught else 'NOT CAUGHT'} (expected failing: {expected})"
-        )
-        sys.exit(0 if caught and not ok else 1)
-    sys.exit(0 if ok else 1)
+    sys.exit(0 if judged_as_expected(results, args.target) else 1)
+
+
+def judged_as_expected(results: Path, target: str) -> bool:
+    """A run must pass; a sabotaged run (a negative control) must fail, on the
+    checks its sabotage breaks."""
+    ok = judge(results, target)
+    sabotage = json.loads((results / "lab-run.json").read_text()).get("sabotage")
+    if not sabotage:
+        return ok
+    expected = SABOTAGES[sabotage]
+    verdict = json.loads((results / "verdict.json").read_text())
+    failed = {c["name"] for c in verdict["checks"] if not c["ok"]}
+    caught = all(name in failed for name in expected)
+    print(
+        f"Negative control {sabotage}: "
+        f"{'caught' if caught else 'NOT CAUGHT'} (expected failing: {expected})"
+    )
+    return caught and not ok
 
 
 def cmd_selftest(args: argparse.Namespace) -> None:
@@ -920,6 +1040,28 @@ def _fail_action(report: Any, action: str) -> None:
             step["status"] = "failed"
 
 
+def _flip_signature(r: Path, step: str, app: gui_oracle.AppPlatform) -> None:
+    """The opposite of what the signature check saw: a local build accepted, or
+    a signed release refused (CI tests releases); either must fail the run."""
+    signed = json.loads((r / "lab-run.json").read_text())["signed"]
+    (r / "evidence" / f"{step}.rc").write_text("1" if signed else "0")
+    text = app.unsigned_text if signed else app.signed_text
+    (r / "evidence" / f"{step}.log").write_text(text + "\n")
+
+
+def _preferences_left(r: Path, saved: dict[str, object] | None) -> None:
+    """The app's preferences file left behind, holding `saved` (None: no copy
+    saved). Only an empty one is excused (AppPlatform.emptied_preferences)."""
+    _append(
+        r / "inventory-after_uninstall.txt",
+        f"file\t{_planted(r)['home']}{gui_oracle.MACOS.emptied_preferences}",
+    )
+    copy = r / "uninstall-preferences.plist"
+    copy.unlink(missing_ok=True)
+    if saved is not None:
+        copy.write_bytes(plistlib.dumps(saved, fmt=plistlib.FMT_BINARY))
+
+
 # The app reports its own setup, actions and uninstall; corrupting what it
 # reports must fail the run as surely as corrupting the outputs.
 GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
@@ -930,7 +1072,7 @@ GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
     "empty-calls": MUTATIONS["empty-calls"],
     "leftover-state": lambda r: _append(
         r / "inventory-after_uninstall.txt",
-        "dir\t/Users/admin/Library/Application Support/dev.guiforcli.embed.wgsextract",
+        f"dir\t{_planted(r)['home']}/Library/Application Support/dev.guiforcli.embed.wgsextract",
     ),
     "invisible-install": MUTATIONS["invisible-install"],
     "contaminated-baseline": MUTATIONS["contaminated-baseline"],
@@ -946,14 +1088,13 @@ GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
     "uninstall-failed": lambda r: _json_edit(
         r / "uninstall-result.json", lambda d: d.update(status="failed")
     ),
-    "unsigned-accepted": lambda r: (
-        (r / "evidence" / "gatekeeper.rc").write_text("0"),
-        (r / "evidence" / "gatekeeper.log").write_text("accepted\n"),
-    ),
+    "signature-flipped": lambda r: _flip_signature(r, "gatekeeper", gui_oracle.MACOS),
     "gatekeeper-off": lambda r: (r / "gatekeeper-status.txt").write_text(
         "assessments disabled\n"
     ),
     "no-window": lambda r: (r / "startup.txt").write_text(""),
+    "preferences-kept": lambda r: _preferences_left(r, {"NSWindow Frame main": "x"}),
+    "preferences-unsaved": lambda r: _preferences_left(r, None),
 }
 _WIN_HOME = "C:/Users/lab user"
 _WIN_COMMON = [
@@ -992,10 +1133,7 @@ WINDOWS_GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
         r / "inventory-after_uninstall.txt",
         f"proc\t{_WIN_HOME}/AppData/Local/WGSExtract/node/node.exe",
     ),
-    "unsigned-accepted": lambda r: (
-        (r / "evidence" / "signature.rc").write_text("0"),
-        (r / "evidence" / "signature.log").write_text("Status: Valid\n"),
-    ),
+    "signature-flipped": lambda r: _flip_signature(r, "signature", gui_oracle.WINDOWS),
     "no-window": lambda r: (r / "app-stdout.txt").write_text(""),
 }
 # The Linux app: the same, plus what removing a package can leave behind.
@@ -1018,15 +1156,30 @@ LINUX_GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
 
 def _planted(results: Path) -> dict[str, str]:
     """Paths the mutations plant, in the form the run's own machine records."""
-    target = json.loads((results / "lab-run.json").read_text())["target"]
+    meta = json.loads((results / "lab-run.json").read_text())
+    target = meta["target"]
     if target.startswith("windows"):
         return {
+            "home": "C:/Users/lab user",
             "leftover": "C:/Users/lab user/.pixi",
             "tool": "c:/msys64/ucrt64/bin/samtools.exe",
         }
-    if target in ("macos", "host") and sys.platform == "darwin":
-        return {"leftover": "/Users/admin/.pixi", "tool": "/opt/homebrew/bin/samtools"}
-    return {"leftover": "/home/tester/.pixi", "tool": "/usr/local/bin/samtools"}
+    # host_platform is where lab.py ran; only for `host` is that the machine.
+    if target == "macos" or (
+        target == "host" and meta.get("host_platform") == "darwin"
+    ):
+        home = meta.get("home", "/Users/admin")
+        return {
+            "home": home,
+            "leftover": f"{home}/.pixi",
+            "tool": "/opt/homebrew/bin/samtools",
+        }
+    home = meta.get("home", "/home/tester")
+    return {
+        "home": home,
+        "leftover": f"{home}/.pixi",
+        "tool": "/usr/local/bin/samtools",
+    }
 
 
 def _rewrite(path: Path, old: str, new: str) -> None:
@@ -1045,7 +1198,7 @@ def cmd_mutate(args: argparse.Namespace) -> None:
     missed = []
     if meta.get("product") != "gui":
         mutations = MUTATIONS
-    elif meta["target"] == "windows":
+    elif meta["target"].startswith("windows"):
         mutations = WINDOWS_GUI_MUTATIONS
     elif meta["target"] == "linux":
         mutations = LINUX_GUI_MUTATIONS
@@ -1066,7 +1219,7 @@ def cmd_mutate(args: argparse.Namespace) -> None:
 
 def cmd_judge(args: argparse.Namespace) -> None:
     meta = json.loads((args.results / "lab-run.json").read_text())
-    sys.exit(0 if judge(args.results, meta["target"]) else 1)
+    sys.exit(0 if judged_as_expected(args.results, meta["target"]) else 1)
 
 
 def main() -> None:

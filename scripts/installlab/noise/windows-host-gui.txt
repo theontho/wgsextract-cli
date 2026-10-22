@@ -1,0 +1,33 @@
+# The app on a GitHub Windows runner (target `windows-host`, Lab User signed in
+# over Remote Desktop), on top of windows-host.txt. Measured with `lab.py run
+# windows-host --gui-installer ... --mode control` on the runner (nothing
+# installed; another WebView2 app open instead).
+#
+# After Lab User's first desktop sign-in, Windows keeps provisioning the
+# Microsoft-published Store apps for the account (data folders and their app
+# execution aliases) for longer than the run's settle time.
+*/AppData/Local/Packages/Microsoft*
+*/AppData/Local/Microsoft/WindowsApps/MicrosoftCorporationII.*
+*/AppData/Local/Microsoft/WindowsApps/bash.exe
+*/AppData/Local/Microsoft/WindowsApps/wsl.exe
+*/AppData/Local/Microsoft/WindowsApps/wslconfig.exe
+# Windows' per-user shell compatibility and legacy web caches, created by the
+# desktop session itself.
+*/AppData/Local/Microsoft/Windows/PPBCompat*
+*/AppData/LocalLow/Microsoft/Internet Explorer*
+HKEY_CURRENT_USER/Software/ChangeTracker
+# The Direct3D shader cache of the WebView2 runtime's GPU process and Web
+# Account Manager's token cache: the control's own WebView2 window
+# (webview2-window.ps1) leaves the same D3DSCache/714b5208d22d390f entry and
+# TokenBroker files the app's window does. Windows owns both.
+*/AppData/Local/D3DSCache*
+*/AppData/Local/Microsoft/TokenBroker/Cache/*
+# The shell's per-user cache databases (windows-host.txt has only their
+# folder), updated when Explorer shows the new Start menu and desktop
+# shortcuts; seen in app runs, as in the VM's windows-gui.txt. Windows owns them.
+*/AppData/Local/Microsoft/Windows/Caches/*
+# Windows Defender's helper for the signed-in session starts and stops on its
+# own (seen running at one app run's baseline and gone at its end). The process
+# survey looks outside C:\Windows for agents an app leaves behind, and Defender
+# runs from ProgramData.
+C:/ProgramData/Microsoft/Windows Defender/Platform/*/DefenderSessionHelper.exe

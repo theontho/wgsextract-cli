@@ -1,8 +1,13 @@
 name: Install Lab
 
 # End-to-end install -> use -> update -> uninstall on machines that have never
-# seen WGS Extract. See docs/install_testing.md. No GITHUB_TOKEN reaches the
-# scenario: a real user doesn't have one.
+# seen WGS Extract: the CLI and the WGS Extract app, on Linux, macOS and
+# Windows. See docs/install_testing.md. No GITHUB_TOKEN reaches a scenario: a
+# real user doesn't have one.
+#
+# Every passing run is also corrupted (lab.py mutate) and must then fail, and
+# the weekly run adds negative controls (sabotaged installs that must fail) and
+# the app as users get it, setting up the CLI release it pins.
 
 on:
   pull_request:
@@ -12,9 +17,24 @@ on:
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:
+    inputs:
+      app_run:
+        description: >-
+          A gui-for-cli Distribution run ID: test its app builds instead of the
+          latest release (to try a fix before releasing it)
+        required: false
 
 permissions:
   contents: read
+
+env:
+  # The app as users get it: the latest WGS Extract app release, or the builds
+  # of the Distribution run given as app_run.
+  GUI_REPO: theontho/gui-for-cli
+  APP_RUN: ${{ inputs.app_run }}
+  # `tree`: the app sets up this CLI tree. `pinned` (weekly): the CLI release the
+  # app pins, exactly as a user's app does.
+  WEEKLY: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
 
 jobs:
   linux:
@@ -22,6 +42,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # Host-side measuring tools for the oracle (samtools/bcftools); the guest
       # container never sees this environment.
       - name: Set up Pixi
@@ -44,7 +66,7 @@ jobs:
           latest=$(curl -fsIL -o /dev/null -w '%{url_effective}' https://github.com/theontho/wgsextract-cli/releases/latest)
           python3 scripts/installlab/lab.py run linux --update-from "${latest##*/}" --out out/installlab/ci-linux-update
       - name: Every sabotaged install must fail
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        if: env.WEEKLY == 'true'
         run: python3 scripts/installlab/lab.py selftest linux
       - name: Upload evidence
         if: always()
@@ -54,11 +76,63 @@ jobs:
           path: out/installlab
           retention-days: 14
 
-  macos:
-    runs-on: macos-latest
-    timeout-minutes: 90
+  linux-app:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        cli: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["tree", "pinned"]' || '["tree"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Pixi
+        uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
+        with:
+          pixi-version: v0.82.0
+          locked: true
+          environments: default
+      - name: Download the app's .deb
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "$APP_RUN" ]; then
+            gh run download "$APP_RUN" -R "$GUI_REPO" -n tauri-linux -D out/app-run
+            mkdir -p out/app
+            find out/app-run -name '*_amd64.deb' -exec mv {} out/app/ \;
+          else
+            gh release download -R "$GUI_REPO" -p '*_amd64.deb' -D out/app
+          fi
+          ls -l out/app
+      # A fresh ubuntu:24.04 desktop user (Xvfb display): apt install, the app's
+      # own setup, its actions, its own Uninstall, apt remove.
+      - name: Install, use and uninstall the app in a fresh Ubuntu container
+        env:
+          CLI: ${{ matrix.cli }}
+        run: |
+          args=()
+          if [ "$CLI" = tree ]; then args+=(--cli-from-tree); fi
+          python3 scripts/installlab/lab.py run linux --gui-installer out/app/*_amd64.deb "${args[@]}" --out out/installlab/ci-linux-app
+      - name: Every corruption of the evidence must fail the oracle
+        run: python3 scripts/installlab/lab.py mutate out/installlab/ci-linux-app/results
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: install-lab-linux-app-${{ matrix.cli }}
+          path: out/installlab
+          retention-days: 14
+
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # pixi installs into the runner's account; the scenario runs as a new
+      # account that can't see it.
       - name: Set up Pixi
         uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
         with:
@@ -66,17 +140,17 @@ jobs:
           locked: true
           environments: default
       # Hosted macOS runners can't nest VMs, so the scenario runs as a brand-new
-      # user with only the system PATH. The image's Homebrew and JDK still reach
-      # every user (/etc/paths.d, the /usr/bin/java stub), and a real user's Mac
-      # has neither, so move them aside on this throwaway runner; the oracle
-      # fails the run if any pre-installed tool still leaks through.
-      - name: Hide the runner's preinstalled tools
-        run: |
-          for dir in /opt/homebrew /usr/local/Homebrew /Library/Java/JavaVirtualMachines; do
-            if [ -d "$dir" ]; then sudo mv "$dir" "$dir.lab-hidden"; fi
-          done
+      # account with only the system PATH. lab.py first hides the runner's
+      # Homebrew and JDKs and turns Gatekeeper on, as on a user's Mac; the
+      # oracle fails the run if a preinstalled tool leaks through or Gatekeeper
+      # is off.
       - name: Install, use, update and uninstall as a fresh macOS user
         run: pixi run python scripts/installlab/lab.py run host --out out/installlab/ci-macos
+      - name: Every corruption of the evidence must fail the oracle
+        run: pixi run python scripts/installlab/lab.py mutate out/installlab/ci-macos/results
+      - name: Every sabotaged install must fail
+        if: env.WEEKLY == 'true'
+        run: pixi run python scripts/installlab/lab.py selftest host
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -85,11 +159,89 @@ jobs:
           path: out/installlab
           retention-days: 14
 
+  macos-app:
+    runs-on: macos-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        cli: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["tree", "pinned"]' || '["tree"]') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The app runs as the runner's own signed-in account (a new account can't
+      # get a desktop session on a runner; see HostGuiMachine), so nothing the
+      # lab uses may live in that account's home before the scenario: lab.py
+      # runs on a tool-cache Python (not Homebrew's, which lab.py hides), and
+      # Pixi (for the oracle's samtools/bcftools) is only set up afterwards.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Use the image's newest Xcode (the bundle-test runner needs Swift 6.2+)
+        run: |
+          latest=$(find /Applications -maxdepth 1 -name 'Xcode_*.app' | sort -V | tail -n 1)
+          sudo xcode-select -s "$latest/Contents/Developer"
+          xcodebuild -version
+      - name: Download the app's DMG
+        id: app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "$APP_RUN" ]; then
+            ref=$(gh run view "$APP_RUN" -R "$GUI_REPO" --json headSha -q .headSha)
+            gh run download "$APP_RUN" -R "$GUI_REPO" -n swiftui-macos -D out/app-run
+            mkdir -p out/app
+            find out/app-run -name '*.dmg' -exec mv {} out/app/ \;
+          else
+            ref=$(gh release view -R "$GUI_REPO" --json tagName -q .tagName)
+            gh release download "$ref" -R "$GUI_REPO" -p '*.dmg' -D out/app
+          fi
+          ls -l out/app
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+      # The bundle-test runner drives the app's actions; it must match the app.
+      - name: Check out the app's source (for its bundle-test runner)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.GUI_REPO }}
+          ref: ${{ steps.app.outputs.ref }}
+          path: out/gui-for-cli
+          persist-credentials: false
+      - name: Install, use and uninstall the app as the runner's macOS user
+        env:
+          CLI: ${{ matrix.cli }}
+        run: |
+          args=()
+          if [ "$CLI" = tree ]; then args+=(--cli-from-tree); fi
+          python scripts/installlab/lab.py run host --gui-repo out/gui-for-cli --dmg out/app/*.dmg "${args[@]}" --no-judge --out out/installlab/ci-macos-app
+      # No cache: this job has run the app repository's code, and a cache saved
+      # here would be restored by this repository's other jobs.
+      - name: Set up Pixi
+        uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
+        with:
+          pixi-version: v0.82.0
+          locked: true
+          environments: default
+          cache: false
+      - name: Judge the evidence
+        run: pixi run python scripts/installlab/lab.py judge out/installlab/ci-macos-app/results
+      - name: Every corruption of the evidence must fail the oracle
+        run: pixi run python scripts/installlab/lab.py mutate out/installlab/ci-macos-app/results
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: install-lab-macos-app-${{ matrix.cli }}
+          path: out/installlab
+          retention-days: 14
+
   windows:
     runs-on: windows-latest
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # The runner preinstalls MSYS2, Git, conda, Java, Python and more. lab.py
       # hides them (renames C:\msys64, resets the machine PATH, drops non-default
       # machine variables) and runs the scenario over SSH as a new standard user;
@@ -105,14 +257,87 @@ jobs:
           path: out/installlab/ci-windows/results
           retention-days: 14
 
+  # Weekly: each sabotaged install, on its own fresh runner, must fail.
+  windows-sabotage:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        sabotage: [noop-installer, fake-launcher, break-samtools, leftover, skip-uninstall]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run the sabotaged install as a fresh Windows user
+        run: python scripts/installlab/lab.py run windows-host --sabotage ${{ matrix.sabotage }} --no-judge --out out/installlab/ci-windows
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: install-lab-windows-sabotage-${{ matrix.sabotage }}
+          path: out/installlab/ci-windows/results
+          retention-days: 14
+
+  windows-app:
+    runs-on: windows-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        cli: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["tree", "pinned"]' || '["tree"]') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download the app's installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ($env:APP_RUN) {
+            gh run download $env:APP_RUN -R $env:GUI_REPO -n tauri-windows -D out/app-run
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            New-Item -ItemType Directory -Force out/app | Out-Null
+            Get-ChildItem -Recurse out/app-run -Filter *_x64-setup.exe | Move-Item -Destination out/app
+          } else {
+            gh release download -R "$env:GUI_REPO" -p '*_x64-setup.exe' -D out/app
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+          Get-ChildItem out/app
+      # A new standard user signed in to their own desktop (Remote Desktop to
+      # 127.0.0.2; see WindowsHostGuiMachine), with the runner's tools hidden as
+      # for the CLI. The installer's wizard is clicked through, the app sets
+      # itself up, its actions run, and Settings > Apps uninstalls it.
+      - name: Install, use and uninstall the app as a fresh Windows user
+        env:
+          CLI: ${{ matrix.cli }}
+        run: |
+          $installer = (Get-ChildItem out/app/*_x64-setup.exe).FullName
+          $fromTree = if ($env:CLI -eq "tree") { "--cli-from-tree" } else { $null }
+          python scripts/installlab/lab.py run windows-host --gui-installer $installer $fromTree --no-judge --out out/installlab/ci-windows-app
+          exit $LASTEXITCODE
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: install-lab-windows-app-${{ matrix.cli }}
+          path: |
+            out/installlab/ci-windows-app/results
+            out/installlab/ci-windows-app/screens
+          retention-days: 14
+
   # Judged on Linux: the oracle needs samtools/bcftools, which have no native
   # Windows Pixi build, and the machine under test shouldn't judge itself.
   windows-judge:
-    needs: windows
+    needs: [windows, windows-sabotage, windows-app]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Set up Pixi
         uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
         with:
@@ -121,9 +346,31 @@ jobs:
           environments: default
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: install-lab-windows
-          path: out/installlab/ci-windows/results
+          pattern: install-lab-windows*
+          path: out/installlab
+      # Each evidence set is judged; a sabotaged run passes only by failing on
+      # the checks its sabotage breaks. Evidence a Windows job failed to upload
+      # is missing here, and fails this job.
       - name: Judge the Windows evidence
-        run: python3 scripts/installlab/lab.py judge out/installlab/ci-windows/results
-      - name: Every corruption of the evidence must fail the oracle
-        run: python3 scripts/installlab/lab.py mutate out/installlab/ci-windows/results
+        env:
+          EXPECTED: >-
+            install-lab-windows
+            install-lab-windows-app-tree
+            ${{ env.WEEKLY == 'true' && 'install-lab-windows-app-pinned install-lab-windows-sabotage-noop-installer install-lab-windows-sabotage-fake-launcher install-lab-windows-sabotage-break-samtools install-lab-windows-sabotage-leftover install-lab-windows-sabotage-skip-uninstall' || '' }}
+        run: |
+          status=0
+          for name in $EXPECTED; do
+            results=out/installlab/$name
+            [ -d "$results/results" ] && results=$results/results
+            echo "::group::$name"
+            if [ ! -f "$results/lab-run.json" ]; then
+              echo "no evidence for $name"; status=1
+            elif ! python3 scripts/installlab/lab.py judge "$results"; then
+              status=1
+            elif [ "${name#install-lab-windows-sabotage-}" = "$name" ] &&
+                 ! python3 scripts/installlab/lab.py mutate "$results"; then
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $status
