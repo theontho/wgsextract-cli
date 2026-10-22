@@ -124,6 +124,10 @@ snapshot baseline
 for tool in pixi samtools bcftools java conda mamba; do
     printf '%s\t%s\n' "$tool" "$(command -v "$tool" 2>/dev/null)"
 done > "$R/preexisting-tools.txt"
+# Installers reuse a Pixi in its default place even when PATH doesn't reach it.
+pixi_home="$HOME/.pixi/bin/pixi"
+[ -e "$pixi_home" ] || pixi_home=""
+printf 'pixi-home\t%s\n' "$pixi_home" >> "$R/preexisting-tools.txt"
 if [ "$MODE" = "control" ]; then
     # A different WebKitGTK app (webkit-window.py) is installed, open for 4
     # minutes and removed: what GTK, WebKit and Mesa keep for any such app.

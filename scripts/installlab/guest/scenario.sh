@@ -105,6 +105,10 @@ for tool in pixi samtools bcftools java brew conda mamba; do
     fi
     printf '%s\t%s\n' "$tool" "$found"
 done > "$R/preexisting-tools.txt"
+# Installers reuse a Pixi in its default place even when PATH doesn't reach it.
+pixi_home="$HOME/.pixi/bin/pixi"
+[ -e "$pixi_home" ] || pixi_home=""
+printf 'pixi-home\t%s\n' "$pixi_home" >> "$R/preexisting-tools.txt"
 if [ "$(uname -s)" = Darwin ]; then
     spctl --status > "$R/gatekeeper-status.txt" 2>&1
 fi

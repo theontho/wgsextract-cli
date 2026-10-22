@@ -45,6 +45,9 @@ $survey = foreach ($tool in "pixi", "samtools", "bcftools", "java", "python", "c
     "$tool`t$found"
 }
 if (Test-Path -LiteralPath "C:\msys64") { $survey += "msys2`tC:\msys64" } else { $survey += "msys2`t" }
+# Installers reuse a Pixi in its default place even when PATH doesn't reach it.
+$pixiHome = Join-Path $env:USERPROFILE ".pixi\bin\pixi.exe"
+$survey += if (Test-Path -LiteralPath $pixiHome) { "pixi-home`t$pixiHome" } else { "pixi-home`t" }
 [System.IO.File]::WriteAllLines((Join-Path $R "preexisting-tools.txt"), [string[]]$survey, $Utf8)
 
 if ($Mode -eq "control") {
