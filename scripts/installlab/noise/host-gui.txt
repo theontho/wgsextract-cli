@@ -5,3 +5,7 @@
 # macOS's experimentation framework (trial daemon) downloads its factor packs
 # into the signed-in account on its own schedule.
 */Library/Trial/*
+# macOS's text system saves the account's dynamic language model the first time
+# an app with editable text runs (the runner's account has never had one); the
+# control's TextEdit makes exactly these files.
+*/Library/LanguageModeling/*
