@@ -384,11 +384,19 @@ and the oracle still checks the result:
   reboot into autologon, but it is Windows Server, which hosts a second
   desktop session, so Lab User (added to Remote Desktop Users, still a
   standard user) signs in over Remote Desktop to `127.0.0.2` (the client
-  refuses `127.0.0.1`, its own console). Their first sign-in settles for three
-  minutes before the baseline. If the runner lacks the WebView2 runtime, which
-  every Windows 11 PC has, the pinned installer adds it. The runner's screen,
-  showing the Remote Desktop window, is saved once a minute in `screens/`.
+  refuses `127.0.0.1`, its own console). The runner image doesn't let the
+  client use a saved password, so `vm/windows/rdp-sign-in.ps1` types it into
+  the client's credentials dialog with UI Automation, as a person would. Their
+  first sign-in settles for three minutes before the baseline. If the runner
+  lacks the WebView2 runtime, which every Windows 11 PC has, the pinned
+  installer adds it. The runner's screen, showing Lab User's full-screen
+  desktop, is saved once a minute in `screens/`.
 
 Noise lists for runners (`noise/host*.txt`, `noise/windows-host*.txt`) come from
-`--mode control` runs on the runners themselves.
+`--mode control` runs on the runners themselves. An app's control run opens a
+stand-in app for as long as the app's window is open: TextEdit on macOS (the
+app is native, with editable text), a minimal WebKitGTK window on Linux and a
+minimal WebView2 window on Windows. The stand-in must report that it loaded,
+or the control run fails: a control whose stand-in never opened measures less
+than an app run causes, and would make real leftovers look like noise.
 
