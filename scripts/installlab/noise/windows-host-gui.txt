@@ -1,0 +1,18 @@
+# The app on a GitHub Windows runner (target `windows-host`, Lab User signed in
+# over Remote Desktop), on top of windows-host.txt. Measured with `lab.py run
+# windows-host --gui-installer ... --mode control` on the runner (nothing
+# installed; another WebView2 app open instead).
+#
+# After Lab User's first desktop sign-in, Windows keeps provisioning the
+# Microsoft-published Store apps for the account (data folders and their app
+# execution aliases) for longer than the run's settle time.
+*/AppData/Local/Packages/Microsoft*
+*/AppData/Local/Microsoft/WindowsApps/MicrosoftCorporationII.*
+*/AppData/Local/Microsoft/WindowsApps/bash.exe
+*/AppData/Local/Microsoft/WindowsApps/wsl.exe
+*/AppData/Local/Microsoft/WindowsApps/wslconfig.exe
+# Windows' per-user shell compatibility and legacy web caches, created by the
+# desktop session itself.
+*/AppData/Local/Microsoft/Windows/PPBCompat*
+*/AppData/LocalLow/Microsoft/Internet Explorer*
+HKEY_CURRENT_USER/Software/ChangeTracker
