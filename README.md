@@ -128,7 +128,7 @@ Notes on a few commands:
 - `ref cadd` downloads CADD v1.7 (about 85 GB per build) and `ref gerp` the GERP++ bigWig; `vcf cadd` and `vcf gerp` add `CADD_RAW`/`CADD_PHRED` and `GERP` to a VCF.
 - `sign create` writes a `SHA256SUMS` manifest that `sha256sum -c` also reads, signed with `ssh-keygen -Y sign` when `--key` is given; `sign verify` checks the signature against a trusted key, then re-hashes every file.
 - `align` with FASTQs needs `--ref <FASTA>` when the reference library holds more than one genome, since reads don't say which genome they belong to.
-- `ref spliceai` cannot download automatically because the scores sit behind an Illumina BaseSpace login; the command explains where to place the file.
+- `ref spliceai` downloads Ensembl's open GRCh38 SpliceAI scores (about 29 GB with its published index): every SNV in MANE Select transcripts, no indels. Illumina's full hg19 and hg38 sets sit behind a BaseSpace login, so hg19 needs a manual download; the command explains where to place it. SpliceAI scores are free for academic and not-for-profit use only.
 - `vcf sv` and `vcf cnv` use Delly 2 (`delly sr` / `delly cnv`), which needs no mappability map; `vcf cnv --map` is accepted but ignored.
 - `lineage y-haplogroup` writes Yleaf output to `<outdir>/yleaf/`, because Yleaf clears its output folder.
 - `pet-align` writes next to the R1 FASTQ unless `--outdir` is given.

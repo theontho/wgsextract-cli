@@ -7,7 +7,7 @@ import random
 import shutil
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -802,10 +802,100 @@ def test_deepvariant_bioconda_pipeline_uses_temp_workdir(tmp_path_factory):
 # --- annotation resources -------------------------------------------------------
 
 
-def test_spliceai_download_requires_manual_file(tmp_path):
+def _fake_downloads(urls):
+    def fake_download(url, dest, *_args):
+        urls.append(url)
+        Path(dest).write_bytes(b"\x1f\x8b data")
+        return True
+
+    return fake_download
+
+
+def test_spliceai_downloads_hg38_with_its_index_and_hg19_is_optional(tmp_path):
     from wgsextract_cli.core import annotation_resources as ar
 
-    with patch.object(ar, "download_file") as download:
+    urls: list[str] = []
+    record = MagicMock()
+    record.stdout.readline.return_value = "Y\t2786855\t.\tC\tA\t.\t.\tSpliceAI=...\n"
+    with (
+        patch.object(ar, "download_file", side_effect=_fake_downloads(urls)),
+        patch.object(
+            ar, "run_command", return_value=MagicMock(stdout="1\n2\nY\n")
+        ) as run,
+        patch.object(ar, "popen", return_value=record) as query,
+    ):
+        # hg19 has no open download; its absence is only a warning.
+        assert ar.download_spliceai(str(tmp_path)) is True
+    hg38 = ar.SPLICEAI_URLS["hg38"]
+    assert urls == [hg38, f"{hg38}.tbi"]  # the data before its index
+    dest = tmp_path / "ref" / "spliceai_hg38.vcf.gz"
+    run.assert_called_once_with(["tabix", "-l", str(dest)], capture_output=True)
+    assert query.call_args.args[0] == ["tabix", str(dest), "Y"]
+    assert (tmp_path / "ref" / "spliceai_hg38.vcf.gz.tbi").is_file()
+
+
+def test_spliceai_download_that_fails_its_check_is_removed(tmp_path):
+    from wgsextract_cli.core import annotation_resources as ar
+
+    with (
+        patch.object(ar, "download_file", side_effect=_fake_downloads([])),
+        patch.object(
+            ar,
+            "run_command",
+            side_effect=subprocess.CalledProcessError(1, "tabix"),
+        ),
+    ):
+        assert ar.download_spliceai(str(tmp_path)) is False
+    assert os.listdir(tmp_path / "ref") == []
+
+
+@pytest.mark.skipif(
+    not (shutil.which("bgzip") and shutil.which("tabix")), reason="htslib missing"
+)
+def test_spliceai_check_reads_a_real_index(tmp_path):
+    from wgsextract_cli.core import annotation_resources as ar
+
+    vcf = tmp_path / "src.vcf"
+    vcf.write_text(
+        "##fileformat=VCFv4.2\n##contig=<ID=1>\n##contig=<ID=Y>\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        "1\t100\t.\tA\tG\t.\t.\tSpliceAI=G|X|0.1|0|0|0|1|2|3|4\n"
+        "Y\t200\t.\tC\tT\t.\t.\tSpliceAI=T|Y|0.9|0|0|0|1|2|3|4\n"
+    )
+    subprocess.run(["bgzip", "-f", str(vcf)], check=True)
+    subprocess.run(["tabix", "-p", "vcf", f"{vcf}.gz"], check=True)
+    remote = f"{vcf}.gz"
+
+    def copy(url, dest, *_args):
+        shutil.copy(url, dest)
+        return True
+
+    with (
+        patch.dict(ar.SPLICEAI_URLS, {"hg38": remote, "hg19": None}),
+        patch.object(ar, "download_file", side_effect=copy),
+    ):
+        ar.download_spliceai(str(tmp_path / "lib"))
+    assert (tmp_path / "lib" / "ref" / "spliceai_hg38.vcf.gz.tbi").is_file()
+
+    # Truncated: the index points past the end of the data.
+    Path(remote).write_bytes(Path(remote).read_bytes()[:40])
+    for name in ("spliceai_hg38.vcf.gz", "spliceai_hg38.vcf.gz.tbi"):
+        (tmp_path / "lib" / "ref" / name).unlink()
+    with (
+        patch.dict(ar.SPLICEAI_URLS, {"hg38": remote, "hg19": None}),
+        patch.object(ar, "download_file", side_effect=copy),
+    ):
+        ar.download_spliceai(str(tmp_path / "lib"))
+    assert not (tmp_path / "lib" / "ref" / "spliceai_hg38.vcf.gz").exists()
+
+
+def test_a_resource_with_no_build_installed_fails(tmp_path):
+    from wgsextract_cli.core import annotation_resources as ar
+
+    with (
+        patch.dict(ar.SPLICEAI_URLS, {"hg38": None, "hg19": None}),
+        patch.object(ar, "download_file") as download,
+    ):
         assert ar.download_spliceai(str(tmp_path)) is False
     download.assert_not_called()
 
