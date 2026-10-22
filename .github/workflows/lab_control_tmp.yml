@@ -66,3 +66,15 @@ jobs:
         with:
           name: control-linux-app
           path: out/installlab/control
+  webview2-window-debug:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Stage the WebView2 SDK
+        run: python -c "import sys; sys.path.insert(0, 'scripts/installlab'); import windows_gui_vm, pathlib; windows_gui_vm.add_webview2_sdk(pathlib.Path('out/sdk'))"
+      - name: Windows PowerShell 5.1, as the control runs it
+        run: |
+          $p = Start-Process powershell.exe -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "$PWD\scripts\installlab\guest\windows\webview2-window.ps1", "$PWD\out\sdk", '20') -RedirectStandardOutput out\o.txt -RedirectStandardError out\e.txt -PassThru -Wait
+          "exit $($p.ExitCode)"; "--- stdout"; Get-Content out\o.txt; "--- stderr"; Get-Content out\e.txt
+          Get-ExecutionPolicy -List | Out-String
