@@ -26,3 +26,8 @@ HKEY_CURRENT_USER/Software/ChangeTracker
 # folder), updated when Explorer shows the new Start menu and desktop
 # shortcuts; seen in app runs, as in the VM's windows-gui.txt. Windows owns them.
 */AppData/Local/Microsoft/Windows/Caches/*
+# Windows Defender's helper for the signed-in session starts and stops on its
+# own (seen running at one app run's baseline and gone at its end). The process
+# survey looks outside C:\Windows for agents an app leaves behind, and Defender
+# runs from ProgramData.
+C:/ProgramData/Microsoft/Windows Defender/Platform/*/DefenderSessionHelper.exe
