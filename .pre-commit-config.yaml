@@ -3,9 +3,13 @@ repos:
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
+        # Vendor headers are copied verbatim, trailing spaces included.
+        exclude: ^src/wgsextract_cli/assets/microarray/raw_file_templates/head/
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-added-large-files
+        # A shipped microarray template (4.5 MB gzipped); see its README.
+        exclude: ^src/wgsextract_cli/assets/microarray/raw_file_templates/body/
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.11.0.1
     hooks:

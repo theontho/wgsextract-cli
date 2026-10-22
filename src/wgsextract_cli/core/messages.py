@@ -94,7 +94,8 @@ Available formats:
   Everything:
     all (Combined file of ALL SNPs for GEDMATCH)
   23andMe:
-    23andme_v3, 23andme_v4, 23andme_v5, 23andme_v3+v5, 23andme_api
+    23andme_v2 (also v1: same markers), 23andme_v3, 23andme_v4, 23andme_v5,
+    23andme_v3+v5, 23andme_api
   AncestryDNA:
     ancestry_v1, ancestry_v2
   Family Tree DNA:

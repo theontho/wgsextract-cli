@@ -541,6 +541,16 @@ class TestMicroarraySmoke:
         assert assert_file_contains(output_file, "rs1")
         assert assert_file_contains(output_file, "rs2")
 
+        # The library has no 23andMe v2 template; the one the CLI ships is used.
+        rc, stdout, stderr = run_cli([*args[:-1], "23andme_v1"])
+        assert rc == 0, stderr
+        with open(os.path.join(self.outdir, "input_23andMe_V2.txt")) as f:
+            lines = f.read().splitlines()
+        assert any("build 37" in line for line in lines[:20])
+        body = [line for line in lines if not line.startswith("#")]
+        assert len(body) == 574518
+        assert body[0] == "rs3094315\t1\t752566\t--"
+
 
 class TestRefBasicsSmoke:
     """Ported from test_ref_basics.sh"""

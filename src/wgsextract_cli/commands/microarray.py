@@ -35,6 +35,9 @@ from ._microarray_vcf import (
 )
 
 _MICROARRAY_TEMPLATE_MAP = {
+    # 23andMe's v1 and v2 chips export the same marker list.
+    "23andme_v1": "23andMe_V2",
+    "23andme_v2": "23andMe_V2",
     "23andme_v3": "23andMe_V3",
     "23andme_v4": "23andMe_V4",
     "23andme_v5": "23andMe_V5",
@@ -60,6 +63,9 @@ _MICROARRAY_TEMPLATE_MAP = {
 }
 
 
+_PACKAGED_ASSETS = absolute_path(__file__).parents[1] / "assets"
+
+
 def _resolve_microarray_format(format_key: str) -> str | None:
     normalized = format_key.strip().lower().replace("-", "_")
     if normalized in {"", "all", "combined_all"}:
@@ -73,8 +79,8 @@ def _template_search_roots(ref_fasta: str, lib: ReferenceLibrary) -> list[str]:
     if ref_dir:
         roots.append(ref_dir)
     # Templates ship with the reference library (`ref bootstrap`); search it too
-    # when --ref is a FASTA kept elsewhere.
-    for root in (lib.root, resolve_reference_library()):
+    # when --ref is a FASTA kept elsewhere. Last, the few the CLI ships itself.
+    for root in (lib.root, resolve_reference_library(), str(_PACKAGED_ASSETS)):
         if root and root not in roots:
             roots.append(root)
     return roots
