@@ -10,6 +10,7 @@ is evidence to check, never a verdict to trust.
 from __future__ import annotations
 
 import json
+import plistlib
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,6 +36,11 @@ class AppPlatform:
     installed: list[str]
     # A path the install must visibly add (see Oracle.install_marker).
     install_marker: str
+    # The app's preferences file, which the OS's preferences daemon writes back
+    # empty after the app deleted it (cfprefsd, a few seconds after the app
+    # exits; even `defaults delete` leaves it). Excused only if the copy the
+    # scenario saved (uninstall-preferences.plist) has no keys at all.
+    emptied_preferences: str = ""
 
 
 MACOS = AppPlatform(
@@ -54,6 +60,7 @@ MACOS = AppPlatform(
     window_text="window_appeared_ms=",
     installed=["dir\t/Applications/WGSExtract.app"],
     install_marker="/dev.guiforcli.embed.wgsextract/BundleWorkspaces",
+    emptied_preferences="/Library/Preferences/dev.guiforcli.embed.wgsextract.plist",
 )
 _WIN_APP = "C:/Users/lab user/AppData/Local/WGSExtract"
 WINDOWS = AppPlatform(
@@ -189,6 +196,24 @@ class GuiOracle(Oracle):
             )
         except (OSError, ValueError, KeyError) as e:
             self.record("app.uninstall", False, f"no uninstall result: {e!r}")
+
+    def excuse_leftovers(self, added: list[str]) -> tuple[list[str], list[str]]:
+        suffix = self.app.emptied_preferences
+        leftover = [line for line in added if suffix and line.endswith(suffix)]
+        if not leftover or any(not line.startswith("file\t") for line in leftover):
+            return added, []
+        try:
+            saved = plistlib.loads(
+                (self.results / "uninstall-preferences.plist").read_bytes()
+            )
+        except (OSError, plistlib.InvalidFileException, ValueError):
+            return added, []
+        if saved != {}:
+            return added, []
+        paths = [line.split("\t", 1)[1] for line in leftover]
+        return [line for line in added if line not in leftover], [
+            f"excused, empty (cfprefsd rewrote it): {path}" for path in paths
+        ]
 
     def check_outputs(self, dataset: Path) -> None:
         checks = {

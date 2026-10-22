@@ -165,11 +165,6 @@ app_uninstall() {
     wait_for_file "$R/uninstall-result.json" 600 || return 1
     cat "$R/uninstall-result.json"
     wait_for_app_exit 60 || return 1
-    preferences="$HOME/Library/Preferences/$BUNDLE_ID.plist"
-    if [ -f "$preferences" ]; then
-        cp "$preferences" "$R/uninstall-preferences.plist" || return 1
-        plutil -p "$preferences"
-    fi
     # The user empties the Trash.
     rm -rf "$HOME/.Trash/WGSExtract.app"
     [ ! -e "$APP" ]
@@ -227,6 +222,14 @@ fi
 rm -f "$DMG" "$CLI_ARCHIVE"
 rm -rf "$RUNNER_DIR" "$HOME/Library/Application Support/$GUI_FOR_CLI_APP_SUPPORT_NAME_RUNNER"
 snapshot after_uninstall
+# What the snapshot's preferences file holds (the oracle excuses it only if
+# empty): cfprefsd writes it back up to seconds after the app exits, so it is
+# read here, after the snapshot, not when the app exits.
+preferences="$HOME/Library/Preferences/$BUNDLE_ID.plist"
+if [ -f "$preferences" ]; then
+    cp "$preferences" "$R/uninstall-preferences.plist"
+    plutil -p "$preferences"
+fi
 # Crash reports written during the run, for the host to read (the oracle fails
 # the run on any; the VM and its logs are gone afterwards).
 if [ -d "$HOME/Library/Logs/DiagnosticReports" ]; then

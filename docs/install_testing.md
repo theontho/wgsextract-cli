@@ -123,7 +123,12 @@ be what passes. In the VM:
    the click would start is.
 4. The app's own **Uninstall** (`GUI_FOR_CLI_AUTO_RUN_UNINSTALL`) runs the bundle's
    uninstall steps, removes the app's data and moves it to the Trash; the Trash
-   is emptied and the machine must match the baseline.
+   is emptied and the machine must match the baseline. One exception: macOS's
+   preferences daemon (cfprefsd) writes the app's deleted preferences file
+   back, empty, up to seconds after the app exits, whatever the app does (even
+   `defaults delete` leaves it). The scenario saves the file as the final
+   snapshot sees it, and the oracle excuses it only if that copy has no keys;
+   `lab.py mutate` checks that a kept setting, or a missing copy, still fails.
 
 The oracle (`gui_oracle.py`) treats the app's own setup, uninstall and test
 reports as evidence, not verdicts: every planned action must have passed, and

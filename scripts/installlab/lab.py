@@ -37,6 +37,7 @@ import hashlib
 import http.server
 import json
 import os
+import plistlib
 import secrets
 import shlex
 import shutil
@@ -1048,6 +1049,19 @@ def _flip_signature(r: Path, step: str, app: gui_oracle.AppPlatform) -> None:
     (r / "evidence" / f"{step}.log").write_text(text + "\n")
 
 
+def _preferences_left(r: Path, saved: dict[str, object] | None) -> None:
+    """The app's preferences file left behind, holding `saved` (None: no copy
+    saved). Only an empty one is excused (AppPlatform.emptied_preferences)."""
+    _append(
+        r / "inventory-after_uninstall.txt",
+        f"file\t{_planted(r)['home']}{gui_oracle.MACOS.emptied_preferences}",
+    )
+    copy = r / "uninstall-preferences.plist"
+    copy.unlink(missing_ok=True)
+    if saved is not None:
+        copy.write_bytes(plistlib.dumps(saved, fmt=plistlib.FMT_BINARY))
+
+
 # The app reports its own setup, actions and uninstall; corrupting what it
 # reports must fail the run as surely as corrupting the outputs.
 GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
@@ -1079,6 +1093,8 @@ GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
         "assessments disabled\n"
     ),
     "no-window": lambda r: (r / "startup.txt").write_text(""),
+    "preferences-kept": lambda r: _preferences_left(r, {"NSWindow Frame main": "x"}),
+    "preferences-unsaved": lambda r: _preferences_left(r, None),
 }
 _WIN_HOME = "C:/Users/lab user"
 _WIN_COMMON = [
