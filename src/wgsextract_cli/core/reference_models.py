@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from wgsextract_cli.core.builds import CHR1_LENGTH_BUILDS, build_from_path
 from wgsextract_cli.core.constants import REFERENCE_MODELS, REFGEN_BY_SNCOUNT
@@ -84,7 +85,7 @@ def identify_reference(
 
     count_entry = REFGEN_BY_SNCOUNT.get(contigs)
     count_fasta = str(count_entry[1]) if count_entry else ""
-    count_build = build_from_path(count_fasta)
+    count_build = str(count_entry[3]) if count_entry else ""
 
     chr1 = next((lengths[n] for n in ("chr1", "1", "CHR1") if n in lengths), None)
     build = CHR1_LENGTH_BUILDS.get(chr1) if chr1 is not None else None
@@ -105,7 +106,8 @@ def identify_reference(
         )
 
     if reference_fasta:
-        build = build_from_path(reference_fasta)
+        # Only the file's own name: a folder called hg38 says nothing about it.
+        build = build_from_path(Path(reference_fasta).name)
         if build:
             return ReferenceModel(build, "", "", naming, contigs, "reference")
     return None

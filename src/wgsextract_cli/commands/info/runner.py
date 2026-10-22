@@ -177,6 +177,12 @@ def _coverage_map(
     return {}
 
 
+def reference_model_name(described: str) -> str:
+    """The model in a `ReferenceModel.describe()` line: "hg38 (Chr), rCRS, 195
+    SNs" and "Cat_Fca126, , 71 SNs" (no chr1, so no naming) alike."""
+    return described.split(",", 1)[0].split(" (", 1)[0]
+
+
 def _detailed_metrics(
     data: dict[str, Any],
     idx_stats: list[Any],
@@ -187,9 +193,7 @@ def _detailed_metrics(
     total_reads = sum(s["mapped"] + s["unmapped"] for s in idx_stats)
     avg_len = data["avg_read_len"]
     ref_model_str = data["ref_model_str"]
-    ref_model_name = (
-        ref_model_str.split(" (")[0] if " (" in ref_model_str else "Unknown"
-    )
+    ref_model_name = reference_model_name(ref_model_str)
 
     mapped_by_key: dict[str, int] = {}
     for s in idx_stats:

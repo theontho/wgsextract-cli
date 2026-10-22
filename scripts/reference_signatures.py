@@ -72,7 +72,8 @@ def streamed_lengths(url: str) -> dict[str, int]:
 
 
 def signature(row: dict[str, str]) -> str:
-    lengths = published_fai(row["URL"]) or streamed_lengths(row["URL"])
+    url = row["URL"].strip()  # some catalog URLs end with a space
+    lengths = published_fai(url) or streamed_lengths(url)
     return f"{sequence_signature(lengths)}\t{len(lengths)}"
 
 

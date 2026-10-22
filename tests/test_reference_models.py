@@ -74,15 +74,19 @@ def test_contig_count_identifies_pets_despite_a_chr1():
     assert model.name == "Dog_UU_GSD" and model.evidence == "contig count"
 
 
-def test_human_contig_count_is_ruled_out_by_an_unknown_chr1():
-    assert _identify(_header({"chr1": 250_000_000}, pad_to=455)) is None
+# 84 is human_g1k_v37's count, whose file name carries no build token.
+@pytest.mark.parametrize("contigs", [455, 84])
+def test_human_contig_count_is_ruled_out_by_an_unknown_chr1(contigs):
+    assert _identify(_header({"chr1": 250_000_000}, pad_to=contigs)) is None
 
 
 def test_reference_fasta_is_the_last_resort():
     header = _header({"contig_a": 1000, "contig_b": 2000})
     assert _identify(header) is None
-    model = _identify(header, reference_fasta="/refs/hg19.fa.gz")
+    model = _identify(header, reference_fasta="/refs/hg38/hg19.fa.gz")
     assert model is not None and (model.name, model.evidence) == ("hg19", "reference")
+    # A folder's name is not evidence about the file in it.
+    assert _identify(header, reference_fasta="/refs/hg38/custom.fa") is None
 
 
 def test_describe():
@@ -136,3 +140,14 @@ def test_vcf_contig_lines_are_read_when_there_are_no_sq_lines():
     model = identify_reference(header)
     assert model is not None
     assert (model.name, model.naming, model.mito) == ("T2T", "Chr", "rCRS")
+
+
+def test_info_reads_the_model_name_with_or_without_a_naming():
+    from wgsextract_cli.commands.info.runner import reference_model_name
+
+    human = _identify(_header(HG38, chr_prefix=True, pad_to=30))
+    cat = _identify(_header({"chrA1": 239_367_248, "chrA2": 169_388_855}, pad_to=71))
+    assert human is not None and cat is not None and cat.naming == ""
+    assert reference_model_name(human.describe()) == "hg38"
+    assert reference_model_name(cat.describe()) == "Cat_Fca126"
+    assert reference_model_name("Unknown, 12 SNs") == "Unknown"
