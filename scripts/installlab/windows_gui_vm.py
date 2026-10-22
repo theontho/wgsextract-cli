@@ -219,23 +219,17 @@ Start-Service TermService
 $client = 'HKCU:\\Software\\Microsoft\\Terminal Server Client'
 New-Item -Path $client -Force | Out-Null
 Set-ItemProperty $client AuthenticationLevelOverride 0 -Type DWord
-# CredSSP only hands a saved password to a server it can't verify with
-# Kerberos (a local account) if policy allows it; allow it for this one only.
-$cd = 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\CredentialsDelegation'
-New-Item -Path "$cd\\AllowSavedCredentialsWhenNTLMOnly" -Force | Out-Null
-Set-ItemProperty $cd AllowSavedCredentialsWhenNTLMOnly 1 -Type DWord
-Set-ItemProperty $cd ConcatenateDefaults_AllowSavedNTLMOnly 1 -Type DWord
-Set-ItemProperty "$cd\\AllowSavedCredentialsWhenNTLMOnly" 1 'TERMSRV/127.0.0.2'
-gpupdate /target:computer /force | Out-Null
 """],
             check=True, env=windows_vm.windows_powershell_env(),
         )  # fmt: skip
-        subprocess.run(
-            ["cmdkey", "/generic:TERMSRV/127.0.0.2", f"/user:{user}", f"/pass:{password}"],
-            check=True, capture_output=True,
-        )  # fmt: skip
         log(f"Signing {TESTER} in over Remote Desktop...")
         self.client = subprocess.Popen(["mstsc", "/v:127.0.0.2", "/w:1280", "/h:800"])
+        # The client asks for the credentials; type them in, as a person does.
+        self.typist = subprocess.Popen(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+             str(windows_vm.HERE / "vm" / "windows" / "rdp-sign-in.ps1"), "-User", user],
+            env={**windows_vm.windows_powershell_env(), "LAB_RDP_PASSWORD": password},
+        )  # fmt: skip
         self.signing_in = True
         try:
             wait_for_session(self, 600)
@@ -249,6 +243,7 @@ gpupdate /target:computer /force | Out-Null
             raise
         finally:
             self.signing_in = False
+            self.typist.kill()
 
     def screenshot(self, name: str) -> None:
         """The runner's own screen, where the Remote Desktop window shows Lab
