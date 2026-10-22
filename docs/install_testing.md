@@ -228,8 +228,9 @@ the standard user Lab User:
 
 Setup installs the CLI release the app pins, or this tree with
 `--cli-from-tree`. `lab.py mutate` has Windows-specific corruptions too (an
-Apps entry, shortcut, `Path` entry or running process left behind, an unsigned
-installer reported as signed).
+Apps entry, shortcut, `Path` entry or running process left behind, and the
+signature check reversed: an unsigned installer reported as signed, or a
+signed release reported as unsigned).
 
 ## The Linux app
 
