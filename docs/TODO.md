@@ -7,7 +7,7 @@ Completed work on WGS Extract CLI. Open work is tracked in [GitHub Issues](https
 - [x] **Merge v5 changes**: DeepVariant, GATK, and trio analysis integrated.
 - [x] **Pixi environments**: Python and bioinformatics tools are managed by Pixi (`pixi.toml`), with separate `pacbio`, `deepvariant`, `vep`, and `dev` environments.
 - [x] **Automated release process**: Pushing a `vX.Y.Z` tag runs `release.yml`: it checks the tag against the versions in `pyproject.toml`, `pixi.toml` and the package, runs lint, type checks, tests and the package smoke test, and creates a draft release with generated notes. Publishing the draft builds and attaches the Windows native tools (`release_windows_bwa.yml`); `install.sh` installs the latest published release.
-- [x] **Move to GitHub Issues**: Open items are now issues: #93 (notarized app builds), #94 (SpliceAI download), #95 (VEP on Apple Silicon), #96 (Windows installer wizard), #97 (signed installers), #98 (`webAppRendered` on Windows), #99 (23andMe v1/v2 templates).
+- [x] **Move to GitHub Issues**: Open items moved from this file to [GitHub Issues](https://github.com/theontho/wgsextract-cli/issues).
 
 ## CLI and core engine
 

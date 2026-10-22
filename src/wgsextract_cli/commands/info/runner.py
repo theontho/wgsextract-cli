@@ -9,17 +9,14 @@ from pathlib import Path
 from typing import Any
 
 from wgsextract_cli.core.alignment_metadata import get_bam_header
-from wgsextract_cli.core.builds import build_from_path
-from wgsextract_cli.core.constants import (
-    REFERENCE_MODELS,
-    REFGEN_BY_SNCOUNT,
-)
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
+from wgsextract_cli.core.reference_assets import is_fasta_path
+from wgsextract_cli.core.reference_models import identify_reference, sequence_lengths
 from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
@@ -92,38 +89,19 @@ def _print_detailed(data: dict[str, Any], as_csv: bool) -> None:
 
 
 def _guess_ref_model(
-    md5_sig: str | None, header: str, resolved_ref: str | None
+    md5_sig: str | None, header: str, user_fasta: str | None
 ) -> tuple[str, str]:
-    """Return (reference model description, suggested reference filename)."""
-    num_sns = sum(1 for line in header.splitlines() if line.startswith("@SQ"))
-    ref_model_name, ref_mito, ref_fname = REFERENCE_MODELS.get(
-        md5_sig or "", ("Unknown", "", "")
-    )
+    """Return (reference model description, suggested reference filename).
 
-    # Guess from SN count if MD5 is unknown
-    if ref_model_name == "Unknown" and num_sns in REFGEN_BY_SNCOUNT:
-        # Entry format: [is_primary, filename, mito_tag]
-        _, ref_fname_raw, ref_mito_raw = REFGEN_BY_SNCOUNT[num_sns]
-        ref_fname = str(ref_fname_raw)
-        ref_mito = str(ref_mito_raw)
-        fname = ref_fname.lower()
-        if "hg19" in fname or "grch37" in fname:
-            ref_model_name = "hg19"
-        elif "hg38" in fname or "grch38" in fname:
-            ref_model_name = "hg38"
-        else:
-            ref_model_name = ref_fname.split(".")[0]
-
-    # Guess from the reference filename if still unknown
-    if ref_model_name == "Unknown" and resolved_ref:
-        ref_model_name = build_from_path(Path(resolved_ref).name) or ref_model_name
-
-    ref_model_str = (
-        f"{ref_model_name} (Chr), {ref_mito}, {num_sns} SNs"
-        if ref_model_name != "Unknown"
-        else f"Unknown, {num_sns} SNs"
-    )
-    return ref_model_str, ref_fname
+    A FASTA name counts as evidence only when the user named that FASTA; one a
+    library search picked says nothing about the input.
+    """
+    model = identify_reference(header, md5_sig, user_fasta)
+    if model is None:
+        num_sns = len(sequence_lengths(header))
+        return f"Unknown, {num_sns} SNs", ""
+    logging.debug(f"Reference identified as {model.name} by {model.evidence}")
+    return model.describe(), model.fasta
 
 
 def _fast_metrics(
@@ -131,6 +109,7 @@ def _fast_metrics(
     header: str,
     md5_sig: str | None,
     resolved_ref: str | None,
+    ref_model: tuple[str, str],
 ) -> dict[str, Any]:
     from wgsextract_cli.core.variant_files import get_file_version
 
@@ -143,7 +122,7 @@ def _fast_metrics(
     logging.debug(f"Sort check: {sorted_status} (took {time.time() - t0:.3f}s)")
 
     size_gb, indexed = get_file_stats(input_p)
-    ref_model_str, ref_fname = _guess_ref_model(md5_sig, header, resolved_ref)
+    ref_model_str, ref_fname = ref_model
 
     t0 = time.time()
     _count, avg_len, std_len, avg_tlen, std_tlen, is_paired, first_qname = (
@@ -198,6 +177,12 @@ def _coverage_map(
     return {}
 
 
+def reference_model_name(described: str) -> str:
+    """The model in a `ReferenceModel.describe()` line: "hg38 (Chr), rCRS, 195
+    SNs" and "Cat_Fca126, , 71 SNs" (no chr1, so no naming) alike."""
+    return described.split(",", 1)[0].split(" (", 1)[0]
+
+
 def _detailed_metrics(
     data: dict[str, Any],
     idx_stats: list[Any],
@@ -208,9 +193,7 @@ def _detailed_metrics(
     total_reads = sum(s["mapped"] + s["unmapped"] for s in idx_stats)
     avg_len = data["avg_read_len"]
     ref_model_str = data["ref_model_str"]
-    ref_model_name = (
-        ref_model_str.split(" (")[0] if " (" in ref_model_str else "Unknown"
-    )
+    ref_model_name = reference_model_name(ref_model_str)
 
     mapped_by_key: dict[str, int] = {}
     for s in idx_stats:
@@ -322,9 +305,21 @@ def run(args: argparse.Namespace) -> None:
         Path(outdir).mkdir(parents=True, exist_ok=True)
     logging.debug(f"Output directory: {str(absolute_path(outdir))}")
 
+    user_fasta = args.ref if args.ref and is_fasta_path(args.ref) else None
+    ref_model = _guess_ref_model(md5_sig, header, user_fasta)
+
     json_cache = str(Path(outdir, f"{Path(args.input).name}.wgse_info.json"))
     signature = _input_signature(args.input)
     data = _load_cache(json_cache, signature)
+    # Classifying the header is cheap, so it is redone every run. A cache made
+    # when it said otherwise (older detection, or a different --ref) is stale,
+    # including its chromosome table, which depends on the build.
+    if data and data.get("ref_model_str") != ref_model[0]:
+        logging.debug(
+            f"Ignoring cache {json_cache}: it was made for reference "
+            f"{data.get('ref_model_str')!r}, not {ref_model[0]!r}"
+        )
+        data = {}
 
     if info_cmd is None:
         if not detailed and data.get("avg_read_len"):
@@ -338,7 +333,7 @@ def run(args: argparse.Namespace) -> None:
 
     if not data.get("avg_read_len"):
         logging.debug("Generating fast metrics...")
-        data = _fast_metrics(args.input, header, md5_sig, resolved_ref)
+        data = _fast_metrics(args.input, header, md5_sig, resolved_ref, ref_model)
     data["input_signature"] = signature
 
     if not detailed:

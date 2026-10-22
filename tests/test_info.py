@@ -76,7 +76,7 @@ def test_info_fast_mode(info_env):
     sample, _calls = info_env
     output = _run_info(sample, "info")
 
-    assert "Reference Genome            hg38 (Chr), rCRS, 1 SNs" in output
+    assert "Reference Genome            hg38 (Num), rCRS, 1 SNs" in output
     assert "File Stats                  Sorted, Indexed, 50.0 GBs" in output
     assert "Avg Read Length             150 bp" in output
     assert "Avg Insert Size             300 bp" in output
@@ -89,7 +89,7 @@ def test_info_detailed_mode(info_env):
     sample, _calls = info_env
     output = _run_info(sample, "info", "--detailed")
 
-    assert "hg38 (Chr), rCRS, 1 SNs" in output
+    assert "hg38 (Num), rCRS, 1 SNs" in output
     assert "150 bp" in output
     assert "Bio Gender                  Male" in output
     assert "Illumina NS 6000 (Dante)" in output
@@ -132,6 +132,43 @@ def test_info_legacy_or_corrupt_cache_is_recomputed(info_env, payload):
 
     assert calls["run_body_sample"] == 1
     assert "Avg Read Length             150 bp" in output
+
+
+def test_cached_reference_from_older_detection_is_recomputed(info_env):
+    # #77: a cache whose read metrics are valid but whose reference
+    # classification came from older, wrong detection.
+    sample, calls = info_env
+    _run_info(sample, "info", "--detailed")
+    cache_path = Path(str(sample) + ".wgse_info.json")
+    cache = json.loads(cache_path.read_text())
+    cache["ref_model_str"] = "hg19 (Chr), , 1 SNs"
+    cache_path.write_text(json.dumps(cache))
+
+    output = _run_info(sample, "info", "--detailed")
+
+    assert "hg38 (Num), rCRS, 1 SNs" in output
+    assert calls["run_body_sample"] == 2
+    assert calls["parse_idxstats"] == 2
+    assert json.loads(cache_path.read_text())["ref_model_str"].startswith("hg38")
+
+
+def test_reference_name_counts_only_for_a_fasta_the_user_named(info_env, monkeypatch):
+    sample, _calls = info_env
+    monkeypatch.setattr(runner, "calculate_bam_md5", lambda *_a, **_k: "0" * 32)
+    monkeypatch.setattr(
+        runner, "get_bam_header", lambda *_a, **_k: "@SQ\tSN:contig_a\tLN:1000"
+    )
+    # The library search picked an hg19 FASTA; that says nothing about the input.
+    monkeypatch.setattr(
+        "wgsextract_cli.core.variant_files.resolve_reference",
+        lambda _ref, _md5: "/library/genomes/hg19.fa.gz",
+    )
+    assert "Unknown, 1 SNs" in _run_info(sample, "info")
+
+    fasta = sample.parent / "hg38.fa.gz"
+    fasta.write_bytes(b"")
+    output = _run_info(sample, "info", "--ref", str(fasta))
+    assert "hg38, , 1 SNs" in output
 
 
 def test_region_coverage_does_not_poison_whole_genome_cache(info_env, monkeypatch):

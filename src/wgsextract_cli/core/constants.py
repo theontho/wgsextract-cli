@@ -54,7 +54,7 @@ REFERENCE_MODELS = {
         "hg19.p13.plusMT.no_alt_analysis_set.fa.gz",
     ],
     "9b3bf038da5fef087723525d5174f0bd": ["hg19", "rCRS", "hg19_yseq.fa.gz"],
-    "50093bf43ed53848c9c7696752e65c2f": ["hg19", "rCRS", "hg19_wgse.fa.gz"],
+    "50093bf43ed53848c9c7696752e65c2f": ["hg19", "rCRS", "hg19_WGSE.fa.gz"],
     "bd894134bddba260df88a90123a2ee9c": ["hg38", "rCRS", "hg38.fa.gz"],
     "f5abbfc73ccdb2e8356003d230bce0ce": ["hg38", "rCRS", "hg38p12.fa.gz"],
     "88b5f4bbaaec4a097b3aa160bf776093": [
@@ -116,47 +116,95 @@ REFERENCE_MODELS = {
         "GCF_018350175.1_F.catus_Fca126_mat1.0_genomic.fna.gz",
     ],
     "ed9f80c8e04c461cba35dd1b85a2e2e8": ["T2Tv2.0", "rCRS", "chm13v2.0.fa.gz"],
+    # Reference catalog genomes (seed_genomes.csv); compute a new one's with
+    # scripts/reference_signatures.py.
+    "2777429fbb9f8cbcde449ac60b1b8613": ["hs38d1a", "rCRS", "hs38d1a.fna.gz"],
+    "14b392c68a6a34d0083b360d734eb5f7": ["hs37", "rCRS", "hs37.fa.gz"],
+    "89cbafdbfcd4369f5aaa3bb34911125d": ["hs38d1s", "rCRS", "hs38d1s.fa.gz"],
+    "d52b52352eb5bb59ac527a918131bf2d": ["hg38", "rCRS", "hg38_CP086569.fasta.gz"],
+    "38482ccb4720d61b3caceaf0cb2c0df0": [
+        "hg19",
+        "rCRS",
+        "GRCh37.primary_assembly.genome.fa.gz",
+    ],
+    "3c38d6e133ff02bf1e3d982f03d19054": [
+        "hg38",
+        "rCRS",
+        "GRCh38.primary_assembly.genome.fa.gz",
+    ],
+    "3b16431997472dd3de17f58cc8d73fc4": ["T2Tv2.0", "rCRS", "GCA_009914755.4.fna.gz"],
+    "0dfc6af84589531ba6c7c7a2bfda581f": ["T2T", "rCRS", "CHM13v11Y.fa.gz"],
+    "18f6472fda529a5edf8398711464ab9f": ["T2T", "rCRS", "chm13.draft_v1.1.fasta.gz"],
+    "89fe3fb609c16630417a0bc64035058f": ["T2T", "rCRS", "chm13.draft_v1.0.fasta.gz"],
+    "5c36e82a6c3dc291a08722144aaa6b6a": ["T2T", "rCRS", "chm13.draft_v0.9.fasta.gz"],
+    # Not hg19/hg38/T2T builds: HG002 (CHM13 with HG002's X and Y) and HG01243.
+    "8219a5fb530e4ec7963d240fc97876a5": ["THGv27", "rCRS", "hg002xy_v2.7.fasta.gz"],
+    "502f4ec6812385d2f9e6d7e19a29730d": ["THGv20", "rCRS", "hg002xy_v2.fasta.gz"],
+    "19f89605b2479e947a7cd571fdf70750": ["THG1243v3", "", "hg01243_v3.fna.gz"],
+    # Ensembl's current GRCh38 toplevel (as of 2026-10), detection only: its
+    # contigs change between releases, so the catalog records no signature.
+    "1999a42a0b6740994754efb5aa556f8e": [
+        "GRCh38",
+        "rCRS",
+        "Homo_sapiens.GRCh38.dna.toplevel.fa.gz",
+    ],
 }
 
-# New approach: Use SN count from BAM header to identify likely reference
+# Likely reference by @SQ count: [legacy flag, FASTA, mito name, human build or
+# "" for other species]. Only counts that identify one build belong here: 25 (chr1-22,
+# X, Y, M) describes hg19, hg38 and T2T dictionaries alike.
 REFGEN_BY_SNCOUNT = {
-    25: [True, "hg19_WGSEv2.fa.gz", "chrM"],
     2197: [
         True,
         "GCF_011100685.1_UU_Cfam_GSD_1.0_genomic.fna.gz",
         "MT",
+        "",
     ],  # Dog (UU_Cfam_GSD_1.0, incl. unplaced)
     71: [
         True,
         "GCF_018350175.1_F.catus_Fca126_mat1.0_genomic.fna.gz",
         "MT",
+        "",
     ],  # Cat (Fca126)
-    84: [True, "human_g1k_v37.fasta.gz", "MT"],
-    85: [False, "GCA_000001405.14_GRCh37.p13_no_alt_analysis_set.fna.gz", "chrM"],
-    86: [True, "hs37d5.fa.gz", "MT"],
-    93: [False, "hg19.fa.gz", "chrM"],
-    195: [True, "GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz", "chrM"],
-    297: [False, "Homo_sapiens.GRCh37.75.dna.toplevel.fa.gz", "MT"],
-    298: [False, "GCA_000001405.14_GRCh37.p13_full_analysis_set.fna.gz", "chrM"],
-    389: [False, "Homo_sapiens.GRCh38.89.dna.toplevel.fa.gz", "MT"],
-    455: [False, "hg38.fa.gz", "chrM"],
-    456: [False, "GCA_000001405.15_GRCh38_full_analysis_set.fna.gz", "chrM"],
-    524: [False, "Homo_sapiens.GRCh38.86.dna.toplevel.fa.gz", "MT"],
-    555: [False, "Homo_sapiens.GRCh38.91i.dna.toplevel.fa.gz", "MT"],
-    593: [False, "Homo_sapiens.GRCh38.97i.dna.toplevel.fa.gz", "MT"],
-    595: [True, "hg38p12.fa.gz", "chrM"],
-    639: [False, "Homo_sapiens.GRCh38.current_fasta.dna.toplevel.fa.gz", "MT"],
+    84: [True, "human_g1k_v37.fasta.gz", "MT", "hg19"],
+    85: [
+        False,
+        "GCA_000001405.14_GRCh37.p13_no_alt_analysis_set.fna.gz",
+        "chrM",
+        "hg19",
+    ],
+    86: [True, "hs37d5.fa.gz", "MT", "hg19"],
+    93: [False, "hg19.fa.gz", "chrM", "hg19"],
+    195: [True, "GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz", "chrM", "hg38"],
+    297: [False, "Homo_sapiens.GRCh37.75.dna.toplevel.fa.gz", "MT", "hg19"],
+    298: [
+        False,
+        "GCA_000001405.14_GRCh37.p13_full_analysis_set.fna.gz",
+        "chrM",
+        "hg19",
+    ],
+    389: [False, "Homo_sapiens.GRCh38.89.dna.toplevel.fa.gz", "MT", "hg38"],
+    455: [False, "hg38.fa.gz", "chrM", "hg38"],
+    456: [False, "GCA_000001405.15_GRCh38_full_analysis_set.fna.gz", "chrM", "hg38"],
+    524: [False, "Homo_sapiens.GRCh38.86.dna.toplevel.fa.gz", "MT", "hg38"],
+    555: [False, "Homo_sapiens.GRCh38.91i.dna.toplevel.fa.gz", "MT", "hg38"],
+    593: [False, "Homo_sapiens.GRCh38.97i.dna.toplevel.fa.gz", "MT", "hg38"],
+    595: [True, "hg38p12.fa.gz", "chrM", "hg38"],
+    639: [False, "Homo_sapiens.GRCh38.current_fasta.dna.toplevel.fa.gz", "MT", "hg38"],
     2580: [
         False,
         "GCA_000001405.15_GRCh38_no_alt_plus_hs38d1_analysis_set.fna.gz",
         "chrM",
+        "hg38",
     ],
+    2581: [False, "hs38d1s.fa.gz", "MT", "hg38"],
     2841: [
         False,
         "GCA_000001405.15_GRCh38_full_plus_hs38d1_analysis_set.fna.gz",
         "chrM",
+        "hg38",
     ],
-    3366: [False, "GRCh38_full_analysis_set_plus_decoy_hla.fa.gz", "chrM"],
+    3366: [False, "GRCh38_full_analysis_set_plus_decoy_hla.fa.gz", "chrM", "hg38"],
 }
 
 REF_GENOME_FILENAMES = {
