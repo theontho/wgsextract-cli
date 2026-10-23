@@ -233,3 +233,16 @@ def test_trio_references_are_compared_on_the_called_chromosomes(tmp_path):
         pytest.raises(WGSExtractError, match="father's alignment father.bam isn't"),
     ):
         filter_trio.cmd_trio(args)
+
+
+@needs_htslib
+def test_trio_contigs_follow_every_region_listed(tmp_path):
+    from wgsextract_cli.commands.vcf.trio_alignments import trio_contig_lengths
+
+    bam = _header_bam(tmp_path / "x.bam", {"chr1": 100, "chr2": 200, "chr3": 300})
+    assert trio_contig_lengths(bam, "chr1,chr2") == {"chr1": 100, "chr2": 200}
+    assert trio_contig_lengths(bam, "chr1:1-50,chr3:10-20") == {
+        "chr1": 100,
+        "chr3": 300,
+    }
+    assert list(trio_contig_lengths(bam)) == ["chr1", "chr2", "chr3"]
