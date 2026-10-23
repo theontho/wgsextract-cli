@@ -1,0 +1,37 @@
+name: Remote resources
+
+# Third-party data the CLI downloads can move or change format without notice.
+# These tests read a few kilobytes of each file (tests/test_remote_resources.py).
+on:
+  schedule:
+    - cron: "41 6 * * 1"
+  pull_request:
+    branches: [ main ]
+    paths:
+      - .github/workflows/remote_resources.yml
+      - pixi.toml
+      - src/wgsextract_cli/core/annotation_resources.py
+      - tests/test_remote_resources.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  remote-resources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Pixi
+        uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
+        with:
+          pixi-version: v0.82.0
+          locked: true
+          environments: >-
+            default
+            dev
+      - name: Check remote resources
+        run: pixi run test-remote -v
