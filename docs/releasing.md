@@ -57,9 +57,11 @@ this is the whole sequence, with what to check at each step.
    get, and merge once CI is green. CI runs normally, since a person opened the
    PR.
 
-2. **Tag the app** once gui-for-cli's `main` CI passes on the merge commit:
+2. **Tag the app** once gui-for-cli's `main` CI passes on the merge commit, in
+   an up-to-date gui-for-cli checkout (not this repository's):
 
    ```bash
+   cd ../gui-for-cli && git switch main && git pull --ff-only
    git tag -a vA.B.C -m "vA.B.C ..." && git push origin vA.B.C
    ```
 
@@ -75,7 +77,8 @@ tree and with the CLI release the app pins, plus the negative controls. To
 start it at once: `gh workflow run app_release_watch.yml`.
 
 The **pinned** jobs are the ones that matter: they set up the app exactly as a
-user's machine does, with the CLI release it bundles. All of them passing is
-the evidence the release works. See [install_testing.md](install_testing.md)
+user's machine does, with the CLI release it bundles. The Windows app jobs only
+collect evidence; **windows-judge** checks it (and the negative controls), so
+the evidence the release works is the pinned jobs and windows-judge passing. See [install_testing.md](install_testing.md)
 for what the lab checks, and for trying an app fix before releasing it
 (`gh workflow run install_lab.yml -f app_run=<Distribution run id>`).

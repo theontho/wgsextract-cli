@@ -40,8 +40,26 @@ def main(argv: list[str]) -> int:
         old.add(match[1])
         start, end = match.span(1)
         changes[path] = text[:start] + new + text[end:]
-    for path, text in changes.items():
-        path.write_text(text)
+    # Write each to a temporary file first and rename them all into place; if
+    # anything fails, put back the files already replaced.
+    originals = {path: path.read_text() for path in changes}
+    staged = {path: path.with_name(path.name + ".bump") for path in changes}
+    replaced: list[Path] = []
+    try:
+        for path, text in changes.items():
+            staged[path].write_text(text)
+        for path in changes:
+            staged[path].replace(path)
+            replaced.append(path)
+    except OSError as e:
+        for path in replaced:
+            path.write_text(originals[path])
+        for tmp in staged.values():
+            tmp.unlink(missing_ok=True)
+        print(
+            f"Could not write the new version ({e}); nothing changed.", file=sys.stderr
+        )
+        return 1
     print(f"Version {new} (was {', '.join(sorted(old))}).")
     return 0
 
