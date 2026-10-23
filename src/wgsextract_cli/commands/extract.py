@@ -157,6 +157,18 @@ def _call_haploid_variants(bam: str, ref: str, out_vcf: str) -> None:
     warn_if_no_variants(out_vcf, ref)
 
 
+def _warn_if_female(input_path: str, outdir: str) -> None:
+    """A female sample's chrY reads are mismapped (PAR, X-transposed regions):
+    the extraction succeeds but holds no Y DNA, so say so."""
+    from .info.metrics import sample_sex
+
+    if sample_sex(input_path, outdir) == "Female":
+        logging.warning(
+            f"{input_path} appears female (chrY has under 5% of chrX's reads), so "
+            "its chrY reads are mismapped ones: this output holds no Y-DNA."
+        )
+
+
 def cmd_mito_fasta(args: argparse.Namespace) -> None:
     base = _setup(args, _CALLING_TOOLS)
     ref = require_reference(base.ref, "mitochondrial extraction")
@@ -244,6 +256,7 @@ def cmd_ydna_bam(args: argparse.Namespace) -> None:
     base = _setup(args, _SAMTOOLS)
 
     print_warning("ButtonYOnlyBAM", threads=base.threads)
+    _warn_if_female(args.input, base.outdir)
 
     chr_y = get_chr_name(args.input, "Y", base.cram_opt)
     out_bam = derive_output_path(args.input, base.outdir, "_Y.bam")
@@ -267,6 +280,7 @@ def cmd_ydna_vcf(args: argparse.Namespace) -> None:
     ref = require_reference(base.ref, "Y extraction")
 
     print_warning("ButtonYOnlyVCF", threads=base.threads)
+    _warn_if_female(args.input, base.outdir)
 
     chr_y = get_chr_name(args.input, "Y", base.cram_opt)
     out_bam = derive_output_path(args.input, base.outdir, "_Y_temp.bam")
@@ -285,6 +299,7 @@ def cmd_y_mt_extract(args: argparse.Namespace) -> None:
     base = _setup(args, _SAMTOOLS)
 
     print_warning("ButtonYMTBAM", threads=base.threads)
+    _warn_if_female(args.input, base.outdir)
 
     chr_y = get_chr_name(args.input, "Y", base.cram_opt)
     chr_m = get_chr_name(args.input, "MT", base.cram_opt)
