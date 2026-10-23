@@ -803,21 +803,31 @@ def test_deepvariant_bioconda_pipeline_uses_temp_workdir(tmp_path_factory):
 
 
 def _fake_downloads(urls):
+    from wgsextract_cli.core import annotation_resources as ar
+
     def fake_download(url, dest, *_args):
         urls.append(url)
-        Path(dest).write_bytes(b"\x1f\x8b data")
+        Path(dest).write_bytes(b"\x1f\x8b data" + ar._BGZF_EOF)
         return True
 
     return fake_download
+
+
+def _tabix_query(lines, returncode=0, stderr=""):
+    query = MagicMock()
+    query.stdout = iter(lines)
+    query.stderr.read.return_value = stderr
+    query.wait.return_value = returncode
+    return query
 
 
 def test_spliceai_downloads_hg38_with_its_index_and_hg19_is_optional(tmp_path):
     from wgsextract_cli.core import annotation_resources as ar
 
     urls: list[str] = []
-    record = MagicMock()
-    record.stdout.readline.return_value = "Y\t2786855\t.\tC\tA\t.\t.\tSpliceAI=...\n"
+    record = _tabix_query(["Y\t2786855\t.\tC\tA\t.\t.\tSpliceAI=...\n"])
     with (
+        patch.object(ar.shutil, "which", return_value="/usr/bin/tabix"),
         patch.object(ar, "download_file", side_effect=_fake_downloads(urls)),
         patch.object(
             ar, "run_command", return_value=MagicMock(stdout="1\n2\nY\n")
@@ -838,15 +848,27 @@ def test_spliceai_download_that_fails_its_check_is_removed(tmp_path):
     from wgsextract_cli.core import annotation_resources as ar
 
     with (
+        patch.object(ar.shutil, "which", return_value="/usr/bin/tabix"),
         patch.object(ar, "download_file", side_effect=_fake_downloads([])),
+        patch.object(ar, "run_command", return_value=MagicMock(stdout="1\nY\n")),
+        # A readable record, then a read error later in the contig.
         patch.object(
-            ar,
-            "run_command",
-            side_effect=subprocess.CalledProcessError(1, "tabix"),
+            ar, "popen", return_value=_tabix_query(["Y\t1\n"], 1, "truncated block")
         ),
     ):
         assert ar.download_spliceai(str(tmp_path)) is False
     assert os.listdir(tmp_path / "ref") == []
+
+
+def test_spliceai_without_tabix_downloads_nothing(tmp_path):
+    from wgsextract_cli.core import annotation_resources as ar
+
+    with (
+        patch.object(ar.shutil, "which", return_value=None),
+        patch.object(ar, "download_file") as download,
+    ):
+        assert ar.download_spliceai(str(tmp_path)) is False
+    download.assert_not_called()
 
 
 @pytest.mark.skipif(
@@ -887,6 +909,38 @@ def test_spliceai_check_reads_a_real_index(tmp_path):
     ):
         ar.download_spliceai(str(tmp_path / "lib"))
     assert not (tmp_path / "lib" / "ref" / "spliceai_hg38.vcf.gz").exists()
+
+
+@pytest.mark.skipif(
+    not (shutil.which("bgzip") and shutil.which("tabix")), reason="htslib missing"
+)
+def test_spliceai_keeps_files_the_user_put_in_place(tmp_path):
+    from wgsextract_cli.core import annotation_resources as ar
+
+    ref = tmp_path / "ref"
+    ref.mkdir()
+    # Illumina's file, saved by hand without an index: indexed, not replaced.
+    plain = ref / "spliceai_hg38.vcf"
+    plain.write_text(
+        "##fileformat=VCFv4.2\n##contig=<ID=1>\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        "1\t100\t.\tA\tG\t.\t.\tSpliceAI=G|X|0.1|0|0|0|1|2|3|4\n"
+    )
+    subprocess.run(["bgzip", "-f", str(plain)], check=True)
+    manual = ref / "spliceai_hg38.vcf.gz"
+    before = manual.read_bytes()
+    with patch.object(ar, "download_file") as download:
+        assert ar.download_spliceai(str(tmp_path)) is True
+    download.assert_not_called()
+    assert manual.read_bytes() == before
+    assert (ref / "spliceai_hg38.vcf.gz.tbi").is_file()
+
+    # A pair already in place that fails the check is reported, not removed.
+    (ref / "spliceai_hg38.vcf.gz.tbi").write_bytes(b"not an index")
+    with patch.object(ar, "download_file") as download:
+        assert ar.download_spliceai(str(tmp_path)) is False
+    download.assert_not_called()
+    assert manual.read_bytes() == before
 
 
 def test_a_resource_with_no_build_installed_fails(tmp_path):

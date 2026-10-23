@@ -189,6 +189,14 @@ def _download_resource(
                 manual_missing += 1
                 continue
             logging.info(f"Using manually downloaded {label}: {dest_path}")
+        elif (
+            resource.published_index
+            and Path(dest_path).exists()
+            and not Path(dest_path + ".tbi").exists()
+        ):
+            # A file the user saved here (e.g. Illumina's full set): indexed
+            # locally below, never treated as a partial download and replaced.
+            logging.info(f"Using manually downloaded {label}: {dest_path}")
         elif resource.published_index:
             if not _download_indexed(
                 label, url, dest_path, progress_callback, cancel_event
@@ -227,6 +235,10 @@ def _download_resource(
     return success and manual_missing < len(resource.urls)
 
 
+# The empty block every complete BGZF file ends with (SAM spec 4.1.2).
+_BGZF_EOF = bytes.fromhex("1f8b08040000000000ff0600424302001b0003000000000000000000")
+
+
 def _download_indexed(
     label: str,
     url: str,
@@ -234,37 +246,58 @@ def _download_indexed(
     progress_callback: ProgressCallback | None,
     cancel_event: CancelEvent | None,
 ) -> bool:
-    """Download a BGZF file and its published .tbi, then read the file through
-    the index: a truncated download or a mismatched index fails here."""
-    if Path(dest).is_file() and Path(dest + ".tbi").is_file():
-        logging.info(f"{label} is already installed: {dest}")
-        return True
-    # The data before its index, so the index is never older than the data.
-    for suffix in ("", ".tbi"):
-        logging.info(f"Downloading {label}{suffix and ' index'}...")
-        if not download_file(
-            url + suffix, dest + suffix, progress_callback, cancel_event
-        ):
-            return False
+    """Download a BGZF file and its published .tbi, then check them; a pair
+    already in place is checked too, but never replaced or removed."""
+    if not shutil.which("tabix"):
+        logging.error(f"Checking {label} needs tabix, which was not found.")
+        return False
+    downloaded = not (Path(dest).is_file() and Path(dest + ".tbi").is_file())
+    if downloaded:
+        # The data before its index, so the index is never older than the data.
+        for suffix in ("", ".tbi"):
+            logging.info(f"Downloading {label}{suffix and ' index'}...")
+            if not download_file(
+                url + suffix, dest + suffix, progress_callback, cancel_event
+            ):
+                return False
     try:
-        contigs = run_command(["tabix", "-l", dest], capture_output=True).stdout.split()
-        if not contigs:
-            raise WGSExtractError("its index lists no contigs")
-        # A record from the last contig is read through the index from the
-        # end of the file, which a truncated download doesn't have.
-        query = popen(["tabix", dest, contigs[-1]], stdout=subprocess.PIPE, text=True)
-        assert query.stdout is not None
-        record = query.stdout.readline()
-        query.kill()
-        query.wait()
-        if not record:
-            raise WGSExtractError(f"no records on {contigs[-1]}")
+        _check_indexed(dest)
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+        if not downloaded:
+            logging.error(f"{label} at {dest} failed its check: {e}")
+            return False
         logging.error(f"{label} failed its check ({e}); removing it to re-download.")
         for suffix in ("", ".tbi"):
             Path(dest + suffix).unlink(missing_ok=True)
         return False
+    logging.info(f"{label} is installed: {dest}")
     return True
+
+
+def _check_indexed(dest: str) -> None:
+    """A complete BGZF file whose index matches it: the file ends with the BGZF
+    EOF block, and the last contig reads through the index to its end."""
+    with open(dest, "rb") as f:
+        f.seek(-len(_BGZF_EOF), 2)
+        if f.read() != _BGZF_EOF:
+            raise WGSExtractError("it is truncated (no BGZF end-of-file block)")
+    contigs = run_command(["tabix", "-l", dest], capture_output=True).stdout.split()
+    if not contigs:
+        raise WGSExtractError("its index lists no contigs")
+    # The last contig's data is at the end of the file.
+    query = popen(
+        ["tabix", dest, contigs[-1]],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert query.stdout is not None and query.stderr is not None
+    records = sum(1 for _ in query.stdout)
+    error = query.stderr.read().strip()
+    if query.wait() != 0:
+        raise WGSExtractError(f"reading {contigs[-1]} failed: {error}")
+    if not records:
+        raise WGSExtractError(f"no records on {contigs[-1]}")
 
 
 def download_clinvar(
