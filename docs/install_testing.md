@@ -145,15 +145,16 @@ format is checked there; the CLI lab measures concordance.
 
 Test the DMG downloaded from the published release, not a locally packaged app
 or a manually dispatched Actions artifact. Use a gui-for-cli checkout matching
-the release tag to build the bundle-test runner:
+the release tag to build the bundle-test runner. The plan's `dataSource` steps
+need v0.4.4 or later; an older runner rejects them.
 
 ```bash
-mkdir -p out/installlab/releases/v0.4.2
-gh release download v0.4.2 --repo theontho/gui-for-cli \
-  --pattern WGSExtract-0.4.2.dmg --dir out/installlab/releases/v0.4.2
+mkdir -p out/installlab/releases/v0.4.4
+gh release download v0.4.4 --repo theontho/gui-for-cli \
+  --pattern WGSExtract-0.4.4.dmg --dir out/installlab/releases/v0.4.4
 pixi run -e dev python scripts/installlab/lab.py run macos \
   --gui-repo ../gui-for-cli \
-  --dmg out/installlab/releases/v0.4.2/WGSExtract-0.4.2.dmg
+  --dmg out/installlab/releases/v0.4.4/WGSExtract-0.4.4.dmg
 ```
 
 Do not add `--cli-from-tree`: acceptance must exercise the CLI pinned by the
