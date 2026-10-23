@@ -206,7 +206,7 @@ LOG_MESSAGES = {
     "vcf_revel_done": "REVEL annotation and filtering complete: {output}",
     "vcf_phylop_start": "Annotating VCF with PhyloP conservation scores: {input}",
     "vcf_phylop_resolve": "Auto-resolved PhyloP file: {path}",
-    "vcf_phylop_missing": "PhyloP data file not found. Please provide with --phylop-file or place it in your 'ref/' directory as phylop_hg38.tsv.gz.",
+    "vcf_phylop_missing": "PhyloP data file not found. Please provide with --phylop-file or run 'wgsextract ref phylop' to download phylop_<build>.bw into your 'ref/' directory.",
     "vcf_phylop_done": "PhyloP annotation and filtering complete: {output}",
     "vcf_cadd_start": "Annotating VCF with CADD scores: {input}",
     "vcf_cadd_resolve": "Auto-resolved CADD file: {path}",

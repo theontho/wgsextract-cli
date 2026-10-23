@@ -355,7 +355,7 @@ class ReferenceLibrary:
             settings.get("revel_tsv_path"), "revel", tsv_exts, dirs
         )
         self.phylop_file = self._resolve_annotation_file(
-            settings.get("phylop_tsv_path"), "phylop", tsv_exts, dirs
+            settings.get("phylop_tsv_path"), "phylop", [".bw", *tsv_exts], dirs
         )
         self.cadd_file = self._resolve_annotation_file(
             settings.get("cadd_tsv_path"), "cadd", [".tsv.gz"], dirs

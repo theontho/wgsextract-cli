@@ -1,23 +1,15 @@
 import argparse
 import logging
-import subprocess
 import tempfile
-from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
 
-from wgsextract_cli.core.annotation_resources import open_bigwig
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
-from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
 from wgsextract_cli.core.variant_files import (
-    check_vcf_build,
     ensure_vcf_prepared,
-    match_chromosome_name,
-    vcf_index_chromosomes,
 )
 
 from .annotation_helpers import (
@@ -27,6 +19,7 @@ from .annotation_helpers import (
     require_annotation_file,
     run_min_score_filter,
 )
+from .bigwig_scores import annotate_from_bigwig
 
 CADD_ANNOTATED = "cadd_annotated.vcf.gz"
 # CADD TSV: #Chrom, Pos, Ref, Alt, RawScore, PHRED (one row per allele)
@@ -37,11 +30,6 @@ _CADD_HEADER = [
     'Description="CADD v1.7 PHRED-scaled score">',
 ]
 GERP_ANNOTATED = "gerp_annotated.vcf.gz"
-_GERP_COLUMNS = "CHROM,POS,REF,ALT,INFO/GERP"
-_GERP_HEADER = [
-    "##INFO=<ID=GERP,Number=1,Type=Float,"
-    'Description="GERP++ RS conservation score (maximum over the REF bases)">',
-]
 
 
 def cmd_cadd(args: argparse.Namespace) -> None:
@@ -110,54 +98,6 @@ def cmd_cadd(args: argparse.Namespace) -> None:
     )
 
 
-def _gerp_rows(vcf: str, bw: Any) -> Iterator[str]:
-    """CHROM POS REF ALT GERP rows (the VCF's contig names) for its variant records,
-    scoring each with the maximum GERP over its REF bases."""
-    bw_lengths: dict[str, int] = bw.chroms()
-    to_bw = {
-        chrom: match_chromosome_name(chrom, bw_lengths)
-        for chrom in vcf_index_chromosomes(vcf)
-    }
-    if not any(to_bw.values()):
-        raise WGSExtractError(
-            "None of the VCF's contigs are in the GERP scores; check its genome build."
-        )
-    with tempfile.TemporaryFile() as err:
-        proc = popen(
-            ["bcftools", "query", "-f", r"%CHROM\t%POS\t%REF\t%ALT\n", vcf],
-            stdout=subprocess.PIPE,
-            stderr=err,
-            text=True,
-        )
-        assert proc.stdout is not None
-        try:
-            for line in proc.stdout:
-                chrom, pos, ref, alt = line.rstrip("\n").split("\t")
-                bw_chrom = to_bw.get(chrom)
-                # Skip gVCF reference blocks and symbolic (structural) alleles.
-                if not bw_chrom or all(
-                    a in (".", "*") or a.startswith("<") for a in alt.split(",")
-                ):
-                    continue
-                start = int(pos) - 1
-                end = min(start + len(ref), bw_lengths[bw_chrom])
-                if start >= end:
-                    continue
-                score = bw.stats(bw_chrom, start, end, type="max", exact=True)[0]
-                if score is not None:
-                    yield f"{chrom}\t{pos}\t{ref}\t{alt}\t{score:.4g}\n"
-            if proc.wait() != 0:
-                err.seek(0)
-                raise WGSExtractError(
-                    f"bcftools query failed on {vcf}: {err.read().decode().strip()}"
-                )
-        finally:
-            if proc.poll() is None:
-                proc.kill()
-                proc.wait()
-            proc.stdout.close()
-
-
 def cmd_gerp(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix", "bgzip"])
     log_dependency_info(["bcftools", "tabix", "bgzip"])
@@ -168,37 +108,17 @@ def cmd_gerp(args: argparse.Namespace) -> None:
         args.gerp_file or lib.gerp_file, "vcf_gerp_missing", "gerp"
     )
     logging.info(LOG_MESSAGES["vcf_gerp_resolve"].format(path=gerp_file))
-    vcf_in = ensure_vcf_prepared(input_file)
     ann_out = str(Path(outdir, GERP_ANNOTATED))
-    bw = open_bigwig(gerp_file)
-    try:
-        check_vcf_build(vcf_in, bw.chroms(), "the GERP scores")
-        with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_gerp_") as work:
-            scores = str(Path(work, "gerp.tsv.gz"))
-            with open(scores, "wb") as out:
-                bgzip = popen(
-                    ["bgzip", "-c"], stdin=subprocess.PIPE, stdout=out, text=True
-                )
-                assert bgzip.stdin is not None
-                try:
-                    bgzip.stdin.writelines(_gerp_rows(vcf_in, bw))
-                finally:
-                    bgzip.stdin.close()
-                    if bgzip.wait() != 0:
-                        raise WGSExtractError("bgzip failed writing GERP scores.")
-            run_command(["tabix", "-s1", "-b2", "-e2", scores], capture_output=True)
-            annotate_vcf(
-                vcf_in,
-                scores,
-                _GERP_COLUMNS,
-                ann_out,
-                work,
-                "GERP",
-                _GERP_HEADER,
-                threads=getattr(args, "threads", None),
-            )
-    finally:
-        bw.close()
+    annotate_from_bigwig(
+        ensure_vcf_prepared(input_file),
+        gerp_file,
+        "GERP",
+        "GERP",
+        "GERP++ RS conservation score",
+        ann_out,
+        outdir,
+        threads=getattr(args, "threads", None),
+    )
 
     run_min_score_filter(
         ann_out, outdir, args.min_score, "GERP", "gerp", "GERP", "vcf_gerp_done"

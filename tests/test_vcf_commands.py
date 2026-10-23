@@ -544,6 +544,69 @@ def test_gerp_scores_variants_by_max_over_ref_span(tmp_path):
 
 
 @needs_bcftools
+def test_phylop_scores_variants_from_ucscs_bigwig(tmp_path):
+    pyBigWig = pytest.importorskip("pyBigWig")
+    from wgsextract_cli.commands.vcf import population
+
+    # UCSC's PhyloP bigWigs name contigs chr1, ...; this sample uses 1, ...
+    bigwig = str(tmp_path / "phylop_hg38.bw")
+    bw = pyBigWig.open(bigwig, "w")
+    bw.addHeader([("chr1", 1000)])
+    bw.addEntries("chr1", 99, values=[2.5, -1.25, 7.0], span=1, step=1)
+    bw.close()
+    sample = _write_vcf(
+        tmp_path / "sample.vcf.gz",
+        "{c}\t100\tsnv\tC\tT\t.\tPASS\t.\n"
+        "{c}\t101\tdel\tAT\tA\t.\tPASS\t.\n"
+        "{c}\t500\tnodata\tG\tA\t.\tPASS\t.\n",
+        contig="1",
+    )
+    outdir = tmp_path / "out"
+    args = argparse.Namespace(
+        input=sample, vcf_input=None, outdir=str(outdir), ref=None,
+        phylop_file=bigwig, min_score=2.0,
+    )  # fmt: skip
+    with (
+        patch.object(population, "verify_dependencies"),
+        patch.object(population, "log_dependency_info"),
+    ):
+        population.cmd_phylop(args)
+
+    assert _query(str(outdir / "phylop_annotated.vcf.gz"), "%CHROM:%ID:%PHYLOP\n") == [
+        "1:snv:2.5",
+        "1:del:7",
+        "1:nodata:.",
+    ]
+    assert _query(str(outdir / "phylop_gt_2.0.vcf.gz")) == ["snv", "del"]
+    assert not [n for n in os.listdir(outdir) if n.startswith(".wgse")]
+
+
+def test_phylop_download_keeps_a_bigwig_and_removes_anything_else(tmp_path):
+    pyBigWig = pytest.importorskip("pyBigWig")
+    from wgsextract_cli.core import annotation_resources as ar
+
+    def real_bigwig(url, dest, *_args):
+        assert url == ar.PHYLOP_URLS["hg19"]
+        bw = pyBigWig.open(dest, "w")
+        bw.addHeader([("chr1", 100)])
+        bw.addEntries("chr1", 0, values=[1.0], span=1, step=1)
+        bw.close()
+        return True
+
+    with patch.object(ar, "download_file", side_effect=real_bigwig):
+        assert ar.download_phylop(str(tmp_path), "hg19")
+    assert (tmp_path / "ref" / "phylop_hg19.bw").is_file()
+
+    def error_page(url, dest, *_args):
+        Path(dest).write_text("<html>404 Not Found</html>")
+        return True
+
+    with patch.object(ar, "download_file", side_effect=error_page):
+        assert not ar.download_phylop(str(tmp_path), "hg38")
+    assert not (tmp_path / "ref" / "phylop_hg38.bw").exists()
+
+
+@needs_bcftools
 def test_gnomad_v4_af_table_build_and_annotation(tmp_path):
     from wgsextract_cli.commands.vcf import population
     from wgsextract_cli.core import annotation_resources as ar

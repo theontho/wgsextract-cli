@@ -21,7 +21,6 @@ from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
 
 from .annotation_resources import (
     GNOMAD_URLS,
-    PHYLOP_URLS,
     CancelEvent,
     ProgressCallback,
     ensure_bgzf,
@@ -50,50 +49,6 @@ MT 1 16569 F 1
 * * * F 2
 """,
 }
-
-
-def download_phylop(
-    reflib_dir: str,
-    cancel_event: CancelEvent | None = None,
-    progress_callback: ProgressCallback | None = None,
-) -> bool:
-    """Downloads and indexes PhyloP conservation scores for hg19 and hg38."""
-    target_dir = str(Path(reflib_dir, "ref"))
-    Path(target_dir).mkdir(parents=True, exist_ok=True)
-
-    success = True
-    for build, url in PHYLOP_URLS.items():
-        if cancel_event and cancel_event.is_set():
-            return False
-
-        # We use .tsv.gz suffix for consistency in our app's search logic
-        dest_path = str(Path(target_dir, f"phylop_{build}.tsv.gz"))
-        logging.info(f"Downloading PhyloP {build} from Annovar mirrors...")
-
-        if not download_file(url, dest_path, progress_callback, cancel_event):
-            success = False
-            continue
-
-        if cancel_event and cancel_event.is_set():
-            return False
-
-        # Ensure BGZF format before indexing (Annovar mirrors are usually standard gzip)
-        bgzf_path = ensure_bgzf(dest_path, None, cancel_event)
-        if bgzf_path is None:
-            return False
-        dest_path = bgzf_path
-
-        # Index the TSV
-        logging.info(f"Indexing PhyloP {build}...")
-        try:
-            # Annovar PhyloP format: #Chr, Start, End, Score
-            # We use bcftools annotate with CHROM=1, POS=2
-            run_command(["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", dest_path])
-        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-            logging.error(f"Failed to index PhyloP {build}: {e}")
-            success = False
-
-    return success
 
 
 def download_gnomad(

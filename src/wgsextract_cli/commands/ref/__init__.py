@@ -127,7 +127,13 @@ def register(
     phylop_dl_parser = ref_subs.add_parser(
         "phylop",
         parents=[base_parser],
-        help="Download PhyloP conservation scores for hg19 and hg38.",
+        help="Download UCSC's PhyloP 100-way conservation scores (~10 GB bigWig).",
+    )
+    phylop_dl_parser.add_argument(
+        "--build",
+        choices=["hg38", "hg19"],
+        default="hg38",
+        help="Genome build to download (default: hg38).",
     )
     phylop_dl_parser.set_defaults(func=cmd_phylop_dl)
 
