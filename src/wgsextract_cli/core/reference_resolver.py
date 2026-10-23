@@ -100,6 +100,7 @@ class ReferenceLibrary:
             if Path(self.root).name == "genomes":
                 self.root = str(Path(self.root).parent)
 
+        explicit_fasta = bool(self.fasta)
         signature_match = False
         if not self.fasta:
             self.fasta = self._fasta_matching_signature()
@@ -112,7 +113,11 @@ class ReferenceLibrary:
         )
         self.build = self._detect_build(header_target, root_path)
         if not signature_match:
-            self._reresolve_fasta_for_build()
+            self._reresolve_fasta_for_build(explicit_fasta)
+
+        # Ploidy files and the VEP cache depend on the build, not on a FASTA.
+        self._resolve_build_support_files()
+        self._resolve_vep_cache(settings.get("vep_cache_directory"))
 
         if not self.fasta:
             # Annotating a VCF needs only the build and the library's data files.
@@ -123,9 +128,6 @@ class ReferenceLibrary:
         self.fai = self.fasta + ".fai" if Path(self.fasta + ".fai").exists() else None
         dict_file = reference_dict_path(self.fasta)
         self.dict_file = dict_file if Path(dict_file).exists() else None
-
-        self._resolve_build_support_files()
-        self._resolve_vep_cache(settings.get("vep_cache_directory"))
 
         if skip_full_search:
             return
@@ -167,13 +169,29 @@ class ReferenceLibrary:
             or None
         )
 
-    def _reresolve_fasta_for_build(self) -> None:
-        """Swap a path-guessed FASTA for one of the detected build when they disagree."""
+    def _reresolve_fasta_for_build(self, explicit: bool) -> None:
+        """Swap a guessed FASTA for one of the detected build when they disagree.
+
+        A FASTA the user named is kept (with a warning); a guessed one with no
+        replacement is dropped, so commands ask for --ref instead of calling
+        variants against the wrong build."""
         target = canonical_build(self.build)
-        path_build = build_from_path(self.fasta) if self.fasta else None
-        if not target or not path_build or path_build == target:
+        guessed = self.fasta
+        if not guessed or not target:
+            return
+        # The FASTA's own chr1 length, else its name (human_g1k_v37 names no build).
+        path_build = canonical_build(
+            build_from_chr1_length(read_fai_lengths(guessed))
+        ) or build_from_path(guessed)
+        if not path_build or path_build == target:
             return
 
+        if explicit:
+            logging.warning(
+                f"{self.fasta} looks like {path_build}, but the input is {self.build}; "
+                "using it as given."
+            )
+            return
         logging.debug(
             f"Build mismatch detected (Build={self.build}, Path={self.fasta}). Re-resolving FASTA..."
         )
@@ -188,8 +206,10 @@ class ReferenceLibrary:
                     self.fasta = potential
                     return
         logging.warning(
-            f"Could not find {self.build} genome, reverting to {self.fasta}"
+            f"The input is {self.build}, but the reference library has no {self.build} "
+            f"genome (it has {Path(guessed).name}); pass --ref <FASTA>."
         )
+        self.fasta = None
 
     # --- Build detection --------------------------------------------------
 
