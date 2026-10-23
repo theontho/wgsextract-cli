@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
 
+from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.download_progress import (
     CancelEvent,
     ProgressCallback,
@@ -248,7 +249,7 @@ def _download_indexed(
 ) -> bool:
     """Download a BGZF file and its published .tbi, then check them; a pair
     already in place is checked too, but never replaced or removed."""
-    if not shutil.which("tabix"):
+    if not get_tool_path("tabix"):
         logging.error(f"Checking {label} needs tabix, which was not found.")
         return False
     downloaded = not (Path(dest).is_file() and Path(dest + ".tbi").is_file())

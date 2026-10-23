@@ -827,7 +827,7 @@ def test_spliceai_downloads_hg38_with_its_index_and_hg19_is_optional(tmp_path):
     urls: list[str] = []
     record = _tabix_query(["Y\t2786855\t.\tC\tA\t.\t.\tSpliceAI=...\n"])
     with (
-        patch.object(ar.shutil, "which", return_value="/usr/bin/tabix"),
+        patch.object(ar, "get_tool_path", return_value="/usr/bin/tabix"),
         patch.object(ar, "download_file", side_effect=_fake_downloads(urls)),
         patch.object(
             ar, "run_command", return_value=MagicMock(stdout="1\n2\nY\n")
@@ -848,7 +848,7 @@ def test_spliceai_download_that_fails_its_check_is_removed(tmp_path):
     from wgsextract_cli.core import annotation_resources as ar
 
     with (
-        patch.object(ar.shutil, "which", return_value="/usr/bin/tabix"),
+        patch.object(ar, "get_tool_path", return_value="/usr/bin/tabix"),
         patch.object(ar, "download_file", side_effect=_fake_downloads([])),
         patch.object(ar, "run_command", return_value=MagicMock(stdout="1\nY\n")),
         # A readable record, then a read error later in the contig.
@@ -864,7 +864,7 @@ def test_spliceai_without_tabix_downloads_nothing(tmp_path):
     from wgsextract_cli.core import annotation_resources as ar
 
     with (
-        patch.object(ar.shutil, "which", return_value=None),
+        patch.object(ar, "get_tool_path", return_value=None),
         patch.object(ar, "download_file") as download,
     ):
         assert ar.download_spliceai(str(tmp_path)) is False
