@@ -406,8 +406,7 @@ GERP_URLS = {
 }
 
 
-def open_bigwig(path: str) -> Any:
-    """Open a bigWig with pyBigWig, raising WGSExtractError if it can't be read."""
+def _pybigwig() -> Any:
     try:
         import pyBigWig
     except ImportError as e:
@@ -415,6 +414,12 @@ def open_bigwig(path: str) -> Any:
             "Reading GERP and PhyloP scores needs the pyBigWig Python package, which the "
             "default Pixi environment provides on macOS and Linux."
         ) from e
+    return pyBigWig
+
+
+def open_bigwig(path: str) -> Any:
+    """Open a bigWig with pyBigWig, raising WGSExtractError if it can't be read."""
+    pyBigWig = _pybigwig()
     try:
         bw = pyBigWig.open(path)
     except RuntimeError:
@@ -441,6 +446,8 @@ def _download_bigwig(
     if Path(dest).is_file():
         logging.info(f"{name} is already installed.")
         return True
+    # Without pyBigWig the ~10 GB download couldn't be checked or used.
+    _pybigwig()
     logging.info(f"Downloading {label} scores...")
     if not download_file(url, dest, progress_callback, cancel_event):
         return False

@@ -606,6 +606,20 @@ def test_phylop_download_keeps_a_bigwig_and_removes_anything_else(tmp_path):
     assert not (tmp_path / "ref" / "phylop_hg38.bw").exists()
 
 
+def test_phylop_download_without_pybigwig_downloads_nothing(tmp_path):
+    import sys
+
+    from wgsextract_cli.core import annotation_resources as ar
+
+    with (
+        patch.dict(sys.modules, {"pyBigWig": None}),
+        patch.object(ar, "download_file") as download,
+        pytest.raises(WGSExtractError, match="pyBigWig"),
+    ):
+        ar.download_phylop(str(tmp_path), "hg38")
+    download.assert_not_called()
+
+
 @needs_bcftools
 def test_gnomad_v4_af_table_build_and_annotation(tmp_path):
     from wgsextract_cli.commands.vcf import population
