@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.utils import run_command
 
 pytestmark = pytest.mark.skipif(
     not all(get_tool_path(t) for t in ("bcftools", "bgzip", "tabix", "samtools")),
@@ -36,7 +37,7 @@ def _library(root: Path) -> tuple[Path, str]:
     genomes.mkdir(parents=True)
     fasta = genomes / "hg19.fa"
     fasta.write_text(">chr1\n" + "".join(seq) + "\n")
-    subprocess.run([get_tool_path("samtools"), "faidx", str(fasta)], check=True)
+    run_command([get_tool_path("samtools"), "faidx", str(fasta)])
     templates = root / "microarray" / "raw_file_templates"
     (templates / "head").mkdir(parents=True)
     (templates / "body").mkdir()
@@ -53,10 +54,8 @@ def _library(root: Path) -> tuple[Path, str]:
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
         "chrY\t2655180\tM42\tG\tA\t.\tPASS\t.\n"
     )
-    subprocess.run([get_tool_path("bgzip"), "-f", str(y_snps)], check=True)
-    subprocess.run(
-        [get_tool_path("tabix"), "-p", "vcf", str(y_snps) + ".gz"], check=True
-    )
+    run_command([get_tool_path("bgzip"), "-f", str(y_snps)])
+    run_command([get_tool_path("tabix"), "-p", "vcf", str(y_snps) + ".gz"])
     return fasta, "".join(seq)
 
 
@@ -76,8 +75,8 @@ def _sample_bam(root: Path, seq: str) -> str:
     sam.write_text("\n".join(lines) + "\n")
     bam = root / "sample.bam"
     samtools = get_tool_path("samtools")
-    subprocess.run([samtools, "sort", "-o", str(bam), str(sam)], check=True)
-    subprocess.run([samtools, "index", str(bam)], check=True)
+    run_command([samtools, "sort", "-o", str(bam), str(sam)])
+    run_command([samtools, "index", str(bam)])
     return str(bam)
 
 

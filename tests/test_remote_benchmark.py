@@ -7,13 +7,13 @@ Everything is read remotely by region, so the downloads stay small apart from
 the bootstrap (~170 MB) and chr20 (~65 MB).
 """
 
-import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
 from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.utils import run_command
 
 pytestmark = [
     pytest.mark.remote,
@@ -41,9 +41,14 @@ MIN_CONCORDANCE = 0.98
 
 
 def _run(cmd: list[str], cwd: Path) -> str:
-    return subprocess.run(
-        cmd, cwd=cwd, capture_output=True, text=True, check=True
-    ).stdout
+    """Run a step (expanding tool wrappers); a failure shows the step's own output."""
+    res = run_command(cmd, capture_output=True, check=False, cwd=cwd)
+    if res.returncode != 0:
+        pytest.fail(
+            f"{' '.join(map(str, cmd))} exited {res.returncode}:\n"
+            f"{res.stderr or ''}{res.stdout or ''}"
+        )
+    return str(res.stdout)
 
 
 def _kit_genotypes(path: Path) -> dict[str, str]:
