@@ -36,7 +36,8 @@ def optional_tool_installed(tool: str) -> bool:
         return False
     if not is_pixi_tool_command(command):
         return True
-    return (REPO_ROOT / ".pixi" / "envs" / PIXI_TOOL_ENVS[tool]).is_dir()
+    env_dir: Path = REPO_ROOT / ".pixi" / "envs" / PIXI_TOOL_ENVS[tool]
+    return env_dir.is_dir()
 
 
 FAKE_DIR = REPO_ROOT / "out" / "fake_30x"

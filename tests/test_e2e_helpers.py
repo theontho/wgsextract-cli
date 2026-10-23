@@ -1,7 +1,13 @@
+from pathlib import Path
+
+import pytest
+
 from tests import e2e_base
 
 
-def test_optional_tool_needs_its_pixi_environment_installed(tmp_path, monkeypatch):
+def test_optional_tool_needs_its_pixi_environment_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(e2e_base, "REPO_ROOT", tmp_path)
     deferred = "pixi run -e freebayes freebayes"
     monkeypatch.setattr(e2e_base, "get_tool_path", lambda tool: deferred)
