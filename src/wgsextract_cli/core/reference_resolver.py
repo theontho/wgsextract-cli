@@ -308,10 +308,11 @@ class ReferenceLibrary:
                 return
 
     def _resolve_ref_vcf_tab(self) -> None:
-        """Microarray target: All_SNPs_<build>_ref.tab.gz wins over generic SNP VCFs.
+        """Microarray target: All_SNPs_<build>_ref.tab.gz, else a generic SNP VCF.
 
-        snps_<build>.vcf.gz in the bootstrap is a Y-SNP set, so it is only a last
-        resort when no genome-wide target exists.
+        Never the bootstrap's snps_<build>.vcf.gz: it holds only Y-chromosome SNPs,
+        so every kit made from it was empty. Without a genome-wide target,
+        microarray builds one from the chip templates.
         """
         assert self.root is not None
         root = self.root
@@ -321,7 +322,6 @@ class ReferenceLibrary:
             str(Path(root, "ref")),
         ]
         tab_names: list[str] = []
-        snp_vcf_names: list[str] = []
         if self.build:
             build = self.build.lower()
             alt_build = {"hg38": "grch38", "hg19": "grch37"}.get(build)
@@ -331,9 +331,6 @@ class ReferenceLibrary:
             tab_names = list(
                 dict.fromkeys(f"All_SNPs_{name}_ref.tab.gz" for name in spellings)
             )
-            snp_vcf_names = [f"snps_{build}.vcf.gz"]
-            if alt_build:
-                snp_vcf_names.append(f"snps_{alt_build}.vcf.gz")
             search_dirs += [
                 str(Path(root, "microarray", self.build)),
                 str(Path(root, self.build)),
@@ -357,8 +354,7 @@ class ReferenceLibrary:
             or resolve_input_target_tab(self.input_path)
             or self._first_existing_file(search_dirs, generic_names)
             or find_reference_target_tab(root, self.build or "")
-            or self._first_existing_file(search_dirs, snp_vcf_names)
-            or self._walk_for_file(walk_roots, generic_names + snp_vcf_names)
+            or self._walk_for_file(walk_roots, generic_names)
         )
 
     def _resolve_annotation_files(self) -> None:

@@ -10,7 +10,13 @@ import pytest
 
 from wgsextract_cli.commands.ref import core_commands
 from wgsextract_cli.core import genome_library, reference_ncount, reference_resolver
-from wgsextract_cli.core.gene_map import GeneMap, _merge_gene_range, gene_map_exists
+from wgsextract_cli.core.gene_map import (
+    GeneMap,
+    _merge_gene_range,
+    gene_coords,
+    gene_map_exists,
+    resolve_gene_map_reflib,
+)
 from wgsextract_cli.core.ref_library import downloads
 from wgsextract_cli.core.reference_assets import (
     fasta_signature,
@@ -122,6 +128,24 @@ def test_gene_map_refuses_t2t_instead_of_using_hg19(tmp_path):
     assert GeneMap(str(tmp_path)).get_coords("BRCA1", "GRCh37") == (
         "chr17:41196312-41277500"
     )
+
+
+def test_gene_coords_says_why_a_gene_cant_be_found(tmp_path):
+    with pytest.raises(WGSExtractError, match="ref gene-map"):
+        gene_coords(str(tmp_path), "BRCA1", "hg38")
+    (tmp_path / "ref").mkdir()
+    (tmp_path / "ref" / "genes_hg38.tsv").write_text(
+        "symbol\tchrom\tstart\tend\nBRCA1\tchr17\t43044295\t43125483\n"
+    )
+    assert gene_coords(str(tmp_path), "brca1", "hg38") == "chr17:43044295-43125483"
+    with pytest.raises(WGSExtractError, match="NOTAGENE isn't in the hg38"):
+        gene_coords(str(tmp_path), "NOTAGENE", "hg38")
+
+
+def test_gene_map_library_of_a_catalog_fasta_is_above_genomes(tmp_path):
+    # Catalog FASTAs live in <library>/genomes/; ref gene-map installs into <library>.
+    fasta = tmp_path / "genomes" / "hs38.fa.gz"
+    assert resolve_gene_map_reflib(str(fasta), None) == str(tmp_path)
 
 
 def test_gene_ranges_never_merge_across_contigs():
@@ -506,9 +530,8 @@ def test_target_tab_never_uses_another_builds_file(tmp_path):
     (microarray / "All_SNPs_hg19_ref.tab.gz").write_bytes(b"")
     (microarray / "snps_hg38.vcf.gz").write_bytes(b"")
 
-    assert find_reference_target_tab(str(tmp_path), "hg38") == str(
-        microarray / "snps_hg38.vcf.gz"
-    )
+    # snps_hg38.vcf.gz is the bootstrap's Y-SNP set, never a genome-wide target.
+    assert find_reference_target_tab(str(tmp_path), "hg38") == ""
     assert find_reference_target_tab(str(tmp_path), "hg19") == str(
         microarray / "All_SNPs_hg19_ref.tab.gz"
     )

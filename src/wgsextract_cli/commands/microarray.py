@@ -14,6 +14,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
+from wgsextract_cli.core.microarray_targets import build_genome_wide_target
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem, resolve_reference_library
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
@@ -197,6 +198,13 @@ def run(args: argparse.Namespace) -> None:
     if not ref_fasta or not Path(ref_fasta).is_file():
         message = LOG_MESSAGES["ref_required_for"].format(task="microarray generation")
         raise WGSExtractError(message)
+
+    if not ref_vcf_tab and lib.root and lib.build:
+        # A library set up with `ref bootstrap` has the chip templates but no
+        # genome-wide target: build it from them (once).
+        ref_vcf_tab = build_genome_wide_target(
+            lib.root, lib.build, _template_search_roots(ref_fasta, lib)
+        )
 
     if not ref_vcf_tab:
         message = "--ref-vcf-tab is required and could not be auto-resolved."

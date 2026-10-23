@@ -79,7 +79,8 @@ def register(
         help="Aligner to use. Auto uses pbmm2 for PacBio when installed, otherwise minimap2.",
     )
     parser.add_argument(
-        "--sample", help="Sample name to write into read-group metadata when supported."
+        "--sample",
+        help="Sample name for the read group (default: the reads' file name).",
     )
     parser.add_argument(
         "--long-read", action="store_true", help=CLI_HELP["arg_long_read"]
@@ -251,6 +252,27 @@ def run_streamed_alignment(
         run_command(get_sam_index_cmd(out_path, threads=threads))
 
 
+# SAM-spec @RG PL values for --platform.
+_RG_PLATFORMS = {
+    "illumina": "ILLUMINA",
+    "pacbio": "PACBIO",
+    "hifi": "PACBIO",
+    "clr": "PACBIO",
+    "ont": "ONT",
+    "nanopore": "ONT",
+}
+
+
+def _read_group(args: argparse.Namespace, stem: str) -> str:
+    """The @RG line for -R (bwa, minimap2 expand the \\t). Variant callers and
+    multi-sample tools need each sample's own SM, and GATK requires a read group
+    with a platform. The default sample is the reads' name without its mate
+    marker (family.mother_R1 -> family.mother), so different people stay apart."""
+    sample = getattr(args, "sample", None) or pair_stem(stem)
+    platform = _RG_PLATFORMS.get(getattr(args, "platform", None) or "", "ILLUMINA")
+    return f"@RG\\tID:{stem}\\tSM:{sample}\\tLB:{sample}\\tPL:{platform}"
+
+
 def align_bwa(args: argparse.Namespace) -> None:
     setup = _prepare_alignment(args, ["bwa", "samtools"], "BWA alignment")
     ensure_bwa_index(setup.ref)
@@ -263,7 +285,8 @@ def align_bwa(args: argparse.Namespace) -> None:
     logging.info(
         LOG_MESSAGES["aligning_reads"].format(input=args.r1, output=out_bam, tool="BWA")
     )
-    align_cmd = ["bwa", "mem", "-t", setup.threads, setup.ref, args.r1]
+    align_cmd = ["bwa", "mem", "-t", setup.threads, "-R", _read_group(args, setup.stem)]
+    align_cmd += [setup.ref, args.r1]
     try:
         run_streamed_alignment(
             align_cmd + ([args.r2] if args.r2 else []),
@@ -303,7 +326,8 @@ def align_minimap2(args: argparse.Namespace) -> None:
         )
     )
     preset = _minimap2_preset(args)
-    align_cmd = ["minimap2", "-ax", preset, "-t", setup.threads, setup.ref, args.r1]
+    align_cmd = ["minimap2", "-ax", preset, "-t", setup.threads]
+    align_cmd += ["-R", _read_group(args, setup.stem), setup.ref, args.r1]
     try:
         run_streamed_alignment(
             align_cmd + ([args.r2] if args.r2 else []),

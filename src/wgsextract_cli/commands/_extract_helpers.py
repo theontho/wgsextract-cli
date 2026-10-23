@@ -103,7 +103,7 @@ def resolve_region_or_gene(
 
     from wgsextract_cli.core.config import settings
     from wgsextract_cli.core.gene_map import (
-        GeneMap,
+        gene_coords,
         gene_map_build,
         resolve_gene_map_reflib,
     )
@@ -126,9 +126,7 @@ def resolve_region_or_gene(
             "reference_library in config.toml."
         )
 
-    resolved_region = GeneMap(reflib_dir).get_coords(args.gene, build)
-    if not resolved_region:
-        raise WGSExtractError(f"Could not resolve gene name: {args.gene}")
+    resolved_region = gene_coords(reflib_dir, args.gene, build)
     logging.info(f"Resolved gene {args.gene} to {resolved_region}")
     return str(resolved_region)
 

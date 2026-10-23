@@ -1547,18 +1547,23 @@ class TestReferenceSupportAssets(unittest.TestCase):
         )
         os.makedirs(nested_ref)
         fasta = os.path.join(self.test_dir, "genomes", "hg19.fa.gz")
-        snps = os.path.join(nested_ref, "snps_hg19.vcf.gz")
+        y_snps = os.path.join(nested_ref, "snps_hg19.vcf.gz")
         Path(fasta).touch()
-        Path(snps).touch()
+        Path(y_snps).touch()
 
         input_path = os.path.join(self.test_dir, "inputs", "HG00096.hg19-mini.bam")
         os.makedirs(os.path.dirname(input_path))
         Path(input_path).touch()
 
+        # The bootstrap's snps_<build>.vcf.gz holds only Y SNPs: never a target.
         lib = ReferenceLibrary(self.test_dir, None, input_path=input_path)
-
         self.assertEqual(lib.build, "hg19")
-        self.assertEqual(lib.ref_vcf_tab, snps)
+        self.assertIsNone(lib.ref_vcf_tab)
+
+        targets = os.path.join(nested_ref, "All_SNPs_hg19_ref.tab.gz")
+        Path(targets).touch()
+        lib = ReferenceLibrary(self.test_dir, None, input_path=input_path)
+        self.assertEqual(lib.ref_vcf_tab, targets)
 
     def test_reference_library_resolves_input_manifest_reference_fasta(self):
         from wgsextract_cli.core.reference_resolver import ReferenceLibrary
@@ -1639,8 +1644,9 @@ class TestReferenceSupportAssets(unittest.TestCase):
         os.makedirs(os.path.join(self.test_dir, "genomes"))
         os.makedirs(nested_ref)
         Path(os.path.join(self.test_dir, "genomes", "hg19.fa.gz")).touch()
-        snps = os.path.join(nested_ref, "snps_hg19.vcf.gz")
-        Path(snps).touch()
+        targets = os.path.join(nested_ref, "All_SNPs_hg19_ref.tab.gz")
+        Path(targets).touch()
+        Path(os.path.join(nested_ref, "snps_hg19.vcf.gz")).touch()  # Y SNPs only
 
         input_path = os.path.join(self.test_dir, "inputs", "HG00096.hg19-mini.bam")
         os.makedirs(os.path.dirname(input_path))
@@ -1649,4 +1655,4 @@ class TestReferenceSupportAssets(unittest.TestCase):
         lib = ReferenceLibrary(self.test_dir, None, input_path=input_path)
 
         self.assertEqual(lib.build, "hg19")
-        self.assertEqual(lib.ref_vcf_tab, snps)
+        self.assertEqual(lib.ref_vcf_tab, targets)

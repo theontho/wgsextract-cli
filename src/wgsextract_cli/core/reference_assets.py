@@ -20,10 +20,11 @@ from wgsextract_cli.core.paths import (
 
 FASTA_EXTENSIONS = (".fa", ".fasta", ".fna", ".fa.gz", ".fasta.gz", ".fna.gz")
 FASTA_SUFFIX_RE = re.compile(r"\.(fa|fasta|fna)(\.gz)?$", re.IGNORECASE)
+# Genome-wide SNP targets. Not the bootstrap's snps_<build>.vcf.gz: it holds only
+# Y-chromosome SNPs (for Y-DNA work), so a microarray kit made from it is empty.
 TARGET_PATTERNS = (
     "All_SNPs*.tab.gz",
     "All_SNPs*.vcf.gz",
-    "snps_*.vcf.gz",
     "common_all.vcf.gz",
 )
 
@@ -183,10 +184,6 @@ def annotation_vcf_names(build: str) -> list[str]:
     """Candidate SNP target file names; with a known build, only that build's files."""
     generic = ["All_SNPs.vcf.gz", "common_all.vcf.gz"]
     build_specific = [
-        "snps_hg19.vcf.gz",
-        "snps_hg38.vcf.gz",
-        "snps_grch37.vcf.gz",
-        "snps_grch38.vcf.gz",
         "All_SNPs_hg19_ref.tab.gz",
         "All_SNPs_hg38_ref.tab.gz",
         "All_SNPs_HG19_ref.tab.gz",
@@ -247,7 +244,6 @@ def find_reference_target_tab(reflib: PathInput, build: str) -> str:
         str(Path(reflib, "genomes", "microarray")),
     ]
     names = annotation_vcf_names(build)
-    # Genome-wide All_SNPs tabs before snps_*.vcf.gz (a Y-SNP set in the bootstrap).
     names.sort(key=lambda name: not name.endswith("_ref.tab.gz"))
     named = first_existing_named_file(directories, names)
     if named or build:
