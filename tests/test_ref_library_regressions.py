@@ -530,9 +530,8 @@ def test_target_tab_never_uses_another_builds_file(tmp_path):
     (microarray / "All_SNPs_hg19_ref.tab.gz").write_bytes(b"")
     (microarray / "snps_hg38.vcf.gz").write_bytes(b"")
 
-    assert find_reference_target_tab(str(tmp_path), "hg38") == str(
-        microarray / "snps_hg38.vcf.gz"
-    )
+    # snps_hg38.vcf.gz is the bootstrap's Y-SNP set, never a genome-wide target.
+    assert find_reference_target_tab(str(tmp_path), "hg38") == ""
     assert find_reference_target_tab(str(tmp_path), "hg19") == str(
         microarray / "All_SNPs_hg19_ref.tab.gz"
     )

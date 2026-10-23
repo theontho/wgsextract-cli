@@ -105,7 +105,8 @@ def gene_coords(reflib_dir: str, gene_symbol: str, build: str = "hg38") -> str:
     build_key = gene_map_build(build)
     if not gene_map_exists(reflib_dir, build_key):
         raise WGSExtractError(
-            f"No {build_key} gene map in {reflib_dir}, so --gene can't be resolved. "
+            f"No {build_key} gene map in {reflib_dir}, so --gene {gene_symbol} can't "
+            "be resolved. "
             "Run 'wgsextract ref gene-map' to download it, or pass --region."
         )
     coords = GeneMap(reflib_dir).get_coords(gene_symbol, build_key)
