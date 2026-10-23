@@ -16,11 +16,28 @@ import pytest
 
 from tests.smoke_utils import REPO_ROOT, ensure_fake_data, isolate_home, vep_cache_dir
 from wgsextract_cli.core.config import reload_settings, settings
-from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.dependencies import (
+    PIXI_TOOL_ENVS,
+    get_tool_path,
+    is_pixi_tool_command,
+)
 from wgsextract_cli.core.utils import run_command, run_pipeline
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 from wgsextract_cli.core.warnings import EXPECTED_TIME
 from wgsextract_cli.main import main
+
+
+def optional_tool_installed(tool: str) -> bool:
+    """Whether an opt-in tool is installed, not just installable. For a tool in its
+    own Pixi environment, get_tool_path also returns a `pixi run -e <env>` command
+    that installs the environment on first use, so require the environment too."""
+    command = get_tool_path(tool)
+    if not command:
+        return False
+    if not is_pixi_tool_command(command):
+        return True
+    return (REPO_ROOT / ".pixi" / "envs" / PIXI_TOOL_ENVS[tool]).is_dir()
+
 
 FAKE_DIR = REPO_ROOT / "out" / "fake_30x"
 OUT_ROOT = REPO_ROOT / "out" / "tests" / "e2e"
@@ -305,7 +322,7 @@ class E2EBase:
 
     def test_32_vcf_freebayes_chrm(self) -> None:
         # FreeBayes lives in its own opt-in Pixi environment (`pixi install -e freebayes`).
-        if not get_tool_path("freebayes"):
+        if not optional_tool_installed("freebayes"):
             pytest.skip("FreeBayes not found")
         self.run_real(
             "32 vcf freebayes (chrM)",
@@ -315,7 +332,7 @@ class E2EBase:
         )
 
     def test_37_vcf_gatk_chrm(self) -> None:
-        if not get_tool_path("gatk"):
+        if not optional_tool_installed("gatk"):
             pytest.skip("GATK not found")
         self.run_real(
             "37 vcf gatk (chrM)",
