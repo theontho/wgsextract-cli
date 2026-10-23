@@ -589,3 +589,27 @@ def test_a_reference_the_user_named_is_kept(tmp_path, monkeypatch):
     )
 
     assert lib.fasta == str(genomes / "hs38.fa.gz")
+
+
+def test_a_wrong_build_genome_whose_name_names_no_build_is_not_used(
+    tmp_path, monkeypatch
+):
+    # human_g1k_v37 is GRCh37, but its name says so only to a person: the build
+    # comes from its chr1 length. The library's VEP cache is still found.
+    genomes = tmp_path / "lib" / "genomes"
+    genomes.mkdir(parents=True)
+    _write_fasta_with_fai(genomes / "human_g1k_v37.fasta.gz", [("1", 249250621)])
+    (tmp_path / "lib" / "vep" / "homo_sapiens" / "115_GRCh38").mkdir(parents=True)
+    bam = tmp_path / "sample.bam"
+    bam.write_bytes(b"")
+    hg38 = [("chr1", 248956422)] + [(f"chr{i}", 1000) for i in range(2, 26)]
+    monkeypatch.setattr(
+        reference_resolver, "get_bam_header", lambda path: _header(hg38)
+    )
+
+    lib = ReferenceLibrary(
+        str(tmp_path / "lib"), skip_full_search=True, input_path=str(bam)
+    )
+
+    assert (lib.fasta, lib.build) == (None, "hg38")
+    assert lib.vep_cache == str(tmp_path / "lib" / "vep")

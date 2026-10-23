@@ -115,6 +115,10 @@ class ReferenceLibrary:
         if not signature_match:
             self._reresolve_fasta_for_build(explicit_fasta)
 
+        # Ploidy files and the VEP cache depend on the build, not on a FASTA.
+        self._resolve_build_support_files()
+        self._resolve_vep_cache(settings.get("vep_cache_directory"))
+
         if not self.fasta:
             # Annotating a VCF needs only the build and the library's data files.
             if not skip_full_search:
@@ -124,9 +128,6 @@ class ReferenceLibrary:
         self.fai = self.fasta + ".fai" if Path(self.fasta + ".fai").exists() else None
         dict_file = reference_dict_path(self.fasta)
         self.dict_file = dict_file if Path(dict_file).exists() else None
-
-        self._resolve_build_support_files()
-        self._resolve_vep_cache(settings.get("vep_cache_directory"))
 
         if skip_full_search:
             return
@@ -176,8 +177,13 @@ class ReferenceLibrary:
         variants against the wrong build."""
         target = canonical_build(self.build)
         guessed = self.fasta
-        path_build = build_from_path(guessed) if guessed else None
-        if not guessed or not target or not path_build or path_build == target:
+        if not guessed or not target:
+            return
+        # The FASTA's own chr1 length, else its name (human_g1k_v37 names no build).
+        path_build = canonical_build(
+            build_from_chr1_length(read_fai_lengths(guessed))
+        ) or build_from_path(guessed)
+        if not path_build or path_build == target:
             return
 
         if explicit:
