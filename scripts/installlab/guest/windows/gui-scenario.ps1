@@ -75,7 +75,15 @@ function Invoke-InSession([string]$Action, [hashtable]$Request, [int]$Seconds) {
     $script = Join-Path $PSScriptRoot "in-session.ps1"
     $run = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File $script -Action $Action -Request $requestFile"
     # /IT: only in the user's signed-in desktop session, never a background one.
-    schtasks.exe /Create /TN $task /TR $run /SC ONCE /ST 23:59 /IT /F | Out-Null
+    # It only ever runs by /Run, so its 23:59 start doesn't matter, but from
+    # 23:59 on schtasks warns on stderr that it is past, which Stop would make
+    # fatal: the exit code decides.
+    $ErrorActionPreference = "Continue"
+    try {
+        schtasks.exe /Create /TN $task /TR $run /SC ONCE /ST 23:59 /IT /F 2>&1 | Out-Null
+    } finally {
+        $ErrorActionPreference = "Stop"
+    }
     if ($LASTEXITCODE -ne 0) { throw "could not create the $task task" }
     try {
         schtasks.exe /Run /TN $task | Out-Null
