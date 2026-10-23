@@ -115,6 +115,9 @@ class ReferenceLibrary:
             self._reresolve_fasta_for_build()
 
         if not self.fasta:
+            # Annotating a VCF needs only the build and the library's data files.
+            if not skip_full_search:
+                self._resolve_annotation_files()
             return
 
         self.fai = self.fasta + ".fai" if Path(self.fasta + ".fai").exists() else None

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
 
+from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.download_progress import (
     CancelEvent,
     ProgressCallback,
@@ -74,15 +75,26 @@ GNOMAD_URLS = {
 }
 
 
-# SpliceAI precomputed scores sit behind an Illumina BaseSpace login, so they
-# cannot be fetched automatically (BaseSpace answers with an HTML page).
-SPLICEAI_URLS: dict[str, str | None] = {"hg38": None, "hg19": None}
+# SpliceAI precomputed scores. Illumina's own files sit behind a BaseSpace
+# login; Ensembl publishes raw scores for GRCh38 openly, in the same VCF format
+# (INFO/SpliceAI), BGZF with a .tbi: every SNV in MANE Select transcripts, no
+# indels. There is no open GRCh37 set, so hg19 stays a manual download. The
+# scores are free for academic and not-for-profit use only (Illumina's terms).
+SPLICEAI_URLS: dict[str, str | None] = {
+    "hg38": "https://ftp.ensembl.org/pub/data_files/homo_sapiens/GRCh38/"
+    "variation_plugins/spliceai_scores.raw.snv.ensembl_mane_v1.4.grch38.vcf.gz",
+    "hg19": None,
+}
+SPLICEAI_TERMS = (
+    "SpliceAI scores are free for academic and not-for-profit use; other use "
+    "needs a commercial license from Illumina (https://github.com/Illumina/SpliceAI)."
+)
 SPLICEAI_MANUAL_HINT = (
-    "SpliceAI precomputed scores require an Illumina BaseSpace login and cannot "
-    "be downloaded automatically. Download spliceai_scores.raw.snv.{build}.vcf.gz "
-    "via https://github.com/Illumina/SpliceAI (see 'Precomputed scores'), save it "
-    "as {dest} (or set spliceai_vcf_path in config.toml), then rerun "
-    "'wgsextract ref spliceai' to index it."
+    "SpliceAI precomputed scores for {build} require an Illumina BaseSpace login "
+    "and cannot be downloaded automatically. Download "
+    "spliceai_scores.raw.snv.{build}.vcf.gz via https://github.com/Illumina/SpliceAI "
+    "(see 'Precomputed scores'), save it as {dest} (or set spliceai_vcf_path in "
+    "config.toml), then rerun 'wgsextract ref spliceai' to index it."
 )
 
 
@@ -115,6 +127,9 @@ class _AnnotationResource:
     dest_name: str  # formatted with {build}
     tabix_args: tuple[str, ...] | None  # None: not indexed
     manual_hint: str | None = None  # for resources without a download URL
+    # Downloads are BGZF with a <url>.tbi next to them: fetch that index rather
+    # than recompressing and indexing tens of GB locally.
+    published_index: bool = False
 
 
 _CLINVAR = _AnnotationResource(
@@ -126,6 +141,7 @@ _SPLICEAI = _AnnotationResource(
     "spliceai_{build}.vcf.gz",
     _TABIX_VCF,
     SPLICEAI_MANUAL_HINT,
+    published_index=True,
 )
 _ALPHAMISSENSE = _AnnotationResource(
     "AlphaMissense",
@@ -158,6 +174,9 @@ def _download_resource(
         return bool(cancel_event and cancel_event.is_set())
 
     success = True
+    # Builds with no download URL that the user hasn't supplied: not a failure
+    # while another build installs (SpliceAI hg38 downloads, hg19 is manual).
+    manual_missing = 0
     for build, url in resource.urls.items():
         if cancelled():
             return False
@@ -167,10 +186,26 @@ def _download_resource(
         if url is None:
             if not Path(dest_path).exists():
                 hint = resource.manual_hint or "{dest} must be downloaded manually."
-                logging.error(hint.format(build=build, dest=dest_path))
-                success = False
+                logging.warning(hint.format(build=build, dest=dest_path))
+                manual_missing += 1
                 continue
             logging.info(f"Using manually downloaded {label}: {dest_path}")
+        elif (
+            resource.published_index
+            and Path(dest_path).exists()
+            and not Path(dest_path + ".tbi").exists()
+        ):
+            # A file the user saved here (e.g. Illumina's full set): indexed
+            # locally below, never treated as a partial download and replaced.
+            logging.info(f"Using manually downloaded {label}: {dest_path}")
+        elif resource.published_index:
+            if not _download_indexed(
+                label, url, dest_path, progress_callback, cancel_event
+            ):
+                success = False
+            if cancelled():
+                return False
+            continue
         else:
             logging.info(f"Downloading {label}...")
             if not download_file(url, dest_path, progress_callback, cancel_event):
@@ -198,7 +233,72 @@ def _download_resource(
             logging.error(f"Failed to prepare {label}: {e}")
             success = False
 
-    return success
+    return success and manual_missing < len(resource.urls)
+
+
+# The empty block every complete BGZF file ends with (SAM spec 4.1.2).
+_BGZF_EOF = bytes.fromhex("1f8b08040000000000ff0600424302001b0003000000000000000000")
+
+
+def _download_indexed(
+    label: str,
+    url: str,
+    dest: str,
+    progress_callback: ProgressCallback | None,
+    cancel_event: CancelEvent | None,
+) -> bool:
+    """Download a BGZF file and its published .tbi, then check them; a pair
+    already in place is checked too, but never replaced or removed."""
+    if not get_tool_path("tabix"):
+        logging.error(f"Checking {label} needs tabix, which was not found.")
+        return False
+    downloaded = not (Path(dest).is_file() and Path(dest + ".tbi").is_file())
+    if downloaded:
+        # The data before its index, so the index is never older than the data.
+        for suffix in ("", ".tbi"):
+            logging.info(f"Downloading {label}{suffix and ' index'}...")
+            if not download_file(
+                url + suffix, dest + suffix, progress_callback, cancel_event
+            ):
+                return False
+    try:
+        _check_indexed(dest)
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+        if not downloaded:
+            logging.error(f"{label} at {dest} failed its check: {e}")
+            return False
+        logging.error(f"{label} failed its check ({e}); removing it to re-download.")
+        for suffix in ("", ".tbi"):
+            Path(dest + suffix).unlink(missing_ok=True)
+        return False
+    logging.info(f"{label} is installed: {dest}")
+    return True
+
+
+def _check_indexed(dest: str) -> None:
+    """A complete BGZF file whose index matches it: the file ends with the BGZF
+    EOF block, and the last contig reads through the index to its end."""
+    with open(dest, "rb") as f:
+        f.seek(-len(_BGZF_EOF), 2)
+        if f.read() != _BGZF_EOF:
+            raise WGSExtractError("it is truncated (no BGZF end-of-file block)")
+    contigs = run_command(["tabix", "-l", dest], capture_output=True).stdout.split()
+    if not contigs:
+        raise WGSExtractError("its index lists no contigs")
+    # The last contig's data is at the end of the file.
+    query = popen(
+        ["tabix", dest, contigs[-1]],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert query.stdout is not None and query.stderr is not None
+    records = sum(1 for _ in query.stdout)
+    error = query.stderr.read().strip()
+    if query.wait() != 0:
+        raise WGSExtractError(f"reading {contigs[-1]} failed: {error}")
+    if not records:
+        raise WGSExtractError(f"no records on {contigs[-1]}")
 
 
 def download_clinvar(
@@ -215,7 +315,9 @@ def download_spliceai(
     cancel_event: CancelEvent | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> bool:
-    """Indexes manually downloaded SpliceAI precomputed scores."""
+    """Downloads SpliceAI scores for hg38 (Ensembl) and indexes a manually
+    downloaded hg19 file."""
+    logging.info(SPLICEAI_TERMS)
     return _download_resource(_SPLICEAI, reflib_dir, cancel_event, progress_callback)
 
 

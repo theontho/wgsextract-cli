@@ -170,6 +170,25 @@ def _write_fasta_with_fai(path: Path, contigs):
     )
 
 
+def test_annotation_data_resolves_in_a_library_without_a_genome(tmp_path):
+    # Annotating a VCF needs no FASTA: a library with only `ref spliceai` (or
+    # `ref clinvar`) data must still offer it for the VCF's build.
+    vcf = tmp_path / "sample.vcf"
+    vcf.write_text(
+        "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=248956422>\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+    )
+    ref = tmp_path / "lib" / "ref"
+    ref.mkdir(parents=True)
+    for name in ("spliceai_hg38.vcf.gz", "clinvar_hg38.vcf.gz"):
+        (ref / name).write_bytes(b"")
+
+    lib = ReferenceLibrary(str(tmp_path / "lib"), input_path=str(vcf))
+    assert (lib.fasta, lib.build) == (None, "hg38")
+    assert lib.spliceai_vcf == str(ref / "spliceai_hg38.vcf.gz")
+    assert lib.clinvar_vcf == str(ref / "clinvar_hg38.vcf.gz")
+
+
 def test_reference_library_prefers_fasta_matching_input_signature(tmp_path):
     genomes = tmp_path / "genomes"
     genomes.mkdir()

@@ -151,7 +151,7 @@ def register(
     spliceai_dl_parser = ref_subs.add_parser(
         "spliceai",
         parents=[base_parser],
-        help="Download SpliceAI precomputed scores for hg19 and hg38.",
+        help="Download SpliceAI scores for hg38 (Ensembl, MANE SNVs); index a manual hg19 download.",
     )
     spliceai_dl_parser.set_defaults(func=cmd_spliceai_dl)
 
