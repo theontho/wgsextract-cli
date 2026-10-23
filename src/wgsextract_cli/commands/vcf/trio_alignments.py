@@ -21,6 +21,9 @@ TRIO_SAMPLES = ("PROBAND", "MOTHER", "FATHER")
 DEFAULT_MIN_DEPTH = 15
 MIN_ALT_READS = 8
 MIN_ALT_FRACTION = 0.3
+# True de novo SNVs are ~1 per 50 Mb; candidates this close to another are
+# almost always misaligned reads in a repeat (or, rarely, one multi-base event).
+CLUSTER_DISTANCE = 1000
 
 # Indices 0, 1, 2 are the proband, mother and father in the joint VCF.
 _DEPTH = "FMT/DP[0]>={d} && FMT/DP[1]>={d} && FMT/DP[2]>={d}"
@@ -139,3 +142,33 @@ def joint_trio_vcf(
         run_command(["bcftools", "concat", "-Oz", "-o", out_vcf, *chunks])
     ensure_vcf_indexed(out_vcf)
     return out_vcf
+
+
+def write_isolated_denovo(denovo_vcf: str, out_vcf: str) -> tuple[int, int]:
+    """Write the de novo candidates with no other within CLUSTER_DISTANCE bp;
+    return (isolated, total)."""
+    rows = run_command(
+        ["bcftools", "query", "-f", "%CHROM\t%POS\n", denovo_vcf], capture_output=True
+    ).stdout.split("\n")
+    sites = [(c, int(p)) for c, p in (r.split("\t") for r in rows if r)]
+    isolated = [
+        site
+        for i, site in enumerate(sites)
+        if all(
+            not (other[0] == site[0] and abs(other[1] - site[1]) <= CLUSTER_DISTANCE)
+            for other in sites[max(0, i - 1) : i] + sites[i + 1 : i + 2]
+        )
+    ]
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".tsv", dir=str(Path(out_vcf).parent), delete=False
+    ) as targets:
+        targets.writelines(f"{c}\t{p}\n" for c, p in isolated)
+    try:
+        run_command(
+            ["bcftools", "view", "-T", targets.name, "-Oz", "-o", out_vcf, denovo_vcf],
+            capture_output=True,
+        )
+    finally:
+        Path(targets.name).unlink(missing_ok=True)
+    ensure_vcf_indexed(out_vcf)
+    return len(isolated), len(sites)

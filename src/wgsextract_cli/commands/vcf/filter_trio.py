@@ -28,10 +28,12 @@ from wgsextract_cli.core.variant_files import (
 
 from .basic import require_vcf_input
 from .trio_alignments import (
+    CLUSTER_DISTANCE,
     DEFAULT_MIN_DEPTH,
     is_alignment,
     joint_filter,
     joint_trio_vcf,
+    write_isolated_denovo,
 )
 
 
@@ -330,3 +332,11 @@ def _trio_from_alignments(
             raise WGSExtractError(f"VCF trio filtering failed for {mode}: {e}") from e
         logging.info(LOG_MESSAGES["vcf_trio_complete"].format(output=out_vcf))
         _summarize_trio_output(mode, out_vcf)
+        if mode == "denovo":
+            isolated_vcf = str(Path(outdir, "trio_denovo_isolated.vcf.gz"))
+            isolated, total = write_isolated_denovo(out_vcf, isolated_vcf)
+            logging.info(
+                f"{isolated:,} of the {total:,} de novo candidates have no other within "
+                f"{CLUSTER_DISTANCE:,} bp (clusters are typically misaligned reads in "
+                f"repeats): {isolated_vcf}"
+            )

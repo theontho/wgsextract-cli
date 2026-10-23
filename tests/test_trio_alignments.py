@@ -82,3 +82,33 @@ def test_a_trio_mixing_vcfs_and_alignments_is_refused(tmp_path):
     )  # fmt: skip
     with pytest.raises(WGSExtractError, match="can't mix"):
         filter_trio.cmd_trio(args)
+
+
+@needs_bcftools
+def test_isolated_denovo_drops_clusters(tmp_path):
+    from wgsextract_cli.commands.vcf.trio_alignments import write_isolated_denovo
+
+    plain = tmp_path / "dn.vcf"
+    positions = [1000, 50_000, 50_400, 50_800, 200_000, 900_000]
+    plain.write_text(
+        "##fileformat=VCFv4.2\n##contig=<ID=chr20,length=1000000>\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        + "".join(f"chr20\t{p}\t.\tA\tG\t99\tPASS\t.\n" for p in positions)
+    )
+    dn = tmp_path / "dn.vcf.gz"
+    with open(dn, "wb") as out:
+        subprocess.run(
+            [get_tool_path("bgzip"), "-c", str(plain)], stdout=out, check=True
+        )
+    subprocess.run([get_tool_path("tabix"), "-p", "vcf", str(dn)], check=True)
+
+    out = tmp_path / "isolated.vcf.gz"
+    # 50,000-50,800 is a chain of candidates 400 bp apart: all clustered.
+    assert write_isolated_denovo(str(dn), str(out)) == (3, 6)
+    kept = subprocess.run(
+        [get_tool_path("bcftools"), "query", "-f", "%POS\n", str(out)],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    assert kept == ["1000", "200000", "900000"]
