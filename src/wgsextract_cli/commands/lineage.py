@@ -1,4 +1,5 @@
 import argparse
+import csv
 import logging
 import shutil
 import subprocess
@@ -72,6 +73,7 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
     input_file = args.input
     input_lower = input_file.lower()
     temp_vcf = str(Path(outdir, "temp_haplogrep_input.vcf.gz"))
+    reference = None
 
     try:
         if input_lower.endswith((".bam", ".cram")):
@@ -86,6 +88,7 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
                     "Reference genome required to call mitochondrial variants; pass --ref."
                 )
             logging.debug(f"Resolved reference: {lib.fasta}")
+            reference = lib.fasta
 
             cram_opt = ["-T", lib.fasta] if input_lower.endswith(".cram") else []
             chr_m = get_chr_name(input_file, "MT", cram_opt)
@@ -119,26 +122,33 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
             if Path(path).exists():
                 Path(path).unlink()
 
-    _print_haplogrep_result(out_file)
+    _print_haplogrep_result(out_file, reference)
 
 
-def _print_haplogrep_result(out_file: str) -> None:
+def _print_haplogrep_result(out_file: str, reference: str | None) -> None:
     try:
-        with open(out_file) as f:
-            lines = f.readlines()
+        with open(out_file, newline="") as f:
+            rows = list(csv.DictReader(f, delimiter="\t"))
     except OSError as e:
-        logging.warning(f"Could not read Haplogrep results {out_file}: {e}")
-        return
+        raise WGSExtractError(f"Haplogrep did not write {out_file}: {e}") from e
+    # Haplogrep writes a header alone when the input has no mtDNA variants, as
+    # when the alignment was called against a reference of another build.
+    if not rows or not (rows[0].get("Haplogroup") or "").strip():
+        hint = (
+            f"Check that the reference used ({reference}) is the one the input "
+            "was aligned to; pass it with --ref."
+            if reference
+            else "Check that the VCF has mtDNA (chrM/MT) variant calls."
+        )
+        raise WGSExtractError(
+            f"Haplogrep could not predict an mtDNA haplogroup: it found no "
+            f"mtDNA variants. {hint}"
+        )
     print("\n🧬 Haplogrep Lineage Result:")
     print("-" * 30)
-    if len(lines) > 1:
-        header = lines[0].strip().split("\t")
-        data = lines[1].strip().split("\t")
-        for h, d in zip(header, data, strict=False):
-            if d:
-                print(f"{h:<15} : {d}")
-    elif lines:
-        print(lines[0].strip())
+    for header, value in rows[0].items():
+        if header and value:
+            print(f"{header:<15} : {value}")
     print("-" * 30 + "\n")
 
 

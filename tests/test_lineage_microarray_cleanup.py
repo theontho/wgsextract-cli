@@ -191,6 +191,61 @@ def test_mtdna_calls_haploid_and_checks_every_pipeline_stage(tmp_path):
     assert call[:4] == ["bcftools", "call", "--ploidy", "1"]
 
 
+@pytest.mark.parametrize(
+    "results",
+    [
+        '"SampleID"\t"Haplogroup"\t"Rank"\t"Quality"\t"Range"\n',
+        '"SampleID"\t"Haplogroup"\n"sample"\t""\n',
+    ],
+)
+def test_mtdna_without_a_haplogroup_fails_naming_the_reference(tmp_path, results):
+    # Haplogrep writes a header alone when it gets no mtDNA variants, as when
+    # the alignment was called against a reference of another build.
+    bam = tmp_path / "sample.bam"
+    bam.touch()
+
+    def fake_run_command(cmd, **_kwargs):
+        (tmp_path / "haplogrep_results.txt").write_text(results)
+
+    p1, p2, p3, p4, p5, p6 = _patch_mtdna_alignment_env()
+    with (
+        p1,
+        p2,
+        p3,
+        p4,
+        p5,
+        p6,
+        patch.object(lineage, "run_pipeline"),
+        patch.object(lineage, "run_command", side_effect=fake_run_command),
+        pytest.raises(WGSExtractError, match=r"no mtDNA variants.*/ref/hg38\.fa"),
+    ):
+        lineage.cmd_mtdna(_mtdna_args(bam, tmp_path))
+
+
+def test_mtdna_prints_haplogrep_quoted_result(tmp_path, capsys):
+    bam = tmp_path / "sample.bam"
+    bam.touch()
+
+    def fake_run_command(cmd, **_kwargs):
+        (tmp_path / "haplogrep_results.txt").write_text(
+            '"SampleID"\t"Haplogroup"\t"Quality"\n"sample"\t"H16a1"\t"0.9485"\n'
+        )
+
+    p1, p2, p3, p4, p5, p6 = _patch_mtdna_alignment_env()
+    with (
+        p1,
+        p2,
+        p3,
+        p4,
+        p5,
+        p6,
+        patch.object(lineage, "run_pipeline"),
+        patch.object(lineage, "run_command", side_effect=fake_run_command),
+    ):
+        lineage.cmd_mtdna(_mtdna_args(bam, tmp_path))
+    assert "Haplogroup      : H16a1" in capsys.readouterr().out
+
+
 def test_mtdna_pipeline_failure_raises(tmp_path):
     bam = tmp_path / "sample.bam"
     bam.touch()

@@ -100,6 +100,7 @@ class ReferenceLibrary:
             if Path(self.root).name == "genomes":
                 self.root = str(Path(self.root).parent)
 
+        explicit_fasta = bool(self.fasta)
         signature_match = False
         if not self.fasta:
             self.fasta = self._fasta_matching_signature()
@@ -112,7 +113,7 @@ class ReferenceLibrary:
         )
         self.build = self._detect_build(header_target, root_path)
         if not signature_match:
-            self._reresolve_fasta_for_build()
+            self._reresolve_fasta_for_build(explicit_fasta)
 
         if not self.fasta:
             # Annotating a VCF needs only the build and the library's data files.
@@ -167,13 +168,24 @@ class ReferenceLibrary:
             or None
         )
 
-    def _reresolve_fasta_for_build(self) -> None:
-        """Swap a path-guessed FASTA for one of the detected build when they disagree."""
+    def _reresolve_fasta_for_build(self, explicit: bool) -> None:
+        """Swap a guessed FASTA for one of the detected build when they disagree.
+
+        A FASTA the user named is kept (with a warning); a guessed one with no
+        replacement is dropped, so commands ask for --ref instead of calling
+        variants against the wrong build."""
         target = canonical_build(self.build)
-        path_build = build_from_path(self.fasta) if self.fasta else None
-        if not target or not path_build or path_build == target:
+        guessed = self.fasta
+        path_build = build_from_path(guessed) if guessed else None
+        if not guessed or not target or not path_build or path_build == target:
             return
 
+        if explicit:
+            logging.warning(
+                f"{self.fasta} looks like {path_build}, but the input is {self.build}; "
+                "using it as given."
+            )
+            return
         logging.debug(
             f"Build mismatch detected (Build={self.build}, Path={self.fasta}). Re-resolving FASTA..."
         )
@@ -188,8 +200,10 @@ class ReferenceLibrary:
                     self.fasta = potential
                     return
         logging.warning(
-            f"Could not find {self.build} genome, reverting to {self.fasta}"
+            f"The input is {self.build}, but the reference library has no {self.build} "
+            f"genome (it has {Path(guessed).name}); pass --ref <FASTA>."
         )
+        self.fasta = None
 
     # --- Build detection --------------------------------------------------
 

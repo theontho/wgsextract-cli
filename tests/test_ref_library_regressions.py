@@ -529,3 +529,63 @@ def test_fasta_inside_library_genomes_dir_uses_library_root(tmp_path):
     assert lib.fasta == str(fasta)
     assert lib.root == str(tmp_path)
     assert lib.ploidy_file == str(tmp_path / "ploidy.txt")
+
+
+HG19_HEADER = [("chr1", 249250621)] + [(f"chr{i}", 1000) for i in range(2, 26)]
+
+
+def _hg19_bam(tmp_path, monkeypatch):
+    bam = tmp_path / "sample.bam"
+    bam.write_bytes(b"")
+    monkeypatch.setattr(
+        reference_resolver, "get_bam_header", lambda path: _header(HG19_HEADER)
+    )
+    return str(bam)
+
+
+def test_a_guessed_genome_of_another_build_is_swapped_for_the_inputs(
+    tmp_path, monkeypatch
+):
+    genomes = tmp_path / "lib" / "genomes"
+    genomes.mkdir(parents=True)
+    _write_fasta_with_fai(genomes / "hs38.fa.gz", [("chr1", 248956422)])
+    _write_fasta_with_fai(genomes / "hg19.fa.gz", [("chr1", 249250621)])
+
+    lib = ReferenceLibrary(
+        str(tmp_path / "lib"),
+        skip_full_search=True,
+        input_path=_hg19_bam(tmp_path, monkeypatch),
+    )
+
+    assert (lib.fasta, lib.build) == (str(genomes / "hg19.fa.gz"), "hg19")
+
+
+def test_a_guessed_genome_of_another_build_is_not_used(tmp_path, monkeypatch):
+    # Calling variants against the wrong build gives empty or wrong results
+    # (no mtDNA haplogroup), so commands must ask for --ref instead.
+    genomes = tmp_path / "lib" / "genomes"
+    genomes.mkdir(parents=True)
+    _write_fasta_with_fai(genomes / "hs38.fa.gz", [("chr1", 248956422)])
+
+    lib = ReferenceLibrary(
+        str(tmp_path / "lib"),
+        skip_full_search=True,
+        input_path=_hg19_bam(tmp_path, monkeypatch),
+    )
+
+    assert (lib.fasta, lib.build) == (None, "hg19")
+
+
+def test_a_reference_the_user_named_is_kept(tmp_path, monkeypatch):
+    genomes = tmp_path / "lib" / "genomes"
+    genomes.mkdir(parents=True)
+    _write_fasta_with_fai(genomes / "hs38.fa.gz", [("chr1", 248956422)])
+    _write_fasta_with_fai(genomes / "hg19.fa.gz", [("chr1", 249250621)])
+
+    lib = ReferenceLibrary(
+        str(genomes / "hs38.fa.gz"),
+        skip_full_search=True,
+        input_path=_hg19_bam(tmp_path, monkeypatch),
+    )
+
+    assert lib.fasta == str(genomes / "hs38.fa.gz")
