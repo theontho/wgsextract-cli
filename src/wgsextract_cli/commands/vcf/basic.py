@@ -15,6 +15,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.output_checks import warn_if_no_variants
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
@@ -169,6 +170,7 @@ def cmd_snp(args: argparse.Namespace) -> None:
         description="SNP variant calling",
     )
     ensure_vcf_indexed(out_vcf)
+    warn_if_no_variants(out_vcf, ref, args.region)
 
 
 def cmd_indel(args: argparse.Namespace) -> None:
@@ -196,6 +198,7 @@ def cmd_indel(args: argparse.Namespace) -> None:
         description="InDel variant calling",
     )
     ensure_vcf_indexed(out_vcf)
+    warn_if_no_variants(out_vcf, ref, args.region)
 
 
 def _annotation_columns(ann_vcf: str) -> str:

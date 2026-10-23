@@ -14,6 +14,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.output_checks import warn_if_no_variants
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     popen,
@@ -191,6 +192,9 @@ def cmd_cnv(args: argparse.Namespace) -> None:
                 f"CNV calling failed with exit code {e.returncode}"
             ) from e
     _write_indexed_vcf_from_bcf(out_bcf, out_vcf)
+    if not args.region:
+        # A small region can have none; a whole genome can't.
+        warn_if_no_variants(out_vcf, ref)
 
 
 def cmd_sv_pbsv(args: argparse.Namespace) -> None:
@@ -236,6 +240,8 @@ def cmd_sv_pbsv(args: argparse.Namespace) -> None:
             ) from e
         run_command(["bcftools", "view", "-Oz", "-o", out_vcf, raw_vcf])
     ensure_vcf_indexed(out_vcf)
+    if not args.region:
+        warn_if_no_variants(out_vcf, ref)
 
 
 def _write_region_bed(region: str, ref: str, bed_path: str) -> None:
@@ -282,6 +288,8 @@ def cmd_sv_sniffles(args: argparse.Namespace) -> None:
             ) from e
         run_command(["bcftools", "view", "-Oz", "-o", out_vcf, raw_vcf])
     ensure_vcf_indexed(out_vcf)
+    if not args.region:
+        warn_if_no_variants(out_vcf, ref)
 
 
 def _select_sv_caller(args: argparse.Namespace) -> str:
@@ -325,3 +333,6 @@ def cmd_sv(args: argparse.Namespace) -> None:
                 f"SV calling failed with exit code {e.returncode}"
             ) from e
     _write_indexed_vcf_from_bcf(out_bcf, out_vcf)
+    if not args.region:
+        # A small region can have none; a whole genome can't.
+        warn_if_no_variants(out_vcf, ref)

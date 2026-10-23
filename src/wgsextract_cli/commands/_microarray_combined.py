@@ -22,6 +22,10 @@ from wgsextract_cli.core.variant_files import (
 _BASES = {"A", "C", "G", "T", "N"}
 
 
+# A small region's targets can all be homozygous reference; this many can't.
+MIN_TARGETS_TO_EXPECT_A_VARIANT = 1000
+
+
 def _normalize_microarray_genotype(value: str) -> str | None:
     """Return a two-letter SNP genotype (haploid calls doubled), "--", or None."""
     genotype = value.replace("/", "").replace("|", "").replace(".", "-").upper()
@@ -132,6 +136,7 @@ def _write_vcf_mode_kit(
             else stack.enter_context(_open_text(ref_vcf_tab))
         )
         ref_col_idx = -1
+        written = matched = 0
         for line in targets:
             if line.startswith("#"):
                 header = line.strip().split("\t")
@@ -144,6 +149,8 @@ def _write_vcf_mode_kit(
             chrom, pos, rsid = parts[0], parts[1], parts[2]
 
             genotype = variant_calls.get((chrom, pos))
+            written += 1
+            matched += genotype is not None
             if genotype is None:
                 ref_base = ""
                 if ref_col_idx != -1 and len(parts) > ref_col_idx:
@@ -155,9 +162,18 @@ def _write_vcf_mode_kit(
                 genotype = ref_base * 2
 
             f_out.write(f"{rsid}\t{_combined_kit_chrom(chrom)}\t{pos}\t{genotype}\n")
+    if written >= MIN_TARGETS_TO_EXPECT_A_VARIANT and not matched:
+        # Every target was written as homozygous reference: a plausible-looking but
+        # meaningless kit.
+        logging.warning(
+            f"None of {out_vcf}'s variants are at the kit's {written:,} target "
+            "positions, so every genotype is written as the reference allele. Check "
+            f"that the VCF's genome build matches the targets ({ref_vcf_tab})."
+        )
 
 
 def _write_alignment_mode_kit(f_out: TextIO, *, outdir: str, out_vcf: str) -> None:
+    rows = called = 0
     for line in _command_lines(
         ["bcftools", "query", "-f", "%ID\t%CHROM\t%POS\t[%TGT]\n", out_vcf], outdir
     ):
@@ -169,6 +185,19 @@ def _write_alignment_mode_kit(f_out: TextIO, *, outdir: str, out_vcf: str) -> No
             snp_id = f"pos_{chrom}_{pos}"
         genotype = _normalize_microarray_genotype(tgt) or "--"
         f_out.write(f"{snp_id}\t{_combined_kit_chrom(chrom)}\t{pos}\t{genotype}\n")
+        rows += 1
+        called += genotype != "--"
+    if not called:
+        # mpileup writes no records at all when no read overlaps any target.
+        found = (
+            f"All {rows:,} target genotypes are no-calls (--)"
+            if rows
+            else ("No target genotypes were produced, so the kit is empty")
+        )
+        logging.warning(
+            f"{found}: the input has no reads at the kit's positions, or the "
+            "reference doesn't match it."
+        )
 
 
 def _write_microarray_combined_kit(

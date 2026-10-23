@@ -9,6 +9,11 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
+from wgsextract_cli.core.output_checks import (
+    bam_has_reads,
+    warn_if_no_reads,
+    warn_if_no_variants,
+)
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_sam_index_cmd,
@@ -120,7 +125,11 @@ def _extract_regions(
     out_bam: str,
     regions: list[str],
     bed: str | None = None,
+    contents: str | None = None,
+    empty_hint: str = "",
 ) -> None:
+    """Extract regions into an indexed BAM; warn if it got no reads, naming what
+    it should hold (contents), for outputs the user keeps."""
     with cleanup_files(on_failure=[out_bam, out_bam + ".bai"]):
         run_command(
             ["samtools", "view", "-bh", *base.cram_opt, "-@", base.threads]
@@ -128,6 +137,8 @@ def _extract_regions(
             + ["-o", out_bam, input_path, *regions]
         )
         run_command(get_sam_index_cmd(out_bam, threads=base.threads))
+    if contents:
+        warn_if_no_reads(out_bam, contents, empty_hint)
 
 
 def _call_haploid_variants(bam: str, ref: str, out_vcf: str) -> None:
@@ -143,6 +154,7 @@ def _call_haploid_variants(bam: str, ref: str, out_vcf: str) -> None:
         description="Variant calling",
     )
     ensure_vcf_indexed(out_vcf)
+    warn_if_no_variants(out_vcf, ref)
 
 
 def cmd_mito_fasta(args: argparse.Namespace) -> None:
@@ -203,7 +215,9 @@ def cmd_mt_bam(args: argparse.Namespace) -> None:
 
     logging.info(LOG_MESSAGES["extracting_mt"].format(mt_chr=mt_chr, output=out_file))
     try:
-        _extract_regions(base, args.input, out_file, [mt_chr])
+        _extract_regions(
+            base, args.input, out_file, [mt_chr], contents=f"{mt_chr} reads"
+        )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"mtDNA extraction failed: {e}") from e
 
@@ -236,7 +250,14 @@ def cmd_ydna_bam(args: argparse.Namespace) -> None:
 
     logging.info(LOG_MESSAGES["extracting_y"].format(chr_y=chr_y, output=out_bam))
     try:
-        _extract_regions(base, args.input, out_bam, [chr_y])
+        _extract_regions(
+            base,
+            args.input,
+            out_bam,
+            [chr_y],
+            contents=f"{chr_y} reads",
+            empty_hint="a female sample has none",
+        )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Y BAM extraction failed: {e}") from e
 
@@ -271,7 +292,13 @@ def cmd_y_mt_extract(args: argparse.Namespace) -> None:
 
     logging.info(LOG_MESSAGES["extracting_y_mt"].format(output=out_bam))
     try:
-        _extract_regions(base, args.input, out_bam, [chr_y, chr_m])
+        _extract_regions(
+            base,
+            args.input,
+            out_bam,
+            [chr_y, chr_m],
+            contents=f"{chr_y} or {chr_m} reads",
+        )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Y+MT extraction failed: {e}") from e
 
@@ -302,6 +329,10 @@ def cmd_unmapped(args: argparse.Namespace) -> None:
             )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Unmapped extraction failed: {e}") from e
+    if bam_has_reads(out_bam) is False:
+        # Unlike the other extractions, none can be right: an aligner that
+        # dropped its unmapped reads.
+        logging.info(f"{args.input} has no unmapped reads.")
 
 
 def cmd_custom(args: argparse.Namespace) -> None:
@@ -320,9 +351,17 @@ def cmd_custom(args: argparse.Namespace) -> None:
     )
     try:
         if is_bed:
-            _extract_regions(base, args.input, out_bam, [], bed=region)
+            _extract_regions(
+                base, args.input, out_bam, [], bed=region, contents=f"reads in {label}"
+            )
         else:
             # Split comma-separated regions (e.g. chr1:1-100,chr2:200-300)
-            _extract_regions(base, args.input, out_bam, region.split(","))
+            _extract_regions(
+                base,
+                args.input,
+                out_bam,
+                region.split(","),
+                contents=f"reads in {label}",
+            )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Custom extraction failed: {e}") from e
