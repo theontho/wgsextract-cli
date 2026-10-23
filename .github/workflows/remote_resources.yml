@@ -1,7 +1,8 @@
 name: Remote resources
 
 # Third-party data the CLI downloads can move or change format without notice.
-# These tests read a few kilobytes of each file (tests/test_remote_*.py).
+# These tests read a few kilobytes of each file (tests/test_remote_*.py), and
+# check a microarray kit made from public 1000 Genomes data against its real chip.
 on:
   schedule:
     - cron: "41 6 * * 1"
@@ -12,9 +13,12 @@ on:
       - pixi.toml
       - src/wgsextract_cli/assets/reference/seed_genomes.csv
       - src/wgsextract_cli/commands/benchmark/models.py
+      - src/wgsextract_cli/commands/microarray.py
+      - src/wgsextract_cli/commands/_microarray_*.py
       - src/wgsextract_cli/core/annotation_resources.py
       - src/wgsextract_cli/core/constants.py
       - src/wgsextract_cli/core/gene_map.py
+      - src/wgsextract_cli/core/microarray_*.py
       - src/wgsextract_cli/core/pharmgkb.py
       - src/wgsextract_cli/core/ref_library/catalog.py
       - tests/test_remote_*.py
@@ -26,7 +30,7 @@ permissions:
 jobs:
   remote-resources:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
