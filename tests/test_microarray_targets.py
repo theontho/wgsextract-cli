@@ -64,3 +64,65 @@ def test_hg19_target_is_written_sorted_and_indexed(tmp_path):
 def test_no_templates_says_to_bootstrap(tmp_path):
     with pytest.raises(mt.WGSExtractError, match="ref bootstrap"):
         mt.build_genome_wide_target(str(tmp_path), "hg38", [str(tmp_path)])
+
+
+# hg19 chr1:0-5000 sits 100 bp later on hg38; chr2:0-5000 maps onto an alt contig.
+_CHAIN = (
+    "chain 1000 chr1 10000 + 0 5000 chr1 10100 + 100 5100 1\n5000\n\n"
+    "chain 900 chr2 10000 + 0 5000 chr2_KI270767v1_alt 10000 + 0 5000 2\n5000\n\n"
+)
+
+
+def test_lift_to_hg38_offsets_and_drops_unmappable(tmp_path):
+    chain = tmp_path / "hg19ToHg38.over.chain"
+    chain.write_text(_CHAIN)
+    lifted = mt._lift_to_hg38(
+        {
+            ("chr1", 1000): "rs1",  # shifted by 100
+            ("chr1", 9000): "rs2",  # outside every chain block
+            ("chr2", 2000): "rs3",  # lands on an alt contig
+        },
+        str(chain),
+    )
+    assert lifted == {("chr1", 1100): "rs1"}
+
+
+@pytest.mark.skipif(
+    not (get_tool_path("bgzip") and get_tool_path("tabix")), reason="htslib missing"
+)
+def test_hg38_target_uses_the_librarys_chain(tmp_path):
+    templates = _templates(tmp_path)
+    (tmp_path / "hg19ToHg38.over.chain.gz").write_bytes(gzip.compress(_CHAIN.encode()))
+    out = mt.build_genome_wide_target(str(tmp_path), "hg38", [str(templates)])
+    with gzip.open(out, "rt") as f:
+        assert f.read().splitlines() == ["#CHROM\tPOS\tID", "chr1\t1100\trs1"]
+
+
+@pytest.mark.skipif(
+    not (get_tool_path("bgzip") and get_tool_path("tabix")), reason="htslib missing"
+)
+def test_simultaneous_builds_leave_one_valid_target(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    templates = str(_templates(tmp_path))
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(
+            pool.map(
+                lambda _: mt.build_genome_wide_target(
+                    str(tmp_path), "hg19", [templates]
+                ),
+                range(4),
+            )
+        )
+    out = str(tmp_path / "microarray" / "All_SNPs_hg19_ref.tab.gz")
+    assert results == [out] * 4
+    region = subprocess.run(
+        [get_tool_path("tabix"), out, "chr1"], capture_output=True, text=True
+    )
+    assert region.stdout == "chr1\t1000\trs1\n"
+    leftovers = {p.name for p in (tmp_path / "microarray").iterdir()} - {
+        "raw_file_templates",
+        "All_SNPs_hg19_ref.tab.gz",
+        "All_SNPs_hg19_ref.tab.gz.tbi",
+    }
+    assert not leftovers

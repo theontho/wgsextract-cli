@@ -7,8 +7,12 @@ lifted with UCSC's hg19ToHg38 chain. The result is saved in the library as
 ``microarray/All_SNPs_<build>_ref.tab.gz`` and reused.
 """
 
+import contextlib
 import logging
+import os
 import subprocess
+import tempfile
+import time
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
@@ -114,54 +118,95 @@ def _lift_to_hg38(
 def build_genome_wide_target(
     reflib_dir: str, build: str, template_roots: Sequence[str | None]
 ) -> str:
-    """Write and index microarray/All_SNPs_<build>_ref.tab.gz; return its path."""
+    """Write and index microarray/All_SNPs_<build>_ref.tab.gz; return its path.
+
+    Runs that start together on one library take turns (a lock file), and a run
+    that finds the target already built by another uses it."""
     target_build = canonical_build(build)
     if target_build not in ("hg19", "hg38"):
         raise WGSExtractError(
             f"Microarray targets can only be built for hg19 or hg38, not {build}."
         )
-    markers = collect_template_markers(template_roots)
-    if not markers:
-        raise WGSExtractError(
-            "No microarray templates found to build the genome-wide target from; "
-            "run 'wgsextract ref bootstrap' to install them."
-        )
-    logging.info(
-        f"Building the {target_build} microarray target from {len(markers):,} chip "
-        "template markers (once; it's saved in the reference library)."
-    )
-    if target_build == "hg38":
-        chain = str(Path(reflib_dir, "hg19ToHg38.over.chain.gz"))
-        if not Path(chain).is_file() and not download_file(
-            HG19_TO_HG38_CHAIN_URL, chain
-        ):
-            raise WGSExtractError(
-                f"Could not download {HG19_TO_HG38_CHAIN_URL}, needed to place the "
-                "chip markers on hg38."
-            )
-        markers = _lift_to_hg38(markers, chain)
-
     out = genome_wide_target_path(reflib_dir, target_build)
     Path(out).parent.mkdir(parents=True, exist_ok=True)
-    plain = out.removesuffix(".gz") + ".partial"
-    with open(plain, "w") as f:
-        f.write("#CHROM\tPOS\tID\n")
-        for (chrom, pos), rsid in sorted(
-            markers.items(), key=lambda m: (chr_to_int(m[0][0]), m[0][1])
-        ):
-            f.write(f"{chrom}\t{pos}\t{rsid}\n")
+    with _build_lock(out + ".lock"):
+        if Path(out).is_file() and Path(out + ".tbi").is_file():
+            return out
+        markers = collect_template_markers(template_roots)
+        if not markers:
+            raise WGSExtractError(
+                "No microarray templates found to build the genome-wide target from; "
+                "run 'wgsextract ref bootstrap' to install them."
+            )
+        logging.info(
+            f"Building the {target_build} microarray target from {len(markers):,} "
+            "chip template markers (once; it's saved in the reference library)."
+        )
+        if target_build == "hg38":
+            markers = _lift_to_hg38(markers, _hg19_to_hg38_chain(reflib_dir))
+        _write_target(markers, out)
+    logging.info(f"Saved the {target_build} microarray target: {out}")
+    return out
+
+
+def _hg19_to_hg38_chain(reflib_dir: str) -> str:
+    chain = str(Path(reflib_dir, "hg19ToHg38.over.chain.gz"))
+    if not Path(chain).is_file() and not download_file(HG19_TO_HG38_CHAIN_URL, chain):
+        raise WGSExtractError(
+            f"Could not download {HG19_TO_HG38_CHAIN_URL}, needed to place the chip "
+            "markers on hg38."
+        )
+    return chain
+
+
+def _write_target(markers: dict[tuple[str, int], str], out: str) -> None:
+    """Write and index out through private temporary files, then rename both into
+    place; only this run's temporary files are ever removed."""
+    fd, plain = tempfile.mkstemp(
+        prefix=".targets_", suffix=".tab", dir=Path(out).parent
+    )
+    staged = plain + ".gz"
     try:
-        with open(out + ".partial", "wb") as gz:
+        with os.fdopen(fd, "w") as f:
+            f.write("#CHROM\tPOS\tID\n")
+            for (chrom, pos), rsid in sorted(
+                markers.items(), key=lambda m: (chr_to_int(m[0][0]), m[0][1])
+            ):
+                f.write(f"{chrom}\t{pos}\t{rsid}\n")
+        with open(staged, "wb") as gz:
             run_command(["bgzip", "-c", plain], stdout=gz)
-        Path(out + ".partial").replace(out)
-        run_command(["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", out])
+        run_command(["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", staged])
+        Path(staged).replace(out)
+        Path(staged + ".tbi").replace(out + ".tbi")
     except (OSError, subprocess.SubprocessError) as e:
-        Path(out).unlink(missing_ok=True)
         raise WGSExtractError(
             f"Could not write the microarray target {out}: {e}"
         ) from e
     finally:
-        Path(plain).unlink(missing_ok=True)
-        Path(out + ".partial").unlink(missing_ok=True)
-    logging.info(f"Saved the {target_build} microarray target: {out}")
-    return out
+        for path in (plain, staged, staged + ".tbi"):
+            Path(path).unlink(missing_ok=True)
+
+
+@contextlib.contextmanager
+def _build_lock(lock: str, timeout: float = 1800) -> Iterator[None]:
+    """An exclusive lock file; a lock older than timeout is taken as abandoned."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except FileExistsError:
+            try:
+                stale = time.time() - Path(lock).stat().st_mtime > timeout
+            except FileNotFoundError:
+                continue
+            if stale or time.monotonic() > deadline:
+                Path(lock).unlink(missing_ok=True)
+                continue
+            logging.info(f"Waiting for another run to finish building {lock[:-5]}...")
+            time.sleep(5)
+    try:
+        os.close(fd)
+        yield
+    finally:
+        Path(lock).unlink(missing_ok=True)

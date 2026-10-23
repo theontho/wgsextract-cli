@@ -252,11 +252,25 @@ def run_streamed_alignment(
         run_command(get_sam_index_cmd(out_path, threads=threads))
 
 
+# SAM-spec @RG PL values for --platform.
+_RG_PLATFORMS = {
+    "illumina": "ILLUMINA",
+    "pacbio": "PACBIO",
+    "hifi": "PACBIO",
+    "clr": "PACBIO",
+    "ont": "ONT",
+    "nanopore": "ONT",
+}
+
+
 def _read_group(args: argparse.Namespace, stem: str) -> str:
     """The @RG line for -R (bwa, minimap2 expand the \\t). Variant callers and
-    multi-sample tools need each sample's own SM, and GATK requires a read group."""
-    sample = getattr(args, "sample", None) or stem.split(".")[0]
-    return f"@RG\\tID:{stem}\\tSM:{sample}\\tLB:{sample}"
+    multi-sample tools need each sample's own SM, and GATK requires a read group
+    with a platform. The default sample is the reads' name without its mate
+    marker (family.mother_R1 -> family.mother), so different people stay apart."""
+    sample = getattr(args, "sample", None) or pair_stem(stem)
+    platform = _RG_PLATFORMS.get(getattr(args, "platform", None) or "", "ILLUMINA")
+    return f"@RG\\tID:{stem}\\tSM:{sample}\\tLB:{sample}\\tPL:{platform}"
 
 
 def align_bwa(args: argparse.Namespace) -> None:
