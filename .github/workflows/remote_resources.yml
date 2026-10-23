@@ -11,7 +11,9 @@ on:
       - .github/workflows/remote_resources.yml
       - pixi.toml
       - src/wgsextract_cli/assets/reference/seed_genomes.csv
+      - src/wgsextract_cli/commands/benchmark/models.py
       - src/wgsextract_cli/core/annotation_resources.py
+      - src/wgsextract_cli/core/constants.py
       - src/wgsextract_cli/core/gene_map.py
       - src/wgsextract_cli/core/pharmgkb.py
       - src/wgsextract_cli/core/ref_library/catalog.py
