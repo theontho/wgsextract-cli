@@ -25,15 +25,23 @@ MIN_ALT_FRACTION = 0.3
 # almost always misaligned reads in a repeat (or, rarely, one multi-base event).
 CLUSTER_DISTANCE = 1000
 
-# Indices 0, 1, 2 are the proband, mother and father in the joint VCF.
+# Indices 0, 1, 2 are the proband, mother and father in the joint VCF, whose
+# multiallelic records are split first so GT and AD[:1] name the same allele.
+# Genotypes may be haploid: a male's chrX outside the PARs.
 _DEPTH = "FMT/DP[0]>={d} && FMT/DP[1]>={d} && FMT/DP[2]>={d}"
 JOINT_TRIO_FILTERS = {
-    # Child het with real support; both parents ref with no alt read at all.
+    # Child het (or hemizygous alt) with real support; both parents ref with no
+    # alt read at all.
     "denovo": (
-        'GT[0]="het" && FMT/AD[0:1]>={a} && FMT/AD[0:1]>={f}*FMT/DP[0] '
-        '&& GT[1]="ref" && GT[2]="ref" && FMT/AD[1:1]=0 && FMT/AD[2:1]=0 && ' + _DEPTH
+        '(GT[0]="het" || GT[0]="A") && FMT/AD[0:1]>={a} && '
+        'FMT/AD[0:1]>={f}*FMT/DP[0] && GT[1]="ref" && GT[2]="ref" && '
+        "FMT/AD[1:1]=0 && FMT/AD[2:1]=0 && " + _DEPTH
     ),
-    "recessive": 'GT[0]="AA" && GT[1]="het" && GT[2]="het" && ' + _DEPTH,
+    # Autosomal recessive, or X-linked in a son (from a carrier mother).
+    "recessive": (
+        '((GT[0]="AA" && GT[1]="het" && GT[2]="het") || '
+        '(GT[0]="A" && GT[1]="het" && GT[2]="ref")) && ' + _DEPTH
+    ),
     "comphet": (
         'GT[0]="het" && ((GT[1]="het" && GT[2]="ref") || (GT[1]="ref" && '
         'GT[2]="het")) && ' + _DEPTH
@@ -52,11 +60,12 @@ def joint_filter(mode: str, min_depth: int) -> str:
 
 
 def _primary_contigs(alignment: str, ref: str) -> list[str]:
-    """The proband's chromosomes 1-22, X, Y and M, in header order."""
+    """The proband's chromosomes 1-22 and X, in header order. chrY and chrM are
+    each inherited from one parent, so trio inheritance doesn't apply to them."""
     header = run_command(
         ["samtools", "view", "-H", "-T", ref, alignment], capture_output=True
     ).stdout
-    primary = {str(n) for n in range(1, 23)} | {"X", "Y", "M", "MT"}
+    primary = {str(n) for n in range(1, 23)} | {"X"}
     contigs = []
     for line in header.splitlines():
         if line.startswith("@SQ"):
@@ -103,7 +112,7 @@ def joint_trio_vcf(
     reads (samples PROBAND, MOTHER, FATHER), one chromosome per worker."""
     regions = [region] if region else _primary_contigs(alignments[0], ref)
     if not regions:
-        raise WGSExtractError(f"No chromosomes 1-22/X/Y/M found in {alignments[0]}.")
+        raise WGSExtractError(f"No chromosomes 1-22 or X found in {alignments[0]}.")
     workdir = str(Path(out_vcf).parent)
     with tempfile.TemporaryDirectory(dir=workdir, prefix=".wgse_trio_") as work:
         # Name samples by file: WGS Extract v4 wrote SM:WGSE in every alignment,
@@ -111,7 +120,8 @@ def joint_trio_vcf(
         read_groups = str(Path(work, "read_groups.txt"))
         Path(read_groups).write_text(
             "".join(
-                f"*\t{a}\t{s}\n" for a, s in zip(alignments, TRIO_SAMPLES, strict=True)
+                f"*\t{_tool_side_path(a)}\t{s}\n"
+                for a, s in zip(alignments, TRIO_SAMPLES, strict=True)
             )
         )
         samples = str(Path(work, "samples.txt"))
@@ -139,9 +149,37 @@ def joint_trio_vcf(
             ]
             for future in futures:
                 future.result()
+        remove_index(out_vcf)
         run_command(["bcftools", "concat", "-Oz", "-o", out_vcf, *chunks])
     ensure_vcf_indexed(out_vcf)
     return out_vcf
+
+
+def remove_index(vcf: str) -> None:
+    """Drop a VCF's old index before rewriting it: ensure_vcf_indexed keeps any
+    existing index, which would then describe the previous file."""
+    for index in (vcf + ".tbi", vcf + ".csi"):
+        Path(index).unlink(missing_ok=True)
+
+
+def split_multiallelic(vcf: str, out_vcf: str) -> str:
+    """One record per ALT, so genotype classes and AD[:1] refer to one allele."""
+    remove_index(out_vcf)
+    run_command(["bcftools", "norm", "-m", "-any", "-Oz", "-o", out_vcf, vcf])
+    ensure_vcf_indexed(out_vcf)
+    return out_vcf
+
+
+def _tool_side_path(path: str) -> str:
+    """A path as bcftools sees it: the read-group file's keys must match its
+    arguments, which the WSL backend translates."""
+    from wgsextract_cli.core import runtime
+    from wgsextract_cli.core.dependencies import get_tool_path
+    from wgsextract_cli.core.runtime_paths import translate_wsl_arg
+
+    if runtime.is_wsl_tool_command(get_tool_path("bcftools") or ""):
+        return translate_wsl_arg(path)
+    return path
 
 
 def write_isolated_denovo(denovo_vcf: str, out_vcf: str) -> tuple[int, int]:
@@ -151,6 +189,7 @@ def write_isolated_denovo(denovo_vcf: str, out_vcf: str) -> tuple[int, int]:
         ["bcftools", "query", "-f", "%CHROM\t%POS\n", denovo_vcf], capture_output=True
     ).stdout.split("\n")
     sites = [(c, int(p)) for c, p in (r.split("\t") for r in rows if r)]
+    remove_index(out_vcf)
     isolated = [
         site
         for i, site in enumerate(sites)

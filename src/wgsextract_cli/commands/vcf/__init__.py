@@ -217,6 +217,12 @@ def register(
         help="BAM/CRAM input: minimum read depth in each person at a reported site "
         "(default 15)",
     )
+    trio_parser.add_argument(
+        "--proband-sex",
+        choices=["male", "female"],
+        help="BAM/CRAM input: the child's sex, for chrX ploidy (default: inferred "
+        "from chrX/chrY coverage)",
+    )
     _add_region(trio_parser)
     trio_parser.set_defaults(func=cmd_trio)
 

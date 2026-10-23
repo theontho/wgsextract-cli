@@ -33,6 +33,8 @@ from .trio_alignments import (
     is_alignment,
     joint_filter,
     joint_trio_vcf,
+    remove_index,
+    split_multiallelic,
     write_isolated_denovo,
 )
 
@@ -233,6 +235,7 @@ def cmd_trio(args: argparse.Namespace) -> None:
                 p=f"GT[{p_idx}]", m=f"GT[{m_idx}]", f=f"GT[{f_idx}]"
             )
             try:
+                remove_index(out_vcf)
                 run_command(
                     ["bcftools", "view", "-i", filter_expr, "-Oz", "-o", out_vcf]
                     + [merged_vcf],
@@ -301,9 +304,22 @@ def _trio_from_alignments(
     elif lib.build and (is_hg37_build(lib.build) or is_hg38_build(lib.build)):
         ploidy_args = ["--ploidy", ploidy_for_build(lib.build)]
     else:
-        ploidy_args = []
+        # T2T's sex-chromosome coordinates differ: guessed ploidy would be wrong.
+        raise WGSExtractError(
+            f"No ploidy for reference build {lib.build or 'unknown'}: add a ploidy "
+            "file to the reference library (see 'wgsextract ref bootstrap')."
+        )
     # The parents' sexes are their roles; the proband's comes from chrX/chrY.
-    proband_sex = "M" if sample_sex(proband, outdir) == "Male" else "F"
+    proband_sex = getattr(args, "proband_sex", None)
+    if not proband_sex:
+        inferred = sample_sex(proband, outdir)
+        if inferred not in ("Male", "Female"):
+            raise WGSExtractError(
+                f"Couldn't tell the proband's sex from {proband}'s chrX/chrY coverage; "
+                "pass --proband-sex male or female."
+            )
+        proband_sex = inferred.lower()
+    proband_sex = "M" if proband_sex == "male" else "F"
     threads = int(get_resource_defaults(getattr(args, "threads", None), None)[0])
     joint = joint_trio_vcf(
         alignments,
@@ -316,27 +332,32 @@ def _trio_from_alignments(
     )
     logging.info(f"Joint trio genotypes: {joint}")
     min_depth = getattr(args, "min_depth", None) or DEFAULT_MIN_DEPTH
-    for mode in modes:
-        out_vcf = str(Path(outdir, f"trio_{mode}.vcf.gz"))
-        logging.info(
-            LOG_MESSAGES["vcf_trio_analysis"].format(mode=mode, output=out_vcf)
+    with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_trio_") as work:
+        split = split_multiallelic(joint, str(Path(work, "split.vcf.gz")))
+        for mode in modes:
+            _filter_joint_trio(mode, split, outdir, min_depth)
+
+
+def _filter_joint_trio(mode: str, split: str, outdir: str, min_depth: int) -> None:
+    out_vcf = str(Path(outdir, f"trio_{mode}.vcf.gz"))
+    logging.info(LOG_MESSAGES["vcf_trio_analysis"].format(mode=mode, output=out_vcf))
+    try:
+        remove_index(out_vcf)
+        run_command(
+            ["bcftools", "view", "-i", joint_filter(mode, min_depth)]
+            + ["-Oz", "-o", out_vcf, split],
+            capture_output=True,
         )
-        try:
-            run_command(
-                ["bcftools", "view", "-i", joint_filter(mode, min_depth)]
-                + ["-Oz", "-o", out_vcf, joint],
-                capture_output=True,
-            )
-            ensure_vcf_indexed(out_vcf)
-        except (OSError, subprocess.SubprocessError) as e:
-            raise WGSExtractError(f"VCF trio filtering failed for {mode}: {e}") from e
-        logging.info(LOG_MESSAGES["vcf_trio_complete"].format(output=out_vcf))
-        _summarize_trio_output(mode, out_vcf)
-        if mode == "denovo":
-            isolated_vcf = str(Path(outdir, "trio_denovo_isolated.vcf.gz"))
-            isolated, total = write_isolated_denovo(out_vcf, isolated_vcf)
-            logging.info(
-                f"{isolated:,} of the {total:,} de novo candidates have no other within "
-                f"{CLUSTER_DISTANCE:,} bp (clusters are typically misaligned reads in "
-                f"repeats): {isolated_vcf}"
-            )
+        ensure_vcf_indexed(out_vcf)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise WGSExtractError(f"VCF trio filtering failed for {mode}: {e}") from e
+    logging.info(LOG_MESSAGES["vcf_trio_complete"].format(output=out_vcf))
+    _summarize_trio_output(mode, out_vcf)
+    if mode == "denovo":
+        isolated_vcf = str(Path(outdir, "trio_denovo_isolated.vcf.gz"))
+        isolated, total = write_isolated_denovo(out_vcf, isolated_vcf)
+        logging.info(
+            f"{isolated:,} of the {total:,} de novo candidates have no other within "
+            f"{CLUSTER_DISTANCE:,} bp (clusters are typically misaligned reads in "
+            f"repeats): {isolated_vcf}"
+        )
