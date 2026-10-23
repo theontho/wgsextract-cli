@@ -54,7 +54,7 @@ KNOWN_SETTINGS = {
     "vcf_input_paths": (None, "Multiple VCF inputs"),
     "clinvar_vcf_path": (None, "Path to ClinVar VCF data"),
     "revel_tsv_path": (None, "Path to REVEL TSV data"),
-    "phylop_tsv_path": (None, "Path to PhyloP TSV data"),
+    "phylop_tsv_path": (None, "Path to PhyloP bigWig (or TSV/VCF) data"),
     "cadd_tsv_path": (None, "Path to CADD whole-genome SNV TSV data"),
     "cadd_indel_tsv_path": (None, "Path to CADD indel TSV data"),
     "gerp_bigwig_path": (None, "Path to GERP++ RS bigWig data"),

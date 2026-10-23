@@ -242,7 +242,10 @@ def cmd_library_list(args: argparse.Namespace) -> None:
         print(f"{f'REVEL ({build})':<40} {rv}")
         ph = (
             "INSTALLED"
-            if Path(ref_dir, f"phylop_{build}.tsv.gz").exists()
+            if any(
+                Path(ref_dir, f"phylop_{build}{ext}").exists()
+                for ext in (".bw", ".tsv.gz")
+            )
             else "MISSING"
         )
         print(f"{f'PhyloP ({build})':<40} {ph}")

@@ -10,6 +10,7 @@ from wgsextract_cli.core.annotation_resources import (
     download_clinvar,
     download_gerp,
     download_pharmgkb,
+    download_phylop,
     download_revel,
     download_spliceai,
 )
@@ -32,7 +33,6 @@ from wgsextract_cli.core.reference_processing import (
     delete_genome,
     download_and_process_genome,
     download_gnomad,
-    download_phylop,
 )
 from wgsextract_cli.core.utils import WGSExtractError
 
@@ -43,7 +43,7 @@ from .core_commands import (
 _MENU_DOWNLOADS: dict[str, tuple[str, Callable[[str], bool]]] = {
     "C": ("ClinVar", download_clinvar),
     "R": ("REVEL", download_revel),
-    "P": ("PhyloP", download_phylop),
+    "P": ("PhyloP hg38 (~9.9 GB)", download_phylop),
     "N": ("gnomAD", download_gnomad),
     "S": ("SpliceAI", download_spliceai),
     "A": ("AlphaMissense", download_alphamissense),
@@ -204,7 +204,12 @@ def cmd_revel_dl(args: argparse.Namespace) -> None:
 
 
 def cmd_phylop_dl(args: argparse.Namespace) -> None:
-    _run_ref_download(args, "PhyloP", download_phylop)
+    _run_ref_download(
+        args,
+        f"PhyloP {args.build}",
+        lambda lib: download_phylop(lib, args.build),
+        "download",
+    )
 
 
 def cmd_gnomad_dl(args: argparse.Namespace) -> None:

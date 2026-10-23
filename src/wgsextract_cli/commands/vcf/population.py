@@ -18,14 +18,15 @@ from .annotation_helpers import (
     run_filter,
     run_min_score_filter,
 )
+from .bigwig_scores import annotate_from_bigwig
 
 PHYLOP_ANNOTATED = "phylop_annotated.vcf.gz"
 GNOMAD_ANNOTATED = "gnomad_annotated.vcf.gz"
 
 
 def cmd_phylop(args: argparse.Namespace) -> None:
-    verify_dependencies(["bcftools", "tabix"])
-    log_dependency_info(["bcftools", "tabix"])
+    verify_dependencies(["bcftools", "tabix", "bgzip"])
+    log_dependency_info(["bcftools", "tabix", "bgzip"])
     input_file, outdir, lib = annotation_context(args)
     logging.info(LOG_MESSAGES["vcf_phylop_start"].format(input=input_file))
 
@@ -34,8 +35,36 @@ def cmd_phylop(args: argparse.Namespace) -> None:
     )
     logging.info(LOG_MESSAGES["vcf_phylop_resolve"].format(path=phylop_file))
 
-    phylop_vcf = prepare_tabix_annotation(phylop_file, "PhyloP")
     ann_out = str(Path(outdir, PHYLOP_ANNOTATED))
+    if phylop_file.lower().endswith((".bw", ".bigwig")):
+        # `ref phylop`'s UCSC bigWig: one score per base.
+        annotate_from_bigwig(
+            ensure_vcf_prepared(input_file),
+            phylop_file,
+            "PHYLOP",
+            "PhyloP",
+            "PhyloP 100-way vertebrate conservation score",
+            ann_out,
+            outdir,
+            threads=getattr(args, "threads", None),
+        )
+    else:
+        _annotate_from_phylop_table(args, input_file, phylop_file, ann_out, outdir)
+
+    run_min_score_filter(
+        ann_out, outdir, args.min_score, "PHYLOP", "phylop", "PhyloP", "vcf_phylop_done"
+    )
+
+
+def _annotate_from_phylop_table(
+    args: argparse.Namespace,
+    input_file: str,
+    phylop_file: str,
+    ann_out: str,
+    outdir: str,
+) -> None:
+    """A PhyloP VCF, or a TSV of #Chr, Start, End, Score, the user supplied."""
+    phylop_vcf = prepare_tabix_annotation(phylop_file, "PhyloP")
     if phylop_vcf.lower().endswith(VCF_SUFFIXES):
         annotate_vcf(
             ensure_vcf_prepared(input_file),
@@ -61,10 +90,6 @@ def cmd_phylop(args: argparse.Namespace) -> None:
             ],
             threads=getattr(args, "threads", None),
         )
-
-    run_min_score_filter(
-        ann_out, outdir, args.min_score, "PHYLOP", "phylop", "PhyloP", "vcf_phylop_done"
-    )
 
 
 def cmd_gnomad(args: argparse.Namespace) -> None:

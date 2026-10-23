@@ -240,7 +240,7 @@ wgsextract ref library --list
 wgsextract ref library --install hs38
 ```
 
-Annotation data comes from `ref clinvar`, `ref gnomad`, `ref revel`, `ref phylop`, `ref alphamissense`, `ref pharmgkb`, and `ref gene-map`. SpliceAI scores require an Illumina BaseSpace login, so `ref spliceai` explains where to put a manually downloaded file.
+Annotation data comes from `ref clinvar`, `ref gnomad`, `ref revel`, `ref phylop`, `ref gerp`, `ref spliceai`, `ref alphamissense`, `ref pharmgkb`, and `ref gene-map`. `ref phylop` and `ref gerp` download one build's per-base scores (about 10 GB each; `--build hg19` for hg19). `ref spliceai` downloads Ensembl's open hg38 scores (28.9 GB); hg19 scores need an Illumina BaseSpace login, so it explains where to put a manually downloaded file.
 :::
 
 ::: card

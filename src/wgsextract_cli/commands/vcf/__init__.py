@@ -324,7 +324,7 @@ def register(
         phylop_parser,
         "--phylop-file",
         "phylop_tsv_path",
-        "Path to PhyloP TSV or VCF data file.",
+        "Path to a PhyloP bigWig (phylop_<build>.bw), or a TSV/VCF of scores.",
     )
     _add_min_score(phylop_parser, "PhyloP", "2.0")
     phylop_parser.set_defaults(func=cmd_phylop)

@@ -28,7 +28,7 @@ ANNOTATION_DATA = [
     ("clinvar", "ClinVar", (".vcf.gz",), ("hg19", "hg38")),
     ("gnomad", "gnomAD", (".tsv.gz", ".vcf.bgz", ".vcf.gz"), ("hg19", "hg38")),
     ("revel", "REVEL", (".tsv.gz",), ("hg19", "hg38")),
-    ("phylop", "PhyloP", (".tsv.gz",), ("hg19", "hg38")),
+    ("phylop", "PhyloP", (".bw", ".tsv.gz"), ("hg19", "hg38")),
     ("cadd", "CADD", (".tsv.gz",), ("hg19", "hg38")),
     ("gerp", "GERP", (".bw",), ("hg19", "hg38")),
     ("spliceai", "SpliceAI", (".vcf.gz", ".vcf.bgz"), ("hg19", "hg38")),
