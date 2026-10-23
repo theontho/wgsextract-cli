@@ -10,7 +10,7 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.output_checks import (
-    bam_read_count,
+    bam_has_reads,
     warn_if_no_reads,
     warn_if_no_variants,
 )
@@ -329,7 +329,7 @@ def cmd_unmapped(args: argparse.Namespace) -> None:
             )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Unmapped extraction failed: {e}") from e
-    if bam_read_count(out_bam) == 0:
+    if bam_has_reads(out_bam) is False:
         # Unlike the other extractions, none can be right: an aligner that
         # dropped its unmapped reads.
         logging.info(f"{args.input} has no unmapped reads.")

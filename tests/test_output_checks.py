@@ -18,12 +18,15 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _vcf(path: Path, records: list[str]) -> str:
+def _vcf(path: Path, records: list[str], tags: tuple[str, ...] = ("SCORE",)) -> str:
     plain = path.with_suffix("")
     plain.write_text(
         "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=100000>\n"
-        '##INFO=<ID=SCORE,Number=1,Type=Float,Description="s">\n'
-        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n" + "".join(records)
+        + "".join(
+            f'##INFO=<ID={t},Number=.,Type=String,Description="t">\n' for t in tags
+        )
+        + "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        + "".join(records)
     )
     with open(path, "wb") as out:
         subprocess.run(
@@ -78,6 +81,52 @@ def test_nothing_annotated_warns_only_for_a_large_vcf(
     with caplog.at_level(logging.WARNING):
         output_checks.warn_if_nothing_annotated(vcf, "CHROM,POS,INFO/SCORE", "Test")
     assert ("got a Test value" in caplog.text) == warns
+
+
+@pytest.mark.parametrize(
+    ("columns", "tag"),
+    [("CLNSIG,CLNDN", "CLNSIG"), ("INFO/GNOMAD_AF:=INFO/AF", "GNOMAD_AF")],
+)
+def test_nothing_annotated_reads_each_callers_column_form(
+    tmp_path, caplog, columns, tag
+):
+    # ClinVar names bare INFO tags; gnomAD's VCF path renames AF into GNOMAD_AF.
+    records = [r.replace("SCORE=1.5", f"{tag}=x") for r in _records(1000)]
+    vcf = _vcf(tmp_path / "a.vcf.gz", records, tags=(tag,))
+    with caplog.at_level(logging.WARNING):
+        output_checks.warn_if_nothing_annotated(vcf, columns, "Test")
+    assert "got a Test value" in caplog.text
+
+
+def test_read_presence_uses_the_index_or_stops_at_the_first_read(tmp_path):
+    samtools = get_tool_path("samtools")
+    sam = tmp_path / "x.sam"
+    sam.write_text(
+        "@SQ\tSN:chr1\tLN:1000\nr1\t0\tchr1\t10\t60\t4M\t*\t0\t0\tACGT\tIIII\n"
+    )
+    full, empty = tmp_path / "full.bam", tmp_path / "empty.bam"
+    subprocess.run([samtools, "view", "-b", "-o", str(full), str(sam)], check=True)
+    header = tmp_path / "h.sam"
+    header.write_text("@SQ\tSN:chr1\tLN:1000\n")
+    subprocess.run([samtools, "view", "-b", "-o", str(empty), str(header)], check=True)
+    # Unindexed: the first-read probe.
+    assert output_checks.bam_has_reads(full) is True
+    assert output_checks.bam_has_reads(empty) is False
+    # Indexed: idxstats, where zero reads is a valid answer.
+    for bam in (full, empty):
+        subprocess.run([samtools, "index", str(bam)], check=True)
+    assert output_checks.bam_has_reads(full) is True
+    assert output_checks.bam_has_reads(empty) is False
+
+
+def test_microarray_kit_with_no_rows_warns(caplog):
+    out = io.StringIO()
+    with (
+        patch.object(combined, "_command_lines", return_value=iter([])),
+        caplog.at_level(logging.WARNING),
+    ):
+        combined._write_alignment_mode_kit(out, outdir=".", out_vcf="x.vcf.gz")
+    assert "No target genotypes were produced" in caplog.text
 
 
 def test_microarray_kit_of_only_no_calls_warns(caplog):

@@ -10,6 +10,7 @@ import logging
 import subprocess
 
 from wgsextract_cli.core.paths import PathInput
+from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.utils import popen, run_command
 
 # Fewer variants than this can legitimately miss every annotation (a chrM VCF
@@ -33,18 +34,41 @@ def vcf_record_count(vcf: PathInput) -> int | None:
         return None
 
 
-def bam_read_count(bam: PathInput) -> int | None:
-    """Reads (mapped or not) in a BAM/CRAM, or None if it can't be read."""
+def bam_has_reads(bam: PathInput) -> bool | None:
+    """Whether a BAM/CRAM has any read, or None if it can't be read. Uses the
+    index's counts when there is one, else stops at the first read."""
+    if alignment_index(bam):
+        try:
+            res = run_command(
+                ["samtools", "idxstats", str(bam)], capture_output=True, check=False
+            )
+        except OSError:
+            return None
+        if res.returncode == 0:
+            rows = [line.split("\t") for line in res.stdout.splitlines()]
+            return any(int(r[2]) + int(r[3]) for r in rows if len(r) >= 4)
     try:
-        res = run_command(
-            ["samtools", "view", "-c", str(bam)], capture_output=True, check=False
+        proc = popen(
+            ["samtools", "view", str(bam)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
         )
     except OSError:
         return None
-    try:
-        return int(res.stdout.strip()) if res.returncode == 0 else None
-    except ValueError:
-        return None
+    return _first_line_or_none(proc)
+
+
+def _first_line_or_none(proc: subprocess.Popen[str]) -> bool | None:
+    """Whether a process printed a line, stopping it at the first; None if it
+    failed before printing one."""
+    assert proc.stdout is not None
+    found = bool(proc.stdout.readline())
+    if found:
+        proc.kill()
+    proc.stdout.close()
+    code = proc.wait()
+    return True if found else (False if code == 0 else None)
 
 
 def warn_if_no_variants(
@@ -66,7 +90,7 @@ def warn_if_no_variants(
 
 def warn_if_no_reads(bam: PathInput, what: str, hint: str = "") -> None:
     """Warn when an extraction wrote no reads."""
-    if bam_read_count(bam) != 0:
+    if bam_has_reads(bam) is not False:
         return
     logging.warning(
         f"{bam} has no reads: the input has no {what}"
@@ -86,18 +110,26 @@ def vcf_has_info(vcf: PathInput, tag: str) -> bool | None:
         )
     except OSError:
         return None
-    assert proc.stdout is not None
-    found = bool(proc.stdout.readline())
-    if found:
-        proc.kill()
-    proc.stdout.close()
-    code = proc.wait()
-    return True if found else (False if code == 0 else None)
+    return _first_line_or_none(proc)
+
+
+def annotation_tags(columns: str) -> list[str]:
+    """The INFO tags a bcftools annotate -c list writes: bare names (CLNSIG),
+    INFO/ names, and renames' destinations (INFO/GNOMAD_AF:=INFO/AF)."""
+    fixed = {"CHROM", "POS", "FROM", "TO", "BEG", "END", "REF", "ALT", "ID"}
+    fixed |= {"QUAL", "FILTER", "INFO", "FORMAT", "-"}
+    tags = []
+    for column in columns.split(","):
+        name = column.split(":=", 1)[0].lstrip("+-=.")
+        name = name.removeprefix("INFO/")
+        if name and name.upper() not in fixed and not name.startswith("FMT/"):
+            tags.append(name)
+    return tags
 
 
 def warn_if_nothing_annotated(vcf: PathInput, columns: str, label: str) -> None:
     """Warn when a large VCF got none of an annotation's INFO values."""
-    tags = [c.split("/", 1)[1] for c in columns.split(",") if c.startswith("INFO/")]
+    tags = annotation_tags(columns)
     if not tags:
         return
     total = vcf_record_count(vcf)

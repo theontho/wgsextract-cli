@@ -187,10 +187,16 @@ def _write_alignment_mode_kit(f_out: TextIO, *, outdir: str, out_vcf: str) -> No
         f_out.write(f"{snp_id}\t{_combined_kit_chrom(chrom)}\t{pos}\t{genotype}\n")
         rows += 1
         called += genotype != "--"
-    if rows and not called:
+    if not called:
+        # mpileup writes no records at all when no read overlaps any target.
+        found = (
+            f"All {rows:,} target genotypes are no-calls (--)"
+            if rows
+            else ("No target genotypes were produced, so the kit is empty")
+        )
         logging.warning(
-            f"All {rows:,} target genotypes are no-calls (--): the input has no reads "
-            "at the kit's positions, or the reference doesn't match it."
+            f"{found}: the input has no reads at the kit's positions, or the "
+            "reference doesn't match it."
         )
 
 
