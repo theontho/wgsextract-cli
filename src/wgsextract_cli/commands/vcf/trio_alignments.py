@@ -60,20 +60,27 @@ def joint_filter(mode: str, min_depth: int) -> str:
     )
 
 
-def _primary_contigs(alignment: str, ref: str) -> list[str]:
-    """The proband's chromosomes 1-22 and X, in header order. chrY and chrM are
-    each inherited from one parent, so trio inheritance doesn't apply to them."""
-    header = run_command(
-        ["samtools", "view", "-H", "-T", ref, alignment], capture_output=True
-    ).stdout
-    primary = {str(n) for n in range(1, 23)} | {"X"}
-    contigs = []
-    for line in header.splitlines():
-        if line.startswith("@SQ"):
-            name = next(f[3:] for f in line.split("\t") if f.startswith("SN:"))
-            if name.removeprefix("chr") in primary:
-                contigs.append(name)
-    return contigs
+def trio_contig_lengths(alignment: str, region: str | None = None) -> dict[str, int]:
+    """Name -> length of the chromosomes a trio is called on, in header order:
+    1-22 and X (chrY and chrM are each inherited from one parent, so trio
+    inheritance doesn't apply), or just --region's contig."""
+    header = run_command(["samtools", "view", "-H", alignment], capture_output=True)
+    wanted = {str(n) for n in range(1, 23)} | {"X"}
+    region_contig = region.split(":")[0] if region else None
+    lengths = {}
+    for line in header.stdout.splitlines():
+        if not line.startswith("@SQ"):
+            continue
+        fields = dict(f.split(":", 1) for f in line.split("\t")[1:] if ":" in f)
+        name = fields.get("SN", "")
+        keep = (
+            name == region_contig
+            if region_contig
+            else name.removeprefix("chr") in wanted
+        )
+        if keep and fields.get("LN", "").isdigit():
+            lengths[name] = int(fields["LN"])
+    return lengths
 
 
 def _call_region(
@@ -111,7 +118,7 @@ def joint_trio_vcf(
 ) -> str:
     """Write out_vcf: the proband, mother and father jointly genotyped from their
     reads (samples PROBAND, MOTHER, FATHER), one chromosome per worker."""
-    regions = [region] if region else _primary_contigs(alignments[0], ref)
+    regions = [region] if region else list(trio_contig_lengths(alignments[0]))
     if not regions:
         raise WGSExtractError(f"No chromosomes 1-22 or X found in {alignments[0]}.")
     workdir = str(Path(out_vcf).parent)

@@ -199,23 +199,37 @@ def test_isolated_denovo_drops_clusters(tmp_path):
     assert kept == ["1000", "200000", "900000"]
 
 
-def test_a_trio_on_different_references_is_refused(tmp_path):
-    files = [tmp_path / f"{n}.cram" for n in ("child", "mother", "father")]
-    for f in files:
-        f.write_bytes(b"")
+def _header_bam(path: Path, contigs: dict[str, int]) -> str:
+    sam = path.with_suffix(".sam")
+    sam.write_text("".join(f"@SQ\tSN:{n}\tLN:{ln}\n" for n, ln in contigs.items()))
+    subprocess.run(
+        [get_tool_path("samtools"), "view", "-b", "-o", str(path), str(sam)],
+        check=True,
+    )
+    return str(path)
+
+
+@needs_htslib
+def test_trio_references_are_compared_on_the_called_chromosomes(tmp_path):
+    child = _header_bam(tmp_path / "child.bam", {"chr20": 2000, "chrUn_decoy": 50})
+    # Only an extra decoy differs: compatible.
+    mother = _header_bam(tmp_path / "mother.bam", {"chr20": 2000})
+    # Another build: chr20's length differs.
+    father = _header_bam(tmp_path / "father.bam", {"chr20": 3000})
     args = argparse.Namespace(
-        proband=str(files[0]), vcf_input=None, mother=str(files[1]),
-        father=str(files[2]), outdir=str(tmp_path), mode="denovo", region=None,
-        ref=None,
+        proband=child, vcf_input=None, mother=mother, father=mother,
+        outdir=str(tmp_path), mode="denovo", region="chr20", ref=None,
     )  # fmt: skip
-    signatures = {str(files[0]): "hg38sig", str(files[1]): "hg38sig"}
     with (
         patch.object(filter_trio, "verify_dependencies"),
-        patch.object(
-            filter_trio,
-            "calculate_bam_md5",
-            side_effect=lambda path, _: signatures.get(path, "hg19sig"),
-        ),
-        pytest.raises(WGSExtractError, match="different references.*father"),
+        patch.object(filter_trio, "calculate_bam_md5", return_value=None),
+        # Past the check, the run then needs a reference.
+        pytest.raises(WGSExtractError, match="Reference genome required"),
+    ):
+        filter_trio.cmd_trio(args)
+    args.father = father
+    with (
+        patch.object(filter_trio, "verify_dependencies"),
+        pytest.raises(WGSExtractError, match="father's alignment father.bam isn't"),
     ):
         filter_trio.cmd_trio(args)

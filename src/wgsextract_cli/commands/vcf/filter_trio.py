@@ -35,6 +35,7 @@ from .trio_alignments import (
     joint_trio_vcf,
     remove_index,
     split_multiallelic,
+    trio_contig_lengths,
     write_isolated_denovo,
 )
 
@@ -292,19 +293,33 @@ def _trio_from_alignments(
 
     verify_dependencies(["bcftools", "tabix", "samtools"])
     proband = alignments[0]
-    # Joint calling compares reads at the same positions: all three must be
-    # aligned to the same reference (one sequence dictionary).
-    signatures = [calculate_bam_md5(a, None) for a in alignments]
-    if len(set(signatures)) > 1:
-        roles = ", ".join(
-            f"{role} {Path(a).name}"
-            for role, a in zip(("proband", "mother", "father"), alignments, strict=True)
-        )
+    # Joint calling compares reads at the same positions: the chromosomes being
+    # called must have the same names and lengths in all three (extra decoy or
+    # alt contigs don't matter).
+    region = getattr(args, "region", None)
+    called = [trio_contig_lengths(a, region) for a in alignments]
+    if not called[0]:
         raise WGSExtractError(
-            f"The trio's alignments use different references ({roles} have "
-            f"signatures {', '.join(signatures)}); realign them to one reference."
+            f"{proband} has none of the chromosomes to call "
+            f"({region or 'chr1-22, chrX'})."
         )
-    lib = ReferenceLibrary(args.ref, signatures[0], input_path=proband)
+    for role, alignment, contigs in zip(
+        ("mother", "father"), alignments[1:], called[1:], strict=True
+    ):
+        if contigs != called[0]:
+            differing = sorted(
+                name
+                for name in set(called[0]) | set(contigs)
+                if called[0].get(name) != contigs.get(name)
+            )
+            raise WGSExtractError(
+                f"The {role}'s alignment {Path(alignment).name} isn't on the same "
+                f"reference as the proband's (chromosomes differ: "
+                f"{', '.join(differing[:5])}); realign them to one reference."
+            )
+    lib = ReferenceLibrary(
+        args.ref, calculate_bam_md5(proband, None), input_path=proband
+    )
     if not lib.fasta:
         raise WGSExtractError(
             "Reference genome required to genotype the trio's alignments; pass --ref."
