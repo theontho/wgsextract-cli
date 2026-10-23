@@ -257,7 +257,7 @@ Developer tools live in the `dev` Pixi environment, which Pixi selects automatic
 | `pixi run test` | Unit and integration tests (excludes the end-to-end suites) |
 | `pixi run smoke-test` | CLI smoke tests (`smoke-test-full` adds full-genome and pet tests) |
 | `pixi run test-e2e` | End-to-end suites against real data |
-| `pixi run test-e2e-fake` | End-to-end suites against generated data (`pytest --fake-data`) |
+| `pixi run test-e2e-fake` | End-to-end suites against generated data (`pytest --fake-data`); CI runs them on Linux and macOS |
 | `pixi run test-remote` | Live checks that every file the CLI downloads is still published, and SpliceAI in the expected format; CI runs them weekly |
 | `pixi run lint` | Ruff, site-source validation, and GitHub Actions checks |
 | `pixi run format` | `ruff format .` |

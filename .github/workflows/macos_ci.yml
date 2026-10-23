@@ -49,3 +49,7 @@ jobs:
           echo "Benchmark timing is published in this job summary."
       - name: Run Tests
         run: pixi run test
+      # Each extract, call and annotate command run end to end on generated chrM
+      # and whole-genome data; about 30 s, no downloads.
+      - name: Run end-to-end tests on generated data
+        run: pixi run test-e2e-fake
