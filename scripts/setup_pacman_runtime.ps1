@@ -137,7 +137,8 @@ function Invoke-PacmanCommand {
     param([string]$ScriptText)
 
     $dbLock = Join-Path $Msys2Root "var\lib\pacman\db.lck"
-    $attempts = 3
+    # MSYS2's mirrors rate-limit busy clients (HTTP 429) for a minute or so.
+    $attempts = 4
     for ($i = 1; $i -le $attempts; $i += 1) {
         if (Test-Path $dbLock) {
             Write-Host "Removing stale MSYS2 pacman db lock before retry: $dbLock"
@@ -149,7 +150,7 @@ function Invoke-PacmanCommand {
         }
         catch {
             if ($i -eq $attempts) { throw }
-            $delay = 5 * $i
+            $delay = 15 * [math]::Pow(2, $i - 1)
             Write-Host "pacman command failed (attempt $i/$attempts). Retrying in $delay s..."
             Start-Sleep -Seconds $delay
         }
