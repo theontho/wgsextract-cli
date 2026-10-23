@@ -123,9 +123,10 @@ be what passes. In the VM:
    the click would start is. The reference-genome dropdowns' data sources are
    loaded the same way (`dataSource` steps): each script must resolve for the
    platform, run on the app's own runtime and print its list (gui-for-cli#140
-   was these failing with `spawn python ENOENT` on Windows). The mini genome
-   isn't a catalog genome, so the lists may be empty here; gui-for-cli's own
-   default plan checks that they offer a downloaded hg19.
+   was these failing with `spawn python ENOENT` on Windows). The dropdowns only
+   list catalog genomes and the mini genome isn't one, so the plan first
+   downloads hs38 (755 MB, from this repo's release) with the Library page's
+   own download action, and each dropdown must then offer it.
 4. The app's own **Uninstall** (`GUI_FOR_CLI_AUTO_RUN_UNINSTALL`) runs the bundle's
    uninstall steps, removes the app's data and moves it to the Trash; the Trash
    is emptied and the machine must match the baseline. One exception: macOS's

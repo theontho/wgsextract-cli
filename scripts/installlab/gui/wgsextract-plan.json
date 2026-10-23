@@ -36,6 +36,30 @@
       ]
     },
     {
+      "id": "download_reference",
+      "kind": "action",
+      "pageID": "library",
+      "sectionID": "genome-management",
+      "controlID": "reference_genomes",
+      "actionID": "ref-download",
+      "rowID": "hs38-GitHub-hs38.fa.gz",
+      "rowValues": {
+        "build": "GRCh38 / hg38",
+        "code": "hs38",
+        "final": "hs38.fa.gz",
+        "name": "hs38 (Nebula)",
+        "ref": "{{bundleWorkspace}}/reference/genomes/hs38.fa.gz",
+        "source": "GitHub",
+        "status": "missing"
+      },
+      "timeoutSeconds": 3600,
+      "inputs": {
+        "fieldValues": {
+          "ref_path": "{{bundleWorkspace}}/reference"
+        }
+      }
+    },
+    {
       "id": "ref_dropdown_fastq",
       "kind": "dataSource",
       "pageID": "fastq",
@@ -47,8 +71,9 @@
         }
       },
       "requiredOutput": [
-        "\"options\""
-      ]
+        "hs38 (Nebula) (GitHub)"
+      ],
+      "minimumOptions": 1
     },
     {
       "id": "ref_dropdown_realign",
@@ -62,8 +87,9 @@
         }
       },
       "requiredOutput": [
-        "\"options\""
-      ]
+        "hs38 (Nebula) (GitHub)"
+      ],
+      "minimumOptions": 1
     },
     {
       "id": "ref_dropdown_microarray",
@@ -77,8 +103,9 @@
         }
       },
       "requiredOutput": [
-        "\"options\""
-      ]
+        "hs38 (Nebula) (GitHub)"
+      ],
+      "minimumOptions": 1
     },
     {
       "id": "ref_dropdown_settings",
@@ -93,8 +120,9 @@
         }
       },
       "requiredOutput": [
-        "\"options\""
-      ]
+        "hs38 (Nebula) (GitHub)"
+      ],
+      "minimumOptions": 1
     },
     {
       "id": "ref_library_list",
@@ -108,7 +136,7 @@
         }
       },
       "requiredOutput": [
-        "\"items\""
+        "\"status\": \"installed\""
       ]
     },
     {
