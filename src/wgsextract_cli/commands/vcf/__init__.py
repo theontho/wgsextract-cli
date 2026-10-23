@@ -200,12 +200,22 @@ def register(
         default=settings.get("father_vcf_path"),
         help=CLI_HELP["arg_father"],
     )
-    trio_parser.add_argument("--proband", help="VCF file for the child")
+    trio_parser.add_argument(
+        "--proband",
+        help="The child's VCF, or BAM/CRAM (with the parents' BAM/CRAMs: genotyped "
+        "jointly from the reads, which de novo calls need)",
+    )
     trio_parser.add_argument(
         "--mode",
         choices=["denovo", "recessive", "comphet", "all"],
         default="denovo",
         help="Inheritance mode to filter for",
+    )
+    trio_parser.add_argument(
+        "--min-depth",
+        type=int,
+        help="BAM/CRAM input: minimum read depth in each person at a reported site "
+        "(default 15)",
     )
     _add_region(trio_parser)
     trio_parser.set_defaults(func=cmd_trio)
