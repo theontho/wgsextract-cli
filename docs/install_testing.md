@@ -120,7 +120,12 @@ be what passes. In the VM:
 3. The real actions run on the HG00096 mini genome through the same
    GUIForCLICore runner the app uses (`gui-for-cli bundle test`) with the
    installed app's bundle and workspace. Clicking isn't simulated; everything
-   the click would start is.
+   the click would start is. The reference-genome dropdowns' data sources are
+   loaded the same way (`dataSource` steps): each script must resolve for the
+   platform, run on the app's own runtime and print its list (gui-for-cli#140
+   was these failing with `spawn python ENOENT` on Windows). The mini genome
+   isn't a catalog genome, so the lists may be empty here; gui-for-cli's own
+   default plan checks that they offer a downloaded hg19.
 4. The app's own **Uninstall** (`GUI_FOR_CLI_AUTO_RUN_UNINSTALL`) runs the bundle's
    uninstall steps, removes the app's data and moves it to the Trash; the Trash
    is emptied and the machine must match the baseline. One exception: macOS's
@@ -140,15 +145,16 @@ format is checked there; the CLI lab measures concordance.
 
 Test the DMG downloaded from the published release, not a locally packaged app
 or a manually dispatched Actions artifact. Use a gui-for-cli checkout matching
-the release tag to build the bundle-test runner:
+the release tag to build the bundle-test runner. The plan's `dataSource` steps
+need v0.4.4 or later; an older runner rejects them.
 
 ```bash
-mkdir -p out/installlab/releases/v0.4.2
-gh release download v0.4.2 --repo theontho/gui-for-cli \
-  --pattern WGSExtract-0.4.2.dmg --dir out/installlab/releases/v0.4.2
+mkdir -p out/installlab/releases/v0.4.4
+gh release download v0.4.4 --repo theontho/gui-for-cli \
+  --pattern WGSExtract-0.4.4.dmg --dir out/installlab/releases/v0.4.4
 pixi run -e dev python scripts/installlab/lab.py run macos \
   --gui-repo ../gui-for-cli \
-  --dmg out/installlab/releases/v0.4.2/WGSExtract-0.4.2.dmg
+  --dmg out/installlab/releases/v0.4.4/WGSExtract-0.4.4.dmg
 ```
 
 Do not add `--cli-from-tree`: acceptance must exercise the CLI pinned by the

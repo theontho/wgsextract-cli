@@ -36,6 +36,82 @@
       ]
     },
     {
+      "id": "ref_dropdown_fastq",
+      "kind": "dataSource",
+      "pageID": "fastq",
+      "sectionID": "fastq-align",
+      "controlID": "ref_fasta",
+      "inputs": {
+        "fieldValues": {
+          "ref_path": "{{bundleWorkspace}}/reference"
+        }
+      },
+      "requiredOutput": [
+        "\"options\""
+      ]
+    },
+    {
+      "id": "ref_dropdown_realign",
+      "kind": "dataSource",
+      "pageID": "info-bam",
+      "sectionID": "realign-commands",
+      "controlID": "realign_ref",
+      "inputs": {
+        "fieldValues": {
+          "ref_path": "{{bundleWorkspace}}/reference"
+        }
+      },
+      "requiredOutput": [
+        "\"options\""
+      ]
+    },
+    {
+      "id": "ref_dropdown_microarray",
+      "kind": "dataSource",
+      "pageID": "microarray",
+      "sectionID": "microarray-inputs",
+      "controlID": "ref_fasta",
+      "inputs": {
+        "fieldValues": {
+          "ref_path": "{{bundleWorkspace}}/reference"
+        }
+      },
+      "requiredOutput": [
+        "\"options\""
+      ]
+    },
+    {
+      "id": "ref_dropdown_settings",
+      "kind": "dataSource",
+      "pageID": "settings",
+      "sectionID": "settings-paths",
+      "controlID": "wgs_settings",
+      "settingID": "ref_fasta",
+      "inputs": {
+        "fieldValues": {
+          "ref_path": "{{bundleWorkspace}}/reference"
+        }
+      },
+      "requiredOutput": [
+        "\"options\""
+      ]
+    },
+    {
+      "id": "ref_library_list",
+      "kind": "dataSource",
+      "pageID": "library",
+      "sectionID": "genome-management",
+      "controlID": "reference_genomes",
+      "inputs": {
+        "fieldValues": {
+          "ref_path": "{{bundleWorkspace}}/reference"
+        }
+      },
+      "requiredOutput": [
+        "\"items\""
+      ]
+    },
+    {
       "id": "info",
       "kind": "action",
       "pageID": "info-bam",
