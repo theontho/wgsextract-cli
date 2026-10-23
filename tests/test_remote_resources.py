@@ -13,6 +13,7 @@ import pytest
 
 from wgsextract_cli.core.annotation_resources import SPLICEAI_URLS
 from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.utils import run_command
 
 pytestmark = [
     pytest.mark.remote,
@@ -38,9 +39,9 @@ def _status(url: str) -> int:
 
 
 def _run(cmd: list[str], cwd: Path) -> str:
-    return subprocess.run(
-        cmd, cwd=cwd, capture_output=True, text=True, check=True
-    ).stdout
+    # run_command expands the wrapper commands get_tool_path may return
+    # (wsl:tabix, Pixi launchers).
+    return str(run_command(cmd, capture_output=True, cwd=cwd).stdout)
 
 
 def test_spliceai_hg38_and_its_index_are_published() -> None:
