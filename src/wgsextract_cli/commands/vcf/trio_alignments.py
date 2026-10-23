@@ -9,7 +9,7 @@ each parent's depth and allele counts wherever the child has a variant.
 import logging
 import subprocess
 import tempfile
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from wgsextract_cli.core.paths import append_suffix
@@ -85,7 +85,7 @@ def _call_region(
     ploidy_args: list[str],
     out_vcf: str,
 ) -> str:
-    """Joint-call one region of the three alignments. Module level for pickling."""
+    """Joint-call one region of the three alignments."""
     run_pipeline(
         [
             ["bcftools", "mpileup", "-r", region, "-f", ref, "-a", "AD,DP"]
@@ -134,7 +134,10 @@ def joint_trio_vcf(
             f"region(s) with {threads} worker(s); a whole genome takes hours."
         )
         chunks = [str(Path(work, f"{i:03d}.vcf.gz")) for i in range(len(regions))]
-        with ProcessPoolExecutor(max_workers=max(1, threads)) as pool:
+        # Threads, not processes: each worker only waits on bcftools, and threads
+        # keep the selected --config (a WSL or native runtime) that new processes
+        # would lose on Windows and macOS.
+        with ThreadPoolExecutor(max_workers=max(1, threads)) as pool:
             futures = [
                 pool.submit(
                     _call_region,

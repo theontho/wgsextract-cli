@@ -292,9 +292,19 @@ def _trio_from_alignments(
 
     verify_dependencies(["bcftools", "tabix", "samtools"])
     proband = alignments[0]
-    lib = ReferenceLibrary(
-        args.ref, calculate_bam_md5(proband, None), input_path=proband
-    )
+    # Joint calling compares reads at the same positions: all three must be
+    # aligned to the same reference (one sequence dictionary).
+    signatures = [calculate_bam_md5(a, None) for a in alignments]
+    if len(set(signatures)) > 1:
+        roles = ", ".join(
+            f"{role} {Path(a).name}"
+            for role, a in zip(("proband", "mother", "father"), alignments, strict=True)
+        )
+        raise WGSExtractError(
+            f"The trio's alignments use different references ({roles} have "
+            f"signatures {', '.join(signatures)}); realign them to one reference."
+        )
+    lib = ReferenceLibrary(args.ref, signatures[0], input_path=proband)
     if not lib.fasta:
         raise WGSExtractError(
             "Reference genome required to genotype the trio's alignments; pass --ref."

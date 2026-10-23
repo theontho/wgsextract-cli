@@ -197,3 +197,25 @@ def test_isolated_denovo_drops_clusters(tmp_path):
         check=True,
     ).stdout.split()
     assert kept == ["1000", "200000", "900000"]
+
+
+def test_a_trio_on_different_references_is_refused(tmp_path):
+    files = [tmp_path / f"{n}.cram" for n in ("child", "mother", "father")]
+    for f in files:
+        f.write_bytes(b"")
+    args = argparse.Namespace(
+        proband=str(files[0]), vcf_input=None, mother=str(files[1]),
+        father=str(files[2]), outdir=str(tmp_path), mode="denovo", region=None,
+        ref=None,
+    )  # fmt: skip
+    signatures = {str(files[0]): "hg38sig", str(files[1]): "hg38sig"}
+    with (
+        patch.object(filter_trio, "verify_dependencies"),
+        patch.object(
+            filter_trio,
+            "calculate_bam_md5",
+            side_effect=lambda path, _: signatures.get(path, "hg19sig"),
+        ),
+        pytest.raises(WGSExtractError, match="different references.*father"),
+    ):
+        filter_trio.cmd_trio(args)
