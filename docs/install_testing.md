@@ -356,7 +356,8 @@ evidence is uploaded and judged (and mutated) by a separate Linux job.
 
 `.github/workflows/install_lab.yml` runs the lab on every pull request and push
 to `main`, and weekly. Within an hour of a new app release,
-`app_release_watch.yml` also starts the weekly run's full matrix on `main`:
+`app_release_watch.yml` also starts the weekly run's full matrix on `main` for
+that release (`-f app_release=<tag>`; the run is named after it):
 
 | Job | Machine | What runs |
 | --- | --- | --- |

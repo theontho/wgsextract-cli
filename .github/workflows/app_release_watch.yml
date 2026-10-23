@@ -18,19 +18,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Run the Install Lab if the app released since its last full run
+      - name: Run the Install Lab for the latest app release if it hasn't had one
         env:
           GH_TOKEN: ${{ github.token }}
           GUI_REPO: theontho/gui-for-cli
         run: |
-          read -r tag published < <(gh release view -R "$GUI_REPO" --json tagName,publishedAt -q '"\(.tagName) \(.publishedAt)"')
-          # Full runs on main: the weekly schedule, or a dispatch like this one.
-          last=$(gh run list -R "$GITHUB_REPOSITORY" -w install_lab.yml -b main -L 100 \
-            --json event,createdAt -q '[.[] | select(.event == "schedule" or .event == "workflow_dispatch")][0].createdAt // ""')
-          echo "App $tag published $published; last full Install Lab run on main: ${last:-none}"
-          # Both are UTC ISO 8601 timestamps, so they compare as strings.
-          if [[ -n "$last" && ! "$published" > "$last" ]]; then
+          tag=$(gh release view -R "$GUI_REPO" --json tagName -q .tagName)
+          # install_lab.yml names a run dispatched with app_release after it.
+          title="Install Lab: app $tag"
+          if gh run list -R "$GITHUB_REPOSITORY" -w install_lab.yml -b main -e workflow_dispatch -L 200 \
+              --json displayTitle -q '.[].displayTitle' | grep -qxF "$title"; then
+            echo "App $tag already had a full Install Lab run."
             exit 0
           fi
-          gh workflow run install_lab.yml -R "$GITHUB_REPOSITORY" --ref main
+          gh workflow run install_lab.yml -R "$GITHUB_REPOSITORY" --ref main -f app_release="$tag"
           echo "Started the Install Lab for app $tag." >> "$GITHUB_STEP_SUMMARY"

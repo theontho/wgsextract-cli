@@ -9,6 +9,10 @@ name: Install Lab
 # the weekly run adds negative controls (sabotaged installs that must fail) and
 # the app as users get it, setting up the CLI release it pins.
 
+# A dispatch with app_release is named after it, so app_release_watch.yml can
+# see which releases have had a full run; otherwise the event's default name.
+run-name: "${{ inputs.app_release && format('Install Lab: app {0}', inputs.app_release) || '' }}"
+
 on:
   pull_request:
     branches: [ main ]
@@ -23,15 +27,21 @@ on:
           A gui-for-cli Distribution run ID: test its app builds instead of the
           latest release (to try a fix before releasing it)
         required: false
+      app_release:
+        description: >-
+          A WGS Extract app release tag to test instead of the latest release
+          (app_release_watch.yml sets it)
+        required: false
 
 permissions:
   contents: read
 
 env:
-  # The app as users get it: the latest WGS Extract app release, or the builds
-  # of the Distribution run given as app_run.
+  # The app as users get it: the latest WGS Extract app release (or the one
+  # given as app_release), or the builds of the Distribution run given as app_run.
   GUI_REPO: theontho/gui-for-cli
   APP_RUN: ${{ inputs.app_run }}
+  APP_RELEASE: ${{ inputs.app_release }}
   # `tree`: the app sets up this CLI tree. `pinned` (weekly): the CLI release the
   # app pins, exactly as a user's app does.
   WEEKLY: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
@@ -102,7 +112,7 @@ jobs:
             mkdir -p out/app
             find out/app-run -name '*_amd64.deb' -exec mv {} out/app/ \;
           else
-            gh release download -R "$GUI_REPO" -p '*_amd64.deb' -D out/app
+            gh release download ${APP_RELEASE:+"$APP_RELEASE"} -R "$GUI_REPO" -p '*_amd64.deb' -D out/app
           fi
           ls -l out/app
       # A fresh ubuntu:24.04 desktop user (Xvfb display): apt install, the app's
@@ -194,7 +204,7 @@ jobs:
             mkdir -p out/app
             find out/app-run -name '*.dmg' -exec mv {} out/app/ \;
           else
-            ref=$(gh release view -R "$GUI_REPO" --json tagName -q .tagName)
+            ref=${APP_RELEASE:-$(gh release view -R "$GUI_REPO" --json tagName -q .tagName)}
             gh release download "$ref" -R "$GUI_REPO" -p '*.dmg' -D out/app
           fi
           ls -l out/app
@@ -301,7 +311,8 @@ jobs:
             New-Item -ItemType Directory -Force out/app | Out-Null
             Get-ChildItem -Recurse out/app-run -Filter *_x64-setup.exe | Move-Item -Destination out/app
           } else {
-            gh release download -R "$env:GUI_REPO" -p '*_x64-setup.exe' -D out/app
+            $release = @($env:APP_RELEASE | Where-Object { $_ })
+            gh release download @release -R "$env:GUI_REPO" -p '*_x64-setup.exe' -D out/app
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
           }
           Get-ChildItem out/app
