@@ -140,10 +140,14 @@ class ReferenceLibrary:
         return [self.root, str(Path(self.root, "genomes"))]
 
     def _fasta_matching_signature(self) -> str | None:
-        """Pick the library FASTA whose sequence dictionary matches the input's."""
+        """Pick the FASTA whose sequence dictionary matches the input's: from the
+        library, else beside the input (a dataset that ships its reference)."""
         if not self.md5 or self.md5 == _UNKNOWN_SIGNATURE:
             return None
-        fasta = find_fasta_by_signature(self._genome_dirs(), self.md5)
+        search_dirs = self._genome_dirs()
+        if self.input_path:
+            search_dirs.append(str(Path(self.input_path).parent))
+        fasta = find_fasta_by_signature(search_dirs, self.md5)
         if fasta:
             logging.debug(f"ReferenceLibrary: {fasta} matches signature {self.md5}")
         return fasta

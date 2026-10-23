@@ -204,6 +204,30 @@ def test_reference_library_prefers_fasta_matching_input_signature(tmp_path):
     assert lib.build == "hg38"
 
 
+def test_reference_beside_the_input_beats_a_library_genome_of_another_build(
+    tmp_path,
+):
+    # The app's test genome ships its own (truncated) hg19 reference, whose
+    # header names no build. With hs38 in the library, mt-haplogroup used hs38
+    # for the hg19 BAM and Haplogrep found no haplogroup.
+    genomes = tmp_path / "lib" / "genomes"
+    genomes.mkdir(parents=True)
+    _write_fasta_with_fai(genomes / "hs38.fa.gz", [("chr1", 248956422)])
+    dataset = tmp_path / "hg19-mini"
+    dataset.mkdir()
+    mini = [("chr20", 1000001), ("chrY", 500001), ("chrM", 16571)]
+    _write_fasta_with_fai(dataset / "hg19-mini.fa.gz", mini)
+    bam = dataset / "sample.bam"
+    bam.write_bytes(b"")
+    signature = fasta_signature(str(dataset / "hg19-mini.fa.gz"))
+
+    lib = ReferenceLibrary(
+        str(tmp_path / "lib"), signature, skip_full_search=True, input_path=str(bam)
+    )
+
+    assert lib.fasta == str(dataset / "hg19-mini.fa.gz")
+
+
 def test_reference_library_dict_for_fna_gz_is_not_the_fasta(tmp_path):
     fasta = tmp_path / "GCF_011100685.1_UU_Cfam_GSD_1.0_genomic.fna.gz"
     fasta.write_text(">NC_1\nACGT\n")
