@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   WGSEXTRACT_TOOL_RUNTIME: pacman
   WGSEXTRACT_PACMAN_UCRT64_BIN: C:\msys64\ucrt64\bin
