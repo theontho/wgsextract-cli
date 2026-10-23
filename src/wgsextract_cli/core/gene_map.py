@@ -100,6 +100,23 @@ class GeneMap:
         return self.maps[build_key].get(gene_symbol.upper())
 
 
+def gene_coords(reflib_dir: str, gene_symbol: str, build: str = "hg38") -> str:
+    """A gene's chrom:start-end, or WGSExtractError saying why it can't be found."""
+    build_key = gene_map_build(build)
+    if not gene_map_exists(reflib_dir, build_key):
+        raise WGSExtractError(
+            f"No {build_key} gene map in {reflib_dir}, so --gene can't be resolved. "
+            "Run 'wgsextract ref gene-map' to download it, or pass --region."
+        )
+    coords = GeneMap(reflib_dir).get_coords(gene_symbol, build_key)
+    if not coords:
+        raise WGSExtractError(
+            f"Gene {gene_symbol} isn't in the {build_key} gene map (RefSeq symbols, "
+            "e.g. BRCA1); pass --region instead."
+        )
+    return coords
+
+
 def are_gene_maps_installed(reflib_dir: str) -> bool:
     """Checks if gene mapping files for both hg19 and hg38 are installed."""
     if not reflib_dir:
@@ -134,7 +151,7 @@ def resolve_gene_map_reflib(
         ref_grandparent = ref_parent.parent
         inferred_reflib = (
             str(ref_grandparent)
-            if ref_parent.name in {"ref", "microarray"}
+            if ref_parent.name in {"genomes", "ref", "microarray"}
             else str(ref_parent)
         )
         for ref_candidate in (ref_parent, ref_grandparent):

@@ -76,13 +76,13 @@ def cmd_filter(args: argparse.Namespace) -> None:
     # Gene-based region resolution
     region = args.region
     if args.gene:
-        from wgsextract_cli.core.gene_map import GeneMap
+        from wgsextract_cli.core.gene_map import gene_coords
 
-        gm = GeneMap(lib.root if lib.root else str(absolute_path(input_file).parent))
-        resolved_region = gm.get_coords(args.gene, lib.build or "hg38")
-
-        if not resolved_region:
-            raise WGSExtractError(f"Could not resolve gene name: {args.gene}")
+        resolved_region = gene_coords(
+            lib.root if lib.root else str(absolute_path(input_file).parent),
+            args.gene,
+            lib.build or "hg38",
+        )
         logging.info(f"Resolved gene {args.gene} to {resolved_region}")
         region = resolved_region
 
