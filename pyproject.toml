@@ -62,6 +62,9 @@ pythonpath = [".", "src", "tests"]
 testpaths = ["tests"]
 # Keep the temporary directories of failed tests only (the last 3 sessions').
 tmp_path_retention_policy = "failed"
+# Live third-party data checks run weekly in CI (`pytest -m remote`).
+addopts = "-m 'not remote'"
 markers = [
     "real_config: reads the developer's real config.toml instead of an isolated empty one",
+    "remote: reads live third-party data over the network",
 ]
