@@ -304,6 +304,9 @@ class E2EBase:
         )
 
     def test_32_vcf_freebayes_chrm(self) -> None:
+        # FreeBayes lives in its own opt-in Pixi environment (`pixi install -e freebayes`).
+        if not get_tool_path("freebayes"):
+            pytest.skip("FreeBayes not found")
         self.run_real(
             "32 vcf freebayes (chrM)",
             ["vcf", "freebayes", "-r", "chrM", "--input", "{input}", "--ref", "{ref}"],
