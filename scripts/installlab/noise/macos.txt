@@ -42,3 +42,6 @@
 # Observed in the no-install control run: Apple Suggestions and AirDrop databases.
 */Library/Suggestions/*
 */Library/Sharing/AirDropHashDB/*
+# Apple Media Services (App Store, analytics) prunes its engagement analytics
+# output on its own schedule: seen removed during a macos-app run (2026-10-23).
+*/Library/AppleMediaServices/*
