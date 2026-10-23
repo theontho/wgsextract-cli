@@ -12,6 +12,7 @@ import tempfile
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
+from wgsextract_cli.core.paths import append_suffix
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 
@@ -158,8 +159,8 @@ def joint_trio_vcf(
 def remove_index(vcf: str) -> None:
     """Drop a VCF's old index before rewriting it: ensure_vcf_indexed keeps any
     existing index, which would then describe the previous file."""
-    for index in (vcf + ".tbi", vcf + ".csi"):
-        Path(index).unlink(missing_ok=True)
+    for suffix in (".tbi", ".csi"):
+        append_suffix(vcf, suffix).unlink(missing_ok=True)
 
 
 def split_multiallelic(vcf: str, out_vcf: str) -> str:
