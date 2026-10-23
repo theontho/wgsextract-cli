@@ -20,6 +20,7 @@ from wgsextract_cli.core.dependencies import (
     PIXI_TOOL_ENVS,
     get_tool_path,
     is_pixi_tool_command,
+    pixi_env_prefix,
 )
 from wgsextract_cli.core.utils import run_command, run_pipeline
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
@@ -30,14 +31,14 @@ from wgsextract_cli.main import main
 def optional_tool_installed(tool: str) -> bool:
     """Whether an opt-in tool is installed, not just installable. For a tool in its
     own Pixi environment, get_tool_path also returns a `pixi run -e <env>` command
-    that installs the environment on first use, so require the environment too."""
+    that installs the environment on first use, so require the environment too
+    (wherever Pixi keeps it, detached environments included)."""
     command = get_tool_path(tool)
     if not command:
         return False
     if not is_pixi_tool_command(command):
         return True
-    env_dir: Path = REPO_ROOT / ".pixi" / "envs" / PIXI_TOOL_ENVS[tool]
-    return env_dir.is_dir()
+    return pixi_env_prefix(PIXI_TOOL_ENVS[tool]) is not None
 
 
 FAKE_DIR = REPO_ROOT / "out" / "fake_30x"
