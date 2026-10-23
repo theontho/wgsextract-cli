@@ -1,0 +1,38 @@
+name: App release watch
+
+# A new WGS Extract app release gets the full Install Lab run (the weekly matrix:
+# pinned CLI and negative controls included) within the hour, not at the next
+# weekly run. gui-for-cli can't dispatch workflows here without a credential, so
+# this repo checks for new releases itself.
+on:
+  schedule:
+    - cron: "37 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Run the Install Lab for the latest app release if it hasn't had one
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GUI_REPO: theontho/gui-for-cli
+        run: |
+          tag=$(gh release view -R "$GUI_REPO" --json tagName -q .tagName)
+          # install_lab.yml names a run dispatched with app_release after it.
+          title="Install Lab: app $tag"
+          # Read the list first: a failed lookup must fail the watcher, not
+          # count as "no run yet".
+          titles=$(gh run list -R "$GITHUB_REPOSITORY" -w install_lab.yml -b main -e workflow_dispatch -L 200 \
+            --json displayTitle -q '.[].displayTitle')
+          if grep -qxF "$title" <<< "$titles"; then
+            echo "App $tag already had a full Install Lab run."
+            exit 0
+          fi
+          gh workflow run install_lab.yml -R "$GITHUB_REPOSITORY" --ref main -f app_release="$tag"
+          echo "Started the Install Lab for app $tag." >> "$GITHUB_STEP_SUMMARY"
