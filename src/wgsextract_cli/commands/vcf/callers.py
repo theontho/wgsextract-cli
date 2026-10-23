@@ -11,6 +11,7 @@ from pathlib import Path
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.output_checks import warn_if_no_variants
 from wgsextract_cli.core.reference_assets import reference_dict_path
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
@@ -119,6 +120,7 @@ def cmd_freebayes(args: argparse.Namespace) -> None:
         stages.append(["bcftools", "view", "-Oz", "-o", out_vcf])
         run_pipeline(stages, description="FreeBayes variant calling")
     ensure_vcf_indexed(out_vcf)
+    warn_if_no_variants(out_vcf, ref, args.region)
 
 
 def cmd_gatk(args: argparse.Namespace) -> None:
@@ -159,6 +161,7 @@ def cmd_gatk(args: argparse.Namespace) -> None:
         ] + region_args
         run_command(cmd)
         ensure_vcf_indexed(out_vcf)
+        warn_if_no_variants(out_vcf, ref, args.region)
     except subprocess.CalledProcessError as e:
         logging.error(f"GATK failed: {e}")
         if args.input.lower().endswith(".cram"):

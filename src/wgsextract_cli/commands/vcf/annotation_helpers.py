@@ -9,6 +9,7 @@ from pathlib import Path
 from wgsextract_cli.core.annotation_resources import is_bgzf
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.output_checks import warn_if_nothing_annotated
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
@@ -211,6 +212,7 @@ def annotate_vcf(
             stderr = getattr(e, "stderr", None)
             detail = f"{e}\n{stderr.strip()}" if stderr else str(e)
             raise WGSExtractError(f"{label} annotation failed: {detail}") from e
+    warn_if_nothing_annotated(ann_out, columns, label)
 
 
 def run_filter(ann_out: str, out_vcf: str, expr: str, label: str) -> None:
