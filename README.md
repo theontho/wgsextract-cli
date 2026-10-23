@@ -277,6 +277,8 @@ Options include `--real-input`, `--real-ref`, `--real-vcf`, `--real-region`, `--
 
 `wgsextract qc fake-data` generates synthetic BAM/CRAM/VCF/FASTQ files for tests and bug reports; see the [workflows page](https://theontho.github.io/wgsextract-cli/workflows.html#testing).
 
+To cut a release, and get it into the WGS Extract app, see [docs/releasing.md](docs/releasing.md).
+
 ## License
 
 Distributed under the GPL-3.0 License. See `LICENSE`.
