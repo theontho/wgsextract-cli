@@ -6,14 +6,13 @@ from pathlib import Path
 
 import pytest
 
+from tests.htslib_helpers import needs_tools
 from wgsextract_cli.commands._bam_ubam import cmd_to_ubam, read_group_from_name
 from wgsextract_cli.commands.bam import cmd_merge
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.utils import WGSExtractError
 
-needs_samtools = pytest.mark.skipif(
-    not get_tool_path("samtools"), reason="samtools missing"
-)
+needs_samtools = needs_tools("samtools")
 
 _SQ = "@SQ\tSN:chr1\tLN:1000\n@SQ\tSN:chr2\tLN:1000\n"
 _RG = "@RG\tID:L1\tSM:S\tPL:ILLUMINA\n"

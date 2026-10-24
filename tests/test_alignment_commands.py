@@ -6,6 +6,7 @@ from argparse import Namespace
 
 import pytest
 
+from tests.htslib_helpers import needs_tools
 from wgsextract_cli.commands import align, bam, extract, realign, repair
 from wgsextract_cli.commands._extract_helpers import (
     BaseArgs,
@@ -254,7 +255,7 @@ def test_realign_rejects_bad_aligner_before_extracting(tmp_path, monkeypatch):
     assert extracted == []
 
 
-@pytest.mark.skipif(get_tool_path("samtools") is None, reason="samtools missing")
+@needs_tools("samtools")
 def test_repair_bam_streams_through_real_samtools(tmp_path):
     sam = tmp_path / "ftdna.sam"
     sam.write_text(

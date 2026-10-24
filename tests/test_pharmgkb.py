@@ -3,6 +3,7 @@ import subprocess
 
 from smoke_utils import run_cli
 
+from tests.htslib_helpers import bgzip_index
 from wgsextract_cli.core.pharmgkb import build_table, write_table
 
 VARIANTS = (
@@ -65,15 +66,14 @@ def test_vcf_pharmgkb_annotates_matching_alleles_only(tmp_path):
         "chr16\t31096000\t.\tG\t.\t50\tPASS\tEND=31096367\tGT\t0/0\n"
         "chr16\t31096368\t.\tC\tA\t50\tPASS\t.\tGT\t0/1\n"
     )
-    subprocess.run(["bgzip", "-f", str(vcf)], check=True)
-    subprocess.run(["tabix", "-p", "vcf", f"{vcf}.gz"], check=True)
+    vcf_gz = bgzip_index(vcf)
 
     rc, _, stderr = run_cli(
         [
             "vcf",
             "pharmgkb",
             "--input",
-            f"{vcf}.gz",
+            vcf_gz,
             "--ref",
             str(library),
             "--outdir",
