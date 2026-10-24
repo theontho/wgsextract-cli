@@ -5,6 +5,7 @@ from pathlib import Path
 from wgsextract_cli.core.dependencies import get_tool_path
 
 from ..info.render import region_file_tag
+from ..qc.commands import fastp_stem
 from .execution import (
     _missing_optional_tool_result,
     _run_cli_step,
@@ -261,7 +262,7 @@ def _run_heavy_coverage_extract_and_qc_steps(
 
     fastp_dir = steps_dir / "fastp"
     if _benchmark_tool_available("fastp"):
-        fastp_base = unalign_r1.name.split(".")[0]
+        fastp_base = fastp_stem(str(unalign_r1), str(unalign_r2))
         record(
             _run_cli_step(
                 args,
