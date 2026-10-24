@@ -2,11 +2,11 @@
 
 import argparse
 
-from wgsextract_cli.commands.align import _read_group
+from wgsextract_cli.commands.align import read_group
 
 
 def _rg(stem, **kwargs):
-    return _read_group(argparse.Namespace(**kwargs), stem)
+    return read_group(argparse.Namespace(**kwargs), stem)
 
 
 def test_read_group_uses_the_sample_or_the_reads_name():
