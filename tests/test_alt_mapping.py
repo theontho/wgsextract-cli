@@ -4,8 +4,7 @@ import random
 import subprocess
 from pathlib import Path
 
-import pytest
-
+from tests.htslib_helpers import needs_tools, sam_to_bam
 from wgsextract_cli.commands.align import alt_contigs, ensure_bwa_alt_file
 from wgsextract_cli.core.alt_mapping import (
     PROBE_ALT_CONTIG,
@@ -14,9 +13,7 @@ from wgsextract_cli.core.alt_mapping import (
 )
 from wgsextract_cli.core.dependencies import get_tool_path
 
-needs_samtools = pytest.mark.skipif(
-    not get_tool_path("samtools"), reason="samtools missing"
-)
+needs_samtools = needs_tools("samtools")
 
 
 def _reference_with_alt(tmp_path: Path) -> tuple[Path, str]:
@@ -56,10 +53,7 @@ def test_an_existing_alt_file_is_kept_and_none_is_made_without_alts(tmp_path):
     assert not Path(f"{plain}.alt").exists()
 
 
-@pytest.mark.skipif(
-    not (get_tool_path("bwa") and get_tool_path("samtools")),
-    reason="bwa/samtools missing",
-)
+@needs_tools("bwa", "samtools")
 def test_bwa_with_the_alt_file_maps_reads_to_the_chromosome(tmp_path):
     ref, chrom = _reference_with_alt(tmp_path)
     bwa = get_tool_path("bwa")
@@ -101,13 +95,7 @@ def _probe_bam(tmp_path: Path, mapq: int, with_alt: bool = True) -> str:
         f"{'I' * 100}"
         for i in range(250)
     ]
-    sam = tmp_path / f"probe{mapq}{with_alt}.sam"
-    sam.write_text("\n".join(header + reads) + "\n")
-    bam = str(sam.with_suffix(".bam"))
-    samtools = get_tool_path("samtools")
-    subprocess.run([samtools, "sort", "-o", bam, str(sam)], check=True)
-    subprocess.run([samtools, "index", bam], check=True)
-    return bam
+    return sam_to_bam(header + reads, tmp_path / f"probe{mapq}{with_alt}.bam")
 
 
 @needs_samtools
