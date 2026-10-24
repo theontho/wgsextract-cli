@@ -17,6 +17,30 @@ from wgsextract_cli.core.variant_files import chromosome_aliases
 from .metrics import IdxStat, contig_key, is_primary_contig
 
 
+def _health_lines(health: Mapping[str, Any]) -> list[str]:
+    """How the alignment was made: duplicates, quality binning, ALT mapping."""
+    lines = []
+    if health.get("duplicates_marked") is True:
+        lines.append(
+            f"{'Duplicates Marked':<28}Yes ({health.get('duplicate_pct')}% of reads "
+            "near chr1:20 Mb)"
+        )
+    elif health.get("duplicates_marked") is False:
+        lines.append(f"{'Duplicates Marked':<28}No (realign marks them)")
+    levels = health.get("quality_levels")
+    if levels:
+        kind = "binned" if levels <= 8 else "full resolution"
+        lines.append(f"{'Base Quality Values':<28}{levels} ({kind})")
+    if health.get("alt_aware") is True:
+        lines.append(f"{'ALT-aware Mapping':<28}Yes")
+    elif health.get("alt_aware") is False:
+        lines.append(
+            f"{'ALT-aware Mapping':<28}No: reads in ALT-covered regions (HLA among "
+            "them) are lost; realign recovers them"
+        )
+    return lines
+
+
 def render_info(data: Mapping[str, Any], detailed: bool = False) -> str:
     """Generate the formatted console output string."""
     output_lines = []
@@ -114,6 +138,8 @@ def render_info(data: Mapping[str, Any], detailed: bool = False) -> str:
             output_lines.append(
                 f"{LOG_MESSAGES['info_sequencer']:<28}Unknown: {data['first_qname']}"
             )
+
+    output_lines.extend(_health_lines(data.get("alignment_health") or {}))
 
     fstats = data.get("file_stats", {})
     output_lines.append(

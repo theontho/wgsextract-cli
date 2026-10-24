@@ -3,7 +3,7 @@ import logging
 import time
 from pathlib import Path
 
-from wgsextract_cli.core.alt_mapping import warn_if_alt_unaware
+from wgsextract_cli.core.alignment_health import warn_about_alignment
 from wgsextract_cli.core.builds import (
     is_hg37_build,
     is_hg38_build,
@@ -227,7 +227,7 @@ def run(args: argparse.Namespace) -> None:
     out_vcf = str(Path(outdir, f"{base_name}_combined.vcf.gz"))
     is_vcf = args.input.endswith((".vcf", ".vcf.gz", ".bcf"))
     if not is_vcf:
-        warn_if_alt_unaware(args.input, ref_fasta)
+        warn_about_alignment(args.input, ref_fasta)
 
     region_args = ["-r", args.region] if args.region else []
 
