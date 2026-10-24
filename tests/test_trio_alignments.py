@@ -226,3 +226,36 @@ def test_trio_contigs_follow_every_region_listed(tmp_path):
         "chr3": 300,
     }
     assert list(trio_contig_lengths(bam)) == ["chr1", "chr2", "chr3"]
+
+
+def test_chromosomes_are_split_into_regions(monkeypatch):
+    from wgsextract_cli.commands.vcf import trio_alignments
+
+    monkeypatch.setattr(trio_alignments, "CHUNK_BP", 100)
+    assert trio_alignments.trio_regions({"chr1": 250, "chr2": 100}) == [
+        "chr1:1-100",
+        "chr1:101-200",
+        "chr1:201-250",
+        "chr2:1-100",
+    ]
+
+
+@needs_htslib
+def test_a_proband_without_variants_has_nothing_to_genotype(tmp_path):
+    rng = random.Random(20)
+    ref_seq = "".join(rng.choice("ACGT") for _ in range(2000))
+    ref = write_fasta(tmp_path / "ref.fa", {"chr20": ref_seq})
+    alignments = [
+        _alignment(tmp_path, name, ref_seq, alt_reads=0)
+        for name in ("child", "mother", "father")
+    ]
+    with pytest.raises(WGSExtractError, match="no variants in chr20"):
+        joint_trio_vcf(
+            alignments,
+            ["M", "F", "M"],
+            str(ref),
+            ["--ploidy", "GRCh38"],
+            str(tmp_path / "trio_joint.vcf.gz"),
+            "chr20",
+            1,
+        )
