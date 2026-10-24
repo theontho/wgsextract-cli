@@ -45,10 +45,7 @@ def cmd_fastp(args: argparse.Namespace) -> None:
     logging.debug(f"Output directory: {str(absolute_path(outdir))}")
     Path(outdir).mkdir(parents=True, exist_ok=True)
 
-    base_name = reads_stem(args.r1)
-    if args.r2:
-        # Both mates' outputs share a name, which shouldn't be R1's.
-        base_name = pair_stem(base_name)
+    base_name = fastp_stem(args.r1, args.r2)
     out_r1 = str(Path(outdir, f"{base_name}_fp_1.fastq.gz"))
     out_json = str(Path(outdir, f"{base_name}_fastp.json"))
     out_html = str(Path(outdir, f"{base_name}_fastp.html"))
@@ -82,6 +79,12 @@ def cmd_fastp(args: argparse.Namespace) -> None:
                 )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"fastp failed: {e}") from e
+
+
+def fastp_stem(r1: str, r2: str | None) -> str:
+    """The name qc fastp gives its outputs: the reads' stem, without the mate
+    marker when both mates' outputs share it."""
+    return pair_stem(reads_stem(r1)) if r2 else reads_stem(r1)
 
 
 def _fastp_total_reads(report: str) -> int | None:

@@ -164,7 +164,7 @@ An explicit `--aligner` is always used as given, and combinations that make no s
 ```
 wgsextract --input sample_R1.fastq.gz qc fastqc
 wgsextract qc fastp --r1 sample_R1.fastq.gz --r2 sample_R2.fastq.gz
-wgsextract align --r1 sample_R1_fp_1.fastq.gz --r2 sample_R1_fp_2.fastq.gz --ref /refs/hs38.fa
+wgsextract align --r1 sample_fp_1.fastq.gz --r2 sample_fp_2.fastq.gz --ref /refs/hs38.fa
 
 # Long reads: pick the platform; the aligner follows (pbmm2 or minimap2)
 wgsextract align --r1 sample.hifi.fastq.gz --platform hifi --ref /refs/hs38.fa
