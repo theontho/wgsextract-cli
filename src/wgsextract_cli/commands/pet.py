@@ -21,10 +21,10 @@ from wgsextract_cli.core.variant_files import verify_paths_exist
 
 from ._extract_helpers import cleanup_files
 from .align import (
+    duplicate_marker,
     ensure_bwa_index,
     reads_stem,
     run_streamed_alignment,
-    use_samblaster,
 )
 
 _SPECIES_REFERENCES = {
@@ -99,7 +99,7 @@ def run(args: argparse.Namespace) -> None:
             memory=memory,
             fmt=args.format,
             ref=ref_file,
-            mark_duplicates=use_samblaster(paired=bool(args.r2)),
+            duplicates=duplicate_marker(paired=bool(args.r2)),
         )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Alignment error: {e}") from e

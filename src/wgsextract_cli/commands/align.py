@@ -254,9 +254,28 @@ def ensure_bwa_alt_file(ref: str) -> None:
     logging.info(f"Wrote {alt_file}: BWA maps ALT-aware over {len(names)} contigs.")
 
 
-def use_samblaster(paired: bool) -> bool:
-    """samblaster marks duplicates in paired short reads; it aborts on unpaired input."""
-    return paired and get_tool_path("samblaster") is not None
+def duplicate_marker(paired: bool) -> str:
+    """How short reads get their duplicates marked: samblaster in the stream
+    when it's installed (it aborts on unpaired input), else samtools markdup,
+    which samtools always provides."""
+    if paired and get_tool_path("samblaster") is not None:
+        return "samblaster"
+    return "markdup"
+
+
+def _sort_and_mark_stages(
+    out_path: str, *, threads: str, memory: str, fmt: str, ref: str
+) -> list[list[str]]:
+    """samtools fixmate | sort | markdup, writing out_path. The sorted stream
+    goes straight into markdup uncompressed, so the output is written once.
+    fixmate reads the aligner's output directly: it keeps mates together."""
+    tmp = f"{out_path}.tmp"
+    out_fmt = ["-O", "CRAM", "--reference", ref] if fmt == "CRAM" else ["-O", "BAM"]
+    return [
+        ["samtools", "fixmate", "-m", "-u", "-", "-"],
+        ["samtools", "sort", "-@", threads, "-m", memory, "-u", "-T", tmp, "-"],
+        ["samtools", "markdup", "-@", threads, "-T", tmp, *out_fmt, "-", out_path],
+    ]
 
 
 def run_streamed_alignment(
@@ -267,18 +286,24 @@ def run_streamed_alignment(
     memory: str,
     fmt: str,
     ref: str,
-    mark_duplicates: bool,
+    duplicates: str | None,
 ) -> None:
-    """Run aligner [| samblaster] | samtools sort, then index the output."""
+    """Run the aligner, mark duplicates (with duplicate_marker's choice, or not
+    at all for long reads: None), sort, then index the output."""
     stages = [align_cmd]
-    if mark_duplicates:
-        logging.info("Using samblaster for marking duplicates...")
-        stages.append(["samblaster"])
-    stages.append(
-        get_sam_sort_cmd(
-            out_path, threads, memory, fmt=fmt, reference=ref, sam_input=True
-        )
+    sort = get_sam_sort_cmd(
+        out_path, threads, memory, fmt=fmt, reference=ref, sam_input=True
     )
+    if duplicates == "samblaster":
+        logging.info("Using samblaster for marking duplicates...")
+        stages += [["samblaster"], sort]
+    elif duplicates == "markdup":
+        logging.info("Marking duplicates with samtools markdup...")
+        stages += _sort_and_mark_stages(
+            out_path, threads=threads, memory=memory, fmt=fmt, ref=ref
+        )
+    else:
+        stages.append(sort)
     partial = [out_path, out_path + ".bai", out_path + ".crai"]
     with cleanup_files(on_failure=partial):
         run_pipeline(stages, description="Alignment")
@@ -330,7 +355,7 @@ def align_bwa(args: argparse.Namespace) -> None:
             memory=setup.memory,
             fmt=args.format,
             ref=setup.ref,
-            mark_duplicates=use_samblaster(paired=bool(args.r2)),
+            duplicates=duplicate_marker(paired=bool(args.r2)),
         )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"BWA alignment failed: {e}") from e
@@ -371,7 +396,9 @@ def align_minimap2(args: argparse.Namespace) -> None:
             memory=setup.memory,
             fmt=args.format,
             ref=setup.ref,
-            mark_duplicates=preset == "sr" and use_samblaster(paired=bool(args.r2)),
+            duplicates=(
+                duplicate_marker(paired=bool(args.r2)) if preset == "sr" else None
+            ),
         )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Minimap2 alignment failed: {e}") from e

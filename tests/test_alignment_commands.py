@@ -14,7 +14,7 @@ from wgsextract_cli.commands._extract_helpers import (
     get_base_args,
 )
 from wgsextract_cli.core.dependencies import get_tool_path
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import calculate_bam_md5
 
 
@@ -85,7 +85,7 @@ def test_streamed_alignment_fails_when_an_upstream_stage_fails(tmp_path, monkeyp
             memory="1G",
             fmt="BAM",
             ref="ref.fa",
-            mark_duplicates=False,
+            duplicates=None,
         )
     assert index_calls == []
 
@@ -301,16 +301,25 @@ def test_repair_bam_reports_unreadable_input(tmp_path):
     assert not os.path.exists(tmp_path / "broken_repaired.bam")
 
 
-@pytest.mark.parametrize(("r2", "expect_samblaster"), [(None, False), ("r2", True)])
-def test_bwa_marks_duplicates_only_for_paired_reads(
-    tmp_path, monkeypatch, r2, expect_samblaster
-):
+@pytest.mark.parametrize(
+    ("r2", "samblaster", "marker"),
+    [
+        (None, "samblaster", ["samtools", "markdup"]),  # samblaster aborts on SE
+        ("r2", "samblaster", ["samblaster"]),
+        ("r2", None, ["samtools", "markdup"]),
+    ],
+)
+def test_bwa_always_marks_duplicates(tmp_path, monkeypatch, r2, samblaster, marker):
     ref = tmp_path / "ref.fa"
     for path in (tmp_path / "r1.fq", tmp_path / "r2.fq", ref, tmp_path / "ref.fa.bwt"):
         path.write_text("x")
     _no_deps(monkeypatch, align)
     monkeypatch.setattr(align, "print_warning", lambda *_a, **_k: None)
-    monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
+    monkeypatch.setattr(
+        align,
+        "get_tool_path",
+        lambda tool: samblaster if tool == "samblaster" else tool,
+    )
     monkeypatch.setattr(align, "run_command", lambda *_a, **_k: None)
     pipelines = []
     monkeypatch.setattr(
@@ -329,7 +338,41 @@ def test_bwa_marks_duplicates_only_for_paired_reads(
 
     align.align_bwa(args)
 
-    assert (["samblaster"] in pipelines[0]) is expect_samblaster
+    assert any(stage[: len(marker)] == marker for stage in pipelines[0])
+
+
+@needs_tools("samtools")
+def test_markdup_fallback_marks_a_duplicate_pair(tmp_path):
+    """Two identical pairs from the aligner: the second is flagged a duplicate."""
+    seq, qual = "ACGT" * 25, "I" * 100
+    sam = tmp_path / "aligned.sam"
+    sam.write_text(
+        "@SQ\tSN:chr1\tLN:10000\n"
+        + "".join(
+            f"p{i}\t99\tchr1\t100\t60\t100M\t=\t400\t400\t{seq}\t{qual}\n"
+            f"p{i}\t147\tchr1\t400\t60\t100M\t=\t100\t-400\t{seq}\t{qual}\n"
+            for i in range(2)
+        )
+    )
+    out = str(tmp_path / "out.bam")
+    align.run_streamed_alignment(
+        ["cat", str(sam)],
+        out,
+        threads="1",
+        memory="100M",
+        fmt="BAM",
+        ref="unused.fa",
+        duplicates="markdup",
+    )
+    flags = run_command(
+        ["samtools", "view", out], capture_output=True
+    ).stdout.splitlines()
+    assert sorted(bool(int(r.split("\t")[1]) & 0x400) for r in flags) == [
+        False,
+        False,
+        True,
+        True,
+    ]
 
 
 def test_gene_lookup_uses_detected_build_and_rejects_t2t(monkeypatch):
