@@ -161,7 +161,7 @@ Native Windows sources for the optional tools that `deps check` reports. The pre
 | `pbmm2`, `pbsv` | Not available | PacBio stack; the `pacbio` Pixi environment has no `win-64` packages. |
 | `sniffles` | Not available | The native Pixi solve fails on `win-64`. |
 | `vep` | Not available | Perl/cache stack; the `vep` Pixi environment is macOS/Linux only. |
-| `run_deepvariant`, `dv_call_variants.py` | Not available | DeepVariant is Linux/container oriented. |
+| `run_deepvariant` | Not available | DeepVariant runs from Google's Docker image on Linux and macOS. |
 
 ## Validation
 

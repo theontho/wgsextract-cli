@@ -115,7 +115,7 @@ wgsextract help
 ::: wrap
 ::: section-head
 ## Pixi environments
-Some specialized tools live in dedicated Pixi environments to keep dependency solving practical and platform-specific. When a tool such as `vep`, `pbsv`, or `run_deepvariant` is not on `PATH`, WGS Extract runs it through `pixi run -e <environment>` automatically. You can also run a whole command inside an environment, from the installed `app/` folder or a source checkout, as shown below.
+Some specialized tools live in dedicated Pixi environments to keep dependency solving practical and platform-specific. When a tool such as `vep` or `pbsv` is not on `PATH`, WGS Extract runs it through `pixi run -e <environment>` automatically. You can also run a whole command inside an environment, from the installed `app/` folder or a source checkout, as shown below.
 :::
 
 ::: grid three
@@ -134,15 +134,6 @@ PacBio-aware structural variant workflows using pbmm2, pbsv, and sniffles where 
 
 ```
 pixi run -e pacbio wgsextract vcf sv --pacbio
-```
-:::
-
-::: card
-### deepvariant
-DeepVariant workflows, including WGS/WES and PacBio HiFi model options. Linux and Apple Silicon only.
-
-```
-pixi run -e deepvariant wgsextract vcf deepvariant
 ```
 :::
 
