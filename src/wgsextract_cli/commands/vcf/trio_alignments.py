@@ -4,6 +4,13 @@ Separate VCFs can't say that a parent lacks a variant: a variants-only VCF has
 no record there, and a gVCF reference block (often GQ 0, from another provider)
 is no evidence. Genotyping all three from their reads at the same sites gives
 each parent's depth and allele counts wherever the child has a variant.
+
+Every trio filter needs the child to carry a variant, so the child is called
+alone first and the three are genotyped together only at the child's variant
+positions (with no alleles imposed, so a parent's other allele at a repeat is
+still seen). On a real chr20 that is ~1.5x faster than calling all three at
+every position and gives the same de novo and recessive calls; it misses only
+weak child hets that the parents' reads would have lifted.
 """
 
 import logging
@@ -25,6 +32,10 @@ MIN_ALT_FRACTION = 0.3
 # True de novo SNVs are ~1 per 50 Mb; candidates this close to another are
 # almost always misaligned reads in a repeat (or, rarely, one multi-base event).
 CLUSTER_DISTANCE = 1000
+# Chromosomes are called in pieces of at most this, so chr1 isn't the last
+# worker still running.
+CHUNK_BP = 50_000_000
+_MPILEUP_ARGS = ["-a", "AD,DP", "-q", "20", "-Q", "20"]
 
 # Indices 0, 1, 2 are the proband, mother and father in the joint VCF, whose
 # multiallelic records are split first so GT and AD[:1] name the same allele.
@@ -86,26 +97,52 @@ def trio_contig_lengths(alignment: str, region: str | None = None) -> dict[str, 
     return lengths
 
 
+def trio_regions(contig_lengths: dict[str, int]) -> list[str]:
+    """The chromosomes as regions of at most CHUNK_BP, in order."""
+    return [
+        f"{name}:{start}-{min(start + CHUNK_BP - 1, length)}"
+        for name, length in contig_lengths.items()
+        for start in range(1, length + 1, CHUNK_BP)
+    ]
+
+
 def _call_region(
     region: str,
     alignments: list[str],
     ref: str,
     read_groups: str,
-    samples: str,
+    samples: tuple[str, str],
     ploidy_args: list[str],
     out_vcf: str,
-) -> str:
-    """Joint-call one region of the three alignments."""
+) -> str | None:
+    """Call the proband alone over one region, then the trio jointly at the
+    proband's variant positions; None when the proband has none there."""
+    sites = out_vcf.removesuffix(".vcf.gz") + "_sites.tsv"
+    with open(sites, "wb") as out:
+        run_pipeline(
+            [
+                ["bcftools", "mpileup", "-r", region, "-f", ref, *_MPILEUP_ARGS]
+                + ["-G", read_groups, "-Ou", alignments[0]],
+                ["bcftools", "call", "-m", "-v", "--samples-file", samples[0]]
+                + ploidy_args
+                + ["-Ou"],
+                ["bcftools", "query", "-f", "%CHROM\t%POS\n"],
+            ],
+            stdout=out,
+            description=f"Calling the proband over {region}",
+        )
+    if Path(sites).stat().st_size == 0:
+        return None  # mpileup can't take an empty targets file
     run_pipeline(
         [
-            ["bcftools", "mpileup", "-r", region, "-f", ref, "-a", "AD,DP"]
-            + ["-q", "20", "-Q", "20", "-G", read_groups, "-Ou", *alignments],
-            ["bcftools", "call", "-m", "-v", "--samples-file", samples]
+            ["bcftools", "mpileup", "-r", region, "-T", sites, "-f", ref]
+            + [*_MPILEUP_ARGS, "-G", read_groups, "-Ou", *alignments],
+            ["bcftools", "call", "-m", "-v", "--samples-file", samples[1]]
             + ploidy_args
             + ["-Oz", "-o", out_vcf],
         ],
         stdout=subprocess.DEVNULL,
-        description=f"Joint trio calling of {region}",
+        description=f"Joint trio genotyping over {region}",
     )
     return out_vcf
 
@@ -120,8 +157,9 @@ def joint_trio_vcf(
     threads: int,
 ) -> str:
     """Write out_vcf: the proband, mother and father jointly genotyped from their
-    reads (samples PROBAND, MOTHER, FATHER), one chromosome per worker."""
-    regions = [region] if region else list(trio_contig_lengths(alignments[0]))
+    reads (samples PROBAND, MOTHER, FATHER) wherever the proband has a variant,
+    one region per worker."""
+    regions = [region] if region else trio_regions(trio_contig_lengths(alignments[0]))
     if not regions:
         raise WGSExtractError(f"No chromosomes 1-22 or X found in {alignments[0]}.")
     workdir = str(Path(out_vcf).parent)
@@ -135,12 +173,12 @@ def joint_trio_vcf(
                 for a, s in zip(alignments, TRIO_SAMPLES, strict=True)
             )
         )
-        samples = str(Path(work, "samples.txt"))
-        Path(samples).write_text(
-            "".join(f"{s}\t{x}\n" for s, x in zip(TRIO_SAMPLES, sexes, strict=True))
-        )
+        sex_lines = [f"{s}\t{x}\n" for s, x in zip(TRIO_SAMPLES, sexes, strict=True)]
+        samples = (str(Path(work, "proband.txt")), str(Path(work, "trio.txt")))
+        Path(samples[0]).write_text(sex_lines[0])
+        Path(samples[1]).write_text("".join(sex_lines))
         logging.info(
-            f"Jointly genotyping the trio from their alignments over {len(regions)} "
+            f"Genotyping the trio from their alignments over {len(regions)} "
             f"region(s) with {threads} worker(s); a whole genome takes hours."
         )
         chunks = [str(Path(work, f"{i:03d}.vcf.gz")) for i in range(len(regions))]
@@ -161,10 +199,14 @@ def joint_trio_vcf(
                 )
                 for r, chunk in zip(regions, chunks, strict=True)
             ]
-            for future in futures:
-                future.result()
+            called = [c for c in (f.result() for f in futures) if c]
+        if not called:
+            raise WGSExtractError(
+                f"The proband has no variants in {region or 'chromosomes 1-22, X'} "
+                "to genotype the parents at."
+            )
         remove_index(out_vcf)
-        run_command(["bcftools", "concat", "-Oz", "-o", out_vcf, *chunks])
+        run_command(["bcftools", "concat", "-Oz", "-o", out_vcf, *called])
     ensure_vcf_indexed(out_vcf)
     return out_vcf
 
