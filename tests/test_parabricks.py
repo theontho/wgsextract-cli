@@ -139,8 +139,8 @@ def test_fq2bam_gets_the_reads_read_group_and_alt_file(
 @pytest.mark.parametrize(
     ("overrides", "preset"),
     [
-        ({"platform": "hifi", "r2": None}, "map-hifi"),
-        ({"platform": "ont", "r2": None}, "map-ont"),
+        ({"platform": "hifi", "aligner": "minimap2", "r2": None}, "map-hifi"),
+        ({"platform": "ont", "aligner": "minimap2", "r2": None}, "map-ont"),
         ({"platform": "hifi", "aligner": "pbmm2", "r2": None}, "map-pbmm2"),
     ],
 )
@@ -170,7 +170,10 @@ def test_gpu_long_reads_use_parabricks_minimap2(
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"platform": "clr", "r2": None}, "no minimap2 preset for map-pb"),
+        (
+            {"platform": "clr", "aligner": "minimap2", "r2": None},
+            "no minimap2 preset for map-pb",
+        ),
         ({"platform": "clr", "aligner": "pbmm2", "r2": None}, "not CLR"),
         ({"aligner": "minimap2"}, "no minimap2 preset for sr"),
     ],
