@@ -1,6 +1,6 @@
 import argparse
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from wgsextract_cli.core.annotation_resources import (
@@ -69,14 +69,13 @@ def cmd_library(args: argparse.Namespace) -> None:
     # Non-interactive install
     if args.install:
         choice = args.install.upper()
-        target_genome = next((g for g in genomes if g["code"].upper() == choice), None)
-        if target_genome is None and choice.isdigit():
-            idx = int(choice) - 1
-            if 0 <= idx < len(genomes):
-                target_genome = genomes[idx]
-        if target_genome is None:
+        # A code names the genome on every mirror that hosts it, in catalog order.
+        targets = [g for g in genomes if g["code"].upper() == choice]
+        if not targets and choice.isdigit() and 0 < int(choice) <= len(genomes):
+            targets = [genomes[int(choice) - 1]]
+        if not targets:
             raise WGSExtractError(f"Genome '{args.install}' not found in library.")
-        _install_genome(target_genome, reflib_dir)
+        _install_from_mirrors(targets, reflib_dir)
         return
 
     # Interactive menu
@@ -140,6 +139,23 @@ def cmd_library(args: argparse.Namespace) -> None:
         _install_genome(genome, reflib_dir, restart=restart)
     except (ValueError, EOFError, KeyboardInterrupt):
         print("\nExiting library manager.")
+
+
+def _install_from_mirrors(
+    mirrors: Sequence[Mapping[str, str]], reflib_dir: str
+) -> None:
+    """Install from the first mirror that works. A later mirror starts afresh:
+    its file may differ (NIH's hs38DH is uncompressed), so no partial is resumed."""
+    for i, genome in enumerate(mirrors):
+        if i:
+            logging.warning(
+                f"Trying the next mirror: {genome.get('description', genome['url'])}"
+            )
+        Path(reflib_dir).mkdir(parents=True, exist_ok=True)
+        if download_and_process_genome(genome, reflib_dir, restart=i > 0):
+            return
+    tried = f" from any of its {len(mirrors)} mirrors" if len(mirrors) > 1 else ""
+    raise WGSExtractError(f"Failed to install genome {mirrors[0]['final']}{tried}.")
 
 
 def _install_genome(

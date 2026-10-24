@@ -178,11 +178,43 @@ def test_verify_indexes_a_plain_fasta_and_warns_without_a_dict(tmp_path, caplog)
 
 
 @needs_tools("samtools", "gzip")
-def test_verify_fails_an_fai_pointing_past_the_end_of_the_fasta(tmp_path):
+@pytest.mark.parametrize(
+    "fai",
+    [
+        "chr1\t40\t100000\t40\t41\n",  # points past the end of the FASTA
+        "chr9\t40\t6\t40\t41\n",  # another file's contig, still fetchable
+    ],
+)
+def test_verify_fails_a_stale_fai(tmp_path, fai):
     ref = write_fasta(tmp_path / "ref.fa", {"chr1": "ACGT" * 10})
-    Path(f"{ref}.fai").write_text("chr1\t40\t100000\t40\t41\n")
-    with pytest.raises(WGSExtractError, match="Samtools faidx check failed"):
+    Path(f"{ref}.fai").write_text(fai)
+    with pytest.raises(WGSExtractError, match="ref.fa.fai doesn't match ref.fa"):
         core_commands.cmd_ref_verify(Namespace(ref=str(ref)))
+    assert Path(f"{ref}.fai").read_text() == fai  # left for the user to remove
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".")] == []
+
+
+@needs_tools("samtools", "bgzip", "gzip")
+def test_verify_fails_a_gzi_from_another_file(tmp_path):
+    ref = _bgzipped_fasta(tmp_path, _random_seqs())
+    other = _bgzipped_fasta(tmp_path, {"chr1": "ACGT" * 50000}, name="other.fa")
+    run_command(["samtools", "faidx", str(ref)])
+    run_command(["samtools", "faidx", str(other)])
+    Path(f"{other}.gzi").replace(f"{ref}.gzi")
+    with pytest.raises(WGSExtractError, match="ref.fa.gz.gzi doesn't match"):
+        core_commands.cmd_ref_verify(Namespace(ref=str(ref)))
+
+
+@needs_tools("samtools", "bgzip", "gzip")
+def test_verify_writes_a_missing_index_and_fails_a_stale_dict(tmp_path):
+    ref = _bgzipped_fasta(tmp_path, _random_seqs())
+    (tmp_path / "ref.dict").write_text(
+        "@HD\tVN:1.0\n@SQ\tSN:chr1\tLN:3000\n@SQ\tSN:chr2\tLN:999\n"
+    )
+    with pytest.raises(WGSExtractError, match="ref.dict doesn't match"):
+        core_commands.cmd_ref_verify(Namespace(ref=str(ref)))
+    assert read_fai_lengths(ref) == {"chr1": 3000, "chr2": 1200}
+    assert Path(f"{ref}.gzi").is_file()
 
 
 @needs_tools("samtools", "gzip")
@@ -493,3 +525,40 @@ def test_failed_bootstrap_does_not_save_the_library(tmp_path, monkeypatch):
     with pytest.raises(WGSExtractError, match="bootstrap failed"):
         library_commands.cmd_bootstrap(Namespace(ref=str(tmp_path)))
     assert saved == []
+
+
+def test_library_install_falls_back_to_the_next_mirror(tmp_path, monkeypatch, caplog):
+    mirrors = [
+        {
+            "code": "hs38",
+            "final": "hs38.fa.gz",
+            "url": f"https://{m}/hs38",
+            "description": m,
+        }
+        for m in ("github", "nih", "ebi")
+    ]
+    monkeypatch.setattr(library_commands, "get_available_genomes", lambda: mirrors)
+    monkeypatch.setattr(library_commands, "verify_dependencies", lambda deps: None)
+    monkeypatch.setattr(library_commands, "log_dependency_info", lambda deps: None)
+    tries = []
+
+    def install(genome, _lib, restart):
+        tries.append((genome["description"], restart))
+        return genome["description"] == "nih"
+
+    monkeypatch.setattr(library_commands, "download_and_process_genome", install)
+    with caplog.at_level(logging.WARNING):
+        library_commands.cmd_library(
+            Namespace(ref=str(tmp_path), list=False, install="hs38")
+        )
+    # The second mirror starts afresh rather than resuming the first one's partial.
+    assert tries == [("github", False), ("nih", True)]
+    assert "Trying the next mirror: nih" in caplog.text
+
+    monkeypatch.setattr(
+        library_commands, "download_and_process_genome", lambda *a, **k: False
+    )
+    with pytest.raises(WGSExtractError, match="hs38.fa.gz from any of its 3 mirrors"):
+        library_commands.cmd_library(
+            Namespace(ref=str(tmp_path), list=False, install="hs38")
+        )

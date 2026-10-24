@@ -1,7 +1,9 @@
 import argparse
 import logging
 import os
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from wgsextract_cli.core import bwa_mem2
@@ -109,6 +111,56 @@ def cmd_count_ns(args: argparse.Namespace) -> None:
     logging.info(f"Wrote {nbin_path}")
 
 
+def _check_fasta_index(ref: str) -> dict[str, int]:
+    """Index the FASTA into a temporary .fai (and .gzi) and compare them with the
+    existing ones, which are written if missing. Returns the contig lengths."""
+    sidecars = {".fai": "--fai-idx"} | (
+        {".gzi": "--gzi-idx"} if ref.endswith(".gz") else {}
+    )
+    with tempfile.TemporaryDirectory(
+        dir=Path(ref).parent, prefix=".wgse_verify_"
+    ) as tmp:
+        fresh = {ext: Path(tmp, "ref" + ext) for ext in sidecars}
+        cmd = ["samtools", "faidx"]
+        for ext, flag in sidecars.items():
+            cmd += [flag, str(fresh[ext])]
+        try:
+            run_command([*cmd, ref], capture_output=True)
+        except (OSError, subprocess.SubprocessError) as e:
+            raise WGSExtractError(f"Samtools faidx check failed: {e}") from e
+        for ext, new in fresh.items():
+            existing = Path(ref + ext)
+            if not existing.exists():
+                shutil.copyfile(new, existing)
+            elif existing.read_bytes() != new.read_bytes():
+                raise WGSExtractError(
+                    f"{existing} doesn't match {Path(ref).name}: it was made for "
+                    f"another version of the file. Delete it and run "
+                    f"'wgsextract ref index --ref {ref}'."
+                )
+    lengths = read_fai_lengths(ref)
+    if not lengths:
+        raise WGSExtractError(f"samtools faidx did not produce {ref}.fai")
+    return lengths
+
+
+def _check_dict_matches(ref: str, lengths: dict[str, int]) -> None:
+    """The sequence dictionary, if there is one, must list the FASTA's contigs."""
+    dict_path = Path(reference_dict_path(ref))
+    if not dict_path.exists():
+        return
+    listed = {}
+    for line in dict_path.read_text().splitlines():
+        if line.startswith("@SQ"):
+            tags = dict(f.split(":", 1) for f in line.split("\t")[1:] if ":" in f)
+            listed[tags.get("SN", "")] = int(tags.get("LN", 0))
+    if listed != lengths:
+        raise WGSExtractError(
+            f"{dict_path} doesn't match {Path(ref).name}'s contigs. Delete it and "
+            f"run 'wgsextract ref index --ref {ref}'."
+        )
+
+
 def cmd_ref_verify(args: argparse.Namespace) -> None:
     verify_dependencies(["gzip", "samtools"])
     log_dependency_info(["gzip", "samtools"])
@@ -132,20 +184,12 @@ def cmd_ref_verify(args: argparse.Namespace) -> None:
             raise WGSExtractError(f"Gzip integrity check failed: {e}") from e
         logging.info(LOG_MESSAGES["ref_gzip_ok"])
 
-    # 2. FASTA index: query an existing index (read-only), else build one.
+    # 2. FASTA index: index afresh beside the reference and compare, so a stale
+    # .fai/.gzi (from another version of the file) fails, not just a broken one.
     logging.info(LOG_MESSAGES["ref_faidx_check"])
-    lengths = read_fai_lengths(resolved_ref)
-    faidx_cmd = ["samtools", "faidx", resolved_ref]
-    if lengths:
-        faidx_cmd.append(f"{next(iter(lengths))}:1-100")
-    try:
-        run_command(faidx_cmd, capture_output=True)
-    except (OSError, subprocess.SubprocessError) as e:
-        raise WGSExtractError(f"Samtools faidx check failed: {e}") from e
-    lengths = lengths or read_fai_lengths(resolved_ref)
-    if not lengths:
-        raise WGSExtractError(f"samtools faidx did not produce {resolved_ref}.fai")
+    lengths = _check_fasta_index(resolved_ref)
     logging.info(LOG_MESSAGES["ref_faidx_ok"])
+    _check_dict_matches(resolved_ref, lengths)
 
     # 3. Sequence dictionary signature against the library catalog (if known)
     filename = Path(resolved_ref).name
