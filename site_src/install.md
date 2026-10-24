@@ -78,7 +78,7 @@ Commands on this site are written as plain `wgsextract`. Use the form that match
 | --- | --- | --- |
 | Standalone installer (macOS/Linux) | `./wgsextract-cli/wgsextract`, or `wgsextract` after adding `wgsextract-cli/` to `PATH` | Relative paths resolve against your current directory. |
 | Windows installer or source checkout | `pixi run wgsextract`, from the project folder | |
-| Specialized Pixi environments | `pixi run -e pacbio wgsextract ...` (also `deepvariant`, `vep`), from the app or project folder | See [Pixi environments](cli.html#environments){.inline-link}. |
+| Specialized Pixi environments | `pixi run -e pacbio wgsextract ...` (also `vep`), from the app or project folder | See [Pixi environments](cli.html#environments){.inline-link}. |
 :::
 
 To keep the standalone launcher on `PATH`, add `export PATH="/path/to/wgsextract-cli:$PATH"` to your shell profile.

@@ -89,21 +89,6 @@ t1k = ">=1.0.10,<2"
 [feature.expansionhunter.target.unix.dependencies]
 expansionhunter = ">=5.0.0,<6"
 
-# DeepVariant's Bioconda package requires Python 3.10.
-[feature.deepvariant.dependencies]
-python = "3.10.*"
-
-[feature.deepvariant.target.linux-64.dependencies]
-deepvariant = ">=1.10,<2"
-openjdk = "11.*"
-
-[feature.deepvariant.target.osx-arm64.dependencies]
-deepvariant = ">=1.10,<2"
-openjdk = "11.*"
-
-[feature.deepvariant.pypi-dependencies]
-wgsextract-cli = { path = ".", editable = true }
-
 [feature.pacbio.dependencies]
 python = "3.13.*"
 
@@ -200,7 +185,6 @@ gatk = { features = ["gatk"], no-default-feature = true }
 freebayes = { features = ["freebayes"], no-default-feature = true }
 t1k = { features = ["t1k"], no-default-feature = true }
 expansionhunter = { features = ["expansionhunter"], no-default-feature = true }
-deepvariant = { features = ["deepvariant"], no-default-feature = true }
 pacbio = { features = ["bio-tools", "pacbio"], no-default-feature = true, solve-group = "pacbio-unix" }
 vep = { features = ["vep"], no-default-feature = true }
 pharmcat = { features = ["pharmcat"], no-default-feature = true }

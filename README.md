@@ -134,6 +134,7 @@ Notes on a few commands:
 - `align`, `realign` and `pet-align` use bwa-mem2 rather than bwa when it's installed (Linux and macOS) and the reference has a bwa-mem2 index that fits in memory: the same alignments in about three quarters of the time (192 s against 259 s for 4.2M read pairs on 12 threads). Its index needs 17 GB of memory for a human genome, against bwa's 5 GB, and building it ~28 bytes per base (~90 GB), so `ref index --aligner bwa-mem2` downloads hs38DH's (17 GB; nf-core's iGenomes publishes it for Broad's GRCh38, whose sequences are hs38DH's) and builds the index for other references only where there's the memory. `--aligner bwa` or `--aligner bwa-mem2` chooses explicitly.
 - `info` reports how an alignment was made, from a sample of reads near chr1:20 Mb: whether duplicates were marked (and what share are duplicates), how many base-quality values the sequencer wrote (binned or full resolution), and whether the mapping was ALT-aware. The variant callers, `microarray` and `vcf trio` warn when an input is ALT-unaware or has no duplicates marked, as WGS Extract v4's alignments are; `realign` fixes both.
 - `ref spliceai` downloads Ensembl's open GRCh38 SpliceAI scores (about 29 GB with its published index): every SNV in MANE Select transcripts, no indels. Illumina's full hg19 and hg38 sets sit behind a BaseSpace login, so hg19 needs a manual download; the command explains where to place it. SpliceAI scores are free for academic and not-for-profit use only.
+- `vcf deepvariant` runs Google's DeepVariant from its Docker image on Linux and macOS (`docker pull google/deepvariant:1.10.0`; set `deepvariant_image` in `config.toml` for another version), or Google's `run_deepvariant` when it's on `PATH`, or Parabricks with `--gpu`. Docker and the image are checked, not installed. Bioconda's `deepvariant` package has contained no DeepVariant since 1.8, so there is no Pixi environment for it. Apple Silicon runs the x86-64 image under emulation, slowly.
 - `vcf sv` and `vcf cnv` use Delly 2 (`delly sr` / `delly cnv`), which needs no mappability map; `vcf cnv --map` is accepted but ignored.
 - `lineage y-haplogroup` writes Yleaf output to `<outdir>/yleaf/`, because Yleaf clears its output folder.
 - `pet-align` writes next to the R1 FASTQ unless `--outdir` is given.
@@ -148,7 +149,6 @@ Some tools live in their own Pixi environment. When such a tool is not on `PATH`
 | :--- | :--- |
 | `default` | All standard commands |
 | `pacbio` | `pbmm2`, `pbsv`, `sniffles`: `pixi run -e pacbio wgsextract vcf sv --pacbio` |
-| `deepvariant` | `pixi run -e deepvariant wgsextract vcf deepvariant` (Linux and Apple Silicon) |
 | `vep` | `pixi run -e vep wgsextract vep run` (not native Windows) |
 | `cyrius`, `t1k`, `expansionhunter` | `typing cyp2d6`, `typing hla`, `typing str` (Linux and macOS) |
 | `pharmcat` | PharmCAT's Python runtime for `vcf pharmcat` (Linux and macOS) |

@@ -52,6 +52,11 @@ KNOWN_SETTINGS = {
         "NVIDIA Parabricks Docker image for GPU alignment and calling "
         "(default nvcr.io/nvidia/clara/clara-parabricks:4.8.0-1)",
     ),
+    "deepvariant_image": (
+        None,
+        "Google DeepVariant Docker image for CPU calling (default "
+        "google/deepvariant:1.10.0)",
+    ),
     "default_input_vcf": (None, "Default input VCF file"),
     "mother_vcf_path": (None, "Default Mother VCF for trios"),
     "father_vcf_path": (None, "Default Father VCF for trios"),

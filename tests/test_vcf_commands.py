@@ -796,69 +796,6 @@ def test_sniffles_region_bed_rejects_unknown_contig(tmp_path):
         _write_region_bed("chrX:1-5", str(ref), str(tmp_path / "r.bed"))
 
 
-def test_deepvariant_bioconda_rejects_checkpoint(tmp_path):
-    from wgsextract_cli.commands.vcf import deepvariant
-
-    args = argparse.Namespace(checkpoint="model.ckpt")
-    with (
-        patch.object(
-            deepvariant,
-            "get_tool_path",
-            side_effect=lambda t: None if t == "run_deepvariant" else t,
-        ),
-        pytest.raises(WGSExtractError, match="--checkpoint"),
-    ):
-        deepvariant.cmd_deepvariant(args)
-
-
-def test_deepvariant_bioconda_pipeline_uses_temp_workdir(tmp_path_factory):
-    tmp_path = tmp_path_factory.mktemp("work")
-    from wgsextract_cli.commands.vcf import deepvariant
-
-    bam = tmp_path / "s.bam"
-    ref = tmp_path / "ref.fa"
-    out_vcf = tmp_path / "deepvariant.vcf.gz"
-    commands = []
-
-    def fake_run_command(cmd, **kwargs):
-        commands.append((cmd, kwargs))
-        if cmd[0] == "dv_postprocess_variants.py":
-            Path(cmd[cmd.index("--outfile") + 1]).write_text("vcf")
-        return subprocess.CompletedProcess(cmd, 0, "@RG\tID:1\tSM:NA12878\n", "")
-
-    args = argparse.Namespace(
-        input=str(bam), region="chr20", checkpoint=None, pacbio=False,
-        model_type="HYBRID_PACBIO_ILLUMINA", wes=False,
-    )  # fmt: skip
-    with (
-        patch.object(
-            deepvariant,
-            "get_tool_path",
-            side_effect=lambda t: None if t == "run_deepvariant" else t,
-        ),
-        patch.object(deepvariant, "verify_dependencies"),
-        patch.object(
-            deepvariant,
-            "get_base_args",
-            return_value=("4", str(tmp_path), str(ref), None),
-        ),
-        patch.object(deepvariant, "run_command", side_effect=fake_run_command),
-        patch.object(deepvariant, "ensure_vcf_indexed"),
-    ):
-        deepvariant.cmd_deepvariant(args)
-
-    dv = [(c, k) for c, k in commands if c[0].startswith("dv_")]
-    assert [c[0] for c, _ in dv] == list(deepvariant.BIOCONDA_SCRIPTS)
-    make, call, post = (c for c, _ in dv)
-    assert make[make.index("--sample") + 1] == "NA12878"
-    assert make[-2:] == ["--regions", "chr20"]
-    assert call[call.index("--model") + 1] == "hybrid"
-    assert post[-1] == str(out_vcf)
-    assert all(k["stdin"] == subprocess.DEVNULL for _, k in dv)
-    assert "/dev/null" not in " ".join(" ".join(c) for c, _ in dv)
-    assert sorted(os.listdir(tmp_path)) == ["deepvariant.vcf.gz"]
-
-
 # --- annotation resources -------------------------------------------------------
 
 

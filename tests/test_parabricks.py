@@ -12,7 +12,7 @@ import pytest
 from tests.htslib_helpers import needs_tools, sam_to_bam
 from wgsextract_cli.commands import align
 from wgsextract_cli.commands.vcf import callers, deepvariant
-from wgsextract_cli.core import parabricks
+from wgsextract_cli.core import containers, parabricks
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 
@@ -26,16 +26,17 @@ def linux(monkeypatch):
 
 
 def _tools(monkeypatch, *present: str) -> None:
-    monkeypatch.setattr(
-        parabricks, "get_tool_path", lambda tool: tool if tool in present else None
-    )
+    for module in (parabricks, containers):
+        monkeypatch.setattr(
+            module, "get_tool_path", lambda tool: tool if tool in present else None
+        )
 
 
 def _docker_answers(monkeypatch, info: subprocess.CompletedProcess, image_rc: int):
     def fake(cmd, **_kwargs):
         return info if cmd[1] == "info" else _completed(image_rc)
 
-    monkeypatch.setattr(parabricks, "run_command", fake)
+    monkeypatch.setattr(containers, "run_command", fake)
 
 
 @pytest.mark.parametrize(
@@ -76,7 +77,7 @@ def test_the_container_sees_each_directory_at_its_own_path(tmp_path, monkeypatch
     _tools(monkeypatch, "docker")
     monkeypatch.setattr(parabricks, "parabricks_image", lambda: "pb:test")
     calls = []
-    monkeypatch.setattr(parabricks, "run_command", calls.append)
+    monkeypatch.setattr(containers, "run_command", calls.append)
     (tmp_path / "ref").mkdir()
     (tmp_path / "out").mkdir()
     ref = str(tmp_path / "ref" / "hs38DH.fa")

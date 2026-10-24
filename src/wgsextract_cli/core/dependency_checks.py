@@ -340,18 +340,13 @@ def check_all_dependencies(
         path = get_tool_path(tool, runtime_mode)
         version = get_tool_version(tool, runtime_mode) if path else None
 
-        display_name = tool
-        if tool == "run_deepvariant":
-            display_name = f"{tool} (Wrapper)"
-        elif tool == "dv_call_variants.py":
-            display_name = f"{tool} (Bioconda)"
 
         is_broken = version and version.startswith("Error:")
         present_path = path if not is_broken else None
 
         results["optional"].append(
             {
-                "name": display_name,
+                "name": tool,
                 "path": present_path,
                 "runtime": get_tool_runtime(present_path),
                 "version": version,
