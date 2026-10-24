@@ -219,3 +219,15 @@ def test_absolute_path_normalizes_parents_without_following_links(
         pytest.skip(f"symlink unavailable: {exc}")
     assert absolute_path(FilePath(alias / "data")) == alias / "data"
     assert absolute_path(tmp_path / "unused" / ".." / "data") == tmp_path / "data"
+
+
+def test_verify_paths_exist_wants_files_not_programs_or_folders(tmp_path):
+    from wgsextract_cli.core.utils import WGSExtractError
+    from wgsextract_cli.core.variant_files import verify_paths_exist
+
+    (tmp_path / "x.bam").write_text("x")
+    verify_paths_exist({"--input": str(tmp_path / "x.bam")})
+    with pytest.raises(WGSExtractError, match="not found"):
+        verify_paths_exist({"--ref": "sh"})  # a program on PATH isn't a file
+    with pytest.raises(WGSExtractError, match="is a directory"):
+        verify_paths_exist({"--ref": str(tmp_path)})

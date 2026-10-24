@@ -117,6 +117,19 @@ def _print_report(mode: str, results: list[E2EResult]) -> None:
 
 
 @pytest.mark.real_config
+def _deepvariant_image() -> bool:
+    """Whether Docker can run Google's DeepVariant image (pulled already)."""
+    import subprocess
+
+    from wgsextract_cli.commands.vcf.deepvariant import deepvariant_image
+
+    docker = shutil.which("docker")
+    if not docker:
+        return False
+    inspect = [docker, "image", "inspect", deepvariant_image()]
+    return subprocess.run(inspect, capture_output=True).returncode == 0
+
+
 class E2EBase:
     REGION: ClassVar[str | None] = "chrM"
     MODE: ClassVar[str] = "CHRM"
@@ -344,8 +357,8 @@ class E2EBase:
         )
 
     def test_38_vcf_deepvariant_chrm(self) -> None:
-        if shutil.which("run_deepvariant") is None:
-            pytest.skip("run_deepvariant not found in PATH")
+        if shutil.which("run_deepvariant") is None and not _deepvariant_image():
+            pytest.skip("neither run_deepvariant nor Google's DeepVariant image")
         self.run_real(
             "38 vcf deepvariant (chrM)",
             [

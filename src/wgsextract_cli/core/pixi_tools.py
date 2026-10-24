@@ -240,10 +240,12 @@ raise SystemExit(1)
     if result.returncode != 0:
         # An optional environment that isn't installed yet: `pixi run` installs it
         # (with visible progress) the first time the tool is actually used.
+        # An installed environment that fails the probe hasn't got the tool.
         if (
             env != "default"
             and env not in INSTALL_FIRST_PIXI_ENVS
             and _locked_package_available(pixi_cmd, env, tool)
+            and pixi_env_prefix(env) is None
         ):
             launcher = WINDOWS_PIXI_SCRIPT_LAUNCHERS.get(tool)
             if launcher and runtime.is_windows_host():

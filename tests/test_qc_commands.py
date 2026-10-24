@@ -39,12 +39,22 @@ def test_fastp_filters_a_pair_and_reports(tmp_path):
     run_wgsextract("qc", "fastp", "--r1", r1, "--r2", r2, "--outdir", str(outdir))
 
     # Clean, adapter-free reads all pass, in order.
-    assert _names(outdir / "sample_R1_fp_1.fastq.gz") == NAMES
-    assert _names(outdir / "sample_R1_fp_2.fastq.gz") == NAMES
-    report = json.loads((outdir / "sample_R1_fastp.json").read_text())
+    assert _names(outdir / "sample_fp_1.fastq.gz") == NAMES
+    assert _names(outdir / "sample_fp_2.fastq.gz") == NAMES
+    report = json.loads((outdir / "sample_fastp.json").read_text())
     assert report["summary"]["before_filtering"]["total_reads"] == 20
     assert report["filtering_result"]["passed_filter_reads"] == 20
-    assert (outdir / "sample_R1_fastp.html").stat().st_size > 0
+    assert (outdir / "sample_fastp.html").stat().st_size > 0
+
+
+@needs_tools("fastp")
+def test_fastp_rejects_a_file_with_no_reads(tmp_path):
+    """fastp itself exits 0 on input that isn't FASTQ, reporting no reads."""
+    r1 = tmp_path / "notes.fastq"
+    r1.write_text("this is not a FASTQ file\n")
+    with pytest.raises(WGSExtractError, match="no reads in .*notes.fastq"):
+        run_wgsextract("qc", "fastp", "--r1", str(r1))
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["notes.fastq"]
 
 
 @needs_tools("fastp")

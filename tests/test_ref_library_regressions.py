@@ -490,17 +490,25 @@ def test_count_ns_requires_ref():
 def test_ref_verify_raises_on_signature_mismatch(tmp_path, monkeypatch):
     fasta = tmp_path / "hg38.fa.gz"
     _write_fasta_with_fai(fasta, [("chr1", 1000)])
+    fai = Path(f"{fasta}.fai")
+    original = fai.read_text()
     commands = []
     monkeypatch.setattr(core_commands, "verify_dependencies", lambda deps: None)
     monkeypatch.setattr(core_commands, "log_dependency_info", lambda deps: None)
-    monkeypatch.setattr(
-        core_commands, "run_command", lambda cmd, **kw: commands.append(cmd)
-    )
+
+    def fake_run(cmd, **_kw):
+        commands.append(cmd)
+        if cmd[:2] == ["samtools", "faidx"]:  # a fresh index, same as the existing
+            Path(cmd[cmd.index("--fai-idx") + 1]).write_text(original)
+            Path(cmd[cmd.index("--gzi-idx") + 1]).write_bytes(b"")
+
+    monkeypatch.setattr(core_commands, "run_command", fake_run)
 
     with pytest.raises(WGSExtractError, match="does not match the catalog"):
         core_commands.cmd_ref_verify(Namespace(ref=str(fasta)))
-    # An existing index is only queried, never rebuilt.
-    assert commands[-1] == ["samtools", "faidx", str(fasta), "chr1:1-100"]
+    # The existing index is compared with a fresh one, never rewritten.
+    assert "--fai-idx" in commands[-1] and commands[-1][-1] == str(fasta)
+    assert fai.read_text() == original
 
 
 @pytest.mark.parametrize("build_hint_name", ["hg38", None])

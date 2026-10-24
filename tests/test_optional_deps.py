@@ -1,3 +1,4 @@
+import json
 import os
 import shlex
 import sys
@@ -515,6 +516,9 @@ def test_uninstalled_optional_env_resolves_from_lockfile_without_installing():
             # Probes must never install or update an environment.
             assert "--no-install" in cmd
             return MagicMock(returncode=1, stdout="", stderr="env not installed")
+        if cmd[1] == "info":
+            info = '{"environments_info": [{"name": "gatk", "prefix": "/nonexistent"}]}'
+            return MagicMock(returncode=0, stdout=info, stderr="")
         assert cmd[1] == "list" and "--no-install" in cmd
         return MagicMock(returncode=0, stdout='[{"name": "gatk4"}]', stderr="")
 
@@ -524,9 +528,29 @@ def test_uninstalled_optional_env_resolves_from_lockfile_without_installing():
     ):
         command = pixi_tools._host_pixi_tool_command("gatk")
 
-    assert [c[0] for c in calls] == ["run", "list"]
+    assert [c[0] for c in calls] == ["run", "list", "info"]
     assert command is not None and command.endswith("-e gatk gatk")
     assert not any(c[0] == "install" for c in calls)
+
+
+def test_installed_env_without_the_tool_is_unavailable(tmp_path):
+    """An installed environment whose probe fails lacks the tool; `pixi run` of
+    it would only fail with 'command not found'."""
+    from wgsextract_cli.core import pixi_tools
+
+    def fake_run(cmd, **kwargs):
+        if cmd[1] == "run":
+            return MagicMock(returncode=1, stdout="", stderr="")
+        if cmd[1] == "info":
+            info = {"environments_info": [{"name": "gatk", "prefix": str(tmp_path)}]}
+            return MagicMock(returncode=0, stdout=json.dumps(info), stderr="")
+        return MagicMock(returncode=0, stdout='[{"name": "gatk4"}]', stderr="")
+
+    with (
+        patch.object(pixi_tools.shutil, "which", return_value="/usr/bin/pixi"),
+        patch.object(pixi_tools.subprocess, "run", side_effect=fake_run),
+    ):
+        assert pixi_tools._host_pixi_tool_command("gatk") is None
 
 
 def test_install_first_env_is_not_downloaded_on_first_use():

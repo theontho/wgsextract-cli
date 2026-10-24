@@ -1,7 +1,6 @@
 import hashlib
 import logging
 import os
-import shutil
 import subprocess
 import tempfile
 from collections.abc import Iterable, Mapping, Sequence
@@ -47,16 +46,11 @@ def verify_paths_exist(paths_dict: Mapping[str, PathInput | None]) -> None:
             continue
 
         normalized_path = expand_path(path)
-
-        # Skip check for commands (like pixi run)
-        if "pixi run" in normalized_path:
-            continue
-
-        if not Path(normalized_path).exists() and not shutil.which(normalized_path):
+        if not Path(normalized_path).exists():
             problems.append(
                 LOG_MESSAGES["file_not_found"].format(label=label, path=normalized_path)
             )
-        elif Path(normalized_path).is_dir() and not shutil.which(normalized_path):
+        elif Path(normalized_path).is_dir():
             problems.append(
                 f"{label} path is a directory, but a file is expected: {normalized_path}"
             )

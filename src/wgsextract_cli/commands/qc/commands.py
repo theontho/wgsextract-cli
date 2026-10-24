@@ -1,4 +1,5 @@
 import argparse
+import json
 import logging
 import subprocess
 from pathlib import Path
@@ -7,6 +8,7 @@ from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
+from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.utils import (
@@ -16,6 +18,7 @@ from wgsextract_cli.core.utils import (
 )
 
 from .._extract_helpers import cleanup_files
+from ..align import reads_stem
 from ..vcf.basic import _select_vcf_input
 
 
@@ -42,7 +45,10 @@ def cmd_fastp(args: argparse.Namespace) -> None:
     logging.debug(f"Output directory: {str(absolute_path(outdir))}")
     Path(outdir).mkdir(parents=True, exist_ok=True)
 
-    base_name = Path(args.r1).name.split(".")[0]
+    base_name = reads_stem(args.r1)
+    if args.r2:
+        # Both mates' outputs share a name, which shouldn't be R1's.
+        base_name = pair_stem(base_name)
     out_r1 = str(Path(outdir, f"{base_name}_fp_1.fastq.gz"))
     out_json = str(Path(outdir, f"{base_name}_fastp.json"))
     out_html = str(Path(outdir, f"{base_name}_fastp.html"))
@@ -65,10 +71,25 @@ def cmd_fastp(args: argparse.Namespace) -> None:
         cmd.extend(["-I", args.r2, "-O", out_r2])
 
     logging.info(LOG_MESSAGES["running_fastp"].format(input=args.r1))
+    outputs = [out_r1, out_json, out_html] + ([out_r2] if args.r2 else [])
     try:
-        run_command(cmd)
+        with cleanup_files(on_failure=outputs):
+            run_command(cmd)
+            # fastp exits 0 on a file that isn't FASTQ, reporting no reads.
+            if _fastp_total_reads(out_json) == 0:
+                raise WGSExtractError(
+                    f"fastp found no reads in {args.r1}: is it a FASTQ file?"
+                )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"fastp failed: {e}") from e
+
+
+def _fastp_total_reads(report: str) -> int | None:
+    try:
+        with open(report) as f:
+            return int(json.load(f)["summary"]["before_filtering"]["total_reads"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def cmd_fastqc(args: argparse.Namespace) -> None:
