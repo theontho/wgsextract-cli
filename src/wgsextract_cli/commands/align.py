@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import NamedTuple
 
@@ -42,6 +43,7 @@ _PBMM2_PRESETS = {
     "map-pb": "SUBREAD",
     "subread": "SUBREAD",
 }
+ALIGNERS = ["auto", "bwa", "minimap2", "pbmm2"]
 _READ_FILE_SUFFIXES = (
     ".fastq.gz",
     ".fq.gz",
@@ -68,16 +70,17 @@ def register(
     )
     parser.add_argument(
         "--platform",
-        choices=["illumina", "pacbio", "hifi", "clr", "ont", "nanopore"],
+        choices=["illumina", "dnbseq", "pacbio", "hifi", "clr", "ont", "nanopore"],
         default="illumina",
         help="Sequencing platform; selects platform-specific alignment tooling.",
     )
     parser.add_argument(
         "--aligner",
-        choices=["auto", "bwa", "minimap2", "pbmm2"],
+        choices=ALIGNERS,
         default="auto",
         help="Aligner to use. Auto uses pbmm2 for PacBio when installed, otherwise minimap2.",
     )
+    add_gpu_argument(parser)
     parser.add_argument(
         "--sample",
         help="Sample name for the read group (default: the reads' file name).",
@@ -124,8 +127,24 @@ def select_aligner(args: argparse.Namespace) -> str:
     return aligner
 
 
+def add_gpu_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--gpu",
+        action="store_true",
+        help="Align on an NVIDIA GPU with Parabricks: BWA-MEM for short reads, "
+        "minimap2 for HiFi/ONT (Linux, Docker; see README).",
+    )
+
+
+# Parabricks minimap2 presets for this command's long-read presets.
+_GPU_MINIMAP2_PRESETS = {"map-hifi": "map-hifi", "map-ont": "map-ont"}
+
+
 def run(args: argparse.Namespace) -> None:
     aligner = select_aligner(args)
+    if getattr(args, "gpu", False):
+        _run_gpu(args, aligner)
+        return
     if aligner == "pbmm2":
         align_pbmm2(args)
     elif aligner == "minimap2":
@@ -314,6 +333,7 @@ def run_streamed_alignment(
 # SAM-spec @RG PL values for --platform.
 _RG_PLATFORMS = {
     "illumina": "ILLUMINA",
+    "dnbseq": "DNBSEQ",
     "pacbio": "PACBIO",
     "hifi": "PACBIO",
     "clr": "PACBIO",
@@ -359,6 +379,155 @@ def align_bwa(args: argparse.Namespace) -> None:
         )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"BWA alignment failed: {e}") from e
+
+
+def _run_gpu(args: argparse.Namespace, aligner: str) -> None:
+    """The same alignment on an NVIDIA GPU: Parabricks fq2bam for BWA, its
+    minimap2 for HiFi and ONT reads (map-pbmm2 standing in for pbmm2)."""
+    if aligner == "bwa":
+        _align_gpu_bwa(args)
+        return
+    if aligner == "pbmm2":
+        if (args.preset or ("subread" if args.platform == "clr" else "ccs")) not in (
+            "ccs",
+            "map-hifi",
+        ):
+            raise WGSExtractError(
+                "--gpu aligns PacBio HiFi/CCS reads, not CLR/subreads."
+            )
+        _align_gpu_minimap2(args, "map-pbmm2")
+        return
+    preset = _minimap2_preset(args)
+    if preset not in _GPU_MINIMAP2_PRESETS:
+        raise WGSExtractError(
+            f"--gpu has no minimap2 preset for {preset}: it aligns HiFi (map-hifi) "
+            "and ONT (map-ont) long reads, and short reads with --aligner bwa."
+        )
+    _align_gpu_minimap2(args, _GPU_MINIMAP2_PRESETS[preset])
+
+
+def _align_gpu_bwa(args: argparse.Namespace) -> None:
+    """BWA-MEM, sorting and duplicate marking on the GPU (pbrun fq2bam), with
+    the same index, ALT contigs and read group as align_bwa."""
+    from wgsextract_cli.core.parabricks import host_path, verify_parabricks
+
+    setup = _prepare_alignment(args, ["samtools"], "GPU alignment")
+    verify_parabricks()
+    ensure_bwa_index(setup.ref)
+    ensure_bwa_alt_file(setup.ref)
+    # fq2bam requires a PU (platform unit) in the read group.
+    read_group = _read_group(args, setup.stem) + f"\\tPU:{setup.stem}"
+    reads = [host_path(args.r1)] + ([host_path(args.r2)] if args.r2 else [])
+    fq_arg = "--in-fq" if args.r2 else "--in-se-fq"
+    _gpu_align(args, setup, "fq2bam", [fq_arg, *reads, read_group], reads)
+
+
+def _align_gpu_minimap2(args: argparse.Namespace, preset: str) -> None:
+    """Long reads (FASTQ or unaligned BAM) with Parabricks minimap2."""
+    from wgsextract_cli.core.parabricks import host_path, verify_parabricks
+
+    if args.r2:
+        raise WGSExtractError("Long-read alignment takes single-end input; drop --r2.")
+    setup = _prepare_alignment(args, ["samtools"], "GPU long-read alignment")
+    verify_parabricks()
+    reads = host_path(args.r1)
+    in_arg = "--in-bam" if reads.lower().endswith(".bam") else "--in-fq"
+    sample = getattr(args, "sample", None) or pair_stem(setup.stem)
+    platform = _RG_PLATFORMS.get(getattr(args, "platform", None) or "", "PACBIO")
+    _gpu_align(
+        args,
+        setup,
+        "minimap2",
+        [in_arg, reads, "--preset", preset]
+        + ["--read-group-sm", sample, "--read-group-lb", sample]
+        + ["--read-group-pl", platform, "--read-group-id-prefix", setup.stem],
+        [reads],
+    )
+    # From an unaligned BAM, Parabricks keeps the BAM's own read groups, which
+    # PacBio writes without the sample name callers need.
+    _ensure_read_group_sample(_gpu_output_path(args, setup), sample, setup.ref)
+
+
+def _gpu_output_path(args: argparse.Namespace, setup: _AlignSetup) -> str:
+    from wgsextract_cli.core.parabricks import host_path
+
+    ext = ".cram" if args.format == "CRAM" else ".bam"
+    return host_path(str(Path(setup.outdir, f"{setup.stem}_aligned{ext}")))
+
+
+def _ensure_read_group_sample(path: str, sample: str, ref: str) -> None:
+    """Add SM:<sample> to read groups without one (header only, in place)."""
+    cram = ["-T", ref] if path.endswith(".cram") else []
+    header = run_command(
+        ["samtools", "view", "-H", *cram, path], capture_output=True
+    ).stdout
+    lines = header.splitlines()
+    fixed = [
+        line + f"\tSM:{sample}"
+        if line.startswith("@RG") and "\tSM:" not in line
+        else line
+        for line in lines
+    ]
+    if fixed == lines:
+        return
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".sam", dir=str(Path(path).parent), delete=False
+    ) as new_header:
+        new_header.write("\n".join(fixed) + "\n")
+    try:
+        if path.endswith(".cram"):
+            run_command(["samtools", "reheader", "-i", new_header.name, path])
+        else:
+            rewritten = path + ".reheader"
+            with open(rewritten, "wb") as out:
+                run_command(["samtools", "reheader", new_header.name, path], stdout=out)
+            os.replace(rewritten, path)
+            run_command(get_sam_index_cmd(path))
+    finally:
+        Path(new_header.name).unlink(missing_ok=True)
+    logging.info(f"Added the sample name {sample} to the read groups of {path}.")
+
+
+def _gpu_align(
+    args: argparse.Namespace,
+    setup: _AlignSetup,
+    tool: str,
+    tool_args: list[str],
+    reads: list[str],
+) -> None:
+    """Run a Parabricks aligner into <stem>_aligned.bam/.cram. Parabricks can't
+    write CRAM against a gzipped reference (it crashes), so then it writes BAM
+    and samtools converts it."""
+    from wgsextract_cli.core.parabricks import host_path, run_pbrun
+
+    out_path = _gpu_output_path(args, setup)
+    convert = out_path.endswith(".cram") and setup.ref.lower().endswith(".gz")
+    pb_out = out_path.removesuffix(".cram") + ".bam" if convert else out_path
+    logging.info(
+        LOG_MESSAGES["aligning_reads"].format(
+            input=args.r1, output=out_path, tool=f"Parabricks {tool}"
+        )
+    )
+    with (
+        cleanup_files(on_failure=[out_path, pb_out, pb_out + ".bai"]),
+        tempfile.TemporaryDirectory(dir=setup.outdir, prefix=".wgse_pb_") as tmp,
+    ):
+        run_pbrun(
+            tool,
+            ["--ref", host_path(setup.ref), *tool_args]
+            + ["--out-bam", pb_out, "--tmp-dir", host_path(tmp)],
+            [setup.ref, *reads, pb_out, tmp],
+        )
+        if convert:
+            run_command(
+                ["samtools", "view", "-C", "-@", setup.threads, "-T", setup.ref]
+                + ["-o", out_path, pb_out]
+            )
+            run_command(get_sam_index_cmd(out_path, threads=setup.threads))
+            for path in (pb_out, pb_out + ".bai"):
+                Path(path).unlink(missing_ok=True)
+    # Parabricks also lists the output's chromosomes beside it.
+    Path(pb_out.rsplit(".", 1)[0] + "_chrs.txt").unlink(missing_ok=True)
 
 
 def _minimap2_preset(args: argparse.Namespace) -> str:

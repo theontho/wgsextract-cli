@@ -277,6 +277,11 @@ def register(
         "gatk", parents=[base_parser], help=CLI_HELP["cmd_gatk"]
     )
     _add_region(gatk_parser, "Chromosomal region (e.g. chrM)")
+    gatk_parser.add_argument(
+        "--gpu",
+        action="store_true",
+        help="Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).",
+    )
     gatk_parser.set_defaults(func=cmd_gatk)
 
     deepvariant_parser = vcf_subs.add_parser(
@@ -298,6 +303,11 @@ def register(
     )
     deepvariant_parser.add_argument(
         "--checkpoint", help="Path to DeepVariant model checkpoint"
+    )
+    deepvariant_parser.add_argument(
+        "--gpu",
+        action="store_true",
+        help="Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).",
     )
     deepvariant_parser.set_defaults(func=cmd_deepvariant)
 

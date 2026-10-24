@@ -123,7 +123,24 @@ def cmd_freebayes(args: argparse.Namespace) -> None:
     warn_if_no_variants(out_vcf, ref, args.region)
 
 
+def _gatk_gpu(args: argparse.Namespace) -> None:
+    """HaplotypeCaller on an NVIDIA GPU (Parabricks), which reads CRAM itself."""
+    from wgsextract_cli.core.parabricks import call_variants, verify_parabricks
+
+    verify_dependencies(["samtools", "tabix"])
+    verify_parabricks()
+    _threads, outdir, ref, _lib = get_base_args(args)
+    out_vcf = str(Path(outdir, "gatk.vcf.gz"))
+    logging.info(LOG_MESSAGES["vcf_calling_gatk"].format(output=out_vcf))
+    call_variants("haplotypecaller", args.input, ref, out_vcf, args.region)
+    ensure_vcf_indexed(out_vcf)
+    warn_if_no_variants(out_vcf, ref, args.region)
+
+
 def cmd_gatk(args: argparse.Namespace) -> None:
+    if getattr(args, "gpu", False):
+        _gatk_gpu(args)
+        return
     verify_dependencies(["gatk", "samtools"])
     _threads, outdir, ref, lib = get_base_args(args)
 
