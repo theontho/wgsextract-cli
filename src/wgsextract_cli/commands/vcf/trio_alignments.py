@@ -179,7 +179,7 @@ def joint_trio_vcf(
         Path(samples[1]).write_text("".join(sex_lines))
         logging.info(
             f"Genotyping the trio from their alignments over {len(regions)} "
-            f"region(s) with {threads} worker(s); a whole genome takes hours."
+            f"region(s) with {threads} worker(s); a 30x whole genome takes about an hour with 8."
         )
         chunks = [str(Path(work, f"{i:03d}.vcf.gz")) for i in range(len(regions))]
         # Threads, not processes: each worker only waits on bcftools, and threads
