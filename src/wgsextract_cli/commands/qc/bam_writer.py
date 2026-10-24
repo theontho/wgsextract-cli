@@ -5,7 +5,8 @@ from heapq import heappop, heappush
 from pathlib import Path
 
 from wgsextract_cli.core import runtime_wrappers
-from wgsextract_cli.core.dependencies import _tool_command_parts, get_tool_path
+from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.tool_commands import _tool_command_parts
 from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
 
 SamWriter = Callable[[str], object]

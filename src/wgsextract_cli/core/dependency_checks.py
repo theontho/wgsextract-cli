@@ -13,16 +13,17 @@ from wgsextract_cli.core import (
 from wgsextract_cli.core.utils import WGSExtractError
 
 from .dependencies import (
-    OPTIONAL_TOOLS,
-    PIXI_TOOL_ENVS,
-    _tool_command_parts,
-    _version_output,
     check_dependencies,
     get_tool_path,
     get_tool_runtime,
+)
+from .tool_catalog import (
+    OPTIONAL_TOOLS,
+    PIXI_TOOL_ENVS,
     optional_dependency_tools,
     required_dependency_tools,
 )
+from .tool_commands import _tool_command_parts
 
 
 def _pixi_alt_env(tool: str, path: str | None) -> str | None:
@@ -90,6 +91,25 @@ def _crash_description(returncode: int) -> str | None:
         except ValueError:
             return f"crashed (signal {signum})"
     return None
+
+
+IGNORED_VERSION_OUTPUT_PREFIXES = ("wsl: Failed to mount ",)
+
+
+def _version_output(stdout: str, stderr: str) -> str:
+    """Return useful version text, filtering host-runtime noise."""
+    lines = []
+    for stream_text in (stdout, stderr):
+        for line in stream_text.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith(IGNORED_VERSION_OUTPUT_PREFIXES):
+                continue
+            if stripped.startswith("DEBUG:"):
+                continue
+            lines.append(stripped)
+    return "\n".join(lines)
 
 
 def get_tool_version(tool: str, runtime_mode: str | None = None) -> str | None:

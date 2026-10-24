@@ -16,8 +16,10 @@ on:
       - src/wgsextract_cli/commands/microarray.py
       - src/wgsextract_cli/commands/_microarray_*.py
       - src/wgsextract_cli/core/annotation_resources.py
+      - src/wgsextract_cli/core/bigwig_resources.py
       - src/wgsextract_cli/core/constants.py
       - src/wgsextract_cli/core/gene_map.py
+      - src/wgsextract_cli/core/gnomad_af.py
       - src/wgsextract_cli/core/microarray_*.py
       - src/wgsextract_cli/core/pharmgkb.py
       - src/wgsextract_cli/core/ref_library/catalog.py

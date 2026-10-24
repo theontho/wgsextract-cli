@@ -17,14 +17,12 @@ from wgsextract_cli.core import (
     runtime,
     runtime_paths,
 )
-from wgsextract_cli.core.dependencies import (
-    clear_tool_caches,
-    required_dependency_tools,
-)
+from wgsextract_cli.core.dependencies import clear_tool_caches
 from wgsextract_cli.core.download_progress import (
     copy_response_to_file,
     require_http_url,
 )
+from wgsextract_cli.core.tool_catalog import required_dependency_tools
 from wgsextract_cli.core.utils import WGSExtractError
 
 DEFAULT_WINDOWS_RUNTIME_RELEASE_URL = "https://get.wgse.io/latest-release-Beta.json"

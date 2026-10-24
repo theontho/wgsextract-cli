@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from wgsextract_cli.commands.info.metrics import sample_sex
-from wgsextract_cli.core.dependencies import pixi_env_prefix
+from wgsextract_cli.core.pixi_tools import pixi_env_prefix
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 from .common import Alignment, env_tool, open_alignment

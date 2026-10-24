@@ -1,10 +1,4 @@
-import ctypes
-import json
-import os
-import shlex
 import shutil
-import subprocess
-import sys
 from functools import lru_cache
 from pathlib import Path
 
@@ -12,259 +6,35 @@ from wgsextract_cli.core import (
     runtime,
     runtime_paths,
 )
-from wgsextract_cli.core.paths import absolute_path, command_is_path, expand_path
-
-MANDATORY_TOOLS = [
-    "samtools",
-    "bcftools",
-    "tabix",
-    "bgzip",
-    "bwa",
-    "python3",
-    "gzip",
-    "tar",
-]
-
-
-OPTIONAL_TOOLS = [
-    "minimap2",
-    "pbmm2",
-    "pbsv",
-    "sniffles",
-    "sambamba",
-    "samblaster",
-    "fastp",
-    "fastqc",
-    "delly",
-    "freebayes",
-    "vep",
-    "gatk",
-    "run_deepvariant",
-    "dv_call_variants.py",
-    "curl",
-    "java",
-    "yleaf",
-    "haplogrep",
-    "htsfile",
-    "cyrius",
-    "run-t1k",
-    "ExpansionHunter",
-]
-
-
-PIXI_TOOL_ENVS = {
-    "gzip": "default",
-    "tar": "default",
-    "curl": "default",
-    "fastp": "default",
-    "fastqc": "default",
-    "yleaf": "default",
-    "vep": "vep",
-    "run_deepvariant": "deepvariant",
-    "dv_make_examples.py": "deepvariant",
-    "dv_call_variants.py": "deepvariant",
-    "dv_postprocess_variants.py": "deepvariant",
-    "haplogrep": "default",
-    "gatk": "gatk",
-    "delly": "default",
-    "freebayes": "freebayes",
-    "samtools": "default",
-    "bcftools": "default",
-    "bgzip": "default",
-    "tabix": "default",
-    "java": "default",
-    "sambamba": "default",
-    "samblaster": "default",
-    "bwa": "default",
-    "minimap2": "default",
-    "pbmm2": "pacbio",
-    "pbsv": "pacbio",
-    "sniffles": "pacbio",
-    "htsfile": "default",
-    "cyrius": "cyrius",
-    "run-t1k": "t1k",
-    "t1k-build.pl": "t1k",
-    "ExpansionHunter": "expansionhunter",
-    # Only through their own environments (never a `python` on PATH): pixi_env_tool.
-    "pharmcat_python": "pharmcat",
-    "cyrius_python": "cyrius",
-}
-
-
-# Optional environments the user installs explicitly (`pixi install -e <env>`, as
-# documented) and that are never downloaded on first use: Cyrius's license
-# allows noncommercial use only, so installing it must be the user's choice.
-INSTALL_FIRST_PIXI_ENVS = frozenset({"cyrius", "t1k", "expansionhunter", "pharmcat"})
-
-
-TOOL_EXECUTABLE_ALIASES = {
-    "yleaf": ("yleaf", "Yleaf"),
-    "pharmcat_python": ("python",),
-    "cyrius_python": ("python",),
-}
-
-
-WINDOWS_PIXI_SCRIPT_LAUNCHERS = {
-    "fastqc": ("perl",),
-    "gatk": ("python",),
-}
-
-# Runs <env prefix>/bin/<script> with its interpreter from inside `pixi run`, for
-# a Windows script tool whose environment isn't installed yet (its prefix, and
-# so the script's path, only exists once `pixi run` has installed it).
-_WINDOWS_FIRST_USE_STUB = (
-    "import subprocess, sys; from pathlib import Path; "
-    "name = sys.argv[2]; "
-    "root = Path(sys.prefix); "
-    "found = sorted((root / 'share').glob('*/' + name)) + "
-    "[p for p in (root / d / name for d in ('bin', 'Scripts')) if p.exists()]; "
-    "sys.exit(subprocess.call([sys.argv[1], str(found[0]) if found else name, *sys.argv[3:]]))"
+from wgsextract_cli.core.paths import expand_path
+from wgsextract_cli.core.pixi_tools import (
+    _host_pixi_tool_command,
+    _wsl_pixi_path,
+    is_pixi_tool_command,
+    is_pixi_tool_path,
+    pixi_env_prefix,
+    pixi_env_tool,
+)
+from wgsextract_cli.core.tool_catalog import (
+    MANDATORY_TOOLS,
+    OPTIONAL_TOOLS,
+    PIXI_TOOL_ENVS,
+    _tool_executable_names,
+    optional_dependency_tools,
+    required_dependency_tools,
 )
 
-
-IGNORED_VERSION_OUTPUT_PREFIXES = ("wsl: Failed to mount ",)
-
-
-@lru_cache(maxsize=1)
-def _wsl_home_dir() -> str | None:
-    if not runtime.is_windows_host():
-        return None
-    try:
-        result = subprocess.run(
-            ["wsl", "bash", "-lc", 'printf %s "$HOME"'],
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if result.returncode != 0:
-        return None
-    home = result.stdout.strip()
-    return home if home else None
-
-
-def _wsl_pixi_path() -> str:
-    home = _wsl_home_dir()
-    if not home:
-        username = os.environ.get("USERNAME")
-        home = f"/home/{username}" if username else "~"
-    return f"{home}/.pixi/bin/pixi"
-
-
-def required_dependency_tools(include_python: bool = True) -> list[str]:
-    """Return the centrally-defined required dependency tools."""
-    if include_python:
-        return list(MANDATORY_TOOLS)
-    return [tool for tool in MANDATORY_TOOLS if tool != "python3"]
-
-
-# Optional tools the CLI only uses on some platforms (sys.platform prefixes).
-PLATFORM_ONLY_TOOLS = {
-    "sambamba": ("linux",),
-    "cyrius": ("linux", "darwin"),
-    "run-t1k": ("linux", "darwin"),
-    "ExpansionHunter": ("linux", "darwin"),
-}
-
-
-def optional_dependency_tools() -> list[str]:
-    """Return the optional dependency tools that apply to this platform."""
-    return [
-        tool
-        for tool in OPTIONAL_TOOLS
-        if sys.platform.startswith(PLATFORM_ONLY_TOOLS.get(tool, ("",)))
-    ]
-
-
-def _version_output(stdout: str, stderr: str) -> str:
-    """Return useful version text, filtering host-runtime noise."""
-    lines = []
-    for stream_text in (stdout, stderr):
-        for line in stream_text.splitlines():
-            stripped = line.strip()
-            if not stripped:
-                continue
-            if stripped.startswith(IGNORED_VERSION_OUTPUT_PREFIXES):
-                continue
-            if stripped.startswith("DEBUG:"):
-                continue
-            lines.append(stripped)
-    return "\n".join(lines)
-
-
-def _tool_command_parts(cmd_base: str) -> list[str]:
-    """Split wrapper commands without corrupting native executable paths."""
-    normalized_cmd = expand_path(cmd_base)
-    if (
-        runtime.is_wsl_tool_command(normalized_cmd)
-        or runtime.is_bundled_tool_command(normalized_cmd)
-        or runtime.is_pacman_tool_command(normalized_cmd)
-    ):
-        return [normalized_cmd]
-    if command_is_path(normalized_cmd):
-        return [normalized_cmd]
-    if runtime.is_windows_host():
-        return _windows_command_line_split(normalized_cmd)
-    return shlex.split(normalized_cmd)
-
-
-def _split_windows_argv(command_line: str) -> list[str]:
-    """CommandLineToArgvW's rules (the inverse of subprocess.list2cmdline), for
-    when the Windows API isn't available."""
-    args: list[str] = []
-    current: list[str] = []
-    in_token = in_quotes = False
-    i = 0
-    while i < len(command_line):
-        char = command_line[i]
-        if char == "\\":
-            run_end = i
-            while run_end < len(command_line) and command_line[run_end] == "\\":
-                run_end += 1
-            count = run_end - i
-            if run_end < len(command_line) and command_line[run_end] == '"':
-                current.append("\\" * (count // 2))
-                if count % 2:
-                    current.append('"')
-                    run_end += 1
-            else:
-                current.append("\\" * count)
-            in_token = True
-            i = run_end
-            continue
-        if char == '"':
-            in_quotes = not in_quotes
-            in_token = True
-        elif char in " \t" and not in_quotes:
-            if in_token:
-                args.append("".join(current))
-                current, in_token = [], False
-        else:
-            current.append(char)
-            in_token = True
-        i += 1
-    if in_token:
-        args.append("".join(current))
-    return args
-
-
-def _windows_command_line_split(command_line: str) -> list[str]:
-    windll = getattr(ctypes, "windll", None)
-    if windll is None:
-        return _split_windows_argv(command_line)
-
-    argc = ctypes.c_int()
-    command_line_to_argv = windll.shell32.CommandLineToArgvW
-    command_line_to_argv.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_int)]
-    command_line_to_argv.restype = ctypes.POINTER(ctypes.c_wchar_p)
-    argv = command_line_to_argv(command_line, ctypes.byref(argc))
-    if not argv:
-        raise ValueError(f"Could not parse Windows command line: {command_line}")
-    try:
-        return [argv[index] for index in range(argc.value)]
-    finally:
-        windll.kernel32.LocalFree(argv)
+__all__ = [
+    "MANDATORY_TOOLS",
+    "OPTIONAL_TOOLS",
+    "PIXI_TOOL_ENVS",
+    "is_pixi_tool_command",
+    "is_pixi_tool_path",
+    "optional_dependency_tools",
+    "pixi_env_prefix",
+    "pixi_env_tool",
+    "required_dependency_tools",
+]
 
 
 def get_tool_runtime(path: str | None) -> str:
@@ -281,52 +51,6 @@ def get_tool_runtime(path: str | None) -> str:
     if is_pixi_tool_path(path) or is_pixi_tool_command(path):
         return "pixi"
     return "native"
-
-
-def is_pixi_tool_command(path: str) -> bool:
-    """Return whether a resolved command is explicitly launched through Pixi."""
-    try:
-        command = shlex.split(expand_path(path), posix=not runtime.is_windows_host())
-    except ValueError:
-        return False
-    if not command:
-        return False
-    executable = Path(command[0]).name.lower()
-    return executable in {"pixi", "pixi.exe"} and "run" in command[1:]
-
-
-def is_pixi_tool_path(path: str) -> bool:
-    """Return whether a resolved executable lives inside the active Pixi env."""
-    expanded_path = str(absolute_path(expand_path(path)))
-    pixi_prefix = os.environ.get("PIXI_PREFIX")
-    if pixi_prefix and _is_relative_to(expanded_path, pixi_prefix):
-        return True
-    conda_prefix = os.environ.get("CONDA_PREFIX")
-    return bool(
-        conda_prefix
-        and _is_pixi_environment_active()
-        and _is_relative_to(expanded_path, conda_prefix)
-    )
-
-
-def _is_pixi_environment_active() -> bool:
-    pixi_env_vars = (
-        "PIXI_EXE",
-        "PIXI_IN_SHELL",
-        "PIXI_PROJECT_MANIFEST",
-        "PIXI_PROJECT_NAME",
-        "PIXI_PROJECT_ROOT",
-        "PIXI_PROJECT_VERSION",
-    )
-    return any(os.environ.get(env_var) for env_var in pixi_env_vars)
-
-
-def _is_relative_to(path: str, parent: str) -> bool:
-    # resolve() can fail on broken Windows paths or symlink loops.
-    try:
-        return Path(path).resolve().is_relative_to(Path(parent).resolve())
-    except (OSError, RuntimeError):
-        return False
 
 
 def get_jar_dir() -> str:
@@ -350,236 +74,11 @@ def _candidate_bundled_runtime_modes(runtime_mode: str) -> tuple[str, ...]:
     return ()
 
 
-def _resolve_pixi_command() -> str | None:
-    # The pixi running this process (it exports PIXI_EXE into its environments),
-    # then the install's own embedded pixi, before anything on PATH: a system or
-    # Homebrew pixi may be a different version with different global config.
-    candidates = [os.environ.get("PIXI_EXE")]
-    root = runtime.source_checkout_root()
-    # Only an install.sh install has its own pixi beside app/ (marked by its
-    # manifest); next to a plain checkout that path is the user's ~/.pixi.
-    if root is not None and (root.parent / "install-manifest.json").is_file():
-        exe = "pixi.exe" if runtime.is_windows_host() else "pixi"
-        candidates.append(str(root.parent / ".pixi" / "bin" / exe))
-    for candidate in candidates:
-        if candidate and Path(candidate).is_file():
-            return candidate
-
-    pixi_cmd = shutil.which("pixi")
-    if pixi_cmd:
-        return pixi_cmd
-
-    for path in [
-        "/opt/homebrew/bin/pixi",
-        "/usr/local/bin/pixi",
-        "~/.pixi/bin/pixi",
-        "~/.pixi/bin/pixi.exe",
-    ]:
-        expanded = expand_path(path)
-        if Path(expanded).exists():
-            return expanded
-    return None
-
-
-def _pixi_manifest_args() -> list[str]:
-    """Point pixi at this app's manifest; the CLI may run from any directory."""
-    root = runtime.source_checkout_root()
-    if root and (root / "pixi.toml").is_file():
-        return ["--manifest-path", str(root / "pixi.toml")]
-    return []
-
-
-# Conda package that provides a tool in its Pixi environment, when the names differ.
-PIXI_TOOL_PACKAGES = {
-    "gatk": "gatk4",
-    "vep": "ensembl-vep",
-    "run_deepvariant": "deepvariant",
-    "dv_make_examples.py": "deepvariant",
-    "dv_call_variants.py": "deepvariant",
-    "dv_postprocess_variants.py": "deepvariant",
-    "pharmcat_python": "pandas",
-    "cyrius_python": "cyrius",
-    "run-t1k": "t1k",
-    "t1k-build.pl": "t1k",
-    "ExpansionHunter": "expansionhunter",
-}
-
-
-def _locked_package_available(pixi_cmd: str, env: str, tool: str) -> bool:
-    """Whether the lockfile gives this platform's `env` the package providing `tool`.
-
-    Reads the lockfile only, so nothing is downloaded just to answer `deps check`.
-    """
-    try:
-        result = subprocess.run(
-            [pixi_cmd, "list", *_pixi_manifest_args(), "-e", env, "--no-install"]
-            + ["--json"],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        packages = json.loads(result.stdout) if result.returncode == 0 else []
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return False
-    package = PIXI_TOOL_PACKAGES.get(tool, tool)
-    return any(entry.get("name") == package for entry in packages)
-
-
-def _pixi_run_command(pixi_cmd: str, env: str, args: list[str]) -> str:
-    command = [pixi_cmd, "run", *_pixi_manifest_args(), "-e", env, *args]
-    if runtime.is_windows_host():
-        return subprocess.list2cmdline(command)
-    return shlex.join(command)
-
-
-def _tool_executable_names(tool: str) -> tuple[str, ...]:
-    return TOOL_EXECUTABLE_ALIASES.get(tool, (tool,))
-
-
 def _which_tool(tool: str) -> str | None:
     for executable_name in _tool_executable_names(tool):
         path = shutil.which(executable_name)
         if path:
             return path
-    return None
-
-
-def _host_pixi_tool_command(tool: str) -> str | None:
-    if tool not in PIXI_TOOL_ENVS:
-        return None
-
-    env = PIXI_TOOL_ENVS[tool]
-    pixi_cmd = _resolve_pixi_command()
-    if not pixi_cmd:
-        return None
-
-    probe = r"""
-import shutil
-import sys
-import logging
-import os
-from pathlib import Path
-
-tool_names = sys.argv[1:]
-for tool in tool_names:
-    path = shutil.which(tool)
-    if path:
-        print("direct-name:" + tool)
-        raise SystemExit(0)
-
-prefix = Path(sys.prefix)
-if "haplogrep" in tool_names:
-    jar = prefix / "bin" / "haplogrep.jar"
-    if jar.exists():
-        print("haplogrep:" + str(jar.resolve()))
-        raise SystemExit(0)
-
-for tool in tool_names:
-    # noarch packages keep the real script in share/<pkg>/ beside its data (GATK's
-    # jar) and link it into bin/; Windows gets no usable link, so look there first.
-    shared = sorted(p for p in prefix.glob("share/*/" + tool) if p.is_file())
-    if os.name == "nt" and shared:
-        print("script:" + str(shared[-1]))
-        raise SystemExit(0)
-    script = prefix / "bin" / tool
-    if script.exists() or script.is_symlink():
-        print("script:" + str(script.resolve()))
-        raise SystemExit(0)
-
-raise SystemExit(1)
-"""
-    executable_names = _tool_executable_names(tool)
-    try:
-        result = subprocess.run(
-            [
-                pixi_cmd,
-                "run",
-                *_pixi_manifest_args(),
-                # Never install or update an environment just to probe it.
-                "--no-install",
-                "-e",
-                env,
-                "python",
-                "-c",
-                probe,
-                *executable_names,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-
-    if result.returncode != 0:
-        # An optional environment that isn't installed yet: `pixi run` installs it
-        # (with visible progress) the first time the tool is actually used.
-        if (
-            env != "default"
-            and env not in INSTALL_FIRST_PIXI_ENVS
-            and _locked_package_available(pixi_cmd, env, tool)
-        ):
-            launcher = WINDOWS_PIXI_SCRIPT_LAUNCHERS.get(tool)
-            if launcher and runtime.is_windows_host():
-                # Windows can't run the extensionless script by name.
-                return _pixi_run_command(
-                    pixi_cmd,
-                    env,
-                    [
-                        "python",
-                        "-c",
-                        _WINDOWS_FIRST_USE_STUB,
-                        *launcher,
-                        executable_names[0],
-                    ],
-                )
-            return _pixi_run_command(pixi_cmd, env, [executable_names[0]])
-        return None
-
-    output = result.stdout.strip().splitlines()
-    if not output:
-        return None
-    kind, separator, value = output[-1].partition(":")
-    if not separator or not value:
-        return None
-
-    if kind == "direct-name":
-        return _pixi_run_command(pixi_cmd, env, [value])
-    if kind == "haplogrep":
-        return _pixi_run_command(pixi_cmd, env, ["java", "-jar", value])
-    if kind == "script" and tool in WINDOWS_PIXI_SCRIPT_LAUNCHERS:
-        return _pixi_run_command(
-            pixi_cmd, env, [*WINDOWS_PIXI_SCRIPT_LAUNCHERS[tool], value]
-        )
-    if kind == "script" and not runtime.is_windows_host():
-        return _pixi_run_command(pixi_cmd, env, [value])
-    return None
-
-
-def pixi_env_tool(tool: str) -> str | None:
-    """How to run a tool from its Pixi environment only (not from PATH)."""
-    return _host_pixi_tool_command(tool)
-
-
-def pixi_env_prefix(env: str) -> Path | None:
-    """An installed Pixi environment's prefix (for data its packages ship)."""
-    pixi_cmd = _resolve_pixi_command()
-    if not pixi_cmd:
-        return None
-    try:
-        result = subprocess.run(
-            [pixi_cmd, "info", *_pixi_manifest_args(), "--json"],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        envs = json.loads(result.stdout)["environments_info"]
-    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
-        return None
-    for info in envs:
-        if info.get("name") == env and info.get("prefix"):
-            prefix = Path(info["prefix"])
-            return prefix if prefix.is_dir() else None
     return None
 
 

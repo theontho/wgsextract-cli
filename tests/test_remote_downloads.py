@@ -15,7 +15,7 @@ from wgsextract_cli.commands.benchmark.models import (
     REAL_BENCHMARK_DATASETS,
 )
 from wgsextract_cli.core import annotation_resources as ar
-from wgsextract_cli.core import pharmgkb
+from wgsextract_cli.core import bigwig_resources, gnomad_af, pharmgkb
 from wgsextract_cli.core.constants import BOOTSTRAP_URL
 from wgsextract_cli.core.gene_map import GENE_MAP_URLS
 from wgsextract_cli.core.ref_library.catalog import (
@@ -38,11 +38,11 @@ def _download_urls() -> list[str]:
     tables: list[Mapping[str, str | None]] = [
         ar.CLINVAR_URLS,
         ar.REVEL_URLS,
-        ar.PHYLOP_URLS,
+        bigwig_resources.PHYLOP_URLS,
         ar.GNOMAD_URLS,
         ar.SPLICEAI_URLS,
         ar.ALPHAMISSENSE_URLS,
-        ar.GERP_URLS,
+        bigwig_resources.GERP_URLS,
         GENE_MAP_URLS,
     ]
     urls = [url for table in tables for url in table.values() if url]
@@ -52,7 +52,7 @@ def _download_urls() -> list[str]:
         for name in (indel_name, ar.CADD_SNV_FILE):
             data = f"{ar.CADD_BASE_URL}/{remote_dir}/{name}"
             urls += [data + s for s in ("", ".tbi", ".md5", ".tbi.md5")]
-    urls += [ar.GNOMAD_V4_URL.format(contig=c) for c in ("chr1", "chrY")]
+    urls += [gnomad_af.GNOMAD_V4_URL.format(contig=c) for c in ("chr1", "chrY")]
     urls += [pharmgkb.CLINICAL_URL, pharmgkb.VARIANTS_URL]
     urls += [BOOTSTRAP_URL, DEFAULT_REAL_DATASET_URL]
     urls += [

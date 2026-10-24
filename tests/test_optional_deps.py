@@ -312,7 +312,7 @@ class TestOptionalDependencies(unittest.TestCase):
                 "wgsextract_cli.core.runtime_paths.pacman_tool_path", return_value=None
             ),
             patch(
-                "wgsextract_cli.core.dependencies.subprocess.run",
+                "wgsextract_cli.core.pixi_tools.subprocess.run",
                 return_value=completed,
             ),
         ):
@@ -343,7 +343,7 @@ class TestOptionalDependencies(unittest.TestCase):
                 "wgsextract_cli.core.runtime_paths.pacman_tool_path", return_value=None
             ),
             patch(
-                "wgsextract_cli.core.dependencies.subprocess.run",
+                "wgsextract_cli.core.pixi_tools.subprocess.run",
                 return_value=completed,
             ) as mock_run,
         ):
@@ -355,7 +355,7 @@ class TestOptionalDependencies(unittest.TestCase):
         self.assertEqual(mock_run.call_args.args[0][-2:], ["yleaf", "Yleaf"])
 
     def test_version_output_filters_wsl_mount_warning(self):
-        from wgsextract_cli.core.dependencies import _version_output
+        from wgsextract_cli.core.dependency_checks import _version_output
 
         output = _version_output(
             "wsl: Failed to mount F:\\, see dmesg for more details.\n",
@@ -366,7 +366,7 @@ class TestOptionalDependencies(unittest.TestCase):
 
     @patch("wgsextract_cli.core.dependencies.Path.exists", return_value=True)
     def test_native_windows_tool_path_is_not_shlex_split(self, mock_exists):
-        from wgsextract_cli.core.dependencies import _tool_command_parts
+        from wgsextract_cli.core.tool_commands import _tool_command_parts
 
         tool_path = r"C:\Windows\system32\tar.EXE"
 
@@ -374,7 +374,7 @@ class TestOptionalDependencies(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "win32", "Windows command-line parsing")
     def test_windows_pixi_command_parts_preserve_backslashes(self):
-        from wgsextract_cli.core.dependencies import _tool_command_parts
+        from wgsextract_cli.core.tool_commands import _tool_command_parts
 
         command = (
             r"C:\Users\test\.pixi\bin\pixi.EXE run -e default perl "
@@ -410,8 +410,8 @@ class TestOptionalDependencies(unittest.TestCase):
         self.assertNotIn("fastp", required_dependency_tools(include_python=False))
         self.assertNotIn("curl", required_dependency_tools(include_python=False))
 
-    @patch("wgsextract_cli.core.dependencies.MANDATORY_TOOLS", ["samtools"])
-    @patch("wgsextract_cli.core.dependencies.OPTIONAL_TOOLS", ["minimap2"])
+    @patch("wgsextract_cli.core.tool_catalog.MANDATORY_TOOLS", ["samtools"])
+    @patch("wgsextract_cli.core.tool_catalog.OPTIONAL_TOOLS", ["minimap2"])
     @patch("wgsextract_cli.core.dependency_checks.get_tool_path")
     @patch("wgsextract_cli.core.dependency_checks.get_tool_version", return_value="1.0")
     def test_deps_check_output(self, mock_version, mock_tool_path):
@@ -435,8 +435,8 @@ class TestOptionalDependencies(unittest.TestCase):
             self.assertIn("Mandatory Tools:", output)
             self.assertIn("Optional Tools:", output)
 
-    @patch("wgsextract_cli.core.dependencies.MANDATORY_TOOLS", ["samtools"])
-    @patch("wgsextract_cli.core.dependencies.OPTIONAL_TOOLS", ["sniffles"])
+    @patch("wgsextract_cli.core.tool_catalog.MANDATORY_TOOLS", ["samtools"])
+    @patch("wgsextract_cli.core.tool_catalog.OPTIONAL_TOOLS", ["sniffles"])
     @patch("wgsextract_cli.core.dependency_checks.get_tool_path")
     @patch(
         "wgsextract_cli.core.dependency_checks.get_tool_version", return_value="2.7.0"
@@ -505,7 +505,7 @@ if __name__ == "__main__":
 
 
 def test_uninstalled_optional_env_resolves_from_lockfile_without_installing():
-    from wgsextract_cli.core import dependencies
+    from wgsextract_cli.core import pixi_tools
 
     calls = []
 
@@ -519,10 +519,10 @@ def test_uninstalled_optional_env_resolves_from_lockfile_without_installing():
         return MagicMock(returncode=0, stdout='[{"name": "gatk4"}]', stderr="")
 
     with (
-        patch.object(dependencies.shutil, "which", return_value="/usr/bin/pixi"),
-        patch.object(dependencies.subprocess, "run", side_effect=fake_run),
+        patch.object(pixi_tools.shutil, "which", return_value="/usr/bin/pixi"),
+        patch.object(pixi_tools.subprocess, "run", side_effect=fake_run),
     ):
-        command = dependencies._host_pixi_tool_command("gatk")
+        command = pixi_tools._host_pixi_tool_command("gatk")
 
     assert [c[0] for c in calls] == ["run", "list"]
     assert command is not None and command.endswith("-e gatk gatk")
@@ -530,7 +530,7 @@ def test_uninstalled_optional_env_resolves_from_lockfile_without_installing():
 
 
 def test_install_first_env_is_not_downloaded_on_first_use():
-    from wgsextract_cli.core import dependencies
+    from wgsextract_cli.core import pixi_tools
 
     calls = []
 
@@ -541,16 +541,16 @@ def test_install_first_env_is_not_downloaded_on_first_use():
         return MagicMock(returncode=0, stdout='[{"name": "cyrius"}]', stderr="")
 
     with (
-        patch.object(dependencies.shutil, "which", return_value="/usr/bin/pixi"),
-        patch.object(dependencies.subprocess, "run", side_effect=fake_run),
+        patch.object(pixi_tools.shutil, "which", return_value="/usr/bin/pixi"),
+        patch.object(pixi_tools.subprocess, "run", side_effect=fake_run),
     ):
         # Locked for this platform, but Cyrius's license needs an explicit opt-in.
-        assert dependencies._host_pixi_tool_command("cyrius") is None
+        assert pixi_tools._host_pixi_tool_command("cyrius") is None
     assert calls == ["run"]
 
 
 def test_tool_missing_from_platform_lock_is_unavailable():
-    from wgsextract_cli.core import dependencies
+    from wgsextract_cli.core import pixi_tools
 
     def fake_run(cmd, **kwargs):
         if cmd[1] == "run":
@@ -558,22 +558,22 @@ def test_tool_missing_from_platform_lock_is_unavailable():
         return MagicMock(returncode=0, stdout='[{"name": "sniffles"}]', stderr="")
 
     with (
-        patch.object(dependencies.shutil, "which", return_value="/usr/bin/pixi"),
-        patch.object(dependencies.subprocess, "run", side_effect=fake_run),
+        patch.object(pixi_tools.shutil, "which", return_value="/usr/bin/pixi"),
+        patch.object(pixi_tools.subprocess, "run", side_effect=fake_run),
     ):
-        assert dependencies._host_pixi_tool_command("pbmm2") is None
+        assert pixi_tools._host_pixi_tool_command("pbmm2") is None
 
 
 def test_resolve_pixi_command_prefers_running_pixi(tmp_path, monkeypatch):
-    from wgsextract_cli.core import dependencies
+    from wgsextract_cli.core import pixi_tools
 
     running = tmp_path / "pixi"
     running.write_text("")
     monkeypatch.setenv("PIXI_EXE", str(running))
     with patch.object(
-        dependencies.shutil, "which", return_value="/opt/homebrew/bin/pixi"
+        pixi_tools.shutil, "which", return_value="/opt/homebrew/bin/pixi"
     ):
-        assert dependencies._resolve_pixi_command() == str(running)
+        assert pixi_tools._resolve_pixi_command() == str(running)
 
 
 def _fake_pixi(prefix, tool_calls):
@@ -657,7 +657,8 @@ def test_version_probe_reports_a_crashing_tool(returncode):
 def test_uninstalled_windows_script_tool_runs_through_its_interpreter(tmp_path):
     """On Windows `gatk` is an extensionless Python script, so the first-use
     command can't name it; it runs it from the new env with its interpreter."""
-    from wgsextract_cli.core import dependencies
+    from wgsextract_cli.core import pixi_tools
+    from wgsextract_cli.core.tool_commands import _tool_command_parts
 
     def fake_run(cmd, **kwargs):
         if cmd[1] == "run":
@@ -665,13 +666,13 @@ def test_uninstalled_windows_script_tool_runs_through_its_interpreter(tmp_path):
         return MagicMock(returncode=0, stdout='[{"name": "gatk4"}]', stderr="")
 
     with (
-        patch.object(dependencies.shutil, "which", return_value="/usr/bin/pixi"),
-        patch.object(dependencies.subprocess, "run", side_effect=fake_run),
-        patch.object(dependencies.runtime, "is_windows_host", return_value=True),
+        patch.object(pixi_tools.shutil, "which", return_value="/usr/bin/pixi"),
+        patch.object(pixi_tools.subprocess, "run", side_effect=fake_run),
+        patch.object(pixi_tools.runtime, "is_windows_host", return_value=True),
     ):
-        command = dependencies._host_pixi_tool_command("gatk")
+        command = pixi_tools._host_pixi_tool_command("gatk")
         assert command is not None
-        argv = dependencies._tool_command_parts(command)
+        argv = _tool_command_parts(command)
     stub_at = argv.index("-c") + 1
     assert argv[stub_at - 2 : stub_at - 1] == ["python"]
     assert argv[stub_at + 1 :] == ["python", "gatk"]
@@ -702,7 +703,7 @@ def test_uninstalled_windows_script_tool_runs_through_its_interpreter(tmp_path):
 def test_windows_argv_split_inverts_list2cmdline(argv):
     import subprocess
 
-    from wgsextract_cli.core.dependencies import _split_windows_argv
+    from wgsextract_cli.core.tool_commands import _split_windows_argv
 
     assert _split_windows_argv(subprocess.list2cmdline(argv)) == argv
 
@@ -711,7 +712,7 @@ def test_windows_argv_split_inverts_list2cmdline(argv):
 def test_embedded_pixi_is_used_only_in_an_install_layout(tmp_path, installed):
     """install.sh puts pixi in <install>/.pixi beside app/; next to a plain
     checkout (~/wgsextract-cli) that path is the user's own ~/.pixi."""
-    from wgsextract_cli.core import dependencies
+    from wgsextract_cli.core import pixi_tools
 
     app = tmp_path / "app"
     app.mkdir()
@@ -721,9 +722,9 @@ def test_embedded_pixi_is_used_only_in_an_install_layout(tmp_path, installed):
     if installed:
         (tmp_path / "install-manifest.json").write_text("{}")
     with (
-        patch.object(dependencies.runtime, "source_checkout_root", return_value=app),
-        patch.object(dependencies.runtime, "is_windows_host", return_value=False),
-        patch.object(dependencies.shutil, "which", return_value="/usr/local/bin/pixi"),
+        patch.object(pixi_tools.runtime, "source_checkout_root", return_value=app),
+        patch.object(pixi_tools.runtime, "is_windows_host", return_value=False),
+        patch.object(pixi_tools.shutil, "which", return_value="/usr/local/bin/pixi"),
     ):
         expected = str(embedded) if installed else "/usr/local/bin/pixi"
-        assert dependencies._resolve_pixi_command() == expected
+        assert pixi_tools._resolve_pixi_command() == expected
