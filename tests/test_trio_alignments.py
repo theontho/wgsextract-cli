@@ -244,9 +244,7 @@ def test_chromosomes_are_split_into_regions(monkeypatch):
 def test_a_proband_without_variants_has_nothing_to_genotype(tmp_path):
     rng = random.Random(20)
     ref_seq = "".join(rng.choice("ACGT") for _ in range(2000))
-    ref = tmp_path / "ref.fa"
-    ref.write_text(f">chr20\n{ref_seq}\n")
-    subprocess.run([get_tool_path("samtools"), "faidx", str(ref)], check=True)
+    ref = write_fasta(tmp_path / "ref.fa", {"chr20": ref_seq})
     alignments = [
         _alignment(tmp_path, name, ref_seq, alt_reads=0)
         for name in ("child", "mother", "father")
