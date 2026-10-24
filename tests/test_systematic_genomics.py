@@ -3,6 +3,7 @@ import os
 
 import pytest
 
+from tests.htslib_helpers import bgzip_index
 from tests.smoke_utils import run_cli, verify_vcf
 from wgsextract_cli.core.utils import run_command
 
@@ -50,8 +51,7 @@ def fake_data_dir(tmp_path_factory):
         f.write("chrY\t500\trs789\tG\tA\n")
 
     # BGZIP and Index the SNP tab
-    run_command(["bgzip", snp_tab], check=True)
-    run_command(["tabix", "-p", "vcf", snp_tab + ".gz"], check=True)
+    bgzip_index(snp_tab)
 
     # Identity hg38->hg19 chain so microarray (which requires liftover for hg38
     # input) can run end to end on the fake reference.

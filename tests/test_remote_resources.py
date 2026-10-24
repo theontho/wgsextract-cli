@@ -11,16 +11,14 @@ from urllib.request import Request, urlopen
 
 import pytest
 
+from tests.htslib_helpers import needs_tools
 from wgsextract_cli.core.annotation_resources import SPLICEAI_URLS
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.utils import run_command
 
 pytestmark = [
     pytest.mark.remote,
-    pytest.mark.skipif(
-        not all(get_tool_path(t) for t in ("bcftools", "bgzip", "tabix")),
-        reason="bcftools/htslib missing",
-    ),
+    needs_tools("bcftools", "bgzip", "tabix"),
 ]
 
 SPLICEAI_HG38 = SPLICEAI_URLS["hg38"]

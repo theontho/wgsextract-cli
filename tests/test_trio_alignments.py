@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.htslib_helpers import bgzip_index, needs_htslib, sam_to_bam, write_fasta
 from wgsextract_cli.commands.vcf import filter_trio
 from wgsextract_cli.commands.vcf.trio_alignments import (
     is_alignment,
@@ -18,11 +19,6 @@ from wgsextract_cli.commands.vcf.trio_alignments import (
 )
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.utils import WGSExtractError
-
-needs_htslib = pytest.mark.skipif(
-    not all(get_tool_path(t) for t in ("bcftools", "bgzip", "tabix", "samtools")),
-    reason="bcftools/htslib/samtools missing",
-)
 
 # id, ALT, then proband / mother / father as GT:DP:AD. Haploid genotypes are a
 # son's and his father's chrX outside the PARs.
@@ -43,14 +39,6 @@ SITES = [
 ]
 
 
-def _bgzip_index(plain: Path) -> str:
-    out = Path(str(plain) + ".gz")
-    with open(out, "wb") as f:
-        subprocess.run([get_tool_path("bgzip"), "-c", str(plain)], stdout=f, check=True)
-    subprocess.run([get_tool_path("tabix"), "-p", "vcf", str(out)], check=True)
-    return str(out)
-
-
 def _joint_vcf(tmp_path: Path) -> str:
     plain = tmp_path / "joint.vcf"
     plain.write_text(
@@ -66,7 +54,7 @@ def _joint_vcf(tmp_path: Path) -> str:
             for i, (site, alt, p, m, f) in enumerate(SITES)
         )
     )
-    return split_multiallelic(_bgzip_index(plain), str(tmp_path / "split.vcf.gz"))
+    return split_multiallelic(bgzip_index(plain), str(tmp_path / "split.vcf.gz"))
 
 
 @needs_htslib
@@ -93,7 +81,6 @@ def test_joint_filters_need_real_evidence(tmp_path, mode, expected):
 def _alignment(tmp_path: Path, name: str, ref_seq: str, alt_reads: int) -> str:
     """40 reads over position 1,000 of chr20, alt_reads of them with C there.
     Every file says SM:WGSE, as WGS Extract v4 wrote."""
-    sam = tmp_path / f"{name}.sam"
     lines = [
         f"@SQ\tSN:chr20\tLN:{len(ref_seq)}",
         "@RG\tID:1\tSM:WGSE\tLB:lb\tPL:ILLUMINA",
@@ -107,12 +94,7 @@ def _alignment(tmp_path: Path, name: str, ref_seq: str, alt_reads: int) -> str:
             f"r{i}\t0\tchr20\t{start}\t60\t100M\t*\t0\t0\t{''.join(seq)}\t{'I' * 100}"
             "\tRG:Z:1"
         )
-    sam.write_text("\n".join(lines) + "\n")
-    bam = tmp_path / f"{name}.bam"
-    samtools = get_tool_path("samtools")
-    subprocess.run([samtools, "sort", "-o", str(bam), str(sam)], check=True)
-    subprocess.run([samtools, "index", str(bam)], check=True)
-    return str(bam)
+    return sam_to_bam(lines, tmp_path / f"{name}.bam")
 
 
 @needs_htslib
@@ -120,9 +102,7 @@ def test_joint_calling_names_each_file_and_finds_the_de_novo(tmp_path):
     rng = random.Random(20)
     ref_seq = "".join(rng.choice("ACGT") for _ in range(2000))
     ref_seq = ref_seq[:999] + "A" + ref_seq[1000:]  # position 1,000 is A
-    ref = tmp_path / "ref.fa"
-    ref.write_text(f">chr20\n{ref_seq}\n")
-    subprocess.run([get_tool_path("samtools"), "faidx", str(ref)], check=True)
+    ref = write_fasta(tmp_path / "ref.fa", {"chr20": ref_seq})
     alignments = [
         _alignment(tmp_path, "child", ref_seq, alt_reads=20),
         _alignment(tmp_path, "mother", ref_seq, alt_reads=0),
@@ -189,7 +169,7 @@ def test_isolated_denovo_drops_clusters(tmp_path):
     )
     out = tmp_path / "isolated.vcf.gz"
     # 50,000-50,800 is a chain of candidates 400 bp apart: all clustered.
-    assert write_isolated_denovo(_bgzip_index(plain), str(out)) == (3, 6)
+    assert write_isolated_denovo(bgzip_index(plain), str(out)) == (3, 6)
     kept = subprocess.run(
         [get_tool_path("bcftools"), "query", "-f", "%POS\n", str(out)],
         capture_output=True,

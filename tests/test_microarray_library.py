@@ -12,15 +12,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
+from tests.htslib_helpers import bgzip_index, needs_htslib, sam_to_bam, write_fasta
 
-from wgsextract_cli.core.dependencies import get_tool_path
-from wgsextract_cli.core.utils import run_command
-
-pytestmark = pytest.mark.skipif(
-    not all(get_tool_path(t) for t in ("bcftools", "bgzip", "tabix", "samtools")),
-    reason="bcftools/htslib/samtools missing",
-)
+pytestmark = needs_htslib
 
 # rsID, GRCh37 position on chr1, and the sample's genotype there.
 MARKERS = [("rs101", 1000, "AC"), ("rs102", 2000, "CC"), ("rs103", 3000, "AA")]
@@ -35,9 +29,7 @@ def _library(root: Path) -> tuple[Path, str]:
         seq[pos - 1] = "A"
     genomes = root / "genomes"
     genomes.mkdir(parents=True)
-    fasta = genomes / "hg19.fa"
-    fasta.write_text(">chr1\n" + "".join(seq) + "\n")
-    run_command([get_tool_path("samtools"), "faidx", str(fasta)])
+    fasta = write_fasta(genomes / "hg19.fa", {"chr1": "".join(seq)})
     templates = root / "microarray" / "raw_file_templates"
     (templates / "head").mkdir(parents=True)
     (templates / "body").mkdir()
@@ -54,8 +46,7 @@ def _library(root: Path) -> tuple[Path, str]:
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
         "chrY\t2655180\tM42\tG\tA\t.\tPASS\t.\n"
     )
-    run_command([get_tool_path("bgzip"), "-f", str(y_snps)])
-    run_command([get_tool_path("tabix"), "-p", "vcf", str(y_snps) + ".gz"])
+    bgzip_index(y_snps)
     return fasta, "".join(seq)
 
 
@@ -71,13 +62,7 @@ def _sample_bam(root: Path, seq: str) -> str:
                 f"{rsid}_{i}\t0\tchr1\t{start}\t60\t100M\t*\t0\t0\t{''.join(read)}\t"
                 f"{'I' * 100}\tRG:Z:s"
             )
-    sam = root / "sample.sam"
-    sam.write_text("\n".join(lines) + "\n")
-    bam = root / "sample.bam"
-    samtools = get_tool_path("samtools")
-    run_command([samtools, "sort", "-o", str(bam), str(sam)])
-    run_command([samtools, "index", str(bam)])
-    return str(bam)
+    return sam_to_bam(lines, root / "sample.bam")
 
 
 def test_microarray_builds_its_target_and_calls_the_chip_markers(

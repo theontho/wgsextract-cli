@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.htslib_helpers import needs_tools
 from wgsextract_cli.core import microarray_targets as mt
 from wgsextract_cli.core.dependencies import get_tool_path
 
@@ -36,9 +37,7 @@ def test_markers_are_the_union_of_the_grch37_templates(tmp_path):
     }
 
 
-@pytest.mark.skipif(
-    not (get_tool_path("bgzip") and get_tool_path("tabix")), reason="htslib missing"
-)
+@needs_tools("bgzip", "tabix")
 def test_hg19_target_is_written_sorted_and_indexed(tmp_path):
     templates = _templates(tmp_path)
     out = mt.build_genome_wide_target(str(tmp_path), "GRCh37", [str(templates)])
@@ -87,9 +86,7 @@ def test_lift_to_hg38_offsets_and_drops_unmappable(tmp_path):
     assert lifted == {("chr1", 1100): "rs1"}
 
 
-@pytest.mark.skipif(
-    not (get_tool_path("bgzip") and get_tool_path("tabix")), reason="htslib missing"
-)
+@needs_tools("bgzip", "tabix")
 def test_hg38_target_uses_the_librarys_chain(tmp_path):
     templates = _templates(tmp_path)
     (tmp_path / "hg19ToHg38.over.chain.gz").write_bytes(gzip.compress(_CHAIN.encode()))
@@ -98,9 +95,7 @@ def test_hg38_target_uses_the_librarys_chain(tmp_path):
         assert f.read().splitlines() == ["#CHROM\tPOS\tID", "chr1\t1100\trs1"]
 
 
-@pytest.mark.skipif(
-    not (get_tool_path("bgzip") and get_tool_path("tabix")), reason="htslib missing"
-)
+@needs_tools("bgzip", "tabix")
 def test_simultaneous_builds_leave_one_valid_target(tmp_path):
     from concurrent.futures import ThreadPoolExecutor
 

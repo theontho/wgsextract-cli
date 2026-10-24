@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.htslib_helpers import sam_to_bam
 from wgsextract_cli.commands.info import metrics, render, runner
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.utils import WGSExtractError
@@ -345,24 +346,20 @@ def test_full_coverage_failure_raises_and_leaves_no_output(tmp_path, monkeypatch
 
 @pytest.fixture
 def tiny_bam(tmp_path):
-    samtools = get_tool_path("samtools")
-    if not samtools:
+    if not get_tool_path("samtools"):
         pytest.skip("samtools not available")
-    sam = tmp_path / "tiny.sam"
     read = "A" * 100
     qual = "I" * 100
     records = [
         f"r{i}\t0\tchr1\t{pos}\t60\t100M\t*\t0\t0\t{read}\t{qual}"
         for i, pos in enumerate(range(1, 5001, 100))
     ]
-    sam.write_text(
-        "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:10000\n"
-        "@SQ\tSN:chr2\tLN:800\n" + "\n".join(records) + "\n"
-    )
-    bam = tmp_path / "tiny.bam"
-    subprocess.run([samtools, "view", "-b", "-o", str(bam), str(sam)], check=True)
-    subprocess.run([samtools, "index", str(bam)], check=True)
-    return bam
+    header = [
+        "@HD\tVN:1.6\tSO:coordinate",
+        "@SQ\tSN:chr1\tLN:10000",
+        "@SQ\tSN:chr2\tLN:800",
+    ]
+    return sam_to_bam(header + records, tmp_path / "tiny.bam")
 
 
 def test_coverage_commands_against_real_samtools(tiny_bam, tmp_path):

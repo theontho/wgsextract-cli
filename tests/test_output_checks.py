@@ -8,14 +8,12 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.htslib_helpers import bgzip_index, needs_htslib
 from wgsextract_cli.commands import _microarray_combined as combined
 from wgsextract_cli.core import output_checks
 from wgsextract_cli.core.dependencies import get_tool_path
 
-pytestmark = pytest.mark.skipif(
-    not all(get_tool_path(t) for t in ("bcftools", "bgzip", "tabix", "samtools")),
-    reason="bcftools/htslib/samtools missing",
-)
+pytestmark = needs_htslib
 
 
 def _vcf(path: Path, records: list[str], tags: tuple[str, ...] = ("SCORE",)) -> str:
@@ -28,12 +26,7 @@ def _vcf(path: Path, records: list[str], tags: tuple[str, ...] = ("SCORE",)) -> 
         + "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
         + "".join(records)
     )
-    with open(path, "wb") as out:
-        subprocess.run(
-            [get_tool_path("bgzip"), "-c", str(plain)], stdout=out, check=True
-        )
-    subprocess.run([get_tool_path("tabix"), "-p", "vcf", str(path)], check=True)
-    return str(path)
+    return bgzip_index(plain)
 
 
 def _records(n: int, scored: set[int] = frozenset()) -> list[str]:

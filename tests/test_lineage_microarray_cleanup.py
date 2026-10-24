@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.htslib_helpers import needs_tools
 from wgsextract_cli.commands import (
     _lineage_ydna,
     _microarray_combined,
@@ -14,7 +15,6 @@ from wgsextract_cli.commands import (
     microarray,
 )
 from wgsextract_cli.core import variant_files
-from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 
@@ -303,7 +303,7 @@ PLAIN_VCF = (
 )
 
 
-@pytest.mark.skipif(not get_tool_path("bcftools"), reason="bcftools not available")
+@needs_tools("bcftools")
 def test_extract_vcf_chromosome_plain_vcf_matches_any_contig_alias(tmp_path):
     vcf = tmp_path / "in.vcf"
     vcf.write_text(PLAIN_VCF)
@@ -315,7 +315,7 @@ def test_extract_vcf_chromosome_plain_vcf_matches_any_contig_alias(tmp_path):
     assert [line.split("\t")[0] for line in records.stdout.splitlines()] == ["chrM"]
 
 
-@pytest.mark.skipif(not get_tool_path("bcftools"), reason="bcftools not available")
+@needs_tools("bcftools")
 def test_extract_vcf_chromosome_raises_when_chromosome_absent(tmp_path):
     vcf = tmp_path / "in.vcf"
     vcf.write_text(PLAIN_VCF)

@@ -11,17 +11,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.htslib_helpers import bgzip_index, needs_tools
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.utils import WGSExtractError
 
-
-def _have(*tools: str) -> bool:
-    return all(get_tool_path(tool) for tool in tools)
-
-
-needs_bcftools = pytest.mark.skipif(
-    not _have("bcftools", "bgzip", "tabix"), reason="bcftools/htslib missing"
-)
+needs_bcftools = needs_tools("bcftools", "bgzip", "tabix")
 
 
 def _write_vcf(
@@ -40,13 +34,7 @@ def _write_vcf(
     )
     plain = path.with_suffix("")
     plain.write_text(text)
-    with open(path, "wb") as out:
-        subprocess.run(
-            [get_tool_path("bgzip"), "-c", str(plain)], stdout=out, check=True
-        )
-    plain.unlink()
-    subprocess.run([get_tool_path("tabix"), "-f", "-p", "vcf", str(path)], check=True)
-    return str(path)
+    return bgzip_index(plain, path)
 
 
 def _query(vcf: str, fmt: str = "%ID\n") -> list[str]:
@@ -397,8 +385,8 @@ def test_clinvar_normalizes_contigs_and_leaves_no_temporaries(tmp_path):
         inputs / "sample.vcf.gz",
         "{c}\t10\tv1\tA\tG\t.\tPASS\t.\n{c}\t20\tv2\tA\tG\t.\tPASS\t.\n",
     )
-    clinvar = tmp_path / "clinvar.vcf.gz"
-    plain = (
+    clinvar = tmp_path / "clinvar.vcf"
+    clinvar.write_text(
         "##fileformat=VCFv4.2\n##contig=<ID=1,length=1000>\n"
         '##INFO=<ID=CLNSIG,Number=.,Type=String,Description="s">\n'
         '##INFO=<ID=CLNDN,Number=.,Type=String,Description="d">\n'
@@ -406,16 +394,11 @@ def test_clinvar_normalizes_contigs_and_leaves_no_temporaries(tmp_path):
         "1\t10\tc1\tA\tG\t.\t.\tCLNSIG=Pathogenic;CLNDN=X\n"
         "1\t20\tc2\tA\tG\t.\t.\tCLNSIG=Benign;CLNDN=Y\n"
     )
-    with open(clinvar, "wb") as out:
-        subprocess.run(
-            [get_tool_path("bgzip"), "-c"], input=plain.encode(), stdout=out, check=True
-        )
-    subprocess.run([get_tool_path("tabix"), "-p", "vcf", str(clinvar)], check=True)
 
     outdir = tmp_path / "out"
     args = argparse.Namespace(
         input=sample, vcf_input=None, outdir=str(outdir), ref=None,
-        clinvar_file=str(clinvar),
+        clinvar_file=bgzip_index(clinvar),
     )  # fmt: skip
     with (
         patch.object(clinvar_revel, "verify_dependencies"),
@@ -961,9 +944,7 @@ def test_spliceai_check_reads_a_real_index(tmp_path):
         "1\t100\t.\tA\tG\t.\t.\tSpliceAI=G|X|0.1|0|0|0|1|2|3|4\n"
         "Y\t200\t.\tC\tT\t.\t.\tSpliceAI=T|Y|0.9|0|0|0|1|2|3|4\n"
     )
-    subprocess.run(["bgzip", "-f", str(vcf)], check=True)
-    subprocess.run(["tabix", "-p", "vcf", f"{vcf}.gz"], check=True)
-    remote = f"{vcf}.gz"
+    remote = bgzip_index(vcf)
 
     def copy(url, dest, *_args):
         shutil.copy(url, dest)
