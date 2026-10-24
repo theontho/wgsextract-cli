@@ -46,12 +46,16 @@ def alt_unaware(alignment: PathInput, ref: str | None = None) -> bool | None:
     return mapq0 >= UNAWARE_MAPQ0_FRACTION * len(reads)
 
 
+def alt_unaware_message(alignment: PathInput) -> str:
+    return (
+        f"{alignment} was aligned to a reference with ALT contigs without "
+        "ALT-aware mapping: reads in the ~110 Mb that ALT haplotypes repeat "
+        "(HLA among them) have mapping quality 0 or sit on the ALT copy, so "
+        "their variants will be missing. Re-align with `wgsextract align`, "
+        "which maps ALT-aware, for calls there."
+    )
+
+
 def warn_if_alt_unaware(alignment: PathInput, ref: str | None = None) -> None:
     if alt_unaware(alignment, ref):
-        logging.warning(
-            f"{alignment} was aligned to a reference with ALT contigs without "
-            "ALT-aware mapping: reads in the ~110 Mb that ALT haplotypes repeat "
-            "(HLA among them) have mapping quality 0 or sit on the ALT copy, so "
-            "their variants will be missing. Re-align with `wgsextract align`, "
-            "which maps ALT-aware, for calls there."
-        )
+        logging.warning(alt_unaware_message(alignment))

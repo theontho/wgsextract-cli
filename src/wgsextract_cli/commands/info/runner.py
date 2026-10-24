@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from wgsextract_cli.core.alignment_health import alignment_health
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -148,6 +149,9 @@ def _fast_metrics(
         "std_insert_size": std_tlen,
         "sequencer": determine_sequencer(first_qname),
         "first_qname": first_qname,
+        "alignment_health": alignment_health(
+            input_p, cram_opt[1] if cram_opt else None
+        ),
     }
 
 
@@ -320,6 +324,14 @@ def run(args: argparse.Namespace) -> None:
             f"{data.get('ref_model_str')!r}, not {ref_model[0]!r}"
         )
         data = {}
+
+    if data.get("avg_read_len") and "alignment_health" not in data:
+        # A cache from before these checks existed.
+        cram_ref = (
+            resolved_ref if resolved_ref and Path(resolved_ref).is_file() else None
+        )
+        data["alignment_health"] = alignment_health(args.input, cram_ref)
+        _save_cache(json_cache, data)
 
     if info_cmd is None:
         if not detailed and data.get("avg_read_len"):
