@@ -8,7 +8,8 @@ from pathlib import Path
 
 from wgsextract_cli.core import bwa_mem2
 from wgsextract_cli.core.annotation_resources import get_genome_size
-from wgsextract_cli.core.builds import build_from_path
+from wgsextract_cli.core.builds import build_from_path, canonical_build
+from wgsextract_cli.core.constants import REFERENCE_MODELS
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -219,6 +220,11 @@ def cmd_ref_verify(args: argparse.Namespace) -> None:
     logging.info(LOG_MESSAGES["ref_valid"].format(filename=filename))
 
 
+def _catalog_build(genome: dict[str, str]) -> str | None:
+    model = REFERENCE_MODELS.get(genome.get("md5", ""))
+    return canonical_build(model[0]) if model else build_from_path(genome["final"])
+
+
 def cmd_library_list(args: argparse.Namespace) -> None:
     """Non-interactive library status list."""
     reflib_dir = resolve_reference_library(args.ref)
@@ -234,15 +240,16 @@ def cmd_library_list(args: argparse.Namespace) -> None:
         size = get_genome_size(g["final"], reflib_dir)
 
         details = []
-        if has_ref_ns(g["final"], reflib_dir):
+        # Bootstrap ships every catalog genome's N-counts; they matter once it's here.
+        if status != "MISSING" and has_ref_ns(g["final"], reflib_dir):
             details.append("N-counts")
 
         # Check for VEP cache
         bn = g["final"].upper()
         species = ""
-        assembly = {"hg38": "GRCh38", "hg19": "GRCh37"}.get(
-            build_from_path(g["final"]) or "", ""
-        )
+        # The catalog's signature says the build when the file name doesn't
+        # (human_g1k_v37). VEP caches exist for GRCh37 and GRCh38 only.
+        assembly = {"hg38": "GRCh38", "hg19": "GRCh37"}.get(_catalog_build(g) or "", "")
         if assembly:
             species = "homo_sapiens"
         elif "GSD" in bn or "DOG" in bn:

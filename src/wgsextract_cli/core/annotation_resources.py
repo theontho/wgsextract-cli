@@ -18,6 +18,7 @@ from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.download_progress import (
     CancelEvent,
     ProgressCallback,
+    format_bytes,
 )
 from wgsextract_cli.core.gnomad_af import build_gnomad_af
 from wgsextract_cli.core.pharmgkb import download_pharmgkb
@@ -58,11 +59,7 @@ def get_genome_size(final_name: str, reflib_dir: str) -> str:
         if Path(p).exists():
             total_bytes += Path(p).stat().st_size
 
-    if total_bytes == 0:
-        return ""
-    if total_bytes > 1024 * 1024 * 1024:
-        return f"{total_bytes / (1024 * 1024 * 1024):.1f} GB"
-    return f"{total_bytes / (1024 * 1024):.1f} MB"
+    return format_bytes(total_bytes) if total_bytes else ""
 
 
 CLINVAR_URLS = {
