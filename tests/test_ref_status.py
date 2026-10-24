@@ -138,7 +138,7 @@ def test_ref_status_reports_every_annotation_vep_cache_and_genome(tmp_path, caps
     genomes.mkdir()
     for name in ("hg38.fa.gz", "hg19.fa.gz"):
         (genomes / name).write_text(">chr1\nA\n", encoding="utf-8")
-    for ext in (".fai", ".amb", ".ann", ".bwt", ".pac", ".sa"):
+    for ext in (".fai", ".amb", ".ann", ".bwt", ".pac", ".sa", ".0123", ".bwt.2bit.64"):
         (genomes / f"hg38.fa.gz{ext}").write_text("x", encoding="utf-8")
 
     args = Namespace(
@@ -161,6 +161,8 @@ def test_ref_status_reports_every_annotation_vep_cache_and_genome(tmp_path, caps
     assert status["vepCache"]["versions"] == ["116_GRCh38"]
     by_name = {genome["name"]: genome for genome in status["genomes"]}
     assert by_name["hg38.fa.gz"]["bwaIndex"] is True
+    assert by_name["hg38.fa.gz"]["bwaMem2Index"] is True
+    assert by_name["hg19.fa.gz"]["bwaMem2Index"] is False
     assert by_name["hg19.fa.gz"]["faiIndex"] is False
 
     cmd_ref_status(args)
@@ -168,3 +170,4 @@ def test_ref_status_reports_every_annotation_vep_cache_and_genome(tmp_path, caps
     assert "gnomAD        missing       installed" in printed
     assert "REVEL         missing       not indexed" in printed
     assert "VEP cache: 116_GRCh38" in printed
+    assert "aligner index (bwa, bwa-mem2)" in printed

@@ -4,6 +4,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from wgsextract_cli.core import bwa_mem2
 from wgsextract_cli.core.annotation_resources import get_genome_size
 from wgsextract_cli.core.builds import build_from_path
 from wgsextract_cli.core.dependency_checks import (
@@ -47,8 +48,9 @@ def cmd_download(args: argparse.Namespace) -> None:
 
 
 def cmd_index(args: argparse.Namespace) -> None:
-    verify_dependencies(["samtools", "bwa"])
-    log_dependency_info(["samtools", "bwa"])
+    aligner = getattr(args, "aligner", None) or "bwa"
+    verify_dependencies(["samtools", aligner])
+    log_dependency_info(["samtools", aligner])
     if not args.ref:
         raise WGSExtractError("--ref is required.")
 
@@ -64,8 +66,11 @@ def cmd_index(args: argparse.Namespace) -> None:
         logging.info(LOG_MESSAGES["ref_creating_dict"].format(path=out_dict))
         run_command(["samtools", "dict", args.ref, "-o", out_dict])
 
-        logging.info("Indexing FASTA with bwa index (required for alignment)...")
-        run_command(["bwa", "index", args.ref])
+        if aligner == "bwa-mem2":
+            bwa_mem2.ensure_index(args.ref, download=True)
+        else:
+            logging.info("Indexing FASTA with bwa index (required for alignment)...")
+            run_command(["bwa", "index", args.ref])
 
         logging.info("Indexing complete.")
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:

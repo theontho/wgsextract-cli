@@ -25,6 +25,7 @@ from .align import (
     ensure_bwa_index,
     reads_stem,
     run_streamed_alignment,
+    short_read_aligner,
 )
 
 _SPECIES_REFERENCES = {
@@ -79,7 +80,10 @@ def run(args: argparse.Namespace) -> None:
         raise WGSExtractError(
             f"Reference genome for {args.species} not found at {ref_file}.{hint}"
         )
-    ensure_bwa_index(ref_file)
+    # bwa-mem2 when the reference has its index (`ref index --aligner bwa-mem2`).
+    aligner = short_read_aligner("auto", ref_file)
+    if aligner == "bwa":
+        ensure_bwa_index(ref_file)
 
     outdir = args.outdir or str(absolute_path(args.r1).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
@@ -90,7 +94,7 @@ def run(args: argparse.Namespace) -> None:
     out_vcf = str(Path(outdir, f"{base_name}.vcf.gz"))
 
     logging.info(LOG_MESSAGES["pet_aligning"].format(species=args.species))
-    align_cmd = ["bwa", "mem", "-t", threads, ref_file, args.r1]
+    align_cmd = [aligner, "mem", "-t", threads, ref_file, args.r1]
     try:
         run_streamed_alignment(
             align_cmd + ([args.r2] if args.r2 else []),

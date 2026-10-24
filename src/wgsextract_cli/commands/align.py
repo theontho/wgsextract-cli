@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 from typing import NamedTuple
 
+from wgsextract_cli.core import bwa_mem2
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -43,7 +44,8 @@ _PBMM2_PRESETS = {
     "map-pb": "SUBREAD",
     "subread": "SUBREAD",
 }
-ALIGNERS = ["auto", "bwa", "minimap2", "pbmm2"]
+ALIGNERS = ["auto", "bwa", "bwa-mem2", "minimap2", "pbmm2"]
+_BWA_ALIGNERS = {"bwa", "bwa-mem2"}
 _READ_FILE_SUFFIXES = (
     ".fastq.gz",
     ".fq.gz",
@@ -78,7 +80,9 @@ def register(
         "--aligner",
         choices=ALIGNERS,
         default="auto",
-        help="Aligner to use. Auto uses pbmm2 for PacBio when installed, otherwise minimap2.",
+        help="Aligner to use. Auto uses bwa-mem2 for short reads when the reference "
+        "has its index (see `ref index`), else bwa; for long reads pbmm2 for PacBio "
+        "when installed, otherwise minimap2.",
     )
     add_gpu_argument(parser)
     parser.add_argument(
@@ -106,7 +110,7 @@ def select_aligner(args: argparse.Namespace) -> str:
         else:
             aligner = "bwa"
 
-    if aligner == "bwa":
+    if aligner in _BWA_ALIGNERS:
         if long_read:
             raise WGSExtractError(
                 "BWA-MEM is a short-read aligner; use --aligner minimap2 "
@@ -114,6 +118,10 @@ def select_aligner(args: argparse.Namespace) -> str:
             )
         if args.preset:
             raise WGSExtractError("--preset applies to minimap2 and pbmm2, not BWA.")
+        if aligner == "bwa-mem2" and getattr(args, "gpu", False):
+            raise WGSExtractError(
+                "--gpu aligns with Parabricks' own BWA-MEM; use --aligner bwa or auto."
+            )
     elif aligner == "pbmm2":
         if args.platform in {"ont", "nanopore"}:
             raise WGSExtractError(
@@ -151,6 +159,30 @@ def run(args: argparse.Namespace) -> None:
         align_minimap2(args)
     else:
         align_bwa(args)
+
+
+def short_read_aligner(requested: str, ref: str) -> str:
+    """bwa or bwa-mem2 for --aligner bwa, bwa-mem2 or auto. Auto takes bwa-mem2,
+    whose alignments are bwa's in less time, when it's installed and the
+    reference has its index that fits in this computer's memory."""
+    if requested != "auto":
+        return requested
+    if get_tool_path("bwa-mem2") is None:
+        return "bwa"
+    fits = bwa_mem2.can_map(ref)
+    if bwa_mem2.has_index(ref):
+        if fits:
+            return "bwa-mem2"
+        logging.info(
+            f"Not using bwa-mem2: mapping with its index needs about "
+            f"{bwa_mem2.mapping_memory(ref) / 1024**3:.0f} GB of memory."
+        )
+    elif fits:
+        logging.info(
+            "bwa-mem2 would align this about a third faster; "
+            f"`wgsextract ref index --aligner bwa-mem2 --ref {ref}` sets it up."
+        )
+    return "bwa"
 
 
 def reads_stem(path: str) -> str:
@@ -353,8 +385,20 @@ def _read_group(args: argparse.Namespace, stem: str) -> str:
 
 
 def align_bwa(args: argparse.Namespace) -> None:
-    setup = _prepare_alignment(args, ["bwa", "samtools"], "BWA alignment")
-    ensure_bwa_index(setup.ref)
+    """BWA-MEM alignment with bwa or bwa-mem2 (short_read_aligner's choice)."""
+    tool = "bwa-mem2" if args.aligner == "bwa-mem2" else "bwa"
+    setup = _prepare_alignment(args, [tool, "samtools"], "BWA alignment")
+    tool = short_read_aligner(args.aligner, setup.ref)
+    if tool == "bwa-mem2":
+        bwa_mem2.ensure_index(setup.ref, download=False)
+        if not bwa_mem2.can_map(setup.ref):
+            logging.warning(
+                f"bwa-mem2 needs about "
+                f"{bwa_mem2.mapping_memory(setup.ref) / 1024**3:.0f} GB of memory "
+                "for this reference; it may run out. --aligner bwa needs a third."
+            )
+    else:
+        ensure_bwa_index(setup.ref)
     ensure_bwa_alt_file(setup.ref)
 
     print_warning("ButtonBWAAlign", threads=setup.threads)
@@ -363,9 +407,9 @@ def align_bwa(args: argparse.Namespace) -> None:
     out_bam = str(Path(setup.outdir, f"{setup.stem}_aligned{ext}"))
 
     logging.info(
-        LOG_MESSAGES["aligning_reads"].format(input=args.r1, output=out_bam, tool="BWA")
+        LOG_MESSAGES["aligning_reads"].format(input=args.r1, output=out_bam, tool=tool)
     )
-    align_cmd = ["bwa", "mem", "-t", setup.threads, "-R", _read_group(args, setup.stem)]
+    align_cmd = [tool, "mem", "-t", setup.threads, "-R", _read_group(args, setup.stem)]
     align_cmd += [setup.ref, args.r1]
     try:
         run_streamed_alignment(
@@ -378,7 +422,7 @@ def align_bwa(args: argparse.Namespace) -> None:
             duplicates=duplicate_marker(paired=bool(args.r2)),
         )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        raise WGSExtractError(f"BWA alignment failed: {e}") from e
+        raise WGSExtractError(f"{tool} alignment failed: {e}") from e
 
 
 def _run_gpu(args: argparse.Namespace, aligner: str) -> None:

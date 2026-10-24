@@ -111,7 +111,7 @@ def verify_download_sha256(path: str, expected_sha256: str | None) -> bool:
 
     actual_sha256 = sha256.hexdigest()
     if actual_sha256 == expected_sha256.lower():
-        logging.info(f"Verified GitHub release asset SHA256: {actual_sha256}")
+        logging.info(f"Verified SHA-256 of {Path(path).name}: {actual_sha256}")
         return True
 
     logging.error("Downloaded file checksum mismatch.")

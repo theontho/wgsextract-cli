@@ -53,6 +53,8 @@ samtools = ">=1.24,<2"
 bcftools = ">=1.24,<2"
 htslib = ">=1.24,<2"
 bwa = ">=0.7.19,<0.8"
+# bwa-mem2 aligns short reads in about 3/4 of bwa's time, with the same output.
+bwa-mem2 = ">=2.3,<3"
 minimap2 = ">=2.31,<3"
 fastp = ">=1.1,<2"
 fastqc = ">=0.13,<0.14"

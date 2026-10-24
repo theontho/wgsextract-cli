@@ -21,6 +21,7 @@ import contextlib
 import logging
 from pathlib import Path
 
+from wgsextract_cli.core import bwa_mem2
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -33,7 +34,11 @@ from wgsextract_cli.core.reference_assets import (
     resolve_reference_library,
 )
 from wgsextract_cli.core.utils import WGSExtractError, get_resource_defaults
-from wgsextract_cli.core.variant_files import calculate_bam_md5, verify_paths_exist
+from wgsextract_cli.core.variant_files import (
+    calculate_bam_md5,
+    resolve_reference,
+    verify_paths_exist,
+)
 from wgsextract_cli.core.warnings import (
     check_free_space,
     get_free_space_needed,
@@ -204,6 +209,9 @@ def run(args: argparse.Namespace) -> None:
     verify_paths_exist({"--input": args.input})
     # Reject bad aligner/platform/preset combinations before hours of extraction.
     align_cmd.select_aligner(args)
+    target = resolve_reference(args.ref, None) if args.ref else None
+    if args.aligner == "bwa-mem2" and target and Path(target).is_file():
+        bwa_mem2.check_index(target)
 
     threads, memory = get_resource_defaults(args.threads, args.memory)
     outdir = args.outdir or str(absolute_path(args.input).parent)

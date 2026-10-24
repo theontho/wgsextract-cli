@@ -55,6 +55,7 @@ class TestAlignToolSelection(unittest.TestCase):
             threads=None,
             memory=None,
             platform="illumina",
+            aligner="bwa",
         )
         commands = []
         run_commands = []
