@@ -25,6 +25,9 @@ class TemplateFormat(_TemplateFormatOptions):
     parts: int
 
 
+_COMPLEMENT = str.maketrans("ACGTacgt", "TGCAtgca")
+
+
 def chr_to_int(chrom: str | int) -> int:
     """
     Converts chromosome name to an integer for sorting.
@@ -44,7 +47,18 @@ def chr_to_int(chrom: str | int) -> int:
         return 99  # Unknown
 
 
+# AncestryDNA numbers chrX 23, chrY 24, the X pseudoautosomal region 25 and
+# chrMT 26.
+_VENDOR_CHROMS = {"23": "X", "24": "Y", "25": "X", "26": "MT"}
+
+
+def vendor_chrom(chrom: str) -> str:
+    """A template's chromosome as the kit names it (X, Y, MT, 1-22)."""
+    return _VENDOR_CHROMS.get(chrom, chrom)
+
+
 def _chrom_for_liftover(chrom: str) -> str:
+    chrom = vendor_chrom(chrom)
     if chrom in {"M", "MT", "chrM", "chrMT"}:
         return "chrM"
     if chrom.startswith("chr"):
@@ -194,14 +208,19 @@ def liftover_hg38_to_hg19(
             snp_id, chrom, pos, result = parts[0], parts[1], parts[2], parts[3]
 
             try:
-                new_coord = lo.convert_coordinate(_chrom_for_liftover(chrom), int(pos))
+                # pyliftover works in 0-based positions.
+                new_coord = lo.convert_coordinate(
+                    _chrom_for_liftover(chrom), int(pos) - 1
+                )
             except (ValueError, TypeError):
                 continue
 
             if not new_coord:
                 bad_pos += 1
                 continue
-            new_chrom, new_pos = new_coord[0][0], new_coord[0][1]
+            new_chrom, new_pos = new_coord[0][0], new_coord[0][1] + 1
+            if new_coord[0][2:3] == ("-",):  # an inverted region: the other strand
+                result = result.translate(_COMPLEMENT)
             if new_chrom not in valid_chroms:
                 bad_chrom += 1
                 continue
@@ -367,12 +386,18 @@ def convert_to_vendor_format(
                         )
                         if len(parts) < 3:
                             continue
-                        t_id, t_chrom, t_pos = parts[0], parts[1], parts[2]
+                        if format_name == "23andMe_SNPs_API":
+                            # This template is chrom (chr1), position, rsID.
+                            t_chrom, t_pos, t_id = parts[0], parts[1], parts[2]
+                            t_chrom = _chrom_from_liftover(t_chrom)
+                        else:
+                            t_id, t_chrom, t_pos = parts[0], parts[1], parts[2]
 
                         if match_rsid:
                             result = called_by_rsid.get(t_id, "--")
                         else:
-                            result = called_variants.get((t_chrom, t_pos), "--")
+                            key = (vendor_chrom(t_chrom), t_pos)
+                            result = called_variants.get(key, "--")
                         write_formatted_line(
                             f_out, format_name, t_id, t_chrom, t_pos, result
                         )

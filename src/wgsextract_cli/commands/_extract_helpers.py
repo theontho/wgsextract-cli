@@ -11,11 +11,13 @@ from typing import NamedTuple
 
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import PathInput, absolute_path
-from wgsextract_cli.core.reference_assets import input_stem
+from wgsextract_cli.core.reference_assets import input_stem, read_fai_lengths
+from wgsextract_cli.core.reference_models import sequence_lengths
 from wgsextract_cli.core.samtools_commands import parse_memory
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
+    run_command,
     run_pipeline,
 )
 from wgsextract_cli.core.variant_files import (
@@ -59,8 +61,63 @@ def get_base_args(args: argparse.Namespace) -> BaseArgs:
     if resolved_ref:
         verify_paths_exist({"--ref": resolved_ref})
 
+    contigs = _alignment_contigs(args.input)
+    if contigs:
+        resolved_ref = _matching_reference(args, resolved_ref, contigs)
+        _check_region(getattr(args, "region", None), contigs, args.input)
+
     cram_opt = ["-T", resolved_ref] if resolved_ref else []
     return BaseArgs(threads, memory, outdir, cram_opt, resolved_ref)
+
+
+def _alignment_contigs(path: str) -> dict[str, int]:
+    """A BAM/CRAM's @SQ lengths (empty for other inputs or an unreadable one)."""
+    if not str(path).lower().endswith((".bam", ".cram")):
+        return {}
+    try:
+        header = run_command(["samtools", "view", "-H", path], capture_output=True)
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    return sequence_lengths(header.stdout)
+
+
+def _matching_reference(
+    args: argparse.Namespace, ref: str | None, contigs: dict[str, int]
+) -> str | None:
+    """The reference, unless its contigs contradict the alignment's: CRAM
+    encoded against the wrong genome only fails when it's decoded."""
+    lengths = read_fai_lengths(ref) if ref else {}
+    clash = next(
+        (n for n, ln in contigs.items() if n in lengths and lengths[n] != ln), None
+    )
+    if not ref or not clash:
+        return ref
+    detail = (
+        f"{ref} doesn't match {args.input}: {clash} is {lengths[clash]:,} bp there "
+        f"and {contigs[clash]:,} bp in the alignment."
+    )
+    if args.ref and Path(args.ref).is_file():
+        raise WGSExtractError(detail)
+    logging.warning(f"{detail} Continuing without a reference; pass --ref.")
+    return None
+
+
+def _check_region(region: str | None, contigs: dict[str, int], path: str) -> None:
+    """samtools writes an empty file for a region naming no contig of the input."""
+    if region and Path(region).is_file():  # a BED file of regions
+        return
+    for part in (r.strip() for r in (region or "").split(",") if r.strip()):
+        # A whole name first: HLA allele contigs contain colons.
+        contig = part if part in contigs else part.rsplit(":", 1)[0]
+        if contig in contigs:
+            continue
+        bare = contig.removeprefix("chr")
+        candidates = {bare, f"chr{bare}"} | (
+            {"MT", "chrM", "M"} if bare in ("M", "MT") else set()
+        )
+        alt = next((c for c in sorted(candidates) if c in contigs), None)
+        hint = f"; it names it {alt}" if alt else ""
+        raise WGSExtractError(f"{contig} isn't a contig of {path}{hint}.")
 
 
 def derive_output_path(input_path: PathInput, outdir: PathInput, suffix: str) -> str:

@@ -64,16 +64,29 @@ def ensure_vcf_indexed(vcf_path: PathInput) -> None:
         # We can't index plain VCF easily with tabix
         return
 
-    index_path = append_suffix(vcf_path, ".tbi")
-    csi_index_path = append_suffix(vcf_path, ".csi")
-    if not index_path.exists() and not csi_index_path.exists():
-        from wgsextract_cli.core.dependencies import get_tool_path
+    indexes = [
+        p for p in (append_suffix(vcf_path, ext) for ext in (".tbi", ".csi"))
+        if p.exists()
+    ]  # fmt: skip
+    # An index older than the VCF describes a file since rewritten (a rerun
+    # into the same folder), and region queries would read the wrong blocks.
+    vcf_mtime = Path(vcf_path).stat().st_mtime
+    stale = bool(indexes) and all(p.stat().st_mtime < vcf_mtime for p in indexes)
+    if indexes and not stale:
+        return
+    from wgsextract_cli.core.dependencies import get_tool_path
 
-        tabix = get_tool_path("tabix")
-        if tabix is None:
-            raise WGSExtractError("tabix dependency is required to index VCF files.")
-        logging.info(LOG_MESSAGES["vcf_indexing"].format(path=vcf_path))
-        run_command([tabix, "-p", "vcf", vcf_path])
+    tabix = get_tool_path("tabix")
+    if tabix is None:
+        raise WGSExtractError("tabix dependency is required to index VCF files.")
+    logging.info(LOG_MESSAGES["vcf_indexing"].format(path=vcf_path))
+    try:
+        run_command([tabix, "-f", "-p", "vcf", vcf_path])
+    except (OSError, subprocess.SubprocessError):
+        if not stale:
+            raise
+        # A read-only input whose index is merely older on disk: use it.
+        logging.warning(f"Couldn't refresh the index of {vcf_path}; using it as is.")
 
 
 def ensure_vcf_prepared(vcf_path: PathInput | None) -> str:

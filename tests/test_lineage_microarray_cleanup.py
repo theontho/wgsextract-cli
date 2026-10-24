@@ -619,9 +619,13 @@ def test_y_haplogroup_refuses_a_female_sample_before_yleaf(tmp_path):
     args = SimpleNamespace(
         input=str(cram), outdir=str(tmp_path), ref=None, threads=None, yleaf_path=None
     )
+    st = cram.stat()  # the cache must be from this very file
     (tmp_path / "sample.cram.wgse_info.json").write_text(
-        json.dumps({"md5_signature": "sig", "gender": "Female"})
-    )
+        json.dumps({
+            "md5_signature": "sig", "gender": "Female",
+            "input_signature": {"size": st.st_size, "mtime_ns": st.st_mtime_ns},
+        })
+    )  # fmt: skip
     with (
         patch.object(metrics, "calculate_bam_md5", return_value="sig"),
         patch.object(metrics, "parse_idxstats") as idxstats,

@@ -17,19 +17,25 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import shlex
 import subprocess
 import tempfile
 from pathlib import Path
 
+from wgsextract_cli.core.builds import build_from_chr1_length, build_from_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.pixi_tools import pixi_env_tool
-from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.reference_resolver import (
+    ReferenceLibrary,
+    header_contig_lengths,
+)
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import (
     chromosome_rename_mapping,
     ensure_vcf_indexed,
+    ensure_vcf_prepared,
     vcf_index_chromosomes,
 )
 
@@ -122,8 +128,20 @@ def prepare_input(input_vcf: str, directory: str, reference: str, work: str) -> 
     expanded = str(Path(work, "expanded.vcf.gz"))
     run_command(["bcftools", "convert", "--gvcf2vcf", "-f", reference, "-Oz", "-o",
                  expanded, renamed])  # fmt: skip
+    # GATK/DRAGEN gVCFs keep ##GVCFBlock lines after expansion, and PharmCAT's
+    # pipeline refuses any VCF that has them as a gVCF.
+    header = run_command(["bcftools", "view", "-h", expanded], capture_output=True)
+    header_file = str(Path(work, "header.txt"))
+    with open(header_file, "w") as f:
+        f.writelines(
+            line + "\n"
+            for line in header.stdout.splitlines()
+            if not line.startswith("##GVCFBlock")
+        )
+    reheadered = str(Path(work, "reheadered.vcf.gz"))
+    run_command(["bcftools", "reheader", "-h", header_file, "-o", reheadered, expanded])
     run_command(["bcftools", "annotate", "-x", "INFO,^FORMAT/GT", "-Oz", "-o",
-                 prepared, expanded])  # fmt: skip
+                 prepared, reheadered])  # fmt: skip
     ensure_vcf_indexed(prepared)
     return prepared
 
@@ -172,21 +190,36 @@ def summarize(phenotype_json: str) -> list[tuple[str, str, str]]:
     return rows
 
 
+def _vcf_build(vcf: str) -> str | None:
+    try:
+        header = run_command(["bcftools", "view", "-h", vcf], capture_output=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    by_length = build_from_chr1_length(header_contig_lengths(header.stdout))
+    if by_length:
+        return by_length
+    for line in header.stdout.splitlines():
+        if line.startswith("##reference="):
+            return build_from_path(line.partition("=")[2])
+    return None
+
+
 def cmd_pharmcat(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
     input_vcf = require_vcf_input(args)
     outdir = str(absolute_path(args.outdir or str(Path(input_vcf).parent)))
     Path(outdir).mkdir(parents=True, exist_ok=True)
     lib = ReferenceLibrary(getattr(args, "ref", None), None, input_path=input_vcf)
-    if lib.build and "38" not in lib.build:
-        raise WGSExtractError(
-            f"PharmCAT needs a GRCh38 VCF; {input_vcf} is {lib.build}."
-        )
+    # The library knows the build only when there is one; the VCF's contigs
+    # tell it either way.
+    build = lib.build or _vcf_build(input_vcf)
+    if build and "38" not in build:
+        raise WGSExtractError(f"PharmCAT needs a GRCh38 VCF; {input_vcf} is {build}.")
     directory = pharmcat_directory(args, lib)
     python = _python(directory)
-    ensure_vcf_indexed(input_vcf)
+    input_vcf = ensure_vcf_prepared(input_vcf)  # bgzipped and indexed
     reference = _ensure_reference(python, directory)
-    stem = Path(input_vcf).name.split(".")[0]
+    stem = re.sub(r"\.(vcf(\.b?gz)?|bcf)$", "", Path(input_vcf).name, flags=re.I)
 
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_pharmcat_") as work:
         logging.info("Preparing the VCF for PharmCAT (its gene regions only)...")
@@ -204,6 +237,7 @@ def cmd_pharmcat(args: argparse.Namespace) -> None:
             merge_outside_calls(args.outside_call, outside)
         elif Path(outside).exists():
             logging.warning(f"PharmCAT will also use the outside calls in {outside}.")
+        used_outside_calls = Path(outside).exists()
         logging.info("Running PharmCAT...")
         try:
             # PharmCAT writes pharmcat.log to its working directory.
@@ -217,7 +251,7 @@ def cmd_pharmcat(args: argparse.Namespace) -> None:
     ):
         logging.info(f"  {gene:<9} {diplotype:<22} {phenotype}")
     logging.info(f"PharmCAT report: {report}")
-    if not args.outside_call:
+    if not used_outside_calls:
         logging.info(
             "CYP2D6 and HLA-A/HLA-B need calls PharmCAT can't make from a VCF: "
             "pass them with --outside-call (from `typing cyp2d6` / `typing hla`)."

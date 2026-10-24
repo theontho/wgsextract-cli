@@ -19,6 +19,7 @@ from wgsextract_cli.core.microarray_targets import build_genome_wide_target
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem, resolve_reference_library
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.sample_ploidy import sex_samples_args
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -245,19 +246,20 @@ def run(args: argparse.Namespace) -> None:
 
     start_vcf = time.time()
 
-    out_vcf, ref_vcf_tab = _prepare_microarray_vcf(
-        args=args,
-        outdir=outdir,
-        base_name=base_name,
-        is_vcf=is_vcf,
-        ref_vcf_tab=ref_vcf_tab,
-        region_args=region_args,
-        ploidy_args=ploidy_args,
-        ref_fasta=ref_fasta,
-        threads=threads,
-        start_vcf=start_vcf,
-        out_vcf=out_vcf,
-    )
+    with sex_samples_args(args.input, outdir, ploidy_args) as sex_args:
+        out_vcf, ref_vcf_tab = _prepare_microarray_vcf(
+            args=args,
+            outdir=outdir,
+            base_name=base_name,
+            is_vcf=is_vcf,
+            ref_vcf_tab=ref_vcf_tab,
+            region_args=region_args,
+            ploidy_args=ploidy_args + sex_args,
+            ref_fasta=ref_fasta,
+            threads=threads,
+            start_vcf=start_vcf,
+            out_vcf=out_vcf,
+        )
     combined_kit_txt = _write_microarray_combined_kit(
         args=args,
         outdir=outdir,

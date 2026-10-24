@@ -19,6 +19,7 @@ from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.output_checks import warn_if_no_variants
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.sample_ploidy import sex_samples_args
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -159,18 +160,20 @@ def cmd_snp(args: argparse.Namespace) -> None:
     region_args = ["-r", args.region] if args.region else []
     ploidy_args = _ploidy_args(args, lib)
 
-    run_pipeline(
-        [
-            ["bcftools", "mpileup", "-B", "-I", "-C", "50", "-f", ref, "-Ou"]
-            + region_args
-            + [args.input],
-            ["bcftools", "call"]
-            + ploidy_args
-            + ["-V", "indels", "-v", "-m", "-P", "0", "--threads", threads]
-            + ["-Oz", "-o", out_vcf],
-        ],
-        description="SNP variant calling",
-    )
+    with sex_samples_args(args.input, outdir, ploidy_args) as sex_args:
+        run_pipeline(
+            [
+                ["bcftools", "mpileup", "-B", "-I", "-C", "50", "-f", ref, "-Ou"]
+                + region_args
+                + [args.input],
+                ["bcftools", "call"]
+                + ploidy_args
+                + sex_args
+                + ["-V", "indels", "-v", "-m", "-P", "0", "--threads", threads]
+                + ["-Oz", "-o", out_vcf],
+            ],
+            description="SNP variant calling",
+        )
     ensure_vcf_indexed(out_vcf)
     warn_if_no_variants(out_vcf, ref, args.region)
 
@@ -186,19 +189,21 @@ def cmd_indel(args: argparse.Namespace) -> None:
     region_args = ["-r", args.region] if args.region else []
     ploidy_args = _ploidy_args(args, lib)
 
-    run_pipeline(
-        [
-            ["bcftools", "mpileup", "-B", "-C", "50", "-f", ref, "-Ou"]
-            + region_args
-            + [args.input],
-            ["bcftools", "call"]
-            + ploidy_args
-            + ["-V", "snps", "-v", "-m", "-P", "0", "--threads", threads, "-Ou"],
-            ["bcftools", "norm", "-f", ref, "--threads", threads]
-            + ["-Oz", "-o", out_vcf],
-        ],
-        description="InDel variant calling",
-    )
+    with sex_samples_args(args.input, outdir, ploidy_args) as sex_args:
+        run_pipeline(
+            [
+                ["bcftools", "mpileup", "-B", "-C", "50", "-f", ref, "-Ou"]
+                + region_args
+                + [args.input],
+                ["bcftools", "call"]
+                + ploidy_args
+                + sex_args
+                + ["-V", "snps", "-v", "-m", "-P", "0", "--threads", threads, "-Ou"],
+                ["bcftools", "norm", "-f", ref, "--threads", threads]
+                + ["-Oz", "-o", out_vcf],
+            ],
+            description="InDel variant calling",
+        )
     ensure_vcf_indexed(out_vcf)
     warn_if_no_variants(out_vcf, ref, args.region)
 
