@@ -33,25 +33,32 @@ from .annotation_resources import (
 from .ref_library.catalog import get_genome_status
 from .ref_library.downloads import download_file
 
+
+def _ploidy_template(x_par: tuple[int, int, int], y_len: int) -> str:
+    """bcftools' own GRCh37/GRCh38 definitions (`bcftools call --ploidy X?`),
+    for both contig namings: male chrX haploid outside the PARs."""
+    par1_end, x_start, x_end = x_par
+    lines = []
+    for x, y, mt in (("X", "Y", "MT"), ("chrX", "chrY", "chrM")):
+        lines += [
+            f"{x} 1 {par1_end} M 1", f"{x} {x_start} {x_end} M 1",
+            f"{y} 1 {y_len} M 1", f"{y} 1 {y_len} F 0",
+            f"{mt} 1 16569 M 1", f"{mt} 1 16569 F 1",
+        ]  # fmt: skip
+    return "\n".join([*lines, "* * * M 2", "* * * F 2", ""])
+
+
 _PLOIDY_TEMPLATES = {
-    "GRCh37": """X 1 60000 M 1
-X 2699521 154931043 M 1
-Y 1 59373566 M 1
-Y 1 59373566 F 0
-MT 1 16569 M 1
-MT 1 16569 F 1
-* * * M 2
-* * * F 2
-""",
-    "GRCh38": """X 1 10000 M 1
-X 2781480 155701383 M 1
-Y 1 57227415 M 1
-Y 1 57227415 F 0
-MT 1 16569 M 1
-MT 1 16569 F 1
-* * * M 2
-* * * F 2
-""",
+    "GRCh37": _ploidy_template((60000, 2699521, 154931043), 59373566),
+    "GRCh38": _ploidy_template((9999, 2781480, 155701381), 57227415),
+}
+# What versions before 0.6 wrote when bcftools' definition wasn't read: no chr
+# lines, so male chrX/chrY were diploid on chr-named references.
+_OLD_PLOIDY_TEMPLATES = {
+    "GRCh37": "X 1 60000 M 1\nX 2699521 154931043 M 1\nY 1 59373566 M 1\n"
+    "Y 1 59373566 F 0\nMT 1 16569 M 1\nMT 1 16569 F 1\n* * * M 2\n* * * F 2\n",
+    "GRCh38": "X 1 10000 M 1\nX 2781480 155701383 M 1\nY 1 57227415 M 1\n"
+    "Y 1 57227415 F 0\nMT 1 16569 M 1\nMT 1 16569 F 1\n* * * M 2\n* * * F 2\n",
 }
 
 
@@ -93,10 +100,25 @@ def download_gnomad(
     return success
 
 
+# Files made from a genome's FASTA: download state, indexes, aligner indexes.
+_GENOME_SIDECARS = (
+    ".partial", ".partial.segments", ".fai", ".gzi", ".dict", ".alt",
+    ".amb", ".ann", ".bwt", ".pac", ".sa",  # bwa
+    ".0123", ".bwt.2bit.64",  # bwa-mem2
+)  # fmt: skip
+
+
+def _remove_genome_files(base_path: str) -> None:
+    """The FASTA, everything made from it, and its sequence dictionary."""
+    for path in [base_path, *(base_path + ext for ext in _GENOME_SIDECARS)]:
+        Path(path).unlink(missing_ok=True)
+    Path(reference_dict_path(base_path)).unlink(missing_ok=True)
+
+
 def delete_genome(final_name: str, reflib_dir: str) -> bool:
     base_path = str(Path(reflib_dir, "genomes", final_name))
-    paths = [base_path + ext for ext in ["", ".partial", ".fai", ".gzi", ".dict"]]
-    paths.extend([reference_dict_path(base_path), *n_count_paths(base_path)])
+    _remove_genome_files(base_path)
+    paths = [*n_count_paths(base_path)]
     paths.append(fasta_prefix(base_path) + ".wgse")
     for path in paths:
         if Path(path).exists():
@@ -135,7 +157,12 @@ def process_reference_file(
 ) -> bool:
     logging.info(f"Processing reference: {fasta_path}")
 
-    bgzf_path = ensure_bgzf(fasta_path, status_callback, cancel_event)
+    try:
+        bgzf_path = ensure_bgzf(fasta_path, status_callback, cancel_event)
+    except WGSExtractError as e:
+        # A corrupt download: False lets the caller try the next mirror.
+        logging.error(str(e))
+        return False
     if not bgzf_path:
         return False
 
@@ -187,13 +214,10 @@ def download_and_process_genome(
     target_dir = str(Path(reflib_dir, "genomes"))
     Path(target_dir).mkdir(parents=True, exist_ok=True)
     final_path = str(Path(target_dir, genome_data["final"]))
-    partial_path = final_path + ".partial"
 
     if restart:
-        if Path(final_path).exists():
-            Path(final_path).unlink()
-        if Path(partial_path).exists():
-            Path(partial_path).unlink()
+        # Indexes too: an old .fai beside a failed download reads as installed.
+        _remove_genome_files(final_path)
 
     if get_genome_status(genome_data["final"], reflib_dir) == "installed":
         return process_reference_file(final_path, status_callback, cancel_event)
@@ -339,7 +363,8 @@ def install_ploidy_files(reflib_dir: str) -> bool:
     }
     ok = True
     for alias, output in outputs.items():
-        if Path(output).is_file():
+        existing = Path(output).read_text() if Path(output).is_file() else None
+        if existing is not None and existing != _OLD_PLOIDY_TEMPLATES[alias]:
             logging.info("Ploidy file already installed: %s", output)
             continue
         logging.info("Installing ploidy file for %s: %s", alias, output)
@@ -361,9 +386,10 @@ def _ploidy_content(alias: str) -> str:
             check=False,
             stdin=subprocess.DEVNULL,
         )
-        stdout = getattr(result, "stdout", "")
-        if stdout and "*" in stdout:
-            return str(stdout)
+        # bcftools prints the definition on stderr (and exits 255).
+        text = f"{getattr(result, 'stdout', '') or ''}{getattr(result, 'stderr', '') or ''}"
+        if "chrX" in text and "*" in text:
+            return text
     except (OSError, subprocess.SubprocessError):
         logging.debug("Could not query bcftools built-in ploidy for %s.", alias)
     return _PLOIDY_TEMPLATES[alias]

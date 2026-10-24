@@ -4,6 +4,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import expand_path
@@ -75,7 +76,9 @@ def _expected_bsd_sum(checksums_path: str, filename: str) -> tuple[int, int] | N
 
 
 def _resolve_vep_cache_root(args: argparse.Namespace) -> str:
-    cache_root = getattr(args, "vep_cache", None)
+    # The same order as vep run: an explicit cache, the configured one, then
+    # the reference library's, then VEP's default.
+    cache_root = getattr(args, "vep_cache", None) or settings.get("vep_cache_directory")
     if cache_root:
         return str(cache_root)
     lib = ReferenceLibrary(getattr(args, "ref", None))
@@ -235,6 +238,13 @@ def cmd_vep_verify(args: argparse.Namespace) -> None:
     else:
         logging.info(LOG_MESSAGES["vep_chrs_ok"])
 
+    # A cache without its info.txt or any chromosome isn't usable.
+    if not Path(info_file).exists() or len(missing_chrs) == 25:
+        raise WGSExtractError(
+            f"{version_dir} is incomplete; download it again with "
+            f"'wgsextract vep download --vep-version {vep_version} --assembly "
+            f"{assembly}'."
+        )
     logging.info(LOG_MESSAGES["vep_verification_complete"])
 
 

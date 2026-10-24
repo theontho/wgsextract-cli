@@ -44,8 +44,11 @@ def ensure_bgzf(
     if status_callback:
         status_callback("Processing: Recompressing (BGZF)...")
 
-    is_gz = path.endswith(".gz")
-    new_path = path if is_gz else path + ".gz"
+    # By content, not name: some mirrors serve plain FASTA as .fa.gz. gzip -dc
+    # also reads a single-member zip (YSEQ's hg19.zip).
+    with open(path, "rb") as f:
+        is_gz = f.read(2) in (b"\x1f\x8b", b"PK")
+    new_path = path if path.endswith(".gz") else path + ".gz"
     tmp_path = path + ".tmp.gz"
     procs: list[subprocess.Popen[bytes]] = []
     try:
