@@ -56,7 +56,8 @@ def run_container(
          for p in paths if p}
     )  # fmt: skip
     cmd = [docker(""), "run", "--rm", *(["--gpus", "all"] if gpus else [])]
-    cmd += ["-u", f"{os.getuid()}:{os.getgid()}"]
+    # The user has no home in the image; tools that write settings use /tmp.
+    cmd += ["-u", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp"]
     for mount in mounts:
         cmd += ["-v", f"{mount}:{mount}"]
     run_command([*cmd, "-w", mounts[0], image, *command])

@@ -141,6 +141,17 @@ Notes on a few commands:
 - `vcf sv` uses Delly by default and pbsv/Sniffles with `--pacbio`; an explicit `--caller` is always respected, and `--pacbio --caller delly` is rejected.
 - `vep download --mirror` accepts `uk` (default) or `ebi`.
 
+### Variant calling accuracy
+
+Scored against [Genome in a Bottle](https://www.nist.gov/programs-projects/genome-bottle)'s HG002 v4.2.1 truth set on chr20, inside its confident regions, with `rtg vcfeval` (genotypes must match). The reads are Google's 35x NovaSeq PCR-free HG002 chr20 reads, aligned to hs38DH with `align`. Each caller ran with `-r chr20` and 8 threads (DeepVariant with 4) on a 4-core Ryzen 5350GE.
+
+| Caller | SNP precision | SNP recall | SNP F1 | Indel precision | Indel recall | Indel F1 | Time |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `vcf snp` + `vcf indel` (bcftools) | 0.974 | 0.993 | 0.984 | 0.949 | 0.949 | 0.949 | 6 min |
+| `vcf freebayes` | 0.976 | 0.995 | 0.985 | 0.970 | 0.966 | 0.968 | 9.5 min |
+| `vcf gatk` | 0.991 | 0.994 | 0.993 | 0.993 | 0.991 | 0.992 | 21 min |
+| `vcf deepvariant` | 0.999 | 0.995 | **0.997** | 0.998 | 0.994 | **0.996** | 18.5 min |
+
 ### Pixi environments
 
 Some tools live in their own Pixi environment. When such a tool is not on `PATH`, the CLI runs it through `pixi run -e <environment>` automatically, downloading the environment on first use. The `cyrius`, `t1k`, `expansionhunter`, and `pharmcat` environments are the exception: install them yourself with `pixi install -e <environment>` (Cyrius is licensed for noncommercial use only). You can also run a whole command inside an environment from the app directory (`wgsextract-cli/app/`) or a source checkout:

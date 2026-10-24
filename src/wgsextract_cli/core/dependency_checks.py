@@ -340,7 +340,6 @@ def check_all_dependencies(
         path = get_tool_path(tool, runtime_mode)
         version = get_tool_version(tool, runtime_mode) if path else None
 
-
         is_broken = version and version.startswith("Error:")
         present_path = path if not is_broken else None
 
