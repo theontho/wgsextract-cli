@@ -284,6 +284,7 @@ def test_library_list_reports_genome_status_and_resources(tmp_path, genomes, cap
     (gdir / "hg38.fa.gz").write_bytes(b"x" * 2 * 1024 * 1024)
     (gdir / "hg38.fa.gz.fai").write_text("chr1\t1\n")
     (gdir / "hg38_ncnt.csv").write_text("")
+    (gdir / "UU_Cfam_GSD_1.0_ncnt.csv").write_text("")  # bootstrap ships these
     (gdir / "hs37d5.fa.gz.partial").write_bytes(b"x")
     (gdir / "chm13v2.0.fa.gz").write_bytes(b"x")
     (tmp_path / "vep" / "homo_sapiens" / "113_GRCh38").mkdir(parents=True)
@@ -298,9 +299,9 @@ def test_library_list_reports_genome_status_and_resources(tmp_path, genomes, cap
     out = capsys.readouterr().out
     assert f"REFERENCE LIBRARY: {tmp_path}" in out
     rows = _rows(out)
-    assert rows["hg38 (YSEQ)"] == ["INSTALLED", "2.0 MB", "N-counts, VEP-GRCh38"]
-    assert rows["hs37d5 (Dante)"] == ["INCOMPLETE", "0.0 MB"]  # no GRCh37 cache
-    assert rows["T2T_v2.0"] == ["UNINDEXED", "0.0 MB"]
+    assert rows["hg38 (YSEQ)"] == ["INSTALLED", "2.0 MiB", "N-counts, VEP-GRCh38"]
+    assert rows["hs37d5 (Dante)"] == ["INCOMPLETE", "1 B"]  # no GRCh37 cache
+    assert rows["T2T_v2.0"] == ["UNINDEXED", "1 B"]
     assert rows["Dog GSD"] == ["MISSING", "", "VEP-Cache"]
     assert rows["Cat Fca126"] == ["MISSING"]  # only the dog's VEP cache is there
     assert rows["Gene Maps (hg19/hg38)"] == ["INSTALLED"]
@@ -562,3 +563,24 @@ def test_library_install_falls_back_to_the_next_mirror(tmp_path, monkeypatch, ca
         library_commands.cmd_library(
             Namespace(ref=str(tmp_path), list=False, install="hs38")
         )
+
+
+def test_library_list_finds_the_build_of_a_genome_from_its_signature(
+    tmp_path, monkeypatch, capsys
+):
+    """human_g1k_v37's name has no build in it; its catalog signature does."""
+    g1k = {
+        "code": "hs37-",
+        "final": "human_g1k_v37.fasta.gz",
+        "label": "human_g1k_v37",
+        "md5": "88b5f4bbaaec4a097b3aa160bf776093",
+    }
+    monkeypatch.setattr(core_commands, "get_available_genomes", lambda: [g1k])
+    (tmp_path / "genomes").mkdir()
+    (tmp_path / "genomes" / g1k["final"]).write_bytes(b"x" * 30_000)
+    (tmp_path / "vep" / "homo_sapiens" / "113_GRCh37").mkdir(parents=True)
+
+    library_commands.cmd_library(Namespace(ref=str(tmp_path), list=True))
+
+    row = _rows(capsys.readouterr().out)["human_g1k_v37"]
+    assert row[1:] == ["29.3 KiB", "VEP-GRCh37"]
