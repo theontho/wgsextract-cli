@@ -103,7 +103,7 @@ Run `wgsextract help` for the full command tree, and `wgsextract <command> --hel
 | `typing` | From a WGS BAM/CRAM: `cyp2d6` (Cyrius), `hla` (T1K), `str` (ExpansionHunter repeat expansions) |
 | `gatk`, `freebayes` | Used automatically by `vcf gatk` / `vcf freebayes`; the first run downloads the environment |
 | `vep` | `download`, `run`, `verify` (Ensembl Variant Effect Predictor) |
-| `align` | Align FASTQ reads with bwa, minimap2, or pbmm2 |
+| `align` | Align FASTQ reads with bwa, minimap2, or pbmm2, or on an NVIDIA GPU with `--gpu` |
 | `realign` | Re-align an existing BAM/CRAM to another reference, reusing or extracting FASTQs |
 | `pet-align` | Align dog or cat FASTQs and call variants |
 | `qc` | `fastp`, `fastqc`, `vcf` (stats), `fake-data` (synthetic BAM/CRAM/VCF/FASTQ) |
@@ -151,6 +151,21 @@ Some tools live in their own Pixi environment. When such a tool is not on `PATH`
 | `cyrius`, `t1k`, `expansionhunter` | `typing cyp2d6`, `typing hla`, `typing str` (Linux and macOS) |
 | `pharmcat` | PharmCAT's Python runtime for `vcf pharmcat` (Linux and macOS) |
 | `dev` | Contributor tooling (pytest, ruff, mypy); selected automatically by the development tasks below |
+
+### NVIDIA GPUs (Parabricks)
+
+With an NVIDIA GPU, `--gpu` runs the slow steps with [NVIDIA Parabricks](https://docs.nvidia.com/clara/parabricks/), which gives BWA-MEM, DeepVariant and GATK-equivalent results:
+
+| Command | With `--gpu` |
+| :--- | :--- |
+| `align`, `realign` (short reads) | BWA-MEM, sorting and duplicate marking (`pbrun fq2bam`), with the same index, `.alt` file and read group as `--aligner bwa` |
+| `align`, `realign` (HiFi, ONT) | minimap2 (`map-hifi`, `map-ont`; `map-pbmm2` for `--aligner pbmm2`). PacBio CLR has no GPU preset |
+| `vcf deepvariant` | DeepVariant's WGS, WES and PACBIO models (not `--checkpoint` or the hybrid model) |
+| `vcf gatk` | HaplotypeCaller |
+
+On an RTX 3090 (24 GB), a 30x genome aligns in 40-50 minutes, against 3.5-4 hours for BWA on that machine's 12 CPU threads. DeepVariant and HaplotypeCaller take about a minute for chr20.
+
+It needs Linux (WSL2 should work but is untested), an NVIDIA GPU with 16 GB or more, Docker with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/), and the image (`docker pull nvcr.io/nvidia/clara/clara-parabricks:4.8.0-1`; set `parabricks_image` in `config.toml` for another version). The CLI checks each of these and says what's missing; it doesn't install them. Reads, outputs and the reference are mounted into the container at their own paths, and the tools run as you. Parabricks can't write CRAM against a gzipped reference, so then it writes BAM and samtools converts it.
 
 ## Configuration
 

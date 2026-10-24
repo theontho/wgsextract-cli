@@ -69,13 +69,14 @@ def register(
     parser.add_argument("--r2", help=CLI_HELP["arg_r2"])
     parser.add_argument(
         "--aligner",
-        choices=["auto", "bwa", "minimap2", "pbmm2"],
+        choices=align_cmd.ALIGNERS,
         default="auto",
         help="Aligner to use (matches the 'align' command).",
     )
+    align_cmd.add_gpu_argument(parser)
     parser.add_argument(
         "--platform",
-        choices=["illumina", "pacbio", "hifi", "clr", "ont", "nanopore"],
+        choices=["illumina", "dnbseq", "pacbio", "hifi", "clr", "ont", "nanopore"],
         default="illumina",
         help="Sequencing platform.",
     )

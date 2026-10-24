@@ -66,7 +66,40 @@ def _run_dv(cmd: list[str]) -> None:
     run_command(cmd, env=_dv_env(), stdin=subprocess.DEVNULL)
 
 
+# Parabricks DeepVariant: its --mode per model type (WGS and WES are short reads).
+_PARABRICKS_MODES = {
+    "WGS": [],
+    "WES": ["--use-wes-model"],
+    "PACBIO": ["--mode", "pacbio"],
+}
+
+
+def _deepvariant_gpu(args: argparse.Namespace) -> None:
+    from wgsextract_cli.core.parabricks import call_variants, verify_parabricks
+
+    model_type = _model_type(args)
+    if model_type not in _PARABRICKS_MODES or args.checkpoint:
+        raise WGSExtractError(
+            "--gpu (Parabricks) runs DeepVariant's WGS, WES and PACBIO models; "
+            "use the CPU version for --checkpoint or HYBRID_PACBIO_ILLUMINA."
+        )
+    verify_dependencies(["samtools", "tabix"])
+    verify_parabricks()
+    _threads, outdir, ref, _lib = get_base_args(args)
+    out_vcf = str(Path(outdir, "deepvariant.vcf.gz"))
+    logging.info(LOG_MESSAGES["vcf_calling_deepvariant"].format(output=out_vcf))
+    call_variants(
+        "deepvariant", args.input, ref, out_vcf, args.region,
+        _PARABRICKS_MODES[model_type],
+    )  # fmt: skip
+    ensure_vcf_indexed(out_vcf)
+    warn_if_no_variants(out_vcf, ref, args.region)
+
+
 def cmd_deepvariant(args: argparse.Namespace) -> None:
+    if getattr(args, "gpu", False):
+        _deepvariant_gpu(args)
+        return
     run_deepvariant = get_tool_path("run_deepvariant")
     if run_deepvariant:
         dv_tools = ["run_deepvariant"]
