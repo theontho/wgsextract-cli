@@ -583,47 +583,47 @@ def test_phylop_scores_variants_from_ucscs_bigwig(tmp_path):
 
 def test_phylop_download_keeps_a_bigwig_and_removes_anything_else(tmp_path):
     pyBigWig = pytest.importorskip("pyBigWig")
-    from wgsextract_cli.core import annotation_resources as ar
+    from wgsextract_cli.core import bigwig_resources
 
     def real_bigwig(url, dest, *_args):
-        assert url == ar.PHYLOP_URLS["hg19"]
+        assert url == bigwig_resources.PHYLOP_URLS["hg19"]
         bw = pyBigWig.open(dest, "w")
         bw.addHeader([("chr1", 100)])
         bw.addEntries("chr1", 0, values=[1.0], span=1, step=1)
         bw.close()
         return True
 
-    with patch.object(ar, "download_file", side_effect=real_bigwig):
-        assert ar.download_phylop(str(tmp_path), "hg19")
+    with patch.object(bigwig_resources, "download_file", side_effect=real_bigwig):
+        assert bigwig_resources.download_phylop(str(tmp_path), "hg19")
     assert (tmp_path / "ref" / "phylop_hg19.bw").is_file()
 
     def error_page(url, dest, *_args):
         Path(dest).write_text("<html>404 Not Found</html>")
         return True
 
-    with patch.object(ar, "download_file", side_effect=error_page):
-        assert not ar.download_phylop(str(tmp_path), "hg38")
+    with patch.object(bigwig_resources, "download_file", side_effect=error_page):
+        assert not bigwig_resources.download_phylop(str(tmp_path), "hg38")
     assert not (tmp_path / "ref" / "phylop_hg38.bw").exists()
 
 
 def test_phylop_download_without_pybigwig_downloads_nothing(tmp_path):
     import sys
 
-    from wgsextract_cli.core import annotation_resources as ar
+    from wgsextract_cli.core import bigwig_resources
 
     with (
         patch.dict(sys.modules, {"pyBigWig": None}),
-        patch.object(ar, "download_file") as download,
+        patch.object(bigwig_resources, "download_file") as download,
         pytest.raises(WGSExtractError, match="pyBigWig"),
     ):
-        ar.download_phylop(str(tmp_path), "hg38")
+        bigwig_resources.download_phylop(str(tmp_path), "hg38")
     download.assert_not_called()
 
 
 @needs_bcftools
 def test_gnomad_v4_af_table_build_and_annotation(tmp_path):
     from wgsextract_cli.commands.vcf import population
-    from wgsextract_cli.core import annotation_resources as ar
+    from wgsextract_cli.core import gnomad_af
 
     info = (
         '##FILTER=<ID=AC0,Description="a">\n'
@@ -644,18 +644,18 @@ def test_gnomad_v4_af_table_build_and_annotation(tmp_path):
     reflib = tmp_path / "lib"
     url = src.as_uri() + "/{contig}.vcf.bgz"
     with (
-        patch.object(ar, "GNOMAD_V4_URL", url),
-        patch.object(ar, "GNOMAD_V4_CONTIGS", ["chr1", "chr2", "chr3"]),
-        patch.object(ar, "_remote_size", lambda u: 1),
+        patch.object(gnomad_af, "GNOMAD_V4_URL", url),
+        patch.object(gnomad_af, "GNOMAD_V4_CONTIGS", ["chr1", "chr2", "chr3"]),
+        patch.object(gnomad_af, "_remote_size", lambda u: 1),
     ):
         # chr3 doesn't exist: the build fails but keeps the finished contigs.
-        assert not ar.build_gnomad_af(str(reflib), workers=2, attempts=1)
+        assert not gnomad_af.build_gnomad_af(str(reflib), workers=2, attempts=1)
         parts = reflib / "ref" / ".gnomad_hg38_parts"
         assert sorted(os.listdir(parts)) == ["chr1.tsv.gz", "chr2.tsv.gz"]
 
         _write_vcf(src / "chr3.vcf.bgz", "", contig="chr3", header=info)
         os.remove(src / "chr1.vcf.bgz")  # resumed, so never read again
-        assert ar.build_gnomad_af(str(reflib), workers=2)
+        assert gnomad_af.build_gnomad_af(str(reflib), workers=2)
 
     table = reflib / "ref" / "gnomad_hg38.tsv.gz"
     assert not parts.exists() and (reflib / "ref" / "gnomad_hg38.tsv.gz.tbi").exists()
@@ -1046,7 +1046,7 @@ def test_resource_download_rejects_html_payload(tmp_path):
 @pytest.mark.skipif(not shutil.which("gzip"), reason="gzip missing")
 def test_ensure_bgzf_raises_on_tool_failure(tmp_path_factory):
     tmp_path = tmp_path_factory.mktemp("work")
-    from wgsextract_cli.core.annotation_resources import ensure_bgzf
+    from wgsextract_cli.core.bgzf import ensure_bgzf
 
     bogus = tmp_path / "x.tsv.gz"
     bogus.write_text("not gzip at all")

@@ -2,34 +2,48 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import shutil
 import subprocess
-import sys
-import tempfile
-import threading
-import time
-from collections.abc import Callable, Mapping
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from collections.abc import Mapping
 from dataclasses import dataclass
-from http.client import HTTPException
 from pathlib import Path
-from typing import Any
-from urllib.request import Request, urlopen
+from urllib.request import urlopen
 
+from wgsextract_cli.core.bgzf import ensure_bgzf, is_bgzf
+from wgsextract_cli.core.bigwig_resources import (
+    download_gerp,
+    download_phylop,
+    open_bigwig,
+)
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.download_progress import (
     CancelEvent,
     ProgressCallback,
-    format_bytes,
 )
+from wgsextract_cli.core.gnomad_af import build_gnomad_af
 from wgsextract_cli.core.pharmgkb import download_pharmgkb
-from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
+from wgsextract_cli.core.utils import (
+    WGSExtractError,
+    popen,
+    run_command,
+    wait_with_cancel,
+)
 
 from .ref_library import (
     download_file,
 )
 
-__all__ = ["CancelEvent", "ProgressCallback", "download_pharmgkb"]
+__all__ = [
+    "CancelEvent",
+    "ProgressCallback",
+    "build_gnomad_af",
+    "download_gerp",
+    "download_pharmgkb",
+    "download_phylop",
+    "ensure_bgzf",
+    "is_bgzf",
+    "open_bigwig",
+    "wait_with_cancel",
+]
 
 
 def get_genome_size(final_name: str, reflib_dir: str) -> str:
@@ -60,16 +74,6 @@ CLINVAR_URLS = {
 REVEL_URLS = {
     "hg38": "http://www.openbioinformatics.org/annovar/download/hg38_revel.txt.gz",
     "hg19": "http://www.openbioinformatics.org/annovar/download/hg19_revel.txt.gz",
-}
-
-
-# UCSC's PhyloP 100-way vertebrate scores, one per base (~10 GB bigWigs). The
-# Annovar PhyloP tables we used to fetch are gone (404).
-PHYLOP_URLS = {
-    "hg38": "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/phyloP100way/"
-    "hg38.phyloP100way.bw",
-    "hg19": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/phyloP100way/"
-    "hg19.100way.phyloP100way.bw",
 }
 
 
@@ -394,403 +398,3 @@ def download_cadd(
                 logging.error(f"CADD {build} {remote_name}{suffix}: {e}")
                 return False
     return True
-
-
-# GERP++ rejected-substitution scores, one per base. Ensembl publishes the
-# GRCh38 file (contigs 1, 2, ...); UCSC still serves the original hg19 one.
-GERP_URLS = {
-    "hg38": "https://ftp.ensembl.org/pub/release-114/compara/conservation_scores/"
-    "91_mammals.gerp_conservation_score/"
-    "gerp_conservation_scores.homo_sapiens.GRCh38.bw",
-    "hg19": "https://hgdownload.soe.ucsc.edu/gbdb/hg19/bbi/All_hg19_RS.bw",
-}
-
-
-def _pybigwig() -> Any:
-    try:
-        import pyBigWig
-    except ImportError as e:
-        raise WGSExtractError(
-            "Reading GERP and PhyloP scores needs the pyBigWig Python package, which the "
-            "default Pixi environment provides on macOS and Linux."
-        ) from e
-    return pyBigWig
-
-
-def open_bigwig(path: str) -> Any:
-    """Open a bigWig with pyBigWig, raising WGSExtractError if it can't be read."""
-    pyBigWig = _pybigwig()
-    try:
-        bw = pyBigWig.open(path)
-    except RuntimeError:
-        bw = None
-    if bw is None or not bw.isBigWig() or not bw.chroms():
-        if bw is not None:
-            bw.close()
-        raise WGSExtractError(f"{path} is not a readable bigWig file.")
-    return bw
-
-
-def _download_bigwig(
-    reflib_dir: str,
-    url: str,
-    name: str,
-    label: str,
-    cancel_event: CancelEvent | None,
-    progress_callback: ProgressCallback | None,
-) -> bool:
-    """Downloads a bigWig into <library>/ref/<name> and checks it opens."""
-    target_dir = str(Path(reflib_dir, "ref"))
-    Path(target_dir).mkdir(parents=True, exist_ok=True)
-    dest = str(Path(target_dir, name))
-    if Path(dest).is_file():
-        logging.info(f"{name} is already installed.")
-        return True
-    # Without pyBigWig the ~10 GB download couldn't be checked or used.
-    _pybigwig()
-    logging.info(f"Downloading {label} scores...")
-    if not download_file(url, dest, progress_callback, cancel_event):
-        return False
-    try:
-        open_bigwig(dest).close()
-    except WGSExtractError as e:
-        Path(dest).unlink()
-        logging.error(f"{e} It was removed; rerun to download it again.")
-        return False
-    return True
-
-
-def download_gerp(
-    reflib_dir: str,
-    build: str = "hg38",
-    cancel_event: CancelEvent | None = None,
-    progress_callback: ProgressCallback | None = None,
-) -> bool:
-    """Downloads the GERP++ RS bigWig for one build into <library>/ref."""
-    return _download_bigwig(
-        reflib_dir,
-        GERP_URLS[build],
-        f"gerp_{build}.bw",
-        f"GERP {build}",
-        cancel_event,
-        progress_callback,
-    )
-
-
-def download_phylop(
-    reflib_dir: str,
-    build: str = "hg38",
-    cancel_event: CancelEvent | None = None,
-    progress_callback: ProgressCallback | None = None,
-) -> bool:
-    """Downloads the PhyloP 100-way bigWig for one build into <library>/ref."""
-    return _download_bigwig(
-        reflib_dir,
-        PHYLOP_URLS[build],
-        f"phylop_{build}.bw",
-        f"PhyloP {build}",
-        cancel_event,
-        progress_callback,
-    )
-
-
-# gnomAD v4.1 joint (exomes + genomes) sites are GRCh38-only and ~900 GB of
-# per-chromosome VCFs with ~660 INFO fields, so `ref gnomad --release 4.1`
-# streams them into a small CHROM/POS/REF/ALT/AF table instead of storing them.
-GNOMAD_V4_URL = (
-    "https://storage.googleapis.com/gcp-public-data--gnomad/release/4.1/vcf/joint/"
-    "gnomad.joint.v4.1.sites.{contig}.vcf.bgz"
-)
-GNOMAD_V4_CONTIGS = [f"chr{c}" for c in (*range(1, 23), "X", "Y")]
-GNOMAD_AF_TABLE = "gnomad_hg38.tsv.gz"
-# Sites gnomAD itself filtered out count as absent, so rare-variant filtering
-# keeps the user's call rather than trusting an artifact's frequency.
-_GNOMAD_V4_QUERY = (
-    "-i",
-    'FILTER="PASS" && AF_joint>0',
-    "-f",
-    "%CHROM\t%POS\t%REF\t%ALT\t%AF_joint\n",
-)
-_GNOMAD_V4_HEADER = (
-    "## gnomAD v4.1 joint exomes+genomes, PASS sites with AF_joint > 0\n"
-    "#CHROM\tPOS\tREF\tALT\tAF\n"
-)
-
-
-def _remote_size(url: str) -> int:
-    with urlopen(Request(url, method="HEAD"), timeout=60) as response:
-        return int(response.headers.get("Content-Length") or 0)
-
-
-def _stream_gnomad_contig(
-    url: str,
-    part: str,
-    cancel_event: CancelEvent | None,
-    on_bytes: Callable[[int], None],
-) -> str | None:
-    """Write one contig's AF rows to part (BGZF); return an error message or None.
-
-    The download is fed to bcftools here (not opened by htslib) so progress is
-    exact, and so a cut-off download fails instead of leaving a short table.
-    """
-    partial = part + ".partial"
-    download_error: list[str] = []
-    with open(partial, "wb") as out, tempfile.TemporaryFile() as err:
-        query = popen(
-            ["bcftools", "query", *_GNOMAD_V4_QUERY, "-"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=err,
-        )
-        compress = popen(["bgzip", "-c"], stdin=query.stdout, stdout=out)
-        assert query.stdin is not None and query.stdout is not None
-        query.stdout.close()
-        sink = query.stdin
-
-        def feed() -> None:
-            try:
-                with urlopen(url, timeout=120) as response:
-                    while chunk := response.read(1 << 20):
-                        sink.write(chunk)
-                        on_bytes(len(chunk))
-            except BrokenPipeError:
-                pass  # bcftools exited; its status says why
-            except (OSError, HTTPException) as e:
-                download_error.append(f"download failed: {e}")
-                query.kill()
-            finally:
-                try:
-                    sink.close()
-                except OSError:
-                    pass
-
-        feeder = threading.Thread(target=feed, daemon=True)
-        feeder.start()
-        queried = wait_with_cancel(query, cancel_event)
-        feeder.join()
-        compressed = compress.wait() == 0
-        if queried and compressed and not download_error:
-            Path(partial).replace(part)
-            return None
-        err.seek(0)
-        detail = err.read().decode(errors="replace").strip().splitlines()[-3:]
-    Path(partial).unlink()
-    return (
-        "; ".join(download_error + detail) or f"bcftools exited with {query.returncode}"
-    )
-
-
-def build_gnomad_af(
-    reflib_dir: str,
-    workers: int = 6,
-    cancel_event: CancelEvent | None = None,
-    progress_callback: ProgressCallback | None = None,
-    attempts: int = 3,
-) -> bool:
-    """
-    Build <library>/ref/gnomad_hg38.tsv.gz from the gnomAD v4.1 joint VCFs.
-
-    Contigs stream in parallel (the build is network-bound) into resumable
-    per-contig parts, which are then concatenated (BGZF allows that) and indexed.
-    """
-    target_dir = str(Path(reflib_dir, "ref"))
-    dest = str(Path(target_dir, GNOMAD_AF_TABLE))
-    if Path(dest).is_file() and Path(dest + ".tbi").is_file():
-        logging.info(f"{GNOMAD_AF_TABLE} is already installed.")
-        return True
-    parts_dir = str(Path(target_dir, ".gnomad_hg38_parts"))
-    Path(parts_dir).mkdir(parents=True, exist_ok=True)
-
-    def part_path(contig: str) -> str:
-        return str(Path(parts_dir, f"{contig}.tsv.gz"))
-
-    urls = {c: GNOMAD_V4_URL.format(contig=c) for c in GNOMAD_V4_CONTIGS}
-    try:
-        sizes = {c: _remote_size(url) for c, url in urls.items()}
-    except OSError as e:
-        logging.error(f"Could not reach the gnomAD v4.1 bucket: {e}")
-        return False
-    total = sum(sizes.values())
-    resumed = sum(sizes[c] for c in urls if Path(part_path(c)).is_file())
-    todo = sorted(
-        (c for c in urls if not Path(part_path(c)).is_file()),
-        key=sizes.__getitem__,
-        reverse=True,  # biggest first, so the last contig to finish is short
-    )
-    logging.info(
-        f"Streaming {len(todo)} gnomAD v4.1 contigs ({format_bytes(total - resumed)} "
-        f"of VCF, {workers} at a time) into an allele-frequency table..."
-    )
-
-    progress_lock = threading.Lock()
-    streamed = dict.fromkeys(todo, 0)
-
-    def stream(contig: str) -> str | None:
-        def count(n: int) -> None:
-            with progress_lock:
-                streamed[contig] += n
-
-        error = None
-        for attempt in range(1, attempts + 1):
-            if cancel_event and cancel_event.is_set():
-                return "cancelled"
-            with progress_lock:
-                streamed[contig] = 0
-            error = _stream_gnomad_contig(
-                urls[contig], part_path(contig), cancel_event, count
-            )
-            if error is None:
-                return None
-            logging.warning(f"gnomAD {contig} attempt {attempt} failed: {error}")
-        return error
-
-    def report(note: str) -> None:
-        with progress_lock:
-            done = resumed + sum(streamed.values())
-        rate = (done - resumed) / max(time.monotonic() - start, 1e-9)
-        eta = f", about {(total - done) / rate / 60:.0f} min left" if rate else ""
-        logging.info(
-            f"gnomAD {note}{format_bytes(done)} of {format_bytes(total)} "
-            f"at {format_bytes(rate)}/s{eta}"
-        )
-        if progress_callback:
-            progress_callback(done, total, rate)
-
-    start = time.monotonic()
-    failed: list[str] = []
-    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        pending = {pool.submit(stream, c): c for c in todo}
-        while pending:
-            finished, _ = wait(pending, timeout=60, return_when=FIRST_COMPLETED)
-            if not finished:
-                report("")
-            for future in finished:
-                contig = pending.pop(future)
-                if future.result() is None:
-                    report(f"{contig} done: ")
-                else:
-                    failed.append(contig)
-    if cancel_event and cancel_event.is_set():
-        return False
-    if failed:
-        logging.error(
-            f"gnomAD contigs failed: {', '.join(failed)}. Rerun to resume; "
-            "finished contigs are kept."
-        )
-        return False
-
-    partial = dest + ".partial"
-    with open(partial, "wb") as out:
-        header = popen(["bgzip", "-c"], stdin=subprocess.PIPE, stdout=out)
-        header.communicate(_GNOMAD_V4_HEADER.encode())
-        if header.returncode != 0:
-            raise WGSExtractError("bgzip failed to write the gnomAD table header.")
-        out.flush()
-        for contig in GNOMAD_V4_CONTIGS:
-            with open(part_path(contig), "rb") as part:
-                shutil.copyfileobj(part, out, 8 << 20)
-    Path(partial).replace(dest)
-    logging.info(f"Indexing {GNOMAD_AF_TABLE}...")
-    try:
-        run_command(["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", dest])
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        Path(dest).unlink()
-        logging.error(f"Indexing {dest} failed: {e}")
-        return False
-    shutil.rmtree(parts_dir)
-    return True
-
-
-def wait_with_cancel(
-    process: subprocess.Popen[str] | subprocess.Popen[bytes],
-    cancel_event: CancelEvent | None = None,
-) -> bool:
-    """Waits for a process while checking for a cancel event."""
-    while process.poll() is None:
-        if cancel_event and cancel_event.is_set():
-            logging.info(f"Terminating process {process.pid} due to cancellation.")
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-            return False
-        time.sleep(0.1)
-    return process.returncode == 0
-
-
-def is_bgzf(path: str) -> bool:
-    """Check if a file is in BGZF format by looking for the magic bytes."""
-    try:
-        with open(path, "rb") as f:
-            # BGZF header: 1f 8b 08 04 ... (the 4th byte 04 indicates XLEN is present)
-            # This is a bit simplified but generally reliable for our tools.
-            header = f.read(4)
-            return header == b"\x1f\x8b\x08\x04"
-    except OSError as e:
-        raise WGSExtractError(f"Failed to inspect gzip header for {path}: {e}") from e
-
-
-def ensure_bgzf(
-    path: str,
-    status_callback: Callable[[str], None] | None = None,
-    cancel_event: CancelEvent | None = None,
-) -> str | None:
-    """
-    Recompress path to BGZF in place (a non-.gz file becomes path + ".gz").
-
-    Returns the BGZF path, or None if cancelled; raises WGSExtractError on failure.
-    """
-    if is_bgzf(path):
-        logging.info(f"{path} is already in BGZF format.")
-        return path
-    if cancel_event and cancel_event.is_set():
-        return None
-
-    logging.info(f"Recompressing {path} to BGZF format (required for fast access)...")
-    if status_callback:
-        status_callback("Processing: Recompressing (BGZF)...")
-
-    is_gz = path.endswith(".gz")
-    new_path = path if is_gz else path + ".gz"
-    tmp_path = path + ".tmp.gz"
-    procs: list[subprocess.Popen[bytes]] = []
-    try:
-        with open(tmp_path, "wb") as f_out:
-            if is_gz:
-                p_gzip = popen(["gzip", "-dc", path], stdout=subprocess.PIPE)
-                procs.append(p_gzip)
-                procs.append(popen(["bgzip", "-c"], stdin=p_gzip.stdout, stdout=f_out))
-                if p_gzip.stdout:
-                    p_gzip.stdout.close()
-            else:
-                procs.append(popen(["bgzip", "-c", path], stdout=f_out))
-            wait_with_cancel(procs[-1], cancel_event)
-            if cancel_event and cancel_event.is_set():
-                return None
-            failed = [f"exit {p.wait()}" for p in procs if p.wait() != 0]
-        if failed:
-            raise WGSExtractError(
-                f"BGZF recompression of {path} failed ({', '.join(failed)})."
-            )
-        Path(tmp_path).replace(new_path)
-        if new_path != path:
-            Path(path).unlink()
-    except FileNotFoundError as e:
-        if sys.platform == "win32":
-            logging.warning(
-                f"Could not recompress to BGZF on Windows (missing tools): {e}"
-            )
-            return path
-        raise WGSExtractError(f"BGZF recompression of {path} failed: {e}") from e
-    except OSError as e:
-        raise WGSExtractError(f"BGZF recompression of {path} failed: {e}") from e
-    finally:
-        for p in procs:
-            if p.poll() is None:
-                p.kill()
-                p.wait()
-        if Path(tmp_path).exists():
-            Path(tmp_path).unlink()
-    logging.info(f"Recompression to {new_path} complete.")
-    return new_path

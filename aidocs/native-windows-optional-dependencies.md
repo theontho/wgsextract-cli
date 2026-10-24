@@ -15,7 +15,7 @@ penalty, so the preferred order is:
 
 ## Current status
 
-The per-tool inventory of `wgsextract_cli.core.dependencies.OPTIONAL_TOOLS`
+The per-tool inventory of `wgsextract_cli.core.tool_catalog.OPTIONAL_TOOLS`
 on native Windows, including which tools come from pacman, Pixi, or WGS
 Extract release assets, is maintained in
 [docs/windows_pacman_runtime.md](../docs/windows_pacman_runtime.md#optional-tool-coverage).

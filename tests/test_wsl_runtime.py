@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../s
 
 from wgsextract_cli.core import (
     dependencies,  # noqa: E402
+    pixi_tools,  # noqa: E402
     runtime,  # noqa: E402
     runtime_paths,  # noqa: E402
     runtime_wrappers,  # noqa: E402
@@ -30,7 +31,7 @@ class TestWSLRuntime(unittest.TestCase):
         runtime_paths.windows_to_wsl_path.cache_clear()
         # These tests compare runtime selection; the manifest path is incidental.
         manifest_patch = patch(
-            "wgsextract_cli.core.dependencies._pixi_manifest_args", return_value=[]
+            "wgsextract_cli.core.pixi_tools._pixi_manifest_args", return_value=[]
         )
         manifest_patch.start()
         self.addCleanup(manifest_patch.stop)
@@ -96,7 +97,7 @@ class TestWSLRuntime(unittest.TestCase):
                 return_value=True,
             ),
             patch(
-                "wgsextract_cli.core.dependencies._wsl_home_dir",
+                "wgsextract_cli.core.pixi_tools._wsl_home_dir",
                 return_value="/home/test",
             ),
         ):
@@ -162,7 +163,7 @@ class TestWSLRuntime(unittest.TestCase):
                 "wgsextract_cli.core.runtime_paths.pacman_tool_path", return_value=None
             ),
             patch(
-                "wgsextract_cli.core.dependencies.subprocess.run",
+                "wgsextract_cli.core.pixi_tools.subprocess.run",
                 return_value=completed,
             ),
         ):
@@ -248,7 +249,7 @@ class TestWSLRuntime(unittest.TestCase):
                 "wgsextract_cli.core.runtime_paths.wsl_command_available"
             ) as mock_wsl_command,
             patch(
-                "wgsextract_cli.core.dependencies.subprocess.run"
+                "wgsextract_cli.core.pixi_tools.subprocess.run"
             ) as mock_subprocess_run,
         ):
             self.assertEqual(
@@ -279,7 +280,7 @@ class TestWSLRuntime(unittest.TestCase):
                 "wgsextract_cli.core.runtime_paths.wsl_command_available"
             ) as mock_wsl_command,
             patch(
-                "wgsextract_cli.core.dependencies.subprocess.run",
+                "wgsextract_cli.core.pixi_tools.subprocess.run",
                 return_value=completed,
             ) as mock_subprocess_run,
         ):
@@ -314,7 +315,7 @@ class TestWSLRuntime(unittest.TestCase):
                 "wgsextract_cli.core.runtime_paths.pacman_tool_path", return_value=None
             ),
             patch(
-                "wgsextract_cli.core.dependencies.subprocess.run",
+                "wgsextract_cli.core.pixi_tools.subprocess.run",
                 return_value=completed,
             ),
         ):
@@ -344,7 +345,7 @@ class TestWSLRuntime(unittest.TestCase):
                 "wgsextract_cli.core.runtime_paths.pacman_tool_path", return_value=None
             ),
             patch(
-                "wgsextract_cli.core.dependencies.subprocess.run",
+                "wgsextract_cli.core.pixi_tools.subprocess.run",
                 return_value=completed,
             ),
         ):
@@ -358,15 +359,15 @@ class TestWSLRuntime(unittest.TestCase):
             return str(path) == os.path.expanduser("~/.pixi/bin/pixi.exe")
 
         with (
-            patch("wgsextract_cli.core.dependencies.shutil.which", return_value=None),
+            patch("wgsextract_cli.core.pixi_tools.shutil.which", return_value=None),
             patch(
-                "wgsextract_cli.core.dependencies.Path.exists",
+                "wgsextract_cli.core.pixi_tools.Path.exists",
                 autospec=True,
                 side_effect=exists,
             ),
         ):
             self.assertEqual(
-                dependencies._resolve_pixi_command(),
+                pixi_tools._resolve_pixi_command(),
                 os.path.expanduser("~/.pixi/bin/pixi.exe"),
             )
 

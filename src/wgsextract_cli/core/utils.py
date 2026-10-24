@@ -5,11 +5,13 @@ import signal
 import subprocess
 import tempfile
 import threading
+import time
 from collections.abc import Mapping, Sequence
 from os import PathLike
 from pathlib import Path
 from typing import IO, Literal, TypeAlias, overload
 
+from wgsextract_cli.core.download_progress import CancelEvent
 from wgsextract_cli.core.paths import PathInput, command_is_path, expand_path
 from wgsextract_cli.core.process_registry import (
     cleanup_processes as cleanup_processes,
@@ -61,7 +63,7 @@ def _normalize_subprocess_cmd(cmd: PathInput | Sequence[object]) -> list[str]:
 
     # Wrapper commands are built with each platform's quoting (list2cmdline on
     # Windows), so split them the same way; POSIX shlex drops Windows backslashes.
-    from wgsextract_cli.core.dependencies import _tool_command_parts
+    from wgsextract_cli.core.tool_commands import _tool_command_parts
 
     def split_wrapper_or_keep(value: str) -> list[str]:
         value = expand_path(value)
@@ -242,6 +244,24 @@ def popen(
 
     threading.Thread(target=_unregister_finished_process, daemon=True).start()
     return process
+
+
+def wait_with_cancel(
+    process: subprocess.Popen[str] | subprocess.Popen[bytes],
+    cancel_event: CancelEvent | None = None,
+) -> bool:
+    """Waits for a process while checking for a cancel event."""
+    while process.poll() is None:
+        if cancel_event and cancel_event.is_set():
+            logging.info(f"Terminating process {process.pid} due to cancellation.")
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+            return False
+        time.sleep(0.1)
+    return process.returncode == 0
 
 
 def _stderr_tail(stream: IO[bytes], max_lines: int = 20) -> str:

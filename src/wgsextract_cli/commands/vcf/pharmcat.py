@@ -22,9 +22,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from wgsextract_cli.core.dependencies import pixi_env_tool
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.paths import absolute_path
+from wgsextract_cli.core.pixi_tools import pixi_env_tool
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import (

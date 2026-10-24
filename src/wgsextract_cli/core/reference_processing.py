@@ -11,20 +11,24 @@ import tempfile
 from collections.abc import Callable, Mapping
 from pathlib import Path, PurePosixPath
 
+from wgsextract_cli.core.bgzf import ensure_bgzf
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.reference_assets import (
     fasta_prefix,
     n_count_paths,
     reference_dict_path,
 )
-from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
+from wgsextract_cli.core.utils import (
+    WGSExtractError,
+    popen,
+    run_command,
+    wait_with_cancel,
+)
 
 from .annotation_resources import (
     GNOMAD_URLS,
     CancelEvent,
     ProgressCallback,
-    ensure_bgzf,
-    wait_with_cancel,
 )
 from .ref_library.catalog import get_genome_status
 from .ref_library.downloads import download_file

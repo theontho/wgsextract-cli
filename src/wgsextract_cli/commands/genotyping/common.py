@@ -11,9 +11,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from wgsextract_cli.core.builds import build_from_chr1_length
-from wgsextract_cli.core.dependencies import pixi_env_tool
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.paths import absolute_path
+from wgsextract_cli.core.pixi_tools import pixi_env_tool
 from wgsextract_cli.core.reference_assets import input_stem
 from wgsextract_cli.core.reference_resolver import header_contig_lengths
 from wgsextract_cli.core.samtools_commands import alignment_index

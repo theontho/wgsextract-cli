@@ -9,9 +9,9 @@ import pytest
 from wgsextract_cli.commands._extract_helpers import cleanup_files, derive_output_path
 from wgsextract_cli.core import (
     config,
-    dependencies,
     runtime_wrappers,
     samtools_commands,
+    tool_commands,
 )
 from wgsextract_cli.core.paths import absolute_path, append_suffix, expand_path
 from wgsextract_cli.core.reference_assets import input_stem, reference_dict_path
@@ -181,7 +181,7 @@ def test_long_wrapper_command_is_not_treated_as_a_filename(
     monkeypatch.setattr(runtime_wrappers, "wrap_command", lambda command: command)
     command = "pixi run -e default samtools --argument=" + "a" * 300
     expected = shlex.split(command)
-    assert dependencies._tool_command_parts(command) == expected
+    assert tool_commands._tool_command_parts(command) == expected
     assert _normalize_subprocess_cmd([command]) == expected
 
 

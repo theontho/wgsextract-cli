@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from wgsextract_cli.core.annotation_resources import open_bigwig
+from wgsextract_cli.core.bigwig_resources import open_bigwig
 from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
 from wgsextract_cli.core.variant_files import (
     check_vcf_build,
