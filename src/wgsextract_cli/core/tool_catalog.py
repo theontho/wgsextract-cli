@@ -15,6 +15,7 @@ MANDATORY_TOOLS = [
 
 
 OPTIONAL_TOOLS = [
+    "bwa-mem2",
     "minimap2",
     "pbmm2",
     "pbsv",
@@ -49,6 +50,7 @@ def required_dependency_tools(include_python: bool = True) -> list[str]:
 
 # Optional tools the CLI only uses on some platforms (sys.platform prefixes).
 PLATFORM_ONLY_TOOLS = {
+    "bwa-mem2": ("linux", "darwin"),
     "sambamba": ("linux",),
     "cyrius": ("linux", "darwin"),
     "run-t1k": ("linux", "darwin"),
@@ -89,6 +91,7 @@ PIXI_TOOL_ENVS = {
     "sambamba": "default",
     "samblaster": "default",
     "bwa": "default",
+    "bwa-mem2": "default",
     "minimap2": "default",
     "pbmm2": "pacbio",
     "pbsv": "pacbio",

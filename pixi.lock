@@ -1,9 +1,25 @@
 version: 7
 platforms:
 - name: linux-64
+  virtual-packages:
+  - __unix=0=0
+  - __linux=4.18
+  - __glibc=2.28
+  - __archspec=0=x86_64
 - name: osx-64
+  virtual-packages:
+  - __unix=0=0
+  - __osx=13.0
+  - __archspec=0=x86_64
 - name: osx-arm64
+  virtual-packages:
+  - __unix=0=0
+  - __osx=13.0
+  - __archspec=0=m1
 - name: win-64
+  virtual-packages:
+  - __win=10.0
+  - __archspec=0=x86_64
 environments:
   cyrius:
     channels:
@@ -575,6 +591,7 @@ environments:
       linux-64:
       - conda: https://conda.anaconda.org/bioconda/linux-64/bcftools-1.24-h118bc1c_4.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/bwa-0.7.19-h577a1d6_1.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/linux-64/bwa-mem2-2.3-he70b90d_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/linux-64/delly-2.7.0-h3752d28_0.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/fastp-1.4.0-h43da1c4_0.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/htslib-1.24-ha79157c_0.conda
@@ -711,6 +728,7 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/bcftools-1.24-h17d07ba_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/bwa-0.7.19-h7f84b70_1.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/osx-64/bwa-mem2-2.3-h2ec61ea_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/delly-2.7.0-h6b87194_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/fastp-1.4.0-h3119cac_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/htslib-1.24-h73339c1_0.conda
@@ -799,6 +817,7 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/bcftools-1.24-h6bd33b9_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/bwa-0.7.19-hba9b596_1.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/osx-arm64/bwa-mem2-2.3-hda5e58c_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/delly-2.7.0-h065ccb0_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/fastp-1.4.0-ha1d0559_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/htslib-1.24-hd3c6ec9_0.conda
@@ -946,6 +965,7 @@ environments:
       linux-64:
       - conda: https://conda.anaconda.org/bioconda/linux-64/bcftools-1.24-h118bc1c_4.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/bwa-0.7.19-h577a1d6_1.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/linux-64/bwa-mem2-2.3-he70b90d_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/linux-64/delly-2.7.0-h3752d28_0.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/fastp-1.4.0-h43da1c4_0.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/htslib-1.24-ha79157c_0.conda
@@ -1121,6 +1141,7 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/bcftools-1.24-h17d07ba_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/bwa-0.7.19-h7f84b70_1.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/osx-64/bwa-mem2-2.3-h2ec61ea_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/delly-2.7.0-h6b87194_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/fastp-1.4.0-h3119cac_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/htslib-1.24-h73339c1_0.conda
@@ -1248,6 +1269,7 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/noarch/haplogrep-2.4.0-hdfd78af_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/bcftools-1.24-h6bd33b9_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/bwa-0.7.19-hba9b596_1.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/osx-arm64/bwa-mem2-2.3-hda5e58c_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/delly-2.7.0-h065ccb0_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/fastp-1.4.0-ha1d0559_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/htslib-1.24-hd3c6ec9_0.conda
@@ -1860,6 +1882,7 @@ environments:
       linux-64:
       - conda: https://conda.anaconda.org/bioconda/linux-64/bcftools-1.24-h118bc1c_4.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/bwa-0.7.19-h577a1d6_1.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/linux-64/bwa-mem2-2.3-he70b90d_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/linux-64/delly-2.7.0-h3752d28_0.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/fastp-1.4.0-h43da1c4_0.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/htslib-1.24-ha79157c_0.conda
@@ -1999,6 +2022,7 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/noarch/sniffles-2.8.1-pyhdfd78af_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/bcftools-1.24-h17d07ba_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/bwa-0.7.19-h7f84b70_1.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/osx-64/bwa-mem2-2.3-h2ec61ea_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/delly-2.7.0-h6b87194_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/fastp-1.4.0-h3119cac_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/htslib-1.24-h73339c1_0.conda
@@ -2087,6 +2111,7 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/noarch/sniffles-2.8.1-pyhdfd78af_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/bcftools-1.24-h6bd33b9_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/bwa-0.7.19-hba9b596_1.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/osx-arm64/bwa-mem2-2.3-hda5e58c_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/delly-2.7.0-h065ccb0_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/fastp-1.4.0-ha1d0559_0.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/htslib-1.24-hd3c6ec9_0.conda
@@ -3322,6 +3347,23 @@ packages:
     - bwa >=0.7.19,<0.8.0a0
   size: 654258
   timestamp: 1747108676418
+- conda: https://conda.anaconda.org/bioconda/linux-64/bwa-mem2-2.3-he70b90d_0.tar.bz2
+  sha256: 7ccf117aa586d663e12181e60f0cf60215fb162515e0b6e98517f5e108613d41
+  md5: c343a08cd26491362cc2f388e763698a
+  depends:
+  - libgcc
+  - libgcc-ng >=12
+  - libstdcxx
+  - libstdcxx-ng >=12
+  - libzlib >=1.3.1,<2.0a0
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports:
+    weak:
+    - bwa-mem2 >=2.3,<3.0a0
+  size: 3139099
+  timestamp: 1751493038078
 - conda: https://conda.anaconda.org/bioconda/linux-64/clustalo-1.2.4-h503566f_10.conda
   sha256: 30fd59e21c866ffe8ed22d2099a645d6df0956b3138ed4fa836a6e2b55a93644
   md5: c418f68c70b876a5d6f0463b42226aa3
@@ -5418,6 +5460,20 @@ packages:
     - bwa >=0.7.19,<0.8.0a0
   size: 236275
   timestamp: 1747109280773
+- conda: https://conda.anaconda.org/bioconda/osx-64/bwa-mem2-2.3-h2ec61ea_0.tar.bz2
+  sha256: 70c080261e9e1ef02ffcea48ad5cd3276527fe938ca8f12e6cd91684faf2bd41
+  md5: a57564e979258027e1418c31a77d8940
+  depends:
+  - libcxx >=18
+  - libzlib >=1.3.1,<2.0a0
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports:
+    weak:
+    - bwa-mem2 >=2.3,<3.0a0
+  size: 728883
+  timestamp: 1751493746148
 - conda: https://conda.anaconda.org/bioconda/osx-64/clustalo-1.2.4-h5eaf441_10.conda
   sha256: 91e4a8abb0f95da4b30d7c72437efa03eaaa4b590f9697c167aca056387005a7
   md5: 78d846c2ab32e37b6ee89913b64a2147
@@ -6382,6 +6438,20 @@ packages:
     - bwa >=0.7.19,<0.8.0a0
   size: 222696
   timestamp: 1747108594670
+- conda: https://conda.anaconda.org/bioconda/osx-arm64/bwa-mem2-2.3-hda5e58c_0.tar.bz2
+  sha256: 4e9c4b7aa2398da0a17bb5a34c167dd2c91d5a0522116076c40a1bd163406ba9
+  md5: 65293d8f9d11b74eb8bd057bea2a9512
+  depends:
+  - libcxx >=18
+  - libzlib >=1.3.1,<2.0a0
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports:
+    weak:
+    - bwa-mem2 >=2.3,<3.0a0
+  size: 161852
+  timestamp: 1751494176422
 - conda: https://conda.anaconda.org/bioconda/osx-arm64/clustalo-1.2.4-haef7865_10.conda
   sha256: a7d51a72432477bcf4694bda298ffdc578d00849e21b0395703fa3bbef994cc8
   md5: 43e0d49fbeacfe1432a0a60c7bf4fb79

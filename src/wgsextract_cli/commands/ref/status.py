@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from wgsextract_cli.core import bwa_mem2
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.gene_map import are_gene_maps_installed
 from wgsextract_cli.core.paths import absolute_path
@@ -175,9 +176,14 @@ def print_ref_status(status: dict[str, Any]) -> None:
     print("\nGenomes:" if status["genomes"] else "\nGenomes: none")
     width = max((len(genome["name"]) for genome in status["genomes"]), default=0) + 2
     for genome in status["genomes"]:
+        aligners = [
+            name
+            for name, key in (("bwa", "bwaIndex"), ("bwa-mem2", "bwaMem2Index"))
+            if genome[key]
+        ]
         ready = (
-            "aligner index (bwa)"
-            if genome["bwaIndex"]
+            f"aligner index ({', '.join(aligners)})"
+            if aligners
             else "FASTA index"
             if genome["faiIndex"]
             else "not indexed"
@@ -256,6 +262,7 @@ def _genome_status(reflib: str) -> list[dict[str, Any]]:
                     Path(path + ext).is_file()
                     for ext in (".amb", ".ann", ".bwt", ".pac", ".sa")
                 ),
+                "bwaMem2Index": bwa_mem2.has_index(path),
             }
         )
     return genomes

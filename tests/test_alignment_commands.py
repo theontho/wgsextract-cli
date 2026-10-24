@@ -51,6 +51,8 @@ def test_select_aligner(monkeypatch, overrides, expected):
         {"aligner": "bwa", "platform": "ont"},
         {"aligner": "bwa", "long_read": True},
         {"aligner": "bwa", "preset": "sr"},
+        {"aligner": "bwa-mem2", "platform": "hifi"},
+        {"aligner": "bwa-mem2", "gpu": True},
         {"aligner": "pbmm2", "platform": "nanopore"},
         {"aligner": "pbmm2", "preset": "map-ont"},
     ],
@@ -326,6 +328,7 @@ def test_bwa_always_marks_duplicates(tmp_path, monkeypatch, r2, samblaster, mark
         align, "run_pipeline", lambda stages, **_k: pipelines.append(stages)
     )
     args = Namespace(
+        aligner="bwa",
         r1=str(tmp_path / "r1.fq"),
         r2=str(tmp_path / r2) + ".fq" if r2 else None,
         ref=str(ref),

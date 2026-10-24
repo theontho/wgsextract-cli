@@ -42,6 +42,14 @@ def register(
     index_parser = ref_subs.add_parser(
         "index", parents=[base_parser], help=CLI_HELP["cmd_ref-index"]
     )
+    index_parser.add_argument(
+        "--aligner",
+        choices=["bwa", "bwa-mem2"],
+        default="bwa",
+        help="Aligner index to make. bwa-mem2's maps faster but takes 17 GB of "
+        "memory for a human genome; hs38DH's is downloaded, others need ~90 GB "
+        "of memory to build.",
+    )
     index_parser.set_defaults(func=cmd_index)
 
     cntns_parser = ref_subs.add_parser(

@@ -103,7 +103,7 @@ Run `wgsextract help` for the full command tree, and `wgsextract <command> --hel
 | `typing` | From a WGS BAM/CRAM: `cyp2d6` (Cyrius), `hla` (T1K), `str` (ExpansionHunter repeat expansions) |
 | `gatk`, `freebayes` | Used automatically by `vcf gatk` / `vcf freebayes`; the first run downloads the environment |
 | `vep` | `download`, `run`, `verify` (Ensembl Variant Effect Predictor) |
-| `align` | Align FASTQ reads with bwa, minimap2, or pbmm2, or on an NVIDIA GPU with `--gpu` |
+| `align` | Align FASTQ reads with bwa, bwa-mem2, minimap2, or pbmm2, or on an NVIDIA GPU with `--gpu` |
 | `realign` | Re-align an existing BAM/CRAM to another reference, reusing or extracting FASTQs |
 | `pet-align` | Align dog or cat FASTQs and call variants |
 | `qc` | `fastp`, `fastqc`, `vcf` (stats), `fake-data` (synthetic BAM/CRAM/VCF/FASTQ) |
@@ -131,6 +131,7 @@ Notes on a few commands:
 - `sign create` writes a `SHA256SUMS` manifest that `sha256sum -c` also reads, signed with `ssh-keygen -Y sign` when `--key` is given; `sign verify` checks the signature against a trusted key, then re-hashes every file.
 - `align` with FASTQs needs `--ref <FASTA>` when the reference library holds more than one genome, since reads don't say which genome they belong to.
 - `align` with BWA on a reference with ALT contigs (hs38DH and other full GRCh38 sets) writes `<ref>.alt` listing them, which makes BWA ALT-aware. Without it, reads in the ~110 Mb those contigs repeat (HLA among them) get mapping quality 0 or land on the ALT copy, and callers lose their variants. WGS Extract v4 aligned this way; the variant callers, `microarray` and `vcf trio` warn when an input looks like it, and re-aligning (`realign`) recovers those regions.
+- `align`, `realign` and `pet-align` use bwa-mem2 rather than bwa when it's installed (Linux and macOS) and the reference has a bwa-mem2 index that fits in memory: the same alignments in about three quarters of the time (192 s against 259 s for 4.2M read pairs on 12 threads). Its index needs 17 GB of memory for a human genome, against bwa's 5 GB, and building it ~28 bytes per base (~90 GB), so `ref index --aligner bwa-mem2` downloads hs38DH's (17 GB; nf-core's iGenomes publishes it for Broad's GRCh38, whose sequences are hs38DH's) and builds the index for other references only where there's the memory. `--aligner bwa` or `--aligner bwa-mem2` chooses explicitly.
 - `info` reports how an alignment was made, from a sample of reads near chr1:20 Mb: whether duplicates were marked (and what share are duplicates), how many base-quality values the sequencer wrote (binned or full resolution), and whether the mapping was ALT-aware. The variant callers, `microarray` and `vcf trio` warn when an input is ALT-unaware or has no duplicates marked, as WGS Extract v4's alignments are; `realign` fixes both.
 - `ref spliceai` downloads Ensembl's open GRCh38 SpliceAI scores (about 29 GB with its published index): every SNV in MANE Select transcripts, no indels. Illumina's full hg19 and hg38 sets sit behind a BaseSpace login, so hg19 needs a manual download; the command explains where to place it. SpliceAI scores are free for academic and not-for-profit use only.
 - `vcf sv` and `vcf cnv` use Delly 2 (`delly sr` / `delly cnv`), which needs no mappability map; `vcf cnv --map` is accepted but ignored.
