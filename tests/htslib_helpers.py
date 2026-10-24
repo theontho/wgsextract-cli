@@ -44,3 +44,33 @@ def sam_to_bam(lines: Iterable[str], bam_path: Path) -> str:
     run_command([samtools, "sort", "-o", str(bam_path), str(sam)])
     run_command([samtools, "index", str(bam_path)])
     return str(bam_path)
+
+
+def vcf_calls(vcf: str | Path) -> list[tuple[str, ...]]:
+    """(CHROM, POS, REF, ALT, GT) of each record of a single-sample VCF."""
+    fmt = "%CHROM %POS %REF %ALT [%GT]\n"
+    query = [get_tool_path("bcftools"), "query", "-f", fmt, str(vcf)]
+    out = run_command(query, capture_output=True).stdout
+    return [tuple(line.split()) for line in out.splitlines()]
+
+
+def run_wgsextract(*argv: str) -> None:
+    """Parse a command line as `wgsextract` does and run the command, letting
+    its WGSExtractError propagate instead of exiting."""
+    from wgsextract_cli.cli.parser import build_parser, parse_args
+
+    args, _ = parse_args(*build_parser(), list(argv))
+    args.func(args)
+
+
+def write_read_pairs(
+    genome: str, r1: Path, r2: Path, starts: Iterable[int], frag: int = 300
+) -> None:
+    """Write 100 bp FR read pairs from ``frag``-bp fragments of ``genome`` at
+    ``starts``, named p0, p1, ..."""
+    comp = str.maketrans("ACGT", "TGCA")
+    with open(r1, "w") as f1, open(r2, "w") as f2:
+        for i, start in enumerate(starts):
+            piece = genome[start : start + frag]
+            f1.write(f"@p{i}\n{piece[:100]}\n+\n{'I' * 100}\n")
+            f2.write(f"@p{i}\n{piece[-100:].translate(comp)[::-1]}\n+\n{'I' * 100}\n")

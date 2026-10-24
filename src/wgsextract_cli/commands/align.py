@@ -374,7 +374,7 @@ _RG_PLATFORMS = {
 }
 
 
-def _read_group(args: argparse.Namespace, stem: str) -> str:
+def read_group(args: argparse.Namespace, stem: str) -> str:
     """The @RG line for -R (bwa, minimap2 expand the \\t). Variant callers and
     multi-sample tools need each sample's own SM, and GATK requires a read group
     with a platform. The default sample is the reads' name without its mate
@@ -409,7 +409,7 @@ def align_bwa(args: argparse.Namespace) -> None:
     logging.info(
         LOG_MESSAGES["aligning_reads"].format(input=args.r1, output=out_bam, tool=tool)
     )
-    align_cmd = [tool, "mem", "-t", setup.threads, "-R", _read_group(args, setup.stem)]
+    align_cmd = [tool, "mem", "-t", setup.threads, "-R", read_group(args, setup.stem)]
     align_cmd += [setup.ref, args.r1]
     try:
         run_streamed_alignment(
@@ -460,10 +460,10 @@ def _align_gpu_bwa(args: argparse.Namespace) -> None:
     ensure_bwa_index(setup.ref)
     ensure_bwa_alt_file(setup.ref)
     # fq2bam requires a PU (platform unit) in the read group.
-    read_group = _read_group(args, setup.stem) + f"\\tPU:{setup.stem}"
+    rg = read_group(args, setup.stem) + f"\\tPU:{setup.stem}"
     reads = [host_path(args.r1)] + ([host_path(args.r2)] if args.r2 else [])
     fq_arg = "--in-fq" if args.r2 else "--in-se-fq"
-    _gpu_align(args, setup, "fq2bam", [fq_arg, *reads, read_group], reads)
+    _gpu_align(args, setup, "fq2bam", [fq_arg, *reads, rg], reads)
 
 
 def _align_gpu_minimap2(args: argparse.Namespace, preset: str) -> None:
@@ -600,7 +600,7 @@ def align_minimap2(args: argparse.Namespace) -> None:
     )
     preset = _minimap2_preset(args)
     align_cmd = ["minimap2", "-ax", preset, "-t", setup.threads]
-    align_cmd += ["-R", _read_group(args, setup.stem), setup.ref, args.r1]
+    align_cmd += ["-R", read_group(args, setup.stem), setup.ref, args.r1]
     try:
         run_streamed_alignment(
             align_cmd + ([args.r2] if args.r2 else []),

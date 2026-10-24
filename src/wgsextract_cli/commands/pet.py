@@ -9,8 +9,10 @@ from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
+from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
+from wgsextract_cli.core.reference_assets import is_fasta_path
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -23,6 +25,7 @@ from ._extract_helpers import cleanup_files
 from .align import (
     duplicate_marker,
     ensure_bwa_index,
+    read_group,
     reads_stem,
     run_streamed_alignment,
     short_read_aligner,
@@ -66,17 +69,15 @@ def run(args: argparse.Namespace) -> None:
 
     if not args.ref:
         raise WGSExtractError(LOG_MESSAGES["ref_required"])
-    if Path(args.ref).is_file():
+    # A FASTA path is used as given; anything else is a reference library.
+    if is_fasta_path(args.ref):
         ref_file = args.ref
+        hint = ""
     else:
         ref_file = str(Path(args.ref, "genomes", _SPECIES_REFERENCES[args.species]))
+        hint = " Download it with `wgsextract ref library --install`."
     logging.debug(f"Resolved reference: {ref_file}")
-    if not Path(ref_file).exists():
-        hint = (
-            ""
-            if Path(args.ref).is_file()
-            else " Download it with `wgsextract ref library --install`."
-        )
+    if not Path(ref_file).is_file():
         raise WGSExtractError(
             f"Reference genome for {args.species} not found at {ref_file}.{hint}"
         )
@@ -88,13 +89,18 @@ def run(args: argparse.Namespace) -> None:
     outdir = args.outdir or str(absolute_path(args.r1).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
     logging.debug(f"Output directory: {str(absolute_path(outdir))}")
-    base_name = f"{reads_stem(args.r1)}_{args.species}"
+    stem = reads_stem(args.r1)
+    if args.r2:
+        # Both mates go into one output, so it shouldn't be named after R1.
+        stem = pair_stem(stem)
+    base_name = f"{stem}_{args.species}"
     ext = ".cram" if args.format == "CRAM" else ".bam"
     out_bam = str(Path(outdir, base_name + ext))
     out_vcf = str(Path(outdir, f"{base_name}.vcf.gz"))
 
     logging.info(LOG_MESSAGES["pet_aligning"].format(species=args.species))
-    align_cmd = [aligner, "mem", "-t", threads, ref_file, args.r1]
+    align_cmd = [aligner, "mem", "-t", threads, "-R", read_group(args, stem)]
+    align_cmd += [ref_file, args.r1]
     try:
         run_streamed_alignment(
             align_cmd + ([args.r2] if args.r2 else []),
