@@ -37,14 +37,18 @@ def cmd_comprehensive(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "samtools", "tabix"])
     log_dependency_info(["bcftools", "samtools", "tabix"])
 
-    batch_file = args.batch if args.batch else settings.get("batch_file_path")
+    # The configured batch file and VCFs are defaults for a run given no inputs;
+    # never for a batch's own samples, or each would re-run the batch.
+    batch_sample = getattr(args, "batch_sample", False)
+    explicit = args.input or args.vcf_inputs or batch_sample
+    batch_file = args.batch or (None if explicit else settings.get("batch_file_path"))
     if batch_file:
         run_batch_comprehensive(args, batch_file)
         return
 
     input_file = args.input
     vcf_inputs = args.vcf_inputs if args.vcf_inputs else []
-    env_vcf = settings.get("vcf_input_paths")
+    env_vcf = None if batch_sample else settings.get("vcf_input_paths")
     if not vcf_inputs and env_vcf:
         if isinstance(env_vcf, list):
             vcf_inputs = env_vcf
@@ -132,8 +136,14 @@ def run_batch_comprehensive(args: argparse.Namespace, batch_file: str) -> None:
 
         failed_samples: list[str] = []
 
-        for row in reader:
-            name = row.get(name_col) or "Unknown"
+        for row_number, row in enumerate(reader, 1):
+            # Each sample gets its own folder, so a blank name gets a unique one
+            # and a name can't point outside --outdir.
+            name = (row.get(name_col) or "").strip() or f"sample{row_number}"
+            if Path(name).name != name or name in (".", ".."):
+                logging.error(f"Sample name {name!r} isn't a plain folder name.")
+                failed_samples.append(name)
+                continue
             input_path = row.get(input_col)
             vcf_paths = row.get(vcf_col) or ""
 
@@ -159,7 +169,8 @@ def run_batch_comprehensive(args: argparse.Namespace, batch_file: str) -> None:
             sample_args.input = input_path
             sample_args.vcf_inputs = vcf_list
             sample_args.outdir = sample_outdir
-            sample_args.batch = None  # Prevent recursion
+            sample_args.batch = None
+            sample_args.batch_sample = True
 
             try:
                 cmd_comprehensive(sample_args)
@@ -228,10 +239,18 @@ def cmd_batch_gen(args: argparse.Namespace) -> None:
 
                 return name
 
+            # An earlier analyze run's outputs aren't samples.
+            if f.startswith(("significant_", "chain_annotated")):
+                continue
             if lower_f.endswith((".bam", ".cram")):
                 name = clean_name(f)
                 if name not in samples:
                     samples[name] = {"input": None, "vcfs": []}
+                if (other := samples[name]["input"]) is not None:
+                    raise WGSExtractError(
+                        f"{other} and {full_path} would both be sample {name}; "
+                        "rename one or scan their folders separately."
+                    )
                 samples[name]["input"] = full_path
 
             elif lower_f.endswith((".vcf.gz", ".vcf")):

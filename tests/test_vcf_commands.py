@@ -964,10 +964,13 @@ def test_resource_download_rejects_html_payload(tmp_path):
 @pytest.mark.skipif(not shutil.which("gzip"), reason="gzip missing")
 def test_ensure_bgzf_raises_on_tool_failure(tmp_path_factory):
     tmp_path = tmp_path_factory.mktemp("work")
+    # Plain text named .gz is just compressed; a truncated gzip makes gzip fail.
+    import gzip
+
     from wgsextract_cli.core.bgzf import ensure_bgzf
 
     bogus = tmp_path / "x.tsv.gz"
-    bogus.write_text("not gzip at all")
+    bogus.write_bytes(gzip.compress(os.urandom(100_000))[:2000])
     with pytest.raises(WGSExtractError):
         ensure_bgzf(str(bogus))
     assert os.listdir(tmp_path) == ["x.tsv.gz"]

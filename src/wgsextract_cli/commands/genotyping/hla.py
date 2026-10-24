@@ -113,6 +113,8 @@ def _build_index(directory: str) -> None:
         shutil.move(str(Path(work, INDEX_FASTA)), index)
         with open(str(Path(index, RELEASE_FILE)), "w") as f:
             f.write(f"IPD-IMGT/HLA {release}\n")
+        if Path(directory).exists():  # an incomplete index being rebuilt
+            shutil.rmtree(directory)
         Path(index).replace(directory)
     logging.info(f"T1K HLA index (IPD-IMGT/HLA {release}): {directory}")
 
@@ -233,13 +235,20 @@ def cmd_hla(args: argparse.Namespace) -> None:
                 shutil.move(source, str(Path(aln.outdir, name)))
 
     genotype_tsv = str(Path(aln.outdir, outputs["_genotype.tsv"]))
+    if not Path(genotype_tsv).is_file():
+        raise WGSExtractError("T1K finished without writing its genotype file.")
     calls = {call.gene: call for call in parse_t1k(genotype_tsv)}
     release = _index_release(index)
     logging.info(f"HLA alleles{f' ({release})' if release else ''}:")
     for gene in REPORTED_GENES:
         call = calls.get(gene)
+        # Full resolution where T1K's tied names agree, else two fields as for
+        # PharmCAT, so the log and the outside call never disagree.
         diplotype = (
-            call.diplotype(lambda a: "*" + a.split("*", 1)[-1]) if call else None
+            call.diplotype(lambda a: "*" + a.split("*", 1)[-1])
+            or call.diplotype(two_field)
+            if call
+            else None
         )
         logging.info(f"  {gene:<9} {diplotype or 'no confident call'}")
 

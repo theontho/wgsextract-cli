@@ -53,11 +53,23 @@ VEP_PRESETS = {
 }
 
 
+def _input_stem(input_path: str) -> str:
+    """The file name without its genomic suffix: s.chr1.vcf.gz -> s.chr1."""
+    name = Path(input_path).name
+    for suffix in sorted(GENOMIC_SUFFIXES, key=len, reverse=True):
+        if name.lower().endswith(suffix):
+            return name[: -len(suffix)]
+    return name
+
+
 def vep_output_paths(input_path: str, outdir: str, fmt: str) -> tuple[str, str]:
-    """Return (path VEP writes, final output path) for an input file."""
-    base_name = Path(input_path).name.split(".")[0]
-    output_file = str(Path(outdir, f"{base_name}_vep{_FORMAT_EXT[fmt]}"))
+    """Return (output path without .gz, final output path) for an input file."""
+    output_file = str(Path(outdir, f"{_input_stem(input_path)}_vep{_FORMAT_EXT[fmt]}"))
     return output_file, output_file + ".gz" if fmt == "vcf" else output_file
+
+
+def _is_vep_output(path: str) -> bool:
+    return _input_stem(path).endswith("_vep")
 
 
 def _vep_input_files(input_path: str) -> list[str]:
@@ -67,13 +79,21 @@ def _vep_input_files(input_path: str) -> list[str]:
                 f"Unsupported VEP input (expected VCF/BCF/BAM/CRAM): {input_path}"
             )
         return [input_path]
+    # A rerun over the directory mustn't annotate the outputs written into it.
     input_files = sorted(
         str(Path(input_path, f))
         for f in os.listdir(input_path)
-        if f.lower().endswith(GENOMIC_SUFFIXES)
+        if f.lower().endswith(GENOMIC_SUFFIXES) and not _is_vep_output(f)
     )
     if not input_files:
         raise WGSExtractError(f"No valid genomic files found in {input_path}")
+    stems: dict[str, str] = {}
+    for path in input_files:
+        if (other := stems.setdefault(_input_stem(path), path)) != path:
+            raise WGSExtractError(
+                f"{Path(other).name} and {Path(path).name} would both be annotated "
+                f"to {_input_stem(path)}_vep; annotate them separately."
+            )
     return input_files
 
 
@@ -137,7 +157,9 @@ def _build_vep_command(
     lib: ReferenceLibrary,
     threads: str,
 ) -> list[str]:
-    vep_cmd = shlex.split(get_tool_path("vep") or "vep")
+    # One element: run_command splits wrapper commands itself and keeps a path
+    # with spaces whole.
+    vep_cmd = [get_tool_path("vep") or "vep"]
     vep_cmd += ["-i", vep_input_vcf, "-o", output_file, "--fork", threads]
     vep_cmd.append({"vcf": "--vcf", "json": "--json", "tab": "--tab"}[args.format])
 
@@ -151,14 +173,23 @@ def _build_vep_command(
     if lib.fasta:
         vep_cmd += ["--fasta", lib.fasta]
 
-    cache_dir = args.vep_cache or lib.vep_cache or expand_path("~/.vep")
+    # The first cache that exists: --vep-cache (or the configured one), the
+    # reference library's, then VEP's default.
+    candidates = [args.vep_cache, lib.vep_cache, expand_path("~/.vep")]
+    cache_dir = next(
+        (str(c) for c in candidates if c and Path(c).is_dir()),
+        str(args.vep_cache or lib.vep_cache or candidates[-1]),
+    )
     vep_cmd += ["--dir_cache", cache_dir, "--cache_version", args.vep_cache_version]
     if Path(cache_dir).exists():
         vep_cmd.append("--offline")
         logging.info(LOG_MESSAGES["vep_using_cache"].format(path=cache_dir))
+        _warn_if_cache_version_missing(cache_dir, args, vep_cmd)
     else:
         logging.warning(LOG_MESSAGES["vep_no_cache_warn"].format(path=cache_dir))
         vep_cmd.append("--database")
+        if "GRCh37" in vep_cmd:
+            vep_cmd += ["--port", "3337"]  # Ensembl serves GRCh37 there
 
     vep_cmd += VEP_PRESETS[getattr(args, "preset", "everything")]
     if vcf_type in ("sv", "cnv"):
@@ -166,6 +197,39 @@ def _build_vep_command(
     if args.vep_args:
         vep_cmd += shlex.split(args.vep_args)
     return vep_cmd
+
+
+def _warn_if_cache_version_missing(
+    cache_dir: str, args: argparse.Namespace, vep_cmd: list[str]
+) -> None:
+    assembly = (
+        vep_cmd[vep_cmd.index("--assembly") + 1] if "--assembly" in vep_cmd else None
+    )
+    if not assembly:
+        return
+    species = "homo_sapiens"
+    version_dir = Path(cache_dir, species, f"{args.vep_cache_version}_{assembly}")
+    if not version_dir.is_dir():
+        logging.warning(
+            f"{version_dir} is missing, so VEP will find no cache. Download it "
+            f"with 'wgsextract vep download --vep-version {args.vep_cache_version} "
+            f"--assembly {assembly}', or pass the installed release with "
+            "--vep-cache-version."
+        )
+
+
+def _prepare_vcf_input(
+    args: argparse.Namespace, vcf: str, work: str, threads: str
+) -> str:
+    """The VCF VEP reads: BCF converted to VCF, and cut to --region if given."""
+    if not args.region and not vcf.lower().endswith(".bcf"):
+        return vcf
+    out = str(Path(work, "input.vcf.gz"))
+    region = ["-r", args.region] if args.region else []
+    run_command(
+        ["bcftools", "view", *region, "--threads", threads, "-Oz", "-o", out, vcf]
+    )
+    return out
 
 
 def _run_vep_on_input(
@@ -188,25 +252,25 @@ def _run_vep_on_input(
         return "SKIPPED", "-"
 
     start_time = time.time()
-    if not is_bam:
-        ensure_vcf_indexed(current_input)
-
-    md5_sig = calculate_bam_md5(current_input, None) if is_bam else None
-    lib = ReferenceLibrary(args.ref, md5_sig, input_path=current_input)
-    _apply_forced_assembly(lib, args.vep_assembly)
-    logging.debug(f"Resolved reference: {lib.fasta}")
-
-    if is_bam and not lib.fasta:
-        logging.error(
-            LOG_MESSAGES["ref_required_for"].format(
-                task="variant calling from BAM/CRAM"
-            )
-        )
-        return "FAILED", "-"
-
     try:
+        # Inside the try: one bad file fails its own row, not the whole batch.
+        if not is_bam:
+            ensure_vcf_indexed(current_input)
+        md5_sig = calculate_bam_md5(current_input, None) if is_bam else None
+        lib = ReferenceLibrary(args.ref, md5_sig, input_path=current_input)
+        _apply_forced_assembly(lib, args.vep_assembly)
+        logging.debug(f"Resolved reference: {lib.fasta}")
+        if is_bam and not lib.fasta:
+            raise WGSExtractError(
+                LOG_MESSAGES["ref_required_for"].format(
+                    task="variant calling from BAM/CRAM"
+                )
+            )
+
         with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_vep_") as work:
             vep_input_vcf = current_input
+            if not is_bam:
+                vep_input_vcf = _prepare_vcf_input(args, current_input, work, threads)
             if is_bam:
                 assert lib.fasta is not None
                 logging.info(LOG_MESSAGES["vep_calling_pre"])
@@ -225,9 +289,9 @@ def _run_vep_on_input(
                 if args.vcf_type == "auto"
                 else args.vcf_type
             )
-            vep_output = (
-                str(Path(work, "vep.vcf.gz")) if args.format == "vcf" else output_file
-            )
+            # Written in work and moved into place once complete, so a failed
+            # run leaves nothing that a rerun would skip as done.
+            vep_output = str(Path(work, "vep" + Path(final_output).suffix))
             vep_cmd = _build_vep_command(
                 args, vep_input_vcf, vep_output, vcf_type, lib, threads
             )
@@ -239,12 +303,13 @@ def _run_vep_on_input(
             run_command(vep_cmd)
 
             if args.format == "vcf":
-                # VEP's report files, where they were before it wrote into work.
-                for suffix in ("_summary.html", "_warnings.txt"):
-                    if Path(vep_output + suffix).exists():
-                        Path(vep_output + suffix).replace(output_file + suffix)
-                Path(vep_output).replace(final_output)
-                run_command(["tabix", "-f", "-p", "vcf", final_output])
+                run_command(["tabix", "-f", "-p", "vcf", vep_output])
+                Path(vep_output + ".tbi").replace(final_output + ".tbi")
+            # VEP's report files go beside the output.
+            for suffix in ("_summary.html", "_warnings.txt"):
+                if Path(vep_output + suffix).exists():
+                    Path(vep_output + suffix).replace(output_file + suffix)
+            Path(vep_output).replace(final_output)
     except (OSError, subprocess.SubprocessError, WGSExtractError, ValueError) as e:
         logging.error(f"VEP failed for {current_input}: {e}")
         return "FAILED", "-"

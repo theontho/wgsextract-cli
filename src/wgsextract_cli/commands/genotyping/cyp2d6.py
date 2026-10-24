@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import shutil
 import subprocess
 import tempfile
@@ -49,8 +50,23 @@ class CyriusCall:
     def outside_call(self) -> str | None:
         """The genotype to give PharmCAT: only one Cyrius stands behind."""
         if self.genotype and self.filter in CALLED_FILTERS:
-            return self.genotype
+            return pharmcat_copy_numbers(self.genotype)
         return None
+
+
+# PharmCAT (after CPIC) bins 3 or more copies of these alleles as x≥3; others,
+# such as *41x3, keep their count.
+_BINNED_AT_3 = ("*1", "*2", "*4")
+
+
+def pharmcat_copy_numbers(genotype: str) -> str:
+    """Cyrius's *1/*2x3 as PharmCAT names it: *1/*2x≥3."""
+
+    def name(match: re.Match[str]) -> str:
+        allele, copies = match.group(1), int(match.group(2))
+        return f"{allele}x≥3" if allele in _BINNED_AT_3 and copies >= 3 else match[0]
+
+    return re.sub(r"(\*\d+)x(\d+)", name, genotype)
 
 
 def parse_cyrius(json_path: str) -> CyriusCall:
@@ -198,6 +214,10 @@ def cmd_cyp2d6(args: argparse.Namespace) -> None:
         except subprocess.CalledProcessError as e:
             raise WGSExtractError(f"Cyrius failed (exit {e.returncode}).") from e
         for suffix in (".tsv", ".json"):
+            if not Path(work, prefix + suffix).is_file():
+                raise WGSExtractError(
+                    f"Cyrius finished without writing {prefix}{suffix}."
+                )
             shutil.move(
                 str(Path(work, prefix + suffix)),
                 str(Path(aln.outdir, prefix + suffix)),

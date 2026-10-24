@@ -230,18 +230,22 @@ def download_gene_maps(
                         gene_data.get(symbol), cols[2], int(cols[4]), int(cols[5])
                     )
 
-            # 3. Write processed TSV
-            with open(tsv_path, "w") as f_out:
+            # 3. Write processed TSV, 1-based (refGene's txStart is 0-based),
+            # through a temporary file so a failed write leaves no partial map.
+            tmp_tsv = tsv_path + ".tmp"
+            with open(tmp_tsv, "w") as f_out:
                 f_out.write("symbol\tchrom\tstart\tend\n")
                 for symbol in sorted(gene_data.keys()):
                     c, s, e = gene_data[symbol]
-                    f_out.write(f"{symbol}\t{c}\t{s}\t{e}\n")
+                    f_out.write(f"{symbol}\t{c}\t{s + 1}\t{e}\n")
+            Path(tmp_tsv).replace(tsv_path)
 
             logging.info(f"Successfully processed {len(gene_data)} genes for {build}")
             Path(gz_path).unlink()  # Cleanup
 
-        except (OSError, gzip.BadGzipFile, ValueError) as e:
+        except (OSError, EOFError, gzip.BadGzipFile, ValueError) as e:
             logging.error(f"Failed to setup {build} gene map: {e}")
+            Path(tsv_path + ".tmp").unlink(missing_ok=True)
             success = False
 
     return success

@@ -76,22 +76,25 @@ def run_discovery_filter(ann_vcf: str, v_type: str, out_vcf: str) -> int:
     # Build Logic: Rare OR Pathogenic OR High Impact
     filters = []
 
-    # Rare
-    if "ID=GNOMAD_AF," in header:
+    def has_info(tag: str) -> bool:
+        # INFO only: a FORMAT tag of the same name (FORMAT/AF) isn't filterable.
+        return f"##INFO=<ID={tag}," in header
+
+    # Rare, by gnomAD's population frequency. (A caller's own INFO/AF is the
+    # frequency within its call set, 0.5 or 1 for one person, so it isn't used.)
+    if has_info("GNOMAD_AF"):
         filters.append('INFO/GNOMAD_AF < 0.01 || INFO/GNOMAD_AF == "."')
-    elif "ID=AF," in header:
-        filters.append('INFO/AF < 0.01 || INFO/AF == "."')
 
     # Pathogenic
-    if "ID=CLNSIG," in header:
+    if has_info("CLNSIG"):
         filters.append('INFO/CLNSIG ~ "Pathogenic"')
 
     if v_type == "snp-indel":
-        if "ID=REVEL," in header:
+        if has_info("REVEL"):
             filters.append("INFO/REVEL > 0.7")
-        if "ID=SpliceAI," in header:
+        if has_info("SpliceAI"):
             filters.append(SPLICEAI_HIGH_EXPR)
-        if "ID=am_pathogenicity," in header:
+        if has_info("am_pathogenicity"):
             filters.append("INFO/am_pathogenicity > 0.7")
 
     # Combine with OR
@@ -155,7 +158,8 @@ def run_vcf_workflow(
     args: argparse.Namespace, vcf_path: str, v_type: str, outdir: str
 ) -> AnalyzeResult | None:
     """Annotates and filters a single VCF file based on its type."""
-    base_name = Path(vcf_path).name.split(".")[0]
+    # The name without its VCF suffix: NA12878.snp and NA12878.indel stay apart.
+    base_name = re.sub(r"\.(vcf(\.b?gz)?|bcf)$", "", Path(vcf_path).name, flags=re.I)
     _print(f"\nSub-Stage: Processing {v_type.upper()} ({Path(vcf_path).name})")
 
     # Define targeted annotations per type

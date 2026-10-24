@@ -95,6 +95,8 @@ def open_alignment(args: argparse.Namespace) -> Alignment:
             f"{build or 'unknown'}); typing needs one of those."
         )
 
+    if args.ref and not Path(args.ref).exists():
+        raise WGSExtractError(f"Reference not found: {args.ref}")
     reference = resolve_reference(
         args.ref, calculate_bam_md5(args.input, header=header), args.input
     )
