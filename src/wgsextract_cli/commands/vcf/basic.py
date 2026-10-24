@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from wgsextract_cli.core.alt_mapping import warn_if_alt_unaware
 from wgsextract_cli.core.builds import is_hg37_build, is_hg38_build, ploidy_for_build
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependency_checks import (
@@ -87,6 +88,7 @@ def get_base_args(args: argparse.Namespace) -> tuple[str, str, str, ReferenceLib
         raise WGSExtractError(
             LOG_MESSAGES["ref_required_for"].format(task="variant calling")
         )
+    warn_if_alt_unaware(input_file, resolved_ref)
     return threads, outdir, resolved_ref, lib
 
 

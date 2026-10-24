@@ -220,6 +220,40 @@ def ensure_bwa_index(ref: str) -> None:
         raise WGSExtractError(f"Automatic BWA indexing failed: {e}") from e
 
 
+def alt_contigs(ref: str) -> list[str]:
+    """The reference's ALT haplotype contigs (GRCh38's *_alt, and the HLA alleles
+    in hs38DH), which repeat stretches of the primary chromosomes."""
+    fai = Path(ref + ".fai")
+    if not fai.is_file():
+        run_command(["samtools", "faidx", ref])
+    if not fai.is_file():
+        return []
+    names = [line.split("\t", 1)[0] for line in fai.read_text().splitlines()]
+    return [n for n in names if n.endswith("_alt") or n.startswith("HLA-")]
+
+
+def ensure_bwa_alt_file(ref: str) -> None:
+    """Make BWA ALT-aware on a reference with ALT contigs. Without <ref>.alt,
+    a read from a region that has an ALT copy aligns equally well to both and
+    gets mapping quality 0, which variant callers count as no evidence: such
+    regions lose their variants. BWA reads only the contig names from the file
+    (an existing bwakit .alt, which also has their alignments, is kept)."""
+    alt_file = Path(ref + ".alt")
+    if alt_file.exists():
+        return
+    names = alt_contigs(ref)
+    if not names:
+        return
+    try:
+        alt_file.write_text("".join(f"{n}\n" for n in names))
+    except OSError as e:
+        raise WGSExtractError(
+            f"{ref} has {len(names)} ALT contigs, and BWA needs {alt_file} listing "
+            f"them to give reads in those regions a mapping quality: {e}"
+        ) from e
+    logging.info(f"Wrote {alt_file}: BWA maps ALT-aware over {len(names)} contigs.")
+
+
 def use_samblaster(paired: bool) -> bool:
     """samblaster marks duplicates in paired short reads; it aborts on unpaired input."""
     return paired and get_tool_path("samblaster") is not None
@@ -276,6 +310,7 @@ def _read_group(args: argparse.Namespace, stem: str) -> str:
 def align_bwa(args: argparse.Namespace) -> None:
     setup = _prepare_alignment(args, ["bwa", "samtools"], "BWA alignment")
     ensure_bwa_index(setup.ref)
+    ensure_bwa_alt_file(setup.ref)
 
     print_warning("ButtonBWAAlign", threads=setup.threads)
 

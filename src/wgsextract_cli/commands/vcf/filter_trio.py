@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from wgsextract_cli.core.alt_mapping import warn_if_alt_unaware
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -345,6 +346,8 @@ def _trio_from_alignments(
             )
         proband_sex = inferred.lower()
     proband_sex = "M" if proband_sex == "male" else "F"
+    for alignment in alignments:
+        warn_if_alt_unaware(alignment, lib.fasta)
     threads = int(get_resource_defaults(getattr(args, "threads", None), None)[0])
     joint = joint_trio_vcf(
         alignments,

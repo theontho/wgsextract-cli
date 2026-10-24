@@ -22,6 +22,13 @@ from wgsextract_cli.core.variant_files import (
 
 from ._microarray_combined import _open_text
 
+# Reads with MAPQ under 10 could belong elsewhere in the genome. With them, a
+# marker where every read has MAPQ 0 (a duplicated region, or ALT-unaware
+# alignment) is called homozygous reference with no evidence; without them it
+# is a no-call. On a real genome against its own chip, chr1-3: 99.54% -> 99.84%
+# agreement, 0.7% fewer markers called.
+MPILEUP_ARGS = ["-B", "-I", "-C", "50", "-q", "10"]
+
 
 def split_snps_by_chrom(ref_vcf_tab: str, outdir: str) -> dict[str, str]:
     """Splits the master SNP list into per-chromosome files for parallel processing."""
@@ -163,7 +170,7 @@ def process_chrom(
     logging.debug(f"Processing chromosome {chrom}...")
     run_pipeline(
         [
-            ["bcftools", "mpileup", "-r", chrom, "-B", "-I", "-C", "50"]
+            ["bcftools", "mpileup", "-r", chrom, *MPILEUP_ARGS]
             + ["-f", ref_fasta, "--targets-file", snp_file, input_path],
             ["bcftools", "call", *ploidy_args]
             + ["-m", "-V", "indels", "-Oz", "-o", chrom_vcf],
@@ -306,7 +313,7 @@ def _prepare_microarray_vcf(
             run_pipeline(
                 [
                     ["bcftools", "mpileup", *region_args]
-                    + ["-B", "-I", "-C", "50", "-f", ref_fasta]
+                    + [*MPILEUP_ARGS, "-f", ref_fasta]
                     + ["--targets-file", ref_vcf_tab, args.input],
                     ["bcftools", "call", *ploidy_args]
                     + ["-m", "-V", "indels", "-Oz", "-o", out_vcf],
