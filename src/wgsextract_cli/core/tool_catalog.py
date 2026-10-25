@@ -113,6 +113,10 @@ TOOL_EXECUTABLE_ALIASES = {
 }
 
 
+# How to run a jar. Java writes in the ANSI code page on Windows (Haplogrep's
+# banner has an "ö"); the CLI's output is UTF-8.
+JAVA_JAR = ("java", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8", "-jar")
+
 WINDOWS_PIXI_SCRIPT_LAUNCHERS = {
     # FastQC 0.13's launcher is a Python script (0.12's was Perl).
     "fastqc": ("python",),

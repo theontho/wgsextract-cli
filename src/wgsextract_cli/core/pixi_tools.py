@@ -13,6 +13,7 @@ from wgsextract_cli.core import runtime
 from wgsextract_cli.core.paths import absolute_path, expand_path
 from wgsextract_cli.core.tool_catalog import (
     INSTALL_FIRST_PIXI_ENVS,
+    JAVA_JAR,
     PIXI_TOOL_ENVS,
     PIXI_TOOL_PACKAGES,
     WINDOWS_PIXI_SCRIPT_LAUNCHERS,
@@ -292,7 +293,7 @@ def _host_pixi_tool_command(tool: str) -> str | None:
     if kind == "direct-name":
         return command([value])
     if kind == "haplogrep":
-        return command(["java", "-jar", value])
+        return command([*JAVA_JAR, value])
     if kind == "script" and tool in WINDOWS_PIXI_SCRIPT_LAUNCHERS:
         return command([*WINDOWS_PIXI_SCRIPT_LAUNCHERS[tool], value])
     if kind == "script" and not runtime.is_windows_host():

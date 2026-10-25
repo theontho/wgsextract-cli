@@ -19,6 +19,7 @@ from wgsextract_cli.core import (  # noqa: E402
     runtime,
 )
 from wgsextract_cli.core.paths import expand_path  # noqa: E402
+from wgsextract_cli.core.tool_catalog import JAVA_JAR  # noqa: E402
 from wgsextract_cli.core.utils import (  # noqa: E402
     _normalize_subprocess_cmd,
     run_command,
@@ -149,7 +150,8 @@ class TestToolResolution(unittest.TestCase):
         ):
             self.assertEqual(
                 dependencies.get_tool_path("haplogrep"),
-                rf"{PIXI_EXE} run -e default java -jar C:\repo\.pixi\envs\default\bin\haplogrep.jar",
+                f"{PIXI_EXE} run -e default {' '.join(JAVA_JAR)} "
+                r"C:\repo\.pixi\envs\default\bin\haplogrep.jar",
             )
 
     def test_resolve_pixi_command_checks_windows_exe_fallback(self):

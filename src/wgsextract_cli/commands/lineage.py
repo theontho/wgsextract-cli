@@ -15,6 +15,7 @@ from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES, SYSTEM_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_models import MITO_BY_LENGTH, sequence_lengths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.tool_catalog import JAVA_JAR
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
@@ -49,7 +50,7 @@ def _haplogrep_command(haplogrep_path: str) -> list[str]:
             return tool_command(haplogrep_path)
         jar = sibling
     verify_dependencies(["java"])
-    return ["java", "-jar", jar]
+    return [*JAVA_JAR, jar]
 
 
 def cmd_mtdna(args: argparse.Namespace) -> None:

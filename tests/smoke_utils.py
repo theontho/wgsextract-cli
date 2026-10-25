@@ -146,6 +146,7 @@ def run_cli(
         input=stdin_str,
         capture_output=True,
         text=True,
+        errors="replace",
         env={**os.environ, **env} if env else None,
         timeout=timeout,
     )

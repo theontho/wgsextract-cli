@@ -16,6 +16,7 @@ from wgsextract_cli.commands import (
 )
 from wgsextract_cli.core import variant_files
 from wgsextract_cli.core.pixi_tools import _join_command
+from wgsextract_cli.core.tool_catalog import JAVA_JAR
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 
@@ -556,8 +557,7 @@ def test_haplogrep_wrapper_is_bypassed_for_its_jar(tmp_path):
     (env_bin / "haplogrep.jar").write_bytes(b"")
     with patch.object(lineage, "verify_dependencies"):
         assert lineage._haplogrep_command(str(wrapper)) == [
-            "java",
-            "-jar",
+            *JAVA_JAR,
             str(env_bin / "haplogrep.jar"),
         ]
     (env_bin / "haplogrep.jar").unlink()
@@ -576,7 +576,7 @@ def test_a_resolved_haplogrep_command_runs_as_it_is(tmp_path):
     command = _join_command([str(tmp_path / "java"), "-jar", str(jar)])
     with patch.object(lineage, "verify_dependencies"):
         assert lineage._haplogrep_command(command) == [command]
-        assert lineage._haplogrep_command(str(jar)) == ["java", "-jar", str(jar)]
+        assert lineage._haplogrep_command(str(jar)) == [*JAVA_JAR, str(jar)]
 
 
 def test_windows_wrapper_commands_keep_backslashes():

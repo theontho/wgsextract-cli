@@ -16,6 +16,7 @@ import pytest
 from tests.fake_tools import python_tool
 from wgsextract_cli.commands import _deps_status
 from wgsextract_cli.core import dependency_checks, pixi_tools
+from wgsextract_cli.core.tool_catalog import JAVA_JAR
 from wgsextract_cli.core.utils import WGSExtractError
 
 
@@ -496,7 +497,7 @@ def test_probe_finds_a_tool_on_the_envs_path(tmp_path, monkeypatch, pixi_env):
 @pytest.mark.parametrize(
     ("tool", "env_file", "expected_tail"),
     [
-        ("haplogrep", "bin/haplogrep.jar", ["java", "-jar", "{file}"]),
+        ("haplogrep", "bin/haplogrep.jar", [*JAVA_JAR, "{file}"]),
         ("gatk", "bin/gatk", ["python", "{file}"]),
         ("delly", "bin/delly", ["{file}"]),
     ],
