@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import plistlib
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +62,14 @@ MACOS = AppPlatform(
     install_marker="/dev.guiforcli.embed.wgsextract/BundleWorkspaces",
     emptied_preferences="/Library/Preferences/dev.guiforcli.embed.wgsextract.plist",
 )
+MACOS_TAURI = replace(
+    MACOS,
+    steps=[step for step in MACOS.steps if step != "runner"],
+    window_file="app-stdout.txt",
+    window_text="metric webAppRendered_ms=",
+    install_marker="/dev.guiforcli.web.embed.wgsextract/BundleWorkspaces",
+    emptied_preferences="/Library/Preferences/dev.guiforcli.web.embed.wgsextract.plist",
+)
 _WIN_APP = "C:/Users/lab user/AppData/Local/WGSExtract"
 WINDOWS = AppPlatform(
     steps=[
@@ -98,19 +106,22 @@ LINUX = AppPlatform(
 )
 
 
+def app_platform(meta: dict[str, Any]) -> AppPlatform:
+    target = str(meta.get("target", ""))
+    if target.startswith("windows"):
+        return WINDOWS
+    if target == "linux":
+        return LINUX
+    return MACOS_TAURI if meta.get("macos_runtime") == "tauri" else MACOS
+
+
 class GuiOracle(Oracle):
     def __init__(
         self, results: Path, nonce: str, tools: dict[str, str], signed: bool
     ) -> None:
         super().__init__(results, nonce, tools)
         self.signed = signed
-        self.app = (
-            WINDOWS
-            if self.target.startswith("windows")
-            else LINUX
-            if self.target == "linux"
-            else MACOS
-        )
+        self.app = app_platform(self.result_file("lab-run.json"))
         self.install_marker = self.app.install_marker
 
     def output(self, *parts: str) -> Path:
@@ -278,7 +289,7 @@ class GuiOracle(Oracle):
 
     def run(self, dataset: Path, noise_patterns: list[str]) -> list:
         self.check_run_identity()
-        if self.app is MACOS:
+        if self.app is MACOS or self.app is MACOS_TAURI:
             self.check_gatekeeper_enabled()
         self.check_clean_baseline()
         self.check_steps()

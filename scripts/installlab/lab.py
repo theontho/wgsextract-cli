@@ -761,7 +761,9 @@ def run_scenario(
             meta["installer_sha256"] = sha256(artifacts["serve"] / installer)
         meta["cli_from_tree"] = gui.cli_from_tree
     elif gui:
-        meta["signed"] = build_gui_artifacts(gui.gui_repo, gui.dmg, artifacts["serve"])
+        meta["signed"], meta["macos_runtime"] = build_gui_artifacts(
+            gui.gui_repo, gui.dmg, artifacts["serve"]
+        )
         meta["dmg_sha256"] = sha256(artifacts["serve"] / "WGSExtract.dmg")
         meta["cli_from_tree"] = gui.cli_from_tree
     machine_cls = MACHINES[target]
@@ -1049,12 +1051,16 @@ def _flip_signature(r: Path, step: str, app: gui_oracle.AppPlatform) -> None:
     (r / "evidence" / f"{step}.log").write_text(text + "\n")
 
 
+def _gui_platform(results: Path) -> gui_oracle.AppPlatform:
+    return gui_oracle.app_platform(json.loads((results / "lab-run.json").read_text()))
+
+
 def _preferences_left(r: Path, saved: dict[str, object] | None) -> None:
     """The app's preferences file left behind, holding `saved` (None: no copy
     saved). Only an empty one is excused (AppPlatform.emptied_preferences)."""
     _append(
         r / "inventory-after_uninstall.txt",
-        f"file\t{_planted(r)['home']}{gui_oracle.MACOS.emptied_preferences}",
+        f"file\t{_planted(r)['home']}{_gui_platform(r).emptied_preferences}",
     )
     copy = r / "uninstall-preferences.plist"
     copy.unlink(missing_ok=True)
@@ -1092,7 +1098,7 @@ GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
     "gatekeeper-off": lambda r: (r / "gatekeeper-status.txt").write_text(
         "assessments disabled\n"
     ),
-    "no-window": lambda r: (r / "startup.txt").write_text(""),
+    "no-window": lambda r: (r / _gui_platform(r).window_file).write_text(""),
     "preferences-kept": lambda r: _preferences_left(r, {"NSWindow Frame main": "x"}),
     "preferences-unsaved": lambda r: _preferences_left(r, None),
 }
