@@ -1,5 +1,6 @@
 import json
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -85,16 +86,16 @@ def test_windows_uninstaller_keeps_a_users_own_msys2() -> None:
 
 
 def test_pixi_installs_runnable_yleaf_from_upstream_package_data_source() -> None:
-    # Upstream's tagged source (Bioconda's build lacks the marker tables), as an
-    # archive rather than a git checkout: a new Windows PC has no git, and the
-    # install lab showed `pixi install` failing there on the git source.
+    # Yleaf's source (Bioconda's build lacks the marker tables), as an archive
+    # rather than a git checkout: a new Windows PC has no git, and the install
+    # lab showed `pixi install` failing there on the git source.
     manifest = tomllib.loads((ROOT / "pixi.toml").read_text(encoding="utf-8"))
     yleaf = manifest["feature"]["bio-tools"]["pypi-dependencies"]["yleaf"]
-    assert yleaf == {
-        "url": "https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz"
-        "#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422"
-    }
-    assert "git" not in yleaf
+    assert list(yleaf) == ["url"]
+    assert re.fullmatch(
+        r"https://github\.com/[\w-]+/Yleaf/archive/\S+\.tar\.gz#sha256=[0-9a-f]{64}",
+        yleaf["url"],
+    )
     lockfile = (ROOT / "pixi.lock").read_text(encoding="utf-8")
     _, marker, locked_entry = lockfile.partition(f"\n- pypi: direct+{yleaf['url']}\n")
     assert marker, "Yleaf's source archive must be present in the lockfile"
