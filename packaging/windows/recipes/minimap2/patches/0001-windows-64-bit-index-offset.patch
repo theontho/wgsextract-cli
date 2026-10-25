@@ -1,0 +1,17 @@
+diff --git i/index.c w/index.c
+index 9685006..cfa621b 100644
+--- i/index.c
++++ w/index.c
+@@ -636,7 +636,12 @@ mm_idx_t *mm_idx_reader_read(mm_idx_reader_t *r, int n_threads)
+ 
+ int mm_idx_reader_eof(const mm_idx_reader_t *r) // TODO: in extremely rare cases, mm_bseq_eof() might not work
+ {
++#ifdef WIN32
++	// long is 32-bit on Windows; a human .mmi is several GB
++	return r->is_idx? (feof(r->fp.idx) || _ftelli64(r->fp.idx) == r->idx_size) : mm_bseq_eof(r->fp.seq);
++#else
+ 	return r->is_idx? (feof(r->fp.idx) || ftell(r->fp.idx) == r->idx_size) : mm_bseq_eof(r->fp.seq);
++#endif
+ }
+ 
+ #include <ctype.h>

@@ -1,0 +1,12 @@
+# MSYS2 packages the recipes build with (UCRT64 GCC and static libraries).
+# Build time only: the packages they make link everything statically.
+make
+perl
+mingw-w64-ucrt-x86_64-gcc
+mingw-w64-ucrt-x86_64-zlib
+mingw-w64-ucrt-x86_64-bzip2
+mingw-w64-ucrt-x86_64-xz
+mingw-w64-ucrt-x86_64-libdeflate
+mingw-w64-ucrt-x86_64-libsystre
+mingw-w64-ucrt-x86_64-isa-l
+mingw-w64-ucrt-x86_64-highway

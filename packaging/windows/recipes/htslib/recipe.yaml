@@ -1,0 +1,32 @@
+context:
+  version: "1.24"
+
+package:
+  name: htslib
+  version: ${{ version }}
+
+source:
+  url: https://github.com/samtools/htslib/releases/download/${{ version }}/htslib-${{ version }}.tar.bz2
+  sha256: 28a8de191381c7a97a35675ceac76fa1ea95e7b678d6a2e9d600a7874e4077de
+
+build:
+  number: 0
+  string: wgse_${{ build_number }}
+  script:
+    # MSYS2 UCRT64 builds it (see ../env.sh); MSYS2_ROOT says where it is.
+    env:
+      MSYS2_ROOT: ${{ env.get("MSYS2_ROOT", default="C:\\msys64") }}
+    content:
+      - '"%MSYS2_ROOT%\usr\bin\bash.exe" "%RECIPE_DIR%\build.sh"'
+
+tests:
+  - script:
+      - bgzip --version
+      - tabix --version
+      - htsfile --version
+
+about:
+  homepage: https://www.htslib.org
+  license: MIT
+  license_file: LICENSE
+  summary: htslib's bgzip, tabix and htsfile, built natively for Windows by WGS Extract.

@@ -1,0 +1,33 @@
+context:
+  version: "1.4.0"
+
+package:
+  name: fastp
+  version: ${{ version }}
+
+source:
+  url: https://github.com/OpenGene/fastp/archive/refs/tags/v${{ version }}.tar.gz
+  sha256: 28c0537e9d1f32f5a5c404562e6a282bf373b034a4c3a3610d9aa31d6429b550
+  patches:
+    # Windows paths have backslashes: escape the command in the JSON report.
+    - patches/0001-json-escape-command.patch
+
+build:
+  number: 0
+  string: wgse_${{ build_number }}
+  script:
+    # MSYS2 UCRT64 builds it (see ../env.sh); MSYS2_ROOT says where it is.
+    env:
+      MSYS2_ROOT: ${{ env.get("MSYS2_ROOT", default="C:\\msys64") }}
+    content:
+      - '"%MSYS2_ROOT%\usr\bin\bash.exe" "%RECIPE_DIR%\build.sh"'
+
+tests:
+  - script:
+      - fastp --version
+
+about:
+  homepage: https://github.com/OpenGene/fastp
+  license: MIT
+  license_file: LICENSE
+  summary: fastp FASTQ preprocessor, built natively for Windows by WGS Extract.
