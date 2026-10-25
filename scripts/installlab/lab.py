@@ -761,7 +761,9 @@ def run_scenario(
             meta["installer_sha256"] = sha256(artifacts["serve"] / installer)
         meta["cli_from_tree"] = gui.cli_from_tree
     elif gui:
-        meta["signed"] = build_gui_artifacts(gui.gui_repo, gui.dmg, artifacts["serve"])
+        meta["signed"], meta["macos_runtime"] = build_gui_artifacts(
+            gui.gui_repo, gui.dmg, artifacts["serve"]
+        )
         meta["dmg_sha256"] = sha256(artifacts["serve"] / "WGSExtract.dmg")
         meta["cli_from_tree"] = gui.cli_from_tree
     machine_cls = MACHINES[target]

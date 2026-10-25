@@ -68,6 +68,10 @@ app_running() {
     pgrep -f "$APP/Contents/MacOS/" >/dev/null 2>&1
 }
 
+is_tauri() {
+    [ -x "$APP/Contents/Resources/node/bin/node" ]
+}
+
 wait_for_app_exit() {
     deadline=$(( $(date +%s) + $1 ))
     while app_running; do
@@ -92,6 +96,8 @@ install_app() {
     hdiutil detach "$mount" || rc=1
     rmdir "$mount"
     codesign --verify --deep --strict --verbose=2 "$APP" || rc=1
+    BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP/Contents/Info.plist") || return 1
+    WORKSPACE="$HOME/Library/Application Support/$BUNDLE_ID/BundleWorkspaces/wgs-extract"
     return $rc
 }
 
@@ -118,6 +124,10 @@ launch_app() {
 }
 
 app_setup() {
+    if is_tauri; then
+        tauri_setup
+        return $?
+    fi
     rm -f "$R/setup-result.json"
     launch_app --env GUI_FOR_CLI_AUTO_RUN_SETUP=1 --env GUI_FOR_CLI_QUIT_AFTER_SETUP=1 \
         --env "GUI_FOR_CLI_TERMINAL_LOG_FILE=$R/app-setup-terminal.log" \
@@ -131,20 +141,53 @@ app_setup() {
     wait_for_app_exit 120
 }
 
+tauri_setup() {
+    events="$R/setup-events.ndjson"
+    env GUI_FOR_CLI_AUTO_RUN_SETUP=1 GUI_FOR_CLI_SETUP_EVENTS_LOG="$events" \
+        ${LAB_ARCHIVE_URL:+WGSEXTRACT_ARCHIVE_URL="$CLI_ARCHIVE"} \
+        "$APP/Contents/MacOS/gui-for-cli-webui-tauri" > "$R/app-stdout.txt" 2> "$R/app-stderr.txt" &
+    app_pid=$!
+    deadline=$(( $(date +%s) + 7200 ))
+    while ! grep -q '"type":"complete"' "$events" 2>/dev/null; do
+        kill -0 "$app_pid" 2>/dev/null || { echo "the app exited during setup"; return 1; }
+        [ "$(date +%s)" -lt "$deadline" ] || { echo "setup timed out"; return 1; }
+        sleep 5
+    done
+    /usr/bin/python3 - "$events" "$R/setup-result.json" <<'EOF'
+import json, sys
+events = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
+complete = [event for event in events if event.get("type") == "complete"][-1]
+with open(sys.argv[2], "w") as output:
+    json.dump(complete["result"], output)
+EOF
+    screencapture -x "$R/app-window.png" 2>/dev/null || true
+    pkill -TERM -f "$APP/Contents/MacOS/" || return 1
+    wait_for_app_exit 120
+}
+
 install_runner() {
     mkdir -p "$RUNNER_DIR" &&
         curl -fsSL "$LAB_RUNNER_URL" | tar -xzf - -C "$RUNNER_DIR"
 }
 
 app_actions() {
-    bundle="$APP/Contents/Resources/GUIForCLIShared_GUIForCLICore.bundle/Contents/Resources/Resources/DemoBundles/WGSExtract"
-    GUI_FOR_CLI_APP_SUPPORT_NAME="$GUI_FOR_CLI_APP_SUPPORT_NAME_RUNNER" \
+    if is_tauri; then
+        resources="$APP/Contents/Resources"
+        GUI_FOR_CLI_APP_SUPPORT_NAME="$BUNDLE_ID" "$resources/node/bin/node" \
+            "$resources/app/dist/web/src/server/bundle-test-cli.js" \
+            --plan "$HERE/gui-plan.json" --workspace "$WORKSPACE" \
+            --report "$R/bundle-report.json" --log "$R/bundle-test.log" \
+            "$resources/examples/EmbeddedBundle"
+    else
+        bundle="$APP/Contents/Resources/GUIForCLIShared_GUIForCLICore.bundle/Contents/Resources/Resources/DemoBundles/WGSExtract"
+        GUI_FOR_CLI_APP_SUPPORT_NAME="$GUI_FOR_CLI_APP_SUPPORT_NAME_RUNNER" \
         "$RUNNER_DIR/gui-for-cli" bundle test \
         --plan "$HERE/gui-plan.json" \
         --workspace "$WORKSPACE" \
         --report "$R/bundle-report.json" \
         --log "$R/bundle-test.log" \
         "$bundle"
+    fi
     rc=$?
     # The oracle reads outputs where the CLI lab keeps them.
     if [ -d "$WORKSPACE/lab-output" ]; then
@@ -159,9 +202,14 @@ app_actions() {
 
 app_uninstall() {
     rm -f "$R/uninstall-result.json"
-    launch_app --env GUI_FOR_CLI_AUTO_RUN_UNINSTALL=1 \
+    if is_tauri; then
+        env GUI_FOR_CLI_AUTO_RUN_UNINSTALL=1 GUI_FOR_CLI_UNINSTALL_RESULT_FILE="$R/uninstall-result.json" \
+            "$APP/Contents/MacOS/gui-for-cli-webui-tauri" > "$R/app-uninstall-stdout.txt" 2>&1 || return 1
+    else
+        launch_app --env GUI_FOR_CLI_AUTO_RUN_UNINSTALL=1 \
         --env "GUI_FOR_CLI_TERMINAL_LOG_FILE=$R/app-uninstall-terminal.log" \
         --env "GUI_FOR_CLI_UNINSTALL_RESULT_FILE=$R/uninstall-result.json" || return 1
+    fi
     wait_for_file "$R/uninstall-result.json" 600 || return 1
     cat "$R/uninstall-result.json"
     wait_for_app_exit 60 || return 1
@@ -212,7 +260,7 @@ step install_app install_app
 step gatekeeper gatekeeper
 approve_first_launch
 step setup app_setup
-step runner install_runner
+if ! is_tauri; then step runner install_runner; fi
 step actions app_actions
 snapshot after_install
 if [ "$SABOTAGE" != "skip-uninstall" ]; then

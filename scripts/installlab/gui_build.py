@@ -31,25 +31,31 @@ def run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
     return result
 
 
-def build_gui_artifacts(gui_repo: Path, dmg: Path | None, serve: Path) -> bool:
-    """The app's DMG and the bundle-test runner; returns whether the app is
-    Developer ID signed. Builds both from gui_repo unless a DMG is given, so a
-    run never tests a stale build."""
+def build_gui_artifacts(
+    gui_repo: Path, dmg: Path | None, serve: Path
+) -> tuple[bool, str]:
+    """Stage the DMG and any external runner; return its signature and runtime.
+
+    Current Tauri apps include their Node runner. The last SwiftUI release
+    needs a runner built from its matching source checkout.
+    """
     apple = gui_repo / "platform" / "apple"
     if dmg is None:
-        log("Packaging the macOS app (make package PLATFORM=swiftui-macos)...")
-        run(["make", "package", "PLATFORM=swiftui-macos"], cwd=gui_repo)
+        legacy = apple.is_dir()
+        command = (
+            ["make", "package", "PLATFORM=swiftui-macos"]
+            if legacy
+            else [sys.executable, "tools/tasks.py", "package", "tauri"]
+        )
+        log("Packaging the macOS app...")
+        run(command, cwd=gui_repo)
         dmg = max(
-            (gui_repo / "out" / "release" / "swiftui").glob("WGSExtract*.dmg"),
+            (gui_repo / "out" / "release" / ("swiftui" if legacy else "tauri")).glob(
+                "WGSExtract*.dmg"
+            ),
             key=lambda p: p.stat().st_mtime,
         )
     shutil.copy2(dmg, serve / "WGSExtract.dmg")
-    log("Building the gui-for-cli bundle-test runner...")
-    run(["swift", "build", "-c", "release", "--product", "gui-for-cli"], cwd=apple)
-    release = apple / ".build" / "release"
-    with tarfile.open(serve / "gui-runner.tar.gz", "w:gz") as tar:
-        for name in ("gui-for-cli", "gui-for-cli_GUIForCLICore.bundle"):
-            tar.add(release / name, arcname=name)
     mount = Path(tempfile.mkdtemp(prefix="wgse-lab-dmg-"))
     run(
         [
@@ -63,6 +69,24 @@ def build_gui_artifacts(gui_repo: Path, dmg: Path | None, serve: Path) -> bool:
         ]
     )
     try:
+        resources = mount / "WGSExtract.app" / "Contents" / "Resources"
+        tauri = (resources / "node" / "bin" / "node").is_file()
+        if tauri:
+            runner = resources / "app/dist/web/src/server/bundle-test-cli.js"
+            if not runner.is_file():
+                raise FileNotFoundError(
+                    f"App is missing its bundle-test runner: {runner}"
+                )
+        else:
+            log("Building the matching SwiftUI bundle-test runner...")
+            run(
+                ["swift", "build", "-c", "release", "--product", "gui-for-cli"],
+                cwd=apple,
+            )
+            release = apple / ".build" / "release"
+            with tarfile.open(serve / "gui-runner.tar.gz", "w:gz") as tar:
+                for name in ("gui-for-cli", "gui-for-cli_GUIForCLICore.bundle"):
+                    tar.add(release / name, arcname=name)
         info = subprocess.run(
             ["codesign", "-dv", "--verbose=2", str(mount / "WGSExtract.app")],
             capture_output=True,
@@ -71,7 +95,7 @@ def build_gui_artifacts(gui_repo: Path, dmg: Path | None, serve: Path) -> bool:
     finally:
         run(["hdiutil", "detach", str(mount)])
         mount.rmdir()
-    return "Authority=Developer ID Application" in info
+    return "Authority=Developer ID Application" in info, "tauri" if tauri else "swiftui"
 
 
 def build_windows_gui_installer(
