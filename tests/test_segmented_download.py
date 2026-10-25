@@ -16,6 +16,7 @@ class _Server:
 
     def __init__(self):
         self.drop = {}  # piece start -> times left to cut a response in it short
+        self.busy = {}  # piece start -> times left to answer it with a status
         self.ignore_ranges = False
         self.served = 0
         server = self
@@ -40,6 +41,10 @@ class _Server:
                     end = int(last) + 1 if last else len(DATA)
                     body, code = DATA[start:end], 206
                     piece = start - start % 1000
+                    if server.busy.get(piece):
+                        server.busy[piece] -= 1
+                        self.send_error(503 if piece else 404)
+                        return
                     if server.drop.get(piece):
                         server.drop[piece] -= 1
                         self.send_response(206)
@@ -66,7 +71,7 @@ def server(monkeypatch):
     monkeypatch.setattr(segmented, "ranged_size", ranged_size)
     monkeypatch.setattr(segmented, "SEGMENTED_MIN_SIZE", 1)
     monkeypatch.setattr(segmented, "SEGMENT_SIZE", 1000)
-    monkeypatch.setattr(segmented.time, "sleep", lambda s: None)
+    monkeypatch.setattr(segmented, "_backoff", lambda attempt: 0)
     monkeypatch.setattr(
         downloads, "resolve_github_release_asset_sha256", lambda u: None
     )
@@ -93,6 +98,23 @@ def test_a_cut_off_piece_is_resumed(server, tmp_path):
     assert downloads.download_file(server.url, str(dest))
 
     assert dest.read_bytes() == DATA
+
+
+def test_a_piece_the_server_is_too_busy_for_is_retried(server, tmp_path):
+    server.busy = {3000: 2}
+    dest = tmp_path / "big.bin"
+
+    assert downloads.download_file(server.url, str(dest))
+
+    assert dest.read_bytes() == DATA
+
+
+def test_a_piece_the_server_refuses_is_not_retried(server, tmp_path):
+    server.busy = {0: 1}
+    dest = tmp_path / "big.bin"
+
+    assert not downloads.download_file(server.url, str(dest))
+    assert server.busy == {0: 0}
 
 
 def test_a_failed_download_resumes_on_the_next_run(server, tmp_path, monkeypatch):

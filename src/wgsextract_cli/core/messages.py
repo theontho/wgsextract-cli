@@ -224,6 +224,10 @@ LOG_MESSAGES = {
     "vcf_alphamissense_missing": "AlphaMissense data file not found. Please run 'ref alphamissense' first.",
     "vcf_alphamissense_done": "AlphaMissense annotation complete: {output}",
     "vcf_pharmgkb_missing": "PharmGKB data file not found. Please run 'ref pharmgkb' first.",
+    "vcf_pharmgkb_grch38_only": (
+        "PharmGKB annotations are placed on GRCh38, but this VCF is {build}. "
+        "Lift it to GRCh38 or pass a {build} table with --pharmgkb-file."
+    ),
     "vep_downloading": "Downloading VEP cache from {host}...",
     "vep_verifying_checksums": "Verifying download against Ensembl CHECKSUMS...",
     "vep_checksum_ok": "Checksum verification successful: {sum} {blocks}",

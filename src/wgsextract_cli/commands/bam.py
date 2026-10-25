@@ -406,6 +406,15 @@ def cmd_unalign(args: argparse.Namespace) -> None:
         args.input, outdir, "Name", "Name Sort", region, "ButtonUnalignBAM", threads
     )
 
+    read_groups = _read_groups(get_bam_header(args.input) or "")
+    if len(read_groups) > 1:
+        # FASTQ has nowhere to keep them; aligning the FASTQs makes one group.
+        logging.warning(
+            f"{args.input} has {len(read_groups)} read groups "
+            f"({', '.join(read_groups)}); the FASTQs mix them. Use "
+            "'wgsextract bam to-ubam' to keep each read's group."
+        )
+
     logging.info(LOG_MESSAGES["unaligning_reads"])
     alignments_to_fastq(
         args.input,

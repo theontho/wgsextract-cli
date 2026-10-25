@@ -156,7 +156,7 @@ def run_wsl_check(args: argparse.Namespace) -> None:
 
 def run_wsl_tune(args: argparse.Namespace) -> None:
     recommendation = runtime_wrappers.recommend_wslconfig_settings()
-    memory = args.memory or recommendation.memory
+    memory = args.wsl_memory or recommendation.memory
     processors = (
         args.processors if args.processors is not None else recommendation.processors
     )

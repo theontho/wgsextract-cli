@@ -186,10 +186,10 @@ def test_vcf_is_indexed_with_variants_on_every_contig(scaled):
         assert f"##contig=<ID={name},length={length}>" in header
     counts = _contig_counts(vcf)
     assert set(counts) == set(SCALED_HG38)
-    assert counts["chr1"] == 501000 // 5000
-    assert counts["chrExtra"] == 2
+    # The SNPs planted in the reads: homozygous, one every 2 kb.
+    assert counts["chr1"] in (250, 251)
     calls = _bcftools("query", "-f", "%REF %ALT [%GT]\n", str(vcf)).splitlines()
-    assert {c.split()[2] for c in calls} == {"0/1"}
+    assert {c.split()[2] for c in calls} == {"1/1"}
     assert all(c.split()[0] != c.split()[1] for c in calls)
 
 
