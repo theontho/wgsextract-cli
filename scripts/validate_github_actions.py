@@ -87,10 +87,6 @@ EXPECTED_ACTIONS = {
         version="v3.0.3",
         sha="efb35369e0ad2afab669f228072c1b0d510eae64",
     ),
-    "vampire/setup-wsl": ExpectedAction(
-        version="v7.2.0",
-        sha="4c48163d9f981914dd8caa0fc335fe19cca5bff4",
-    ),
 }
 
 

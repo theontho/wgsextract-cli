@@ -94,7 +94,11 @@ switch ($Sabotage) {
         Set-Content -LiteralPath (Join-Path $pixiBin "pixi.cmd") -Value "@exit /b 0" -Encoding ascii
     }
     "break-samtools" {
-        Remove-Item -LiteralPath "C:\msys64\ucrt64\bin\samtools.exe" -Force -ErrorAction SilentlyContinue
+        # The Pixi environment's samtools (install_windows.bat keeps the
+        # environments under tmp\pixi-envs in the install folder).
+        Get-ChildItem -LiteralPath (Join-Path $InstallDir "tmp\pixi-envs") -Recurse -Filter "samtools.exe" -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Directory.FullName -like "*\envs\default\Library\bin" } |
+            Remove-Item -Force -ErrorAction SilentlyContinue
     }
 }
 

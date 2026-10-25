@@ -62,7 +62,6 @@ if /I "!ARG!"=="--keep-pixi-cache" (
 )
 if /I "!ARG!"=="--remove-prerequisites" (
     set "REMOVE_PIXI=1"
-    set "REMOVE_MSYS2=1"
     set "REQUESTED_PREREQ_REMOVAL=1"
     shift
     goto parse_args
@@ -114,10 +113,10 @@ echo Config file:       %CONFIG_FILE%
 echo Legacy config:     %LEGACY_CONFIG_FILE%
 echo Pixi install:      %PIXI_HOME%
 echo Pixi default cache: %PIXI_DEFAULT_CACHE%
-echo MSYS2 root:        %WGSE_MSYS2_ROOT%
+if "%REMOVE_MSYS2%"=="1" echo MSYS2 root:        %WGSE_MSYS2_ROOT%
 echo.
-echo This removes local project Pixi environments and clears pacman runtime defaults.
-echo Pixi and MSYS2 are removed only if explicitly requested or confirmed below.
+echo This removes local project Pixi environments and clears old runtime settings.
+echo Pixi is removed only if explicitly requested or confirmed below.
 echo.
 
 if "%DRY_RUN%"=="1" (
@@ -132,11 +131,8 @@ if "%ASSUME_YES%"=="0" (
         exit /b 0
     )
     if "%REQUESTED_PREREQ_REMOVAL%"=="0" (
-        set /p "CONFIRM_PREREQS=Also remove Pixi and MSYS2 from this machine? [y/N] "
-        if /I "!CONFIRM_PREREQS!"=="y" (
-            set "REMOVE_PIXI=1"
-            set "REMOVE_MSYS2=1"
-        )
+        set /p "CONFIRM_PREREQS=Also remove Pixi from this machine? [y/N] "
+        if /I "!CONFIRM_PREREQS!"=="y" set "REMOVE_PIXI=1"
     )
 )
 
@@ -146,10 +142,10 @@ if "%REMOVE_CONFIG%"=="1" (
     call :remove_config_file "%LEGACY_CONFIG_FILE%"
     if errorlevel 1 exit /b 1
 ) else if "%KEEP_CONFIG%"=="0" (
-    call :clear_pacman_config "%CONFIG_FILE%"
+    call :clear_legacy_runtime_config "%CONFIG_FILE%"
     if errorlevel 1 exit /b 1
     if /I not "%LEGACY_CONFIG_FILE%"=="%CONFIG_FILE%" (
-        call :clear_pacman_config "%LEGACY_CONFIG_FILE%"
+        call :clear_legacy_runtime_config "%LEGACY_CONFIG_FILE%"
         if errorlevel 1 exit /b 1
     )
 ) else (
@@ -186,21 +182,23 @@ if "%REMOVE_PIXI%"=="1" (
     echo Keeping Pixi install.
 )
 
+rem Legacy: earlier WGS Extract installers installed MSYS2 (by default at
+rem C:\msys64) for their tools. Only an explicit --remove-msys2 removes it, since
+rem the MSYS2 there may be the user's own.
 if "%REMOVE_MSYS2%"=="1" call :validate_msys2_root "%WGSE_MSYS2_ROOT%"
 if errorlevel 1 exit /b 1
 if "%REMOVE_MSYS2%"=="1" (
     call :stop_msys2_processes "%WGSE_MSYS2_ROOT%"
     call :remove_dir "%WGSE_MSYS2_ROOT%"
     if errorlevel 1 exit /b 1
-) else (
-    echo Keeping MSYS2 install.
 )
 
 echo.
 echo Uninstall complete.
 exit /b 0
 
-:clear_pacman_config
+:clear_legacy_runtime_config
+rem Settings of the old WSL/MSYS2 tool runtimes, which earlier installers wrote.
 set "TARGET_CONFIG=%~1"
 if "%TARGET_CONFIG%"=="" exit /b 0
 if not exist "%TARGET_CONFIG%" (
@@ -210,11 +208,11 @@ if not exist "%TARGET_CONFIG%" (
 set "CONFIG_TMP=%TARGET_CONFIG%.tmp"
 set "CONFIG_FILE_TO_CLEAR=%TARGET_CONFIG%"
 set "CONFIG_TMP_TO_WRITE=%CONFIG_TMP%"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$configPath = $env:CONFIG_FILE_TO_CLEAR; $tempPath = $env:CONFIG_TMP_TO_WRITE; $pattern = '^\s*(tool_runtime|pacman_ucrt64_bin)\s*='; $lines = @(Get-Content -LiteralPath $configPath | Where-Object { $_ -notmatch $pattern }); $encoding = New-Object System.Text.UTF8Encoding($false); [System.IO.File]::WriteAllLines($tempPath, [string[]]$lines, $encoding)"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$configPath = $env:CONFIG_FILE_TO_CLEAR; $tempPath = $env:CONFIG_TMP_TO_WRITE; $pattern = '^\s*(tool_runtime|runtime|runtime_directory|runtime_dir|pacman_ucrt64_bin|pacman_bin)\s*='; $lines = @(Get-Content -LiteralPath $configPath | Where-Object { $_ -notmatch $pattern }); $encoding = New-Object System.Text.UTF8Encoding($false); [System.IO.File]::WriteAllLines($tempPath, [string[]]$lines, $encoding)"
 if errorlevel 1 exit /b 1
 move /y "%CONFIG_TMP%" "%TARGET_CONFIG%" >nul
 if errorlevel 1 exit /b 1
-echo Cleared pacman runtime defaults from config: %TARGET_CONFIG%
+echo Cleared old runtime settings from config: %TARGET_CONFIG%
 rem A config that held only those defaults was the installer's; remove it.
 findstr /r /c:"[^ 	]" "%TARGET_CONFIG%" >nul 2>nul
 if errorlevel 1 call :remove_config_file "%TARGET_CONFIG%"
@@ -278,7 +276,7 @@ if errorlevel 1 exit /b 1
 exit /b 0
 
 :usage
-echo WGS Extract CLI Windows uninstaller for the batch pacman setup.
+echo WGS Extract CLI Windows uninstaller, for install_windows.bat installs.
 echo.
 echo Usage:
 echo   uninstall_windows.bat [options]
@@ -289,10 +287,10 @@ echo   --keep-config         Leave WGS Extract config.toml unchanged.
 echo   --remove-config       Delete WGS Extract config.toml, including your other settings.
 echo   --keep-pixi-envs      Leave local Pixi environments in place.
 echo   --keep-pixi-cache     Leave the local Windows Pixi cache in place.
-echo   --remove-prerequisites Remove Pixi and MSYS2 installs used by the Windows bootstrapper.
+echo   --remove-prerequisites Remove the Pixi install used by the Windows installer.
 echo   --remove-pixi         Remove %%USERPROFILE%%\.pixi and its user PATH entry.
-echo   --remove-msys2        Remove the MSYS2 install root.
-echo   --msys2-root PATH     MSYS2 root to remove when --remove-msys2 is used. Defaults to %%MSYS2_ROOT%% or C:\msys64.
+echo   --remove-msys2        Legacy: remove the MSYS2 that earlier installers set up.
+echo   --msys2-root PATH     MSYS2 root for --remove-msys2. Defaults to %%MSYS2_ROOT%% or C:\msys64.
 echo   --dry-run             Print resolved paths and exit without changing anything.
 echo   --help                Show this help.
 exit /b 0

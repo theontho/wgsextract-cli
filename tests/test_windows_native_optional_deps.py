@@ -33,6 +33,57 @@ def test_pixi_declares_native_windows_optional_tools() -> None:
     assert {"fastqc", "haplogrep"} <= set(bio_tools)
 
 
+LEGACY_INSTALLER_FLAGS = (
+    "--skip-msys2-install",
+    "--skip-pacman-setup",
+    "--skip-package-install",
+    "--force-bwa-build",
+    "--skip-fastp-download",
+)
+LEGACY_INSTALLER_OPTIONS = ("--msys2-root", "--bwa-binary-url", "--fastp-binary-sha256")
+
+
+def test_windows_installer_only_needs_pixi() -> None:
+    installer = (ROOT / "install_windows.bat").read_text(encoding="utf-8")
+    prereqs = (ROOT / "scripts" / "bootstrap_windows_prereqs.ps1").read_text(
+        encoding="utf-8"
+    )
+    # Tools come from the Pixi environment: no MSYS2, no runtime setting.
+    for retired in (
+        "setup_pacman_runtime",
+        "pacman.exe",
+        "tool_runtime",
+        "save_config",
+    ):
+        assert retired not in installer
+    assert "msys2" not in prereqs.lower()
+    assert "pixi install --locked" in installer
+    assert "pixi run wgsextract deps check" in installer
+
+
+def test_windows_installer_accepts_the_old_installers_options() -> None:
+    # gui-for-cli and older docs still pass these: ignored, not an error.
+    installer = (ROOT / "install_windows.bat").read_text(encoding="utf-8")
+    switches = installer.split("rem accepted and ignored.", 1)[1].split(":args_done")[0]
+    flags, valued = (
+        set(part.split(")", 1)[0].split())
+        for part in switches.split("for %%O in (")[1:]
+    )
+    assert set(LEGACY_INSTALLER_FLAGS) <= flags
+    # Options with a value skip it too.
+    assert set(LEGACY_INSTALLER_OPTIONS) <= valued
+
+
+def test_windows_uninstaller_keeps_a_users_own_msys2() -> None:
+    uninstaller = (ROOT / "uninstall_windows.bat").read_text(encoding="utf-8")
+    prerequisites = uninstaller.split('"--remove-prerequisites" (', 1)[1].split(")")[0]
+    assert "REMOVE_PIXI=1" in prerequisites
+    assert "REMOVE_MSYS2" not in prerequisites
+    # Clearing the config drops every old runtime setting.
+    for key in ("tool_runtime", "pacman_ucrt64_bin", "runtime_directory"):
+        assert key in uninstaller
+
+
 def test_pixi_installs_runnable_yleaf_from_upstream_package_data_source() -> None:
     # Upstream's tagged source (Bioconda's build lacks the marker tables), as an
     # archive rather than a git checkout: a new Windows PC has no git, and the

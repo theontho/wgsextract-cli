@@ -1,12 +1,12 @@
 name: Rerun Lost Runners
 
 # A hosted runner sometimes dies mid-job ("The hosted runner lost communication
-# with the server"), most often on Windows during WSL setup. That says nothing
+# with the server"), most often on Windows. That says nothing
 # about the change, so rerun the failed jobs once; a failure the run itself
 # caused is left alone.
 on:
   workflow_run:
-    workflows: ["CI Ubuntu", "CI macOS", "CI Windows", "CI Windows Pacman Runtime", "Install Lab"]
+    workflows: ["CI Ubuntu", "CI macOS", "CI Windows", "Install Lab"]
     types: [completed]
 
 permissions:
