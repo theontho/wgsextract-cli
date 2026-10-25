@@ -1,15 +1,8 @@
 import argparse
 import logging
-import os
-import subprocess
 import sys
 from typing import Any
 
-from wgsextract_cli.core import (
-    runtime,
-    runtime_paths,
-    runtime_wrappers,
-)
 from wgsextract_cli.core.dependency_checks import check_all_dependencies
 from wgsextract_cli.core.utils import WGSExtractError
 
@@ -92,90 +85,3 @@ def run(args: argparse.Namespace) -> None:
             + ". Install them to ensure full functionality."
         )
     logging.info("All mandatory tools verified successfully.")
-
-
-def _run_wsl_info(command: str) -> str | None:
-    try:
-        result = subprocess.run(
-            ["wsl", "bash", "-lc", command],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if result.returncode != 0:
-        return None
-    return result.stdout.replace("\x00", "").strip()
-
-
-def run_wsl_check(args: argparse.Namespace) -> None:
-    print("WSL Runtime")
-    print("-" * 60)
-    print(f"Host platform:       {sys.platform}")
-    print(f"Configured runtime:  {runtime.get_tool_runtime_mode()}")
-
-    available = runtime.detect_wsl_available(force=True)
-    print(f"WSL available:       {'yes' if available else 'no'}")
-    if not available:
-        raise WGSExtractError(
-            "WSL is not available. Run bootstrap_wsl.ps1 or install WSL with 'wsl --install'."
-        )
-
-    distro = _run_wsl_info("printf '%s' \"$(. /etc/os-release && echo $PRETTY_NAME)\"")
-    kernel = _run_wsl_info("uname -r")
-    pixi = _run_wsl_info("~/.pixi/bin/pixi --version 2>/dev/null || true")
-
-    print(f"WSL distro:          {distro or 'unknown'}")
-    print(f"WSL kernel:          {kernel or 'unknown'}")
-    print(f"WSL pixi:            {pixi or 'not found at ~/.pixi/bin/pixi'}")
-    if runtime.is_windows_host():
-        print(f"Current repo in WSL: {runtime_paths.windows_to_wsl_path(os.getcwd())}")
-
-    config_path = runtime_wrappers.get_wslconfig_path()
-    settings = runtime_wrappers.read_wslconfig_settings(config_path)
-    print(f".wslconfig:          {config_path}")
-    for key in ["memory", "processors", "swap"]:
-        print(f"  {key:<10}       {settings.get(key, 'unset')}")
-
-    print("\nMandatory tools")
-    print("-" * 60)
-    results = check_all_dependencies(runtime_mode="wsl")
-    missing: list[str] = []
-    for tool in results["mandatory"]:
-        if tool["name"] == "Python Runtime":
-            continue
-        status = "yes" if tool["path"] else "no"
-        print(f"{tool['name']:<20} {status:<4} {tool['path'] or ''}")
-        if not tool["path"]:
-            missing.append(str(tool["name"]))
-
-    if missing:
-        raise WGSExtractError("Missing WSL-backed tool(s): " + ", ".join(missing))
-
-
-def run_wsl_tune(args: argparse.Namespace) -> None:
-    recommendation = runtime_wrappers.recommend_wslconfig_settings()
-    memory = args.wsl_memory or recommendation.memory
-    processors = (
-        args.processors if args.processors is not None else recommendation.processors
-    )
-    swap = args.swap or recommendation.swap
-
-    config_path = runtime_wrappers.write_wslconfig_settings(
-        memory=memory,
-        processors=processors,
-        swap=swap,
-    )
-    print(f"Updated {config_path}")
-    print(
-        "WSL defaults use benchmark-backed host ratios: "
-        "processors=2/3, memory=3/4, swap=1/4."
-    )
-    print(
-        "Resolved settings: "
-        f"memory={memory}, processors={processors}, swap={swap} "
-        f"(host: {recommendation.host_processors} CPUs, "
-        f"{recommendation.host_memory_gb}GB RAM)"
-    )
-    print("Run 'wsl --shutdown' or reboot Windows for these settings to take effect.")

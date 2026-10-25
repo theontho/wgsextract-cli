@@ -169,8 +169,7 @@ def joint_trio_vcf(
         read_groups = str(Path(work, "read_groups.txt"))
         Path(read_groups).write_text(
             "".join(
-                f"*\t{_tool_side_path(a)}\t{s}\n"
-                for a, s in zip(alignments, TRIO_SAMPLES, strict=True)
+                f"*\t{a}\t{s}\n" for a, s in zip(alignments, TRIO_SAMPLES, strict=True)
             ),
             newline="\n",
         )
@@ -184,7 +183,7 @@ def joint_trio_vcf(
         )
         chunks = [str(Path(work, f"{i:03d}.vcf.gz")) for i in range(len(regions))]
         # Threads, not processes: each worker only waits on bcftools, and threads
-        # keep the selected --config (a WSL or native runtime) that new processes
+        # keep the selected --config (and its tool paths) that new processes
         # would lose on Windows and macOS.
         with ThreadPoolExecutor(max_workers=max(1, threads)) as pool:
             futures = [
@@ -225,18 +224,6 @@ def split_multiallelic(vcf: str, out_vcf: str) -> str:
     run_command(["bcftools", "norm", "-m", "-any", "-Oz", "-o", out_vcf, vcf])
     ensure_vcf_indexed(out_vcf)
     return out_vcf
-
-
-def _tool_side_path(path: str) -> str:
-    """A path as bcftools sees it: the read-group file's keys must match its
-    arguments, which the WSL backend translates."""
-    from wgsextract_cli.core import runtime
-    from wgsextract_cli.core.dependencies import get_tool_path
-    from wgsextract_cli.core.runtime_paths import translate_wsl_arg
-
-    if runtime.is_wsl_tool_command(get_tool_path("bcftools") or ""):
-        return translate_wsl_arg(path)
-    return path
 
 
 def write_isolated_denovo(denovo_vcf: str, out_vcf: str) -> tuple[int, int]:

@@ -7,9 +7,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from wgsextract_cli.core import (
-    runtime_wrappers,
-)
 from wgsextract_cli.core.utils import WGSExtractError
 
 from .dependencies import (
@@ -104,18 +101,19 @@ def _launch_failure(tool: str, returncode: int, output: str) -> str | None:
 
 _USAGE_RE = re.compile(r"^\s*usage:", re.IGNORECASE | re.MULTILINE)
 
-IGNORED_VERSION_OUTPUT_PREFIXES = ("wsl: Failed to mount ",)
+# A version probe's time limit. A tool's first start on a freshly installed
+# Windows PC can take far longer than later ones (Python compiles its bytecode,
+# Defender scans every new file): Yleaf's `--help` took 24 s there, then 1 s.
+VERSION_PROBE_TIMEOUT = 60
 
 
 def _version_output(stdout: str, stderr: str) -> str:
-    """Return useful version text, filtering host-runtime noise."""
+    """Return the version text, without blank and debug lines."""
     lines = []
     for stream_text in (stdout, stderr):
         for line in stream_text.splitlines():
             stripped = line.strip()
             if not stripped:
-                continue
-            if stripped.startswith(IGNORED_VERSION_OUTPUT_PREFIXES):
                 continue
             if stripped.startswith("DEBUG:"):
                 continue
@@ -123,10 +121,10 @@ def _version_output(stdout: str, stderr: str) -> str:
     return "\n".join(lines)
 
 
-def get_tool_version(tool: str, runtime_mode: str | None = None) -> str | None:
+def get_tool_version(tool: str) -> str | None:
     """Attempt to get the version of a tool by running it."""
     # Use the path/command from get_tool_path to handle pixi correctly
-    cmd_base = get_tool_path(tool, runtime_mode)
+    cmd_base = get_tool_path(tool)
     if not cmd_base:
         return None
 
@@ -142,10 +140,10 @@ def get_tool_version(tool: str, runtime_mode: str | None = None) -> str | None:
         # 1. Try --version first (standard)
         version_arg = "--help" if tool == "yleaf" else "--version"
         res = subprocess.run(
-            runtime_wrappers.wrap_command(full_cmd + [version_arg]),
+            full_cmd + [version_arg],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=VERSION_PROBE_TIMEOUT,
         )
         if crashed := _crash_description(res.returncode):
             return f"Error: {tool} {crashed}"
@@ -164,10 +162,10 @@ def get_tool_version(tool: str, runtime_mode: str | None = None) -> str | None:
 
         # 2. Fallback for tools that use bare command or --help
         res = subprocess.run(
-            runtime_wrappers.wrap_command(full_cmd),
+            full_cmd,
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=VERSION_PROBE_TIMEOUT,
         )
         if crashed := _crash_description(res.returncode):
             return f"Error: {tool} {crashed}"
@@ -227,30 +225,12 @@ def verify_dependencies(
 
     if missing:
         is_optional = all(tool in optional_list for tool in missing)
-        is_windows = sys.platform == "win32"
-
         if is_optional:
             logging.error("Required optional tool(s) missing for this feature:")
         else:
-            if is_windows:
-                logging.warning(
-                    "Missing required core tools on Windows. Some features may not work."
-                )
-                logging.warning(
-                    "Use tool_runtime='windows' for native Windows pacman+Pixi, "
-                    "'wgsextract deps wsl check' for WSL, or "
-                    "'wgsextract deps cygwin setup' / 'wgsextract deps msys2 setup' "
-                    "for bundled Windows runtimes, or 'wgsextract deps pacman check' "
-                    "for MSYS2/UCRT64 pacman tools."
-                )
-            else:
-                logging.error("Missing required core tools or JAR files.")
-
+            logging.error("Missing required core tools or JAR files.")
         for t in missing:
-            if is_windows and not is_optional:
-                logging.warning(f" - {t} (Missing)")
-            else:
-                logging.error(f" - {t}")
+            logging.error(f" - {t}")
 
         if is_optional:
             logging.info(
@@ -260,18 +240,10 @@ def verify_dependencies(
             raise WGSExtractError(
                 f"Missing required optional tool(s): {', '.join(missing)}"
             )
-        elif not is_windows:
-            logging.error(
-                "Please ensure all mandatory tools are installed and in your PATH."
-            )
-            raise WGSExtractError(
-                f"Missing required core tool(s): {', '.join(missing)}"
-            )
-        else:
-            logging.warning(
-                "Proceeding anyway, but expect failures in bio-tool commands "
-                "unless WSL tools are configured."
-            )
+        logging.error(
+            "Please ensure all mandatory tools are installed and in your PATH."
+        )
+        raise WGSExtractError(f"Missing required core tool(s): {', '.join(missing)}")
 
     # Version Validation for critical tools
     for tool in ["bcftools", "samtools"]:
@@ -282,9 +254,6 @@ def verify_dependencies(
             if version_str.startswith("Error:"):
                 # Found but unable to run (a crash, a missing library): as
                 # good as missing, as `deps check` reports it.
-                if sys.platform == "win32":
-                    logging.warning(f"{tool} does not run: {version_str}")
-                    continue
                 logging.error(f"{tool} at {get_tool_path(tool)} does not run.")
                 raise WGSExtractError(
                     f"{tool} does not run: {version_str.removeprefix('Error: ')}"
@@ -296,34 +265,19 @@ def verify_dependencies(
             if match:
                 major = int(match.group(1))
                 if major < 1:
-                    if sys.platform == "win32":
-                        logging.warning(
-                            f"{tool} version {version_str} is too old or unsupported on Windows."
-                        )
-                    else:
-                        logging.error(
-                            f"This tool requires {tool} version 1.0 or newer."
-                        )
-                        logging.info(
-                            f"Your current path for {tool} is: {get_tool_path(tool)}"
-                        )
-                        logging.info(
-                            "Please update your conda environment or system path."
-                        )
-                        raise WGSExtractError(
-                            f"{tool} version {version_str} is too old."
-                        )
+                    logging.error(f"This tool requires {tool} version 1.0 or newer.")
+                    logging.info(
+                        f"Your current path for {tool} is: {get_tool_path(tool)}"
+                    )
+                    logging.info("Please update your conda environment or system path.")
+                    raise WGSExtractError(f"{tool} version {version_str} is too old.")
 
 
 def check_all_dependencies(
     mandatory: list[str] | None = None,
     optional: list[str] | None = None,
-    runtime_mode: str | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """
-    Performs a simple dependency check and returns results.
-    runtime_mode overrides the configured tool runtime for this check.
-    """
+    """Performs a simple dependency check and returns results."""
     if mandatory is None:
         mandatory = required_dependency_tools()
     if optional is None:
@@ -347,8 +301,8 @@ def check_all_dependencies(
     for tool in mandatory:
         if tool == "python3":
             continue  # Already checked above as Runtime
-        path = get_tool_path(tool, runtime_mode)
-        version = get_tool_version(tool, runtime_mode) if path else None
+        path = get_tool_path(tool)
+        version = get_tool_version(tool) if path else None
         is_broken = version and version.startswith("Error:")
         present_path = path if not is_broken else None
 
@@ -363,8 +317,8 @@ def check_all_dependencies(
         )
 
     for tool in optional:
-        path = get_tool_path(tool, runtime_mode)
-        version = get_tool_version(tool, runtime_mode) if path else None
+        path = get_tool_path(tool)
+        version = get_tool_version(tool) if path else None
 
         is_broken = version and version.startswith("Error:")
         present_path = path if not is_broken else None

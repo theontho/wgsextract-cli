@@ -56,23 +56,12 @@ def get_resource_defaults(
 
 def _normalize_subprocess_cmd(cmd: PathInput | Sequence[object]) -> list[str]:
     """Expand shell-style command strings and configured Pixi tool wrappers."""
-    from wgsextract_cli.core import (
-        runtime,
-        runtime_wrappers,
-    )
-
     # Wrapper commands are built with each platform's quoting (list2cmdline on
     # Windows), so split them the same way; POSIX shlex drops Windows backslashes.
     from wgsextract_cli.core.tool_commands import _tool_command_parts
 
     def split_wrapper_or_keep(value: str) -> list[str]:
         value = expand_path(value)
-        if (
-            runtime.is_wsl_tool_command(value)
-            or runtime.is_bundled_tool_command(value)
-            or runtime.is_pacman_tool_command(value)
-        ):
-            return [value]
         if command_is_path(value):
             return [value]
         if "pixi run" in value or " " in value:
@@ -101,9 +90,6 @@ def _normalize_subprocess_cmd(cmd: PathInput | Sequence[object]) -> list[str]:
 
     if cmd_list and isinstance(cmd_list[0], str):
         executable = cmd_list[0]
-        if runtime.is_wsl_tool_command(executable):
-            return runtime_wrappers.wrap_command(cmd_list)
-
         if (
             not literal_executable
             and executable
@@ -122,18 +108,12 @@ def _normalize_subprocess_cmd(cmd: PathInput | Sequence[object]) -> list[str]:
 
             resolved = get_tool_path(executable)
             if resolved:
-                if (
-                    runtime.is_wsl_tool_command(resolved)
-                    or runtime.is_bundled_tool_command(resolved)
-                    or runtime.is_pacman_tool_command(resolved)
-                ):
-                    cmd_list = [resolved] + cmd_list[1:]
-                elif command_is_path(resolved):
+                if command_is_path(resolved):
                     cmd_list = [resolved] + cmd_list[1:]
                 else:
                     cmd_list = _tool_command_parts(resolved) + cmd_list[1:]
 
-    return runtime_wrappers.wrap_command(cmd_list)
+    return cmd_list
 
 
 def run_command(

@@ -10,12 +10,6 @@ from wgsextract_cli.core.paths import command_is_path, expand_path
 def _tool_command_parts(cmd_base: str) -> list[str]:
     """Split wrapper commands without corrupting native executable paths."""
     normalized_cmd = expand_path(cmd_base)
-    if (
-        runtime.is_wsl_tool_command(normalized_cmd)
-        or runtime.is_bundled_tool_command(normalized_cmd)
-        or runtime.is_pacman_tool_command(normalized_cmd)
-    ):
-        return [normalized_cmd]
     if command_is_path(normalized_cmd):
         return [normalized_cmd]
     if runtime.is_windows_host():

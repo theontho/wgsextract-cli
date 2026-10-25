@@ -4,7 +4,6 @@ from collections.abc import Callable, Iterator
 from heapq import heappop, heappush
 from pathlib import Path
 
-from wgsextract_cli.core import runtime_wrappers
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.tool_commands import _tool_command_parts
 from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
@@ -102,7 +101,7 @@ def _reference_backed_sequence_provider(
 
 def _samtools_view_bam_writer_cmd(bam_path: str, threads: str) -> list[str]:
     samtools = get_tool_path("samtools") or "samtools"
-    cmd = _tool_command_parts(samtools) + [
+    return _tool_command_parts(samtools) + [
         "view",
         "-@",
         threads,
@@ -112,7 +111,6 @@ def _samtools_view_bam_writer_cmd(bam_path: str, threads: str) -> list[str]:
         bam_path,
         "-",
     ]
-    return runtime_wrappers.wrap_command(cmd)
 
 
 def _write_sam_header(

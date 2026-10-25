@@ -49,7 +49,6 @@ def _format_stdout_report(
         "WGSExtract CLI Benchmark Summary",
         f"Profile: {metadata['profile']} | Suite: {metadata['suite']} | "
         f"Coverage: {metadata['coverage']}x | Full size: {metadata['full_size']}",
-        f"Tool runtime: {metadata['tool_runtime']}",
         f"Data source: {metadata['data_source']} ({metadata['data_source_description']})",
         f"Fake BAM generator: {metadata['fake_bam_generator']}",
         f"Threads: {metadata['threads']}",
@@ -111,7 +110,6 @@ def _format_markdown_report(
         f"- Profile: `{metadata['profile']}`",
         f"- Suite: `{metadata['suite']}`",
         f"- Coverage: `{metadata['coverage']}x`",
-        f"- Tool runtime: `{metadata['tool_runtime']}`",
         f"- Full size reference: `{metadata['full_size']}`",
         f"- Data source: `{metadata['data_source']}` ({metadata['data_source_description']})",
         f"- Fake BAM generator: `{metadata['fake_bam_generator']}`",

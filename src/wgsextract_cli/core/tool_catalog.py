@@ -49,7 +49,7 @@ def required_dependency_tools(include_python: bool = True) -> list[str]:
 
 # Optional tools the CLI only uses on some platforms (sys.platform prefixes).
 PLATFORM_ONLY_TOOLS = {
-    "bwa-mem2": ("linux", "darwin"),
+    "bwa-mem2": ("linux", "darwin", "win32"),
     "sambamba": ("linux",),
     "cyrius": ("linux", "darwin"),
     "run-t1k": ("linux", "darwin"),

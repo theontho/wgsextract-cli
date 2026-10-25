@@ -5,7 +5,6 @@ import os
 import shlex
 import shutil
 import subprocess
-from functools import lru_cache
 from pathlib import Path
 
 from wgsextract_cli.core import runtime
@@ -29,33 +28,6 @@ _WINDOWS_FIRST_USE_STUB = (
     "[p for p in (root / d / name for d in ('bin', 'Scripts')) if p.exists()]; "
     "sys.exit(subprocess.call([sys.argv[1], str(found[0]) if found else name, *sys.argv[3:]]))"
 )
-
-
-@lru_cache(maxsize=1)
-def _wsl_home_dir() -> str | None:
-    if not runtime.is_windows_host():
-        return None
-    try:
-        result = subprocess.run(
-            ["wsl", "bash", "-lc", 'printf %s "$HOME"'],
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if result.returncode != 0:
-        return None
-    home = result.stdout.strip()
-    return home if home else None
-
-
-def _wsl_pixi_path() -> str:
-    home = _wsl_home_dir()
-    if not home:
-        username = os.environ.get("USERNAME")
-        home = f"/home/{username}" if username else "~"
-    return f"{home}/.pixi/bin/pixi"
 
 
 def is_pixi_tool_command(path: str) -> bool:
@@ -232,7 +204,8 @@ raise SystemExit(1)
             ],
             capture_output=True,
             text=True,
-            timeout=10,
+            # A cold first start on Windows takes far longer than later ones.
+            timeout=60,
         )
     except (OSError, subprocess.SubprocessError):
         return None
