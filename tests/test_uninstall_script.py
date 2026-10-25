@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -12,8 +13,8 @@ UNINSTALL_SH = ROOT / "uninstall.sh"
 SH = shutil.which("sh") or "sh"
 
 pytestmark = pytest.mark.skipif(
-    shutil.which("sh") is None,
-    reason="POSIX sh is required to test uninstall.sh",
+    shutil.which("sh") is None or sys.platform == "win32",
+    reason="uninstall.sh is the macOS and Linux uninstaller (POSIX sh)",
 )
 
 
