@@ -1,0 +1,245 @@
+diff --git i/bwamem.c w/bwamem.c
+index 7909c79..c83426a 100644
+--- i/bwamem.c
++++ w/bwamem.c
+@@ -1102,7 +1102,7 @@ mem_alnreg_v mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntse
+ 	free(chn.a);
+ 	regs.n = mem_sort_dedup_patch(opt, bns, pac, (uint8_t*)seq, regs.n, regs.a);
+ 	if (bwa_verbose >= 4) {
+-		err_printf("* %ld chains remain after removing duplicated chains\n", regs.n);
++		err_printf("* %ld chains remain after removing duplicated chains\n", (long)regs.n);
+ 		for (i = 0; i < regs.n; ++i) {
+ 			mem_alnreg_t *p = &regs.a[i];
+ 			printf("** %d, [%d,%d) <=> [%ld,%ld)\n", p->score, p->qb, p->qe, (long)p->rb, (long)p->re);
+diff --git i/bwamem_pair.c w/bwamem_pair.c
+index ef79521..455dbc9 100644
+--- i/bwamem_pair.c
++++ w/bwamem_pair.c
+@@ -88,7 +88,7 @@ void mem_pestat(const mem_opt_t *opt, int64_t l_pac, int n, const mem_alnreg_v *
+ 		dir = mem_infer_dir(l_pac, r[0]->a[0].rb, r[1]->a[0].rb, &is);
+ 		if (is && is <= opt->max_ins) kv_push(uint64_t, isize[dir], is);
+ 	}
+-	if (bwa_verbose >= 3) fprintf(stderr, "[M::%s] # candidate unique pairs for (FF, FR, RF, RR): (%ld, %ld, %ld, %ld)\n", __func__, isize[0].n, isize[1].n, isize[2].n, isize[3].n);
++	if (bwa_verbose >= 3) fprintf(stderr, "[M::%s] # candidate unique pairs for (FF, FR, RF, RR): (%ld, %ld, %ld, %ld)\n", __func__, (long)isize[0].n, (long)isize[1].n, (long)isize[2].n, (long)isize[3].n);
+ 	for (d = 0; d < 4; ++d) { // TODO: this block is nearly identical to the one in bwtsw2_pair.c. It would be better to merge these two.
+ 		mem_pestat_t *r = &pes[d];
+ 		uint64_v *q = &isize[d];
+diff --git i/bwashm.c w/bwashm.c
+index 344b933..1b3f4b3 100644
+--- i/bwashm.c
++++ w/bwashm.c
+@@ -1,3 +1,14 @@
++#ifdef _WIN32
++#include <stdio.h>
++#include "bwa.h"
++bwaidx_t *bwa_idx_load_from_shm(const char *hint) { (void)hint; return 0; }
++int main_shm(int argc, char *argv[])
++{
++	(void)argc; (void)argv;
++	fprintf(stderr, "[E::main_shm] shared-memory indices are not supported on Windows\n");
++	return 1;
++}
++#else
+ #include <sys/types.h>
+ #include <sys/mman.h>
+ #include <string.h>
+@@ -215,3 +226,4 @@ int main_shm(int argc, char *argv[])
+ 	if (to_drop) bwa_shm_destroy();
+ 	return ret;
+ }
++#endif
+diff --git i/bwt_gen.c w/bwt_gen.c
+index db78fde..bdd958c 100644
+--- i/bwt_gen.c
++++ w/bwt_gen.c
+@@ -29,6 +29,7 @@
+ #include <stdint.h>
+ #include <errno.h>
+ #include "QSufSort.h"
++#include "utils.h"
+ 
+ #ifdef USE_MALLOC_WRAPPERS
+ #  include "malloc_wrap.h"
+@@ -1448,12 +1449,12 @@ BWTInc *BWTIncConstructFromPacked(const char *inputFileName, bgint_t initialMaxB
+ 		exit(1);
+ 	}
+ 
+-	if (fseek(packedFile, -1, SEEK_END) != 0) {
++	if (err_fseek(packedFile, -1, SEEK_END) != 0) {
+ 		fprintf(stderr, "BWTIncConstructFromPacked() : Can't seek on %s : %s\n",
+ 				inputFileName, strerror(errno));
+ 		exit(1);
+ 	}
+-	packedFileLen = ftell(packedFile);
++	packedFileLen = err_ftell(packedFile);
+ 	if (packedFileLen == -1) {
+ 		fprintf(stderr, "BWTIncConstructFromPacked() : Can't ftell on %s : %s\n",
+ 				inputFileName, strerror(errno));
+@@ -1479,7 +1480,7 @@ BWTInc *BWTIncConstructFromPacked(const char *inputFileName, bgint_t initialMaxB
+ 	}
+ 	textSizeInByte = textToLoad / CHAR_PER_BYTE;	// excluded the odd byte
+ 
+-	if (fseek(packedFile, -((long)textSizeInByte + 2), SEEK_CUR) != 0) {
++	if (err_fseek(packedFile, -((int64_t)textSizeInByte + 2), SEEK_CUR) != 0) {
+ 		fprintf(stderr, "BWTIncConstructFromPacked() : Can't seek on %s : %s\n",
+ 				inputFileName, strerror(errno));
+ 		exit(1);
+@@ -1491,7 +1492,7 @@ BWTInc *BWTIncConstructFromPacked(const char *inputFileName, bgint_t initialMaxB
+ 				ferror(packedFile)? strerror(errno) : "Unexpected end of file");
+ 		exit(1);
+ 	}
+-	if (fseek(packedFile, -((long)textSizeInByte + 1), SEEK_CUR) != 0) {
++	if (err_fseek(packedFile, -((int64_t)textSizeInByte + 1), SEEK_CUR) != 0) {
+ 		fprintf(stderr, "BWTIncConstructFromPacked() : Can't seek on %s : %s\n",
+ 				inputFileName, strerror(errno));
+ 		exit(1);
+@@ -1508,7 +1509,7 @@ BWTInc *BWTIncConstructFromPacked(const char *inputFileName, bgint_t initialMaxB
+ 			textToLoad = totalTextLength - processedTextLength;
+ 		}
+ 		textSizeInByte = textToLoad / CHAR_PER_BYTE;
+-		if (fseek(packedFile, -((long)textSizeInByte), SEEK_CUR) != 0) {
++		if (err_fseek(packedFile, -((int64_t)textSizeInByte), SEEK_CUR) != 0) {
+ 			fprintf(stderr, "BWTIncConstructFromPacked() : Can't seek on %s : %s\n",
+ 					inputFileName, strerror(errno));
+ 			exit(1);
+@@ -1520,7 +1521,7 @@ BWTInc *BWTIncConstructFromPacked(const char *inputFileName, bgint_t initialMaxB
+ 				ferror(packedFile)? strerror(errno) : "Unexpected end of file");
+ 			exit(1);
+ 		}
+-		if (fseek(packedFile, -((long)textSizeInByte), SEEK_CUR) != 0) {
++		if (err_fseek(packedFile, -((int64_t)textSizeInByte), SEEK_CUR) != 0) {
+ 			fprintf(stderr, "BWTIncConstructFromPacked() : Can't seek on %s : %s\n",
+ 					inputFileName, strerror(errno));
+ 			exit(1);
+diff --git i/fastmap.c w/fastmap.c
+index be7ba0e..4a87459 100644
+--- i/fastmap.c
++++ w/fastmap.c
+@@ -445,7 +445,7 @@ int main_fastmap(int argc, char *argv[])
+ 	itr = smem_itr_init(idx->bwt);
+ 	smem_config(itr, min_intv, max_len, max_intv);
+ 	while (kseq_read(seq) >= 0) {
+-		err_printf("SQ\t%s\t%ld", seq->name.s, seq->seq.l);
++		err_printf("SQ\t%s\t%ld", seq->name.s, (long)seq->seq.l);
+ 		if (print_seq) {
+ 			err_putchar('\t');
+ 			err_puts(seq->seq.s);
+diff --git i/kopen.c w/kopen.c
+index d238226..f2a6837 100644
+--- i/kopen.c
++++ w/kopen.c
+@@ -6,7 +6,9 @@
+ #include <string.h>
+ #include <stdlib.h>
+ #include <signal.h>
++#ifndef _WIN32
+ #include <sys/wait.h>
++#endif
+ #include <sys/types.h>
+ #ifndef _WIN32
+ #include <netdb.h>
+@@ -267,6 +269,7 @@ void *kopen(const char *fn, int *_fd)
+ {
+ 	koaux_t *aux = 0;
+ 	*_fd = -1;
++#ifndef _KO_NO_NET
+ 	if (strstr(fn, "http://") == fn) {
+ 		aux = calloc(1, sizeof(koaux_t));
+ 		aux->type = KO_HTTP;
+@@ -275,7 +278,9 @@ void *kopen(const char *fn, int *_fd)
+ 		aux = calloc(1, sizeof(koaux_t));
+ 		aux->type = KO_FTP;
+ 		aux->fd = ftp_open(fn);
+-	} else if (strcmp(fn, "-") == 0) {
++	} else
++#endif
++	if (strcmp(fn, "-") == 0) {
+ 		aux = calloc(1, sizeof(koaux_t));
+ 		aux->type = KO_STDIN;
+ 		aux->fd = STDIN_FILENO;
+@@ -283,6 +288,7 @@ void *kopen(const char *fn, int *_fd)
+ 		const char *p, *q;
+ 		for (p = fn; *p; ++p)
+ 			if (!isspace(*p)) break;
++#ifndef _WIN32
+ 		if (*p == '<') { // pipe open
+ 			int need_shell, pfd[2];
+ 			pid_t pid;
+@@ -315,7 +321,9 @@ void *kopen(const char *fn, int *_fd)
+ 				aux->fd = pfd[0];
+ 				aux->pid = pid;
+ 			}
+-		} else {
++		} else
++#endif
++		{
+ #ifdef _WIN32
+ 			*_fd = open(fn, O_RDONLY | O_BINARY);
+ #else
+@@ -335,12 +343,14 @@ void *kopen(const char *fn, int *_fd)
+ int kclose(void *a)
+ {
+ 	koaux_t *aux = (koaux_t*)a;
++#ifndef _WIN32
+ 	if (aux->type == KO_PIPE) {
+ 		int status;
+ 		pid_t pid;
+ 		pid = waitpid(aux->pid, &status, WNOHANG);
+ 		if (pid != aux->pid) kill(aux->pid, 15);
+ 	}
++#endif
+ 	free(aux);
+ 	return 0;
+ }
+diff --git i/utils.c w/utils.c
+index 9ceb1be..e02d5b5 100644
+--- i/utils.c
++++ w/utils.c
+@@ -153,9 +153,13 @@ int err_gzread(gzFile file, void *ptr, unsigned int len)
+ 	return ret;
+ }
+ 
+-int err_fseek(FILE *stream, long offset, int whence)
++int err_fseek(FILE *stream, int64_t offset, int whence)
+ {
+-	int ret = fseek(stream, offset, whence);
++#ifdef _WIN32
++	int ret = _fseeki64(stream, offset, whence);
++#else
++	int ret = fseeko(stream, (off_t)offset, whence);
++#endif
+ 	if (0 != ret)
+ 	{
+ 		_err_fatal_simple("fseek", strerror(errno));
+@@ -163,9 +167,13 @@ int err_fseek(FILE *stream, long offset, int whence)
+ 	return ret;
+ }
+ 
+-long err_ftell(FILE *stream)
++int64_t err_ftell(FILE *stream)
+ {
+-	long ret = ftell(stream);
++#ifdef _WIN32
++	int64_t ret = _ftelli64(stream);
++#else
++	int64_t ret = ftello(stream);
++#endif
+ 	if (-1 == ret)
+ 	{
+ 		_err_fatal_simple("ftell", strerror(errno));
+diff --git i/utils.h w/utils.h
+index d4d4550..57451a4 100644
+--- i/utils.h
++++ w/utils.h
+@@ -69,9 +69,9 @@ extern "C" {
+ 	size_t err_fread_noeof(void *ptr, size_t size, size_t nmemb, FILE *stream);
+ 
+ 	int err_gzread(gzFile file, void *ptr, unsigned int len);
+-	int err_fseek(FILE *stream, long offset, int whence);
++	int err_fseek(FILE *stream, int64_t offset, int whence);
+ #define err_rewind(FP) err_fseek((FP), 0, SEEK_SET)
+-	long err_ftell(FILE *stream);
++	int64_t err_ftell(FILE *stream);
+ 	int err_fprintf(FILE *stream, const char *format, ...)
+         ATTRIBUTE((format(printf, 2, 3)));
+ 	int err_printf(const char *format, ...)

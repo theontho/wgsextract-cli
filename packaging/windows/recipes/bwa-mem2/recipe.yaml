@@ -1,0 +1,36 @@
+context:
+  version: "2.3"
+
+package:
+  name: bwa-mem2
+  version: ${{ version }}
+
+source:
+  # GitHub's tag archive lacks the safestringlib submodule; this one has it.
+  url: https://github.com/bwa-mem2/bwa-mem2/releases/download/v${{ version }}/Source_code_including_submodules.tar.gz
+  sha256: 0c48a1ea800af499ae7264b4c8908c4ca35fbe5a7df2ad6106c79aa94bb49cbb
+  patches:
+    # Windows' long is 32-bit: 64-bit file offsets (a human index is 6-10 GB),
+    # popcounts and SIMD mask bits (else seeding never finishes). Also no POSIX
+    # pipes or sockets, and no unused global named `stat`.
+    - patches/0001-windows-native-build.patch
+
+build:
+  number: 0
+  string: wgse_${{ build_number }}
+  script:
+    # MSYS2 UCRT64 builds it (see ../env.sh); MSYS2_ROOT says where it is.
+    env:
+      MSYS2_ROOT: ${{ env.get("MSYS2_ROOT", default="C:\\msys64") }}
+    content:
+      - '"%MSYS2_ROOT%\usr\bin\bash.exe" "%RECIPE_DIR%\build.sh"'
+
+tests:
+  - script:
+      - bwa-mem2 version
+
+about:
+  homepage: https://github.com/bwa-mem2/bwa-mem2
+  license: MIT
+  license_file: LICENSE
+  summary: bwa-mem2 short-read aligner, built natively for Windows by WGS Extract.

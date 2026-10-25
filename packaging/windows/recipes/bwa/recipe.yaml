@@ -1,0 +1,34 @@
+context:
+  version: "0.7.19"
+
+package:
+  name: bwa
+  version: ${{ version }}
+
+source:
+  url: https://github.com/lh3/bwa/archive/refs/tags/v${{ version }}.tar.gz
+  sha256: cdff5db67652c5b805a3df08c4e813a822c65791913eccfb3cf7d528588f37bc
+  patches:
+    # 64-bit file offsets (a human .bwt is >2 GB and Windows' long is 32-bit),
+    # no POSIX pipes, sockets or shared memory, and size_t log formats.
+    - patches/0001-windows-native-build.patch
+
+build:
+  number: 0
+  string: wgse_${{ build_number }}
+  script:
+    # MSYS2 UCRT64 builds it (see ../env.sh); MSYS2_ROOT says where it is.
+    env:
+      MSYS2_ROOT: ${{ env.get("MSYS2_ROOT", default="C:\\msys64") }}
+    content:
+      - '"%MSYS2_ROOT%\usr\bin\bash.exe" "%RECIPE_DIR%\build.sh"'
+
+tests:
+  - script:
+      - 'bwa 2>&1 | findstr /C:"Version: ${{ version }}"'
+
+about:
+  homepage: https://github.com/lh3/bwa
+  license: GPL-3.0-only
+  license_file: COPYING
+  summary: BWA short-read aligner, built natively for Windows by WGS Extract.

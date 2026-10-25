@@ -1,0 +1,33 @@
+context:
+  version: "2.31"
+
+package:
+  name: minimap2
+  version: ${{ version }}
+
+source:
+  url: https://github.com/lh3/minimap2/archive/refs/tags/v${{ version }}.tar.gz
+  sha256: bff334a0e4512644e2f3e29944aeec408f49450f4f74dc39fe89e5273869255b
+  patches:
+    # 64-bit offset when reading a .mmi index (Windows' long is 32-bit).
+    - patches/0001-windows-64-bit-index-offset.patch
+
+build:
+  number: 0
+  string: wgse_${{ build_number }}
+  script:
+    # MSYS2 UCRT64 builds it (see ../env.sh); MSYS2_ROOT says where it is.
+    env:
+      MSYS2_ROOT: ${{ env.get("MSYS2_ROOT", default="C:\\msys64") }}
+    content:
+      - '"%MSYS2_ROOT%\usr\bin\bash.exe" "%RECIPE_DIR%\build.sh"'
+
+tests:
+  - script:
+      - minimap2 --version
+
+about:
+  homepage: https://github.com/lh3/minimap2
+  license: MIT
+  license_file: LICENSE.txt
+  summary: minimap2 aligner, built natively for Windows by WGS Extract.

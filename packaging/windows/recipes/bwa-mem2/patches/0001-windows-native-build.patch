@@ -1,0 +1,190 @@
+diff --git i/src/FMI_search.h w/src/FMI_search.h
+index 25c4d0d..7479fcd 100644
+--- i/src/FMI_search.h
++++ w/src/FMI_search.h
+@@ -58,8 +58,8 @@ typedef struct checkpoint_occ_scalar
+ }CP_OCC;
+ 
+ #if defined(__clang__) || defined(__GNUC__)
+-static inline int _mm_countbits_64(unsigned long x) {
+-    return __builtin_popcountl(x);
++static inline int _mm_countbits_64(uint64_t x) {
++    return __builtin_popcountll(x);
+ }
+ #endif
+ 
+diff --git i/src/bwamem.cpp w/src/bwamem.cpp
+index 511200b..88e693e 100755
+--- i/src/bwamem.cpp
++++ w/src/bwamem.cpp
+@@ -233,7 +233,6 @@ int mem_patch_reg(const mem_opt_t *opt, const bntseq_t *bns, const uint8_t *pac,
+ #define MEM_HSP_COEF 1.1f
+ #define MEM_MINSC_COEF 5.5f
+ #define MEM_SEEDSW_COEF 0.05f
+-int stat;
+ 
+ #if MATE_SORT
+ int mem_dedup_patch(const mem_opt_t *opt, const bntseq_t *bns,
+diff --git i/src/fastmap.cpp w/src/fastmap.cpp
+index 5cbb2dc..65c4e06 100644
+--- i/src/fastmap.cpp
++++ w/src/fastmap.cpp
+@@ -863,7 +863,7 @@ int main_mem(int argc, char *argv[])
+     //sprintf(binary_seq_file, "%s.0123", argv[optind]);
+ 
+     fprintf(stderr, "* Binary seq file = %s\n", binary_seq_file);
+-    FILE *fr = fopen(binary_seq_file, "r");
++    FILE *fr = fopen(binary_seq_file, "rb");
+ 
+     if (fr == NULL) {
+         fprintf(stderr, "Error: can't open %s input file\n", binary_seq_file);
+@@ -871,8 +871,8 @@ int main_mem(int argc, char *argv[])
+     }
+ 
+     int64_t rlen = 0;
+-    fseek(fr, 0, SEEK_END);
+-    rlen = ftell(fr);
++    err_fseek(fr, 0, SEEK_END);
++    rlen = err_ftell(fr);
+     ref_string = (uint8_t*) _mm_malloc(rlen, 64);
+     aux.ref_string = ref_string;
+     rewind(fr);
+diff --git i/src/kopen.cpp w/src/kopen.cpp
+index 14d5377..1a596ac 100644
+--- i/src/kopen.cpp
++++ w/src/kopen.cpp
+@@ -35,7 +35,9 @@
+ #include <string.h>
+ #include <stdlib.h>
+ #include <signal.h>
++#ifndef _WIN32
+ #include <sys/wait.h>
++#endif
+ #include <sys/types.h>
+ #ifndef _WIN32
+ #include <netdb.h>
+@@ -313,6 +315,7 @@ void *kopen(const char *fn, int *_fd)
+ {
+ 	koaux_t *aux = 0;
+ 	*_fd = -1;
++#ifndef _KO_NO_NET
+ 	if (strstr(fn, "http://") == fn) {
+ 		aux = (koaux_t*) calloc(1, sizeof(koaux_t));
+         assert(aux != NULL);
+@@ -323,7 +326,9 @@ void *kopen(const char *fn, int *_fd)
+         assert(aux != NULL);
+ 		aux->type = KO_FTP;
+ 		aux->fd = ftp_open(fn);
+-	} else if (strcmp(fn, "-") == 0) {
++	} else
++#endif
++	if (strcmp(fn, "-") == 0) {
+ 		aux = (koaux_t*) calloc(1, sizeof(koaux_t));
+         assert(aux != NULL);
+ 		aux->type = KO_STDIN;
+@@ -332,6 +337,7 @@ void *kopen(const char *fn, int *_fd)
+ 		const char *p, *q;
+ 		for (p = fn; *p; ++p)
+ 			if (!isspace(*p)) break;
++#ifndef _WIN32
+ 		if (*p == '<') { // pipe open
+ 			int need_shell, pfd[2];
+ 			pid_t pid;
+@@ -365,7 +371,9 @@ void *kopen(const char *fn, int *_fd)
+ 				aux->fd = pfd[0];
+ 				aux->pid = pid;
+ 			}
+-		} else {
++		} else
++#endif
++		{
+ #ifdef _WIN32
+ 			*_fd = open(fn, O_RDONLY | O_BINARY);
+ #else
+@@ -386,12 +394,14 @@ void *kopen(const char *fn, int *_fd)
+ int kclose(void *a)
+ {
+ 	koaux_t *aux = (koaux_t*)a;
++#ifndef _WIN32
+ 	if (aux->type == KO_PIPE) {
+ 		int status;
+ 		pid_t pid;
+ 		pid = waitpid(aux->pid, &status, WNOHANG);
+ 		if (pid != aux->pid) kill(aux->pid, 15);
+ 	}
++#endif
+ 	free(aux);
+ 	return 0;
+ }
+diff --git i/src/kswv.cpp w/src/kswv.cpp
+index 2c2d038..acf8ae2 100644
+--- i/src/kswv.cpp
++++ w/src/kswv.cpp
+@@ -429,13 +429,13 @@ int kswv::kswv512_u8(uint8_t seq1SoA[],
+         val = (xtra & KSW_XSUBO)? xtra & 0xffff : 0x10000;
+         if (val <= 255) {
+             minsc[i] = val;
+-            minsc_msk_a |= (0x1L << i);
++            minsc_msk_a |= ((__mmask64)1 << i);
+         }
+         // msc_mask;
+         val = (xtra & KSW_XSTOP)? xtra & 0xffff : 0x10000;
+         if (val <= 255) {
+             endsc[i] = val;
+-            endsc_msk_a |= (0x1L << i);
++            endsc_msk_a |= ((__mmask64)1 << i);
+         }
+     }
+ 
+diff --git i/src/utils.cpp w/src/utils.cpp
+index d90d4f7..237c8ba 100644
+--- i/src/utils.cpp
++++ w/src/utils.cpp
+@@ -153,9 +153,13 @@ int err_gzread(gzFile file, void *ptr, unsigned int len)
+ 	return ret;
+ }
+ 
+-int err_fseek(FILE *stream, long offset, int whence)
++int err_fseek(FILE *stream, int64_t offset, int whence)
+ {
+-	int ret = fseek(stream, offset, whence);
++#ifdef _WIN32
++	int ret = _fseeki64(stream, offset, whence);
++#else
++	int ret = fseeko(stream, (off_t)offset, whence);
++#endif
+ 	if (0 != ret)
+ 	{
+ 		_err_fatal_simple("fseek", strerror(errno));
+@@ -163,9 +167,13 @@ int err_fseek(FILE *stream, long offset, int whence)
+ 	return ret;
+ }
+ 
+-long err_ftell(FILE *stream)
++int64_t err_ftell(FILE *stream)
+ {
+-	long ret = ftell(stream);
++#ifdef _WIN32
++	int64_t ret = _ftelli64(stream);
++#else
++	int64_t ret = ftello(stream);
++#endif
+ 	if (-1 == ret)
+ 	{
+ 		_err_fatal_simple("ftell", strerror(errno));
+diff --git i/src/utils.h w/src/utils.h
+index fbf8439..6a68355 100644
+--- i/src/utils.h
++++ w/src/utils.h
+@@ -88,9 +88,9 @@ extern "C" {
+ 	size_t err_fread_noeof(void *ptr, size_t size, size_t nmemb, FILE *stream);
+ 
+ 	int err_gzread(gzFile file, void *ptr, unsigned int len);
+-	int err_fseek(FILE *stream, long offset, int whence);
++	int err_fseek(FILE *stream, int64_t offset, int whence);
+ #define err_rewind(FP) err_fseek((FP), 0, SEEK_SET)
+-	long err_ftell(FILE *stream);
++	int64_t err_ftell(FILE *stream);
+ 	int err_fprintf(FILE *stream, const char *format, ...)
+         ATTRIBUTE((format(printf, 2, 3)));
+ 	int err_printf(const char *format, ...)

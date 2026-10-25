@@ -1,0 +1,30 @@
+context:
+  version: "1.24"
+
+package:
+  name: samtools
+  version: ${{ version }}
+
+source:
+  url: https://github.com/samtools/samtools/releases/download/${{ version }}/samtools-${{ version }}.tar.bz2
+  sha256: 89b2a440123eeaa400392ce1736e7d60ce9041843027d76819753c5a8246bfdd
+
+build:
+  number: 0
+  string: wgse_${{ build_number }}
+  script:
+    # MSYS2 UCRT64 builds it (see ../env.sh); MSYS2_ROOT says where it is.
+    env:
+      MSYS2_ROOT: ${{ env.get("MSYS2_ROOT", default="C:\\msys64") }}
+    content:
+      - '"%MSYS2_ROOT%\usr\bin\bash.exe" "%RECIPE_DIR%\build.sh"'
+
+tests:
+  - script:
+      - samtools --version
+
+about:
+  homepage: https://www.htslib.org
+  license: MIT
+  license_file: LICENSE
+  summary: samtools, built natively for Windows by WGS Extract (static, with its bundled htslib).

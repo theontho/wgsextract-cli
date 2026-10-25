@@ -1,0 +1,32 @@
+diff --git i/src/jsonreporter.cpp w/src/jsonreporter.cpp
+index 50a023a..dc2bc6c 100644
+--- i/src/jsonreporter.cpp
++++ w/src/jsonreporter.cpp
+@@ -1,5 +1,17 @@
+ #include "jsonreporter.h"
+ 
++// The command line holds file paths, which may contain backslashes (every
++// Windows path) or quotes; escape them so the report stays valid JSON.
++static string jsonEscape(const string& text) {
++    string escaped;
++    for (char c : text) {
++        if (c == '"' || c == '\\')
++            escaped += '\\';
++        escaped += c;
++    }
++    return escaped;
++}
++
+ JsonReporter::JsonReporter(Options* opt){
+     mOptions = opt;
+     mDupHist = NULL;
+@@ -166,7 +178,7 @@ void JsonReporter::report(FilterResult* result, Stats* preStats1, Stats* postSta
+         postStats2 -> reportJson(ofs, "\t");
+     }
+ 
+-    ofs << "\t\"command\": " << "\"" << command << "\"" << endl;
++    ofs << "\t\"command\": " << "\"" << jsonEscape(command) << "\"" << endl;
+ 
+     ofs << "}";
+ }
+\ No newline at end of file
