@@ -80,8 +80,28 @@ def _pixi_env_installed(pixi_run: list[str], env: str) -> bool:
     return False
 
 
+# Windows' exit codes for a process the system ended (NTSTATUS errors).
+_NTSTATUS_CRASHES = {
+    0xC0000005: "access violation",
+    0xC000001D: "illegal instruction",
+    0xC0000094: "integer division by zero",
+    0xC00000FD: "stack overflow",
+    0xC0000409: "fast fail",
+    0xC0000135: "a DLL it needs was not found",
+    0xC0000139: "a DLL lacks a function it needs",
+    0xC0000142: "a DLL failed to initialize",
+    0xC000007B: "not a valid Windows program for this machine",
+}
+
+
 def _crash_description(returncode: int) -> str | None:
-    """Describe a death by signal (negative code, or 128+N from a wrapper shell)."""
+    """Describe a death by signal (negative code, or 128+N from a wrapper shell),
+    or on Windows by an NTSTATUS error."""
+    if returncode >= 0xC0000000:
+        name = _NTSTATUS_CRASHES.get(returncode, f"NTSTATUS 0x{returncode:08X}")
+        return f"crashed ({name})"
+    if sys.platform == "win32":
+        return None
     signum = -returncode if returncode < 0 else returncode - 128
     if returncode < 0 or 128 < returncode < 160:
         try:

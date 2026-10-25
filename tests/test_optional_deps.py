@@ -1,6 +1,5 @@
 import json
 import os
-import shlex
 import sys
 import tempfile
 import unittest
@@ -17,6 +16,7 @@ from wgsextract_cli.core.dependency_checks import (  # noqa: E402
     check_all_dependencies,
     verify_dependencies,
 )
+from wgsextract_cli.core.pixi_tools import _join_command  # noqa: E402
 from wgsextract_cli.core.runtime import source_checkout_root
 from wgsextract_cli.core.utils import WGSExtractError  # noqa: E402
 
@@ -28,7 +28,7 @@ def _outside_a_pixi_environment(monkeypatch):
     monkeypatch.delenv("PIXI_ENVIRONMENT_NAME", raising=False)
 
 
-MANIFEST = shlex.quote(str(source_checkout_root() / "pixi.toml"))
+MANIFEST = _join_command([str(source_checkout_root() / "pixi.toml")])
 
 
 class TestOptionalDependencies(unittest.TestCase):
@@ -293,7 +293,9 @@ def test_uninstalled_optional_env_resolves_from_lockfile_without_installing():
         command = pixi_tools._host_pixi_tool_command("gatk")
 
     assert [c[0] for c in calls] == ["run", "list", "info"]
-    assert command is not None and command.endswith("-e gatk gatk")
+    # Windows runs the GATK script through its first-use launcher stub.
+    tail = " python gatk" if sys.platform == "win32" else "-e gatk gatk"
+    assert command is not None and "-e gatk " in command and command.endswith(tail)
     assert not any(c[0] == "install" for c in calls)
 
 
@@ -423,6 +425,7 @@ def test_version_probe_runs_an_installed_env_without_installing(tmp_path):
     assert version and "2.6.3" in version
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals")
 @pytest.mark.parametrize("returncode", [-11, 139])
 def test_version_probe_reports_a_crashing_tool(returncode):
     from wgsextract_cli.core import dependency_checks

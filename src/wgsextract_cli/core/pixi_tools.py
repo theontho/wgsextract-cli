@@ -41,7 +41,9 @@ def is_pixi_tool_command(path: str) -> bool:
     if not command:
         return False
     executable = Path(command[0]).name.lower()
-    return executable in {"pixi", "pixi.exe"} and "run" in command[1:]
+    # Windows package managers may install pixi as a .cmd or .bat shim.
+    pixi_names = {"pixi", "pixi.exe", "pixi.cmd", "pixi.bat"}
+    return executable in pixi_names and "run" in command[1:]
 
 
 def is_pixi_tool_path(path: str) -> bool:
