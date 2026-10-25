@@ -106,23 +106,22 @@ LINUX = AppPlatform(
 )
 
 
+def app_platform(meta: dict[str, Any]) -> AppPlatform:
+    target = str(meta.get("target", ""))
+    if target.startswith("windows"):
+        return WINDOWS
+    if target == "linux":
+        return LINUX
+    return MACOS_TAURI if meta.get("macos_runtime") == "tauri" else MACOS
+
+
 class GuiOracle(Oracle):
     def __init__(
         self, results: Path, nonce: str, tools: dict[str, str], signed: bool
     ) -> None:
         super().__init__(results, nonce, tools)
         self.signed = signed
-        self.app = (
-            WINDOWS
-            if self.target.startswith("windows")
-            else LINUX
-            if self.target == "linux"
-            else MACOS
-        )
-        if self.app is MACOS:
-            meta = self.result_file("lab-run.json")
-            if meta.get("macos_runtime") == "tauri":
-                self.app = MACOS_TAURI
+        self.app = app_platform(self.result_file("lab-run.json"))
         self.install_marker = self.app.install_marker
 
     def output(self, *parts: str) -> Path:
@@ -290,7 +289,7 @@ class GuiOracle(Oracle):
 
     def run(self, dataset: Path, noise_patterns: list[str]) -> list:
         self.check_run_identity()
-        if self.app is MACOS:
+        if self.app is MACOS or self.app is MACOS_TAURI:
             self.check_gatekeeper_enabled()
         self.check_clean_baseline()
         self.check_steps()
