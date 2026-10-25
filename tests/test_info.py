@@ -408,3 +408,20 @@ def test_chrom_table_applies_n_counts_to_standard_assembly():
     )
     chr20 = next(row for row in table if row[1] == "20")
     assert chr20[3] > 0
+
+
+@pytest.mark.parametrize(
+    "path", ["/data/s.cram", r"C:\Users\Lab User\s.cram", "relative:name.cram"]
+)
+def test_file_version_reads_htsfile_output_after_the_path(path, monkeypatch):
+    # A Windows path has a colon of its own; htsfile separates with ":\t".
+    from types import SimpleNamespace
+
+    from wgsextract_cli.core import variant_files
+
+    def fake_run(cmd, **_kw):
+        out = f"{path}:\tCRAM version 3.1 compressed sequence data\n"
+        return SimpleNamespace(returncode=0, stdout=out)
+
+    monkeypatch.setattr(variant_files, "run_command", fake_run)
+    assert variant_files.get_file_version(path) == "CRAM version 3.1 compressed"

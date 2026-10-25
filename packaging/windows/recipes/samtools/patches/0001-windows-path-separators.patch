@@ -1,0 +1,44 @@
+diff --git i/bam_sort.c w/bam_sort.c
+index 64e643f..503035d 100644
+--- i/bam_sort.c
++++ w/bam_sort.c
+@@ -1182,7 +1182,12 @@ int bam_merge_core2(SamOrder sam_order, char* sort_tag, const char *out, const c
+             const char *s = fn[i];
+             if (l > 4 && (strcmp(s + l - 4, ".bam") == 0 || strcmp(s + l - 4, ".sam") == 0)) l -= 4;
+             if (l > 5 && strcmp(s + l - 5, ".cram") == 0) l -= 5;
+-            for (j = l - 1; j >= 0; --j) if (s[j] == '/') break;
++            for (j = l - 1; j >= 0; --j) {
++                if (s[j] == '/') break;
++#ifdef _WIN32
++                if (s[j] == '\\' || s[j] == ':') break;
++#endif
++            }
+             ++j; l -= j;
+             RG[i] = (char*)calloc(l + 1, 1);
+             if (!RG[i]) goto mem_fail;
+diff --git i/bam_split.c w/bam_split.c
+index fe8380f..4e1b9fd 100644
+--- i/bam_split.c
++++ w/bam_split.c
+@@ -377,6 +377,10 @@ static khiter_t prep_sam_file(parsed_opts_t *opts, state_t *state,
+         return kh_end(state->tag_val_hash);
+     }
+     char *dirsep = strrchr(opts->merged_input_name, '/');
++#ifdef _WIN32
++    char *backslash = strrchr(opts->merged_input_name, '\\');
++    if (backslash && (!dirsep || backslash > dirsep)) dirsep = backslash;
++#endif
+     input_base_name = strdup(dirsep? dirsep+1 : opts->merged_input_name);
+     if (!input_base_name) {
+         print_error_errno("split", "Filename parsing failed");
+@@ -639,6 +643,10 @@ static state_t* init(parsed_opts_t* opts, const char *arg_list)
+ 
+     // Open output files for RGs
+     char* dirsep = strrchr(opts->merged_input_name, '/');
++#ifdef _WIN32
++    char* backslash = strrchr(opts->merged_input_name, '\\');
++    if (backslash && (!dirsep || backslash > dirsep)) dirsep = backslash;
++#endif
+     char* input_base_name = strdup(dirsep? dirsep+1 : opts->merged_input_name);
+     if (!input_base_name) {
+         print_error_errno("split", "Filename manipulation failed");
