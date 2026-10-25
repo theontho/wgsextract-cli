@@ -1,0 +1,16 @@
+--- a/bwt.c
++++ b/bwt.c
+@@ -192,6 +192,13 @@
+ 	_k = k - (k >= bwt->primary);
+ 	_l = l - (l >= bwt->primary);
+ 	if (_l>>OCC_INTV_SHIFT != _k>>OCC_INTV_SHIFT || k == (bwtint_t)(-1) || l == (bwtint_t)(-1)) {
++#if defined(__GNUC__) || defined(__clang__)
++        /* Both interval addresses are known: overlap the independent loads. */
++        if (k != (bwtint_t)(-1) && l != (bwtint_t)(-1)) {
++            __builtin_prefetch(bwt_occ_intv(bwt, _k), 0, 3);
++            __builtin_prefetch(bwt_occ_intv(bwt, _l), 0, 3);
++        }
++#endif
+ 		bwt_occ4(bwt, k, cntk);
+ 		bwt_occ4(bwt, l, cntl);
+ 	} else {
