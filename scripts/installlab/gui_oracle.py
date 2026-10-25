@@ -49,18 +49,18 @@ MACOS = AppPlatform(
         "install_app",
         "gatekeeper",
         "setup",
-        "runner",
         "actions",
         "uninstall",
     ],
     signature_step="gatekeeper",
     signed_text="accepted",
     unsigned_text="rejected",
-    window_file="startup.txt",
-    window_text="window_appeared_ms=",
+    # The page drew: the app is ready and titled (main.rs).
+    window_file="app-stdout.txt",
+    window_text="metric webAppRendered_ms=",
     installed=["dir\t/Applications/WGSExtract.app"],
-    install_marker="/dev.guiforcli.embed.wgsextract/BundleWorkspaces",
-    emptied_preferences="/Library/Preferences/dev.guiforcli.embed.wgsextract.plist",
+    install_marker="/dev.guiforcli.web.embed.wgsextract/BundleWorkspaces",
+    emptied_preferences="/Library/Preferences/dev.guiforcli.web.embed.wgsextract.plist",
 )
 _WIN_APP = "C:/Users/lab user/AppData/Local/WGSExtract"
 WINDOWS = AppPlatform(

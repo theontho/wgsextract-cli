@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 LAB_SCRIPTS = Path(__file__).resolve().parents[1] / "scripts" / "installlab"
-PLIST = "/Users/runner/Library/Preferences/dev.guiforcli.embed.wgsextract.plist"
-OTHER = "dir\t/Users/runner/Library/Application Support/dev.guiforcli.embed.wgsextract"
+PLIST = "/Users/runner/Library/Preferences/dev.guiforcli.web.embed.wgsextract.plist"
+OTHER = "dir\t/Users/runner/Library/Application Support/dev.guiforcli.web.embed.wgsextract"
 
 
 @pytest.fixture

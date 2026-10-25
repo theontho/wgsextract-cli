@@ -106,19 +106,19 @@ of failed tests only (`tmp_path_retention_policy = "failed"`).
 ## The macOS app
 
 `lab.py run macos --gui-repo <gui-for-cli checkout>` tests the WGS Extract app
-the same way. It packages the DMG and builds the bundle-test runner from that
-checkout every time (`--dmg` tests a given DMG instead), so a stale build can't
-be what passes. In the VM:
+(Tauri) the same way. It packages the DMG from that checkout every time
+(`--gui-installer <dmg>` tests a given DMG instead), so a stale build can't be
+what passes. In the VM:
 
 1. The DMG is downloaded and given the quarantine flag a browser sets;
    Gatekeeper must accept a Developer ID build and must reject a local ad-hoc
    one (the base image has standard Gatekeeper policy, and every run records its status).
 2. The app is copied to `/Applications` as a drag install would, then
-   launched; it runs its own setup (`GUI_FOR_CLI_AUTO_RUN_SETUP`) and writes the
-   result. Setup installs the CLI release the app pins, or this CLI tree with
+   launched; it runs its own setup (`GUI_FOR_CLI_AUTO_RUN_SETUP`) and logs its
+   events (`GUI_FOR_CLI_SETUP_EVENTS_LOG`), then is quit. Setup installs the CLI release the app pins, or this CLI tree with
    `--cli-from-tree`.
-3. The real actions run on the HG00096 mini genome through the same
-   GUIForCLICore runner the app uses (`gui-for-cli bundle test`) with the
+3. The real actions run on the HG00096 mini genome through the bundle-test
+   runner the app ships (`bundle-test-cli.js`, on its bundled Node) with the
    installed app's bundle and workspace. Clicking isn't simulated; everything
    the click would start is. The reference-genome dropdowns' data sources are
    loaded the same way (`dataSource` steps): each script must resolve for the
@@ -128,8 +128,8 @@ be what passes. In the VM:
    downloads hs38 (755 MB, from this repo's release) with the Library page's
    own download action, and each dropdown must then offer it.
 4. The app's own **Uninstall** (`GUI_FOR_CLI_AUTO_RUN_UNINSTALL`) runs the bundle's
-   uninstall steps, removes the app's data and moves it to the Trash; the Trash
-   is emptied and the machine must match the baseline. One exception: macOS's
+   uninstall steps and removes the app's data; the app is dragged to the Trash,
+   the Trash is emptied and the machine must match the baseline. One exception: macOS's
    preferences daemon (cfprefsd) writes the app's deleted preferences file
    back, empty, up to seconds after the app exits, whatever the app does (even
    `defaults delete` leaves it). The scenario saves the file as the final
@@ -145,17 +145,16 @@ format is checked there; the CLI lab measures concordance.
 ### Published macOS release acceptance
 
 Test the DMG downloaded from the published release, not a locally packaged app
-or a manually dispatched Actions artifact. Use a gui-for-cli checkout matching
-the release tag to build the bundle-test runner. The plan's `dataSource` steps
-need v0.4.4 or later; an older runner rejects them.
+or a manually dispatched Actions artifact. The app carries its own bundle-test
+runner, so no gui-for-cli checkout is needed. Apple silicon hosts take the
+`_aarch64` DMG, Intel ones the `_x64` DMG.
 
 ```bash
-mkdir -p out/installlab/releases/v0.4.4
-gh release download v0.4.4 --repo theontho/gui-for-cli \
-  --pattern WGSExtract-0.4.4.dmg --dir out/installlab/releases/v0.4.4
+mkdir -p out/installlab/releases/vA.B.C
+gh release download vA.B.C --repo theontho/gui-for-cli \
+  --pattern '*_aarch64.dmg' --dir out/installlab/releases/vA.B.C
 pixi run -e dev python scripts/installlab/lab.py run macos \
-  --gui-repo ../gui-for-cli \
-  --dmg out/installlab/releases/v0.4.4/WGSExtract-0.4.4.dmg
+  --gui-installer out/installlab/releases/vA.B.C/WGSExtract_A.B.C_aarch64.dmg
 ```
 
 Do not add `--cli-from-tree`: acceptance must exercise the CLI pinned by the

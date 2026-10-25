@@ -232,7 +232,7 @@ Copy-Item -LiteralPath (Join-Path $env:LOCALAPPDATA "$AppIdentifier\logs\backend
 # everything a click would start is.
 $env:GUI_FOR_CLI_APP_SUPPORT_NAME = $AppIdentifier
 Step "actions" @((Join-Path $InstallDir "node\node.exe"),
-    (Join-Path $InstallDir "platform\typescript\dist\web\src\server\bundle-test-cli.js"),
+    (Join-Path $InstallDir "app\dist\web\src\server\bundle-test-cli.js"),
     "--plan", (Join-Path (Split-Path $PSScriptRoot) "gui-plan.json"), "--workspace", $Workspace,
     "--report", (Join-Path $R "bundle-report.json"), "--log", (Join-Path $R "bundle-test.log"),
     (Join-Path $InstallDir "examples\EmbeddedBundle")) $InstallDir

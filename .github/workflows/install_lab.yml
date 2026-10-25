@@ -188,42 +188,26 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-      - name: Use the image's newest Xcode (the bundle-test runner needs Swift 6.2+)
-        run: |
-          latest=$(find /Applications -maxdepth 1 -name 'Xcode_*.app' | sort -V | tail -n 1)
-          sudo xcode-select -s "$latest/Contents/Developer"
-          xcodebuild -version
+      # The runner is Apple silicon: the arm64 DMG (releases carry an x64 one too).
       - name: Download the app's DMG
-        id: app
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ -n "$APP_RUN" ]; then
-            ref=$(gh run view "$APP_RUN" -R "$GUI_REPO" --json headSha -q .headSha)
-            gh run download "$APP_RUN" -R "$GUI_REPO" -n swiftui-macos -D out/app-run
+            gh run download "$APP_RUN" -R "$GUI_REPO" -n tauri-macos-arm64 -D out/app-run
             mkdir -p out/app
-            find out/app-run -name '*.dmg' -exec mv {} out/app/ \;
+            find out/app-run -name '*_aarch64.dmg' -exec mv {} out/app/ \;
           else
-            ref=${APP_RELEASE:-$(gh release view -R "$GUI_REPO" --json tagName -q .tagName)}
-            gh release download "$ref" -R "$GUI_REPO" -p '*.dmg' -D out/app
+            gh release download ${APP_RELEASE:+"$APP_RELEASE"} -R "$GUI_REPO" -p '*_aarch64.dmg' -D out/app
           fi
           ls -l out/app
-          echo "ref=$ref" >> "$GITHUB_OUTPUT"
-      # The bundle-test runner drives the app's actions; it must match the app.
-      - name: Check out the app's source (for its bundle-test runner)
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.GUI_REPO }}
-          ref: ${{ steps.app.outputs.ref }}
-          path: out/gui-for-cli
-          persist-credentials: false
       - name: Install, use and uninstall the app as the runner's macOS user
         env:
           CLI: ${{ matrix.cli }}
         run: |
           args=()
           if [ "$CLI" = tree ]; then args+=(--cli-from-tree); fi
-          python scripts/installlab/lab.py run host --gui-repo out/gui-for-cli --dmg out/app/*.dmg "${args[@]}" --no-judge --out out/installlab/ci-macos-app
+          python scripts/installlab/lab.py run host --gui-installer out/app/*_aarch64.dmg "${args[@]}" --no-judge --out out/installlab/ci-macos-app
       # No cache: this job has run the app repository's code, and a cache saved
       # here would be restored by this repository's other jobs.
       - name: Set up Pixi

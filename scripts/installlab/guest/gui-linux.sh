@@ -91,7 +91,7 @@ EOF
 
 app_actions() {
     GUI_FOR_CLI_APP_SUPPORT_NAME="$APP_ID" "$APP_DIR/node/bin/node" \
-        "$APP_DIR/platform/typescript/dist/web/src/server/bundle-test-cli.js" \
+        "$APP_DIR/app/dist/web/src/server/bundle-test-cli.js" \
         --plan "$HERE/gui-plan.json" --workspace "$WORKSPACE" \
         --report "$R/bundle-report.json" --log "$R/bundle-test.log" \
         "$APP_DIR/examples/EmbeddedBundle"

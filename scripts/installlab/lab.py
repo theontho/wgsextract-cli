@@ -13,8 +13,9 @@ The guest only collects evidence; this host process judges it (see oracle.py).
   lab.py selftest linux         run every sabotage; each one must FAIL
   lab.py judge <results-dir>    re-judge collected evidence
   lab.py run macos --gui-repo <path>   the macOS app instead of the CLI: build its
-                                DMG, drag-install it, let it run its own setup,
-                                run real actions, uninstall from the app
+                                DMG (or --gui-installer <dmg>), drag-install it,
+                                let it run its own setup, run real actions,
+                                uninstall from the app
   lab.py prepare windows-gui    one-time: add WebView2 and a signed-in desktop
   lab.py run windows --gui-repo <path>   the Windows app (or --gui-installer <exe>)
   lab.py run linux --gui-repo <path>     the Linux app (or --gui-installer <deb>)
@@ -761,7 +762,9 @@ def run_scenario(
             meta["installer_sha256"] = sha256(artifacts["serve"] / installer)
         meta["cli_from_tree"] = gui.cli_from_tree
     elif gui:
-        meta["signed"] = build_gui_artifacts(gui.gui_repo, gui.dmg, artifacts["serve"])
+        meta["signed"] = build_gui_artifacts(
+            gui.gui_repo, gui.gui_installer, artifacts["serve"]
+        )
         meta["dmg_sha256"] = sha256(artifacts["serve"] / "WGSExtract.dmg")
         meta["cli_from_tree"] = gui.cli_from_tree
     machine_cls = MACHINES[target]
@@ -817,7 +820,6 @@ def run_scenario(
                 env["LAB_UPDATE_FROM"] = update_from
             if gui:
                 env["LAB_DMG_URL"] = f"{base}/WGSExtract.dmg"
-                env["LAB_RUNNER_URL"] = f"{base}/gui-runner.tar.gz"
                 if not gui.cli_from_tree:
                     # Setup installs the CLI release the app pins, like a user's.
                     del env["LAB_ARCHIVE_URL"]
@@ -950,10 +952,9 @@ def cmd_run(args: argparse.Namespace) -> None:
         raise SystemExit("The app is tested on the macos, windows and linux targets.")
     if gui and args.target == "host" and sys.platform != "darwin":
         raise SystemExit("On a Linux runner, test the app with the linux target.")
-    if args.gui_installer and args.target in ("macos", "host"):
-        raise SystemExit(
-            "--gui-installer is a Windows .exe or Linux .deb; use --dmg on macos"
-        )
+    wanted = {"macos": ".dmg", "host": ".dmg", "linux": ".deb"}.get(args.target, ".exe")
+    if args.gui_installer and args.gui_installer.suffix != wanted:
+        raise SystemExit(f"--gui-installer on {args.target} is a {wanted} file.")
     results = run_scenario(
         args.target,
         args.mode,
@@ -1072,7 +1073,7 @@ GUI_MUTATIONS: dict[str, Callable[[Path], object]] = {
     "empty-calls": MUTATIONS["empty-calls"],
     "leftover-state": lambda r: _append(
         r / "inventory-after_uninstall.txt",
-        f"dir\t{_planted(r)['home']}/Library/Application Support/dev.guiforcli.embed.wgsextract",
+        f"dir\t{_planted(r)['home']}/Library/Application Support/dev.guiforcli.web.embed.wgsextract",
     ),
     "invisible-install": MUTATIONS["invisible-install"],
     "contaminated-baseline": MUTATIONS["contaminated-baseline"],
@@ -1249,13 +1250,12 @@ def main() -> None:
     p.add_argument(
         "--gui-repo",
         type=Path,
-        help="Test the app (macOS DMG, or Windows installer) built from this checkout.",
+        help="Test the app (DMG, Windows installer or .deb) built from this checkout.",
     )
-    p.add_argument("--dmg", type=Path, help="With --gui-repo: test this DMG instead.")
     p.add_argument(
         "--gui-installer",
         type=Path,
-        help="Test this Windows installer (*-setup.exe) instead of building one.",
+        help="Test this app installer (.dmg, *-setup.exe or .deb) instead of building one.",
     )
     p.add_argument(
         "--cli-from-tree",

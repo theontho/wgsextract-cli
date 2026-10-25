@@ -1,16 +1,15 @@
 #!/bin/sh
 # shellcheck disable=SC1007
-# Install-lab guest scenario for the WGS Extract macOS app.
+# Install-lab guest scenario for the WGS Extract macOS app (Tauri).
 #
 # baseline snapshot -> download the DMG like a browser -> Gatekeeper ->
 # drag-install to /Applications -> the app runs its own setup -> real actions
-# through the app's bundle and runtime -> snapshot -> the app's own uninstall
-# -> empty the Trash -> snapshot
+# through the app's bundled runtime -> snapshot -> the app's own uninstall ->
+# drag the app to the Trash and empty it -> snapshot
 #
 # Inputs (environment), besides LAB_RESULTS / LAB_NONCE / LAB_MODE / LAB_SABOTAGE
 # (see scenario.sh):
 #   LAB_DMG_URL          the DMG under test
-#   LAB_RUNNER_URL       tar.gz of the gui-for-cli bundle-test runner
 #   LAB_ARCHIVE_URL      optional CLI source archive for setup to install
 #                        (unset: setup installs the CLI release the app pins)
 #
@@ -28,16 +27,13 @@ SABOTAGE="${LAB_SABOTAGE:-}"
 MODE="${LAB_MODE:-install}"
 DMG="$HOME/Downloads/WGSExtract.dmg"
 APP="/Applications/WGSExtract.app"
-BUNDLE_ID="dev.guiforcli.embed.wgsextract"
+BUNDLE_ID="dev.guiforcli.web.embed.wgsextract"
+RESOURCES="$APP/Contents/Resources"
 WORKSPACE="$HOME/Library/Application Support/$BUNDLE_ID/BundleWorkspaces/wgs-extract"
-# The test runner is lab tooling, not the product: it lives outside $HOME and
-# keeps its own app data under a name the product never uses.
-RUNNER_DIR="$R/runner"
 # macOS's Local Network privacy keeps an app from reaching the lab host, so the
 # CLI tree under test reaches setup as a local file (users' setup downloads
 # the pinned release from GitHub instead).
 CLI_ARCHIVE="/tmp/wgse-lab-cli.tar.gz"
-export GUI_FOR_CLI_APP_SUPPORT_NAME_RUNNER="lab-bundle-runner"
 
 step() {
     name="$1"
@@ -118,33 +114,38 @@ launch_app() {
 }
 
 app_setup() {
-    rm -f "$R/setup-result.json"
-    launch_app --env GUI_FOR_CLI_AUTO_RUN_SETUP=1 --env GUI_FOR_CLI_QUIT_AFTER_SETUP=1 \
-        --env "GUI_FOR_CLI_TERMINAL_LOG_FILE=$R/app-setup-terminal.log" \
-        --env "GUI_FOR_CLI_SETUP_RESULT_FILE=$R/setup-result.json" \
-        --env GFC_BENCHMARK_STARTUP=1 \
-        --env "GFC_BENCHMARK_OUTPUT=$R/startup.txt" || return 1
-    wait_for_file "$R/startup.txt" 120 || return 1
+    events="$R/setup-events.ndjson"
+    rm -f "$events"
+    launch_app --env GUI_FOR_CLI_AUTO_RUN_SETUP=1 --env "GUI_FOR_CLI_SETUP_EVENTS_LOG=$events" \
+        --stdout "$R/app-stdout.txt" --stderr "$R/app-stderr.txt" || return 1
+    started=$(date +%s)
+    while ! grep -q '"type":"complete"' "$events" 2>/dev/null; do
+        if ! app_running; then echo "the app exited during setup"; return 1; fi
+        if [ ! -s "$events" ] && [ $(( $(date +%s) - started )) -gt 1200 ]; then
+            echo "setup did not start within 20 minutes"; return 1
+        fi
+        if [ $(( $(date +%s) - started )) -gt 10800 ]; then echo "setup did not finish within 3 hours"; return 1; fi
+        sleep 15
+    done
     screencapture -x "$R/app-window.png" 2>/dev/null || true
-    wait_for_file "$R/setup-result.json" 7200 || return 1
-    cat "$R/setup-result.json"
-    wait_for_app_exit 120
-}
-
-install_runner() {
-    mkdir -p "$RUNNER_DIR" &&
-        curl -fsSL "$LAB_RUNNER_URL" | tar -xzf - -C "$RUNNER_DIR"
+    /usr/bin/python3 - "$events" "$R/setup-result.json" <<'EOF'
+import json, sys
+results = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
+complete = [e for e in results if e.get("type") == "complete"][-1]
+json.dump(complete["result"], open(sys.argv[2], "w"), indent=2)
+print("setup:", complete["result"]["status"])
+EOF
+    # Quitting the app (Cmd-Q): it ends its backend and everything it started.
+    osascript -e "quit app \"$APP\"" || pkill -TERM -f "$APP/Contents/MacOS/"
+    wait_for_app_exit 60
 }
 
 app_actions() {
-    bundle="$APP/Contents/Resources/GUIForCLIShared_GUIForCLICore.bundle/Contents/Resources/Resources/DemoBundles/WGSExtract"
-    GUI_FOR_CLI_APP_SUPPORT_NAME="$GUI_FOR_CLI_APP_SUPPORT_NAME_RUNNER" \
-        "$RUNNER_DIR/gui-for-cli" bundle test \
-        --plan "$HERE/gui-plan.json" \
-        --workspace "$WORKSPACE" \
-        --report "$R/bundle-report.json" \
-        --log "$R/bundle-test.log" \
-        "$bundle"
+    GUI_FOR_CLI_APP_SUPPORT_NAME="$BUNDLE_ID" "$RESOURCES/node/bin/node" \
+        "$RESOURCES/app/dist/web/src/server/bundle-test-cli.js" \
+        --plan "$HERE/gui-plan.json" --workspace "$WORKSPACE" \
+        --report "$R/bundle-report.json" --log "$R/bundle-test.log" \
+        "$RESOURCES/examples/EmbeddedBundle"
     rc=$?
     # The oracle reads outputs where the CLI lab keeps them.
     if [ -d "$WORKSPACE/lab-output" ]; then
@@ -160,12 +161,14 @@ app_actions() {
 app_uninstall() {
     rm -f "$R/uninstall-result.json"
     launch_app --env GUI_FOR_CLI_AUTO_RUN_UNINSTALL=1 \
-        --env "GUI_FOR_CLI_TERMINAL_LOG_FILE=$R/app-uninstall-terminal.log" \
-        --env "GUI_FOR_CLI_UNINSTALL_RESULT_FILE=$R/uninstall-result.json" || return 1
+        --env "GUI_FOR_CLI_UNINSTALL_RESULT_FILE=$R/uninstall-result.json" \
+        --stdout "$R/app-uninstall-stdout.txt" --stderr "$R/app-uninstall-stdout.txt" || return 1
     wait_for_file "$R/uninstall-result.json" 600 || return 1
     cat "$R/uninstall-result.json"
     wait_for_app_exit 60 || return 1
-    # The user empties the Trash.
+    # The user drags the app to the Trash (unless the app moved itself), and
+    # empties it.
+    if [ -e "$APP" ]; then mv "$APP" "$HOME/.Trash/"; fi
     rm -rf "$HOME/.Trash/WGSExtract.app"
     [ ! -e "$APP" ]
 }
@@ -212,7 +215,6 @@ step install_app install_app
 step gatekeeper gatekeeper
 approve_first_launch
 step setup app_setup
-step runner install_runner
 step actions app_actions
 snapshot after_install
 if [ "$SABOTAGE" != "skip-uninstall" ]; then
@@ -220,7 +222,6 @@ if [ "$SABOTAGE" != "skip-uninstall" ]; then
 fi
 # Remove what the test itself created, so any remaining change is the product's.
 rm -f "$DMG" "$CLI_ARCHIVE"
-rm -rf "$RUNNER_DIR" "$HOME/Library/Application Support/$GUI_FOR_CLI_APP_SUPPORT_NAME_RUNNER"
 snapshot after_uninstall
 # What the snapshot's preferences file holds (the oracle excuses it only if
 # empty): cfprefsd writes it back up to seconds after the app exits, so it is

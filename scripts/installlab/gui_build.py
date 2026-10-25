@@ -1,6 +1,6 @@
 """Build the WGS Extract app the lab tests, from a gui-for-cli checkout: the
-macOS DMG (and the bundle-test runner), the Windows installer (cross-built), and
-the Linux .deb (built in a container). Every run builds them anew, so a stale
+macOS DMG, the Windows installer (cross-built), and the Linux .deb (built in a
+container). Every run builds them anew, so a stale
 build is never what passes.
 """
 
@@ -31,25 +31,19 @@ def run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
     return result
 
 
-def build_gui_artifacts(gui_repo: Path, dmg: Path | None, serve: Path) -> bool:
-    """The app's DMG and the bundle-test runner; returns whether the app is
-    Developer ID signed. Builds both from gui_repo unless a DMG is given, so a
-    run never tests a stale build."""
-    apple = gui_repo / "platform" / "apple"
+def build_gui_artifacts(gui_repo: Path | None, dmg: Path | None, serve: Path) -> bool:
+    """The app's DMG, built from gui_repo unless one is given; returns whether
+    the app is Developer ID signed. The guest drives the app's actions with the
+    bundle-test runner the app carries, so the runner always matches it."""
     if dmg is None:
-        log("Packaging the macOS app (make package PLATFORM=swiftui-macos)...")
-        run(["make", "package", "PLATFORM=swiftui-macos"], cwd=gui_repo)
+        assert gui_repo is not None
+        log("Packaging the macOS app (make package)...")
+        run(["make", "package"], cwd=gui_repo)
         dmg = max(
-            (gui_repo / "out" / "release" / "swiftui").glob("WGSExtract*.dmg"),
+            (gui_repo / "out" / "release" / "tauri").rglob("*.dmg"),
             key=lambda p: p.stat().st_mtime,
         )
     shutil.copy2(dmg, serve / "WGSExtract.dmg")
-    log("Building the gui-for-cli bundle-test runner...")
-    run(["swift", "build", "-c", "release", "--product", "gui-for-cli"], cwd=apple)
-    release = apple / ".build" / "release"
-    with tarfile.open(serve / "gui-runner.tar.gz", "w:gz") as tar:
-        for name in ("gui-for-cli", "gui-for-cli_GUIForCLICore.bundle"):
-            tar.add(release / name, arcname=name)
     mount = Path(tempfile.mkdtemp(prefix="wgse-lab-dmg-"))
     run(
         [
@@ -83,10 +77,8 @@ def build_windows_gui_installer(
     if installer is None:
         assert gui_repo is not None
         if sys.platform == "darwin":
-            log(
-                "Building the Windows installer (make package PLATFORM=tauri-windows-cross)..."
-            )
-            run(["make", "package", "PLATFORM=tauri-windows-cross"], cwd=gui_repo)
+            log("Building the Windows installer (make package-windows-cross)...")
+            run(["make", "package-windows-cross"], cwd=gui_repo)
             (installer,) = (gui_repo / "out" / "release" / "tauri-windows").glob(
                 "*-setup.exe"
             )
@@ -118,8 +110,8 @@ curl -fsSL https://nodejs.org/dist/v24.22.0/node-v24.22.0-linux-x64.tar.xz | tar
 export PATH=/opt/node-v24.22.0-linux-x64/bin:$PATH
 mkdir -p /build/src && tar -xzf /out/src.tar.gz -C /build/src
 cd /build/src
-npm ci --prefix platform/typescript --no-audit --no-fund >/dev/null
-make package PLATFORM=tauri-windows-cross PYTHON=python3
+npm ci --prefix app --no-audit --no-fund >/dev/null
+make package-windows-cross PYTHON=python3
 cp out/release/tauri-windows/*-setup.exe /out/
 chown -R "$HOST_UID:$HOST_GID" /out
 """
@@ -139,7 +131,7 @@ apt-get install -y -qq curl ca-certificates git build-essential pkg-config file 
 curl -fsSL https://nodejs.org/dist/v24.22.0/node-v24.22.0-linux-x64.tar.xz | tar -xJ -C /opt
 export PATH=/opt/node-v24.22.0-linux-x64/bin:$PATH
 mkdir -p /build/src && tar -xzf /out/src.tar.gz -C /build/src
-cd /build/src/platform/typescript
+cd /build/src/app
 npm ci --no-audit --no-fund >/dev/null
 # The target volume persists between builds (for speed); an earlier version's
 # .deb would still be in the bundle dir.
