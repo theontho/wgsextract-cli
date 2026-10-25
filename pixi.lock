@@ -521,14 +521,14 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/vcomp14-14.51.36247-habf1de7_41.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/xz-5.8.3-hb6c8415_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/xz-tools-5.8.3-hfd05255_1.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/bcftools-1.24-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/bwa-0.7.19-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/bwa-mem2-2.3-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/fastp-1.4.0-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/htslib-1.24-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/minimap2-2.31-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/samblaster-0.1.26-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/samtools-1.24-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bcftools-1.24-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bwa-0.7.19-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bwa-mem2-2.3-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/fastp-1.4.0-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/htslib-1.24-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/minimap2-2.31-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/samblaster-0.1.26-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/samtools-1.24-wgse_1.conda
       - pypi: ./
       - pypi: direct+https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379
       - pypi: https://files.pythonhosted.org/packages/4f/ef/c66110d46fb800dda0bf33164182dfadabe26a90e4476844d502a23dca8e/pytz-2026.5-py2.py3-none-any.whl
@@ -1066,14 +1066,14 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/xz-tools-5.8.3-hfd05255_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/yaml-0.2.5-h6a83c73_3.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/zstd-1.5.7-h534d264_7.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/bcftools-1.24-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/bwa-0.7.19-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/bwa-mem2-2.3-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/fastp-1.4.0-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/htslib-1.24-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/minimap2-2.31-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/samblaster-0.1.26-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/samtools-1.24-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bcftools-1.24-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bwa-0.7.19-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bwa-mem2-2.3-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/fastp-1.4.0-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/htslib-1.24-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/minimap2-2.31-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/samblaster-0.1.26-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/samtools-1.24-wgse_1.conda
       - pypi: ./
       - pypi: direct+https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379
       - pypi: https://files.pythonhosted.org/packages/4f/ef/c66110d46fb800dda0bf33164182dfadabe26a90e4476844d502a23dca8e/pytz-2026.5-py2.py3-none-any.whl
@@ -1821,14 +1821,14 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/vcomp14-14.51.36247-habf1de7_41.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/xz-5.8.3-hb6c8415_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/xz-tools-5.8.3-hfd05255_1.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/bcftools-1.24-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/bwa-0.7.19-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/bwa-mem2-2.3-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/fastp-1.4.0-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/htslib-1.24-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/minimap2-2.31-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/samblaster-0.1.26-wgse_0.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/samtools-1.24-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bcftools-1.24-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bwa-0.7.19-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bwa-mem2-2.3-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/fastp-1.4.0-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/htslib-1.24-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/minimap2-2.31-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/samblaster-0.1.26-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/samtools-1.24-wgse_1.conda
       - pypi: ./
       - pypi: direct+https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379
       - pypi: https://files.pythonhosted.org/packages/4f/ef/c66110d46fb800dda0bf33164182dfadabe26a90e4476844d502a23dca8e/pytz-2026.5-py2.py3-none-any.whl
@@ -17164,46 +17164,54 @@ packages:
     - zstd >=1.5.7,<1.6.0a0
   size: 387535
   timestamp: 1786599623274
-- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/bcftools-1.24-wgse_0.conda
+- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bcftools-1.24-wgse_0.conda
   subdir: win-64
-  sha256: ec57dde10bc383c0c1298ef0226e46f66bfd864fc46a38c3a7e3aa93d2f9ed39
+  sha256: 7e29dfeb3e373c7f69999714049774efecdf92ca4efd00ccdf14a9241aec3a38
+  channel: null
   license: MIT
-  timestamp: 1792910558715
-- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/bwa-0.7.19-wgse_0.conda
+  timestamp: 1792945372304
+- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bwa-0.7.19-wgse_0.conda
   subdir: win-64
-  sha256: a12e34bcc7557eca24faf53a4a29855ac86bc22ff64d3608d1a0a0ba2589326c
+  sha256: d7efc914557c2e83c9fdeee7b93a4728da034722cf25ce9f96ee2ee12ce71bf0
+  channel: null
   license: GPL-3.0-only
-  timestamp: 1792910558726
-- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/bwa-mem2-2.3-wgse_0.conda
+  timestamp: 1792945372317
+- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bwa-mem2-2.3-wgse_0.conda
   subdir: win-64
-  sha256: 76746161721c193526b4d9fc1dbe7ee3cb48c5e68c6566de0eed1a9c87e6d779
+  sha256: 297e0297a3d398f370460f2839509d1e899a627134cf9ffb341b5ce8c8ac4e9a
+  channel: null
   license: MIT
-  timestamp: 1792910558727
-- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/fastp-1.4.0-wgse_0.conda
+  timestamp: 1792945372319
+- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/fastp-1.4.0-wgse_0.conda
   subdir: win-64
-  sha256: e70d2acb303b1c8dbb3919d630f076e9b6a332dadc9014e06218db8712fe1a03
+  sha256: 3db683a6efa607d51a0245db929b222951d7eaf3dbadef68aae253c9c913dee8
+  channel: null
   license: MIT
-  timestamp: 1792910558729
-- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/htslib-1.24-wgse_0.conda
+  timestamp: 1792945372322
+- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/htslib-1.24-wgse_0.conda
   subdir: win-64
-  sha256: b0a92ab0986a834627e1342e47f668b33f564e93e5773122454ae8b2a2bd9e6a
+  sha256: 110538be26490acbf8cb4ead4825d1db87363043adb7087773212c7a246b87f5
+  channel: null
   license: MIT
-  timestamp: 1792910558731
-- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/minimap2-2.31-wgse_0.conda
+  timestamp: 1792945372324
+- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/minimap2-2.31-wgse_0.conda
   subdir: win-64
-  sha256: f57ad9825c926f93e75f808afdc0a8103e1efe9b680d116e65496be95f244c3a
+  sha256: 986d37f806bdce40f542adcd8467bad5d556ed3cd8c99c3d583e6b998581b4fa
+  channel: null
   license: MIT
-  timestamp: 1792910558733
-- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/samblaster-0.1.26-wgse_0.conda
+  timestamp: 1792945372326
+- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/samblaster-0.1.26-wgse_0.conda
   subdir: win-64
-  sha256: 9467c05b95d010b1e94d989dbfdc99c85c260d7a31cfc61937685b8a060cb75b
+  sha256: 9b51ac427a4aca51348883b475d4c9dde7e4113a02d50e55ded686d96bfdba4a
+  channel: null
   license: MIT
-  timestamp: 1792910558735
-- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-1/samtools-1.24-wgse_0.conda
+  timestamp: 1792945372329
+- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/samtools-1.24-wgse_1.conda
   subdir: win-64
-  sha256: f76ad505d7a5ef10b87088fd497bd94500f52fc7ac8a9b574ef775257aa7d4fc
+  sha256: 6ddf365d92b7d1de59467d18fc91fbc61be34a8217f2abf6d0964e0b00f315fe
+  channel: null
   license: MIT
-  timestamp: 1792910558737
+  timestamp: 1792945372331
 - pypi: ./
   name: wgsextract-cli
   requires_dist:
