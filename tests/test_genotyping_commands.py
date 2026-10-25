@@ -5,7 +5,6 @@ line and write output in each tool's format."""
 import json
 import logging
 import random
-import shlex
 import sys
 import textwrap
 from argparse import Namespace
@@ -16,6 +15,7 @@ import pytest
 from tests.htslib_helpers import needs_tools, run_wgsextract, sam_to_bam, write_fasta
 from wgsextract_cli.commands.genotyping import common, hla, repeats
 from wgsextract_cli.core.config import settings
+from wgsextract_cli.core.pixi_tools import _join_command
 from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.core.variant_files import calculate_bam_md5
 
@@ -52,7 +52,7 @@ def fake_tools(monkeypatch, tmp_path, scripts):
         script.write_text(
             _PRELUDE.format(log=str(log), tool=tool) + textwrap.dedent(body)
         )
-        commands[tool] = shlex.join([sys.executable, str(script)])
+        commands[tool] = _join_command([sys.executable, str(script)])
     monkeypatch.setattr(common, "pixi_env_tool", commands.get)
 
     def calls(tool=None):
@@ -173,7 +173,8 @@ def test_env_tool_names_the_pixi_environment_to_install(monkeypatch):
     monkeypatch.setattr(common, "pixi_env_tool", lambda tool: None)
     with pytest.raises(WGSExtractError, match=r"pixi install -e t1k \(note\)"):
         common.env_tool("run-t1k", "t1k", " (note)")
-    monkeypatch.setattr(common, "pixi_env_tool", lambda tool: "'/a b/pixi' run x")
+    command = _join_command(["/a b/pixi", "run", "x"])
+    monkeypatch.setattr(common, "pixi_env_tool", lambda tool: command)
     assert common.env_tool("x", "e") == ["/a b/pixi", "run", "x"]
 
 
