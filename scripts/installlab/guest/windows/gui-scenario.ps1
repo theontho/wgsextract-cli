@@ -231,8 +231,13 @@ Copy-Item -LiteralPath (Join-Path $env:LOCALAPPDATA "$AppIdentifier\logs\backend
 # bundle-test runner, on its bundle and workspace. Clicking isn't simulated;
 # everything a click would start is.
 $env:GUI_FOR_CLI_APP_SUPPORT_NAME = $AppIdentifier
+$BundleRunner = Join-Path $InstallDir "app\dist\web\src\server\bundle-test-cli.js"
+# Released apps before the single-app layout use platform/typescript.
+if (-not (Test-Path -LiteralPath $BundleRunner)) {
+    $BundleRunner = Join-Path $InstallDir "platform\typescript\dist\web\src\server\bundle-test-cli.js"
+}
 Step "actions" @((Join-Path $InstallDir "node\node.exe"),
-    (Join-Path $InstallDir "platform\typescript\dist\web\src\server\bundle-test-cli.js"),
+    $BundleRunner,
     "--plan", (Join-Path (Split-Path $PSScriptRoot) "gui-plan.json"), "--workspace", $Workspace,
     "--report", (Join-Path $R "bundle-report.json"), "--log", (Join-Path $R "bundle-test.log"),
     (Join-Path $InstallDir "examples\EmbeddedBundle")) $InstallDir

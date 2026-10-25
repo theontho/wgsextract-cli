@@ -90,8 +90,13 @@ EOF
 }
 
 app_actions() {
+    runner="$APP_DIR/app/dist/web/src/server/bundle-test-cli.js"
+    # Released apps before the single-app layout use platform/typescript.
+    if [ ! -f "$runner" ]; then
+        runner="$APP_DIR/platform/typescript/dist/web/src/server/bundle-test-cli.js"
+    fi
     GUI_FOR_CLI_APP_SUPPORT_NAME="$APP_ID" "$APP_DIR/node/bin/node" \
-        "$APP_DIR/platform/typescript/dist/web/src/server/bundle-test-cli.js" \
+        "$runner" \
         --plan "$HERE/gui-plan.json" --workspace "$WORKSPACE" \
         --report "$R/bundle-report.json" --log "$R/bundle-test.log" \
         "$APP_DIR/examples/EmbeddedBundle"
