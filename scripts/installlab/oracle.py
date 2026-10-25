@@ -61,6 +61,11 @@ EXPECTED_FAILURES = {
     # The mini genome's chrY slice is rebased, so no hg19 Y markers match.
     "y_haplo": "could not predict a Y haplogroup",
 }
+# ...but not for these reasons, which end in the same message: Yleaf couldn't
+# run samtools (a baseline Windows run printed "'samtools' is not recognized").
+WRONG_FAILURE_REASONS = {
+    "y_haplo": ("Failed command execution", "is not recognized as an internal"),
+}
 
 
 @dataclass
@@ -176,11 +181,16 @@ class Oracle:
             rc = self.rc(step, workload=True)
             if step in EXPECTED_FAILURES:
                 message = EXPECTED_FAILURES[step]
-                found = message in self.log(step, workload=True)
+                log = self.log(step, workload=True)
+                found = message in log
+                wrong = [r for r in WRONG_FAILURE_REASONS.get(step, ()) if r in log]
+                detail = f"exit code {rc}; message {message!r} {'found' if found else 'missing'}"
+                if wrong:
+                    detail += f"; but also {wrong[0]!r}"
                 self.record(
                     f"workload.{step}",
-                    rc not in (None, 0) and found,
-                    f"exit code {rc}; message {message!r} {'found' if found else 'missing'}",
+                    rc not in (None, 0) and found and not wrong,
+                    detail,
                 )
             else:
                 self.record(f"workload.{step}", rc == 0, f"exit code {rc}")
