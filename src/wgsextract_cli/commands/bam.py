@@ -323,7 +323,7 @@ def cmd_unsort(args: argparse.Namespace) -> None:
             ).stdout
             with tempfile.TemporaryDirectory() as tempdir:
                 newhead = str(Path(tempdir, "newhead.sam"))
-                with open(newhead, "w") as f:
+                with open(newhead, "w", newline="\n") as f:
                     f.write(header.replace("SO:coordinate", "SO:unsorted"))
                 with open(out_file, "wb") as f_out:
                     run_command(

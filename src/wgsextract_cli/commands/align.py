@@ -296,7 +296,7 @@ def ensure_bwa_alt_file(ref: str) -> None:
     if not names:
         return
     try:
-        alt_file.write_text("".join(f"{n}\n" for n in names))
+        alt_file.write_text("".join(f"{n}\n" for n in names), newline="\n")
     except OSError as e:
         raise WGSExtractError(
             f"{ref} has {len(names)} ALT contigs, and BWA needs {alt_file} listing "

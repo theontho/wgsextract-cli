@@ -102,7 +102,7 @@ def _patch_fastqc_launcher(runtime_dir: Path) -> None:
     if patched == text:
         return
 
-    launcher.write_text(patched, encoding="utf-8")
+    launcher.write_text(patched, encoding="utf-8", newline="\n")
 
 
 def _source_runtime_copy_ignore(mode: str) -> Callable[[str, list[str]], set[str]]:
@@ -260,8 +260,8 @@ def _post_extract_bundled_runtime(mode: str) -> None:
     print(f"  stdout: {stdout_log}")
     print(f"  stderr: {stderr_log}")
     with (
-        stdout_log.open("w", encoding="utf-8") as stdout,
-        stderr_log.open("w", encoding="utf-8") as stderr,
+        stdout_log.open("w", encoding="utf-8", newline="\n") as stdout,
+        stderr_log.open("w", encoding="utf-8", newline="\n") as stderr,
     ):
         completed = subprocess.run(
             command,

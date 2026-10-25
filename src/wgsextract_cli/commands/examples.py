@@ -146,7 +146,7 @@ def _write_genome_config(example: GenomeExample, example_dir: Path) -> None:
     for file in example.files:
         if file.role in CONFIG_ROLES:
             lines.append(f'{file.role} = "{_filename(file.url_path)}"')
-    (example_dir / GENOME_CONFIG_NAME).write_text("\n".join(lines) + "\n")
+    (example_dir / GENOME_CONFIG_NAME).write_text("\n".join(lines) + "\n", newline="\n")
 
 
 def _print_plan(

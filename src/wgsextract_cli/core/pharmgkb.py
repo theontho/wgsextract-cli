@@ -125,7 +125,7 @@ def _member(zip_path: str, suffix: str) -> str:
 def write_table(rows: Iterable[tuple[str, int, str, str, str]], dest: str) -> None:
     """Write, bgzip and tabix-index the table at dest (a .tsv.gz path)."""
     plain = dest[: -len(".gz")]
-    with open(plain, "w") as out:
+    with open(plain, "w", newline="\n") as out:
         out.write("#CHROM\tPOS\tREF\tALT\tPHARMGKB\n")
         out.writelines("\t".join(map(str, row)) + "\n" for row in rows)
     run_command(["bgzip", "-f", plain], capture_output=True)

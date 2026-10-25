@@ -246,7 +246,7 @@ def normalize_vcf_chromosomes(
         return vcf_path
 
     fd, map_file = tempfile.mkstemp(suffix=".txt")
-    with os.fdopen(fd, "w") as f:
+    with os.fdopen(fd, "w", newline="\n") as f:
         f.write("\n".join(f"{source} {target}" for source, target in mapping))
 
     # Use a unique temporary file for the normalized VCF to avoid collisions.

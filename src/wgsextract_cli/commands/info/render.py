@@ -387,7 +387,7 @@ def run_sampled_coverage(
     with tempfile.TemporaryDirectory(dir=str(absolute_path(out_p).parent)) as tmp:
         bed_p = str(Path(tmp, "windows.bed"))
         depth_p = str(Path(tmp, "depth.tsv"))
-        with open(bed_p, "w") as f:
+        with open(bed_p, "w", newline="\n") as f:
             f.writelines(f"{n}\t{s}\t{e}\n" for n, s, e in windows)
         # view -M uses the index to fetch only reads overlapping the windows
         # (depth -b alone scans the whole file). depth then reports covered
@@ -424,6 +424,6 @@ def run_sampled_coverage(
         for name in sampled
     }
     final_map = _breadth_map(covered, with_total=not region, approx=True)
-    with open(out_p, "w") as f:
+    with open(out_p, "w", newline="\n") as f:
         json.dump(final_map, f)
     return final_map

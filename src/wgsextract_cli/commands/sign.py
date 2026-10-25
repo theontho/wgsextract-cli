@@ -200,7 +200,7 @@ def _verify_signature(
             with open(args.public_key) as f:
                 key_type, key_data = f.read().split()[:2]
             allowed = Path(tmp) / "allowed_signers"
-            with allowed.open("w") as f:
+            with allowed.open("w", newline="\n") as f:
                 f.write(f'{_SIGNER} namespaces="{NAMESPACE}" {key_type} {key_data}\n')
             trust = ["verify", "-f", str(allowed), "-I", _SIGNER]
         elif args.allowed_signers:

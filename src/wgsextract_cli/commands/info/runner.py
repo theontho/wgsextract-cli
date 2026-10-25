@@ -73,7 +73,7 @@ def _load_cache(path: str, signature: dict[str, int]) -> dict[str, Any]:
 
 def _save_cache(path: str, data: dict[str, Any]) -> bool:
     try:
-        with open(path, "w") as f:
+        with open(path, "w", newline="\n") as f:
             json.dump(data, f, indent=2)
     except (OSError, TypeError) as exc:
         logging.warning(f"Failed to write metrics cache {path}: {exc}")

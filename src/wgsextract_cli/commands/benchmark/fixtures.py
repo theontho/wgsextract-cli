@@ -44,7 +44,7 @@ def _run_cli_pipe_step(
 def _prepare_trio_vcf_inputs(source_vcf: Path, outputs: dict[str, Path]) -> None:
     for sample_name, output_vcf in outputs.items():
         sample_file = output_vcf.with_suffix(".sample.txt")
-        sample_file.write_text(f"{sample_name}\n", encoding="utf-8")
+        sample_file.write_text(f"{sample_name}\n", encoding="utf-8", newline="\n")
         run_command(
             [
                 "bcftools",
@@ -73,12 +73,14 @@ def _prepare_repair_fixtures(sam_path: Path, vcf_path: Path) -> None:
         "@SQ\tSN:chr1\tLN:1000\n"
         "read name with spaces\t0\tchr1\t1\t60\t10M\t*\t0\t0\tACGTACGTAC\tIIIIIIIIII\n",
         encoding="utf-8",
+        newline="\n",
     )
     vcf_path.write_text(
         "##fileformat=VCFv4.2\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
         "chr1\t1\t.\tA\tC\t50\tPASS!BAD\t.\n",
         encoding="utf-8",
+        newline="\n",
     )
 
 

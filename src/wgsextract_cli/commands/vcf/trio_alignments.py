@@ -171,12 +171,13 @@ def joint_trio_vcf(
             "".join(
                 f"*\t{_tool_side_path(a)}\t{s}\n"
                 for a, s in zip(alignments, TRIO_SAMPLES, strict=True)
-            )
+            ),
+            newline="\n",
         )
         sex_lines = [f"{s}\t{x}\n" for s, x in zip(TRIO_SAMPLES, sexes, strict=True)]
         samples = (str(Path(work, "proband.txt")), str(Path(work, "trio.txt")))
-        Path(samples[0]).write_text(sex_lines[0])
-        Path(samples[1]).write_text("".join(sex_lines))
+        Path(samples[0]).write_text(sex_lines[0], newline="\n")
+        Path(samples[1]).write_text("".join(sex_lines), newline="\n")
         logging.info(
             f"Genotyping the trio from their alignments over {len(regions)} "
             f"region(s) with {threads} worker(s); a 30x whole genome takes about an hour with 8."

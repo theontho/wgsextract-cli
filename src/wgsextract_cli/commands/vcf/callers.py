@@ -70,7 +70,7 @@ def _gatk_region_args(region: str | None, outdir: str) -> tuple[list[str], str |
     intervals = str(Path(outdir, "gatk_region.intervals"))
     # One interval per line: a comma-separated --region is several.
     lines = "".join(f"{r.strip()}\n" for r in region.split(",") if r.strip())
-    Path(intervals).write_text(lines, encoding="utf-8")
+    Path(intervals).write_text(lines, encoding="utf-8", newline="\n")
     return ["-L", intervals], intervals
 
 
@@ -103,7 +103,7 @@ def _cleanup_gatk_temp_input(temp_input: str | None) -> None:
 
 def write_region_bed(region: str, lengths: dict[str, int], bed: str) -> None:
     """chr1:1000-1050,chr2 (1-based, inclusive) as BED (0-based, half-open)."""
-    with open(bed, "w") as f:
+    with open(bed, "w", newline="\n") as f:
         for part in (r.strip() for r in region.split(",") if r.strip()):
             contig, _, span = part.partition(":")
             start, _, end = span.partition("-")

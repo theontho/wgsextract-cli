@@ -318,7 +318,7 @@ def generate_fake_genomics_data(
                 threads,
             )
         else:
-            with open(sam_path, "w") as f:
+            with open(sam_path, "w", newline="\n") as f:
                 _write_sam_header(f.write, chroms, target_md5)
 
                 # Generate reads chromosome by chromosome (sorted)
@@ -412,7 +412,7 @@ def generate_fake_genomics_data(
     # 4. Create fake VCF with variants on all chroms
     if "vcf" in types:
         vcf_path = str(Path(outdir, "fake.vcf"))
-        with open(vcf_path, "w") as f:
+        with open(vcf_path, "w", newline="\n") as f:
             f.write("##fileformat=VCFv4.2\n")
             f.write('##FILTER=<ID=PASS,Description="All filters passed">\n')
             # Use our chroms list directly for consistency

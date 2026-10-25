@@ -167,7 +167,7 @@ def _write_target(markers: dict[tuple[str, int], str], out: str) -> None:
     )
     staged = plain + ".gz"
     try:
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", newline="\n") as f:
             f.write("#CHROM\tPOS\tID\n")
             for (chrom, pos), rsid in sorted(
                 markers.items(), key=lambda m: (chr_to_int(m[0][0]), m[0][1])

@@ -235,5 +235,7 @@ def write_wslconfig_settings(
         for key, value in updates.items():
             output.append(f"{key}={value}")
 
-    config_path.write_text("\n".join(output).rstrip() + "\n", encoding="utf-8")
+    config_path.write_text(
+        "\n".join(output).rstrip() + "\n", encoding="utf-8", newline="\n"
+    )
     return config_path

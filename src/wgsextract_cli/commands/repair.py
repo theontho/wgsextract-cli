@@ -158,7 +158,9 @@ def repair_vcf_file(args: argparse.Namespace) -> None:
                 run_command(["bcftools", "view", input_path], stdout=vcf_output)
             with (
                 open(tmp_path, encoding="utf-8", errors="replace") as vcf_input,
-                open(output_path, "w", encoding="utf-8") as repaired_output,
+                open(
+                    output_path, "w", encoding="utf-8", newline="\n"
+                ) as repaired_output,
             ):
                 repair_vcf_stream(vcf_input, repaired_output)
         finally:
@@ -169,7 +171,7 @@ def repair_vcf_file(args: argparse.Namespace) -> None:
     else:
         with (
             _open_text_variant_input(input_path) as vcf_input,
-            open(output_path, "w", encoding="utf-8") as repaired_output,
+            open(output_path, "w", encoding="utf-8", newline="\n") as repaired_output,
         ):
             repair_vcf_stream(vcf_input, repaired_output)
     logging.info("Repaired FTDNA VCF written to %s", output_path)

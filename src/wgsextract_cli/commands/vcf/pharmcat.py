@@ -102,7 +102,7 @@ def prepare_input(input_vcf: str, directory: str, reference: str, work: str) -> 
     # The regions, in the input's names.
     to_input = dict(chromosome_rename_mapping(pharmcat_chroms, input_chroms))
     local_bed = str(Path(work, "regions.bed"))
-    with open(local_bed, "w") as f:
+    with open(local_bed, "w", newline="\n") as f:
         f.writelines(
             "\t".join([to_input.get(fields[0], fields[0]), *fields[1:]])
             for fields in bed_lines
@@ -117,7 +117,7 @@ def prepare_input(input_vcf: str, directory: str, reference: str, work: str) -> 
     )
     if to_pharmcat:
         names = str(Path(work, "names.txt"))
-        with open(names, "w") as f:
+        with open(names, "w", newline="\n") as f:
             f.writelines(f"{source} {target}\n" for source, target in to_pharmcat)
         renamed = str(Path(work, "renamed.vcf.gz"))
         run_command(["bcftools", "annotate", "--rename-chrs", names, "-Oz", "-o",
@@ -132,7 +132,7 @@ def prepare_input(input_vcf: str, directory: str, reference: str, work: str) -> 
     # pipeline refuses any VCF that has them as a gVCF.
     header = run_command(["bcftools", "view", "-h", expanded], capture_output=True)
     header_file = str(Path(work, "header.txt"))
-    with open(header_file, "w") as f:
+    with open(header_file, "w", newline="\n") as f:
         f.writelines(
             line + "\n"
             for line in header.stdout.splitlines()
@@ -166,7 +166,7 @@ def merge_outside_calls(paths: list[str], merged: str) -> str:
                     )
                 seen[gene] = path
                 lines.append(line.rstrip("\r\n") + "\n")
-    with open(merged, "w", encoding="utf-8") as f:
+    with open(merged, "w", encoding="utf-8", newline="\n") as f:
         f.writelines(lines)
     logging.info(f"Outside calls for PharmCAT: {', '.join(seen) or 'none'}")
     return merged

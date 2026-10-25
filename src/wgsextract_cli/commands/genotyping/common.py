@@ -133,7 +133,7 @@ def env_tool(tool: str, env: str, note: str = "") -> list[str]:
 
 
 def write_bed(path: str, regions: Iterable[tuple[str, int, int]]) -> str:
-    with open(path, "w") as f:
+    with open(path, "w", newline="\n") as f:
         f.writelines(f"{chrom}\t{start}\t{end}\n" for chrom, start, end in regions)
     return path
 
@@ -145,7 +145,7 @@ def write_outside_calls(path: str, calls: list[tuple[str, str]]) -> str | None:
             Path(path).unlink()
         return None
     # PharmCAT reads outside calls as UTF-8 (CYP2D6 copy numbers use "≥").
-    with open(path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.writelines(f"{gene}\t{diplotype}\n" for gene, diplotype in calls)
     logging.info(
         f"PharmCAT outside call: {path} (wgsextract vcf pharmcat --outside-call)"

@@ -111,7 +111,7 @@ def _build_index(directory: str) -> None:
         index = str(Path(work, "index"))
         Path(index).mkdir(parents=True)
         shutil.move(str(Path(work, INDEX_FASTA)), index)
-        with open(str(Path(index, RELEASE_FILE)), "w") as f:
+        with open(str(Path(index, RELEASE_FILE)), "w", newline="\n") as f:
             f.write(f"IPD-IMGT/HLA {release}\n")
         if Path(directory).exists():  # an incomplete index being rebuilt
             shutil.rmtree(directory)

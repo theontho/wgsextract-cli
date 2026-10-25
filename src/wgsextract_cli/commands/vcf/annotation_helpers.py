@@ -160,7 +160,7 @@ def _run_annotate(cmd: list[str], vcf: str, out: str, work: str, threads: int) -
     regions = {}
     for c, part in parts.items():
         regions[c] = part[: -len(".vcf.gz")] + ".regions.txt"
-        with open(regions[c], "w") as f:
+        with open(regions[c], "w", newline="\n") as f:
             f.write(f"{c}\t1\t2147483647\n")
     with ThreadPoolExecutor(max_workers=threads) as pool:
         futures = [
@@ -175,7 +175,7 @@ def _run_annotate(cmd: list[str], vcf: str, out: str, work: str, threads: int) -
             future.result()
     in_order = [parts[c] for c in vcf_index_chromosomes(vcf)]
     list_file = str(Path(work, "parts.txt"))
-    with open(list_file, "w") as f:
+    with open(list_file, "w", newline="\n") as f:
         f.writelines(p + "\n" for p in in_order)
     run_command(
         ["bcftools", "concat", "--naive", "-f", list_file, "-Oz", "-o", out],
@@ -210,7 +210,7 @@ def annotate_vcf(
         cmd += ["-e", 'TYPE="ref"', "-k"]
         if header_lines:
             header_path = str(Path(work, "annotation.hdr"))
-            with open(header_path, "w") as f:
+            with open(header_path, "w", newline="\n") as f:
                 f.writelines(line + "\n" for line in header_lines)
             cmd += ["-h", header_path]
         annotated = str(Path(work, "annotated.vcf.gz"))
