@@ -68,6 +68,7 @@ def _pixi_env_installed(pixi_run: list[str], env: str) -> bool:
             [*pixi_run[:run_at], "info", "--json", *manifest],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=30,
         )
         environments = json.loads(info.stdout).get("environments_info", [])
@@ -143,6 +144,7 @@ def get_tool_version(tool: str) -> str | None:
             full_cmd + [version_arg],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=VERSION_PROBE_TIMEOUT,
         )
         if crashed := _crash_description(res.returncode):
@@ -165,6 +167,7 @@ def get_tool_version(tool: str) -> str | None:
             full_cmd,
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=VERSION_PROBE_TIMEOUT,
         )
         if crashed := _crash_description(res.returncode):

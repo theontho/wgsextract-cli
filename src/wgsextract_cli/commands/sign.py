@@ -211,7 +211,9 @@ def _verify_signature(
             trust = ["check-novalidate"]
         cmd = [keygen, "-Y", *trust, "-n", NAMESPACE, "-s", str(signature)]
         with manifest.open("rb") as stdin:
-            res = subprocess.run(cmd, stdin=stdin, capture_output=True, text=True)
+            res = subprocess.run(
+                cmd, stdin=stdin, capture_output=True, text=True, errors="replace"
+            )
     message = (res.stdout + res.stderr).strip()
     if res.returncode != 0:
         raise WGSExtractError(f"Signature verification FAILED: {message}")

@@ -126,6 +126,7 @@ def _locked_package_available(pixi_cmd: str, env: str, tool: str) -> bool:
             + ["--json"],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=60,
         )
         packages = json.loads(result.stdout) if result.returncode == 0 else []
@@ -204,6 +205,7 @@ raise SystemExit(1)
             ],
             capture_output=True,
             text=True,
+            errors="replace",
             # A cold first start on Windows takes far longer than later ones.
             timeout=60,
         )
@@ -272,6 +274,7 @@ def pixi_env_prefix(env: str) -> Path | None:
             [pixi_cmd, "info", *_pixi_manifest_args(), "--json"],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=60,
         )
         envs = json.loads(result.stdout)["environments_info"]

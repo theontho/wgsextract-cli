@@ -89,7 +89,10 @@ def annotate_from_bigwig(
             scores = str(Path(work, "scores.tsv.gz"))
             with open(scores, "wb") as out:
                 bgzip = popen(
-                    ["bgzip", "-c"], stdin=subprocess.PIPE, stdout=out, text=True
+                    ["bgzip", "-c"],
+                    stdin=subprocess.PIPE,
+                    stdout=out,
+                    text=True,
                 )
                 assert bgzip.stdin is not None
                 try:

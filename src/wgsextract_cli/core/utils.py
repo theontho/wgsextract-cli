@@ -136,12 +136,15 @@ def run_command(
     )
     proc_stderr = subprocess.PIPE if capture_output else None
 
+    text_mode = capture_output or stdout is None
     process = subprocess.Popen(
         cmd_list,
         stdout=proc_stdout,
         stderr=proc_stderr,
         stdin=stdin,
-        text=True if capture_output or (stdout is None) else False,
+        text=text_mode,
+        # Tools' messages aren't always UTF-8 (Windows' own are in its code page).
+        errors="replace" if text_mode else None,
         env=env,
         cwd=cwd,
         **process_group_kwargs(),
@@ -212,6 +215,7 @@ def popen(
         stderr=stderr,
         stdin=stdin,
         text=text,
+        errors="replace" if text else None,
         env=env,
         cwd=cwd,
         **process_group_kwargs(),

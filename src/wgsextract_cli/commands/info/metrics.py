@@ -89,7 +89,12 @@ def run_body_sample(
 
     proc = None
     try:
-        proc = popen(cmd, stdout=subprocess.PIPE, text=True, stderr=subprocess.DEVNULL)
+        proc = popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
         assert proc.stdout is not None
         for _ in range(20000):
             line = proc.stdout.readline()

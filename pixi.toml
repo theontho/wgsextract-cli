@@ -17,6 +17,11 @@ tar = ">=1.35,<2"
 [target.win-64.dependencies]
 curl = ">=8.21,<9"
 
+# Python's UTF-8 mode (the default from Python 3.15): files and pipes default
+# to UTF-8, not the Windows ANSI code page, as on macOS and Linux.
+[target.win-64.activation.env]
+PYTHONUTF8 = "1"
+
 # GATK4's Bioconda package requires Python 3.10, so it gets its own environment;
 # the CLI runs `gatk` through it automatically. GATK 4.6 is built for Java 17.
 [feature.gatk.dependencies]

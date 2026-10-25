@@ -33,6 +33,7 @@ def _sysctl_output(command: list[str]) -> str | None:
             command,
             capture_output=True,
             text=True,
+            errors="replace",
             check=False,
             timeout=5,
         )
