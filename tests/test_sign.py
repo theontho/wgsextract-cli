@@ -78,6 +78,28 @@ def test_verify_rejects_other_key_and_edited_manifest(tmp_path, outputs):
         )
 
 
+def test_verify_fails_when_ssh_keygen_never_exits(tmp_path, outputs, monkeypatch):
+    key = _key(tmp_path / "id")
+    cmd_create(_parse("sign", "create", str(outputs), "--key", str(key)))
+
+    def hang(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(
+            cmd, 10, output=b"", stderr=b"incorrect signature\r\n"
+        )
+
+    monkeypatch.setattr(subprocess, "run", hang)
+    with pytest.raises(WGSExtractError, match="FAILED: incorrect signature$"):
+        cmd_verify(
+            _parse(
+                "sign",
+                "verify",
+                str(outputs / "SHA256SUMS"),
+                "--public-key",
+                f"{key}.pub",
+            )
+        )
+
+
 def test_manifest_reader_keeps_names_and_accepts_binary_mode(tmp_path):
     digest = "ab" * 32
     manifest = tmp_path / "SHA256SUMS"
