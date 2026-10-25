@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       max-parallel: 3
       matrix:
-        variant: [prefetch]
+        variant: [clang]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up MSYS2 UCRT64
@@ -28,6 +28,9 @@ jobs:
         run: |
           mkdir -p out
           grep -v '^#' packaging/windows/msys2-packages.txt | xargs pacman -S --needed --noconfirm --noprogressbar
+          if [ '${{ matrix.variant }}' = clang ]; then
+            pacman -S --needed --noconfirm --noprogressbar mingw-w64-ucrt-x86_64-clang
+          fi
           pacman -Q > out/msys2-packages-used.txt
       - name: Set up Pixi
         uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
@@ -47,11 +50,13 @@ jobs:
               'native-stdio-lto' { '-D__USE_MINGW_ANSI_STDIO=0 -flto' }
               'prefetch-lto' { '-flto' }
               'prefetch' { '' }
+              'clang' { '' }
           }
           $recipe = 'packaging/windows/recipes/bwa/build.sh'
           $script = [IO.File]::ReadAllText($recipe)
           if ($flags) { $script = $script.Replace('CFLAGS="$OPT ', 'CFLAGS="$OPT ' + $flags + ' ') }
           $script = $script.Replace('CC=gcc', 'CC=gcc AR=gcc-ar')
+          if ($variant -eq 'clang') { $script = $script.Replace('CC=gcc AR=gcc-ar', 'CC=clang AR=gcc-ar') }
           if ($variant -like 'prefetch*') {
               $metadata = 'packaging/windows/recipes/bwa/recipe.yaml'
               $source = [IO.File]::ReadAllText($metadata).Replace('    - patches/0001-windows-native-build.patch', '    - patches/0001-windows-native-build.patch' + "`n    - prefetch.patch")
