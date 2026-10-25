@@ -90,7 +90,7 @@ def test_no_command_prints_usage(capsys):
 
 def test_config_command_shows_set_values_and_redacts_keys(capsys, tmp_path):
     path = _config(
-        f'output_directory = "{tmp_path / "out"}"\n'
+        f"output_directory = '{tmp_path / 'out'}'\n"
         'signing_key = "/home/me/.ssh/id_ed25519"\n'
     )
 
@@ -108,7 +108,7 @@ def test_config_command_shows_set_values_and_redacts_keys(capsys, tmp_path):
 
 def test_showing_the_config_does_not_create_the_output_directory(tmp_path):
     outdir = tmp_path / "media" / "nas" / "wgse"
-    _config(f'output_directory = "{outdir}"\n')
+    _config(f"output_directory = '{outdir}'\n")
 
     main(["config"])
 

@@ -6,7 +6,7 @@ from typing import Any, TypeVar, overload
 
 from platformdirs import user_config_dir
 
-from wgsextract_cli.core.paths import expand_path
+from wgsextract_cli.core.paths import expand_path, windows_local_app_dir
 from wgsextract_cli.core.utils import WGSExtractError
 
 # For Python < 3.11, use tomli
@@ -28,7 +28,7 @@ KNOWN_SETTINGS = {
     "cpu_threads": (
         "auto",
         "CPU threads: a positive integer, or auto (Apple Silicon performance "
-        "cores, WSL 3/4 of cores, otherwise all cores)",
+        "cores, otherwise all cores)",
     ),
     "memory_limit": (
         "auto",
@@ -36,12 +36,6 @@ KNOWN_SETTINGS = {
     ),
     "debug_mode": (False, "Enable verbose debug logging"),
     "quiet_mode": (False, "Enable quiet mode (errors only)"),
-    "tool_runtime": (
-        "auto",
-        "External tool runtime: auto, native, windows, wsl, cygwin, msys2, or pacman",
-    ),
-    "runtime_directory": (None, "Directory for bundled Windows runtimes"),
-    "pacman_ucrt64_bin": (None, "MSYS2 UCRT64 bin directory for pacman tools"),
     "yleaf_executable": (None, "Path to yleaf executable"),
     "haplogrep_executable": (None, "Path to haplogrep executable"),
     "jar_directory": (None, "Directory for JAR tools"),
@@ -97,8 +91,6 @@ PATH_SETTINGS = {
     "reference_fasta",
     "reference_library",
     "genome_library",
-    "runtime_directory",
-    "pacman_ucrt64_bin",
     "yleaf_executable",
     "haplogrep_executable",
     "jar_directory",
@@ -150,9 +142,6 @@ CONFIG_ALIASES = {
     "genomes": "genome_library",
     "threads": "cpu_threads",
     "memory": "memory_limit",
-    "runtime": "tool_runtime",
-    "runtime_dir": "runtime_directory",
-    "pacman_bin": "pacman_ucrt64_bin",
     "yleaf_path": "yleaf_executable",
     "haplogrep_path": "haplogrep_executable",
     "jar_dir": "jar_directory",
@@ -163,9 +152,24 @@ CONFIG_ALIASES = {
 }
 
 
+# Settings of the removed Windows tool runtimes (WSL, MSYS2/pacman, bundled
+# Cygwin/MSYS2) that older installers wrote. Every platform now runs its tools
+# from the Pixi environment, so these are dropped when the config is read.
+LEGACY_SETTINGS = {
+    "tool_runtime",
+    "runtime",
+    "runtime_directory",
+    "runtime_dir",
+    "pacman_ucrt64_bin",
+    "pacman_bin",
+}
+
+
 def get_config_dir() -> Path:
     """Get the standard user configuration directory for this app."""
-    return Path(user_config_dir(APP_NAME, APP_AUTHOR))
+    return windows_local_app_dir(APP_NAME, APP_AUTHOR) or Path(
+        user_config_dir(APP_NAME, APP_AUTHOR)
+    )
 
 
 # Set from --config: a caller (such as the GUI) keeping its own settings file.
@@ -211,6 +215,10 @@ def load_config() -> dict[str, Any]:
         except (OSError, tomllib.TOMLDecodeError) as e:
             logging.warning(f"Ignoring unreadable config {config_path}: {e}")
 
+    for legacy_key in LEGACY_SETTINGS & config.keys():
+        logging.debug(f"Ignoring obsolete setting {legacy_key!r} in {config_path}")
+        del config[legacy_key]
+
     for old_key, new_key in CONFIG_ALIASES.items():
         if old_key in config and new_key not in config:
             config[new_key] = config[old_key]
@@ -250,6 +258,8 @@ def save_config(updates: dict[str, Any]) -> None:
                 f"Cannot update {config_path}: it is not valid TOML ({e})."
             ) from e
 
+    for legacy_key in LEGACY_SETTINGS:
+        current_config.pop(legacy_key, None)
     for key, value in updates.items():
         if key not in KNOWN_SETTINGS:
             continue

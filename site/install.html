@@ -43,7 +43,7 @@
         <div class="wrap">
           <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Setup guide</p>
           <h1>Install once, then run repeatable genome workflows.</h1>
-          <p class="lede"><abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> uses <a class="term-link" href="https://pixi.sh/">Pixi</a> to manage <a class="term-link" href="https://www.python.org/">Python</a>, the app itself, and many external bioinformatics tools. macOS and Linux use the standalone terminal installer; Windows uses <code>install_windows.bat</code> from <a class="term-link" href="https://learn.microsoft.com/powershell/">PowerShell</a> with the <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> <abbr data-tooltip="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime." aria-label="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime.">UCRT64</abbr> pacman runtime.</p>
+          <p class="lede"><abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> uses <a class="term-link" href="https://pixi.sh/">Pixi</a> to manage <a class="term-link" href="https://www.python.org/">Python</a>, the app itself, and many external bioinformatics tools. macOS and Linux use the standalone terminal installer; Windows uses <code>install_windows.bat</code> from <a class="term-link" href="https://learn.microsoft.com/powershell/">PowerShell</a>, which installs native Windows builds of the tools through <a class="term-link" href="https://pixi.sh/">Pixi</a>.</p>
           <div class="toc"><a href="#quickstart">macOS/Linux</a><a href="#running">Running the CLI</a><a href="#windows">Windows</a><a href="#developer">Developer Pixi setup</a><a href="#platforms">Platforms</a><a href="#references">References</a><a href="#checksums">Download checks</a><a href="#config">Configuration</a><a href="#verify">Verify</a></div>
         </div>
       </header>
@@ -107,7 +107,7 @@
 <tbody>
 <tr><td>Standalone installer (macOS/Linux)</td><td><code>./wgsextract-cli/wgsextract</code>, or <code>wgsextract</code> after adding <code>wgsextract-cli/</code> to <code>PATH</code></td><td>Relative paths resolve against your current directory.</td></tr>
 <tr><td>Windows installer or source checkout</td><td><code>pixi run wgsextract</code>, from the project folder</td><td></td></tr>
-<tr><td>Specialized <a class="term-link" href="https://pixi.sh/">Pixi</a> environments</td><td><code>pixi run -e pacbio wgsextract ...</code> (also <code>deepvariant</code>, <code>vep</code>), from the app or project folder</td><td>See <a class="inline-link" href="cli.html#environments">Pixi environments</a>.</td></tr>
+<tr><td>Specialized <a class="term-link" href="https://pixi.sh/">Pixi</a> environments</td><td><code>pixi run -e pacbio wgsextract ...</code> (also <code>vep</code>), from the app or project folder</td><td>See <a class="inline-link" href="cli.html#environments">Pixi environments</a>.</td></tr>
 </tbody>
 </table>
 </div>
@@ -119,16 +119,16 @@
 <div>
 <div class="section-head">
 <h2>Windows native installer</h2>
-<p>Use the Windows installer from a normal Windows <a class="term-link" href="https://learn.microsoft.com/powershell/">PowerShell</a> window when you want native Windows paths and the <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> <abbr data-tooltip="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime." aria-label="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime.">UCRT64</abbr> pacman runtime.</p>
+<p>Use the Windows installer from a normal Windows <a class="term-link" href="https://learn.microsoft.com/powershell/">PowerShell</a> window. The tools run natively on Windows, on your Windows files, without <abbr data-tooltip="WSL: Windows Subsystem for Linux: a Windows feature for running Linux environments." aria-label="WSL: Windows Subsystem for Linux: a Windows feature for running Linux environments.">WSL</abbr> or <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a>.</p>
 </div>
 <div class="grid two" style="margin-top: 22px">
 <article class="card">
 <h3>Run the BAT installer</h3>
-<p>Open <a class="term-link" href="https://learn.microsoft.com/powershell/">PowerShell</a> on Windows, then move into the <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> folder you cloned or downloaded and run <code>install_windows.bat</code>. If <a class="term-link" href="https://pixi.sh/">Pixi</a> or <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> are missing, the installer bootstraps them first.</p>
+<p>Open <a class="term-link" href="https://learn.microsoft.com/powershell/">PowerShell</a> on Windows, then move into the <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr> folder you cloned or downloaded and run <code>install_windows.bat</code>. If <a class="term-link" href="https://pixi.sh/">Pixi</a> is missing, the installer installs it first.</p>
 </article>
 <article class="card">
 <h3>What it does</h3>
-<p><code>install_windows.bat</code> installs or validates <a class="term-link" href="https://pixi.sh/">Pixi</a> and <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a>, installs the project <a class="term-link" href="https://pixi.sh/">Pixi</a> environment, prepares the <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> <abbr data-tooltip="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime." aria-label="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime.">UCRT64</abbr> pacman runtime tools, and saves pacman as the default runtime.</p>
+<p><code>install_windows.bat</code> installs <a class="term-link" href="https://pixi.sh/">Pixi</a> if needed, then the project <a class="term-link" href="https://pixi.sh/">Pixi</a> environment: <a class="term-link" href="https://www.python.org/">Python</a>, the <abbr data-tooltip="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows." aria-label="CLI: Command-Line Interface: a terminal-based way to run repeatable commands and automate workflows.">CLI</abbr>, and <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract's own Windows builds of <a class="term-link" href="https://www.htslib.org/">samtools</a>, <a class="term-link" href="https://samtools.github.io/bcftools/">bcftools</a>, BWA, bwa-mem2, <a class="term-link" href="https://github.com/lh3/minimap2">minimap2</a>, <a class="term-link" href="https://github.com/OpenGene/fastp">fastp</a> and samblaster. It finishes with <code>wgsextract deps check</code>.</p>
 </article>
 </div>
 </div>
@@ -142,20 +142,19 @@
 <span class="comment"># Recommended Windows install path: run the BAT installer.</span>
 <span class="cmd">.\install_windows.bat</span>
 
-<span class="comment"># Verify the native Windows pacman runtime.</span>
-<span class="cmd">pixi run wgsextract deps pacman check</span>
+<span class="comment"># Verify the tools.</span>
 <span class="cmd">pixi run wgsextract deps check</span>
 
 <span class="comment"># Uninstall the app-local environment and config defaults.</span>
 <span class="cmd">.\uninstall_windows.bat</span>
 
-<span class="comment"># Also remove bootstrapper-installed Pixi and MSYS2 when desired.</span>
+<span class="comment"># Also remove the Pixi the installer set up.</span>
 <span class="cmd">.\uninstall_windows.bat --remove-prerequisites</span></code></pre>
 </div>
 </div>
 <div class="wrap">
 <div class="callout">
-<strong>Windows prerequisites:</strong> A normal <a class="term-link" href="https://learn.microsoft.com/powershell/">PowerShell</a> session with internet access is enough for a default install. The installer downloads <a class="term-link" href="https://pixi.sh/">Pixi</a> and <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> when missing. The default <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> path is <code>C:\msys64</code>; if yours is somewhere else, run <code>.\install_windows.bat --msys2-root D:\tools\msys64</code>. See the <a class="inline-link" href="https://github.com/theontho/wgsextract-cli/blob/main/docs/windows_pacman_runtime.md">Windows pacman runtime guide</a> for details.
+<strong>Windows prerequisites:</strong> A normal <a class="term-link" href="https://learn.microsoft.com/powershell/">PowerShell</a> session with internet access is enough; the installer downloads <a class="term-link" href="https://pixi.sh/">Pixi</a> when missing. Older installs set up <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> for their tools, which nothing uses now. See the <a class="inline-link" href="https://github.com/theontho/wgsextract-cli/blob/main/docs/windows.md">Windows guide</a> for details.
 </div>
 </div>
 </section>
@@ -201,7 +200,7 @@
 <div class="wrap">
 <div class="section-head">
 <h2>Platform notes</h2>
-<p>Use the standalone installer on macOS/Linux and <code>install_windows.bat</code> on native Windows. For Windows, prefer the native <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> <abbr data-tooltip="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime." aria-label="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime.">UCRT64</abbr> pacman runtime; <abbr data-tooltip="WSL2: Windows Subsystem for Linux 2: the VM-backed version of WSL used for Linux-compatible workflows on Windows." aria-label="WSL2: Windows Subsystem for Linux 2: the VM-backed version of WSL used for Linux-compatible workflows on Windows.">WSL2</abbr> is not recommended for normal use because setup is more invasive and file access can be slower.</p>
+<p>Use the standalone installer on macOS/Linux and <code>install_windows.bat</code> on native Windows. On Windows the tools are native Windows programs, so no <abbr data-tooltip="WSL: Windows Subsystem for Linux: a Windows feature for running Linux environments." aria-label="WSL: Windows Subsystem for Linux: a Windows feature for running Linux environments.">WSL</abbr> or <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> setup is needed and they work directly on files on your Windows drives.</p>
 </div>
 <div class="grid three">
 <article class="card">
@@ -216,9 +215,10 @@
 <span class="tag">linux-64</span>
 </article>
 <article class="card">
-<h3>Native Windows (recommended)</h3>
-<p>Use <code>install_windows.bat</code> from <a class="term-link" href="https://learn.microsoft.com/powershell/">PowerShell</a>. It bootstraps <a class="term-link" href="https://pixi.sh/">Pixi</a> and <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> when needed and configures the app to use the <a class="term-link" href="https://www.msys2.org/" data-tooltip="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management." aria-label="MSYS2: Minimal SYStem 2: a Windows environment that provides Unix-like tools and package management.">MSYS2</a> <abbr data-tooltip="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime." aria-label="UCRT64: Universal C Runtime 64-bit: the 64-bit MSYS2 environment based on Microsoft&#x27;s Universal C Runtime.">UCRT64</abbr> pacman runtime by default.</p>
-<a class="inline-link" href="https://github.com/theontho/wgsextract-cli/blob/main/docs/windows_pacman_runtime.md">Windows pacman runtime</a>
+<h3>Windows</h3>
+<p>Use <code>install_windows.bat</code> from <a class="term-link" href="https://learn.microsoft.com/powershell/">PowerShell</a>. <a class="term-link" href="https://pixi.sh/">Pixi</a> installs <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract's own native Windows builds of the bioinformatics tools.</p>
+<span class="tag">win-64</span>
+<a class="inline-link" href="https://github.com/theontho/wgsextract-cli/blob/main/docs/windows.md">Windows guide</a>
 </article>
 </div>
 <div class="code-panel" style="margin-top: 22px">
@@ -226,7 +226,7 @@
 <pre><code><span class="comment"># Open PowerShell, clone or download the project, then:</span>
 <span class="cmd">cd wgsextract-cli</span>
 <span class="cmd">.\install_windows.bat</span>
-<span class="cmd">pixi run wgsextract deps pacman check</span></code></pre>
+<span class="cmd">pixi run wgsextract deps check</span></code></pre>
 </div>
 </div>
 </section>
@@ -263,14 +263,13 @@
 <div class="wrap">
 <div class="section-head">
 <h2>Download verification</h2>
-<p>Reference bundles and Windows native tool ZIPs are <a class="term-link" href="https://github.com/theontho/wgsextract-cli">GitHub</a> release assets, versioned separately from app releases so routine releases do not re-upload multi-gigabyte files.</p>
+<p>Reference bundles are <a class="term-link" href="https://github.com/theontho/wgsextract-cli">GitHub</a> release assets, versioned separately from app releases so routine releases do not re-upload multi-gigabyte files.</p>
 </div>
-<p>When <code>ref bootstrap</code>, <code>ref library --install</code>, or <code>ref download</code> fetches a <a class="term-link" href="https://github.com/theontho/wgsextract-cli">GitHub</a> release asset, <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract asks the <a class="term-link" href="https://github.com/theontho/wgsextract-cli">GitHub</a> Releases API for that asset's <code>sha256:&lt;digest&gt;</code> metadata and verifies the file before extracting or processing it. No neighboring <code>.sha256</code> files are needed. The Windows installer's <code>scripts/setup_pacman_runtime.ps1</code> uses the same check for the BWA, <a class="term-link" href="https://github.com/lh3/minimap2">minimap2</a>, samblaster, and <a class="term-link" href="https://github.com/OpenGene/fastp">fastp</a> ZIPs.</p>
+<p>When <code>ref bootstrap</code>, <code>ref library --install</code>, or <code>ref download</code> fetches a <a class="term-link" href="https://github.com/theontho/wgsextract-cli">GitHub</a> release asset, <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract asks the <a class="term-link" href="https://github.com/theontho/wgsextract-cli">GitHub</a> Releases API for that asset's <code>sha256:&lt;digest&gt;</code> metadata and verifies the file before extracting or processing it. No neighboring <code>.sha256</code> files are needed. The native Windows tool packages are pinned by SHA-256 in <code>pixi.toml</code>, which <a class="term-link" href="https://pixi.sh/">Pixi</a> checks.</p>
 <ul>
 <li>If the digest lookup is unavailable (for example, the API is unreachable or rate-limited), <abbr data-tooltip="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis." aria-label="WGS: Whole Genome Sequencing: sequencing that reads across nearly all of the genome for reusable analysis.">WGS</abbr> Extract logs a warning and continues. Set <code>GITHUB_TOKEN</code> to authenticate the lookup in automation.</li>
 <li>If <a class="term-link" href="https://github.com/theontho/wgsextract-cli">GitHub</a> metadata is fetched but has no valid SHA-256 digest, or the downloaded file does not match it, the download fails.</li>
 <li>Reference genomes are checked again after installation: gzip integrity, <code>samtools faidx</code>, and the sequence-dictionary signature.</li>
-<li>For local files or non-GitHub URLs on Windows, pass the expected digest explicitly (for example <code>install_windows.bat --bwa-binary-sha256 &lt;hex&gt;</code>); see the <a class="inline-link" href="https://github.com/theontho/wgsextract-cli/blob/main/docs/windows_pacman_runtime.md">Windows pacman runtime guide</a>.</li>
 </ul>
 </div>
 </section>

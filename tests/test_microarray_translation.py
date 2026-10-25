@@ -258,9 +258,13 @@ class TestMicroarrayTranslation(unittest.TestCase):
         root = os.path.join(self.test_dir, "raw_file_templates")
         os.makedirs(os.path.join(root, "head"))
         os.makedirs(os.path.join(root, "body"))
-        with open(os.path.join(root, "head", "FTDNA_V1_Affy.csv"), "w") as f:
+        with open(
+            os.path.join(root, "head", "FTDNA_V1_Affy.csv"), "w", newline=""
+        ) as f:
             f.write("RSID,CHROMOSOME,POSITION,RESULT\r\n")
-        with open(os.path.join(root, "body", "FTDNA_V1_Affy.csv"), "w") as f:
+        with open(
+            os.path.join(root, "body", "FTDNA_V1_Affy.csv"), "w", newline=""
+        ) as f:
             f.write("rs3094315,1,742429,\r\nrs12184325,1,743968,\r\n")
 
         kit = os.path.join(self.test_dir, "kit_hg19.txt")

@@ -30,15 +30,10 @@ DEFAULT_CONFIG = """# WGS Extract Configuration
 
 # --- Analysis Settings ---
 # System resources
-# threads = "auto"  # Apple Silicon perf cores, WSL balanced, otherwise all cores
+# threads = "auto"  # Apple Silicon perf cores, otherwise all cores
 # memory = "2G"  # per thread; "auto" uses 25% of RAM split across threads
 
 # --- External Tools ---
-# Runtime for external tools: auto, native, windows, wsl, cygwin, msys2, or pacman
-# runtime = "auto"
-# runtime_dir = "runtime"
-# pacman_bin = "C:/msys64/ucrt64/bin"
-
 # Paths to specific tool executables or directories
 # yleaf_path = "/path/to/yleaf"
 # haplogrep_path = "/path/to/haplogrep"

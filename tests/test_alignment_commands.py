@@ -359,7 +359,13 @@ def test_markdup_fallback_marks_a_duplicate_pair(tmp_path):
     )
     out = str(tmp_path / "out.bam")
     align.run_streamed_alignment(
-        ["cat", str(sam)],
+        # The aligner's stand-in: prints the SAM (Windows has no `cat`).
+        [
+            sys.executable,
+            "-c",
+            "import shutil, sys; shutil.copyfileobj(open(sys.argv[1], 'rb'), sys.stdout.buffer)",
+            str(sam),
+        ],
         out,
         threads="1",
         memory="100M",

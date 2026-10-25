@@ -1,42 +1,19 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
+rem WGS Extract CLI installer for Windows. Like install.sh on macOS and Linux,
+rem everything comes from Pixi: Python, the CLI and the native Windows builds of
+rem samtools, bcftools, htslib, BWA, bwa-mem2, minimap2, fastp and samblaster.
+
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%" || exit /b 1
 
-if defined MSYS2_ROOT (
-    set "WGSE_MSYS2_ROOT=%MSYS2_ROOT%"
-) else (
-    set "WGSE_MSYS2_ROOT=C:\msys64"
-)
 set "SKIP_PIXI_INSTALL=0"
-set "SKIP_PACMAN_SETUP=0"
-set "SKIP_PACKAGE_INSTALL=0"
-set "SKIP_BWA_BUILD=0"
-set "SKIP_BWA_DOWNLOAD=0"
-set "SKIP_MINIMAP2_BUILD=0"
-set "SKIP_MINIMAP2_DOWNLOAD=0"
-set "SKIP_SAMBLASTER_BUILD=0"
-set "SKIP_SAMBLASTER_DOWNLOAD=0"
-set "SKIP_FASTP_BUILD=0"
-set "SKIP_FASTP_DOWNLOAD=0"
-set "FORCE_BWA_BUILD=0"
-set "FORCE_MINIMAP2_BUILD=0"
-set "FORCE_SAMBLASTER_BUILD=0"
-set "FORCE_FASTP_BUILD=0"
-set "BWA_BINARY_URL="
-set "BWA_BINARY_SHA256="
-set "MINIMAP2_BINARY_URL="
-set "MINIMAP2_BINARY_SHA256="
-set "SAMBLASTER_BINARY_URL="
-set "SAMBLASTER_BINARY_SHA256="
-set "FASTP_BINARY_URL="
-set "FASTP_BINARY_SHA256="
 set "SKIP_PIXI_BOOTSTRAP=0"
-set "SKIP_MSYS2_INSTALL=0"
 set "SKIP_CHECKS=0"
 set "DRY_RUN=0"
 set "ALLOW_NONEMPTY_BOOTSTRAP_DIR=0"
+set "IGNORED_ARGS="
 
 :parse_args
 if "%~1"=="" goto args_done
@@ -59,137 +36,6 @@ if /I "!ARG!"=="--skip-pixi-bootstrap" (
     shift
     goto parse_args
 )
-if /I "!ARG!"=="--skip-msys2-install" (
-    set "SKIP_MSYS2_INSTALL=1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--skip-pacman-setup" (
-    set "SKIP_PACMAN_SETUP=1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--skip-package-install" (
-    set "SKIP_PACKAGE_INSTALL=1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--skip-bwa-build" (
-    set "SKIP_BWA_BUILD=1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--skip-minimap2-build" (
-    set "SKIP_MINIMAP2_BUILD=1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--skip-samblaster-build" (
-    set "SKIP_SAMBLASTER_BUILD=1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--skip-fastp-build" (
-    set "SKIP_FASTP_BUILD=1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--skip-bwa-download" (
-    set "SKIP_BWA_DOWNLOAD=1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--skip-minimap2-download" (
-    set "SKIP_MINIMAP2_DOWNLOAD=1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--skip-samblaster-download" (
-    set "SKIP_SAMBLASTER_DOWNLOAD=1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--skip-fastp-download" (
-    set "SKIP_FASTP_DOWNLOAD=1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--bwa-binary-url" (
-    shift
-    if "%~1"=="" goto missing_bwa_binary_url
-    set "BWA_BINARY_URL=%~1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--bwa-binary-sha256" (
-    shift
-    if "%~1"=="" goto missing_bwa_binary_sha256
-    set "BWA_BINARY_SHA256=%~1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--minimap2-binary-url" (
-    shift
-    if "%~1"=="" goto missing_minimap2_binary_url
-    set "MINIMAP2_BINARY_URL=%~1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--minimap2-binary-sha256" (
-    shift
-    if "%~1"=="" goto missing_minimap2_binary_sha256
-    set "MINIMAP2_BINARY_SHA256=%~1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--samblaster-binary-url" (
-    shift
-    if "%~1"=="" goto missing_samblaster_binary_url
-    set "SAMBLASTER_BINARY_URL=%~1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--samblaster-binary-sha256" (
-    shift
-    if "%~1"=="" goto missing_samblaster_binary_sha256
-    set "SAMBLASTER_BINARY_SHA256=%~1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--fastp-binary-url" (
-    shift
-    if "%~1"=="" goto missing_fastp_binary_url
-    set "FASTP_BINARY_URL=%~1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--fastp-binary-sha256" (
-    shift
-    if "%~1"=="" goto missing_fastp_binary_sha256
-    set "FASTP_BINARY_SHA256=%~1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--force-bwa-build" (
-    set "FORCE_BWA_BUILD=1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--force-minimap2-build" (
-    set "FORCE_MINIMAP2_BUILD=1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--force-samblaster-build" (
-    set "FORCE_SAMBLASTER_BUILD=1"
-    shift
-    goto parse_args
-)
-if /I "!ARG!"=="--force-fastp-build" (
-    set "FORCE_FASTP_BUILD=1"
-    shift
-    goto parse_args
-)
 if /I "!ARG!"=="--skip-checks" (
     set "SKIP_CHECKS=1"
     shift
@@ -200,32 +46,40 @@ if /I "!ARG!"=="--allow-nonempty-bootstrap-dir" (
     shift
     goto parse_args
 )
-if /I "!ARG!"=="--msys2-root" (
-    shift
-    if "%~1"=="" goto missing_msys2_root
-    set "WGSE_MSYS2_ROOT=%~1"
-    shift
-    goto parse_args
+rem Options of the old MSYS2/pacman installer, which older scripts (and the
+rem WGS Extract app) still pass. Its tools now come from Pixi, so these are
+rem accepted and ignored.
+for %%O in (--skip-msys2-install --skip-pacman-setup --skip-package-install --skip-bwa-build --skip-bwa-download --skip-minimap2-build --skip-minimap2-download --skip-samblaster-build --skip-samblaster-download --skip-fastp-build --skip-fastp-download --force-bwa-build --force-minimap2-build --force-samblaster-build --force-fastp-build) do (
+    if /I "!ARG!"=="%%O" (
+        set "IGNORED_ARGS=!IGNORED_ARGS! !ARG!"
+        shift
+        goto parse_args
+    )
+)
+for %%O in (--msys2-root --bwa-binary-url --bwa-binary-sha256 --minimap2-binary-url --minimap2-binary-sha256 --samblaster-binary-url --samblaster-binary-sha256 --fastp-binary-url --fastp-binary-sha256) do (
+    if /I "!ARG!"=="%%O" (
+        set "IGNORED_ARGS=!IGNORED_ARGS! !ARG!"
+        shift
+        if "%~2"=="" goto missing_value
+        shift
+        goto parse_args
+    )
 )
 if "!ARG:~0,2!"=="--" goto unknown_arg
-set "WGSE_MSYS2_ROOT=%~1"
+rem The old installer took the MSYS2 root as a bare argument.
+set "IGNORED_ARGS=!IGNORED_ARGS! !ARG!"
 shift
 goto parse_args
 
 :args_done
-set "WGSE_UCRT64_BIN=%WGSE_MSYS2_ROOT%\ucrt64\bin"
 if not defined PIXI_CACHE_DIR set "PIXI_CACHE_DIR=%CD%\tmp\pixi-cache\windows"
 if not defined PIXI_PROJECT_ENVIRONMENT_DIR set "PIXI_PROJECT_ENVIRONMENT_DIR=%CD%\tmp\pixi-envs\windows"
-set "WGSEXTRACT_TOOL_RUNTIME=pacman"
-set "WGSEXTRACT_PACMAN_UCRT64_BIN=%WGSE_UCRT64_BIN%"
 
-echo --- WGS Extract CLI: Windows pacman installer ---
+echo --- WGS Extract CLI: Windows installer ---
 echo Repository:        %CD%
-echo MSYS2 root:        %WGSE_MSYS2_ROOT%
-echo UCRT64 bin:        %WGSE_UCRT64_BIN%
 echo Pixi cache:        %PIXI_CACHE_DIR%
 echo Pixi envs:         %PIXI_PROJECT_ENVIRONMENT_DIR%
-echo Default runtime:   pacman
+if defined IGNORED_ARGS echo Ignored (no longer needed; tools come from Pixi):!IGNORED_ARGS!
 echo.
 
 if "%DRY_RUN%"=="1" (
@@ -241,28 +95,16 @@ if not exist "%SCRIPT_DIR%pixi.toml" (
 )
 
 set "BOOTSTRAP_PREREQ_ARGS="
-if "%SKIP_PIXI_BOOTSTRAP%"=="1" set "BOOTSTRAP_PREREQ_ARGS=!BOOTSTRAP_PREREQ_ARGS! -SkipPixiInstall"
-if "%SKIP_MSYS2_INSTALL%"=="1" set "BOOTSTRAP_PREREQ_ARGS=!BOOTSTRAP_PREREQ_ARGS! -SkipMsys2Install"
-echo Ensuring Windows prerequisites are installed...
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%scripts\bootstrap_windows_prereqs.ps1" -Msys2Root "%WGSE_MSYS2_ROOT%" !BOOTSTRAP_PREREQ_ARGS!
+if "%SKIP_PIXI_BOOTSTRAP%"=="1" set "BOOTSTRAP_PREREQ_ARGS=-SkipPixiInstall"
+echo Ensuring Pixi is installed...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%scripts\bootstrap_windows_prereqs.ps1" !BOOTSTRAP_PREREQ_ARGS!
 if errorlevel 1 exit /b 1
-set "PATH=%USERPROFILE%\.pixi\bin;%PATH%"
 
+set "PATH=%USERPROFILE%\.pixi\bin;%PATH%"
 where pixi >nul 2>nul
 if errorlevel 1 (
     echo ERROR: Pixi was not found on PATH.
     echo Install Pixi from https://pixi.sh and restart this terminal before rerunning.
-    exit /b 1
-)
-
-if not exist "%WGSE_MSYS2_ROOT%\usr\bin\bash.exe" (
-    echo ERROR: MSYS2 bash was not found at "%WGSE_MSYS2_ROOT%\usr\bin\bash.exe".
-    echo Install MSYS2 from https://www.msys2.org/ or pass --msys2-root PATH.
-    exit /b 1
-)
-if not exist "%WGSE_MSYS2_ROOT%\usr\bin\pacman.exe" (
-    echo ERROR: MSYS2 pacman was not found at "%WGSE_MSYS2_ROOT%\usr\bin\pacman.exe".
-    echo Install MSYS2 from https://www.msys2.org/ or pass --msys2-root PATH.
     exit /b 1
 )
 
@@ -279,59 +121,24 @@ pixi config set --local detached-environments "%PIXI_PROJECT_ENVIRONMENT_DIR%"
 if errorlevel 1 exit /b 1
 
 if "%SKIP_PIXI_INSTALL%"=="0" (
-    echo Installing WGS Extract CLI Pixi environment...
+    echo Installing the WGS Extract CLI Pixi environment...
     pixi install --locked
     if errorlevel 1 exit /b 1
 ) else (
     echo Skipping Pixi install.
 )
 
-if "%SKIP_PACMAN_SETUP%"=="0" (
-    echo Setting up MSYS2 UCRT64 pacman runtime tools...
-    set "PACMAN_SETUP_EXTRA_ARGS="
-    if "%SKIP_PACKAGE_INSTALL%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipPackageInstall"
-    if "%SKIP_BWA_BUILD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipBwaBuild"
-    if "%SKIP_BWA_DOWNLOAD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipBwaDownload"
-    if "%SKIP_MINIMAP2_BUILD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipMinimap2Build"
-    if "%SKIP_MINIMAP2_DOWNLOAD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipMinimap2Download"
-    if "%SKIP_SAMBLASTER_BUILD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipSamblasterBuild"
-    if "%SKIP_SAMBLASTER_DOWNLOAD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipSamblasterDownload"
-    if "%SKIP_FASTP_BUILD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipFastpBuild"
-    if "%SKIP_FASTP_DOWNLOAD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SkipFastpDownload"
-    if "%FORCE_BWA_BUILD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -ForceBwaBuild"
-    if "%FORCE_MINIMAP2_BUILD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -ForceMinimap2Build"
-    if "%FORCE_SAMBLASTER_BUILD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -ForceSamblasterBuild"
-    if "%FORCE_FASTP_BUILD%"=="1" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -ForceFastpBuild"
-    if not "%BWA_BINARY_URL%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -BwaBinaryUrl ""%BWA_BINARY_URL%"""
-    if not "%BWA_BINARY_SHA256%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -BwaBinarySha256 ""%BWA_BINARY_SHA256%"""
-    if not "%MINIMAP2_BINARY_URL%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -Minimap2BinaryUrl ""%MINIMAP2_BINARY_URL%"""
-    if not "%MINIMAP2_BINARY_SHA256%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -Minimap2BinarySha256 ""%MINIMAP2_BINARY_SHA256%"""
-    if not "%SAMBLASTER_BINARY_URL%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SamblasterBinaryUrl ""%SAMBLASTER_BINARY_URL%"""
-    if not "%SAMBLASTER_BINARY_SHA256%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -SamblasterBinarySha256 ""%SAMBLASTER_BINARY_SHA256%"""
-    if not "%FASTP_BINARY_URL%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -FastpBinaryUrl ""%FASTP_BINARY_URL%"""
-    if not "%FASTP_BINARY_SHA256%"=="" set "PACMAN_SETUP_EXTRA_ARGS=!PACMAN_SETUP_EXTRA_ARGS! -FastpBinarySha256 ""%FASTP_BINARY_SHA256%"""
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%scripts\setup_pacman_runtime.ps1" -Msys2Root "%WGSE_MSYS2_ROOT%" !PACMAN_SETUP_EXTRA_ARGS!
-    if errorlevel 1 exit /b 1
-) else (
-    echo Skipping pacman runtime setup.
-)
-
-echo Persisting native Windows hybrid as the default WGS Extract runtime...
-pixi run python -c "import os; from wgsextract_cli.core.config import get_config_path, save_config; save_config({'tool_runtime':'windows','pacman_ucrt64_bin':os.environ['WGSEXTRACT_PACMAN_UCRT64_BIN']}); print(get_config_path())"
-if errorlevel 1 exit /b 1
-
 if "%SKIP_CHECKS%"=="0" (
-    echo Validating pacman runtime through wgsextract...
-    pixi run wgsextract deps pacman check
+    echo Checking the installed tools...
+    pixi run wgsextract deps check
     if errorlevel 1 exit /b 1
 ) else (
-    echo Skipping final runtime checks.
+    echo Skipping final tool checks.
 )
 
 echo.
 echo Installation complete.
 echo Run: pixi run wgsextract --help
-echo Runtime defaults were set to windows in the WGS Extract config file.
 exit /b 0
 
 :bootstrap_source
@@ -349,50 +156,23 @@ if errorlevel 1 exit /b 1
 exit /b 0
 
 :usage
-echo WGS Extract CLI Windows installer, defaulting external tools to pacman.
+echo WGS Extract CLI Windows installer: installs Pixi if needed, then the CLI
+echo and its native Windows tools into this folder's Pixi environment.
 echo.
 echo Usage:
-echo   install_windows.bat [--msys2-root PATH] [options]
-echo   install_windows.bat C:\msys64 [options]
+echo   install_windows.bat [options]
 echo.
 echo Options:
-echo   --msys2-root PATH          MSYS2 install root. Defaults to %%MSYS2_ROOT%% or C:\msys64.
 echo   --skip-pixi-install       Do not run pixi install.
 echo   --skip-pixi-bootstrap     Do not install Pixi if it is missing.
-echo   --skip-msys2-install      Do not install MSYS2 if it is missing.
-echo   --skip-pacman-setup       Do not run scripts\setup_pacman_runtime.ps1.
-echo   --skip-package-install    Pass -SkipPackageInstall to the pacman setup helper.
-echo   --skip-bwa-build          Pass -SkipBwaBuild to the pacman setup helper.
-echo   --skip-bwa-download       Build BWA locally instead of downloading the release binary.
-echo   --skip-minimap2-build     Pass -SkipMinimap2Build to the pacman setup helper.
-echo   --skip-minimap2-download  Build minimap2 locally instead of downloading the release binary.
-echo   --skip-samblaster-build   Pass -SkipSamblasterBuild to the pacman setup helper.
-echo   --skip-samblaster-download
-echo                           Build samblaster locally instead of downloading the release binary.
-echo   --skip-fastp-build        Pass -SkipFastpBuild to the pacman setup helper.
-echo   --skip-fastp-download     Build fastp locally instead of downloading the release binary.
-echo   --bwa-binary-url URL      Download BWA from this ZIP URL or local ZIP path.
-echo   --bwa-binary-sha256 SHA256
-echo                           SHA-256 for a custom BWA ZIP URL or local ZIP path.
-echo   --minimap2-binary-url URL Download minimap2 from this ZIP URL or local ZIP path.
-echo   --minimap2-binary-sha256 SHA256
-echo                           SHA-256 for a custom minimap2 ZIP URL or local ZIP path.
-echo   --samblaster-binary-url URL
-echo                           Download samblaster from this ZIP URL or local ZIP path.
-echo   --samblaster-binary-sha256 SHA256
-echo                           SHA-256 for a custom samblaster ZIP URL or local ZIP path.
-echo   --fastp-binary-url URL    Download fastp from this ZIP URL or local ZIP path.
-echo   --fastp-binary-sha256 SHA256
-echo                           SHA-256 for a custom fastp ZIP URL or local ZIP path.
-echo   --force-bwa-build         Pass -ForceBwaBuild to the pacman setup helper.
-echo   --force-minimap2-build    Pass -ForceMinimap2Build to the pacman setup helper.
-echo   --force-samblaster-build  Pass -ForceSamblasterBuild to the pacman setup helper.
-echo   --force-fastp-build       Pass -ForceFastpBuild to the pacman setup helper.
-echo   --skip-checks             Do not run the final wgsextract pacman dependency check.
+echo   --skip-checks             Do not run the final wgsextract deps check.
 echo   --allow-nonempty-bootstrap-dir
 echo                           Allow standalone source bootstrap into a non-empty directory.
 echo   --dry-run                 Print resolved paths and exit without changing anything.
 echo   --help                    Show this help.
+echo.
+echo The old installer's MSYS2, pacman and tool-download options (--msys2-root,
+echo --skip-msys2-install, --bwa-binary-url, ...) are accepted and ignored.
 echo.
 echo Standalone bootstrap environment variables:
 echo   WGSEXTRACT_RELEASE_TAG    Release tag to download when this file is run alone. Defaults to latest.
@@ -400,44 +180,10 @@ echo   WGSEXTRACT_REF            Git ref to download when this file is run alone
 echo   WGSEXTRACT_ARCHIVE_URL    ZIP archive URL or local path to download/extract.
 echo   WGSEXTRACT_PIXI_INSTALL_URL    Pixi install.ps1 URL or local path.
 echo   WGSEXTRACT_PIXI_INSTALL_SHA256 Optional SHA-256 for the Pixi installer.
-echo   WGSEXTRACT_MSYS2_INSTALLER_URL MSYS2 installer URL or local path.
-echo   WGSEXTRACT_MSYS2_INSTALLER_SHA256 Optional SHA-256 for the MSYS2 installer.
 exit /b 0
 
-:missing_msys2_root
-echo ERROR: --msys2-root requires a path.
-exit /b 2
-
-:missing_bwa_binary_url
-echo ERROR: --bwa-binary-url requires a URL or path.
-exit /b 2
-
-:missing_bwa_binary_sha256
-echo ERROR: --bwa-binary-sha256 requires a SHA-256 digest.
-exit /b 2
-
-:missing_minimap2_binary_url
-echo ERROR: --minimap2-binary-url requires a URL or path.
-exit /b 2
-
-:missing_minimap2_binary_sha256
-echo ERROR: --minimap2-binary-sha256 requires a SHA-256 digest.
-exit /b 2
-
-:missing_samblaster_binary_url
-echo ERROR: --samblaster-binary-url requires a URL or path.
-exit /b 2
-
-:missing_samblaster_binary_sha256
-echo ERROR: --samblaster-binary-sha256 requires a SHA-256 digest.
-exit /b 2
-
-:missing_fastp_binary_url
-echo ERROR: --fastp-binary-url requires a URL or path.
-exit /b 2
-
-:missing_fastp_binary_sha256
-echo ERROR: --fastp-binary-sha256 requires a SHA-256 digest.
+:missing_value
+echo ERROR: !ARG! requires a value.
 exit /b 2
 
 :unknown_arg

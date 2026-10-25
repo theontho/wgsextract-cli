@@ -23,6 +23,8 @@ NAMESPACE = "wgsextract"
 _SIGNER = "wgsextract-signer"
 _CHUNK = 4 << 20
 _FINGERPRINT = re.compile(r"(\S+) key (SHA256:\S+)")
+# Verifying a manifest takes well under a second.
+_VERIFY_TIMEOUT = 10
 
 
 def register(
@@ -211,7 +213,25 @@ def _verify_signature(
             trust = ["check-novalidate"]
         cmd = [keygen, "-Y", *trust, "-n", NAMESPACE, "-s", str(signature)]
         with manifest.open("rb") as stdin:
-            res = subprocess.run(cmd, stdin=stdin, capture_output=True, text=True)
+            try:
+                res = subprocess.run(
+                    cmd,
+                    stdin=stdin,
+                    capture_output=True,
+                    text=True,
+                    errors="replace",
+                    timeout=_VERIFY_TIMEOUT,
+                )
+            except subprocess.TimeoutExpired as e:
+                # Windows' OpenSSH reports a bad signature and then never exits.
+                message = "".join(
+                    s.decode(errors="replace") if isinstance(s, bytes) else s
+                    for s in (e.stdout or "", e.stderr or "")
+                ).strip()
+                raise WGSExtractError(
+                    "Signature verification FAILED: "
+                    + (message or "ssh-keygen did not finish.")
+                ) from None
     message = (res.stdout + res.stderr).strip()
     if res.returncode != 0:
         raise WGSExtractError(f"Signature verification FAILED: {message}")

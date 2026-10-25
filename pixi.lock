@@ -291,7 +291,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/sysroot_linux-64-2.28-h4ee821c_9.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026c-h151e31d_0.conda
       - pypi: ./
-      - pypi: direct+https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422
+      - pypi: direct+https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379
       - pypi: https://files.pythonhosted.org/packages/35/ba/02b95fafb87b1ff6a4f6a79b06d70bbaf4657f86e95b993ac10104a8f804/pysam-0.24.1-cp313-cp313-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/4f/ef/c66110d46fb800dda0bf33164182dfadabe26a90e4476844d502a23dca8e/pytz-2026.5-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/50/fa/96d50e1e6cd0b08b5e2b7c838f65ae644940f75a124063380b5ef73b6866/pandas-3.0.6-cp313-cp313-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
@@ -380,7 +380,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/xz-tools-5.8.3-hbb4bfdb_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/zstd-1.5.7-hbc1a06c_7.conda
       - pypi: ./
-      - pypi: direct+https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422
+      - pypi: direct+https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379
       - pypi: https://files.pythonhosted.org/packages/40/dd/24b130d14e32aab94d98c0d4455464e597dbbba8d3a8371fcbf9b4d90f65/pysam-0.24.1-cp313-cp313-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/4f/ef/c66110d46fb800dda0bf33164182dfadabe26a90e4476844d502a23dca8e/pytz-2026.5-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7e/cd/fe58041e9011f307c490e3e17dd48cc516448f7c698a3f2d9d9d65d7e6a8/networkx-3.7-py3-none-any.whl
@@ -469,7 +469,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/xz-tools-5.8.3-h8088a28_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zstd-1.5.7-hf451053_7.conda
       - pypi: ./
-      - pypi: direct+https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422
+      - pypi: direct+https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379
       - pypi: https://files.pythonhosted.org/packages/4f/ef/c66110d46fb800dda0bf33164182dfadabe26a90e4476844d502a23dca8e/pytz-2026.5-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/64/5d/4c9752e034e9f0e27477efd68273d2835eedcffdb6b19d9a91c427773baa/pysam-0.24.1-cp313-cp313-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/7e/cd/fe58041e9011f307c490e3e17dd48cc516448f7c698a3f2d9d9d65d7e6a8/networkx-3.7-py3-none-any.whl
@@ -521,8 +521,16 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/vcomp14-14.51.36247-habf1de7_41.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/xz-5.8.3-hb6c8415_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/xz-tools-5.8.3-hfd05255_1.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bcftools-1.24-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bwa-0.7.19-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bwa-mem2-2.3-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/fastp-1.4.0-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/htslib-1.24-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/minimap2-2.31-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/samblaster-0.1.26-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/samtools-1.24-wgse_1.conda
       - pypi: ./
-      - pypi: direct+https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422
+      - pypi: direct+https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379
       - pypi: https://files.pythonhosted.org/packages/4f/ef/c66110d46fb800dda0bf33164182dfadabe26a90e4476844d502a23dca8e/pytz-2026.5-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7e/cd/fe58041e9011f307c490e3e17dd48cc516448f7c698a3f2d9d9d65d7e6a8/networkx-3.7-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/90/8c/140a40398a66b4471211be1affdb6ed24c486d581bd28d07b7f2fcb69540/numpy-2.5.4-cp313-cp313-win_amd64.whl
@@ -704,7 +712,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026c-h151e31d_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/virtualenv-21.14.11-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: direct+https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422
+      - pypi: direct+https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379
       - pypi: https://files.pythonhosted.org/packages/35/ba/02b95fafb87b1ff6a4f6a79b06d70bbaf4657f86e95b993ac10104a8f804/pysam-0.24.1-cp313-cp313-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/4f/ef/c66110d46fb800dda0bf33164182dfadabe26a90e4476844d502a23dca8e/pytz-2026.5-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/50/fa/96d50e1e6cd0b08b5e2b7c838f65ae644940f75a124063380b5ef73b6866/pandas-3.0.6-cp313-cp313-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
@@ -832,7 +840,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/yaml-0.2.5-had63097_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/zstd-1.5.7-hbc1a06c_7.conda
       - pypi: ./
-      - pypi: direct+https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422
+      - pypi: direct+https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379
       - pypi: https://files.pythonhosted.org/packages/40/dd/24b130d14e32aab94d98c0d4455464e597dbbba8d3a8371fcbf9b4d90f65/pysam-0.24.1-cp313-cp313-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/4f/ef/c66110d46fb800dda0bf33164182dfadabe26a90e4476844d502a23dca8e/pytz-2026.5-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7e/cd/fe58041e9011f307c490e3e17dd48cc516448f7c698a3f2d9d9d65d7e6a8/networkx-3.7-py3-none-any.whl
@@ -960,7 +968,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/yaml-0.2.5-h74c22ad_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zstd-1.5.7-hf451053_7.conda
       - pypi: ./
-      - pypi: direct+https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422
+      - pypi: direct+https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379
       - pypi: https://files.pythonhosted.org/packages/02/ff/1175b0b7371e46244032d43a56862d0af455823b5280a50c63d99cc50f18/automat-25.4.16-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1d/55/0f4df2a44053867ea9cbea73fc588b03c55605cd695cee0a3d86f0029cb2/incremental-24.11.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/4f/ef/c66110d46fb800dda0bf33164182dfadabe26a90e4476844d502a23dca8e/pytz-2026.5-py2.py3-none-any.whl
@@ -1058,8 +1066,16 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/xz-tools-5.8.3-hfd05255_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/yaml-0.2.5-h6a83c73_3.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/zstd-1.5.7-h534d264_7.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bcftools-1.24-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bwa-0.7.19-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bwa-mem2-2.3-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/fastp-1.4.0-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/htslib-1.24-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/minimap2-2.31-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/samblaster-0.1.26-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/samtools-1.24-wgse_1.conda
       - pypi: ./
-      - pypi: direct+https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422
+      - pypi: direct+https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379
       - pypi: https://files.pythonhosted.org/packages/4f/ef/c66110d46fb800dda0bf33164182dfadabe26a90e4476844d502a23dca8e/pytz-2026.5-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7e/cd/fe58041e9011f307c490e3e17dd48cc516448f7c698a3f2d9d9d65d7e6a8/networkx-3.7-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/90/8c/140a40398a66b4471211be1affdb6ed24c486d581bd28d07b7f2fcb69540/numpy-2.5.4-cp313-cp313-win_amd64.whl
@@ -1583,7 +1599,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/sysroot_linux-64-2.28-h4ee821c_9.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026c-h151e31d_0.conda
       - pypi: ./
-      - pypi: direct+https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422
+      - pypi: direct+https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379
       - pypi: https://files.pythonhosted.org/packages/4f/ef/c66110d46fb800dda0bf33164182dfadabe26a90e4476844d502a23dca8e/pytz-2026.5-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/50/fa/96d50e1e6cd0b08b5e2b7c838f65ae644940f75a124063380b5ef73b6866/pandas-3.0.6-cp313-cp313-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/6c/8a/1d8cb3842909dc193a73835adedf412e32e18f8ffd59f43983949622fe6f/platformdirs-4.13.5-py3-none-any.whl
@@ -1672,7 +1688,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/xz-tools-5.8.3-hbb4bfdb_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/zstd-1.5.7-hbc1a06c_7.conda
       - pypi: ./
-      - pypi: direct+https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422
+      - pypi: direct+https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379
       - pypi: https://files.pythonhosted.org/packages/4f/ef/c66110d46fb800dda0bf33164182dfadabe26a90e4476844d502a23dca8e/pytz-2026.5-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/6c/8a/1d8cb3842909dc193a73835adedf412e32e18f8ffd59f43983949622fe6f/platformdirs-4.13.5-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7e/cd/fe58041e9011f307c490e3e17dd48cc516448f7c698a3f2d9d9d65d7e6a8/networkx-3.7-py3-none-any.whl
@@ -1761,7 +1777,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/xz-tools-5.8.3-h8088a28_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zstd-1.5.7-hf451053_7.conda
       - pypi: ./
-      - pypi: direct+https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422
+      - pypi: direct+https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379
       - pypi: https://files.pythonhosted.org/packages/4f/ef/c66110d46fb800dda0bf33164182dfadabe26a90e4476844d502a23dca8e/pytz-2026.5-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/6c/8a/1d8cb3842909dc193a73835adedf412e32e18f8ffd59f43983949622fe6f/platformdirs-4.13.5-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7e/cd/fe58041e9011f307c490e3e17dd48cc516448f7c698a3f2d9d9d65d7e6a8/networkx-3.7-py3-none-any.whl
@@ -1805,8 +1821,16 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/vcomp14-14.51.36247-habf1de7_41.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/xz-5.8.3-hb6c8415_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/xz-tools-5.8.3-hfd05255_1.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bcftools-1.24-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bwa-0.7.19-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bwa-mem2-2.3-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/fastp-1.4.0-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/htslib-1.24-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/minimap2-2.31-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/samblaster-0.1.26-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/samtools-1.24-wgse_1.conda
       - pypi: ./
-      - pypi: direct+https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422
+      - pypi: direct+https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379
       - pypi: https://files.pythonhosted.org/packages/4f/ef/c66110d46fb800dda0bf33164182dfadabe26a90e4476844d502a23dca8e/pytz-2026.5-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/6c/8a/1d8cb3842909dc193a73835adedf412e32e18f8ffd59f43983949622fe6f/platformdirs-4.13.5-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7e/cd/fe58041e9011f307c490e3e17dd48cc516448f7c698a3f2d9d9d65d7e6a8/networkx-3.7-py3-none-any.whl
@@ -17140,6 +17164,54 @@ packages:
     - zstd >=1.5.7,<1.6.0a0
   size: 387535
   timestamp: 1786599623274
+- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bcftools-1.24-wgse_0.conda
+  subdir: win-64
+  sha256: 7e29dfeb3e373c7f69999714049774efecdf92ca4efd00ccdf14a9241aec3a38
+  channel: null
+  license: MIT
+  timestamp: 1792945372304
+- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bwa-0.7.19-wgse_0.conda
+  subdir: win-64
+  sha256: d7efc914557c2e83c9fdeee7b93a4728da034722cf25ce9f96ee2ee12ce71bf0
+  channel: null
+  license: GPL-3.0-only
+  timestamp: 1792945372317
+- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/bwa-mem2-2.3-wgse_0.conda
+  subdir: win-64
+  sha256: 297e0297a3d398f370460f2839509d1e899a627134cf9ffb341b5ce8c8ac4e9a
+  channel: null
+  license: MIT
+  timestamp: 1792945372319
+- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/fastp-1.4.0-wgse_0.conda
+  subdir: win-64
+  sha256: 3db683a6efa607d51a0245db929b222951d7eaf3dbadef68aae253c9c913dee8
+  channel: null
+  license: MIT
+  timestamp: 1792945372322
+- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/htslib-1.24-wgse_0.conda
+  subdir: win-64
+  sha256: 110538be26490acbf8cb4ead4825d1db87363043adb7087773212c7a246b87f5
+  channel: null
+  license: MIT
+  timestamp: 1792945372324
+- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/minimap2-2.31-wgse_0.conda
+  subdir: win-64
+  sha256: 986d37f806bdce40f542adcd8467bad5d556ed3cd8c99c3d583e6b998581b4fa
+  channel: null
+  license: MIT
+  timestamp: 1792945372326
+- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/samblaster-0.1.26-wgse_0.conda
+  subdir: win-64
+  sha256: 9b51ac427a4aca51348883b475d4c9dde7e4113a02d50e55ded686d96bfdba4a
+  channel: null
+  license: MIT
+  timestamp: 1792945372329
+- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-2/samtools-1.24-wgse_1.conda
+  subdir: win-64
+  sha256: 6ddf365d92b7d1de59467d18fc91fbc61be34a8217f2abf6d0964e0b00f315fe
+  channel: null
+  license: MIT
+  timestamp: 1792945372331
 - pypi: ./
   name: wgsextract-cli
   requires_dist:
@@ -17149,10 +17221,10 @@ packages:
   - tomli ; python_full_version < '3.11'
   - tomli-w
   requires_python: '>=3.10'
-- pypi: direct+https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422
+- pypi: direct+https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379
   name: yleaf
   version: 4.1.6
-  sha256: ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422
+  sha256: 3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379
   requires_dist:
   - setuptools
   - graphviz

@@ -1,17 +1,19 @@
 """Running tools from the app's Pixi environments."""
 
+import inspect
 import json
 import os
 import shlex
 import shutil
 import subprocess
-from functools import lru_cache
+import sys
 from pathlib import Path
 
 from wgsextract_cli.core import runtime
 from wgsextract_cli.core.paths import absolute_path, expand_path
 from wgsextract_cli.core.tool_catalog import (
     INSTALL_FIRST_PIXI_ENVS,
+    JAVA_JAR,
     PIXI_TOOL_ENVS,
     PIXI_TOOL_PACKAGES,
     WINDOWS_PIXI_SCRIPT_LAUNCHERS,
@@ -25,37 +27,10 @@ _WINDOWS_FIRST_USE_STUB = (
     "import subprocess, sys; from pathlib import Path; "
     "name = sys.argv[2]; "
     "root = Path(sys.prefix); "
-    "found = sorted((root / 'share').glob('*/' + name)) + "
+    "found = sorted(p for d in ('share', 'opt') for p in (root / d).glob('*/' + name)) + "
     "[p for p in (root / d / name for d in ('bin', 'Scripts')) if p.exists()]; "
     "sys.exit(subprocess.call([sys.argv[1], str(found[0]) if found else name, *sys.argv[3:]]))"
 )
-
-
-@lru_cache(maxsize=1)
-def _wsl_home_dir() -> str | None:
-    if not runtime.is_windows_host():
-        return None
-    try:
-        result = subprocess.run(
-            ["wsl", "bash", "-lc", 'printf %s "$HOME"'],
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if result.returncode != 0:
-        return None
-    home = result.stdout.strip()
-    return home if home else None
-
-
-def _wsl_pixi_path() -> str:
-    home = _wsl_home_dir()
-    if not home:
-        username = os.environ.get("USERNAME")
-        home = f"/home/{username}" if username else "~"
-    return f"{home}/.pixi/bin/pixi"
 
 
 def is_pixi_tool_command(path: str) -> bool:
@@ -67,7 +42,9 @@ def is_pixi_tool_command(path: str) -> bool:
     if not command:
         return False
     executable = Path(command[0]).name.lower()
-    return executable in {"pixi", "pixi.exe"} and "run" in command[1:]
+    # Windows package managers may install pixi as a .cmd or .bat shim.
+    pixi_names = {"pixi", "pixi.exe", "pixi.cmd", "pixi.bat"}
+    return executable in pixi_names and "run" in command[1:]
 
 
 def is_pixi_tool_path(path: str) -> bool:
@@ -154,6 +131,7 @@ def _locked_package_available(pixi_cmd: str, env: str, tool: str) -> bool:
             + ["--json"],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=60,
         )
         packages = json.loads(result.stdout) if result.returncode == 0 else []
@@ -163,11 +141,88 @@ def _locked_package_available(pixi_cmd: str, env: str, tool: str) -> bool:
     return any(entry.get("name") == package for entry in packages)
 
 
-def _pixi_run_command(pixi_cmd: str, env: str, args: list[str]) -> str:
-    command = [pixi_cmd, "run", *_pixi_manifest_args(), "-e", env, *args]
+def _join_command(command: list[str]) -> str:
     if runtime.is_windows_host():
         return subprocess.list2cmdline(command)
     return shlex.join(command)
+
+
+def _pixi_run_command(pixi_cmd: str, env: str, args: list[str]) -> str:
+    return _join_command([pixi_cmd, "run", *_pixi_manifest_args(), "-e", env, *args])
+
+
+def _probe_environment(prefix: str, tool_names: list[str], windows: bool) -> str | None:
+    """How to run a tool from the Pixi environment at prefix, as "kind:value"
+    (direct-name, haplogrep or script), or None.
+
+    Runs in this process or, for another environment, inside it: its source is
+    sent to that environment's Python, so it imports what it needs itself.
+    """
+    import shutil
+    from pathlib import Path
+
+    for tool in tool_names:
+        if shutil.which(tool):
+            return "direct-name:" + tool
+
+    root = Path(prefix)
+    if "haplogrep" in tool_names:
+        jar = root / "bin" / "haplogrep.jar"
+        if jar.exists():
+            return "haplogrep:" + str(jar.resolve())
+
+    for tool in tool_names:
+        # noarch packages keep the real script beside its data, in share/<pkg>/
+        # (GATK's jar) or opt/<pkg>/ (FastQC's), and link it into bin/; Windows
+        # gets no usable link, so look there first.
+        shared = sorted(
+            p
+            for d in ("share", "opt")
+            for p in root.glob(d + "/*/" + tool)
+            if p.is_file()
+        )
+        if windows and shared:
+            return "script:" + str(shared[-1])
+        script = root / "bin" / tool
+        if script.exists() or script.is_symlink():
+            return "script:" + str(script.resolve())
+    return None
+
+
+def _probe_environment_with_pixi(
+    pixi_cmd: str, env: str, tool_names: list[str]
+) -> subprocess.CompletedProcess[str] | None:
+    """Run _probe_environment inside another Pixi environment."""
+    script = (
+        inspect.getsource(_probe_environment)
+        + "\nimport os, sys\n"
+        + "found = _probe_environment(sys.prefix, sys.argv[1:], os.name == 'nt')\n"
+        + "print(found or '')\n"
+        + "raise SystemExit(0 if found else 1)\n"
+    )
+    try:
+        return subprocess.run(
+            [
+                pixi_cmd,
+                "run",
+                *_pixi_manifest_args(),
+                # Never install or update an environment just to probe it.
+                "--no-install",
+                "-e",
+                env,
+                "python",
+                "-c",
+                script,
+                *tool_names,
+            ],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            # A cold first start on Windows takes far longer than later ones.
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
 
 
 def _host_pixi_tool_command(tool: str) -> str | None:
@@ -179,65 +234,33 @@ def _host_pixi_tool_command(tool: str) -> str | None:
     if not pixi_cmd:
         return None
 
-    probe = r"""
-import shutil
-import sys
-import logging
-import os
-from pathlib import Path
-
-tool_names = sys.argv[1:]
-for tool in tool_names:
-    path = shutil.which(tool)
-    if path:
-        print("direct-name:" + tool)
-        raise SystemExit(0)
-
-prefix = Path(sys.prefix)
-if "haplogrep" in tool_names:
-    jar = prefix / "bin" / "haplogrep.jar"
-    if jar.exists():
-        print("haplogrep:" + str(jar.resolve()))
-        raise SystemExit(0)
-
-for tool in tool_names:
-    # noarch packages keep the real script in share/<pkg>/ beside its data (GATK's
-    # jar) and link it into bin/; Windows gets no usable link, so look there first.
-    shared = sorted(p for p in prefix.glob("share/*/" + tool) if p.is_file())
-    if os.name == "nt" and shared:
-        print("script:" + str(shared[-1]))
-        raise SystemExit(0)
-    script = prefix / "bin" / tool
-    if script.exists() or script.is_symlink():
-        print("script:" + str(script.resolve()))
-        raise SystemExit(0)
-
-raise SystemExit(1)
-"""
     executable_names = _tool_executable_names(tool)
-    try:
-        result = subprocess.run(
-            [
-                pixi_cmd,
-                "run",
-                *_pixi_manifest_args(),
-                # Never install or update an environment just to probe it.
-                "--no-install",
-                "-e",
-                env,
-                "python",
-                "-c",
-                probe,
-                *executable_names,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
+    # Look in the environment the CLI runs in first (`dev` has all of
+    # `default`), and run from it directly: `pixi run` takes seconds on Windows.
+    # Interpreter aliases need their dedicated environment's Python packages.
+    current = os.environ.get("PIXI_ENVIRONMENT_NAME")
+    found = (
+        _probe_environment(
+            sys.prefix, list(executable_names), runtime.is_windows_host()
         )
-    except (OSError, subprocess.SubprocessError):
-        return None
+        if current and (current == env or executable_names != ("python",))
+        else None
+    )
+    in_env = bool(found) or current == env
+    if not in_env:
+        result = _probe_environment_with_pixi(pixi_cmd, env, list(executable_names))
+        if result is None:
+            return None
+        lines = result.stdout.strip().splitlines()
+        found = lines[-1] if result.returncode == 0 and lines else None
 
-    if result.returncode != 0:
+    def command(args: list[str]) -> str:
+        if not in_env:
+            return _pixi_run_command(pixi_cmd, env, args)
+        program = sys.executable if args[0] == "python" else shutil.which(args[0])
+        return _join_command([program or args[0], *args[1:]])
+
+    if not found:
         # An optional environment that isn't installed yet: `pixi run` installs it
         # (with visible progress) the first time the tool is actually used.
         # An installed environment that fails the probe hasn't got the tool.
@@ -264,23 +287,18 @@ raise SystemExit(1)
             return _pixi_run_command(pixi_cmd, env, [executable_names[0]])
         return None
 
-    output = result.stdout.strip().splitlines()
-    if not output:
-        return None
-    kind, separator, value = output[-1].partition(":")
+    kind, separator, value = found.partition(":")
     if not separator or not value:
         return None
 
     if kind == "direct-name":
-        return _pixi_run_command(pixi_cmd, env, [value])
+        return command([value])
     if kind == "haplogrep":
-        return _pixi_run_command(pixi_cmd, env, ["java", "-jar", value])
+        return command([*JAVA_JAR, value])
     if kind == "script" and tool in WINDOWS_PIXI_SCRIPT_LAUNCHERS:
-        return _pixi_run_command(
-            pixi_cmd, env, [*WINDOWS_PIXI_SCRIPT_LAUNCHERS[tool], value]
-        )
+        return command([*WINDOWS_PIXI_SCRIPT_LAUNCHERS[tool], value])
     if kind == "script" and not runtime.is_windows_host():
-        return _pixi_run_command(pixi_cmd, env, [value])
+        return command([value])
     return None
 
 
@@ -299,6 +317,7 @@ def pixi_env_prefix(env: str) -> Path | None:
             [pixi_cmd, "info", *_pixi_manifest_args(), "--json"],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=60,
         )
         envs = json.loads(result.stdout)["environments_info"]

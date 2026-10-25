@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import logging
 import re
-import shlex
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +16,7 @@ from wgsextract_cli.core.pixi_tools import pixi_env_tool
 from wgsextract_cli.core.reference_assets import input_stem
 from wgsextract_cli.core.reference_resolver import header_contig_lengths
 from wgsextract_cli.core.samtools_commands import alignment_index
+from wgsextract_cli.core.tool_commands import _tool_command_parts
 from wgsextract_cli.core.utils import WGSExtractError, get_resource_defaults
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
@@ -129,7 +129,7 @@ def env_tool(tool: str, env: str, note: str = "") -> list[str]:
             f"{tool} runs from the optional `{env}` Pixi environment (Linux and "
             f"macOS), which isn't available: pixi install -e {env}{note}"
         )
-    return shlex.split(command)
+    return _tool_command_parts(command)
 
 
 def write_bed(path: str, regions: Iterable[tuple[str, int, int]]) -> str:

@@ -18,7 +18,6 @@ import argparse
 import json
 import logging
 import re
-import shlex
 import subprocess
 import tempfile
 from pathlib import Path
@@ -31,6 +30,7 @@ from wgsextract_cli.core.reference_resolver import (
     ReferenceLibrary,
     header_contig_lengths,
 )
+from wgsextract_cli.core.tool_commands import _tool_command_parts
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import (
     chromosome_rename_mapping,
@@ -75,7 +75,7 @@ def _python(directory: str) -> list[str]:
             "PharmCAT's environment isn't available (it runs on macOS and Linux): "
             "pixi install -e pharmcat"
         )
-    return shlex.split(command)
+    return _tool_command_parts(command)
 
 
 def _ensure_reference(python: list[str], directory: str) -> str:

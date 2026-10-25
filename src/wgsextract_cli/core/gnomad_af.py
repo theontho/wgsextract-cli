@@ -101,11 +101,13 @@ def _stream_gnomad_contig(
         queried = wait_with_cancel(query, cancel_event)
         feeder.join()
         compressed = compress.wait() == 0
-        if queried and compressed and not download_error:
-            Path(partial).replace(part)
-            return None
+        ok = queried and compressed and not download_error
         err.seek(0)
         detail = err.read().decode(errors="replace").strip().splitlines()[-3:]
+    # Closed first: Windows can't rename or delete an open file.
+    if ok:
+        Path(partial).replace(part)
+        return None
     Path(partial).unlink()
     return (
         "; ".join(download_error + detail) or f"bcftools exited with {query.returncode}"

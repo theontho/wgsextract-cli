@@ -1,6 +1,8 @@
 """Filesystem paths shared by the CLI and its string-based tool boundaries."""
 
 import logging
+import os
+import sys
 from os import PathLike, fspath
 from pathlib import Path
 from typing import TypeAlias
@@ -19,6 +21,14 @@ def absolute_path(path: PathInput) -> Path:
         else:
             parts.append(part)
     return Path(absolute.anchor, *parts)
+
+
+def windows_local_app_dir(app: str, author: str) -> Path | None:
+    """%LOCALAPPDATA%\\<author>\\<app> on Windows, where platformdirs puts per-user
+    config and data. platformdirs asks the shell for the folder and ignores the
+    variable, which other Windows programs (and test isolation) go by."""
+    local = os.environ.get("LOCALAPPDATA") if sys.platform == "win32" else None
+    return Path(local, author, app) if local else None
 
 
 def expand_path(path: PathInput) -> str:

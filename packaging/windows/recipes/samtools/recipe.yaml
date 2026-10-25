@@ -8,9 +8,13 @@ package:
 source:
   url: https://github.com/samtools/samtools/releases/download/${{ version }}/samtools-${{ version }}.tar.bz2
   sha256: 89b2a440123eeaa400392ce1736e7d60ce9041843027d76819753c5a8246bfdd
+  patches:
+    # merge -r and split name read groups and files after the file name, found
+    # after the last '/' only: on Windows that was the whole path.
+    - patches/0001-windows-path-separators.patch
 
 build:
-  number: 0
+  number: 1
   string: wgse_${{ build_number }}
   script:
     # MSYS2 UCRT64 builds it (see ../env.sh); MSYS2_ROOT says where it is.

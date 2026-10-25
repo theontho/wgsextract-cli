@@ -39,10 +39,9 @@ this is the whole sequence, with what to check at each step.
    gh release edit vX.Y.Z --notes-file notes.md --draft=false --latest
    ```
 
-   `install.sh` installs the latest published release. Publishing also starts
-   **Release Windows Native Tools** (`release_windows_bwa.yml`), which attaches
-   the Windows BWA, minimap2, samblaster and fastp builds that pacman installs
-   download from the release. Wait for it to pass before step 2 below.
+   `install.sh` installs the latest published release. The native Windows
+   tools aren't part of it: `pixi.toml` pins their own packages (see
+   [packaging/windows/README.md](../packaging/windows/README.md)).
 
 ## 2. The app release (gui-for-cli)
 

@@ -120,7 +120,10 @@ def test_emoji_formatter_does_not_mutate_record():
 
 def test_registry_cleanup_reenters_while_lock_held():
     registry = process_registry.ProcessRegistry()
-    proc = subprocess.Popen(["sleep", "30"], **process_registry.process_group_kwargs())
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        **process_registry.process_group_kwargs(),
+    )
     registry.register_process("sleep", proc)
     done = threading.Event()
 
@@ -272,7 +275,7 @@ def test_config_flag_reads_and_saves_only_that_file(tmp_path):
 def test_config_flag_reaches_the_cli(tmp_path):
     own = tmp_path / "own.toml"
     outdir = tmp_path / "from-own-config"
-    own.write_text(f'output_directory = "{outdir}"\n')
+    own.write_text(f"output_directory = '{outdir}'\n")
     result = subprocess.run(
         [sys.executable, "-m", "wgsextract_cli.main", "--config", str(own), "config"],
         capture_output=True,

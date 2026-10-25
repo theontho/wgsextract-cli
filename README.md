@@ -18,7 +18,7 @@ curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/instal
 
 The bootstrap script comes from `main`, but it installs the latest published GitHub release, not `main`. It creates `wgsextract-cli/` in the current directory (or next to a downloaded `install.sh`) containing the app (`app/`), Pixi files (`.pixi/`), the `wgsextract` launcher, and `uninstall.sh`. On macOS it checks for the Xcode Command Line Tools first.
 
-Windows: clone or download the repository and run `install_windows.bat` from PowerShell. It bootstraps Pixi and MSYS2 when missing and configures the native MSYS2 UCRT64 runtime. See [docs/windows_pacman_runtime.md](docs/windows_pacman_runtime.md). WSL2 is not recommended for normal use.
+Windows: clone or download the repository and run `install_windows.bat` from PowerShell. It installs Pixi when missing, then the CLI and its native Windows tools (WGS Extract's own builds of samtools, bcftools, BWA, bwa-mem2, minimap2, fastp and samblaster) into the Pixi environment. No WSL or MSYS2 is needed. See [docs/windows.md](docs/windows.md).
 
 The [install guide](https://theontho.github.io/wgsextract-cli/install.html) covers platform notes, download verification, and the reference library in more detail.
 
@@ -112,7 +112,7 @@ Run `wgsextract help` for the full command tree, and `wgsextract <command> --hel
 | `ref` | Library: `bootstrap`, `library`, `library-list`, `status`, `download`, `index`, `verify`, `count-ns`, `gene-map`. Annotation data: `clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb` |
 | `sign` | `create` (SHA256SUMS manifest, optionally signed with an OpenSSH key), `verify` |
 | `example-genome` | `list`, `download` curated 1000 Genomes / HGSVC2 datasets |
-| `deps` | `check`; Windows runtimes: `pacman check`, `msys2 check/setup`, `cygwin check/setup`, `wsl check/tune` |
+| `deps` | `check` |
 | `benchmark` | Benchmark the main workflows on generated or release-backed data |
 | `config` | Show the active config file and settings |
 
@@ -205,17 +205,13 @@ reflib = "/data/reference"
 genome_library = "/data/genome-library"
 
 # Resources: a number, or "auto"
-threads = "auto"   # Apple Silicon performance cores, 3/4 of cores on WSL, otherwise all cores
+threads = "auto"   # Apple Silicon performance cores, otherwise all cores
 memory = "auto"    # per thread, e.g. "2G"; auto uses 25% of RAM split across threads
 
 # External tool overrides (optional when the tools are on PATH)
 yleaf_path = "/path/to/yleaf"
 haplogrep_path = "/path/to/haplogrep"
 vep_cache = "~/.vep"
-
-# Windows runtime (written by install_windows.bat)
-# tool_runtime = "windows"
-# pacman_ucrt64_bin = "C:/msys64/ucrt64/bin"
 ```
 
 The short keys above are aliases; `wgsextract config` shows the canonical names (`input_path`, `output_directory`, `reference_fasta`, `reference_library`, `cpu_threads`, `memory_limit`, `yleaf_executable`, and so on). Either form works. Command-line options override config values for a single run. Other settings cover annotation data paths (`clinvar_vcf_path`, `gnomad_vcf_path`, `revel_tsv_path`, ...), default trio VCFs (`mother_vcf`, `father_vcf`), and the developer settings listed under [Development](#development).

@@ -482,7 +482,8 @@ def test_vcf_input_end_to_end_with_clinvar(
     lib = tmp_path / "lib"
     lib.mkdir()
     cfg = tmp_path / "config.toml"
-    cfg.write_text(f'reference_library = "{lib}"\nclinvar_vcf_path = "{clinvar}"\n')
+    # Literal strings: TOML would read a Windows path's backslashes as escapes.
+    cfg.write_text(f"reference_library = '{lib}'\nclinvar_vcf_path = '{clinvar}'\n")
     monkeypatch.setattr(config, "_config_path_override", cfg)
     reload_settings()
 

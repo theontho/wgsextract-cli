@@ -5,6 +5,7 @@ downloads that install those sources."""
 import gzip
 import io
 import os
+import re
 import subprocess
 import zipfile
 from pathlib import Path
@@ -361,7 +362,9 @@ def test_unsorted_table_fails_to_index_with_its_path(tmp_path):
 
     table = _tsv(tmp_path / "t.tsv.gz", REVEL_HEADER,
                  ["1 200 200 A G 0.1", "1 100 100 C T 0.2"])  # fmt: skip
-    with pytest.raises(WGSExtractError, match=f"Indexing {table} failed"):
+    with pytest.raises(
+        WGSExtractError, match=f"Indexing {re.escape(str(table))} failed"
+    ):
         prepare_tabix_annotation(table, "REVEL")
 
 

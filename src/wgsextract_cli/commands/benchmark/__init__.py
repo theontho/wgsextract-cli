@@ -1,16 +1,10 @@
 import argparse
-import os
 from datetime import datetime
 
 from wgsextract_cli.core.builds import (
     BUILD_CHOICES,
 )
 from wgsextract_cli.core.messages import CLI_HELP
-from wgsextract_cli.core.runtime import (
-    RUNTIME_ENV_VAR,
-    VALID_RUNTIME_MODES,
-    get_tool_runtime_mode,
-)
 from wgsextract_cli.core.utils import WGSExtractError
 
 from .core import (
@@ -51,9 +45,6 @@ from .reports import (
 
 
 def run(args: argparse.Namespace) -> None:
-    if getattr(args, "runtime", None):
-        os.environ[RUNTIME_ENV_VAR] = str(args.runtime)
-
     profile = PROFILE_DEFAULTS[args.profile]
     coverage = args.coverage if args.coverage is not None else profile["coverage"]
     full_size = bool(args.full_size or profile["full_size"])
@@ -117,7 +108,6 @@ def run(args: argparse.Namespace) -> None:
         "region": region,
         "target_count": target_count,
         "suite": args.suite,
-        "tool_runtime": get_tool_runtime_mode(),
         "threads": thread_plan.label,
         "thread_policy": thread_plan.reason,
         "base_file": str(generated_bam),
@@ -257,11 +247,6 @@ def register(
         choices=["core", "heavy"],
         default="heavy",
         help="Benchmark operation coverage. core runs the lighter baseline suite.",
-    )
-    parser.add_argument(
-        "--runtime",
-        choices=sorted(VALID_RUNTIME_MODES),
-        help="External tool runtime to benchmark: auto, native, windows, wsl, cygwin, msys2, or pacman.",
     )
     parser.add_argument(
         "--dataset",

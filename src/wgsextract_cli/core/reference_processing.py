@@ -210,7 +210,7 @@ def download_and_process_genome(
 
     An already-installed genome is only re-indexed unless restart is set.
     """
-    verify_dependencies(["samtools", "bgzip", "gzip"])
+    verify_dependencies(["samtools", "bgzip"])
     target_dir = str(Path(reflib_dir, "genomes"))
     Path(target_dir).mkdir(parents=True, exist_ok=True)
     final_path = str(Path(target_dir, genome_data["final"]))

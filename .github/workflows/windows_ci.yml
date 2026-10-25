@@ -1,5 +1,8 @@
 name: CI Windows
 
+# Native Windows, as users run it: every tool comes from the Pixi environment
+# (WGS Extract's own Windows builds of the bioinformatics tools). Lint and type
+# checks run on Ubuntu.
 on:
   pull_request:
     branches: [ main ]
@@ -11,56 +14,29 @@ permissions:
 jobs:
   test-windows:
     runs-on: windows-latest
-    # A run takes about 6 minutes.
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # A stalled distribution download gets a bounded first try and one
-      # retry. The hosted runner itself also sometimes dies during WSL setup
-      # ("lost communication with the server"); no step setting helps there,
-      # so rerun the job.
-      - name: Set up WSL
-        id: wsl
-        timeout-minutes: 10
-        continue-on-error: true
-        uses: Vampire/setup-wsl@4c48163d9f981914dd8caa0fc335fe19cca5bff4 # v7.2.0
+      - name: Set up Pixi
+        uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
         with:
-          distribution: Ubuntu-24.04
-      - name: Set up WSL (retry)
-        if: steps.wsl.outcome == 'failure'
-        timeout-minutes: 10
-        uses: Vampire/setup-wsl@4c48163d9f981914dd8caa0fc335fe19cca5bff4 # v7.2.0
-        with:
-          distribution: Ubuntu-24.04
-      - name: Install WSL Dependencies
-        shell: powershell
-        run: |
-          $ErrorActionPreference = "Stop"
-          wsl bash -lc "curl -fsSL https://pixi.sh/install.sh | PIXI_VERSION=v0.82.0 bash"
-          $workspace = "${{ github.workspace }}".Replace('\', '/')
-          $wslPath = (wsl wslpath -u "$workspace").Trim()
-          wsl bash -lc "rm -rf ~/wgsextract-cli && mkdir -p ~/wgsextract-cli && cd '$wslPath' && tar --exclude=.pixi --exclude=out --exclude=tmp -cf - . | tar -C ~/wgsextract-cli -xf - && cd ~/wgsextract-cli && ~/.pixi/bin/pixi install --locked -e default -e dev"
+          pixi-version: v0.82.0
+          locked: true
+          environments: >-
+            default
+            dev
+      - name: Validate installer arguments
+        shell: cmd
+        run: install_windows.bat --dry-run --msys2-root C:\msys64 --skip-pacman-setup
+      - name: Check tools
+        run: pixi run wgsextract deps check
       - name: Run Benchmark
-        shell: powershell
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          $ErrorActionPreference = "Stop"
-          $env:WSLENV = "GITHUB_STEP_SUMMARY/p:GITHUB_TOKEN"
-          wsl bash -lc "cd ~/wgsextract-cli && ~/.pixi/bin/pixi run wgsextract benchmark --dataset real --profile smoke"
+          pixi run wgsextract benchmark --dataset real --profile smoke
           "Benchmark timing is published in this job summary." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
       - name: Run Tests
-        shell: powershell
-        run: |
-          $ErrorActionPreference = "Stop"
-          wsl bash -lc "cd ~/wgsextract-cli && ~/.pixi/bin/pixi run test"
-      - name: Lint and Type Check
-        shell: powershell
-        run: |
-          $ErrorActionPreference = "Stop"
-          wsl bash -lc "cd ~/wgsextract-cli && ~/.pixi/bin/pixi run lint && ~/.pixi/bin/pixi run typecheck"
+        run: pixi run test
       - name: Build and Smoke Test Package
-        shell: powershell
-        run: |
-          $ErrorActionPreference = "Stop"
-          wsl bash -lc "cd ~/wgsextract-cli && ~/.pixi/bin/pixi run package-smoke"
+        run: pixi run package-smoke

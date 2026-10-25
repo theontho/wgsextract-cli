@@ -1,12 +1,10 @@
+# Installs Pixi for the current user when it's missing: the one prerequisite of
+# install_windows.bat. Every tool, Python included, then comes from Pixi.
 [CmdletBinding()]
 param(
-    [string]$Msys2Root = $(if ($env:MSYS2_ROOT) { $env:MSYS2_ROOT } else { "C:\msys64" }),
     [string]$PixiInstallUrl = $(if ($env:WGSEXTRACT_PIXI_INSTALL_URL) { $env:WGSEXTRACT_PIXI_INSTALL_URL } else { "https://pixi.sh/install.ps1" }),
-    [string]$Msys2InstallerUrl = $(if ($env:WGSEXTRACT_MSYS2_INSTALLER_URL) { $env:WGSEXTRACT_MSYS2_INSTALLER_URL } else { "https://github.com/msys2/msys2-installer/releases/latest/download/msys2-base-x86_64-latest.sfx.exe" }),
     [string]$PixiInstallSha256 = $(if ($env:WGSEXTRACT_PIXI_INSTALL_SHA256) { $env:WGSEXTRACT_PIXI_INSTALL_SHA256 } else { "" }),
-    [string]$Msys2InstallerSha256 = $(if ($env:WGSEXTRACT_MSYS2_INSTALLER_SHA256) { $env:WGSEXTRACT_MSYS2_INSTALLER_SHA256 } else { "" }),
-    [switch]$SkipPixiInstall,
-    [switch]$SkipMsys2Install
+    [switch]$SkipPixiInstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -194,85 +192,4 @@ function Ensure-Pixi {
     }
 }
 
-function Ensure-Msys2 {
-    if ($SkipMsys2Install) {
-        Write-Step "Skipping MSYS2 bootstrap."
-        return
-    }
-
-    $resolvedRoot = [System.IO.Path]::GetFullPath($Msys2Root)
-    $bashPath = Join-Path $resolvedRoot "usr\bin\bash.exe"
-    $pacmanPath = Join-Path $resolvedRoot "usr\bin\pacman.exe"
-    if ((Test-Path -LiteralPath $bashPath) -and (Test-Path -LiteralPath $pacmanPath)) {
-        Write-Step "MSYS2 found: $resolvedRoot"
-        return
-    }
-
-    Write-Step "MSYS2 was not found at $resolvedRoot; installing MSYS2..."
-    $rootParent = Split-Path -Parent $resolvedRoot
-    if (-not $rootParent) {
-        throw "MSYS2 root must include a parent directory: $resolvedRoot"
-    }
-    if ($rootParent -and -not (Test-Path -LiteralPath $rootParent)) {
-        New-Item -ItemType Directory -Path $rootParent -Force | Out-Null
-    }
-    $installer = Join-Path $env:TEMP ("wgsextract-msys2-install-{0}.exe" -f ([guid]::NewGuid()))
-    try {
-        Copy-UrlOrFile -Source $Msys2InstallerUrl -Destination $installer
-        Assert-FileSha256 -Path $installer -ExpectedSha256 $Msys2InstallerSha256 -Label "MSYS2 installer"
-        $isSelfExtractingArchive = $Msys2InstallerUrl -like "*.sfx.exe"
-        if (-not $isSelfExtractingArchive -and (Test-Path -LiteralPath $Msys2InstallerUrl)) {
-            $isSelfExtractingArchive = ([System.IO.Path]::GetFileName($Msys2InstallerUrl) -like "*.sfx.exe")
-        }
-
-        if ($isSelfExtractingArchive) {
-            $extractParent = $rootParent
-            # 7-Zip SFX -o argument: a path that ends with `\` followed by a closing
-            # double-quote (e.g. `-o"C:\"`) is mis-parsed because `\"` is treated as an
-            # escaped quote. Strip the trailing backslash, and only quote when the path
-            # contains whitespace. If trimming somehow empties the path, fall back to
-            # the original extraction parent rather than passing an invalid argument.
-            $normalizedParent = $extractParent.TrimEnd([char[]]@('\','/'))
-            if ([string]::IsNullOrEmpty($normalizedParent)) { $normalizedParent = $extractParent }
-            if ($normalizedParent -match '\s') {
-                $outputArg = "-o`"$normalizedParent`""
-            } else {
-                $outputArg = "-o$normalizedParent"
-            }
-            $process = Start-Process -FilePath $installer -ArgumentList @(
-                "-y",
-                $outputArg
-            ) -Wait -PassThru
-            $extractedRoot = Join-Path $extractParent "msys64"
-            if ($process.ExitCode -eq 0 -and $extractedRoot -ne $resolvedRoot -and (Test-Path -LiteralPath $extractedRoot)) {
-                Move-Item -LiteralPath $extractedRoot -Destination $resolvedRoot -Force
-            }
-        }
-        else {
-            $rootArg = $resolvedRoot.Replace("\", "/")
-            $process = Start-Process -FilePath $installer -ArgumentList @(
-                "in",
-                "--confirm-command",
-                "--accept-messages",
-                "--root",
-                $rootArg
-            ) -Wait -PassThru
-        }
-        if ($process.ExitCode -ne 0) {
-            throw "MSYS2 installer failed with exit code $($process.ExitCode)."
-        }
-        if (-not (Test-Path -LiteralPath $bashPath)) {
-            throw "MSYS2 install completed, but bash was not found at $bashPath."
-        }
-        if (-not (Test-Path -LiteralPath $pacmanPath)) {
-            throw "MSYS2 install completed, but pacman was not found at $pacmanPath."
-        }
-        Write-Step "MSYS2 installed: $resolvedRoot"
-    }
-    finally {
-        Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue
-    }
-}
-
 Ensure-Pixi
-Ensure-Msys2

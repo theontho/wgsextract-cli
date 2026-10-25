@@ -1,5 +1,6 @@
 import json
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -13,142 +14,6 @@ else:
     import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def test_pacman_setup_declares_native_optional_packages() -> None:
-    script = (ROOT / "scripts" / "setup_pacman_runtime.ps1").read_text(encoding="utf-8")
-
-    assert "$optionalRuntimePackages = @(" in script
-    assert "mingw-w64-ucrt-x86_64-curl" in script
-    assert "mingw-w64-ucrt-x86_64-gcc-libs" in script
-    assert "mingw-w64-ucrt-x86_64-isa-l" in script
-    assert "mingw-w64-ucrt-x86_64-libdeflate" in script
-    assert "htsfile is provided by mingw-w64-ucrt-x86_64-htslib" in script
-
-
-def test_pacman_setup_reports_native_optional_tools() -> None:
-    script = (ROOT / "scripts" / "setup_pacman_runtime.ps1").read_text(encoding="utf-8")
-
-    assert "$optionalPacmanTools = @(" in script
-    assert '"curl"' in script
-    assert '"htsfile"' in script
-    assert '"minimap2"' in script
-    assert '"samblaster"' in script
-    assert '"fastp"' in script
-    assert "Optional pacman runtime tools are present:" in script
-
-
-def test_pacman_setup_can_build_and_install_minimap2_asset() -> None:
-    script = (ROOT / "scripts" / "setup_pacman_runtime.ps1").read_text(encoding="utf-8")
-
-    assert '[string]$Minimap2Version = "2.30"' in script
-    assert '[string]$Minimap2BinaryUrl = ""' in script
-    assert '[string]$Minimap2BinarySha256 = ""' in script
-    assert "WGSEXTRACT_MINIMAP2_BINARY_URL" not in script
-    assert "WGSEXTRACT_MINIMAP2_BINARY_SHA256" not in script
-    assert 'Assert-SafeReleaseValue -Name "Minimap2Version"' in script
-    assert '-Sha256ParameterName "Minimap2BinarySha256"' in script
-    assert "Install-Minimap2BinaryPackage" in script
-    assert "wgsextract-minimap2-$Minimap2Version-windows-ucrt64.zip" in script
-    assert "Building minimap2 $Minimap2Version for MSYS2 UCRT64" in script
-    assert "/ucrt64/bin/minimap2.exe --version" in script
-    assert 'throw "Failed to build required minimap2 native runtime:' in script
-
-
-def test_release_workflow_uploads_minimap2_asset() -> None:
-    workflow = (ROOT / ".github" / "workflows" / "release_windows_bwa.yml").read_text(
-        encoding="utf-8"
-    )
-
-    assert "MINIMAP2_VERSION" in workflow
-    assert "Resolve-SafeBuildInput" in workflow
-    assert "INPUT_MINIMAP2_VERSION: ${{ inputs.minimap2_version }}" in workflow
-    assert '$minimap2Version = "${{ inputs.minimap2_version }}"' not in workflow
-    assert "Build native tools with MSYS2 UCRT64 GCC" in workflow
-    assert "wgsextract-minimap2-$env:MINIMAP2_VERSION-windows-ucrt64" in workflow
-    assert "minimap2.exe" in workflow
-    assert "${{ env.MINIMAP2_ZIP }}" in workflow
-
-
-def test_pacman_setup_can_build_and_install_samblaster_and_fastp_assets() -> None:
-    script = (ROOT / "scripts" / "setup_pacman_runtime.ps1").read_text(encoding="utf-8")
-
-    assert '[string]$SamblasterVersion = "0.1.26"' in script
-    assert '[string]$FastpVersion = "0.24.1"' in script
-    assert "Install-SamblasterBinaryPackage" in script
-    assert "Install-FastpBinaryPackage" in script
-    assert "wgsextract-samblaster-$SamblasterVersion-windows-ucrt64.zip" in script
-    assert "wgsextract-fastp-$FastpVersion-windows-ucrt64.zip" in script
-    assert "Building samblaster $SamblasterVersion for MSYS2 UCRT64" in script
-    assert "Building fastp $FastpVersion for MSYS2 UCRT64" in script
-    assert "SamblasterVersion -notmatch '\\.(\\d+)$'" in script
-    assert "BUILDNUM=$samblasterBuildNumber" in script
-    assert "BUILDNUM=26" not in script
-    assert "struct _stat64 status;" in script
-    assert "_stat64( s.c_str(), \\&status );" in script
-    assert "_stat64( path.c_str(), \\&status );" in script
-    assert "fastp Windows large-file patch did not apply cleanly." in script
-    assert "s/long double/WGSE_LONG_DOUBLE/g" in script
-    assert "s/\\<long\\>/long long/g" in script
-    assert "src/evaluator.h src/evaluator.cpp src/fastqreader.h" in script
-    assert "src/seprocessor.h src/seprocessor.cpp src/stats.h src/stats.cpp" in script
-    assert "as long long as" in script
-    assert "long long mBases" in script
-    assert "fastp Windows 64-bit stats patch did not apply cleanly." in script
-    assert "#include <algorithm>" in script
-    assert "/^    command = ss.str();$/a\\    replace(" in script
-    assert "char(92), char(47)" in script
-    assert "grep -c 'char(92), char(47)'" in script
-    assert "fastp Windows report path patch did not apply cleanly." in script
-    assert "/ucrt64/bin/samblaster.exe --version" in script
-    assert "/ucrt64/bin/fastp.exe --version" in script
-    assert 'throw "Failed to build required samblaster native runtime:' in script
-    assert 'throw "Failed to build required fastp native runtime:' in script
-
-
-def test_release_workflow_uploads_samblaster_and_fastp_assets() -> None:
-    workflow = (ROOT / ".github" / "workflows" / "release_windows_bwa.yml").read_text(
-        encoding="utf-8"
-    )
-
-    assert "SAMBLASTER_VERSION" in workflow
-    assert "FASTP_VERSION" in workflow
-    assert "INPUT_SAMBLASTER_VERSION: ${{ inputs.samblaster_version }}" in workflow
-    assert "INPUT_FASTP_VERSION: ${{ inputs.fastp_version }}" in workflow
-    assert "wgsextract-samblaster-$env:SAMBLASTER_VERSION-windows-ucrt64" in workflow
-    assert "wgsextract-fastp-$env:FASTP_VERSION-windows-ucrt64" in workflow
-    assert "samblaster.exe" in workflow
-    assert "fastp.exe" in workflow
-    assert "${{ env.SAMBLASTER_ZIP }}" in workflow
-    assert "${{ env.FASTP_ZIP }}" in workflow
-
-
-def test_windows_installer_exposes_minimap2_checksum_passthrough() -> None:
-    installer = (ROOT / "install_windows.bat").read_text(encoding="utf-8")
-
-    assert "--minimap2-binary-url" in installer
-    assert "--minimap2-binary-sha256" in installer
-    assert "-Minimap2BinarySha256" in installer
-
-
-def test_windows_installer_exposes_samblaster_fastp_checksum_passthrough() -> None:
-    installer = (ROOT / "install_windows.bat").read_text(encoding="utf-8")
-
-    assert "--samblaster-binary-url" in installer
-    assert "--samblaster-binary-sha256" in installer
-    assert "-SamblasterBinaryUrl" in installer
-    assert "-SamblasterBinarySha256" in installer
-    assert "--fastp-binary-url" in installer
-    assert "--fastp-binary-sha256" in installer
-    assert "-FastpBinaryUrl" in installer
-    assert "-FastpBinarySha256" in installer
-
-
-def test_windows_installer_persists_hybrid_runtime() -> None:
-    installer = (ROOT / "install_windows.bat").read_text(encoding="utf-8")
-
-    assert "'tool_runtime':'windows'" in installer
-    assert "Runtime defaults were set to windows" in installer
 
 
 def _pixi_feature_deps(feature: str, platform: str) -> dict[str, object]:
@@ -169,17 +34,68 @@ def test_pixi_declares_native_windows_optional_tools() -> None:
     assert {"fastqc", "haplogrep"} <= set(bio_tools)
 
 
+LEGACY_INSTALLER_FLAGS = (
+    "--skip-msys2-install",
+    "--skip-pacman-setup",
+    "--skip-package-install",
+    "--force-bwa-build",
+    "--skip-fastp-download",
+)
+LEGACY_INSTALLER_OPTIONS = ("--msys2-root", "--bwa-binary-url", "--fastp-binary-sha256")
+
+
+def test_windows_installer_only_needs_pixi() -> None:
+    installer = (ROOT / "install_windows.bat").read_text(encoding="utf-8")
+    prereqs = (ROOT / "scripts" / "bootstrap_windows_prereqs.ps1").read_text(
+        encoding="utf-8"
+    )
+    # Tools come from the Pixi environment: no MSYS2, no runtime setting.
+    for retired in (
+        "setup_pacman_runtime",
+        "pacman.exe",
+        "tool_runtime",
+        "save_config",
+    ):
+        assert retired not in installer
+    assert "msys2" not in prereqs.lower()
+    assert "pixi install --locked" in installer
+    assert "pixi run wgsextract deps check" in installer
+
+
+def test_windows_installer_accepts_the_old_installers_options() -> None:
+    # gui-for-cli and older docs still pass these: ignored, not an error.
+    installer = (ROOT / "install_windows.bat").read_text(encoding="utf-8")
+    switches = installer.split("rem accepted and ignored.", 1)[1].split(":args_done")[0]
+    flags, valued = (
+        set(part.split(")", 1)[0].split())
+        for part in switches.split("for %%O in (")[1:]
+    )
+    assert set(LEGACY_INSTALLER_FLAGS) <= flags
+    # Options with a value skip it too.
+    assert set(LEGACY_INSTALLER_OPTIONS) <= valued
+
+
+def test_windows_uninstaller_keeps_a_users_own_msys2() -> None:
+    uninstaller = (ROOT / "uninstall_windows.bat").read_text(encoding="utf-8")
+    prerequisites = uninstaller.split('"--remove-prerequisites" (', 1)[1].split(")")[0]
+    assert "REMOVE_PIXI=1" in prerequisites
+    assert "REMOVE_MSYS2" not in prerequisites
+    # Clearing the config drops every old runtime setting.
+    for key in ("tool_runtime", "pacman_ucrt64_bin", "runtime_directory"):
+        assert key in uninstaller
+
+
 def test_pixi_installs_runnable_yleaf_from_upstream_package_data_source() -> None:
-    # Upstream's tagged source (Bioconda's build lacks the marker tables), as an
-    # archive rather than a git checkout: a new Windows PC has no git, and the
-    # install lab showed `pixi install` failing there on the git source.
+    # Yleaf's source (Bioconda's build lacks the marker tables), as an archive
+    # rather than a git checkout: a new Windows PC has no git, and the install
+    # lab showed `pixi install` failing there on the git source.
     manifest = tomllib.loads((ROOT / "pixi.toml").read_text(encoding="utf-8"))
     yleaf = manifest["feature"]["bio-tools"]["pypi-dependencies"]["yleaf"]
-    assert yleaf == {
-        "url": "https://github.com/genid/Yleaf/archive/refs/tags/v4.1.6.tar.gz"
-        "#sha256=ccdd984797320f87e63ab08e9953f4948dd01ddd067044f02279f5df1af83422"
-    }
-    assert "git" not in yleaf
+    assert list(yleaf) == ["url"]
+    assert re.fullmatch(
+        r"https://github\.com/[\w-]+/Yleaf/archive/\S+\.tar\.gz#sha256=[0-9a-f]{64}",
+        yleaf["url"],
+    )
     lockfile = (ROOT / "pixi.lock").read_text(encoding="utf-8")
     _, marker, locked_entry = lockfile.partition(f"\n- pypi: direct+{yleaf['url']}\n")
     assert marker, "Yleaf's source archive must be present in the lockfile"

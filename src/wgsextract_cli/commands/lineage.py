@@ -15,6 +15,7 @@ from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES, SYSTEM_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_models import MITO_BY_LENGTH, sequence_lengths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.tool_catalog import JAVA_JAR
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
@@ -41,14 +42,15 @@ def _haplogrep_command(haplogrep_path: str) -> list[str]:
     path to java unquoted, so it fails whenever the install path has a space
     (the GUI's runtime lives in "Application Support"); run its jar instead."""
     jar = haplogrep_path
-    if not jar.endswith(".jar"):
+    # A resolved command such as `java -jar .../haplogrep.jar` runs as it is.
+    if not (jar.endswith(".jar") and Path(jar).is_file()):
         resolved = shutil.which(haplogrep_path) or haplogrep_path
         sibling = str(Path(resolved).resolve().parent / "haplogrep.jar")
         if not Path(sibling).is_file():
             return tool_command(haplogrep_path)
         jar = sibling
     verify_dependencies(["java"])
-    return ["java", "-jar", jar]
+    return [*JAVA_JAR, jar]
 
 
 def cmd_mtdna(args: argparse.Namespace) -> None:

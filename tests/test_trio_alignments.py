@@ -104,7 +104,10 @@ def _alignment(tmp_path: Path, name: str, ref_seq: str, alt_reads: int) -> str:
 
 
 @needs_htslib
-def test_joint_calling_names_each_file_and_finds_the_de_novo(tmp_path):
+@pytest.mark.parametrize("folder", ["plain", "with space"])
+def test_joint_calling_names_each_file_and_finds_the_de_novo(tmp_path, folder):
+    tmp_path = tmp_path / folder
+    tmp_path.mkdir()
     rng = random.Random(20)
     ref_seq = "".join(rng.choice("ACGT") for _ in range(2000))
     ref_seq = ref_seq[:999] + "A" + ref_seq[1000:]  # position 1,000 is A

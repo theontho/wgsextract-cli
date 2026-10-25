@@ -9,7 +9,6 @@ MANDATORY_TOOLS = [
     "bgzip",
     "bwa",
     "python3",
-    "gzip",
     "tar",
 ]
 
@@ -49,7 +48,7 @@ def required_dependency_tools(include_python: bool = True) -> list[str]:
 
 # Optional tools the CLI only uses on some platforms (sys.platform prefixes).
 PLATFORM_ONLY_TOOLS = {
-    "bwa-mem2": ("linux", "darwin"),
+    "bwa-mem2": ("linux", "darwin", "win32"),
     "sambamba": ("linux",),
     "cyrius": ("linux", "darwin"),
     "run-t1k": ("linux", "darwin"),
@@ -67,7 +66,6 @@ def optional_dependency_tools() -> list[str]:
 
 
 PIXI_TOOL_ENVS = {
-    "gzip": "default",
     "tar": "default",
     "curl": "default",
     "fastp": "default",
@@ -115,8 +113,13 @@ TOOL_EXECUTABLE_ALIASES = {
 }
 
 
+# How to run a jar. Java writes in the ANSI code page on Windows (Haplogrep's
+# banner has an "ö"); the CLI's output is UTF-8.
+JAVA_JAR = ("java", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8", "-jar")
+
 WINDOWS_PIXI_SCRIPT_LAUNCHERS = {
-    "fastqc": ("perl",),
+    # FastQC 0.13's launcher is a Python script (0.12's was Perl).
+    "fastqc": ("python",),
     "gatk": ("python",),
 }
 

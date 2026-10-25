@@ -1,6 +1,7 @@
 """The CLI's output is UTF-8 even when the platform's default isn't."""
 
 import io
+import os
 
 from wgsextract_cli.cli.bootstrap import _reconfigure_stream
 
@@ -12,4 +13,4 @@ def test_piped_output_becomes_utf8() -> None:
     _reconfigure_stream(stream)
     stream.write("ℹ️: done\n")
     stream.flush()
-    assert raw.getvalue() == "ℹ️: done\n".encode()
+    assert raw.getvalue() == f"ℹ️: done{os.linesep}".encode()

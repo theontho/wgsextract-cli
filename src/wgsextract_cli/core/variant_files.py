@@ -379,11 +379,12 @@ def get_file_version(filepath: PathInput) -> str:
     try:
         res = run_command(["htsfile", filepath], capture_output=True, check=False)
         if res.returncode == 0:
-            # Output format: "path: Format version X sequence data"
-            # e.g., "file.cram: CRAM version 3.1 sequence data"
+            # Output format: "path:\tFormat version X sequence data", e.g.
+            # "file.cram:\tCRAM version 3.1 sequence data". Split at the tab: a
+            # Windows path has a colon of its own (C:\...).
             out = str(res.stdout).strip()
-            if ":" in out:
-                version_info = out.split(":", 1)[1].strip()
+            if ":\t" in out:
+                version_info = out.rsplit(":\t", 1)[1].strip()
                 # Clean up "sequence data" suffix if present
                 version_info = version_info.replace(" sequence data", "")
                 return version_info

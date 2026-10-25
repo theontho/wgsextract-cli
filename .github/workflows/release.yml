@@ -2,8 +2,8 @@ name: Release
 
 # Pushing a version tag (vX.Y.Z) creates a draft GitHub release once the tag
 # matches the version in pyproject.toml, pixi.toml and the package and the
-# checks pass. Edit the generated notes and publish it: publishing triggers
-# release_windows_bwa.yml, and install.sh installs the latest published release.
+# checks pass. Edit the generated notes and publish it: install.sh installs the
+# latest published release.
 
 on:
   push:

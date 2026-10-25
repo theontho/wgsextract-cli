@@ -212,9 +212,17 @@ class TestMixedNamingSmoke:
             stdout=open(os.path.join(outdir, "orig_h.sam"), "w"),
         )
         # Replace chr1 with 1 in original BAM (this is a simplified mock of the scenario)
+        sam = subprocess.run(
+            ["samtools", "view", "-h", os.path.join(FAKE_DIR, "fake.bam")],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
         subprocess.run(
-            f"samtools view -h {os.path.join(FAKE_DIR, 'fake.bam')} | sed 's/chr1/1/g' | samtools view -b - > {alt_bam}",
-            shell=True,
+            ["samtools", "view", "-b", "-o", alt_bam, "-"],
+            input=sam.replace("chr1", "1"),
+            text=True,
+            check=True,
         )
         subprocess.run(["samtools", "index", alt_bam])
 

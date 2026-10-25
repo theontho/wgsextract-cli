@@ -9,11 +9,15 @@ import pytest
 from wgsextract_cli.commands._extract_helpers import cleanup_files, derive_output_path
 from wgsextract_cli.core import (
     config,
-    runtime_wrappers,
     samtools_commands,
     tool_commands,
 )
-from wgsextract_cli.core.paths import absolute_path, append_suffix, expand_path
+from wgsextract_cli.core.paths import (
+    absolute_path,
+    append_suffix,
+    expand_path,
+    windows_local_app_dir,
+)
 from wgsextract_cli.core.reference_assets import input_stem, reference_dict_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
@@ -166,7 +170,6 @@ def test_pathlike_process_arguments_and_cwd(tmp_path: Path) -> None:
 def test_literal_pathlike_executable_is_not_split(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(runtime_wrappers, "wrap_command", lambda command: command)
     executable = FilePath(tmp_path / "missing tool suite" / "tool")
     assert _normalize_subprocess_cmd(executable) == [os.fspath(executable)]
     assert _normalize_subprocess_cmd([executable, "--version"]) == [
@@ -178,7 +181,6 @@ def test_literal_pathlike_executable_is_not_split(
 def test_long_wrapper_command_is_not_treated_as_a_filename(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(runtime_wrappers, "wrap_command", lambda command: command)
     command = "pixi run -e default samtools --argument=" + "a" * 300
     expected = shlex.split(command)
     assert tool_commands._tool_command_parts(command) == expected
@@ -231,3 +233,18 @@ def test_verify_paths_exist_wants_files_not_programs_or_folders(tmp_path):
         verify_paths_exist({"--ref": "sh"})  # a program on PATH isn't a file
     with pytest.raises(WGSExtractError, match="is a directory"):
         verify_paths_exist({"--ref": str(tmp_path)})
+
+
+def test_windows_config_and_data_follow_localappdata(monkeypatch, tmp_path):
+    from wgsextract_cli.core import config, runtime
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    assert config.get_config_dir() == tmp_path / "theontho" / "wgsextract"
+    assert runtime.app_data_root() == tmp_path / "WGSExtract" / "wgsextract-cli"
+
+    monkeypatch.delenv("LOCALAPPDATA")
+    assert windows_local_app_dir("app", "author") is None
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    assert windows_local_app_dir("app", "author") is None
