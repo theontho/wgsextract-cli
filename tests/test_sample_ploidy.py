@@ -7,9 +7,11 @@ from pathlib import Path
 import pytest
 
 from tests.htslib_helpers import needs_htslib, sam_to_bam, vcf_calls, write_fasta
+from wgsextract_cli.commands import microarray
 from wgsextract_cli.commands.info import metrics
 from wgsextract_cli.commands.vcf import basic
 from wgsextract_cli.core import sample_ploidy
+from wgsextract_cli.core.utils import run_command
 
 
 def _snp_bam(tmp_path, contig):
@@ -155,6 +157,56 @@ def test_real_autosomal_snp_call_stays_diploid_without_a_sex_scan(
         )
     )
     assert vcf_calls(out / "snps.vcf.gz")[0][-1] == "1/1"
+
+
+@needs_htslib
+@pytest.mark.parametrize(
+    "contig,region", [("20", "chr20:900-1100"), ("chr20", "20:900-1100")]
+)
+def test_microarray_normalizes_region_before_custom_sex_ploidy(
+    tmp_path, monkeypatch, contig, region
+):
+    ref, bam = _snp_bam(tmp_path, contig)
+    targets = tmp_path / "targets.tab"
+    targets.write_text(f"{contig}\t1000\trs1000\tA\n")
+    run_command(["bgzip", "-f", str(targets)])
+    target_gz = str(targets) + ".gz"
+    run_command(["tabix", "-s", "1", "-b", "2", "-e", "2", target_gz])
+    ploidy = tmp_path / "custom.ploidy"
+    ploidy.write_text(f"{contig} 1 3000 M 1\n* * * * 2\n")
+    lib = Namespace(
+        fasta=ref,
+        ref_vcf_tab=target_gz,
+        ploidy_file=str(ploidy),
+        build=None,
+        liftover_chain=None,
+    )
+    monkeypatch.setattr(microarray, "ReferenceLibrary", lambda *_a, **_kw: lib)
+    monkeypatch.setattr(
+        microarray, "_write_microarray_combined_kit", lambda **_kw: "kit.txt"
+    )
+    monkeypatch.setattr(microarray, "_convert_microarray_outputs", lambda **_kw: None)
+    scans = []
+    monkeypatch.setattr(
+        metrics, "sample_sex", lambda *args: scans.append(args) or "Male"
+    )
+    out = tmp_path / "out"
+    microarray.run(
+        Namespace(
+            input=bam,
+            ref=None,
+            ref_vcf_tab=None,
+            ploidy_file=None,
+            outdir=str(out),
+            threads="1",
+            region=region,
+            parallel=False,
+            formats="all",
+        )
+    )
+    assert len(scans) == 1
+    assert vcf_calls(out / "man_combined.vcf.gz")[0][-1] == "1"
+    assert not list(out.glob("*.samples.txt"))
 
 
 @needs_htslib
