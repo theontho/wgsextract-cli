@@ -490,6 +490,7 @@ def test_count_ns_requires_ref():
 def test_ref_verify_raises_on_signature_mismatch(tmp_path, monkeypatch):
     fasta = tmp_path / "hg38.fa.gz"
     _write_fasta_with_fai(fasta, [("chr1", 1000)])
+    fasta.write_bytes(gzip.compress(fasta.read_bytes()))  # passes the gzip check
     fai = Path(f"{fasta}.fai")
     original = fai.read_text()
     commands = []
