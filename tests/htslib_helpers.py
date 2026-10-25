@@ -74,3 +74,17 @@ def write_read_pairs(
             piece = genome[start : start + frag]
             f1.write(f"@p{i}\n{piece[:100]}\n+\n{'I' * 100}\n")
             f2.write(f"@p{i}\n{piece[-100:].translate(comp)[::-1]}\n+\n{'I' * 100}\n")
+
+
+def require_runnable(*tools: str) -> None:
+    """Skip the running test unless the CLI's own dependency check passes, in
+    the test's environment. Where a runtime finds a tool by name but can't run
+    it (freebayes and GATK on the Windows runners' WSL), needs_tools passes and
+    the command would refuse."""
+    from wgsextract_cli.core.dependency_checks import verify_dependencies
+    from wgsextract_cli.core.utils import WGSExtractError
+
+    try:
+        verify_dependencies(list(tools))
+    except (WGSExtractError, SystemExit):
+        pytest.skip(f"{'/'.join(tools)} not runnable here")

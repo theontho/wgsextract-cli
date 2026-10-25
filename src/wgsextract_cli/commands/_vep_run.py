@@ -16,6 +16,7 @@ from wgsextract_cli.core.dependency_checks import (
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path, expand_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.sample_ploidy import sex_samples_args
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -136,16 +137,17 @@ def _call_variants_for_vep(
     else:
         ploidy_args = ["--ploidy", "GRCh38" if lib.build == "hg38" else "GRCh37"]
 
-    run_pipeline(
-        [
-            ["bcftools", "mpileup", "-B", "-I", "-C", "50", "-f", ref, "-Ou"]
-            + region_args
-            + [bam_path],
-            ["bcftools", "call", *ploidy_args, "-mv", "-P", "0"]
-            + ["--threads", threads, "-Oz", "-o", out_vcf],
-        ],
-        description="Variant calling for VEP",
-    )
+    with sex_samples_args(bam_path, str(Path(out_vcf).parent), ploidy_args) as sex_args:
+        run_pipeline(
+            [
+                ["bcftools", "mpileup", "-B", "-I", "-C", "50", "-f", ref, "-Ou"]
+                + region_args
+                + [bam_path],
+                ["bcftools", "call", *ploidy_args, *sex_args, "-mv", "-P", "0"]
+                + ["--threads", threads, "-Oz", "-o", out_vcf],
+            ],
+            description="Variant calling for VEP",
+        )
     ensure_vcf_indexed(out_vcf)
 
 

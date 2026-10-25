@@ -825,9 +825,13 @@ def test_str_infers_sex_from_chrx_chry_reads(tmp_path, eh, caplog, x, y, sex, wa
 
 def test_str_prefers_info_cached_sex_and_an_explicit_sex(tmp_path, eh):
     path = bam(tmp_path / "s.bam", _sex_reads(10, 0))
+    st = Path(path).stat()  # the cache must be from this very file
     (tmp_path / "s.bam.wgse_info.json").write_text(
-        json.dumps({"md5_signature": calculate_bam_md5(path, None), "gender": "Male"})
-    )
+        json.dumps({
+            "md5_signature": calculate_bam_md5(path, None), "gender": "Male",
+            "input_signature": {"size": st.st_size, "mtime_ns": st.st_mtime_ns},
+        })
+    )  # fmt: skip
     args = ["typing", "str", "-i", path, "--ref", str(eh.ref), "--catalog",
             str(eh.catalog)]  # fmt: skip
     run_wgsextract(*args)

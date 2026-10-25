@@ -2,6 +2,7 @@ import csv
 import json
 import logging
 import math
+import os
 import re
 import subprocess
 from collections.abc import Mapping, Sequence
@@ -225,7 +226,15 @@ def sample_sex(input_path: str, outdir: str | None = None) -> str:
                 info = json.load(f)
         except (OSError, ValueError):
             continue
-        if info.get("md5_signature") == signature and info.get("gender"):
+        # The header signature is shared by every sample on that reference, so
+        # the cache must also be from this very file (size and timestamp).
+        st = os.stat(input_path)
+        this_file = {"size": st.st_size, "mtime_ns": st.st_mtime_ns}
+        if (
+            info.get("md5_signature") == signature
+            and info.get("input_signature") == this_file
+            and info.get("gender")
+        ):
             return str(info["gender"])
     logging.info("Checking chrX/chrY coverage to infer the sample's sex...")
     try:
@@ -334,7 +343,9 @@ def generate_chrom_table(
             continue
         chromosome = s["name"]
         chromnum = contig_key(chromosome)
-        map_seg, mod_len = s["mapped"] + s["unmapped"], s["length"]
+        # idxstats' unmapped column counts unmapped mates placed beside their
+        # mapped mate on this contig; they aren't mapped segments.
+        map_seg, mod_len = s["mapped"], s["length"]
         n_count = n_adjust_map.get(chromnum, 0)
         cvg = coverage_map.get(chromnum, "")
         row = [chromnum, chromosome, mod_len, n_count, map_seg, 0.0, 0.0, cvg]

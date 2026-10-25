@@ -56,7 +56,9 @@ def apply_genome_selection(args: Namespace, explicit_dests: set[str]) -> None:
 
     root_dir = Path(root).expanduser()
     genome_dir = root_dir / str(genome_id)
-    if not genome_dir.resolve().is_relative_to(root_dir.resolve()):
+    # By name, not resolved path: a genome folder may be a link to elsewhere
+    # (a NAS), but the ID mustn't climb out of the library or be the library.
+    if Path(str(genome_id)).name != str(genome_id) or str(genome_id) in (".", ".."):
         raise WGSExtractError(f"Genome ID cannot escape genome_library: {genome_id}")
     if not genome_dir.is_dir():
         raise WGSExtractError(
@@ -92,7 +94,10 @@ def _load_or_create_genome_config(genome_dir: Path) -> dict[str, Any]:
     }
 
     if additions or not config_path.exists():
-        _write_genome_config(config_path, {**raw, **additions})
+        try:
+            _write_genome_config(config_path, {**raw, **additions})
+        except OSError as e:  # a read-only genome folder still works
+            logging.warning(f"Couldn't save {config_path}: {e}")
 
     return {**existing, **additions}
 
@@ -228,10 +233,17 @@ def _set_fastq_inputs(
     r1_config = config.get("fastq_r1")
     r2_config = config.get("fastq_r2")
     if r1_config:
+        r1 = _resolve_config_path(genome_dir, r1_config, "fastq_r1")
         if "r1" not in explicit_dests and hasattr(args, "r1"):
-            args.r1 = str(_resolve_config_path(genome_dir, r1_config, "fastq_r1"))
-        if r2_config and "r2" not in explicit_dests and hasattr(args, "r2"):
-            args.r2 = str(_resolve_config_path(genome_dir, r2_config, "fastq_r2"))
+            args.r1 = str(r1)
+        # Without fastq_r2, its mate is found as for an explicit --r1.
+        r2 = (
+            _resolve_config_path(genome_dir, r2_config, "fastq_r2")
+            if r2_config
+            else _matching_r2(r1.resolve(), _find_files(genome_dir, FASTQ_SUFFIXES))
+        )
+        if r2 and "r2" not in explicit_dests and hasattr(args, "r2"):
+            args.r2 = str(r2)
         return
 
     fastq_sets = _find_fastq_sets(genome_dir)

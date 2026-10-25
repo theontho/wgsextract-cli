@@ -145,7 +145,7 @@ def test_combined_kit_vcf_mode_preserves_existing_mt_chromosome(tmp_path):
 
     def fake_output(cmd):
         if cmd[:2] == ["bcftools", "query"]:
-            return ""
+            return "MT\t150\tG/G\n"  # the VCF has MT calls, just not here
         if cmd[:2] == ["samtools", "faidx"]:
             return ">MT:100-100\nA\n"
         raise AssertionError(f"unexpected command: {cmd}")

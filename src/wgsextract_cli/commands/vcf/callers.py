@@ -12,7 +12,7 @@ from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.output_checks import warn_if_no_variants
-from wgsextract_cli.core.reference_assets import reference_dict_path
+from wgsextract_cli.core.reference_assets import read_fai_lengths, reference_dict_path
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 
@@ -68,7 +68,9 @@ def _gatk_region_args(region: str | None, outdir: str) -> tuple[list[str], str |
     if not region:
         return [], None
     intervals = str(Path(outdir, "gatk_region.intervals"))
-    Path(intervals).write_text(region + "\n", encoding="utf-8")
+    # One interval per line: a comma-separated --region is several.
+    lines = "".join(f"{r.strip()}\n" for r in region.split(",") if r.strip())
+    Path(intervals).write_text(lines, encoding="utf-8")
     return ["-L", intervals], intervals
 
 
@@ -99,6 +101,19 @@ def _cleanup_gatk_temp_input(temp_input: str | None) -> None:
             logging.warning(f"Failed to remove temporary GATK artifact {path}: {e}")
 
 
+def write_region_bed(region: str, lengths: dict[str, int], bed: str) -> None:
+    """chr1:1000-1050,chr2 (1-based, inclusive) as BED (0-based, half-open)."""
+    with open(bed, "w") as f:
+        for part in (r.strip() for r in region.split(",") if r.strip()):
+            contig, _, span = part.partition(":")
+            start, _, end = span.partition("-")
+            if not end and contig not in lengths:
+                raise WGSExtractError(f"{contig} isn't in the reference.")
+            first = int(start) - 1 if start else 0
+            last = int(end) if end else lengths[contig]
+            f.write(f"{contig}\t{first}\t{last}\n")
+
+
 def cmd_freebayes(args: argparse.Namespace) -> None:
     verify_dependencies(["freebayes", "bcftools", "tabix", "samtools"])
     _threads, outdir, ref, _lib = get_base_args(args)
@@ -107,17 +122,30 @@ def cmd_freebayes(args: argparse.Namespace) -> None:
     logging.info(LOG_MESSAGES["vcf_calling_freebayes"].format(output=out_vcf))
 
     # FreeBayes needs an uncompressed reference.
-    with plain_reference(ref, outdir) as use_ref:
+    with (
+        plain_reference(ref, outdir) as use_ref,
+        tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_fb_") as work,
+    ):
+        # Regions as a BED: freebayes reads -r as 0-based (so chr1:1000-1050
+        # lost position 1000).
+        bed = None
+        if args.region:
+            bed = str(Path(work, "regions.bed"))
+            write_region_bed(args.region, read_fai_lengths(use_ref), bed)
         if args.input.lower().endswith(".cram"):
             # Decode CRAM with samtools and stream uncompressed BAM to freebayes.
+            # It can't seek in a stream, so its calls are cut to the region
+            # afterwards: the streamed reads overlap the region's edges.
             view_cmd = ["samtools", "view", "-u", "-h", "-T", use_ref, args.input]
             if args.region:
-                view_cmd.append(args.region)
+                view_cmd += [r.strip() for r in args.region.split(",") if r.strip()]
             stages = [view_cmd, ["freebayes", "-f", use_ref, "--stdin"]]
+            keep = ["-T", bed] if bed else []
         else:
-            region_args = ["-r", args.region] if args.region else []
-            stages = [["freebayes", "-f", use_ref, *region_args, args.input]]
-        stages.append(["bcftools", "view", "-Oz", "-o", out_vcf])
+            targets = ["--targets", bed] if bed else []
+            stages = [["freebayes", "-f", use_ref, *targets, args.input]]
+            keep = []
+        stages.append(["bcftools", "view", *keep, "-Oz", "-o", out_vcf])
         run_pipeline(stages, description="FreeBayes variant calling")
     ensure_vcf_indexed(out_vcf)
     warn_if_no_variants(out_vcf, ref, args.region)

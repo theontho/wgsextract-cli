@@ -124,6 +124,9 @@ def _write_vcf_mode_kit(
         for alias in chromosome_aliases(parts[0]):
             variant_calls[(alias, parts[1])] = genotype
     logging.info(f"Found {len(variant_calls)} variants in input VCF matching targets.")
+    # Absent targets read as the reference only on chromosomes the VCF has
+    # calls on: a woman's VCF has no chrY, which mustn't become Y genotypes.
+    called_contigs = {alias for alias, _pos in variant_calls}
 
     logging.info("Pre-fetching reference alleles for target SNPs...")
     ref_alleles = _reference_alleles(ref_fasta, ref_vcf_tab, outdir)
@@ -131,7 +134,10 @@ def _write_vcf_mode_kit(
 
     with contextlib.ExitStack() as stack:
         targets: Iterator[str] = (
-            _command_lines(["tabix", ref_vcf_tab, args.region], outdir)
+            _command_lines(
+                ["tabix", ref_vcf_tab, *_in_targets_naming(args.region, ref_vcf_tab)],
+                outdir,
+            )
             if args.region
             else stack.enter_context(_open_text(ref_vcf_tab))
         )
@@ -151,7 +157,9 @@ def _write_vcf_mode_kit(
             genotype = variant_calls.get((chrom, pos))
             written += 1
             matched += genotype is not None
-            if genotype is None:
+            if genotype is None and chrom not in called_contigs:
+                genotype = "--"
+            elif genotype is None:
                 ref_base = ""
                 if ref_col_idx != -1 and len(parts) > ref_col_idx:
                     ref_base = parts[ref_col_idx].upper()
@@ -170,6 +178,19 @@ def _write_vcf_mode_kit(
             "positions, so every genotype is written as the reference allele. Check "
             f"that the VCF's genome build matches the targets ({ref_vcf_tab})."
         )
+
+
+def _in_targets_naming(region: str, targets: str) -> list[str]:
+    """The region's contigs as the targets file names them (1 vs chr1)."""
+    named = set(
+        run_command(["tabix", "-l", targets], capture_output=True).stdout.split()
+    )
+    regions = []
+    for part in (r.strip() for r in region.split(",") if r.strip()):
+        contig, sep, span = part.partition(":")
+        contig = next((a for a in chromosome_aliases(contig) if a in named), contig)
+        regions.append(f"{contig}{sep}{span}")
+    return regions
 
 
 def _write_alignment_mode_kit(f_out: TextIO, *, outdir: str, out_vcf: str) -> None:

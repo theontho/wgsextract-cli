@@ -254,6 +254,10 @@ def write_isolated_denovo(denovo_vcf: str, out_vcf: str) -> tuple[int, int]:
             for other in sites[max(0, i - 1) : i] + sites[i + 1 : i + 2]
         )
     ]
+    if not isolated:  # bcftools can't read an empty targets file
+        run_command(["bcftools", "view", "-h", "-Oz", "-o", out_vcf, denovo_vcf])
+        ensure_vcf_indexed(out_vcf)
+        return 0, len(sites)
     with tempfile.NamedTemporaryFile(
         "w", suffix=".tsv", dir=str(Path(out_vcf).parent), delete=False
     ) as targets:

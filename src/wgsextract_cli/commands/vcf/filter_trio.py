@@ -131,15 +131,18 @@ def cmd_filter(args: argparse.Namespace) -> None:
             raise WGSExtractError(f"VCF filtering failed: {e}") from e
 
 
+# bcftools genotype classes: "mis" is a missing genotype (a parent with no record
+# here is ./. after the merge; GT="." never matches it), "AA" is hom-alt ("hom"
+# would also match 0/0).
 _TRIO_FILTERS = {
     # Child het, both parents ref or missing.
-    "denovo": '{p}="het" && ({m}="ref" || {m}=".") && ({f}="ref" || {f}=".")',
+    "denovo": '{p}="het" && ({m}="ref" || {m}="mis") && ({f}="ref" || {f}="mis")',
     # Child hom-alt, both parents het.
-    "recessive": '{p}="hom" && {m}="het" && {f}="het"',
+    "recessive": '{p}="AA" && {m}="het" && {f}="het"',
     # Simplified: child het, exactly one parent het, the other ref/missing.
     "comphet": (
-        '{p}="het" && (({m}="het" && ({f}="ref" || {f}=".")) '
-        '|| (({m}="ref" || {m}=".") && {f}="het"))'
+        '{p}="het" && (({m}="het" && ({f}="ref" || {f}="mis")) '
+        '|| (({m}="ref" || {m}="mis") && {f}="het"))'
     ),
 }
 
@@ -178,6 +181,32 @@ def _summarize_trio_output(mode: str, out_vcf: str) -> None:
         logging.debug("Could not summarize trio filter output %s: %s", out_vcf, e)
 
 
+def _is_gvcf(vcf: str) -> bool:
+    header = run_command(["bcftools", "view", "-h", vcf], capture_output=True).stdout
+    return (
+        "##GVCFBlock" in header
+        or "##ALT=<ID=NON_REF" in header
+        or ("##ALT=<ID=*," in header)
+    )
+
+
+def _gvcf_merge_args(args: argparse.Namespace, vcfs: list[str]) -> list[str]:
+    """`--gvcf <ref>` when an input is a gVCF: bcftools then fills each sample's
+    reference block in at the other samples' sites. Without it, a parent's
+    block that doesn't start at the child's site reads as missing, and the de
+    novo list fills with variants the parent was checked for."""
+    if not any(_is_gvcf(v) for v in vcfs):
+        return []
+    ref = ReferenceLibrary(getattr(args, "ref", None), None, input_path=vcfs[0]).fasta
+    if not ref:
+        logging.warning(
+            "The trio includes gVCFs but no reference was found (--ref); their "
+            "reference blocks only count where they start at a variant."
+        )
+        return []
+    return ["--gvcf", ref]
+
+
 def cmd_trio(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
 
@@ -209,6 +238,7 @@ def cmd_trio(args: argparse.Namespace) -> None:
     f_vcf = ensure_vcf_prepared(father)
     p_idx, m_idx, f_idx = trio_sample_indices(p_vcf, m_vcf, f_vcf)
     region_args = ["-r", args.region] if getattr(args, "region", None) else []
+    gvcf_args = _gvcf_merge_args(args, [p_vcf, m_vcf, f_vcf])
 
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_trio_") as work:
         # Match parents' contig naming (chr1 vs 1) to the proband before merging.
@@ -219,12 +249,18 @@ def cmd_trio(args: argparse.Namespace) -> None:
         merged_vcf = str(Path(work, "merged_trio.vcf.gz"))
         try:
             run_command(
-                ["bcftools", "merge", "--force-samples", "-Oz", "-o", merged_vcf]
+                ["bcftools", "merge", "--force-samples", *gvcf_args, "-Oz", "-o"]
+                + [merged_vcf]
                 + region_args
                 + [p_vcf, m_norm, f_norm],
                 capture_output=True,
             )
             ensure_vcf_indexed(merged_vcf)
+            # One record per ALT: merging a child's A>T with a mother's A>G
+            # makes ALT T,G, where "het" can't tell the mother's G from the T.
+            merged_vcf = split_multiallelic(
+                merged_vcf, str(Path(work, "merged_split.vcf.gz"))
+            )
         except (OSError, subprocess.SubprocessError) as e:
             raise WGSExtractError(f"VCF trio merge failed: {e}") from e
 

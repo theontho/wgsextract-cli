@@ -247,14 +247,30 @@ def cmd_sort(args: argparse.Namespace) -> None:
     view_cmd += [region] if region else []
 
     logging.info(LOG_MESSAGES["sorting_file"].format(input=args.input, output=out_file))
+    # sambamba writes the index beside the BAM as it sorts.
+    partial = [out_file, *(out_file + ext for ext in _INDEX_SUFFIXES)]
     with (
-        cleanup_files(on_failure=[out_file]),
+        cleanup_files(on_failure=partial),
         tempfile.TemporaryDirectory(dir=outdir, prefix=".sort_") as tempdir,
     ):
         sort_cmd = get_sam_sort_cmd(
             out_file, threads, memory, fmt=fmt, reference=resolved_ref, temp_dir=tempdir
         )
         run_pipeline([view_cmd, sort_cmd], description="Coordinate sort")
+
+
+_INDEX_SUFFIXES = (".bai", ".crai", ".csi")
+
+
+def _index_files(alignment: str) -> list[Path]:
+    """Every index file samtools would use for an alignment: s.bam.bai, s.bai,
+    s.bam.csi, s.cram.crai, s.crai."""
+    path = Path(alignment)
+    return [
+        *(path.with_name(path.name + ext) for ext in _INDEX_SUFFIXES),
+        path.with_suffix(".bai"),
+        path.with_suffix(".crai"),
+    ]
 
 
 def cmd_index(args: argparse.Namespace) -> None:
@@ -265,9 +281,15 @@ def cmd_index(args: argparse.Namespace) -> None:
     print_warning("GenBAMIndex")
 
     logging.info(LOG_MESSAGES["indexing_file"].format(path=args.input))
+    before = {p: p.stat().st_mtime_ns for p in _index_files(args.input) if p.exists()}
     try:
         run_command(get_sam_index_cmd(args.input))
     except (OSError, subprocess.SubprocessError) as e:
+        # sambamba writes a .bai before it finds the BAM unsorted; a corrupt
+        # index would read as "Indexed" afterwards.
+        for path in _index_files(args.input):
+            if path.exists() and before.get(path) != path.stat().st_mtime_ns:
+                path.unlink()
         raise WGSExtractError(f"Indexing failed: {e}") from e
 
 
@@ -276,11 +298,11 @@ def cmd_unindex(args: argparse.Namespace) -> None:
     if not Path(args.input).is_file():
         raise WGSExtractError(f"Input is not a valid file: {args.input}")
 
-    for index_path in (args.input + ".bai", args.input + ".crai"):
-        if Path(index_path).exists():
-            Path(index_path).unlink()
+    for index_path in _index_files(args.input):
+        if index_path.exists():
+            index_path.unlink()
             logging.info(
-                LOG_MESSAGES["delete_success"].format(filename=Path(index_path).name)
+                LOG_MESSAGES["delete_success"].format(filename=index_path.name)
             )
 
 
