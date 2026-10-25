@@ -17,7 +17,7 @@ import pytest
 from tests.htslib_helpers import needs_htslib, needs_tools
 from wgsextract_cli.commands.ref import library_commands
 from wgsextract_cli.core import reference_processing as rp
-from wgsextract_cli.core.bgzf import is_bgzf
+from wgsextract_cli.core.bgzf import ensure_bgzf, is_bgzf
 from wgsextract_cli.core.constants import BOOTSTRAP_FILENAME
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.ref_library.catalog import get_genome_status
@@ -478,3 +478,14 @@ def test_template_matches_bcftools_definition(alias):
         return [line.split() for line in text.splitlines() if line.strip()]
 
     assert rules(rp._ploidy_content(alias)) == rules(rp._PLOIDY_TEMPLATES[alias])
+
+
+@needs_htslib
+def test_ensure_bgzf_refuses_a_zip_of_several_files(tmp_path):
+    path = tmp_path / "ref.fa.gz"
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("a.fa", FASTA)
+        z.writestr("b.fa", FASTA)
+    with pytest.raises(WGSExtractError, match="zip of 2 files"):
+        ensure_bgzf(str(path))
+    assert not (tmp_path / "ref.fa.gz.tmp.gz").exists()

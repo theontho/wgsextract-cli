@@ -139,7 +139,7 @@ def test_count_ns_on_a_corrupt_fasta_suggests_outdir(tmp_path):
 # --- ref verify --------------------------------------------------------------
 
 
-@needs_tools("samtools", "bgzip", "gzip")
+@needs_tools("samtools", "bgzip")
 def test_verify_passes_an_indexed_bgzipped_fasta(tmp_path, caplog):
     seqs = _random_seqs()
     ref = _bgzipped_fasta(tmp_path, seqs)
@@ -155,7 +155,7 @@ def test_verify_passes_an_indexed_bgzipped_fasta(tmp_path, caplog):
     assert "No sequence dictionary" not in caplog.text
 
 
-@needs_tools("samtools", "bgzip", "gzip")
+@needs_tools("samtools", "bgzip")
 def test_verify_fails_a_truncated_gzip(tmp_path):
     ref = _bgzipped_fasta(tmp_path, _random_seqs())
     data = ref.read_bytes()
@@ -164,7 +164,7 @@ def test_verify_fails_a_truncated_gzip(tmp_path):
         core_commands.cmd_ref_verify(Namespace(ref=str(ref)))
 
 
-@needs_tools("samtools", "gzip")
+@needs_tools("samtools")
 def test_verify_indexes_a_plain_fasta_and_warns_without_a_dict(tmp_path, caplog):
     ref = tmp_path / "ref.fa"
     ref.write_text(">chrM\nACGTNNACGT\n")
@@ -177,7 +177,7 @@ def test_verify_indexes_a_plain_fasta_and_warns_without_a_dict(tmp_path, caplog)
     assert f"No sequence dictionary {tmp_path / 'ref.dict'}" in caplog.text
 
 
-@needs_tools("samtools", "gzip")
+@needs_tools("samtools")
 @pytest.mark.parametrize(
     "fai",
     [
@@ -194,7 +194,7 @@ def test_verify_fails_a_stale_fai(tmp_path, fai):
     assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".")] == []
 
 
-@needs_tools("samtools", "bgzip", "gzip")
+@needs_tools("samtools", "bgzip")
 def test_verify_fails_a_gzi_from_another_file(tmp_path):
     ref = _bgzipped_fasta(tmp_path, _random_seqs())
     other = _bgzipped_fasta(tmp_path, {"chr1": "ACGT" * 50000}, name="other.fa")
@@ -205,7 +205,7 @@ def test_verify_fails_a_gzi_from_another_file(tmp_path):
         core_commands.cmd_ref_verify(Namespace(ref=str(ref)))
 
 
-@needs_tools("samtools", "bgzip", "gzip")
+@needs_tools("samtools", "bgzip")
 def test_verify_writes_a_missing_index_and_fails_a_stale_dict(tmp_path):
     ref = _bgzipped_fasta(tmp_path, _random_seqs())
     (tmp_path / "ref.dict").write_text(
@@ -217,7 +217,7 @@ def test_verify_writes_a_missing_index_and_fails_a_stale_dict(tmp_path):
     assert Path(f"{ref}.gzi").is_file()
 
 
-@needs_tools("samtools", "gzip")
+@needs_tools("samtools")
 def test_verify_resolves_a_library_dir_and_matches_the_catalog(
     tmp_path, monkeypatch, caplog
 ):
@@ -238,7 +238,7 @@ def test_verify_resolves_a_library_dir_and_matches_the_catalog(
     assert "Sequence dictionary signature: OK" in caplog.text
 
 
-@needs_tools("samtools", "gzip")
+@needs_tools("samtools")
 def test_verify_needs_an_existing_reference(tmp_path):
     with pytest.raises(WGSExtractError, match="--ref is required"):
         core_commands.cmd_ref_verify(Namespace(ref=None))

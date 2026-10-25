@@ -50,6 +50,13 @@ def _use_tools(monkeypatch, tools: dict[str, str | None]) -> list[tuple]:
             "Version: 0.7.18-r1243",
         ),
         ("yleaf", 'echo "usage: Yleaf [-h]"; echo "Yleaf: v3.2.1"', "Yleaf: v3.2.1"),
+        # bwa-mem2 prints its usage for --version; `version` prints the version.
+        (
+            "bwa-mem2",
+            '[ "$1" = version ] || { echo "Usage: bwa-mem2 <command>"; exit 1; }; '
+            'echo "Launching executable bwa-mem2.avx2" >&2; echo "2.3"',
+            "2.3",
+        ),
         (
             "delly",
             'echo "DEBUG: probing"; echo "Delly version: v1.2.6"',

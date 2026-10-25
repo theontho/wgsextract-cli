@@ -9,7 +9,6 @@ MANDATORY_TOOLS = [
     "bgzip",
     "bwa",
     "python3",
-    "gzip",
     "tar",
 ]
 
@@ -67,7 +66,6 @@ def optional_dependency_tools() -> list[str]:
 
 
 PIXI_TOOL_ENVS = {
-    "gzip": "default",
     "tar": "default",
     "curl": "default",
     "fastp": "default",
@@ -116,7 +114,8 @@ TOOL_EXECUTABLE_ALIASES = {
 
 
 WINDOWS_PIXI_SCRIPT_LAUNCHERS = {
-    "fastqc": ("perl",),
+    # FastQC 0.13's launcher is a Python script (0.12's was Perl).
+    "fastqc": ("python",),
     "gatk": ("python",),
 }
 

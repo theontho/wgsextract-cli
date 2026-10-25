@@ -24,7 +24,7 @@ _WINDOWS_FIRST_USE_STUB = (
     "import subprocess, sys; from pathlib import Path; "
     "name = sys.argv[2]; "
     "root = Path(sys.prefix); "
-    "found = sorted((root / 'share').glob('*/' + name)) + "
+    "found = sorted(p for d in ('share', 'opt') for p in (root / d).glob('*/' + name)) + "
     "[p for p in (root / d / name for d in ('bin', 'Scripts')) if p.exists()]; "
     "sys.exit(subprocess.call([sys.argv[1], str(found[0]) if found else name, *sys.argv[3:]]))"
 )
@@ -174,9 +174,12 @@ if "haplogrep" in tool_names:
         raise SystemExit(0)
 
 for tool in tool_names:
-    # noarch packages keep the real script in share/<pkg>/ beside its data (GATK's
-    # jar) and link it into bin/; Windows gets no usable link, so look there first.
-    shared = sorted(p for p in prefix.glob("share/*/" + tool) if p.is_file())
+    # noarch packages keep the real script beside its data, in share/<pkg>/
+    # (GATK's jar) or opt/<pkg>/ (FastQC's), and link it into bin/; Windows gets
+    # no usable link, so look there first.
+    shared = sorted(
+        p for d in ("share", "opt") for p in prefix.glob(d + "/*/" + tool) if p.is_file()
+    )
     if os.name == "nt" and shared:
         print("script:" + str(shared[-1]))
         raise SystemExit(0)

@@ -122,6 +122,10 @@ def _version_output(stdout: str, stderr: str) -> str:
     return "\n".join(lines)
 
 
+# Tools whose version isn't printed by --version (bwa-mem2 prints its usage).
+VERSION_ARGS = {"yleaf": "--help", "bwa-mem2": "version"}
+
+
 def get_tool_version(tool: str) -> str | None:
     """Attempt to get the version of a tool by running it."""
     # Use the path/command from get_tool_path to handle pixi correctly
@@ -139,7 +143,7 @@ def get_tool_version(tool: str) -> str | None:
 
     try:
         # 1. Try --version first (standard)
-        version_arg = "--help" if tool == "yleaf" else "--version"
+        version_arg = VERSION_ARGS.get(tool, "--version")
         res = subprocess.run(
             full_cmd + [version_arg],
             capture_output=True,

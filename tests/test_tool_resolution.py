@@ -102,7 +102,7 @@ class TestToolResolution(unittest.TestCase):
     def test_windows_launches_pixi_noarch_script(self):
         completed = MagicMock(
             returncode=0,
-            stdout=r"script:C:\repo\.pixi\envs\default\opt\fastqc-0.12.1\fastqc" + "\n",
+            stdout=r"script:C:\repo\.pixi\envs\default\opt\fastqc-0.13.0\fastqc" + "\n",
         )
         with (
             patch("wgsextract_cli.core.runtime.is_windows_host", return_value=True),
@@ -117,7 +117,7 @@ class TestToolResolution(unittest.TestCase):
         ):
             self.assertEqual(
                 dependencies.get_tool_path("fastqc"),
-                rf"{PIXI_EXE} run -e default perl C:\repo\.pixi\envs\default\opt\fastqc-0.12.1\fastqc",
+                rf"{PIXI_EXE} run -e default python C:\repo\.pixi\envs\default\opt\fastqc-0.13.0\fastqc",
             )
 
     def test_windows_launches_haplogrep_jar(self):

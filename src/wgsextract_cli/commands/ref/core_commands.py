@@ -4,10 +4,13 @@ import os
 import shutil
 import subprocess
 import tempfile
+import zipfile
+import zlib
 from pathlib import Path
 
 from wgsextract_cli.core import bwa_mem2
 from wgsextract_cli.core.annotation_resources import get_genome_size
+from wgsextract_cli.core.bgzf import open_decompressed
 from wgsextract_cli.core.builds import build_from_path, canonical_build
 from wgsextract_cli.core.constants import REFERENCE_MODELS
 from wgsextract_cli.core.dependency_checks import (
@@ -163,8 +166,8 @@ def _check_dict_matches(ref: str, lengths: dict[str, int]) -> None:
 
 
 def cmd_ref_verify(args: argparse.Namespace) -> None:
-    verify_dependencies(["gzip", "samtools"])
-    log_dependency_info(["gzip", "samtools"])
+    verify_dependencies(["samtools"])
+    log_dependency_info(["samtools"])
     if not args.ref:
         raise WGSExtractError("--ref is required.")
 
@@ -180,8 +183,11 @@ def cmd_ref_verify(args: argparse.Namespace) -> None:
     if resolved_ref.endswith(".gz"):
         logging.info(LOG_MESSAGES["ref_gzip_test"])
         try:
-            run_command(["gzip", "-t", resolved_ref])
-        except (OSError, subprocess.SubprocessError) as e:
+            # Reading it all checks every member's CRC and length, as gzip -t.
+            with open_decompressed(resolved_ref) as f:
+                while f.read(1 << 20):
+                    pass
+        except (OSError, EOFError, zlib.error, zipfile.BadZipFile) as e:
             raise WGSExtractError(f"Gzip integrity check failed: {e}") from e
         logging.info(LOG_MESSAGES["ref_gzip_ok"])
 
