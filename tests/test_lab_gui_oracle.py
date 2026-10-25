@@ -55,6 +55,28 @@ def test_other_platforms_excuse_nothing(oracle):
     assert oracle.excuse_leftovers([f"file\t{PLIST}"]) == ([f"file\t{PLIST}"], [])
 
 
+@pytest.mark.parametrize("rendered", [True, False])
+def test_tauri_macos_requires_the_current_apps_window_evidence(oracle, rendered):
+    import gui_oracle
+
+    (oracle.results / "lab-run.json").write_text(
+        json.dumps({"target": "host", "macos_runtime": "tauri"})
+    )
+    # The old Swift window marker must not make a Tauri run pass.
+    (oracle.results / "startup.txt").write_text("window_appeared_ms=42\n")
+    (oracle.results / "app-stdout.txt").write_text(
+        "metric webAppRendered_ms=42\n" if rendered else "metric windowShown_ms=42\n"
+    )
+    tauri = gui_oracle.GuiOracle(oracle.results, "nonce", {}, signed=True)
+    tauri.check_app_reports()
+    window = next(
+        check for check in tauri.checks if check.name == "app.window_appeared"
+    )
+    assert window.ok is rendered
+    assert "runner" not in tauri.app.steps
+    assert "/dev.guiforcli.web.embed.wgsextract/" in tauri.install_marker
+
+
 @pytest.mark.parametrize(
     ("meta", "home"),
     [

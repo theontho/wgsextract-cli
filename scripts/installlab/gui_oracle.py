@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import plistlib
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +61,14 @@ MACOS = AppPlatform(
     installed=["dir\t/Applications/WGSExtract.app"],
     install_marker="/dev.guiforcli.embed.wgsextract/BundleWorkspaces",
     emptied_preferences="/Library/Preferences/dev.guiforcli.embed.wgsextract.plist",
+)
+MACOS_TAURI = replace(
+    MACOS,
+    steps=[step for step in MACOS.steps if step != "runner"],
+    window_file="app-stdout.txt",
+    window_text="metric webAppRendered_ms=",
+    install_marker="/dev.guiforcli.web.embed.wgsextract/BundleWorkspaces",
+    emptied_preferences="/Library/Preferences/dev.guiforcli.web.embed.wgsextract.plist",
 )
 _WIN_APP = "C:/Users/lab user/AppData/Local/WGSExtract"
 WINDOWS = AppPlatform(
@@ -111,6 +119,10 @@ class GuiOracle(Oracle):
             if self.target == "linux"
             else MACOS
         )
+        if self.app is MACOS:
+            meta = self.result_file("lab-run.json")
+            if meta.get("macos_runtime") == "tauri":
+                self.app = MACOS_TAURI
         self.install_marker = self.app.install_marker
 
     def output(self, *parts: str) -> Path:
