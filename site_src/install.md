@@ -4,7 +4,7 @@ title: 'Install | WGS Extract CLI'
 description: 'Install WGS Extract CLI with the standalone macOS/Linux installer, native Windows installer, or developer Pixi workflow.'
 eyebrow: 'Setup guide'
 heading: 'Install once, then run repeatable genome workflows.'
-lede: 'WGS Extract CLI uses Pixi to manage Python, the app itself, and many external bioinformatics tools. macOS and Linux use the standalone terminal installer; Windows uses `install_windows.bat` from PowerShell with the MSYS2 UCRT64 pacman runtime.'
+lede: 'WGS Extract CLI uses Pixi to manage Python, the app itself, and many external bioinformatics tools. macOS and Linux use the standalone terminal installer; Windows uses `install_windows.bat` from PowerShell, which installs native Windows builds of the tools through Pixi.'
 toc: 'macOS/Linux|quickstart; Running the CLI|running; Windows|windows; Developer Pixi setup|developer; Platforms|platforms; References|references; Download checks|checksums; Configuration|config; Verify|verify'
 footer_title: 'WGS Extract CLI'
 footer_text: 'Install guide and environment reference.'
@@ -90,18 +90,18 @@ To keep the standalone launcher on `PATH`, add `export PATH="/path/to/wgsextract
 ::: block
 ::: section-head
 ## Windows native installer
-Use the Windows installer from a normal Windows PowerShell window when you want native Windows paths and the MSYS2 UCRT64 pacman runtime.
+Use the Windows installer from a normal Windows PowerShell window. The tools run natively on Windows, on your Windows files, without WSL or MSYS2.
 :::
 
 ::: grid two style="margin-top: 22px"
 ::: card
 ### Run the BAT installer
-Open PowerShell on Windows, then move into the WGS Extract CLI folder you cloned or downloaded and run `install_windows.bat`. If Pixi or MSYS2 are missing, the installer bootstraps them first.
+Open PowerShell on Windows, then move into the WGS Extract CLI folder you cloned or downloaded and run `install_windows.bat`. If Pixi is missing, the installer installs it first.
 :::
 
 ::: card
 ### What it does
-`install_windows.bat` installs or validates Pixi and MSYS2, installs the project Pixi environment, prepares the MSYS2 UCRT64 pacman runtime tools, and saves pacman as the default runtime.
+`install_windows.bat` installs Pixi if needed, then the project Pixi environment: Python, the CLI, and WGS Extract's own Windows builds of samtools, bcftools, BWA, bwa-mem2, minimap2, fastp and samblaster. It finishes with `wgsextract deps check`.
 :::
 :::
 :::
@@ -116,14 +116,13 @@ cd wgsextract-cli
 # Recommended Windows install path: run the BAT installer.
 .\install_windows.bat
 
-# Verify the native Windows pacman runtime.
-pixi run wgsextract deps pacman check
+# Verify the tools.
 pixi run wgsextract deps check
 
 # Uninstall the app-local environment and config defaults.
 .\uninstall_windows.bat
 
-# Also remove bootstrapper-installed Pixi and MSYS2 when desired.
+# Also remove the Pixi the installer set up.
 .\uninstall_windows.bat --remove-prerequisites
 ```
 :::
@@ -131,7 +130,7 @@ pixi run wgsextract deps check
 
 ::: wrap
 ::: callout
-{{ text: **Windows prerequisites:** A normal PowerShell session with internet access is enough for a default install. The installer downloads Pixi and MSYS2 when missing. The default MSYS2 path is `C:\msys64`; if yours is somewhere else, run `.\install_windows.bat --msys2-root D:\tools\msys64`. See the [Windows pacman runtime guide](https://github.com/theontho/wgsextract-cli/blob/main/docs/windows_pacman_runtime.md){.inline-link} for details. }}
+{{ text: **Windows prerequisites:** A normal PowerShell session with internet access is enough; the installer downloads Pixi when missing. Older installs set up MSYS2 for their tools, which nothing uses now. See the [Windows guide](https://github.com/theontho/wgsextract-cli/blob/main/docs/windows.md){.inline-link} for details. }}
 :::
 :::
 :::
@@ -184,7 +183,7 @@ pixi run test
 ::: wrap
 ::: section-head
 ## Platform notes
-Use the standalone installer on macOS/Linux and `install_windows.bat` on native Windows. For Windows, prefer the native MSYS2 UCRT64 pacman runtime; WSL2 is not recommended for normal use because setup is more invasive and file access can be slower.
+Use the standalone installer on macOS/Linux and `install_windows.bat` on native Windows. On Windows the tools are native Windows programs, so no WSL or MSYS2 setup is needed and they work directly on files on your Windows drives.
 :::
 
 ::: grid three
@@ -204,10 +203,12 @@ Use the standalone installer by default on Linux. Pixi resolves Python and nativ
 :::
 
 ::: card
-### Native Windows (recommended)
-Use `install_windows.bat` from PowerShell. It bootstraps Pixi and MSYS2 when needed and configures the app to use the MSYS2 UCRT64 pacman runtime by default.
+### Windows
+Use `install_windows.bat` from PowerShell. Pixi installs WGS Extract's own native Windows builds of the bioinformatics tools.
 
-{{ link: Windows pacman runtime|https://github.com/theontho/wgsextract-cli/blob/main/docs/windows_pacman_runtime.md|inline-link }}
+{{ tag: win-64 }}
+
+{{ link: Windows guide|https://github.com/theontho/wgsextract-cli/blob/main/docs/windows.md|inline-link }}
 :::
 :::
 
@@ -216,7 +217,7 @@ Use `install_windows.bat` from PowerShell. It bootstraps Pixi and MSYS2 when nee
 # Open PowerShell, clone or download the project, then:
 cd wgsextract-cli
 .\install_windows.bat
-pixi run wgsextract deps pacman check
+pixi run wgsextract deps check
 ```
 :::
 :::
@@ -267,15 +268,14 @@ wgsextract ref status
 ::: wrap
 ::: section-head
 ## Download verification
-Reference bundles and Windows native tool ZIPs are GitHub release assets, versioned separately from app releases so routine releases do not re-upload multi-gigabyte files.
+Reference bundles are GitHub release assets, versioned separately from app releases so routine releases do not re-upload multi-gigabyte files.
 :::
 
-When `ref bootstrap`, `ref library --install`, or `ref download` fetches a GitHub release asset, WGS Extract asks the GitHub Releases API for that asset's `sha256:<digest>` metadata and verifies the file before extracting or processing it. No neighboring `.sha256` files are needed. The Windows installer's `scripts/setup_pacman_runtime.ps1` uses the same check for the BWA, minimap2, samblaster, and fastp ZIPs.
+When `ref bootstrap`, `ref library --install`, or `ref download` fetches a GitHub release asset, WGS Extract asks the GitHub Releases API for that asset's `sha256:<digest>` metadata and verifies the file before extracting or processing it. No neighboring `.sha256` files are needed. The native Windows tool packages are pinned by SHA-256 in `pixi.toml`, which Pixi checks.
 
 - If the digest lookup is unavailable (for example, the API is unreachable or rate-limited), WGS Extract logs a warning and continues. Set `GITHUB_TOKEN` to authenticate the lookup in automation.
 - If GitHub metadata is fetched but has no valid SHA-256 digest, or the downloaded file does not match it, the download fails.
 - Reference genomes are checked again after installation: gzip integrity, `samtools faidx`, and the sequence-dictionary signature.
-- For local files or non-GitHub URLs on Windows, pass the expected digest explicitly (for example `install_windows.bat --bwa-binary-sha256 <hex>`); see the [Windows pacman runtime guide](https://github.com/theontho/wgsextract-cli/blob/main/docs/windows_pacman_runtime.md){.inline-link}.
 :::
 :::
 

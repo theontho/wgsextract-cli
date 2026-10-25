@@ -236,7 +236,7 @@ Microarray / SNP chip simulations only include requested target markers. Missing
 
 ::: card
 ### Windows tool issues
-Use the native MSYS2 UCRT64 pacman runtime on Windows; it is the recommended path for normal Windows installs. WSL2 is not recommended as the default runtime because it can require Windows feature changes, reboots, Linux user setup, and path translation, and it is often slower when working with files stored on the Windows side. If you are troubleshooting an older WSL setup, keep native Windows paths, MSYS2 paths, and WSL paths separate because they should not be mixed accidentally.
+On Windows, every tool comes from the Pixi environment that `install_windows.bat` sets up; run `pixi run wgsextract deps check` to see what is installed. A tool reported missing usually means the install didn't finish: rerun `install_windows.bat`. Settings from older WSL or MSYS2 setups (`tool_runtime`, `pacman_ucrt64_bin`) are ignored. The first run of a tool after installing can take several seconds while Windows scans the new files.
 :::
 
 ::: card

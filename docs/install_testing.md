@@ -290,21 +290,21 @@ and the home folder must end as it started.
 ## Windows
 
 The documented Windows path is: put `install_windows.bat` in an empty folder and
-run it; it downloads the release `.zip`, installs Pixi and MSYS2, and sets up the
-UCRT64 tools. `guest/windows/scenario.ps1` does exactly that as a standard
+run it; it downloads the release `.zip`, installs Pixi, and installs the Pixi
+environment with the native Windows tools. `guest/windows/scenario.ps1` does exactly that as a standard
 (non-admin) user named **Lab User**, so every profile path contains a space, as
 on many real PCs. The workload is the same as on macOS/Linux, run as
 `pixi run wgsextract …` from the install folder; "update" reruns the installer
 in the same folder, and uninstall is
 `uninstall_windows.bat --yes --remove-config --remove-prerequisites` followed by
 deleting the folder the user downloaded. Each step's output goes through `cmd.exe`, so logs
-are raw bytes, and only the step's own process is awaited (MSYS2's `gpg-agent`
-outlives `pacman-key`). Before the workload, and after each installer run, the
+are raw bytes, and only the step's own process is awaited (a background
+process a step starts can outlive it). Before the workload, and after each installer run, the
 scenario reloads the environment from the registry, as a new terminal would.
 
 `guest/windows/inventory.ps1` snapshots the profile (depth 6, including
-`AppData`), `C:\` top level (so `C:\msys64` appearing or staying behind is
-seen), Program Files, ProgramData, Start Menu, Windows Error Reporting and crash
+`AppData`), `C:\` top level (so a folder such as `C:\msys64` appearing or
+staying behind is seen), Program Files, ProgramData, Start Menu, Windows Error Reporting and crash
 dump folders, user and machine environment variables (`Path`'s value, not just
 its presence), Run keys, `HKCU\Software` vendors, Uninstall keys, scheduled
 tasks and PowerShell profiles. Registry values are recorded raw (unexpanded) with their type, and
@@ -337,8 +337,8 @@ isn't rebooted halfway. Windows' firewall rule for SSH is opened on the Public p
 unidentified, Public network, as on a user's PC). Defender stays on. Nothing WGS
 Extract needs is in the base image; Lab User has logged in once (over SSH), so
 the baseline isn't Windows' first-logon setup. On a Mac the VM is ARM64, so
-Pixi installs the win-64 environments under Windows' x64 emulation and MSYS2
-runs emulated too, as on a Snapdragon laptop; on an x64 host they run natively,
+Pixi installs the win-64 environments under Windows' x64 emulation, as on a
+Snapdragon laptop; on an x64 host they run natively,
 as on most PCs.
 
 ### On GitHub's Windows runners
@@ -350,8 +350,8 @@ as on most PCs.
 variables, and the scenario runs over SSH as a newly created standard user. The
 tool survey (`pixi`, `samtools`, `bcftools`, `java`, `python`, `conda`, `bash`,
 `gcc`, `perl`, MSYS2) fails the run if anything is still reachable. The oracle
-needs samtools/bcftools, which have no native Windows Pixi build, so the
-evidence is uploaded and judged (and mutated) by a separate Linux job.
+runs on Linux with the host's samtools/bcftools, so the evidence is uploaded
+and judged (and mutated) by a separate Linux job.
 
 ## In CI
 

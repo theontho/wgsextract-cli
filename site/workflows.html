@@ -163,7 +163,7 @@
 <header class="code-panel-top"><div class="window-controls" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div><span class="code-panel-title">fastq-to-bam.sh</span><button class="copy-button" type="button">Copy</button></header>
 <pre><code><span class="cmd">wgsextract --input sample_R1.fastq.gz qc fastqc</span>
 <span class="cmd">wgsextract qc fastp --r1 sample_R1.fastq.gz --r2 sample_R2.fastq.gz</span>
-<span class="cmd">wgsextract align --r1 sample_R1_fp_1.fastq.gz --r2 sample_R1_fp_2.fastq.gz --ref /refs/hs38.fa</span>
+<span class="cmd">wgsextract align --r1 sample_fp_1.fastq.gz --r2 sample_fp_2.fastq.gz --ref /refs/hs38.fa</span>
 
 <span class="comment"># Long reads: pick the platform; the aligner follows (pbmm2 or minimap2)</span>
 <span class="cmd">wgsextract align --r1 sample.hifi.fastq.gz --platform hifi --ref /refs/hs38.fa</span>
