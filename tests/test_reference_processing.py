@@ -6,6 +6,7 @@ import gzip
 import io
 import logging
 import random
+import struct
 import subprocess
 import tarfile
 import threading
@@ -489,3 +490,31 @@ def test_ensure_bgzf_refuses_a_zip_of_several_files(tmp_path):
     with pytest.raises(WGSExtractError, match="zip of 2 files"):
         ensure_bgzf(str(path))
     assert not (tmp_path / "ref.fa.gz.tmp.gz").exists()
+
+
+@needs_htslib
+@pytest.mark.parametrize("encrypted", [True, False])
+@pytest.mark.parametrize("filename", ["ref.zip", "ref.fa.gz"])
+def test_bgzf_decoder_failure_preserves_the_archive(tmp_path, encrypted, filename):
+    path = tmp_path / filename
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("ref.fa", FASTA)
+    payload = bytearray(path.read_bytes())
+    central = payload.index(b"PK\x01\x02")
+    # The standard library cannot write encrypted/unsupported ZIP members.
+    # Set their header fields to exercise the real decoder's failure paths.
+    if encrypted:
+        struct.pack_into("<H", payload, 6, 1)
+        struct.pack_into("<H", payload, central + 8, 1)
+    else:
+        struct.pack_into("<H", payload, 8, 99)
+        struct.pack_into("<H", payload, central + 10, 99)
+    path.write_bytes(payload)
+
+    with pytest.raises(WGSExtractError, match="Could not decompress"):
+        ensure_bgzf(str(path))
+
+    assert path.read_bytes() == payload
+    assert not Path(str(path) + ".tmp.gz").exists()
+    if not filename.endswith(".gz"):
+        assert not Path(str(path) + ".gz").exists()

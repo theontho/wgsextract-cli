@@ -57,7 +57,14 @@ def _feed_decompressed(
                 proc.stdin.write(chunk)
     except BrokenPipeError:
         pass  # bgzip stopped: cancelled, or its exit status says why
-    except (OSError, EOFError, zlib.error, zipfile.BadZipFile, WGSExtractError) as e:
+    except (
+        OSError,
+        EOFError,
+        RuntimeError,
+        zlib.error,
+        zipfile.BadZipFile,
+        WGSExtractError,
+    ) as e:
         errors.append(e)
     finally:
         try:

@@ -1,6 +1,7 @@
 """Finding a tool in a Pixi environment: in this process when the CLI already
 runs in that environment (`pixi run` takes seconds on Windows), else inside it."""
 
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -68,3 +69,46 @@ def test_in_its_own_environment_the_cli_skips_pixi(tmp_path, monkeypatch, window
         assert command.startswith(sys.executable) and "fastqc-0.13.0" in command
     else:
         assert command is None  # Unix links the script into bin/; nothing here
+
+
+@pytest.mark.parametrize(
+    "tool,env", [("cyrius_python", "cyrius"), ("pharmcat_python", "pharmcat")]
+)
+@pytest.mark.parametrize("current", ["default", "dev", "dedicated"])
+@pytest.mark.parametrize("installed", [True, False])
+def test_interpreter_alias_uses_its_dedicated_environment(
+    monkeypatch, tool, env, current, installed
+):
+    current = env if current == "dedicated" else current
+    monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", current)
+    monkeypatch.setattr(pixi_tools.runtime, "is_windows_host", lambda: False)
+    monkeypatch.setattr(pixi_tools, "_resolve_pixi_command", lambda: "pixi")
+    monkeypatch.setattr(pixi_tools, "_pixi_manifest_args", lambda: [])
+    monkeypatch.setattr(
+        "shutil.which", lambda name: sys.executable if name == "python" else None
+    )
+    probes = []
+
+    def probe(pixi_cmd, target_env, names):
+        probes.append((target_env, names))
+        return subprocess.CompletedProcess(
+            [], 0 if installed else 1, "direct-name:python\n" if installed else ""
+        )
+
+    monkeypatch.setattr(pixi_tools, "_probe_environment_with_pixi", probe)
+    command = pixi_tools.pixi_env_tool(tool)
+    if current == env:
+        assert command is not None and shlex.split(command) == [sys.executable]
+        assert not probes
+    else:
+        assert probes == [(env, ["python"])]
+        if installed:
+            assert command is not None and shlex.split(command) == [
+                "pixi",
+                "run",
+                "-e",
+                env,
+                "python",
+            ]
+        else:
+            assert command is None

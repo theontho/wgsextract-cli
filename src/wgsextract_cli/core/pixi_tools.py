@@ -237,12 +237,13 @@ def _host_pixi_tool_command(tool: str) -> str | None:
     executable_names = _tool_executable_names(tool)
     # Look in the environment the CLI runs in first (`dev` has all of
     # `default`), and run from it directly: `pixi run` takes seconds on Windows.
+    # Interpreter aliases need their dedicated environment's Python packages.
     current = os.environ.get("PIXI_ENVIRONMENT_NAME")
     found = (
         _probe_environment(
             sys.prefix, list(executable_names), runtime.is_windows_host()
         )
-        if current
+        if current and (current == env or executable_names != ("python",))
         else None
     )
     in_env = bool(found) or current == env
