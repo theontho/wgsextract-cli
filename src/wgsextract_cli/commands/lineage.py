@@ -3,6 +3,7 @@ import csv
 import logging
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from wgsextract_cli.core.config import settings
@@ -10,8 +11,9 @@ from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
-from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
+from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES, SYSTEM_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
+from wgsextract_cli.core.reference_models import MITO_BY_LENGTH, sequence_lengths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -20,6 +22,7 @@ from wgsextract_cli.core.utils import (
 )
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
+    get_bam_header,
     get_chr_name,
     verify_paths_exist,
 )
@@ -72,10 +75,10 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
 
     input_file = args.input
     input_lower = input_file.lower()
-    temp_vcf = str(Path(outdir, "temp_haplogrep_input.vcf.gz"))
     reference = None
 
-    try:
+    with tempfile.TemporaryDirectory(prefix=".wgse_haplogrep_", dir=outdir) as tmp:
+        temp_vcf = str(Path(tmp, "mtdna.vcf.gz"))
         if input_lower.endswith((".bam", ".cram")):
             logging.info(
                 "Input is alignment. Extracting mitochondrial variants first..."
@@ -92,6 +95,7 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
 
             cram_opt = ["-T", lib.fasta] if input_lower.endswith(".cram") else []
             chr_m = get_chr_name(input_file, "MT", cram_opt)
+            _require_rcrs(input_file, chr_m, cram_opt)
             run_pipeline(
                 [
                     ["bcftools", "mpileup", "-Ou", "-r", chr_m, "-f", lib.fasta]
@@ -105,7 +109,8 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
             input_file = temp_vcf
         elif input_lower.endswith(VCF_SUFFIXES):
             # Filter VCF to chrM to avoid Haplogrep errors on large VCFs
-            extract_vcf_chromosome(input_file, "MT", temp_vcf)
+            chr_m = extract_vcf_chromosome(input_file, "MT", temp_vcf)
+            _require_rcrs(temp_vcf, chr_m)
             input_file = temp_vcf
 
         logging.info(LOG_MESSAGES["running_haplogrep"].format(input=input_file))
@@ -117,12 +122,21 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
             )
         except (OSError, subprocess.SubprocessError) as e:
             raise WGSExtractError(f"Haplogrep failed: {e}") from e
-    finally:
-        for path in (temp_vcf, temp_vcf + ".tbi"):
-            if Path(path).exists():
-                Path(path).unlink()
 
     _print_haplogrep_result(out_file, reference)
+
+
+def _require_rcrs(path: str, chr_m: str, cram_opt: list[str] | None = None) -> None:
+    """Refuse an mtDNA sequence that isn't the rCRS Haplogrep's positions assume."""
+    length = sequence_lengths(get_bam_header(path, cram_opt)).get(chr_m)
+    if length is None or MITO_BY_LENGTH.get(length) == "rCRS":
+        return
+    if MITO_BY_LENGTH.get(length) == "Yoruba":
+        raise WGSExtractError(SYSTEM_MESSAGES["YorubaWarning"])
+    raise WGSExtractError(
+        f"{chr_m} is {length} bp, not the 16569 bp rCRS that Haplogrep's "
+        "positions refer to."
+    )
 
 
 def _print_haplogrep_result(out_file: str, reference: str | None) -> None:

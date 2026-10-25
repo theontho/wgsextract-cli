@@ -152,9 +152,8 @@ def run(args: argparse.Namespace) -> None:
         if result.status == "FAIL" and not args.keep_going:
             _print_failure_log_excerpt(result)
             finish_report()
-            raise WGSExtractError(
-                f"Benchmark step failed: {result.name}. See {result.stderr_log}."
-            )
+            detail = f"See {result.stderr_log}." if result.stderr_log else result.error
+            raise WGSExtractError(f"Benchmark step failed: {result.name}. {detail}")
         return result
 
     analysis_bam, snp_vcf, unalign_r1, unalign_r2 = _run_core_benchmark_steps(
@@ -190,6 +189,11 @@ def run(args: argparse.Namespace) -> None:
         )
 
     finish_report()
+    failed = [result.name for result in results if result.status == "FAIL"]
+    if failed:
+        raise WGSExtractError(
+            f"{len(failed)} benchmark step(s) failed: " + "; ".join(failed)
+        )
 
 
 def register(

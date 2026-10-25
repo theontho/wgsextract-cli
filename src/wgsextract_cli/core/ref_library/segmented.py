@@ -58,6 +58,19 @@ def ranged_size(url: str) -> int | None:
     return int(length)
 
 
+def saved_size(state_path: str, url: str) -> int | None:
+    """The size an unfinished segmented download of url recorded, if any."""
+    try:
+        with open(state_path) as f:
+            state = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(state, dict) or state.get("url") != url:
+        return None
+    size = state.get("size")
+    return size if isinstance(size, int) and size > 0 else None
+
+
 def _load_state(path: str, url: str, size: int) -> dict[str, int] | None:
     try:
         with open(path) as f:

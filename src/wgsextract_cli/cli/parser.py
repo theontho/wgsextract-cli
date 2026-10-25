@@ -1,7 +1,8 @@
 import argparse
 import logging
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -291,59 +292,54 @@ def parse_args(
     base_parser: argparse.ArgumentParser,
     argv: Sequence[str] | None = None,
 ) -> tuple[argparse.Namespace, set[str]]:
-    raw_argv = list(argv) if argv is not None else None
-    option_map = {
-        option: action
-        for action in base_parser._actions
-        for option in action.option_strings
-    }
-    effective_argv = raw_argv if raw_argv is not None else sys.argv[1:]
+    """Parse argv; also return the destinations the user typed (not defaults).
 
-    args = parser.parse_args(raw_argv)
+    base_parser is accepted for compatibility; every parser is consulted.
+    """
+    arg_list = list(argv) if argv is not None else sys.argv[1:]
+    args = parser.parse_args(arg_list)
 
-    # Shared options are accepted at every level (`wgsextract --input X info ...`,
-    # `wgsextract info --input X coverage-sample`), but argparse keeps only what
-    # the leaf subparser saw. Re-apply them from the whole command line; a later
-    # occurrence wins, so options closer to the leaf command take precedence.
-    explicit_options = _extract_shared_options(effective_argv, option_map)
-    for dest, value in explicit_options.items():
-        setattr(args, dest, value)
-    explicit_dests = set(explicit_options)
+    # Parsed again with every default suppressed, the namespace holds only what
+    # the user typed, in any spelling argparse accepts. Shared options are
+    # accepted at every level (`wgsextract --input X info ...`, `wgsextract info
+    # --input X coverage-sample`); there a deeper occurrence wins, and a
+    # subparser's default no longer hides a value given above it.
+    with _defaults_suppressed(parser) as subcommand_dests:
+        typed = vars(parser.parse_args(arg_list))
+    explicit_dests = set(typed) - subcommand_dests
+    for dest in explicit_dests:
+        setattr(args, dest, typed[dest])
 
     # Commands read this to tell user-supplied options from config defaults.
     args._explicit_dests = set(explicit_dests)
     return args, explicit_dests
 
 
-def _extract_shared_options(
-    argv: list[str],
-    option_map: dict[str, argparse.Action],
-) -> dict[str, Any]:
-    values: dict[str, Any] = {}
-    i = 0
-    while i < len(argv):
-        token = argv[i]
-        option_name, has_inline_value, inline_value = token.partition("=")
-        action = option_map.get(option_name)
-        if action is None:
-            i += 1
-            continue
-
-        if action.nargs == 0:
-            values[action.dest] = True
-            i += 1
-            continue
-
-        if has_inline_value:
-            raw_value = inline_value
-        elif i + 1 < len(argv):
-            raw_value = argv[i + 1]
-        else:
-            i += 1
-            continue
-        values[action.dest] = (
-            action.type(raw_value) if callable(action.type) else raw_value
-        )
-        i += 1 if has_inline_value else 2
-
-    return values
+@contextmanager
+def _defaults_suppressed(parser: argparse.ArgumentParser) -> Iterator[set[str]]:
+    """Suppress every default of parser and its subparsers; yield the
+    destinations that name a chosen subcommand."""
+    saved_defaults: dict[argparse.Action, Any] = {}
+    saved_parser_defaults: list[tuple[argparse.ArgumentParser, dict[str, Any]]] = []
+    subcommand_dests: set[str] = set()
+    pending = [parser]
+    while pending:
+        current = pending.pop()
+        if any(current is seen for seen, _defaults in saved_parser_defaults):
+            continue  # a subcommand alias
+        saved_parser_defaults.append((current, current._defaults))
+        current._defaults = {}
+        for action in current._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                subcommand_dests.add(action.dest)
+                pending.extend(action.choices.values())
+            if action not in saved_defaults:
+                saved_defaults[action] = action.default
+                action.default = argparse.SUPPRESS
+    try:
+        yield subcommand_dests
+    finally:
+        for action, default in saved_defaults.items():
+            action.default = default
+        for current, defaults in saved_parser_defaults:
+            current._defaults = defaults

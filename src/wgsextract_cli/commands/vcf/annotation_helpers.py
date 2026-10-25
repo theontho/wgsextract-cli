@@ -2,8 +2,9 @@ import argparse
 import logging
 import subprocess
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 
 from wgsextract_cli.core.bgzf import is_bgzf
@@ -52,6 +53,26 @@ def require_annotation_file(file_path: str | None, message_key: str, ann: str) -
     return str(file_path)
 
 
+@contextmanager
+def _staged_output(final: str) -> Iterator[str]:
+    """A temporary path beside ``final``, renamed onto it (dropping its stale
+    indexes) only if the block succeeds, so a failed or interrupted run never
+    leaves a partial file under the final name."""
+    tmp = str(Path(final).with_name(f".{Path(final).name}.partial"))
+    try:
+        yield tmp
+        _move_into_place(tmp, final)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+
+
+def _move_into_place(path: str, final: str) -> None:
+    """Rename path onto final, dropping final's now-stale indexes."""
+    Path(path).replace(final)
+    for index in (final + ".tbi", final + ".csi"):
+        Path(index).unlink(missing_ok=True)
+
+
 def prepare_tabix_annotation(
     annotation_path: str,
     label: str,
@@ -76,7 +97,7 @@ def prepare_tabix_annotation(
             logging.info(
                 "Compressing %s annotation resource: %s", label, annotation_path
             )
-            with open(prepared_path, "wb") as f_out:
+            with _staged_output(prepared_path) as tmp, open(tmp, "wb") as f_out:
                 run_command([bgzip, "-c", annotation_path], stdout=f_out)
 
     if not is_bgzf(prepared_path):
@@ -175,39 +196,47 @@ def annotate_vcf(
     threads: int | str | None = None,
 ) -> None:
     """Run bcftools annotate after matching the input's contig naming to the resource."""
+    if Path(ann_out).resolve() == Path(input_vcf).resolve():
+        raise WGSExtractError(
+            f"The {label} output {ann_out} would overwrite its input {input_vcf}; "
+            "pass --outdir to write it to another folder."
+        )
     n_threads = int(get_resource_defaults(threads)[0])
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_annotate_") as work:
-        normalized = normalize_vcf_chromosomes(
-            input_vcf, annotation_chromosomes(annotation), work
-        )
         cmd = ["bcftools", "annotate", "-a", annotation, "-c", columns]
-        if {"REF", "ALT"} <= set(columns.split(",")):
-            # Allele-matched scores can never apply to gVCF reference blocks, and
-            # looking up every resource line under their END spans makes whole
-            # genomes ~25x slower; pass those records through untouched.
-            cmd += ["-e", 'TYPE="ref"', "-k"]
+        # No resource value can apply to gVCF reference blocks, and looking up
+        # every resource line under their END spans makes whole genomes ~25x
+        # slower; pass those records through untouched.
+        cmd += ["-e", 'TYPE="ref"', "-k"]
         if header_lines:
             header_path = str(Path(work, "annotation.hdr"))
             with open(header_path, "w") as f:
                 f.writelines(line + "\n" for line in header_lines)
             cmd += ["-h", header_path]
-        annotated = (
-            ann_out if normalized == input_vcf else str(Path(work, "annotated.vcf.gz"))
-        )
+        annotated = str(Path(work, "annotated.vcf.gz"))
         try:
+            # Biallelic records, so each ALT matches its own resource record/row
+            # (bcftools transfers only one per multiallelic record).
+            split = str(Path(work, "split.vcf.gz"))
+            run_command(
+                ["bcftools", "norm", "-m", "-any", "-Oz", "-o", split, input_vcf],
+                capture_output=True,
+            )
+            ensure_vcf_indexed(split)
+            normalized = normalize_vcf_chromosomes(
+                split, annotation_chromosomes(annotation), work
+            )
             _run_annotate(cmd, normalized, annotated, work, n_threads)
             ensure_vcf_indexed(annotated)
-            if annotated != ann_out:
+            if normalized != split:
                 # Back to the input's contig names (chr1 vs 1), so a chain of
                 # annotations keeps them whatever each resource uses.
-                restored = normalize_vcf_chromosomes(
+                annotated = normalize_vcf_chromosomes(
                     annotated, vcf_index_chromosomes(input_vcf), work
                 )
-                Path(restored).replace(ann_out)
-                for index in (ann_out + ".tbi", ann_out + ".csi"):
-                    if Path(index).exists():
-                        Path(index).unlink()
-                ensure_vcf_indexed(ann_out)
+            # Renamed into place only once complete (work is beside ann_out).
+            _move_into_place(annotated, ann_out)
+            ensure_vcf_indexed(ann_out)
         except (OSError, subprocess.SubprocessError) as e:
             stderr = getattr(e, "stderr", None)
             detail = f"{e}\n{stderr.strip()}" if stderr else str(e)
@@ -217,10 +246,11 @@ def annotate_vcf(
 
 def run_filter(ann_out: str, out_vcf: str, expr: str, label: str) -> None:
     try:
-        run_command(
-            ["bcftools", "filter", "-i", expr, "-Oz", "-o", out_vcf, ann_out],
-            capture_output=True,
-        )
+        with _staged_output(out_vcf) as tmp:
+            run_command(
+                ["bcftools", "filter", "-i", expr, "-Oz", "-o", tmp, ann_out],
+                capture_output=True,
+            )
         ensure_vcf_indexed(out_vcf)
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"{label} filtering failed: {e}") from e

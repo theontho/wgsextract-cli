@@ -18,8 +18,8 @@ from .annotation_helpers import annotate_vcf
 
 
 def _score_rows(vcf: str, bw: Any, label: str) -> Iterator[str]:
-    """CHROM POS REF ALT SCORE rows (the VCF's contig names) for its variant records,
-    scoring each with the maximum score over its REF bases."""
+    """CHROM POS REF ALT SCORE rows (the VCF's contig names) for each ALT of its
+    variant records, scoring each with the maximum score over its REF bases."""
     bw_lengths: dict[str, int] = bw.chroms()
     to_bw = {
         chrom: match_chromosome_name(chrom, bw_lengths)
@@ -41,10 +41,12 @@ def _score_rows(vcf: str, bw: Any, label: str) -> Iterator[str]:
             for line in proc.stdout:
                 chrom, pos, ref, alt = line.rstrip("\n").split("\t")
                 bw_chrom = to_bw.get(chrom)
-                # Skip gVCF reference blocks and symbolic (structural) alleles.
-                if not bw_chrom or all(
-                    a in (".", "*") or a.startswith("<") for a in alt.split(",")
-                ):
+                # One row per ALT (annotate_vcf matches biallelic records),
+                # skipping gVCF reference blocks and symbolic (structural) alleles.
+                alts = [
+                    a for a in alt.split(",") if a not in (".", "*") and a[0] != "<"
+                ]
+                if not bw_chrom or not alts:
                     continue
                 start = int(pos) - 1
                 end = min(start + len(ref), bw_lengths[bw_chrom])
@@ -52,7 +54,8 @@ def _score_rows(vcf: str, bw: Any, label: str) -> Iterator[str]:
                     continue
                 score = bw.stats(bw_chrom, start, end, type="max", exact=True)[0]
                 if score is not None:
-                    yield f"{chrom}\t{pos}\t{ref}\t{alt}\t{score:.4g}\n"
+                    for a in alts:
+                        yield f"{chrom}\t{pos}\t{ref}\t{a}\t{score:.4g}\n"
             if proc.wait() != 0:
                 err.seek(0)
                 raise WGSExtractError(
