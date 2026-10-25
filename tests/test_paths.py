@@ -9,7 +9,6 @@ import pytest
 from wgsextract_cli.commands._extract_helpers import cleanup_files, derive_output_path
 from wgsextract_cli.core import (
     config,
-    runtime_wrappers,
     samtools_commands,
     tool_commands,
 )
@@ -166,7 +165,6 @@ def test_pathlike_process_arguments_and_cwd(tmp_path: Path) -> None:
 def test_literal_pathlike_executable_is_not_split(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(runtime_wrappers, "wrap_command", lambda command: command)
     executable = FilePath(tmp_path / "missing tool suite" / "tool")
     assert _normalize_subprocess_cmd(executable) == [os.fspath(executable)]
     assert _normalize_subprocess_cmd([executable, "--version"]) == [
@@ -178,7 +176,6 @@ def test_literal_pathlike_executable_is_not_split(
 def test_long_wrapper_command_is_not_treated_as_a_filename(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(runtime_wrappers, "wrap_command", lambda command: command)
     command = "pixi run -e default samtools --argument=" + "a" * 300
     expected = shlex.split(command)
     assert tool_commands._tool_command_parts(command) == expected

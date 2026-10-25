@@ -31,8 +31,8 @@ def _tool(tmp_path: Path, name: str, body: str) -> str:
 def _use_tools(monkeypatch, tools: dict[str, str | None]) -> list[tuple]:
     calls: list[tuple] = []
 
-    def get_tool_path(tool, runtime_mode=None):
-        calls.append((tool, runtime_mode))
+    def get_tool_path(tool):
+        calls.append((tool,))
         return tools.get(tool)
 
     monkeypatch.setattr(dependency_checks, "get_tool_path", get_tool_path)
@@ -132,7 +132,7 @@ def test_version_probe_without_the_tool_or_on_timeout(tmp_path, monkeypatch):
     monkeypatch.setattr(dependency_checks.subprocess, "run", hang)
     assert dependency_checks.get_tool_version("samtools") == (
         f"Error: Command '{[str(tmp_path / 'bin' / 'samtools'), '--version']}' "
-        "timed out after 10 seconds"
+        f"timed out after {dependency_checks.VERSION_PROBE_TIMEOUT} seconds"
     )
 
 
@@ -188,7 +188,7 @@ def test_check_all_dependencies_marks_crashing_tools_missing(tmp_path, monkeypat
     )
 
     results = dependency_checks.check_all_dependencies(
-        ["python3", "samtools", "bcftools"], ["sniffles", "minimap2"], "native"
+        ["python3", "samtools", "bcftools"], ["sniffles", "minimap2"]
     )
 
     by_name = {r["name"]: r for r in results["mandatory"] + results["optional"]}
@@ -211,7 +211,12 @@ def test_check_all_dependencies_marks_crashing_tools_missing(tmp_path, monkeypat
     assert by_name["bcftools"]["version"] == "Error: bcftools crashed (SIGSEGV)"
     assert by_name["bcftools"]["runtime"] == "missing"
     assert by_name["minimap2"]["version"] is None
-    assert {mode for _tool_name, mode in calls} == {"native"}
+    assert {tool for (tool,) in calls} == {
+        "samtools",
+        "bcftools",
+        "sniffles",
+        "minimap2",
+    }
 
 
 def test_log_dependency_info(tmp_path, monkeypatch, caplog):
@@ -563,70 +568,3 @@ def test_deps_check_report_in_ascii(monkeypatch, capsys):
 def test_stdout_without_an_encoding_takes_emoji(monkeypatch):
     monkeypatch.setattr(sys, "stdout", object())
     assert _deps_status._status_text("/s") == "✅"
-
-
-# `deps wsl check` with WSL answers stubbed: what it reports and when it fails.
-
-
-def _wsl(monkeypatch, available: bool, mandatory: list[dict]) -> list:
-    monkeypatch.setattr(
-        _deps_status.runtime, "detect_wsl_available", lambda force: available
-    )
-    monkeypatch.setattr(
-        _deps_status.runtime_wrappers, "get_wslconfig_path", lambda: "/c/.wslconfig"
-    )
-    monkeypatch.setattr(
-        _deps_status.runtime_wrappers,
-        "read_wslconfig_settings",
-        lambda path: {"memory": "24GB"},
-    )
-    modes = []
-
-    def check_all(runtime_mode=None):
-        modes.append(runtime_mode)
-        return {"mandatory": mandatory, "optional": []}
-
-    monkeypatch.setattr(_deps_status, "check_all_dependencies", check_all)
-
-    def wsl_run(cmd, **kwargs):
-        assert cmd[:3] == ["wsl", "bash", "-lc"]
-        if "uname" in cmd[3]:
-            return MagicMock(returncode=0, stdout="6.6.87.2-microsoft\x00\n")
-        if "pixi" in cmd[3]:
-            raise OSError("wsl.exe not found")
-        return MagicMock(returncode=1, stdout="")
-
-    monkeypatch.setattr(_deps_status.subprocess, "run", wsl_run)
-    return modes
-
-
-def test_wsl_check_reports_the_distro_and_tools(monkeypatch, capsys):
-    modes = _wsl(
-        monkeypatch,
-        True,
-        [
-            {"name": "Python Runtime", "path": sys.executable},
-            {"name": "samtools", "path": "wsl:/usr/bin/samtools"},
-        ],
-    )
-
-    _deps_status.run_wsl_check(Namespace())
-
-    out = capsys.readouterr().out
-    assert "WSL kernel:          6.6.87.2-microsoft\n" in out
-    assert "WSL distro:          unknown" in out
-    assert "WSL pixi:            not found at ~/.pixi/bin/pixi" in out
-    assert "memory           24GB" in out and "swap             unset" in out
-    assert "samtools             yes  wsl:/usr/bin/samtools" in out
-    assert "Python Runtime" not in out
-    assert modes == ["wsl"]
-
-
-def test_wsl_check_fails_on_missing_tools_or_no_wsl(monkeypatch, capsys):
-    _wsl(monkeypatch, True, [{"name": "bwa", "path": None}])
-    with pytest.raises(WGSExtractError, match="Missing WSL-backed tool\\(s\\): bwa"):
-        _deps_status.run_wsl_check(Namespace())
-
-    _wsl(monkeypatch, False, [])
-    with pytest.raises(WGSExtractError, match="WSL is not available"):
-        _deps_status.run_wsl_check(Namespace())

@@ -575,10 +575,7 @@ def test_windows_wrapper_commands_keep_backslashes():
         r"C:\Users\bob\.pixi\bin\pixi.exe run --manifest-path C:\Users\bob\w\pixi.toml"
         r" -e default java -jar C:\Users\bob\w\haplogrep.jar"
     )
-    with (
-        patch.object(runtime, "is_windows_host", return_value=True),
-        patch("wgsextract_cli.core.runtime_wrappers.wrap_command", side_effect=list),
-    ):
+    with patch.object(runtime, "is_windows_host", return_value=True):
         argv = _normalize_subprocess_cmd([wrapper, "classify"])
     assert argv[0] == r"C:\Users\bob\.pixi\bin\pixi.exe"
     assert argv[3] == r"C:\Users\bob\w\pixi.toml"
