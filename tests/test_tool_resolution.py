@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 from wgsextract_cli.core import (  # noqa: E402
@@ -20,6 +22,14 @@ from wgsextract_cli.core.utils import (  # noqa: E402
     _normalize_subprocess_cmd,
     run_command,
 )
+
+
+@pytest.fixture(autouse=True)
+def _outside_a_pixi_environment(monkeypatch):
+    """These tests simulate the Pixi environment probe; under `pixi run` the CLI
+    would look in its own environment first instead."""
+    monkeypatch.delenv("PIXI_ENVIRONMENT_NAME", raising=False)
+
 
 PIXI_EXE = r"C:\Users\test\.pixi\bin\pixi.exe"
 

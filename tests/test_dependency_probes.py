@@ -19,6 +19,13 @@ from wgsextract_cli.core import dependency_checks, pixi_tools
 from wgsextract_cli.core.utils import WGSExtractError
 
 
+@pytest.fixture(autouse=True)
+def _outside_a_pixi_environment(monkeypatch):
+    """These tests simulate the Pixi environment probe; under `pixi run` the CLI
+    would look in its own environment first instead."""
+    monkeypatch.delenv("PIXI_ENVIRONMENT_NAME", raising=False)
+
+
 def _tool(tmp_path: Path, name: str, body: str) -> str:
     """An executable sh script; $1 is the probe argument (--version, --help)."""
     path = tmp_path / "bin" / name

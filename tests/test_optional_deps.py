@@ -20,6 +20,14 @@ from wgsextract_cli.core.dependency_checks import (  # noqa: E402
 from wgsextract_cli.core.runtime import source_checkout_root
 from wgsextract_cli.core.utils import WGSExtractError  # noqa: E402
 
+
+@pytest.fixture(autouse=True)
+def _outside_a_pixi_environment(monkeypatch):
+    """These tests simulate the Pixi environment probe; under `pixi run` the CLI
+    would look in its own environment first instead."""
+    monkeypatch.delenv("PIXI_ENVIRONMENT_NAME", raising=False)
+
+
 MANIFEST = shlex.quote(str(source_checkout_root() / "pixi.toml"))
 
 
