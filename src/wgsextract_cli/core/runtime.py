@@ -8,6 +8,8 @@ from pathlib import Path
 
 from platformdirs import user_data_path
 
+from wgsextract_cli.core.paths import windows_local_app_dir
+
 if sys.version_info >= (3, 11):
     import tomllib
 else:
@@ -147,7 +149,9 @@ def source_checkout_root() -> Path | None:
 
 def app_data_root() -> Path:
     """Per-user data directory used when not running from a source checkout."""
-    return user_data_path(PROJECT_NAME, "WGSExtract")
+    return windows_local_app_dir(PROJECT_NAME, "WGSExtract") or user_data_path(
+        PROJECT_NAME, "WGSExtract"
+    )
 
 
 def repo_root() -> Path:

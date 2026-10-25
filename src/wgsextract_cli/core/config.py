@@ -6,7 +6,7 @@ from typing import Any, TypeVar, overload
 
 from platformdirs import user_config_dir
 
-from wgsextract_cli.core.paths import expand_path
+from wgsextract_cli.core.paths import expand_path, windows_local_app_dir
 from wgsextract_cli.core.utils import WGSExtractError
 
 # For Python < 3.11, use tomli
@@ -167,7 +167,9 @@ LEGACY_SETTINGS = {
 
 def get_config_dir() -> Path:
     """Get the standard user configuration directory for this app."""
-    return Path(user_config_dir(APP_NAME, APP_AUTHOR))
+    return windows_local_app_dir(APP_NAME, APP_AUTHOR) or Path(
+        user_config_dir(APP_NAME, APP_AUTHOR)
+    )
 
 
 # Set from --config: a caller (such as the GUI) keeping its own settings file.

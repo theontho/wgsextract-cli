@@ -12,7 +12,12 @@ from wgsextract_cli.core import (
     samtools_commands,
     tool_commands,
 )
-from wgsextract_cli.core.paths import absolute_path, append_suffix, expand_path
+from wgsextract_cli.core.paths import (
+    absolute_path,
+    append_suffix,
+    expand_path,
+    windows_local_app_dir,
+)
 from wgsextract_cli.core.reference_assets import input_stem, reference_dict_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
@@ -228,3 +233,18 @@ def test_verify_paths_exist_wants_files_not_programs_or_folders(tmp_path):
         verify_paths_exist({"--ref": "sh"})  # a program on PATH isn't a file
     with pytest.raises(WGSExtractError, match="is a directory"):
         verify_paths_exist({"--ref": str(tmp_path)})
+
+
+def test_windows_config_and_data_follow_localappdata(monkeypatch, tmp_path):
+    from wgsextract_cli.core import config, runtime
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    assert config.get_config_dir() == tmp_path / "theontho" / "wgsextract"
+    assert runtime.app_data_root() == tmp_path / "WGSExtract" / "wgsextract-cli"
+
+    monkeypatch.delenv("LOCALAPPDATA")
+    assert windows_local_app_dir("app", "author") is None
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    assert windows_local_app_dir("app", "author") is None
