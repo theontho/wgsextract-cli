@@ -139,10 +139,12 @@ def test_vep_output_paths():
     from wgsextract_cli.commands._vep_run import vep_output_paths
 
     assert vep_output_paths("/x/clinvar_annotated.vcf.gz", "/o", "vcf") == (
-        "/o/clinvar_annotated_vep.vcf",
-        "/o/clinvar_annotated_vep.vcf.gz",
+        str(Path("/o", "clinvar_annotated_vep.vcf")),
+        str(Path("/o", "clinvar_annotated_vep.vcf.gz")),
     )
-    assert vep_output_paths("/x/s.vcf", "/o", "tab") == ("/o/s_vep.txt",) * 2
+    assert (
+        vep_output_paths("/x/s.vcf", "/o", "tab") == (str(Path("/o", "s_vep.txt")),) * 2
+    )
 
 
 def test_vep_requires_input():
@@ -216,7 +218,10 @@ def test_chain_uses_each_steps_known_output(tmp_path):
     ):
         chain.cmd_chain_annotate(args)
 
-    assert step_inputs[1].endswith("chain_step_1_clinvar/clinvar_annotated.vcf.gz")
+    assert Path(step_inputs[1]).parts[-2:] == (
+        "chain_step_1_clinvar",
+        "clinvar_annotated.vcf.gz",
+    )
     assert (tmp_path / "out" / "chain_annotated.vcf.gz").read_text() == "revel"
     assert sorted(os.listdir(tmp_path / "out")) == ["chain_annotated.vcf.gz"]
 

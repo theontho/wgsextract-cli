@@ -4,12 +4,12 @@ line and writes what VEP would (a bgzipped copy of its input, or a text table)."
 import json
 import os
 import shutil
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from tests.fake_tools import python_tool
 from tests.htslib_helpers import (
     bgzip_index,
     needs_htslib,
@@ -30,8 +30,7 @@ _HEADER = (
     "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n"
 )
 
-_FAKE_VEP = """#!{python}
-import json, subprocess, sys
+_FAKE_VEP = """import json, subprocess, sys
 argv = sys.argv[1:]
 if "-i" not in argv:  # version probes
     sys.exit(0)
@@ -56,16 +55,10 @@ def fake_vep(tmp_path, monkeypatch):
     def install(exit_code: int = 0, dirname: str = "fakebin") -> None:
         bindir = tmp_path / dirname
         bindir.mkdir(exist_ok=True)
-        script = bindir / "vep"
-        script.write_text(
-            _FAKE_VEP.format(
-                python=sys.executable,
-                log=str(log),
-                bcftools=shutil.which("bcftools"),
-                exit_code=exit_code,
-            )
+        source = _FAKE_VEP.format(
+            log=str(log), bcftools=shutil.which("bcftools"), exit_code=exit_code
         )
-        script.chmod(0o755)
+        python_tool(bindir, "vep", source)
         monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
         from wgsextract_cli.core.dependencies import clear_tool_caches
 

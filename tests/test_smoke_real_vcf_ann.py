@@ -142,12 +142,12 @@ class TestVcfAnnotationSmoke:
         assert verify_vcf(filt_vcf)
         # Should only have 1 variant
         res = subprocess.run(
-            f"bcftools view -H {filt_vcf} | wc -l",
-            shell=True,
+            ["bcftools", "view", "-H", filt_vcf],
             capture_output=True,
             text=True,
+            check=True,
         )
-        assert res.stdout.strip() == "1"
+        assert len(res.stdout.splitlines()) == 1
 
     @pytest.mark.skipif(
         not check_tool("bcftools") or not check_tool("bgzip"),

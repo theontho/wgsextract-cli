@@ -18,6 +18,7 @@ from wgsextract_cli.core import (  # noqa: E402
     pixi_tools,
     runtime,
 )
+from wgsextract_cli.core.paths import expand_path  # noqa: E402
 from wgsextract_cli.core.utils import (  # noqa: E402
     _normalize_subprocess_cmd,
     run_command,
@@ -152,8 +153,10 @@ class TestToolResolution(unittest.TestCase):
             )
 
     def test_resolve_pixi_command_checks_windows_exe_fallback(self):
+        own = expand_path("~/.pixi/bin/pixi.exe")
+
         def exists(path):
-            return str(path) == os.path.expanduser("~/.pixi/bin/pixi.exe")
+            return Path(path) == Path(own)
 
         with (
             patch.dict(os.environ, {"PIXI_EXE": ""}),
@@ -164,10 +167,7 @@ class TestToolResolution(unittest.TestCase):
                 side_effect=exists,
             ),
         ):
-            self.assertEqual(
-                pixi_tools._resolve_pixi_command(),
-                os.path.expanduser("~/.pixi/bin/pixi.exe"),
-            )
+            self.assertEqual(pixi_tools._resolve_pixi_command(), own)
 
     def test_get_tool_runtime_detects_pixi_env_path(self):
         with tempfile.TemporaryDirectory() as tempdir:

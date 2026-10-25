@@ -4,6 +4,7 @@ A real GPU run can't happen in CI; these check what the CLI asks Docker to do.
 """
 
 import subprocess
+import sys
 from argparse import Namespace
 from pathlib import Path
 
@@ -73,6 +74,7 @@ def test_parabricks_is_linux_only(monkeypatch):
         parabricks.verify_parabricks()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
 def test_the_container_sees_each_directory_at_its_own_path(tmp_path, monkeypatch):
     _tools(monkeypatch, "docker")
     monkeypatch.setattr(parabricks, "parabricks_image", lambda: "pb:test")

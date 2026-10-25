@@ -5,6 +5,7 @@ asked to run.
 """
 
 import subprocess
+import sys
 from argparse import Namespace
 from pathlib import Path
 
@@ -90,6 +91,7 @@ def test_windows_is_refused(files, monkeypatch):
         deepvariant.cmd_deepvariant(_args(bam))
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
 def test_the_image_runs_run_deepvariant_on_mounted_paths(files, monkeypatch, tmp_path):
     ref, bam, out = files
     runs = _docker(monkeypatch)

@@ -48,8 +48,8 @@ def test_n_count_paths_honor_outdir():
         "/lib/genomes/hs38_nbin.csv",
     )
     assert n_count_paths("/lib/genomes/dog.fna.gz", "/out") == (
-        "/out/dog_ncnt.csv",
-        "/out/dog_nbin.csv",
+        str(Path("/out", "dog_ncnt.csv")),
+        str(Path("/out", "dog_nbin.csv")),
     )
 
 

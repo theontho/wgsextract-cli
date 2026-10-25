@@ -1,5 +1,6 @@
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -128,6 +129,7 @@ def test_dry_run_removes_nothing(hk, capsys):
     assert "would remove" in capsys.readouterr().out
 
 
+@pytest.mark.skipif(not shutil.which("git"), reason="git not installed")
 def test_worktrees_share_the_main_checkouts_lab(hk, tmp_path):
     # A linked worktree's out/ goes with the worktree; base images must not.
     main = tmp_path / "main"
