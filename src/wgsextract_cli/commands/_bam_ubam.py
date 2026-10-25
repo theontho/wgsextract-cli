@@ -53,7 +53,14 @@ UBAM_PLATFORMS = (
 # these too); everything else (AS, MD, NM, XS, SA, ...) is dropped.
 KEEP_TAGS = "RG,BC,QT,RX,QX,OQ,BI,BD,MI"
 
-_ILLUMINA_NAME = re.compile(r"^[^:\s]+:\d+:(?P<flowcell>[^:\s]+):(?P<lane>\d+):")
+# Casava 1.8+: instrument:run:flowcell:lane:tile:x:y; earlier Illumina names
+# are instrument:lane:tile:x:y and carry no flowcell.
+_ILLUMINA_NAME = re.compile(
+    r"^[^:\s]+:\d+:(?P<flowcell>[^:\s]+):(?P<lane>\d+):\d+:\d+:\d+(?=$|[\s#/])"
+)
+_OLD_ILLUMINA_NAME = re.compile(
+    r"^(?P<flowcell>[^:\s]+):(?P<lane>\d+):\d+:\d+:\d+(?=$|[\s#/])"
+)
 _MGI_NAME = re.compile(r"(?:^|_)(?P<flowcell>[A-Z0-9]+?)L(?P<lane>\d)C\d{3}R\d{3}")
 
 
@@ -70,7 +77,11 @@ def read_group_from_name(qname: str) -> tuple[str | None, str | None]:
     elif sequencer.startswith("Oxford"):
         platform = "ONT"
 
-    match = _ILLUMINA_NAME.match(qname) or _MGI_NAME.search(qname)
+    match = (
+        _ILLUMINA_NAME.match(qname)
+        or _OLD_ILLUMINA_NAME.match(qname)
+        or _MGI_NAME.search(qname)
+    )
     unit = f"{match['flowcell']}.{match['lane']}" if match else None
     return unit, platform
 
@@ -90,8 +101,10 @@ def _first_fastq_name(path: str) -> str:
 def _input_stem(path: PathInput) -> str:
     name = Path(path).name
     for ext in (".gz", ".bgz", ".fastq", ".fq", ".bam", ".cram", ".sam"):
-        name = name.removesuffix(ext) if name.lower().endswith(ext) else name
-    return re.sub(r"[._-](R?1|read1)$", "", name, flags=re.IGNORECASE) or "sample"
+        name = name[: -len(ext)] if name.lower().endswith(ext) else name
+    # Read-1 markers: _R1, .1, _read1 and bcl2fastq's _R1_001.
+    pattern = r"[._-](R?1|read1)(_001)?$"
+    return re.sub(pattern, "", name, flags=re.IGNORECASE) or "sample"
 
 
 def _new_read_group(
@@ -179,7 +192,15 @@ def _fastq_stages(args: argparse.Namespace, threads: str) -> list[list[str]]:
     cmd = ["samtools", "import", "-i", "-@", threads, "-O", "BAM,level=0"]
     cmd += [arg for field in rg for arg in ("-r", field)]
     cmd += ["-1", args.r1, "-2", args.r2] if args.r2 else ["-0", args.r1]
-    return [cmd + ["-o", "-"]]
+    stages = [cmd + ["-o", "-"]]
+    if not args.r2:
+        # samtools import reads a /1 name suffix as read 1 of a pair, even
+        # from -0; single-end reads have no mate.
+        unpair = ["--remove-flags", "PAIRED,MUNMAP,READ1,READ2"]
+        stages.append(
+            ["samtools", "view", *unpair, "-O", "BAM,level=0", "-o", "-", "-"]
+        )
+    return stages
 
 
 def cmd_to_ubam(args: argparse.Namespace) -> None:

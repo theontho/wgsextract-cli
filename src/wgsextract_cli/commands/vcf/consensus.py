@@ -100,13 +100,18 @@ def _pick_sample(vcf_path: str, sample: str | None) -> str | None:
     return None
 
 
-def _reference_region(region: str, contigs: list[str]) -> str:
-    """Rewrite a region's contig (e.g. 21 or MT) to the reference's naming."""
+def _reference_region(region: str, lengths: dict[str, int]) -> str:
+    """Rewrite a region's contig (e.g. 21 or MT) to the reference's naming and
+    its span to an explicit ``beg-end`` without thousands separators, the one
+    form samtools faidx, bcftools --regions and FASTA headers all agree on."""
     contig, sep, span = region.partition(":")
-    matched = match_chromosome_name(contig, contigs)
+    matched = match_chromosome_name(contig, list(lengths))
     if not matched:
         raise WGSExtractError(f"Region contig '{contig}' is not in the reference.")
-    return f"{matched}{sep}{span}"
+    if not sep:
+        return matched
+    _, start, end = _region_bounds(f"{matched}:{span}", lengths)
+    return f"{matched}:{start + 1}-{end}"
 
 
 def _prepare_vcf(
@@ -339,13 +344,11 @@ def cmd_to_fasta(args: argparse.Namespace) -> None:
     lengths = _reference_lengths(ref)
     check_vcf_build(input_vcf, lengths, "--ref")
     contigs = list(lengths)
-    region = _reference_region(args.region, contigs) if args.region else None
+    region = _reference_region(args.region, lengths) if args.region else None
     include = None if args.include_filtered else _PASSING
     consensus_cmd = ["bcftools", "consensus", *HAPLOTYPE_OPTIONS[args.haplotype]]
     if sample:
         consensus_cmd += ["--samples", sample]
-    if include:
-        consensus_cmd += ["--include", include]
     if uncalled == "n":
         consensus_cmd += ["--missing", "N"]
     if args.mask:
@@ -370,6 +373,18 @@ def cmd_to_fasta(args: argparse.Namespace) -> None:
                 logging.info("Finding positions the VCF does not cover...")
                 write_uncalled_mask(vcf, lengths, uncalled_bed, region, include)
                 consensus_cmd += ["--mask", uncalled_bed]
+            consensus_include = include
+            if args.haplotype == "iupac":
+                # IUPAC codes can't express a heterozygous indel, which
+                # bcftools would apply in full; apply homozygous indels only.
+                samples = get_vcf_samples(vcf)
+                index = samples.index(sample) if sample in samples else 0
+                het_indel = f'(TYPE!~"indel" || GT[{index}]!="het")'
+                consensus_include = (
+                    f"({include}) && {het_indel}" if include else het_indel
+                )
+            if consensus_include:
+                consensus_cmd += ["--include", consensus_include]
             stages = [consensus_cmd + ["--fasta-ref", ref, vcf]]
             if region:
                 stages = [

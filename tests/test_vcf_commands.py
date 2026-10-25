@@ -462,11 +462,12 @@ def test_cadd_scores_snvs_and_indels_per_allele(tmp_path):
     ):
         deleteriousness.cmd_cadd(args)
 
-    # Matched against CADD's "1", one value per ALT, back on the sample's "chr1".
+    # Matched against CADD's "1", split per ALT, back on the sample's "chr1".
     assert _query(
         str(outdir / "cadd_annotated.vcf.gz"), "%CHROM:%ID:%CADD_PHRED\n"
     ) == [
-        "chr1:m:21,9",
+        "chr1:m:21",
+        "chr1:m:9",
         "chr1:block:.",
         "chr1:s:5",
         "chr1:i:25",
@@ -669,7 +670,7 @@ def test_gnomad_v4_af_table_build_and_annotation(tmp_path):
         population.cmd_gnomad(args)
     assert _query(
         str(outdir / "gnomad_annotated.vcf.gz"), "%CHROM:%ID:%GNOMAD_AF\n"
-    ) == ["1:m:0.5,0.25", "1:f:.", "1:n:."]
+    ) == ["1:m:0.5", "1:m:0.25", "1:f:.", "1:n:."]
     assert _query(str(outdir / "gnomad_af_lt_0.2.vcf.gz")) == ["f", "n"]
 
 

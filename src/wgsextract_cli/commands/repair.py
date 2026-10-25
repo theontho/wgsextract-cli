@@ -13,8 +13,14 @@ from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem
-from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
-from wgsextract_cli.core.variant_files import calculate_bam_md5, resolve_reference
+from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.utils import (
+    WGSExtractError,
+    _is_sigpipe,
+    popen,
+    run_command,
+)
+from wgsextract_cli.core.variant_files import calculate_bam_md5
 
 from ._extract_helpers import cleanup_files
 
@@ -78,10 +84,14 @@ def repair_bam_file(args: argparse.Namespace) -> None:
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
     cram_opt: list[str] = []
-    if input_path.lower().endswith(".cram") and args.ref:
-        ref = resolve_reference(args.ref, calculate_bam_md5(input_path, None))
+    if input_path.lower().endswith(".cram"):
+        md5 = calculate_bam_md5(input_path, None)
+        ref = ReferenceLibrary(args.ref, md5, input_path=input_path).fasta or args.ref
         if not ref or not Path(ref).is_file():
-            raise WGSExtractError(f"No reference FASTA for {input_path} at {args.ref}")
+            raise WGSExtractError(
+                f"No reference FASTA for {input_path}"
+                + (f" at {args.ref}" if args.ref else "; pass --ref.")
+            )
         cram_opt = ["-T", ref]
 
     with (
@@ -118,11 +128,13 @@ def repair_bam_file(args: argparse.Namespace) -> None:
                     proc.kill()
                     proc.wait()
         if write_code or read_code:
-            # A failed writer also kills the reader with SIGPIPE; report the cause.
+            # A failed reader leaves the writer an empty or truncated stream,
+            # and a failed writer kills the reader with SIGPIPE; report the cause.
+            reader_failed = read_code and not _is_sigpipe(read_code)
             label, code, err = (
-                ("samtools view -b", write_code, write_err)
-                if write_code
-                else ("samtools view -h", read_code, read_err)
+                ("samtools view -h", read_code, read_err)
+                if reader_failed or not write_code
+                else ("samtools view -b", write_code, write_err)
             )
             raise WGSExtractError(
                 f"FTDNA BAM repair failed in {label} (exit {code}): {_tail(err)}"
@@ -187,11 +199,15 @@ def repair_vcf_stream(input_stream: TextIO, output_stream: TextIO) -> None:
 
 def _repair_output_path(args: argparse.Namespace, extension: str) -> str:
     if args.output:
-        return str(absolute_path(str(args.output)))
-    outdir = args.outdir or str(absolute_path(args.input).parent)
-    return str(
-        absolute_path(Path(outdir, f"{input_stem(args.input)}_repaired{extension}"))
-    )
+        output = str(absolute_path(str(args.output)))
+    else:
+        outdir = args.outdir or str(absolute_path(args.input).parent)
+        output = str(
+            absolute_path(Path(outdir, f"{input_stem(args.input)}_repaired{extension}"))
+        )
+    if Path(output).resolve() == Path(args.input).resolve():
+        raise WGSExtractError(f"Output {output} would overwrite the input.")
+    return output
 
 
 def _input_was_explicit(args: argparse.Namespace) -> bool:

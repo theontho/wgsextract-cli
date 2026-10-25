@@ -6,6 +6,8 @@ from os import PathLike, fspath
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import PathInput
 
+from .builds import build_from_chr1_length
+from .reference_models import sequence_lengths
 from .utils import run_command
 
 
@@ -96,6 +98,11 @@ def get_vcf_build(vcf_path: str) -> str | None:
         if bcftools is None:
             return None
         res = run_command([bcftools, "view", "-h", vcf_path], capture_output=True)
+        # The ##contig lengths identify the assembly whatever the file names
+        # it (chm13, human_g1k_v37, ...); the text search is the fallback.
+        build = build_from_chr1_length(sequence_lengths(res.stdout))
+        if build:
+            return build
         header = res.stdout.lower()
         if "hg38" in header or "grch38" in header:
             return "hg38"

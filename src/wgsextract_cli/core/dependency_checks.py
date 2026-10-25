@@ -93,6 +93,17 @@ def _crash_description(returncode: int) -> str | None:
     return None
 
 
+def _launch_failure(tool: str, returncode: int, output: str) -> str | None:
+    """Describe a tool that couldn't start: exit 127 (not found, or the
+    loader failed) or glibc's missing-library error."""
+    if returncode != 127 and "error while loading shared libraries" not in output:
+        return None
+    first_line = output.splitlines()[0] if output else None
+    return f"Error: {first_line or f'{tool} could not be started (exit 127)'}"
+
+
+_USAGE_RE = re.compile(r"^\s*usage:", re.IGNORECASE | re.MULTILINE)
+
 IGNORED_VERSION_OUTPUT_PREFIXES = ("wsl: Failed to mount ",)
 
 
@@ -139,6 +150,8 @@ def get_tool_version(tool: str, runtime_mode: str | None = None) -> str | None:
         if crashed := _crash_description(res.returncode):
             return f"Error: {tool} {crashed}"
         output = _version_output(res.stdout, res.stderr)
+        if failure := _launch_failure(tool, res.returncode, output):
+            return failure
 
         if res.returncode == 0 and output and not output.startswith("[main]"):
             lines = [line.strip() for line in output.splitlines() if line.strip()]
@@ -168,11 +181,14 @@ def get_tool_version(tool: str, runtime_mode: str | None = None) -> str | None:
             "segmentation fault",
             "bad interpreter",
         ]
-        if any(kw.lower() in output.lower() for kw in failure_keywords):
-            if "not found" in output.lower() and tool.lower() not in output.lower():
-                pass
-            else:
-                return f"Error: {output.splitlines()[0]}"
+        lowered = output.lower()
+        failures = [kw for kw in failure_keywords if kw.lower() in lowered]
+        # "not found" alone is excused in help text, or when it isn't about the tool.
+        excused = failures == ["not found"] and (
+            tool.lower() not in lowered or _USAGE_RE.search(output)
+        )
+        if failures and not excused:
+            return f"Error: {output.splitlines()[0]}"
 
         # Search for "Version:" or similar in the output
         for line in output.splitlines():
@@ -263,6 +279,16 @@ def verify_dependencies(
             version_str = get_tool_version(tool)
             if not version_str:
                 continue
+            if version_str.startswith("Error:"):
+                # Found but unable to run (a crash, a missing library): as
+                # good as missing, as `deps check` reports it.
+                if sys.platform == "win32":
+                    logging.warning(f"{tool} does not run: {version_str}")
+                    continue
+                logging.error(f"{tool} at {get_tool_path(tool)} does not run.")
+                raise WGSExtractError(
+                    f"{tool} does not run: {version_str.removeprefix('Error: ')}"
+                )
 
             # Handle version strings like "bcftools 1.12" or "Version: 0.1.19"
 

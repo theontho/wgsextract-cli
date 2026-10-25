@@ -11,7 +11,7 @@ from collections.abc import Callable
 from http.client import HTTPException, IncompleteRead
 from pathlib import Path
 from typing import BinaryIO, Literal, Protocol
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
 
@@ -161,12 +161,21 @@ def download_file(
 
     # A large file over several connections (servers that cap each one), unless
     # an earlier single-connection attempt left a partial to resume.
-    single_partial = (
-        partial_path.exists() and not Path(partial_dest + ".segments").exists()
-    )
+    segments_path = Path(partial_dest + ".segments")
+    single_partial = partial_path.exists() and not segments_path.exists()
     if not dest_path.exists() and not single_partial:
         size = segmented.ranged_size(url)
-        if size is not None and size >= segmented.SEGMENTED_MIN_SIZE:
+        if size is None and segments_path.exists():
+            # A started segmented download is finished as one: its partial is
+            # full-size with holes, which one connection would take as done.
+            size = segmented.saved_size(str(segments_path), url)
+        if size is None and segments_path.exists():
+            logging.info("Unfinished download has no usable state; starting over.")
+            partial_path.unlink(missing_ok=True)
+            segments_path.unlink(missing_ok=True)
+        elif size is not None and (
+            size >= segmented.SEGMENTED_MIN_SIZE or segments_path.exists()
+        ):
             try:
                 segmented.download_segmented(
                     url, dest, size, progress_callback, cancel_event
@@ -198,18 +207,20 @@ def download_file(
         and "--progress-bar" in curl_args
     ):
         try:
-            # -L follows redirects, --fail keeps HTTP error pages out of dest,
-            # -C - resumes.
+            # Into dest.partial, so an interrupted curl never leaves a short
+            # file at dest. -L follows redirects, --fail keeps HTTP error pages
+            # out of the file, -C - resumes.
+            if not partial_path.exists() and dest_path.exists():
+                dest_path.replace(partial_path)
             cmd = ["curl", "-L", "--fail", *curl_args]
-            if Path(dest).exists():
+            if partial_path.exists():
                 cmd.extend(["-C", "-"])
-            cmd.extend(["-o", dest, url])
+            cmd.extend(["-o", partial_dest, url])
 
             run_command(cmd, capture_output=False)
-            verified = verify_download_sha256(dest, expected_sha256)
-            if verified:
-                store_download_in_dev_cache(url, dest_path, checksum_hint=checksum_hint)
-            return verified
+            return _finish_download(
+                url, dest, partial_dest, expected_sha256, checksum_hint
+            )
         except (OSError, subprocess.SubprocessError) as e:
             logging.warning("curl download failed, falling back to urllib: %s", e)
 
@@ -319,6 +330,12 @@ def _urllib_download(
         logging.info(str(e))
     except _RESUMABLE:
         raise
+    except URLError as e:
+        # A server error (5xx) or no connection at all (DNS, refused, network
+        # down) may pass; retry those. A client error (4xx) won't.
+        if not isinstance(e, HTTPError) or e.code >= 500:
+            raise ConnectionError(str(e)) from e
+        logging.error(f"Download error: {e}")
     except (
         OSError,
         subprocess.SubprocessError,

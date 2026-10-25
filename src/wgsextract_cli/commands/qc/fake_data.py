@@ -31,6 +31,43 @@ def fake_contig_name(chrom: str, build: str) -> str:
     return bare if is_hg37_build(build) else f"chr{bare}"
 
 
+def _apply_legacy_variants(
+    seq: list[str], start: int, variants: dict[int, tuple[str, str, bool]]
+) -> tuple[str, str]:
+    """Apply the legacy generator's variants to a read at 1-based ``start``.
+
+    Returns the mutated read and its CIGAR; every 5 bp deletion is kept, and
+    variants falling inside an earlier deletion are skipped.
+    """
+    span_end = start + len(seq)
+    deletions: list[int] = []  # read offsets where each deletion starts
+    deleted_until = start
+    for v_pos in sorted(p for p in variants if start <= p < span_end):
+        _v_ref, v_val, is_indel = variants[v_pos]
+        if v_pos < deleted_until:
+            continue
+        idx = v_pos - start - 5 * len(deletions)
+        if not is_indel:
+            if idx < len(seq):
+                # Ensure alt is different from ref
+                if seq[idx] == v_val:
+                    seq[idx] = "A" if v_val != "A" else "C"
+                else:
+                    seq[idx] = v_val
+        elif max(10, deletions[-1] if deletions else 0) < idx < len(seq) - 20:
+            # Real Deletion: 5bp
+            del seq[idx : idx + 5]
+            deletions.append(idx)
+            deleted_until = v_pos + 5
+
+    cigar = ""
+    previous = 0
+    for idx in deletions:
+        cigar += f"{idx - previous}M5D"
+        previous = idx
+    return "".join(seq), f"{cigar}{len(seq) - previous}M"
+
+
 def generate_fake_genomics_data(
     outdir: str,
     ref_path: str | None = None,
@@ -290,66 +327,14 @@ def generate_fake_genomics_data(
 
                         read_id = f"read_{name}_{i}"
 
-                        # Pull sequences from the deterministic noise buffer
-                        r1_seq_list = list(get_noise_seq(idx, pos1 - 1, rl1))
-                        r2_seq_list = list(get_noise_seq(idx, pos2 - 1, rl2))
-
-                        # Apply consistent variants
-                        # Homozygous for smoke tests to ensure reliable calling
-                        r1_cigar = f"{rl1}M"
-                        r2_cigar = f"{rl2}M"
-
-                        # Check R1
-                        for v_pos, v_data in cv.items():
-                            _v_ref, v_val, is_indel = v_data
-                            if pos1 <= v_pos < pos1 + rl1:
-                                rel_pos = v_pos - pos1
-                                if not is_indel:
-                                    # Ensure rel_pos is valid after possible previous indels
-                                    if rel_pos < len(r1_seq_list):
-                                        # Ensure alt is different from ref
-                                        if r1_seq_list[rel_pos] == v_val:
-                                            r1_seq_list[rel_pos] = (
-                                                "A" if v_val != "A" else "C"
-                                            )
-                                        else:
-                                            r1_seq_list[rel_pos] = v_val
-                                elif rel_pos > 10 and rel_pos < len(r1_seq_list) - 20:
-                                    # Real Deletion: 5bp
-                                    del_seq = (
-                                        r1_seq_list[:rel_pos]
-                                        + r1_seq_list[rel_pos + 5 :]
-                                    )
-                                    r1_seq_list = del_seq
-                                    r1_cigar = (
-                                        f"{rel_pos}M5D{len(r1_seq_list) - rel_pos}M"
-                                    )
-
-                        # Check R2
-                        for v_pos, v_data in cv.items():
-                            _v_ref, v_val, is_indel = v_data
-                            if pos2 <= v_pos < pos2 + rl2:
-                                rel_pos = v_pos - pos2
-                                if not is_indel:
-                                    if rel_pos < len(r2_seq_list):
-                                        if r2_seq_list[rel_pos] == v_val:
-                                            r2_seq_list[rel_pos] = (
-                                                "A" if v_val != "A" else "C"
-                                            )
-                                        else:
-                                            r2_seq_list[rel_pos] = v_val
-                                elif rel_pos > 10 and rel_pos < len(r2_seq_list) - 20:
-                                    del_seq = (
-                                        r2_seq_list[:rel_pos]
-                                        + r2_seq_list[rel_pos + 5 :]
-                                    )
-                                    r2_seq_list = del_seq
-                                    r2_cigar = (
-                                        f"{rel_pos}M5D{len(r2_seq_list) - rel_pos}M"
-                                    )
-
-                        r1_seq = "".join(r1_seq_list)
-                        r2_seq = "".join(r2_seq_list)
+                        # Pull sequences from the deterministic noise buffer and
+                        # apply the consistent (homozygous) variants.
+                        r1_seq, r1_cigar = _apply_legacy_variants(
+                            list(get_noise_seq(idx, pos1 - 1, rl1)), pos1, cv
+                        )
+                        r2_seq, r2_cigar = _apply_legacy_variants(
+                            list(get_noise_seq(idx, pos2 - 1, rl2)), pos2, cv
+                        )
 
                         # R1 (99 = paired, proper pair, mstrand, mate reverse)
                         reads.append(
@@ -422,7 +407,11 @@ def generate_fake_genomics_data(
             else:
                 variant_density = 5000
 
-            for name, length in chroms.items():
+            # REF comes from the same sequence the reads and reference use.
+            ref_seq = _reference_backed_sequence_provider(
+                ref_path, chroms, get_noise_seq
+            )
+            for chrom_idx, (name, length) in enumerate(chroms.items()):
                 num_variants = int(length / variant_density)
                 if num_variants < 2:
                     num_variants = 2
@@ -436,8 +425,10 @@ def generate_fake_genomics_data(
                     batch = positions[i : i + batch_size]
                     lines = []
                     for pos in batch:
-                        # Randomized REF/ALT using the seeded random generator
-                        ref = rng.choice(["A", "C", "G", "T"])
+                        # Reference REF, randomized ALT from the seeded generator
+                        ref = ref_seq(chrom_idx, pos - 1, 1).upper()
+                        if ref not in {"A", "C", "G", "T"}:
+                            continue
                         alt = rng.choice([b for b in ["A", "C", "G", "T"] if b != ref])
 
                         lines.append(
@@ -457,8 +448,21 @@ def generate_fake_genomics_data(
         r1_path = str(Path(outdir, "fake_R1.fastq.gz"))
         r2_path = str(Path(outdir, "fake_R2.fastq.gz"))
 
-        # We can use samtools fastq to generate these from the BAM we just made
-        # -1 and -2 for paired end
+        # samtools fastq writes reads in input order, and in the coordinate-sorted
+        # BAM mates do not keep pair order at high coverage; collate first so
+        # R1 and R2 come out in step.
+        collated_path = str(Path(outdir, "fake.collated.bam"))
+        run_command(
+            [
+                "samtools",
+                "collate",
+                "-T",
+                str(Path(outdir, "fake.collate")),
+                "-o",
+                collated_path,
+                bam_path,
+            ]
+        )
         run_command(
             [
                 "samtools",
@@ -467,11 +471,12 @@ def generate_fake_genomics_data(
                 r1_path,
                 "-2",
                 r2_path,
-                bam_path,
+                collated_path,
             ],
             # Fake reads are all properly paired; discard anything else.
             stdout=subprocess.DEVNULL,
         )
+        Path(collated_path).unlink()
         logging.info(f"Created {r1_path}")
         logging.info(f"Created {r2_path}")
 

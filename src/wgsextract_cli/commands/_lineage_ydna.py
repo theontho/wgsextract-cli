@@ -230,12 +230,14 @@ def cmd_ydna(args: argparse.Namespace) -> None:
             str(threads),
             *extra,
         ]
+        # A previous run's prediction must never stand in for this one's.
+        prediction = str(Path(yleaf_outdir, "hg_prediction.hg"))
+        Path(prediction).unlink(missing_ok=True)
         try:
             run_command(final_cmd, env=command_env)
         except (OSError, subprocess.SubprocessError) as e:
             raise WGSExtractError(f"Yleaf failed: {e}") from e
 
-    prediction = str(Path(yleaf_outdir, "hg_prediction.hg"))
     try:
         with open(prediction) as f:
             content = f.read().strip()

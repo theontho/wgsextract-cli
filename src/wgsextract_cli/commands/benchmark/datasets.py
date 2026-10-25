@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import asdict
 from pathlib import Path
@@ -138,10 +139,15 @@ def _cached_remote_dataset_file(remote: BenchmarkRemoteFile, cache_root: Path) -
         store_download_in_dev_cache(remote.url, path, checksum_hint=checksum_hint)
         return path
     if path.exists() and remote.md5:
-        _verify_digest(path, "md5", remote.md5)
-        _write_verified_md5_marker(path, verified_path, remote.md5)
-        store_download_in_dev_cache(remote.url, path, checksum_hint=checksum_hint)
-        return path
+        try:
+            _verify_digest(path, "md5", remote.md5)
+        except WGSExtractError as exc:
+            logging.warning("Discarding cached benchmark file: %s", exc)
+            path.unlink()
+        else:
+            _write_verified_md5_marker(path, verified_path, remote.md5)
+            store_download_in_dev_cache(remote.url, path, checksum_hint=checksum_hint)
+            return path
     if not path.exists():
         if restore_cached_download(remote.url, path, checksum_hint=checksum_hint):
             try:
@@ -154,7 +160,11 @@ def _cached_remote_dataset_file(remote: BenchmarkRemoteFile, cache_root: Path) -
                 path.unlink(missing_ok=True)
         _download_file(remote.url, path)
     if remote.md5:
-        _verify_digest(path, "md5", remote.md5)
+        try:
+            _verify_digest(path, "md5", remote.md5)
+        except WGSExtractError:
+            path.unlink(missing_ok=True)
+            raise
         _write_verified_md5_marker(path, verified_path, remote.md5)
     store_download_in_dev_cache(remote.url, path, checksum_hint=checksum_hint)
     return path
@@ -404,7 +414,7 @@ def _normalized_dataset_sha256(args: argparse.Namespace) -> str | None:
 
 
 def _download_filename(url: str) -> str:
-    filename = Path(url.split("?", 1)[0]).name
+    filename = urllib.parse.urlsplit(url).path.rsplit("/", 1)[-1]
     if not filename:
         raise WGSExtractError(f"Dataset URL must end with a filename: {url}")
     return filename
