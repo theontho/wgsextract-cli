@@ -137,7 +137,9 @@ def _call_variants_for_vep(
     else:
         ploidy_args = ["--ploidy", "GRCh38" if lib.build == "hg38" else "GRCh37"]
 
-    with sex_samples_args(bam_path, str(Path(out_vcf).parent), ploidy_args) as sex_args:
+    with sex_samples_args(
+        bam_path, str(Path(out_vcf).parent), ploidy_args, region=args.region
+    ) as sex_args:
         run_pipeline(
             [
                 ["bcftools", "mpileup", "-B", "-I", "-C", "50", "-f", ref, "-Ou"]

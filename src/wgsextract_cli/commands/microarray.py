@@ -246,7 +246,9 @@ def run(args: argparse.Namespace) -> None:
 
     start_vcf = time.time()
 
-    with sex_samples_args(args.input, outdir, ploidy_args) as sex_args:
+    with sex_samples_args(
+        args.input, outdir, ploidy_args, region=args.region
+    ) as sex_args:
         out_vcf, ref_vcf_tab = _prepare_microarray_vcf(
             args=args,
             outdir=outdir,
