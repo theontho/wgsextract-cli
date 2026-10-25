@@ -493,12 +493,25 @@ class TestOptionalDependencies(unittest.TestCase):
             ) as mock_write,
             patch("sys.stdout", new=StringIO()) as fake_out,
         ):
-            run_wsl_tune(Namespace(memory=None, processors=6, swap=None))
+            run_wsl_tune(Namespace(wsl_memory=None, processors=6, swap=None))
 
         mock_write.assert_called_once_with(memory="48GB", processors=6, swap="16GB")
         output = fake_out.getvalue()
         self.assertIn("processors=2/3", output)
         self.assertIn("memory=48GB, processors=6, swap=16GB", output)
+
+    def test_wsl_tune_memory_is_not_the_tool_memory_option(self):
+        from wgsextract_cli.cli.parser import build_parser, parse_args
+
+        parser, base_parser = build_parser()
+        args, _ = parse_args(
+            parser, base_parser, ["--memory", "4G", "deps", "wsl", "tune"]
+        )
+        self.assertIsNone(args.wsl_memory)
+        args, _ = parse_args(
+            parser, base_parser, ["-m", "4G", "deps", "wsl", "tune", "--memory", "24GB"]
+        )
+        self.assertEqual(args.wsl_memory, "24GB")
 
 
 if __name__ == "__main__":

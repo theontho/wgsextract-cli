@@ -1,4 +1,5 @@
 import argparse
+import random
 from argparse import Namespace
 from io import StringIO
 
@@ -107,6 +108,36 @@ def test_stream_fast_bam_sam_applies_consistent_snp_variants():
         read_offset = variant_pos - int(record[3])
         assert record[9][read_offset] == variant_base
         assert "NM:i:1" in record[11:]
+
+
+def test_fast_bam_snps_are_exactly_the_reads_mismatches():
+    rng = random.Random(3)
+    genome = ["".join(rng.choice("ACGT") for _ in range(n)) for n in (9000, 5000)]
+
+    def ref(chrom_idx, pos, length):
+        return genome[chrom_idx][pos : pos + length]
+
+    output = StringIO()
+    qc._stream_fast_bam_sam(output.write, {"chr1": 9000, "chr2": 5000}, 10.0, 42,
+                            None, ref)  # fmt: skip
+    mismatches = set()
+    for line in output.getvalue().splitlines():
+        if line.startswith("@"):
+            continue
+        fields = line.split("\t")
+        chrom_idx, start = int(fields[2][3:]) - 1, int(fields[3])
+        for offset, base in enumerate(fields[9]):
+            pos = start + offset
+            if base != genome[chrom_idx][pos - 1]:
+                mismatches.add((chrom_idx, pos, genome[chrom_idx][pos - 1], base))
+
+    planted = {
+        (chrom_idx, *snp)
+        for chrom_idx, length in enumerate((9000, 5000))
+        for snp in qc.fast_bam_snps(chrom_idx, length, 42, ref)
+    }
+    assert len(planted) == 8
+    assert mismatches == planted
 
 
 def test_reference_backed_sequence_provider_fetches_indexed_reference(

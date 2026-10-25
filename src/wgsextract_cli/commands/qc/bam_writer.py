@@ -1,6 +1,6 @@
 import logging
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from heapq import heappop, heappush
 from pathlib import Path
 
@@ -153,6 +153,21 @@ def _fast_sam_record(
 
 def _first_fast_bam_variant_pos(chrom_idx: int, seed: int) -> int:
     return 100 + ((seed + chrom_idx * 97) % (_FAST_BAM_VARIANT_SPACING - 100))
+
+
+def fast_bam_snps(
+    chrom_idx: int, length: int, seed: int, ref_base: SequenceProvider
+) -> Iterator[tuple[int, str, str]]:
+    """(1-based position, REF, ALT) of each homozygous SNP the streaming BAM
+    plants in a contig of ``length``: the fake VCF's truth."""
+    for pos in range(
+        _first_fast_bam_variant_pos(chrom_idx, seed),
+        length + 1,
+        _FAST_BAM_VARIANT_SPACING,
+    ):
+        ref = ref_base(chrom_idx, pos - 1, 1).upper()
+        if ref in ("A", "C", "G", "T"):
+            yield pos, ref, _fast_bam_alt_base(ref, chrom_idx, pos, seed)
 
 
 def _fast_bam_alt_base(ref_base: str, chrom_idx: int, pos: int, seed: int) -> str:

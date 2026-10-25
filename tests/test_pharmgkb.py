@@ -85,3 +85,38 @@ def test_vcf_pharmgkb_annotates_matching_alleles_only(tmp_path):
     with gzip.open(tmp_path / "out" / "pharmgkb_annotated.vcf.gz", "rt") as out:
         info = [line.split("\t")[7] for line in out if not line.startswith("#")]
     assert info == [f"PHARMGKB={RS100}", "END=31096367", "."]
+
+
+def test_vcf_pharmgkb_on_grch37_says_the_data_is_grch38(tmp_path):
+    library = tmp_path / "reflib"
+    (library / "ref").mkdir(parents=True)
+    (library / "genomes").mkdir()
+    write_table(
+        build_table(CLINICAL, VARIANTS), str(library / "ref" / "pharmgkb_hg38.tsv.gz")
+    )
+    vcf = tmp_path / "sample.vcf"
+    vcf.write_text(
+        "##fileformat=VCFv4.2\n"
+        '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        "##contig=<ID=1,length=249250621>\n"
+        "##contig=<ID=10,length=135534747>\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n"
+        "10\t96521657\t.\tC\tT\t50\tPASS\t.\tGT\t1/1\n"
+    )
+
+    rc, _, stderr = run_cli(
+        [
+            "vcf",
+            "pharmgkb",
+            "--input",
+            bgzip_index(vcf),
+            "--ref",
+            str(library),
+            "--outdir",
+            str(tmp_path / "out"),
+        ]  # fmt: skip
+    )
+
+    assert rc != 0
+    assert "placed on GRCh38" in stderr
+    assert "run 'ref pharmgkb'" not in stderr

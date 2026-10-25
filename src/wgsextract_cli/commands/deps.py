@@ -42,14 +42,16 @@ def register(
     )
     wsl_check_parser.set_defaults(func=run_wsl_check)
 
-    # No base_parser here: its --memory (per-thread tool memory) would clash
-    # with tune's --memory (the WSL VM memory limit).
+    # No base_parser here, and a dest of its own: --memory elsewhere (and the
+    # memory_limit setting) is per-thread tool memory, not the WSL VM limit.
     wsl_tune_parser = wsl_subparsers.add_parser(
         "tune",
         help="Write WSL2 resource settings. Uses host-based defaults if omitted.",
     )
     wsl_tune_parser.add_argument(
-        "--memory", help="WSL memory limit, such as 24GB. Defaults to 75%% of RAM."
+        "--memory",
+        dest="wsl_memory",
+        help="WSL memory limit, such as 24GB. Defaults to 75%% of RAM.",
     )
     wsl_tune_parser.add_argument(
         "--processors",

@@ -478,6 +478,18 @@ def test_unalign_region_drops_mates_outside_it(genome, tmp_path):
     assert sorted(n for n, _ in _fastq(tmp_path / "r2.fq")) == ["p0", "p1"]
 
 
+def test_unalign_warns_that_read_groups_are_merged(genome, tmp_path, caplog):
+    bam = str(tmp_path / "two_rg.bam")
+    shutil.copy(genome["bam"], bam)
+    _reheader(bam, lambda h: [*h, "@RG\tID:L2\tSM:S1\tPL:ILLUMINA"])
+    _bam(
+        "unalign", "--input", bam, "--outdir", str(tmp_path),
+        "--r1", "r1.fq", "--r2", "r2.fq",
+    )  # fmt: skip
+    assert "2 read groups (L1, L2)" in caplog.text
+    assert "bam to-ubam" in caplog.text
+
+
 def test_unalign_failure_removes_partial_fastqs(genome, tmp_path):
     with pytest.raises(WGSExtractError):
         _bam(

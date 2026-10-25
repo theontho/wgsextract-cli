@@ -1,6 +1,7 @@
 import logging
 import random
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 from wgsextract_cli.core.builds import (
@@ -16,10 +17,12 @@ from wgsextract_cli.core.utils import (
 )
 
 from .bam_writer import (
+    SequenceProvider,
     _create_fast_fake_bam,
     _reference_backed_sequence_provider,
     _write_fake_reference,
     _write_sam_header,
+    fast_bam_snps,
 )
 
 
@@ -66,6 +69,23 @@ def _apply_legacy_variants(
         cigar += f"{idx - previous}M5D"
         previous = idx
     return "".join(seq), f"{cigar}{len(seq) - previous}M"
+
+
+def _random_calls(
+    rng: random.Random,
+    ref_seq: SequenceProvider,
+    chrom_idx: int,
+    length: int,
+    coverage: float,
+    full_size: bool,
+) -> Iterator[tuple[int, str, str, str]]:
+    """Heterozygous SNPs at random positions, for a VCF without reads: at 30x
+    one per 700 bp, at 1x one per 21 kb."""
+    density = max(700, int(21000 / max(1.0, coverage))) if full_size else 5000
+    for pos in sorted(rng.randint(1, length) for _ in range(max(2, length // density))):
+        ref = ref_seq(chrom_idx, pos - 1, 1).upper()
+        if ref in ("A", "C", "G", "T"):
+            yield pos, ref, rng.choice([b for b in "ACGT" if b != ref]), "0/1"
 
 
 def generate_fake_genomics_data(
@@ -401,40 +421,28 @@ def generate_fake_genomics_data(
             f.write('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n')
             f.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample1\n")
 
-            # At 30x, density = 700. At 1x, density = 21000.
-            if full_size:
-                variant_density = max(700, int(21000 / max(1.0, coverage)))
-            else:
-                variant_density = 5000
-
             # REF comes from the same sequence the reads and reference use.
             ref_seq = _reference_backed_sequence_provider(
                 ref_path, chroms, get_noise_seq
             )
             for chrom_idx, (name, length) in enumerate(chroms.items()):
-                num_variants = int(length / variant_density)
-                if num_variants < 2:
-                    num_variants = 2
-
-                positions = sorted(
-                    [rng.randint(1, length) for _ in range(num_variants)]
-                )
-
-                batch_size = 50000
-                for i in range(0, len(positions), batch_size):
-                    batch = positions[i : i + batch_size]
-                    lines = []
-                    for pos in batch:
-                        # Reference REF, randomized ALT from the seeded generator
-                        ref = ref_seq(chrom_idx, pos - 1, 1).upper()
-                        if ref not in {"A", "C", "G", "T"}:
-                            continue
-                        alt = rng.choice([b for b in ["A", "C", "G", "T"] if b != ref])
-
-                        lines.append(
-                            f"{name}\t{pos}\t.\t{ref}\t{alt}\t100\tPASS\t.\tGT\t0/1\n"
+                if use_streaming_bam:
+                    # The reads' planted SNPs, so calls on them can be checked.
+                    calls = [
+                        (pos, ref, alt, "1/1")
+                        for pos, ref, alt in fast_bam_snps(
+                            chrom_idx, length, seed, ref_seq
                         )
-                    f.write("".join(lines))
+                    ]
+                else:
+                    calls = list(_random_calls(rng, ref_seq, chrom_idx, length,
+                                               coverage, full_size))  # fmt: skip
+                f.write(
+                    "".join(
+                        f"{name}\t{pos}\t.\t{ref}\t{alt}\t100\tPASS\t.\tGT\t{gt}\n"
+                        for pos, ref, alt, gt in calls
+                    )
+                )
 
         vcf_gz = vcf_path + ".gz"
         with open(vcf_gz, "wb") as f_gz:

@@ -17,6 +17,7 @@ import time
 from concurrent.futures import FIRST_EXCEPTION, Future, ThreadPoolExecutor, wait
 from http.client import HTTPException, IncompleteRead
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from wgsextract_cli.core.download_progress import (
@@ -38,6 +39,14 @@ USER_AGENT = (
 )
 _CHUNK = 1024**2
 _RESUMABLE = (DownloadIncomplete, IncompleteRead, TimeoutError, ConnectionError)
+
+
+def _transient(error: Exception) -> bool:
+    """A failure worth retrying the piece for: a dropped or refused connection,
+    or a server that is busy (429, 5xx), not one that refuses the file (4xx)."""
+    if isinstance(error, HTTPError):
+        return error.code == 429 or error.code >= 500
+    return isinstance(error, (*_RESUMABLE, URLError))
 
 
 class RangesUnsupported(Exception):
@@ -144,8 +153,8 @@ def download_segmented(
                             with lock:
                                 received[str(start)] = pos - start
                 return
-            except _RESUMABLE as e:
-                if attempt == ATTEMPTS:
+            except (*_RESUMABLE, URLError) as e:
+                if attempt == ATTEMPTS or not _transient(e):
                     raise
                 logging.debug(f"Retrying {url} bytes {pos}-{end - 1}: {e}")
                 time.sleep(min(30, 2**attempt))

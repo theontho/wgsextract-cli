@@ -2,12 +2,14 @@ import argparse
 import logging
 from pathlib import Path
 
+from wgsextract_cli.core.builds import is_hg38_build
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.pharmgkb import INFO_HEADER as PHARMGKB_INFO_HEADER
+from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.core.variant_files import ensure_vcf_prepared
 
 from .annotation_helpers import (
@@ -105,8 +107,14 @@ def cmd_pharmgkb(args: argparse.Namespace) -> None:
     input_file, outdir, lib = annotation_context(args)
     logging.info(f"Annotating VCF with PharmGKB data: {input_file}")
 
+    pharmgkb_file = args.pharmgkb_file or lib.pharmgkb_vcf
+    if not pharmgkb_file and lib.build and not is_hg38_build(lib.build):
+        # `ref pharmgkb` builds GRCh38 positions only; running it won't help.
+        raise WGSExtractError(
+            LOG_MESSAGES["vcf_pharmgkb_grch38_only"].format(build=lib.build)
+        )
     pharmgkb_file = require_annotation_file(
-        args.pharmgkb_file or lib.pharmgkb_vcf, "vcf_pharmgkb_missing", "pharmgkb"
+        pharmgkb_file, "vcf_pharmgkb_missing", "pharmgkb"
     )
     ann_out = str(Path(outdir, PHARMGKB_ANNOTATED))
     if pharmgkb_file.lower().endswith(VCF_SUFFIXES):
