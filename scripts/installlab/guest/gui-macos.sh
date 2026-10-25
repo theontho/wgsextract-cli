@@ -166,6 +166,9 @@ app_uninstall() {
     wait_for_file "$R/uninstall-result.json" 600 || return 1
     cat "$R/uninstall-result.json"
     wait_for_app_exit 60 || return 1
+    # The app's last cleanup (webview storage it can write back while open)
+    # runs just after it exits.
+    sleep 5
     # The user drags the app to the Trash (unless the app moved itself), and
     # empties it.
     if [ -e "$APP" ]; then mv "$APP" "$HOME/.Trash/"; fi
