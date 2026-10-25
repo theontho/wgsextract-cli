@@ -73,16 +73,16 @@ sambamba = ">=1.0.1,<2"
 [feature.bio-tools.target.win-64.dependencies]
 fastqc = ">=0.13,<0.14"
 haplogrep = ">=2.4,<3"
-
-# FreeBayes' only osx-arm64 build pins htslib 1.21, which conflicts with the
-# htslib 1.24 that Delly 2 needs, so it gets its own environment; the CLI runs
-# it there automatically. Fold it back into bio-tools once that is rebuilt.
-[feature.freebayes.target.unix.dependencies]
 # Bioconda has no Windows builds: these are WGS Extract's own static MinGW-w64
 # builds (packaging/windows), from a Windows Tools release. Update them with
 # `python packaging/windows/pin.py <tag>`, then `pixi lock`.
 # windows-tools-begin
 # windows-tools-end
+
+# FreeBayes' only osx-arm64 build pins htslib 1.21, which conflicts with the
+# htslib 1.24 that Delly 2 needs, so it gets its own environment; the CLI runs
+# it there automatically. Fold it back into bio-tools once that is rebuilt.
+[feature.freebayes.target.unix.dependencies]
 freebayes = ">=1.3.10,<2"
 
 # HLA typing with T1K (`typing hla`) and repeat expansions with ExpansionHunter
