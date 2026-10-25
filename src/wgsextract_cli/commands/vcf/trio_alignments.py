@@ -14,6 +14,7 @@ weak child hets that the parents' reads would have lifted.
 """
 
 import logging
+import re
 import subprocess
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
@@ -169,7 +170,8 @@ def joint_trio_vcf(
         read_groups = str(Path(work, "read_groups.txt"))
         Path(read_groups).write_text(
             "".join(
-                f"*\t{a}\t{s}\n" for a, s in zip(alignments, TRIO_SAMPLES, strict=True)
+                f"*\t{_read_group_field(a)}\t{s}\n"
+                for a, s in zip(alignments, TRIO_SAMPLES, strict=True)
             ),
             newline="\n",
         )
@@ -224,6 +226,12 @@ def split_multiallelic(vcf: str, out_vcf: str) -> str:
     run_command(["bcftools", "norm", "-m", "-any", "-Oz", "-o", out_vcf, vcf])
     ensure_vcf_indexed(out_vcf)
     return out_vcf
+
+
+def _read_group_field(path: str) -> str:
+    """A path for bcftools' --read-groups file, which takes a backslash as an
+    escape and splits fields at whitespace (Windows paths, names with spaces)."""
+    return re.sub(r"([\\\s])", r"\\\1", path)
 
 
 def write_isolated_denovo(denovo_vcf: str, out_vcf: str) -> tuple[int, int]:
