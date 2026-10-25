@@ -120,3 +120,28 @@ def test_vcf_pharmgkb_on_grch37_says_the_data_is_grch38(tmp_path):
     assert rc != 0
     assert "placed on GRCh38" in stderr
     assert "run 'ref pharmgkb'" not in stderr
+
+
+def test_vcf_pharmgkb_on_grch37_without_a_library_says_the_data_is_grch38(tmp_path):
+    vcf = tmp_path / "sample.vcf"
+    vcf.write_text(
+        "##fileformat=VCFv4.2\n"
+        '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        "##contig=<ID=1,length=249250621>\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n"
+        "1\t1000\t.\tC\tT\t50\tPASS\t.\tGT\t1/1\n"
+    )
+
+    rc, _, stderr = run_cli(
+        [
+            "vcf",
+            "pharmgkb",
+            "--input",
+            bgzip_index(vcf),
+            "--outdir",
+            str(tmp_path / "out"),
+        ]  # fmt: skip
+    )
+
+    assert rc != 0
+    assert "placed on GRCh38" in stderr

@@ -2,6 +2,7 @@ import logging
 import random
 import subprocess
 from collections.abc import Iterator
+from itertools import islice
 from pathlib import Path
 
 from wgsextract_cli.core.builds import (
@@ -426,23 +427,25 @@ def generate_fake_genomics_data(
                 ref_path, chroms, get_noise_seq
             )
             for chrom_idx, (name, length) in enumerate(chroms.items()):
+                calls: Iterator[tuple[int, str, str, str]]
                 if use_streaming_bam:
                     # The reads' planted SNPs, so calls on them can be checked.
-                    calls = [
+                    calls = (
                         (pos, ref, alt, "1/1")
                         for pos, ref, alt in fast_bam_snps(
                             chrom_idx, length, seed, ref_seq
                         )
-                    ]
-                else:
-                    calls = list(_random_calls(rng, ref_seq, chrom_idx, length,
-                                               coverage, full_size))  # fmt: skip
-                f.write(
-                    "".join(
-                        f"{name}\t{pos}\t.\t{ref}\t{alt}\t100\tPASS\t.\tGT\t{gt}\n"
-                        for pos, ref, alt, gt in calls
                     )
-                )
+                else:
+                    calls = _random_calls(rng, ref_seq, chrom_idx, length,
+                                          coverage, full_size)  # fmt: skip
+                while batch := list(islice(calls, 50000)):
+                    f.write(
+                        "".join(
+                            f"{name}\t{pos}\t.\t{ref}\t{alt}\t100\tPASS\t.\tGT\t{gt}\n"
+                            for pos, ref, alt, gt in batch
+                        )
+                    )
 
         vcf_gz = vcf_path + ".gz"
         with open(vcf_gz, "wb") as f_gz:

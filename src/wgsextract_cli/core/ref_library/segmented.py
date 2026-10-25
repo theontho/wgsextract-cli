@@ -41,6 +41,11 @@ _CHUNK = 1024**2
 _RESUMABLE = (DownloadIncomplete, IncompleteRead, TimeoutError, ConnectionError)
 
 
+def _backoff(attempt: int) -> float:
+    """Seconds to wait before a piece's next attempt."""
+    return float(min(30, 2**attempt))
+
+
 def _transient(error: Exception) -> bool:
     """A failure worth retrying the piece for: a dropped or refused connection,
     or a server that is busy (429, 5xx), not one that refuses the file (4xx)."""
@@ -157,7 +162,9 @@ def download_segmented(
                 if attempt == ATTEMPTS or not _transient(e):
                     raise
                 logging.debug(f"Retrying {url} bytes {pos}-{end - 1}: {e}")
-                time.sleep(min(30, 2**attempt))
+                # Cancelled, or another piece failed: stop backing off.
+                if stop.wait(_backoff(attempt)):
+                    return
 
     label = Path(dest).name
     report = progress_callback or PercentProgressLogger(label)

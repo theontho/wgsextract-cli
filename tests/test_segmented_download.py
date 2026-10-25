@@ -71,7 +71,7 @@ def server(monkeypatch):
     monkeypatch.setattr(segmented, "ranged_size", ranged_size)
     monkeypatch.setattr(segmented, "SEGMENTED_MIN_SIZE", 1)
     monkeypatch.setattr(segmented, "SEGMENT_SIZE", 1000)
-    monkeypatch.setattr(segmented.time, "sleep", lambda s: None)
+    monkeypatch.setattr(segmented, "_backoff", lambda attempt: 0)
     monkeypatch.setattr(
         downloads, "resolve_github_release_asset_sha256", lambda u: None
     )

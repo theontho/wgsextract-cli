@@ -2,6 +2,7 @@ import argparse
 import logging
 from pathlib import Path
 
+from wgsextract_cli.core.alignment_metadata import get_vcf_build
 from wgsextract_cli.core.builds import is_hg38_build
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -108,10 +109,12 @@ def cmd_pharmgkb(args: argparse.Namespace) -> None:
     logging.info(f"Annotating VCF with PharmGKB data: {input_file}")
 
     pharmgkb_file = args.pharmgkb_file or lib.pharmgkb_vcf
-    if not pharmgkb_file and lib.build and not is_hg38_build(lib.build):
+    # Without a library, the build comes from the VCF's own header.
+    build = lib.build or get_vcf_build(input_file)
+    if not pharmgkb_file and build and not is_hg38_build(build):
         # `ref pharmgkb` builds GRCh38 positions only; running it won't help.
         raise WGSExtractError(
-            LOG_MESSAGES["vcf_pharmgkb_grch38_only"].format(build=lib.build)
+            LOG_MESSAGES["vcf_pharmgkb_grch38_only"].format(build=build)
         )
     pharmgkb_file = require_annotation_file(
         pharmgkb_file, "vcf_pharmgkb_missing", "pharmgkb"
