@@ -192,7 +192,7 @@ def write_summary(path: str, calls: list[RepeatCall]) -> list[tuple[str, str]]:
     """A TSV of each pathogenic repeat's call and range; returns the
     (locus, line) of every one that isn't normal."""
     flagged = []
-    with open(path, "w") as f:
+    with open(path, "w", newline="\n") as f:
         f.write(
             "locus\tdisease\tinheritance\trepeat_unit\tgenotype\tci\t"
             "normal_max\tpathogenic_min\tstatus\tcoverage\n"

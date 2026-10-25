@@ -112,7 +112,9 @@ def _placeholder_yleaf_data_dir(work_dir: str) -> dict[str, str]:
     for build in ("hg19", "hg38", "t2t"):
         build_dir = str(Path(data_dir, build))
         Path(build_dir).mkdir(parents=True, exist_ok=True)
-        with open(str(Path(build_dir, "full_reference.fa")), "w") as f_out:
+        with open(
+            str(Path(build_dir, "full_reference.fa")), "w", newline="\n"
+        ) as f_out:
             f_out.write(">placeholder\n" + "N" * 120 + "\n")
     return {**os.environ, "YLEAF_DATA_DIR": data_dir}
 

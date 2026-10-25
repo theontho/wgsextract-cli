@@ -155,10 +155,14 @@ def _run_cli_subprocess(
                 open(stdout_file, "wb")
             )
         elif stdout_log:
-            stdout = stack.enter_context(open(stdout_log, "w", encoding="utf-8"))
+            stdout = stack.enter_context(
+                open(stdout_log, "w", encoding="utf-8", newline="\n")
+            )
         else:
             stdout = None
-        stderr = stack.enter_context(open(stderr_log, "w", encoding="utf-8"))
+        stderr = stack.enter_context(
+            open(stderr_log, "w", encoding="utf-8", newline="\n")
+        )
         return subprocess.run(
             command,
             stdin=stdin,
@@ -197,7 +201,7 @@ def _run_cli_step_with_io(
         text=text,
     )
     if stdout_log_text is not None:
-        stdout_log.write_text(stdout_log_text, encoding="utf-8")
+        stdout_log.write_text(stdout_log_text, encoding="utf-8", newline="\n")
     return _completed_cli_step_result(
         name=name,
         slug=slug,

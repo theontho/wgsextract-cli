@@ -370,7 +370,7 @@ def install_ploidy_files(reflib_dir: str) -> bool:
         logging.info("Installing ploidy file for %s: %s", alias, output)
         try:
             content = _ploidy_content(alias)
-            with open(output, "w", encoding="utf-8") as ploidy_file:
+            with open(output, "w", encoding="utf-8", newline="\n") as ploidy_file:
                 ploidy_file.write(content)
         except OSError as e:
             logging.error("Failed to install ploidy file %s: %s", output, e)

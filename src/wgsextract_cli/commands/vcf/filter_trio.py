@@ -52,7 +52,10 @@ def write_gaps_bed(ref_path: str, bed_path: str) -> bool:
     nbin_file = n_count_paths(ref_path)[1]
     if not Path(nbin_file).exists():
         return False
-    with open(nbin_file, encoding="utf-8") as f_in, open(bed_path, "w") as f_out:
+    with (
+        open(nbin_file, encoding="utf-8", newline="\n") as f_in,
+        open(bed_path, "w", newline="\n") as f_out,
+    ):
         for line in f_in:
             parts = line.rstrip("\n").split("\t")
             if line.startswith("#") or len(parts) < 4:

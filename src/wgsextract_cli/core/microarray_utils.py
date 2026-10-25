@@ -241,7 +241,7 @@ def liftover_hg38_to_hg19(
 
     data.sort(key=lambda row: (row[0], row[1]))
 
-    with open(output_txt, "w") as f:
+    with open(output_txt, "w", newline="\n") as f:
         # 1. Use preserved headers from source if any
         if headers:
             f.writelines(headers)

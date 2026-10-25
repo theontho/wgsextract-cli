@@ -233,7 +233,7 @@ def download_gene_maps(
             # 3. Write processed TSV, 1-based (refGene's txStart is 0-based),
             # through a temporary file so a failed write leaves no partial map.
             tmp_tsv = tsv_path + ".tmp"
-            with open(tmp_tsv, "w") as f_out:
+            with open(tmp_tsv, "w", newline="\n") as f_out:
                 f_out.write("symbol\tchrom\tstart\tend\n")
                 for symbol in sorted(gene_data.keys()):
                     c, s, e = gene_data[symbol]

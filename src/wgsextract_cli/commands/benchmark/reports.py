@@ -95,7 +95,7 @@ def _write_github_step_summary(
         f"| Report | `{report_md}` |",
         "",
     ]
-    with open(summary_path, "a", encoding="utf-8") as handle:
+    with open(summary_path, "a", encoding="utf-8", newline="\n") as handle:
         handle.write("\n".join(lines) + "\n")
 
 
@@ -208,13 +208,13 @@ def _write_report(
         "system": _system_metadata(),
         "results": [asdict(result) for result in results],
     }
-    with open(report_json, "w", encoding="utf-8") as handle:
+    with open(report_json, "w", encoding="utf-8", newline="\n") as handle:
         json.dump(payload, handle, indent=2)
         handle.write("\n")
 
     stdout_report = _format_stdout_report(metadata, results, report_md)
     markdown_report = _format_markdown_report(metadata, results, report_json)
-    with open(report_md, "w", encoding="utf-8") as handle:
+    with open(report_md, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(markdown_report)
 
     _write_github_step_summary(metadata, results, report_md)

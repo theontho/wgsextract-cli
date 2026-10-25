@@ -350,7 +350,7 @@ def _create_fast_fake_bam(
 def _write_fake_reference(
     ref_path: str, chroms: dict[str, int], get_noise_seq: SequenceProvider
 ) -> None:
-    with open(ref_path, "w") as f:
+    with open(ref_path, "w", newline="\n") as f:
         for idx, (name, length) in enumerate(chroms.items()):
             f.write(f">{name}\n")
             chunk_size = 1000000

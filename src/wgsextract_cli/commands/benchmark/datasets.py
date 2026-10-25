@@ -100,6 +100,7 @@ def _write_verified_md5_marker(path: Path, marker_path: Path, md5: str) -> None:
         )
         + "\n",
         encoding="ascii",
+        newline="\n",
     )
 
 
@@ -259,13 +260,13 @@ def _write_direct_dataset_manifest(
     }
     manifest.update(metadata)
     (cache_root / "manifest.json").write_text(
-        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n"
     )
 
 
 def _link_cached_dataset_manifest(cache_root: Path, marker_path: Path) -> None:
     marker_path.parent.mkdir(parents=True, exist_ok=True)
-    marker_path.write_text(str(cache_root) + "\n", encoding="utf-8")
+    marker_path.write_text(str(cache_root) + "\n", encoding="utf-8", newline="\n")
 
 
 def _real_dataset_cache_dir(args: argparse.Namespace, outdir: Path) -> Path:

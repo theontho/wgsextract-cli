@@ -142,7 +142,10 @@ def cmd_vcf_qc(args: argparse.Namespace) -> None:
 
     logging.info(LOG_MESSAGES["vcf_stats"].format(input=input_file, output=out_stats))
     try:
-        with cleanup_files(on_failure=[out_stats]), open(out_stats, "w") as f:
+        with (
+            cleanup_files(on_failure=[out_stats]),
+            open(out_stats, "w", newline="\n") as f,
+        ):
             run_command(["bcftools", "stats", input_file], stdout=f)
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"VCF stats failed: {e}") from e

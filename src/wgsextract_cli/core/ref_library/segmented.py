@@ -122,7 +122,7 @@ def download_segmented(
         with lock:
             snapshot = dict(received)
         tmp = state_path + ".tmp"
-        with open(tmp, "w") as f:
+        with open(tmp, "w", newline="\n") as f:
             json.dump({"url": url, "size": size, "received": snapshot}, f)
         Path(tmp).replace(state_path)
 

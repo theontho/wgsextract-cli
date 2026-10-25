@@ -43,7 +43,7 @@ def split_snps_by_chrom(ref_vcf_tab: str, outdir: str) -> dict[str, str]:
         for chrom in chroms:
             chrom_out = str(Path(outdir, f"snps_{chrom}.tab"))
             # tabix extraction is very fast
-            with open(chrom_out, "w") as f:
+            with open(chrom_out, "w", newline="\n") as f:
                 run_command(["tabix", ref_vcf_tab, chrom], stdout=f)
             chrom_files[chrom] = chrom_out
 
@@ -67,7 +67,9 @@ def split_snps_by_chrom(ref_vcf_tab: str, outdir: str) -> dict[str, str]:
                 chrom = line.split("\t", 1)[0]
                 if chrom not in handles:
                     chrom_files[chrom] = str(Path(outdir, f"snps_{chrom}.tab"))
-                    handles[chrom] = stack.enter_context(open(chrom_files[chrom], "w"))
+                    handles[chrom] = stack.enter_context(
+                        open(chrom_files[chrom], "w", newline="\n")
+                    )
                 handles[chrom].write(line)
 
     return chrom_files
@@ -132,7 +134,10 @@ def _prepare_vcf_target_tab_for_input(
         return ref_vcf_tab
 
     normalized_tab = str(Path(outdir, "input_chrom_targets.tab"))
-    with _open_text(ref_vcf_tab) as source, open(normalized_tab, "w") as destination:
+    with (
+        _open_text(ref_vcf_tab) as source,
+        open(normalized_tab, "w", newline="\n") as destination,
+    ):
         for line in source:
             if line.startswith("#") or not line.strip():
                 destination.write(line)

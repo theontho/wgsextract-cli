@@ -203,7 +203,7 @@ def cmd_cyp2d6(args: argparse.Namespace) -> None:
     with tempfile.TemporaryDirectory(dir=aln.outdir, prefix=".wgse_cyp2d6_") as work:
         reads = rescue_alt_reads(aln, region_bed, alts, work) if alts else aln.path
         manifest = str(Path(work, "manifest.txt"))
-        with open(manifest, "w") as f:
+        with open(manifest, "w", newline="\n") as f:
             f.write(str(absolute_path(reads)) + "\n")
         command = [*cyrius, "-m", manifest, "-g", genome, "-o", work, "-p", prefix]
         if reads.lower().endswith(".cram"):

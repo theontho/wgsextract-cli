@@ -262,7 +262,10 @@ def preprocess_vcf_chr_prefix(input_path: str, output_path: str) -> None:
     )
 
     open_func = gzip.open if input_path.endswith(".gz") else open
-    with open_func(input_path, "rt") as f_in, open(output_path, "w") as f_out:
+    with (
+        open_func(input_path, "rt") as f_in,
+        open(output_path, "w", newline="\n") as f_out,
+    ):
         for line in f_in:
             if line.startswith("##contig=<ID="):
                 line = _prefix_contig_header_line(line)

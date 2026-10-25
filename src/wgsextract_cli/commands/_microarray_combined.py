@@ -73,7 +73,7 @@ def _reference_alleles(
     region_to_target: dict[str, tuple[str, str]] = {}
     fd, region_file = tempfile.mkstemp(suffix=".regions", dir=outdir)
     try:
-        with os.fdopen(fd, "w") as f_reg, _open_text(ref_vcf_tab) as f_in:
+        with os.fdopen(fd, "w", newline="\n") as f_reg, _open_text(ref_vcf_tab) as f_in:
             for line in f_in:
                 if line.startswith("#"):
                     continue
@@ -237,7 +237,7 @@ def _write_microarray_combined_kit(
 
     tmp_txt = combined_kit_txt + ".tmp"
     try:
-        with open(tmp_txt, "w") as f_out:
+        with open(tmp_txt, "w", newline="\n") as f_out:
             f_out.write("# RSID\tCHROM\tPOS\tRESULT\n")
             if is_vcf:
                 _write_vcf_mode_kit(

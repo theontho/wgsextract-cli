@@ -152,7 +152,7 @@ def _prepare_vcf(
             )
             # A file, as names like HLA-A*01:01:01:01 break comma region lists.
             regions_file = str(Path(workdir, "contigs.tsv"))
-            with open(regions_file, "w") as f:
+            with open(regions_file, "w", newline="\n") as f:
                 f.write("".join(f"{c}\t1\t{2**31 - 1}\n" for c in shared))
             view += ["--regions-file", regions_file]
     if not (mapping or gvcf or "--regions" in view or "--regions-file" in view):
@@ -165,7 +165,7 @@ def _prepare_vcf(
     output = ["--threads", threads, "-Ob", "-o", prepared, "--write-index"]
     if mapping:
         map_file = str(Path(workdir, "contigs.txt"))
-        with open(map_file, "w") as f:
+        with open(map_file, "w", newline="\n") as f:
             f.write("".join(f"{src} {dst}\n" for src, dst in mapping))
         rename = ["bcftools", "annotate", "--rename-chrs", map_file, *output, "-"]
         stages = [view + ["-Ou", vcf], rename]
@@ -226,7 +226,7 @@ def _match_ambiguous_ref_bases(vcf: str, ref: str, threads: str, workdir: str) -
     )
     header = run_command(["bcftools", "view", "-h", vcf], capture_output=True).stdout
     fixed_vcf = str(Path(workdir, "ambiguous.vcf"))
-    with open(fixed_vcf, "w") as f:
+    with open(fixed_vcf, "w", newline="\n") as f:
         f.write(header)
         f.writelines(fix or line for line, fix in zip(records, fixes, strict=True))
     fixed_bcf = str(Path(workdir, "ambiguous.bcf"))
@@ -270,7 +270,7 @@ def write_uncalled_mask(
     cmd += (["--include", include] if include else []) + [vcf]
 
     seen: set[str] = set()
-    with tempfile.TemporaryFile() as err, open(out_bed, "w") as bed:
+    with tempfile.TemporaryFile() as err, open(out_bed, "w", newline="\n") as bed:
 
         def gap(chrom: str, beg: int, end: int) -> None:
             lo, hi = bounds[chrom]

@@ -278,7 +278,7 @@ def bootstrap_default_config(config_path: Path) -> None:
         )
         if choice == "y":
             config_path.parent.mkdir(parents=True, exist_ok=True)
-            config_path.write_text(DEFAULT_CONFIG)
+            config_path.write_text(DEFAULT_CONFIG, newline="\n")
             print(f"\n✅ Created default config at {config_path}")
             print("You can now edit this file to persist your settings.")
         else:
