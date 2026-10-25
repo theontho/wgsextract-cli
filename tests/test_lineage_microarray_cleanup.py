@@ -15,6 +15,7 @@ from wgsextract_cli.commands import (
     microarray,
 )
 from wgsextract_cli.core import variant_files
+from wgsextract_cli.core.pixi_tools import _join_command
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 
@@ -563,6 +564,19 @@ def test_haplogrep_wrapper_is_bypassed_for_its_jar(tmp_path):
     with patch.object(lineage, "tool_command", return_value=["tool"]) as tool:
         assert lineage._haplogrep_command(str(wrapper)) == ["tool"]
         tool.assert_called_once_with(str(wrapper))
+
+
+def test_a_resolved_haplogrep_command_runs_as_it_is(tmp_path):
+    """The resolved tool may already be `java -jar <jar>`: no second `java -jar`."""
+    from wgsextract_cli.commands import lineage
+
+    jar = tmp_path / "bin" / "haplogrep.jar"
+    jar.parent.mkdir()
+    jar.write_bytes(b"")
+    command = _join_command([str(tmp_path / "java"), "-jar", str(jar)])
+    with patch.object(lineage, "verify_dependencies"):
+        assert lineage._haplogrep_command(command) == [command]
+        assert lineage._haplogrep_command(str(jar)) == ["java", "-jar", str(jar)]
 
 
 def test_windows_wrapper_commands_keep_backslashes():

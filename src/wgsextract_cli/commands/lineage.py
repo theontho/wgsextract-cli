@@ -41,7 +41,8 @@ def _haplogrep_command(haplogrep_path: str) -> list[str]:
     path to java unquoted, so it fails whenever the install path has a space
     (the GUI's runtime lives in "Application Support"); run its jar instead."""
     jar = haplogrep_path
-    if not jar.endswith(".jar"):
+    # A resolved command such as `java -jar .../haplogrep.jar` runs as it is.
+    if not (jar.endswith(".jar") and Path(jar).is_file()):
         resolved = shutil.which(haplogrep_path) or haplogrep_path
         sibling = str(Path(resolved).resolve().parent / "haplogrep.jar")
         if not Path(sibling).is_file():
