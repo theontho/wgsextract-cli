@@ -174,17 +174,25 @@ ssize_t getline(char **lineptr, size_t *n, FILE *stream)
 		*n = 256;
 		if (!(*lineptr = (char *)malloc(*n))) return -1;
 	}
-	while ((c = getc(stream)) != EOF) {
+	/* A SAM record is hundreds of bytes: locking the CRT stream for every
+	 * byte dominates samblaster's parsing. Hold the stream lock for the whole
+	 * line, as POSIX getline does, and use the CRT's unlocked reader. */
+	_lock_file(stream);
+	while ((c = _getc_nolock(stream)) != EOF) {
 		if (len + 1 >= *n) {
 			size_t size = *n * 2;
 			char *grown = (char *)realloc(*lineptr, size);
-			if (!grown) return -1;
+			if (!grown) {
+				_unlock_file(stream);
+				return -1;
+			}
 			*lineptr = grown;
 			*n = size;
 		}
 		(*lineptr)[len++] = (char)c;
 		if (c == '\n') break;
 	}
+	_unlock_file(stream);
 	if (len == 0) return -1;
 	(*lineptr)[len] = '\0';
 	return (ssize_t)len;
