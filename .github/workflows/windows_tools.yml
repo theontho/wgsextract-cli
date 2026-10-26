@@ -15,7 +15,7 @@ jobs:
       max-parallel: 3
       matrix:
         recipe: [bcftools, samtools]
-        compiler: [gcc-stop-simd-lto]
+        compiler: [gcc-stop-simd-inline-lto]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up MSYS2 UCRT64
@@ -50,6 +50,9 @@ jobs:
               $recipeScript = 'packaging/windows/recipes/${{ matrix.recipe }}/build.sh'
               $script = [IO.File]::ReadAllText($recipeScript).Replace('make -j"$JOBS"', 'make -j"$JOBS" AR=gcc-ar')
               [IO.File]::WriteAllText($recipeScript, $script, [Text.UTF8Encoding]::new($false))
+          }
+          if ('${{ matrix.compiler }}'.Contains('inline')) {
+              $content = $content.Replace('-mtune=generic -flto', '-mtune=generic -flto -minline-stringops-dynamically')
           }
           if ('${{ matrix.compiler }}' -eq 'clang') {
               $content = $content.Replace('./configure --disable', './configure CC=clang --disable')
