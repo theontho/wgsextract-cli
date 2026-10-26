@@ -156,7 +156,8 @@ class QemuWindowsGuiMachine(windows_vm.QemuWindowsMachine):
         VM trusts machine-wide, as an organization deploys its own code-signing
         root. Done before the baseline, so the trust is part of the machine;
         the private key is deleted once the installer is signed."""
-        remote = f"{windows_vm.GUEST_LAB}/{installer.name}"
+        # A fixed guest name: the host's file name is never quoted into PowerShell.
+        remote = f"{windows_vm.GUEST_LAB}/lab-test-sign.exe"
         scp = ["scp", *windows_vm.scp_opts(self.port), "-q"]
         subprocess.run(
             [*scp, str(installer), f"{self.admin}@127.0.0.1:{remote}"], check=True
