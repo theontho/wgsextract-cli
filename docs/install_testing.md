@@ -19,6 +19,7 @@ python3 scripts/installlab/lab.py judge out/installlab/runs/<run>/results
 python3 scripts/installlab/lab.py run macos --gui-repo ../gui-for-cli     # the macOS app
 python3 scripts/installlab/lab.py prepare windows-gui            # once: WebView2 + a desktop
 python3 scripts/installlab/lab.py run windows --gui-repo ../gui-for-cli   # the Windows app
+python3 scripts/installlab/lab.py run windows --gui-installer <setup.exe> --test-sign  # signed install
 python3 scripts/installlab/lab.py run linux --gui-repo ../gui-for-cli     # the Linux app
 python3 scripts/installlab/lab.py mutate out/installlab/runs/<run>/results  # must all FAIL
 python3 scripts/installlab/lab.py gc --dry-run                    # what disk cleanup would remove
@@ -215,9 +216,9 @@ the VM's screen once a minute (`screens/` next to `results/`). In the VM, as
 the standard user Lab User:
 
 1. The installer is downloaded and given the Mark of the Web a browser adds.
-   Its Authenticode signature is checked: a release must verify (`Valid`), a
-   local build must be reported unsigned (`NotSigned`). Then it is unblocked,
-   as clicking SmartScreen's "Run anyway" does.
+   Its Authenticode signature is checked: a signed installer must verify
+   (`Valid`), an unsigned one must be reported unsigned (`NotSigned`). Then it
+   is unblocked, as clicking SmartScreen's "Run anyway" does.
 2. The installer is opened as a double-click would, on Lab User's desktop, and
    UI Automation clicks through its wizard's defaults (Next, Install, Finish),
    logging each page. The Apps entry, the Start menu shortcut and the app must
@@ -243,6 +244,17 @@ Setup installs the CLI release the app pins, or this tree with
 Apps entry, shortcut, `Path` entry or running process left behind, and the
 signature check reversed: an unsigned installer reported as signed, or a
 signed release reported as unsigned).
+
+No Windows release is Authenticode-signed yet, and a publicly trusted
+certificate costs money. `--test-sign` (windows target, app install runs)
+covers the signed path without one: before the baseline, the disposable VM
+creates a throwaway code-signing certificate, trusts it machine-wide (as an
+organization deploys its own signing root), signs the unsigned installer with
+it and deletes the private key. The signed installer replaces the one served
+to the guest, so its signature must then verify as `Valid` and the rest of the
+run proceeds as for a signed release; `lab-run.json` records `test_signed`.
+This proves the lab's signed path and that signing doesn't break the
+installer; it does not prove a public release is signed.
 
 ## The Linux app
 
