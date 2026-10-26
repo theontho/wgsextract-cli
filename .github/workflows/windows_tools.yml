@@ -1,22 +1,7 @@
-name: Windows Tools
-
-# Builds WGS Extract's native Windows tool packages (packaging/windows/recipes)
-# on every change to them, and publishes a set to a release when asked:
-# Actions > Windows Tools > Run workflow, with a new tag such as windows-tools-2.
-# Then pin pixi.toml to it: python packaging/windows/pin.py <tag>.
+name: Windows HTS profiling builds
 
 on:
-  pull_request:
-    branches: [ main ]
-    paths:
-      - packaging/windows/**
-      - .github/workflows/windows_tools.yml
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: New release tag to publish the packages under (empty builds only).
-        required: false
-        default: ""
 
 permissions:
   contents: read
@@ -24,71 +9,53 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        recipe: [bcftools, samtools]
+        compiler: [gcc, clang]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - name: Set up MSYS2 UCRT64
         id: msys2
         uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
         with:
           msystem: UCRT64
           update: true
-
-      - name: Install the build packages
+      - name: Install build packages
         shell: msys2 {0}
         run: |
           mkdir -p out
           grep -v '^#' packaging/windows/msys2-packages.txt | xargs pacman -S --needed --noconfirm --noprogressbar
+          if [ '${{ matrix.compiler }}' = clang ]; then
+            pacman -S --needed --noconfirm --noprogressbar mingw-w64-ucrt-x86_64-clang
+          fi
           pacman -Q > out/msys2-packages-used.txt
-
       - name: Set up Pixi
         uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
         with:
           run-install: false
-
-      - name: Build the packages
+      - name: Build native tools with function symbols
         shell: pwsh
         env:
           MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
         run: |
-          pixi exec --spec rattler-build==0.77.0 rattler-build build --recipe-dir packaging/windows/recipes `
-            --output-dir out/conda --target-platform win-64
-          Move-Item out/msys2-packages-used.txt out/conda/win-64/
-
+          $envScript = 'packaging/windows/recipes/env.sh'
+          $content = [IO.File]::ReadAllText($envScript).Replace('STATIC_LDFLAGS="-static -s"', 'STATIC_LDFLAGS="-static"')
+          if ('${{ matrix.compiler }}' -eq 'clang') {
+              $content = $content.Replace('./configure --disable', './configure CC=clang --disable')
+              $recipeScript = 'packaging/windows/recipes/${{ matrix.recipe }}/build.sh'
+              $script = [IO.File]::ReadAllText($recipeScript).Replace('./configure --with', './configure CC=clang --with')
+              [IO.File]::WriteAllText($recipeScript, $script, [Text.UTF8Encoding]::new($false))
+          }
+          [IO.File]::WriteAllText($envScript, $content, [Text.UTF8Encoding]::new($false))
+          pixi exec --spec rattler-build==0.77.0 rattler-build build --recipe-dir packaging/windows/recipes/${{ matrix.recipe }} --output-dir out/conda --target-platform win-64
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: windows-tools
+          name: windows-hts-${{ matrix.recipe }}-${{ matrix.compiler }}
           path: |
             out/conda/win-64/*.conda
-            out/conda/win-64/msys2-packages-used.txt
+            out/msys2-packages-used.txt
           if-no-files-found: error
-
-  publish:
-    if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: windows-tools
-          path: windows-tools
-      - name: Publish the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.release_tag }}
-        run: |
-          case "$TAG" in windows-tools-*) ;; *) echo "Tag must start with windows-tools-" >&2; exit 1 ;; esac
-          {
-            echo "Native Windows builds of WGS Extract's command-line tools, as conda packages that Pixi installs."
-            echo "Built from packaging/windows/recipes at ${GITHUB_SHA} by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
-            echo
-            echo "| Package | SHA-256 |"
-            echo "| --- | --- |"
-            for f in windows-tools/*.conda; do echo "| $(basename "$f") | \`$(sha256sum "$f" | cut -d' ' -f1)\` |"; done
-          } > notes.md
-          gh release create "$TAG" windows-tools/*.conda windows-tools/msys2-packages-used.txt \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Windows tools $TAG" \
-            --notes-file notes.md --prerelease --latest=false
