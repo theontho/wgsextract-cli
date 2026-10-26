@@ -59,10 +59,10 @@ build_htslib() {
 include htslib_static.mk
 .PHONY: codec-test
 codec-test:
-	$(CC) $(CFLAGS) -I. "$(CODEC_TEST)" $(HTSLIB_static_LDFLAGS) libhts.a $(HTSLIB_static_LIBS) -o .wgse-cram-stop.exe
+	$(CC) $(CFLAGS) -I. "$(CODEC_TEST)" $(HTSLIB_static_LDFLAGS) libhts.a $(HTSLIB_static_LIBS) $(CODEC_LIBS) -o .wgse-cram-stop.exe
 	./.wgse-cram-stop.exe
 MAKEFILE
         make -f .wgse-cram-stop.mk codec-test CC=gcc CFLAGS="$OPT $STATIC_LDFLAGS" \
-            CODEC_TEST="$(cygpath -u "$RECIPE_DIR")/../../tests/cram_stop.c"
+            CODEC_TEST="$(cygpath -u "$RECIPE_DIR")/../../tests/cram_stop.c" CODEC_LIBS="$HTS_LIBS"
     )
 }
