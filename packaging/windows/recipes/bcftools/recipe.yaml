@@ -12,6 +12,7 @@ source:
     - patches/0001-bounded-cram-stop-copy.patch
     - patches/0002-vector-bam-sequence-packing.patch
     - patches/0003-reuse-cram-buffers.patch
+    - patches/0004-stack-small-introsorts.patch
 
 build:
   number: 1

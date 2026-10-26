@@ -1,0 +1,31 @@
+--- a/htslib-1.24/htslib/ksort.h
++++ b/htslib-1.24/htslib/ksort.h
+@@ -205,7 +205,7 @@
+ 	SCOPE int ks_introsort##name(size_t n, type_t a[])					\
+ 	{																	\
+ 		int d;															\
+-		ks_isort_stack_t *top, *stack;									\
++		ks_isort_stack_t local_stack[66], *top, *stack;									\
+ 		type_t rp, swap_tmp;											\
+ 		type_t *s, *t, *i, *j, *k;										\
+ 																		\
+@@ -215,7 +215,9 @@
+ 			return 0;														\
+ 		}																\
+ 		for (d = 2; 1ul<<d < n; ++d);									\
+-		stack = (ks_isort_stack_t*)hts_malloc_ps(sizeof(ks_isort_stack_t), \
++		/* Match the old allocation capacity through depth 8 (n <= 256). */ \
++		stack = d <= 8 ? local_stack : \
++		    (ks_isort_stack_t*)hts_malloc_ps(sizeof(ks_isort_stack_t), \
+ 			                           hts_prod_sat2(sizeof(size_t), d), 2); \
+ 		top = stack; s = a; t = a + (n-1); d <<= 1;						\
+ 		while (1) {														\
+@@ -247,7 +249,7 @@
+ 				}														\
+ 			} else {													\
+ 				if (top == stack) {										\
+-					free(stack);										\
++					if (stack != local_stack) free(stack);										\
+ 					__ks_insertsort##name(a, a+n);						\
+ 					return 0;												\
+ 				} else { --top; s = (type_t*)top->left; t = (type_t*)top->right; d = top->depth; } \
