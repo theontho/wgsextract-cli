@@ -13,3 +13,12 @@ Do not add new environment-variable configuration. Put persistent configuration 
 - **Always** run `pixi run ruff check --fix {file_path}` and `pixi run ruff format {file_path}` after editing a Python file in this directory.
 - **Always** run `pixi run mypy {file_path}` (or `pixi run mypy src/wgsextract_cli`) to check for type errors before concluding a task.
 - Run these commands from the repository root. Dev tools (ruff, mypy, pytest, pre-commit) live in the `dev` Pixi environment; `pixi run <tool>` selects it automatically.
+
+## Babysitting a PR
+
+"Babysit" a PR (or "babysit landing" it) means: shepherd it until it merges, using the `ci-pr-autopilot` skill (`.agents/skills/ci-pr-autopilot`).
+
+- Fix review comments that are legitimate, then resolve their threads. Reply `(AI): Reason: ...` to the ones you decline, then resolve those too.
+- Fix real issues that CI finds, or fix CI itself when the failure is in CI rather than in the code.
+- Push follow-up commits and wait for CI to rerun.
+- Once the PR is in a passable state, merge it. That means CI is green, no material threads are unresolved, and the local checks pass.

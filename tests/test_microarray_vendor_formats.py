@@ -426,3 +426,23 @@ def test_ftdna_v1_finds_calls_at_its_markers_lifted_positions(tmp_path):
     convert_to_vendor_format("FTDNA_V1_Affy", kit, str(out), str(root), chain)
 
     assert out.read_text().splitlines()[1:] == ["rsA,1,500,CT", "rsB,1,1500,--"]
+
+
+def test_ftdna_v1_complements_calls_in_regions_inverted_since_ncbi36(tmp_path):
+    root = _templates(
+        tmp_path / "lib",
+        "FTDNA_V1_Affy.csv",
+        "RSID,CHROMOSOME,POSITION,RESULT\n",
+        "rsInv,1,1\n",
+    )
+    # NCBI36 chr1:1 is the last base of GRCh37's reverse-strand block: chr1:10000.
+    chain = _chain(
+        tmp_path / "hg18ToHg19.chain",
+        "chain 1 chr1 10000 + 0 1000 chr1 10000 - 0 1000 1\n1000",
+    )
+    kit = _kit(tmp_path / "kit.txt", [("rsInv", "1", "10000", "AC")])
+    out = tmp_path / "out.csv"
+
+    convert_to_vendor_format("FTDNA_V1_Affy", kit, str(out), str(root), chain)
+
+    assert out.read_text().splitlines()[1:] == ["rsInv,1,1,GT"]

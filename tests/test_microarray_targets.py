@@ -174,3 +174,17 @@ def test_simultaneous_builds_leave_one_valid_target(tmp_path):
         "All_SNPs_hg19_ref.tab.gz.tbi",
     }
     assert not leftovers
+
+
+@needs_tools("bgzip", "tabix")
+def test_a_current_target_in_a_read_only_library_is_used(tmp_path):
+    templates = _templates(tmp_path)
+    out = mt.build_genome_wide_target(str(tmp_path), "hg19", [str(templates)])
+    microarray_dir = Path(out).parent
+    microarray_dir.chmod(0o555)
+    try:
+        assert (
+            mt.build_genome_wide_target(str(tmp_path), "hg19", [str(templates)]) == out
+        )
+    finally:
+        microarray_dir.chmod(0o755)

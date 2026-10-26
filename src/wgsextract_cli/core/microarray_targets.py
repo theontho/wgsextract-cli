@@ -126,7 +126,7 @@ def collect_template_markers(
                     lifted = ncbi36_to_grch37(lifter, chrom, pos)
                     if not lifted:
                         continue
-                    chrom, pos = lifted
+                    chrom, pos, _inverted = lifted
                 if pos.isdigit() and chrom:
                     markers.setdefault((_chrom_for_liftover(chrom), int(pos)), rsid)
     return markers
@@ -173,6 +173,9 @@ def build_genome_wide_target(
             f"Microarray targets can only be built for hg19 or hg38, not {build}."
         )
     out = genome_wide_target_path(reflib_dir, target_build)
+    # Before taking the lock, so a current target in a read-only library is used.
+    if _is_current(out):
+        return out
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     with _build_lock(out + ".lock"):
         if _is_current(out):

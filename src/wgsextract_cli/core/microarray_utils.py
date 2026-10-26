@@ -197,14 +197,17 @@ def template_rows(format_name: str, path: str) -> Iterator[tuple[str, str, str]]
             yield snp_id, chrom, pos
 
 
-def ncbi36_to_grch37(lifter: LiftOver, chrom: str, pos: str) -> tuple[str, str] | None:
-    """An NCBI36 template position on GRCh37 (vendor chromosome naming)."""
+def ncbi36_to_grch37(
+    lifter: LiftOver, chrom: str, pos: str
+) -> tuple[str, str, bool] | None:
+    """An NCBI36 template position on GRCh37 (vendor chromosome naming), and
+    whether it lies in a region inverted between the builds."""
     if not pos.isdigit():
         return None
     hits = lifter.convert_coordinate(_chrom_for_liftover(chrom), int(pos) - 1)
     if not hits or "_" in hits[0][0]:
         return None
-    return _chrom_from_liftover(hits[0][0]), str(hits[0][1] + 1)
+    return _chrom_from_liftover(hits[0][0]), str(hits[0][1] + 1), hits[0][2] == "-"
 
 
 def _resolve_templates_for_format(
@@ -474,9 +477,15 @@ def convert_to_vendor_format(
                         result = called_by_rsid.get(t_id, "--")
                     else:
                         key: tuple[str, str] | None = (vendor_chrom(t_chrom), t_pos)
+                        inverted = False
                         if lifter:
-                            key = ncbi36_to_grch37(lifter, t_chrom, t_pos)
+                            lifted = ncbi36_to_grch37(lifter, t_chrom, t_pos)
+                            key = lifted[:2] if lifted else None
+                            inverted = bool(lifted and lifted[2])
                         result = called_variants.get(key, "--") if key else "--"
+                        if inverted and result != "--":
+                            # GRCh37's forward strand is the NCBI36 reverse strand here.
+                            result = sort_alleles(result.translate(_COMPLEMENT))
                     if single_letter_haploid:
                         result = _haploid_letter(
                             result, vendor_chrom(t_chrom), t_pos, male

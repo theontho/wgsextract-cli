@@ -9,13 +9,16 @@ head file.
 
 Usage: python scripts/microarray_template_from_raw.py RAW_FILE NAME
        e.g. ... user6045_file4542_yearofbirth_unknown_sex_unknown.23andme.txt.gz 23andMe_V2
-Writes src/wgsextract_cli/assets/microarray/raw_file_templates/{head/NAME.txt,body/NAME.txt.gz}.
+Writes src/wgsextract_cli/assets/microarray/raw_file_templates/{head/NAME.txt,body/NAME.txt.gz}
+(.csv for CSV formats such as MyHeritage_V2).
 """
 
 import gzip
 import re
 import sys
 from pathlib import Path
+
+from wgsextract_cli.core.microarray_utils import get_template_format
 
 TEMPLATES = (
     Path(__file__).resolve().parents[1]
@@ -45,10 +48,12 @@ def main() -> None:
                 head.append(_ACCOUNT_URL.sub("https://you.23andme.com/", line))
     (TEMPLATES / "head").mkdir(parents=True, exist_ok=True)
     (TEMPLATES / "body").mkdir(parents=True, exist_ok=True)
+    fmt = get_template_format(name)
+    suffix = fmt["suffix"] if fmt else ".txt"
     if head:
-        (TEMPLATES / "head" / f"{name}.txt").write_text("".join(head), newline="")
+        (TEMPLATES / "head" / f"{name}{suffix}").write_text("".join(head), newline="")
     # mtime=0: the same input always gives the same bytes.
-    with (TEMPLATES / "body" / f"{name}.txt.gz").open("wb") as out:
+    with (TEMPLATES / "body" / f"{name}{suffix}.gz").open("wb") as out:
         with gzip.GzipFile(fileobj=out, mode="wb", mtime=0) as gz:
             gz.write("".join(body).encode())
     print(f"{name}: {len(head)} header lines, {len(body)} markers")
