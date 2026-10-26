@@ -14,7 +14,7 @@ source:
     - patches/0001-windows-path-separators.patch
 
 build:
-  number: 1
+  number: 2
   string: wgse_${{ build_number }}
   script:
     # MSYS2 UCRT64 builds it (see ../env.sh); MSYS2_ROOT says where it is.

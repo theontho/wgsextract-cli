@@ -10,7 +10,7 @@ source:
   sha256: 28a8de191381c7a97a35675ceac76fa1ea95e7b678d6a2e9d600a7874e4077de
 
 build:
-  number: 0
+  number: 1
   string: wgse_${{ build_number }}
   script:
     # MSYS2 UCRT64 builds it (see ../env.sh); MSYS2_ROOT says where it is.
