@@ -108,6 +108,7 @@ jobs:
           name: windows-hts-${{ matrix.recipe }}-${{ matrix.compiler }}
           path: |
             out/conda/win-64/*.conda
+            out/raw/*.exe
             out/msys2-packages-used.txt
             out/libdeflate-tests.log
           if-no-files-found: error

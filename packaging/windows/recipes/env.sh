@@ -38,9 +38,12 @@ JOBS=${CPU_COUNT:-4}
 # install_exe NAME...: copy built executables into the package's bin and
 # prove each runs and links only system DLLs.
 install_exe() {
-    local exe deps
+    local exe deps raw_bin
+    raw_bin="$(cygpath -u "$GITHUB_WORKSPACE")/out/raw"
+    mkdir -p "$raw_bin"
     for exe in "$@"; do
         install -m 755 "$exe" "$BIN/$(basename "${exe%.exe}").exe"
+        install -m 755 "$exe" "$raw_bin/$(basename "${exe%.exe}").exe"
         deps=$(ldd "$BIN/$(basename "${exe%.exe}").exe" | grep -viE '/c/windows/' || true)
         if [ -n "$deps" ]; then
             echo "$exe links non-system DLLs:" >&2
