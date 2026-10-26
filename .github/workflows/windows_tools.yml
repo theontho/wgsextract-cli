@@ -15,7 +15,7 @@ jobs:
       max-parallel: 3
       matrix:
         recipe: [bcftools, samtools]
-        compiler: [gcc-seqpack-inlineall-lto]
+        compiler: [gcc-original-inlineall-lto]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up MSYS2 UCRT64
@@ -53,6 +53,15 @@ jobs:
           }
           if ('${{ matrix.compiler }}'.Contains('inline')) {
               $content = $content.Replace('-mtune=generic -flto', '-mtune=generic -flto -minline-stringops-dynamically -minline-all-stringops')
+          }
+          if ('${{ matrix.compiler }}'.Contains('original')) {
+              $recipeYaml = 'packaging/windows/recipes/${{ matrix.recipe }}/recipe.yaml'
+              $yaml = [IO.File]::ReadAllText($recipeYaml)
+              $yaml = [regex]::Replace($yaml, '(?m)^    - patches/000[123]-(bounded-cram-stop-copy|vector-bam-sequence-packing)\.patch\r?\n', '')
+              if ('${{ matrix.recipe }}' -eq 'bcftools') {
+                  $yaml = [regex]::Replace($yaml, '(?m)^  patches:\r?\n', '')
+              }
+              [IO.File]::WriteAllText($recipeYaml, $yaml, [Text.UTF8Encoding]::new($false))
           }
           if ('${{ matrix.compiler }}' -eq 'clang') {
               $content = $content.Replace('./configure --disable', './configure CC=clang --disable')
