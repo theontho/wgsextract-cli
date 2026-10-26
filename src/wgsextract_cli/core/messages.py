@@ -91,19 +91,22 @@ CLI_HELP = {
     "cmd_ref-library": "Opens the interactive reference manager to help you organize and download genomic data.",
     "micro_formats_help": """Comma-separated list of formats to generate (default: all).
 Available formats:
-  Everything:
-    all (Combined file of ALL SNPs for GEDMATCH)
+  Combined kit only (always written):
+    all (every chip's markers in one 23andMe-style file, e.g. for GEDmatch;
+    writes no vendor files: list the vendor formats to get them)
   23andMe:
     23andme_v2 (also v1: same markers), 23andme_v3, 23andme_v4, 23andme_v5,
-    23andme_v3+v5, 23andme_api
+    23andme_v5_2025 (v5 chip as exported in 2025), 23andme_v3+v5, 23andme_api
   AncestryDNA:
-    ancestry_v1, ancestry_v2
+    ancestry_v1, ancestry_v2, ancestry_v2_2024 (V2.0 chip as exported in 2024-25)
   Family Tree DNA:
     ftdna_v1 (Affymetrix, NCBI36 positions), ftdna_v2, ftdna_v3
   Living DNA:
     ldna_v1, ldna_v2
   MyHeritage:
     myheritage_v1, myheritage_v2
+  Nucleus:
+    nucleus (array export, 2025)
 """,
     "arg_region": "Chromosomal region (e.g. chrM, chrY:10000-20000)",
     "arg_fraction": "Decimal percentage (e.g. 0.1 for 10%%)",

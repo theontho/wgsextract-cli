@@ -144,16 +144,16 @@ def test_male_kit_genotypes_and_no_calls(tmp_path, library):
         "rsRef": "AA",
         "rsLowMapq": "--",  # MAPQ 5 reads are ignored
         "rsNoReads": "--",
-        "rsX": "GG",
-        "rsMT": "CC",
+        "rsX": "GG",  # too few X markers to infer a male kit
+        "rsMT": "C",  # 23andMe writes haploid calls as one letter
     }
     assert _rows(tmp_path / "out" / "male_23andMe_V3.txt")["rsMT"] == [
         "MT",
         "1000",
-        "CC",
+        "C",
     ]
     ftdna = _genotypes(tmp_path / "out" / "male_FTDNA_V2.csv", ",")
-    assert ftdna == {"RSID": "CHROMOSOME", **kit}
+    assert ftdna == {"RSID": "CHROMOSOME", **kit, "rsMT": "CC", "rsY": "TT"}
     # Positions and chromosome names follow the template, in its order.
     lines = (tmp_path / "out" / "male_FTDNA_V2.csv").read_text().splitlines()
     assert lines[0] == "RSID,CHROMOSOME"
@@ -172,7 +172,7 @@ def test_male_y_markers_are_called(tmp_path, library):
 
     _microarray(bam, fasta, tmp_path / "out")
 
-    assert _genotypes(tmp_path / "out" / "male_23andMe_V3.txt")["rsY"] == "TT"
+    assert _genotypes(tmp_path / "out" / "male_23andMe_V3.txt")["rsY"] == "T"
 
 
 def test_female_x_is_diploid_and_y_is_a_no_call(tmp_path, library):
@@ -193,7 +193,7 @@ def test_library_ploidy_file_calls_male_y(tmp_path, library):
 
     _microarray(bam, fasta, tmp_path / "out")
 
-    assert _genotypes(tmp_path / "out" / "male_23andMe_V3.txt")["rsY"] == "TT"
+    assert _genotypes(tmp_path / "out" / "male_23andMe_V3.txt")["rsY"] == "T"
 
 
 def test_parallel_calling_writes_the_same_kit_in_natural_order(tmp_path, library):

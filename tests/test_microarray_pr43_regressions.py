@@ -56,6 +56,7 @@ def test_microarray_uses_diploid_ploidy_for_reference_model_aliases(
         formats="all",
     )
     lib = SimpleNamespace(
+        root=None,
         fasta=str(ref_fasta),
         ref_vcf_tab=str(ref_vcf_tab),
         ploidy_file=None,
@@ -105,6 +106,9 @@ def test_microarray_uses_diploid_ploidy_for_reference_model_aliases(
         ("familytreedna-v2", "FTDNA_V2"),
         ("livingdna-v1", "LDNA_V1"),
         ("myheritage-v2", "MyHeritage_V2"),
+        ("23andme-v5-2025", "23andMe_V5_2025"),
+        ("ancestry_v2_2024", "Ancestry_V2_2024"),
+        ("nucleus", "Nucleus_V1"),
         ("My-Custom-Format", "my_custom_format"),
     ],
 )
@@ -215,11 +219,15 @@ def test_combined_kit_vcf_mode_emits_snp_shaped_genotypes(tmp_path):
         "chr1\t102\trsHet\n"
         "chr1\t103\trsRef\n"
         "chr1\t104\trsAmbigRef\n"
+        "chr1\t105\trsHetAltFirst\n"
     )
 
     def fake_output(cmd):
         if cmd[:2] == ["bcftools", "query"]:
-            return "chr1\t100\tC\nchr1\t100\tC/CT\nchr1\t101\t.\nchr1\t102\tA/T\n"
+            return (
+                "chr1\t100\tC\nchr1\t100\tC/CT\nchr1\t101\t.\nchr1\t102\tA/T\n"
+                "chr1\t105\tT/C\n"
+            )
         if cmd[:2] == ["samtools", "faidx"]:
             return (
                 ">chr1:100-100\nC\n"
@@ -227,6 +235,7 @@ def test_combined_kit_vcf_mode_emits_snp_shaped_genotypes(tmp_path):
                 ">chr1:102-102\nA\n"
                 ">chr1:103-103\nT\n"
                 ">chr1:104-104\nY\n"
+                ">chr1:105-105\nT\n"
             )
         raise AssertionError(f"unexpected command: {cmd}")
 
@@ -248,6 +257,7 @@ def test_combined_kit_vcf_mode_emits_snp_shaped_genotypes(tmp_path):
     assert "rsHet\t1\t102\tAT" in rows
     assert "rsRef\t1\t103\tTT" in rows
     assert "rsAmbigRef\t1\t104\tNN" in rows
+    assert "rsHetAltFirst\t1\t105\tCT" in rows  # alphabetical, as chips write
 
 
 def test_combined_kit_bam_mode_normalizes_mito_chromosome_names(tmp_path):
