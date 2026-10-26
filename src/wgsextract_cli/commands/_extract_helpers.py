@@ -232,7 +232,8 @@ def alignments_to_fastq(
         cleanup_files(on_failure=[out_r1, out_r2, *([out_other] if out_other else [])]),
         tempfile.TemporaryDirectory(dir=temp_parent, prefix=".collate_") as tmp,
     ):
-        view_cmd = ["samtools", "view", "-uh", "--no-PG", *(cram_opt or [])]
+        view_cmd = ["samtools", "view", "-uh", "--no-PG", "-@", threads]
+        view_cmd += cram_opt or []
         view_cmd += [fspath(input_path), *([region] if region else [])]
         buckets = _collate_buckets(input_path, threads, memory)
         collate_cmd = ["samtools", "collate", "-u", "-O", "--no-PG", "-@", threads]

@@ -171,13 +171,15 @@ def test_fastq_extraction_avoids_dev_null_and_system_temp(tmp_path, monkeypatch)
 
     monkeypatch.setattr(_extract_helpers, "run_pipeline", fake_run_pipeline)
     alignments_to_fastq(
-        "in.bam", "r1.fq.gz", "r2.fq.gz", threads="1", memory="1G", temp_parent=tmp_path
+        "in.bam", "r1.fq.gz", "r2.fq.gz", threads="3", memory="1G", temp_parent=tmp_path
     )
 
     stages, kwargs = pipelines[0]
     argv = [str(arg) for stage in stages for arg in stage]
     assert "/dev/null" not in argv
     assert kwargs["stdout"] == subprocess.DEVNULL
+    for stage in stages:
+        assert stage[stage.index("-@") + 1] == "3"
     collate_cmd = stages[1]
     assert collate_cmd[collate_cmd.index("-T") + 1].startswith(str(tmp_path))
     # Standard (randomising) collate: fast mode skews aligners' insert sizes.
