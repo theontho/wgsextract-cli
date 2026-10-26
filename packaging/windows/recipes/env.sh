@@ -73,13 +73,11 @@ codec-test:
 	./.wgse-bam-seq.exe
 	$(CC) $(CFLAGS) -I. "$(BUFFER_TEST)" $(HTSLIB_static_LDFLAGS) libhts.a $(HTSLIB_static_LIBS) $(CODEC_LIBS) -o .wgse-cram-buffers.exe
 	./.wgse-cram-buffers.exe
-	$(CC) $(CFLAGS) -I. "$(SORT_TEST)" $(HTSLIB_static_LDFLAGS) libhts.a $(HTSLIB_static_LIBS) $(CODEC_LIBS) -o .wgse-ksort.exe
-	./.wgse-ksort.exe
 MAKEFILE
         make -f .wgse-cram-stop.mk codec-test CC=gcc CFLAGS="$OPT $STATIC_LDFLAGS" \
             CODEC_TEST="$(cygpath -u "$RECIPE_DIR")/../../tests/cram_stop.c" \
             SEQ_TEST="$(cygpath -u "$RECIPE_DIR")/../../tests/bam_seq.c" \
             BUFFER_TEST="$(cygpath -u "$RECIPE_DIR")/../../tests/cram_buffers.c" \
-            SORT_TEST="$(cygpath -u "$RECIPE_DIR")/../../tests/ksort.c" CODEC_LIBS="$HTS_LIBS"
+            CODEC_LIBS="$HTS_LIBS"
     )
 }

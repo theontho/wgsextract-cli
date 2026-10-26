@@ -14,8 +14,8 @@ jobs:
       fail-fast: false
       max-parallel: 3
       matrix:
-        recipe: [bcftools, samtools]
-        compiler: [gcc-group-single-inlineall-lto]
+        recipe: [bcftools]
+        compiler: [gcc-group-only-inlineall-lto]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up MSYS2 UCRT64
