@@ -1,0 +1,23 @@
+--- a/mpileup.c
++++ b/mpileup.c
+@@ -362,6 +362,20 @@
+ {
+     int i, j;
+     memset(m->n_plp, 0, m->n * sizeof(int));
++    if (n == 1 && m->n == 1)
++    {
++        int count = n_plp[0];
++        if (count > m->m_plp[0])
++        {
++            int capacity = m->m_plp[0] ? m->m_plp[0] : 8;
++            while (capacity < count) capacity <<= 1;
++            m->plp[0] = (bam_pileup1_t*) realloc(m->plp[0], sizeof(bam_pileup1_t) * capacity);
++            m->m_plp[0] = capacity;
++        }
++        if (count) memcpy(m->plp[0], plp[0], sizeof(bam_pileup1_t) * count);
++        m->n_plp[0] = count;
++        return;
++    }
+     for (i = 0; i < n; ++i) // iterate over all bams
+     {
+         for (j = 0; j < n_plp[i]; ++j)  // iterate over all reads available at this position
