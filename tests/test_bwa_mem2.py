@@ -13,8 +13,10 @@ GB = 1024**3
 
 
 def _reference(tmp_path, bases=1000, index=False):
+    # These tests read reference metadata, not sequence. Model large genomes in
+    # the .fai without allocating or writing gigabytes of dummy bases.
     ref = tmp_path / "ref.fa"
-    ref.write_text(">chr1\n" + "A" * bases + "\n")
+    ref.write_text(">chr1\nA\n")
     (tmp_path / "ref.fa.fai").write_text(f"chr1\t{bases}\t6\t{bases}\t{bases + 1}\n")
     if index:
         for suffix in bwa_mem2.INDEX_SUFFIXES:
