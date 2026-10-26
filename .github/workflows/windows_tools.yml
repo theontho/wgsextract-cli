@@ -15,7 +15,7 @@ jobs:
       max-parallel: 3
       matrix:
         recipe: [bcftools, samtools]
-        compiler: [gcc-original-inlineall-lto]
+        compiler: [gcc-seqpack-deflate-inlineall-lto]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up MSYS2 UCRT64
@@ -32,7 +32,31 @@ jobs:
           if [ '${{ matrix.compiler }}' = clang ]; then
             pacman -S --needed --noconfirm --noprogressbar mingw-w64-ucrt-x86_64-clang
           fi
+          if [[ '${{ matrix.compiler }}' == *deflate* ]]; then
+            pacman -S --needed --noconfirm --noprogressbar mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja
+          fi
           pacman -Q > out/msys2-packages-used.txt
+      - name: Rebuild and test compression dependency
+        if: contains(matrix.compiler, 'deflate')
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 https://github.com/ebiggers/libdeflate/releases/download/v1.26/libdeflate-1.26.tar.gz --output out/libdeflate-1.26.tar.gz
+          printf '%s  %s\n' 125856d4656e0feab660f94842f835923410c9281fedbcee64598c918da42b5a out/libdeflate-1.26.tar.gz | sha256sum --check
+          tar -xzf out/libdeflate-1.26.tar.gz -C out
+          cmake -S out/libdeflate-1.26 -B out/libdeflate-build -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            '-DCMAKE_C_FLAGS_RELEASE=-O3 -DNDEBUG -march=x86-64-v2 -mtune=generic -flto -minline-stringops-dynamically -minline-all-stringops' \
+            -DCMAKE_AR="$(cygpath -m /ucrt64/bin/gcc-ar.exe)" \
+            -DCMAKE_RANLIB="$(cygpath -m /ucrt64/bin/gcc-ranlib.exe)" \
+            -DCMAKE_EXE_LINKER_FLAGS=-static \
+            -DCMAKE_INSTALL_PREFIX="$(cygpath -m "$PWD/out/libdeflate-prefix")" \
+            -DLIBDEFLATE_BUILD_SHARED_LIB=OFF -DLIBDEFLATE_BUILD_STATIC_LIB=ON \
+            -DLIBDEFLATE_BUILD_GZIP=OFF -DLIBDEFLATE_BUILD_TESTS=ON
+          cmake --build out/libdeflate-build --parallel 4
+          ctest --test-dir out/libdeflate-build --output-on-failure --no-tests=error --parallel 2 | tee out/libdeflate-tests.log
+          cmake --install out/libdeflate-build
+          install -Dm644 out/libdeflate-1.26/COPYING out/libdeflate-prefix/share/licenses/libdeflate/COPYING
       - name: Set up Pixi
         uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
         with:
@@ -63,6 +87,11 @@ jobs:
               }
               [IO.File]::WriteAllText($recipeYaml, $yaml, [Text.UTF8Encoding]::new($false))
           }
+          if ('${{ matrix.compiler }}'.Contains('deflate')) {
+              $prefix = ([IO.Path]::GetFullPath('out/libdeflate-prefix')).Replace('\', '/')
+              $content = $content.Replace('STATIC_LDFLAGS="-static"', 'STATIC_LDFLAGS="-static -L' + $prefix + '/lib -Wl,--trace"')
+              $content = $content.Replace('OPT="-O3 ', 'OPT="-I' + $prefix + '/include -O3 ')
+          }
           if ('${{ matrix.compiler }}' -eq 'clang') {
               $content = $content.Replace('./configure --disable', './configure CC=clang --disable')
               $recipeScript = 'packaging/windows/recipes/${{ matrix.recipe }}/build.sh'
@@ -77,4 +106,5 @@ jobs:
           path: |
             out/conda/win-64/*.conda
             out/msys2-packages-used.txt
+            out/libdeflate-tests.log
           if-no-files-found: error
