@@ -160,7 +160,9 @@ def cmd_snp(args: argparse.Namespace) -> None:
     region_args = ["-r", args.region] if args.region else []
     ploidy_args = _ploidy_args(args, lib)
 
-    with sex_samples_args(args.input, outdir, ploidy_args) as sex_args:
+    with sex_samples_args(
+        args.input, outdir, ploidy_args, region=args.region
+    ) as sex_args:
         run_pipeline(
             [
                 ["bcftools", "mpileup", "-B", "-I", "-C", "50", "-f", ref, "-Ou"]
@@ -189,7 +191,9 @@ def cmd_indel(args: argparse.Namespace) -> None:
     region_args = ["-r", args.region] if args.region else []
     ploidy_args = _ploidy_args(args, lib)
 
-    with sex_samples_args(args.input, outdir, ploidy_args) as sex_args:
+    with sex_samples_args(
+        args.input, outdir, ploidy_args, region=args.region
+    ) as sex_args:
         run_pipeline(
             [
                 ["bcftools", "mpileup", "-B", "-C", "50", "-f", ref, "-Ou"]

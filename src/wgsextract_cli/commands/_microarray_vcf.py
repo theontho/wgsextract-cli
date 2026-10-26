@@ -209,15 +209,17 @@ def _prepare_microarray_vcf(
     threads: str,
     start_vcf: float,
     out_vcf: str,
+    input_chroms: list[str] | None = None,
 ) -> tuple[str, str]:
     original_ref_vcf_tab = ref_vcf_tab
 
     try:
-        if is_vcf:
-            ensure_vcf_indexed(args.input)
-            input_chroms = vcf_index_chromosomes(args.input)
-        else:
-            input_chroms = _alignment_chromosomes(args.input, ref_fasta)
+        if input_chroms is None:
+            if is_vcf:
+                ensure_vcf_indexed(args.input)
+                input_chroms = vcf_index_chromosomes(args.input)
+            else:
+                input_chroms = _alignment_chromosomes(args.input, ref_fasta)
 
         if input_chroms:
             ref_vcf_tab = _prepare_vcf_target_tab_for_input(

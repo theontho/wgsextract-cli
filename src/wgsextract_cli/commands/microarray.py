@@ -1,5 +1,6 @@
 import argparse
 import logging
+import subprocess
 import time
 from pathlib import Path
 
@@ -34,6 +35,8 @@ from ._microarray_combined import (
     _write_microarray_combined_kit,
 )
 from ._microarray_vcf import (
+    _alignment_chromosomes,
+    _normalize_region_args_for_input,
     _prepare_microarray_vcf,
 )
 
@@ -231,6 +234,15 @@ def run(args: argparse.Namespace) -> None:
         warn_about_alignment(args.input, ref_fasta)
 
     region_args = ["-r", args.region] if args.region else []
+    input_chroms = None
+    if args.region and not is_vcf:
+        # Custom ploidy rows must be matched against the same chromosome name
+        # used for calling, including a chr20 <-> 20 input alias.
+        try:
+            input_chroms = _alignment_chromosomes(args.input, ref_fasta)
+            region_args = _normalize_region_args_for_input(region_args, input_chroms)
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+            raise WGSExtractError(f"Microarray target normalization failed: {e}") from e
 
     # Without a ploidy file, use the build's predefined ploidy; for an unknown
     # build fall back to all-diploid (never haploid autosomes).
@@ -246,7 +258,12 @@ def run(args: argparse.Namespace) -> None:
 
     start_vcf = time.time()
 
-    with sex_samples_args(args.input, outdir, ploidy_args) as sex_args:
+    with sex_samples_args(
+        args.input,
+        outdir,
+        ploidy_args,
+        region=region_args[1] if region_args else None,
+    ) as sex_args:
         out_vcf, ref_vcf_tab = _prepare_microarray_vcf(
             args=args,
             outdir=outdir,
@@ -259,6 +276,7 @@ def run(args: argparse.Namespace) -> None:
             threads=threads,
             start_vcf=start_vcf,
             out_vcf=out_vcf,
+            input_chroms=input_chroms,
         )
     combined_kit_txt = _write_microarray_combined_kit(
         args=args,
