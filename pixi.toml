@@ -85,7 +85,7 @@ haplogrep = ">=2.4,<3"
 # `python packaging/windows/pin.py <tag>`, then `pixi lock`.
 # windows-tools-begin
 bcftools = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-3/bcftools-1.24-wgse_1.conda", sha256 = "3069be33a4653211ae12ea109d103fa2eee8fff589718a21db0de59ba4272fc4" }
-bwa = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-3/bwa-0.7.19-wgse_1.conda", sha256 = "e568b827c5c37bc0a7ec8dbcba7812f61f100875d70d623e6f9530a2fc1a55ed" }
+bwa = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-4/bwa-0.7.19-wgse_2.conda", sha256 = "2726f14fa5f229629bce01e3c6c600c8d5daedf8a8c4d26aeeb298c33cd117fb" }
 bwa-mem2 = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-3/bwa-mem2-2.3-wgse_1.conda", sha256 = "ed33b6af264ae0ea56dd628f501a5282e88347752a42630d030f76dbc30e9890" }
 fastp = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-3/fastp-1.4.0-wgse_1.conda", sha256 = "42849b9e13cdc7dc346c6f6268836436ad500e576a9b316804742a560df797da" }
 htslib = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-3/htslib-1.24-wgse_1.conda", sha256 = "20a8515d9d1e5454deec9cd957a3d11cc40c18e899e59428714e56c2071804ca" }

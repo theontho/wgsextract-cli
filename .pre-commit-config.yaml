@@ -4,8 +4,10 @@ repos:
     hooks:
       - id: trailing-whitespace
         # Vendor headers are copied verbatim, trailing spaces included.
-        exclude: ^src/wgsextract_cli/assets/microarray/raw_file_templates/head/
+        exclude: ^src/wgsextract_cli/assets/microarray/raw_file_templates/head/|^packaging/windows/recipes/.*\.patch$
       - id: end-of-file-fixer
+        # Upstream patch context must retain its exact whitespace and line endings.
+        exclude: ^packaging/windows/recipes/.*\.patch$
       - id: check-yaml
       - id: check-added-large-files
         # A shipped microarray template (4.5 MB gzipped); see its README.
