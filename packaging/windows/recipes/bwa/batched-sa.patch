@@ -1,0 +1,119 @@
+diff --git i/bwamem.c w/bwamem.c
+index c83426a..27e6ee9 100644
+--- i/bwamem.c
++++ w/bwamem.c
+@@ -118,6 +118,7 @@ KSORT_INIT(mem_intv, bwtintv_t, intv_lt)
+ 
+ typedef struct {
+ 	bwtintv_v mem, mem1, *tmpv[2];
++	kvec_t(bwtint_t) sa;
+ } smem_aux_t;
+ 
+ static smem_aux_t *smem_aux_init()
+@@ -134,6 +135,7 @@ static void smem_aux_destroy(smem_aux_t *a)
+ 	free(a->tmpv[0]->a); free(a->tmpv[0]);
+ 	free(a->tmpv[1]->a); free(a->tmpv[1]);
+ 	free(a->mem.a); free(a->mem1.a);
++	free(a->sa.a);
+ 	free(a);
+ }
+ 
+@@ -277,6 +279,7 @@ void mem_print_chain(const bntseq_t *bns, mem_chain_v *chn)
+ mem_chain_v mem_chain(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, int len, const uint8_t *seq, void *buf)
+ {
+ 	int i, b, e, l_rep;
++	size_t sa_index = 0;
+ 	int64_t l_pac = bns->l_pac;
+ 	mem_chain_v chain;
+ 	kbtree_t(chn) *tree;
+@@ -288,6 +291,15 @@ mem_chain_v mem_chain(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bn
+ 
+ 	aux = buf? (smem_aux_t*)buf : smem_aux_init();
+ 	mem_collect_intv(opt, bwt, len, seq, aux);
++	aux->sa.n = 0;
++	for (i = 0; i < aux->mem.n; ++i) {
++		bwtintv_t *p = &aux->mem.a[i];
++		int count, step = p->x[2] > opt->max_occ? p->x[2] / opt->max_occ : 1;
++		int64_t k;
++		for (k = count = 0; k < p->x[2] && count < opt->max_occ; k += step, ++count)
++			kv_push(bwtint_t, aux->sa, p->x[0] + k);
++	}
++	bwt_sa_many(bwt, aux->sa.n, aux->sa.a);
+ 	for (i = 0, b = e = l_rep = 0; i < aux->mem.n; ++i) { // compute frac_rep
+ 		bwtintv_t *p = &aux->mem.a[i];
+ 		int sb = (p->info>>32), se = (uint32_t)p->info;
+@@ -306,7 +318,7 @@ mem_chain_v mem_chain(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bn
+ 			mem_chain_t tmp, *lower, *upper;
+ 			mem_seed_t s;
+ 			int rid, to_add = 0;
+-			s.rbeg = tmp.pos = bwt_sa(bwt, p->x[0] + k); // this is the base coordinate in the forward-reverse reference
++			s.rbeg = tmp.pos = aux->sa.a[sa_index++]; // same seed order as the scalar lookups
+ 			s.qbeg = p->info>>32;
+ 			s.score= s.len = slen;
+ 			rid = bns_intv2rid(bns, s.rbeg, s.rbeg + s.len);
+diff --git i/bwt.c w/bwt.c
+index 9083654..339e85e 100644
+--- i/bwt.c
++++ w/bwt.c
+@@ -95,6 +95,41 @@ bwtint_t bwt_sa(const bwt_t *bwt, bwtint_t k)
+ 	return sa + bwt->sa[k/bwt->sa_intv];
+ }
+ 
++/* Resolve independent suffix-array walks together, retaining their input order. */
++void bwt_sa_many(const bwt_t *bwt, size_t n, bwtint_t *positions)
++{
++	struct { bwtint_t k, steps; size_t out; int active; } lane[4] = {{0}};
++	bwtint_t mask = bwt->sa_intv - 1;
++	size_t next = 0, done = 0;
++	int i;
++	if (n == 1) { positions[0] = bwt_sa(bwt, positions[0]); return; }
++	while (done < n) {
++		for (i = 0; i < 4; ++i) {
++			if (!lane[i].active && next < n) {
++				lane[i].k = positions[next];
++				lane[i].steps = 0;
++				lane[i].out = next++;
++				lane[i].active = 1;
++			}
++			if (lane[i].active && !(lane[i].k & mask)) {
++				positions[lane[i].out] = lane[i].steps + bwt->sa[lane[i].k / bwt->sa_intv];
++				lane[i].active = 0;
++				++done;
++			}
++		}
++#if defined(__GNUC__) || defined(__clang__)
++		for (i = 0; i < 4; ++i)
++			if (lane[i].active && lane[i].k != bwt->primary)
++				__builtin_prefetch(bwt_occ_intv(bwt, lane[i].k - (lane[i].k > bwt->primary)), 0, 3);
++#endif
++		for (i = 0; i < 4; ++i) {
++			if (!lane[i].active) continue;
++			++lane[i].steps;
++			lane[i].k = bwt_invPsi(bwt, lane[i].k);
++		}
++	}
++}
++
+ static inline int __occ_aux(uint64_t y, int c)
+ {
+ 	// reduce nucleotide counting to bits counting
+diff --git i/bwt.h w/bwt.h
+index daba87f..ddb43d0 100644
+--- i/bwt.h
++++ w/bwt.h
+@@ -32,6 +32,7 @@
+ 
+ #include <stdint.h>
+ #include <stddef.h>
++#include <stddef.h>
+ 
+ // requirement: (OCC_INTERVAL%16 == 0); please DO NOT change this line because some part of the code assume OCC_INTERVAL=0x80
+ #define OCC_INTV_SHIFT 7
+@@ -102,6 +103,7 @@ extern "C" {
+ 	bwtint_t bwt_occ(const bwt_t *bwt, bwtint_t k, ubyte_t c);
+ 	void bwt_occ4(const bwt_t *bwt, bwtint_t k, bwtint_t cnt[4]);
+ 	bwtint_t bwt_sa(const bwt_t *bwt, bwtint_t k);
++	void bwt_sa_many(const bwt_t *bwt, size_t n, bwtint_t *positions);
+ 
+ 	// more efficient version of bwt_occ/bwt_occ4 for retrieving two close Occ values
+ 	void bwt_gen_cnt_table(bwt_t *bwt);

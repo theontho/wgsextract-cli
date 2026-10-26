@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       max-parallel: 3
       matrix:
-        variant: [clang-prefetch]
+        variant: [batched-sa]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up MSYS2 UCRT64
@@ -52,15 +52,18 @@ jobs:
               'prefetch' { '' }
               'clang' { '' }
               'clang-prefetch' { '' }
+              'batched-sa' { '' }
           }
           $recipe = 'packaging/windows/recipes/bwa/build.sh'
           $script = [IO.File]::ReadAllText($recipe)
           if ($flags) { $script = $script.Replace('CFLAGS="$OPT ', 'CFLAGS="$OPT ' + $flags + ' ') }
           $script = $script.Replace('CC=gcc', 'CC=gcc AR=gcc-ar')
           if ($variant -like 'clang*') { $script = $script.Replace('CC=gcc AR=gcc-ar', 'CC=clang AR=gcc-ar') }
-          if ($variant -match 'prefetch') {
+          if ($variant -match 'prefetch' -or $variant -eq 'batched-sa') {
               $metadata = 'packaging/windows/recipes/bwa/recipe.yaml'
-              $source = [IO.File]::ReadAllText($metadata).Replace('    - patches/0001-windows-native-build.patch', '    - patches/0001-windows-native-build.patch' + "`n    - prefetch.patch")
+              $extra = "`n    - prefetch.patch"
+              if ($variant -eq 'batched-sa') { $extra += "`n    - batched-sa.patch" }
+              $source = [IO.File]::ReadAllText($metadata).Replace('    - patches/0001-windows-native-build.patch', '    - patches/0001-windows-native-build.patch' + $extra)
               [IO.File]::WriteAllText($metadata, $source, [Text.UTF8Encoding]::new($false))
           }
           [IO.File]::WriteAllText($recipe, $script, [Text.UTF8Encoding]::new($false))
