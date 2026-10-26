@@ -99,6 +99,27 @@ int main(int argc, char **argv) {
         cram_free_block(b);
         return retired[0]; /* Expected ASan use-after-poison in a separate run. */
     }
+    if (argc == 2 && strcmp(argv[1], "--bounds-probe") == 0) {
+        size_t length = 1048576;
+        struct libdeflate_compressor *c = libdeflate_alloc_compressor(1);
+        CHECK(c);
+        void *raw = calloc(length, 1);
+        size_t bound = libdeflate_gzip_compress_bound(c, length);
+        void *compressed = malloc(bound);
+        CHECK(raw && compressed);
+        size_t compressed_size = libdeflate_gzip_compress(c, raw, length,
+                                                        compressed, bound);
+        CHECK(compressed_size);
+        cram_block *b = cram_new_block(EXTERNAL, 17);
+        CHECK(b);
+        b->data = malloc(3 * length);
+        CHECK(b->data);
+        cram_free_block(b);
+        char *out = zlib_mem_inflate(compressed, compressed_size, &length);
+        CHECK(out && length == 1048576);
+        volatile unsigned char *past_end = (unsigned char *)out + length;
+        return past_end[0]; /* Cached capacity must not hide a logical overrun. */
+    }
 #else
     (void)argc; (void)argv;
 #endif
