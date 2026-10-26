@@ -138,6 +138,12 @@ Notes on a few commands:
 - `vcf sv` and `vcf cnv` use Delly 2 (`delly sr` / `delly cnv`), which needs no mappability map; `vcf cnv --map` is accepted but ignored.
 - `lineage y-haplogroup` writes Yleaf output to `<outdir>/yleaf/`, because Yleaf clears its output folder.
 - `pet-align` writes next to the R1 FASTQ unless `--outdir` is given.
+- Ultima Genomics (UG 100) reads, as in MyHeritage's and Nebula/DNA360's WGS, are single-end (~300 bp) and err mostly in homopolymer lengths. Each read carries flow-space probabilities in `tp`/`t0` tags, and its read group has `PL:ULTIMA` and the flow order (`FO`). WGS Extract recognizes them from the read group (or `--platform ultima`, needed for FASTQs, whose names SRA replaces) and:
+  - `align`/`realign` use BWA-MEM (`-Y`), as Ultima's and Broad's pipelines do. `tp`/`t0` stay attached to each read: they are reversed for reads that change strand, because `samtools reset` doesn't. Read groups (flow order) are kept. `realign` streams the BAM/CRAM into BWA without writing FASTQs.
+  - Duplicates are marked with GATK's `MarkDuplicates --FLOW_MODE`, which needs a single-end read's start and end to match. Without GATK, `samtools markdup` (start only) is used and the command warns. `--gpu` is refused: Parabricks keeps no flow tags.
+  - `vcf snp`/`indel` use bcftools' Ultima profile (`mpileup -X ultima`) and `bcftools call`'s default prior instead of `-P 0`, which more than halved indel precision on Ultima reads. bcftools still calls many false indels in homopolymers, so prefer DeepVariant (see the accuracy table). `vcf gatk` calls with `--flow-mode ADVANCED`, and `vcf deepvariant` with the `ULTIMA` model, from Google's experimental `google/deepvariant:gh1100-ultima` image (`deepvariant_ultima_image` in `config.toml`). `vcf freebayes` warns that it has no homopolymer error model.
+  - `bam to-ubam` keeps `tp`, `t0`, `tm`, `rq` and `a3`, in read orientation.
+  - Low-pass Ultima WGS (MyHeritage's is about 2x) is too shallow for reliable genotypes without imputation, which WGS Extract doesn't do.
 - `vcf sv` uses Delly by default and pbsv/Sniffles with `--pacbio`; an explicit `--caller` is always respected, and `--pacbio --caller delly` is rejected.
 - `vep download --mirror` accepts `uk` (default) or `ebi`.
 
@@ -173,7 +179,7 @@ With an NVIDIA GPU, `--gpu` runs the slow steps with [NVIDIA Parabricks](https:/
 | :--- | :--- |
 | `align`, `realign` (short reads) | BWA-MEM, sorting and duplicate marking (`pbrun fq2bam`), with the same index, `.alt` file and read group as `--aligner bwa` |
 | `align`, `realign` (HiFi, ONT) | minimap2 (`map-hifi`, `map-ont`; `map-pbmm2` for `--aligner pbmm2`). PacBio CLR has no GPU preset |
-| `vcf deepvariant` | DeepVariant's WGS, WES and PACBIO models (not `--checkpoint` or the hybrid model) |
+| `vcf deepvariant` | DeepVariant's WGS, WES and PACBIO models (not `--checkpoint`, the hybrid model or Ultima reads, which `align`/`realign` also refuse with `--gpu`) |
 | `vcf gatk` | HaplotypeCaller |
 
 On an RTX 3090 (24 GB), a 30x genome aligns in 40-50 minutes, against 3.5-4 hours for BWA on that machine's 12 CPU threads. DeepVariant and HaplotypeCaller take about a minute for chr20.

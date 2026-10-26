@@ -8,6 +8,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from wgsextract_cli.core import ultima
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
@@ -117,6 +118,8 @@ def write_region_bed(region: str, lengths: dict[str, int], bed: str) -> None:
 def cmd_freebayes(args: argparse.Namespace) -> None:
     verify_dependencies(["freebayes", "bcftools", "tabix", "samtools"])
     _threads, outdir, ref, _lib = get_base_args(args)
+    if ultima.alignment_is_ultima(args.input):
+        ultima.warn_no_flow_model("FreeBayes")
 
     out_vcf = str(Path(outdir, "freebayes.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_freebayes"].format(output=out_vcf))
@@ -158,6 +161,8 @@ def _gatk_gpu(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools", "tabix"])
     verify_parabricks()
     _threads, outdir, ref, _lib = get_base_args(args)
+    if ultima.alignment_is_ultima(args.input):
+        ultima.warn_no_flow_model("Parabricks HaplotypeCaller (--gpu)")
     out_vcf = str(Path(outdir, "gatk.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_gatk"].format(output=out_vcf))
     call_variants("haplotypecaller", args.input, ref, out_vcf, args.region)
@@ -173,6 +178,13 @@ def cmd_gatk(args: argparse.Namespace) -> None:
     _threads, outdir, ref, lib = get_base_args(args)
 
     out_vcf = str(Path(outdir, "gatk.vcf.gz"))
+    # Ultima's own pipeline calls with the flow-based likelihood model.
+    flow_args = []
+    if ultima.alignment_flow_data(args.input, ref).flow_aware:
+        logging.info(
+            "Ultima reads: calling in GATK's flow mode (--flow-mode ADVANCED)."
+        )
+        flow_args = ["--flow-mode", "ADVANCED"]
 
     # GATK requires a .dict file
     if not lib.dict_file:
@@ -192,18 +204,22 @@ def cmd_gatk(args: argparse.Namespace) -> None:
 
     try:
         gatk_input, temp_gatk_input = _prepare_gatk_input(args, ref, outdir)
-        cmd = [
-            "gatk",
-            "HaplotypeCaller",
-            "-R",
-            ref,
-            "-I",
-            gatk_input,
-            "-O",
-            out_vcf,
-            "--tmp-dir",
-            gatk_tmp,
-        ] + region_args
+        cmd = (
+            [
+                "gatk",
+                "HaplotypeCaller",
+                "-R",
+                ref,
+                "-I",
+                gatk_input,
+                "-O",
+                out_vcf,
+                "--tmp-dir",
+                gatk_tmp,
+            ]
+            + flow_args
+            + region_args
+        )
         run_command(cmd)
         ensure_vcf_indexed(out_vcf)
         warn_if_no_variants(out_vcf, ref, args.region)

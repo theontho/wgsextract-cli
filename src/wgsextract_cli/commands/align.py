@@ -3,10 +3,12 @@ import logging
 import os
 import subprocess
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import NamedTuple
 
-from wgsextract_cli.core import bwa_mem2
+from wgsextract_cli.core import bwa_mem2, ultima
+from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -34,6 +36,7 @@ from wgsextract_cli.core.warnings import print_warning
 
 from ._extract_helpers import cleanup_files
 
+PLATFORMS = ["illumina", "dnbseq", "ultima", "pacbio", "hifi", "clr", "ont", "nanopore"]
 _PACBIO_PLATFORMS = {"pacbio", "hifi", "clr"}
 _LONG_READ_PLATFORMS = _PACBIO_PLATFORMS | {"ont", "nanopore"}
 # pbmm2-style preset names accepted by minimap2 under their minimap2 names.
@@ -72,9 +75,9 @@ def register(
     )
     parser.add_argument(
         "--platform",
-        choices=["illumina", "dnbseq", "pacbio", "hifi", "clr", "ont", "nanopore"],
-        default="illumina",
-        help="Sequencing platform; selects platform-specific alignment tooling.",
+        choices=PLATFORMS,
+        help="Sequencing platform; selects platform-specific alignment tooling "
+        "(default: ultima for a BAM/CRAM whose read group says so, else illumina).",
     )
     parser.add_argument(
         "--aligner",
@@ -98,10 +101,36 @@ def register(
     parser.set_defaults(func=run)
 
 
+def resolve_platform(args: argparse.Namespace, reads: str | None) -> str:
+    """--platform, else ultima when the reads are a BAM/CRAM with an Ultima read
+    group (FASTQ names don't say: SRA renumbers them), else illumina."""
+    if args.platform:
+        return str(args.platform)
+    if reads and reads.lower().endswith((".bam", ".cram")) and Path(reads).is_file():
+        if ultima.is_ultima_header(get_bam_header(reads)):
+            logging.info(f"{reads} is from an Ultima sequencer: aligning it as such.")
+            return "ultima"
+    return "illumina"
+
+
 def select_aligner(args: argparse.Namespace) -> str:
     """Resolve --aligner auto and reject nonsensical aligner/platform/preset combos."""
     long_read = args.long_read or args.platform in _LONG_READ_PLATFORMS
     aligner: str = args.aligner
+    if args.platform == "ultima":
+        if aligner not in ("auto", *_BWA_ALIGNERS) or long_read or args.preset:
+            raise WGSExtractError(
+                "Ultima reads align with BWA-MEM (--aligner auto, bwa or bwa-mem2), "
+                "as Ultima's and Broad's pipelines do."
+            )
+        if getattr(args, "gpu", False):
+            raise WGSExtractError(
+                "--gpu (Parabricks) doesn't keep Ultima's flow tags (tp, t0) or "
+                "mark flow-based duplicates; align Ultima reads without --gpu."
+            )
+        if getattr(args, "r2", None):
+            raise WGSExtractError("Ultima reads are single-end: drop --r2.")
+        return "bwa" if aligner == "auto" else aligner
     if aligner == "auto":
         if args.platform in _PACBIO_PLATFORMS and get_tool_path("pbmm2") is not None:
             aligner = "pbmm2"
@@ -149,7 +178,11 @@ _GPU_MINIMAP2_PRESETS = {"map-hifi": "map-hifi", "map-ont": "map-ont"}
 
 
 def run(args: argparse.Namespace) -> None:
+    args.platform = resolve_platform(args, args.r1)
     aligner = select_aligner(args)
+    if args.platform == "ultima":
+        align_ultima(args, args.r1)
+        return
     if getattr(args, "gpu", False):
         _run_gpu(args, aligner)
         return
@@ -330,7 +363,7 @@ def _sort_and_mark_stages(
 
 
 def run_streamed_alignment(
-    align_cmd: list[str],
+    align_cmd: Sequence[object],
     out_path: str,
     *,
     threads: str,
@@ -338,10 +371,12 @@ def run_streamed_alignment(
     fmt: str,
     ref: str,
     duplicates: str | None,
+    upstream: list[Sequence[object]] | None = None,
 ) -> None:
-    """Run the aligner, mark duplicates (with duplicate_marker's choice, or not
-    at all for long reads: None), sort, then index the output."""
-    stages = [align_cmd]
+    """Run the aligner (after any upstream stages feeding it), mark duplicates
+    (with duplicate_marker's choice, or not at all for long reads: None), sort,
+    then index the output."""
+    stages: list[Sequence[object]] = [*(upstream or []), list(align_cmd)]
     sort = get_sam_sort_cmd(
         out_path, threads, memory, fmt=fmt, reference=ref, sam_input=True
     )
@@ -371,6 +406,7 @@ _RG_PLATFORMS = {
     "clr": "PACBIO",
     "ont": "ONT",
     "nanopore": "ONT",
+    "ultima": ultima.PLATFORM,
 }
 
 
@@ -384,10 +420,11 @@ def read_group(args: argparse.Namespace, stem: str) -> str:
     return f"@RG\\tID:{stem}\\tSM:{sample}\\tLB:{sample}\\tPL:{platform}"
 
 
-def align_bwa(args: argparse.Namespace) -> None:
-    """BWA-MEM alignment with bwa or bwa-mem2 (short_read_aligner's choice)."""
+def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
+    """The alignment setup and bwa or bwa-mem2 (short_read_aligner's choice),
+    with the reference's index and ALT contig list in place."""
     tool = "bwa-mem2" if args.aligner == "bwa-mem2" else "bwa"
-    setup = _prepare_alignment(args, [tool, "samtools"], "BWA alignment")
+    setup = _prepare_alignment(args, [tool, "samtools"], task)
     tool = short_read_aligner(args.aligner, setup.ref)
     if tool == "bwa-mem2":
         bwa_mem2.ensure_index(setup.ref, download=False)
@@ -400,8 +437,13 @@ def align_bwa(args: argparse.Namespace) -> None:
     else:
         ensure_bwa_index(setup.ref)
     ensure_bwa_alt_file(setup.ref)
-
     print_warning("ButtonBWAAlign", threads=setup.threads)
+    return setup, tool
+
+
+def align_bwa(args: argparse.Namespace) -> None:
+    """BWA-MEM alignment with bwa or bwa-mem2 (short_read_aligner's choice)."""
+    setup, tool = _bwa_setup(args, "BWA alignment")
 
     ext = ".cram" if args.format == "CRAM" else ".bam"
     out_bam = str(Path(setup.outdir, f"{setup.stem}_aligned{ext}"))
@@ -423,6 +465,143 @@ def align_bwa(args: argparse.Namespace) -> None:
         )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"{tool} alignment failed: {e}") from e
+
+
+# Ultima's duplicate marking (Picard MarkDuplicates in flow mode, as in Ultima's
+# germline pipeline): single-end reads are duplicates only when both ends
+# match, a read trimmed at the adapter (its tm string has an A) having a known end.
+ULTIMA_DUPLICATE_ARGS = [
+    "--FLOW_MODE", "true",
+    "--FLOW_USE_END_IN_UNPAIRED_READS", "true",
+    "--FLOW_USE_UNPAIRED_CLIPPED_END", "true",
+    "--FLOW_UNPAIRED_END_UNCERTAINTY", "0",
+]  # fmt: skip
+
+
+def ultima_read_groups(header: str, args: argparse.Namespace, stem: str) -> list[str]:
+    """The @RG lines of an Ultima BAM/CRAM for the realigned output, which keeps
+    each read's RG: the flow order (FO) and max homopolymer class (mc) GATK
+    needs live there. Output flow tags are in reference orientation (tp:)."""
+    sample = getattr(args, "sample", None)
+    lines = []
+    for rg in ultima.read_groups(header):
+        rg.setdefault("SM", sample or pair_stem(stem))
+        if sample:
+            rg["SM"] = sample
+        rg.setdefault("PL", ultima.PLATFORM)
+        rg["tp"] = "reference"
+        lines.append("\t".join(["@RG", *(f"{k}:{v}" for k, v in rg.items())]))
+    return lines
+
+
+def align_ultima(
+    args: argparse.Namespace, reads: str, cram_opt: list[str] | None = None
+) -> None:
+    """Align Ultima reads (FASTQ, or a BAM/CRAM: unaligned from the sequencer,
+    or aligned, to realign) with BWA-MEM as Ultima's pipeline does. The flow
+    tags travel through the FASTQ comment (-C) in each read's own orientation;
+    -Y soft-clips supplementary alignments, so every record keeps the whole
+    read its tp/t0 arrays describe. Duplicates are marked in flow mode."""
+    setup, tool = _bwa_setup(args, "Ultima alignment")
+    ext = ".cram" if args.format == "CRAM" else ".bam"
+    out_path = str(Path(setup.outdir, f"{setup.stem}_aligned{ext}"))
+    logging.info(
+        LOG_MESSAGES["aligning_reads"].format(input=reads, output=out_path, tool=tool)
+    )
+    bwa = [tool, "mem", "-t", setup.threads, "-Y"]
+    with tempfile.TemporaryDirectory(dir=setup.outdir, prefix=".wgse_ug_") as tmp:
+        stages: list[Sequence[object]] = []
+        if reads.lower().endswith((".bam", ".cram")):
+            header = get_bam_header(reads, cram_opt)
+            tagged = True
+            rg_lines = ultima_read_groups(header, args, setup.stem)
+            tags = [*ultima.READ_TAGS, *(["RG"] if rg_lines else [])]
+            stages += [
+                ["samtools", "view", "-h", "--no-PG", "-F", "0x900"]
+                + [*(cram_opt or []), reads],
+                ultima.flow_tag_filter(),
+                ["samtools", "fastq", "-n", "-T", ",".join(tags), "-"],
+            ]
+            if rg_lines:
+                rg_file = Path(tmp, "read_groups.sam")
+                rg_file.write_text("\n".join(rg_lines) + "\n", newline="\n")
+                bwa += ["-H", str(rg_file)]
+            else:
+                bwa += ["-R", _ultima_read_group(args, setup.stem, tagged)]
+            bwa += ["-C", setup.ref, "-"]
+        else:
+            tagged = ultima.fastq_has_flow_tags(reads)
+            bwa += ["-R", _ultima_read_group(args, setup.stem, tagged)]
+            bwa += [*(["-C"] if tagged else []), setup.ref, reads]
+        if not tagged:
+            logging.info(
+                f"{reads} has no flow tags (tp, t0): variant callers will treat "
+                "its alignment as ordinary short reads."
+            )
+        stages.append(bwa)
+        if tagged:
+            stages.append(ultima.flow_tag_filter())
+        try:
+            _sort_and_mark_ultima(stages, out_path, setup, args.format, tmp)
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+            raise WGSExtractError(f"{tool} alignment failed: {e}") from e
+
+
+def _ultima_read_group(args: argparse.Namespace, stem: str, tagged: bool) -> str:
+    """read_group's line, plus the flow order GATK needs for tagged reads."""
+    rg = read_group(args, stem)
+    return rg + f"\\tFO:{ultima.DEFAULT_FLOW_ORDER}\\ttp:reference" if tagged else rg
+
+
+def _sort_and_mark_ultima(
+    stages: list[Sequence[object]],
+    out_path: str,
+    setup: _AlignSetup,
+    fmt: str,
+    tmp: str,
+) -> None:
+    """Sort the aligner's output, mark duplicates with Picard's flow mode (GATK),
+    or samtools markdup when GATK is missing, then index."""
+    if get_tool_path("gatk") is None:
+        logging.warning(
+            "GATK isn't installed, so duplicates are marked with samtools markdup, "
+            "by where reads start only. Ultima's flow mode also needs their ends "
+            "to match; install GATK (see `wgsextract deps`) for it."
+        )
+        run_streamed_alignment(
+            stages[-1],
+            out_path,
+            threads=setup.threads,
+            memory=setup.memory,
+            fmt=fmt,
+            ref=setup.ref,
+            duplicates="markdup",
+            upstream=stages[:-1],
+        )
+        return
+    sorted_bam = str(Path(tmp, "sorted.bam"))
+    marked = out_path if fmt == "BAM" else str(Path(tmp, "marked.bam"))
+    metrics = str(Path(setup.outdir, f"{setup.stem}_duplicate_metrics.txt"))
+    sort = get_sam_sort_cmd(
+        sorted_bam, setup.threads, setup.memory, sam_input=True, temp_dir=tmp
+    )
+    partial = [out_path, out_path + ".bai", out_path + ".crai"]
+    with cleanup_files(on_failure=partial):
+        run_pipeline([*stages, sort], description="Alignment")
+        logging.info("Marking duplicates in flow mode (GATK MarkDuplicates)...")
+        run_command(
+            ["gatk", "MarkDuplicates", "-I", sorted_bam, "-O", marked, "-M", metrics]
+            + ["--TMP_DIR", tmp, "--VALIDATION_STRINGENCY", "SILENT"]
+            + ULTIMA_DUPLICATE_ARGS
+        )
+        Path(sorted_bam).unlink(missing_ok=True)
+        if fmt == "CRAM":
+            run_command(
+                ["samtools", "view", "-C", "-@", setup.threads, "-T", setup.ref]
+                + ["-o", out_path, marked]
+            )
+        logging.info(LOG_MESSAGES["indexing_output"])
+        run_command(get_sam_index_cmd(out_path, threads=setup.threads))
 
 
 def _run_gpu(args: argparse.Namespace, aligner: str) -> None:

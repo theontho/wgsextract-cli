@@ -24,6 +24,12 @@ ASPERA_RESUME_PARTIAL = "1"
 COLLECTION_DIR = "test-1000genomes"
 
 
+GIAB_ULTIMA_ROOT = (
+    "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data_somatic/HG008/"
+    "Liss_lab/Ultima_UG100-WGS_20240530"
+)
+
+
 @dataclass(frozen=True)
 class ExampleFile:
     url_path: str
@@ -224,6 +230,48 @@ EXAMPLES = (
             ),
         ),
         tags=("1000g", "hgsvc2", "pacbio", "hifi", "bam"),
+    ),
+    GenomeExample(
+        example_id="giab-hg008t-ultima-fastq",
+        sample="HG008-T",
+        label="GIAB HG008-T Ultima UG 100 single-end FASTQ",
+        data_type="ultima-fastq",
+        size="one run, ~20x (~6.7 GB)",
+        description="Ultima Genomics UG 100 reads of GIAB's HG008 tumor cell line "
+        "(SRA SRR30784709), for `align --platform ultima`. SRA drops the flow "
+        "tags, so GATK and DeepVariant call its alignment as ordinary short reads.",
+        files=(
+            ExampleFile(
+                "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR307/009/SRR30784709/SRR30784709.fastq.gz",
+                "fastq_r1",
+                "https",
+            ),
+        ),
+        tags=("giab", "ultima", "fastq"),
+    ),
+    GenomeExample(
+        example_id="giab-hg008nd-ultima-cram",
+        sample="HG008-N-D",
+        label="GIAB HG008-N-D Ultima UG 100 CRAM (GRCh38, 234x)",
+        data_type="ultima-cram",
+        size="whole genome, very large (~251 GB)",
+        description="Ultima's own alignment of GIAB's HG008 normal tissue, with "
+        "its flow tags (tp, t0) and flow order, on GIAB's GRCh38 (its chr20 "
+        "matches hs38DH's). samtools can read regions of it over HTTPS, "
+        "without downloading it.",
+        files=(
+            ExampleFile(
+                f"{GIAB_ULTIMA_ROOT}/HG008-N-D_Ultima_234x_GRCh38-GIABv3.cram",
+                "alignment",
+                "https",
+            ),
+            ExampleFile(
+                f"{GIAB_ULTIMA_ROOT}/HG008-N-D_Ultima_234x_GRCh38-GIABv3.cram.crai",
+                "alignment_index",
+                "https",
+            ),
+        ),
+        tags=("giab", "ultima", "cram"),
     ),
 )
 

@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from wgsextract_cli.core import ultima
 from wgsextract_cli.core.alignment_health import warn_about_alignment
 from wgsextract_cli.core.builds import is_hg37_build, is_hg38_build, ploidy_for_build
 from wgsextract_cli.core.config import settings
@@ -156,6 +157,8 @@ def cmd_snp(args: argparse.Namespace) -> None:
     print_warning("ButtonSNPVCF", threads=threads)
 
     out_vcf = str(Path(outdir, "snps.vcf.gz"))
+    profile, prior = ultima.bcftools_options(args.input)
+    prior = ["-P", "0"] if prior is None else prior
     logging.info(LOG_MESSAGES["vcf_calling_snps"].format(output=out_vcf))
     region_args = ["-r", args.region] if args.region else []
     ploidy_args = _ploidy_args(args, lib)
@@ -165,13 +168,24 @@ def cmd_snp(args: argparse.Namespace) -> None:
     ) as sex_args:
         run_pipeline(
             [
-                ["bcftools", "mpileup", "-B", "-I", "-C", "50", "-f", ref, "-Ou"]
+                [
+                    "bcftools",
+                    "mpileup",
+                    *profile,
+                    "-B",
+                    "-I",
+                    "-C",
+                    "50",
+                    "-f",
+                    ref,
+                    "-Ou",
+                ]
                 + region_args
                 + [args.input],
                 ["bcftools", "call"]
                 + ploidy_args
                 + sex_args
-                + ["-V", "indels", "-v", "-m", "-P", "0", "--threads", threads]
+                + ["-V", "indels", "-v", "-m", *prior, "--threads", threads]
                 + ["-Oz", "-o", out_vcf],
             ],
             description="SNP variant calling",
@@ -187,6 +201,8 @@ def cmd_indel(args: argparse.Namespace) -> None:
     print_warning("ButtonInDelVCF", threads=threads)
 
     out_vcf = str(Path(outdir, "indels.vcf.gz"))
+    profile, prior = ultima.bcftools_options(args.input)
+    prior = ["-P", "0"] if prior is None else prior
     logging.info(LOG_MESSAGES["vcf_calling_indels"].format(output=out_vcf))
     region_args = ["-r", args.region] if args.region else []
     ploidy_args = _ploidy_args(args, lib)
@@ -196,13 +212,13 @@ def cmd_indel(args: argparse.Namespace) -> None:
     ) as sex_args:
         run_pipeline(
             [
-                ["bcftools", "mpileup", "-B", "-C", "50", "-f", ref, "-Ou"]
+                ["bcftools", "mpileup", *profile, "-B", "-C", "50", "-f", ref, "-Ou"]
                 + region_args
                 + [args.input],
                 ["bcftools", "call"]
                 + ploidy_args
                 + sex_args
-                + ["-V", "snps", "-v", "-m", "-P", "0", "--threads", threads, "-Ou"],
+                + ["-V", "snps", "-v", "-m", *prior, "--threads", threads, "-Ou"],
                 ["bcftools", "norm", "-f", ref, "--threads", threads]
                 + ["-Oz", "-o", out_vcf],
             ],

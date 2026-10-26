@@ -157,7 +157,7 @@ Raw reads are closest to the sequencer output. They preserve information before 
 
 If you plan to compare outputs with third-party services, choose the reference build intentionally. Aligning to hg38 and then trying to use hg19-specific annotations or SNP chip positions can produce confusing results unless you lift over or regenerate the appropriate files.
 
-An explicit `--aligner` is always used as given, and combinations that make no sense (for example `--aligner bwa` with a PacBio platform) are rejected rather than silently changed. minimap2 accepts the PacBio preset names `ccs` and `subread`, mapped to `map-hifi` and `map-pb`. `realign` checks free disk space before starting and reuses previously extracted FASTQs when they exist.
+An explicit `--aligner` is always used as given, and combinations that make no sense (for example `--aligner bwa` with a PacBio platform) are rejected rather than silently changed. minimap2 accepts the PacBio preset names `ccs` and `subread`, mapped to `map-hifi` and `map-pb`. `realign` checks free disk space before starting and reuses previously extracted FASTQs when they exist. Ultima Genomics BAM/CRAMs (`PL:ULTIMA`) are recognized and aligned with BWA-MEM, keeping their flow tags (`tp`, `t0`) attached and correctly oriented, with duplicates marked in GATK's flow mode; the variant callers then use their Ultima models (bcftools `-X ultima`, GATK `--flow-mode`, DeepVariant `ULTIMA`).
 :::
 
 ::: code-panel title=fastq-to-bam.sh subtitle="raw data path"
@@ -169,7 +169,10 @@ wgsextract align --r1 sample_fp_1.fastq.gz --r2 sample_fp_2.fastq.gz --ref /refs
 # Long reads: pick the platform; the aligner follows (pbmm2 or minimap2)
 wgsextract align --r1 sample.hifi.fastq.gz --platform hifi --ref /refs/hs38.fa
 
-# Re-align an existing BAM/CRAM to a different reference
+# Ultima Genomics reads (single-end FASTQ): flow-aware alignment and duplicates
+wgsextract align --r1 sample.ultima.fastq.gz --platform ultima --ref /refs/hs38.fa
+
+# Re-align an existing BAM/CRAM to a different reference (Ultima detected from its read group)
 wgsextract --input sample.hg19.bam --ref /refs/hs38.fa realign
 ```
 :::
