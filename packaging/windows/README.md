@@ -44,6 +44,13 @@ input, using real reads against the full hs38DH reference: bwa, bwa-mem2
 (including its index), minimap2, samblaster, fastp, and the `align`, `vcf snp`,
 `bam unalign` and `microarray` workflows give identical results.
 
+The native BWA build also batches independent suffix-array lookups to overlap
+memory reads through the large human index. It retains the original seed
+selection and chaining order, reusing one scratch vector per worker. Its native
+test compares every position with the scalar lookup across sampling intervals,
+input orders and batch boundaries. The full-reference alignment benchmarks use
+the same thread and sort-memory settings and verify identical decoded output.
+
 ## Building
 
 The [Windows Tools](../../.github/workflows/windows_tools.yml) workflow builds

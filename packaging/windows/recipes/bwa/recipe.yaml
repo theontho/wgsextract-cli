@@ -12,9 +12,10 @@ source:
     # 64-bit file offsets (a human .bwt is >2 GB and Windows' long is 32-bit),
     # no POSIX pipes, sockets or shared memory, and size_t log formats.
     - patches/0001-windows-native-build.patch
+    - patches/0002-batched-suffix-array-lookups.patch
 
 build:
-  number: 1
+  number: 2
   string: wgse_${{ build_number }}
   script:
     # MSYS2 UCRT64 builds it (see ../env.sh); MSYS2_ROOT says where it is.
