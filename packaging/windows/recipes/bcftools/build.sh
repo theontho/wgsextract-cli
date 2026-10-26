@@ -15,7 +15,7 @@ make -j"$JOBS" AR=gcc-ar bcftools
 # Check the actual patched grouping function against the release's original,
 # including multisample fallback and sample selection, before packaging it.
 mkdir -p .wgse
-patch --batch --reverse -p1 --output=.wgse/original-mpileup.c \
+/usr/bin/patch --batch --reverse -p1 --output=.wgse/original-mpileup.c \
     < "$(cygpath -u "$RECIPE_DIR")/patches/0004-bulk-copy-single-sample.patch"
 for version in original candidate; do
     source_file=mpileup.c
