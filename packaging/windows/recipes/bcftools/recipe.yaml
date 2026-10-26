@@ -8,9 +8,13 @@ package:
 source:
   url: https://github.com/samtools/bcftools/releases/download/${{ version }}/bcftools-${{ version }}.tar.bz2
   sha256: 8caddc22610ee2851666047c859bb91da0c1e32d0c2ec553db6f153ad130e46f
+  patches:
+    - patches/0001-bounded-cram-stop-copy.patch
+    - patches/0002-vector-bam-sequence-packing.patch
+    - patches/0003-reuse-cram-buffers.patch
 
 build:
-  number: 1
+  number: 2
   string: wgse_${{ build_number }}
   script:
     # MSYS2 UCRT64 builds it (see ../env.sh); MSYS2_ROOT says where it is.

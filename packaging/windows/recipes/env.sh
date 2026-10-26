@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Sourced by each recipe's build.sh: the MSYS2 UCRT64 toolchain and the flags
 # that make a static, self-contained Windows build of a Unix tool.
 set -euo pipefail
@@ -7,6 +8,8 @@ set -euo pipefail
 export MSYSTEM=UCRT64
 export PATH="/ucrt64/bin:/usr/bin:$PATH"
 
+# rattler-build supplies the package prefix.
+# shellcheck disable=SC2153
 PREFIX_U=$(cygpath -u "$PREFIX")
 BIN="$PREFIX_U/Library/bin"
 mkdir -p "$BIN"
@@ -21,6 +24,8 @@ gcc -O2 -Wall -D_FILE_OFFSET_BITS=64 -I"$COMPAT_INC" -c "$COMPAT/wgse_compat.c" 
 # Tools that need more pick it at run time (bwa-mem2 ships one binary per ISA).
 OPT="-O3 -march=x86-64-v2 -mtune=generic"
 # 64-bit off_t, and POSIX functions MinGW lacks.
+# Other recipes use these flags after sourcing this file.
+# shellcheck disable=SC2034
 COMPAT_CPPFLAGS="-I$COMPAT_INC -include wgse_compat.h -D_FILE_OFFSET_BITS=64"
 # Everything static (libgcc, libstdc++, winpthreads and the compression
 # libraries), so the .exe needs only Windows' own DLLs.
@@ -50,10 +55,27 @@ install_exe() {
 # and plugins are off: the CLI reads local files only.
 HTS_LIBS="-lsystre -ltre -lintl -liconv $COMPAT_LIBS"
 build_htslib() {
+    # Keep these measured flags scoped to HTS tools; other recipes retain OPT.
+    OPT="$OPT -flto -minline-stringops-dynamically -minline-all-stringops"
     (
         cd "$1"
         ./configure --disable-libcurl --disable-gcs --disable-s3 --disable-plugins \
             CFLAGS="$OPT" LDFLAGS="$STATIC_LDFLAGS" LIBS="$HTS_LIBS"
-        make -j"$JOBS" lib-static
+        make -j"$JOBS" AR=gcc-ar lib-static htslib_static.mk
+        cat > .wgse-cram-stop.mk <<'MAKEFILE'
+include htslib_static.mk
+.PHONY: codec-test
+codec-test:
+	$(CC) $(CFLAGS) -I. "$(CODEC_TEST)" $(HTSLIB_static_LDFLAGS) libhts.a $(HTSLIB_static_LIBS) $(CODEC_LIBS) -o .wgse-cram-stop.exe
+	./.wgse-cram-stop.exe
+	$(CC) $(CFLAGS) -I. "$(SEQ_TEST)" $(HTSLIB_static_LDFLAGS) libhts.a $(HTSLIB_static_LIBS) $(CODEC_LIBS) -o .wgse-bam-seq.exe
+	./.wgse-bam-seq.exe
+	$(CC) $(CFLAGS) -I. "$(BUFFER_TEST)" $(HTSLIB_static_LDFLAGS) libhts.a $(HTSLIB_static_LIBS) $(CODEC_LIBS) -o .wgse-cram-buffers.exe
+	./.wgse-cram-buffers.exe
+MAKEFILE
+        make -f .wgse-cram-stop.mk codec-test CC=gcc CFLAGS="$OPT $STATIC_LDFLAGS" \
+            CODEC_TEST="$(cygpath -u "$RECIPE_DIR")/../../tests/cram_stop.c" \
+            SEQ_TEST="$(cygpath -u "$RECIPE_DIR")/../../tests/bam_seq.c" \
+            BUFFER_TEST="$(cygpath -u "$RECIPE_DIR")/../../tests/cram_buffers.c" CODEC_LIBS="$HTS_LIBS"
     )
 }
