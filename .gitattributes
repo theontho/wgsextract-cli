@@ -9,4 +9,4 @@
 *.cmd text eol=crlf
 
 # Patches for upstream sources keep their exact bytes (some upstream files are CRLF).
-packaging/windows/recipes/**/*.patch -text
+packaging/windows/recipes/**/*.patch -text -whitespace
