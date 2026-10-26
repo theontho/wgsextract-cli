@@ -66,8 +66,9 @@ def test_23andme_writes_the_header_then_the_template_markers_in_order(tmp_path):
 
     out = _convert(tmp_path, "23andMe_V3", ".txt", head, body)
 
+    # 23andMe writes MT and Y calls as one letter.
     assert out == head + (
-        "rsMT\tMT\t7000\tCC\nrs2\t1\t2000\tCT\nrsGone\t1\t9999\t--\nrsY\tY\t6000\tTT\n"
+        "rsMT\tMT\t7000\tC\nrs2\t1\t2000\tCT\nrsGone\t1\t9999\t--\nrsY\tY\t6000\tT\n"
     )
 
 
@@ -237,7 +238,7 @@ def test_vendor_files_are_named_after_the_input_and_template(tmp_path):
         "sample_FTDNA_V2.csv",
     ]
     assert (outdir / "sample_23andMe_V5.txt").read_text() == (
-        "# h\nrs1\t1\t1000\tAC\nrsMT\tMT\t7000\tCC\n"
+        "# h\nrs1\t1\t1000\tAC\nrsMT\tMT\t7000\tC\n"
     )
 
 
@@ -338,4 +339,90 @@ def test_liftover_complements_genotypes_in_inverted_regions(tmp_path):
     lifted = _lift(tmp_path, [("rsInv", "1", "1", "AC")], chain)
 
     # hg38 chr1:1 is the last base of hg19's reverse-strand block: chr1:10000.
-    assert lifted == [["rsInv", "1", "10000", "TG"]]
+    # AC complements to TG, written in alphabetical order.
+    assert lifted == [["rsInv", "1", "10000", "GT"]]
+
+
+# --- 23andMe haploid calls, line endings, template fixes ----------------------
+
+
+def _x_kit(path: Path, het_every: int) -> str:
+    """A kit with 200 non-PAR chrX calls (every het_every-th heterozygous), a
+    PAR call, and an MT call."""
+    rows = [
+        (f"rsX{i}", "X", str(3_000_000 + i), "AG" if i % het_every == 0 else "GG")
+        for i in range(200)
+    ]
+    rows += [("rsPAR", "X", "60100", "CC"), ("rsMT", "MT", "7000", "TT")]
+    return _kit(path, rows)
+
+
+def _convert_x_kit(tmp_path: Path, het_every: int) -> dict[str, str]:
+    body = "rsX1\tX\t3000001\nrsX2\tX\t3000002\nrsPAR\tX\t60100\nrsMT\tMT\t7000\n"
+    root = _templates(tmp_path / "lib", "23andMe_V3.txt", "# h\n", body)
+    out = tmp_path / "out.txt"
+    kit = _x_kit(tmp_path / "kit.txt", het_every)
+    convert_to_vendor_format("23andMe_V3", kit, str(out), str(root))
+    return dict(line.split("\t")[::3] for line in out.read_text().splitlines()[1:])
+
+
+def test_23andme_writes_a_mans_x_outside_the_pars_as_one_letter(tmp_path):
+    calls = _convert_x_kit(tmp_path, het_every=1000)
+
+    assert calls == {"rsX1": "G", "rsX2": "G", "rsPAR": "CC", "rsMT": "T"}
+
+
+def test_23andme_keeps_a_womans_x_diploid(tmp_path):
+    calls = _convert_x_kit(tmp_path, het_every=3)
+
+    assert calls == {"rsX1": "GG", "rsX2": "GG", "rsPAR": "CC", "rsMT": "T"}
+
+
+def test_body_line_endings_follow_the_head(tmp_path):
+    out = _convert(tmp_path, "23andMe_V3", ".txt", "# h\r\n", "rs1\t1\t1000\n")
+
+    assert out == "# h\r\nrs1\t1\t1000\tAC\r\n"
+
+
+def test_vendor_xy_chromosome_is_the_x_par(tmp_path):
+    out = _convert(
+        tmp_path,
+        "MyHeritage_V2",
+        ".csv",
+        "RSID,CHROMOSOME,POSITION,RESULT\n",
+        '"rsPAR","XY","60100"\n',
+    )
+
+    assert out.splitlines()[1] == '"rsPAR","XY","60100","AG"'
+
+
+def test_template_corrections_move_yoruba_mt_positions_to_the_rcrs(tmp_path):
+    root = _templates(
+        tmp_path / "lib", "23andMe_V4.txt", "# h\n", "rs397507452\tMT\t7444\n", ""
+    )
+    kit = _kit(tmp_path / "kit.txt", [("i1", "MT", "7443", "AA")])
+    out = tmp_path / "out.txt"
+
+    convert_to_vendor_format("23andMe_V4", kit, str(out), str(root))
+
+    assert out.read_text() == "# h\nrs397507452\tMT\t7443\tA\n"
+
+
+def test_ftdna_v1_finds_calls_at_its_markers_lifted_positions(tmp_path):
+    root = _templates(
+        tmp_path / "lib",
+        "FTDNA_V1_Affy.csv",
+        "RSID,CHROMOSOME,POSITION,RESULT\n",
+        "rsA,1,500\nrsB,1,1500\n",
+    )
+    # NCBI36 chr1 [0,1000) is GRCh37 chr1 [100,1100); 1500 is unmapped.
+    chain = _chain(
+        tmp_path / "hg18ToHg19.chain",
+        "chain 1 chr1 10000 + 0 1000 chr1 10000 + 100 1100 1\n1000",
+    )
+    kit = _kit(tmp_path / "kit.txt", [("rsOther", "1", "600", "CT")])
+    out = tmp_path / "out.csv"
+
+    convert_to_vendor_format("FTDNA_V1_Affy", kit, str(out), str(root), chain)
+
+    assert out.read_text().splitlines()[1:] == ["rsA,1,500,CT", "rsB,1,1500,--"]
