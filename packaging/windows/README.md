@@ -60,6 +60,11 @@ buffers from 64 KiB to 8 MiB, and limits excess capacity to 12.5% when reusing
 one. Each build runs codec and sequence equivalence tests plus concurrent
 compressed-block, allocation-boundary and error-recovery checks.
 
+bcftools also copies a single input's pileup in bulk when there is exactly one
+output sample. Multiple inputs or samples keep the original grouping path.
+Its build compares both paths with the upstream implementation across growth
+boundaries, empty/repeated calls, and read-group sample selection.
+
 HTS tools also use link-time optimization and inline memory operations. These
 flags retain the existing x86-64-v2 CPU requirement and floating-point rules;
 other tool recipes keep their own compiler settings.

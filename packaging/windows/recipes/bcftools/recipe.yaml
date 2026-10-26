@@ -12,9 +12,10 @@ source:
     - patches/0001-bounded-cram-stop-copy.patch
     - patches/0002-vector-bam-sequence-packing.patch
     - patches/0003-reuse-cram-buffers.patch
+    - patches/0004-bulk-copy-single-sample.patch
 
 build:
-  number: 2
+  number: 3
   string: wgse_${{ build_number }}
   script:
     # MSYS2 UCRT64 builds it (see ../env.sh); MSYS2_ROOT says where it is.
