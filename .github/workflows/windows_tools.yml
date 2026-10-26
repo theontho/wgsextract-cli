@@ -15,7 +15,7 @@ jobs:
       max-parallel: 3
       matrix:
         recipe: [bcftools, samtools]
-        compiler: [gcc-stop-copy]
+        compiler: [gcc-stop-copy-lto]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up MSYS2 UCRT64
@@ -44,7 +44,7 @@ jobs:
         run: |
           $envScript = 'packaging/windows/recipes/env.sh'
           $content = [IO.File]::ReadAllText($envScript).Replace('STATIC_LDFLAGS="-static -s"', 'STATIC_LDFLAGS="-static"')
-          if ('${{ matrix.compiler }}' -eq 'gcc-lto') {
+          if ('${{ matrix.compiler }}'.EndsWith('lto')) {
               $content = $content.Replace('OPT="-O3 -march=x86-64-v2 -mtune=generic"', 'OPT="-O3 -march=x86-64-v2 -mtune=generic -flto"')
               $content = $content.Replace('make -j"$JOBS" lib-static', 'make -j"$JOBS" AR=gcc-ar lib-static')
               $recipeScript = 'packaging/windows/recipes/${{ matrix.recipe }}/build.sh'
