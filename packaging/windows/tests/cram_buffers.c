@@ -112,7 +112,7 @@ int main(int argc, char **argv) {
         CHECK(compressed_size);
         cram_block *b = cram_new_block(EXTERNAL, 17);
         CHECK(b);
-        b->data = malloc(3 * length);
+        b->data = malloc(length + 65536);
         CHECK(b->data);
         cram_free_block(b);
         char *out = zlib_mem_inflate(compressed, compressed_size, &length);
