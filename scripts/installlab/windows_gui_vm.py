@@ -115,6 +115,24 @@ def add_webview2_sdk(dest: Path) -> None:
             (dest / Path(member).name).write_bytes(package.read(member))
 
 
+def lab_signing_script(installer: str) -> str:
+    return (
+        "$ErrorActionPreference = 'Stop'; "
+        "$cert = New-SelfSignedCertificate -Type CodeSigningCert "
+        "-Subject 'CN=WGS Extract install lab test signing' "
+        "-CertStoreLocation Cert:\\LocalMachine\\My -KeyLength 3072 "
+        "-NotAfter (Get-Date).AddDays(2); "
+        "$public = Join-Path $env:TEMP 'lab-test-signing.cer'; "
+        "Export-Certificate -Cert $cert -FilePath $public | Out-Null; "
+        "Import-Certificate -FilePath $public -CertStoreLocation Cert:\\LocalMachine\\Root | Out-Null; "
+        "Remove-Item -LiteralPath $public; "
+        f"$sig = Set-AuthenticodeSignature -LiteralPath '{installer}' -Certificate $cert "
+        "-HashAlgorithm SHA256; "
+        'Remove-Item -LiteralPath "Cert:\\LocalMachine\\My\\$($cert.Thumbprint)" -DeleteKey; '
+        "if ($sig.Status -ne 'Valid') { throw \"signing failed: $($sig.Status) $($sig.StatusMessage)\" }"
+    )
+
+
 class QemuWindowsGuiMachine(windows_vm.QemuWindowsMachine):
     base, base_vars, prepare_command = (
         GUI_BASE,
@@ -132,6 +150,22 @@ class QemuWindowsGuiMachine(windows_vm.QemuWindowsMachine):
         self.screens.mkdir(exist_ok=True)
         self.recording = threading.Event()
         threading.Thread(target=self.record_screen, daemon=True).start()
+
+    def sign_with_test_certificate(self, installer: Path) -> None:
+        """Sign an unsigned installer in place with a throwaway certificate this
+        VM trusts machine-wide, as an organization deploys its own code-signing
+        root. Done before the baseline, so the trust is part of the machine;
+        the private key is deleted once the installer is signed."""
+        remote = f"{windows_vm.GUEST_LAB}/{installer.name}"
+        scp = ["scp", *windows_vm.scp_opts(self.port), "-q"]
+        subprocess.run(
+            [*scp, str(installer), f"{self.admin}@127.0.0.1:{remote}"], check=True
+        )
+        self.admin_ps(lab_signing_script(remote))
+        subprocess.run(
+            [*scp, f"{self.admin}@127.0.0.1:{remote}", str(installer)], check=True
+        )
+        self.admin_ps(f"Remove-Item -LiteralPath '{remote}'")
 
     def record_screen(self) -> None:
         """The VM's screen once a minute: what the user would have seen."""

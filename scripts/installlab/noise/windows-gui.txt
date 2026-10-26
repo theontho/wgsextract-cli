@@ -4,11 +4,13 @@
 # --mode control` (signed in, nothing installed, 30 minutes) and in app runs.
 #
 # OneDrive, which Windows starts at sign-in, updating itself (its updater's
-# config, update manifest and cached setup, and the RunOnce entries that delete
-# the cache).
+# config, update manifest and cached setup, the RunOnce entries that delete
+# the cache, and the new version's folders: OneDrive/26.195.1006.0007, Codecs).
 */AppData/Local/Microsoft/OneDrive/StandaloneUpdater*
 */AppData/Local/Microsoft/OneDrive/Update/OneDriveSetup.exe
 */AppData/Local/Microsoft/OneDrive/Update/update.xml
+*/AppData/Local/Microsoft/OneDrive/[0-9]*.[0-9]*.[0-9]*.[0-9]*
+*/AppData/Local/Microsoft/OneDrive/Codecs*
 HKCU:/Software/Microsoft/Windows/CurrentVersion/RunOnce/Delete Cached*
 # The shell's notification icons and Web Account Manager's token cache.
 */AppData/Local/Microsoft/Windows/ActionCenterCache/*
