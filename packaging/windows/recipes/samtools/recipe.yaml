@@ -13,6 +13,7 @@ source:
     # after the last '/' only: on Windows that was the whole path.
     - patches/0001-windows-path-separators.patch
     - patches/0002-bounded-cram-stop-copy.patch
+    - patches/0003-vector-bam-sequence-packing.patch
 
 build:
   number: 2

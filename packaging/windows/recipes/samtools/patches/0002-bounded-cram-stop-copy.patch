@@ -1,17 +1,6 @@
 --- a/htslib-1.24/cram/cram_codecs.c
 +++ b/htslib-1.24/cram/cram_codecs.c
-@@ -44,6 +44,10 @@
- #include <errno.h>
- #include <stddef.h>
- 
-+#if defined(__SSE2__)
-+#include <emmintrin.h>
-+#endif
-+
- #ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
- #include "../fuzz_settings.h"
- #endif
-@@ -2030,7 +2034,7 @@
+@@ -2030,7 +2030,7 @@
                                        int *out_size) {
      cram_block *b;
      cram_block *out = (cram_block *)out_;
@@ -20,36 +9,32 @@
      unsigned char stop;
  
      b = cram_get_block_by_id(slice, c->u.byte_array_stop.content_id);
-@@ -2048,15 +2052,27 @@
+@@ -2046,18 +2046,19 @@
+     // implementation, so we may ignore what was requested.
+     stop = b->orig_method == TOK3 ? 0 : c->u.byte_array_stop.stop;
  
++    terminator = memchr(cp, stop, cp_end - cp);
++    if (!terminator)
++        terminator = cp_end;
++
      if (cp_end - cp < out->alloc - out->byte) {
-         unsigned char *out_cp = BLOCK_END(out);
-+#if defined(__SSE2__)
-+        __m128i stop_vec = _mm_set1_epi8((char)stop);
-+        while (cp_end - cp >= 16) {
-+            __m128i bytes = _mm_loadu_si128((const __m128i *)cp);
-+            if (_mm_movemask_epi8(_mm_cmpeq_epi8(bytes, stop_vec)))
-+                break;
-+            _mm_storeu_si128((__m128i *)out_cp, bytes);
-+            cp += 16;
-+            out_cp += 16;
-+        }
-+#endif
-         while (cp != cp_end && *cp != stop)
-             *out_cp++ = *cp++;
-         BLOCK_SIZE(out) = out_cp - BLOCK_DATA(out);
+-        unsigned char *out_cp = BLOCK_END(out);
+-        while (cp != cp_end && *cp != stop)
+-            *out_cp++ = *cp++;
+-        BLOCK_SIZE(out) = out_cp - BLOCK_DATA(out);
++        size_t len = terminator - cp;
++        memcpy(BLOCK_END(out), cp, len);
++        BLOCK_SIZE(out) += len;
      } else {
 -        unsigned char *cp_start;
 -        for (cp_start = cp; cp != cp_end && *cp != stop; cp++)
 -            ;
 -        BLOCK_APPEND(out, cp_start, cp - cp_start);
 -        BLOCK_GROW(out, cp - cp_start);
-+        terminator = memchr(cp, stop, cp_end - cp);
-+        if (!terminator)
-+            terminator = cp_end;
 +        BLOCK_APPEND(out, cp, terminator - cp);
 +        BLOCK_GROW(out, terminator - cp);
-+        cp = terminator;
      }
++    cp = terminator;
  
      *out_size = cp - (b->data + b->idx);
+     b->idx = cp - b->data + 1;
