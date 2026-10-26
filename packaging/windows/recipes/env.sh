@@ -39,7 +39,7 @@ JOBS=${CPU_COUNT:-4}
 # prove each runs and links only system DLLs.
 install_exe() {
     local exe deps raw_bin
-    raw_bin="$(cygpath -u "$GITHUB_WORKSPACE")/out/raw"
+    raw_bin="$(cygpath -u "$RECIPE_DIR")/../../../../out/raw"
     mkdir -p "$raw_bin"
     for exe in "$@"; do
         install -m 755 "$exe" "$BIN/$(basename "${exe%.exe}").exe"
