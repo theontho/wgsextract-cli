@@ -81,17 +81,18 @@ sambamba = ">=1.0.1,<2"
 fastqc = ">=0.13,<0.14"
 haplogrep = ">=2.4,<3"
 # Bioconda has no Windows builds: these are WGS Extract's own static MinGW-w64
-# builds (packaging/windows), from a Windows Tools release. Update them with
-# `python packaging/windows/pin.py <tag>`, then `pixi lock`.
+# builds (packaging/windows), from Windows Tools releases. For complete sets use
+# `python packaging/windows/pin.py <tag>`, then `pixi lock`. For partial releases,
+# update only the selected URL/SHA-256 entries by hand; never use pin.py.
 # windows-tools-begin
-bcftools = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-3/bcftools-1.24-wgse_1.conda", sha256 = "3069be33a4653211ae12ea109d103fa2eee8fff589718a21db0de59ba4272fc4" }
+bcftools = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-5/bcftools-1.24-wgse_3.conda", sha256 = "4b01933d38820a9a693e2414581530789c134fab03b314644f70a709ebcff6b3" }
 bwa = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-4/bwa-0.7.19-wgse_2.conda", sha256 = "2726f14fa5f229629bce01e3c6c600c8d5daedf8a8c4d26aeeb298c33cd117fb" }
 bwa-mem2 = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-3/bwa-mem2-2.3-wgse_1.conda", sha256 = "ed33b6af264ae0ea56dd628f501a5282e88347752a42630d030f76dbc30e9890" }
 fastp = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-3/fastp-1.4.0-wgse_1.conda", sha256 = "42849b9e13cdc7dc346c6f6268836436ad500e576a9b316804742a560df797da" }
-htslib = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-3/htslib-1.24-wgse_1.conda", sha256 = "20a8515d9d1e5454deec9cd957a3d11cc40c18e899e59428714e56c2071804ca" }
+htslib = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-5/htslib-1.24-wgse_2.conda", sha256 = "d4a3101d88768b1092a38ec5f83302ac361e8011652437a3338b8bf83173a335" }
 minimap2 = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-3/minimap2-2.31-wgse_1.conda", sha256 = "78e5650ade8221f59f5ab397f2cd640bbd6d4f8b02559feda22299b963a11fb2" }
 samblaster = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-3/samblaster-0.1.26-wgse_1.conda", sha256 = "4adecc079154101e1e8aefe9fe22cdb0511d05090705c3474db5232d329c222c" }
-samtools = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-3/samtools-1.24-wgse_2.conda", sha256 = "13680c7772f8abe27ae241ff67b17479020298216f828c9d9d36964c3fecf0b3" }
+samtools = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-5/samtools-1.24-wgse_3.conda", sha256 = "d8422d0c21059001bbaa7d27aac7771f3033e20a3d7a9bd2009730eb17165b89" }
 # windows-tools-end
 
 # FreeBayes' only osx-arm64 build pins htslib 1.21, which conflicts with the
