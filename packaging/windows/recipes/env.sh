@@ -54,6 +54,15 @@ build_htslib() {
         cd "$1"
         ./configure --disable-libcurl --disable-gcs --disable-s3 --disable-plugins \
             CFLAGS="$OPT" LDFLAGS="$STATIC_LDFLAGS" LIBS="$HTS_LIBS"
-        make -j"$JOBS" lib-static
+        make -j"$JOBS" lib-static htslib_static.mk
+        cat > .wgse-cram-stop.mk <<'MAKEFILE'
+include htslib_static.mk
+.PHONY: codec-test
+codec-test:
+	$(CC) $(CFLAGS) -I. "$(CODEC_TEST)" $(HTSLIB_static_LDFLAGS) libhts.a $(HTSLIB_static_LIBS) -o .wgse-cram-stop.exe
+	./.wgse-cram-stop.exe
+MAKEFILE
+        make -f .wgse-cram-stop.mk codec-test CC=gcc CFLAGS="$OPT $STATIC_LDFLAGS" \
+            CODEC_TEST="$(cygpath -u "$RECIPE_DIR")/../../tests/cram_stop.c"
     )
 }

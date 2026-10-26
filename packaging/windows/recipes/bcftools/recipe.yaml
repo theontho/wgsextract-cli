@@ -8,6 +8,8 @@ package:
 source:
   url: https://github.com/samtools/bcftools/releases/download/${{ version }}/bcftools-${{ version }}.tar.bz2
   sha256: 8caddc22610ee2851666047c859bb91da0c1e32d0c2ec553db6f153ad130e46f
+  patches:
+    - patches/0001-bounded-cram-stop-copy.patch
 
 build:
   number: 1

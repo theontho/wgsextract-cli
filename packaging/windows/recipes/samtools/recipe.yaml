@@ -12,6 +12,7 @@ source:
     # merge -r and split name read groups and files after the file name, found
     # after the last '/' only: on Windows that was the whole path.
     - patches/0001-windows-path-separators.patch
+    - patches/0002-bounded-cram-stop-copy.patch
 
 build:
   number: 2
