@@ -14,6 +14,7 @@ source:
     - patches/0001-windows-path-separators.patch
     - patches/0002-bounded-cram-stop-copy.patch
     - patches/0003-vector-bam-sequence-packing.patch
+    - patches/0004-reuse-cram-buffers.patch
 
 build:
   number: 2
