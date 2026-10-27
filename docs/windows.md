@@ -39,6 +39,12 @@ Bioconda's platform-independent packages and PyPI as on the other platforms.
 `deps check` lists what isn't available on Windows (for example VEP,
 DeepVariant, Delly and FreeBayes).
 
+Commands needing pyBigWig (`vcf phylop`, `vcf gerp` and their reference
+downloads), VEP, DeepVariant, Delly, FreeBayes, PharmCAT, Cyrius, T1K,
+ExpansionHunter or PacBio tools are not supported on Windows. They fail
+before reading inputs or creating output folders, naming the unavailable tool.
+Use Linux or macOS for these features.
+
 ## Short read alignment
 
 The default `--aligner auto` uses native bwa-mem2 when the reference already
