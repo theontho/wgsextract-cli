@@ -16,7 +16,11 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
-from wgsextract_cli.core.microarray_targets import build_genome_wide_target
+from wgsextract_cli.core.microarray_targets import (
+    build_genome_wide_target,
+    is_genome_wide_target,
+    ncbi36_chain,
+)
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem, resolve_reference_library
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
@@ -47,12 +51,14 @@ _MICROARRAY_TEMPLATE_MAP = {
     "23andme_v3": "23andMe_V3",
     "23andme_v4": "23andMe_V4",
     "23andme_v5": "23andMe_V5",
+    "23andme_v5_2025": "23andMe_V5_2025",
     "23andme_v3+v5": "23andMe_V35",
     "23andme_v3_v5": "23andMe_V35",
     "23andme_v35": "23andMe_V35",
     "23andme_api": "23andMe_SNPs_API",
     "ancestry_v1": "Ancestry_V1",
     "ancestry_v2": "Ancestry_V2",
+    "ancestry_v2_2024": "Ancestry_V2_2024",
     "ftdna_v1": "FTDNA_V1_Affy",
     "ftdna_v1_affy": "FTDNA_V1_Affy",
     "familytreedna_v1": "FTDNA_V1_Affy",
@@ -66,6 +72,8 @@ _MICROARRAY_TEMPLATE_MAP = {
     "livingdna_v2": "LDNA_V2",
     "myheritage_v1": "MyHeritage_V1",
     "myheritage_v2": "MyHeritage_V2",
+    "nucleus": "Nucleus_V1",
+    "nucleus_v1": "Nucleus_V1",
 }
 
 
@@ -90,6 +98,15 @@ def _template_search_roots(ref_fasta: str, lib: ReferenceLibrary) -> list[str]:
         if root and root not in roots:
             roots.append(root)
     return roots
+
+
+def _ncbi36_chain(reflib_dir: str) -> str | None:
+    """The hg18ToHg19 chain, or None to match NCBI36 markers by rsID."""
+    try:
+        return ncbi36_chain(reflib_dir)
+    except WGSExtractError as e:
+        logging.warning(str(e))
+        return None
 
 
 def _liftover_chain_for(lib: ReferenceLibrary) -> str | None:
@@ -160,8 +177,13 @@ def _convert_microarray_outputs(
         suffix = fmt_info["suffix"] if fmt_info else ".txt"
         output_file = str(Path(outdir, f"{base_name}_{real_fmt}{suffix}"))
         try:
+            chain36 = (
+                _ncbi36_chain(lib.root)
+                if fmt_info and fmt_info.get("ncbi36") and lib.root
+                else None
+            )
             convert_to_vendor_format(
-                real_fmt, final_txt, output_file, template_search_roots
+                real_fmt, final_txt, output_file, template_search_roots, chain36
             )
         except (OSError, ValueError, WGSExtractError) as e:
             raise WGSExtractError(f"Failed to generate {real_fmt}: {e}") from e
@@ -204,9 +226,15 @@ def run(args: argparse.Namespace) -> None:
         message = LOG_MESSAGES["ref_required_for"].format(task="microarray generation")
         raise WGSExtractError(message)
 
-    if not ref_vcf_tab and lib.root and lib.build:
+    if (
+        not args.ref_vcf_tab
+        and lib.root
+        and lib.build
+        and (not ref_vcf_tab or is_genome_wide_target(ref_vcf_tab, lib.root, lib.build))
+    ):
         # A library set up with `ref bootstrap` has the chip templates but no
-        # genome-wide target: build it from them (once).
+        # genome-wide target: build it from them, and rebuild one an older
+        # version of the CLI built.
         ref_vcf_tab = build_genome_wide_target(
             lib.root, lib.build, _template_search_roots(ref_fasta, lib)
         )

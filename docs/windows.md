@@ -39,6 +39,21 @@ Bioconda's platform-independent packages and PyPI as on the other platforms.
 `deps check` lists what isn't available on Windows (for example VEP,
 DeepVariant, Delly and FreeBayes).
 
+## Short read alignment
+
+The default `--aligner auto` uses native bwa-mem2 when the reference already
+has its index and the index fits in memory. Otherwise it uses BWA. To prepare
+the bwa-mem2 index for your reference, run:
+
+```bat
+pixi run wgsextract ref index --aligner bwa-mem2 --ref C:\path\to\reference.fa
+```
+
+The human bwa-mem2 index occupies about 17 GB of RAM, with additional memory
+needed for reads, sorting and Windows. The CLI checks the reference's memory
+estimate before choosing it. `--aligner bwa` selects the lower-memory option;
+`--aligner bwa-mem2` selects bwa-mem2 explicitly.
+
 ## Upgrading from a WSL or MSYS2 setup
 
 Older Windows installs used a `tool_runtime` setting (`windows`, `pacman`,

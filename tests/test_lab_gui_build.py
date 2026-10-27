@@ -82,3 +82,31 @@ def test_released_swiftui_dmg_keeps_its_matching_external_runner(dmg_lab):
     assert ["swift", "build", "-c", "release", "--product", "gui-for-cli"] in commands
     with tarfile.open(serve / "gui-runner.tar.gz") as archive:
         assert archive.getnames() == ["gui-for-cli", "gui-for-cli_GUIForCLICore.bundle"]
+
+
+@pytest.mark.parametrize(
+    ("target", "mode", "installer"),
+    [
+        ("windows-host", "install", "setup.exe"),
+        ("linux", "install", "app.deb"),
+        ("windows", "control", "setup.exe"),
+        ("windows", "install", None),
+    ],
+)
+def test_test_sign_only_on_a_disposable_windows_vm(
+    monkeypatch, target, mode, installer
+):
+    # --test-sign makes the machine trust a new root; only the throwaway VM may.
+    monkeypatch.syspath_prepend(str(LAB_SCRIPTS))
+    import lab
+
+    monkeypatch.setattr(lab, "run_scenario", lambda *a, **k: pytest.fail("ran"))
+    args = lab.argparse.Namespace(
+        target=target,
+        mode=mode,
+        gui_repo=None,
+        gui_installer=Path(installer) if installer else None,
+        test_sign=True,
+    )
+    with pytest.raises(SystemExit, match="--test-sign"):
+        lab.cmd_run(args)

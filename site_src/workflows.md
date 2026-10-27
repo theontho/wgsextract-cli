@@ -21,16 +21,16 @@ footer_link_href: 'wgs-guide.html'
 
 A microarray or SNP chip file is not a complete genome. It is a compact table of markers that a downstream service knows how to read. WGS Extract builds these files by looking up target positions in your aligned WGS data and writing the requested vendor-style format.
 
-Start with one target format and a small region if you are checking plumbing. Use `--formats all` only when you are confident that the input, reference build, and output directory are correct. If a target site has too little coverage or ambiguous data, the simulated result may be missing or no-called depending on the format and command behavior.
+Start with one target format and a small region if you are checking plumbing. Every run writes the combined kit (all chips' markers); `--formats all` writes only that, and a comma-separated list adds vendor files. If a target site has too little coverage or ambiguous data, the simulated result may be missing or no-called depending on the format and command behavior.
 
-Microarray formats use hg19 coordinates. hg38 input is lifted over with the chain file from `ref bootstrap`, and the command fails up front if that chain is missing; T2T input is not supported. Haploid calls (for example on chrY and chrM) are written as doubled letters such as `AA`, matching vendor files. `--parallel` calls variants per chromosome.
+Microarray formats use hg19 coordinates. hg38 input is lifted over with the chain file from `ref bootstrap`, and the command fails up front if that chain is missing; T2T input is not supported. Haploid calls follow each vendor's files: 23andMe writes chrY, chrM, and a man's chrX outside the pseudoautosomal regions as one letter (`A`); the other formats double them (`AA`). Heterozygous calls are written in alphabetical order. On hg38, the genome-wide target is built once from the chip templates and saved in the reference library. `--parallel` calls variants per chromosome.
 :::
 
 ::: code-panel title=microarray-snp-chip.sh subtitle="common formats"
 ```
 wgsextract --input sample.bam microarray --formats all
 wgsextract --input sample.bam microarray --formats 23andme_v5
-wgsextract --input sample.bam microarray --formats 23andme_v5,ancestry_v2,ftdna_v3
+wgsextract --input sample.bam microarray --formats 23andme_v5_2025,ancestry_v2_2024,ftdna_v3
 ```
 :::
 :::

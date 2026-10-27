@@ -375,6 +375,7 @@ def _microarray_lib(tmp_path, **overrides):
         "ploidy_file": None,
         "liftover_chain": None,
         "build": None,
+        "root": None,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
