@@ -293,8 +293,9 @@ def register(
     )
     deepvariant_parser.add_argument(
         "--model-type",
-        choices=["WGS", "WES", "PACBIO", "HYBRID_PACBIO_ILLUMINA"],
-        help="DeepVariant model type. Use PACBIO for PacBio HiFi/CCS alignments.",
+        choices=["WGS", "WES", "PACBIO", "HYBRID_PACBIO_ILLUMINA", "ULTIMA"],
+        help="DeepVariant model type (default: ULTIMA for Ultima reads with their "
+        "flow tags, else WGS). Use PACBIO for PacBio HiFi/CCS alignments.",
     )
     deepvariant_parser.add_argument(
         "--pacbio",

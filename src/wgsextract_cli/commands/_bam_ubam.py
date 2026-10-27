@@ -9,6 +9,7 @@ import tempfile
 from os import fspath
 from pathlib import Path
 
+from wgsextract_cli.core import ultima
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -50,8 +51,11 @@ UBAM_PLATFORMS = (
 )
 
 # Tags that describe the raw read rather than an alignment (GATK RevertSam keeps
-# these too); everything else (AS, MD, NM, XS, SA, ...) is dropped.
-KEEP_TAGS = "RG,BC,QT,RX,QX,OQ,BI,BD,MI"
+# these too), and Ultima's (see core.ultima); everything else (AS, MD, NM, XS,
+# SA, ...) is dropped.
+KEEP_TAGS = ",".join(
+    ["RG", "BC", "QT", "RX", "QX", "OQ", "BI", "BD", "MI", *ultima.READ_TAGS]
+)
 
 # Casava 1.8+: instrument:run:flowcell:lane:tile:x:y; earlier Illumina names
 # are instrument:lane:tile:x:y and carry no flowcell.
@@ -76,6 +80,8 @@ def read_group_from_name(qname: str) -> tuple[str | None, str | None]:
         platform = "PACBIO"
     elif sequencer.startswith("Oxford"):
         platform = "ONT"
+    elif sequencer.startswith("Ultima"):
+        platform = ultima.PLATFORM
 
     match = (
         _ILLUMINA_NAME.match(qname)
@@ -161,7 +167,13 @@ def _bam_stages(
         if not (ref and Path(ref).is_file()):
             raise WGSExtractError("--ref is required to read a CRAM file.")
         ref_opt = ["--reference", ref]
-    stages = [reset + ref_opt + ["-O", "BAM,level=0", "-o", "-", args.input]]
+    if ultima.is_ultima_header(header):
+        # reset turns reverse-strand reads around but not their flow tags.
+        view = ["samtools", "view", "-h", "--no-PG", *ref_opt, args.input]
+        stages = [view, ultima.flow_tag_filter()]
+        stages.append(reset + ref_opt + ["-O", "BAM,level=0", "-o", "-", "-"])
+    else:
+        stages = [reset + ref_opt + ["-O", "BAM,level=0", "-o", "-", args.input]]
 
     if any(line.startswith("@RG") for line in header.splitlines()):
         if args.sample or args.platform:

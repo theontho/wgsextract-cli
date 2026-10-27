@@ -81,9 +81,9 @@ def register(
     align_cmd.add_gpu_argument(parser)
     parser.add_argument(
         "--platform",
-        choices=["illumina", "dnbseq", "pacbio", "hifi", "clr", "ont", "nanopore"],
-        default="illumina",
-        help="Sequencing platform.",
+        choices=align_cmd.PLATFORMS,
+        help="Sequencing platform (default: ultima when the input's read group "
+        "says so, else illumina).",
     )
     parser.add_argument(
         "--preset",
@@ -207,6 +207,7 @@ def run(args: argparse.Namespace) -> None:
             "subcommand or via --input."
         )
     verify_paths_exist({"--input": args.input})
+    args.platform = align_cmd.resolve_platform(args, args.r1 or args.input)
     # Reject bad aligner/platform/preset combinations before hours of extraction.
     align_cmd.select_aligner(args)
     target = resolve_reference(args.ref, None) if args.ref else None
@@ -216,6 +217,17 @@ def run(args: argparse.Namespace) -> None:
     threads, memory = get_resource_defaults(args.threads, args.memory)
     outdir = args.outdir or str(absolute_path(args.input).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
+
+    if args.platform == "ultima" and not args.r1:
+        # Single-end reads with flow tags: streamed into the aligner, no FASTQs.
+        if not args.no_preflight:
+            _preflight_disk_space(
+                args.input, outdir, need_extract=False, threads=threads
+            )
+        align_args = argparse.Namespace(**vars(args))
+        align_args.r1 = args.input
+        align_cmd.align_ultima(align_args, args.input, _input_cram_reference(args))
+        return
 
     # 1. Resolve FASTQs.
     if args.r1:
