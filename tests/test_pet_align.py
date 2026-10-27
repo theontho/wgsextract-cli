@@ -112,7 +112,9 @@ def test_species_reference_comes_from_the_library(
     assert no_tools["index"] == [str(fasta)]
     (cmd,) = no_tools["align"]
     rg = "@RG\\tID:rex_R1\\tSM:rex\\tLB:rex\\tPL:ILLUMINA"
-    assert cmd == ["bwa", "mem", "-t", "2", "-R", rg, str(fasta), str(reads)]
+    assert cmd == [
+        "bwa", "mem", "-K", "100000000", "-t", "2", "-R", rg, str(fasta), str(reads)
+    ]  # fmt: skip
     mpileup, call = no_tools["pipeline"][0]
     assert mpileup[-3:] == ["-f", str(fasta), str(tmp_path / "rex_R1_cat.bam")]
     assert call[-1] == str(tmp_path / "rex_R1_cat.vcf.gz")
@@ -127,6 +129,8 @@ def test_bwa_mem2_aligns_when_the_reference_has_its_index(
     pet.run(_args(reads, ref))
     assert no_tools["index"] == []
     assert no_tools["align"][0][:2] == ["bwa-mem2", "mem"]
+    command = no_tools["align"][0]
+    assert command[command.index("-K") + 1] == "100000000"
 
 
 def test_missing_reads_or_reference_are_reported(tmp_path, reads, no_tools):

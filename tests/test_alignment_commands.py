@@ -346,6 +346,25 @@ def test_bwa_always_marks_duplicates(tmp_path, monkeypatch, r2, samblaster, mark
     assert any(stage[: len(marker)] == marker for stage in pipelines[0])
 
 
+@pytest.mark.parametrize("tool", ["bwa", "bwa-mem2"])
+@pytest.mark.parametrize("threads", ["2", "4", "6"])
+def test_bwa_batch_size_does_not_depend_on_threads(
+    tmp_path, monkeypatch, tool, threads
+):
+    setup = align._AlignSetup(threads, "100M", str(tmp_path), "ref.fa", "sample")
+    monkeypatch.setattr(align, "_bwa_setup", lambda *_a: (setup, tool))
+    monkeypatch.setattr(align, "duplicate_marker", lambda **_k: None)
+    commands = []
+    monkeypatch.setattr(
+        align, "run_streamed_alignment", lambda cmd, *_a, **_k: commands.append(cmd)
+    )
+    align.align_bwa(Namespace(r1="r1.fq", r2="r2.fq", format="BAM"))
+    (command,) = commands
+    assert command[:2] == [tool, "mem"]
+    assert command[command.index("-t") + 1] == threads
+    assert command[command.index("-K") + 1] == "100000000"
+
+
 @needs_tools("samtools")
 def test_markdup_fallback_marks_a_duplicate_pair(tmp_path):
     """Two identical pairs from the aligner: the second is flagged a duplicate."""
