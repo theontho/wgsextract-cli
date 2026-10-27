@@ -1,0 +1,46 @@
+--- a/sam.c
++++ b/sam.c
+@@ -38,6 +38,10 @@
+ #include <unistd.h>
+ #include <regex.h>
+ 
++#if defined(__SSSE3__)
++#include <tmmintrin.h>
++#endif
++
+ #ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+ #include "fuzz_settings.h"
+ #endif
+@@ -627,9 +631,32 @@
+ 
+ #define NN 16
+     const uint8_t *useq = (uint8_t *)seq;
++#if defined(__SSSE3__)
++    const __m128i table40 = _mm_loadu_si128((const __m128i *)(seq_nt16_table + 0x40));
++    const __m128i table50 = _mm_loadu_si128((const __m128i *)(seq_nt16_table + 0x50));
++    const __m128i high_bits = _mm_set1_epi8((char)0xc0);
++    const __m128i ascii_letters = _mm_set1_epi8(0x40);
++    const __m128i bit4 = _mm_set1_epi8(0x10);
++    const __m128i zero = _mm_setzero_si128();
++    const __m128i weights = _mm_set1_epi16(0x0110);
++#endif
+     for (i = 0; i + NN < l_seq; i += NN) {
+         int j;
+         const uint8_t *u2 = useq+i;
++#if defined(__SSSE3__)
++        __m128i bases = _mm_loadu_si128((const __m128i *)u2);
++        __m128i eligible = _mm_cmpeq_epi8(_mm_and_si128(bases, high_bits), ascii_letters);
++        if (_mm_movemask_epi8(eligible) == 0xffff) {
++            __m128i lower = _mm_cmpeq_epi8(_mm_and_si128(bases, bit4), zero);
++            __m128i codes = _mm_or_si128(
++                _mm_and_si128(lower, _mm_shuffle_epi8(table40, bases)),
++                _mm_andnot_si128(lower, _mm_shuffle_epi8(table50, bases)));
++            __m128i pairs = _mm_maddubs_epi16(codes, weights);
++            _mm_storel_epi64((__m128i *)cp, _mm_packus_epi16(pairs, zero));
++            cp += NN/2;
++            continue;
++        }
++#endif
+         for (j = 0; j < NN/2; j++)
+             cp[j] = (seq_nt16_table[u2[j*2]]<<4) | seq_nt16_table[u2[j*2+1]];
+         cp += NN/2;

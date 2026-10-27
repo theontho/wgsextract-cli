@@ -51,6 +51,11 @@ KNOWN_SETTINGS = {
         "Google DeepVariant Docker image for CPU calling (default "
         "google/deepvariant:1.10.0)",
     ),
+    "deepvariant_ultima_image": (
+        None,
+        "DeepVariant Docker image with the ULTIMA model, for Ultima reads "
+        "(default google/deepvariant:gh1100-ultima)",
+    ),
     "default_input_vcf": (None, "Default input VCF file"),
     "mother_vcf_path": (None, "Default Mother VCF for trios"),
     "father_vcf_path": (None, "Default Father VCF for trios"),

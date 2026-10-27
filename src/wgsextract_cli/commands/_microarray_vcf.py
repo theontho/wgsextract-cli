@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import TextIO
 
+from wgsextract_cli.core import ultima
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -169,13 +170,14 @@ def process_chrom(
     ref_vcf_tab: str,
     ploidy_args: list[str],
     input_path: str,
+    mpileup_args: list[str],
 ) -> str:
     """Worker function for parallel chromosome processing. Must be at module level for pickling."""
     chrom_vcf = str(Path(chrom_tmp_dir, f"{chrom}.vcf.gz"))
     logging.debug(f"Processing chromosome {chrom}...")
     run_pipeline(
         [
-            ["bcftools", "mpileup", "-r", chrom, *MPILEUP_ARGS]
+            ["bcftools", "mpileup", "-r", chrom, *mpileup_args]
             + ["-f", ref_fasta, "--targets-file", snp_file, input_path],
             ["bcftools", "call", *ploidy_args]
             + ["-m", "-V", "indels", "-Oz", "-o", chrom_vcf],
@@ -229,6 +231,9 @@ def _prepare_microarray_vcf(
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Microarray target normalization failed: {e}") from e
 
+    mpileup_args = (
+        [] if is_vcf else [*ultima.bcftools_options(args.input)[0], *MPILEUP_ARGS]
+    )
     if is_vcf:
         logging.info(f"VCF input detected. Extracting target SNPs from {args.input}...")
         # For VCF input, we intersect our targets with the input VCF.
@@ -285,6 +290,7 @@ def _prepare_microarray_vcf(
                         ref_vcf_tab,
                         ploidy_args,
                         args.input,
+                        mpileup_args,
                     )
                     for chrom, snp_file in chrom_snps.items()
                 ]
@@ -320,7 +326,7 @@ def _prepare_microarray_vcf(
             run_pipeline(
                 [
                     ["bcftools", "mpileup", *region_args]
-                    + [*MPILEUP_ARGS, "-f", ref_fasta]
+                    + [*mpileup_args, "-f", ref_fasta]
                     + ["--targets-file", ref_vcf_tab, args.input],
                     ["bcftools", "call", *ploidy_args]
                     + ["-m", "-V", "indels", "-Oz", "-o", out_vcf],

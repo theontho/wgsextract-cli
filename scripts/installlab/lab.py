@@ -64,6 +64,7 @@ from gui_build import (  # noqa: E402
     build_gui_artifacts,
     build_linux_gui_package,
     build_windows_gui_installer,
+    pe_has_signature,
 )
 from gui_oracle import GuiOracle  # noqa: E402
 from oracle import Oracle, find_tools  # noqa: E402
@@ -759,6 +760,10 @@ def run_scenario(
             )
             meta["installer"] = installer
             meta["installer_sha256"] = sha256(artifacts["serve"] / installer)
+            if gui.test_sign and meta["signed"]:
+                raise SystemExit(
+                    f"{installer} is already signed; test it without --test-sign."
+                )
         meta["cli_from_tree"] = gui.cli_from_tree
     elif gui:
         meta["signed"], meta["macos_runtime"] = build_gui_artifacts(
@@ -801,6 +806,18 @@ def run_scenario(
         # display.
         machine.prerequisites = ("sudo", "python3", "fontconfig", "xvfb", "xauth")
     with machine:
+        if gui and gui.test_sign:
+            assert isinstance(machine, windows_gui_vm.QemuWindowsGuiMachine)
+            installer_path = artifacts["serve"] / str(meta["installer"])
+            log("Signing the installer with a throwaway certificate the VM trusts...")
+            machine.sign_with_test_certificate(installer_path)
+            meta["signed"] = pe_has_signature(installer_path)
+            meta["installer_sha256"] = sha256(installer_path)
+            meta["test_signed"] = True
+            run_file = results / "lab-run.json"
+            run_file.write_text(
+                json.dumps({**json.loads(run_file.read_text()), **meta})
+            )
         with http_server(artifacts["serve"], machine.serve_host) as port:
             base = f"http://{machine.guest_host}:{port}"
             env = {
@@ -956,6 +973,11 @@ def cmd_run(args: argparse.Namespace) -> None:
         raise SystemExit(
             "--gui-installer is a Windows .exe or Linux .deb; use --dmg on macos"
         )
+    if args.test_sign and (
+        not gui or args.target != "windows" or args.mode != "install"
+    ):
+        # Only a disposable VM may be made to trust a test certificate.
+        raise SystemExit("--test-sign is for app install runs on the windows target.")
     results = run_scenario(
         args.target,
         args.mode,
@@ -1262,6 +1284,12 @@ def main() -> None:
         "--gui-installer",
         type=Path,
         help="Test this Windows installer (*-setup.exe) instead of building one.",
+    )
+    p.add_argument(
+        "--test-sign",
+        action="store_true",
+        help="windows: sign the unsigned installer in the VM with a throwaway "
+        "certificate the VM trusts, so its signature must verify as Valid.",
     )
     p.add_argument(
         "--cli-from-tree",

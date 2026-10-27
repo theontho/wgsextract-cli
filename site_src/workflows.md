@@ -21,16 +21,16 @@ footer_link_href: 'wgs-guide.html'
 
 A microarray or SNP chip file is not a complete genome. It is a compact table of markers that a downstream service knows how to read. WGS Extract builds these files by looking up target positions in your aligned WGS data and writing the requested vendor-style format.
 
-Start with one target format and a small region if you are checking plumbing. Use `--formats all` only when you are confident that the input, reference build, and output directory are correct. If a target site has too little coverage or ambiguous data, the simulated result may be missing or no-called depending on the format and command behavior.
+Start with one target format and a small region if you are checking plumbing. Every run writes the combined kit (all chips' markers); `--formats all` writes only that, and a comma-separated list adds vendor files. If a target site has too little coverage or ambiguous data, the simulated result may be missing or no-called depending on the format and command behavior.
 
-Microarray formats use hg19 coordinates. hg38 input is lifted over with the chain file from `ref bootstrap`, and the command fails up front if that chain is missing; T2T input is not supported. Haploid calls (for example on chrY and chrM) are written as doubled letters such as `AA`, matching vendor files. `--parallel` calls variants per chromosome.
+Microarray formats use hg19 coordinates. hg38 input is lifted over with the chain file from `ref bootstrap`, and the command fails up front if that chain is missing; T2T input is not supported. Haploid calls follow each vendor's files: 23andMe writes chrY, chrM, and a man's chrX outside the pseudoautosomal regions as one letter (`A`); the other formats double them (`AA`). Heterozygous calls are written in alphabetical order. On hg38, the genome-wide target is built once from the chip templates and saved in the reference library. `--parallel` calls variants per chromosome.
 :::
 
 ::: code-panel title=microarray-snp-chip.sh subtitle="common formats"
 ```
 wgsextract --input sample.bam microarray --formats all
 wgsextract --input sample.bam microarray --formats 23andme_v5
-wgsextract --input sample.bam microarray --formats 23andme_v5,ancestry_v2,ftdna_v3
+wgsextract --input sample.bam microarray --formats 23andme_v5_2025,ancestry_v2_2024,ftdna_v3
 ```
 :::
 :::
@@ -157,7 +157,7 @@ Raw reads are closest to the sequencer output. They preserve information before 
 
 If you plan to compare outputs with third-party services, choose the reference build intentionally. Aligning to hg38 and then trying to use hg19-specific annotations or SNP chip positions can produce confusing results unless you lift over or regenerate the appropriate files.
 
-An explicit `--aligner` is always used as given, and combinations that make no sense (for example `--aligner bwa` with a PacBio platform) are rejected rather than silently changed. minimap2 accepts the PacBio preset names `ccs` and `subread`, mapped to `map-hifi` and `map-pb`. `realign` checks free disk space before starting and reuses previously extracted FASTQs when they exist.
+An explicit `--aligner` is always used as given, and combinations that make no sense (for example `--aligner bwa` with a PacBio platform) are rejected rather than silently changed. minimap2 accepts the PacBio preset names `ccs` and `subread`, mapped to `map-hifi` and `map-pb`. `realign` checks free disk space before starting and reuses previously extracted FASTQs when they exist. Ultima Genomics BAM/CRAMs (`PL:ULTIMA`) are recognized and aligned with BWA-MEM, keeping their flow tags (`tp`, `t0`) attached and correctly oriented, with duplicates marked in GATK's flow mode; the variant callers then use their Ultima models (bcftools `-X ultima`, GATK `--flow-mode`, DeepVariant `ULTIMA`).
 :::
 
 ::: code-panel title=fastq-to-bam.sh subtitle="raw data path"
@@ -169,7 +169,10 @@ wgsextract align --r1 sample_fp_1.fastq.gz --r2 sample_fp_2.fastq.gz --ref /refs
 # Long reads: pick the platform; the aligner follows (pbmm2 or minimap2)
 wgsextract align --r1 sample.hifi.fastq.gz --platform hifi --ref /refs/hs38.fa
 
-# Re-align an existing BAM/CRAM to a different reference
+# Ultima Genomics reads (single-end FASTQ): flow-aware alignment and duplicates
+wgsextract align --r1 sample.ultima.fastq.gz --platform ultima --ref /refs/hs38.fa
+
+# Re-align an existing BAM/CRAM to a different reference (Ultima detected from its read group)
 wgsextract --input sample.hg19.bam --ref /refs/hs38.fa realign
 ```
 :::
