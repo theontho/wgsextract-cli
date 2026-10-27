@@ -16,6 +16,7 @@ Ultima's and Broad's pipelines.
 
 import gzip
 import logging
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -103,7 +104,8 @@ def fastq_has_flow_tags(fastq: PathInput) -> bool:
             line = handle.readline()
     except (OSError, UnicodeDecodeError):
         return False
-    return line.startswith("@") and "\ttp:B:" in line
+    # The comment follows the name after a space or a tab.
+    return line.startswith("@") and re.search(r"\stp:B:", line) is not None
 
 
 @dataclass(frozen=True)
@@ -133,8 +135,10 @@ def flow_data(
 
 
 def flow_tag_filter() -> list[str]:
-    """A pipeline stage reversing tp/t0 on the reverse-strand records of a SAM
-    stream (this module, run by this Python)."""
+    """A pipeline stage turning tp/t0 around on the reverse-strand records of a
+    SAM stream whose read group has them in reference orientation (see
+    FlowTagFlipper; this module, run by this Python). The stream must include
+    its header."""
     return [sys.executable, "-m", "wgsextract_cli.core.ultima"]
 
 
@@ -162,32 +166,72 @@ def warn_no_flow_model(tool: str) -> None:
     )
 
 
+class FlowTagFlipper:
+    """Puts the tp/t0 of reverse-strand records into the other orientation,
+    for the reads whose read group says they are in reference orientation
+    (tp:reference). Others (tp:read, or no tp) are left as they are, as
+    Ultima's and Broad's pipelines do; a read without an RG tag follows the
+    first read group, and with no read group at all, Ultima's default
+    (reference orientation)."""
+
+    def __init__(self) -> None:
+        self.reference_groups: set[bytes] = set()
+        self.first_group: bytes | None = None
+        self.default = True
+
+    def header(self, line: bytes) -> None:
+        if not line.startswith(b"@RG\t"):
+            return
+        fields = dict(
+            f.split(b":", 1) for f in line.rstrip(b"\r\n").split(b"\t")[1:] if b":" in f
+        )
+        group = fields.get(b"ID", b"")
+        if self.first_group is None:
+            self.first_group = group
+            self.default = fields.get(b"tp") == b"reference"
+        if fields.get(b"tp") == b"reference":
+            self.reference_groups.add(group)
+
+    def flip(self, record: bytes) -> bytes:
+        if record.startswith(b"@"):
+            self.header(record)
+            return record
+        flag_start = record.find(b"\t") + 1
+        flag = record[flag_start : record.find(b"\t", flag_start)]
+        if not flag.isdigit() or not int(flag) & 0x10:
+            return record
+        if b"\ttp:B:" not in record and b"\tt0:Z:" not in record:
+            return record
+        newline = b"\n" if record.endswith(b"\n") else b""
+        fields = record.rstrip(b"\r\n").split(b"\t")
+        group = next((f[5:] for f in fields[11:] if f.startswith(b"RG:Z:")), None)
+        if group is None or self.first_group is None:
+            reference = self.default
+        else:
+            reference = group in self.reference_groups
+        if not reference:
+            return record
+        for i in range(11, len(fields)):
+            prefix = fields[i][:5]
+            if prefix == b"tp:B:":
+                subtype, *values = fields[i][5:].split(b",")
+                fields[i] = prefix + b",".join([subtype, *reversed(values)])
+            elif prefix == b"t0:Z:":
+                fields[i] = prefix + fields[i][5:][::-1]
+        return b"\t".join(fields) + newline
+
+
 def reverse_flow_tags(record: bytes) -> bytes:
-    """A SAM line with tp and t0 reversed when the read is on the reverse strand."""
-    if record.startswith(b"@"):
-        return record
-    flag_start = record.find(b"\t") + 1
-    flag = record[flag_start : record.find(b"\t", flag_start)]
-    if not flag.isdigit() or not int(flag) & 0x10:
-        return record
-    if b"\ttp:B:" not in record and b"\tt0:Z:" not in record:
-        return record
-    newline = b"\n" if record.endswith(b"\n") else b""
-    fields = record.rstrip(b"\r\n").split(b"\t")
-    for i in range(11, len(fields)):
-        prefix = fields[i][:5]
-        if prefix == b"tp:B:":
-            subtype, *values = fields[i][5:].split(b",")
-            fields[i] = prefix + b",".join([subtype, *reversed(values)])
-        elif prefix == b"t0:Z:":
-            fields[i] = prefix + fields[i][5:][::-1]
-    return b"\t".join(fields) + newline
+    """A SAM record with tp and t0 reversed when it is on the reverse strand
+    (reference-oriented tags, as Ultima writes them)."""
+    return FlowTagFlipper().flip(record)
 
 
 def main() -> None:
+    flipper = FlowTagFlipper()
     out = sys.stdout.buffer
     for line in sys.stdin.buffer:
-        out.write(reverse_flow_tags(line))
+        out.write(flipper.flip(line))
     out.flush()
 
 

@@ -50,6 +50,19 @@ def test_flow_tag_filter_runs_as_a_pipeline_stage():
     assert lines[2] == _record(0)
 
 
+def test_read_oriented_flow_tags_are_left_alone():
+    read_rg = _RG.replace("tp:reference", "tp:read")
+    other = "@RG\tID:B\tPL:ULTIMA\ttp:reference"
+    sam = "\n".join([read_rg, other, _record(16),
+                     _record(16).replace("RG:Z:Z0138", "RG:Z:B")]) + "\n"  # fmt: skip
+    out = subprocess.run(
+        ultima.flow_tag_filter(), input=sam.encode(), capture_output=True, check=True
+    ).stdout.decode()
+    lines = out.splitlines()
+    assert lines[2] == _record(16)
+    assert _tag(lines[3], "t0") == "t0:Z:9876543210"
+
+
 def test_read_group_platform_and_flow_order():
     header = f"@HD\tVN:1.6\n{_RG}\n"
     assert ultima.is_ultima_header(header)
@@ -69,6 +82,9 @@ def test_fastq_flow_tags_are_found_in_the_comment(tmp_path):
     plain = tmp_path / "p.fastq"
     plain.write_text(f"@SRR30784715.1 1/1\n{_SEQ}\n+\nABCDEFGHIJ\n")
     assert ultima.fastq_has_flow_tags(tagged)
+    spaced = tmp_path / "s.fastq"
+    spaced.write_text(f"@r1 tp:B:c,0,1\tt0:Z:DD\n{_SEQ}\n+\nABCDEFGHIJ\n")
+    assert ultima.fastq_has_flow_tags(spaced)
     assert not ultima.fastq_has_flow_tags(plain)
 
 
