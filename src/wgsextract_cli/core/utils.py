@@ -266,6 +266,7 @@ def run_pipeline(
     stdout: ProcessStream = None,
     env: Mapping[str, str] | None = None,
     description: str = "Pipeline",
+    cancel_event: CancelEvent | None = None,
 ) -> None:
     """
     Run commands connected stdout-to-stdin, wait for every stage, and raise
@@ -275,6 +276,7 @@ def run_pipeline(
     an unread pipe and deadlock the pipeline; a failing stage's stderr tail is
     included in the error. An upstream stage killed by SIGPIPE is not a failure
     when every later stage succeeded (the consumer intentionally stopped early).
+    Cancellation kills and reaps every started stage before closing its files.
     """
     if not stages:
         raise ValueError("run_pipeline requires at least one stage")
@@ -284,6 +286,8 @@ def run_pipeline(
     try:
         upstream: ProcessStream = stdin
         for index, stage in enumerate(stages):
+            if cancel_event and cancel_event.is_set():
+                raise WGSExtractError(f"{description} cancelled")
             is_last = index == len(stages) - 1
             err_file: IO[bytes] = tempfile.TemporaryFile()
             stderr_files.append(err_file)
@@ -301,7 +305,16 @@ def run_pipeline(
             procs.append(proc)
             upstream = proc.stdout
 
-        returncodes = [proc.wait() for proc in procs]
+        returncodes = []
+        for proc in procs:
+            while cancel_event is not None and proc.poll() is None:
+                if cancel_event.is_set():
+                    raise WGSExtractError(f"{description} cancelled")
+                try:
+                    proc.wait(timeout=0.1)
+                except subprocess.TimeoutExpired:
+                    pass
+            returncodes.append(proc.wait())
         failures: list[str] = []
         for index, (stage, returncode) in enumerate(
             zip(stages, returncodes, strict=True)

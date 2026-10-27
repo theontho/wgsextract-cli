@@ -5,6 +5,7 @@ import logging
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from threading import Event
 
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.reference_assets import read_fai_lengths
@@ -97,6 +98,7 @@ def call_small_variants(
     indels: bool = False,
 ) -> None:
     contigs = _parallel_contigs(alignment, ref, threads, region)
+    cancelled = Event() if contigs else None
 
     def call_part(
         part: str, region_args: list[str], label: str | None, compression_threads: str
@@ -114,6 +116,7 @@ def call_small_variants(
             ),
             description=f"{'InDel' if indels else 'SNP'} variant calling"
             + (f" ({label})" if label else ""),
+            cancel_event=cancelled,
         )
 
     if not contigs:
@@ -146,6 +149,8 @@ def call_small_variants(
                 for future in as_completed(futures):
                     future.result()
             except BaseException:
+                if cancelled:
+                    cancelled.set()
                 for future in futures:
                     future.cancel()
                 raise

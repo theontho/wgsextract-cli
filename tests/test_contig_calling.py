@@ -1,6 +1,7 @@
 import gzip
 import random
 from pathlib import Path
+from threading import Event
 from unittest.mock import Mock
 
 import pytest
@@ -119,6 +120,38 @@ def test_worker_failure_cleans_parts_without_concatenating(
             profile=[], call_args=["--ploidy", "2"],
         )  # fmt: skip
     concat.assert_not_called()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_worker_failure_cancels_running_sibling_before_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started, stopped = Event(), Event()
+    monkeypatch.setattr(
+        contig_calling,
+        "_parallel_contigs",
+        Mock(return_value={"chr20": 1000, "chr21": 1000}),
+    )
+
+    def pipeline(
+        stages: list[list[str]], *, description: str, cancel_event: Event
+    ) -> None:
+        if description.endswith("(chr20)"):
+            started.set()
+            assert cancel_event.wait(5), "running worker was not cancelled"
+            assert list(tmp_path.glob(".wgse_call_*"))
+            stopped.set()
+        else:
+            assert started.wait(5)
+            raise WGSExtractError("original worker failure")
+
+    monkeypatch.setattr(contig_calling, "run_pipeline", pipeline)
+    with pytest.raises(WGSExtractError, match="original worker failure"):
+        contig_calling.call_small_variants(
+            "input.bam", "ref.fa", str(tmp_path / "result.vcf.gz"),
+            threads="2", region=None, profile=[], call_args=[],
+        )  # fmt: skip
+    assert stopped.is_set()
     assert list(tmp_path.iterdir()) == []
 
 
