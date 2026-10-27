@@ -133,7 +133,9 @@ def call_small_variants(
             # A TSV keeps names such as HLA-A*01:01:01:01 literal; -r would
             # interpret the colon as a coordinate separator.
             request = Path(work, f"{index:06d}.regions.tsv")
-            request.write_text(f"{contig}\t1\t{length}\n", encoding="utf-8")
+            request.write_text(
+                f"{contig}\t1\t{length}\n", encoding="utf-8", newline="\n"
+            )
             regions.append(["-R", str(request)])
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = [
@@ -150,7 +152,9 @@ def call_small_variants(
         # A file list avoids Windows' command-line length limit for references
         # with thousands of scaffolds. Parts stay in .fai order, not finish order.
         file_list = Path(work, "parts.txt")
-        file_list.write_text("".join(f"{part}\n" for part in parts), encoding="utf-8")
+        file_list.write_text(
+            "".join(f"{part}\n" for part in parts), encoding="utf-8", newline="\n"
+        )
         merged = str(Path(work, "merged.vcf.gz"))
         run_command(
             [
