@@ -25,7 +25,6 @@ from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
     run_command,
-    run_pipeline,
 )
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
@@ -34,6 +33,8 @@ from wgsextract_cli.core.variant_files import (
     verify_paths_exist,
 )
 from wgsextract_cli.core.warnings import print_warning
+
+from .contig_calling import call_small_variants
 
 
 def _select_vcf_input(args: argparse.Namespace) -> str | None:
@@ -160,35 +161,19 @@ def cmd_snp(args: argparse.Namespace) -> None:
     profile, prior = ultima.bcftools_options(args.input)
     prior = ["-P", "0"] if prior is None else prior
     logging.info(LOG_MESSAGES["vcf_calling_snps"].format(output=out_vcf))
-    region_args = ["-r", args.region] if args.region else []
     ploidy_args = _ploidy_args(args, lib)
 
     with sex_samples_args(
         args.input, outdir, ploidy_args, region=args.region
     ) as sex_args:
-        run_pipeline(
-            [
-                [
-                    "bcftools",
-                    "mpileup",
-                    *profile,
-                    "-B",
-                    "-I",
-                    "-C",
-                    "50",
-                    "-f",
-                    ref,
-                    "-Ou",
-                ]
-                + region_args
-                + [args.input],
-                ["bcftools", "call"]
-                + ploidy_args
-                + sex_args
-                + ["-V", "indels", "-v", "-m", *prior, "--threads", threads]
-                + ["-Oz", "-o", out_vcf],
-            ],
-            description="SNP variant calling",
+        call_small_variants(
+            args.input,
+            ref,
+            out_vcf,
+            threads=threads,
+            region=args.region,
+            profile=profile,
+            call_args=[*ploidy_args, *sex_args, *prior],
         )
     ensure_vcf_indexed(out_vcf)
     warn_if_no_variants(out_vcf, ref, args.region)
@@ -204,25 +189,20 @@ def cmd_indel(args: argparse.Namespace) -> None:
     profile, prior = ultima.bcftools_options(args.input)
     prior = ["-P", "0"] if prior is None else prior
     logging.info(LOG_MESSAGES["vcf_calling_indels"].format(output=out_vcf))
-    region_args = ["-r", args.region] if args.region else []
     ploidy_args = _ploidy_args(args, lib)
 
     with sex_samples_args(
         args.input, outdir, ploidy_args, region=args.region
     ) as sex_args:
-        run_pipeline(
-            [
-                ["bcftools", "mpileup", *profile, "-B", "-C", "50", "-f", ref, "-Ou"]
-                + region_args
-                + [args.input],
-                ["bcftools", "call"]
-                + ploidy_args
-                + sex_args
-                + ["-V", "snps", "-v", "-m", *prior, "--threads", threads, "-Ou"],
-                ["bcftools", "norm", "-f", ref, "--threads", threads]
-                + ["-Oz", "-o", out_vcf],
-            ],
-            description="InDel variant calling",
+        call_small_variants(
+            args.input,
+            ref,
+            out_vcf,
+            threads=threads,
+            region=args.region,
+            profile=profile,
+            call_args=[*ploidy_args, *sex_args, *prior],
+            indels=True,
         )
     ensure_vcf_indexed(out_vcf)
     warn_if_no_variants(out_vcf, ref, args.region)
