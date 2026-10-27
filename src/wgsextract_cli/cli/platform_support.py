@@ -3,10 +3,10 @@
 import argparse
 import sys
 
+from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import WGSExtractError
 
 _WINDOWS_VCF_TOOLS = {
-    "phylop": "pyBigWig",
     "gerp": "pyBigWig",
     "cnv": "delly",
     "freebayes": "FreeBayes",
@@ -20,16 +20,48 @@ _WINDOWS_TYPING_TOOLS = {
 }
 
 
+def _phylop_needs_bigwig(args: argparse.Namespace) -> bool:
+    from wgsextract_cli.commands.vcf.basic import _select_vcf_input
+
+    resource = getattr(args, "phylop_file", None)
+    if not resource:
+        # Library resolution reads metadata only, without preparing the input
+        # or creating outputs. Keep table-backed annotation available.
+        lib = ReferenceLibrary(
+            getattr(args, "ref", None),
+            input_path=_select_vcf_input(args),
+        )
+        resource = lib.phylop_file
+    return not resource or str(resource).lower().endswith((".bw", ".bigwig"))
+
+
 def verify_platform_support(args: argparse.Namespace) -> None:
+    command = getattr(args, "command", None)
+    if (
+        not sys.platform.startswith("linux")
+        and getattr(args, "gpu", False)
+        and (
+            command in ("align", "realign")
+            or (
+                command == "vcf"
+                and getattr(args, "vcf_cmd", None) in ("gatk", "deepvariant")
+            )
+        )
+    ):
+        raise WGSExtractError(
+            "Parabricks --gpu is not supported on this platform; "
+            "use Linux with an NVIDIA GPU."
+        )
     if sys.platform != "win32":
         return
-    command = getattr(args, "command", None)
     tool = None
     if command == "vep":
         tool = "VEP"
     elif command == "vcf":
         subcommand = getattr(args, "vcf_cmd", None)
         tool = _WINDOWS_VCF_TOOLS.get(subcommand)
+        if subcommand == "phylop" and _phylop_needs_bigwig(args):
+            tool = "pyBigWig"
         if subcommand == "sv":
             tool = getattr(args, "caller", None) or (
                 "pbsv/sniffles" if getattr(args, "pacbio", False) else "delly"
