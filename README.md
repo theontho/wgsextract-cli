@@ -158,6 +158,18 @@ Scored against [Genome in a Bottle](https://www.nist.gov/programs-projects/genom
 | `vcf gatk` | 0.991 | 0.994 | 0.993 | 0.993 | 0.991 | 0.992 | 21 min |
 | `vcf deepvariant` | 0.999 | 0.995 | **0.997** | 0.998 | 0.994 | **0.996** | 18.5 min |
 
+**Ultima reads.** There's no GIAB truth set for an Ultima-sequenced sample with public reads. Instead, this compares against the same tissue (GIAB HG008-N-D) sequenced on Illumina: its 169x BAM downsampled to ~40x and called with bcftools. Both are scored on chr20 inside GIAB's "not in any difficult region" stratification (50.8 Mb). The setup is otherwise the same as above, without rtg (alleles and genotype class must match).
+
+The Ultima reads are Ultima's GIAB CRAM, downsampled to ~30x and realigned to hs38DH's chr20 with `realign`. Each caller ran with 2–3 threads on a busy shared host. GATK's flow mode is slow, about 1 Mb per minute (its flow likelihood engine is Java only).
+
+| Caller on Ultima reads | SNP precision | SNP recall | SNP F1 | Indel precision | Indel recall | Indel F1 |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `vcf snp` + `vcf indel` (bcftools, `-X ultima`) | 0.998 | 0.994 | 0.996 | 0.354 | 0.984 | 0.520 |
+| `vcf gatk` (`--flow-mode ADVANCED`) | 0.985 | 0.996 | 0.991 | 0.396 | 0.971 | 0.563 |
+| `vcf deepvariant` (ULTIMA model) | 0.997 | 0.994 | **0.995** | 0.969 | 0.950 | **0.959** |
+
+bcftools and GATK call extra indels in homopolymers, Ultima's main error mode, so use DeepVariant for Ultima indels.
+
 ### Pixi environments
 
 Some tools live in their own Pixi environment. When such a tool is not on `PATH`, the CLI runs it through `pixi run -e <environment>` automatically, downloading the environment on first use. The `cyrius`, `t1k`, `expansionhunter`, and `pharmcat` environments are the exception: install them yourself with `pixi install -e <environment>` (Cyrius is licensed for noncommercial use only). You can also run a whole command inside an environment from the app directory (`wgsextract-cli/app/`) or a source checkout:
