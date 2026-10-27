@@ -1,0 +1,281 @@
+--- a/cram/cram_io.c
++++ b/cram/cram_io.c
+@@ -118,6 +118,119 @@
+ #define TRIAL_SPAN 70
+ #define NTRIALS 3
+ 
++/* Reuse large malloc-owned CRAM buffers instead of returning their pages to
++ * the OS after every block.  The glibc path also permits sanitizer testing.
++ * Every returned pointer remains a normal malloc/realloc/free-compatible one. */
++#if defined(_WIN32) || (defined(__GLIBC__) && defined(__SANITIZE_ADDRESS__))
++#include <malloc.h>
++#ifdef __SANITIZE_ADDRESS__
++#include <sanitizer/asan_interface.h>
++#define CRAM_BUFFER_POISON(p, n) __asan_poison_memory_region((p), (n))
++#define CRAM_BUFFER_UNPOISON(p, n) __asan_unpoison_memory_region((p), (n))
++#else
++#define CRAM_BUFFER_POISON(p, n) ((void)0)
++#define CRAM_BUFFER_UNPOISON(p, n) ((void)0)
++#endif
++#define CRAM_BUFFER_MIN (64 * 1024)
++#define CRAM_BUFFER_MAX (8 * 1024 * 1024)
++#define CRAM_BUFFER_LIMIT (16 * 1024 * 1024)
++#define CRAM_BUFFER_SLOTS 16
++static struct { void *data; size_t size; unsigned bucket; } cram_buffers[CRAM_BUFFER_SLOTS];
++static size_t cram_buffer_bytes;
++static int cram_buffer_count, cram_buffer_stopped;
++static pthread_mutex_t cram_buffer_lock = PTHREAD_MUTEX_INITIALIZER;
++static pthread_once_t cram_buffer_once = PTHREAD_ONCE_INIT;
++
++static void cram_buffer_finish(void) {
++    if (pthread_mutex_lock(&cram_buffer_lock) != 0)
++        return;
++    cram_buffer_stopped = 1;
++    while (cram_buffer_count) {
++        void *data = cram_buffers[--cram_buffer_count].data;
++        cram_buffers[cram_buffer_count].data = NULL;
++        cram_buffers[cram_buffer_count].size = 0;
++        cram_buffers[cram_buffer_count].bucket = 0;
++        free(data);
++    }
++    cram_buffer_bytes = 0;
++    pthread_mutex_unlock(&cram_buffer_lock);
++}
++
++static void cram_buffer_init(void) {
++    if (atexit(cram_buffer_finish) != 0)
++        cram_buffer_stopped = 1;
++}
++
++static void *cram_buffer_malloc(size_t size) {
++    int saved_errno = errno;
++    if (size >= CRAM_BUFFER_MIN && size <= CRAM_BUFFER_MAX &&
++        pthread_once(&cram_buffer_once, cram_buffer_init) == 0 &&
++        pthread_mutex_lock(&cram_buffer_lock) == 0) {
++        int best = -1;
++        if (!cram_buffer_stopped) {
++            for (int i = 0; i < cram_buffer_count; i++)
++                if (cram_buffers[i].size >= size &&
++                    cram_buffers[i].size - size <= size / 8 &&
++                    (best < 0 || cram_buffers[i].size < cram_buffers[best].size))
++                    best = i;
++        }
++        if (best >= 0) {
++            void *data = cram_buffers[best].data;
++            size_t capacity = cram_buffers[best].size;
++            cram_buffer_bytes -= capacity;
++            cram_buffers[best] = cram_buffers[--cram_buffer_count];
++            cram_buffers[cram_buffer_count].data = NULL;
++            cram_buffers[cram_buffer_count].size = 0;
++            cram_buffers[cram_buffer_count].bucket = 0;
++            pthread_mutex_unlock(&cram_buffer_lock);
++            CRAM_BUFFER_UNPOISON(data, size);
++            errno = saved_errno;
++            return data;
++        }
++        pthread_mutex_unlock(&cram_buffer_lock);
++    }
++    errno = saved_errno;
++    return malloc(size);
++}
++
++static void cram_buffer_free(void *data) {
++    int saved_errno = errno;
++    if (!data)
++        return;
++#ifdef _WIN32
++    size_t size = _msize(data);
++#else
++    size_t size = malloc_usable_size(data);
++#endif
++    if (size >= CRAM_BUFFER_MIN && size <= CRAM_BUFFER_MAX &&
++        pthread_once(&cram_buffer_once, cram_buffer_init) == 0 &&
++        pthread_mutex_lock(&cram_buffer_lock) == 0) {
++        unsigned bucket = 0, peers = 0;
++        for (size_t upper = CRAM_BUFFER_MIN; upper < size; upper *= 2)
++            bucket++;
++        for (int i = 0; i < cram_buffer_count; i++)
++            peers += cram_buffers[i].bucket == bucket;
++        if (!cram_buffer_stopped && peers < 2 && cram_buffer_count < CRAM_BUFFER_SLOTS &&
++            cram_buffer_bytes <= CRAM_BUFFER_LIMIT - size) {
++            CRAM_BUFFER_POISON(data, size);
++            cram_buffers[cram_buffer_count].data = data;
++            cram_buffers[cram_buffer_count].bucket = bucket;
++            cram_buffers[cram_buffer_count++].size = size;
++            cram_buffer_bytes += size;
++            pthread_mutex_unlock(&cram_buffer_lock);
++            errno = saved_errno;
++            return;
++        }
++        pthread_mutex_unlock(&cram_buffer_lock);
++    }
++    free(data);
++    errno = saved_errno;
++}
++#else
++#define cram_buffer_malloc malloc
++#define cram_buffer_free free
++#endif
++
+ #define CRAM_DEFAULT_LEVEL 5
+ 
+ /* ----------------------------------------------------------------------
+@@ -838,7 +951,7 @@
+     if (!*size)
+         *size = csize*2;
+     for(;;) {
+-        new_data = realloc(data, *size);
++        new_data = data ? realloc(data, *size) : cram_buffer_malloc(*size);
+         if (!new_data) {
+             hts_log_error("Memory allocation failure");
+             goto fail;
+@@ -867,7 +980,7 @@
+ 
+  fail:
+     libdeflate_free_decompressor(z);
+-    free(data);
++    cram_buffer_free(data);
+     return NULL;
+ }
+ 
+@@ -1203,9 +1316,9 @@
+             return NULL;
+         }
+         b->alloc = b->uncomp_size;
+-        if (!(b->data = malloc(b->uncomp_size))){ free(b); return NULL; }
++        if (!(b->data = cram_buffer_malloc(b->uncomp_size))){ free(b); return NULL; }
+         if (b->uncomp_size != hread(fd->fp, b->data, b->uncomp_size)) {
+-            free(b->data);
++            cram_buffer_free(b->data);
+             free(b);
+             return NULL;
+         }
+@@ -1215,9 +1328,9 @@
+             return NULL;
+         }
+         b->alloc = b->comp_size;
+-        if (!(b->data = malloc(b->comp_size)))  { free(b); return NULL; }
++        if (!(b->data = cram_buffer_malloc(b->comp_size)))  { free(b); return NULL; }
+         if (b->comp_size != hread(fd->fp, b->data, b->comp_size)) {
+-            free(b->data);
++            cram_buffer_free(b->data);
+             free(b);
+             return NULL;
+         }
+@@ -1225,7 +1338,7 @@
+ 
+     if (CRAM_MAJOR_VERS(fd->version) >= 3) {
+         if (-1 == int32_decode(fd, (int32_t *)&b->crc32)) {
+-            free(b->data);
++            cram_buffer_free(b->data);
+             free(b);
+             return NULL;
+         }
+@@ -1328,7 +1441,7 @@
+     if (!b)
+         return;
+     if (b->data)
+-        free(b->data);
++        cram_buffer_free(b->data);
+     free(b);
+ }
+ 
+@@ -1374,7 +1487,7 @@
+             free(uncomp);
+             return -1;
+         }
+-        free(b->data);
++        cram_buffer_free(b->data);
+         b->data = (unsigned char *)uncomp;
+         b->alloc = uncomp_size;
+         b->method = RAW;
+@@ -1391,7 +1504,7 @@
+             free(uncomp);
+             return -1;
+         }
+-        free(b->data);
++        cram_buffer_free(b->data);
+         b->data = (unsigned char *)uncomp;
+         b->alloc = usize;
+         b->method = RAW;
+@@ -1413,7 +1526,7 @@
+             free(uncomp);
+             return -1;
+         }
+-        free(b->data);
++        cram_buffer_free(b->data);
+         b->data = (unsigned char *)uncomp;
+         b->alloc = uncomp_size;
+         b->method = RAW;
+@@ -1434,7 +1547,7 @@
+             free(uncomp);
+             return -1;
+         }
+-        free(b->data);
++        cram_buffer_free(b->data);
+         b->data = (unsigned char *)uncomp;
+         b->alloc = usize2;
+         b->method = RAW;
+@@ -1448,7 +1561,7 @@
+         uncomp = fqz_decompress((char *)b->data, b->comp_size, &uncomp_size, NULL, 0);
+         if (!uncomp)
+             return -1;
+-        free(b->data);
++        cram_buffer_free(b->data);
+         b->data = (unsigned char *)uncomp;
+         b->alloc = uncomp_size;
+         b->method = RAW;
+@@ -1466,7 +1579,7 @@
+             return -1;
+         }
+         b->orig_method = RANSPR;
+-        free(b->data);
++        cram_buffer_free(b->data);
+         b->data = (unsigned char *)uncomp;
+         b->alloc = usize2;
+         b->method = RAW;
+@@ -1485,7 +1598,7 @@
+             return -1;
+         }
+         b->orig_method = ARITH;
+-        free(b->data);
++        cram_buffer_free(b->data);
+         b->data = (unsigned char *)uncomp;
+         b->alloc = usize2;
+         b->method = RAW;
+@@ -1501,7 +1614,7 @@
+             return -1;
+         b->orig_method = TOK3;
+         b->method = RAW;
+-        free(b->data);
++        cram_buffer_free(b->data);
+         b->data = cp;
+         b->alloc = out_len;
+         b->uncomp_size = out_len;
+@@ -1853,7 +1966,7 @@
+             }
+ 
+             if (c_best) {
+-                free(b->data);
++                cram_buffer_free(b->data);
+                 b->data = (unsigned char *)c_best;
+                 b->method = method_best; // adjusted to methmap[method_best] later
+                 b->comp_size = sz_best;
+@@ -2031,7 +2144,7 @@
+             }
+ 
+             if (comp_size < b->uncomp_size) {
+-                free(b->data);
++                cram_buffer_free(b->data);
+                 b->data = (unsigned char *)comp;
+                 b->comp_size = comp_size;
+                 b->method = method;
+@@ -2050,7 +2163,7 @@
+         }
+ 
+         if (comp_size < b->uncomp_size) {
+-            free(b->data);
++            cram_buffer_free(b->data);
+             b->data = (unsigned char *)comp;
+             b->comp_size = comp_size;
+             b->method = GZIP;
