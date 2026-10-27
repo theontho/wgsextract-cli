@@ -40,9 +40,11 @@ Unix tools assume what Windows doesn't give them. The recipes deal with:
   process and waits for it, since Windows' `execv` returns immediately.
 
 Each tool's output was compared with the Linux Bioconda build on the same
-input, using real reads against the full hs38DH reference: bwa, bwa-mem2
-(including its index), minimap2, samblaster, fastp, and the `align`, `vcf snp`,
-`bam unalign` and `microarray` workflows give identical results.
+input, using real reads against the full hs38DH reference: bwa, minimap2,
+samblaster, fastp, and the `align`, `vcf snp`, `bam unalign` and `microarray`
+workflows give identical results. bwa-mem2 equivalence (including its index)
+was verified with the chr20 reference only; full-human alignment falls back
+to BWA under the 10 GiB memory guard.
 
 The native BWA build also batches independent suffix-array lookups to overlap
 memory reads through the large human index. It retains the original seed
@@ -72,13 +74,19 @@ other tool recipes keep their own compiler settings.
 ## Building
 
 The [Windows Tools](../../.github/workflows/windows_tools.yml) workflow builds
-every recipe on pull requests that change them. To release a set, run it with
-a new `release_tag` (`windows-tools-<n>`), then pin it:
+every recipe on pull requests that change them. To release a complete set, run
+it with a new `release_tag` (`windows-tools-<n>`), then pin it:
 
 ```sh
 python packaging/windows/pin.py windows-tools-<n>
 pixi lock
 ```
+
+**Partial releases:** never use `pin.py`, which replaces the entire pin block
+with the release's assets and would remove the other tools. Update only the
+selected URL/SHA-256 entries by hand, then run `pixi lock`, preserving all
+other pins. `windows-tools-5` contains only htslib, samtools and bcftools;
+the other five tools remain pinned to their prior releases.
 
 To build on a Windows PC, install [MSYS2](https://www.msys2.org) and the
 packages in [msys2-packages.txt](msys2-packages.txt) (from an MSYS2 shell:
