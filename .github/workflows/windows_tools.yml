@@ -3,7 +3,8 @@ name: Windows Tools
 # Builds WGS Extract's native Windows tool packages (packaging/windows/recipes)
 # on every change to them, and publishes a set to a release when asked:
 # Actions > Windows Tools > Run workflow, with a new tag such as windows-tools-2.
-# Then pin pixi.toml to it: python packaging/windows/pin.py <tag>.
+# For complete sets, pin pixi.toml: python packaging/windows/pin.py <tag>.
+# Never use pin.py for partial releases; update only selected URL/SHA-256 pins.
 
 on:
   pull_request:

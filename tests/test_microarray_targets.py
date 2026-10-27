@@ -21,9 +21,16 @@ def _templates(root: Path) -> Path:
     (body / "MyHeritage_V2.csv").write_text('"rs9","1","1000"\n"rs4","MT","73"\n')
     # 23andMe's API list puts the rsID last.
     (body / "23andMe_SNPs_API.txt").write_text("chr7\t5000\trs5\n")
-    # FTDNA's Affymetrix export is NCBI36: its positions must not be targets.
+    # FTDNA's Affymetrix export is NCBI36: only its lifted positions are targets.
     (body / "FTDNA_V1_Affy.csv").write_text("rs6,3,999999\n")
+    (root / _HG18_CHAIN_NAME).write_bytes(gzip.compress(_HG18_CHAIN.encode()))
     return root / "microarray"
+
+
+# NCBI36 chr3:999000-1000000 sits 1000 bp later on GRCh37.
+_HG18_CHAIN_NAME = "hg18ToHg19.over.chain.gz"
+_HG18_CHAIN = "chain 1000 chr3 2000000 + 999000 1000000 chr3 2000000 + 1000000 1001000 1\n1000\n\n"
+_VERSION = "##wgsextract_microarray_target_version=2"
 
 
 def test_markers_are_the_union_of_the_grch37_templates(tmp_path):
@@ -37,6 +44,15 @@ def test_markers_are_the_union_of_the_grch37_templates(tmp_path):
     }
 
 
+def test_ncbi36_markers_are_lifted_to_grch37(tmp_path):
+    templates = _templates(tmp_path)
+    markers = mt.collect_template_markers(
+        [str(templates)], str(tmp_path / _HG18_CHAIN_NAME)
+    )
+    assert markers[("chr3", 1000999)] == "rs6"
+    assert ("chr3", 999999) not in markers
+
+
 @needs_tools("bgzip", "tabix")
 def test_hg19_target_is_written_sorted_and_indexed(tmp_path):
     templates = _templates(tmp_path)
@@ -47,9 +63,11 @@ def test_hg19_target_is_written_sorted_and_indexed(tmp_path):
     with gzip.open(out, "rt") as f:
         lines = f.read().splitlines()
     assert lines == [
+        _VERSION,
         "#CHROM\tPOS\tID",
         "chr1\t1000\trs1",
         "chr2\t2000\trs2",
+        "chr3\t1000999\trs6",
         "chr7\t5000\trs5",
         "chrM\t73\trs4",
         "chrX\t3000\trs3",
@@ -92,7 +110,42 @@ def test_hg38_target_uses_the_librarys_chain(tmp_path):
     (tmp_path / "hg19ToHg38.over.chain.gz").write_bytes(gzip.compress(_CHAIN.encode()))
     out = mt.build_genome_wide_target(str(tmp_path), "hg38", [str(templates)])
     with gzip.open(out, "rt") as f:
-        assert f.read().splitlines() == ["#CHROM\tPOS\tID", "chr1\t1100\trs1"]
+        # chrM keeps its positions: GRCh37's MT and hg38's chrM are both the rCRS.
+        assert f.read().splitlines() == [
+            _VERSION,
+            "#CHROM\tPOS\tID",
+            "chr1\t1100\trs1",
+            "chrM\t73\trs4",
+        ]
+
+
+@needs_tools("bgzip", "tabix")
+def test_a_target_from_an_older_builder_is_rebuilt(tmp_path):
+    templates = _templates(tmp_path)
+    out = Path(mt.genome_wide_target_path(str(tmp_path), "hg19"))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(gzip.compress(b"#CHROM\tPOS\tID\nchr1\t1\trsOld\n"))
+    Path(str(out) + ".tbi").write_bytes(b"")
+
+    mt.build_genome_wide_target(str(tmp_path), "GRCh37", [str(templates)])
+
+    with gzip.open(out, "rt") as f:
+        lines = f.read().splitlines()
+    assert lines[0] == _VERSION
+    assert "chr1\t1\trsOld" not in lines
+
+
+@needs_tools("bgzip", "tabix")
+def test_a_current_target_is_reused(tmp_path):
+    templates = _templates(tmp_path)
+    out = mt.build_genome_wide_target(str(tmp_path), "hg19", [str(templates)])
+    mtime = Path(out).stat().st_mtime_ns
+    (templates / "raw_file_templates" / "body" / "23andMe_V3.txt").write_text(
+        "rsNew\t1\t1\t\n"
+    )
+
+    assert mt.build_genome_wide_target(str(tmp_path), "hg19", [str(templates)]) == out
+    assert Path(out).stat().st_mtime_ns == mtime
 
 
 @needs_tools("bgzip", "tabix")
@@ -121,3 +174,17 @@ def test_simultaneous_builds_leave_one_valid_target(tmp_path):
         "All_SNPs_hg19_ref.tab.gz.tbi",
     }
     assert not leftovers
+
+
+@needs_tools("bgzip", "tabix")
+def test_a_current_target_in_a_read_only_library_is_used(tmp_path):
+    templates = _templates(tmp_path)
+    out = mt.build_genome_wide_target(str(tmp_path), "hg19", [str(templates)])
+    microarray_dir = Path(out).parent
+    microarray_dir.chmod(0o555)
+    try:
+        assert (
+            mt.build_genome_wide_target(str(tmp_path), "hg19", [str(templates)]) == out
+        )
+    finally:
+        microarray_dir.chmod(0o755)

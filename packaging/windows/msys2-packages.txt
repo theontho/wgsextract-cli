@@ -1,6 +1,7 @@
 # MSYS2 packages the recipes build with (UCRT64 GCC and static libraries).
 # Build time only: the packages they make link everything statically.
 make
+patch
 perl
 mingw-w64-ucrt-x86_64-gcc
 mingw-w64-ucrt-x86_64-zlib

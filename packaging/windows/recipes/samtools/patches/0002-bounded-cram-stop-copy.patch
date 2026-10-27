@@ -1,0 +1,40 @@
+--- a/htslib-1.24/cram/cram_codecs.c
++++ b/htslib-1.24/cram/cram_codecs.c
+@@ -2030,7 +2030,7 @@
+                                       int *out_size) {
+     cram_block *b;
+     cram_block *out = (cram_block *)out_;
+-    unsigned char *cp, *cp_end;
++    unsigned char *cp, *cp_end, *terminator;
+     unsigned char stop;
+ 
+     b = cram_get_block_by_id(slice, c->u.byte_array_stop.content_id);
+@@ -2046,18 +2046,19 @@
+     // implementation, so we may ignore what was requested.
+     stop = b->orig_method == TOK3 ? 0 : c->u.byte_array_stop.stop;
+ 
++    terminator = memchr(cp, stop, cp_end - cp);
++    if (!terminator)
++        terminator = cp_end;
++
+     if (cp_end - cp < out->alloc - out->byte) {
+-        unsigned char *out_cp = BLOCK_END(out);
+-        while (cp != cp_end && *cp != stop)
+-            *out_cp++ = *cp++;
+-        BLOCK_SIZE(out) = out_cp - BLOCK_DATA(out);
++        size_t len = terminator - cp;
++        memcpy(BLOCK_END(out), cp, len);
++        BLOCK_SIZE(out) += len;
+     } else {
+-        unsigned char *cp_start;
+-        for (cp_start = cp; cp != cp_end && *cp != stop; cp++)
+-            ;
+-        BLOCK_APPEND(out, cp_start, cp - cp_start);
+-        BLOCK_GROW(out, cp - cp_start);
++        BLOCK_APPEND(out, cp, terminator - cp);
++        BLOCK_GROW(out, terminator - cp);
+     }
++    cp = terminator;
+ 
+     *out_size = cp - (b->data + b->idx);
+     b->idx = cp - b->data + 1;

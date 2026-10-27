@@ -10,6 +10,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import TextIO
 
+from wgsextract_cli.core.microarray_utils import sort_alleles
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
@@ -27,14 +28,15 @@ MIN_TARGETS_TO_EXPECT_A_VARIANT = 1000
 
 
 def _normalize_microarray_genotype(value: str) -> str | None:
-    """Return a two-letter SNP genotype (haploid calls doubled), "--", or None."""
+    """Return a two-letter SNP genotype (haploid calls doubled, heterozygous
+    alleles in alphabetical order), "--", or None."""
     genotype = value.replace("/", "").replace("|", "").replace(".", "-").upper()
     if genotype in {"", "-", "--"}:
         return "--"
     if len(genotype) == 1 and genotype in _BASES:
         return genotype * 2
     if len(genotype) == 2 and set(genotype) <= _BASES:
-        return genotype
+        return sort_alleles(genotype)
     return None
 
 

@@ -6,6 +6,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from wgsextract_cli.core import ultima
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.containers import (
     docker_info,
@@ -24,6 +25,9 @@ from .basic import get_base_args
 
 # Google's image; Bioconda's deepvariant has shipped no DeepVariant since 1.8.
 DEFAULT_IMAGE = "google/deepvariant:1.10.0"
+# Google's experimental image with the ULTIMA model (google/deepvariant#1100),
+# until a release has it.
+DEFAULT_ULTIMA_IMAGE = "google/deepvariant:gh1100-ultima"
 _SETUP = (
     "DeepVariant runs from Google's Docker image on Linux and macOS (Apple "
     "Silicon emulates it, slowly): install Docker, then docker pull {image}. "
@@ -31,28 +35,44 @@ _SETUP = (
 )
 
 
-def deepvariant_image() -> str:
+def deepvariant_image(model_type: str = "WGS") -> str:
+    if model_type == "ULTIMA":
+        return str(settings.get("deepvariant_ultima_image") or DEFAULT_ULTIMA_IMAGE)
     return str(settings.get("deepvariant_image") or DEFAULT_IMAGE)
 
 
-def _model_type(args: argparse.Namespace) -> str:
+def _model_type(args: argparse.Namespace, ref: str | None = None) -> str:
+    """--pacbio, --model-type or --wes, else ULTIMA for Ultima reads with
+    their flow tags, else WGS."""
     if getattr(args, "pacbio", False):
         return "PACBIO"
     if getattr(args, "model_type", None):
         return str(args.model_type)
-    return "WES" if getattr(args, "wes", False) else "WGS"
+    if getattr(args, "wes", False):
+        return "WES"
+    if ref and ultima.alignment_flow_data(args.input, ref).flow_aware:
+        logging.info("Ultima reads: calling with DeepVariant's ULTIMA model.")
+        return "ULTIMA"
+    return "WGS"
 
 
-def _verify_docker_image() -> str:
-    image = deepvariant_image()
-    setup = _SETUP.format(image=image)
+def _verify_docker(model_type: str = "WGS") -> None:
+    """Docker runs here (Windows can't run DeepVariant's Linux image)."""
+    setup = _SETUP.format(image=deepvariant_image(model_type))
     if sys.platform == "win32":
         raise WGSExtractError(f"DeepVariant isn't available on Windows. {setup}")
     docker_info(setup)
+
+
+def _verify_docker_image(model_type: str) -> str:
+    image = deepvariant_image(model_type)
+    setting = (
+        "deepvariant_ultima_image" if model_type == "ULTIMA" else "deepvariant_image"
+    )
     require_image(
         image,
         f"The DeepVariant image isn't downloaded: docker pull {image} "
-        "(set deepvariant_image in config.toml for another version).",
+        f"(set {setting} in config.toml for another version).",
     )
     return image
 
@@ -76,15 +96,18 @@ _PARABRICKS_MODES = {
 def _deepvariant_gpu(args: argparse.Namespace) -> None:
     from wgsextract_cli.core.parabricks import call_variants, verify_parabricks
 
-    model_type = _model_type(args)
-    if model_type not in _PARABRICKS_MODES or args.checkpoint:
-        raise WGSExtractError(
-            "--gpu (Parabricks) runs DeepVariant's WGS, WES and PACBIO models; "
-            "use the CPU version for --checkpoint or HYBRID_PACBIO_ILLUMINA."
-        )
+    refusal = WGSExtractError(
+        "--gpu (Parabricks) runs DeepVariant's WGS, WES and PACBIO models; "
+        "use the CPU version for --checkpoint, ULTIMA or HYBRID_PACBIO_ILLUMINA."
+    )
+    if _model_type(args) not in _PARABRICKS_MODES or args.checkpoint:
+        raise refusal
     verify_dependencies(["samtools", "tabix"])
     verify_parabricks()
     _threads, outdir, ref, _lib = get_base_args(args)
+    model_type = _model_type(args, ref)
+    if model_type not in _PARABRICKS_MODES:
+        raise refusal
     out_vcf = str(Path(outdir, "deepvariant.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_deepvariant"].format(output=out_vcf))
     call_variants(
@@ -100,10 +123,16 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
         _deepvariant_gpu(args)
         return
     run_deepvariant = get_tool_path("run_deepvariant")
-    image = None if run_deepvariant else _verify_docker_image()
+    if not run_deepvariant:
+        _verify_docker()
     verify_dependencies(["samtools", "tabix"])
-
     threads, outdir, ref, _lib = get_base_args(args)
+    model_type = _model_type(args, ref)
+    if model_type == "ULTIMA" and run_deepvariant:
+        # A local run_deepvariant is a release, which has no ULTIMA model yet.
+        _verify_docker(model_type)
+        run_deepvariant = None
+    image = None if run_deepvariant else _verify_docker_image(model_type)
     out_vcf = str(Path(outdir, "deepvariant.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_deepvariant"].format(output=out_vcf))
     region_args = ["--regions", args.region] if args.region else []
@@ -111,7 +140,7 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
     try:
         with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_dv_") as work:
             dv_args = [
-                "--model_type", _model_type(args),
+                "--model_type", model_type,
                 "--ref", host_path(ref),
                 "--reads", host_path(args.input),
                 "--output_vcf", host_path(out_vcf),

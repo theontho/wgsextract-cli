@@ -179,6 +179,7 @@ def test_microarray_normalizes_region_before_custom_sex_ploidy(
         ref_vcf_tab=target_gz,
         ploidy_file=str(ploidy),
         build=None,
+        root=None,
         liftover_chain=None,
     )
     monkeypatch.setattr(microarray, "ReferenceLibrary", lambda *_a, **_kw: lib)

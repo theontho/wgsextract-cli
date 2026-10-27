@@ -40,9 +40,11 @@ Unix tools assume what Windows doesn't give them. The recipes deal with:
   process and waits for it, since Windows' `execv` returns immediately.
 
 Each tool's output was compared with the Linux Bioconda build on the same
-input, using real reads against the full hs38DH reference: bwa, bwa-mem2
-(including its index), minimap2, samblaster, fastp, and the `align`, `vcf snp`,
-`bam unalign` and `microarray` workflows give identical results.
+input, using real reads against the full hs38DH reference: bwa, minimap2,
+samblaster, fastp, and the `align`, `vcf snp`, `bam unalign` and `microarray`
+workflows give identical results. bwa-mem2 equivalence (including its index)
+was verified with the chr20 reference only; full-human alignment falls back
+to BWA under the 10 GiB memory guard.
 
 The native BWA build also batches independent suffix-array lookups to overlap
 memory reads through the large human index. It retains the original seed
@@ -51,16 +53,40 @@ test compares every position with the scalar lookup across sampling intervals,
 input orders and batch boundaries. The full-reference alignment benchmarks use
 the same thread and sort-memory settings and verify identical decoded output.
 
+The HTS builds (htslib, samtools and bcftools) reduce CRAM decoding overhead by
+copying stop-terminated byte arrays in bounded chunks and packing common BAM
+bases with SSSE3. Unusual bases retain the scalar conversion. A thread-safe
+cache reuses malloc-compatible CRAM buffers instead of repeatedly returning
+their pages to Windows. It retains at most 16 MiB across 16 buffers, accepts
+buffers from 64 KiB to 8 MiB, and limits excess capacity to 12.5% when reusing
+one. Each build runs codec and sequence equivalence tests plus concurrent
+compressed-block, allocation-boundary and error-recovery checks.
+
+bcftools also copies a single input's pileup in bulk when there is exactly one
+output sample. Multiple inputs or samples keep the original grouping path.
+Its build compares both paths with the upstream implementation across growth
+boundaries, empty/repeated calls, and read-group sample selection.
+
+HTS tools also use link-time optimization and inline memory operations. These
+flags retain the existing x86-64-v2 CPU requirement and floating-point rules;
+other tool recipes keep their own compiler settings.
+
 ## Building
 
 The [Windows Tools](../../.github/workflows/windows_tools.yml) workflow builds
-every recipe on pull requests that change them. To release a set, run it with
-a new `release_tag` (`windows-tools-<n>`), then pin it:
+every recipe on pull requests that change them. To release a complete set, run
+it with a new `release_tag` (`windows-tools-<n>`), then pin it:
 
 ```sh
 python packaging/windows/pin.py windows-tools-<n>
 pixi lock
 ```
+
+**Partial releases:** never use `pin.py`, which replaces the entire pin block
+with the release's assets and would remove the other tools. Update only the
+selected URL/SHA-256 entries by hand, then run `pixi lock`, preserving all
+other pins. `windows-tools-5` contains only htslib, samtools and bcftools;
+the other five tools remain pinned to their prior releases.
 
 To build on a Windows PC, install [MSYS2](https://www.msys2.org) and the
 packages in [msys2-packages.txt](msys2-packages.txt) (from an MSYS2 shell:
