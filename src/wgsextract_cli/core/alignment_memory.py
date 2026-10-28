@@ -3,9 +3,9 @@
 Full 30x H2 measured a 17–17.5 GiB BWA working set including paged-out memory,
 not just its capped resident peak. Budget index files, 2 GiB aligner working
 memory, roughly 6 GiB samblaster signatures, sort plus 25%, and bookkeeping
-with reference-scaled transient headroom: about 18 GiB for BWA or 29 GiB
-for MEM2 at six threads/256M. Higher coverage or shorter reads can require
-more; these are estimates, not an allocation or a hard limit.
+with input-read-scaled transient headroom: about 18 GiB for BWA or 29 GiB
+for MEM2 at six threads/256M and 680 million reads. These are estimates,
+not an allocation or a hard limit.
 """
 
 import logging
@@ -25,10 +25,12 @@ _INDEX_PARTS = {
     "bwa-mem2": ((".0123", ".bwt.2bit.64", ".pac"), 5.5),
 }
 _ALIGNER_WORKING_BYTES = 2 * _GIB
-_SAMBLASTER_BYTES_PER_BASE = 2
+_H2_INPUT_READS = 679_639_896
+# H2 samblaster peaked at 17.7 bytes/pair; allow 19 (9.5/individual read).
+_SAMBLASTER_BYTES_PER_PAIR = 19
 _PIPELINE_OVERHEAD_BYTES = _GIB // 2
 # Full H2 RSS/anonymous+swap observations require headroom beyond steady stages.
-_HUMAN_TRANSIENT_BYTES = 5 * _GIB // 2
+_H2_TRANSIENT_BYTES = 5 * _GIB // 2
 
 
 class MappingMemory(NamedTuple):
@@ -67,6 +69,7 @@ def estimate_mapping_memory(
     threads: str = "1",
     memory: str = "512M",
     samblaster: bool = True,
+    reads: int | None = None,
 ) -> MappingMemory:
     bases = reference_bases(ref) or _HUMAN_REFERENCE_BASES
     suffixes, bytes_per_base = _INDEX_PARTS[aligner]
@@ -77,13 +80,13 @@ def estimate_mapping_memory(
         index = int(bases * bytes_per_base)
     amount, unit = parse_memory(memory)
     per_thread = amount * (1024**3 if unit == "G" else 1024**2)
+    input_reads = max(0, reads) if reads is not None else _H2_INPUT_READS
     return MappingMemory(
         index,
         _ALIGNER_WORKING_BYTES,
-        bases * _SAMBLASTER_BYTES_PER_BASE if samblaster else 0,
+        (input_reads * _SAMBLASTER_BYTES_PER_PAIR + 1) // 2 if samblaster else 0,
         int(int(threads) * per_thread * 1.25),
-        _PIPELINE_OVERHEAD_BYTES
-        + bases * _HUMAN_TRANSIENT_BYTES // _HUMAN_REFERENCE_BASES,
+        _PIPELINE_OVERHEAD_BYTES + input_reads * _H2_TRANSIENT_BYTES // _H2_INPUT_READS,
     )
 
 
@@ -94,27 +97,35 @@ def check_mapping_memory(
     threads: str,
     memory: str,
     samblaster: bool,
+    reads: int | None = None,
 ) -> None:
     estimate = estimate_mapping_memory(
-        ref, aligner, threads=threads, memory=memory, samblaster=samblaster
+        ref, aligner, threads=threads, memory=memory, samblaster=samblaster, reads=reads
     )
     available = available_memory()
-    if estimate.total <= available:
-        return
     components = ", ".join(
         f"{name.replace('_', ' ')} {value / _GIB:.1f}"
         for name, value in zip(estimate._fields, estimate, strict=True)
     )
+    logging.info(
+        "%s alignment memory estimate: %.2f GiB for %s input reads (%s GiB).",
+        aligner,
+        estimate.total / _GIB,
+        f"{reads:,}" if reads is not None else "unknown; 680-million-read fallback",
+        components,
+    )
+    if estimate.total <= available:
+        return
     message = (
         f"{aligner} alignment is estimated to need {estimate.total / _GIB:.2f} GiB "
         f"but only {available / _GIB:.2f} GiB RAM is available "
         f"({components} GiB). Lower --memory (per sort thread) or --threads, "
         "or free memory."
     )
-    if samblaster:
+    if reads is None:
         message += (
-            " The samblaster allowance assumes about 30x coverage with 150bp paired reads; "
-            "higher coverage or shorter reads need more."
+            " No reliable input read count was available; using a 680-million-read "
+            "fallback. Larger inputs may need more."
         )
     if aligner == "bwa-mem2":
         raise WGSExtractError(message + " Use --aligner bwa for its smaller index.")

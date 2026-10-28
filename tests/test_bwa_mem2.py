@@ -1,3 +1,4 @@
+import gzip
 import hashlib
 import random
 from argparse import Namespace
@@ -9,7 +10,9 @@ import pytest
 from tests.htslib_helpers import needs_tools, write_fasta
 from wgsextract_cli.commands import align
 from wgsextract_cli.core import alignment_memory, bwa_mem2
+from wgsextract_cli.core.read_counts import fastq_input_reads
 from wgsextract_cli.core.utils import WGSExtractError, run_command
+from wgsextract_cli.core.warnings import warn_alignment_sort_space
 
 GB = 1024**3
 
@@ -104,7 +107,7 @@ def test_samblaster_allowance_only_applies_when_that_stage_runs(tmp_path, monkey
     alignment_memory.check_mapping_memory(
         ref, "bwa-mem2", threads="2", memory="100M", samblaster=False
     )
-    with pytest.raises(WGSExtractError, match="30x coverage"):
+    with pytest.raises(WGSExtractError, match="input read count"):
         alignment_memory.check_mapping_memory(
             ref, "bwa-mem2", threads="2", memory="100M", samblaster=True
         )
@@ -159,7 +162,12 @@ def test_full_human_budget_accounts_for_final_h2_paged_working_set(
     monkeypatch.setattr(
         alignment_memory, "available_memory", lambda: int(available_gib * GB)
     )
-    kwargs = {"threads": "6", "memory": "256M", "samblaster": True}
+    kwargs = {
+        "threads": "6",
+        "memory": "256M",
+        "samblaster": True,
+        "reads": 679_639_896,
+    }
     if refused:
         with pytest.raises(WGSExtractError, match="--aligner bwa"):
             alignment_memory.check_mapping_memory(ref, tool, **kwargs)
@@ -186,13 +194,13 @@ def test_default_bwa_sort_budget_warns_below_18g_available(
     assert "Continuing with bwa" in caplog.text
 
 
-def test_small_reference_does_not_inherit_full_genome_transient_allowance(
+def test_small_input_does_not_inherit_full_genome_transient_allowance(
     tmp_path, monkeypatch
 ):
     ref = _reference(tmp_path, bases=20_000, index=True)
     monkeypatch.setattr(alignment_memory, "available_memory", lambda: 4 * GB)
     alignment_memory.check_mapping_memory(
-        ref, "bwa-mem2", threads="2", memory="100M", samblaster=True
+        ref, "bwa-mem2", threads="2", memory="100M", samblaster=True, reads=300
     )
 
 
@@ -220,6 +228,7 @@ def test_realign_refuses_mem2_memory_before_extracting(
         alignment_memory.check_mapping_memory(target, *args, **kwargs)
 
     monkeypatch.setattr(realign, "check_mapping_memory", check_target)
+    monkeypatch.setattr(realign, "indexed_read_count", lambda *_: 679_639_896)
     monkeypatch.setattr(alignment_memory, "available_memory", lambda: GB)
     monkeypatch.setattr(
         realign,
@@ -239,10 +248,101 @@ def test_realign_refuses_mem2_memory_before_extracting(
         preset=None,
         threads="6",
         memory="512M",
+        outdir=str(tmp_path),
+        force_extract=False,
     )
     with pytest.raises(WGSExtractError, match="bwa-mem2 alignment is estimated"):
         realign.run(args)
     assert targets == [ref]
+
+
+def test_same_reference_budget_grows_with_sampled_fastq_input(tmp_path):
+    ref = _reference(tmp_path, bases=3_217_346_917)
+    member = gzip.compress(b"@r\nACGT\n+\nIIII\n" * 100)
+    fastq = tmp_path / "reads.fq.gz"
+    fastq.write_bytes(member)
+    small = alignment_memory.estimate_mapping_memory(
+        ref, "bwa", reads=fastq_input_reads(fastq)
+    )
+    fastq.write_bytes(member * 10)
+    large = alignment_memory.estimate_mapping_memory(
+        ref, "bwa", reads=fastq_input_reads(fastq)
+    )
+    assert large.index_resident == small.index_resident
+    assert large.samblaster == small.samblaster * 10
+    assert large.overhead > small.overhead
+    assert large.total > small.total
+
+
+def test_input_count_scales_memory_auto_selection_and_sort_disk(
+    tmp_path, monkeypatch, caplog
+):
+    from wgsextract_cli.core import warnings
+
+    ref = _reference(tmp_path, bases=3_217_346_917, index=True)
+    count = 679_639_896
+    low = alignment_memory.estimate_mapping_memory(
+        ref, "bwa-mem2", reads=count, threads="6", memory="256M"
+    )
+    high = alignment_memory.estimate_mapping_memory(
+        ref, "bwa-mem2", reads=count * 2, threads="6", memory="256M"
+    )
+    assert high.samblaster == 2 * low.samblaster
+    assert high.total > low.total
+    monkeypatch.setattr(bwa_mem2, "available_memory", lambda: low.total)
+    monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
+    kwargs = {"threads": "6", "memory": "256M"}
+    assert align.short_read_aligner("auto", ref, reads=count, **kwargs) == "bwa-mem2"
+    assert align.short_read_aligner("auto", ref, reads=count * 2, **kwargs) == "bwa"
+    asked = []
+    monkeypatch.setattr(
+        warnings, "check_free_space", lambda _path, size: asked.append(size)
+    )
+    warn_alignment_sort_space(tmp_path, count)
+    warn_alignment_sort_space(tmp_path, count * 2)
+    assert asked[1] > asked[0]
+
+
+def test_h2_read_count_calibration_is_about_18_gib_for_bwa(tmp_path):
+    ref = _reference(tmp_path, bases=3_217_346_917)
+    budget = alignment_memory.estimate_mapping_memory(
+        ref, "bwa", reads=679_639_896, threads="6", memory="256M"
+    )
+    assert 18 <= budget.total / GB < 18.5
+    assert budget.samblaster >= 6_015_033_344
+
+
+@pytest.mark.parametrize("reads", [800_000_000, None])
+def test_bwa_setup_preserves_realign_index_count_for_selection_and_guard(
+    tmp_path, monkeypatch, reads
+):
+    ref = _reference(tmp_path, bases=3_217_346_917)
+    setup = align._AlignSetup("6", "256M", str(tmp_path), ref, "sample")
+    monkeypatch.setattr(align, "_prepare_alignment", lambda *_: setup)
+    monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
+    monkeypatch.setattr(
+        align, "fastq_input_reads", lambda *_: pytest.fail("resampled indexed input")
+    )
+    budgets = []
+
+    def select(*_args, **kwargs):
+        budgets.append(kwargs["reads"])
+        return "bwa"
+
+    monkeypatch.setattr(align, "short_read_aligner", select)
+    monkeypatch.setattr(
+        align, "check_mapping_memory", lambda *_a, **k: budgets.append(k["reads"])
+    )
+    monkeypatch.setattr(align, "ensure_bwa_index", lambda *_: None)
+    monkeypatch.setattr(align, "ensure_bwa_alt_file", lambda *_: None)
+    monkeypatch.setattr(
+        align, "warn_alignment_sort_space", lambda _out, count: budgets.append(count)
+    )
+    align._bwa_setup(
+        Namespace(aligner="auto", r1="r1.fq", r2="r2.fq", _input_read_count=reads),
+        "alignment",
+    )
+    assert budgets == [reads] * 3
 
 
 def test_select_aligner_accepts_bwa_mem2_for_short_reads():

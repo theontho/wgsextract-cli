@@ -1,4 +1,5 @@
 import logging
+import math
 import shutil
 from pathlib import Path
 
@@ -15,6 +16,21 @@ GB = 1024**3
 # bytes per read and the gzipped FASTQ pair took 68.
 TEMP_BYTES_PER_READ = 80
 FASTQ_BYTES_PER_READ = 75
+
+
+def warn_alignment_sort_space(path: PathInput, reads: int | None) -> None:
+    """Warn about estimated sort spill space without adding a new hard limit."""
+    if reads is None:
+        return
+    needed = max(0, reads) * TEMP_BYTES_PER_READ
+    logging.info(
+        "Alignment sort temporary disk estimate: %.2f GiB for %s input reads at %s.",
+        needed / GB,
+        f"{reads:,}",
+        path,
+    )
+    check_free_space(path, math.ceil(needed / GB))
+
 
 # Expected run times of various commands in seconds (from the WGS Extract GUI)
 EXPECTED_TIME = {

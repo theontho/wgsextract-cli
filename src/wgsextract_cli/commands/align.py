@@ -18,6 +18,7 @@ from wgsextract_cli.core.dependency_checks import (
 from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
+from wgsextract_cli.core.read_counts import fastq_input_reads
 from wgsextract_cli.core.reference_assets import is_fasta_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
@@ -33,7 +34,11 @@ from wgsextract_cli.core.variant_files import (
     resolve_reference,
     verify_paths_exist,
 )
-from wgsextract_cli.core.warnings import print_warning
+from wgsextract_cli.core.warnings import (
+    indexed_read_count,
+    print_warning,
+    warn_alignment_sort_space,
+)
 
 from ._extract_helpers import cleanup_files
 
@@ -204,6 +209,7 @@ def short_read_aligner(
     threads: str = "1",
     memory: str = "512M",
     samblaster: bool = True,
+    reads: int | None = None,
 ) -> str:
     """bwa or bwa-mem2 for --aligner bwa, bwa-mem2 or auto. Auto takes bwa-mem2,
     whose alignments are bwa's in less time, when it's installed and the
@@ -212,13 +218,15 @@ def short_read_aligner(
         return requested
     if get_tool_path("bwa-mem2") is None:
         return "bwa"
-    fits = bwa_mem2.can_map(ref, threads=threads, memory=memory, samblaster=samblaster)
+    fits = bwa_mem2.can_map(
+        ref, threads=threads, memory=memory, samblaster=samblaster, reads=reads
+    )
     if bwa_mem2.has_index(ref):
         if fits:
             return "bwa-mem2"
         logging.info(
             f"Not using bwa-mem2: the alignment pipeline needs about "
-            f"{bwa_mem2.mapping_memory(ref, threads=threads, memory=memory, samblaster=samblaster) / 1024**3:.1f} "
+            f"{bwa_mem2.mapping_memory(ref, threads=threads, memory=memory, samblaster=samblaster, reads=reads) / 1024**3:.1f} "
             "GiB of available RAM. Use --aligner bwa or lower --memory."
         )
     elif fits:
@@ -437,12 +445,21 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
     tool = "bwa-mem2" if args.aligner == "bwa-mem2" else "bwa"
     setup = _prepare_alignment(args, [tool, "samtools"], task)
     samblaster = bool(args.r2) and get_tool_path("samblaster") is not None
+    if hasattr(args, "_input_read_count"):
+        reads = args._input_read_count
+    else:
+        reads = (
+            indexed_read_count(args.r1, setup.threads)
+            if args.r1.lower().endswith((".bam", ".cram"))
+            else fastq_input_reads(args.r1, args.r2)
+        )
     tool = short_read_aligner(
         args.aligner,
         setup.ref,
         threads=setup.threads,
         memory=setup.memory,
         samblaster=samblaster,
+        reads=reads,
     )
     check_mapping_memory(
         setup.ref,
@@ -450,7 +467,9 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
         threads=setup.threads,
         memory=setup.memory,
         samblaster=samblaster,
+        reads=reads,
     )
+    warn_alignment_sort_space(setup.outdir, reads)
     if tool == "bwa-mem2":
         bwa_mem2.ensure_index(setup.ref, download=False)
     else:

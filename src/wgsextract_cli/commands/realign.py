@@ -29,6 +29,7 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.paths import absolute_path
+from wgsextract_cli.core.read_counts import fastq_input_reads
 from wgsextract_cli.core.reference_assets import (
     find_fasta_by_signature,
     input_stem,
@@ -144,12 +145,11 @@ def _find_existing_fastqs(input_path: str, outdir: str) -> tuple[str, str] | Non
 
 
 def _preflight_disk_space(
-    input_path: str, outdir: str, need_extract: bool, threads: str
+    input_path: str, outdir: str, need_extract: bool, reads: int | None
 ) -> None:
     """Estimate the peak disk usage and bail out if outdir lacks space."""
     file_size = Path(input_path).stat().st_size
     is_cram = input_path.lower().endswith(".cram")
-    reads = indexed_read_count(input_path, threads)
 
     extract_temp_gb, extract_final_gb = (0, 0)
     if need_extract:
@@ -219,27 +219,22 @@ def run(args: argparse.Namespace) -> None:
         bwa_mem2.check_index(target)
 
     threads, memory = get_resource_defaults(args.threads, args.memory)
-    if args.aligner == "bwa-mem2" and target and Path(target).is_file():
-        check_mapping_memory(
-            target,
-            "bwa-mem2",
-            threads=threads,
-            memory=memory,
-            samblaster=args.platform != "ultima"
-            and align_cmd.duplicate_marker(paired=not args.r1 or bool(args.r2))
-            == "samblaster",
-        )
     outdir = args.outdir or str(absolute_path(args.input).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
 
     if args.platform == "ultima" and not args.r1:
         # Single-end reads with flow tags: streamed into the aligner, no FASTQs.
+        reads = indexed_read_count(args.input, threads)
         if not args.no_preflight:
             _preflight_disk_space(
-                args.input, outdir, need_extract=False, threads=threads
+                args.input,
+                outdir,
+                need_extract=False,
+                reads=reads,
             )
         align_args = argparse.Namespace(**vars(args))
         align_args.r1 = args.input
+        align_args._input_read_count = reads
         align_cmd.align_ultima(align_args, args.input, _input_cram_reference(args))
         return
 
@@ -262,10 +257,25 @@ def run(args: argparse.Namespace) -> None:
         r2_path = str(Path(outdir, f"{base}_R2.fastq.gz"))
         need_extract = True
 
+    reads = (
+        indexed_read_count(args.input, threads)
+        if need_extract
+        else fastq_input_reads(r1_path, r2_path)
+    )
+    if args.aligner == "bwa-mem2" and target and Path(target).is_file():
+        check_mapping_memory(
+            target,
+            "bwa-mem2",
+            threads=threads,
+            memory=memory,
+            samblaster=align_cmd.duplicate_marker(paired=bool(r2_path)) == "samblaster",
+            reads=reads,
+        )
+
     # 2. Disk-space pre-flight.
     if not args.no_preflight:
         _preflight_disk_space(
-            args.input, outdir, need_extract=need_extract, threads=threads
+            args.input, outdir, need_extract=need_extract, reads=reads
         )
 
     # 3. Extract if needed.
@@ -294,6 +304,7 @@ def run(args: argparse.Namespace) -> None:
     align_args = argparse.Namespace(**vars(args))
     align_args.r1 = r1_path
     align_args.r2 = r2_path
+    align_args._input_read_count = reads
     align_cmd.run(align_args)
 
     # 5. Remove the FASTQs this run extracted unless asked to keep them. They are
