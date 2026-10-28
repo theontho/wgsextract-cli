@@ -49,6 +49,8 @@ _PBMM2_PRESETS = {
 }
 ALIGNERS = ["auto", "bwa", "bwa-mem2", "minimap2", "pbmm2"]
 _BWA_ALIGNERS = {"bwa", "bwa-mem2"}
+# BWA's default batch size depends on threads and changes pairing statistics.
+BWA_BATCH_BASES = "100000000"
 _READ_FILE_SUFFIXES = (
     ".fastq.gz",
     ".fq.gz",
@@ -451,7 +453,10 @@ def align_bwa(args: argparse.Namespace) -> None:
     logging.info(
         LOG_MESSAGES["aligning_reads"].format(input=args.r1, output=out_bam, tool=tool)
     )
-    align_cmd = [tool, "mem", "-t", setup.threads, "-R", read_group(args, setup.stem)]
+    align_cmd = [
+        tool, "mem", "-K", BWA_BATCH_BASES, "-t", setup.threads,
+        "-R", read_group(args, setup.stem),
+    ]  # fmt: skip
     align_cmd += [setup.ref, args.r1]
     try:
         run_streamed_alignment(
@@ -508,7 +513,7 @@ def align_ultima(
     logging.info(
         LOG_MESSAGES["aligning_reads"].format(input=reads, output=out_path, tool=tool)
     )
-    bwa = [tool, "mem", "-t", setup.threads, "-Y"]
+    bwa = [tool, "mem", "-K", BWA_BATCH_BASES, "-t", setup.threads, "-Y"]
     with tempfile.TemporaryDirectory(dir=setup.outdir, prefix=".wgse_ug_") as tmp:
         stages: list[Sequence[object]] = []
         if reads.lower().endswith((".bam", ".cram")):

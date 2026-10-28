@@ -23,6 +23,7 @@ from wgsextract_cli.core.variant_files import verify_paths_exist
 
 from ._extract_helpers import cleanup_files
 from .align import (
+    BWA_BATCH_BASES,
     duplicate_marker,
     ensure_bwa_index,
     read_group,
@@ -99,7 +100,10 @@ def run(args: argparse.Namespace) -> None:
     out_vcf = str(Path(outdir, f"{base_name}.vcf.gz"))
 
     logging.info(LOG_MESSAGES["pet_aligning"].format(species=args.species))
-    align_cmd = [aligner, "mem", "-t", threads, "-R", read_group(args, stem)]
+    align_cmd = [
+        aligner, "mem", "-K", BWA_BATCH_BASES, "-t", threads,
+        "-R", read_group(args, stem),
+    ]  # fmt: skip
     align_cmd += [ref_file, args.r1]
     try:
         run_streamed_alignment(
