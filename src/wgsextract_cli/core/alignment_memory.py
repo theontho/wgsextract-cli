@@ -1,7 +1,7 @@
 """Memory budgets for the concurrent native BWA/MEM2 alignment pipeline.
 
 The H2 OOM component breakdown motivates 2 GiB of aligner working memory,
-projected roughly 6 GiB of samblaster signatures for a 30x human genome, 25% sort
+projected roughly 6 GiB of samblaster signatures for 30x 150bp paired human reads, 25% sort
 overhead, and 0.5 GiB for Python and pipeline bookkeeping. Higher coverage
 can require more; these are estimates, not an allocation or a hard limit.
 """
@@ -102,13 +102,16 @@ def check_mapping_memory(
         for name, value in zip(estimate._fields, estimate, strict=True)
     )
     message = (
-        f"{aligner} alignment is estimated to need {estimate.total / _GIB:.1f} GiB "
-        f"but only {available / _GIB:.1f} GiB RAM is available "
+        f"{aligner} alignment is estimated to need {estimate.total / _GIB:.2f} GiB "
+        f"but only {available / _GIB:.2f} GiB RAM is available "
         f"({components} GiB). Lower --memory (per sort thread) or --threads, "
         "or free memory."
     )
     if samblaster:
-        message += " The samblaster allowance assumes about 30x coverage; higher coverage needs more."
+        message += (
+            " The samblaster allowance assumes about 30x coverage with 150bp paired reads; "
+            "higher coverage or shorter reads need more."
+        )
     if aligner == "bwa-mem2":
         raise WGSExtractError(message + " Use --aligner bwa for its smaller index.")
     logging.warning("%s Continuing with bwa.", message)

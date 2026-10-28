@@ -275,6 +275,7 @@ def test_bwa_mem2_aligns_like_bwa(tmp_path, monkeypatch):
             r1.write(f"@p{i}\n{frag[:100]}\n+\n{'I' * 100}\n")
             r2.write(f"@p{i}\n{frag[-100:].translate(comp)[::-1]}\n+\n{'I' * 100}\n")
     monkeypatch.setattr(bwa_mem2, "_total_memory", lambda: 64 * GB)
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 64 * GB)
     positions = {}
     for aligner in ("bwa", "bwa-mem2"):
         outdir = tmp_path / aligner
