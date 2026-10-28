@@ -19,6 +19,7 @@ from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import is_fasta_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.samtools_commands import parse_memory
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -227,6 +228,19 @@ def reads_stem(path: str) -> str:
         if name.lower().endswith(suffix):
             return name[: -len(suffix)]
     return Path(name).stem
+
+
+def short_read_sort_memory(aligner: str, memory: str) -> str:
+    """Keep more memory for MEM2's index without exceeding the user's budget."""
+    if aligner != "bwa-mem2":
+        return memory
+    amount, unit = parse_memory(memory)
+    if amount * (1024 if unit == "G" else 1) > 256:
+        logging.info(
+            f"Capping bwa-mem2 sort memory at 256M per thread (budget {memory})."
+        )
+        return "256M"
+    return memory
 
 
 class _AlignSetup(NamedTuple):
@@ -439,6 +453,7 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
     else:
         ensure_bwa_index(setup.ref)
     ensure_bwa_alt_file(setup.ref)
+    setup = setup._replace(memory=short_read_sort_memory(tool, setup.memory))
     print_warning("ButtonBWAAlign", threads=setup.threads)
     return setup, tool
 

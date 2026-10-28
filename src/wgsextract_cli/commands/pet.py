@@ -30,6 +30,7 @@ from .align import (
     reads_stem,
     run_streamed_alignment,
     short_read_aligner,
+    short_read_sort_memory,
 )
 
 _SPECIES_REFERENCES = {
@@ -110,7 +111,7 @@ def run(args: argparse.Namespace) -> None:
             align_cmd + ([args.r2] if args.r2 else []),
             out_bam,
             threads=threads,
-            memory=memory,
+            memory=short_read_sort_memory(aligner, memory),
             fmt=args.format,
             ref=ref_file,
             duplicates=duplicate_marker(paired=bool(args.r2)),

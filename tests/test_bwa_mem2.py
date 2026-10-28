@@ -137,7 +137,8 @@ def test_prebuilt_index_downloads_and_is_checked(tmp_path, monkeypatch):
 
 
 @needs_tools("bwa", "bwa-mem2", "samtools")
-def test_bwa_mem2_aligns_like_bwa(tmp_path, monkeypatch):
+@pytest.mark.parametrize("memory", ["100M", "512M"])
+def test_bwa_mem2_aligns_like_bwa(tmp_path, monkeypatch, memory):
     rng = random.Random(7)
     genome = "".join(rng.choice("ACGT") for _ in range(20_000))
     ref = str(write_fasta(tmp_path / "ref.fa", {"chr1": genome}))
@@ -162,7 +163,7 @@ def test_bwa_mem2_aligns_like_bwa(tmp_path, monkeypatch):
                 outdir=str(outdir),
                 format="BAM",
                 threads="2",
-                memory="100M",
+                memory=memory,
                 platform="illumina",
                 long_read=False,
                 preset=None,
