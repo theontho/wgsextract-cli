@@ -22,6 +22,7 @@ import logging
 from pathlib import Path
 
 from wgsextract_cli.core import bwa_mem2
+from wgsextract_cli.core.alignment_memory import check_mapping_memory
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -215,6 +216,16 @@ def run(args: argparse.Namespace) -> None:
         bwa_mem2.check_index(target)
 
     threads, memory = get_resource_defaults(args.threads, args.memory)
+    if args.aligner == "bwa-mem2" and target and Path(target).is_file():
+        check_mapping_memory(
+            target,
+            "bwa-mem2",
+            threads=threads,
+            memory=memory,
+            samblaster=args.platform != "ultima"
+            and align_cmd.duplicate_marker(paired=not args.r1 or bool(args.r2))
+            == "samblaster",
+        )
     outdir = args.outdir or str(absolute_path(args.input).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
 

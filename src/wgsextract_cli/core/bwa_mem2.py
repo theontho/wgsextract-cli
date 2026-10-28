@@ -15,21 +15,22 @@ from typing import NamedTuple
 
 import psutil
 
+from wgsextract_cli.core.alignment_memory import (
+    available_memory,
+    estimate_mapping_memory,
+    reference_bases,
+)
 from wgsextract_cli.core.paths import append_suffix
 from wgsextract_cli.core.ref_library.downloads import (
     download_file,
     verify_download_sha256,
 )
-from wgsextract_cli.core.reference_assets import read_fai_lengths, reference_dict_path
+from wgsextract_cli.core.reference_assets import reference_dict_path
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 INDEX_SUFFIXES = (".0123", ".amb", ".ann", ".bwt.2bit.64", ".pac")
 # bwa-mem2's documented indexing requirement; chr20 measured 24 bytes per base.
 BUILD_BYTES_PER_BASE = 28
-# The index (.0123, .bwt.2bit.64 and .pac: 5.5 bytes per base) plus room for
-# the read batches, samtools and the system.
-MAP_BYTES_PER_BASE = 5.5
-MAP_HEADROOM_BYTES = 4 * 1024**3
 
 
 class PrebuiltIndex(NamedTuple):
@@ -75,25 +76,28 @@ def has_index(ref: str) -> bool:
     return all(append_suffix(ref, s).is_file() for s in INDEX_SUFFIXES)
 
 
-def reference_bases(ref: str) -> int:
-    """The reference's length from its .fai (0 without one)."""
-    return sum(read_fai_lengths(ref).values())
-
-
 def _total_memory() -> int:
     return int(psutil.virtual_memory().total)
 
 
-def mapping_memory(ref: str) -> int:
-    return int(reference_bases(ref) * MAP_BYTES_PER_BASE) + MAP_HEADROOM_BYTES
+def mapping_memory(
+    ref: str, *, threads: str = "1", memory: str = "512M", samblaster: bool = True
+) -> int:
+    return estimate_mapping_memory(
+        ref, "bwa-mem2", threads=threads, memory=memory, samblaster=samblaster
+    ).total
 
 
 def build_memory(ref: str) -> int:
     return reference_bases(ref) * BUILD_BYTES_PER_BASE
 
 
-def can_map(ref: str) -> bool:
-    return _total_memory() >= mapping_memory(ref)
+def can_map(
+    ref: str, *, threads: str = "1", memory: str = "512M", samblaster: bool = True
+) -> bool:
+    return available_memory() >= mapping_memory(
+        ref, threads=threads, memory=memory, samblaster=samblaster
+    )
 
 
 def _gb(n: int) -> str:

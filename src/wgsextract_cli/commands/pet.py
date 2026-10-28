@@ -5,6 +5,7 @@ import logging
 import subprocess
 from pathlib import Path
 
+from wgsextract_cli.core.alignment_memory import check_mapping_memory
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -83,7 +84,13 @@ def run(args: argparse.Namespace) -> None:
             f"Reference genome for {args.species} not found at {ref_file}.{hint}"
         )
     # bwa-mem2 when the reference has its index (`ref index --aligner bwa-mem2`).
-    aligner = short_read_aligner("auto", ref_file)
+    samblaster = duplicate_marker(paired=bool(args.r2)) == "samblaster"
+    aligner = short_read_aligner(
+        "auto", ref_file, threads=threads, memory=memory, samblaster=samblaster
+    )
+    check_mapping_memory(
+        ref_file, aligner, threads=threads, memory=memory, samblaster=samblaster
+    )
     if aligner == "bwa":
         ensure_bwa_index(ref_file)
 

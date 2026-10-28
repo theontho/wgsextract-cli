@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from wgsextract_cli.core import bwa_mem2, ultima
+from wgsextract_cli.core.alignment_memory import check_mapping_memory
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import (
@@ -196,7 +197,14 @@ def run(args: argparse.Namespace) -> None:
         align_bwa(args)
 
 
-def short_read_aligner(requested: str, ref: str) -> str:
+def short_read_aligner(
+    requested: str,
+    ref: str,
+    *,
+    threads: str = "1",
+    memory: str = "512M",
+    samblaster: bool = True,
+) -> str:
     """bwa or bwa-mem2 for --aligner bwa, bwa-mem2 or auto. Auto takes bwa-mem2,
     whose alignments are bwa's in less time, when it's installed and the
     reference has its index that fits in this computer's memory."""
@@ -204,13 +212,14 @@ def short_read_aligner(requested: str, ref: str) -> str:
         return requested
     if get_tool_path("bwa-mem2") is None:
         return "bwa"
-    fits = bwa_mem2.can_map(ref)
+    fits = bwa_mem2.can_map(ref, threads=threads, memory=memory, samblaster=samblaster)
     if bwa_mem2.has_index(ref):
         if fits:
             return "bwa-mem2"
         logging.info(
-            f"Not using bwa-mem2: mapping with its index needs about "
-            f"{bwa_mem2.mapping_memory(ref) / 1024**3:.0f} GB of memory."
+            f"Not using bwa-mem2: the alignment pipeline needs about "
+            f"{bwa_mem2.mapping_memory(ref, threads=threads, memory=memory, samblaster=samblaster) / 1024**3:.1f} "
+            "GiB of available RAM. Use --aligner bwa or lower --memory."
         )
     elif fits:
         logging.info(
@@ -427,15 +436,23 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
     with the reference's index and ALT contig list in place."""
     tool = "bwa-mem2" if args.aligner == "bwa-mem2" else "bwa"
     setup = _prepare_alignment(args, [tool, "samtools"], task)
-    tool = short_read_aligner(args.aligner, setup.ref)
+    samblaster = bool(args.r2) and get_tool_path("samblaster") is not None
+    tool = short_read_aligner(
+        args.aligner,
+        setup.ref,
+        threads=setup.threads,
+        memory=setup.memory,
+        samblaster=samblaster,
+    )
+    check_mapping_memory(
+        setup.ref,
+        tool,
+        threads=setup.threads,
+        memory=setup.memory,
+        samblaster=samblaster,
+    )
     if tool == "bwa-mem2":
         bwa_mem2.ensure_index(setup.ref, download=False)
-        if not bwa_mem2.can_map(setup.ref):
-            logging.warning(
-                f"bwa-mem2 needs about "
-                f"{bwa_mem2.mapping_memory(setup.ref) / 1024**3:.0f} GB of memory "
-                "for this reference; it may run out. --aligner bwa needs a third."
-            )
     else:
         ensure_bwa_index(setup.ref)
     ensure_bwa_alt_file(setup.ref)
