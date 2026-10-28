@@ -325,3 +325,46 @@ def test_preflight_needs_room_for_the_extraction_only_when_extracting(
         realign.run(args)
     assert asked == [(str(tmp_path), needed)]
     assert fakes.extracted == [] and fakes.aligned == []
+
+
+@pytest.mark.parametrize("provided_fastqs", [False, True])
+def test_realign_uses_actual_input_count_before_extraction_for_memory_and_disk(
+    tmp_path, monkeypatch, source, provided_fastqs
+):
+    _Fakes(monkeypatch)
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">c\nA\n")
+    monkeypatch.setattr(realign.bwa_mem2, "check_index", lambda *_: None)
+
+    def indexed_count(*_args):
+        assert not provided_fastqs
+        return 800_000_000
+
+    monkeypatch.setattr(realign, "indexed_read_count", indexed_count)
+    budgets = []
+    monkeypatch.setattr(
+        realign,
+        "check_mapping_memory",
+        lambda *_a, **kwargs: budgets.append(("memory", kwargs["reads"])),
+    )
+    monkeypatch.setattr(
+        realign,
+        "_preflight_disk_space",
+        lambda *_a, **kwargs: budgets.append(("disk", kwargs["reads"])),
+    )
+    monkeypatch.setattr(
+        realign.align_cmd,
+        "run",
+        lambda args: budgets.append(("align", args._input_read_count)),
+    )
+    overrides = {}
+    if provided_fastqs:
+        for mate in ("r1", "r2"):
+            fastq = tmp_path / f"{mate}.fq"
+            fastq.write_text("@r\nA\n+\nI\n")
+            overrides[mate] = str(fastq)
+    realign.run(
+        _args(source, ref=str(ref), aligner="bwa-mem2", no_preflight=False, **overrides)
+    )
+    expected = 2 if provided_fastqs else 800_000_000
+    assert budgets == [("memory", expected), ("disk", expected), ("align", expected)]

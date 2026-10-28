@@ -81,10 +81,20 @@ def _total_memory() -> int:
 
 
 def mapping_memory(
-    ref: str, *, threads: str = "1", memory: str = "512M", samblaster: bool = True
+    ref: str,
+    *,
+    threads: str = "1",
+    memory: str = "512M",
+    samblaster: bool = True,
+    reads: int | None = None,
 ) -> int:
     return estimate_mapping_memory(
-        ref, "bwa-mem2", threads=threads, memory=memory, samblaster=samblaster
+        ref,
+        "bwa-mem2",
+        threads=threads,
+        memory=memory,
+        samblaster=samblaster,
+        reads=reads,
     ).total
 
 
@@ -93,10 +103,15 @@ def build_memory(ref: str) -> int:
 
 
 def can_map(
-    ref: str, *, threads: str = "1", memory: str = "512M", samblaster: bool = True
+    ref: str,
+    *,
+    threads: str = "1",
+    memory: str = "512M",
+    samblaster: bool = True,
+    reads: int | None = None,
 ) -> bool:
     return available_memory() >= mapping_memory(
-        ref, threads=threads, memory=memory, samblaster=samblaster
+        ref, threads=threads, memory=memory, samblaster=samblaster, reads=reads
     )
 
 
