@@ -211,7 +211,10 @@ def run(args: argparse.Namespace) -> None:
     args.platform = align_cmd.resolve_platform(args, args.r1 or args.input)
     # Reject bad aligner/platform/preset combinations before hours of extraction.
     align_cmd.select_aligner(args)
-    target = resolve_reference(args.ref, None) if args.ref else None
+    signature = None
+    if args.aligner == "bwa-mem2" and not (args.ref and Path(args.ref).is_file()):
+        signature = calculate_bam_md5(args.input, None)
+    target = resolve_reference(args.ref, signature) if args.ref or signature else None
     if args.aligner == "bwa-mem2" and target and Path(target).is_file():
         bwa_mem2.check_index(target)
 

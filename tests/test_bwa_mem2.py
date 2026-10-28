@@ -196,12 +196,30 @@ def test_small_reference_does_not_inherit_full_genome_transient_allowance(
     )
 
 
-def test_realign_refuses_mem2_memory_before_extracting(tmp_path, monkeypatch):
+@pytest.mark.parametrize("reference_source", ["fasta", "library", "configured"])
+def test_realign_refuses_mem2_memory_before_extracting(
+    tmp_path, monkeypatch, reference_source
+):
     from wgsextract_cli.commands import realign
+    from wgsextract_cli.core.config import settings
+    from wgsextract_cli.core.reference_assets import fasta_signature
 
-    ref = _reference(tmp_path, bases=3_000_000_000, index=True)
+    library = tmp_path / "library"
+    library.mkdir()
+    ref = _reference(library, bases=3_000_000_000, index=True)
+    (library / "hg19.fa").write_text(">chr2\nA\n")
+    (library / "hg19.fa.fai").write_text("chr2\t1\t6\t1\t2\n")
     source = tmp_path / "source.bam"
     source.write_bytes(b"input")
+    monkeypatch.setitem(settings, "reference_library", str(library))
+    monkeypatch.setattr(realign, "calculate_bam_md5", lambda *_a: fasta_signature(ref))
+    targets = []
+
+    def check_target(target, *args, **kwargs):
+        targets.append(target)
+        alignment_memory.check_mapping_memory(target, *args, **kwargs)
+
+    monkeypatch.setattr(realign, "check_mapping_memory", check_target)
     monkeypatch.setattr(alignment_memory, "available_memory", lambda: GB)
     monkeypatch.setattr(
         realign,
@@ -210,7 +228,9 @@ def test_realign_refuses_mem2_memory_before_extracting(tmp_path, monkeypatch):
     )
     args = Namespace(
         input=str(source),
-        ref=ref,
+        ref={"fasta": ref, "library": str(library), "configured": None}[
+            reference_source
+        ],
         r1=None,
         r2=None,
         platform="illumina",
@@ -222,6 +242,7 @@ def test_realign_refuses_mem2_memory_before_extracting(tmp_path, monkeypatch):
     )
     with pytest.raises(WGSExtractError, match="bwa-mem2 alignment is estimated"):
         realign.run(args)
+    assert targets == [ref]
 
 
 def test_select_aligner_accepts_bwa_mem2_for_short_reads():
