@@ -312,8 +312,9 @@ def test_h2_read_count_calibration_is_about_18_gib_for_bwa(tmp_path):
     assert budget.samblaster >= 6_015_033_344
 
 
+@pytest.mark.parametrize("reads", [800_000_000, None])
 def test_bwa_setup_preserves_realign_index_count_for_selection_and_guard(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, reads
 ):
     ref = _reference(tmp_path, bases=3_217_346_917)
     setup = align._AlignSetup("6", "256M", str(tmp_path), ref, "sample")
@@ -338,12 +339,10 @@ def test_bwa_setup_preserves_realign_index_count_for_selection_and_guard(
         align, "warn_alignment_sort_space", lambda _out, count: budgets.append(count)
     )
     align._bwa_setup(
-        Namespace(
-            aligner="auto", r1="r1.fq", r2="r2.fq", _input_read_count=800_000_000
-        ),
+        Namespace(aligner="auto", r1="r1.fq", r2="r2.fq", _input_read_count=reads),
         "alignment",
     )
-    assert budgets == [800_000_000] * 3
+    assert budgets == [reads] * 3
 
 
 def test_select_aligner_accepts_bwa_mem2_for_short_reads():

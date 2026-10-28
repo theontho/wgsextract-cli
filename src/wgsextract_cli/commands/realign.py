@@ -224,15 +224,17 @@ def run(args: argparse.Namespace) -> None:
 
     if args.platform == "ultima" and not args.r1:
         # Single-end reads with flow tags: streamed into the aligner, no FASTQs.
+        reads = indexed_read_count(args.input, threads)
         if not args.no_preflight:
             _preflight_disk_space(
                 args.input,
                 outdir,
                 need_extract=False,
-                reads=indexed_read_count(args.input, threads),
+                reads=reads,
             )
         align_args = argparse.Namespace(**vars(args))
         align_args.r1 = args.input
+        align_args._input_read_count = reads
         align_cmd.align_ultima(align_args, args.input, _input_cram_reference(args))
         return
 

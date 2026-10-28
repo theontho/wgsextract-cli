@@ -368,3 +368,35 @@ def test_realign_uses_actual_input_count_before_extraction_for_memory_and_disk(
     )
     expected = 2 if provided_fastqs else 800_000_000
     assert budgets == [("memory", expected), ("disk", expected), ("align", expected)]
+
+
+@pytest.mark.parametrize("no_preflight", [False, True])
+@pytest.mark.parametrize("reads", [800_000_000, None])
+def test_ultima_realign_counts_index_once_and_passes_through_unknown_counts(
+    tmp_path, monkeypatch, source, no_preflight, reads
+):
+    calls = []
+
+    def count(*_args):
+        calls.append("idxstats")
+        return reads
+
+    monkeypatch.setattr(realign, "indexed_read_count", count)
+    monkeypatch.setattr(
+        realign,
+        "_preflight_disk_space",
+        lambda *_a, **k: calls.append(("disk", k["reads"])),
+    )
+    monkeypatch.setattr(
+        realign.align_cmd,
+        "align_ultima",
+        lambda args, *_a: calls.append(("align", args._input_read_count)),
+    )
+    realign.run(
+        _args(source, platform="ultima", aligner="bwa", no_preflight=no_preflight)
+    )
+    expected = ["idxstats"]
+    if not no_preflight:
+        expected.append(("disk", reads))
+    expected.append(("align", reads))
+    assert calls == expected

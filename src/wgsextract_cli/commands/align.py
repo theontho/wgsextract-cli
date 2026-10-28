@@ -445,8 +445,9 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
     tool = "bwa-mem2" if args.aligner == "bwa-mem2" else "bwa"
     setup = _prepare_alignment(args, [tool, "samtools"], task)
     samblaster = bool(args.r2) and get_tool_path("samblaster") is not None
-    reads = getattr(args, "_input_read_count", None)
-    if reads is None:
+    if hasattr(args, "_input_read_count"):
+        reads = args._input_read_count
+    else:
         reads = (
             indexed_read_count(args.r1, setup.threads)
             if args.r1.lower().endswith((".bam", ".cram"))
