@@ -1,8 +1,10 @@
 import os
 import sys
+from threading import Event
 
 import pytest
 
+from wgsextract_cli.core import utils
 from wgsextract_cli.core.utils import WGSExtractError, run_pipeline
 from wgsextract_cli.core.variant_files import verify_paths_exist
 
@@ -61,6 +63,31 @@ def test_run_pipeline_tolerates_sigpipe_when_consumer_succeeds():
 def test_run_pipeline_requires_a_stage():
     with pytest.raises(ValueError):
         run_pipeline([])
+
+
+@pytest.mark.parametrize("before_start", [False, True])
+def test_pipeline_cancellation_reaps_every_started_stage(monkeypatch, before_start):
+    cancelled = Event()
+    processes = []
+    original_popen = utils.popen
+    if before_start:
+        cancelled.set()
+
+    def capture(*args, **kwargs):
+        process = original_popen(*args, **kwargs)
+        processes.append(process)
+        if len(processes) == 2:
+            cancelled.set()
+        return process
+
+    monkeypatch.setattr(utils, "popen", capture)
+    with pytest.raises(WGSExtractError, match="cancelled"):
+        run_pipeline(
+            [[PY, "-c", "import time; time.sleep(60)"]] * 2,
+            cancel_event=cancelled,
+        )
+    assert len(processes) == (0 if before_start else 2)
+    assert all(process.poll() is not None for process in processes)
 
 
 def test_verify_paths_exist_raises_with_every_problem(tmp_path):
