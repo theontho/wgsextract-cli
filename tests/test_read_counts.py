@@ -68,6 +68,7 @@ def test_gzip_read_ahead_does_not_bias_highly_compressed_reads(tmp_path, monkeyp
 @pytest.mark.parametrize(
     "data",
     [b"", b"not fastq\n", b"@r\nA\n+\nII\n", gzip.compress(_fastq())[:-5]],
+    ids=["empty", "not-fastq", "bad-quality", "truncated-gzip"],
 )
 def test_unreadable_or_invalid_samples_do_not_omit_a_mate(tmp_path, data, caplog):
     good, bad = tmp_path / "good.fq", tmp_path / "bad.fq"
