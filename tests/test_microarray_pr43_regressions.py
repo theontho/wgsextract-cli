@@ -343,6 +343,20 @@ def test_chromosome_rename_mapping_matches_mito_aliases():
     assert variant_files.chromosome_rename_mapping(["MT"], ["chrM"]) == [("MT", "chrM")]
 
 
+@pytest.mark.parametrize(
+    "contig", ["11_KI270721v1_random", "Un_KI270302v1", "6_GL000250v2_alt"]
+)
+def test_chromosome_rename_mapping_matches_nonprimary_contigs_in_both_directions(
+    contig,
+):
+    assert variant_files.chromosome_rename_mapping([contig], [f"chr{contig}"]) == [
+        (contig, f"chr{contig}")
+    ]
+    assert variant_files.chromosome_rename_mapping([f"chr{contig}"], [contig]) == [
+        (f"chr{contig}", contig)
+    ]
+
+
 def test_normalize_vcf_chromosomes_renames_chr_m_to_target_mt(tmp_path):
     input_vcf = tmp_path / "input.vcf.gz"
     input_vcf.touch()

@@ -11,7 +11,7 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
-from wgsextract_cli.core.reference_assets import n_count_paths
+from wgsextract_cli.core.reference_assets import n_count_paths, read_fai_lengths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -23,7 +23,7 @@ from wgsextract_cli.core.variant_files import (
     ensure_vcf_prepared,
     get_vcf_samples,
     normalize_vcf_chromosomes,
-    vcf_index_chromosomes,
+    vcf_chromosomes,
     verify_paths_exist,
 )
 
@@ -244,8 +244,11 @@ def cmd_trio(args: argparse.Namespace) -> None:
     gvcf_args = _gvcf_merge_args(args, [p_vcf, m_vcf, f_vcf])
 
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_trio_") as work:
-        # Match parents' contig naming (chr1 vs 1) to the proband before merging.
-        target_chroms = vcf_index_chromosomes(p_vcf)
+        # gVCF merging fetches reference bases even on parent-only contigs.
+        target_chroms = (
+            list(read_fai_lengths(gvcf_args[1])) if gvcf_args else []
+        ) or vcf_chromosomes(p_vcf)
+        p_norm = normalize_vcf_chromosomes(p_vcf, target_chroms, work)
         m_norm = normalize_vcf_chromosomes(m_vcf, target_chroms, work)
         f_norm = normalize_vcf_chromosomes(f_vcf, target_chroms, work)
 
@@ -255,7 +258,7 @@ def cmd_trio(args: argparse.Namespace) -> None:
                 ["bcftools", "merge", "--force-samples", *gvcf_args, "-Oz", "-o"]
                 + [merged_vcf]
                 + region_args
-                + [p_vcf, m_norm, f_norm],
+                + [p_norm, m_norm, f_norm],
                 capture_output=True,
             )
             ensure_vcf_indexed(merged_vcf)
