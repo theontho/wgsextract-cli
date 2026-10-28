@@ -27,7 +27,7 @@ from wgsextract_cli.core.variant_files import (
     verify_paths_exist,
 )
 
-from .basic import require_vcf_input
+from .basic import _select_vcf_input, require_vcf_input
 from .trio_alignments import (
     CLUSTER_DISTANCE,
     DEFAULT_MIN_DEPTH,
@@ -213,13 +213,13 @@ def _gvcf_merge_args(args: argparse.Namespace, vcfs: list[str]) -> list[str]:
 def cmd_trio(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
 
-    proband = args.proband or args.vcf_input
+    proband = args.proband or _select_vcf_input(args)
     mother = args.mother
     father = args.father
     if not proband or not mother or not father:
         raise WGSExtractError(
-            "Proband (--proband or --vcf-input), --mother, and --father (VCFs, or "
-            "BAM/CRAMs) are all required."
+            "Proband (--proband, --vcf-input, or --input), --mother, and --father "
+            "(VCFs, or BAM/CRAMs) are all required."
         )
     verify_paths_exist({"--proband": proband, "--mother": mother, "--father": father})
 

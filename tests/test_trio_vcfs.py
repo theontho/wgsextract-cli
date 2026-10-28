@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from tests.htslib_helpers import bgzip_index, needs_htslib, run_wgsextract
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.utils import WGSExtractError
 
@@ -118,7 +119,8 @@ def test_a_hom_ref_child_is_not_recessive(tmp_path):
     assert _ids(tmp_path / "out" / "trio_recessive.vcf.gz") == ["hom_alt"]
 
 
-def test_trio_defaults_to_denovo_beside_the_proband_vcf_input(tmp_path):
+@pytest.mark.parametrize("input_option", ["--vcf-input", "--input"])
+def test_trio_defaults_to_denovo_beside_the_proband_input(tmp_path, input_option):
     child, mother, father = _trio(
         tmp_path,
         child=["100 denovo A G 0/1:99"],
@@ -126,10 +128,34 @@ def test_trio_defaults_to_denovo_beside_the_proband_vcf_input(tmp_path):
         father=["100 . A . 0/0:99"],
     )
     run_wgsextract(
-        "vcf", "trio", "--vcf-input", child, "--mother", mother, "--father", father
+        "vcf", "trio", input_option, child, "--mother", mother, "--father", father
     )
     assert _ids(tmp_path / "trio_denovo.vcf.gz") == ["denovo"]
     assert not (tmp_path / "trio_recessive.vcf.gz").exists()
+
+
+@pytest.mark.parametrize("selected", ["input", "vcf-input", "proband"])
+def test_trio_proband_precedence_includes_explicit_input_and_configured_default(
+    tmp_path, monkeypatch, selected
+):
+    child, mother, father = _trio(
+        tmp_path,
+        child=["100 chosen A G 0/1:99"],
+        mother=["100 . A . 0/0:99"],
+        father=["100 . A . 0/0:99"],
+    )
+    default = _vcf(tmp_path / "default.vcf.gz", ["100 wrong A G 0/1:99"])
+    monkeypatch.setitem(settings, "default_input_vcf", default)
+    options = ["--input", child if selected == "input" else default]
+    if selected == "vcf-input":
+        options += ["--vcf-input", child]
+    elif selected == "proband":
+        options += ["--vcf-input", default, "--proband", child]
+    run_wgsextract(
+        "vcf", "trio", *options, "--mother", mother, "--father", father,
+        "--outdir", str(tmp_path / "out"),
+    )  # fmt: skip
+    assert _ids(tmp_path / "out" / "trio_denovo.vcf.gz") == ["chosen"]
 
 
 def test_trio_region_limits_the_merge(tmp_path):
@@ -167,6 +193,8 @@ def test_rerunning_trio_replaces_the_old_output_and_index(tmp_path):
 
 def test_trio_needs_all_three_and_samples(tmp_path):
     child = _vcf(tmp_path / "child.vcf.gz", ["100 x A G 0/1:99"])
+    with pytest.raises(WGSExtractError, match="--proband.*--vcf-input.*--input"):
+        run_wgsextract("vcf", "trio", "--mother", child, "--father", child)
     with pytest.raises(WGSExtractError, match="--mother, and --father"):
         run_wgsextract("vcf", "trio", "--proband", child, "--mother", child)
 

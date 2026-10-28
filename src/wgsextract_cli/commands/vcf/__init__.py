@@ -202,8 +202,9 @@ def register(
     )
     trio_parser.add_argument(
         "--proband",
-        help="The child's VCF, or BAM/CRAM (with the parents' BAM/CRAMs: genotyped "
-        "jointly from the reads, which de novo calls need)",
+        help="The child's VCF or BAM/CRAM; overrides --vcf-input/--input and "
+        "configured defaults. With the parents' BAM/CRAMs, genotyped jointly "
+        "from the reads, which de novo calls need.",
     )
     trio_parser.add_argument(
         "--mode",
