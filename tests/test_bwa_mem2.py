@@ -143,6 +143,59 @@ def test_low_available_memory_refuses_mem2_but_bwa_warns_and_runs(
         assert "--memory" in caplog.text
 
 
+@pytest.mark.parametrize(
+    ("tool", "available_gib", "refused", "warned"),
+    [
+        ("bwa", 17.5, False, True),
+        ("bwa", 18.5, False, False),
+        ("bwa-mem2", 28, True, False),
+        ("bwa-mem2", 30, False, False),
+    ],
+)
+def test_full_human_budget_accounts_for_final_h2_paged_working_set(
+    tmp_path, monkeypatch, caplog, tool, available_gib, refused, warned
+):
+    ref = _reference(tmp_path, bases=3_217_346_917)
+    monkeypatch.setattr(
+        alignment_memory, "available_memory", lambda: int(available_gib * GB)
+    )
+    kwargs = {"threads": "6", "memory": "256M", "samblaster": True}
+    if refused:
+        with pytest.raises(WGSExtractError, match="--aligner bwa"):
+            alignment_memory.check_mapping_memory(ref, tool, **kwargs)
+    else:
+        alignment_memory.check_mapping_memory(ref, tool, **kwargs)
+    assert ("Continuing with bwa" in caplog.text) is warned
+
+
+def test_default_bwa_sort_budget_warns_below_18g_available(
+    tmp_path, monkeypatch, caplog
+):
+    from wgsextract_cli.core.utils import get_resource_defaults
+
+    ref = _reference(tmp_path, bases=3_217_346_917)
+    monkeypatch.setattr(
+        alignment_memory.psutil,
+        "virtual_memory",
+        lambda: SimpleNamespace(total=32 * GB, available=17 * GB),
+    )
+    threads, memory = get_resource_defaults("6", None)
+    alignment_memory.check_mapping_memory(
+        ref, "bwa", threads=threads, memory=memory, samblaster=True
+    )
+    assert "Continuing with bwa" in caplog.text
+
+
+def test_small_reference_does_not_inherit_full_genome_transient_allowance(
+    tmp_path, monkeypatch
+):
+    ref = _reference(tmp_path, bases=20_000, index=True)
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 4 * GB)
+    alignment_memory.check_mapping_memory(
+        ref, "bwa-mem2", threads="2", memory="100M", samblaster=True
+    )
+
+
 def test_realign_refuses_mem2_memory_before_extracting(tmp_path, monkeypatch):
     from wgsextract_cli.commands import realign
 

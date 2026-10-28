@@ -1,9 +1,11 @@
 """Memory budgets for the concurrent native BWA/MEM2 alignment pipeline.
 
-The H2 OOM component breakdown motivates 2 GiB of aligner working memory,
-projected roughly 6 GiB of samblaster signatures for 30x 150bp paired human reads, 25% sort
-overhead, and 0.5 GiB for Python and pipeline bookkeeping. Higher coverage
-can require more; these are estimates, not an allocation or a hard limit.
+Full 30x H2 measured a 17–17.5 GiB BWA working set including paged-out memory,
+not just its capped resident peak. Budget index files, 2 GiB aligner working
+memory, roughly 6 GiB samblaster signatures, sort plus 25%, and bookkeeping
+with reference-scaled transient headroom: about 18 GiB for BWA or 29 GiB
+for MEM2 at six threads/256M. Higher coverage or shorter reads can require
+more; these are estimates, not an allocation or a hard limit.
 """
 
 import logging
@@ -22,10 +24,11 @@ _INDEX_PARTS = {
     "bwa": ((".bwt", ".sa", ".pac"), 1.75),
     "bwa-mem2": ((".0123", ".bwt.2bit.64", ".pac"), 5.5),
 }
-# Provisional component allowances; finalize against H2 attempt 3's full peak.
 _ALIGNER_WORKING_BYTES = 2 * _GIB
 _SAMBLASTER_BYTES_PER_BASE = 2
 _PIPELINE_OVERHEAD_BYTES = _GIB // 2
+# Full H2 RSS/anonymous+swap observations require headroom beyond steady stages.
+_HUMAN_TRANSIENT_BYTES = 5 * _GIB // 2
 
 
 class MappingMemory(NamedTuple):
@@ -79,7 +82,8 @@ def estimate_mapping_memory(
         _ALIGNER_WORKING_BYTES,
         bases * _SAMBLASTER_BYTES_PER_BASE if samblaster else 0,
         int(int(threads) * per_thread * 1.25),
-        _PIPELINE_OVERHEAD_BYTES,
+        _PIPELINE_OVERHEAD_BYTES
+        + bases * _HUMAN_TRANSIENT_BYTES // _HUMAN_REFERENCE_BASES,
     )
 
 
