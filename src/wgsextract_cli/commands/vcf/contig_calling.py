@@ -82,7 +82,20 @@ def _pipeline(
     return [
         mpileup,
         [*call, "-Ou"],
-        ["bcftools", "norm", "-f", ref, "--threads", threads, "-Oz", "-o", output],
+        # VCF requires IUPAC reference codes to resolve to a concrete base (R -> A).
+        [
+            "bcftools",
+            "norm",
+            "--check-ref",
+            "ws",
+            "-f",
+            ref,
+            "--threads",
+            threads,
+            "-Oz",
+            "-o",
+            output,
+        ],  # fmt: skip
     ]
 
 

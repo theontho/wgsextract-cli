@@ -9,7 +9,7 @@ import pytest
 from tests.htslib_helpers import needs_htslib, run_wgsextract, sam_to_bam, write_fasta
 from wgsextract_cli.commands.info import metrics
 from wgsextract_cli.commands.vcf import contig_calling
-from wgsextract_cli.core.utils import WGSExtractError, run_command
+from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 
 
 @pytest.fixture(scope="module")
@@ -101,6 +101,56 @@ def test_parallel_calls_match_serial_body_and_headers(
     assert infer_sex.call_count == 2  # Once per command, not once per worker.
     assert Path(parallel + ".tbi").is_file()
     assert not list((tmp_path / "parallel").glob(".wgse_call_*"))
+
+
+@needs_htslib
+def test_iupac_indels_are_valid_without_changing_other_contigs(
+    multicontig_sample: tuple[str, str], tmp_path: Path
+) -> None:
+    bam, original_ref = multicontig_sample
+    sequences = {
+        entry.splitlines()[0]: "".join(entry.splitlines()[1:])
+        for entry in Path(original_ref).read_text().split(">")[1:]
+    }
+    sequence = sequences["chr20"]
+    sequences["chr20"] = sequence[:699] + "YR" + sequence[701:]
+    ref = str(write_fasta(tmp_path / "iupac.fa", sequences))
+    call_args = ["--ploidy", "2", "-P", "0"]
+    bodies = []
+    for threads in ("1", "3"):
+        output = str(tmp_path / f"indels-{threads}.vcf.gz")
+        contig_calling.call_small_variants(
+            bam, ref, output, threads=threads, region=None,
+            profile=[], call_args=call_args, indels=True,
+        )  # fmt: skip
+        bodies.append(
+            run_command(["bcftools", "view", "-H", output], capture_output=True).stdout
+        )
+    assert bodies[0] == bodies[1]
+    body = bodies[0]
+    records = [line.split("\t") for line in body.splitlines()]
+    assert all(
+        set(allele) <= set("ACGTN")
+        for record in records
+        for allele in (record[3], *record[4].split(","))
+    )
+    affected = [record for record in records if record[0] == "chr20"]
+    assert len(affected) == 1
+    assert affected[0][1:5] == ["700", ".", "CAT", "C"]
+
+    baseline = str(tmp_path / "baseline.vcf.gz")
+    stages = contig_calling._pipeline(
+        bam, original_ref, baseline, threads="1", region_args=[],
+        profile=[], call_args=call_args, indels=True,
+    )  # fmt: skip
+    stages[-1] = ["bcftools", "norm", "-f", original_ref, "-Oz", "-o", baseline]
+    run_pipeline(stages)
+    original_body = run_command(
+        ["bcftools", "view", "-H", baseline], capture_output=True
+    ).stdout
+    assert [line for line in body.splitlines() if not line.startswith("chr20\t")] == [
+        line for line in original_body.splitlines() if not line.startswith("chr20\t")
+    ]
 
 
 @needs_htslib
