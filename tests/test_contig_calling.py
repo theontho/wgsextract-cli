@@ -138,6 +138,21 @@ def test_iupac_indels_are_valid_without_changing_other_contigs(
     assert len(affected) == 1
     assert affected[0][1:5] == ["700", ".", "CAT", "C"]
 
+    consensus_dir = tmp_path / "consensus"
+    run_wgsextract(
+        "vcf", "to-fasta", "--input", output, "--ref", ref,
+        "--region", "chr20:695-710", "--haplotype", "alt",
+        "--outdir", str(consensus_dir),
+    )  # fmt: skip
+    with gzip.open(next(consensus_dir.glob("*_consensus.fa.gz")), "rt") as source:
+        consensus = "".join(source.read().splitlines()[1:])
+    expected = sequences["chr20"][694:699] + "C" + sequences["chr20"][702:710]
+    assert consensus == expected
+    assert (
+        run_command(["bcftools", "view", "-H", output], capture_output=True).stdout
+        == body
+    )
+
     baseline = str(tmp_path / "baseline.vcf.gz")
     stages = contig_calling._pipeline(
         bam, original_ref, baseline, threads="1", region_args=[],

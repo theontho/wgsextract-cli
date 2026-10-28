@@ -2,6 +2,7 @@ import argparse
 import logging
 import subprocess
 import tempfile
+from itertools import islice
 from pathlib import Path
 
 from wgsextract_cli.core.dependency_checks import (
@@ -44,6 +45,18 @@ HAPLOTYPE_OPTIONS = {
 _GVCF_REF_ALTS = {".", "<NON_REF>", "<*>"}
 _GVCF_PROBE_RECORDS = 2000
 _PASSING = 'FILTER="PASS" || FILTER="."'
+_IUPAC_BASES = {
+    "R": "AG",
+    "Y": "CT",
+    "S": "CG",
+    "W": "AT",
+    "K": "GT",
+    "M": "AC",
+    "B": "CGT",
+    "D": "AGT",
+    "H": "ACT",
+    "V": "ACG",
+}
 
 
 def is_gvcf(vcf_path: str) -> bool:
@@ -177,58 +190,66 @@ def _prepare_vcf(
 
 
 def _fixed_ref_record(line: str, fasta_ref: str) -> str | None:
-    """The record with REF set to the FASTA's bases where REF has N, or None
-    when no such fix makes REF match (a genuine mismatch is left to fail)."""
+    """Restore compatible FASTA ambiguities only for consensus's exact REF check."""
     fields = line.rstrip("\n").split("\t")
     old = fields[3].upper()
     new = fasta_ref.upper()
     if old == new or len(old) != len(new):
         return None
-    if any(o not in ("N", f) for o, f in zip(old, new, strict=True)):
+    if any(
+        o not in ("N", f) and o not in _IUPAC_BASES.get(f, "")
+        for o, f in zip(old, new, strict=True)
+    ):
         return None
     fields[3] = fasta_ref
     fields[4] = ",".join(
-        fasta_ref[0] + alt[1:] if alt[:1].upper() == old[0] else alt
+        fasta_ref[0] + alt[1:] if old[0] == "N" and alt[:1].upper() == "N" else alt
         for alt in fields[4].split(",")
     )
     return "\t".join(fields) + "\n"
 
 
 def _match_ambiguous_ref_bases(vcf: str, ref: str, threads: str, workdir: str) -> str:
-    """Set N REF bases to the reference's IUPAC codes, so consensus accepts them.
+    """Temporarily match compatible REF ambiguities without changing called ALTs.
 
     Callers write ``N`` where the reference has an ambiguity code (e.g. ``R``
-    at hs38 chr7:154575459), but ``bcftools consensus`` requires REF to equal
-    the FASTA exactly; ``bcftools norm --check-ref s`` writes a resolved base
-    (``A``) instead, which consensus rejects too. Such records are rare (a
-    reference has ~100 IUPAC bases), so only they are rewritten and merged back.
+    at hs38 chr7:154575459), but ``bcftools consensus`` requires an exact REF
+    match. Normalized indels can instead contain a compatible concrete base
+    (R -> A), so also check indels. Batch reference lookups to keep whole-
+    genome calls bounded in RAM and below Windows' command-line length limit.
     """
-    candidates = '(REF~"[^ACGTacgt]") && ALT!="."'
-    records = run_command(
-        ["bcftools", "view", "-H", "--include", candidates, vcf], capture_output=True
-    ).stdout.splitlines(keepends=True)
-    if not records:
-        return vcf
-    regions = []
-    for line in records:
-        chrom, pos, _, ref_allele = line.split("\t", 4)[:4]
-        regions.append(f"{{{chrom}}}:{pos}-{int(pos) + len(ref_allele) - 1}")
-    fasta = run_command(["samtools", "faidx", ref, *regions], capture_output=True)
-    bases = ["".join(s.splitlines()[1:]) for s in fasta.stdout.split(">")[1:]]
-    fixes = [
-        _fixed_ref_record(line, seq) for line, seq in zip(records, bases, strict=True)
-    ]
-    if not any(fixes):
-        return vcf
-    logging.info(
-        "Setting REF to the reference's ambiguity code at %d site(s).",
-        sum(1 for fix in fixes if fix),
+    candidates = '(REF~"[^ACGTacgt]" || TYPE="indel") && ALT!="."'
+    records_file = str(Path(workdir, "candidate_records.vcf"))
+    run_command(
+        ["bcftools", "view", "-H", "--include", candidates, "-o", records_file, vcf],
+        capture_output=True,
     )
+    if not Path(records_file).stat().st_size:
+        return vcf
     header = run_command(["bcftools", "view", "-h", vcf], capture_output=True).stdout
     fixed_vcf = str(Path(workdir, "ambiguous.vcf"))
-    with open(fixed_vcf, "w", newline="\n") as f:
-        f.write(header)
-        f.writelines(fix or line for line, fix in zip(records, fixes, strict=True))
+    regions_file = Path(workdir, "candidate_regions.txt")
+    fixed_count = 0
+    with open(records_file) as records, open(fixed_vcf, "w", newline="\n") as dest:
+        dest.write(header)
+        while batch := list(islice(records, 2048)):
+            regions = []
+            for line in batch:
+                chrom, pos, _, ref_allele = line.split("\t", 4)[:4]
+                regions.append(f"{{{chrom}}}:{pos}-{int(pos) + len(ref_allele) - 1}\n")
+            regions_file.write_text("".join(regions), encoding="utf-8", newline="\n")
+            fasta = run_command(
+                ["samtools", "faidx", "-r", str(regions_file), ref],
+                capture_output=True,
+            )
+            bases = ["".join(s.splitlines()[1:]) for s in fasta.stdout.split(">")[1:]]
+            for line, seq in zip(batch, bases, strict=True):
+                fix = _fixed_ref_record(line, seq)
+                fixed_count += fix is not None
+                dest.write(fix or line)
+    if not fixed_count:
+        return vcf
+    logging.info("Matching FASTA ambiguity codes at %d site(s).", fixed_count)
     fixed_bcf = str(Path(workdir, "ambiguous.bcf"))
     rest = str(Path(workdir, "unambiguous.bcf"))
     out = str(Path(workdir, "prepared_fixed.bcf"))
