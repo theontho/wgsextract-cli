@@ -142,7 +142,9 @@ def test_trio_defaults_to_denovo_beside_the_proband_input(tmp_path, input_option
     assert not (tmp_path / "trio_recessive.vcf.gz").exists()
 
 
-@pytest.mark.parametrize("selected", ["input", "vcf-input", "proband"])
+@pytest.mark.parametrize(
+    "selected", ["input", "vcf-input", "vcf-input-default", "proband"]
+)
 def test_trio_proband_precedence_includes_explicit_input_and_configured_default(
     tmp_path, monkeypatch, selected
 ):
@@ -153,9 +155,13 @@ def test_trio_proband_precedence_includes_explicit_input_and_configured_default(
         father=["100 . A . 0/0:99"],
     )
     default = _vcf(tmp_path / "default.vcf.gz", ["100 wrong A G 0/1:99"])
-    monkeypatch.setitem(settings, "default_input_vcf", default)
+    monkeypatch.setitem(
+        settings,
+        "default_input_vcf",
+        child if selected == "vcf-input-default" else default,
+    )
     options = ["--input", child if selected == "input" else default]
-    if selected == "vcf-input":
+    if selected in {"vcf-input", "vcf-input-default"}:
         options += ["--vcf-input", child]
     elif selected == "proband":
         options += ["--vcf-input", default, "--proband", child]
