@@ -3,6 +3,7 @@ import shutil
 import subprocess
 import sys
 from argparse import Namespace
+from pathlib import Path
 
 import pytest
 
@@ -90,6 +91,153 @@ def test_streamed_alignment_fails_when_an_upstream_stage_fails(tmp_path, monkeyp
             duplicates=None,
         )
     assert index_calls == []
+
+
+@pytest.mark.parametrize("duplicates", [None, "samblaster", "markdup"])
+@pytest.mark.parametrize("fails", [False, True])
+def test_alignment_spills_stay_in_owned_workspace_and_clean_up(
+    tmp_path, monkeypatch, duplicates, fails
+):
+    scratch = tmp_path / "scratch space"
+    scratch.mkdir()
+    output = tmp_path / "out.bam"
+    workspaces = []
+
+    def pipeline(stages, **_kwargs):
+        spilling = [
+            stage
+            for stage in stages
+            if stage[:2] in (["samtools", "sort"], ["samtools", "markdup"])
+        ]
+        assert spilling
+        for stage in spilling:
+            path = Path(stage[stage.index("-T") + 1])
+            assert scratch in path.parents
+            workspace = path if path.is_dir() else path.parent
+            workspaces.append(workspace)
+            (workspace / "unfinished.tmp.bam").write_bytes(b"partial")
+        output.write_bytes(b"partial")
+        if fails:
+            raise WGSExtractError("sort failed")
+
+    monkeypatch.setattr(align, "run_pipeline", pipeline)
+    monkeypatch.setattr(align, "run_command", lambda *_a, **_k: None)
+    kwargs = {
+        "threads": "1",
+        "memory": "100M",
+        "fmt": "BAM",
+        "ref": "unused.fa",
+        "duplicates": duplicates,
+        "temp_dir": str(scratch),
+    }
+    if fails:
+        with pytest.raises(WGSExtractError, match="sort failed"):
+            align.run_streamed_alignment(["aligner"], str(output), **kwargs)
+    else:
+        align.run_streamed_alignment(["aligner"], str(output), **kwargs)
+    assert workspaces and all(not path.exists() for path in workspaces)
+    assert list(scratch.iterdir()) == []
+    assert output.exists() is not fails
+
+
+def test_pbmm2_temp_dir_rejected_before_backend_start(monkeypatch):
+    monkeypatch.setattr(align, "align_pbmm2", lambda *_: pytest.fail("backend started"))
+    args = _align_args(
+        aligner="pbmm2", platform="hifi", r1="reads.fq", temp_dir="scratch"
+    )
+    with pytest.raises(WGSExtractError, match="internal sorter"):
+        align.run(args)
+
+
+@needs_tools("samtools")
+def test_sort_spilling_has_identical_decoded_body_with_custom_temp_dir(tmp_path):
+    sam = tmp_path / "unsorted.sam"
+    sequence, qualities = "ACGT" * 25, "I" * 100
+    with sam.open("w", encoding="utf-8", newline="\n") as stream:
+        stream.write("@SQ\tSN:chr1\tLN:10000\n")
+        for i in range(50000):
+            stream.write(
+                f"r{i}\t0\tchr1\t{1000 + i % 1000}\t60\t100M\t*\t0\t0\t{sequence}\t{qualities}\n"
+            )
+    scratch = tmp_path / "separate sort volume"
+    scratch.mkdir()
+    bodies = []
+    for label, directory in (("default", None), ("custom", str(scratch))):
+        output = str(tmp_path / f"{label}.bam")
+        align.run_streamed_alignment(
+            [
+                sys.executable,
+                "-c",
+                "import shutil,sys;shutil.copyfileobj(open(sys.argv[1],'rb'),sys.stdout.buffer)",
+                str(sam),
+            ],
+            output,
+            threads="1",
+            memory="1M",
+            fmt="BAM",
+            ref="unused.fa",
+            duplicates=None,
+            temp_dir=directory,
+        )
+        bodies.append(
+            run_command(["samtools", "view", output], capture_output=True).stdout
+        )
+    assert bodies[0] == bodies[1]
+    assert list(scratch.iterdir()) == []
+
+
+@needs_tools("bwa", "samtools")
+@pytest.mark.parametrize("fmt", ["BAM", "CRAM"])
+def test_align_cli_custom_temp_dir_keeps_small_genome_body_exact(tmp_path, fmt):
+    from tests.test_alt_mapping import _reference_with_alt
+
+    ref, chromosome = _reference_with_alt(tmp_path)
+    reads = tmp_path / "reads.fq"
+    reads.write_text(
+        "".join(
+            f"@r{i}\n{chromosome[1000 + i : 1100 + i]}\n+\n{'I' * 100}\n"
+            for i in range(100)
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    scratch = tmp_path / "separate scratch"
+    bodies = []
+    for label, options in (("default", []), ("custom", ["--temp-dir", str(scratch)])):
+        output = tmp_path / label
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from wgsextract_cli.main import main;main()",
+                "align",
+                "--aligner",
+                "bwa",
+                "--r1",
+                str(reads),
+                "--ref",
+                str(ref),
+                "--threads",
+                "1",
+                "--memory",
+                "1M",
+                "--format",
+                fmt,
+                "--outdir",
+                str(output),
+                *options,
+            ],
+            check=True,
+            capture_output=True,
+        )
+        path = output / f"reads_aligned.{fmt.lower()}"
+        bodies.append(
+            run_command(
+                ["samtools", "view", "-T", str(ref), str(path)], capture_output=True
+            ).stdout
+        )
+    assert bodies[0] == bodies[1]
+    assert list(scratch.iterdir()) == []
 
 
 def test_get_base_args_raises_without_input():
@@ -366,7 +514,8 @@ def test_bwa_batch_size_does_not_depend_on_threads(
 
 
 @needs_tools("samtools")
-def test_markdup_fallback_marks_a_duplicate_pair(tmp_path):
+@pytest.mark.parametrize("custom_temp", [False, True])
+def test_markdup_fallback_marks_a_duplicate_pair(tmp_path, custom_temp):
     """Two identical pairs from the aligner: the second is flagged a duplicate."""
     seq, qual = "ACGT" * 25, "I" * 100
     sam = tmp_path / "aligned.sam"
@@ -379,6 +528,8 @@ def test_markdup_fallback_marks_a_duplicate_pair(tmp_path):
         )
     )
     out = str(tmp_path / "out.bam")
+    scratch = tmp_path / "sort scratch"
+    scratch.mkdir()
     align.run_streamed_alignment(
         # The aligner's stand-in: prints the SAM (Windows has no `cat`).
         [
@@ -393,6 +544,7 @@ def test_markdup_fallback_marks_a_duplicate_pair(tmp_path):
         fmt="BAM",
         ref="unused.fa",
         duplicates="markdup",
+        temp_dir=str(scratch) if custom_temp else None,
     )
     flags = run_command(
         ["samtools", "view", out], capture_output=True
@@ -403,6 +555,7 @@ def test_markdup_fallback_marks_a_duplicate_pair(tmp_path):
         True,
         True,
     ]
+    assert list(scratch.iterdir()) == []
 
 
 def test_gene_lookup_uses_detected_build_and_rejects_t2t(monkeypatch):

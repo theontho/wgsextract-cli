@@ -4,6 +4,7 @@ import os
 import subprocess
 import tempfile
 from collections.abc import Sequence
+from contextlib import nullcontext
 from pathlib import Path
 from typing import NamedTuple
 
@@ -100,6 +101,11 @@ def register(
     parser.add_argument(
         "--format", choices=["BAM", "CRAM"], default="BAM", help="Output format"
     )
+    parser.add_argument(
+        "--temp-dir",
+        help="Directory for alignment staging and sort spill files (except pbmm2's "
+        "internal sorter). Defaults to the output directory.",
+    )
     parser.set_defaults(func=run)
 
 
@@ -182,6 +188,15 @@ _GPU_MINIMAP2_PRESETS = {"map-hifi": "map-hifi", "map-ont": "map-ont"}
 def run(args: argparse.Namespace) -> None:
     args.platform = resolve_platform(args, args.r1)
     aligner = select_aligner(args)
+    if (
+        aligner == "pbmm2"
+        and getattr(args, "temp_dir", None)
+        and not getattr(args, "gpu", False)
+    ):
+        raise WGSExtractError(
+            "--temp-dir is not supported by pbmm2's internal sorter; "
+            "use --aligner minimap2 or omit --temp-dir."
+        )
     if args.platform == "ultima":
         align_ultima(args, args.r1)
         return
@@ -235,6 +250,7 @@ class _AlignSetup(NamedTuple):
     outdir: str
     ref: str
     stem: str
+    temp_dir: str | None = None
 
 
 def _require_unambiguous_library(ref: str | None, task: str) -> None:
@@ -278,6 +294,13 @@ def _prepare_alignment(
     input_path = args.input or args.r1
     outdir = args.outdir or str(absolute_path(input_path).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
+    temp_dir = getattr(args, "temp_dir", None)
+    if temp_dir:
+        temp_dir = str(absolute_path(temp_dir))
+        try:
+            Path(temp_dir).mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise WGSExtractError(f"Cannot use --temp-dir {temp_dir}: {e}") from e
     logging.debug(f"Input file: {str(absolute_path(input_path))}")
     logging.debug(f"Output directory: {str(absolute_path(outdir))}")
 
@@ -293,7 +316,7 @@ def _prepare_alignment(
     if getattr(args, "r2", None):
         # Both mates go into one output, so it shouldn't be named after R1.
         stem = pair_stem(stem)
-    return _AlignSetup(threads, memory, outdir, resolved_ref, stem)
+    return _AlignSetup(threads, memory, outdir, resolved_ref, stem, temp_dir)
 
 
 def ensure_bwa_index(ref: str) -> None:
@@ -350,12 +373,18 @@ def duplicate_marker(paired: bool) -> str:
 
 
 def _sort_and_mark_stages(
-    out_path: str, *, threads: str, memory: str, fmt: str, ref: str
+    out_path: str,
+    *,
+    threads: str,
+    memory: str,
+    fmt: str,
+    ref: str,
+    temp_dir: str | None = None,
 ) -> list[list[str]]:
     """samtools fixmate | sort | markdup, writing out_path. The sorted stream
     goes straight into markdup uncompressed, so the output is written once.
     fixmate reads the aligner's output directly: it keeps mates together."""
-    tmp = f"{out_path}.tmp"
+    tmp = str(Path(temp_dir, "spill")) if temp_dir else f"{out_path}.tmp"
     out_fmt = ["-O", "CRAM", "--reference", ref] if fmt == "CRAM" else ["-O", "BAM"]
     return [
         ["samtools", "fixmate", "-m", "-u", "-", "-"],
@@ -374,29 +403,46 @@ def run_streamed_alignment(
     ref: str,
     duplicates: str | None,
     upstream: list[Sequence[object]] | None = None,
+    temp_dir: str | None = None,
 ) -> None:
     """Run the aligner (after any upstream stages feeding it), mark duplicates
     (with duplicate_marker's choice, or not at all for long reads: None), sort,
     then index the output."""
-    stages: list[Sequence[object]] = [*(upstream or []), list(align_cmd)]
-    sort = get_sam_sort_cmd(
-        out_path, threads, memory, fmt=fmt, reference=ref, sam_input=True
-    )
-    if duplicates == "samblaster":
-        logging.info("Using samblaster for marking duplicates...")
-        stages += [["samblaster"], sort]
-    elif duplicates == "markdup":
-        logging.info("Marking duplicates with samtools markdup...")
-        stages += _sort_and_mark_stages(
-            out_path, threads=threads, memory=memory, fmt=fmt, ref=ref
+    with (
+        tempfile.TemporaryDirectory(dir=temp_dir, prefix=".wgse_sort_")
+        if temp_dir
+        else nullcontext(None)
+    ) as workspace:
+        stages: list[Sequence[object]] = [*(upstream or []), list(align_cmd)]
+        sort = get_sam_sort_cmd(
+            out_path,
+            threads,
+            memory,
+            fmt=fmt,
+            reference=ref,
+            sam_input=True,
+            temp_dir=workspace,
         )
-    else:
-        stages.append(sort)
-    partial = [out_path, out_path + ".bai", out_path + ".crai"]
-    with cleanup_files(on_failure=partial):
-        run_pipeline(stages, description="Alignment")
-        logging.info(LOG_MESSAGES["indexing_output"])
-        run_command(get_sam_index_cmd(out_path, threads=threads))
+        if duplicates == "samblaster":
+            logging.info("Using samblaster for marking duplicates...")
+            stages += [["samblaster"], sort]
+        elif duplicates == "markdup":
+            logging.info("Marking duplicates with samtools markdup...")
+            stages += _sort_and_mark_stages(
+                out_path,
+                threads=threads,
+                memory=memory,
+                fmt=fmt,
+                ref=ref,
+                temp_dir=workspace,
+            )
+        else:
+            stages.append(sort)
+        partial = [out_path, out_path + ".bai", out_path + ".crai"]
+        with cleanup_files(on_failure=partial):
+            run_pipeline(stages, description="Alignment")
+            logging.info(LOG_MESSAGES["indexing_output"])
+            run_command(get_sam_index_cmd(out_path, threads=threads))
 
 
 # SAM-spec @RG PL values for --platform.
@@ -467,6 +513,7 @@ def align_bwa(args: argparse.Namespace) -> None:
             fmt=args.format,
             ref=setup.ref,
             duplicates=duplicate_marker(paired=bool(args.r2)),
+            temp_dir=setup.temp_dir,
         )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"{tool} alignment failed: {e}") from e
@@ -514,7 +561,9 @@ def align_ultima(
         LOG_MESSAGES["aligning_reads"].format(input=reads, output=out_path, tool=tool)
     )
     bwa = [tool, "mem", "-K", BWA_BATCH_BASES, "-t", setup.threads, "-Y"]
-    with tempfile.TemporaryDirectory(dir=setup.outdir, prefix=".wgse_ug_") as tmp:
+    with tempfile.TemporaryDirectory(
+        dir=setup.temp_dir or setup.outdir, prefix=".wgse_ug_"
+    ) as tmp:
         stages: list[Sequence[object]] = []
         if reads.lower().endswith((".bam", ".cram")):
             header = get_bam_header(reads, cram_opt)
@@ -582,6 +631,7 @@ def _sort_and_mark_ultima(
             ref=setup.ref,
             duplicates="markdup",
             upstream=stages[:-1],
+            temp_dir=tmp,
         )
         return
     sorted_bam = str(Path(tmp, "sorted.bam"))
@@ -590,6 +640,7 @@ def _sort_and_mark_ultima(
     sort = get_sam_sort_cmd(
         sorted_bam, setup.threads, setup.memory, sam_input=True, temp_dir=tmp
     )
+    sort += ["-l", "1"]
     partial = [out_path, out_path + ".bai", out_path + ".crai"]
     with cleanup_files(on_failure=partial):
         run_pipeline([*stages, sort], description="Alignment")
@@ -738,7 +789,9 @@ def _gpu_align(
     )
     with (
         cleanup_files(on_failure=[out_path, pb_out, pb_out + ".bai"]),
-        tempfile.TemporaryDirectory(dir=setup.outdir, prefix=".wgse_pb_") as tmp,
+        tempfile.TemporaryDirectory(
+            dir=setup.temp_dir or setup.outdir, prefix=".wgse_pb_"
+        ) as tmp,
     ):
         run_pbrun(
             tool,
@@ -796,6 +849,7 @@ def align_minimap2(args: argparse.Namespace) -> None:
             duplicates=(
                 duplicate_marker(paired=bool(args.r2)) if preset == "sr" else None
             ),
+            temp_dir=setup.temp_dir,
         )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Minimap2 alignment failed: {e}") from e
