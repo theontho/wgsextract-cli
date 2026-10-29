@@ -14,6 +14,7 @@ import json
 import logging
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import FIRST_EXCEPTION, Future, ThreadPoolExecutor, wait
 from http.client import HTTPException, IncompleteRead
 from pathlib import Path
@@ -102,9 +103,12 @@ def download_segmented(
     size: int,
     progress_callback: ProgressCallback | None = None,
     cancel_event: CancelEvent | None = None,
+    *,
+    verify: Callable[[str], bool] | None = None,
 ) -> bool:
-    """Fetch url (size bytes) into dest; False leaves what arrived for a rerun.
+    """Fetch into dest.partial, then verify and atomically replace dest.
 
+    Interruptions retain partial/state; failed verification discards them.
     Raises RangesUnsupported if the server ignores byte ranges after all.
     """
     partial = dest + ".partial"
@@ -199,6 +203,10 @@ def download_segmented(
 
     if sum(received.values()) != size:
         raise DownloadIncomplete(f"{label}: {sum(received.values())} of {size} bytes")
+    if verify is not None and not verify(partial):
+        Path(partial).unlink(missing_ok=True)
+        Path(state_path).unlink(missing_ok=True)
+        return False
     Path(partial).replace(dest)
     Path(state_path).unlink()
     return True
