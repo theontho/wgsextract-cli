@@ -17,7 +17,7 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
-from wgsextract_cli.core.paths import absolute_path
+from wgsextract_cli.core.paths import absolute_path, java_local_path
 from wgsextract_cli.core.read_counts import fastq_input_reads
 from wgsextract_cli.core.reference_assets import is_fasta_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
@@ -631,8 +631,20 @@ def _sort_and_mark_ultima(
         run_pipeline([*stages, sort], description="Alignment")
         logging.info("Marking duplicates in flow mode (GATK MarkDuplicates)...")
         run_command(
-            ["gatk", "MarkDuplicates", "-I", sorted_bam, "-O", marked, "-M", metrics]
-            + ["--TMP_DIR", tmp, "--VALIDATION_STRINGENCY", "SILENT"]
+            [
+                "gatk",
+                "MarkDuplicates",
+                "-I",
+                java_local_path(sorted_bam),
+                "-O",
+                java_local_path(marked),
+                "-M",
+                java_local_path(metrics),
+                "--TMP_DIR",
+                java_local_path(tmp),
+                "--VALIDATION_STRINGENCY",
+                "SILENT",
+            ]
             + ULTIMA_DUPLICATE_ARGS
         )
         Path(sorted_bam).unlink(missing_ok=True)
