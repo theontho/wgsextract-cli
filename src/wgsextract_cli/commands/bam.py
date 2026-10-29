@@ -10,6 +10,7 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
+from wgsextract_cli.core.resource_estimates import estimate_resources, report_resources
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -237,11 +238,22 @@ def cmd_sort(args: argparse.Namespace) -> None:
     threads, memory, outdir, cram_opt, resolved_ref = get_base_args(args)
     region = resolve_region_or_gene(args, resolved_ref)
 
+    fmt, ext = _alignment_format(args.input)
+    report_resources(
+        estimate_resources(
+            "sort",
+            input_paths=[args.input],
+            output_dir=outdir,
+            threads=threads,
+            memory=memory,
+            output_format=fmt,
+            region=region,
+        )
+    )
     _preflight_sort_space(
         args.input, outdir, "Coord", "Coord Sort", region, "GenSortedBAM", threads
     )
 
-    fmt, ext = _alignment_format(args.input)
     out_file = derive_output_path(args.input, outdir, f"_sorted{ext}")
     view_cmd = ["samtools", "view", "-uh", "--no-PG", *cram_opt, args.input]
     view_cmd += [region] if region else []
@@ -339,6 +351,16 @@ def cmd_tocram(args: argparse.Namespace) -> None:
     threads, _, outdir, cram_opt, resolved_ref = get_base_args(args)
     region = resolve_region_or_gene(args, resolved_ref)
 
+    report_resources(
+        estimate_resources(
+            "to-cram",
+            input_paths=[args.input],
+            output_dir=outdir,
+            threads=threads,
+            output_format="CRAM",
+            region=region,
+        )
+    )
     print_warning("BAMtoCRAM", threads=threads)
 
     out_file = derive_output_path(args.input, outdir, ".cram")
@@ -374,6 +396,16 @@ def cmd_tobam(args: argparse.Namespace) -> None:
     threads, _, outdir, cram_opt, resolved_ref = get_base_args(args)
     region = resolve_region_or_gene(args, resolved_ref)
 
+    report_resources(
+        estimate_resources(
+            "to-bam",
+            input_paths=[args.input],
+            output_dir=outdir,
+            threads=threads,
+            output_format="BAM",
+            region=region,
+        )
+    )
     print_warning("CRAMtoBAM", threads=threads)
 
     out_file = derive_output_path(args.input, outdir, ".bam")

@@ -35,6 +35,7 @@ from wgsextract_cli.core.reference_assets import (
     input_stem,
     resolve_reference_library,
 )
+from wgsextract_cli.core.resource_estimates import estimate_resources, report_resources
 from wgsextract_cli.core.utils import WGSExtractError, get_resource_defaults
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
@@ -210,9 +211,11 @@ def run(args: argparse.Namespace) -> None:
     verify_paths_exist({"--input": args.input})
     args.platform = align_cmd.resolve_platform(args, args.r1 or args.input)
     # Reject bad aligner/platform/preset combinations before hours of extraction.
-    align_cmd.select_aligner(args)
+    selected_aligner = align_cmd.select_aligner(args)
     signature = None
-    if args.aligner == "bwa-mem2" and not (args.ref and Path(args.ref).is_file()):
+    if selected_aligner in {"bwa", "bwa-mem2"} and not (
+        args.ref and Path(args.ref).is_file()
+    ):
         signature = calculate_bam_md5(args.input, None)
     target = resolve_reference(args.ref, signature) if args.ref or signature else None
     if args.aligner == "bwa-mem2" and target and Path(target).is_file():
@@ -225,6 +228,17 @@ def run(args: argparse.Namespace) -> None:
     if args.platform == "ultima" and not args.r1:
         # Single-end reads with flow tags: streamed into the aligner, no FASTQs.
         reads = indexed_read_count(args.input, threads)
+        _report_resource_estimates(
+            args,
+            target,
+            outdir,
+            threads,
+            memory,
+            reads,
+            input_paths=[args.input],
+            need_extract=False,
+            paired=False,
+        )
         if not args.no_preflight:
             _preflight_disk_space(
                 args.input,
@@ -262,6 +276,18 @@ def run(args: argparse.Namespace) -> None:
         if need_extract
         else fastq_input_reads(r1_path, r2_path)
     )
+    if selected_aligner in {"bwa", "bwa-mem2"} and not getattr(args, "gpu", False):
+        _report_resource_estimates(
+            args,
+            target,
+            outdir,
+            threads,
+            memory,
+            reads,
+            input_paths=[args.input] if need_extract else [r1_path, r2_path],
+            need_extract=need_extract,
+            paired=bool(r2_path),
+        )
     if args.aligner == "bwa-mem2" and target and Path(target).is_file():
         check_mapping_memory(
             target,
@@ -315,3 +341,44 @@ def run(args: argparse.Namespace) -> None:
                 Path(path).unlink()
             except OSError as exc:
                 logging.warning("Could not remove %s: %s", path, exc)
+
+
+def _report_resource_estimates(
+    args: argparse.Namespace,
+    reference: str | None,
+    outdir: str,
+    threads: str,
+    memory: str,
+    reads: int | None,
+    *,
+    input_paths: list[str],
+    need_extract: bool,
+    paired: bool,
+) -> None:
+    samblaster = align_cmd.duplicate_marker(paired=paired) == "samblaster"
+    reference = reference if reference and Path(reference).is_file() else None
+    tool = "bwa" if args.aligner == "auto" else args.aligner
+    if reference:
+        tool = align_cmd.short_read_aligner(
+            args.aligner,
+            reference,
+            threads=threads,
+            memory=memory,
+            samblaster=samblaster,
+            reads=reads,
+        )
+    report_resources(
+        estimate_resources(
+            "realign",
+            input_paths=[path for path in input_paths if path],
+            output_dir=outdir,
+            reference=reference,
+            threads=threads,
+            memory=memory,
+            aligner=tool,
+            samblaster=samblaster,
+            reads=reads,
+            output_format=getattr(args, "format", "BAM"),
+            extract_fastq=need_extract,
+        )
+    )

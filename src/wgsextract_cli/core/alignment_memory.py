@@ -50,7 +50,9 @@ def available_memory() -> int:
     return max(0, int(psutil.virtual_memory().available))
 
 
-def reference_bases(ref: str) -> int:
+def reference_bases(ref: str | None) -> int:
+    if not ref:
+        return 0
     lengths = read_fai_lengths(ref)
     if lengths:
         return sum(lengths.values())
@@ -63,7 +65,7 @@ def reference_bases(ref: str) -> int:
 
 
 def estimate_mapping_memory(
-    ref: str,
+    ref: str | None,
     aligner: str,
     *,
     threads: str = "1",
@@ -73,11 +75,15 @@ def estimate_mapping_memory(
 ) -> MappingMemory:
     bases = reference_bases(ref) or _HUMAN_REFERENCE_BASES
     suffixes, bytes_per_base = _INDEX_PARTS[aligner]
-    try:
-        index = sum(append_suffix(ref, suffix).stat().st_size for suffix in suffixes)
-    except OSError:
-        # A missing index may be built later; don't omit it from the preflight.
-        index = int(bases * bytes_per_base)
+    # A missing/unknown index may be built later; don't omit it from the preflight.
+    index = int(bases * bytes_per_base)
+    if ref:
+        try:
+            index = sum(
+                append_suffix(ref, suffix).stat().st_size for suffix in suffixes
+            )
+        except OSError:
+            pass
     amount, unit = parse_memory(memory)
     per_thread = amount * (1024**3 if unit == "G" else 1024**2)
     input_reads = max(0, reads) if reads is not None else _H2_INPUT_READS
