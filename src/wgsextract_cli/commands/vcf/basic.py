@@ -20,6 +20,10 @@ from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.output_checks import warn_if_no_variants
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.resource_estimates import (
+    estimate_resources,
+    preflight_resources,
+)
 from wgsextract_cli.core.sample_ploidy import sex_samples_args
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -155,6 +159,17 @@ def cmd_snp(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
     threads, outdir, ref, lib = get_base_args(args)
+    preflight_resources(
+        lambda: estimate_resources(
+            "snp",
+            input_paths=[args.input],
+            output_dir=outdir,
+            reference=ref,
+            threads=threads,
+            region=args.region,
+            parallel=getattr(args, "parallel", False),
+        )
+    )
     print_warning("ButtonSNPVCF", threads=threads)
 
     out_vcf = str(Path(outdir, "snps.vcf.gz"))
@@ -184,6 +199,17 @@ def cmd_indel(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
     threads, outdir, ref, lib = get_base_args(args)
+    preflight_resources(
+        lambda: estimate_resources(
+            "indel",
+            input_paths=[args.input],
+            output_dir=outdir,
+            reference=ref,
+            threads=threads,
+            region=args.region,
+            parallel=getattr(args, "parallel", False),
+        )
+    )
     print_warning("ButtonInDelVCF", threads=threads)
 
     out_vcf = str(Path(outdir, "indels.vcf.gz"))

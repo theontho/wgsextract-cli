@@ -21,6 +21,10 @@ from wgsextract_cli.core.paths import absolute_path, java_local_path
 from wgsextract_cli.core.read_counts import fastq_input_reads
 from wgsextract_cli.core.reference_assets import is_fasta_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.resource_estimates import (
+    estimate_resources,
+    preflight_resources,
+)
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -460,6 +464,26 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
         memory=setup.memory,
         samblaster=samblaster,
         reads=reads,
+    )
+    preflight_resources(
+        lambda: estimate_resources(
+            "align",
+            input_paths=[path for path in (args.r1, args.r2) if path],
+            output_dir=setup.outdir,
+            reference=setup.ref,
+            threads=setup.threads,
+            memory=setup.memory,
+            aligner=tool,
+            samblaster=samblaster,
+            reads=reads,
+            output_format=getattr(args, "format", "BAM"),
+            duplicate_marking=(
+                "gatk-flow"
+                if getattr(args, "platform", None) == "ultima"
+                and get_tool_path("gatk") is not None
+                else None
+            ),
+        )
     )
     check_mapping_memory(
         setup.ref,
