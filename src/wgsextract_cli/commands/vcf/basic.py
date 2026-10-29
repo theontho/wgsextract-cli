@@ -49,7 +49,7 @@ def _select_vcf_input(args: argparse.Namespace) -> str | None:
     default_vcf = settings.get("default_input_vcf")
     explicit_dests: set[str] = getattr(args, "_explicit_dests", set())
 
-    if vcf_input and vcf_input != default_vcf:
+    if vcf_input and ("vcf_input" in explicit_dests or vcf_input != default_vcf):
         return str(vcf_input)
     if "input" in explicit_dests and input_path:
         return str(input_path)

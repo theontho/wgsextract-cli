@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from tests.htslib_helpers import bgzip_index, needs_htslib, run_wgsextract
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.utils import WGSExtractError
 
@@ -20,7 +21,13 @@ HEADER = (
 )
 
 
-def _vcf(path: Path, rows: list[str], sample: str = "S", header: str = "") -> str:
+def _vcf(
+    path: Path,
+    rows: list[str],
+    sample: str = "S",
+    header: str = "",
+    chrom: str = "chr1",
+) -> str:
     """A bgzipped, indexed single-sample VCF on chr1; rows are
     'POS ID REF ALT GT:GQ', tab-separated, with INFO given as '.'."""
     plain = path.with_suffix("")
@@ -30,9 +37,11 @@ def _vcf(path: Path, rows: list[str], sample: str = "S", header: str = "") -> st
         info = "."
         if "|END=" in fmt:  # a gVCF reference block
             fmt, info = fmt.split("|")
-        body.append(f"chr1\t{pos}\t{vid}\t{ref}\t{alt}\t50\tPASS\t{info}\tGT:GQ\t{fmt}")
+        body.append(
+            f"{chrom}\t{pos}\t{vid}\t{ref}\t{alt}\t50\tPASS\t{info}\tGT:GQ\t{fmt}"
+        )
     plain.write_text(
-        HEADER
+        HEADER.replace("ID=chr1,", f"ID={chrom},")
         + header
         + f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
         + "".join(line + "\n" for line in body)
@@ -118,7 +127,8 @@ def test_a_hom_ref_child_is_not_recessive(tmp_path):
     assert _ids(tmp_path / "out" / "trio_recessive.vcf.gz") == ["hom_alt"]
 
 
-def test_trio_defaults_to_denovo_beside_the_proband_vcf_input(tmp_path):
+@pytest.mark.parametrize("input_option", ["--vcf-input", "--input"])
+def test_trio_defaults_to_denovo_beside_the_proband_input(tmp_path, input_option):
     child, mother, father = _trio(
         tmp_path,
         child=["100 denovo A G 0/1:99"],
@@ -126,10 +136,40 @@ def test_trio_defaults_to_denovo_beside_the_proband_vcf_input(tmp_path):
         father=["100 . A . 0/0:99"],
     )
     run_wgsextract(
-        "vcf", "trio", "--vcf-input", child, "--mother", mother, "--father", father
+        "vcf", "trio", input_option, child, "--mother", mother, "--father", father
     )
     assert _ids(tmp_path / "trio_denovo.vcf.gz") == ["denovo"]
     assert not (tmp_path / "trio_recessive.vcf.gz").exists()
+
+
+@pytest.mark.parametrize(
+    "selected", ["input", "vcf-input", "vcf-input-default", "proband"]
+)
+def test_trio_proband_precedence_includes_explicit_input_and_configured_default(
+    tmp_path, monkeypatch, selected
+):
+    child, mother, father = _trio(
+        tmp_path,
+        child=["100 chosen A G 0/1:99"],
+        mother=["100 . A . 0/0:99"],
+        father=["100 . A . 0/0:99"],
+    )
+    default = _vcf(tmp_path / "default.vcf.gz", ["100 wrong A G 0/1:99"])
+    monkeypatch.setitem(
+        settings,
+        "default_input_vcf",
+        child if selected == "vcf-input-default" else default,
+    )
+    options = ["--input", child if selected == "input" else default]
+    if selected in {"vcf-input", "vcf-input-default"}:
+        options += ["--vcf-input", child]
+    elif selected == "proband":
+        options += ["--vcf-input", default, "--proband", child]
+    run_wgsextract(
+        "vcf", "trio", *options, "--mother", mother, "--father", father,
+        "--outdir", str(tmp_path / "out"),
+    )  # fmt: skip
+    assert _ids(tmp_path / "out" / "trio_denovo.vcf.gz") == ["chosen"]
 
 
 def test_trio_region_limits_the_merge(tmp_path):
@@ -167,6 +207,8 @@ def test_rerunning_trio_replaces_the_old_output_and_index(tmp_path):
 
 def test_trio_needs_all_three_and_samples(tmp_path):
     child = _vcf(tmp_path / "child.vcf.gz", ["100 x A G 0/1:99"])
+    with pytest.raises(WGSExtractError, match="--proband.*--vcf-input.*--input"):
+        run_wgsextract("vcf", "trio", "--mother", child, "--father", child)
     with pytest.raises(WGSExtractError, match="--mother, and --father"):
         run_wgsextract("vcf", "trio", "--proband", child, "--mother", child)
 
@@ -348,3 +390,56 @@ def test_gvcf_parents_reference_blocks_are_filled_in_at_the_childs_site(tmp_path
         capture_output=True, text=True, check=True,
     ).stdout.split()  # fmt: skip
     assert genotypes[:2] == ["0/1", "0/0"]
+
+
+@pytest.mark.parametrize(
+    ("contig", "proband_prefix", "gvcf"),
+    [
+        ("11_KI270721v1_random", "chr", True),
+        ("Un_KI270302v1", "chr", True),
+        ("6_GL000250v2_alt", "", True),
+        ("11_KI270721v1_random", "chr", False),
+    ],
+)
+def test_trio_normalizes_parent_contigs_without_proband_records(
+    tmp_path, contig, proband_prefix, gvcf
+):
+    from tests.htslib_helpers import write_fasta
+
+    ref = write_fasta(
+        tmp_path / "ref.fa", {"chr1": "T" * 1200, f"chr{contig}": "T" * 1200}
+    )
+    child = _vcf(
+        tmp_path / "child.vcf.gz",
+        ["500 dn T A 0/1:50"],
+        header=f"##contig=<ID={proband_prefix}{contig},length=1200>\n",
+        chrom=f"{proband_prefix}1",
+    )
+    parents = []
+    for role in ("mother", "father"):
+        plain = tmp_path / f"{role}.vcf"
+        alt, info = ("<*>", "END=1000") if gvcf else (".", ".")
+        plain.write_text(
+            HEADER.replace("ID=chr1,", "ID=1,")
+            + f"##contig=<ID={contig},length=1200>\n"
+            + ('##ALT=<ID=*,Description="Any other allele">\n' if gvcf else "")
+            + f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{role}\n"
+            + f"1\t500\t.\tT\t{alt}\t50\tPASS\t{info}\tGT:GQ\t0/0:40\n"
+            + f"{contig}\t100\t.\tT\t{alt}\t50\tPASS\t{info}\tGT:GQ\t0/0:40\n"
+        )
+        parents.append(bgzip_index(plain, Path(str(plain) + ".gz")))
+    out = tmp_path / "out"
+    _run_trio((child, *parents), out, *(["--ref", str(ref)] if gvcf else []))
+    output = out / "trio_denovo.vcf.gz"
+    assert _ids(output) == ["dn"]
+    query = subprocess.run(
+        [get_tool_path("bcftools"), "query", "-f", "%CHROM[ %GT]\n", str(output)],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()  # fmt: skip
+    assert query == "chr1 0/1 0/0 0/0"
+    header = subprocess.run(
+        [get_tool_path("bcftools"), "view", "-h", str(output)],
+        capture_output=True, text=True, check=True,
+    ).stdout  # fmt: skip
+    assert f"##contig=<ID=chr{contig}," in header
+    assert f"##contig=<ID={contig}," not in header

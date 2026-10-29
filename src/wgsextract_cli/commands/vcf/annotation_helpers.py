@@ -22,6 +22,7 @@ from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
     ensure_vcf_indexed,
     normalize_vcf_chromosomes,
+    vcf_chromosomes,
     vcf_index_chromosomes,
 )
 
@@ -232,7 +233,7 @@ def annotate_vcf(
                 # Back to the input's contig names (chr1 vs 1), so a chain of
                 # annotations keeps them whatever each resource uses.
                 annotated = normalize_vcf_chromosomes(
-                    annotated, vcf_index_chromosomes(input_vcf), work
+                    annotated, vcf_chromosomes(input_vcf), work
                 )
             # Renamed into place only once complete (work is beside ann_out).
             _move_into_place(annotated, ann_out)
