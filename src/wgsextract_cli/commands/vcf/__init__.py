@@ -59,6 +59,17 @@ def _add_ploidy_options(parser: argparse.ArgumentParser) -> None:
     ploidy_group.add_argument("--ploidy", help="Predefined ploidy name or value")
 
 
+def _add_parallel_contigs(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Call contigs in parallel with up to --threads workers. Faster, but "
+        "calls at sites deeper than 255 reads can differ slightly from the default "
+        "single stream, because bcftools subsamples them with one random stream "
+        "per process.",
+    )
+
+
 def _add_vcf_input(
     parser: argparse.ArgumentParser,
     help_text: str = "Optional override for VCF input file.",
@@ -105,6 +116,7 @@ def register(
     )
     _add_ploidy_options(snp_parser)
     _add_region(snp_parser, "Chromosomal region (e.g. chrM, chrY:10000-20000)")
+    _add_parallel_contigs(snp_parser)
     snp_parser.set_defaults(func=cmd_snp)
 
     indel_parser = vcf_subs.add_parser(
@@ -112,6 +124,7 @@ def register(
     )
     _add_ploidy_options(indel_parser)
     _add_region(indel_parser, "Chromosomal region (e.g. chrM, chrY:10000-20000)")
+    _add_parallel_contigs(indel_parser)
     indel_parser.set_defaults(func=cmd_indel)
 
     annotate_parser = vcf_subs.add_parser(

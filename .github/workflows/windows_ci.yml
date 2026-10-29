@@ -25,6 +25,7 @@ jobs:
           environments: >-
             default
             dev
+            gatk
       - name: Validate installer arguments
         shell: cmd
         run: install_windows.bat --dry-run --msys2-root C:\msys64 --skip-pacman-setup

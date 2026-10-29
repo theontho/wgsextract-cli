@@ -50,7 +50,8 @@ def test_snp_calls_chry_for_a_man_only(
     out = tmp_path / "out"
     basic.cmd_snp(
         Namespace(input=bam, ref=ref, outdir=str(out), threads="1", memory=None,
-                  region=region, ploidy="GRCh38", ploidy_file=None)
+                  region=region, ploidy="GRCh38", ploidy_file=None,
+                  parallel=False)
     )  # fmt: skip
     assert len(vcf_calls(out / "snps.vcf.gz")) == calls
     assert not list(out.glob("*.samples.txt"))
@@ -154,6 +155,7 @@ def test_real_autosomal_snp_call_stays_diploid_without_a_sex_scan(
             region="chr20:900-1100",
             ploidy="GRCh38",
             ploidy_file=None,
+            parallel=False,
         )
     )
     assert vcf_calls(out / "snps.vcf.gz")[0][-1] == "1/1"

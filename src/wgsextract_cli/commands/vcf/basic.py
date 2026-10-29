@@ -185,6 +185,7 @@ def cmd_snp(args: argparse.Namespace) -> None:
             region=args.region,
             profile=profile,
             call_args=[*ploidy_args, *sex_args, *prior],
+            parallel=getattr(args, "parallel", False),
         )
     ensure_vcf_indexed(out_vcf)
     warn_if_no_variants(out_vcf, ref, args.region)
@@ -223,6 +224,7 @@ def cmd_indel(args: argparse.Namespace) -> None:
             region=args.region,
             profile=profile,
             call_args=[*ploidy_args, *sex_args, *prior],
+            parallel=getattr(args, "parallel", False),
             indels=True,
         )
     ensure_vcf_indexed(out_vcf)
