@@ -3,12 +3,14 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from wgsextract_cli.commands._extract_helpers import cleanup_files, derive_output_path
 from wgsextract_cli.core import (
     config,
+    paths,
     samtools_commands,
     tool_commands,
 )
@@ -16,6 +18,7 @@ from wgsextract_cli.core.paths import (
     absolute_path,
     append_suffix,
     expand_path,
+    java_local_path,
     windows_local_app_dir,
 )
 from wgsextract_cli.core.reference_assets import input_stem, reference_dict_path
@@ -27,6 +30,27 @@ from wgsextract_cli.core.utils import (
     run_command,
 )
 from wgsextract_cli.core.variant_files import ensure_vcf_prepared, verify_paths_exist
+
+
+@pytest.mark.parametrize(
+    ("platform", "path", "expected"),
+    [
+        ("win32", "R:/Reference genome/ref.fa", r"R:\Reference genome\ref.fa"),
+        ("win32", "R:/work/../ref.fa", r"R:\ref.fa"),
+        ("win32", "//server/share/ref.fa", r"\\server\share\ref.fa"),
+        ("win32", "relative/ref.fa", r"relative\ref.fa"),
+        ("win32", "gs://bucket/ref.fa", "gs://bucket/ref.fa"),
+        ("win32", "file:///R:/ref.fa", "file:///R:/ref.fa"),
+        ("win32", "file:/R:/ref.fa", "file:/R:/ref.fa"),
+        ("linux", "R:/ref.fa", "R:/ref.fa"),
+        ("darwin", "/data/reference genome/ref.fa", "/data/reference genome/ref.fa"),
+    ],
+)
+def test_java_local_paths_preserve_uris_and_non_windows_paths(
+    monkeypatch, platform, path, expected
+):
+    monkeypatch.setattr(paths, "sys", SimpleNamespace(platform=platform))
+    assert java_local_path(path) == expected
 
 
 class FilePath(os.PathLike[str]):

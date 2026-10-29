@@ -9,11 +9,34 @@ from tests.htslib_helpers import needs_tools, sam_to_bam
 from wgsextract_cli.commands import align
 from wgsextract_cli.commands._bam_ubam import read_group_from_name
 from wgsextract_cli.commands.vcf import deepvariant
-from wgsextract_cli.core import ultima
+from wgsextract_cli.core import paths, ultima
 from wgsextract_cli.core.utils import WGSExtractError
 
 _RG = "@RG\tID:Z0138\tFO:TGCATGCA\tPL:ULTIMA\tSM:HG008\tmc:20\ttp:reference"
 _SEQ = "ACGTTGCAAC"
+
+
+def test_flow_markduplicates_windows_argv_uses_native_local_paths(monkeypatch):
+    commands = []
+    monkeypatch.setattr(paths, "sys", Namespace(platform="win32"))
+    monkeypatch.setattr(align, "get_tool_path", lambda _: "gatk")
+    monkeypatch.setattr(align, "run_pipeline", lambda *_a, **_k: None)
+    monkeypatch.setattr(align, "run_command", lambda cmd: commands.append(cmd))
+    monkeypatch.setattr(
+        align, "get_sam_index_cmd", lambda *_a, **_k: ["samtools", "index"]
+    )
+    setup = align._AlignSetup("1", "256M", "R:/Results", "R:/ref.fa", "sample")
+    align._sort_and_mark_ultima(
+        [["bwa"]], "R:/Results/calls.bam", setup, "BAM", "R:/Sort temp"
+    )
+    command = commands[0]
+    for flag, expected in {
+        "-I": r"R:\Sort temp\sorted.bam",
+        "-O": r"R:\Results\calls.bam",
+        "-M": r"R:\Results\sample_duplicate_metrics.txt",
+        "--TMP_DIR": r"R:\Sort temp",
+    }.items():
+        assert command[command.index(flag) + 1] == expected
 
 
 def _record(flag: int, name: str = "038266_1-Z0138-0510185343") -> str:

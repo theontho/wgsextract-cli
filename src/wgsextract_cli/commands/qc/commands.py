@@ -10,7 +10,7 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import LOG_MESSAGES
-from wgsextract_cli.core.paths import absolute_path
+from wgsextract_cli.core.paths import absolute_path, java_local_path
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -115,7 +115,16 @@ def cmd_fastqc(args: argparse.Namespace) -> None:
 
     logging.info(LOG_MESSAGES["running_fastqc"].format(input=args.input))
     try:
-        run_command(["fastqc", "-t", threads, "--outdir", outdir, args.input])
+        run_command(
+            [
+                "fastqc",
+                "-t",
+                threads,
+                "--outdir",
+                java_local_path(outdir),
+                java_local_path(args.input),
+            ]
+        )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"FastQC failed: {e}") from e
 
