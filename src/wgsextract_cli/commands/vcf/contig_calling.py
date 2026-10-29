@@ -1,4 +1,11 @@
-"""Small-variant calling, with independent contigs sharing the worker budget."""
+"""Small-variant calling, optionally with contigs sharing the worker budget.
+
+Per-contig calling is opt-in because it is not byte-identical to one stream on
+deep data. bcftools seeds a single random stream per process and draws from it
+to subsample every site with more than 255 bases (htslib ``errmod_cal``), so a
+deep site's likelihoods depend on every deep site called before it in that
+process. A worker that starts at its own contig starts that stream afresh.
+"""
 
 import gzip
 import logging
@@ -109,8 +116,9 @@ def call_small_variants(
     profile: list[str],
     call_args: list[str],
     indels: bool = False,
+    parallel: bool = False,
 ) -> None:
-    contigs = _parallel_contigs(alignment, ref, threads, region)
+    contigs = _parallel_contigs(alignment, ref, threads, region) if parallel else {}
     cancelled = Event() if contigs else None
 
     def call_part(

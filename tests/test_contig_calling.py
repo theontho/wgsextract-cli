@@ -52,11 +52,13 @@ def multicontig_sample(tmp_path_factory: pytest.TempPathFactory) -> tuple[str, s
     return sam_to_bam(lines, root / "sample.bam"), str(ref)
 
 
-def _call(sample: tuple[str, str], output: Path, kind: str, threads: int) -> str:
+def _call(
+    sample: tuple[str, str], output: Path, kind: str, threads: int, *extra: str
+) -> str:
     bam, ref = sample
     run_wgsextract(
         "vcf", kind, "--input", bam, "--ref", ref, "--ploidy", "GRCh38",
-        "--threads", str(threads), "--outdir", str(output),
+        "--threads", str(threads), "--outdir", str(output), *extra,
     )  # fmt: skip
     return str(output / f"{kind}s.vcf.gz")
 
@@ -82,7 +84,7 @@ def test_parallel_calls_match_serial_body_and_headers(
         run_command(["samtools", "index", cram])
         bam = cram
     serial = _call((bam, ref), tmp_path / "serial", kind, 1)
-    parallel = _call((bam, ref), tmp_path / "parallel", kind, 3)
+    parallel = _call((bam, ref), tmp_path / "parallel", kind, 3, "--parallel")
     bodies = [
         run_command(["bcftools", "view", "-H", path], capture_output=True).stdout
         for path in (serial, parallel)
@@ -103,6 +105,52 @@ def test_parallel_calls_match_serial_body_and_headers(
     assert not list((tmp_path / "parallel").glob(".wgse_call_*"))
 
 
+@pytest.fixture(scope="module")
+def deep_sample(tmp_path_factory: pytest.TempPathFactory) -> tuple[str, str]:
+    """Two contigs covered by 300 reads, so bcftools subsamples their sites."""
+    root = tmp_path_factory.mktemp("deep calls")
+    rng = random.Random(7)
+    sequences = {
+        name: "".join(rng.choice("ACGT") for _ in range(1000))
+        for name in ("chrA", "chrB")
+    }
+    ref = write_fasta(root / "reference.fa", sequences)
+    lines = ["@HD\tVN:1.6\tSO:coordinate"]
+    lines += [f"@SQ\tSN:{name}\tLN:1000" for name in sequences]
+    for chrom, seq in sequences.items():
+        for start in range(1, 701):
+            bases = list(seq[start - 1 : start + 299])
+            if 201 <= start <= 500 and rng.random() < 0.5:
+                bases[500 - start] = "ACGT"[("ACGT".index(seq[499]) + 1) % 4]
+            quals = "".join(chr(33 + rng.randint(15, 40)) for _ in bases)
+            lines.append(
+                f"r{chrom}{start}\t0\t{chrom}\t{start}\t60\t300M\t*\t0\t0"
+                f"\t{''.join(bases)}\t{quals}"
+            )
+    return sam_to_bam(lines, root / "sample.bam"), str(ref)
+
+
+@needs_htslib
+def test_multithreaded_deep_calls_match_one_stream(
+    deep_sample: tuple[str, str], tmp_path: Path
+) -> None:
+    # bcftools draws from one per-process random stream to subsample sites
+    # deeper than 255 bases, so per-contig workers would change chrB (#197).
+    bam, ref = deep_sample
+    bodies = []
+    for threads in ("1", "3"):
+        output = str(tmp_path / f"calls-{threads}.vcf.gz")
+        contig_calling.call_small_variants(
+            bam, ref, output, threads=threads, region=None, profile=[],
+            call_args=["--ploidy", "2", "-P", "0"],
+        )  # fmt: skip
+        bodies.append(
+            run_command(["bcftools", "view", "-H", output], capture_output=True).stdout
+        )
+    assert bodies[0] == bodies[1]
+    assert "chrB\t500\t" in bodies[0]
+
+
 @needs_htslib
 def test_iupac_indels_are_valid_without_changing_other_contigs(
     multicontig_sample: tuple[str, str], tmp_path: Path
@@ -121,7 +169,7 @@ def test_iupac_indels_are_valid_without_changing_other_contigs(
         output = str(tmp_path / f"indels-{threads}.vcf.gz")
         contig_calling.call_small_variants(
             bam, ref, output, threads=threads, region=None,
-            profile=[], call_args=call_args, indels=True,
+            profile=[], call_args=call_args, indels=True, parallel=True,
         )  # fmt: skip
         bodies.append(
             run_command(["bcftools", "view", "-H", output], capture_output=True).stdout
@@ -182,7 +230,7 @@ def test_worker_failure_cleans_parts_without_concatenating(
     with pytest.raises(WGSExtractError, match="worker failed"):
         contig_calling.call_small_variants(
             bam, ref, str(tmp_path / "result.vcf.gz"), threads="3", region=None,
-            profile=[], call_args=["--ploidy", "2"],
+            profile=[], call_args=["--ploidy", "2"], parallel=True,
         )  # fmt: skip
     concat.assert_not_called()
     assert list(tmp_path.iterdir()) == []
@@ -214,7 +262,7 @@ def test_worker_failure_cancels_running_sibling_before_cleanup(
     with pytest.raises(WGSExtractError, match="original worker failure"):
         contig_calling.call_small_variants(
             "input.bam", "ref.fa", str(tmp_path / "result.vcf.gz"),
-            threads="2", region=None, profile=[], call_args=[],
+            threads="2", region=None, profile=[], call_args=[], parallel=True,
         )  # fmt: skip
     assert stopped.is_set()
     assert list(tmp_path.iterdir()) == []
@@ -241,7 +289,7 @@ def test_concat_failure_preserves_previous_output(
     with pytest.raises(WGSExtractError, match="concat failed"):
         contig_calling.call_small_variants(
             bam, ref, str(output), threads="3", region=None,
-            profile=[], call_args=["--ploidy", "2"],
+            profile=[], call_args=["--ploidy", "2"], parallel=True,
         )  # fmt: skip
     assert output.read_bytes() == b"previous output"
     assert index.read_bytes() == b"previous index"
