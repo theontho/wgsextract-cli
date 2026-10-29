@@ -10,7 +10,10 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
-from wgsextract_cli.core.resource_estimates import estimate_resources, report_resources
+from wgsextract_cli.core.resource_estimates import (
+    estimate_resources,
+    preflight_resources,
+)
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -239,8 +242,8 @@ def cmd_sort(args: argparse.Namespace) -> None:
     region = resolve_region_or_gene(args, resolved_ref)
 
     fmt, ext = _alignment_format(args.input)
-    report_resources(
-        estimate_resources(
+    preflight_resources(
+        lambda: estimate_resources(
             "sort",
             input_paths=[args.input],
             output_dir=outdir,
@@ -351,8 +354,8 @@ def cmd_tocram(args: argparse.Namespace) -> None:
     threads, _, outdir, cram_opt, resolved_ref = get_base_args(args)
     region = resolve_region_or_gene(args, resolved_ref)
 
-    report_resources(
-        estimate_resources(
+    preflight_resources(
+        lambda: estimate_resources(
             "to-cram",
             input_paths=[args.input],
             output_dir=outdir,
@@ -396,8 +399,8 @@ def cmd_tobam(args: argparse.Namespace) -> None:
     threads, _, outdir, cram_opt, resolved_ref = get_base_args(args)
     region = resolve_region_or_gene(args, resolved_ref)
 
-    report_resources(
-        estimate_resources(
+    preflight_resources(
+        lambda: estimate_resources(
             "to-bam",
             input_paths=[args.input],
             output_dir=outdir,

@@ -35,7 +35,11 @@ from wgsextract_cli.core.reference_assets import (
     input_stem,
     resolve_reference_library,
 )
-from wgsextract_cli.core.resource_estimates import estimate_resources, report_resources
+from wgsextract_cli.core.resource_estimates import (
+    PreflightEstimate,
+    estimate_resources,
+    preflight_resources,
+)
 from wgsextract_cli.core.utils import WGSExtractError, get_resource_defaults
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
@@ -355,24 +359,24 @@ def _report_resource_estimates(
     need_extract: bool,
     paired: bool,
 ) -> None:
-    samblaster = align_cmd.duplicate_marker(paired=paired) == "samblaster"
-    reference = reference if reference and Path(reference).is_file() else None
-    tool = "bwa" if args.aligner == "auto" else args.aligner
-    if reference:
-        tool = align_cmd.short_read_aligner(
-            args.aligner,
-            reference,
-            threads=threads,
-            memory=memory,
-            samblaster=samblaster,
-            reads=reads,
-        )
-    report_resources(
-        estimate_resources(
+    def estimate() -> PreflightEstimate:
+        samblaster = align_cmd.duplicate_marker(paired=paired) == "samblaster"
+        resolved = reference if reference and Path(reference).is_file() else None
+        tool = "bwa" if args.aligner == "auto" else args.aligner
+        if resolved:
+            tool = align_cmd.short_read_aligner(
+                args.aligner,
+                resolved,
+                threads=threads,
+                memory=memory,
+                samblaster=samblaster,
+                reads=reads,
+            )
+        return estimate_resources(
             "realign",
             input_paths=[path for path in input_paths if path],
             output_dir=outdir,
-            reference=reference,
+            reference=resolved,
             threads=threads,
             memory=memory,
             aligner=tool,
@@ -380,5 +384,12 @@ def _report_resource_estimates(
             reads=reads,
             output_format=getattr(args, "format", "BAM"),
             extract_fastq=need_extract,
+            duplicate_marking=(
+                "gatk-flow"
+                if getattr(args, "platform", None) == "ultima"
+                and align_cmd.get_tool_path("gatk") is not None
+                else None
+            ),
         )
-    )
+
+    preflight_resources(estimate)

@@ -25,6 +25,11 @@ still bypasses realignment's disk refusal, not its memory guard; informational
 estimates are still printed. Realignment reports before FASTQ extraction and
 alignment reports again when the final aligner is selected.
 
+Preflight is advisory: `preflight_resources()` guards estimation and reporting
+against `ValueError`, `OSError` and subprocess failures, warns that the resource
+estimate is unavailable, and lets the command continue. Existing dependency,
+memory and disk guards still enforce their own policies normally.
+
 These are conservative estimates, **not reservations, memory limits or
 guarantees**. When size or free-space measurement is unavailable the row says
 `UNKNOWN`, never a misleading `OK`. Regional disk estimates deliberately retain
@@ -67,12 +72,17 @@ Each resource has `resource` (`memory` or `disk`), `estimated_bytes`,
 Unavailable sizes are JSON `null`. `report_resources(estimate)` is the optional
 logging presentation layer.
 
+The GUI/API estimator remains strict: invalid settings raise `ValueError` so
+clients can validate them. CLI callers use
+`preflight_resources(lambda: estimate_resources(...))` instead.
+
 For alignments, callers can obtain `reads` using the existing bounded
 `core.read_counts.fastq_input_reads` or indexed
 `core.warnings.indexed_read_count`. Omitting it leaves the D3 model's explicit
 680-million-read RAM fallback; disk uses input bytes and format (12 bytes/read
 for compact CRAM, 80 for BAM, 70 for FASTQ). A missing reference uses the human
-reference RAM fallback, and reference-index disk is explicitly unknown.
+reference RAM fallback, and adds a structured `UNKNOWN` disk row with no guessed
+filesystem for reference-index storage.
 
 ## Calibration and limitations
 
@@ -90,15 +100,21 @@ reference RAM fallback, and reference-index disk is explicitly unknown.
   sort space and about 16–20 GB CRAM. Output indexes add 1% (at least 64 KiB).
   Existing reference indexes cost no new disk; missing ones receive an
   additional two-resident-index-size build allowance on the reference volume.
+- Ultima pipelines using GATK flow duplicate marking pass
+  `duplicate_marking="gatk-flow"`. Their temporary budget includes retained
+  sorted/marked BAMs: up to two BAMs (200 bytes/read) for CRAM output, rather
+  than assuming only sort spill and final CRAM coexist.
 - VCF output uses 10% of input bytes, with another output-sized allowance for
   per-contig files/concatenation (twice for GATK). Regional GATK CRAM conversion
   also budgets a whole-input BAM upper bound on the output volume.
 - Sort RAM is threads × `--memory` plus 25% and 256 MiB overhead; conversion
   allows 64 MiB per codec thread plus 256 MiB overhead. bcftools allows 1 GiB per
-  active contig worker plus 256 MiB, capped by reference contig count and one
-  worker for an explicit region. GATK uses a **6 GiB heuristic**, not a claim
-  about its Java heap limit. These non-alignment models are conservative
-  heuristics, not measured guarantees for every caller, read length or depth.
+  active contig worker plus 256 MiB. Serial calling is the default; `--parallel`
+  (`parallel=True` in the API) enables multiple workers, capped by reference
+  contig count and one worker for an explicit region. GATK uses a **6 GiB
+  heuristic**, not a claim about its Java heap limit. These non-alignment models
+  are conservative heuristics, not measured guarantees for every caller, read
+  length or depth.
 
 Compression, read lengths, depth, extra flow-specific stages and tool versions
 can change these costs. Missing reference-index construction has its own

@@ -15,7 +15,10 @@ from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.output_checks import warn_if_no_variants
 from wgsextract_cli.core.paths import java_local_path
 from wgsextract_cli.core.reference_assets import read_fai_lengths, reference_dict_path
-from wgsextract_cli.core.resource_estimates import estimate_resources, report_resources
+from wgsextract_cli.core.resource_estimates import (
+    estimate_resources,
+    preflight_resources,
+)
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 
@@ -179,8 +182,8 @@ def cmd_gatk(args: argparse.Namespace) -> None:
     verify_dependencies(["gatk", "samtools"])
     _threads, outdir, ref, lib = get_base_args(args)
 
-    report_resources(
-        estimate_resources(
+    preflight_resources(
+        lambda: estimate_resources(
             "gatk",
             input_paths=[args.input],
             output_dir=outdir,

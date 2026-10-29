@@ -3,7 +3,8 @@
 import logging
 import math
 import shutil
-from collections.abc import Sequence
+import subprocess
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -99,6 +100,8 @@ def estimate_resources(
     extract_fastq: bool = False,
     temp_dir: str | None = None,
     region: str | None = None,
+    duplicate_marking: Literal["samblaster", "markdup", "gatk-flow"] | None = None,
+    parallel: bool = False,
 ) -> PreflightEstimate:
     """Estimate a resolved command without creating files or running tools.
 
@@ -141,7 +144,7 @@ def estimate_resources(
             aligner,
             threads=threads,
             memory=memory,
-            samblaster=samblaster,
+            samblaster=samblaster and duplicate_marking != "gatk-flow",
             reads=reads,
         )
         memory_components = dict(zip(mapping._fields, mapping, strict=True))
@@ -156,6 +159,17 @@ def estimate_resources(
             * (CRAM_BYTES_PER_READ if output_format == "CRAM" else BAM_BYTES_PER_READ)
         )
         temporary = None if disk_reads is None else disk_reads * SORT_BYTES_PER_READ
+        if duplicate_marking == "gatk-flow":
+            if disk_reads is not None:
+                retained = (
+                    disk_reads
+                    * BAM_BYTES_PER_READ
+                    * (2 if output_format == "CRAM" else 1)
+                )
+                temporary = max(temporary or 0, retained)
+            notes.append(
+                "GATK flow duplicate marking includes retained sorted/marked BAMs."
+            )
         if extract_fastq:
             demands.append(
                 (
@@ -214,7 +228,7 @@ def estimate_resources(
                 )
         else:
             contigs = read_fai_lengths(reference) if reference else {}
-            workers = 1 if region else min(count, len(contigs) or count)
+            workers = 1 if region or not parallel else min(count, len(contigs) or count)
             memory_components = {"callers": workers * GIB, "overhead": GIB // 4}
             notes.append(
                 "bcftools RAM allows 1 GiB per active contig worker plus overhead."
@@ -270,7 +284,17 @@ def estimate_resources(
         )
         for available, components, paths, unknown in grouped.values()
     ]
+    if operation in {"align", "realign"} and not reference:
+        resources.append(ResourceEstimate("disk", None, None, {}))
     return PreflightEstimate(operation, tuple(resources), tuple(notes))
+
+
+def preflight_resources(estimate: Callable[[], PreflightEstimate]) -> None:
+    """Best-effort CLI reporting; the GUI estimator remains strict."""
+    try:
+        report_resources(estimate())
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
+        logging.warning("resource estimate unavailable: %s", exc)
 
 
 def report_resources(estimate: PreflightEstimate) -> None:

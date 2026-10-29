@@ -1,6 +1,7 @@
 import argparse
 import json
 import logging
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -72,8 +73,8 @@ def test_shared_volume_is_compared_to_combined_temp_output_and_index_need(
         reads=H2_READS,
         output_format="CRAM",
     )
-    memory, disk = estimate.resources
-    assert len(estimate.resources) == 2
+    memory, disk, unknown = estimate.resources
+    assert unknown.status == "UNKNOWN" and not unknown.paths
     assert disk.components["temporary"] < 90 * GIB
     assert disk.components["output"] < 90 * GIB
     assert disk.status == "LOW"
@@ -100,7 +101,7 @@ def test_separate_volumes_are_budgeted_independently(tmp_path, source, monkeypat
         reads=H2_READS,
         output_format="CRAM",
     )
-    disks = [row for row in estimate.resources if row.resource == "disk"]
+    disks = [row for row in estimate.resources if row.resource == "disk" and row.paths]
     assert len(disks) == 2 and all(row.status == "OK" for row in disks)
     assert {tuple(row.components) for row in disks} == {
         ("output", "indexes"),
@@ -145,6 +146,82 @@ def test_unavailable_measurements_are_unknown_not_false_ok(tmp_path, monkeypatch
     assert estimate.resources[1].available_bytes is None
 
 
+def test_unresolved_reference_has_a_structured_unknown_disk_row(tmp_path, source):
+    estimate = resources.estimate_resources(
+        "align", input_paths=[str(source)], output_dir=str(tmp_path), reads=100
+    )
+    unknown = [
+        row for row in estimate.resources if row.resource == "disk" and not row.paths
+    ]
+    assert len(unknown) == 1
+    assert unknown[0].status == "UNKNOWN"
+    assert unknown[0].estimated_bytes is None
+    assert unknown[0].available_bytes is None
+
+
+@pytest.mark.parametrize("operation", ["align", "realign"])
+def test_gatk_duplicate_marking_budgets_two_retained_bams(
+    tmp_path, source, monkeypatch, operation
+):
+    reads = 1_000_000
+    monkeypatch.setattr(resources, "_disk_space", lambda _: ("same", 180_000_000))
+    estimate = resources.estimate_resources(
+        operation,
+        input_paths=[str(source)],
+        output_dir=str(tmp_path),
+        reads=reads,
+        output_format="CRAM",
+        samblaster=False,
+        duplicate_marking="gatk-flow",
+    )
+    disk = estimate.resources[1]
+    assert disk.components["temporary"] >= reads * resources.BAM_BYTES_PER_READ * 2
+    assert disk.status == "LOW"
+
+
+@pytest.mark.parametrize(
+    "options", [{"threads": "bad"}, {"memory": "bad"}, {"reads": -1}]
+)
+def test_gui_estimator_remains_strict(tmp_path, source, options):
+    with pytest.raises(ValueError):
+        resources.estimate_resources(
+            "sort", input_paths=[str(source)], output_dir=str(tmp_path), **options
+        )
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ValueError("invalid estimate"),
+        OSError("metadata unavailable"),
+        subprocess.CalledProcessError(1, ["metadata"]),
+    ],
+)
+def test_command_proceeds_when_advisory_estimation_fails(
+    tmp_path, monkeypatch, caplog, error
+):
+    source = tmp_path / "source.bam"
+    source.write_bytes(b"bam")
+    commands = []
+
+    def failed(*_a, **_k):
+        raise error
+
+    monkeypatch.setattr(bam, "estimate_resources", failed)
+    monkeypatch.setattr(bam, "verify_dependencies", lambda *_: None)
+    monkeypatch.setattr(bam, "log_dependency_info", lambda *_: None)
+    monkeypatch.setattr(bam, "print_warning", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        bam, "get_base_args", lambda _: ("1", "256M", str(tmp_path), [], None)
+    )
+    monkeypatch.setattr(bam, "resolve_region_or_gene", lambda *_: None)
+    monkeypatch.setattr(bam, "run_command", lambda cmd: commands.append(cmd))
+    bam.cmd_tocram(argparse.Namespace(input=str(source), cram_version="3.1"))
+    assert len(commands) == 2
+    assert commands[0][:3] == ["samtools", "view", "-Ch"]
+    assert "resource estimate unavailable:" in caplog.text
+
+
 def test_realign_includes_extracted_fastqs_only_when_needed(tmp_path, source):
     options = {
         "input_paths": [str(source)],
@@ -184,9 +261,11 @@ def test_variant_worker_memory_and_regional_gatk_conversion(tmp_path, source):
         "reference": str(reference),
         "threads": "6",
     }
-    full = resources.estimate_resources("snp", **options)
+    serial = resources.estimate_resources("snp", **options)
+    full = resources.estimate_resources("snp", **options, parallel=True)
     region = resources.estimate_resources("indel", **options, region="chr1:1-10")
     assert full.resources[0].components["callers"] == 2 * GIB
+    assert serial.resources[0].components["callers"] == GIB
     assert region.resources[0].components["callers"] == GIB
     gatk = resources.estimate_resources("gatk", **options, region="chr1:1-10")
     assert gatk.resources[1].components["regional_bam"] > 0
@@ -223,27 +302,36 @@ def test_commands_report_before_work(
             module, "get_base_args", lambda _: ("1", str(tmp_path), "", None)
         )
 
-    def reported(estimate):
+    def reported(build):
+        estimate = build()
         assert estimate.operation == operation
         raise Reported
 
-    monkeypatch.setattr(module, "report_resources", reported)
+    monkeypatch.setattr(module, "preflight_resources", reported)
     args = argparse.Namespace(input=str(source), region=None, gpu=False)
     with pytest.raises(Reported):
         command(args)
 
 
 @pytest.mark.parametrize("operation", ["align", "realign"])
+@pytest.mark.parametrize("platform", ["illumina", "ultima"])
 def test_alignment_reports_before_index_building_or_fastq_extraction(
-    operation, tmp_path, source, monkeypatch
+    operation, platform, tmp_path, source, monkeypatch
 ):
     ref = tmp_path / "ref.fa"
     ref.write_text(">chr1\nA\n")
 
-    def reported(estimate):
+    monkeypatch.setattr(
+        align, "get_tool_path", lambda name: "gatk" if name == "gatk" else None
+    )
+
+    def reported(build):
+        estimate = build()
         assert estimate.operation == operation
-        if operation == "realign":
+        if operation == "realign" and platform != "ultima":
             assert estimate.resources[1].components["extracted_fastqs"] > 0
+        if platform == "ultima":
+            assert estimate.resources[1].components["temporary"] == 20_000
         raise Reported
 
     if operation == "align":
@@ -255,18 +343,21 @@ def test_alignment_reports_before_index_building_or_fastq_extraction(
             ),
         )
         monkeypatch.setattr(align, "fastq_input_reads", lambda *_: 100)
-        monkeypatch.setattr(align, "report_resources", reported)
+        monkeypatch.setattr(align, "preflight_resources", reported)
         monkeypatch.setattr(
             align, "ensure_bwa_index", lambda *_: pytest.fail("indexing started")
         )
         with pytest.raises(Reported):
             align._bwa_setup(
-                argparse.Namespace(r1="r1.fq", r2=None, aligner="bwa"), "align"
+                argparse.Namespace(
+                    r1="r1.fq", r2=None, aligner="bwa", platform=platform, format="CRAM"
+                ),
+                "align",
             )
     else:
         monkeypatch.setattr(realign, "resolve_reference", lambda *_: str(ref))
         monkeypatch.setattr(realign, "indexed_read_count", lambda *_: 100)
-        monkeypatch.setattr(realign, "report_resources", reported)
+        monkeypatch.setattr(realign, "preflight_resources", reported)
         monkeypatch.setattr(
             realign,
             "alignments_to_fastq",
@@ -282,7 +373,9 @@ def test_alignment_reports_before_index_building_or_fastq_extraction(
                 "--aligner",
                 "bwa",
                 "--platform",
-                "illumina",
+                platform,
+                "--format",
+                "CRAM",
                 "--threads",
                 "1",
                 "--no-preflight",
