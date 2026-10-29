@@ -299,7 +299,7 @@ def _no_curl_download(monkeypatch):
 def test_download_treats_416_for_complete_partial_as_done(tmp_path, monkeypatch):
     _no_curl_download(monkeypatch)
     dest = tmp_path / "file.bin"
-    dest.write_bytes(b"complete")
+    (tmp_path / "file.bin.partial").write_bytes(b"complete")
     requests = []
 
     def fake_urlopen(request, timeout):
@@ -350,7 +350,7 @@ def test_download_416_without_size_asks_the_server_for_it(tmp_path, monkeypatch)
     # a complete 27 GB VEP cache was deleted and fetched again from scratch.
     _no_curl_download(monkeypatch)
     dest = tmp_path / "file.bin"
-    dest.write_bytes(b"complete")
+    (tmp_path / "file.bin.partial").write_bytes(b"complete")
     methods = []
 
     def fake_urlopen(request, timeout):
