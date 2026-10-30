@@ -329,12 +329,15 @@ def get_template_format(format_name: str) -> TemplateFormat | None:
         "23andMe_V5_2025": {"suffix": ".txt", "parts": 1},
         "Ancestry_V1": {"suffix": ".txt", "parts": 4},
         "Ancestry_V2": {"suffix": ".txt", "parts": 5},
+        "Ancestry_V2_2021": {"suffix": ".txt", "parts": 1},
         "Ancestry_V2_2024": {"suffix": ".txt", "parts": 1},
         "FTDNA_V1_Affy": {"suffix": ".csv", "parts": 1, "ncbi36": True},
         "FTDNA_V2": {"suffix": ".csv", "parts": 1},
         "FTDNA_V3": {"suffix": ".csv", "parts": 3},
         "MyHeritage_V1": {"suffix": ".csv", "parts": 1},
         "MyHeritage_V2": {"suffix": ".csv", "parts": 1},
+        "MyHeritage_GSA_2025": {"suffix": ".csv", "parts": 1},
+        "MyHeritage_GSA_2025_609424": {"suffix": ".csv", "parts": 1},
         "23andMe_SNPs_API": {"suffix": ".txt", "parts": 1},
         "23andMe_V35": {"suffix": ".txt", "parts": 1},
         "LDNA_V1": {"suffix": ".txt", "parts": 1},
@@ -370,7 +373,7 @@ def write_formatted_line(
             chrom = "MT"
         f.write(f"{snp_id}\t{chrom}\t{pos}\t{result}{eol}")
 
-    elif format_name in ["MyHeritage_V2", "MyHeritage_V1"]:
+    elif format_name.startswith("MyHeritage_"):
         # MyHeritage V1 specific genotype swap
         if format_name == "MyHeritage_V1":
             if result == "CT":

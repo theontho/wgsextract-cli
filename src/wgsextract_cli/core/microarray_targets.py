@@ -42,7 +42,7 @@ HG18_TO_HG19_CHAIN_URL = (
     "https://hgdownload.soe.ucsc.edu/goldenPath/hg18/liftOver/hg18ToHg19.over.chain.gz"
 )
 # Bump when the builder's output changes, so libraries rebuild their target.
-TARGET_VERSION = 2
+TARGET_VERSION = 3
 _VERSION_LINE = f"##wgsextract_microarray_target_version={TARGET_VERSION}\n"
 # In order of precedence for a position's ID.
 _FORMATS = [
@@ -64,6 +64,9 @@ _FORMATS = [
     "MyHeritage_V2",
     "Nucleus_V1",
     "FTDNA_V1_Affy",
+    "Ancestry_V2_2021",
+    "MyHeritage_GSA_2025",
+    "MyHeritage_GSA_2025_609424",
 ]
 
 
@@ -128,7 +131,9 @@ def collect_template_markers(
                         continue
                     chrom, pos, _inverted = lifted
                 if pos.isdigit() and chrom:
-                    markers.setdefault((_chrom_for_liftover(chrom), int(pos)), rsid)
+                    position = int(pos)
+                    if position > 0:
+                        markers.setdefault((_chrom_for_liftover(chrom), position), rsid)
     return markers
 
 

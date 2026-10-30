@@ -8,5 +8,8 @@
 *.bat text eol=crlf
 *.cmd text eol=crlf
 
+# Vendor output headers must retain their original LF or CRLF bytes.
+src/wgsextract_cli/assets/microarray/raw_file_templates/head/* -text whitespace=cr-at-eol
+
 # Patches for upstream sources keep their exact bytes (some upstream files are CRLF).
 packaging/windows/recipes/**/*.patch -text -whitespace

@@ -1,0 +1,6 @@
+##fileformat=MyHeritage
+##format=MHv1.0
+##chip=GSA
+##reference=build37
+# MyHeritage DNA raw data.
+RSID,CHROMOSOME,POSITION,RESULT

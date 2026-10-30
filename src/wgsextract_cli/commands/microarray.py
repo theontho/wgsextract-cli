@@ -58,6 +58,7 @@ _MICROARRAY_TEMPLATE_MAP = {
     "23andme_api": "23andMe_SNPs_API",
     "ancestry_v1": "Ancestry_V1",
     "ancestry_v2": "Ancestry_V2",
+    "ancestry_v2_2021": "Ancestry_V2_2021",
     "ancestry_v2_2024": "Ancestry_V2_2024",
     "ftdna_v1": "FTDNA_V1_Affy",
     "ftdna_v1_affy": "FTDNA_V1_Affy",
@@ -72,6 +73,8 @@ _MICROARRAY_TEMPLATE_MAP = {
     "livingdna_v2": "LDNA_V2",
     "myheritage_v1": "MyHeritage_V1",
     "myheritage_v2": "MyHeritage_V2",
+    "myheritage_gsa_2025": "MyHeritage_GSA_2025",
+    "myheritage_gsa_2025_609424": "MyHeritage_GSA_2025_609424",
     "nucleus": "Nucleus_V1",
     "nucleus_v1": "Nucleus_V1",
 }

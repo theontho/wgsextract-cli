@@ -1,0 +1,4 @@
+#AncestryDNA raw data download
+#Data was collected using AncestryDNA array version: V2.0
+#Human reference assembly build 37; forward (+) strand.
+rsid	chromosome	position	allele1	allele2
