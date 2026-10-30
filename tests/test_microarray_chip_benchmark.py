@@ -93,6 +93,20 @@ def test_malformed_genotypes_cannot_inflate_concordance(tmp_path: Path) -> None:
     assert result.total.as_dict()["concordance"] is None
 
 
+def test_incomplete_ancestry_pairs_are_not_haploid_calls(tmp_path: Path) -> None:
+    path = tmp_path / "ancestry.tsv"
+    path.write_text(
+        "rs1\t23\t10\tA\t\nrs2\t23\t11\t\tA\nrs3\t23\t12\tAA\t\nrs4\t23\t13\tA\tA\n",
+        newline="\n",
+    )
+    calls = read_chip_export(path, "Ancestry_V2")
+    result = score_chip(calls, {marker: ChipCall("X", "AA") for marker in calls})
+    assert result.total.eligible == 4
+    assert result.total.nocall == 3
+    assert result.total.called == result.total.concordant == 1
+    assert result.total.as_dict()["call_rate"] == 0.25
+
+
 def test_score_reports_missingness_mismatches_and_per_chromosome() -> None:
     truth = {
         "rs1": ChipCall("20", "AG"),

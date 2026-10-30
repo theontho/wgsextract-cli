@@ -89,7 +89,9 @@ def read_chip_export(path: Path, format_name: str) -> dict[str, ChipCall]:
                 raise ValueError(f"Invalid chip chromosome at line {number}")
             # Real FTDNA templates include unplaced (0/0) and position-0 probes.
             genotype = (
-                _genotype("".join(row[3:]))
+                _genotype(
+                    "/".join(row[3:]) if profile.layout == "split_alleles" else row[3]
+                )
                 if chrom != "0" and int(row[2]) > 0
                 else None
             )
