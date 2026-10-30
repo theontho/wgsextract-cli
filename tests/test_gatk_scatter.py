@@ -64,7 +64,7 @@ def test_unknown_memory_does_not_start_parallel_jvms(tmp_path, monkeypatch):
     assert len(gatk_scatter.scatter_intervals(_reference(tmp_path), None, "8")) == 1
 
 
-def test_scatter_windows_argv_and_gather_order(tmp_path, monkeypatch):
+def test_scatter_windows_argv_and_gather_order(tmp_path, monkeypatch, caplog):
     monkeypatch.setattr(paths, "sys", Namespace(platform="win32"))
     completed_second = Event()
     commands = []
@@ -116,6 +116,8 @@ def test_scatter_windows_argv_and_gather_order(tmp_path, monkeypatch):
     assert output.read_text() == "000000.vcf,000001.vcf"
     assert Path(str(output) + ".tbi").read_text() == "index"
     assert len(commands) == 2
+    assert "can change annotations and genotypes" in caplog.text
+    assert "away from interval boundaries" in caplog.text
     for command in commands:
         assert command[command.index("--native-pair-hmm-threads") + 1] == "1"
         assert "-Xmx4g" in command[command.index("--java-options") + 1]

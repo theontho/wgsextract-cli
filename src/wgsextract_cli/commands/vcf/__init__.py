@@ -296,7 +296,8 @@ def register(
         action="store_true",
         help="Opt-in Ultima flow-mode interval scattering, bounded by --threads "
         "and available RAM (6 GiB per worker, 4 GiB Java heap). "
-        "Assembly boundaries can change calls; default: one unscattered process.",
+        "Can change genotypes/annotations away from interval boundaries; "
+        "default: one unscattered process.",
     )
     gatk_parser.add_argument(
         "--gpu",

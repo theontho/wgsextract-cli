@@ -1,4 +1,4 @@
-"""Opt-in interval scattering; assembly boundaries can change GATK calls."""
+"""Opt-in GATK scattering; process state and assembly can change genotypes."""
 
 import logging
 import math
@@ -176,7 +176,8 @@ def call_scattered(
             ]
         )
     logging.warning(
-        "GATK interval scattering is opt-in: assembly boundaries can change calls."
+        "GATK scattering can change annotations and genotypes, including away "
+        "from interval boundaries; it is opt-in."
     )
     logging.info(
         "Calling %s GATK shards with one CPU and a 4 GiB heap each.", len(shards)
