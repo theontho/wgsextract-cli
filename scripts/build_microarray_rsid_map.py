@@ -114,20 +114,27 @@ def write_subset(
 ) -> dict:
     """Include visited historical aliases as well as requested template IDs."""
     selected: dict[int, str | None] = {}
-    cache: dict[int, tuple[str, int | None]] = {}
+    pending: collections.deque[int] = collections.deque()
+    cache: dict[tuple[int, tuple[int, ...]], tuple[str, int | None]] = {}
 
     def resolve(rsid: int, path: tuple[int, ...] = ()) -> tuple[str, int | None]:
         if rsid in path or len(path) >= 64:
             return "unresolved", None
-        if rsid in cache:
-            return cache[rsid]
-        row = connection.execute(
-            "SELECT targets FROM identity WHERE rsid=?", (rsid,)
-        ).fetchone()
-        if row is None:
-            return "merged", rsid
-        targets = row[0]
-        selected[rsid] = targets
+        # Cycle/depth failures depend on the complete traversal context.
+        cache_key = (rsid, path)
+        if cache_key in cache:
+            return cache[cache_key]
+        if rsid in selected:
+            targets = selected[rsid]
+        else:
+            row = connection.execute(
+                "SELECT targets FROM identity WHERE rsid=?", (rsid,)
+            ).fetchone()
+            if row is None:
+                return "merged", rsid
+            targets = row[0]
+            selected[rsid] = targets
+            pending.append(rsid)
         result: tuple[str, int | None]
         if targets is None:
             result = ("withdrawn", None)
@@ -142,11 +149,15 @@ def write_subset(
                 if len(destinations) == 1
                 else ("ambiguous", None)
             )
-        cache[rsid] = result
+        cache[cache_key] = result
         return result
 
     for rsid in sorted(relevant):
         resolve(rsid)
+    identities: dict[int, tuple[str, int | None]] = {}
+    while pending:
+        rsid = pending.popleft()
+        identities[rsid] = resolve(rsid)
     counts: collections.Counter[str] = collections.Counter()
     with (
         output.open("xb") as raw,
@@ -156,15 +167,15 @@ def write_subset(
             b"# NCBI dbSNP build157; public template IDs and visited historical aliases\n"
             b"# RSID\tCURRENT_RSID\tSTATUS\n"
         )
-        for rsid in sorted(selected):
-            status, current = resolve(rsid)
+        for rsid in sorted(identities):
+            status, current = identities[rsid]
             counts[status] += 1
             compressed.write(
                 f"rs{rsid}\t{'rs' + str(current) if current else '.'}\t{status}\n".encode()
             )
     return {
         "template_rsid_count": len(relevant),
-        "history_rows": len(selected),
+        "history_rows": len(identities),
         "statuses": dict(counts),
         "gzip_bytes": output.stat().st_size,
         "sha256": hashlib.sha256(output.read_bytes()).hexdigest(),

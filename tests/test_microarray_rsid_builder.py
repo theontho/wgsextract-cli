@@ -88,3 +88,30 @@ def test_transitive_history_converges_or_fails_closed_and_is_reproducible(tmp_pa
         assert summary["history_rows"] == 10
     finally:
         connection.close()
+
+
+def test_distant_ancestor_cannot_poison_a_resolvable_suffix_or_convergence(tmp_path):
+    with closing(sqlite3.connect(":memory:")) as connection:
+        connection.execute(
+            "CREATE TABLE identity(rsid INTEGER PRIMARY KEY, targets TEXT)"
+        )
+        connection.executemany(
+            "INSERT INTO identity VALUES (?, ?)",
+            [(rsid, str(rsid + 1)) for rsid in range(1, 66)] + [(1000, "64,66")],
+        )
+        results = []
+        for index, relevant in enumerate(({64, 1000}, {1, 64, 1000})):
+            output = tmp_path / f"map-{index}.gz"
+            summary = write_subset(connection, relevant, output)
+            with gzip.open(output, "rt") as source:
+                rows = {
+                    fields[0]: fields[1:]
+                    for line in source
+                    if not line.startswith("#")
+                    if (fields := line.rstrip("\n").split("\t"))
+                }
+            assert summary["history_rows"] == len(rows)
+            results.append(rows)
+        for rsid in ("rs64", "rs1000"):
+            assert results[0][rsid] == results[1][rsid] == ["rs66", "merged"]
+        assert results[1]["rs1"] == [".", "unresolved"]
