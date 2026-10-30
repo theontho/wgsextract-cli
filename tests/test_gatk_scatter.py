@@ -214,3 +214,30 @@ def test_scatter_preflight_counts_all_worker_heaps(tmp_path):
         "gatk", input_paths=[], output_dir=str(tmp_path), threads="2", gatk_workers=2
     )
     assert estimate.resources[0].components == {"caller": 12 * 1024**3}
+
+
+def test_scatter_preflight_charges_staging_to_output_not_java_volume(monkeypatch):
+    mib = 1024**2
+    monkeypatch.setattr(resource_estimates, "_input_size", lambda _: 100 * mib)
+    monkeypatch.setattr(
+        resource_estimates,
+        "_disk_space",
+        lambda path: (
+            ("java", 100 * 1024**3) if path == "java-temp" else ("output", 15 * mib)
+        ),
+    )
+    estimate = resource_estimates.estimate_resources(
+        "gatk",
+        input_paths=["sample.bam"],
+        output_dir="results",
+        temp_dir="java-temp",
+        threads="2",
+        gatk_workers=2,
+    )
+    output_disk, java_disk = estimate.resources[1:]
+    assert output_disk.status == "LOW"
+    assert output_disk.components["scatter_parts"] == 10 * mib
+    assert output_disk.components["scatter_indexes"] > 0
+    assert output_disk.paths == ("results",)
+    assert java_disk.components == {"temporary": 20 * mib}
+    assert java_disk.status == "OK"

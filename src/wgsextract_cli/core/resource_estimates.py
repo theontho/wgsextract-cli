@@ -242,6 +242,12 @@ def estimate_resources(
             None if output is None else output * (2 if operation == "gatk" else 1)
         )
     indexes = None if output is None else max(64 * 1024, math.ceil(output / 100))
+    if operation == "gatk" and gatk_workers > 1:
+        # Shards coexist with the gathered output, on the output filesystem.
+        demands += [
+            (output_dir, "scatter_parts", output),
+            (output_dir, "scatter_indexes", indexes),
+        ]
     demands += [
         (output_dir, "output", output),
         (output_dir, "indexes", indexes),

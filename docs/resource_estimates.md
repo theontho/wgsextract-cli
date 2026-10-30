@@ -107,6 +107,9 @@ filesystem for reference-index storage.
 - VCF output uses 10% of input bytes, with another output-sized allowance for
   per-contig files/concatenation (twice for GATK). Regional GATK CRAM conversion
   also budgets a whole-input BAM upper bound on the output volume.
+  GATK scattering additionally charges retained shard VCFs and their indexes to
+  the **output volume**, where they coexist with the gathered output; JVM
+  temporary storage remains a separate demand on the system temporary volume.
 - Sort RAM is threads × `--memory` plus 25% and 256 MiB overhead; conversion
   allows 64 MiB per codec thread plus 256 MiB overhead. bcftools allows 1 GiB per
   active contig worker plus 256 MiB. Serial calling is the default; `--parallel`
