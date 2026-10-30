@@ -14,12 +14,22 @@ def test_unverified_manifest_markers_remain_known_indels(tmp_path: Path) -> None
         "invalidCoordinate,[D/I],37,1,not-a-coordinate,\n"
         "sourceNonSNV,[A/AT],37,1,11,short[A/AT]flank\n"
         "realSNP,[A/G],37,1,12,short[A/G]flank\n"
+        " multiIndel ,[A/AT/G], 37 , 1 , 13 ,short[A/AT/G]flank\n"
+        " spacedID ,[ I / D ], 37 , 1 , invalid ,unverified\n"
+        "spacedSNP,[ A / G ],37,1,14,short[ A / G ]flank\n"
     )
     ids, sites = manifest_exclusions({"23andMe_V5": str(manifest)})
-    assert ids == {"knownID", "invalidCoordinate", "sourceNonSNV"}
+    assert ids == {
+        "knownID",
+        "invalidCoordinate",
+        "sourceNonSNV",
+        "multiIndel",
+        "spacedID",
+    }
     assert sites == {
         ("chr1", 10): "unsupported_indel_marker",
         ("chr1", 11): "unsupported_indel_marker",
+        ("chr1", 13): "unsupported_indel_marker",
     }
 
 

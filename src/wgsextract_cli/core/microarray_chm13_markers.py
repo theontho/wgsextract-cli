@@ -16,9 +16,10 @@ from wgsextract_cli.core.microarray_utils import (
 from wgsextract_cli.core.utils import WGSExtractError
 
 
-def non_snv_alleles(ref: str, alt: str) -> bool:
+def non_snv_alleles(*alleles: str) -> bool:
     return any(
-        len(allele) != 1 or allele.upper() not in "ACGT" for allele in (ref, alt)
+        len(allele.strip()) != 1 or allele.strip().upper() not in "ACGT"
+        for allele in alleles
     )
 
 
@@ -32,6 +33,7 @@ def manifest_exclusions(
         with _manifest_stream(path) as stream:
             reader = csv.reader(stream)
             for header in reader:
+                header = [field.strip() for field in header]
                 if required <= set(header):
                     break
             else:
@@ -39,14 +41,17 @@ def manifest_exclusions(
                     "Indel manifest lacks Illumina probe/sequence columns."
                 )
             for fields in reader:
+                fields = [field.strip() for field in fields]
                 if fields and fields[0] == "[Controls]":
                     break
                 row = dict(zip(header, fields, strict=False))
-                alleles = re.findall(
-                    r"\[([^/\]]+)/([^/\]]+)\]",
+                allele_groups = re.findall(
+                    r"\[([^\]]+)\]",
                     row.get("SNP", "") + " " + row.get("SourceSeq", ""),
                 )
-                if not any(non_snv_alleles(a.upper(), b.upper()) for a, b in alleles):
+                if not any(
+                    non_snv_alleles(*group.split("/")) for group in allele_groups
+                ):
                     continue
                 if row.get("GenomeBuild") not in {"37", "GRCh37", "hg19"}:
                     raise WGSExtractError(
