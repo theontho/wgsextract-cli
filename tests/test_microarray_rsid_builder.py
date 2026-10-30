@@ -1,7 +1,40 @@
+import bz2
 import gzip
+import json
 import sqlite3
+from contextlib import closing
 
+from scripts import build_microarray_rsid_map
 from scripts.build_microarray_rsid_map import template_ids, write_subset
+
+
+def test_archive_graph_reads_utf8_and_preserves_merge_and_withdrawal_states(
+    tmp_path, monkeypatch
+):
+    snapshots = {
+        "merged": [
+            {"refsnp_id": 1, "merged_snapshot_data": {"merged_into": [2]}},
+            {"refsnp_id": 2, "merged_snapshot_data": {"merged_into": [3]}},
+        ],
+        "withdrawn": [
+            {"refsnp_id": 4, "withdrawn_snapshot_data": {}, "unused_metadata": "é"}
+        ],
+    }
+    for kind, records in snapshots.items():
+        with bz2.open(
+            tmp_path / f"refsnp-{kind}.json.bz2", "wt", encoding="utf-8"
+        ) as output:
+            for record in records:
+                output.write(json.dumps(record, ensure_ascii=False) + "\n")
+        monkeypatch.setitem(
+            build_microarray_rsid_map.SOURCES, kind, ("unused", len(records))
+        )
+    database = tmp_path / "graph.sqlite"
+    build_microarray_rsid_map.build_graph(tmp_path, database)
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute(
+            "SELECT * FROM identity ORDER BY rsid"
+        ).fetchall() == [(1, "2"), (2, "3"), (4, None)]
 
 
 def test_public_template_census_handles_csv_api_order_and_gzip(tmp_path):

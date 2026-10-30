@@ -141,6 +141,7 @@ def _write_vcf_mode_kit(
     _validate_quality_sample(policy, out_vcf, outdir, identity_enabled=identity.enabled)
     variant_calls: dict[tuple[str, str], str] = {}
     variant_reasons: dict[tuple[str, str], str] = {}
+    strand_masked: set[tuple[str, str]] = set()
     query = "%CHROM\t%POS\t[%TGT]\n"
     if fields:
         query = "%CHROM\t%POS\t[%TGT\t%DP\t%GQ]\t%REF\t%ALT\t%FILTER\n"
@@ -160,6 +161,7 @@ def _write_vcf_mode_kit(
             continue
         genotype = _normalize_microarray_genotype(parts[2])
         reason = "missing_gt" if genotype == "--" else "called"
+        identity_rejection = None
         if fields and len(parts) >= 8:
             rejection = policy.rejection(parts[3], parts[4], parts[-1])
             if rejection:
@@ -167,14 +169,20 @@ def _write_vcf_mode_kit(
             rejection = identity.rejection("", parts[5], parts[6])
             if rejection:
                 genotype, reason = "--", rejection
+                identity_rejection = rejection
         if genotype is None:
             if not (policy.min_dp or policy.min_gq or policy.exclude_filtered):
                 continue
             genotype, reason = "--", "unsupported_allele"
         for alias in chromosome_aliases(parts[0]):
-            variant_calls[(alias, parts[1])] = genotype
+            key = (alias, parts[1])
+            if identity_rejection == "strand_ambiguous":
+                strand_masked.add(key)
+            # A later duplicate must not restore a deliberately masked site.
+            masked = key in strand_masked
+            variant_calls[key] = "--" if masked else genotype
             if reasons is not None:
-                variant_reasons[(alias, parts[1])] = reason
+                variant_reasons[key] = "strand_ambiguous" if masked else reason
     logging.info(f"Found {len(variant_calls)} variants in input VCF matching targets.")
     # Absent targets read as the reference only on chromosomes the VCF has
     # calls on: a woman's VCF has no chrY, which mustn't become Y genotypes.

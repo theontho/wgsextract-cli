@@ -526,6 +526,33 @@ def test_alignment_strand_mask_does_not_infer_a_mitochondrial_probe_strand(
     assert report["rsMT"][-2:] == ["CC", "called"]
 
 
+@pytest.mark.parametrize("reverse", [False, True])
+def test_duplicate_vcf_record_cannot_restore_a_strand_mask(
+    tmp_path, quality_library, reverse
+):
+    fasta, _ = quality_library
+    records = [
+        "1 1000 . A T 50 PASS . GT 1/1",
+        "1 1000 . A C 50 PASS . GT 1/1",
+    ]
+    vcf = _vcf(
+        tmp_path / "duplicate.vcf",
+        ("1",),
+        list(reversed(records)) if reverse else records,
+    )
+    _microarray(
+        vcf,
+        fasta,
+        tmp_path / "out",
+        "--strand-ambiguous",
+        "no-call",
+        "--call-reasons",
+    )
+    report = _rows(tmp_path / "out/duplicate_CombinedKit_reasons.tsv")
+    assert report["rsHet"][-2:] == ["--", "strand_ambiguous"]
+    assert _genotypes(tmp_path / "out/duplicate_FTDNA_V2.csv", ",")["rsHet"] == "--"
+
+
 @pytest.mark.parametrize("kind", ["bam", "vcf"])
 def test_retired_identity_is_reported_and_cannot_reappear_in_vendor_output(
     tmp_path, quality_library, monkeypatch, kind

@@ -82,7 +82,9 @@ def build_graph(directory: Path, database: Path) -> None:
         for kind, (_, expected_count) in SOURCES.items():
             count = 0
             batch = []
-            with bz2.open(directory / f"refsnp-{kind}.json.bz2", "rt") as source:
+            with bz2.open(
+                directory / f"refsnp-{kind}.json.bz2", "rt", encoding="utf-8"
+            ) as source:
                 for line in source:
                     record = json.loads(line)
                     targets = None
