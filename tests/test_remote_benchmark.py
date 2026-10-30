@@ -148,6 +148,7 @@ def test_kit_from_hg00096_matches_its_omni_chip(tmp_path: Path) -> None:
             if name == "23andMe_V5"
             else 20
         )
+        assert matched["chromosome_mismatch"] == 0, name
         assert matched["called"] >= minimum, name
         assert matched["call_rate"] >= 0.90, name
         assert matched["concordance"] >= MIN_CONCORDANCE, name

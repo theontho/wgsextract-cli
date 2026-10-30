@@ -27,9 +27,11 @@ Real unplaced/position-zero probes are retained as no-calls.
 
 Reports include per-chromosome overlap, truth no-calls, chromosome mismatches,
 eligible truth calls, called/concordant/discordant/no-call counts, call rate and
-called-only concordance. A vendor panel's missing markers are not presumed to
-belong to that panel; truth and kit marker totals are reported separately.
-Missing or unsupported calls therefore cannot inflate call rate. The regional
+called-only concordance. Call rate is conditional on the truth/kit marker-ID
+overlap with matching chromosomes; no-call rows stay in that denominator.
+Markers absent from the kit cannot be assigned to its panel without an expected
+panel manifest. This is not a complete panel-coverage metric; truth and kit marker
+totals and chromosome mismatches are reported separately. The regional
 gate requires at least 20 called overlapping markers per layout (200 CombinedKit,
 100 23andMe V5), call rate >=90%, concordance >=98%, and different-sample
 concordance <90%. This is a SNP benchmark, not evidence for I/D accuracy.
