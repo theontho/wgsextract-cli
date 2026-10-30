@@ -158,7 +158,7 @@ def _write_vcf_mode_kit(
             if rejection:
                 genotype, reason = "--", rejection
         if genotype is None:
-            if not policy.needs_fields:
+            if not (policy.min_dp or policy.min_gq or policy.exclude_filtered):
                 continue
             genotype, reason = "--", "unsupported_allele"
         for alias in chromosome_aliases(parts[0]):
@@ -345,28 +345,31 @@ def _read_evidence(
                 chrom, pos, *_ = line.rstrip("\n").split("\t")
                 if pos.isdigit() and int(pos) > 0:
                     destination.write(f"{chrom}\t{int(pos) - 1}\t{pos}\n")
+        regions = _in_targets_naming(args.region, targets) if args.region else [None]
         for mapq in (0, 10):
-            for line in _command_lines(
-                [
-                    "samtools",
-                    "depth",
-                    "--reference",
-                    ref_fasta,
-                    "-b",
-                    bed,
-                    "-q",
-                    "0",
-                    "-Q",
-                    str(mapq),
-                    args.input,
-                ],
-                outdir,
-            ):
-                fields = line.rstrip("\n").split("\t")
-                if len(fields) >= 3 and int(fields[2]) > 0:
-                    evidence[(_combined_kit_chrom(fields[0]), fields[1])] = (
-                        "low_mapq" if mapq == 0 else "missing_gt"
-                    )
+            for region in regions:
+                for line in _command_lines(
+                    [
+                        "samtools",
+                        "depth",
+                        "--reference",
+                        ref_fasta,
+                        *(["-r", region] if region else []),
+                        "-b",
+                        bed,
+                        "-q",
+                        "0",
+                        "-Q",
+                        str(mapq),
+                        args.input,
+                    ],
+                    outdir,
+                ):
+                    fields = line.rstrip("\n").split("\t")
+                    if len(fields) >= 3 and int(fields[2]) > 0:
+                        evidence[(_combined_kit_chrom(fields[0]), fields[1])] = (
+                            "low_mapq" if mapq == 0 else "missing_gt"
+                        )
         return evidence
     finally:
         Path(bed).unlink(missing_ok=True)

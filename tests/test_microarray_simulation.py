@@ -257,6 +257,61 @@ def test_reason_report_distinguishes_low_mapq_and_no_reads_without_changing_kits
     assert report["rsHet"][-2:] == ["AC", "called"]
 
 
+def test_vcf_reason_only_preserves_unsupported_records_and_existing_calls(
+    tmp_path, quality_library
+):
+    fasta, _ = quality_library
+    records = [
+        "1 1000 . A C 50 PASS . GT 0/1",
+        "1 1000 . A AT 50 PASS . GT 1/1",
+        "1 2000 . A AC 50 PASS . GT 1/1",
+    ]
+    vcf = _vcf(tmp_path / "unsupported.vcf", ("1",), records)
+    _microarray(vcf, fasta, tmp_path / "legacy")
+    _microarray(vcf, fasta, tmp_path / "reasons", "--call-reasons")
+    for suffix in ("23andMe_V3.txt", "FTDNA_V2.csv", "CombinedKit.txt"):
+        assert (tmp_path / "legacy" / f"unsupported_{suffix}").read_bytes() == (
+            tmp_path / "reasons" / f"unsupported_{suffix}"
+        ).read_bytes()
+    report = _rows(tmp_path / "reasons/unsupported_CombinedKit_reasons.tsv")
+    assert report["rsHet"][-2:] == ["AC", "called"]
+    assert report["rsAlt"][-2:] == ["AA", "assumed_hom_ref"]
+
+
+@pytest.mark.parametrize(
+    ("region", "expected"),
+    [
+        ("1:900-4600", ["chr1:900-4600"]),
+        ("chr1:900-4600,chrX:900-1100", ["chr1:900-4600", "chrX:900-1100"]),
+    ],
+)
+def test_reason_depth_uses_indexed_normalized_regions(
+    tmp_path, quality_library, monkeypatch, region, expected
+):
+    from wgsextract_cli.commands import _microarray_combined
+
+    fasta, seqs = quality_library
+    bam = _bam(tmp_path / "male.bam", seqs, MALE)
+    original = _microarray_combined.run_command
+    commands = []
+
+    def tracked(command, *args, **kwargs):
+        if command[:2] == ["samtools", "depth"]:
+            commands.append(command)
+        return original(command, *args, **kwargs)
+
+    monkeypatch.setattr(_microarray_combined, "run_command", tracked)
+    _microarray(bam, fasta, tmp_path / "out", "--region", region, "--call-reasons")
+    assert [
+        (command[command.index("-Q") + 1], command[command.index("-r") + 1])
+        for command in commands
+    ] == [(str(mapq), span) for mapq in (0, 10) for span in expected]
+    assert all("-b" in command for command in commands)
+    report = _rows(tmp_path / "out/male_CombinedKit_reasons.tsv")
+    assert report["rsLowMapq"][-2:] == ["--", "low_mapq"]
+    assert report["rsNoReads"][-2:] == ["--", "no_reads"]
+
+
 @pytest.mark.parametrize(
     ("flags", "reason"),
     [
