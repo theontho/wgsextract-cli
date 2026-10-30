@@ -10,6 +10,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import TextIO
 
+from wgsextract_cli.core.microarray_quality import MicroarrayQuality, quality_policy
 from wgsextract_cli.core.microarray_utils import sort_alleles
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -103,6 +104,22 @@ def _reference_alleles(
         Path(region_file).unlink()
 
 
+def _validate_quality_sample(
+    policy: MicroarrayQuality, out_vcf: str, outdir: str
+) -> None:
+    if policy.needs_fields:
+        samples = [
+            line
+            for line in _command_lines(["bcftools", "query", "-l", out_vcf], outdir)
+            if line.strip()
+        ]
+        if len(samples) != 1:
+            raise WGSExtractError(
+                "Microarray quality options require a single-sample VCF; "
+                "select one sample with bcftools view -s first."
+            )
+
+
 def _write_vcf_mode_kit(
     f_out: TextIO,
     *,
@@ -111,27 +128,54 @@ def _write_vcf_mode_kit(
     out_vcf: str,
     ref_fasta: str,
     ref_vcf_tab: str,
+    reasons: dict[tuple[str, str], str] | None = None,
 ) -> None:
-    # Positions absent from the input VCF are assumed homozygous reference.
+    policy = quality_policy(args)
+    _validate_quality_sample(policy, out_vcf, outdir)
     variant_calls: dict[tuple[str, str], str] = {}
+    variant_reasons: dict[tuple[str, str], str] = {}
+    query = "%CHROM\t%POS\t[%TGT]\n"
+    if policy.needs_fields:
+        query = "%CHROM\t%POS\t[%TGT\t%DP\t%GQ]\t%FILTER\n"
     for line in _command_lines(
-        ["bcftools", "query", "-f", "%CHROM\t%POS\t[%TGT]\n", out_vcf], outdir
+        [
+            "bcftools",
+            "query",
+            *(["-u"] if policy.needs_fields else []),
+            "-f",
+            query,
+            out_vcf,
+        ],
+        outdir,
     ):
         parts = line.rstrip("\n").split("\t")
         if len(parts) < 3:
             continue
         genotype = _normalize_microarray_genotype(parts[2])
+        reason = "missing_gt" if genotype == "--" else "called"
+        if policy.needs_fields and len(parts) >= 6:
+            rejection = policy.rejection(parts[3], parts[4], parts[-1])
+            if rejection:
+                genotype, reason = "--", rejection
         if genotype is None:
-            continue
+            if not (policy.min_dp or policy.min_gq or policy.exclude_filtered):
+                continue
+            genotype, reason = "--", "unsupported_allele"
         for alias in chromosome_aliases(parts[0]):
             variant_calls[(alias, parts[1])] = genotype
+            if reasons is not None:
+                variant_reasons[(alias, parts[1])] = reason
     logging.info(f"Found {len(variant_calls)} variants in input VCF matching targets.")
     # Absent targets read as the reference only on chromosomes the VCF has
     # calls on: a woman's VCF has no chrY, which mustn't become Y genotypes.
     called_contigs = {alias for alias, _pos in variant_calls}
 
     logging.info("Pre-fetching reference alleles for target SNPs...")
-    ref_alleles = _reference_alleles(ref_fasta, ref_vcf_tab, outdir)
+    ref_alleles = (
+        _reference_alleles(ref_fasta, ref_vcf_tab, outdir)
+        if policy.assume_hom_ref and not (policy.min_dp or policy.min_gq)
+        else {}
+    )
     logging.info(f"Pre-fetched {len(ref_alleles)} reference alleles.")
 
     with contextlib.ExitStack() as stack:
@@ -157,10 +201,19 @@ def _write_vcf_mode_kit(
             chrom, pos, rsid = parts[0], parts[1], parts[2]
 
             genotype = variant_calls.get((chrom, pos))
+            reason = variant_reasons.get((chrom, pos), "called")
             written += 1
             matched += genotype is not None
             if genotype is None and chrom not in called_contigs:
                 genotype = "--"
+                reason = "absent_contig"
+            elif genotype is None and not policy.assume_hom_ref:
+                genotype, reason = "--", "absent_from_vcf"
+            elif genotype is None and (policy.min_dp or policy.min_gq):
+                genotype, reason = (
+                    "--",
+                    policy.rejection(".", ".", "PASS") or "missing_gt",
+                )
             elif genotype is None:
                 ref_base = ""
                 if ref_col_idx != -1 and len(parts) > ref_col_idx:
@@ -170,15 +223,23 @@ def _write_vcf_mode_kit(
                 if ref_base not in _BASES:
                     ref_base = "N"
                 genotype = ref_base * 2
+                reason = "assumed_hom_ref"
 
             f_out.write(f"{rsid}\t{_combined_kit_chrom(chrom)}\t{pos}\t{genotype}\n")
+            if reasons is not None:
+                reasons[(_combined_kit_chrom(chrom), pos)] = reason
     if written >= MIN_TARGETS_TO_EXPECT_A_VARIANT and not matched:
         # Every target was written as homozygous reference: a plausible-looking but
         # meaningless kit.
         logging.warning(
             f"None of {out_vcf}'s variants are at the kit's {written:,} target "
-            "positions, so every genotype is written as the reference allele. Check "
-            f"that the VCF's genome build matches the targets ({ref_vcf_tab})."
+            "positions, so "
+            + (
+                "every genotype is written as the reference allele. Check "
+                if policy.assume_hom_ref
+                else "absent markers are written as no-calls. Check "
+            )
+            + f"that the VCF's genome build matches the targets ({ref_vcf_tab})."
         )
 
 
@@ -195,10 +256,30 @@ def _in_targets_naming(region: str, targets: str) -> list[str]:
     return regions
 
 
-def _write_alignment_mode_kit(f_out: TextIO, *, outdir: str, out_vcf: str) -> None:
+def _write_alignment_mode_kit(
+    f_out: TextIO,
+    *,
+    outdir: str,
+    out_vcf: str,
+    policy: MicroarrayQuality | None = None,
+    reasons: dict[tuple[str, str], str] | None = None,
+) -> None:
+    policy = policy or MicroarrayQuality()
+    _validate_quality_sample(policy, out_vcf, outdir)
     rows = called = 0
+    query = "%ID\t%CHROM\t%POS\t[%TGT]\n"
+    if policy.needs_fields:
+        query = "%ID\t%CHROM\t%POS\t[%TGT\t%DP\t%GQ]\t%FILTER\n"
     for line in _command_lines(
-        ["bcftools", "query", "-f", "%ID\t%CHROM\t%POS\t[%TGT]\n", out_vcf], outdir
+        [
+            "bcftools",
+            "query",
+            *(["-u"] if policy.needs_fields else []),
+            "-f",
+            query,
+            out_vcf,
+        ],
+        outdir,
     ):
         parts = line.rstrip("\n").split("\t")
         if len(parts) < 4:
@@ -206,8 +287,20 @@ def _write_alignment_mode_kit(f_out: TextIO, *, outdir: str, out_vcf: str) -> No
         snp_id, chrom, pos, tgt = parts[:4]
         if snp_id == ".":
             snp_id = f"pos_{chrom}_{pos}"
-        genotype = _normalize_microarray_genotype(tgt) or "--"
+        normalized = _normalize_microarray_genotype(tgt)
+        genotype = normalized or "--"
+        reason = (
+            "unsupported_allele"
+            if normalized is None
+            else ("missing_gt" if genotype == "--" else "called")
+        )
+        if policy.needs_fields and len(parts) >= 7:
+            rejection = policy.rejection(parts[4], parts[5], parts[-1])
+            if rejection:
+                genotype, reason = "--", rejection
         f_out.write(f"{snp_id}\t{_combined_kit_chrom(chrom)}\t{pos}\t{genotype}\n")
+        if reasons is not None and reason != "called":
+            reasons[(_combined_kit_chrom(chrom), pos)] = reason
         rows += 1
         called += genotype != "--"
     if not called:
@@ -217,10 +310,108 @@ def _write_alignment_mode_kit(f_out: TextIO, *, outdir: str, out_vcf: str) -> No
             if rows
             else ("No target genotypes were produced, so the kit is empty")
         )
-        logging.warning(
-            f"{found}: the input has no reads at the kit's positions, or the "
-            "reference doesn't match it."
+        if rows and (policy.min_dp or policy.min_gq or policy.exclude_filtered):
+            logging.warning(
+                f"{found}: no genotype passed the configured quality/FILTER gates. "
+                "Check the thresholds and input evidence."
+            )
+        else:
+            logging.warning(
+                f"{found}: the input has no reads at the kit's positions, or the "
+                "reference doesn't match it."
+            )
+
+
+def _target_lines(args: argparse.Namespace, targets: str, outdir: str) -> Iterator[str]:
+    if args.region:
+        yield from _command_lines(
+            ["tabix", targets, *_in_targets_naming(args.region, targets)], outdir
         )
+    else:
+        with _open_text(targets) as source:
+            yield from source
+
+
+def _read_evidence(
+    args: argparse.Namespace, targets: str, outdir: str, ref_fasta: str
+) -> dict[tuple[str, str], str]:
+    fd, bed = tempfile.mkstemp(suffix=".call-reasons.bed", dir=outdir)
+    evidence: dict[tuple[str, str], str] = {}
+    try:
+        with os.fdopen(fd, "w", newline="\n") as destination:
+            for line in _target_lines(args, targets, outdir):
+                if line.startswith("#") or not line.strip():
+                    continue
+                chrom, pos, *_ = line.rstrip("\n").split("\t")
+                if pos.isdigit() and int(pos) > 0:
+                    destination.write(f"{chrom}\t{int(pos) - 1}\t{pos}\n")
+        regions = _in_targets_naming(args.region, targets) if args.region else [None]
+        for mapq in (0, 10):
+            for region in regions:
+                for line in _command_lines(
+                    [
+                        "samtools",
+                        "depth",
+                        "--reference",
+                        ref_fasta,
+                        *(["-r", region] if region else []),
+                        "-b",
+                        bed,
+                        "-q",
+                        "0",
+                        "-Q",
+                        str(mapq),
+                        args.input,
+                    ],
+                    outdir,
+                ):
+                    fields = line.rstrip("\n").split("\t")
+                    if len(fields) >= 3 and int(fields[2]) > 0:
+                        evidence[(_combined_kit_chrom(fields[0]), fields[1])] = (
+                            "low_mapq" if mapq == 0 else "missing_gt"
+                        )
+        return evidence
+    finally:
+        Path(bed).unlink(missing_ok=True)
+
+
+def _write_reason_report(
+    combined: str,
+    args: argparse.Namespace,
+    targets: str,
+    outdir: str,
+    is_vcf: bool,
+    reasons: dict[tuple[str, str], str],
+    ref_fasta: str,
+) -> None:
+    calls = {}
+    with open(combined) as source:
+        for line in source:
+            if not line.startswith("#"):
+                fields = line.rstrip("\n").split("\t")
+                if len(fields) >= 4:
+                    calls[(fields[1], fields[2])] = fields[3]
+    evidence = {} if is_vcf else _read_evidence(args, targets, outdir, ref_fasta)
+    report = str(Path(combined).with_name(Path(combined).stem + "_reasons.tsv"))
+    staged = report + ".tmp"
+    try:
+        with open(staged, "w", newline="\n") as destination:
+            destination.write("# RSID\tCHROM\tPOS\tRESULT\tCALL_REASON\n")
+            for line in _target_lines(args, targets, outdir):
+                if line.startswith("#") or not line.strip():
+                    continue
+                chrom, pos, rsid, *_ = line.rstrip("\n").split("\t")
+                key = (_combined_kit_chrom(chrom), pos)
+                genotype = calls.get(key, "--")
+                reason = reasons.get(
+                    key, "called" if genotype != "--" else "missing_gt"
+                )
+                if not is_vcf and genotype == "--" and reason == "missing_gt":
+                    reason = evidence.get(key, "no_reads")
+                destination.write(f"{rsid}\t{key[0]}\t{pos}\t{genotype}\t{reason}\n")
+        Path(staged).replace(report)
+    finally:
+        Path(staged).unlink(missing_ok=True)
 
 
 def _write_microarray_combined_kit(
@@ -236,6 +427,8 @@ def _write_microarray_combined_kit(
     combined_kit_txt = str(Path(outdir, f"{base_name}_CombinedKit.txt"))
     logging.info(f"Extracting genotypes to {combined_kit_txt}...")
     start_ext = time.time()
+    policy = quality_policy(args)
+    reasons: dict[tuple[str, str], str] | None = {} if policy.call_reasons else None
 
     tmp_txt = combined_kit_txt + ".tmp"
     try:
@@ -249,10 +442,21 @@ def _write_microarray_combined_kit(
                     out_vcf=out_vcf,
                     ref_fasta=ref_fasta,
                     ref_vcf_tab=ref_vcf_tab,
+                    reasons=reasons,
                 )
             else:
-                _write_alignment_mode_kit(f_out, outdir=outdir, out_vcf=out_vcf)
+                _write_alignment_mode_kit(
+                    f_out,
+                    outdir=outdir,
+                    out_vcf=out_vcf,
+                    policy=policy,
+                    reasons=reasons,
+                )
         Path(tmp_txt).replace(combined_kit_txt)
+        if reasons is not None:
+            _write_reason_report(
+                combined_kit_txt, args, ref_vcf_tab, outdir, is_vcf, reasons, ref_fasta
+            )
     except (OSError, gzip.BadGzipFile, subprocess.SubprocessError, ValueError) as e:
         raise WGSExtractError(f"Failed to generate CombinedKit.txt: {e}") from e
     finally:

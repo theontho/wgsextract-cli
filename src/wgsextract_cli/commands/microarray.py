@@ -16,6 +16,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
+from wgsextract_cli.core.microarray_quality import quality_policy
 from wgsextract_cli.core.microarray_targets import (
     build_genome_wide_target,
     is_genome_wide_target,
@@ -199,6 +200,7 @@ def _convert_microarray_outputs(
 
 
 def run(args: argparse.Namespace) -> None:
+    quality_policy(args)
     if not args.input:
         raise WGSExtractError(LOG_MESSAGES["input_required"])
     verify_paths_exist({"--input": args.input})
@@ -339,6 +341,36 @@ def register(
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument("--formats", default="all", help=CLI_HELP["micro_formats_help"])
+    parser.add_argument(
+        "--min-gq",
+        type=int,
+        default=None,
+        help="Minimum sample GQ; missing GQ becomes a no-call (default: config or 0, disabled)",
+    )
+    parser.add_argument(
+        "--min-dp",
+        type=int,
+        default=None,
+        help="Minimum sample DP; missing DP becomes a no-call (default: config or 0, disabled)",
+    )
+    parser.add_argument(
+        "--assume-hom-ref",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Assume absent VCF markers are reference on represented contigs (default: config or true)",
+    )
+    parser.add_argument(
+        "--exclude-filtered",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="No-call VCF records failing FILTER (default: config or false)",
+    )
+    parser.add_argument(
+        "--call-reasons",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Also write CombinedKit_reasons.tsv with explicit reasons (default: config or false)",
+    )
     parser.add_argument(
         "--parallel",
         action="store_true",

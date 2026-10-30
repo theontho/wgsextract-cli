@@ -57,6 +57,20 @@ KNOWN_SETTINGS = {
         "(default google/deepvariant:gh1100-ultima)",
     ),
     "default_input_vcf": (None, "Default input VCF file"),
+    "microarray_min_gq": (0, "Microarray minimum sample GQ (0 disables filtering)"),
+    "microarray_min_dp": (0, "Microarray minimum sample DP (0 disables filtering)"),
+    "microarray_assume_hom_ref": (
+        True,
+        "Treat absent VCF markers on represented contigs as homozygous reference",
+    ),
+    "microarray_exclude_filtered": (
+        False,
+        "Write microarray no-calls for VCF FILTER values other than PASS or .",
+    ),
+    "microarray_call_reasons": (
+        False,
+        "Write a companion CombinedKit_reasons.tsv with explicit call/no-call reasons",
+    ),
     "mother_vcf_path": (None, "Default Mother VCF for trios"),
     "father_vcf_path": (None, "Default Father VCF for trios"),
     "batch_file_path": (None, "Path to batch processing CSV/TSV"),

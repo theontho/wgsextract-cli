@@ -3,6 +3,7 @@ import gzip
 import logging
 import os
 from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO, TypedDict
 
@@ -347,6 +348,43 @@ def get_template_format(format_name: str) -> TemplateFormat | None:
     return formats.get(format_name)
 
 
+@dataclass(frozen=True)
+class VendorOutputProfile:
+    layout: str = "tsv"
+    haploid_style: str = "doubled"
+    allele_order: str = "sorted"
+    no_call: str = "--"
+    indel_encoding: str = "unknown"
+    normalize_mt: bool = False
+
+
+@functools.cache
+def vendor_output_profile(format_name: str) -> VendorOutputProfile:
+    if "Ancestry" in format_name:
+        return VendorOutputProfile(
+            layout="split_alleles", no_call="00", indel_encoding="ID"
+        )
+    if "23andMe" in format_name:
+        return VendorOutputProfile(
+            haploid_style="single" if format_name.startswith("23andMe") else "doubled",
+            indel_encoding="ID",
+            normalize_mt=True,
+        )
+    if format_name.startswith("MyHeritage_"):
+        return VendorOutputProfile(
+            layout="quoted_csv",
+            allele_order="legacy_myheritage_v1"
+            if format_name == "MyHeritage_V1"
+            else "sorted",
+            indel_encoding="ID",
+        )
+    if format_name == "FTDNA_V2":
+        return VendorOutputProfile(layout="quoted_csv")
+    if format_name in {"FTDNA_V1_Affy", "FTDNA_V3"}:
+        return VendorOutputProfile(layout="csv")
+    return VendorOutputProfile()
+
+
 def write_formatted_line(
     f: TextIO,
     format_name: str,
@@ -358,9 +396,10 @@ def write_formatted_line(
 ) -> None:
     """Writes a line in the specific vendor format. Ported from aconv.py."""
 
-    if "Ancestry" in format_name:
+    profile = vendor_output_profile(format_name)
+    if profile.layout == "split_alleles":
         if result == "--":
-            result = "00"
+            result = profile.no_call
         # Ancestry expects tab separated alleles
         if len(result) == 2:
             val = f"{result[0]}\t{result[1]}"
@@ -368,24 +407,20 @@ def write_formatted_line(
             val = "0\t0"  # Fallback
         f.write(f"{snp_id}\t{chrom}\t{pos}\t{val}{eol}")
 
-    elif "23andMe" in format_name:
+    elif profile.normalize_mt:
         if chrom == "M":
             chrom = "MT"
         f.write(f"{snp_id}\t{chrom}\t{pos}\t{result}{eol}")
 
-    elif format_name.startswith("MyHeritage_"):
-        # MyHeritage V1 specific genotype swap
-        if format_name == "MyHeritage_V1":
+    elif profile.layout == "quoted_csv":
+        if profile.allele_order == "legacy_myheritage_v1":
             if result == "CT":
                 result = "TC"
             elif result == "GT":
                 result = "TG"
         f.write(f'"{snp_id}","{chrom}","{pos}","{result}"{eol}')
 
-    elif format_name == "FTDNA_V2":
-        f.write(f'"{snp_id}","{chrom}","{pos}","{result}"{eol}')
-
-    elif format_name in ("FTDNA_V1_Affy", "FTDNA_V3"):
+    elif profile.layout == "csv":
         f.write(f"{snp_id},{chrom},{pos},{result}{eol}")
 
     else:
@@ -458,7 +493,7 @@ def convert_to_vendor_format(
                     called_by_rsid[parts[0]] = parts[3]
                 else:
                     called_variants[(str(parts[1]), str(parts[2]))] = parts[3]
-    single_letter_haploid = format_name.startswith("23andMe")
+    single_letter_haploid = vendor_output_profile(format_name).haploid_style == "single"
     male = single_letter_haploid and _kit_is_male(called_variants)
 
     templates_root, body_templates = _resolve_templates_for_format(

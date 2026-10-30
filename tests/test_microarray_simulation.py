@@ -122,6 +122,14 @@ def library(tmp_path):
     return _library(tmp_path / "reference")
 
 
+@pytest.fixture
+def quality_library(tmp_path, monkeypatch):
+    from wgsextract_cli.core import microarray_targets
+
+    monkeypatch.setattr(microarray_targets, "_FORMATS", ["23andMe_V3", "FTDNA_V2"])
+    return _library(tmp_path / "reference")
+
+
 def _microarray(bam: str, fasta: str, outdir: Path, *extra: str) -> None:
     run_wgsextract(
         "microarray",
@@ -232,6 +240,123 @@ def test_no_reads_at_any_marker_warns_and_writes_no_calls(tmp_path, library, cap
     assert set(kit.values()) == {"--"}
 
 
+def test_reason_report_distinguishes_low_mapq_and_no_reads_without_changing_kits(
+    tmp_path, quality_library
+):
+    fasta, seqs = quality_library
+    bam = _bam(tmp_path / "male.bam", seqs, MALE)
+    _microarray(bam, fasta, tmp_path / "legacy")
+    _microarray(bam, fasta, tmp_path / "reasons", "--call-reasons")
+    for suffix in ("23andMe_V3.txt", "FTDNA_V2.csv", "CombinedKit.txt"):
+        assert (tmp_path / "legacy" / f"male_{suffix}").read_bytes() == (
+            tmp_path / "reasons" / f"male_{suffix}"
+        ).read_bytes()
+    report = _rows(tmp_path / "reasons/male_CombinedKit_reasons.tsv")
+    assert report["rsLowMapq"][-2:] == ["--", "low_mapq"]
+    assert report["rsNoReads"][-2:] == ["--", "no_reads"]
+    assert report["rsHet"][-2:] == ["AC", "called"]
+
+
+def test_vcf_reason_only_preserves_unsupported_records_and_existing_calls(
+    tmp_path, quality_library
+):
+    fasta, _ = quality_library
+    records = [
+        "1 1000 . A C 50 PASS . GT 0/1",
+        "1 1000 . A AT 50 PASS . GT 1/1",
+        "1 2000 . A AC 50 PASS . GT 1/1",
+    ]
+    vcf = _vcf(tmp_path / "unsupported.vcf", ("1",), records)
+    _microarray(vcf, fasta, tmp_path / "legacy")
+    _microarray(vcf, fasta, tmp_path / "reasons", "--call-reasons")
+    for suffix in ("23andMe_V3.txt", "FTDNA_V2.csv", "CombinedKit.txt"):
+        assert (tmp_path / "legacy" / f"unsupported_{suffix}").read_bytes() == (
+            tmp_path / "reasons" / f"unsupported_{suffix}"
+        ).read_bytes()
+    report = _rows(tmp_path / "reasons/unsupported_CombinedKit_reasons.tsv")
+    assert report["rsHet"][-2:] == ["AC", "called"]
+    assert report["rsAlt"][-2:] == ["AA", "assumed_hom_ref"]
+
+
+@pytest.mark.parametrize(
+    ("region", "expected"),
+    [
+        ("1:900-4600", ["chr1:900-4600"]),
+        ("chr1:900-4600,chrX:900-1100", ["chr1:900-4600", "chrX:900-1100"]),
+    ],
+)
+def test_reason_depth_uses_indexed_normalized_regions(
+    tmp_path, quality_library, monkeypatch, region, expected
+):
+    from wgsextract_cli.commands import _microarray_combined
+
+    fasta, seqs = quality_library
+    bam = _bam(tmp_path / "male.bam", seqs, MALE)
+    original = _microarray_combined.run_command
+    commands = []
+
+    def tracked(command, *args, **kwargs):
+        if command[:2] == ["samtools", "depth"]:
+            commands.append(command)
+        return original(command, *args, **kwargs)
+
+    monkeypatch.setattr(_microarray_combined, "run_command", tracked)
+    _microarray(bam, fasta, tmp_path / "out", "--region", region, "--call-reasons")
+    assert [
+        (command[command.index("-Q") + 1], command[command.index("-r") + 1])
+        for command in commands
+    ] == [(str(mapq), span) for mapq in (0, 10) for span in expected]
+    assert all("-b" in command for command in commands)
+    report = _rows(tmp_path / "out/male_CombinedKit_reasons.tsv")
+    assert report["rsLowMapq"][-2:] == ["--", "low_mapq"]
+    assert report["rsNoReads"][-2:] == ["--", "no_reads"]
+
+
+@pytest.mark.parametrize(
+    ("flags", "reason"),
+    [
+        (("--min-dp", "31"), "low_dp"),
+        (("--min-gq", "9999"), "low_gq"),
+    ],
+)
+def test_quality_thresholds_suppress_alignment_calls(
+    tmp_path, quality_library, flags, reason, caplog
+):
+    fasta, seqs = quality_library
+    bam = _bam(tmp_path / "male.bam", seqs, MALE)
+    _microarray(bam, fasta, tmp_path / "out", *flags, "--call-reasons")
+    report = _rows(tmp_path / "out/male_CombinedKit_reasons.tsv")
+    assert report["rsHet"][-2:] == ["--", reason]
+    assert _genotypes(tmp_path / "out/male_23andMe_V3.txt")["rsHet"] == "--"
+    assert "configured quality/FILTER gates" in caplog.text
+    assert "the input has no reads at the kit's positions" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("minimum", "genotype", "reason"), [(30, "AC", "called"), (31, "--", "low_dp")]
+)
+def test_parallel_calling_retains_quality_fields(
+    tmp_path, quality_library, minimum, genotype, reason
+):
+    fasta, seqs = quality_library
+    bam = _bam(tmp_path / "male.bam", seqs, MALE)
+    _microarray(
+        bam,
+        fasta,
+        tmp_path / "out",
+        "--parallel",
+        "--threads",
+        "1",
+        "--min-dp",
+        str(minimum),
+        "--min-gq",
+        "20",
+        "--call-reasons",
+    )
+    report = _rows(tmp_path / "out/male_CombinedKit_reasons.tsv")
+    assert report["rsHet"][-2:] == [genotype, reason]
+
+
 def test_a_missing_target_file_is_reported_before_calling(tmp_path, library):
     fasta, seqs = library
     bam = _bam(tmp_path / "male.bam", seqs, MALE)
@@ -242,11 +367,14 @@ def test_a_missing_target_file_is_reported_before_calling(tmp_path, library):
     assert not (tmp_path / "out").exists()
 
 
-def _vcf(path: Path, contigs: tuple[str, ...], records: list[str]) -> str:
+def _vcf(
+    path: Path, contigs: tuple[str, ...], records: list[str], extra_headers: str = ""
+) -> str:
     path.write_text(
         "##fileformat=VCFv4.2\n"
         + "".join(f"##contig=<ID={c},length={LENGTH}>\n" for c in contigs)
         + '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        + extra_headers
         + "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n"
         + "".join(r.replace(" ", "\t") + "\n" for r in records)
     )
@@ -286,6 +414,64 @@ def test_vcf_input_without_chry_calls_writes_y_no_calls(tmp_path, library):
     _microarray(vcf, fasta, tmp_path / "out")
 
     assert _genotypes(tmp_path / "out" / "female_23andMe_V3.txt")["rsY"] == "--"
+
+
+def test_vcf_absent_reference_assumption_can_be_disabled(tmp_path, quality_library):
+    fasta, _ = quality_library
+    vcf = _vcf(tmp_path / "female.vcf", ("1", "X", "Y", "MT"), FEMALE_VCF)
+    _microarray(vcf, fasta, tmp_path / "out", "--no-assume-hom-ref", "--call-reasons")
+    report = _rows(tmp_path / "out/female_CombinedKit_reasons.tsv")
+    assert report["rsHet"][-2:] == ["AC", "called"]
+    assert report["rsRef"][-2:] == ["--", "absent_from_vcf"]
+    assert report["rsY"][-2:] == ["--", "absent_contig"]
+
+
+def test_vcf_quality_gates_use_sample_fields_and_record_filter(
+    tmp_path, quality_library
+):
+    fasta, _ = quality_library
+    headers = (
+        '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">\n'
+        '##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Quality">\n'
+        '##FILTER=<ID=q10,Description="Filtered">\n'
+    )
+    records = [
+        "1 1000 . A C 50 q10 . GT:DP:GQ 0/1:10:30",
+        "1 2000 . A C 50 PASS . GT:DP:GQ 1/1:4:30",
+        "1 3000 . A C 50 PASS . GT:DP:GQ 0/1:10:19",
+        "1 4000 . A G 50 PASS . GT:DP:GQ 1/1:5:20",
+        "1 4500 . A C 50 PASS . GT:DP:GQ 0/1/1:5:20",
+    ]
+    vcf = _vcf(tmp_path / "quality.vcf", ("1",), records, headers)
+    _microarray(
+        vcf,
+        fasta,
+        tmp_path / "out",
+        "--min-dp",
+        "5",
+        "--min-gq",
+        "20",
+        "--exclude-filtered",
+        "--call-reasons",
+        "--no-assume-hom-ref",
+    )
+    report = _rows(tmp_path / "out/quality_CombinedKit_reasons.tsv")
+    assert report["rsHet"][-2:] == ["--", "filtered"]
+    assert report["rsAlt"][-2:] == ["--", "low_dp"]
+    assert report["rsRef"][-2:] == ["--", "low_gq"]
+    assert report["rsLowMapq"][-2:] == ["GG", "called"]
+    assert report["rsNoReads"][-2:] == ["--", "unsupported_allele"]
+
+
+def test_vcf_missing_quality_cannot_pass_an_enabled_threshold(
+    tmp_path, quality_library
+):
+    fasta, _ = quality_library
+    vcf = _vcf(tmp_path / "female.vcf", ("1", "X", "Y", "MT"), FEMALE_VCF)
+    _microarray(vcf, fasta, tmp_path / "out", "--min-gq", "10", "--call-reasons")
+    report = _rows(tmp_path / "out/female_CombinedKit_reasons.tsv")
+    assert report["rsHet"][-2:] == ["--", "missing_gq"]
+    assert report["rsRef"][-2:] == ["--", "missing_gq"]
 
 
 def test_vcf_input_region_in_the_vcfs_naming_style(tmp_path, library):
