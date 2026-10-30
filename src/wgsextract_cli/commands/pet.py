@@ -33,6 +33,7 @@ from .align import (
     reads_stem,
     run_streamed_alignment,
     short_read_aligner,
+    short_read_sort_memory,
 )
 
 _SPECIES_REFERENCES = {
@@ -96,6 +97,7 @@ def run(args: argparse.Namespace) -> None:
         samblaster=samblaster,
         reads=reads,
     )
+    memory = short_read_sort_memory(aligner, memory)
     check_mapping_memory(
         ref_file,
         aligner,

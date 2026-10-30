@@ -365,6 +365,36 @@ def test_bwa_batch_size_does_not_depend_on_threads(
     assert command[command.index("-K") + 1] == "100000000"
 
 
+@pytest.mark.parametrize(
+    ("tool", "budget", "sort_memory"),
+    [
+        ("bwa-mem2", "2G", "256M"),
+        ("bwa-mem2", "128M", "128M"),
+        ("bwa-mem2", "0.125G", "0.125G"),
+        ("bwa", "2G", "2G"),
+    ],
+)
+def test_mem2_sort_cap_respects_smaller_explicit_budgets(
+    tmp_path, monkeypatch, tool, budget, sort_memory
+):
+    setup = align._AlignSetup("2", budget, str(tmp_path), "ref.fa", "sample")
+    monkeypatch.setattr(align, "_prepare_alignment", lambda *_: setup)
+    monkeypatch.setattr(align, "check_mapping_memory", lambda *_a, **_kw: None)
+    monkeypatch.setattr(align, "ensure_bwa_index", lambda *_: None)
+    monkeypatch.setattr(align, "ensure_bwa_alt_file", lambda *_: None)
+    monkeypatch.setattr(align.bwa_mem2, "ensure_index", lambda *_a, **_k: None)
+    monkeypatch.setattr(align.bwa_mem2, "can_map", lambda *_: True)
+    monkeypatch.setattr(align, "print_warning", lambda *_a, **_k: None)
+    monkeypatch.setattr(align, "run_command", lambda *_a, **_k: None)
+    pipelines = []
+    monkeypatch.setattr(
+        align, "run_pipeline", lambda stages, **_k: pipelines.append(stages)
+    )
+    align.align_bwa(Namespace(aligner=tool, r1="r1.fq", r2=None, format="BAM"))
+    sort = next(stage for stage in pipelines[0] if stage[:2] == ["samtools", "sort"])
+    assert sort[sort.index("-m") + 1] == sort_memory
+
+
 @needs_tools("samtools")
 def test_markdup_fallback_marks_a_duplicate_pair(tmp_path):
     """Two identical pairs from the aligner: the second is flagged a duplicate."""

@@ -25,6 +25,7 @@ from wgsextract_cli.core.resource_estimates import (
     estimate_resources,
     preflight_resources,
 )
+from wgsextract_cli.core.samtools_commands import parse_memory
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -222,6 +223,7 @@ def short_read_aligner(
         return requested
     if get_tool_path("bwa-mem2") is None:
         return "bwa"
+    memory = short_read_sort_memory("bwa-mem2", memory, log=False)
     fits = bwa_mem2.can_map(
         ref, threads=threads, memory=memory, samblaster=samblaster, reads=reads
     )
@@ -248,6 +250,20 @@ def reads_stem(path: str) -> str:
         if name.lower().endswith(suffix):
             return name[: -len(suffix)]
     return Path(name).stem
+
+
+def short_read_sort_memory(aligner: str, memory: str, *, log: bool = True) -> str:
+    """Keep more memory for MEM2's index without exceeding the user's budget."""
+    if aligner != "bwa-mem2":
+        return memory
+    amount, unit = parse_memory(memory)
+    if amount * (1024 if unit == "G" else 1) > 256:
+        if log:
+            logging.info(
+                f"Capping bwa-mem2 sort memory at 256M per thread (budget {memory})."
+            )
+        return "256M"
+    return memory
 
 
 class _AlignSetup(NamedTuple):
@@ -465,6 +481,7 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
         samblaster=samblaster,
         reads=reads,
     )
+    setup = setup._replace(memory=short_read_sort_memory(tool, setup.memory))
     preflight_resources(
         lambda: estimate_resources(
             "align",

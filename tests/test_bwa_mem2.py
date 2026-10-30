@@ -66,8 +66,75 @@ def test_auto_memory_budget_counts_sort_threads_and_available_not_total(
     assert (
         align.short_read_aligner("auto", ref, threads="6", memory="256M") == "bwa-mem2"
     )
-    assert align.short_read_aligner("auto", ref, threads="6", memory="2G") == "bwa"
+    assert align.short_read_aligner("auto", ref, threads="6", memory="2G") == "bwa-mem2"
     assert align.short_read_aligner("auto", ref, threads="48", memory="256M") == "bwa"
+
+
+@pytest.mark.parametrize("requested", ["auto", "bwa-mem2"])
+def test_mem2_effective_sort_budget_reaches_selection_guard_and_preflight(
+    tmp_path, monkeypatch, requested
+):
+    ref = _reference(tmp_path, index=True)
+    reads = 300
+    budget = alignment_memory.estimate_mapping_memory(
+        ref, "bwa-mem2", threads="6", memory="256M", reads=reads
+    ).total
+    monkeypatch.setattr(
+        alignment_memory.psutil,
+        "virtual_memory",
+        lambda: SimpleNamespace(total=128 * GB, available=budget),
+    )
+    monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
+    setup = align._AlignSetup("6", "512M", str(tmp_path), ref, "sample")
+    monkeypatch.setattr(align, "_prepare_alignment", lambda *_: setup)
+    monkeypatch.setattr(align, "ensure_bwa_alt_file", lambda *_: None)
+    monkeypatch.setattr(align, "print_warning", lambda *_a, **_kw: None)
+    estimates, pipelines = [], []
+    monkeypatch.setattr(
+        align, "preflight_resources", lambda build: estimates.append(build())
+    )
+    monkeypatch.setattr(
+        align,
+        "run_streamed_alignment",
+        lambda command, *_a, **kw: pipelines.append((command, kw)),
+    )
+    align.align_bwa(
+        Namespace(
+            aligner=requested,
+            r1="r1.fq",
+            r2="r2.fq",
+            format="BAM",
+            _input_read_count=reads,
+        )
+    )
+    assert pipelines[0][0][:2] == ["bwa-mem2", "mem"]
+    assert pipelines[0][1]["memory"] == "256M"
+    assert estimates[0].resources[0].estimated_bytes == budget
+
+
+def test_realign_preflight_uses_effective_mem2_budget(tmp_path, monkeypatch):
+    from wgsextract_cli.commands import realign
+
+    ref = _reference(tmp_path, index=True)
+    estimates = []
+    monkeypatch.setattr(
+        realign, "preflight_resources", lambda build: estimates.append(build())
+    )
+    realign._report_resource_estimates(
+        Namespace(aligner="bwa-mem2", platform="illumina", format="BAM"),
+        ref,
+        str(tmp_path),
+        "6",
+        "512M",
+        300,
+        input_paths=["r1.fq"],
+        need_extract=True,
+        paired=False,
+    )
+    expected = alignment_memory.estimate_mapping_memory(
+        ref, "bwa-mem2", threads="6", memory="256M", reads=300, samblaster=False
+    )
+    assert estimates[0].resources[0].estimated_bytes == expected.total
 
 
 @pytest.mark.parametrize(
@@ -225,6 +292,7 @@ def test_realign_refuses_mem2_memory_before_extracting(
 
     def check_target(target, *args, **kwargs):
         targets.append(target)
+        assert kwargs["memory"] == "256M"
         alignment_memory.check_mapping_memory(target, *args, **kwargs)
 
     monkeypatch.setattr(realign, "check_mapping_memory", check_target)
@@ -437,7 +505,8 @@ def test_prebuilt_index_downloads_and_is_checked(tmp_path, monkeypatch):
 
 
 @needs_tools("bwa", "bwa-mem2", "samtools")
-def test_bwa_mem2_aligns_like_bwa(tmp_path, monkeypatch):
+@pytest.mark.parametrize("memory", ["100M", "512M"])
+def test_bwa_mem2_aligns_like_bwa(tmp_path, monkeypatch, memory):
     rng = random.Random(7)
     genome = "".join(rng.choice("ACGT") for _ in range(20_000))
     ref = str(write_fasta(tmp_path / "ref.fa", {"chr1": genome}))
@@ -463,7 +532,7 @@ def test_bwa_mem2_aligns_like_bwa(tmp_path, monkeypatch):
                 outdir=str(outdir),
                 format="BAM",
                 threads="2",
-                memory="100M",
+                memory=memory,
                 platform="illumina",
                 long_read=False,
                 preset=None,
