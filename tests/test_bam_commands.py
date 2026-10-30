@@ -15,6 +15,7 @@ import pytest
 
 from tests.htslib_helpers import needs_htslib, run_wgsextract, sam_to_bam, write_fasta
 from wgsextract_cli.commands import bam as bam_module
+from wgsextract_cli.core import samtools_commands
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.samtools_commands import _use_sambamba
 from wgsextract_cli.core.utils import WGSExtractError, run_command
@@ -206,8 +207,13 @@ def test_sort_cram_writes_cram_against_the_reference(genome, tmp_path):
     assert _records(out, genome["ref"]) == _records(genome["bam"])
 
 
-@with_sambamba
-def test_failed_sort_leaves_no_partial_output(genome, tmp_path):
+@pytest.mark.parametrize(
+    "sambamba",
+    [False, pytest.param(True, marks=with_sambamba)],
+    ids=["samtools", "sambamba"],
+)
+def test_failed_sort_leaves_no_partial_output(genome, tmp_path, monkeypatch, sambamba):
+    monkeypatch.setattr(samtools_commands, "_use_sambamba", lambda: sambamba)
     broken = tmp_path / "broken.bam"
     shutil.copy(genome["bam"], broken)
     _truncate_alignment_block(broken)
