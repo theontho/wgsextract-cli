@@ -10,6 +10,7 @@ from typing import TextIO
 
 from wgsextract_cli.core import ultima
 from wgsextract_cli.core.alignment_metadata import get_bam_header
+from wgsextract_cli.core.microarray_quality import quality_policy
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
@@ -171,6 +172,7 @@ def process_chrom(
     ploidy_args: list[str],
     input_path: str,
     mpileup_args: list[str],
+    call_format_args: list[str] | None = None,
 ) -> str:
     """Worker function for parallel chromosome processing. Must be at module level for pickling."""
     chrom_vcf = str(Path(chrom_tmp_dir, f"{chrom}.vcf.gz"))
@@ -180,7 +182,7 @@ def process_chrom(
             ["bcftools", "mpileup", "-r", chrom, *mpileup_args]
             + ["-f", ref_fasta, "--targets-file", snp_file, input_path],
             ["bcftools", "call", *ploidy_args]
-            + ["-m", "-V", "indels", "-Oz", "-o", chrom_vcf],
+            + ["-m", "-V", "indels", *(call_format_args or []), "-Oz", "-o", chrom_vcf],
         ],
         stdout=subprocess.DEVNULL,
         description=f"Variant calling for {chrom}",
@@ -234,6 +236,11 @@ def _prepare_microarray_vcf(
     mpileup_args = (
         [] if is_vcf else [*ultima.bcftools_options(args.input)[0], *MPILEUP_ARGS]
     )
+    policy = quality_policy(args)
+    call_format_args = []
+    if not is_vcf and policy.needs_fields:
+        mpileup_args += ["-a", "FORMAT/DP"]
+        call_format_args = ["-f", "GQ"]
     if is_vcf:
         logging.info(f"VCF input detected. Extracting target SNPs from {args.input}...")
         # For VCF input, we intersect our targets with the input VCF.
@@ -291,6 +298,7 @@ def _prepare_microarray_vcf(
                         ploidy_args,
                         args.input,
                         mpileup_args,
+                        call_format_args,
                     )
                     for chrom, snp_file in chrom_snps.items()
                 ]
@@ -329,7 +337,7 @@ def _prepare_microarray_vcf(
                     + [*mpileup_args, "-f", ref_fasta]
                     + ["--targets-file", ref_vcf_tab, args.input],
                     ["bcftools", "call", *ploidy_args]
-                    + ["-m", "-V", "indels", "-Oz", "-o", out_vcf],
+                    + ["-m", "-V", "indels", *call_format_args, "-Oz", "-o", out_vcf],
                 ],
                 stdout=subprocess.DEVNULL,
                 description="Microarray variant calling",
