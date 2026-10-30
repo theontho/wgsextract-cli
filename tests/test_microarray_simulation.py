@@ -277,7 +277,12 @@ def test_quality_thresholds_suppress_alignment_calls(
     assert "the input has no reads at the kit's positions" not in caplog.text
 
 
-def test_parallel_calling_retains_quality_fields(tmp_path, quality_library):
+@pytest.mark.parametrize(
+    ("minimum", "genotype", "reason"), [(30, "AC", "called"), (31, "--", "low_dp")]
+)
+def test_parallel_calling_retains_quality_fields(
+    tmp_path, quality_library, minimum, genotype, reason
+):
     fasta, seqs = quality_library
     bam = _bam(tmp_path / "male.bam", seqs, MALE)
     _microarray(
@@ -288,11 +293,13 @@ def test_parallel_calling_retains_quality_fields(tmp_path, quality_library):
         "--threads",
         "1",
         "--min-dp",
-        "31",
+        str(minimum),
+        "--min-gq",
+        "20",
         "--call-reasons",
     )
     report = _rows(tmp_path / "out/male_CombinedKit_reasons.tsv")
-    assert report["rsHet"][-2:] == ["--", "low_dp"]
+    assert report["rsHet"][-2:] == [genotype, reason]
 
 
 def test_a_missing_target_file_is_reported_before_calling(tmp_path, library):
