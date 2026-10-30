@@ -79,7 +79,11 @@ def test_mem2_effective_sort_budget_reaches_selection_guard_and_preflight(
     budget = alignment_memory.estimate_mapping_memory(
         ref, "bwa-mem2", threads="6", memory="256M", reads=reads
     ).total
-    monkeypatch.setattr(alignment_memory, "available_memory", lambda: budget)
+    monkeypatch.setattr(
+        alignment_memory.psutil,
+        "virtual_memory",
+        lambda: SimpleNamespace(total=128 * GB, available=budget),
+    )
     monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
     setup = align._AlignSetup("6", "512M", str(tmp_path), ref, "sample")
     monkeypatch.setattr(align, "_prepare_alignment", lambda *_: setup)
