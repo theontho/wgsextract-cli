@@ -19,7 +19,11 @@ MIN_VARIANTS_TO_EXPECT_ANNOTATION = 1000
 
 
 def vcf_record_count(vcf: PathInput) -> int | None:
-    """Records in an indexed VCF (from its index), or None if it can't be read."""
+    """Known indexed record count, or None when unknown/unreadable.
+
+    htsjdk indexes omit counts. Confirm a reported zero with one record,
+    retaining None rather than inventing a count for a nonempty VCF.
+    """
     try:
         res = run_command(
             ["bcftools", "index", "--nrecords", str(vcf)],
@@ -29,9 +33,21 @@ def vcf_record_count(vcf: PathInput) -> int | None:
     except OSError:
         return None
     try:
-        return int(res.stdout.strip()) if res.returncode == 0 else None
+        count = int(res.stdout.strip()) if res.returncode == 0 else None
     except ValueError:
         return None
+    if count != 0:
+        return count
+    try:
+        proc = popen(
+            ["bcftools", "view", "-H", str(vcf)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except OSError:
+        return None
+    return 0 if _first_line_or_none(proc) is False else None
 
 
 def bam_has_reads(bam: PathInput) -> bool | None:
