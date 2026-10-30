@@ -79,6 +79,60 @@ The extractor validates the source schema and declared reference build, rejects
 existing templates by default, and writes only generic headers and marker lists.
 Raw exports and identifying provenance must stay outside version control.
 
+## AADR v66.p1 (`aadr_1240k`, `aadr_ho`, `aadr_1240k+ho`)
+
+These are research panels, not consumer-vendor templates. Their shared,
+marker-only table is `../aadr/v66.p1.tsv.gz`. It retains AADR's SNP ID
+(including non-rs IDs), chromosome, genetic position in Morgans, one-based
+GRCh37 physical position, reference allele and variant allele, plus an HO
+membership flag. The last two allele columns are **AADR's** reference/variant
+coding, not an inferred ancestral allele or a call from an individual.
+
+- Source: Mallick et al., *The Allen Ancient DNA Resource (AADR): A curated
+  compendium of ancient human genomes*, DOI
+  [10.7910/DVN/FFIDCW](https://doi.org/10.7910/DVN/FFIDCW),
+  Harvard Dataverse dataset version **14.0**, released **2026-06-08**,
+  panel release **v66.p1**; retrieved **2026-10-30**.
+- Terms: the pinned Dataverse version declares **CC0 1.0**
+  (<https://creativecommons.org/publicdomain/zero/1.0/>). See also the release
+  README, <https://dataverse.harvard.edu/api/access/datafile/13994530>.
+  Cite the AADR release and Mallick et al. (2024), *Scientific Data* 11, 182,
+  DOI [10.1038/s41597-024-03031-7](https://doi.org/10.1038/s41597-024-03031-7),
+  when using the resource. No `.geno`, `.ind` or individual annotations were
+  downloaded or packaged.
+- 1240K: **1,233,013** markers, including X and Y;
+  <https://dataverse.harvard.edu/api/access/datafile/13994514>
+  (`v66.p1_1240K.aadr.patch.PUB.snp`), SHA256
+  `1189e253b82058822fddabc4966c1448dea70373a96c40106e720bedd93b55bf`.
+- Human Origins (HO): **584,131** markers, including X and Y;
+  <https://dataverse.harvard.edu/api/access/datafile/13994527>
+  (`v66.p1_HO.aadr.patch.PUB.snp`), SHA256
+  `c0d565ee9e6a6edf30c2063430ee4f828e5db45f26d4747fd76f19eee650a5de`.
+- Every HO marker is in this release's 1240K panel, with identical ID,
+  coordinates, genetic position and alleles. Consequently **1240K+HO has
+  1,233,013 markers**, not the sum of the panel sizes. It is an explicit
+  union target, not a third invented panel.
+- The deterministic gzip asset is **14,149,959 bytes**, SHA256
+  `7ecbbc06a876c57236c36b4779f881648dbe7754851c42fd12d625ada8269b05`.
+  Sharing one table avoids shipping HO twice. The incremental compressed size
+  is about 13.5 MiB, comparable to the existing packaged chip lists; the wheel
+  remains below PyPI's standard 100 MB limit. No runtime panel download is
+  needed. The UCSC GRCh37-to-GRCh38 chain, when needed, is obtained through the
+  existing reference-download helper into the run's output directory.
+
+Rebuild from the **two SNP metadata files only**:
+
+```sh
+python scripts/microarray_aadr_markers.py 1240K.snp HO.snp \
+  src/wgsextract_cli/assets/microarray/aadr/v66.p1.tsv.gz
+```
+
+The builder rejects duplicate/out-of-order positions, invalid alleles and panel
+disagreements, and validates HO subset membership before writing anything.
+It preserves SNP IDs and allele order and adds no source filenames or timestamps
+to gzip metadata. See [AADR export and validation](../../../../../docs/aadr.md)
+for file conventions, allele checks, and compatibility limitations.
+
 ## corrections.tsv
 
 Position fixes applied when reading the reference library's templates. 102 MT

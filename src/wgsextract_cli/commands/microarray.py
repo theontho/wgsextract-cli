@@ -16,6 +16,13 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
+from wgsextract_cli.core.microarray_aadr import (
+    aadr_lifter,
+    aadr_panel,
+    build_aadr_target,
+    validate_aadr_sample_id,
+    write_aadr_outputs,
+)
 from wgsextract_cli.core.microarray_quality import quality_policy
 from wgsextract_cli.core.microarray_targets import (
     build_genome_wide_target,
@@ -146,10 +153,15 @@ def _convert_microarray_outputs(
     )
 
     template_search_roots = _template_search_roots(ref_fasta, lib)
+    requested_formats = args.formats.split(",")
 
     # 3. Liftover if needed (vendor templates use hg19 coordinates)
     final_txt = combined_kit_txt
-    chain = _liftover_chain_for(lib)
+    chain = (
+        _liftover_chain_for(lib)
+        if any(aadr_panel(key) is None for key in requested_formats)
+        else None
+    )
     if chain:
         combined_path = Path(combined_kit_txt)
         hg19_txt = str(combined_path.with_name(combined_path.stem + "_hg19.txt"))
@@ -168,9 +180,30 @@ def _convert_microarray_outputs(
         logging.info(f"Liftover took {time.time() - start_lift:.2f}s")
 
     # 4. Convert to vendor formats
-    requested_formats = args.formats.split(",")
     start_fmt = time.time()
+    aadr_liftover = None
+    written_panels: set[str] = set()
     for fmt_key in requested_formats:
+        panel = aadr_panel(fmt_key)
+        if panel:
+            if panel in written_panels:
+                continue
+            if not written_panels:
+                aadr_liftover = aadr_lifter(lib.build, outdir)
+            output_prefix = str(Path(outdir, f"{base_name}_AADR_{panel}"))
+            try:
+                write_aadr_outputs(
+                    panel,
+                    combined_kit_txt,
+                    output_prefix,
+                    sample_id=getattr(args, "aadr_sample_id", "sample"),
+                    sex=getattr(args, "aadr_sex", "U"),
+                    lifter=aadr_liftover,
+                )
+            except (OSError, ValueError, WGSExtractError) as e:
+                raise WGSExtractError(f"Failed to generate AADR {panel}: {e}") from e
+            written_panels.add(panel)
+            continue
         real_fmt = _resolve_microarray_format(fmt_key)
         if real_fmt is None:
             continue
@@ -220,6 +253,11 @@ def run(args: argparse.Namespace) -> None:
     ref_fasta = lib.fasta
     ref_vcf_tab = args.ref_vcf_tab if args.ref_vcf_tab else lib.ref_vcf_tab
     ploidy_file = args.ploidy_file if args.ploidy_file else lib.ploidy_file
+    requested = args.formats.split(",")
+    aadr_panels = [panel for key in requested if (panel := aadr_panel(key))]
+    legacy_requested = any(aadr_panel(key) is None for key in requested)
+    if aadr_panels:
+        validate_aadr_sample_id(getattr(args, "aadr_sample_id", "sample"))
 
     logging.debug(f"Resolved Reference FASTA: {ref_fasta}")
     logging.debug(f"Resolved Target SNP Tab: {ref_vcf_tab}")
@@ -233,6 +271,7 @@ def run(args: argparse.Namespace) -> None:
 
     if (
         not args.ref_vcf_tab
+        and (not aadr_panels or legacy_requested)
         and lib.root
         and lib.build
         and (not ref_vcf_tab or is_genome_wide_target(ref_vcf_tab, lib.root, lib.build))
@@ -244,6 +283,18 @@ def run(args: argparse.Namespace) -> None:
             lib.root, lib.build, _template_search_roots(ref_fasta, lib)
         )
 
+    if aadr_panels:
+        Path(outdir).mkdir(parents=True, exist_ok=True)
+        try:
+            ref_vcf_tab = build_aadr_target(
+                aadr_panels,
+                outdir,
+                aadr_lifter(lib.build, outdir),
+                ref_vcf_tab if args.ref_vcf_tab or legacy_requested else None,
+            )
+        except (OSError, ValueError) as e:
+            raise WGSExtractError(f"Could not prepare AADR targets: {e}") from e
+
     if not ref_vcf_tab:
         message = "--ref-vcf-tab is required and could not be auto-resolved."
         raise WGSExtractError(message)
@@ -252,7 +303,8 @@ def run(args: argparse.Namespace) -> None:
         message = f"--ref-vcf-tab not found: {ref_vcf_tab}"
         raise WGSExtractError(message)
 
-    _liftover_chain_for(lib)  # fail before variant calling, not after
+    if not aadr_panels or legacy_requested:
+        _liftover_chain_for(lib)  # fail before variant calling, not after
     Path(outdir).mkdir(parents=True, exist_ok=True)
 
     start_total = time.time()
@@ -370,6 +422,17 @@ def register(
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Also write CombinedKit_reasons.tsv with explicit reasons (default: config or false)",
+    )
+    parser.add_argument(
+        "--aadr-sample-id",
+        default="sample",
+        help="Non-identifying sample label for AADR .fam/.ind (default: sample)",
+    )
+    parser.add_argument(
+        "--aadr-sex",
+        choices=("U", "M", "F"),
+        default="U",
+        help="AADR metadata sex only; does not change genotype calling (default: U)",
     )
     parser.add_argument(
         "--parallel",
