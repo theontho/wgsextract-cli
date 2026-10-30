@@ -71,6 +71,14 @@ KNOWN_SETTINGS = {
         False,
         "Write a companion CombinedKit_reasons.tsv with explicit call/no-call reasons",
     ),
+    "microarray_strand_ambiguous": (
+        "keep",
+        "Keep or no-call known biallelic A/T and C/G input SNP sites",
+    ),
+    "microarray_resolve_rsids": (
+        False,
+        "Resolve packaged dbSNP rsID aliases and no-call retired/ambiguous IDs",
+    ),
     "mother_vcf_path": (None, "Default Mother VCF for trios"),
     "father_vcf_path": (None, "Default Father VCF for trios"),
     "batch_file_path": (None, "Path to batch processing CSV/TSV"),

@@ -1,4 +1,5 @@
 import argparse
+import functools
 import logging
 import subprocess
 import tempfile
@@ -25,6 +26,7 @@ from wgsextract_cli.core.microarray_aadr import (
     validate_aadr_sample_id,
     write_aadr_outputs,
 )
+from wgsextract_cli.core.microarray_identity import identity_policy, load_rsid_map
 from wgsextract_cli.core.microarray_quality import quality_policy
 from wgsextract_cli.core.microarray_targets import (
     build_genome_wide_target,
@@ -156,6 +158,13 @@ def _convert_microarray_outputs(
         liftover_hg38_to_hg19,
     )
 
+    identity = identity_policy(args)
+    converter = (
+        functools.partial(convert_to_vendor_format, identity=identity)
+        if identity.resolve_rsids
+        else convert_to_vendor_format
+    )
+
     template_search_roots = _template_search_roots(ref_fasta, lib)
     requested_formats = args.formats.split(",")
 
@@ -234,9 +243,7 @@ def _convert_microarray_outputs(
                 if fmt_info and fmt_info.get("ncbi36") and lib.root
                 else None
             )
-            convert_to_vendor_format(
-                real_fmt, final_txt, output_file, template_search_roots, chain36
-            )
+            converter(real_fmt, final_txt, output_file, template_search_roots, chain36)
         except (OSError, ValueError, WGSExtractError) as e:
             raise WGSExtractError(f"Failed to generate {real_fmt}: {e}") from e
         logging.info(f"Generated {output_file}")
@@ -249,6 +256,15 @@ def _convert_microarray_outputs(
 
 def run(args: argparse.Namespace) -> None:
     quality_policy(args)
+    identity = identity_policy(args)
+    if identity.resolve_rsids:
+        load_rsid_map()
+    if identity.needs_alleles:
+        logging.warning(
+            "Strand masking checks only biallelic input REF/ALT sites. "
+            "Reference-only and absent sites cannot be classified without probe alleles; "
+            "no vendor or mitochondrial strand is inferred."
+        )
     if not args.input:
         raise WGSExtractError(LOG_MESSAGES["input_required"])
     verify_paths_exist({"--input": args.input})
@@ -412,6 +428,18 @@ def register(
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument("--formats", default="all", help=CLI_HELP["micro_formats_help"])
+    parser.add_argument(
+        "--strand-ambiguous",
+        choices=("keep", "no-call"),
+        default=None,
+        help="Keep/no-call biallelic A/T or C/G input SNPs; unknown probe alleles are not inferred (default: config or keep)",
+    )
+    parser.add_argument(
+        "--resolve-rsids",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Resolve packaged dbSNP aliases and no-call retired/ambiguous marker IDs (default: config or false)",
+    )
     parser.add_argument(
         "--min-gq",
         type=int,

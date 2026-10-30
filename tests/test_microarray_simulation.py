@@ -474,6 +474,115 @@ def test_vcf_missing_quality_cannot_pass_an_enabled_threshold(
     assert report["rsRef"][-2:] == ["--", "missing_gq"]
 
 
+def test_strand_mask_uses_site_alleles_not_just_the_called_genotype(
+    tmp_path, quality_library
+):
+    fasta, seqs = quality_library
+    seqs["chr1"] = seqs["chr1"][:2999] + "C" + seqs["chr1"][3000:]
+    write_fasta(Path(fasta), seqs)
+    records = [
+        "1 1000 . A T 50 PASS . GT 1/1",
+        "1 2000 . A C 50 PASS . GT 1/1",
+        "1 3000 . C G 50 PASS . GT 0/1",
+        "1 4000 . A T,G 50 PASS . GT 1/1",
+    ]
+    vcf = _vcf(tmp_path / "strand.vcf", ("1",), records)
+    _microarray(vcf, fasta, tmp_path / "legacy")
+    _microarray(
+        vcf,
+        fasta,
+        tmp_path / "masked",
+        "--strand-ambiguous",
+        "no-call",
+        "--call-reasons",
+    )
+    before = _genotypes(tmp_path / "legacy/strand_CombinedKit.txt")
+    assert before["rsHet"] == "TT"
+    report = _rows(tmp_path / "masked/strand_CombinedKit_reasons.tsv")
+    assert report["rsHet"][-2:] == ["--", "strand_ambiguous"]
+    assert report["rsRef"][-2:] == ["--", "strand_ambiguous"]
+    assert report["rsAlt"][-2:] == ["CC", "called"]
+    assert report["rsLowMapq"][-2:] == ["TT", "called"]
+    assert report["rsNoReads"][-2:] == ["AA", "assumed_hom_ref"]
+
+
+def test_alignment_strand_mask_does_not_infer_a_mitochondrial_probe_strand(
+    tmp_path, quality_library
+):
+    fasta, seqs = quality_library
+    calls = {**MALE, "rsHet": "AT", "rsX": "TT"}
+    bam = _bam(tmp_path / "male.bam", seqs, calls)
+    _microarray(
+        bam,
+        fasta,
+        tmp_path / "out",
+        "--strand-ambiguous",
+        "no-call",
+        "--call-reasons",
+    )
+    report = _rows(tmp_path / "out/male_CombinedKit_reasons.tsv")
+    assert report["rsHet"][-2:] == ["--", "strand_ambiguous"]
+    assert report["rsX"][-2:] == ["--", "strand_ambiguous"]
+    assert report["rsMT"][-2:] == ["CC", "called"]
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_duplicate_vcf_record_cannot_restore_a_strand_mask(
+    tmp_path, quality_library, reverse
+):
+    fasta, _ = quality_library
+    records = [
+        "1 1000 . A T 50 PASS . GT 1/1",
+        "1 1000 . A C 50 PASS . GT 1/1",
+    ]
+    vcf = _vcf(
+        tmp_path / "duplicate.vcf",
+        ("1",),
+        list(reversed(records)) if reverse else records,
+    )
+    _microarray(
+        vcf,
+        fasta,
+        tmp_path / "out",
+        "--strand-ambiguous",
+        "no-call",
+        "--call-reasons",
+    )
+    report = _rows(tmp_path / "out/duplicate_CombinedKit_reasons.tsv")
+    assert report["rsHet"][-2:] == ["--", "strand_ambiguous"]
+    assert _genotypes(tmp_path / "out/duplicate_FTDNA_V2.csv", ",")["rsHet"] == "--"
+
+
+@pytest.mark.parametrize("kind", ["bam", "vcf"])
+def test_retired_identity_is_reported_and_cannot_reappear_in_vendor_output(
+    tmp_path, quality_library, monkeypatch, kind
+):
+    from wgsextract_cli.commands import microarray
+    from wgsextract_cli.core import microarray_identity
+
+    fasta, seqs = quality_library
+    for template in (
+        Path(fasta).parents[1] / "microarray/raw_file_templates/body"
+    ).iterdir():
+        template.write_text(template.read_text().replace("rsHet", "rs20"))
+    monkeypatch.setattr(
+        microarray_identity,
+        "load_rsid_map",
+        lambda: {"rs20": microarray_identity.RsidIdentity(None, "withdrawn")},
+    )
+    monkeypatch.setattr(microarray, "load_rsid_map", microarray_identity.load_rsid_map)
+    source = (
+        _bam(tmp_path / "male.bam", seqs, MALE)
+        if kind == "bam"
+        else _vcf(tmp_path / "male.vcf", ("1",), ["1 1000 . A C 50 PASS . GT 0/1"])
+    )
+    _microarray(source, fasta, tmp_path / "out", "--resolve-rsids", "--call-reasons")
+    report = _rows(tmp_path / "out/male_CombinedKit_reasons.tsv")
+    assert report["rs20"][-2:] == ["--", "retired_rsid"]
+    assert _genotypes(tmp_path / "out/male_23andMe_V3.txt")["rs20"] == "--"
+    assert _genotypes(tmp_path / "out/male_FTDNA_V2.csv", ",")["rs20"] == "--"
+
+
 def test_vcf_input_region_in_the_vcfs_naming_style(tmp_path, library):
     fasta, _ = library
     vcf = _vcf(tmp_path / "female.vcf", ("1", "X", "Y", "MT"), FEMALE_VCF)
