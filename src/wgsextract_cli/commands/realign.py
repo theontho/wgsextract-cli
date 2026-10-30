@@ -297,7 +297,7 @@ def run(args: argparse.Namespace) -> None:
             target,
             "bwa-mem2",
             threads=threads,
-            memory=memory,
+            memory=align_cmd.short_read_sort_memory("bwa-mem2", memory, log=False),
             samblaster=align_cmd.duplicate_marker(paired=bool(r2_path)) == "samblaster",
             reads=reads,
         )
@@ -378,7 +378,7 @@ def _report_resource_estimates(
             output_dir=outdir,
             reference=resolved,
             threads=threads,
-            memory=memory,
+            memory=align_cmd.short_read_sort_memory(tool, memory, log=False),
             aligner=tool,
             samblaster=samblaster,
             reads=reads,

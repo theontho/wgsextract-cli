@@ -75,14 +75,26 @@ def test_pet_align_calls_a_planted_snp(tmp_path, paired, fmt):
 @pytest.fixture
 def no_tools(monkeypatch):
     """Record the alignment and calling commands instead of running them."""
-    calls = {"index": [], "align": [], "pipeline": [], "command": []}
+    calls = {
+        "index": [],
+        "align": [],
+        "align_options": [],
+        "pipeline": [],
+        "command": [],
+        "memory_checks": [],
+    }
     monkeypatch.setattr(pet, "verify_dependencies", lambda _tools: None)
     monkeypatch.setattr(pet, "log_dependency_info", lambda _tools: None)
-    monkeypatch.setattr(pet, "check_mapping_memory", lambda *_a, **_k: None)
-    monkeypatch.setattr(pet, "ensure_bwa_index", calls["index"].append)
     monkeypatch.setattr(
-        pet, "run_streamed_alignment", lambda cmd, out, **k: calls["align"].append(cmd)
+        pet, "check_mapping_memory", lambda *_a, **kw: calls["memory_checks"].append(kw)
     )
+    monkeypatch.setattr(pet, "ensure_bwa_index", calls["index"].append)
+
+    def record_alignment(cmd, out, **options):
+        calls["align"].append(cmd)
+        calls["align_options"].append(options)
+
+    monkeypatch.setattr(pet, "run_streamed_alignment", record_alignment)
     monkeypatch.setattr(
         pet, "run_pipeline", lambda stages, **_k: calls["pipeline"].append(stages)
     )
@@ -121,17 +133,22 @@ def test_species_reference_comes_from_the_library(
     assert call[-1] == str(tmp_path / "rex_R1_cat.vcf.gz")
 
 
+@pytest.mark.parametrize(
+    ("memory", "sort_memory"), [("512M", "256M"), ("128M", "128M")]
+)
 def test_bwa_mem2_aligns_when_the_reference_has_its_index(
-    tmp_path, monkeypatch, reads, no_tools
+    tmp_path, monkeypatch, reads, no_tools, memory, sort_memory
 ):
     ref = tmp_path / "dog.fa"
     ref.write_text(">chr1\nACGT\n")
     monkeypatch.setattr(pet, "short_read_aligner", lambda req, _ref, **_k: "bwa-mem2")
-    pet.run(_args(reads, ref))
+    pet.run(_args(reads, ref, memory=memory))
     assert no_tools["index"] == []
     assert no_tools["align"][0][:2] == ["bwa-mem2", "mem"]
     command = no_tools["align"][0]
     assert command[command.index("-K") + 1] == "100000000"
+    assert no_tools["align_options"][0]["memory"] == sort_memory
+    assert no_tools["memory_checks"][0]["memory"] == sort_memory
 
 
 def test_missing_reads_or_reference_are_reported(tmp_path, reads, no_tools):
