@@ -3,7 +3,7 @@ import gzip
 import logging
 import os
 from collections import Counter
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO, TypedDict
@@ -464,6 +464,7 @@ def convert_to_vendor_format(
     ncbi36_chain: str | None = None,
     *,
     identity: MicroarrayIdentity | None = None,
+    indel_calls: Mapping[tuple[str, str, str], str] | None = None,
 ) -> None:
     """
     Converts a CombinedKit.txt (GRCh37) to a vendor-specific format using
@@ -560,6 +561,8 @@ def convert_to_vendor_format(
                         if inverted and result != "--":
                             # GRCh37's forward strand is the NCBI36 reverse strand here.
                             result = sort_alleles(result.translate(_COMPLEMENT))
+                    if not excluded and indel_calls is not None:
+                        result = indel_calls.get((t_id, t_chrom, t_pos), result)
                     if single_letter_haploid:
                         result = _haploid_letter(
                             result, vendor_chrom(t_chrom), t_pos, male
