@@ -1,5 +1,14 @@
 # CHM13 microarray projection
 
+The Phase A alignment caller is SNP-only. Supplied `--indel-manifest` bindings
+are exclusion-only on CHM13: known I/D/non-SNV IDs remain no-calls even when
+their sequence context or coordinates cannot be verified. Valid GRCh37
+positions and known non-SNV source alleles also prevent reference filling.
+Vendor aliases are masked independently of the CombinedKit's first ID.
+The packaged source-allele summary and per-run `asset_summary` report these
+exclusions; marker-only vendor assets do not certify probe types. Alignment
+indel calling is deferred to [#220](https://github.com/theontho/wgsextract-cli/issues/220).
+
 The CHM13 path is separate from the existing GRCh37/38 implementation. It calls
 native CHM13 positions and projects nucleotide genotypes to the existing
 GRCh37/rCRS vendor templates and AADR panels. It does not infer a probe's strand

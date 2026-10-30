@@ -86,6 +86,7 @@ def test_full_union_includes_aadr_numeric_and_sex_chromosome_sites(
             [
                 AADRMarker("aadr1", "1", "0", 20, "A", "G", True),
                 AADRMarker("aadrX", "23", "0", 30, "A", "G", False),
+                AADRMarker("knownIndel", "1", "0", 40, "A", "AT", False),
             ]
         ),
     )
@@ -97,9 +98,15 @@ def test_full_union_includes_aadr_numeric_and_sex_chromosome_sites(
         ("chr1", 10): "rs1",
         ("chr1", 20): "aadr1",
         ("chrX", 30): "aadrX",
+        ("chr1", 40): "knownIndel",
     }
     assert provenance["legacy_sites"] == 1
-    assert provenance["complete_sites"] == 3
+    assert provenance["complete_sites"] == 4
+    alleles = provenance["source_alleles"]
+    assert alleles["known_marker_rows"] == 3
+    assert alleles["non_snv_marker_rows"] == 1
+    assert alleles["non_snv_sites"] == [("chr1", 40)]
+    assert alleles["non_snv_ids"] == ["knownIndel"]
 
 
 def test_mitochondrial_bridge_tracks_reference_substitution() -> None:

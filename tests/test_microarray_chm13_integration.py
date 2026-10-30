@@ -7,12 +7,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from scripts.build_microarray_chm13_map import write_site_map
-from wgsextract_cli.commands import _microarray_chm13 as command
-from wgsextract_cli.core import microarray_aadr as aadr
 from wgsextract_cli.core.microarray_chm13 import CHM13Catalogue, ReferenceContig
 from wgsextract_cli.core.microarray_site_map import SiteProjection, load_site_map
+
+from wgsextract_cli.commands import _microarray_chm13 as command
+from wgsextract_cli.core import microarray_aadr as aadr
 
 pytestmark = pytest.mark.skipif(
     not all(shutil.which(tool) for tool in ("bcftools", "samtools", "tabix", "bgzip")),
@@ -134,6 +134,26 @@ def test_native_vcf_quality_and_unsupported_masks_survive_canonical_aadr_export(
         "missing_dp": 1,
     }
     assert not Path(str(source) + ".tbi").exists()
+    manifest = tmp_path / "known-indels.csv"
+    manifest.write_text(
+        "Name,SNP,GenomeBuild,Chr,MapInfo,SourceSeq\n"
+        "rs10,[I/D],37,1,10,unverified context\n"
+        "rs14,[D/I],37,1,invalid,unverified context\n"
+    )
+    args.min_dp = 0
+    command.run_chm13(
+        args,
+        SimpleNamespace(root=str(tmp_path)),
+        str(fasta),
+        str(out),
+        "1",
+        indel_bindings={"23andMe_V5": str(manifest)},
+    )
+    assert (out / "sample_AADR_1240k.geno").read_text().splitlines() == list("91999")
+    masked_report = json.loads((out / "sample_CHM13_report.json").read_text())
+    assert masked_report["asset_summary"]["manifest_indel_ids"] == 2
+    assert masked_report["asset_summary"]["quarantined_asset_sites"] == 2
+    args.min_dp = 5
     original = combined.read_bytes()
     records = source.read_text().splitlines(keepends=True)
     insertion = next(

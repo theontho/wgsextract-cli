@@ -23,6 +23,7 @@ from wgsextract_cli.core.microarray_aadr import (
     _chrom_name,
     aadr_markers,
 )
+from wgsextract_cli.core.microarray_chm13_markers import non_snv_alleles
 from wgsextract_cli.core.microarray_site_map import (
     _CHROMS,
     _MAGIC,
@@ -102,17 +103,25 @@ def collect_markers(
         }
     legacy_sites = len(markers)
     aadr_counts: Counter[str] = Counter()
+    non_snv_sites: set[tuple[str, int]] = set()
+    non_snv_ids: set[str] = set()
     for marker in aadr_markers("1240k"):
         aadr_counts["1240k_rows"] += 1
         if marker.ho:
             aadr_counts["ho_rows"] += 1
         source_ids.add(marker.snp_id)
+        unsupported = non_snv_alleles(marker.ref, marker.alt)
+        if unsupported:
+            aadr_counts["non_snv_marker_rows"] += 1
+            non_snv_ids.add(marker.snp_id)
         chrom = _chrom_for_liftover(_chrom_name(marker.chrom))
         if chrom not in source_lengths or not (
             1 <= marker.position <= source_lengths[chrom]
         ):
             aadr_counts["unplaced"] += 1
             continue
+        if unsupported:
+            non_snv_sites.add((chrom, marker.position))
         markers.setdefault((chrom, marker.position), marker.snp_id)
     return markers, {
         "layouts": formats,
@@ -124,6 +133,17 @@ def collect_markers(
         "legacy_sites": legacy_sites,
         "complete_sites": len(markers),
         "distinct_source_ids": len(source_ids),
+        "source_alleles": {
+            "source": "AADR v66.p1; vendor source alleles are not packaged",
+            "known_marker_rows": aadr_counts["1240k_rows"],
+            "non_snv_marker_rows": aadr_counts["non_snv_marker_rows"],
+            "non_snv_site_count": len(non_snv_sites),
+            "non_snv_id_count": len(non_snv_ids),
+            "non_snv_sites": sorted(non_snv_sites),
+            "non_snv_ids": sorted(non_snv_ids),
+            "bundled_manifest_defined_indels": 0,
+            "manifest_policy": "User-provided known I/D/non-SNV markers are always no-call on CHM13",
+        },
     }
 
 

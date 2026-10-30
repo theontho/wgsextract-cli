@@ -119,19 +119,35 @@ def project_native_calls(
     is_vcf: bool,
     represented: set[str],
     native_bases: Mapping[tuple[str, int], str],
+    marker_rejections: Mapping[tuple[str, int], str] | None = None,
+    rejected_ids: set[str] | None = None,
+    read_evidence: Mapping[tuple[str, int], str] | None = None,
 ) -> Iterator[ProjectedCall]:
+    marker_rejections = marker_rejections or {}
+    rejected_ids = rejected_ids or set()
+    read_evidence = read_evidence or {}
     for site in sites:
         key = (site.source_chrom, site.source_pos)
         snp_id = marker_ids.get(key)
         if snp_id is None:
             raise WGSExtractError("CHM13 map and installed template markers disagree.")
+        rejection = marker_rejections.get(key)
+        if rejection or rejected_ids and snp_id in rejected_ids:
+            yield ProjectedCall(
+                site, snp_id, "--", rejection or "unsupported_indel_marker"
+            )
+            continue
         if site.status != "mapped":
             yield ProjectedCall(site, snp_id, "--", site.status)
             continue
+        assert site.target_chrom is not None and site.target_pos is not None
         call = calls.get(key)
         if call is None:
             if not is_vcf:
-                call = NativeCall("--", "no_reads")
+                call = NativeCall(
+                    "--",
+                    read_evidence.get((site.target_chrom, site.target_pos), "no_reads"),
+                )
             elif site.target_chrom not in represented:
                 call = NativeCall("--", "absent_contig")
             elif not quality.assume_hom_ref:

@@ -1,5 +1,9 @@
 # Sequence-defined microarray insertion/deletion probes
 
+CHM13 Phase A accepts these bindings only as known-marker exclusions: I/D
+and non-SNV markers are explicit no-calls, including unverified manifest
+contexts. It does not run the GRCh37/38 indel caller on CHM13.
+
 Indel calling is **opt-in**. Supply the actual manufacturer manifest applicable
 to each selected chip/export layout, rather than inferring DNA alleles from a
 person's `II`, `DD` or `DI` call:

@@ -14,6 +14,7 @@ from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
 
+from wgsextract_cli.commands._microarray_combined import _read_evidence
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.microarray_aadr import (
     _chrom_name,
@@ -32,6 +33,10 @@ from wgsextract_cli.core.microarray_chm13_calls import (
     canonical_chromosome,
     parse_native_calls,
     project_native_calls,
+)
+from wgsextract_cli.core.microarray_chm13_markers import (
+    manifest_exclusions,
+    vendor_no_calls,
 )
 from wgsextract_cli.core.microarray_identity import identity_policy
 from wgsextract_cli.core.microarray_quality import quality_policy
@@ -225,6 +230,8 @@ def run_chm13(
     ref_fasta: str,
     outdir: str,
     threads: str,
+    *,
+    indel_bindings: dict[str, str] | None = None,
 ) -> None:
     from .microarray import _resolve_microarray_format, _template_search_roots
 
@@ -246,6 +253,34 @@ def run_chm13(
         )
     roots = _template_search_roots(ref_fasta, lib)
     markers = _marker_ids(catalogue, roots)
+    manifest_ids, marker_rejections = manifest_exclusions(indel_bindings or {})
+    rejected_ids = manifest_ids | set(catalogue.non_snv_ids)
+    marker_rejections.update(
+        (site, "unsupported_source_alleles") for site in catalogue.non_snv_sites
+    )
+    if rejected_ids:
+        for key, marker in markers.items():
+            if marker in rejected_ids:
+                marker_rejections.setdefault(key, "unsupported_indel_marker")
+        for aadr_marker in aadr_markers("1240k"):
+            if aadr_marker.snp_id in rejected_ids:
+                marker_rejections.setdefault(
+                    (
+                        canonical_chromosome(_chrom_name(aadr_marker.chrom)),
+                        aadr_marker.position,
+                    ),
+                    "unsupported_indel_marker",
+                )
+    asset_summary = {
+        "sites": len(markers),
+        "source_non_snv_sites": len(catalogue.non_snv_sites),
+        "source_non_snv_ids": len(catalogue.non_snv_ids),
+        "manifest_indel_ids": len(manifest_ids),
+        "quarantined_asset_sites": sum(
+            catalogue.mapping.source_lookup(*key) is not None
+            for key in marker_rejections
+        ),
+    }
     quality, identity = quality_policy(args), identity_policy(args)
     Path(outdir).mkdir(parents=True, exist_ok=True)
     directory = Path(tempfile.mkdtemp(prefix="CHM13_", dir=outdir))
@@ -314,6 +349,16 @@ def run_chm13(
         quality,
         identity,
     )
+    evidence = (
+        {
+            (canonical_chromosome(chrom), int(position)): reason
+            for (chrom, position), reason in _read_evidence(
+                args, target, str(directory), ref_fasta
+            ).items()
+        }
+        if quality.call_reasons and not is_vcf
+        else {}
+    )
     reference = {}
     if is_vcf and quality.assume_hom_ref and not (quality.min_dp or quality.min_gq):
         reference = {
@@ -353,6 +398,9 @@ def run_chm13(
             is_vcf=is_vcf,
             represented=represented,
             native_bases=reference,
+            marker_rejections=marker_rejections,
+            rejected_ids=rejected_ids,
+            read_evidence=evidence,
         ):
             chrom = (
                 "MT" if call.site.source_chrom == "chrM" else call.site.source_chrom[3:]
@@ -363,7 +411,7 @@ def run_chm13(
                 reasons.write(f"{row}\t{call.reason}\t{call.site.ref_status}\n")
             counts[call.reason] += 1
             ref_counts[call.site.ref_status] += 1
-    del calls, markers, reference
+    del calls, markers, reference, evidence
     for key in dict.fromkeys(args.formats.split(",")):
         panel = aadr_panel(key)
         if panel:
@@ -395,6 +443,7 @@ def run_chm13(
             roots,
             chain36,
             identity=identity,
+            indel_calls=vendor_no_calls(real_format, roots, rejected_ids),
         )
     report = Path(outdir, f"{base}_CHM13_report.json")
     report.write_text(
@@ -405,6 +454,7 @@ def run_chm13(
                 "call_reasons": dict(counts),
                 "reference_diagnostics": dict(ref_counts),
                 "probe_types": "Marker-only vendor IDs are not certified SNP probe types",
+                "asset_summary": asset_summary,
                 "combined_kit": str(combined),
             },
             indent=2,

@@ -17,7 +17,7 @@ from wgsextract_cli.core.microarray_site_map import (
     SiteMap,
     load_site_map,
 )
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import WGSExtractError, popen
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,8 @@ class CHM13Catalogue:
     fasta_sha256: str
     fai_sha256: str
     gzi_sha256: str
+    non_snv_sites: frozenset[tuple[str, int]] = frozenset()
+    non_snv_ids: frozenset[str] = frozenset()
 
 
 def _digest(value: object, size: int) -> str:
@@ -145,6 +147,36 @@ def load_chm13_catalogue(manifest_path: Path | None = None) -> CHM13Catalogue:
         if targets != {name: contig.length for name, contig in contigs.items()}:
             raise ValueError("Reference profile and site-map contigs disagree")
         mapping = load_site_map(manifest_path, manifest_data=data)
+        marker_metadata = manifest["provenance"].get("markers", {})
+        if not isinstance(marker_metadata, dict):
+            raise ValueError("Invalid source marker metadata")
+        alleles = marker_metadata.get("source_alleles", {})
+        if not isinstance(alleles, dict):
+            raise ValueError("Invalid source allele metadata")
+        rows = alleles.get("non_snv_sites", [])
+        ids = alleles.get("non_snv_ids", [])
+        if (
+            not isinstance(rows, list)
+            or any(
+                not isinstance(row, list)
+                or len(row) != 2
+                or not isinstance(row[0], str)
+                for row in rows
+            )
+            or not isinstance(ids, list)
+            or any(not isinstance(marker, str) or not marker for marker in ids)
+        ):
+            raise ValueError("Invalid source non-SNV marker exclusions")
+        non_snv_sites = frozenset(
+            (row[0], _coordinate(row[1], minimum=1)) for row in rows
+        )
+        non_snv_ids = frozenset(ids)
+        if (
+            len(non_snv_sites) != alleles.get("non_snv_site_count", 0)
+            or len(non_snv_ids) != alleles.get("non_snv_id_count", 0)
+            or any(mapping.source_lookup(*site) is None for site in non_snv_sites)
+        ):
+            raise ValueError("Invalid source non-SNV marker exclusions")
         return CHM13Catalogue(
             mapping,
             MappingProxyType(contigs),
@@ -155,6 +187,8 @@ def load_chm13_catalogue(manifest_path: Path | None = None) -> CHM13Catalogue:
             _digest(profile["sha256"], 64),
             _digest(profile["fai_sha256"], 64),
             _digest(profile["gzi_sha256"], 64),
+            non_snv_sites,
+            non_snv_ids,
         )
     except (OSError, ValueError, TypeError, KeyError, zlib.error) as error:
         raise WGSExtractError(f"Invalid CHM13 reference profile: {error}") from error
@@ -197,7 +231,7 @@ def validate_chm13_reference(fasta: Path, catalogue: CHM13Catalogue) -> dict[str
             command = ["samtools", "faidx", str(fasta), names[chrom]]
             digest = hashlib.md5()
             length = 0
-            with subprocess.Popen(command, stdout=subprocess.PIPE) as process:
+            with popen(command, stdout=subprocess.PIPE) as process:
                 assert process.stdout is not None
                 header = process.stdout.readline().strip()
                 for sequence_line in process.stdout:

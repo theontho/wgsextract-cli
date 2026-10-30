@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from scripts.build_microarray_chm13_map import write_site_map
 from wgsextract_cli.commands._microarray_chm13 import _regions, _selected
 from wgsextract_cli.core.microarray_chm13_calls import (
@@ -100,6 +99,57 @@ def test_duplicate_rejection_is_sticky(
         MicroarrayIdentity(),
     )
     assert calls[("chr1", 10)] == ("--", reason)
+
+
+@pytest.mark.parametrize("observed", [False, True])
+@pytest.mark.parametrize("by_id", [False, True])
+def test_known_non_snv_marker_never_calls_or_fills_reference(
+    mapping: SiteMap, observed: bool, by_id: bool
+) -> None:
+    ids = _ids(mapping)
+    calls = {("chr1", 10): ("AG", "called")} if observed else {}
+    projected = list(
+        project_native_calls(
+            mapping.source_sites(),
+            ids,
+            calls,
+            quality=MicroarrayQuality(assume_hom_ref=True),
+            identity=MicroarrayIdentity(),
+            is_vcf=True,
+            represented={"chr1"},
+            native_bases={("chr1", 20): "A", ("chr1", 21): "A"},
+            marker_rejections={}
+            if by_id
+            else {("chr1", 10): "unsupported_source_alleles"},
+            rejected_ids={ids[("chr1", 10)]} if by_id else set(),
+        )
+    )
+    assert projected[0].genotype == "--"
+    assert projected[0].reason == (
+        "unsupported_indel_marker" if by_id else "unsupported_source_alleles"
+    )
+    assert projected[1].genotype == "AA"
+
+
+def test_native_low_mapq_evidence_changes_reasons_not_missing_genotypes(
+    mapping: SiteMap,
+) -> None:
+    projected = list(
+        project_native_calls(
+            mapping.source_sites(),
+            _ids(mapping),
+            {},
+            quality=MicroarrayQuality(call_reasons=True),
+            identity=MicroarrayIdentity(),
+            is_vcf=False,
+            represented=set(),
+            native_bases={},
+            read_evidence={("chr1", 20): "low_mapq"},
+        )
+    )
+    assert projected[0].genotype == projected[1].genotype == "--"
+    assert projected[0].reason == "low_mapq"
+    assert projected[1].reason == "no_reads"
 
 
 def test_deletion_starting_before_a_target_quarantines_all_overlapping_sites(
