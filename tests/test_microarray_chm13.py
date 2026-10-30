@@ -1,6 +1,7 @@
 import gzip
 import hashlib
 import io
+import itertools
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -17,6 +18,20 @@ from wgsextract_cli.core.microarray_chm13 import (
 from wgsextract_cli.core.microarray_site_map import _CHROMS, SiteProjection
 from wgsextract_cli.core.sample_ploidy import _sex_aware
 from wgsextract_cli.core.utils import WGSExtractError
+
+
+def test_packaged_catalogue_loads_and_roundtrips_native_sites():
+    catalogue = load_chm13_catalogue()
+    mapping = catalogue.mapping
+    examples = [
+        *itertools.islice(mapping.native_sites(), 0, None, 100_000),
+        next(mapping.native_range("chrM", 1, catalogue.contigs["chrM"].length)),
+    ]
+
+    for site in examples:
+        assert site.target_chrom is not None and site.target_pos is not None
+        assert mapping.source_lookup(site.source_chrom, site.source_pos) == site
+        assert mapping.native_lookup(site.target_chrom, site.target_pos) == site
 
 
 def _catalogue(directory: Path, *, bad_mask: bool = False) -> Path:
