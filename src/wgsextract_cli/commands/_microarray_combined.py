@@ -10,6 +10,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import TextIO
 
+from wgsextract_cli.core.microarray_identity import identity_policy
 from wgsextract_cli.core.microarray_quality import MicroarrayQuality, quality_policy
 from wgsextract_cli.core.microarray_utils import sort_alleles
 from wgsextract_cli.core.utils import (
@@ -105,9 +106,13 @@ def _reference_alleles(
 
 
 def _validate_quality_sample(
-    policy: MicroarrayQuality, out_vcf: str, outdir: str
+    policy: MicroarrayQuality,
+    out_vcf: str,
+    outdir: str,
+    *,
+    identity_enabled: bool = False,
 ) -> None:
-    if policy.needs_fields:
+    if policy.needs_fields or identity_enabled:
         samples = [
             line
             for line in _command_lines(["bcftools", "query", "-l", out_vcf], outdir)
@@ -115,7 +120,7 @@ def _validate_quality_sample(
         ]
         if len(samples) != 1:
             raise WGSExtractError(
-                "Microarray quality options require a single-sample VCF; "
+                "Microarray call-policy options require a single-sample VCF; "
                 "select one sample with bcftools view -s first."
             )
 
@@ -131,17 +136,19 @@ def _write_vcf_mode_kit(
     reasons: dict[tuple[str, str], str] | None = None,
 ) -> None:
     policy = quality_policy(args)
-    _validate_quality_sample(policy, out_vcf, outdir)
+    identity = identity_policy(args)
+    fields = policy.needs_fields or identity.needs_alleles
+    _validate_quality_sample(policy, out_vcf, outdir, identity_enabled=identity.enabled)
     variant_calls: dict[tuple[str, str], str] = {}
     variant_reasons: dict[tuple[str, str], str] = {}
     query = "%CHROM\t%POS\t[%TGT]\n"
-    if policy.needs_fields:
-        query = "%CHROM\t%POS\t[%TGT\t%DP\t%GQ]\t%FILTER\n"
+    if fields:
+        query = "%CHROM\t%POS\t[%TGT\t%DP\t%GQ]\t%REF\t%ALT\t%FILTER\n"
     for line in _command_lines(
         [
             "bcftools",
             "query",
-            *(["-u"] if policy.needs_fields else []),
+            *(["-u"] if fields else []),
             "-f",
             query,
             out_vcf,
@@ -153,8 +160,11 @@ def _write_vcf_mode_kit(
             continue
         genotype = _normalize_microarray_genotype(parts[2])
         reason = "missing_gt" if genotype == "--" else "called"
-        if policy.needs_fields and len(parts) >= 6:
+        if fields and len(parts) >= 8:
             rejection = policy.rejection(parts[3], parts[4], parts[-1])
+            if rejection:
+                genotype, reason = "--", rejection
+            rejection = identity.rejection("", parts[5], parts[6])
             if rejection:
                 genotype, reason = "--", rejection
         if genotype is None:
@@ -225,10 +235,19 @@ def _write_vcf_mode_kit(
                 genotype = ref_base * 2
                 reason = "assumed_hom_ref"
 
+            rejection = identity.rejection(rsid)
+            if rejection:
+                genotype, reason = "--", rejection
             f_out.write(f"{rsid}\t{_combined_kit_chrom(chrom)}\t{pos}\t{genotype}\n")
             if reasons is not None:
                 reasons[(_combined_kit_chrom(chrom), pos)] = reason
     if written >= MIN_TARGETS_TO_EXPECT_A_VARIANT and not matched:
+        if identity.enabled:
+            logging.warning(
+                f"None of {out_vcf}'s variants match the kit's {written:,} targets. "
+                "Check the input build and selected marker/call policies."
+            )
+            return
         # Every target was written as homozygous reference: a plausible-looking but
         # meaningless kit.
         logging.warning(
@@ -262,19 +281,22 @@ def _write_alignment_mode_kit(
     outdir: str,
     out_vcf: str,
     policy: MicroarrayQuality | None = None,
+    args: argparse.Namespace | None = None,
     reasons: dict[tuple[str, str], str] | None = None,
 ) -> None:
     policy = policy or MicroarrayQuality()
-    _validate_quality_sample(policy, out_vcf, outdir)
+    identity = identity_policy(args or argparse.Namespace())
+    fields = policy.needs_fields or identity.needs_alleles
+    _validate_quality_sample(policy, out_vcf, outdir, identity_enabled=identity.enabled)
     rows = called = 0
     query = "%ID\t%CHROM\t%POS\t[%TGT]\n"
-    if policy.needs_fields:
-        query = "%ID\t%CHROM\t%POS\t[%TGT\t%DP\t%GQ]\t%FILTER\n"
+    if fields:
+        query = "%ID\t%CHROM\t%POS\t[%TGT\t%DP\t%GQ]\t%REF\t%ALT\t%FILTER\n"
     for line in _command_lines(
         [
             "bcftools",
             "query",
-            *(["-u"] if policy.needs_fields else []),
+            *(["-u"] if fields else []),
             "-f",
             query,
             out_vcf,
@@ -294,10 +316,15 @@ def _write_alignment_mode_kit(
             if normalized is None
             else ("missing_gt" if genotype == "--" else "called")
         )
-        if policy.needs_fields and len(parts) >= 7:
+        if fields and len(parts) >= 9:
             rejection = policy.rejection(parts[4], parts[5], parts[-1])
             if rejection:
                 genotype, reason = "--", rejection
+            rejection = identity.rejection(snp_id, parts[6], parts[7])
+        else:
+            rejection = identity.rejection(snp_id)
+        if rejection:
+            genotype, reason = "--", rejection
         f_out.write(f"{snp_id}\t{_combined_kit_chrom(chrom)}\t{pos}\t{genotype}\n")
         if reasons is not None and reason != "called":
             reasons[(_combined_kit_chrom(chrom), pos)] = reason
@@ -310,9 +337,19 @@ def _write_alignment_mode_kit(
             if rows
             else ("No target genotypes were produced, so the kit is empty")
         )
-        if rows and (policy.min_dp or policy.min_gq or policy.exclude_filtered):
+        if rows and (
+            policy.min_dp
+            or policy.min_gq
+            or policy.exclude_filtered
+            or identity.enabled
+        ):
+            gates = (
+                "configured marker-identity/quality gates"
+                if identity.enabled
+                else "configured quality/FILTER gates"
+            )
             logging.warning(
-                f"{found}: no genotype passed the configured quality/FILTER gates. "
+                f"{found}: no genotype passed the {gates}. "
                 "Check the thresholds and input evidence."
             )
         else:
@@ -450,6 +487,7 @@ def _write_microarray_combined_kit(
                     outdir=outdir,
                     out_vcf=out_vcf,
                     policy=policy,
+                    args=args,
                     reasons=reasons,
                 )
         Path(tmp_txt).replace(combined_kit_txt)

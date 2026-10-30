@@ -2,6 +2,7 @@ import functools
 import gzip
 import logging
 import os
+from collections import Counter
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import TextIO, TypedDict
 
 from pyliftover import LiftOver
 
+from wgsextract_cli.core.microarray_identity import MicroarrayIdentity, resolve_rsid
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.utils import WGSExtractError
 
@@ -460,6 +462,8 @@ def convert_to_vendor_format(
     output_path: str,
     templates_dir: TemplateSearchInput,
     ncbi36_chain: str | None = None,
+    *,
+    identity: MicroarrayIdentity | None = None,
 ) -> None:
     """
     Converts a CombinedKit.txt (GRCh37) to a vendor-specific format using
@@ -483,16 +487,38 @@ def convert_to_vendor_format(
         )
     called_variants: dict[tuple[str, str], str] = {}
     called_by_rsid: dict[str, str] = {}
+    check_rsids = bool(identity and identity.resolve_rsids)
+    identity_counts: Counter[str] = Counter()
     with open(combined_kit_txt) as f:
         for line in f:
             if line.startswith("#"):
                 continue
             parts = line.strip().split("\t")
             if len(parts) >= 4:
+                canonical_id = parts[0]
+                if check_rsids:
+                    source_identity = resolve_rsid(canonical_id)
+                    if source_identity.current is None:
+                        identity_counts[
+                            "excluded_source_" + source_identity.status
+                        ] += 1
+                        continue
+                    canonical_id = source_identity.current
                 if match_rsid:
-                    called_by_rsid[parts[0]] = parts[3]
+                    previous = called_by_rsid.get(canonical_id)
+                    if check_rsids and previous is not None and previous != parts[3]:
+                        called_by_rsid[canonical_id] = "--"
+                        identity_counts["conflicting_source_rows"] += 1
+                    else:
+                        called_by_rsid[canonical_id] = parts[3]
                 else:
-                    called_variants[(str(parts[1]), str(parts[2]))] = parts[3]
+                    source_key = (str(parts[1]), str(parts[2]))
+                    previous = called_variants.get(source_key)
+                    if check_rsids and previous is not None and previous != parts[3]:
+                        called_variants[source_key] = "--"
+                        identity_counts["conflicting_source_rows"] += 1
+                    else:
+                        called_variants[source_key] = parts[3]
     single_letter_haploid = vendor_output_profile(format_name).haploid_style == "single"
     male = single_letter_haploid and _kit_is_male(called_variants)
 
@@ -511,8 +537,18 @@ def convert_to_vendor_format(
             f_out.write(head)
             for body_template in body_templates:
                 for t_id, t_chrom, t_pos in template_rows(format_name, body_template):
-                    if match_rsid:
-                        result = called_by_rsid.get(t_id, "--")
+                    target_id = t_id
+                    excluded = False
+                    if check_rsids:
+                        target_identity = resolve_rsid(t_id)
+                        excluded = target_identity.current is None
+                        target_id = target_identity.current or t_id
+                        if target_identity.status != "unlisted":
+                            identity_counts["template_" + target_identity.status] += 1
+                    if excluded:
+                        result = "--"
+                    elif match_rsid:
+                        result = called_by_rsid.get(target_id, "--")
                     else:
                         key: tuple[str, str] | None = (vendor_chrom(t_chrom), t_pos)
                         inverted = False
@@ -532,6 +568,12 @@ def convert_to_vendor_format(
                         f_out, format_name, t_id, t_chrom, t_pos, result, eol
                     )
         Path(tmp_path).replace(output_path)
+        if check_rsids:
+            logging.warning(
+                f"{format_name}: rsID identity checks {dict(identity_counts)}. "
+                "Retired, ambiguous, unresolved and conflicting records remain no-calls; "
+                "rsID resolution does not infer a probe strand."
+            )
     finally:
         if Path(tmp_path).exists():
             Path(tmp_path).unlink()
