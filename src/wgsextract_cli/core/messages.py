@@ -98,13 +98,15 @@ Available formats:
     23andme_v2 (also v1: same markers), 23andme_v3, 23andme_v4, 23andme_v5,
     23andme_v5_2025 (v5 chip as exported in 2025), 23andme_v3+v5, 23andme_api
   AncestryDNA:
-    ancestry_v1, ancestry_v2, ancestry_v2_2024 (V2.0 chip as exported in 2024-25)
+    ancestry_v1, ancestry_v2, ancestry_v2_2021 (2021 V2.0 layout),
+    ancestry_v2_2024 (V2.0 chip as exported in 2024-25)
   Family Tree DNA:
     ftdna_v1 (Affymetrix, NCBI36 positions), ftdna_v2, ftdna_v3
   Living DNA:
     ldna_v1, ldna_v2
   MyHeritage:
-    myheritage_v1, myheritage_v2
+    myheritage_v1, myheritage_v2,
+    myheritage_gsa_2025 (609,346 markers), myheritage_gsa_2025_609424
   Nucleus:
     nucleus (array export, 2025)
 """,

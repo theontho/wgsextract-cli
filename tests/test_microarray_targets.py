@@ -30,7 +30,7 @@ def _templates(root: Path) -> Path:
 # NCBI36 chr3:999000-1000000 sits 1000 bp later on GRCh37.
 _HG18_CHAIN_NAME = "hg18ToHg19.over.chain.gz"
 _HG18_CHAIN = "chain 1000 chr3 2000000 + 999000 1000000 chr3 2000000 + 1000000 1001000 1\n1000\n\n"
-_VERSION = "##wgsextract_microarray_target_version=2"
+_VERSION = "##wgsextract_microarray_target_version=3"
 
 
 def test_markers_are_the_union_of_the_grch37_templates(tmp_path):
@@ -42,6 +42,16 @@ def test_markers_are_the_union_of_the_grch37_templates(tmp_path):
         ("chrM", 73): "rs4",
         ("chr7", 5000): "rs5",
     }
+
+
+def test_unplaced_export_markers_are_not_genotyping_targets(tmp_path):
+    templates = _templates(tmp_path)
+    (templates / "raw_file_templates/body/Ancestry_V2_2021.txt").write_text(
+        "rs77\t20\t0\nrs78\t20\t12345\n"
+    )
+    markers = mt.collect_template_markers([str(templates)])
+    assert ("chr20", 0) not in markers
+    assert markers[("chr20", 12345)] == "rs78"
 
 
 def test_ncbi36_markers_are_lifted_to_grch37(tmp_path):
@@ -76,6 +86,31 @@ def test_hg19_target_is_written_sorted_and_indexed(tmp_path):
         [get_tool_path("tabix"), out, "chr2"], capture_output=True, text=True
     )
     assert region.stdout == "chr2\t2000\trs2\n"
+
+
+@needs_tools("bgzip", "tabix")
+def test_version2_target_adds_new_layouts_without_changing_existing_ids(
+    tmp_path, monkeypatch
+):
+    templates = _templates(tmp_path)
+    with monkeypatch.context() as previous:
+        previous.setattr(mt, "TARGET_VERSION", 2)
+        previous.setattr(
+            mt, "_VERSION_LINE", "##wgsextract_microarray_target_version=2\n"
+        )
+        target = mt.build_genome_wide_target(str(tmp_path), "hg19", [str(templates)])
+    (templates / "raw_file_templates/body/MyHeritage_GSA_2025.csv").write_text(
+        "rs77\t4\t12345\n"
+    )
+    (templates / "raw_file_templates/body/Ancestry_V2_2021.txt").write_text(
+        "rs78\t26\t73\n"
+    )
+    mt.build_genome_wide_target(str(tmp_path), "hg19", [str(templates)])
+    with gzip.open(target, "rt") as stream:
+        text = stream.read()
+    assert "chr4\t12345\trs77\n" in text
+    assert "chrM\t73\trs4\n" in text
+    assert "chrM\t73\trs78\n" not in text
 
 
 def test_no_templates_says_to_bootstrap(tmp_path):

@@ -8,14 +8,13 @@ is written as-is at the top of the output.
 ## 23andMe_V2 (`--formats 23andme_v2`, also `23andme_v1`)
 
 - Source: openSNP data dump 2017-12-08, CC0 1.0
-  (https://archive.org/details/opensnp_data_dumps), member
-  `user6045_file4542_yearofbirth_unknown_sex_unknown.23andme.txt`, a 23andMe
-  export of 2017-05-26 on build 37 (574,518 markers). Only marker IDs and
+  (https://archive.org/details/opensnp_data_dumps), a 23andMe
+  export of 2017-05 on build 37 (574,518 markers). Only marker IDs and
   positions are kept, no genotypes.
 - Every build-37 v1/v2-era export in the dump with this marker count has the
   identical list, and the files don't name their chip; within an export period
   v1 and v2 files share one list, so `23andme_v1` is an alias.
-- Rebuild: `python scripts/microarray_template_from_raw.py <raw file> 23andMe_V2`.
+- Rebuild: `python scripts/microarray_template_from_raw.py <raw file> 23andMe_V2 --overwrite`.
 
 ## 23andMe_V5_2025, Ancestry_V2_2024, Nucleus_V1
 
@@ -23,7 +22,7 @@ is written as-is at the top of the output.
 vendors export them today, for services that check a file against current
 exports.
 
-- Source: raw data exports contributed by the project's maintainer: a 23andMe
+- Source: private donated exports: a 23andMe
   v5 export of January 2025 (643,161 markers), an AncestryDNA V2.0 export of
   November 2024 (677,436 markers), and a Nucleus array export of 2025 (665,107
   markers). Only marker IDs and positions are kept, no genotypes; each
@@ -31,7 +30,54 @@ exports.
 - 23andMe's head has the export's CRLF line endings, and its link to the
   customer's account is replaced by the generic download page. Nucleus exports
   have no header, so there is no head file.
-- Rebuild: `python scripts/microarray_template_from_raw.py <raw file> <NAME>`.
+- Rebuild: `python scripts/microarray_template_from_raw.py <raw file> <NAME> --overwrite`.
+
+## Additional MyHeritage GSA and Ancestry layouts
+
+These are GRCh37 marker lists, not inferred manufacturer chip revisions.
+MyHeritage's headers identify GSA but do not declare a GSA sub-revision;
+the count-qualified ID distinguishes two genuine export layouts. Both layouts
+occur in 2025, so the year is not a guarantee of which layout a kit uses.
+
+| Format ID (`--formats`) | Vendor | Chip revision in source | Export year-month | Markers | Provenance |
+|---|---|---|---|---:|---|
+| `myheritage_gsa_2025` | MyHeritage | GSA; sub-revision not declared | 2025-04 | 609,346 | private donated export |
+| `myheritage_gsa_2025_609424` | MyHeritage | GSA; sub-revision not declared | 2025-03 | 609,424 | private donated export |
+| `ancestry_v2_2021` | AncestryDNA | V2.0 | 2021-04 | 677,864 | private donated export |
+
+The 2021 Ancestry layout is an additional historical option, not a replacement
+for `ancestry_v2_2024`. Available 2024–2025 Ancestry exports have the same
+677,436-marker list as that already-shipped template. No verified original
+FTDNA GSA export was available: the FTDNA files found in the inventory were
+reference-template bodies, not donated vendor exports. No new FTDNA revision
+is invented. Existing format IDs and marker lists remain selectable and unchanged.
+
+Marker drift against the reference-library v9 templates is reported as Jaccard
+distance: `100 × |new markers △ baseline markers| / |new markers ∪ baseline markers|`.
+Chromosome aliases are normalized for coordinate comparisons; all rows below
+use GRCh37. "Added" and "removed" count marker IDs relative to the baseline.
+
+| Export layout | Baseline | Added | Removed | ID drift | ID/chromosome/position drift |
+|---|---|---:|---:|---:|---:|
+| MyHeritage 609,346 | `MyHeritage_V2` | 1,247 | 2,029 | 0.5358% | 0.5365% |
+| MyHeritage 609,424 | `MyHeritage_V2` | 1,301 | 2,005 | 0.5407% | 0.5417% |
+| Ancestry 677,864 (2021) | `Ancestry_V2` | 148,905 | 139,983 | 35.3230% | 35.6465% |
+| Ancestry 677,864 (2021) | bundled `Ancestry_V2_2024` | 428 | 0 | 0.0631% | 0.0631% |
+| Ancestry 677,436 (2024–2025) | bundled `Ancestry_V2_2024` | 0 | 0 | 0% | 0% |
+
+New headers use generic vendor boilerplate and the vendor's column-label format;
+no source comments, names, account links, kit/sample IDs or individual timestamps
+are copied. Bodies contain exactly three columns: marker ID, chromosome and
+position. No genotype or call-status filtering is used, including for no-call rows.
+Unplaced markers (position zero) stay in the vendor layout and produce no-calls;
+they are excluded only from the one-based genotyping target.
+Gzip bodies have neither a source filename nor a timestamp in their metadata.
+
+Rebuild with `python scripts/microarray_template_from_raw.py <private raw export>
+<template name> --overwrite`; omit `--overwrite` when adding a new format.
+The extractor validates the source schema and declared reference build, rejects
+existing templates by default, and writes only generic headers and marker lists.
+Raw exports and identifying provenance must stay outside version control.
 
 ## corrections.tsv
 

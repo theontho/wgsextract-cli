@@ -1,21 +1,16 @@
-"""Make a microarray template (head + gzipped body) from a vendor raw data file.
+"""Extract marker-only templates from vendor exports.
 
-The head is everything above the first marker: the file's comment header and,
-for AncestryDNA and MyHeritage, its column-name line, with its line endings
-kept. A link to the customer's own 23andMe account is replaced by the generic
-download page. The body keeps each marker's ID, chromosome and position
-(tab-separated) and drops the genotype; a headerless export (Nucleus) gets no
-head file.
+Source comments are never published: headers use generic vendor boilerplate.
+Bodies contain only marker ID, chromosome and position, including no-call rows.
 
-Usage: python scripts/microarray_template_from_raw.py RAW_FILE NAME
-       e.g. ... user6045_file4542_yearofbirth_unknown_sex_unknown.23andme.txt.gz 23andMe_V2
-Writes src/wgsextract_cli/assets/microarray/raw_file_templates/{head/NAME.txt,body/NAME.txt.gz}
-(.csv for CSV formats such as MyHeritage_V2).
+Usage: python scripts/microarray_template_from_raw.py RAW_FILE TEMPLATE_NAME
+Use --output-dir for an alternate template root, or --overwrite to rebuild.
 """
 
+import argparse
+import csv
 import gzip
 import re
-import sys
 from pathlib import Path
 
 from wgsextract_cli.core.microarray_utils import get_template_format
@@ -24,39 +19,128 @@ TEMPLATES = (
     Path(__file__).resolve().parents[1]
     / "src/wgsextract_cli/assets/microarray/raw_file_templates"
 )
-_ACCOUNT_URL = re.compile(r"https://you\.23andme\.com/p/[0-9a-f]+/")
+_MARKER_ID = re.compile(r"(?:rs\d+|i\d+|kgp\d+|SNP_A-\d+|VG[0-9A-Za-z]+)", re.I)
+_CHROMS = {*map(str, range(27)), "X", "Y", "XY", "M", "MT"}
 
 
-def _marker(line: str) -> tuple[str, str, str] | None:
-    fields = [f.strip().strip('"') for f in re.split(r"[\t,]", line.rstrip("\r\n"))]
-    if len(fields) < 3 or not fields[2].isdigit():
-        return None
-    return fields[0], fields[1], fields[2]
+def _header(name: str, eol: str) -> str:
+    if name.startswith("MyHeritage_"):
+        lines = [
+            "##fileformat=MyHeritage",
+            "##format=MHv1.0",
+            *(["##chip=GSA"] if "_GSA_" in name else []),
+            "##reference=build37",
+            "# MyHeritage DNA raw data.",
+            "RSID,CHROMOSOME,POSITION,RESULT",
+        ]
+    elif name.startswith("Ancestry_"):
+        lines = [
+            "#AncestryDNA raw data download",
+            "#Data was collected using AncestryDNA array version: V2.0"
+            if "_V2" in name
+            else "#AncestryDNA array data",
+            "#Human reference assembly build 37; forward (+) strand.",
+            "rsid\tchromosome\tposition\tallele1\tallele2",
+        ]
+    elif name.startswith("FTDNA_"):
+        lines = ["RSID,CHROMOSOME,POSITION,RESULT"]
+    elif name.startswith("23andMe_"):
+        lines = [
+            "# This is a generic 23andMe-format raw data export.",
+            "# Human reference assembly build 37; plus strand.",
+            "# rsid\tchromosome\tposition\tgenotype",
+        ]
+    elif name.startswith("LDNA_"):
+        lines = ["# rsid\tchromosome\tposition\tgenotype"]
+    else:
+        return ""
+    return eol.join(lines) + eol
+
+
+def build_template(
+    raw: Path, name: str, root: Path = TEMPLATES, *, overwrite: bool = False
+) -> int:
+    fmt = get_template_format(name)
+    if fmt is None or fmt["parts"] != 1:
+        raise ValueError("Register a single-part template format before extracting it")
+    head_path = root / "head" / f"{name}{fmt['suffix']}"
+    body_path = root / "body" / f"{name}{fmt['suffix']}.gz"
+    if not overwrite and any(
+        path.exists() for path in (head_path, body_path, body_path.with_suffix(""))
+    ):
+        raise FileExistsError("Template already exists; choose a new ID or --overwrite")
+
+    opener = gzip.open if raw.suffix == ".gz" else open
+    body: list[str] = []
+    eol = "\n"
+    expected_columns = 5 if name.startswith("Ancestry_") else 4
+    expected_build = "36" if fmt.get("ncbi36") else "37"
+    schema_seen = name.startswith(("23andMe_", "Nucleus_", "LDNA_"))
+    with opener(raw, "rt", encoding="utf-8-sig", newline="") as stream:
+        for number, line in enumerate(stream, 1):
+            if number == 1 and line.endswith("\r\n"):
+                eol = "\r\n"
+            if not line.strip():
+                continue
+            if line.startswith("#"):
+                builds = re.findall(r"(?:build|GRCh|NCBI)\s*(3[678])\b", line, re.I)
+                if any(build != expected_build for build in builds):
+                    raise ValueError(f"Unexpected reference build at line {number}")
+                continue
+            fields = next(
+                csv.reader([line], delimiter="\t" if "\t" in line else ",", strict=True)
+            )
+            fields = [field.strip() for field in fields]
+            if [field.lower() for field in fields[:3]] == [
+                "rsid",
+                "chromosome",
+                "position",
+            ]:
+                if body:
+                    raise ValueError(f"Unexpected column header at line {number}")
+                if len(fields) != expected_columns:
+                    raise ValueError(f"Unexpected column count at line {number}")
+                schema_seen = True
+                continue
+            if (
+                not schema_seen
+                or len(fields) != expected_columns
+                or not _MARKER_ID.fullmatch(fields[0])
+                or fields[1] not in _CHROMS
+                or not fields[2].isdigit()
+            ):
+                raise ValueError(f"Invalid marker schema at line {number}")
+            body.append("\t".join(fields[:3]) + "\n")
+    if not body:
+        raise ValueError("Export contains no markers")
+
+    head = _header(name, eol)
+    head_path.parent.mkdir(parents=True, exist_ok=True)
+    body_path.parent.mkdir(parents=True, exist_ok=True)
+    with body_path.open("wb" if overwrite else "xb") as output:
+        with gzip.GzipFile(
+            filename="", fileobj=output, mode="wb", mtime=0
+        ) as compressed:
+            compressed.write("".join(body).encode())
+    if head:
+        with head_path.open("w" if overwrite else "x", newline="") as output:
+            output.write(head)
+    elif overwrite:
+        head_path.unlink(missing_ok=True)
+    return len(body)
 
 
 def main() -> None:
-    raw, name = Path(sys.argv[1]), sys.argv[2]
-    opener = gzip.open if raw.suffix == ".gz" else open
-    head: list[str] = []
-    body: list[str] = []
-    with opener(raw, "rt", newline="") as f:
-        for line in f:
-            marker = _marker(line) if not line.startswith("#") else None
-            if marker:
-                body.append("\t".join(marker) + "\n")
-            elif not body and line.strip():
-                head.append(_ACCOUNT_URL.sub("https://you.23andme.com/", line))
-    (TEMPLATES / "head").mkdir(parents=True, exist_ok=True)
-    (TEMPLATES / "body").mkdir(parents=True, exist_ok=True)
-    fmt = get_template_format(name)
-    suffix = fmt["suffix"] if fmt else ".txt"
-    if head:
-        (TEMPLATES / "head" / f"{name}{suffix}").write_text("".join(head), newline="")
-    # mtime=0: the same input always gives the same bytes.
-    with (TEMPLATES / "body" / f"{name}{suffix}.gz").open("wb") as out:
-        with gzip.GzipFile(fileobj=out, mode="wb", mtime=0) as gz:
-            gz.write("".join(body).encode())
-    print(f"{name}: {len(head)} header lines, {len(body)} markers")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("raw", type=Path)
+    parser.add_argument("name")
+    parser.add_argument("--output-dir", type=Path, default=TEMPLATES)
+    parser.add_argument("--overwrite", action="store_true")
+    args = parser.parse_args()
+    count = build_template(
+        args.raw, args.name, args.output_dir, overwrite=args.overwrite
+    )
+    print(f"{args.name}: {count} markers; generic header, no source metadata")
 
 
 if __name__ == "__main__":

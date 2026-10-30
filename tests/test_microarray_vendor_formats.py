@@ -162,6 +162,43 @@ def test_myheritage_v1_writes_ct_and_gt_reversed_and_v2_does_not(tmp_path):
     ]
 
 
+@pytest.mark.parametrize(
+    "format_name", ["MyHeritage_GSA_2025", "MyHeritage_GSA_2025_609424"]
+)
+def test_new_gsa_layouts_keep_myheritage_quoting_and_allele_order(
+    tmp_path, format_name
+):
+    out = _convert(
+        tmp_path,
+        format_name,
+        ".csv",
+        "RSID,CHROMOSOME,POSITION,RESULT\r\n",
+        "rs2\t1\t2000\nrs3\t1\t3000\nrsGone\t1\t9999\n",
+    )
+    assert out == (
+        "RSID,CHROMOSOME,POSITION,RESULT\r\n"
+        '"rs2","1","2000","CT"\r\n'
+        '"rs3","1","3000","GT"\r\n'
+        '"rsGone","1","9999","--"\r\n'
+    )
+
+
+def test_ancestry_2021_layout_writes_its_numbered_sex_chromosomes(tmp_path):
+    out = _convert(
+        tmp_path,
+        "Ancestry_V2_2021",
+        ".txt",
+        "rsid\tchromosome\tposition\tallele1\tallele2\n",
+        "rsX\t23\t5000\nrsY\t24\t6000\nrsMT\t26\t7000\nrsGone\t1\t9999\n",
+    )
+    assert out.splitlines()[1:] == [
+        "rsX\t23\t5000\tG\tG",
+        "rsY\t24\t6000\tT\tT",
+        "rsMT\t26\t7000\tC\tC",
+        "rsGone\t1\t9999\t0\t0",
+    ]
+
+
 def test_living_dna_is_tab_separated_with_double_dash_no_calls(tmp_path):
     out = _convert(
         tmp_path,
