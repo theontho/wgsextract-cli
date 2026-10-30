@@ -75,12 +75,13 @@ def _write_summary(
             },
             indent=2,
         )
-        + "\n"
+        + "\n",
+        newline="\n",
     )
 
 
 def _query_lines(command: list[str], workdir: str) -> list[str]:
-    with tempfile.TemporaryFile("w+", dir=workdir) as stream:
+    with tempfile.TemporaryFile("w+", dir=workdir, newline="\n") as stream:
         run_command(command, stdout=stream)
         stream.seek(0)
         return stream.read().splitlines()
@@ -98,7 +99,7 @@ def _calling_regions(
             merged[-1] = chrom, start, max(previous_end, end)
         else:
             merged.append((site.chrom, start, end))
-    path.write_text("".join(f"{c}\t{s}\t{e}\n" for c, s, e in merged))
+    path.write_text("".join(f"{c}\t{s}\t{e}\n" for c, s, e in merged), newline="\n")
 
 
 def _reference_windows(
@@ -131,7 +132,9 @@ def _reference_windows(
         start, end = max(1, position - radius), min(contigs[matched], position + radius)
         regions[f"{matched}:{start}-{end}"].append(key)
     regions_path = str(Path(workdir, "probe-windows.txt"))
-    Path(regions_path).write_text("".join(region + "\n" for region in regions))
+    Path(regions_path).write_text(
+        "".join(region + "\n" for region in regions), newline="\n"
+    )
     lines = _query_lines(["samtools", "faidx", "-r", regions_path, ref_fasta], workdir)
     sequences: dict[str, str] = {}
     current = ""
@@ -340,7 +343,9 @@ def call_manifest_indels(
                 + "\n"
             )
     if not sites:
-        Path(workdir, "indel-calls.tsv").write_text("#FORMAT\tID\tCHROM\tPOS\tCALL\n")
+        Path(workdir, "indel-calls.tsv").write_text(
+            "#FORMAT\tID\tCHROM\tPOS\tCALL\n", newline="\n"
+        )
         _write_summary(workdir, counts, manifest_hashes, lib.build)
         return output
     targets = Path(workdir, "alleles.tsv")
@@ -356,7 +361,7 @@ def call_manifest_indels(
         chroms = vcf_index_chromosomes(args.input)
         if not any(match_chromosome_name(s.chrom, set(chroms)) for s in sites.values()):
             Path(workdir, "indel-calls.tsv").write_text(
-                "#FORMAT\tID\tCHROM\tPOS\tCALL\n"
+                "#FORMAT\tID\tCHROM\tPOS\tCALL\n", newline="\n"
             )
             _write_summary(workdir, counts, manifest_hashes, lib.build)
             return output
@@ -370,7 +375,8 @@ def call_manifest_indels(
                         chrom, {s.chrom for s in sites.values()}
                     )
                 )
-            )
+            ),
+            newline="\n",
         )
         regions = Path(workdir, "input-regions.tsv")
         source_sites = {
