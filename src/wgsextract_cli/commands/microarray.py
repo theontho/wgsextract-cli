@@ -322,6 +322,15 @@ def run(args: argparse.Namespace) -> None:
             "Indel manifests require a known GRCh37 or GRCh38 reference."
         )
 
+    if lib.build and is_t2t_build(lib.build):
+        from ._microarray_chm13 import run_chm13
+
+        try:
+            run_chm13(args, lib, ref_fasta, outdir, threads)
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            raise WGSExtractError(f"CHM13 microarray failed: {error}") from error
+        return
+
     if (
         not args.ref_vcf_tab
         and (not aadr_panels or legacy_requested)

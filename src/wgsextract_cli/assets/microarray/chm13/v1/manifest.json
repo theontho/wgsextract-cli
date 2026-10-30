@@ -1,0 +1,915 @@
+{
+  "compressed_bytes": 6802944,
+  "file": "chm13-sites-v1-7f6cabc29769f400.bin.gz",
+  "format": "wgsextract-chm13-map",
+  "provenance": {
+    "chains": {
+      "chm13v2-hg19.chain": {
+        "sha256": "c498d65fda77a6df62aeee9d1e99966614fa8631f06b85ce36dcb481920a25ce",
+        "url": "https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/chain/v1_nflo/chm13v2-hg19.chain"
+      },
+      "hg19-chm13v2.chain": {
+        "sha256": "63516480fe3b752c35b9e9e08df550c4e595975104a83ccae4716db4cade8b5c",
+        "url": "https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/chain/v1_nflo/hg19-chm13v2.chain"
+      }
+    },
+    "generator": "scripts/build_microarray_chm13_map.py",
+    "generator_sha256": "c0705bc5769d1e6bed642d922108e930859a0ee67b6ec1ccbef2d455bd714beb",
+    "mapping_counts": {
+      "mapped": 2856174,
+      "mt_gap": 3,
+      "ref_different": 668049,
+      "ref_equal": 2188124,
+      "ref_unknown": 1,
+      "unmapped": 6323
+    },
+    "markers": {
+      "aadr": {
+        "counts": {
+          "1240k_rows": 1233013,
+          "ho_rows": 584131
+        },
+        "release": "v66.p1",
+        "sha256": "7ecbbc06a876c57236c36b4779f881648dbe7754851c42fd12d625ada8269b05"
+      },
+      "complete_sites": 2862500,
+      "distinct_source_ids": 2932890,
+      "layouts": {
+        "23andMe_SNPs_API": {
+          "counts": {
+            "placed_rows": 1498050,
+            "rows": 1498050
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "d78b93030e7123d844f85287cd258e528146467a68ea5edba870940b79aac25c"
+            }
+          ]
+        },
+        "23andMe_V2": {
+          "counts": {
+            "placed_rows": 574518,
+            "rows": 574518
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "82a2748db20df151c02a2a9d7251a6e463f834c8799efc8497df47c86813f992"
+            }
+          ]
+        },
+        "23andMe_V3": {
+          "counts": {
+            "placed_rows": 959286,
+            "rows": 959286
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "cbc56b27dc1ba751c99ccb327b90c1507c1af523b3b51743c1d91b0610f212c8"
+            }
+          ]
+        },
+        "23andMe_V35": {
+          "counts": {
+            "placed_rows": 1413350,
+            "rows": 1413350
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "360b992eaa1841ddc0bdce150dfc01f23552b269aa647f5759264cf1e7cd8abe"
+            }
+          ]
+        },
+        "23andMe_V4": {
+          "counts": {
+            "placed_rows": 601885,
+            "rows": 601885
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "02373b669f01aef4f00662f21283a7e6ad788b67fc559af6a870a8ff635d949c"
+            },
+            {
+              "part": 2,
+              "sha256": "93b6594cb91120897d888caafa6ca2b3e1a7e562223c1efd256019a8263dccd4"
+            }
+          ]
+        },
+        "23andMe_V5": {
+          "counts": {
+            "placed_rows": 638466,
+            "rows": 638466
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "92733b3318eef0cadf0019cb16413d97bbeec90b9f00f36f5ff401a121b40e18"
+            },
+            {
+              "part": 2,
+              "sha256": "717b3a43351b055703de37f7f07f521c9f2920b4d9ef6f631244f79227496968"
+            }
+          ]
+        },
+        "23andMe_V5_2025": {
+          "counts": {
+            "placed_rows": 643161,
+            "rows": 643161
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "daacd09b66d960a7e2e74674baefbb26e924970060c48c94609b9756ec37176f"
+            }
+          ]
+        },
+        "Ancestry_V1": {
+          "counts": {
+            "placed_rows": 701478,
+            "rows": 701478
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "09e1a358d777be353437c39891cd58ca09049dcab6941c6af6c08bcc0d305e45"
+            },
+            {
+              "part": 2,
+              "sha256": "eaabf7aedf0a4df4a4b60c23f2bee9e20eba534fcbec888853ce591257e6d449"
+            },
+            {
+              "part": 3,
+              "sha256": "d4a5a2c835cd00b9be7f56d4c1ef81307ca64f372a12845ddea6e0770a8b1090"
+            },
+            {
+              "part": 4,
+              "sha256": "01c3d32d1484c23179baf03b303676cc5d3cc80f02944c447201bf1df4475aee"
+            }
+          ]
+        },
+        "Ancestry_V2": {
+          "counts": {
+            "placed_rows": 668942,
+            "rows": 668942
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "8965b5d3e97cfb652dc9d4e169597526a64982706f49aa231b12c83b47fd4635"
+            },
+            {
+              "part": 2,
+              "sha256": "7c176c90d406a17d07d68a0e0f32dc8a9b88448c83b6b170738dd152f42790f8"
+            },
+            {
+              "part": 3,
+              "sha256": "4bb2676d355d8cdf0a369d666be32d33b3fa3477cd6db34465447e01794f84ea"
+            },
+            {
+              "part": 4,
+              "sha256": "e634d693c390f69f3b48fc5c5343c3de3902e1a5a3cc2fbed680cd8100c37935"
+            },
+            {
+              "part": 5,
+              "sha256": "4e44055679e971686fe87a301f20b2ed3f933216e36c9dac10c79421b1b9c8d5"
+            }
+          ]
+        },
+        "Ancestry_V2_2021": {
+          "counts": {
+            "placed_rows": 677864,
+            "rows": 677864
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "ee36765bc746c1893211ab5f9fafe8d76dc7698cae631fc345791880d4f1b61e"
+            }
+          ]
+        },
+        "Ancestry_V2_2024": {
+          "counts": {
+            "placed_rows": 677436,
+            "rows": 677436
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "5179a0d246ba70dd253dbb78f5fe83eb186cfc90e380655f4bcf91a0a9960a4c"
+            }
+          ]
+        },
+        "FTDNA_V1_Affy": {
+          "counts": {
+            "ncbi36_no_hit": 85,
+            "placed_rows": 547926,
+            "rows": 548011
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "dd45244550869a979681f3291d8a5ca5947fc3d95a10fd76c283e88b94fc7bd8"
+            }
+          ]
+        },
+        "FTDNA_V2": {
+          "counts": {
+            "placed_rows": 720449,
+            "rows": 720449
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "44cdd8245f5d9373f0fb149cdc7298805fdef6086b029a745de32c2852100083"
+            }
+          ]
+        },
+        "FTDNA_V3": {
+          "counts": {
+            "placed_rows": 629292,
+            "rows": 630074,
+            "unplaced": 782
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "10d47e5e546bb9e2fba6bb2e47286ec06d1849c6215346bf923493fb624d6e6b"
+            },
+            {
+              "part": 2,
+              "sha256": "4f78c061b64642e226c8f6730740c065ff041cd5e18ac091ada1632bf2f53b7f"
+            },
+            {
+              "part": 3,
+              "sha256": "b398f2001d0c1792e14a91dd3db11041a7450fc18240168d86c6b9a34b8d22fd"
+            }
+          ]
+        },
+        "LDNA_V1": {
+          "counts": {
+            "placed_rows": 618640,
+            "rows": 618640
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "85b70a66fccabfc1c255d90cc120d88f51c1bf677283f1c39802a05440e990ab"
+            }
+          ]
+        },
+        "LDNA_V2": {
+          "counts": {
+            "placed_rows": 698655,
+            "rows": 698655
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "f74004a1c825bb38673356b30dc985b7c33ff7e9f04fd8ed64a8ca66c9bff08b"
+            }
+          ]
+        },
+        "MyHeritage_GSA_2025": {
+          "counts": {
+            "placed_rows": 609346,
+            "rows": 609346
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "12cdc3156834683d7518ca0953028feaaa246ce7959b2d47b53ea3804b3dff89"
+            }
+          ]
+        },
+        "MyHeritage_GSA_2025_609424": {
+          "counts": {
+            "placed_rows": 609424,
+            "rows": 609424
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "8d031e853fc573296f668bc8f0a4b500b6c4f8b0fec38b3ec800c803cfa7cb20"
+            }
+          ]
+        },
+        "MyHeritage_V1": {
+          "counts": {
+            "placed_rows": 720922,
+            "rows": 720922
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "00937218df3aaf2bbe1eaa08fb49fd1f8dc74981e720f530e4506fbc4aa80631"
+            }
+          ]
+        },
+        "MyHeritage_V2": {
+          "counts": {
+            "placed_rows": 610128,
+            "rows": 610128
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "4811b24a6a76c21d94c24dd36e85ff6b57205e324d4a1efd43a41b9bd3fe79b5"
+            }
+          ]
+        },
+        "Nucleus_V1": {
+          "counts": {
+            "placed_rows": 665107,
+            "rows": 665107
+          },
+          "parts": [
+            {
+              "part": 1,
+              "sha256": "ec66b6c24242d49f8ef2b708e41a1fd39bb0457164fc3e838cd8f32c99d7fbfc"
+            }
+          ]
+        }
+      },
+      "legacy_sites": 2392384
+    },
+    "mitochondria": {
+      "CHM13_length": 16569,
+      "CHM13_md5": "ec493a132ac4823aa696e37109f64972",
+      "CHM13_no_call_positions": 6,
+      "CHM13_sha256": "9816c397688d160f46ce9b8c314001999a647cedf10ea471c7622c8e0d91e20a",
+      "algorithm": "unit-cost global Levenshtein, complete optimal-path graph",
+      "algorithm_version": 1,
+      "alignment_file": "mt-alignment-v1-b92df336b0d5adf9.fa.gz",
+      "alignment_sha256": "74724436979066fe8d869a4e6d774e3cee6714b7bc29a937ed925efc4ecbc540",
+      "alignment_tie_order": [
+        "diagonal",
+        "source_only",
+        "target_only"
+      ],
+      "alignment_uncompressed_sha256": "b92df336b0d5adf970f2fffcdc6da55a98fdf2e1bb9e4087cbca931588e5f3a7",
+      "band": 128,
+      "band_completeness_proof": "optimal_distance <= band",
+      "edit_distance": 3,
+      "mapping": "unique reciprocal pairs across ALL optimal alignments",
+      "origin_policy": "unique exact first-40bp rCRS anchor; global alignment after origin normalization",
+      "rCRS_length": 16569,
+      "rCRS_md5": "c68f52674c9fb33aef52dcf399755519",
+      "rCRS_no_call_positions": 6,
+      "rCRS_sha256": "f156ff3f65bbcc80c7ebb9936dceb96b1477b4f8f535c4e1dbe7baea225cbc66",
+      "target_rotation_offset0": 15992,
+      "unknown_bases": "N always costs one substitution; N pairs never map"
+    },
+    "native_reference": {
+      "chrY_PAR_masking": "masked",
+      "contigs": [
+        {
+          "length": 248387328,
+          "md5": "e469247288ceb332aee524caec92bb22",
+          "name": "chr1"
+        },
+        {
+          "length": 242696752,
+          "md5": "e5ff97665b6025191d4d7dfa2cec4cf0",
+          "name": "chr2"
+        },
+        {
+          "length": 201105948,
+          "md5": "0012f8a55c07f0b61e199736105e7257",
+          "name": "chr3"
+        },
+        {
+          "length": 193574945,
+          "md5": "b7e17a4f043aab5bc45cdfd5cccf9deb",
+          "name": "chr4"
+        },
+        {
+          "length": 182045439,
+          "md5": "e069fd69dce480b348767fa9827671b4",
+          "name": "chr5"
+        },
+        {
+          "length": 172126628,
+          "md5": "ae714983adbd673c7c84b0b1daa91f7e",
+          "name": "chr6"
+        },
+        {
+          "length": 160567428,
+          "md5": "3ff4435e65cf8cdd69a3150d09dd649f",
+          "name": "chr7"
+        },
+        {
+          "length": 146259331,
+          "md5": "29aeec58cb54d9132e2283839f9fcc9c",
+          "name": "chr8"
+        },
+        {
+          "length": 150617247,
+          "md5": "419dad1fb58ae389ad8828536b5d78cd",
+          "name": "chr9"
+        },
+        {
+          "length": 134758134,
+          "md5": "fbf3087282695f275d460157fc7864a5",
+          "name": "chr10"
+        },
+        {
+          "length": 135127769,
+          "md5": "7f144a0b4800c341a4b4f1518838cc59",
+          "name": "chr11"
+        },
+        {
+          "length": 133324548,
+          "md5": "5086cf368e83b9cefd7bb19ef0f40d3c",
+          "name": "chr12"
+        },
+        {
+          "length": 113566686,
+          "md5": "6f9949b26d5ece38c6cdefd48a516907",
+          "name": "chr13"
+        },
+        {
+          "length": 101161492,
+          "md5": "7ad36d43a1ab059e190ab918f27cb5bf",
+          "name": "chr14"
+        },
+        {
+          "length": 99753195,
+          "md5": "914e0733351aaa9a4354ca8efb527401",
+          "name": "chr15"
+        },
+        {
+          "length": 96330374,
+          "md5": "fcc04e14d89b12c757d56c177261e248",
+          "name": "chr16"
+        },
+        {
+          "length": 84276897,
+          "md5": "8627043bd24255e9f356e0c99ece251f",
+          "name": "chr17"
+        },
+        {
+          "length": 80542538,
+          "md5": "b6a85aabc31b2d57f707aa679a8612c5",
+          "name": "chr18"
+        },
+        {
+          "length": 61707364,
+          "md5": "c2c74cb0832b34b9e8eebf4b744a88c1",
+          "name": "chr19"
+        },
+        {
+          "length": 66210255,
+          "md5": "f1a31f30d3da50893470ff47bf0b5a38",
+          "name": "chr20"
+        },
+        {
+          "length": 45090682,
+          "md5": "760794bbbe965d4d1e3884bf09d1f306",
+          "name": "chr21"
+        },
+        {
+          "length": 51324926,
+          "md5": "0068189b6b7c95e860cce0815662293f",
+          "name": "chr22"
+        },
+        {
+          "length": 154259566,
+          "md5": "1f2616c4cfa30104517e44dd3c426453",
+          "name": "chrX"
+        },
+        {
+          "length": 62460029,
+          "md5": "dd7264df17e7e4a4dac5b0f1f19dcfe0",
+          "name": "chrY"
+        },
+        {
+          "length": 16569,
+          "md5": "ec493a132ac4823aa696e37109f64972",
+          "name": "chrM"
+        }
+      ],
+      "fai_sha256": "cec84e8875f740fea679b08cb042529deae56f8276f567c2d5dca232d6172c1b",
+      "gzi_sha256": "933fbe252d53cf1f253a253746c58f227098184e5983700bc58420a835279808",
+      "par_bed_sha256": "9ba7f1ed5dfd88107356ff71965655a40f1d29ead912e7fc926c3f14d54300b3",
+      "par_intervals": [
+        {
+          "chrom": "chrX",
+          "end0": 2394410,
+          "start0": 0
+        },
+        {
+          "chrom": "chrX",
+          "end0": 154259566,
+          "start0": 153925834
+        },
+        {
+          "chrom": "chrY",
+          "end0": 2458320,
+          "start0": 0
+        },
+        {
+          "chrom": "chrY",
+          "end0": 62460029,
+          "start0": 62122809
+        }
+      ],
+      "sha256": "36b83c984efe3db0ad05065e875e72fdcc56ade32b5c61cbffc14698453125a3",
+      "upstream_url": "https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/analysis_set/chm13v2.0_maskedY.fa.gz"
+    },
+    "ncbi36_chain_sha256": "f1e57673d8f306ea4ed1553ea5fc2001b3cc3d149eef501fc97305b3b3e2a9d6",
+    "source_reference": {
+      "contigs": [
+        {
+          "length": 249250621,
+          "md5": "1b22b98cdeb4a9304cb5d48026a85128",
+          "name": "chr1"
+        },
+        {
+          "length": 243199373,
+          "md5": "a0d9851da00400dec1098a9255ac712e",
+          "name": "chr2"
+        },
+        {
+          "length": 198022430,
+          "md5": "fdfd811849cc2fadebc929bb925902e5",
+          "name": "chr3"
+        },
+        {
+          "length": 191154276,
+          "md5": "23dccd106897542ad87d2765d28a19a1",
+          "name": "chr4"
+        },
+        {
+          "length": 180915260,
+          "md5": "0740173db9ffd264d728f32784845cd7",
+          "name": "chr5"
+        },
+        {
+          "length": 171115067,
+          "md5": "1d3a93a248d92a729ee764823acbbc6b",
+          "name": "chr6"
+        },
+        {
+          "length": 159138663,
+          "md5": "618366e953d6aaad97dbe4777c29375e",
+          "name": "chr7"
+        },
+        {
+          "length": 146364022,
+          "md5": "96f514a9929e410c6651697bded59aec",
+          "name": "chr8"
+        },
+        {
+          "length": 141213431,
+          "md5": "3e273117f15e0a400f01055d9f393768",
+          "name": "chr9"
+        },
+        {
+          "length": 135534747,
+          "md5": "988c28e000e84c26d552359af1ea2e1d",
+          "name": "chr10"
+        },
+        {
+          "length": 135006516,
+          "md5": "98c59049a2df285c76ffb1c6db8f8b96",
+          "name": "chr11"
+        },
+        {
+          "length": 133851895,
+          "md5": "51851ac0e1a115847ad36449b0015864",
+          "name": "chr12"
+        },
+        {
+          "length": 115169878,
+          "md5": "283f8d7892baa81b510a015719ca7b0b",
+          "name": "chr13"
+        },
+        {
+          "length": 107349540,
+          "md5": "98f3cae32b2a2e9524bc19813927542e",
+          "name": "chr14"
+        },
+        {
+          "length": 102531392,
+          "md5": "e5645a794a8238215b2cd77acb95a078",
+          "name": "chr15"
+        },
+        {
+          "length": 90354753,
+          "md5": "fc9b1a7b42b97a864f56b348b06095e6",
+          "name": "chr16"
+        },
+        {
+          "length": 81195210,
+          "md5": "351f64d4f4f9ddd45b35336ad97aa6de",
+          "name": "chr17"
+        },
+        {
+          "length": 78077248,
+          "md5": "b15d4b2d29dde9d3e4f93d1d0f2cbc9c",
+          "name": "chr18"
+        },
+        {
+          "length": 59128983,
+          "md5": "1aacd71f30db8e561810913e0b72636d",
+          "name": "chr19"
+        },
+        {
+          "length": 63025520,
+          "md5": "0dec9660ec1efaaf33281c0d5ea2560f",
+          "name": "chr20"
+        },
+        {
+          "length": 48129895,
+          "md5": "2979a6085bfe28e3ad6f552f361ed74d",
+          "name": "chr21"
+        },
+        {
+          "length": 51304566,
+          "md5": "a718acaa6135fdca8357d5bfe94211dd",
+          "name": "chr22"
+        },
+        {
+          "length": 155270560,
+          "md5": "7e0e2e580297b7764e31dbc80c2540dd",
+          "name": "chrX"
+        },
+        {
+          "length": 59373566,
+          "md5": "1fa3474750af0948bdf97d5a0ee52e51",
+          "name": "chrY"
+        },
+        {
+          "length": 16569,
+          "md5": "c68f52674c9fb33aef52dcf399755519",
+          "name": "chrM"
+        }
+      ],
+      "local_bgzip_sha256": "97aaa5476c28aec58c4f0e1f561a76cb47fb2157c4e9d5848cdc9700e08f8159",
+      "upstream_url": "https://1000genomes.s3.amazonaws.com/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz"
+    },
+    "validation": {
+      "chains": {
+        "chm13v2-grch38.chain": "f5bd06d6d1ab4e44b22ee150bcd75ee8f1d6709ecb111a9029b64647e0cba8bf",
+        "grch38-chm13v2.chain": "2a4086a9fda2cbc035ac354b5034dd5fd89f45c1213e046b55ab1b9aaf7b5d2b",
+        "hg19ToHg38.over.chain.gz": "5c0598e500ceb5a78c73086929e8ef993aec309bcafb595139b53d440b125a1d",
+        "hg38ToHg19.over.chain.gz": "a4af0aaac27b26c2b3b52c031ebbdbea1a2f7ffc645a6cab70683f74064920a2"
+      },
+      "counts": {
+        "GRCh38_nonprimary": 708,
+        "GRCh38_nonreciprocal": 593,
+        "GRCh38_static_collision_sites": 14,
+        "GRCh38_unmapped": 1261,
+        "MT_validated_separately": 4529,
+        "bridge_coordinate_disagreement": 498,
+        "eligible_sites": 2848725,
+        "nuclear_sites": 2857971,
+        "via38_reachable_but_direct_rejected": 348,
+        "via38_unmapped": 5832
+      },
+      "eligibility_file": "validation-grch38-reciprocal.tsv.gz",
+      "eligibility_sha256": "fab5819332917a932f96cec54c27e46d79ae87c5a563dfd84adf8b184f37cf4e",
+      "policy": "direct CHM13 authoritative; via38 is validation cross-check only",
+      "shipped": false
+    }
+  },
+  "sha256": "7f6cabc29769f400cfb0879d24f828d79a1de2aed843520f776bbb6694309b35",
+  "source_build": "GRCh37-rCRS",
+  "source_contigs": [
+    {
+      "length": 249250621,
+      "name": "chr1",
+      "rows": 224538
+    },
+    {
+      "length": 243199373,
+      "name": "chr2",
+      "rows": 233000
+    },
+    {
+      "length": 198022430,
+      "name": "chr3",
+      "rows": 190065
+    },
+    {
+      "length": 191154276,
+      "name": "chr4",
+      "rows": 172657
+    },
+    {
+      "length": 180915260,
+      "name": "chr5",
+      "rows": 169043
+    },
+    {
+      "length": 171115067,
+      "name": "chr6",
+      "rows": 182547
+    },
+    {
+      "length": 159138663,
+      "name": "chr7",
+      "rows": 152560
+    },
+    {
+      "length": 146364022,
+      "name": "chr8",
+      "rows": 143735
+    },
+    {
+      "length": 141213431,
+      "name": "chr9",
+      "rows": 120753
+    },
+    {
+      "length": 135534747,
+      "name": "chr10",
+      "rows": 140159
+    },
+    {
+      "length": 135006516,
+      "name": "chr11",
+      "rows": 138378
+    },
+    {
+      "length": 133851895,
+      "name": "chr12",
+      "rows": 132408
+    },
+    {
+      "length": 115169878,
+      "name": "chr13",
+      "rows": 100036
+    },
+    {
+      "length": 107349540,
+      "name": "chr14",
+      "rows": 89000
+    },
+    {
+      "length": 102531392,
+      "name": "chr15",
+      "rows": 85676
+    },
+    {
+      "length": 90354753,
+      "name": "chr16",
+      "rows": 91440
+    },
+    {
+      "length": 81195210,
+      "name": "chr17",
+      "rows": 83550
+    },
+    {
+      "length": 78077248,
+      "name": "chr18",
+      "rows": 79819
+    },
+    {
+      "length": 59128983,
+      "name": "chr19",
+      "rows": 60116
+    },
+    {
+      "length": 63025520,
+      "name": "chr20",
+      "rows": 67478
+    },
+    {
+      "length": 48129895,
+      "name": "chr21",
+      "rows": 38845
+    },
+    {
+      "length": 51304566,
+      "name": "chr22",
+      "rows": 40022
+    },
+    {
+      "length": 155270560,
+      "name": "chrX",
+      "rows": 85370
+    },
+    {
+      "length": 59373566,
+      "name": "chrY",
+      "rows": 36776
+    },
+    {
+      "length": 16569,
+      "name": "chrM",
+      "rows": 4529
+    }
+  ],
+  "target_build": "CHM13v2.0",
+  "target_contigs": [
+    {
+      "length": 248387328,
+      "name": "chr1"
+    },
+    {
+      "length": 242696752,
+      "name": "chr2"
+    },
+    {
+      "length": 201105948,
+      "name": "chr3"
+    },
+    {
+      "length": 193574945,
+      "name": "chr4"
+    },
+    {
+      "length": 182045439,
+      "name": "chr5"
+    },
+    {
+      "length": 172126628,
+      "name": "chr6"
+    },
+    {
+      "length": 160567428,
+      "name": "chr7"
+    },
+    {
+      "length": 146259331,
+      "name": "chr8"
+    },
+    {
+      "length": 150617247,
+      "name": "chr9"
+    },
+    {
+      "length": 134758134,
+      "name": "chr10"
+    },
+    {
+      "length": 135127769,
+      "name": "chr11"
+    },
+    {
+      "length": 133324548,
+      "name": "chr12"
+    },
+    {
+      "length": 113566686,
+      "name": "chr13"
+    },
+    {
+      "length": 101161492,
+      "name": "chr14"
+    },
+    {
+      "length": 99753195,
+      "name": "chr15"
+    },
+    {
+      "length": 96330374,
+      "name": "chr16"
+    },
+    {
+      "length": 84276897,
+      "name": "chr17"
+    },
+    {
+      "length": 80542538,
+      "name": "chr18"
+    },
+    {
+      "length": 61707364,
+      "name": "chr19"
+    },
+    {
+      "length": 66210255,
+      "name": "chr20"
+    },
+    {
+      "length": 45090682,
+      "name": "chr21"
+    },
+    {
+      "length": 51324926,
+      "name": "chr22"
+    },
+    {
+      "length": 154259566,
+      "name": "chrX"
+    },
+    {
+      "length": 62460029,
+      "name": "chrY"
+    },
+    {
+      "length": 16569,
+      "name": "chrM"
+    }
+  ],
+  "uncompressed_bytes": 16621310,
+  "uncompressed_sha256": "daa04fbaf974b4f8323ba1b0b25046f322431fe9d9bc3f296a0ce06d7e646365",
+  "version": 1
+}
