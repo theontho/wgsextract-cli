@@ -27,6 +27,11 @@ from wgsextract_cli.core.microarray_aadr import (
     write_aadr_outputs,
 )
 from wgsextract_cli.core.microarray_identity import identity_policy, load_rsid_map
+from wgsextract_cli.core.microarray_indels import (
+    IndelCalls,
+    call_manifest_indels,
+    indel_manifest_bindings,
+)
 from wgsextract_cli.core.microarray_quality import quality_policy
 from wgsextract_cli.core.microarray_targets import (
     build_genome_wide_target,
@@ -151,6 +156,7 @@ def _convert_microarray_outputs(
     start_total: float,
     aadr_vcf: str | None = None,
     aadr_workdir: str | None = None,
+    indel_calls: IndelCalls | None = None,
 ) -> None:
     from wgsextract_cli.core.microarray_utils import (
         convert_to_vendor_format,
@@ -243,7 +249,14 @@ def _convert_microarray_outputs(
                 if fmt_info and fmt_info.get("ncbi36") and lib.root
                 else None
             )
-            converter(real_fmt, final_txt, output_file, template_search_roots, chain36)
+            format_converter = (
+                functools.partial(converter, indel_calls=indel_calls[real_fmt])
+                if indel_calls is not None and real_fmt in indel_calls
+                else converter
+            )
+            format_converter(
+                real_fmt, final_txt, output_file, template_search_roots, chain36
+            )
         except (OSError, ValueError, WGSExtractError) as e:
             raise WGSExtractError(f"Failed to generate {real_fmt}: {e}") from e
         logging.info(f"Generated {output_file}")
@@ -268,6 +281,7 @@ def run(args: argparse.Namespace) -> None:
     if not args.input:
         raise WGSExtractError(LOG_MESSAGES["input_required"])
     verify_paths_exist({"--input": args.input})
+    indel_bindings = indel_manifest_bindings(args, _resolve_microarray_format)
 
     verify_dependencies(["bcftools", "tabix", "bgzip", "samtools"])
     log_dependency_info(["bcftools", "tabix", "bgzip", "samtools"])
@@ -300,6 +314,12 @@ def run(args: argparse.Namespace) -> None:
     if not ref_fasta or not Path(ref_fasta).is_file():
         message = LOG_MESSAGES["ref_required_for"].format(task="microarray generation")
         raise WGSExtractError(message)
+    if indel_bindings and not (
+        is_hg37_build(lib.build or "") or is_hg38_build(lib.build or "")
+    ):
+        raise WGSExtractError(
+            "Indel manifests require a known GRCh37 or GRCh38 reference."
+        )
 
     if (
         not args.ref_vcf_tab
@@ -375,6 +395,7 @@ def run(args: argparse.Namespace) -> None:
         ploidy_args = ["--ploidy", "2"]
 
     start_vcf = time.time()
+    indel_calls = None
 
     with sex_samples_args(
         args.input,
@@ -396,6 +417,16 @@ def run(args: argparse.Namespace) -> None:
             out_vcf=out_vcf,
             input_chroms=input_chroms,
         )
+        if indel_bindings:
+            indel_calls = call_manifest_indels(
+                indel_bindings,
+                _template_search_roots(ref_fasta, lib),
+                args=args,
+                lib=lib,
+                outdir=outdir,
+                ploidy_args=ploidy_args + sex_args,
+                threads=threads,
+            )
     combined_kit_txt = _write_microarray_combined_kit(
         args=args,
         outdir=calling_outdir,
@@ -415,6 +446,7 @@ def run(args: argparse.Namespace) -> None:
         start_total=start_total,
         aadr_vcf=out_vcf if is_vcf and aadr_panels else None,
         aadr_workdir=calling_outdir if aadr_panels else None,
+        indel_calls=indel_calls,
     )
 
 
@@ -428,6 +460,13 @@ def register(
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument("--formats", default="all", help=CLI_HELP["micro_formats_help"])
+    parser.add_argument(
+        "--indel-manifest",
+        action="append",
+        default=[],
+        metavar="FORMAT=PATH",
+        help="Opt-in sequence-defined I/D probes from a matching GRCh37 Illumina CSV, gzip or ZIP; repeat per selected format",
+    )
     parser.add_argument(
         "--strand-ambiguous",
         choices=("keep", "no-call"),
