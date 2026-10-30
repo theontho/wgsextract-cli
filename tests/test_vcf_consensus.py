@@ -8,7 +8,7 @@ import pytest
 
 from tests.htslib_helpers import bgzip_index, needs_htslib, run_wgsextract
 from wgsextract_cli.commands.vcf import consensus
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 pytestmark = needs_htslib
 
@@ -228,15 +228,48 @@ def test_uncalled_mask_lists_gaps_between_overlapping_records(tmp_path):
     [
         ("N", "NTT", "R", ("R", "RTT")),
         ("NC", "A,NG", "RC", ("RC", "A,RG")),
-        ("A", "G", "R", None),  # a genuine mismatch is left to fail
+        ("A", "G", "R", ("R", "G")),
+        ("C", "CTT", "Y", ("Y", "CTT")),  # keep the called concrete ALT
+        ("CAT", "C", "YRT", ("YRT", "C")),
+        ("C", "G", "R", None),  # an incompatible base is left to fail
         ("N", "G", "RC", None),  # lengths differ
         ("R", "G", "R", None),  # already matches
     ],
 )
-def test_fixed_ref_record_only_resolves_n_bases(record_ref, alt, fasta, expected):
+def test_fixed_ref_record_resolves_compatible_ambiguities(
+    record_ref, alt, fasta, expected
+):
     line = f"chr1\t9\t.\t{record_ref}\t{alt}\t50\tPASS\t.\n"
     fixed = consensus._fixed_ref_record(line, fasta)
     assert (fixed and tuple(fixed.split("\t")[3:5])) == expected
+
+
+def test_compatible_indel_lookup_crosses_batch_boundary(tmp_path):
+    count = 2050
+    sequence = "ACGT" * (count + 1)
+    sequence = sequence[:8193] + "Y" + sequence[8194:]
+    ref = tmp_path / "ref.fa"
+    ref.write_text(f">chr1\n{sequence}\n")
+    run_command(["samtools", "faidx", str(ref)])
+    plain = tmp_path / "many.vcf"
+    original = "".join(_rec(4 * i + 1, "AC", "A", "1/1") for i in range(count))
+    plain.write_text(
+        "##fileformat=VCFv4.2\n"
+        f"##contig=<ID=chr1,length={len(sequence)}>\n"
+        '##FORMAT=<ID=GT,Number=1,Type=String,Description="genotype">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n" + original
+    )
+    vcf = bgzip_index(plain, tmp_path / "many.vcf.gz")
+    work = tmp_path / "work"
+    work.mkdir()
+    prepared = consensus._match_ambiguous_ref_bases(vcf, str(ref), "1", str(work))
+    body = run_command(["bcftools", "view", "-H", prepared], capture_output=True).stdout
+    expected = original.replace("\t8193\t.\tAC\tA\t", "\t8193\t.\tAY\tA\t")
+    assert body == expected
+    assert (
+        run_command(["bcftools", "view", "-H", vcf], capture_output=True).stdout
+        == original
+    )
 
 
 def test_region_with_thousands_separators_applies_variants(tmp_path):

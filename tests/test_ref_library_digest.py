@@ -133,7 +133,7 @@ def test_download_file_verifies_github_release_asset_digest(tmp_path, monkeypatc
 def test_download_file_resume_keeps_curl_output_argument_order(tmp_path, monkeypatch):
     payload = b"resumed reference genome test payload"
     dest = tmp_path / "hs38.fa.gz"
-    dest.write_bytes(b"partial")
+    Path(f"{dest}.partial").write_bytes(b"partial")
     seen_commands = []
     seen_capture_output = []
 

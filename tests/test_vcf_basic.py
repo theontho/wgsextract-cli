@@ -134,6 +134,7 @@ def test_explicit_ploidy_wins_over_the_librarys_file():
     [
         ("given.vcf.gz", "in.vcf.gz", set(), "given.vcf.gz"),
         ("default.vcf.gz", "in.vcf.gz", {"input"}, "in.vcf.gz"),
+        ("default.vcf.gz", "in.vcf.gz", {"input", "vcf_input"}, "default.vcf.gz"),
         ("default.vcf.gz", "in.vcf.gz", set(), "default.vcf.gz"),
         (None, "in.vcf.gz", set(), "in.vcf.gz"),
         (None, None, set(), None),

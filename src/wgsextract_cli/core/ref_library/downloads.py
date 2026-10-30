@@ -130,7 +130,7 @@ def download_file(
     progress_callback: ProgressCallback | None = None,
     cancel_event: CancelEvent | None = None,
 ) -> bool:
-    """Downloads a file with progress reporting, optional cancellation, and resume support."""
+    """Resume explicit .partial files; replace dest only after verification."""
     require_http_url(url, "download URL")
     partial_dest = dest + ".partial"
     try:
@@ -163,7 +163,7 @@ def download_file(
     # an earlier single-connection attempt left a partial to resume.
     segments_path = Path(partial_dest + ".segments")
     single_partial = partial_path.exists() and not segments_path.exists()
-    if not dest_path.exists() and not single_partial:
+    if not single_partial:
         size = segmented.ranged_size(url)
         if size is None and segments_path.exists():
             # A started segmented download is finished as one: its partial is
@@ -177,8 +177,13 @@ def download_file(
             size >= segmented.SEGMENTED_MIN_SIZE or segments_path.exists()
         ):
             try:
-                segmented.download_segmented(
-                    url, dest, size, progress_callback, cancel_event
+                verified = segmented.download_segmented(
+                    url,
+                    dest,
+                    size,
+                    progress_callback,
+                    cancel_event,
+                    verify=lambda path: verify_download_sha256(path, expected_sha256),
                 )
             except segmented.RangesUnsupported:
                 logging.info("Server ignores byte ranges; using one connection.")
@@ -191,7 +196,6 @@ def download_file(
                 logging.error(f"Download error: {e} (run the command again to resume)")
                 return False
             else:
-                verified = verify_download_sha256(dest, expected_sha256)
                 if verified:
                     store_download_in_dev_cache(
                         url, dest_path, checksum_hint=checksum_hint
@@ -210,8 +214,6 @@ def download_file(
             # Into dest.partial, so an interrupted curl never leaves a short
             # file at dest. -L follows redirects, --fail keeps HTTP error pages
             # out of the file, -C - resumes.
-            if not partial_path.exists() and dest_path.exists():
-                dest_path.replace(partial_path)
             cmd = ["curl", "-L", "--fail", *curl_args]
             if partial_path.exists():
                 cmd.extend(["-C", "-"])
@@ -263,11 +265,6 @@ def _urllib_download(
     headers = {"User-Agent": _USER_AGENT}
     initial_size = 0
     mode: Literal["ab", "wb"] = "wb"
-
-    # If the final file exists but we are here, it might be incomplete (e.g. missing index)
-    # Move it to .partial to attempt a resume/verify
-    if not Path(partial_dest).exists() and Path(dest).exists():
-        Path(dest).replace(partial_dest)
 
     if Path(partial_dest).exists():
         initial_size = Path(partial_dest).stat().st_size
@@ -372,8 +369,8 @@ def _finish_download(
     expected_sha256: str | None,
     checksum_hint: str | None,
 ) -> bool:
+    if not verify_download_sha256(partial_dest, expected_sha256):
+        return False
     Path(partial_dest).replace(dest)
-    verified = verify_download_sha256(dest, expected_sha256)
-    if verified:
-        store_download_in_dev_cache(url, Path(dest), checksum_hint=checksum_hint)
-    return verified
+    store_download_in_dev_cache(url, Path(dest), checksum_hint=checksum_hint)
+    return True

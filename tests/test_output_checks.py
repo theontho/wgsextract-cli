@@ -4,7 +4,7 @@ import io
 import logging
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -45,6 +45,73 @@ def test_no_variants_warns_naming_the_reference(tmp_path, caplog):
         output_checks.warn_if_no_variants(empty, "/ref/hg38.fa", "chrM")
     assert "No variants were called in chrM" in caplog.text
     assert "/ref/hg38.fa" in caplog.text
+
+
+def test_gatk_style_zero_index_does_not_warn_for_real_records(
+    tmp_path, monkeypatch, caplog
+):
+    vcf = _vcf(tmp_path / "gatk.vcf.gz", _records(3))
+    monkeypatch.setattr(
+        output_checks,
+        "run_command",
+        lambda *_a, **_k: subprocess.CompletedProcess([], 0, stdout="0\n"),
+    )
+    with caplog.at_level(logging.WARNING):
+        output_checks.warn_if_no_variants(vcf, "/ref/hg38.fa", "chr1")
+    assert not caplog.records
+
+
+@pytest.mark.parametrize(
+    ("line", "exit_code", "expected"),
+    [("chr1\t1\t.\tA\tG\t50\tPASS\t.\n", 0, None), ("", 0, 0), ("", 1, None)],
+)
+def test_zero_index_probes_only_one_record(monkeypatch, line, exit_code, expected):
+    monkeypatch.setattr(
+        output_checks,
+        "run_command",
+        lambda *_a, **_k: subprocess.CompletedProcess([], 0, stdout="0\n"),
+    )
+    proc = Mock()
+    proc.stdout.readline.return_value = line
+    proc.wait.return_value = exit_code
+    start = Mock(return_value=proc)
+    monkeypatch.setattr(output_checks, "popen", start)
+    assert output_checks.vcf_record_count("sample.vcf.gz") == expected
+    start.assert_called_once_with(
+        ["bcftools", "view", "-H", "sample.vcf.gz"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    proc.stdout.readline.assert_called_once_with()
+    proc.stdout.read.assert_not_called()
+    proc.stdout.close.assert_called_once_with()
+    proc.wait.assert_called_once_with()
+    assert proc.kill.called == bool(line)
+
+
+def test_positive_index_count_never_streams_records(monkeypatch):
+    monkeypatch.setattr(
+        output_checks,
+        "run_command",
+        lambda *_a, **_k: subprocess.CompletedProcess([], 0, stdout="124581\n"),
+    )
+    monkeypatch.setattr(
+        output_checks, "popen", lambda *_a, **_k: pytest.fail("unnecessary scan")
+    )
+    assert output_checks.vcf_record_count("sample.vcf.gz") == 124581
+
+
+def test_zero_index_with_unreadable_vcf_does_not_warn(monkeypatch, caplog):
+    monkeypatch.setattr(
+        output_checks,
+        "run_command",
+        lambda *_a, **_k: subprocess.CompletedProcess([], 0, stdout="0\n"),
+    )
+    monkeypatch.setattr(output_checks, "popen", Mock(side_effect=OSError("unreadable")))
+    with caplog.at_level(logging.WARNING):
+        output_checks.warn_if_no_variants("sample.vcf.gz")
+    assert not caplog.records
 
 
 def test_no_reads_warns(tmp_path, caplog):

@@ -81,9 +81,13 @@ def no_tools(monkeypatch):
         "align_options": [],
         "pipeline": [],
         "command": [],
+        "memory_checks": [],
     }
     monkeypatch.setattr(pet, "verify_dependencies", lambda _tools: None)
     monkeypatch.setattr(pet, "log_dependency_info", lambda _tools: None)
+    monkeypatch.setattr(
+        pet, "check_mapping_memory", lambda *_a, **kw: calls["memory_checks"].append(kw)
+    )
     monkeypatch.setattr(pet, "ensure_bwa_index", calls["index"].append)
 
     def record_alignment(cmd, out, **options):
@@ -108,7 +112,7 @@ def reads(tmp_path):
 def test_species_reference_comes_from_the_library(
     tmp_path, monkeypatch, reads, no_tools
 ):
-    monkeypatch.setattr(pet, "short_read_aligner", lambda _req, _ref: "bwa")
+    monkeypatch.setattr(pet, "short_read_aligner", lambda _req, _ref, **_k: "bwa")
     library = tmp_path / "lib"
     with pytest.raises(WGSExtractError, match="cat not found.*ref library --install"):
         pet.run(_args(reads, library, species="cat"))
@@ -137,13 +141,14 @@ def test_bwa_mem2_aligns_when_the_reference_has_its_index(
 ):
     ref = tmp_path / "dog.fa"
     ref.write_text(">chr1\nACGT\n")
-    monkeypatch.setattr(pet, "short_read_aligner", lambda req, _ref: "bwa-mem2")
+    monkeypatch.setattr(pet, "short_read_aligner", lambda req, _ref, **_k: "bwa-mem2")
     pet.run(_args(reads, ref, memory=memory))
     assert no_tools["index"] == []
     assert no_tools["align"][0][:2] == ["bwa-mem2", "mem"]
     command = no_tools["align"][0]
     assert command[command.index("-K") + 1] == "100000000"
     assert no_tools["align_options"][0]["memory"] == sort_memory
+    assert no_tools["memory_checks"][0]["memory"] == sort_memory
 
 
 def test_missing_reads_or_reference_are_reported(tmp_path, reads, no_tools):
@@ -164,7 +169,7 @@ def test_mistyped_reference_fasta_is_named_in_the_error(tmp_path, reads, no_tool
 def test_alignment_failure_is_reported(tmp_path, monkeypatch, reads, no_tools):
     ref = tmp_path / "dog.fa"
     ref.write_text(">chr1\nACGT\n")
-    monkeypatch.setattr(pet, "short_read_aligner", lambda _req, _ref: "bwa")
+    monkeypatch.setattr(pet, "short_read_aligner", lambda _req, _ref, **_k: "bwa")
 
     def fail(*_a, **_k):
         raise OSError("bwa: not found")
@@ -180,7 +185,7 @@ def test_failed_variant_calling_leaves_no_partial_vcf(
 ):
     ref = tmp_path / "dog.fa"
     ref.write_text(">chr1\nACGT\n")
-    monkeypatch.setattr(pet, "short_read_aligner", lambda _req, _ref: "bwa")
+    monkeypatch.setattr(pet, "short_read_aligner", lambda _req, _ref, **_k: "bwa")
     vcf = tmp_path / "rex_R1_dog.vcf.gz"
 
     def fail_index(cmd):

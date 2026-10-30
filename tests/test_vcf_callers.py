@@ -16,6 +16,7 @@ from tests.htslib_helpers import (
     write_fasta,
 )
 from wgsextract_cli.commands.vcf import callers
+from wgsextract_cli.core import paths
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 SNP = 1000  # 1-based position of the sample's homozygous SNP
@@ -125,8 +126,11 @@ def test_gatk_calls_the_snp_from_a_regional_cram(genome, tmp_path):
     ref.write_text(Path(genome.ref).read_text())
     run_command(["samtools", "faidx", str(ref)])
     outdir = tmp_path / "out"
-    run_wgsextract("vcf", "gatk", "--input", genome.cram, "--ref", str(ref),
-                   "--outdir", str(outdir), "-r", "chr1:900-1100")  # fmt: skip
+    run_wgsextract(
+        "vcf", "gatk", "--input", Path(genome.cram).as_posix(),
+        "--ref", ref.as_posix(), "--outdir", outdir.as_posix(),
+        "-r", "chr1:900-1100",
+    )  # fmt: skip
 
     assert [c[:5] for c in vcf_calls(outdir / "gatk.vcf.gz")] == [genome.call]
     assert (ref_dir / "ref.dict").read_text().startswith("@HD")
@@ -230,3 +234,46 @@ def test_cleanup_tolerates_missing_temp_files(tmp_path):
     callers._cleanup_gatk_temp_input(str(bam))
     callers._cleanup_gatk_temp_input(None)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_gatk_windows_argv_uses_native_local_paths(monkeypatch, tmp_path):
+    import ntpath
+
+    commands = []
+    gatk_tmp = _mock_gatk(
+        monkeypatch, tmp_path, lambda cmd, **_kwargs: commands.append(cmd)
+    )
+    lib = Namespace(dict_file=None)
+    reference = "R:/Reference genome/ref.fa.gz"
+    monkeypatch.setattr(paths, "sys", Namespace(platform="win32"))
+    monkeypatch.setattr(
+        callers, "get_base_args", lambda _: ("1", str(tmp_path), reference, lib)
+    )
+    monkeypatch.setattr(
+        callers.ultima, "alignment_flow_data", lambda *_: Namespace(flow_aware=False)
+    )
+    monkeypatch.setattr(callers, "ensure_vcf_indexed", lambda _: None)
+    monkeypatch.setattr(callers, "warn_if_no_variants", lambda *_: None)
+    callers.cmd_gatk(
+        Namespace(input="R:/Input data/sample.bam", region="chr1:1-500", gpu=False)
+    )
+
+    dictionary, gatk = commands
+    assert dictionary == [
+        "samtools",
+        "dict",
+        "-o",
+        r"R:\Reference genome\ref.dict",
+        r"R:\Reference genome\ref.fa.gz",
+    ]
+    assert lib.dict_file == r"R:\Reference genome\ref.dict"
+    expected = {
+        "-R": r"R:\Reference genome\ref.fa.gz",
+        "-I": r"R:\Input data\sample.bam",
+        "-O": ntpath.normpath(str(tmp_path / "gatk.vcf.gz")),
+        "--tmp-dir": ntpath.normpath(str(gatk_tmp)),
+        "-L": ntpath.normpath(str(tmp_path / "gatk_region.intervals")),
+    }
+    for flag, value in expected.items():
+        assert gatk[gatk.index(flag) + 1] == value
+    assert sorted(tmp_path.iterdir()) == []

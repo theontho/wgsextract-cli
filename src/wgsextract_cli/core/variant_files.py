@@ -1,6 +1,7 @@
 import hashlib
 import logging
 import os
+import re
 import subprocess
 import tempfile
 from collections.abc import Iterable, Mapping, Sequence
@@ -140,6 +141,7 @@ def get_vcf_samples(vcf_path: PathInput) -> list[str]:
 
 
 def chromosome_aliases(chrom: str) -> tuple[str, ...]:
+    """Alias chr prefixes for every contig, including random, unplaced and ALT."""
     if not chrom:
         return ()
 
@@ -220,6 +222,19 @@ def vcf_index_chromosomes(vcf_path: PathInput) -> list[str]:
     ]
 
 
+def vcf_chromosomes(vcf_path: PathInput) -> list[str]:
+    """All declared and indexed contigs, including those without records."""
+    declared = [
+        match.group(1)
+        for match in re.finditer(
+            r"^##contig=<.*?\bID=([^,>]+)",
+            get_bam_header(vcf_path),
+            re.MULTILINE,
+        )
+    ]
+    return list(dict.fromkeys([*declared, *vcf_index_chromosomes(vcf_path)]))
+
+
 def normalize_vcf_chromosomes(
     vcf_path: PathInput | None,
     target_chroms: Sequence[str],
@@ -236,7 +251,7 @@ def normalize_vcf_chromosomes(
         )
     vcf_path = fspath(vcf_path)
 
-    v_chroms = vcf_index_chromosomes(vcf_path)
+    v_chroms = vcf_chromosomes(vcf_path)
     if not v_chroms:
         logging.warning(f"Chromosome normalization skipped for {vcf_path}.")
         return vcf_path

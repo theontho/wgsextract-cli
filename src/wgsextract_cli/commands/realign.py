@@ -22,16 +22,23 @@ import logging
 from pathlib import Path
 
 from wgsextract_cli.core import bwa_mem2
+from wgsextract_cli.core.alignment_memory import check_mapping_memory
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.paths import absolute_path
+from wgsextract_cli.core.read_counts import fastq_input_reads
 from wgsextract_cli.core.reference_assets import (
     find_fasta_by_signature,
     input_stem,
     resolve_reference_library,
+)
+from wgsextract_cli.core.resource_estimates import (
+    PreflightEstimate,
+    estimate_resources,
+    preflight_resources,
 )
 from wgsextract_cli.core.utils import WGSExtractError, get_resource_defaults
 from wgsextract_cli.core.variant_files import (
@@ -143,12 +150,11 @@ def _find_existing_fastqs(input_path: str, outdir: str) -> tuple[str, str] | Non
 
 
 def _preflight_disk_space(
-    input_path: str, outdir: str, need_extract: bool, threads: str
+    input_path: str, outdir: str, need_extract: bool, reads: int | None
 ) -> None:
     """Estimate the peak disk usage and bail out if outdir lacks space."""
     file_size = Path(input_path).stat().st_size
     is_cram = input_path.lower().endswith(".cram")
-    reads = indexed_read_count(input_path, threads)
 
     extract_temp_gb, extract_final_gb = (0, 0)
     if need_extract:
@@ -209,8 +215,13 @@ def run(args: argparse.Namespace) -> None:
     verify_paths_exist({"--input": args.input})
     args.platform = align_cmd.resolve_platform(args, args.r1 or args.input)
     # Reject bad aligner/platform/preset combinations before hours of extraction.
-    align_cmd.select_aligner(args)
-    target = resolve_reference(args.ref, None) if args.ref else None
+    selected_aligner = align_cmd.select_aligner(args)
+    signature = None
+    if selected_aligner in {"bwa", "bwa-mem2"} and not (
+        args.ref and Path(args.ref).is_file()
+    ):
+        signature = calculate_bam_md5(args.input, None)
+    target = resolve_reference(args.ref, signature) if args.ref or signature else None
     if args.aligner == "bwa-mem2" and target and Path(target).is_file():
         bwa_mem2.check_index(target)
 
@@ -220,12 +231,28 @@ def run(args: argparse.Namespace) -> None:
 
     if args.platform == "ultima" and not args.r1:
         # Single-end reads with flow tags: streamed into the aligner, no FASTQs.
+        reads = indexed_read_count(args.input, threads)
+        _report_resource_estimates(
+            args,
+            target,
+            outdir,
+            threads,
+            memory,
+            reads,
+            input_paths=[args.input],
+            need_extract=False,
+            paired=False,
+        )
         if not args.no_preflight:
             _preflight_disk_space(
-                args.input, outdir, need_extract=False, threads=threads
+                args.input,
+                outdir,
+                need_extract=False,
+                reads=reads,
             )
         align_args = argparse.Namespace(**vars(args))
         align_args.r1 = args.input
+        align_args._input_read_count = reads
         align_cmd.align_ultima(align_args, args.input, _input_cram_reference(args))
         return
 
@@ -248,10 +275,37 @@ def run(args: argparse.Namespace) -> None:
         r2_path = str(Path(outdir, f"{base}_R2.fastq.gz"))
         need_extract = True
 
+    reads = (
+        indexed_read_count(args.input, threads)
+        if need_extract
+        else fastq_input_reads(r1_path, r2_path)
+    )
+    if selected_aligner in {"bwa", "bwa-mem2"} and not getattr(args, "gpu", False):
+        _report_resource_estimates(
+            args,
+            target,
+            outdir,
+            threads,
+            memory,
+            reads,
+            input_paths=[args.input] if need_extract else [r1_path, r2_path],
+            need_extract=need_extract,
+            paired=bool(r2_path),
+        )
+    if args.aligner == "bwa-mem2" and target and Path(target).is_file():
+        check_mapping_memory(
+            target,
+            "bwa-mem2",
+            threads=threads,
+            memory=align_cmd.short_read_sort_memory("bwa-mem2", memory, log=False),
+            samblaster=align_cmd.duplicate_marker(paired=bool(r2_path)) == "samblaster",
+            reads=reads,
+        )
+
     # 2. Disk-space pre-flight.
     if not args.no_preflight:
         _preflight_disk_space(
-            args.input, outdir, need_extract=need_extract, threads=threads
+            args.input, outdir, need_extract=need_extract, reads=reads
         )
 
     # 3. Extract if needed.
@@ -280,6 +334,7 @@ def run(args: argparse.Namespace) -> None:
     align_args = argparse.Namespace(**vars(args))
     align_args.r1 = r1_path
     align_args.r2 = r2_path
+    align_args._input_read_count = reads
     align_cmd.run(align_args)
 
     # 5. Remove the FASTQs this run extracted unless asked to keep them. They are
@@ -290,3 +345,51 @@ def run(args: argparse.Namespace) -> None:
                 Path(path).unlink()
             except OSError as exc:
                 logging.warning("Could not remove %s: %s", path, exc)
+
+
+def _report_resource_estimates(
+    args: argparse.Namespace,
+    reference: str | None,
+    outdir: str,
+    threads: str,
+    memory: str,
+    reads: int | None,
+    *,
+    input_paths: list[str],
+    need_extract: bool,
+    paired: bool,
+) -> None:
+    def estimate() -> PreflightEstimate:
+        samblaster = align_cmd.duplicate_marker(paired=paired) == "samblaster"
+        resolved = reference if reference and Path(reference).is_file() else None
+        tool = "bwa" if args.aligner == "auto" else args.aligner
+        if resolved:
+            tool = align_cmd.short_read_aligner(
+                args.aligner,
+                resolved,
+                threads=threads,
+                memory=memory,
+                samblaster=samblaster,
+                reads=reads,
+            )
+        return estimate_resources(
+            "realign",
+            input_paths=[path for path in input_paths if path],
+            output_dir=outdir,
+            reference=resolved,
+            threads=threads,
+            memory=align_cmd.short_read_sort_memory(tool, memory, log=False),
+            aligner=tool,
+            samblaster=samblaster,
+            reads=reads,
+            output_format=getattr(args, "format", "BAM"),
+            extract_fastq=need_extract,
+            duplicate_marking=(
+                "gatk-flow"
+                if getattr(args, "platform", None) == "ultima"
+                and align_cmd.get_tool_path("gatk") is not None
+                else None
+            ),
+        )
+
+    preflight_resources(estimate)

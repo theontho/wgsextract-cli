@@ -379,6 +379,7 @@ def test_mem2_sort_cap_respects_smaller_explicit_budgets(
 ):
     setup = align._AlignSetup("2", budget, str(tmp_path), "ref.fa", "sample")
     monkeypatch.setattr(align, "_prepare_alignment", lambda *_: setup)
+    monkeypatch.setattr(align, "check_mapping_memory", lambda *_a, **_kw: None)
     monkeypatch.setattr(align, "ensure_bwa_index", lambda *_: None)
     monkeypatch.setattr(align, "ensure_bwa_alt_file", lambda *_: None)
     monkeypatch.setattr(align.bwa_mem2, "ensure_index", lambda *_a, **_k: None)
