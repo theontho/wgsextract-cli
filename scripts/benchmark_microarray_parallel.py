@@ -18,6 +18,7 @@ import psutil
 
 from wgsextract_cli.commands.benchmark.chip import CONSUMER_FORMATS
 from wgsextract_cli.core.microarray_utils import get_template_format
+from wgsextract_cli.core.paths import absolute_path
 
 
 def measure(command: list[str], output: Path) -> dict[str, float]:
@@ -150,19 +151,19 @@ def main() -> None:
                 "wgsextract_cli.main",
                 "microarray",
                 "--config",
-                str(args.config.resolve()),
+                str(absolute_path(args.config)),
                 "--input",
-                str(args.input.resolve()),
+                str(absolute_path(args.input)),
                 "--ref",
-                str(args.ref.resolve()),
+                str(absolute_path(args.ref)),
                 "--ref-vcf-tab",
-                str(args.ref_vcf_tab.resolve()),
+                str(absolute_path(args.ref_vcf_tab)),
                 "--formats",
                 formats,
                 "--threads",
                 str(args.threads),
                 "--outdir",
-                str((run / "kit").resolve()),
+                str(absolute_path(run / "kit")),
             ]
             if mode == "parallel":
                 command.append("--parallel")

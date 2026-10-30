@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.benchmark_microarray_parallel import export_hashes, measure
+from scripts.benchmark_microarray_parallel import export_hashes, main, measure
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux wait4 resource accounting")
@@ -37,3 +37,46 @@ def test_export_comparison_ignores_variable_intermediates(tmp_path: Path) -> Non
 def test_failed_measurement_does_not_report_success(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="failed"):
         measure([sys.executable, "-c", "raise SystemExit(7)"], tmp_path / "failed")
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux benchmark harness")
+def test_reference_symlink_keeps_its_library_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    actual = tmp_path / "elsewhere" / "genome.fa"
+    actual.parent.mkdir()
+    actual.write_text(">chr20\nA\n", newline="\n")
+    alias = tmp_path / "library" / "genomes" / "genome.fa"
+    alias.parent.mkdir(parents=True)
+    alias.symlink_to(actual)
+    bam, config, targets = (
+        tmp_path / "sample.bam",
+        tmp_path / "config.toml",
+        tmp_path / "targets.tab",
+    )
+    for path in (bam, config, targets):
+        path.write_bytes(b"fixture")
+
+    def check_command(command: list[str], output: Path) -> dict[str, float]:
+        assert Path(command[command.index("--ref") + 1]) == alias
+        raise RuntimeError("reference path checked")
+
+    monkeypatch.setattr("scripts.benchmark_microarray_parallel.measure", check_command)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "benchmark_microarray_parallel.py",
+            "--input",
+            str(bam),
+            "--ref",
+            str(alias),
+            "--config",
+            str(config),
+            "--ref-vcf-tab",
+            str(targets),
+            "--outdir",
+            str(tmp_path / "output"),
+        ],
+    )
+    with pytest.raises(RuntimeError, match="reference path checked"):
+        main()
