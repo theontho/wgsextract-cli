@@ -109,6 +109,8 @@ Available formats:
     myheritage_gsa_2025 (609,346 markers), myheritage_gsa_2025_609424
   Nucleus:
     nucleus (array export, 2025)
+  AADR v66.p1 (GRCh37 outputs, PLINK .bed/.bim/.fam AND EIGENSTRAT .geno/.snp/.ind):
+    aadr_1240k, aadr_ho, aadr_1240k+ho (HO is a subset of 1240K in this release)
 """,
     "arg_region": "Chromosomal region (e.g. chrM, chrY:10000-20000)",
     "arg_fraction": "Decimal percentage (e.g. 0.1 for 10%%)",
