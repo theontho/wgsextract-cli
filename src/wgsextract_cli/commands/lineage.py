@@ -12,7 +12,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES, SYSTEM_MESSAGES
-from wgsextract_cli.core.paths import absolute_path
+from wgsextract_cli.core.paths import absolute_path, java_local_path
 from wgsextract_cli.core.reference_models import MITO_BY_LENGTH, sequence_lengths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.tool_catalog import JAVA_JAR
@@ -50,7 +50,7 @@ def _haplogrep_command(haplogrep_path: str) -> list[str]:
             return tool_command(haplogrep_path)
         jar = sibling
     verify_dependencies(["java"])
-    return [*JAVA_JAR, jar]
+    return [*JAVA_JAR, java_local_path(jar)]
 
 
 def cmd_mtdna(args: argparse.Namespace) -> None:
@@ -119,8 +119,8 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
         try:
             run_command(
                 cmd
-                + ["classify", "--format", "vcf", "--in", input_file]
-                + ["--out", out_file]
+                + ["classify", "--format", "vcf", "--in", java_local_path(input_file)]
+                + ["--out", java_local_path(out_file)]
             )
         except (OSError, subprocess.SubprocessError) as e:
             raise WGSExtractError(f"Haplogrep failed: {e}") from e

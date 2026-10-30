@@ -5,6 +5,7 @@ import logging
 import subprocess
 from pathlib import Path
 
+from wgsextract_cli.core.alignment_memory import check_mapping_memory
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -12,6 +13,7 @@ from wgsextract_cli.core.dependency_checks import (
 from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
+from wgsextract_cli.core.read_counts import fastq_input_reads
 from wgsextract_cli.core.reference_assets import is_fasta_path
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -20,6 +22,7 @@ from wgsextract_cli.core.utils import (
     run_pipeline,
 )
 from wgsextract_cli.core.variant_files import verify_paths_exist
+from wgsextract_cli.core.warnings import warn_alignment_sort_space
 
 from ._extract_helpers import cleanup_files
 from .align import (
@@ -83,12 +86,30 @@ def run(args: argparse.Namespace) -> None:
             f"Reference genome for {args.species} not found at {ref_file}.{hint}"
         )
     # bwa-mem2 when the reference has its index (`ref index --aligner bwa-mem2`).
-    aligner = short_read_aligner("auto", ref_file)
+    samblaster = duplicate_marker(paired=bool(args.r2)) == "samblaster"
+    reads = fastq_input_reads(args.r1, args.r2)
+    aligner = short_read_aligner(
+        "auto",
+        ref_file,
+        threads=threads,
+        memory=memory,
+        samblaster=samblaster,
+        reads=reads,
+    )
+    check_mapping_memory(
+        ref_file,
+        aligner,
+        threads=threads,
+        memory=memory,
+        samblaster=samblaster,
+        reads=reads,
+    )
     if aligner == "bwa":
         ensure_bwa_index(ref_file)
 
     outdir = args.outdir or str(absolute_path(args.r1).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
+    warn_alignment_sort_space(outdir, reads)
     logging.debug(f"Output directory: {str(absolute_path(outdir))}")
     stem = reads_stem(args.r1)
     if args.r2:

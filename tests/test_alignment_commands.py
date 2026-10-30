@@ -149,6 +149,41 @@ def test_pbmm2_temp_dir_rejected_before_backend_start(monkeypatch):
         align.run(args)
 
 
+@pytest.mark.parametrize("custom_temp", [False, True])
+def test_alignment_preflight_checks_selected_spill_volume(
+    tmp_path, monkeypatch, custom_temp
+):
+    scratch = str(tmp_path / "scratch") if custom_temp else None
+    setup = align._AlignSetup("6", "512M", str(tmp_path), "ref.fa", "sample", scratch)
+    monkeypatch.setattr(align, "_prepare_alignment", lambda *_: setup)
+    monkeypatch.setattr(align, "get_tool_path", lambda *_: None)
+    for name in (
+        "check_mapping_memory",
+        "ensure_bwa_index",
+        "ensure_bwa_alt_file",
+        "print_warning",
+    ):
+        monkeypatch.setattr(align, name, lambda *_a, **_k: None)
+    estimates, warnings = [], []
+    monkeypatch.setattr(align, "preflight_resources", lambda build: build())
+    monkeypatch.setattr(
+        align, "estimate_resources", lambda *_a, **kw: estimates.append(kw)
+    )
+    monkeypatch.setattr(
+        align,
+        "warn_alignment_sort_space",
+        lambda path, reads: warnings.append((path, reads)),
+    )
+    align._bwa_setup(
+        Namespace(
+            aligner="bwa", r1="r1.fq", r2=None, _input_read_count=30, format="BAM"
+        ),
+        "alignment",
+    )
+    assert estimates[0]["temp_dir"] == scratch
+    assert warnings == [(scratch or str(tmp_path), 30)]
+
+
 @needs_tools("samtools")
 def test_sort_spilling_has_identical_decoded_body_with_custom_temp_dir(tmp_path):
     sam = tmp_path / "unsorted.sam"

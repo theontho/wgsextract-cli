@@ -13,7 +13,12 @@ from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.output_checks import warn_if_no_variants
+from wgsextract_cli.core.paths import java_local_path
 from wgsextract_cli.core.reference_assets import read_fai_lengths, reference_dict_path
+from wgsextract_cli.core.resource_estimates import (
+    estimate_resources,
+    preflight_resources,
+)
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 
@@ -72,7 +77,7 @@ def _gatk_region_args(region: str | None, outdir: str) -> tuple[list[str], str |
     # One interval per line: a comma-separated --region is several.
     lines = "".join(f"{r.strip()}\n" for r in region.split(",") if r.strip())
     Path(intervals).write_text(lines, encoding="utf-8", newline="\n")
-    return ["-L", intervals], intervals
+    return ["-L", java_local_path(intervals)], intervals
 
 
 def _gatk_tmp_dir() -> str:
@@ -177,6 +182,17 @@ def cmd_gatk(args: argparse.Namespace) -> None:
     verify_dependencies(["gatk", "samtools"])
     _threads, outdir, ref, lib = get_base_args(args)
 
+    preflight_resources(
+        lambda: estimate_resources(
+            "gatk",
+            input_paths=[args.input],
+            output_dir=outdir,
+            reference=ref,
+            threads=_threads,
+            region=args.region,
+            temp_dir=tempfile.gettempdir(),
+        )
+    )
     out_vcf = str(Path(outdir, "gatk.vcf.gz"))
     # Ultima's own pipeline calls with the flow-based likelihood model.
     flow_args = []
@@ -189,9 +205,12 @@ def cmd_gatk(args: argparse.Namespace) -> None:
     # GATK requires a .dict file
     if not lib.dict_file:
         logging.info(LOG_MESSAGES["vcf_generating_dict"])
-        dict_file = reference_dict_path(ref)
+        dict_file = java_local_path(reference_dict_path(ref))
         try:
-            run_command(["samtools", "dict", "-o", dict_file, ref], check=True)
+            run_command(
+                ["samtools", "dict", "-o", dict_file, java_local_path(ref)],
+                check=True,
+            )
             lib.dict_file = dict_file
         except (OSError, subprocess.SubprocessError) as e:
             raise WGSExtractError(f"Failed to generate GATK dict file: {e}") from e
@@ -209,13 +228,13 @@ def cmd_gatk(args: argparse.Namespace) -> None:
                 "gatk",
                 "HaplotypeCaller",
                 "-R",
-                ref,
+                java_local_path(ref),
                 "-I",
-                gatk_input,
+                java_local_path(gatk_input),
                 "-O",
-                out_vcf,
+                java_local_path(out_vcf),
                 "--tmp-dir",
-                gatk_tmp,
+                java_local_path(gatk_tmp),
             ]
             + flow_args
             + region_args

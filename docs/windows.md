@@ -39,6 +39,12 @@ Bioconda's platform-independent packages and PyPI as on the other platforms.
 `deps check` lists what isn't available on Windows (for example VEP,
 DeepVariant, Delly and FreeBayes).
 
+Local paths passed to Java tools use native Windows separators, including
+references, inputs, outputs, interval files and temporary directories. You can
+still enter paths such as `R:/data/sample.bam`; the CLI converts them before
+launching Java so GATK does not mistake `R:` for a URI provider. Explicit URIs
+are preserved.
+
 Commands needing pyBigWig (bigWig-backed `vcf phylop`, `vcf gerp` and their
 reference downloads), VEP, DeepVariant, Delly, FreeBayes, PharmCAT, Cyrius,
 T1K, ExpansionHunter or PacBio tools are not supported on Windows. They fail

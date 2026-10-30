@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from wgsextract_cli.core import bwa_mem2, ultima
+from wgsextract_cli.core.alignment_memory import check_mapping_memory
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import (
@@ -17,9 +18,14 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
-from wgsextract_cli.core.paths import absolute_path
+from wgsextract_cli.core.paths import absolute_path, java_local_path
+from wgsextract_cli.core.read_counts import fastq_input_reads
 from wgsextract_cli.core.reference_assets import is_fasta_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.resource_estimates import (
+    estimate_resources,
+    preflight_resources,
+)
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -33,7 +39,11 @@ from wgsextract_cli.core.variant_files import (
     resolve_reference,
     verify_paths_exist,
 )
-from wgsextract_cli.core.warnings import print_warning
+from wgsextract_cli.core.warnings import (
+    indexed_read_count,
+    print_warning,
+    warn_alignment_sort_space,
+)
 
 from ._extract_helpers import cleanup_files
 
@@ -211,7 +221,15 @@ def run(args: argparse.Namespace) -> None:
         align_bwa(args)
 
 
-def short_read_aligner(requested: str, ref: str) -> str:
+def short_read_aligner(
+    requested: str,
+    ref: str,
+    *,
+    threads: str = "1",
+    memory: str = "512M",
+    samblaster: bool = True,
+    reads: int | None = None,
+) -> str:
     """bwa or bwa-mem2 for --aligner bwa, bwa-mem2 or auto. Auto takes bwa-mem2,
     whose alignments are bwa's in less time, when it's installed and the
     reference has its index that fits in this computer's memory."""
@@ -219,13 +237,16 @@ def short_read_aligner(requested: str, ref: str) -> str:
         return requested
     if get_tool_path("bwa-mem2") is None:
         return "bwa"
-    fits = bwa_mem2.can_map(ref)
+    fits = bwa_mem2.can_map(
+        ref, threads=threads, memory=memory, samblaster=samblaster, reads=reads
+    )
     if bwa_mem2.has_index(ref):
         if fits:
             return "bwa-mem2"
         logging.info(
-            f"Not using bwa-mem2: mapping with its index needs about "
-            f"{bwa_mem2.mapping_memory(ref) / 1024**3:.0f} GB of memory."
+            f"Not using bwa-mem2: the alignment pipeline needs about "
+            f"{bwa_mem2.mapping_memory(ref, threads=threads, memory=memory, samblaster=samblaster, reads=reads) / 1024**3:.1f} "
+            "GiB of available RAM. Use --aligner bwa or lower --memory."
         )
     elif fits:
         logging.info(
@@ -473,15 +494,55 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
     with the reference's index and ALT contig list in place."""
     tool = "bwa-mem2" if args.aligner == "bwa-mem2" else "bwa"
     setup = _prepare_alignment(args, [tool, "samtools"], task)
-    tool = short_read_aligner(args.aligner, setup.ref)
+    samblaster = bool(args.r2) and get_tool_path("samblaster") is not None
+    if hasattr(args, "_input_read_count"):
+        reads = args._input_read_count
+    else:
+        reads = (
+            indexed_read_count(args.r1, setup.threads)
+            if args.r1.lower().endswith((".bam", ".cram"))
+            else fastq_input_reads(args.r1, args.r2)
+        )
+    tool = short_read_aligner(
+        args.aligner,
+        setup.ref,
+        threads=setup.threads,
+        memory=setup.memory,
+        samblaster=samblaster,
+        reads=reads,
+    )
+    preflight_resources(
+        lambda: estimate_resources(
+            "align",
+            input_paths=[path for path in (args.r1, args.r2) if path],
+            output_dir=setup.outdir,
+            temp_dir=setup.temp_dir,
+            reference=setup.ref,
+            threads=setup.threads,
+            memory=setup.memory,
+            aligner=tool,
+            samblaster=samblaster,
+            reads=reads,
+            output_format=getattr(args, "format", "BAM"),
+            duplicate_marking=(
+                "gatk-flow"
+                if getattr(args, "platform", None) == "ultima"
+                and get_tool_path("gatk") is not None
+                else None
+            ),
+        )
+    )
+    check_mapping_memory(
+        setup.ref,
+        tool,
+        threads=setup.threads,
+        memory=setup.memory,
+        samblaster=samblaster,
+        reads=reads,
+    )
+    warn_alignment_sort_space(setup.temp_dir or setup.outdir, reads)
     if tool == "bwa-mem2":
         bwa_mem2.ensure_index(setup.ref, download=False)
-        if not bwa_mem2.can_map(setup.ref):
-            logging.warning(
-                f"bwa-mem2 needs about "
-                f"{bwa_mem2.mapping_memory(setup.ref) / 1024**3:.0f} GB of memory "
-                "for this reference; it may run out. --aligner bwa needs a third."
-            )
     else:
         ensure_bwa_index(setup.ref)
     ensure_bwa_alt_file(setup.ref)
@@ -646,8 +707,20 @@ def _sort_and_mark_ultima(
         run_pipeline([*stages, sort], description="Alignment")
         logging.info("Marking duplicates in flow mode (GATK MarkDuplicates)...")
         run_command(
-            ["gatk", "MarkDuplicates", "-I", sorted_bam, "-O", marked, "-M", metrics]
-            + ["--TMP_DIR", tmp, "--VALIDATION_STRINGENCY", "SILENT"]
+            [
+                "gatk",
+                "MarkDuplicates",
+                "-I",
+                java_local_path(sorted_bam),
+                "-O",
+                java_local_path(marked),
+                "-M",
+                java_local_path(metrics),
+                "--TMP_DIR",
+                java_local_path(tmp),
+                "--VALIDATION_STRINGENCY",
+                "SILENT",
+            ]
             + ULTIMA_DUPLICATE_ARGS
         )
         Path(sorted_bam).unlink(missing_ok=True)

@@ -107,6 +107,65 @@ def server(monkeypatch):
     srv.httpd.server_close()
 
 
+@pytest.fixture(params=("urllib", "curl", "segmented"))
+def transport(request, server, monkeypatch):
+    if request.param == "curl":
+        if shutil.which("curl") is None:
+            pytest.skip("needs curl")
+        monkeypatch.setattr(downloads, "curl_progress_args", lambda: ["--progress-bar"])
+    elif request.param == "segmented":
+        monkeypatch.setattr(segmented, "ranged_size", ranged_size)
+        monkeypatch.setattr(segmented, "SEGMENTED_MIN_SIZE", 1)
+        monkeypatch.setattr(segmented, "SEGMENT_SIZE", 100_000)
+    return server, request.param
+
+
+@pytest.mark.parametrize(
+    ("same_size", "checksum"),
+    [(False, False), (True, False), (False, True)],
+)
+def test_redownload_replaces_existing_dest_only_after_verification(
+    transport, tmp_path, monkeypatch, same_size, checksum
+):
+    server, kind = transport
+    dest = tmp_path / "hs38.fa.gz"
+    partial = Path(str(dest) + ".partial")
+    old = b"x" * len(DATA) if same_size else b"stale bytes from an earlier release"
+    dest.write_bytes(old)
+    digest = hashlib.sha256(DATA).hexdigest() if checksum else None
+    monkeypatch.setattr(
+        downloads, "resolve_github_release_asset_sha256", lambda _: digest
+    )
+    real_verify = downloads.verify_download_sha256
+
+    def verify(path, expected):
+        assert dest.read_bytes() == old
+        assert Path(path) == partial
+        return real_verify(path, expected)
+
+    monkeypatch.setattr(downloads, "verify_download_sha256", verify)
+    assert downloads.download_file(server.url, str(dest))
+    assert dest.read_bytes() == DATA
+    assert not partial.exists()
+    assert not Path(str(partial) + ".segments").exists()
+    if kind != "segmented":
+        assert server.gets() == [None]
+
+
+def test_failed_checksum_preserves_existing_dest(transport, tmp_path, monkeypatch):
+    server, _ = transport
+    dest = tmp_path / "hs38.fa.gz"
+    old = b"keep the previous complete reference"
+    dest.write_bytes(old)
+    monkeypatch.setattr(
+        downloads, "resolve_github_release_asset_sha256", lambda _: "0" * 64
+    )
+    assert not downloads.download_file(server.url, str(dest))
+    assert dest.read_bytes() == old
+    assert not Path(str(dest) + ".partial").exists()
+    assert not Path(str(dest) + ".partial.segments").exists()
+
+
 def test_download_streams_the_file_and_reports_progress(server, tmp_path):
     dest = tmp_path / "hs38.fa.gz"
     progress = []
@@ -160,20 +219,21 @@ def test_a_server_that_ignores_ranges_restarts_the_file(server, tmp_path):
     assert server.gets() == ["bytes=26-"]
 
 
-def test_an_existing_complete_file_is_not_fetched_again(server, tmp_path):
+def test_an_existing_complete_file_is_fetched_from_byte_zero(server, tmp_path):
     dest = tmp_path / "hs38.fa.gz"
     dest.write_bytes(DATA)
 
     assert downloads.download_file(server.url, str(dest))
 
     assert dest.read_bytes() == DATA
-    assert server.gets() == [f"bytes={len(DATA)}-"]
+    assert server.gets() == [None]
 
 
 def test_a_bare_416_is_checked_against_the_size_from_head(server, tmp_path):
     server.bare_416 = True
     dest = tmp_path / "hs38.fa.gz"
-    dest.write_bytes(DATA)
+    partial = Path(str(dest) + ".partial")
+    partial.write_bytes(DATA)
 
     assert downloads.download_file(server.url, str(dest))
     assert server.requests == [("GET", f"bytes={len(DATA)}-"), ("HEAD", None)]
@@ -181,6 +241,7 @@ def test_a_bare_416_is_checked_against_the_size_from_head(server, tmp_path):
     # Without a size to compare, the file can't be trusted: fetch it again.
     server.head_status = 405
     server.requests.clear()
+    partial.write_bytes(DATA)
     assert downloads.download_file(server.url, str(dest))
     assert dest.read_bytes() == DATA
     assert server.gets() == [f"bytes={len(DATA)}-", None]
@@ -261,7 +322,7 @@ def test_a_checksum_mismatch_deletes_the_download(server, tmp_path, monkeypatch)
 def test_curl_failure_falls_back_to_urllib_and_resumes_its_bytes(
     server, tmp_path, monkeypatch
 ):
-    """With a terminal, curl downloads straight to dest; when it fails part-way,
+    """With a terminal, curl downloads to dest.partial; when it fails part-way,
     the urllib fallback resumes from what curl wrote."""
     monkeypatch.setattr(downloads, "curl_progress_args", lambda: ["--progress-bar"])
     dest = tmp_path / "hs38.fa.gz"
@@ -281,11 +342,14 @@ def test_curl_failure_falls_back_to_urllib_and_resumes_its_bytes(
     assert server.gets() == ["bytes=1000-"]
 
 
-def test_an_interrupted_curl_leaves_nothing_at_the_final_name(
-    server, tmp_path, monkeypatch
+@pytest.mark.parametrize("existing", [False, True])
+def test_an_interrupted_curl_preserves_the_final_name(
+    server, tmp_path, monkeypatch, existing
 ):
     monkeypatch.setattr(downloads, "curl_progress_args", lambda: ["--progress-bar"])
     dest = tmp_path / "hs38.fa.gz"
+    if existing:
+        dest.write_bytes(b"previous complete file")
 
     def interrupted_curl(cmd, capture_output=False):
         Path(cmd[cmd.index("-o") + 1]).write_bytes(DATA[:1000])
@@ -295,7 +359,10 @@ def test_an_interrupted_curl_leaves_nothing_at_the_final_name(
 
     with pytest.raises(KeyboardInterrupt):
         downloads.download_file(server.url, str(dest))
-    assert not dest.exists()
+    if existing:
+        assert dest.read_bytes() == b"previous complete file"
+    else:
+        assert not dest.exists()
     assert (tmp_path / "hs38.fa.gz.partial").read_bytes() == DATA[:1000]
 
 
@@ -306,9 +373,7 @@ def test_curl_resumes_into_the_partial_and_finishes_at_dest(
 ):
     monkeypatch.setattr(downloads, "curl_progress_args", lambda: ["--progress-bar"])
     dest = tmp_path / "hs38.fa.gz"
-    if have == len(DATA):
-        dest.write_bytes(DATA)  # finished on an earlier run
-    elif have:
+    if have:
         (tmp_path / "hs38.fa.gz.partial").write_bytes(DATA[:have])
 
     assert downloads.download_file(server.url, str(dest))

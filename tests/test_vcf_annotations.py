@@ -278,16 +278,18 @@ def test_revel_table_skips_end_column_and_filters_by_score(tmp_path):
 
 
 @needs_bcftools
-def test_revel_vcf_resource(tmp_path):
-    sample = _sample(tmp_path, SAMPLE_ROWS)
+@pytest.mark.parametrize("contig", ["chr1", "chr11_KI270721v1_random"])
+def test_revel_vcf_resource(tmp_path, contig):
+    sample = _sample(tmp_path, SAMPLE_ROWS, contig=contig)
     revel = _vcf(tmp_path / "revel.vcf.gz", ["100 . C T . . REVEL=0.4 GT 0/1"],
-                 info=("REVEL",))  # fmt: skip
+                 info=("REVEL",), contig=contig.removeprefix("chr"))  # fmt: skip
     outdir = tmp_path / "out"
     run_wgsextract("vcf", "revel", "--input", sample, "--revel-file", revel,
                    "--outdir", str(outdir))  # fmt: skip
     assert _query(outdir / "revel_annotated.vcf.gz", "%ID:%REVEL\n") == [
         "snv:0.4", "diffalt:.", "block:.", "del:."
     ]  # fmt: skip
+    assert _query(outdir / "revel_annotated.vcf.gz", "%CHROM\n") == [contig] * 4
 
 
 # --- PhyloP tables (vcf/population.py) -----------------------------------------

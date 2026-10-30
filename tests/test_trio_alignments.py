@@ -24,7 +24,7 @@ from wgsextract_cli.commands.vcf.trio_alignments import (
     write_isolated_denovo,
 )
 from wgsextract_cli.core.dependencies import get_tool_path
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 # id, ALT, then proband / mother / father as GT:DP:AD. Haploid genotypes are a
 # son's and his father's chrX outside the PARs.
@@ -324,8 +324,23 @@ def _positions(vcf: Path) -> list[str]:
 
 
 @needs_htslib
-def test_trio_from_alignments_infers_sex_and_isolates_the_de_novo(tmp_path):
+@pytest.mark.parametrize(
+    ("input_option", "cram"),
+    [("--proband", False), ("--input", False), ("--input", True)],
+    ids=["proband-bam", "input-bam", "input-cram"],
+)
+def test_trio_from_alignments_infers_sex_and_isolates_the_de_novo(
+    tmp_path, input_option, cram
+):
     ref, (child, mother, father) = _sexed_trio(tmp_path, proband_y_reads=20)
+    if cram:
+        converted = []
+        for bam in (child, mother, father):
+            output = str(Path(bam).with_suffix(".cram"))
+            run_command(["samtools", "view", "-C", "-T", ref, "-o", output, bam])
+            run_command(["samtools", "index", output])
+            converted.append(output)
+        child, mother, father = converted
     out = tmp_path / "out"
     with (
         patch.object(filter_trio, "ReferenceLibrary", _Hg38Library),
@@ -334,7 +349,7 @@ def test_trio_from_alignments_infers_sex_and_isolates_the_de_novo(tmp_path):
         ) as joint,
     ):
         run_wgsextract(
-            "vcf", "trio", "--proband", child, "--mother", mother, "--father",
+            "vcf", "trio", input_option, child, "--mother", mother, "--father",
             father, "--ref", ref, "--region", "chr20", "--mode", "all",
             "--threads", "1", "--outdir", str(out),
         )  # fmt: skip
