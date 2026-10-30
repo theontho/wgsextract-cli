@@ -107,12 +107,22 @@ filesystem for reference-index storage.
 - VCF output uses 10% of input bytes, with another output-sized allowance for
   per-contig files/concatenation (twice for GATK). Regional GATK CRAM conversion
   also budgets a whole-input BAM upper bound on the output volume.
+  GATK scattering additionally charges retained shard VCFs and their indexes to
+  the **output volume**, where they coexist with the gathered output; JVM
+  temporary storage remains a separate demand on the system temporary volume.
 - Sort RAM is threads × `--memory` plus 25% and 256 MiB overhead; conversion
   allows 64 MiB per codec thread plus 256 MiB overhead. bcftools allows 1 GiB per
   active contig worker plus 256 MiB. Serial calling is the default; `--parallel`
   (`parallel=True` in the API) enables multiple workers, capped by reference
   contig count and one worker for an explicit region. GATK uses a **6 GiB
-  heuristic**, not a claim about its Java heap limit. These non-alignment models
+  heuristic per worker**, not a claim about its Java heap limit. The opt-in
+  `vcf gatk --scatter` flow-mode path selects at most `--threads` workers and
+  one worker per 6 GiB of currently available physical RAM, then supplies that
+  count as `gatk_workers` to the reusable estimator. Each parallel JVM has an
+  explicit 4 GiB heap and one native PairHMM/GC worker; the remaining allowance
+  covers non-heap memory. Unknown RAM or room for only one worker retains the
+  original unscattered command. This is a conservative concurrency policy, not
+  a reservation or hard RSS cap. These non-alignment models
   are conservative heuristics, not measured guarantees for every caller, read
   length or depth.
 

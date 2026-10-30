@@ -292,6 +292,14 @@ def register(
     )
     _add_region(gatk_parser, "Chromosomal region (e.g. chrM)")
     gatk_parser.add_argument(
+        "--scatter",
+        action="store_true",
+        help="Opt-in Ultima flow-mode interval scattering, bounded by --threads "
+        "and available RAM (6 GiB per worker, 4 GiB Java heap). "
+        "Can change genotypes/annotations away from interval boundaries; "
+        "default: one unscattered process.",
+    )
+    gatk_parser.add_argument(
         "--gpu",
         action="store_true",
         help="Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).",

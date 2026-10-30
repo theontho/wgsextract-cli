@@ -236,6 +236,53 @@ def test_cleanup_tolerates_missing_temp_files(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
+def test_gatk_scatter_with_one_worker_uses_the_unscattered_path(monkeypatch, tmp_path):
+    commands = []
+    _mock_gatk(monkeypatch, tmp_path, lambda cmd, **_: commands.append(cmd))
+    monkeypatch.setattr(callers, "scatter_intervals", lambda *_: [[("chr1", 1, 100)]])
+    monkeypatch.setattr(
+        callers.ultima, "alignment_flow_data", lambda *_: Namespace(flow_aware=True)
+    )
+    monkeypatch.setattr(callers, "ensure_vcf_indexed", lambda _: None)
+    monkeypatch.setattr(callers, "warn_if_no_variants", lambda *_: None)
+    callers.cmd_gatk(
+        Namespace(input="s.bam", region="chr1:1-100", gpu=False, scatter=True)
+    )
+    assert len(commands) == 1
+    assert commands[0][:2] == ["gatk", "HaplotypeCaller"]
+    assert "--flow-mode" in commands[0]
+    assert "--java-options" not in commands[0]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_gatk_scatter_requires_flow_aware_input(monkeypatch, tmp_path):
+    _mock_gatk(monkeypatch, tmp_path, lambda *_a, **_kw: pytest.fail("GATK started"))
+    monkeypatch.setattr(callers, "scatter_intervals", lambda *_: [[("chr1", 1, 100)]])
+    monkeypatch.setattr(
+        callers.ultima, "alignment_flow_data", lambda *_: Namespace(flow_aware=False)
+    )
+    with pytest.raises(WGSExtractError, match="requires flow-aware Ultima"):
+        callers.cmd_gatk(Namespace(input="s.bam", region=None, gpu=False, scatter=True))
+
+
+def test_gatk_regional_cram_conversion_reads_each_requested_interval(
+    monkeypatch, tmp_path
+):
+    commands = []
+    monkeypatch.setattr(callers, "get_tool_path", lambda name: name)
+    monkeypatch.setattr(
+        callers, "run_command", lambda command, **_: commands.append(command)
+    )
+    _bam, temporary = callers._prepare_gatk_input(
+        Namespace(input="s.cram", region="chr2:1-20, chr1:30-50"),
+        "ref.fa",
+        str(tmp_path),
+    )
+    assert commands[0][-3:] == ["s.cram", "chr2:1-20", "chr1:30-50"]
+    assert "-M" in commands[0]
+    callers._cleanup_gatk_temp_input(temporary)
+
+
 def test_gatk_windows_argv_uses_native_local_paths(monkeypatch, tmp_path):
     import ntpath
 

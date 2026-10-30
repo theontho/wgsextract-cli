@@ -17,6 +17,7 @@ Operation = Literal[
     "align", "realign", "sort", "to-bam", "to-cram", "snp", "indel", "gatk"
 ]
 GIB = 1024**3
+GATK_WORKER_BYTES = 6 * GIB
 # Conservative 30x envelope: 680M reads -> 81.6 GB sort spill, 19.0 GB CRAM.
 # H2's binned-quality CRAM was only 8.63 GB; don't assume all inputs compress so well.
 SORT_BYTES_PER_READ = 120
@@ -102,6 +103,7 @@ def estimate_resources(
     region: str | None = None,
     duplicate_marking: Literal["samblaster", "markdup", "gatk-flow"] | None = None,
     parallel: bool = False,
+    gatk_workers: int = 1,
 ) -> PreflightEstimate:
     """Estimate a resolved command without creating files or running tools.
 
@@ -111,8 +113,10 @@ def estimate_resources(
     Regional operations retain whole-input disk bounds, not guessed coverage.
     """
     count = int(threads)
-    if count < 1 or (reads is not None and reads < 0):
-        raise ValueError("threads must be positive and reads must be nonnegative")
+    if count < 1 or gatk_workers < 1 or (reads is not None and reads < 0):
+        raise ValueError(
+            "threads/workers must be positive and reads must be nonnegative"
+        )
     amount, unit = parse_memory(memory)
     sort_memory = math.ceil(count * amount * (GIB if unit == "G" else 1024**2) * 1.25)
     size = _input_size(input_paths)
@@ -214,7 +218,7 @@ def estimate_resources(
         )
     else:
         if operation == "gatk":
-            memory_components = {"caller": 6 * GIB}
+            memory_components = {"caller": gatk_workers * GATK_WORKER_BYTES}
             notes.append(
                 "GATK RAM is a heuristic; Java heap and flow-mode settings can change its peak."
             )
@@ -238,6 +242,12 @@ def estimate_resources(
             None if output is None else output * (2 if operation == "gatk" else 1)
         )
     indexes = None if output is None else max(64 * 1024, math.ceil(output / 100))
+    if operation == "gatk" and gatk_workers > 1:
+        # Shards coexist with the gathered output, on the output filesystem.
+        demands += [
+            (output_dir, "scatter_parts", output),
+            (output_dir, "scatter_indexes", indexes),
+        ]
     demands += [
         (output_dir, "output", output),
         (output_dir, "indexes", indexes),

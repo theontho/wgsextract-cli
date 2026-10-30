@@ -178,6 +178,28 @@ The Ultima reads are Ultima's GIAB CRAM, downsampled to ~30x and realigned to hs
 
 bcftools and GATK call extra indels in homopolymers, Ultima's main error mode, so use DeepVariant for Ultima indels.
 
+For flow-aware Ultima input, `vcf gatk --scatter` optionally runs independent
+HaplotypeCaller processes over nonoverlapping intervals, then gathers in reference
+order. It is **off by default**: annotations and genotypes can change, including
+far from interval boundaries. Separate processes reset GATK's random state
+(used by annotation jitter and read downsampling), as well as assembly context.
+Concurrency is capped by `--threads` and available physical RAM, allowing 6 GiB per
+worker with an explicit 4 GiB Java heap. If only one worker fits, the original
+unscattered path is used. `--memory` remains the shared sort-memory setting, not a
+GATK heap setting. Scattering requires bcftools and tabix in addition to GATK and
+samtools, and cannot be combined with `--gpu`.
+
+In a functional comparison on the original GIABv3-mapped public HG008 Ultima
+chr20 reads, downsampled to nominal 30x (7,012,718 primary reads), GATK 4.6.2.0
+with two workers retained the same **131,299 sites**, but **85 records and two
+genotypes differed**. Both genotype changes were `0/1` → `1/1` at
+chr20:47,895,004 and chr20:47,895,025. All differences were 1.91–32.08 Mb from
+the split at chr20:32,222,084, not boundary-local; this is **not equivalence**.
+One run took 57.2 minutes unscattered versus 37.5 minutes scattered, including
+CRAM preparation; this is not a controlled throughput benchmark or an accuracy
+comparison. A separate 200 kb realigned-read smoke was byte-identical across
+395 decoded records, but slower with scattering because of startup overhead.
+
 ### Pixi environments
 
 Some tools live in their own Pixi environment. When such a tool is not on `PATH`, the CLI runs it through `pixi run -e <environment>` automatically, downloading the environment on first use. The `cyrius`, `t1k`, `expansionhunter`, and `pharmcat` environments are the exception: install them yourself with `pixi install -e <environment>` (Cyrius is licensed for noncommercial use only). You can also run a whole command inside an environment from the app directory (`wgsextract-cli/app/`) or a source checkout:
