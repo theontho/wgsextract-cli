@@ -196,7 +196,8 @@ def _extract_vcf(
             for chrom, actual in names.items()
             for alias in chromosome_aliases(chrom)
             if alias != actual
-        )
+        ),
+        newline="\n",
     )
     run_pipeline(
         [
@@ -409,6 +410,7 @@ def run_chm13(
             indent=2,
             sort_keys=True,
         )
-        + "\n"
+        + "\n",
+        newline="\n",
     )
     logging.info("CHM13 CombinedKit: %s; diagnostics: %s", combined, report)
