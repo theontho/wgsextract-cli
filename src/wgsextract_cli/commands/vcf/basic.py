@@ -174,7 +174,6 @@ def cmd_snp(args: argparse.Namespace) -> None:
 
     out_vcf = str(Path(outdir, "snps.vcf.gz"))
     profile, prior = ultima.bcftools_options(args.input)
-    prior = ["-P", "0"] if prior is None else prior
     logging.info(LOG_MESSAGES["vcf_calling_snps"].format(output=out_vcf))
     ploidy_args = _ploidy_args(args, lib)
 
@@ -188,7 +187,7 @@ def cmd_snp(args: argparse.Namespace) -> None:
             threads=threads,
             region=args.region,
             profile=profile,
-            call_args=[*ploidy_args, *sex_args, *prior],
+            call_args=[*ploidy_args, *sex_args, *(prior or [])],
             parallel=getattr(args, "parallel", False),
         )
     ensure_vcf_indexed(out_vcf)

@@ -6,6 +6,7 @@ import gzip
 import logging
 import random
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -18,6 +19,7 @@ from tests.htslib_helpers import (
     write_fasta,
 )
 from wgsextract_cli.commands.vcf import basic
+from wgsextract_cli.core import ultima
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
@@ -80,6 +82,33 @@ def test_caller_finds_only_its_variant_type(sample, tmp_path, cmd, out, expected
     _call(cmd, sample, tmp_path)
     assert vcf_calls(tmp_path / out) == [expected]
     assert (tmp_path / f"{out}.tbi").is_file()
+
+
+@needs_htslib
+@pytest.mark.parametrize(
+    ("cmd", "is_ultima", "zero_prior"),
+    [
+        ("snp", False, False),
+        ("indel", False, True),
+        ("snp", True, False),
+        ("indel", True, False),
+    ],
+)
+def test_callers_keep_their_platform_specific_priors(
+    sample, tmp_path, monkeypatch, cmd, is_ultima, zero_prior
+):
+    monkeypatch.setattr(ultima, "alignment_is_ultima", lambda _path: is_ultima)
+    caller = Mock(wraps=basic.call_small_variants)
+    monkeypatch.setattr(basic, "call_small_variants", caller)
+
+    _call(cmd, sample, tmp_path)
+
+    options = caller.call_args.kwargs
+    assert options["profile"] == (["-X", "ultima"] if is_ultima else [])
+    call_args = options["call_args"]
+    assert ("-P" in call_args) is zero_prior
+    if zero_prior:
+        assert call_args[call_args.index("-P") + 1] == "0"
 
 
 @needs_htslib

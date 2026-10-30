@@ -157,14 +157,16 @@ Notes on a few commands:
 
 ### Variant calling accuracy
 
-Scored against [Genome in a Bottle](https://www.nist.gov/programs-projects/genome-bottle)'s HG002 v4.2.1 truth set on chr20, inside its confident regions, with `rtg vcfeval` (genotypes must match). The reads are Google's 35x NovaSeq PCR-free HG002 chr20 reads, aligned to hs38DH with `align`. Each caller ran with `-r chr20` and 8 threads (DeepVariant with 4) on a 4-core Ryzen 5350GE.
+Scored against [Genome in a Bottle](https://www.nist.gov/programs-projects/genome-bottle)'s HG002 v4.2.1 truth set on chr20, inside its confident regions, with `rtg vcfeval` (genotypes must match). The reads are Google's 35x NovaSeq PCR-free HG002 chr20 reads, aligned to hs38DH with `align`. Each caller ran with `-r chr20` on a 4-core Ryzen 5350GE: 8 threads unless noted (DeepVariant with 4).
 
 | Caller | SNP precision | SNP recall | SNP F1 | Indel precision | Indel recall | Indel F1 | Time |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `vcf snp` + `vcf indel` (bcftools) | 0.974 | 0.993 | 0.984 | 0.949 | 0.949 | 0.949 | 6 min |
+| `vcf snp` + `vcf indel` (bcftools, split priors) | 0.989 | 0.991 | 0.990 | 0.949 | 0.949 | 0.949 | 6.6 min (2 threads) |
 | `vcf freebayes` | 0.976 | 0.995 | 0.985 | 0.970 | 0.966 | 0.968 | 9.5 min |
 | `vcf gatk` | 0.991 | 0.994 | 0.993 | 0.993 | 0.991 | 0.992 | 21 min |
 | `vcf deepvariant` | 0.999 | 0.995 | **0.997** | 0.998 | 0.994 | **0.996** | 18.5 min |
+
+**SNP output changes by default:** `vcf snp` now uses bcftools' default prior instead of `-P 0`. `vcf indel` retains `-P 0` for non-Ultima reads; Ultima's profile and default prior are unchanged. The bcftools row was re-scored after concatenating and normalizing the independently generated SNP/default-prior and indel/`-P 0` VCFs. SNP-only scoring independently confirmed the F1 improvement (0.9830 → 0.9897); default-prior indel-only F1 regressed (0.9420 → 0.9383), so its prior was retained. The other callers were not re-benchmarked, and the times are individual runs, not controlled throughput comparisons.
 
 **Ultima reads.** There's no GIAB truth set for an Ultima-sequenced sample with public reads. Instead, this compares against the same tissue (GIAB HG008-N-D) sequenced on Illumina: its 169x BAM downsampled to ~40x and called with bcftools. Both are scored on chr20 inside GIAB's "not in any difficult region" stratification (50.8 Mb). The setup is otherwise the same as above, without rtg (alleles and genotype class must match).
 
