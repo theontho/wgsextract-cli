@@ -178,6 +178,15 @@ The Ultima reads are Ultima's GIAB CRAM, downsampled to ~30x and realigned to hs
 
 bcftools and GATK call extra indels in homopolymers, Ultima's main error mode, so use DeepVariant for Ultima indels.
 
+For flow-aware Ultima input, `vcf gatk --scatter` optionally runs independent
+HaplotypeCaller processes over nonoverlapping intervals, then gathers in reference
+order. It is **off by default**: new assembly boundaries can change calls.
+Concurrency is capped by `--threads` and available physical RAM, allowing 6 GiB per
+worker with an explicit 4 GiB Java heap. If only one worker fits, the original
+unscattered path is used. `--memory` remains the shared sort-memory setting, not a
+GATK heap setting. Scattering requires bcftools and tabix in addition to GATK and
+samtools, and cannot be combined with `--gpu`.
+
 ### Pixi environments
 
 Some tools live in their own Pixi environment. When such a tool is not on `PATH`, the CLI runs it through `pixi run -e <environment>` automatically, downloading the environment on first use. The `cyrius`, `t1k`, `expansionhunter`, and `pharmcat` environments are the exception: install them yourself with `pixi install -e <environment>` (Cyrius is licensed for noncommercial use only). You can also run a whole command inside an environment from the app directory (`wgsextract-cli/app/`) or a source checkout:

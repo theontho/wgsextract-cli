@@ -112,7 +112,14 @@ filesystem for reference-index storage.
   active contig worker plus 256 MiB. Serial calling is the default; `--parallel`
   (`parallel=True` in the API) enables multiple workers, capped by reference
   contig count and one worker for an explicit region. GATK uses a **6 GiB
-  heuristic**, not a claim about its Java heap limit. These non-alignment models
+  heuristic per worker**, not a claim about its Java heap limit. The opt-in
+  `vcf gatk --scatter` flow-mode path selects at most `--threads` workers and
+  one worker per 6 GiB of currently available physical RAM, then supplies that
+  count as `gatk_workers` to the reusable estimator. Each parallel JVM has an
+  explicit 4 GiB heap and one native PairHMM/GC worker; the remaining allowance
+  covers non-heap memory. Unknown RAM or room for only one worker retains the
+  original unscattered command. This is a conservative concurrency policy, not
+  a reservation or hard RSS cap. These non-alignment models
   are conservative heuristics, not measured guarantees for every caller, read
   length or depth.
 

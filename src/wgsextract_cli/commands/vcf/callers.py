@@ -23,6 +23,7 @@ from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 
 from .basic import get_base_args, plain_reference
+from .gatk_scatter import call_scattered, scatter_intervals
 
 
 def _prepare_gatk_input(
@@ -47,17 +48,19 @@ def _prepare_gatk_input(
     logging.info(f"Preparing regional BAM for GATK from CRAM input ({args.region})...")
     try:
         samtools = get_tool_path("samtools")
+        regions = [part.strip() for part in args.region.split(",") if part.strip()]
         run_command(
             [
                 samtools,
                 "view",
                 "-bh",
+                *(["-M"] if len(regions) > 1 else []),
                 "-T",
                 ref,
                 "-o",
                 temp_bam,
                 args.input,
-                args.region,
+                *regions,
             ],
             check=True,
         )
@@ -176,12 +179,17 @@ def _gatk_gpu(args: argparse.Namespace) -> None:
 
 
 def cmd_gatk(args: argparse.Namespace) -> None:
+    scatter = getattr(args, "scatter", False)
     if getattr(args, "gpu", False):
+        if scatter:
+            raise WGSExtractError("GATK --scatter cannot be combined with --gpu.")
         _gatk_gpu(args)
         return
-    verify_dependencies(["gatk", "samtools"])
+    verify_dependencies(
+        ["gatk", "samtools", *(["bcftools", "tabix"] if scatter else [])]
+    )
     _threads, outdir, ref, lib = get_base_args(args)
-
+    shards = scatter_intervals(ref, args.region, _threads) if scatter else []
     preflight_resources(
         lambda: estimate_resources(
             "gatk",
@@ -191,6 +199,7 @@ def cmd_gatk(args: argparse.Namespace) -> None:
             threads=_threads,
             region=args.region,
             temp_dir=tempfile.gettempdir(),
+            gatk_workers=len(shards) or 1,
         )
     )
     out_vcf = str(Path(outdir, "gatk.vcf.gz"))
@@ -201,6 +210,11 @@ def cmd_gatk(args: argparse.Namespace) -> None:
             "Ultima reads: calling in GATK's flow mode (--flow-mode ADVANCED)."
         )
         flow_args = ["--flow-mode", "ADVANCED"]
+    elif scatter:
+        raise WGSExtractError("GATK --scatter requires flow-aware Ultima input.")
+    if len(shards) == 1:
+        logging.info("GATK scattering fits one worker; using the unscattered path.")
+        shards = []
 
     # GATK requires a .dict file
     if not lib.dict_file:
@@ -223,6 +237,27 @@ def cmd_gatk(args: argparse.Namespace) -> None:
 
     try:
         gatk_input, temp_gatk_input = _prepare_gatk_input(args, ref, outdir)
+        if shards:
+            with tempfile.TemporaryDirectory(
+                dir=outdir, prefix=".wgse_gatk_scatter_"
+            ) as work:
+                call_scattered(
+                    [
+                        "gatk",
+                        "HaplotypeCaller",
+                        "-R",
+                        java_local_path(ref),
+                        "-I",
+                        java_local_path(gatk_input),
+                        *flow_args,
+                    ],
+                    shards,
+                    out_vcf,
+                    Path(work),
+                    gatk_tmp,
+                )
+            warn_if_no_variants(out_vcf, ref, args.region)
+            return
         cmd = (
             [
                 "gatk",
