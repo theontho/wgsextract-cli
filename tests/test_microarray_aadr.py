@@ -228,28 +228,43 @@ def test_a_bad_marker_table_leaves_no_partial_outputs(tmp_path, markers):
 
 @needs_tools("bcftools", "bgzip", "tabix", "samtools")
 @pytest.mark.parametrize(
-    ("records", "expected"),
+    ("records", "expected", "policy"),
     [
         (
             "chr1\t100\trs1\tA\tG\t.\tPASS\t.\tGT\t0/0\n"
             "chr1\t100\trs1\tA\tG\t.\tPASS\t.\tGT\t1/1\n"
             "chr1\t300\trs3\tG\tA\t.\tPASS\t.\tGT\t0/1\n",
             "9\n1\n9\n",
+            {},
         ),
         (
             "chr1\t100\trs1\tA\tG\t.\tPASS\t.\tGT\t0/0\n"
             "chr1\t300\trs3\tG\tGA\t.\tPASS\t.\tGT\t1/1\n",
             "2\n9\n9\n",
+            {},
         ),
         (
             "chr1\t100\trs1\ta\tg\t.\tPASS\t.\tGT\t0/1\n"
             "chr1\t300\trs3\tG\tA\t.\tPASS\t.\tGT\t0/1\n",
             "1\n1\n9\n",
+            {},
+        ),
+        (
+            "chr1\t100\trs1\tA\tG\t.\tPASS\t.\tGT:GQ:DP\t0/0:10:50\n"
+            "chr1\t300\trs3\tG\tA\t.\tPASS\t.\tGT:GQ:DP\t0/1:99:50\n",
+            "9\n1\n9\n",
+            {"min_gq": 20},
+        ),
+        (
+            "chr1\t100\trs1\tA\tG\t.\tPASS\t.\tGT:GQ:DP\t0/0:99:3\n"
+            "chr1\t300\trs3\tG\tA\t.\tPASS\t.\tGT:GQ:DP\t0/1:99:50\n",
+            "9\n1\n9\n",
+            {"min_dp": 10},
         ),
     ],
 )
-def test_cli_vcf_conflicts_and_rejected_indels_cannot_be_reference_filled(
-    tmp_path, markers, monkeypatch, records, expected
+def test_cli_vcf_rejected_calls_cannot_be_reference_filled(
+    tmp_path, markers, monkeypatch, records, expected, policy
 ):
     fasta = tmp_path / "hg19.fa"
     sequence = list("A" * 500)
@@ -261,6 +276,8 @@ def test_cli_vcf_conflicts_and_rejected_indels_cannot_be_reference_filled(
         "##fileformat=VCFv4.2\n"
         "##contig=<ID=chr1,length=500>\n"
         '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        '##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype quality">\n'
+        '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">\n'
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample\n" + records
     )
     compressed = str(plain) + ".gz"
@@ -287,6 +304,7 @@ def test_cli_vcf_conflicts_and_rejected_indels_cannot_be_reference_filled(
         parallel=False,
         ref_vcf_tab=None,
         ploidy_file=None,
+        **policy,
     )
     microarray.run(args)
     assert (out / "input_AADR_ho.geno").read_text() == expected
