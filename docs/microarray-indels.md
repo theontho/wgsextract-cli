@@ -18,7 +18,8 @@ Only GRCh37, sequence-defined `[I/D]`/`[D/I]` probes are eligible. The manifest
 must identify the same marker **and** coordinate in the selected vendor template.
 A generic manufacturer's array is not a guarantee of a vendor's customized chip
 revision. Bind manifests separately to format IDs; conflicting definitions are
-quarantined, not resolved by first/last row order.
+quarantined, including unsupported duplicate definitions, not resolved by
+first/last row order.
 
 ## Calling and output
 
@@ -27,6 +28,8 @@ quarantined, not resolved by first/last row order.
   label alone is never enough to infer an allele. Ambiguous/unmatched reference
   contexts stay missing. GRCh38 uses a unique primary-contig forward mapping to
   locate the context, then verifies it against the actual reference sequence.
+  Mitochondrial GRCh37/38 coordinates share rCRS and bypass UCSC liftover; the
+  actual mitochondrial reference context must still verify.
 - `bcftools norm` left-aligns and verifies DNA alleles. Conflicting distinct
   allele definitions at the same normalized position are excluded.
 - Alignments use a separate indel-enabled `bcftools mpileup` stream and constrained
@@ -38,6 +41,8 @@ quarantined, not resolved by first/last row order.
   The existing GQ/DP/FILTER options apply to the indel call itself. Enabled rsID
   identity rejection checks both the manifest marker and input record IDs;
   a later duplicate cannot restore a rejected call.
+  Unindexed VCF/BCF input is sorted and indexed in an invocation-local
+  `IndelInput_*` directory, never beside the original input.
 - Verified vendor layouts are 23andMe, AncestryDNA and MyHeritage. `I` means the
   longer sequence and `D` the shorter one, regardless of which is the reference.
   Diploid homozygotes are `II`/`DD`; unphased heterozygotes are canonically `DI`.

@@ -38,6 +38,30 @@ from wgsextract_cli.core.variant_files import (
 IndelCalls = dict[str, dict[tuple[str, str, str], str]]
 
 
+def prepare_indel_vcf(source: str, outdir: str) -> str:
+    """Keep preparation local, including when a source is on read-only storage."""
+    if vcf_index_chromosomes(source):
+        return source
+    workdir = tempfile.mkdtemp(prefix="IndelInput_", dir=outdir)
+    prepared = str(Path(workdir, "input.vcf.gz"))
+    run_command(
+        [
+            "bcftools",
+            "sort",
+            "-m",
+            "128M",
+            "-T",
+            str(Path(workdir, "sort")),
+            "-Oz",
+            "-o",
+            prepared,
+            source,
+        ]
+    )
+    run_command(["bcftools", "index", "-t", prepared])
+    return prepared
+
+
 def indel_manifest_bindings(
     args: argparse.Namespace, resolve_format: Callable[[str], str | None]
 ) -> dict[str, str]:
@@ -116,11 +140,15 @@ def _reference_windows(
         for line in stream:
             parts = line.split("\t")
             contigs[parts[0]] = int(parts[1])
-    lifter = aadr_lifter(build, workdir, root)
+    lifter = (
+        aadr_lifter(build, workdir, root)
+        if any(probe.chrom != "MT" for probe in probes.values())
+        else None
+    )
     regions: dict[str, list[str]] = defaultdict(list)
     for key, probe in probes.items():
         chrom, position = probe.chrom, probe.position
-        if lifter:
+        if lifter and chrom != "MT":
             hits = lifter.convert_coordinate("chr" + chrom, position - 1)
             if not hits or len(hits) != 1 or "_" in hits[0][0]:
                 continue
@@ -358,7 +386,8 @@ def call_manifest_indels(
     vcf = str(Path(workdir, "indels.vcf.gz"))
     is_vcf = args.input.endswith((".vcf", ".vcf.gz", ".bcf"))
     if is_vcf:
-        chroms = vcf_index_chromosomes(args.input)
+        source = prepare_indel_vcf(args.input, workdir)
+        chroms = vcf_index_chromosomes(source)
         if not any(match_chromosome_name(s.chrom, set(chroms)) for s in sites.values()):
             Path(workdir, "indel-calls.tsv").write_text(
                 "#FORMAT\tID\tCHROM\tPOS\tCALL\n", newline="\n"
@@ -387,7 +416,7 @@ def call_manifest_indels(
         _calling_regions(source_sites, regions, padding=200)
         run_pipeline(
             [
-                ["bcftools", "view", "-R", str(regions), "-Ou", args.input],
+                ["bcftools", "view", "-R", str(regions), "-Ou", source],
                 ["bcftools", "annotate", "--rename-chrs", str(rename), "-Ou"],
                 ["bcftools", "norm", "-f", lib.fasta, "-Oz", "-o", vcf],
             ],

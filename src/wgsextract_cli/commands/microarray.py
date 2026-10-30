@@ -31,6 +31,7 @@ from wgsextract_cli.core.microarray_indels import (
     IndelCalls,
     call_manifest_indels,
     indel_manifest_bindings,
+    prepare_indel_vcf,
 )
 from wgsextract_cli.core.microarray_quality import quality_policy
 from wgsextract_cli.core.microarray_targets import (
@@ -370,6 +371,10 @@ def run(args: argparse.Namespace) -> None:
     is_vcf = args.input.endswith((".vcf", ".vcf.gz", ".bcf"))
     if not is_vcf:
         warn_about_alignment(args.input, ref_fasta)
+    calling_args = args
+    if indel_bindings and is_vcf:
+        calling_args = argparse.Namespace(**vars(args))
+        calling_args.input = prepare_indel_vcf(args.input, outdir)
 
     region_args = ["-r", args.region] if args.region else []
     input_chroms = None
@@ -404,7 +409,7 @@ def run(args: argparse.Namespace) -> None:
         region=region_args[1] if region_args else None,
     ) as sex_args:
         out_vcf, ref_vcf_tab = _prepare_microarray_vcf(
-            args=args,
+            args=calling_args,
             outdir=calling_outdir,
             base_name=base_name,
             is_vcf=is_vcf,
@@ -421,7 +426,7 @@ def run(args: argparse.Namespace) -> None:
             indel_calls = call_manifest_indels(
                 indel_bindings,
                 _template_search_roots(ref_fasta, lib),
-                args=args,
+                args=calling_args,
                 lib=lib,
                 outdir=outdir,
                 ploidy_args=ploidy_args + sex_args,

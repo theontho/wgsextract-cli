@@ -56,12 +56,21 @@ def test_read_real_manifest_schema_and_supported_compression(tmp_path, suffix):
 
 
 @pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize(
+    "alternate_context",
+    [
+        LEFT + "[A/-]" + RIGHT,
+        LEFT + "[AC/GTT]" + RIGHT,
+        LEFT + "[I/D]" + RIGHT,
+        "N" + LEFT[1:] + "[GT/-]" + RIGHT,
+    ],
+)
 def test_conflicting_probe_revisions_are_quarantined_regardless_of_order(
-    tmp_path, reverse
+    tmp_path, reverse, alternate_context
 ):
     rows = [
         ["rsProbe", "[I/D]", "37", "1", "700", CONTEXT],
-        ["rsProbe", "[I/D]", "37", "1", "700", LEFT + "[A/-]" + RIGHT],
+        ["rsProbe", "[I/D]", "37", "1", "700", alternate_context],
         ["rsOther", "[D/I]", "37", "1", "800", CONTEXT],
     ]
     path = _manifest(tmp_path / "manifest.csv", rows[::-1] if reverse else rows)
@@ -180,6 +189,7 @@ def test_force_genotype_known_indel_alleles_with_real_native_caller(
 
 
 @needs_tools("bcftools", "samtools", "bgzip", "tabix")
+@pytest.mark.parametrize("input_kind", ["indexed_vcf", "plain_vcf", "unindexed_bcf"])
 @pytest.mark.parametrize(
     ("chrom", "region", "genotype", "expected"),
     [
@@ -190,7 +200,7 @@ def test_force_genotype_known_indel_alleles_with_real_native_caller(
     ],
 )
 def test_vcf_aliases_and_region_limits_never_call_absent_contigs(
-    tmp_path, probe_inputs, chrom, region, genotype, expected
+    tmp_path, probe_inputs, chrom, region, genotype, expected, input_kind
 ):
     manifest, lib = probe_inputs
     source = tmp_path / "input.vcf"
@@ -200,11 +210,17 @@ def test_vcf_aliases_and_region_limits_never_call_absent_contigs(
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample\n"
         f"{chrom}\t700\t.\tCGT\tC\t.\tPASS\t.\tGT\t{genotype}\n"
     )
-    compressed = bgzip_index(source)
+    if input_kind == "indexed_vcf":
+        prepared = bgzip_index(source)
+    elif input_kind == "unindexed_bcf":
+        prepared = str(source.with_suffix(".bcf"))
+        run_command(["bcftools", "view", "-Ob", "-o", prepared, str(source)])
+    else:
+        prepared = str(source)
     calls = call_manifest_indels(
         {"23andMe_V5_2025": manifest},
         [str(tmp_path)],
-        args=argparse.Namespace(input=str(compressed), region=region),
+        args=argparse.Namespace(input=prepared, region=region),
         lib=lib,
         outdir=str(tmp_path),
         ploidy_args=["--ploidy", "2"],
@@ -333,11 +349,27 @@ def test_identity_rejection_of_probe_or_source_cannot_be_restored(
 
 @needs_tools("bcftools", "samtools", "bgzip", "tabix")
 @pytest.mark.parametrize(("gt", "code"), [("0", "I"), ("1", "D")])
+@pytest.mark.parametrize(
+    ("chrom", "build", "ancestry_chrom"),
+    [
+        ("Y", "hg19", "24"),
+        ("MT", "hg38", "26"),
+    ],
+)
 def test_haploid_indels_follow_each_verified_vendor_ploidy_style(
-    tmp_path, alignment, gt, code
+    tmp_path, alignment, monkeypatch, gt, code, chrom, build, ancestry_chrom
 ):
+    if chrom == "MT":
+        from wgsextract_cli.core import microarray_indels
+
+        monkeypatch.setattr(
+            microarray_indels,
+            "aadr_lifter",
+            lambda *_a: pytest.fail("MT must not require a chain"),
+        )
     sequence = "".join(Path(alignment["ref"]).read_text().splitlines()[1:])
-    ref = write_fasta(tmp_path / "ref.fa", {"chrY": sequence})
+    reference_chrom = "chrM" if chrom == "MT" else "chrY"
+    ref = write_fasta(tmp_path / "ref.fa", {reference_chrom: sequence})
     manifest = _manifest(
         tmp_path / "manifest.csv",
         [
@@ -345,7 +377,7 @@ def test_haploid_indels_follow_each_verified_vendor_ploidy_style(
                 "rsProbe",
                 "[I/D]",
                 "37",
-                "Y",
+                chrom,
                 "700",
                 sequence[640:700] + "[GT/-]" + sequence[702:762],
             ]
@@ -353,29 +385,29 @@ def test_haploid_indels_follow_each_verified_vendor_ploidy_style(
     )
     bodies = tmp_path / "raw_file_templates/body"
     bodies.mkdir(parents=True)
-    (bodies / "23andMe_V5_2025.txt").write_text("rsProbe\tY\t700\n")
-    (bodies / "Ancestry_V2_2024.txt").write_text("rsProbe\t24\t700\n")
-    (bodies / "MyHeritage_GSA_2025.csv").write_text('"rsProbe","Y","700",\n')
+    (bodies / "23andMe_V5_2025.txt").write_text(f"rsProbe\t{chrom}\t700\n")
+    (bodies / "Ancestry_V2_2024.txt").write_text(f"rsProbe\t{ancestry_chrom}\t700\n")
+    (bodies / "MyHeritage_GSA_2025.csv").write_text(f'"rsProbe","{chrom}","700",\n')
     source = tmp_path / "input.vcf"
     source.write_text(
-        "##fileformat=VCFv4.2\n##contig=<ID=chrY,length=1000>\n"
+        f"##fileformat=VCFv4.2\n##contig=<ID={reference_chrom},length=1000>\n"
         '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample\n"
-        f"chrY\t700\t.\tCGT\tC\t.\tPASS\t.\tGT\t{gt}\n"
+        f"{reference_chrom}\t700\t.\tCGT\tC\t.\tPASS\t.\tGT\t{gt}\n"
     )
     calls = call_manifest_indels(
         dict.fromkeys(
             ("23andMe_V5_2025", "Ancestry_V2_2024", "MyHeritage_GSA_2025"), manifest
         ),
         [str(tmp_path)],
-        args=argparse.Namespace(input=bgzip_index(source), region="chrY"),
-        lib=SimpleNamespace(fasta=str(ref), build="hg19", root=None),
+        args=argparse.Namespace(input=bgzip_index(source), region=reference_chrom),
+        lib=SimpleNamespace(fasta=str(ref), build=build, root=None),
         outdir=str(tmp_path),
         ploidy_args=["--ploidy", "GRCh37"],
         threads="1",
     )
     assert calls == {
-        "23andMe_V5_2025": {("rsProbe", "Y", "700"): code},
-        "Ancestry_V2_2024": {("rsProbe", "24", "700"): code * 2},
-        "MyHeritage_GSA_2025": {("rsProbe", "Y", "700"): code * 2},
+        "23andMe_V5_2025": {("rsProbe", chrom, "700"): code},
+        "Ancestry_V2_2024": {("rsProbe", ancestry_chrom, "700"): code * 2},
+        "MyHeritage_GSA_2025": {("rsProbe", chrom, "700"): code * 2},
     }

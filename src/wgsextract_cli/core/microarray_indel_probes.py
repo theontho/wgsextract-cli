@@ -83,6 +83,7 @@ def read_indel_manifest(
         raise WGSExtractError(f"Indel manifest not found: {path}")
     required = {"Name", "SNP", "GenomeBuild", "Chr", "MapInfo", "SourceSeq"}
     probes: dict[tuple[str, str, int], IndelProbe] = {}
+    contexts: dict[tuple[str, str, int], str] = {}
     rejected: set[tuple[str, str, int]] = set()
     with _manifest_stream(path) as stream:
         reader = csv.reader(stream)
@@ -111,12 +112,19 @@ def read_indel_manifest(
                 not marker
                 or not position.isdigit()
                 or int(position) < 1
-                or not _CONTEXT.fullmatch(context)
                 or chrom not in {*map(str, range(1, 23)), "X", "Y", "MT"}
             ):
                 continue
+            key = marker, chrom, int(position)
+            if key in rejected:
+                continue
+            if contexts.setdefault(key, context) != context:
+                rejected.add(key)
+                probes.pop(key, None)
+                continue
             match = _CONTEXT.fullmatch(context)
-            assert match is not None
+            if not match:
+                continue
             _, a, b, _ = match.groups()
             a, b = a.replace("-", ""), b.replace("-", "")
             if len(a) == len(b):
@@ -127,15 +135,7 @@ def read_indel_manifest(
                 a, b = a[:-1], b[:-1]
             if a and b:
                 continue
-            key = marker, chrom, int(position)
-            probe = IndelProbe(marker, chrom, int(position), context)
-            if key in rejected:
-                continue
-            if key in probes and probes[key] != probe:
-                rejected.add(key)
-                probes.pop(key)
-            else:
-                probes[key] = probe
+            probes[key] = IndelProbe(marker, chrom, int(position), context)
     if not probes:
         raise WGSExtractError("No unambiguous sequence-defined I/D probes in manifest.")
     return probes
