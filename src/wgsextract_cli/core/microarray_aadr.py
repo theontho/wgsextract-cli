@@ -3,7 +3,9 @@
 import contextlib
 import gzip
 import logging
+import os
 import re
+import tempfile
 from collections.abc import Iterator
 from dataclasses import dataclass
 from decimal import Decimal
@@ -17,7 +19,7 @@ from wgsextract_cli.core.microarray_targets import (
     _write_target,
 )
 from wgsextract_cli.core.ref_library.downloads import download_file
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 AADR_FORMATS = {
     "aadr_1240k": "1240k",
@@ -71,12 +73,18 @@ def _chrom_name(chrom: str) -> str:
     return {"23": "X", "24": "Y", "90": "MT", "M": "MT"}.get(chrom, chrom)
 
 
-def aadr_lifter(build: str | None, outdir: str) -> LiftOver | None:
+def aadr_lifter(
+    build: str | None, outdir: str, reflib_dir: str | None = None
+) -> LiftOver | None:
     build = canonical_build(build or "")
     if build == "hg19":
         return None
     if build != "hg38":
         raise WGSExtractError("AADR export requires a known GRCh37 or GRCh38 build.")
+    if reflib_dir:
+        installed = Path(reflib_dir, "hg19ToHg38.over.chain.gz")
+        if installed.is_file():
+            return LiftOver(str(installed))
     chain = Path(outdir, "hg19ToHg38.over.chain.gz")
     if not chain.is_file() and not download_file(HG19_TO_HG38_CHAIN_URL, str(chain)):
         raise WGSExtractError("Could not download the GRCh37-to-GRCh38 AADR chain.")
@@ -105,7 +113,7 @@ def build_aadr_target(
     """Use a separate run-local target; never change legacy cached targets."""
     markers: dict[tuple[str, int], str] = {}
     if base_target:
-        opener = gzip.open if base_target.endswith(".gz") else open
+        opener = gzip.open if base_target.endswith((".gz", ".bgz")) else open
         with opener(base_target, "rt") as source:
             for line in source:
                 if line.startswith("#") or not line.strip():
@@ -124,9 +132,41 @@ def build_aadr_target(
         if coordinate:
             chrom, pos, _inverted = coordinate
             markers.setdefault(("chr" + chrom, pos), marker.snp_id)
-    target = str(Path(outdir, "AADR_targets.tab.gz"))
-    _write_target(markers, target)
+    fd, target = tempfile.mkstemp(prefix="AADR_targets_", suffix=".tab.gz", dir=outdir)
+    os.close(fd)
+    try:
+        _write_target(markers, target)
+    except BaseException:
+        Path(target).unlink(missing_ok=True)
+        Path(target + ".tbi").unlink(missing_ok=True)
+        raise
     return target
+
+
+def aadr_vcf_nocalls(vcf: str, outdir: str) -> set[tuple[str, int]]:
+    """Only invalidate calls: never undo CombinedKit's quality/no-call decisions."""
+    seen: dict[tuple[str, int], str] = {}
+    rejected: set[tuple[str, int]] = set()
+    with tempfile.TemporaryFile("w+", dir=outdir) as stream:
+        run_command(
+            ["bcftools", "query", "-f", "%CHROM\t%POS\t[%TGT]\n", vcf],
+            stdout=stream,
+        )
+        stream.seek(0)
+        for line in stream:
+            chrom, pos, raw = line.rstrip("\n").split("\t")
+            key = (_chrom_name(chrom), int(pos))
+            genotype = raw.replace("/", "").replace("|", "").upper()
+            if len(genotype) == 1:
+                genotype *= 2
+            if len(genotype) != 2 or not set(genotype) <= set("ACGT"):
+                rejected.add(key)
+                continue
+            genotype = "".join(sorted(genotype))
+            if key in seen and seen[key] != genotype:
+                rejected.add(key)
+            seen[key] = genotype
+    return rejected
 
 
 def _read_calls(combined_kit: str) -> dict[tuple[str, int], str]:
@@ -162,6 +202,7 @@ def write_aadr_outputs(
     sample_id: str = "sample",
     sex: str = "U",
     lifter: LiftOver | None = None,
+    vcf_nocalls: set[tuple[str, int]] | None = None,
 ) -> dict[str, int]:
     """Write one diploid sample, retaining AADR order, alleles and genetic map."""
     validate_aadr_sample_id(sample_id)
@@ -184,6 +225,8 @@ def write_aadr_outputs(
                 if coordinate:
                     chrom, pos, inverted = coordinate
                     genotype = calls.get((chrom, pos), "--")
+                    if vcf_nocalls and (chrom, pos) in vcf_nocalls:
+                        genotype = "--"
                     if inverted:
                         genotype = genotype.translate(_COMPLEMENT)
                 dosage = reference_dosage(genotype, marker.ref, marker.alt)

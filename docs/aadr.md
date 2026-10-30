@@ -32,6 +32,10 @@ identify the exact public SNP-only sources.
 - Calls are matched by normalized physical coordinate, not by rsID alone.
   An allele outside the AADR reference/variant pair is missing; **no strand
   guessing**, including at A/T and C/G markers, is performed.
+  For VCF input, conflicting duplicate records and explicitly unsupported calls
+  (including insertion genotypes) are masked directly from the per-record VCF
+  calls, before any CombinedKit reference-filling assumption can affect AADR.
+  This masking only removes calls; it never restores a quality-rejected call.
 - GRCh38 input uses the forward GRCh37-to-GRCh38 UCSC chain to locate each AADR
   marker. Only unique primary-contig hits are used; inverted mappings explicitly
   complement the call back to the AADR strand. Output remains GRCh37. Unmapped
@@ -47,7 +51,13 @@ identify the exact public SNP-only sources.
   or phenotype. Set a unique non-identifying `--aadr-sample-id` before merging.
   `--aadr-sex` changes metadata only, not the caller's ploidy inference.
 
-The AADR targets are run-local. Legacy cached consumer-chip targets are not
+The AADR target and calling intermediates are retained in a unique
+`AADR_*` subdirectory of the output directory for each invocation, isolating
+concurrent samples/builds/panels. The chain is reused read-only from the reference
+library when installed, otherwise downloaded into that invocation's directory.
+The intermediate CombinedKit and calling VCF also stay in that directory;
+the selected PLINK/EIGENSTRAT and vendor exports are written at the output root.
+Legacy cached consumer-chip targets are not
 modified. Mixing AADR and vendor formats adds the AADR sites to the run's target;
 `all,aadr_ho` explicitly includes the existing combined consumer target too.
 An explicit `--ref-vcf-tab` contributes additional sites to an AADR run.
@@ -86,7 +96,7 @@ decoded PLINK BED representation:
 One full-chr20 call has an out-of-panel allele and is correctly missing rather
 than forced into AADR's biallelic coding. Both runs preserve **23/23 legacy
 output files byte-for-byte** (21 vendor formats plus both CombinedKit builds)
-against main `99eb6df`. The built wheel is 50,799,365 bytes and contains the
+against main `99eb6df`. The built wheel is about 50.8 MB and contains the
 marker asset with the documented SHA256.
 
 Focused tests cover reference dosage, missing/third alleles, haploid calls,

@@ -117,8 +117,9 @@ coding, not an inferred ancestral allele or a call from an individual.
   Sharing one table avoids shipping HO twice. The incremental compressed size
   is about 13.5 MiB, comparable to the existing packaged chip lists; the wheel
   remains below PyPI's standard 100 MB limit. No runtime panel download is
-  needed. The UCSC GRCh37-to-GRCh38 chain, when needed, is obtained through the
-  existing reference-download helper into the run's output directory.
+  needed. The UCSC GRCh37-to-GRCh38 chain, when needed, is reused read-only from
+  the reference library or obtained through the existing reference-download
+  helper into the run's unique output subdirectory.
 
 Rebuild from the **two SNP metadata files only**:
 

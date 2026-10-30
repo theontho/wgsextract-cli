@@ -11,7 +11,7 @@ from scripts.microarray_aadr_markers import build_markers
 from tests.htslib_helpers import needs_tools
 from wgsextract_cli.commands import microarray
 from wgsextract_cli.core import microarray_aadr as aadr
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 
 @pytest.fixture
@@ -123,9 +123,31 @@ def test_ambiguous_or_alt_contig_liftover_is_not_used(markers):
     assert aadr._marker_coordinate(marker, Alternate()) is None
 
 
+def test_installed_chain_is_reused_read_only_without_a_download(
+    tmp_path, markers, monkeypatch
+):
+    library = tmp_path / "library"
+    library.mkdir()
+    chain = library / "hg19ToHg38.over.chain.gz"
+    chain.write_bytes(
+        gzip.compress(b"chain 1000 chr1 1000 + 0 500 chr1 1100 + 100 600 1\n500\n\n")
+    )
+    monkeypatch.setattr(
+        aadr, "download_file", lambda *_: pytest.fail("must not download")
+    )
+    out = tmp_path / "not_created"
+    lifter = aadr.aadr_lifter("hg38", str(out), str(library))
+    marker = next(aadr.aadr_markers("1240k"))
+    assert aadr._marker_coordinate(marker, lifter) == ("1", 200, False)
+    assert not out.exists()
+
+
 @needs_tools("bgzip", "tabix")
-def test_separate_target_keeps_legacy_ids_and_does_not_modify_source(tmp_path, markers):
-    original = tmp_path / "legacy.tab.gz"
+@pytest.mark.parametrize("suffix", [".gz", ".bgz"])
+def test_separate_target_keeps_legacy_ids_and_does_not_modify_source(
+    tmp_path, markers, suffix
+):
+    original = tmp_path / ("legacy.tab" + suffix)
     with gzip.open(original, "wt") as stream:
         stream.write("#CHROM\tPOS\tID\nchr1\t100\told_id\nchr20\t100\trs20\n")
     before = original.read_bytes()
@@ -138,6 +160,13 @@ def test_separate_target_keeps_legacy_ids_and_does_not_modify_source(tmp_path, m
     assert "chrX\t500\trs5\n" in text
     assert "chr20\t100\trs20\n" in text
     assert "chr1\t200\trs2\n" not in text
+    before_target = Path(target).read_bytes()
+    second = aadr.build_aadr_target(["1240k"], str(tmp_path), None)
+    assert second != target
+    assert Path(target).read_bytes() == before_target
+    assert Path(target + ".tbi").is_file()
+    with gzip.open(second, "rt") as stream:
+        assert "chr1\t200\trs2\n" in stream.read()
 
 
 def test_marker_builder_rejects_panel_conflicts_and_has_no_genotypes(tmp_path):
@@ -195,3 +224,80 @@ def test_a_bad_marker_table_leaves_no_partial_outputs(tmp_path, markers):
     with pytest.raises(ValueError):
         aadr.write_aadr_outputs("ho", str(calls), str(tmp_path / "broken"))
     assert not list(tmp_path.glob("broken*"))
+
+
+@needs_tools("bcftools", "bgzip", "tabix", "samtools")
+@pytest.mark.parametrize(
+    ("records", "expected"),
+    [
+        (
+            "chr1\t100\trs1\tA\tG\t.\tPASS\t.\tGT\t0/0\n"
+            "chr1\t100\trs1\tA\tG\t.\tPASS\t.\tGT\t1/1\n"
+            "chr1\t300\trs3\tG\tA\t.\tPASS\t.\tGT\t0/1\n",
+            "9\n1\n9\n",
+        ),
+        (
+            "chr1\t100\trs1\tA\tG\t.\tPASS\t.\tGT\t0/0\n"
+            "chr1\t300\trs3\tG\tGA\t.\tPASS\t.\tGT\t1/1\n",
+            "2\n9\n9\n",
+        ),
+        (
+            "chr1\t100\trs1\ta\tg\t.\tPASS\t.\tGT\t0/1\n"
+            "chr1\t300\trs3\tG\tA\t.\tPASS\t.\tGT\t0/1\n",
+            "1\n1\n9\n",
+        ),
+    ],
+)
+def test_cli_vcf_conflicts_and_rejected_indels_cannot_be_reference_filled(
+    tmp_path, markers, monkeypatch, records, expected
+):
+    fasta = tmp_path / "hg19.fa"
+    sequence = list("A" * 500)
+    sequence[299] = "G"
+    fasta.write_text(">chr1\n" + "".join(sequence) + "\n")
+    run_command(["samtools", "faidx", str(fasta)])
+    plain = tmp_path / "input.vcf"
+    plain.write_text(
+        "##fileformat=VCFv4.2\n"
+        "##contig=<ID=chr1,length=500>\n"
+        '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample\n" + records
+    )
+    compressed = str(plain) + ".gz"
+    with open(compressed, "wb") as stream:
+        run_command(["bgzip", "-c", str(plain)], stdout=stream)
+    run_command(["tabix", "-p", "vcf", compressed])
+    lib = SimpleNamespace(
+        root=None,
+        build="hg19",
+        fasta=str(fasta),
+        ref_vcf_tab=None,
+        ploidy_file=None,
+        liftover_chain=None,
+    )
+    monkeypatch.setattr(microarray, "ReferenceLibrary", lambda *_, **__: lib)
+    out = tmp_path / "output"
+    args = argparse.Namespace(
+        input=compressed,
+        ref="unused",
+        outdir=str(out),
+        threads="1",
+        region="chr1:1-400",
+        formats="aadr_ho",
+        parallel=False,
+        ref_vcf_tab=None,
+        ploidy_file=None,
+    )
+    microarray.run(args)
+    assert (out / "input_AADR_ho.geno").read_text() == expected
+    working = list(out.glob("AADR_*/AADR_targets_*.tab.gz"))
+    assert len(working) == 1
+    assert working[0].is_file()
+    first_kit = next(out.glob("AADR_*/input_CombinedKit.txt"))
+    first_bytes = first_kit.read_bytes()
+    args.formats = "aadr_1240k"
+    microarray.run(args)
+    assert first_kit.read_bytes() == first_bytes
+    assert len(list(out.glob("AADR_*/input_CombinedKit.txt"))) == 2
+    assert len((out / "input_AADR_1240k.geno").read_text().splitlines()) == 5
+    assert (out / "input_AADR_ho.geno").read_text() == expected
