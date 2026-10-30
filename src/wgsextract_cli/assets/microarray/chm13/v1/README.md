@@ -6,6 +6,12 @@ panels provide 2,862,500 GRCh37/rCRS sites. Existing template/AADR provenance
 applies to those inputs; upstream reference, chain and marker checksums are
 recorded in `manifest.json`.
 
+The source-allele census covers all 1,233,013 pinned AADR marker rows: none
+has non-SNV source alleles. Vendor templates are marker-only, so their probe
+types are unknown; no manufacturer indel manifest is bundled. The manifest
+records sparse non-SNV exclusions and counts. User-provided known I/D/non-SNV
+markers are separately counted and always no-called by the SNP-only T2T path.
+
 The supported reference is the official CHM13v2.0 **original-MT, masked-Y**
 analysis set (`chm13v2.0_maskedY.fa.gz`, MD5
 `bd90ddb80c86af7fcfeefe7a0909b175`). Its 25 primary sequence signatures match

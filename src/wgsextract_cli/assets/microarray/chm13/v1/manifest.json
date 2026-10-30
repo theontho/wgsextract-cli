@@ -14,7 +14,7 @@
       }
     },
     "generator": "scripts/build_microarray_chm13_map.py",
-    "generator_sha256": "c0705bc5769d1e6bed642d922108e930859a0ee67b6ec1ccbef2d455bd714beb",
+    "generator_sha256": "d8e7487567d8ad4ac4eb1a485dabee93d2b3f4d1630a213c97e046cc54b5b3f5",
     "mapping_counts": {
       "mapped": 2856174,
       "mt_gap": 3,
@@ -334,7 +334,18 @@
           ]
         }
       },
-      "legacy_sites": 2392384
+      "legacy_sites": 2392384,
+      "source_alleles": {
+        "bundled_manifest_defined_indels": 0,
+        "known_marker_rows": 1233013,
+        "manifest_policy": "User-provided known I/D/non-SNV markers are always no-call on CHM13",
+        "non_snv_id_count": 0,
+        "non_snv_ids": [],
+        "non_snv_marker_rows": 0,
+        "non_snv_site_count": 0,
+        "non_snv_sites": [],
+        "source": "AADR v66.p1; vendor source alleles are not packaged"
+      }
     },
     "mitochondria": {
       "CHM13_length": 16569,
