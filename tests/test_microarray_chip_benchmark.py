@@ -76,6 +76,23 @@ def test_real_ftdna_unplaced_probes_remain_missing(tmp_path: Path) -> None:
     }
 
 
+def test_malformed_genotypes_cannot_inflate_concordance(tmp_path: Path) -> None:
+    path = tmp_path / "kit.tsv"
+    malformed = ["A//G", "/AG", "AG/", "A/|G"]
+    path.write_text(
+        "".join(
+            f"rs{number}\t20\t{number}\t{gt}\n"
+            for number, gt in enumerate(malformed, 1)
+        ),
+        newline="\n",
+    )
+    calls = read_chip_export(path, "CombinedKit")
+    truth = {marker: ChipCall("20", "AG") for marker in calls}
+    result = score_chip(calls, truth)
+    assert result.total.eligible == result.total.nocall == len(malformed)
+    assert result.total.as_dict()["concordance"] is None
+
+
 def test_score_reports_missingness_mismatches_and_per_chromosome() -> None:
     truth = {
         "rs1": ChipCall("20", "AG"),

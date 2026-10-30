@@ -44,7 +44,13 @@ class ChipCall:
 
 
 def _genotype(value: str) -> str | None:
-    value = value.strip().upper().replace("/", "").replace("|", "")
+    value = value.strip().upper()
+    if "/" in value or "|" in value:
+        separator = "/" if "/" in value else "|"
+        alleles = value.split(separator)
+        if len(alleles) != 2 or any(len(allele) != 1 for allele in alleles):
+            return None
+        value = "".join(alleles)
     return (
         "".join(sorted(value))
         if len(value) in {1, 2} and all(a in "ACGT" for a in value)
