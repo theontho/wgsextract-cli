@@ -7,12 +7,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from scripts.build_microarray_chm13_map import write_site_map
-from wgsextract_cli.core.microarray_chm13 import CHM13Catalogue, ReferenceContig
-from wgsextract_cli.core.microarray_site_map import SiteProjection, load_site_map
 
+from scripts.build_microarray_chm13_map import write_site_map
 from wgsextract_cli.commands import _microarray_chm13 as command
 from wgsextract_cli.core import microarray_aadr as aadr
+from wgsextract_cli.core.microarray_chm13 import CHM13Catalogue, ReferenceContig
+from wgsextract_cli.core.microarray_site_map import SiteProjection, load_site_map
 
 pytestmark = pytest.mark.skipif(
     not all(shutil.which(tool) for tool in ("bcftools", "samtools", "tabix", "bgzip")),

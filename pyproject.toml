@@ -39,6 +39,9 @@ ignore = [
     "E501",
 ] # Allow long lines
 
+[tool.ruff.lint.isort]
+known-first-party = ["scripts", "wgsextract_cli"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+
 from scripts.build_microarray_chm13_map import write_site_map
 from wgsextract_cli.commands._microarray_chm13 import _regions, _selected
 from wgsextract_cli.core.microarray_chm13_calls import (

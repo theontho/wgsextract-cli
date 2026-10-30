@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from scripts.build_microarray_chm13_map import write_site_map
 from wgsextract_cli.core.microarray_chm13 import (
     load_chm13_catalogue,
@@ -15,7 +16,6 @@ from wgsextract_cli.core.microarray_chm13 import (
     write_chm13_ploidy,
 )
 from wgsextract_cli.core.microarray_site_map import _CHROMS, SiteProjection
-
 from wgsextract_cli.core.sample_ploidy import _sex_aware
 from wgsextract_cli.core.utils import WGSExtractError
 
@@ -34,7 +34,12 @@ def test_packaged_catalogue_loads_and_roundtrips_native_sites():
         assert mapping.native_lookup(site.target_chrom, site.target_pos) == site
 
 
-def _catalogue(directory: Path, *, bad_mask: bool = False) -> Path:
+def _catalogue(
+    directory: Path,
+    *,
+    bad_mask: bool = False,
+    source_alleles: dict[str, object] | None = None,
+) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     alignment = b">rCRS\nA\n>CHM13\nA\n"
     compressed = gzip.compress(alignment, mtime=0)
@@ -74,6 +79,7 @@ def _catalogue(directory: Path, *, bad_mask: bool = False) -> Path:
         lengths,
         directory,
         {
+            "markers": {"source_alleles": source_alleles or {}},
             "native_reference": profile,
             "mitochondria": {
                 "alignment_file": alignment_name,
@@ -114,6 +120,22 @@ def test_ploidy_uses_native_par_boundaries_and_haploid_mitochondria(
 def test_catalogue_rejects_a_different_y_masking_profile(tmp_path: Path) -> None:
     with pytest.raises(WGSExtractError, match="PAR masking"):
         load_chm13_catalogue(_catalogue(tmp_path, bad_mask=True))
+
+
+def test_source_non_snv_exclusions_survive_asset_loading(tmp_path: Path) -> None:
+    catalogue = load_chm13_catalogue(
+        _catalogue(
+            tmp_path,
+            source_alleles={
+                "non_snv_sites": [["chr1", 10]],
+                "non_snv_site_count": 1,
+                "non_snv_ids": ["knownIndel"],
+                "non_snv_id_count": 1,
+            },
+        )
+    )
+    assert catalogue.non_snv_sites == {("chr1", 10)}
+    assert catalogue.non_snv_ids == {"knownIndel"}
 
 
 def test_catalogue_detects_reference_metadata_corruption(tmp_path: Path) -> None:
