@@ -228,7 +228,27 @@ def check_index(ref: str) -> None:
 def _check_native_windows_build(ref: str) -> None:
     if platform_system() != "Windows":
         return
-    bases = reference_bases(ref)
+    try:
+        fai = Path(ref + ".fai")
+        if fai.is_file():
+            bases = 0
+            names: set[str] = set()
+            for row in fai.read_text().splitlines():
+                fields = row.split("\t")
+                if (
+                    len(fields) != 5
+                    or not fields[0]
+                    or fields[0] in names
+                    or not all(value.isdecimal() for value in fields[1:])
+                    or int(fields[1]) <= 0
+                ):
+                    raise ValueError("Incomplete or malformed FASTA index")
+                names.add(fields[0])
+                bases += int(fields[1])
+        else:
+            bases = reference_bases(ref)
+    except (OSError, ValueError):
+        bases = 0
     if not bases:
         raise WGSExtractError(
             "Cannot determine the reference length before native Windows bwa-mem2 "

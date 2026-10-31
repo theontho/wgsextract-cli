@@ -526,6 +526,33 @@ def test_windows_unknown_length_does_not_bypass_large_index_guard(
         bwa_mem2.build_index(ref)
 
 
+@pytest.mark.parametrize(
+    "tail",
+    [
+        "chr2\n",
+        "chr2\t1600000000\n",
+        "\n",
+        "chr2\tinvalid\t6\t60\t61\n",
+        "chr2\t-1\t6\t60\t61\n",
+        "chr2\t0\t6\t60\t61\n",
+        "chr1\t1600000000\t6\t60\t61\n",
+    ],
+)
+def test_windows_incomplete_fai_cannot_bypass_large_index_guard(
+    tmp_path, monkeypatch, tail
+):
+    ref = _reference(tmp_path, bases=1_600_000_000)
+    fai = Path(ref + ".fai")
+    fai.write_text(fai.read_text() + tail)
+    monkeypatch.setattr(bwa_mem2, "platform_system", lambda: "Windows")
+    monkeypatch.setattr(
+        bwa_mem2, "run_command", lambda *_a, **_kw: pytest.fail("index process started")
+    )
+    with pytest.raises(WGSExtractError, match="Cannot determine the reference length"):
+        bwa_mem2.build_index(ref)
+    assert not Path(ref + ".bwa-mem2.pending").exists()
+
+
 def test_ref_index_windows_fails_before_starting_large_mem2_build(
     tmp_path, monkeypatch
 ):
