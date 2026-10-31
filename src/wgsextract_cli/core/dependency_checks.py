@@ -7,6 +7,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from wgsextract_cli.core.native_support import (
+    require_native_tool,
+    tool_unsupported_reason,
+)
 from wgsextract_cli.core.pixi_tools import pixi_install_command
 from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.core.windows_arm64 import (
@@ -153,7 +157,9 @@ VERSION_ARGS = {"yleaf": "--help", "bwa-mem2": "version"}
 
 def get_tool_version(tool: str) -> str | None:
     """Attempt to get the version of a tool by running it."""
-    if reason := unsupported_windows_arm64_tool(tool):
+    if reason := (
+        unsupported_windows_arm64_tool(tool) or tool_unsupported_reason(tool)
+    ):
         return f"Error: {reason}"
     # Use the path/command from get_tool_path to handle pixi correctly
     cmd_base = get_tool_path(tool)
@@ -269,6 +275,8 @@ def verify_dependencies(
     if optional_list is None:
         optional_list = OPTIONAL_TOOLS
 
+    for tool in tool_list:
+        require_native_tool(tool)
     missing = check_dependencies(tool_list)
 
     if missing:

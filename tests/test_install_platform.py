@@ -18,9 +18,12 @@ pytestmark = pytest.mark.skipif(
 @pytest.mark.parametrize(
     "parent_path", [True, False], ids=["with-path", "without-path"]
 )
-def test_linux_arm_fails_before_network_or_dependency_setup(
-    tmp_path, monkeypatch, architecture, parent_path
-):
+def test_linux_arm_reaches_normal_dependency_setup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    architecture: str,
+    parent_path: bool,
+) -> None:
     if not parent_path:
         monkeypatch.delenv("PATH", raising=False)
     commands = tmp_path / "commands"
@@ -49,7 +52,8 @@ def test_linux_arm_fails_before_network_or_dependency_setup(
             path for path in (str(commands), os.environ.get("PATH", os.defpath)) if path
         ),
         "WGSEXTRACT_INSTALL_DIR": str(installation),
-        "PIXI_ARCH": "x86_64",
+        "WGSEXTRACT_ARCHIVE_URL": "https://example.invalid/source.tar.gz",
+        "PIXI": str(tmp_path / "missing-pixi"),
     }
     result = subprocess.run(
         [str(SH), str(ROOT / "install.sh")],
@@ -60,7 +64,30 @@ def test_linux_arm_fails_before_network_or_dependency_setup(
         timeout=10,
     )
     assert result.returncode == 1
-    assert f"Native Linux ARM64 ({architecture}) is not supported yet" in result.stderr
-    assert "No dependencies were installed" in result.stderr
+    assert "PIXI is set but is not executable" in result.stderr
+    assert "Native Linux ARM64" not in result.stderr
     assert not marker.exists()
     assert not installation.exists()
+
+
+@pytest.mark.parametrize("architecture", ["aarch64", "arm64"])
+def test_linux_arm_pixi_asset_is_native(tmp_path: Path, architecture: str) -> None:
+    commands = tmp_path / "commands"
+    commands.mkdir()
+    uname = commands / "uname"
+    uname.write_text(
+        f'#!/bin/sh\ncase "$1" in -s) echo Linux;; -m) echo {architecture};; esac\n'
+    )
+    uname.chmod(0o755)
+    source = (ROOT / "install.sh").read_text()
+    function = source.split("pixi_asset_name() {", 1)[1].split(
+        "\nmake_staging_directory()", 1
+    )[0]
+    result = subprocess.run(
+        [str(SH), "-c", "pixi_asset_name() {" + function + "\npixi_asset_name"],
+        env={"PATH": str(commands)},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout == "pixi-aarch64-unknown-linux-musl.tar.gz"

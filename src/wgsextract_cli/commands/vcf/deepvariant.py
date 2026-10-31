@@ -17,6 +17,7 @@ from wgsextract_cli.core.containers import (
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.native_support import require_native_tool
 from wgsextract_cli.core.output_checks import warn_if_no_variants
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
@@ -119,6 +120,7 @@ def _deepvariant_gpu(args: argparse.Namespace) -> None:
 
 
 def cmd_deepvariant(args: argparse.Namespace) -> None:
+    require_native_tool("run_deepvariant")
     if getattr(args, "gpu", False):
         _deepvariant_gpu(args)
         return

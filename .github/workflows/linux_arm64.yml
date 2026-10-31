@@ -1,0 +1,52 @@
+name: CI Linux ARM64
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify native runner architecture
+        run: test "$(uname -m)" = aarch64
+      - name: Set up native Pixi environments
+        uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
+        with:
+          pixi-version: v0.82.0
+          locked: true
+          environments: >-
+            default
+            dev
+            vep
+      - name: Check installed tools and VEP
+        run: |
+          pixi run wgsextract deps check
+          pixi run -e vep --no-install vep --help > /dev/null
+      - name: Test installer
+        run: scripts/test_install_sh.sh
+      - name: Run tests and native generated-genome end-to-end suite
+        run: |
+          pixi run test-ci
+          pixi run pytest --fake-data tests/test_e2e_fast_chrM.py tests/test_e2e_full_genome.py --basetemp=out/arm64-e2e-tmp --junitxml=out/arm64-e2e.xml
+      - name: Publish native test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tests-linux-arm64
+          path: |
+            out/pytest.xml
+            out/coverage.xml
+            out/arm64-e2e.xml

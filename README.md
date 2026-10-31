@@ -11,9 +11,11 @@ Documentation site: <https://theontho.github.io/wgsextract-cli/>. A separate gra
 ## Install
 
 macOS and Linux: open Terminal, paste this command, and press Enter.
-Native Linux ARM64 is not supported yet: the installer refuses before downloading
-or installing dependencies. Native ARM64 support is tracked in #236; this is not
-an x86-emulation fallback.
+Linux x86_64 and native ARM64 (`linux-aarch64`) use the same installer.
+ARM64 phase 1 supports the default alignment/CRAM/calling/export pipeline, VEP,
+Yleaf and Haplogrep; GATK and DeepVariant fail before execution because their
+native ARM64 kernels/distribution are not yet qualified. There is no silent
+Java or x86-emulation fallback. See [Linux ARM64](docs/linux-arm64.md).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh

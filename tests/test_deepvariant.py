@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from wgsextract_cli.commands.vcf import deepvariant
-from wgsextract_cli.core import containers
+from wgsextract_cli.core import containers, native_support
 from wgsextract_cli.core.utils import WGSExtractError
 
 
@@ -23,6 +23,7 @@ def _completed(returncode: int = 0, stderr: str = ""):
 @pytest.fixture
 def files(tmp_path, monkeypatch):
     """A reference, a BAM and an output directory in separate folders."""
+    monkeypatch.setattr(native_support.platform, "machine", lambda: "x86_64")
     for d in ("ref", "bam", "out"):
         (tmp_path / d).mkdir()
     ref = tmp_path / "ref" / "hs38DH.fa.gz"

@@ -13,6 +13,7 @@ from wgsextract_cli.core.atomic_output import safe_output
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.native_support import require_native_tool
 from wgsextract_cli.core.output_checks import warn_if_no_variants
 from wgsextract_cli.core.paths import java_local_path
 from wgsextract_cli.core.reference_assets import read_fai_lengths, reference_dict_path
@@ -185,6 +186,7 @@ def _gatk_gpu(args: argparse.Namespace) -> None:
 
 
 def cmd_gatk(args: argparse.Namespace) -> None:
+    require_native_tool("gatk")
     scatter = getattr(args, "scatter", False)
     if getattr(args, "gpu", False):
         if scatter:

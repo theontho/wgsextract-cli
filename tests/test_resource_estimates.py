@@ -362,6 +362,8 @@ def test_commands_report_before_work(
     module, command, operation, tmp_path, source, monkeypatch
 ):
     monkeypatch.setattr(module, "verify_dependencies", lambda *_: None)
+    if operation == "gatk":
+        monkeypatch.setattr(module, "require_native_tool", lambda _tool: None)
     monkeypatch.setattr(module, "log_dependency_info", lambda *_: None, raising=False)
     if module is bam:
         monkeypatch.setattr(
