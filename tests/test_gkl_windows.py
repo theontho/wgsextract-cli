@@ -38,7 +38,7 @@ def test_windows_gatk_loads_native_utils_omp_pairhmm_and_smithwaterman(
     body = run_command(
         ["bcftools", "view", "-H", str(output / "gatk.vcf.gz")], capture_output=True
     ).stdout
-    (tmp_path / "decoded-body.vcf").write_text(body)
+    (tmp_path / "decoded-body.vcf").write_bytes(body.encode("utf-8"))
     golden = Path(__file__).parent / "fixtures/gatk-linux-avx2/body.tsv"
     assert body == golden.read_text(), "Native GATK VCF fields differ from Linux AVX2"
 
