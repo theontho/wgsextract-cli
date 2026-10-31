@@ -91,8 +91,10 @@ and the matched-ISA JNI parity probe, never Java kernel fallback.
 Linux/macOS GATK invocation is unchanged.
 
 GKL pins belong in `[feature.gatk.target.win-64.dependencies]`, not the default
-Windows-tools block. The package's top-level license is MIT with BSD-3-Clause
-exceptions; preserve the upstream notices.
+Windows-tools block. The GKL source license is MIT with BSD-3-Clause exceptions. Static GCC runtimes
+use GPL-3.0-or-later with the GCC runtime exception; the sidecar and conda
+package preserve their notices. MSYS2's GCC16 makes `libgomp` a separate
+optional build package, explicitly listed in the build toolchain.
 
 ### Tool release
 

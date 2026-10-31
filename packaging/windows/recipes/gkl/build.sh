@@ -23,7 +23,7 @@ g++ "${COMMON[@]}" -mavx2 -shared "$NATIVE/smithwaterman/IntelSmithWaterman.cc" 
     -o "$BIN/gkl_smithwaterman.dll" -static -static-libgcc -static-libstdc++ \
     -Wl,--no-insert-timestamp -s
 
-g++ "${COMMON[@]}" -fopenmp "$RECIPE_DIR/tests/omp_fp_state.cc" \
+g++ "${COMMON[@]}" -fopenmp "$(cygpath -u "$RECIPE_DIR")/tests/omp_fp_state.cc" \
     -o "$SRC_U/.wgse-fp-test.exe" -static -static-libgcc -static-libstdc++
 "$SRC_U/.wgse-fp-test.exe"
 g++ "${COMMON[@]}" -mavx -shared "$NATIVE/pairhmm/IntelPairHmm.cc" \
@@ -45,6 +45,10 @@ for dll in gkl_utils gkl_pairhmm gkl_pairhmm_omp gkl_smithwaterman; do
 done
 cp LICENSE "$SRC_U/.wgse/jar/"
 cp README.md "$SRC_U/.wgse/jar/"
+mkdir -p "$SRC_U/.wgse/jar/META-INF/licenses/gcc-runtime"
+cp /ucrt64/share/licenses/libgomp/COPYING3 \
+    /ucrt64/share/licenses/libgomp/COPYING.RUNTIME \
+    "$SRC_U/.wgse/jar/META-INF/licenses/gcc-runtime/"
 "$JAR" --create --date=2024-01-01T00:00:00Z \
     --file "$PREFIX_U/Library/share/gkl/gkl-native-wgse.jar" \
     -C "$SRC_U/.wgse/jar" .

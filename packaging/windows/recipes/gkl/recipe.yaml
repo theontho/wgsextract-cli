@@ -33,6 +33,9 @@ tests:
 
 about:
   homepage: https://github.com/IntelLabs/GKL
-  license: MIT AND BSD-3-Clause
-  license_file: LICENSE
+  license: MIT AND BSD-3-Clause AND (GPL-3.0-or-later WITH GCC-exception-3.1)
+  license_file:
+    - LICENSE
+    - .wgse/jar/META-INF/licenses/gcc-runtime/COPYING3
+    - .wgse/jar/META-INF/licenses/gcc-runtime/COPYING.RUNTIME
   summary: GKL utils, serial/OpenMP AVX PairHMM and AVX2 Smith-Waterman JNI kernels, statically linked for native Windows.

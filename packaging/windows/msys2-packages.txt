@@ -4,6 +4,7 @@ make
 patch
 perl
 mingw-w64-ucrt-x86_64-gcc
+mingw-w64-ucrt-x86_64-libgomp
 mingw-w64-ucrt-x86_64-zlib
 mingw-w64-ucrt-x86_64-bzip2
 mingw-w64-ucrt-x86_64-xz
