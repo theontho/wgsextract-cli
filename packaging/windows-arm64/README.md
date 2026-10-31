@@ -72,6 +72,9 @@ required. This recipe has not yet passed native qualification. Remote access
 and plugins remain disabled, as in the x64 package.
 Native Release builds retain upstream assertions so assertion-based regression
 fixtures do not become silent no-ops through CMake's `NDEBUG` default.
+Samblaster's staged native recipe reuses the existing POSIX/binary-I/O shim,
+adds MSVC's missing `mempcpy`, and supplies a real SAM header before holding
+stdin open for its live process/module audit. It is not yet qualified.
 
 On an ARM64 Windows OS, configured executable paths and version probes reject
 x64 PE files before launching them. Feature entry also rejects a Prism-hosted

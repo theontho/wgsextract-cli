@@ -13,6 +13,8 @@ find_package(PThreads4W REQUIRED)
 find_package(getopt CONFIG REQUIRED)
 set(WGSE_WINDOWS "${CMAKE_CURRENT_LIST_DIR}/../../../windows")
 configure_file(config.h "${WGSE_HTSLIB_SOURCE}/config.h" COPYONLY)
+set(WGSE_HTS_CC "${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION} ARM64")
+configure_file(config_vars.h.in "${WGSE_HTSLIB_SOURCE}/config_vars.h" @ONLY)
 file(WRITE "${WGSE_HTSLIB_SOURCE}/version.h" "#define HTS_VERSION_TEXT \"1.24\"\n")
 set(CORE_NAMES
     kfunc kstring bcf_sr_sort bgzf errmod faidx header hfile hts hts_expr hts_os

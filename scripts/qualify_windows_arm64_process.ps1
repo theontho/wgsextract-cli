@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory = $true)][string]$Executable,
     [Parameter(Mandatory = $true)][string[]]$Arguments,
     [Parameter(Mandatory = $true)][string]$Prefix,
-    [Parameter(Mandatory = $true)][string]$Report
+    [Parameter(Mandatory = $true)][string]$Report,
+    [string]$InputPrefix = ""
 )
 $ErrorActionPreference = "Stop"
 $info = [Diagnostics.ProcessStartInfo]::new()
@@ -18,6 +19,10 @@ $started = $false
 try {
     $started = $process.Start()
     if (-not $started) { throw "Native tool process could not be started" }
+    if ($InputPrefix) {
+        $process.StandardInput.Write($InputPrefix)
+        $process.StandardInput.Flush()
+    }
     # Keep the real aligner waiting on its input pipe while inspecting modules.
     Start-Sleep -Seconds 1
     if ($process.HasExited) {

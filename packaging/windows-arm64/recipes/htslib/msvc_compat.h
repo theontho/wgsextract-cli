@@ -5,6 +5,32 @@
 #include <stdio.h>
 #include <io.h>
 #include <stdlib.h>
+#include <windows.h>
+#include <errno.h>
+static inline int nanosleep(const struct timespec *request, struct timespec *remaining)
+{
+    if (!request || request->tv_sec < 0 || request->tv_nsec < 0 ||
+        request->tv_nsec >= 1000000000) {
+        errno = EINVAL;
+        return -1;
+    }
+    HANDLE timer = CreateWaitableTimerExW(NULL, NULL,
+        CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    if (!timer) { errno = EIO; return -1; }
+    LARGE_INTEGER due;
+    due.QuadPart = -(request->tv_sec * 10000000 + (request->tv_nsec + 99) / 100);
+    if (!due.QuadPart) {
+        CloseHandle(timer);
+        if (remaining) memset(remaining, 0, sizeof(*remaining));
+        return 0;
+    }
+    BOOL started = SetWaitableTimer(timer, &due, 0, NULL, NULL, FALSE);
+    DWORD waited = started ? WaitForSingleObject(timer, INFINITE) : WAIT_FAILED;
+    CloseHandle(timer);
+    if (waited != WAIT_OBJECT_0) { errno = EIO; return -1; }
+    if (remaining) memset(remaining, 0, sizeof(*remaining));
+    return 0;
+}
 #define fseeko _fseeki64
 #define ftello _ftelli64
 #define strtok_r strtok_s

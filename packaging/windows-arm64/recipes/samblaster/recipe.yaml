@@ -1,0 +1,27 @@
+context:
+  version: "0.1.26"
+
+package:
+  name: samblaster
+  version: ${{ version }}
+
+source:
+  url: https://github.com/GregoryFaust/samblaster/archive/refs/tags/v.${{ version }}.tar.gz
+  sha256: 6b42a53d64a3ed340852028546693a24c860f236fd70e90c2b24fde9dcc4fd63
+
+build:
+  number: 0
+  string: wgse_arm64_${{ build_number }}
+  script:
+    content:
+      - 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "%RECIPE_DIR%\build.ps1"'
+
+tests:
+  - script:
+      - samblaster --version
+
+about:
+  homepage: https://github.com/GregoryFaust/samblaster
+  license: MIT
+  license_file: LICENSE.txt
+  summary: Native Windows ARM64 samblaster qualification.
