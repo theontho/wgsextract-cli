@@ -274,6 +274,7 @@ def run_pipeline(
     env: Mapping[str, str] | None = None,
     description: str = "Pipeline",
     cancel_event: CancelEvent | None = None,
+    stderr_dir: PathInput | None = None,
 ) -> None:
     """
     Run commands connected stdout-to-stdin, wait for every stage, and raise
@@ -296,7 +297,11 @@ def run_pipeline(
             if cancel_event and cancel_event.is_set():
                 raise WGSExtractError(f"{description} cancelled")
             is_last = index == len(stages) - 1
-            err_file: IO[bytes] = tempfile.TemporaryFile()
+            err_file: IO[bytes] = (
+                tempfile.TemporaryFile(dir=stderr_dir)
+                if stderr_dir is not None
+                else tempfile.TemporaryFile()
+            )
             stderr_files.append(err_file)
             proc = popen(
                 stage,
