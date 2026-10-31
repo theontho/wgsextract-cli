@@ -392,6 +392,13 @@ remove_legacy_gui_launchers() {
 }
 
 OS_NAME="$(uname -s)"
+if [ "$OS_NAME" = "Linux" ]; then
+    case "$(uname -m)" in
+        aarch64|arm64)
+            fail "Native Linux ARM64 (aarch64) is not supported yet. Use a supported x86_64 Linux host or wait for native ARM64 support. No dependencies were installed."
+            ;;
+    esac
+fi
 case "$OS_NAME" in
     Darwin|Linux)
         ;;
