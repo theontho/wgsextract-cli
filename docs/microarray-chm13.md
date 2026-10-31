@@ -1,13 +1,14 @@
 # CHM13 microarray projection
 
-The Phase A alignment caller is SNP-only. Supplied `--indel-manifest` bindings
-are exclusion-only on CHM13: known I/D/non-SNV IDs remain no-calls even when
+The default alignment caller remains SNP-only. Supplied `--indel-manifest`
+bindings enable a separate, conservative alignment-based I/D caller for the
+bound vendor's exact GRCh37 template rows. Native VCF input remains
+exclusion-only. Known I/D/non-SNV IDs remain no-calls when
 their sequence context or coordinates cannot be verified. Valid GRCh37
 positions and known non-SNV source alleles also prevent reference filling.
 Vendor aliases are masked independently of the CombinedKit's first ID.
 The packaged source-allele summary and per-run `asset_summary` report these
-exclusions; marker-only vendor assets do not certify probe types. Alignment
-indel calling is deferred to [#220](https://github.com/theontho/wgsextract-cli/issues/220).
+exclusions; marker-only vendor assets do not certify probe types.
 
 The CHM13 path is separate from the existing GRCh37/38 implementation. It calls
 native CHM13 positions and projects nucleotide genotypes to the existing
@@ -59,6 +60,58 @@ private `CHM13_*` output subdirectory. `<sample>_CHM13_report.json` records reas
 counts, reference diagnostics and the CombinedKit path. `--call-reasons` also
 writes per-site reasons beside the CombinedKit. Vendor and AADR files retain
 their normal names.
+
+## Opt-in alignment I/D probes
+
+Use the existing `--indel-manifest FORMAT=PATH` option with an applicable
+manufacturer manifest, as described in [microarray-indels.md](microarray-indels.md).
+No manifest or executable is installed automatically. Binding a generic array
+manifest does not certify every customized vendor probe or revision.
+
+Only exact marker-ID **and** GRCh37-coordinate matches in the bound template
+are considered. NCBI36 templates remain exclusion-only. A reciprocal,
+unambiguous catalogue mapping locates a search window; the full manifest DNA
+sequence on **both** sides must match exactly one native reference haplotype,
+in either orientation. No sequence, probe type or I/D code is inferred from an
+rsID. `bcftools norm` verifies and left-aligns the alleles. Distinct overlapping
+normalized definitions are quarantined together, even across bound formats.
+
+A separate indel-enabled, known-allele `mpileup`/`call` stream uses the
+validated CHM13 ploidy and the same sex determination as SNP calling. A native
+record and matching DNA alleles are mandatory, including for a reference
+homozygote: an absent variant never becomes a reference call. Depth must be
+at least 4 and genotype quality at least 20; existing user thresholds may
+tighten these floors. For forced reference records without GQ, the complete
+biallelic PL vector supplies the difference between the called and next-best
+genotype likelihoods. Missing/incomplete likelihoods cannot supply quality.
+Existing FILTER and rsID-identity exclusions apply and cannot be restored.
+
+The genotype additionally requires at least **two distinct read fragments per
+called allele**, spanning the whole normalized event and **15 exact reference
+bases on each side**. Mapping and every supporting base quality must be at
+least 20. Secondary, supplementary, duplicate and QC-failed reads are excluded;
+overlapping mates are counted once. Partial reads and flanking mismatches
+provide no support. A conflicting fragment, other fully-flanked haplotype,
+or a deletion/skip overlapping the event and removing a flank quarantines
+the probe. Homozygous calls with opposing fully-flanked evidence are no-calls.
+Extreme depth (1,000 fragment names per probe) is conservatively quarantined.
+These deliberately strict rules can reduce call rate, especially in repeats,
+near other variants or at low coverage.
+
+Ploidy must be consistent across the full flanked interval. Female chrY,
+masked male chrY PARs, intervals crossing PAR boundaries or the mitochondrial
+origin, and missing reference flanks are no-calls. Male non-PAR chrX/chrY and
+chrM are haploid; male chrX PARs and female chrX are diploid. As in existing
+SNP calling, unclassified sex defaults to female ploidy.
+
+Only verified vendor I/D encodings are overlaid, retaining each original
+template ID, coordinate and row order. SNP CombinedKit and AADR projections
+stay separate and keep known indel exclusions. Without manifest bindings,
+all existing CHM13 and GRCh37/38 calls and default exports are unchanged.
+`CHM13_*/indels/` retains normalized definitions, native calling VCF,
+`probe-calls.tsv` (including fragment counts) and a hashed-manifest
+`summary.json`; the top-level CHM13 report links the summary. These
+per-sample diagnostics contain genotypes and must remain private.
 
 ## Pinned mitochondrial bridge
 
