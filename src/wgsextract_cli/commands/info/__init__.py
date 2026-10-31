@@ -31,6 +31,11 @@ def register(
         help=CLI_HELP["cmd_calculate-coverage"],
     )
     calc_cov.add_argument("-r", "--region", help=CLI_HELP["arg_region"])
+    calc_cov.add_argument(
+        "--bins",
+        action="store_true",
+        help="Report exact per-contig depth 0, 1-3, 4-7 and 8+ breadth in one streaming pass.",
+    )
     calc_cov.set_defaults(func=run)
 
     samp_cov = info_subs.add_parser(

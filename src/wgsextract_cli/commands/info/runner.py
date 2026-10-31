@@ -301,6 +301,18 @@ def run(args: argparse.Namespace) -> None:
     resolved_ref = resolve_reference(args.ref, md5_sig)
     logging.debug(f"MD5 signature: {md5_sig}; resolved reference: {resolved_ref}")
 
+    if info_cmd == "calculate-coverage" and getattr(args, "bins", False):
+        from .bins import run_depth_bins
+
+        run_depth_bins(
+            args.input,
+            resolved_ref,
+            sequence_lengths(header),
+            args.outdir or str(absolute_path(args.input).parent),
+            region,
+        )
+        return
+
     if detailed and args.input.lower().endswith(".cram") and not resolved_ref:
         raise WGSExtractError("--ref required for detailed mode with CRAM.")
 
