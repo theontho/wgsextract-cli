@@ -54,6 +54,15 @@ _MENU_DOWNLOADS: dict[str, tuple[str, Callable[[str], bool]]] = {
 }
 
 
+def cmd_ybrowse(args: argparse.Namespace) -> None:
+    from wgsextract_cli.core.ybrowse import install_snapshot
+
+    verify_dependencies(["bgzip", "tabix"])
+    library = Path(resolve_reference_library(args.ref))
+    installed = install_snapshot(library, args.snapshot)
+    logging.info("Installed sites-only GRCh38 yBrowse resource: %s", installed)
+
+
 def cmd_library(args: argparse.Namespace) -> None:
     """Interactive or non-interactive library manager."""
     if args.list:

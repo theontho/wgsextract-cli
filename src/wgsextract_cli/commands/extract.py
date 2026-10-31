@@ -96,6 +96,11 @@ def register(
     y_vcf_parser = ext_subs.add_parser(
         "ydna-vcf", parents=[base_parser], help=CLI_HELP["cmd_ydna-vcf"]
     )
+    y_vcf_parser.add_argument(
+        "--ybrowse",
+        action="store_true",
+        help="Call installed, allele-annotated yBrowse SNP targets (GRCh38 only; no downloads).",
+    )
     y_vcf_parser.set_defaults(func=cmd_ydna_vcf)
 
     # Combined command
@@ -374,7 +379,13 @@ def cmd_ydna_bam(args: argparse.Namespace) -> None:
 
 
 def cmd_ydna_vcf(args: argparse.Namespace) -> None:
-    base = _setup(args, _CALLING_TOOLS)
+    use_ybrowse = bool(getattr(args, "ybrowse", False))
+    base = _setup(args, [*_CALLING_TOOLS, "bgzip"] if use_ybrowse else _CALLING_TOOLS)
+    if use_ybrowse:
+        from ._extract_ybrowse import call_ybrowse
+
+        call_ybrowse(args, base)
+        return
     ref = require_reference(base.ref, "Y extraction", args.input)
 
     print_warning("ButtonYOnlyVCF", threads=base.threads)
