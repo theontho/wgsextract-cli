@@ -63,6 +63,11 @@ def _use_tools(monkeypatch, tools: dict[str, str | None]) -> list[tuple]:
         return tools.get(tool)
 
     monkeypatch.setattr(dependency_checks, "get_tool_path", get_tool_path)
+    monkeypatch.setattr(pixi_tools, "_resolve_pixi_command", lambda: "pixi")
+    monkeypatch.setattr(pixi_tools, "_locked_package_available", lambda *args: True)
+    monkeypatch.setattr(
+        pixi_tools, "_pixi_manifest_args", lambda: ["--manifest-path", "/app/pixi.toml"]
+    )
     return calls
 
 
