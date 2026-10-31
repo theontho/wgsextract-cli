@@ -54,17 +54,20 @@ def _validate_header(lines: list[str]) -> None:
         raise WGSExtractError(
             f"yBrowse requires GRCh38 chrY length {Y_LENGTH}; GRCh37/T2T are unsupported."
         )
-    for tag in ("HG", "ISOGG"):
-        if not any(
-            line.startswith(f"##INFO=<ID={tag},") and ",Type=String," in line
-            for line in lines
-        ):
+    for tag in ("AA", "HG", "ISOGG"):
+        definitions = [line for line in lines if line.startswith(f"##INFO=<ID={tag},")]
+        if len(definitions) != 1 or ",Type=String," not in definitions[0]:
             raise WGSExtractError(f"yBrowse snapshot lacks the INFO/{tag} definition.")
+        if not any(f",Number={number}," in definitions[0] for number in ("1", ".")):
+            raise WGSExtractError(
+                f"Unsupported allele-indexed INFO/{tag} layout; yBrowse requires "
+                "Number=1 or Number=., not Number=A/R."
+            )
 
 
 def _write_group(
     pos: int,
-    group: dict[tuple[str, str], tuple[set[str], set[str], set[str]]],
+    group: dict[tuple[str, str], tuple[set[str], set[str], set[str], set[str]]],
     sites: TextIO,
     targets: TextIO,
 ) -> int:
@@ -77,10 +80,10 @@ def _write_group(
     alts = sorted(alt for _, alt in group)
     targets.write(f"chrY\t{pos}\t{','.join([ref, *alts])}\n")
     for alt in alts:
-        names, hgs, isoggs = group[(ref, alt)]
+        names, hgs, isoggs, ancestral = group[(ref, alt)]
         info = ";".join(
             f"{tag}={','.join(sorted(values))}"
-            for tag, values in (("HG", hgs), ("ISOGG", isoggs))
+            for tag, values in (("HG", hgs), ("ISOGG", isoggs), ("AA", ancestral))
             if values
         )
         sites.write(
@@ -97,7 +100,7 @@ def prepare_snapshot(snapshot: Path, directory: Path) -> dict[str, object]:
     header: list[str] = []
     records = alleles = skipped = 0
     position = 0
-    group: dict[tuple[str, str], tuple[set[str], set[str], set[str]]] = {}
+    group: dict[tuple[str, str], tuple[set[str], set[str], set[str], set[str]]] = {}
     try:
         with (
             _text(snapshot) as source,
@@ -114,10 +117,12 @@ def prepare_snapshot(snapshot: Path, directory: Path) -> dict[str, object]:
                         "##fileformat=VCFv4.2\n"
                         f'##copyright="{COPYRIGHT}"\n'
                         f"##contig=<ID=chrY,length={Y_LENGTH}>\n"
-                        '##INFO=<ID=HG,Number=.,Type=String,Description="yBrowse haplogroups'
-                        ' for this ALT allele, not a sample haplogroup prediction">\n'
+                        '##INFO=<ID=AA,Number=.,Type=String,Description="yBrowse ancestral'
+                        ' alleles; compare with called GT and REF/ALT">\n'
+                        '##INFO=<ID=HG,Number=.,Type=String,Description="yBrowse marker'
+                        ' haplogroups; derivation depends on AA and GT, not ALT alone">\n'
                         '##INFO=<ID=ISOGG,Number=.,Type=String,Description="yBrowse ISOGG'
-                        ' haplogroups for this ALT allele">\n'
+                        ' marker haplogroups; compare AA and GT">\n'
                         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
                     )
                     break
@@ -153,8 +158,8 @@ def prepare_snapshot(snapshot: Path, directory: Path) -> dict[str, object]:
                     item.split("=", 1) for item in cols[7].split(";") if "=" in item
                 )
                 for alt in valid:
-                    names, hgs, isoggs = group.setdefault(
-                        (ref, alt), (set(), set(), set())
+                    names, hgs, isoggs, ancestral = group.setdefault(
+                        (ref, alt), (set(), set(), set(), set())
                     )
                     names.update(n for n in cols[2].split(";") if n != ".")
                     hgs.update(
@@ -164,6 +169,9 @@ def prepare_snapshot(snapshot: Path, directory: Path) -> dict[str, object]:
                         n
                         for n in info.get("ISOGG", "").split(",")
                         if n not in ("", ".")
+                    )
+                    ancestral.update(
+                        n for n in info.get("AA", "").split(",") if n not in ("", ".")
                     )
             alleles += _write_group(position, group, sites, targets)
         if not alleles:

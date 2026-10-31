@@ -18,6 +18,7 @@ def mini_snapshot(path: Path, rows: list[str] | None = None) -> Path:
         "##source=SYNTHETIC_TEST_NOT_YBROWSE_DATA\n"
         f'##copyright="{ybrowse.COPYRIGHT}"\n'
         f"##contig=<ID=chrY,length={ybrowse.Y_LENGTH}>\n"
+        '##INFO=<ID=AA,Number=1,Type=String,Description="Synthetic ancestral allele">\n'
         '##INFO=<ID=HG,Number=1,Type=String,Description="Synthetic HG">\n'
         '##INFO=<ID=ISOGG,Number=1,Type=String,Description="Synthetic ISOGG">\n'
         '##FORMAT=<ID=GT,Number=1,Type=String,Description="Synthetic GT">\n'
@@ -26,11 +27,11 @@ def mini_snapshot(path: Path, rows: list[str] | None = None) -> Path:
             rows
             if rows is not None
             else [
-                "chrY\t11\tSYN_C\tA\tC\t.\t.\tHG=R-C;ISOGG=R1\tGT\t0",
-                "chrY\t11\tSYN_ALIAS\tA\tC\t.\t.\tHG=R-C2;ISOGG=R2\tGT\t0",
-                "chrY\t11\tSYN_G\tA\tG\t.\t.\tHG=R-G\tGT\t1",
-                "chrY\t21\tSYN_T\tA\tT\t.\t.\tHG=R-T\tGT\t1",
-                "chrY\t31\tSYN_MISSING\tA\tG\t.\t.\tHG=R-MISSING\tGT\t1",
+                "chrY\t11\tSYN_C\tA\tC\t.\t.\tHG=R-C;ISOGG=R1;AA=A\tGT\t0",
+                "chrY\t11\tSYN_ALIAS\tA\tC\t.\t.\tHG=R-C2;ISOGG=R2;AA=A\tGT\t0",
+                "chrY\t11\tSYN_G\tA\tG\t.\t.\tHG=R-G;AA=A\tGT\t1",
+                "chrY\t21\tSYN_T\tA\tT\t.\t.\tHG=R-T;AA=T\tGT\t1",
+                "chrY\t31\tSYN_MISSING\tA\tG\t.\t.\tHG=R-MISSING;AA=A\tGT\t1",
             ]
         )
         + "\n",
@@ -55,8 +56,8 @@ def test_install_strips_samples_aggregates_only_matching_alleles_and_detects_cor
         line.split("\t") for line in text.splitlines() if not line.startswith("#")
     ]
     assert records[0][2] == "SYN_ALIAS;SYN_C"
-    assert records[0][7] == "HG=R-C,R-C2;ISOGG=R1,R2"
-    assert records[1][2] == "SYN_G" and records[1][7] == "HG=R-G"
+    assert records[0][7] == "HG=R-C,R-C2;ISOGG=R1,R2;AA=A"
+    assert records[1][2] == "SYN_G" and records[1][7] == "HG=R-G;AA=A"
     manifest = json.loads((installed / "manifest.json").read_text())
     assert manifest["source_kind"] == "user-supplied"
     assert manifest["source_records"] == 5 and manifest["snp_alleles"] == 4
@@ -93,6 +94,7 @@ def test_download_drift_fails_without_replacing_installed_pointer(
         (("57227415", "59373566"), "GRCh37/T2T"),
         ((ybrowse.COPYRIGHT, "Unlicensed"), "copyright"),
         (("##INFO=<ID=HG,", "##INFO=<ID=OTHER,"), "INFO/HG"),
+        (("ID=HG,Number=1", "ID=HG,Number=A"), "allele-indexed INFO/HG"),
         (("chrY\t11", "chr1\t11"), "only Y"),
     ],
 )
@@ -158,9 +160,14 @@ def test_actual_targeted_call_preserves_called_gt_and_allele_specific_names(
         capture_output=True,
     ).stdout.splitlines()
     assert "11\tSYN_ALIAS;SYN_C\tC\tR-C,R-C2\t1" in records
-    assert not any("\tR-G\t1" in row for row in records)
+    assert "11\tSYN_G\tG\tR-G\t." in records
     assert not any(row.startswith("15\t") for row in records)
     assert all(not row.endswith("\t0") for row in records if row.startswith("31\t"))
+    ancestral = run_command(
+        ["bcftools", "query", "-f", "%POS\t%ID\t%INFO/AA[\t%GT]\n", str(output)],
+        capture_output=True,
+    ).stdout.splitlines()
+    assert "21\tSYN_T\tT\t0" in ancestral
     header = run_command(
         ["bcftools", "view", "-h", str(output)], capture_output=True
     ).stdout
@@ -170,6 +177,35 @@ def test_actual_targeted_call_preserves_called_gt_and_allele_specific_names(
     assert (out / "sample_Y_ybrowse.vcf.gz.tbi").exists()
     assert not (out / "sample_Y.vcf.gz").exists()
     assert not list(out.glob(".ybrowse_*"))
+    Path(str(output) + ".csi").write_bytes(b"obsolete CSI")
+    Path(str(output) + ".tbi").write_bytes(b"obsolete TBI")
+    run_wgsextract(
+        "extract",
+        "ydna-vcf",
+        "--ybrowse",
+        "--input",
+        bam,
+        "--ref",
+        str(reference),
+        "--outdir",
+        str(out),
+        "--threads",
+        "2",
+    )
+    assert not Path(str(output) + ".csi").exists()
+    refreshed = run_command(
+        [
+            "bcftools",
+            "query",
+            "-r",
+            "chrY:11-11",
+            "-f",
+            "%POS\t%ID[\t%GT]\n",
+            str(output),
+        ],
+        capture_output=True,
+    ).stdout
+    assert "11\tSYN_ALIAS;SYN_C\t1" in refreshed
 
 
 @needs_htslib

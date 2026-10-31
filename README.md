@@ -161,8 +161,9 @@ REF-allele disagreements before calling. It writes `_Y_ybrowse.vcf.gz` with
 haploid genotypes at installed SNP targets, SNP aliases in ID and allele-matched
 HG/ISOGG annotations. Duplicate aliases are combined only for the same REF/ALT.
 Multi-allelic sites are split without turning another ALT into a reference call;
-uncovered sites remain missing, not ancestral. HG is an annotation of the
-specified ALT, **not a sample haplogroup prediction**. Non-SNP/symbolic upstream
+uncovered sites remain missing, not ancestral. Ancestral alleles (AA) are retained:
+GRCh38 REF can itself be derived, so GT=1 does not always mean derived.
+HG is a marker annotation, **not a sample haplogroup prediction**. Non-SNP/symbolic upstream
 alleles are omitted and counted in the manifest. `chrY`/`Y` naming is adapted,
 but GRCh37 and T2T are out of scope. Without `--ybrowse`, existing extraction
 outputs are unchanged.

@@ -1,4 +1,5 @@
 import argparse
+import contextlib
 import gzip
 import json
 import tempfile
@@ -99,13 +100,17 @@ def call_ybrowse(args: argparse.Namespace, base: BaseArgs) -> None:
             f"##ybrowse_source={json.dumps(SOURCE_URL)}\n"
             f"##ybrowse_snapshot_sha256={manifest['source_sha256']}\n"
             f"##ybrowse_attribution={json.dumps(str(manifest['attribution']))}\n"
-            "##ybrowse_scope=GRCh38_Y_SNPs_only;HG_is_ALT_annotation_not_sample_prediction\n",
+            "##ybrowse_scope=GRCh38_Y_SNPs_only;HG_is_marker_annotation_not_sample_prediction\n",
             encoding="utf-8",
             newline="\n",
         )
         bam = str(work / "Y.bam")
+        called = str(work / "called.vcf.gz")
         _extract_regions(base, args.input, bam, [chr_y], bed=str(bed))
         with cleanup_files(on_failure=[output, output + ".tbi", output + ".csi"]):
+            for index in (output + ".tbi", output + ".csi"):
+                with contextlib.suppress(FileNotFoundError):
+                    Path(index).unlink()
             run_pipeline(
                 [
                     [
@@ -141,25 +146,31 @@ def call_ybrowse(args: argparse.Namespace, base: BaseArgs) -> None:
                         "-any",
                         "--multi-overlaps",
                         ".",
-                        "-Ou",
-                    ],
-                    [
-                        "bcftools",
-                        "annotate",
-                        "--pair-logic",
-                        "exact",
-                        "-a",
-                        str(normalized),
-                        "-c",
-                        "ID,INFO/HG,INFO/ISOGG",
-                        "-h",
-                        str(provenance),
                         "-Oz",
                         "-o",
-                        output,
+                        called,
                     ],
                 ],
-                description="Targeted haploid yBrowse calling and allele-aware annotation",
+                description="Targeted haploid yBrowse calling",
                 stderr_dir=work,
+            )
+            ensure_vcf_indexed(called)
+            run_command(
+                [
+                    "bcftools",
+                    "annotate",
+                    "--pair-logic",
+                    "exact",
+                    "-a",
+                    str(normalized),
+                    "-c",
+                    "ID,INFO/HG,INFO/ISOGG,INFO/AA",
+                    "-h",
+                    str(provenance),
+                    "-Oz",
+                    "-o",
+                    output,
+                    called,
+                ]
             )
             ensure_vcf_indexed(output)
