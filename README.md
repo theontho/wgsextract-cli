@@ -86,6 +86,29 @@ wgsextract --input sample.cram lineage y-haplogroup
 
 Try commands on a small region (`--region chrM`, where supported) before running whole-genome jobs, which can take hours and hundreds of gigabytes of working space. Every command exits non-zero on failure, so they can be chained in scripts.
 
+Alignment/realignment pipelines and GATK scatter print a stderr heartbeat every
+60 seconds, including processed versus expected reads (when known), or completed
+shards, elapsed time and a rate-based ETA. Sampled FASTQ read counts are estimates;
+reaching the read count does not mean sorting/indexing has finished. Stdout data,
+alignment/caller arguments and generated genomic files are unchanged.
+
+Persistent logging is off by default. Use a **new, dedicated** path:
+
+```sh
+pixi run wgsextract --log-file out/run.log --input sample.bam info
+```
+
+Alternatively set `log_dir = "~/wgse_logs"` in `config.toml` to create a unique log
+for each run. The UTF-8 DEBUG log retains Python diagnostics and pipeline/scatter
+tool messages; `run.log.provenance.json` records argv, CLI/platform versions,
+executed tool commands/versions and small reference-index signatures. Provenance
+is available during the run and finalized on normal exit or handled failure. A
+hard kill may leave its status as `running`. Existing logs are never truncated;
+`--quiet` still suppresses informational console messages, not the file log.
+Review logs before sharing: commands and diagnostics may contain private paths
+or URLs. No environment is captured, no tool is installed for logging, and
+complete reference genomes are not hashed.
+
 Output files are named after the full input stem: `HG002.chr20.bam` produces `HG002.chr20_sorted.bam`, `HG002.chr20_coverage.tsv`, and so on. Outputs go to `--outdir`, the configured `outdir`, or the `--genome` folder.
 
 ## Commands

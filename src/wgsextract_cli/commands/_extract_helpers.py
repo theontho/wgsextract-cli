@@ -13,6 +13,7 @@ from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import PathInput, absolute_path
 from wgsextract_cli.core.reference_assets import input_stem, read_fai_lengths
 from wgsextract_cli.core.reference_models import sequence_lengths
+from wgsextract_cli.core.run_log import is_run_log_path
 from wgsextract_cli.core.samtools_commands import parse_memory
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -145,6 +146,8 @@ def cleanup_files(
         succeeded = True
     finally:
         for path in [*temp, *([] if succeeded else on_failure)]:
+            if is_run_log_path(Path(path)):
+                continue
             with contextlib.suppress(FileNotFoundError):
                 Path(path).unlink()
 

@@ -52,6 +52,9 @@ DEFAULT_CONFIG = """# WGS Extract Configuration
 # Path to a local real genome dataset used by real smoke tests.
 # real_genome_test_path = "~/genomes/sample"
 # real_genome_tests_enabled = false
+
+# --- Persistent Run Logs (off by default) ---
+# log_dir = "~/wgse_logs"
 """
 
 
@@ -80,6 +83,8 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
         threads=default_threads,
         memory=settings.get("memory_limit"),
         parent_pid=None,
+        log_file=None,
+        log_dir=settings.get("log_dir"),
     )
     parser.add_argument(
         "--version", action="version", version=f"wgsextract {__version__}"
@@ -108,6 +113,12 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
 
 
 def add_shared_arguments(base_parser: argparse.ArgumentParser) -> None:
+    base_parser.add_argument(
+        "--log-file",
+        metavar="PATH",
+        default=argparse.SUPPRESS,
+        help="Write a DEBUG run log and companion provenance JSON (must be a new file).",
+    )
     base_parser.add_argument(
         "--debug",
         action="store_true",

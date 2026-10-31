@@ -36,6 +36,10 @@ KNOWN_SETTINGS = {
     ),
     "debug_mode": (False, "Enable verbose debug logging"),
     "quiet_mode": (False, "Enable quiet mode (errors only)"),
+    "log_dir": (
+        None,
+        "Opt-in directory for unique persistent DEBUG run logs and provenance",
+    ),
     "yleaf_executable": (None, "Path to yleaf executable"),
     "haplogrep_executable": (None, "Path to haplogrep executable"),
     "jar_directory": (None, "Directory for JAR tools"),
@@ -113,6 +117,7 @@ KNOWN_SETTINGS = {
 }
 
 PATH_SETTINGS = {
+    "log_dir",
     "input_path",
     "output_directory",
     "reference_fasta",
