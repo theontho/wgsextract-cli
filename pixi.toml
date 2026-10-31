@@ -31,6 +31,7 @@ gatk4 = ">=4.6.2.0,<5"
 
 [feature.gatk.target.win-64.dependencies]
 # gatk-windows-tools-begin
+gkl = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-6/gkl-0.8.11-wgse_0.conda", sha256 = "3ad191912ac0a23a21696448a79f5b1499982305844f183e0052e9f20f33c982" }
 # gatk-windows-tools-end
 
 # PharmCAT's pipeline is a release download the user extracts (see
