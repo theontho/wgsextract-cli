@@ -120,6 +120,13 @@ the bwa-mem2 index for your reference, run:
 pixi run wgsextract ref index --aligner bwa-mem2 --ref C:\path\to\reference.fa
 ```
 
+**Temporary native indexing restriction (#264):** the current Windows bwa-mem2
+build truncates large reference lengths. The CLI refuses native index
+construction for references with **2,147,483,648 bases or more**, before
+starting bwa-mem2; use BWA or a complete, verified Linux-built bwa-mem2 index.
+Existing indexes and the CLI's verified published hs38DH index download remain
+supported. `ref index` prepares the FASTA length metadata automatically.
+
 The human bwa-mem2 index occupies about 17 GB of RAM, with additional memory
 needed for reads, sorting and Windows. The CLI checks the reference's memory
 estimate before choosing it. `--aligner bwa` selects the lower-memory option;

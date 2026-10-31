@@ -12,6 +12,7 @@ import logging
 import os
 import subprocess
 from pathlib import Path
+from platform import system as platform_system
 from typing import NamedTuple
 
 import psutil
@@ -186,6 +187,7 @@ def download_index(ref: str, prebuilt: PrebuiltIndex) -> None:
 
 
 def build_index(ref: str) -> None:
+    _check_native_windows_build(ref)
     logging.info(
         f"Building the bwa-mem2 index for {ref} (uses up to "
         f"{_gb(build_memory(ref))} of memory; about an hour for a human genome)..."
@@ -208,16 +210,39 @@ def ensure_index(ref: str, *, download: bool) -> None:
         prebuilt = prebuilt_index(ref)
         if download and prebuilt:
             download_index(ref, prebuilt)
-        elif _total_memory() >= build_memory(ref):
-            build_index(ref)
         else:
-            raise _unbuildable(ref, prebuilt)
+            _check_native_windows_build(ref)
+            if _total_memory() < build_memory(ref):
+                raise _unbuildable(ref, prebuilt)
+            build_index(ref)
 
 
 def check_index(ref: str) -> None:
     """Fail before hours of other work when ensure_index(download=False) would."""
-    if not has_index(ref) and _total_memory() < build_memory(ref):
-        raise _unbuildable(ref, prebuilt_index(ref))
+    if not has_index(ref):
+        _check_native_windows_build(ref)
+        if _total_memory() < build_memory(ref):
+            raise _unbuildable(ref, prebuilt_index(ref))
+
+
+def _check_native_windows_build(ref: str) -> None:
+    if platform_system() != "Windows":
+        return
+    bases = reference_bases(ref)
+    if not bases:
+        raise WGSExtractError(
+            "Cannot determine the reference length before native Windows bwa-mem2 "
+            "indexing. Run `samtools faidx` or `wgsextract ref index` first."
+        )
+    if bases >= 2**31:
+        raise WGSExtractError(
+            f"For {ref}, no bwa-mem2 index can be built natively on Windows with "
+            f"this build: references with 2,147,483,648 bases or more ({bases:,} "
+            "here) overflow its 32-bit length fields and can hang (#264). "
+            "Use --aligner bwa, or download/copy a complete verified Linux-built "
+            "bwa-mem2 index next to the reference. Existing and published "
+            "prebuilt indexes remain supported."
+        )
 
 
 def _unbuildable(ref: str, prebuilt: PrebuiltIndex | None) -> WGSExtractError:
