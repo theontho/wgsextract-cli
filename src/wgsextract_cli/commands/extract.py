@@ -129,21 +129,23 @@ def require_reference(
     if not resolved_ref:
         hint = ""
         if input_path:
-            model = identify_reference(
-                get_bam_header(input_path) or "", calculate_bam_md5(input_path, None)
-            )
-            if model and model.fasta:
+            header = get_bam_header(input_path) or ""
+            signature = calculate_bam_md5(input_path, header=header)
+            genomes = get_available_genomes()
+            genome = next((g for g in genomes if g["md5"] == signature), None)
+            model = identify_reference(header, signature)
+            if not genome and model and model.fasta:
                 genome = next(
                     (
                         g
-                        for g in get_available_genomes()
+                        for g in genomes
                         if g["final"] == model.fasta
                         or g["url"].rsplit("/", 1)[-1] == model.fasta
                     ),
                     None,
                 )
-                if genome:
-                    hint = f" Install the matching reference explicitly: wgsextract ref library --install {genome['code']}"
+            if genome:
+                hint = f" Install the matching reference explicitly: wgsextract ref library --install {genome['code']}"
         if not hint:
             hint = " Select the matching reference with wgsextract ref library, then pass its FASTA with --ref."
         raise WGSExtractError(LOG_MESSAGES["ref_required_for"].format(task=task) + hint)

@@ -135,15 +135,26 @@ def test_unmapped_fastq_preserves_pairs_single_end_and_singletons(tmp_path):
     assert _names(out / "mixed_unmapped.bam") == {"pair", "orphan", "single"}
 
 
-def test_missing_reference_names_the_exact_catalog_install(tmp_path):
+@pytest.mark.parametrize(
+    "code,signature",
+    [
+        ("hs38", None),
+        ("hs37-", "88b5f4bbaaec4a097b3aa160bf776093"),
+        ("GRCh37", "f8812b68f2aa4aa592e742e081f82807"),
+    ],
+)
+def test_missing_reference_names_the_exact_catalog_install(tmp_path, code, signature):
     from wgsextract_cli.commands.extract import require_reference
 
     bam = sam_to_bam(
         ["@SQ\tSN:chr1\tLN:248956422"]
-        + [f"@SQ\tSN:extra{i}\tLN:100" for i in range(194)],
+        + [f"@SQ\tSN:extra{i}\tLN:100" for i in range(194)]
+        + ([f"@CO\tMD5:{signature}"] if signature else []),
         tmp_path / "hs38.bam",
     )
-    with pytest.raises(WGSExtractError, match="wgsextract ref library --install hs38"):
+    with pytest.raises(
+        WGSExtractError, match=f"wgsextract ref library --install {code}"
+    ):
         require_reference(None, "Y extraction", bam)
 
 
