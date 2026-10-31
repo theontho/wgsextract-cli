@@ -36,17 +36,8 @@ recipes, patches and build instructions are in
 
 Java tools (GATK, FastQC, HaploGrep) and Yleaf come from conda-forge,
 Bioconda's platform-independent packages and PyPI as on the other platforms.
-The GATK environment additionally installs the Windows-only, URL/SHA-pinned GKL
-sidecar from the Windows-tools release. It accelerates serial/OpenMP AVX
-PairHMM and AVX2 Smith-Waterman; compression still uses Java.
-The Windows installer provisions both the default and GATK environments during
-setup. For a manual Pixi setup, run `pixi install --locked -e gatk` before using
-GATK; commands only validate installed dependencies.
-The CLI warns that performance and numerical annotations may differ from Linux.
-It launches Java 17 directly with the sidecar/GATK classpath, without modifying
-the upstream GATK jar or installing dependencies at command execution time.
-Launcher `--java-options` remain JVM options, including scatter workers' heap
-and CPU limits; they are passed before GATK's main class.
+The GATK environment also includes the native Windows GKL sidecar described
+below.
 `deps check` lists what isn't available on Windows (for example VEP,
 DeepVariant, Delly and FreeBayes).
 
@@ -62,6 +53,58 @@ T1K, ExpansionHunter or PacBio tools are not supported on Windows. They fail
 before processing inputs or creating output folders, naming the unavailable
 tool. PhyloP TSV/VCF resources remain supported. Parabricks `--gpu` modes
 require Linux with an NVIDIA GPU.
+
+## GATK on native Windows
+
+Standard-read HaplotypeCaller uses native **OpenMP AVX PairHMM and AVX2
+Smith-Waterman** on AVX2-capable x64 Windows CPUs. The URL/SHA-pinned GKL 0.8.11
+sidecar supplies four static DLLs alongside unmodified GATK 4.6.2.0 and Java 17.
+No WSL, MSYS2 installation, extra OpenMP runtime or manual Java classpath is
+needed.
+
+`install_windows.bat` prepares both the default and GATK environments.
+For a manual setup, install the locked GATK environment explicitly before
+calling; the CLI checks presence and does not install it for you:
+
+```bat
+pixi install --locked -e gatk
+pixi run wgsextract vcf gatk --input "C:\genomes\sample.bam" --ref "C:\refs\reference.fa" --region chr20 --threads 4 --memory 512M --outdir "C:\results\gatk"
+```
+
+The log should include:
+
+```text
+Intel GKL Utils loaded
+Using the OpenMP multi-threaded AVX-accelerated native PairHMM implementation
+Using AVX accelerated SmithWaterman implementation
+```
+
+If the sidecar or pinned GATK jar is missing or obsolete, **re-run
+`install_windows.bat` or `pixi install --locked -e gatk`**. A missing native-load
+message, Java Smith-Waterman, or `LOGLESS_CACHING` fallback means the accelerated
+path is not in use. Check CPU support and the preceding GKL load diagnostics;
+fallback results can differ numerically from Linux.
+
+The [matched-ISA public HG00096 chr20 validation](https://github.com/theontho/wgsextract-cli/pull/228)
+produced **127,210 records byte-identical across all eight calls**, including
+every numeric, depth, genotype and FILTER field. With one warmup and three
+measured repetitions on matched 4-vCPU/16-GiB AMD EPYC 7763 VMs, medians were
+1420.883 s on Windows and 1450.530 s on Linux (**0.97956×**).
+This is a specific standard-read/AVX2 result, not a guarantee for every dataset
+or CPU: AVX-512 is not enabled in the Windows sidecar, VCF headers and compressed
+bytes are not parity targets, and the CLI retains its numerical/performance
+warning. Compression and Ultima's flow-likelihood engine still use Java.
+
+The [GATK native Windows smoke CI](../.github/workflows/gatk_windows.yml)
+consumes the installed, locked sidecar without rebuilding it or downloading
+genome data. It checks native loading, all fields of a tiny synthetic call
+against the stock Linux AVX2 golden, and native PairHMM/Smith-Waterman unit
+parity. Java fallback or changed VCF fields fail the gate; this does not replace
+the full-chr20 release gate.
+
+The CLI launches Java with the sidecar/GATK classpath. Launcher `--java-options`
+remain JVM options, including scatter workers' heap and CPU limits; Linux/macOS
+launching and default caller arguments are unchanged.
 
 ## Short read alignment
 

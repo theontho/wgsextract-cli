@@ -1,0 +1,18 @@
+{
+  "generator": "tests.test_vcf_callers.genome: Random(7), 3000bp chr1, 380 single-end 100bp reads",
+  "interval": "chr1:900-1100",
+  "reference_sequence_sha256": "2d31a14d84837e86739b1c5dffc27dda815ea6b8a7f26be73a75cf3dd2aea6eb",
+  "body_sha256": "81d8e6770db974d78c4bf82d940c721eed9eacf5c30ee12fe03e7462501b75f2",
+  "body_bytes": 143,
+  "records": 1,
+  "gatk_version": "4.6.2.0",
+  "gatk_jar_sha256": "40b494b1e356931c9143be09c57ba6dfbb8d150167361aac2ceec24089b75667",
+  "gkl_version": "0.8.11",
+  "gkl_source_commit": "84c4aa4d72322e60a4d18bc8c59b455b1d5327f6",
+  "cli_commit": "1fbc261f22da2ace94f1d76411415fc8d1913884",
+  "jdk_version": "17.0.18",
+  "isa": "AVX PairHMM, AVX2 Smith-Waterman, no AVX-512",
+  "cpu": "AMD Ryzen 3 PRO 5350GE",
+  "generated_at": "2026-10-31",
+  "method": "Unmodified CLI default HaplotypeCaller arguments; bcftools view -H; complete ordered INFO/FORMAT fields with no numeric tolerance. BAM headers/compression and FASTA line endings are not golden inputs."
+}

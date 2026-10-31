@@ -90,6 +90,16 @@ actual utils/AVX OpenMP PairHMM/AVX2 SW loading, a correct tiny-region genotype,
 and the matched-ISA JNI parity probe, never Java kernel fallback.
 Linux/macOS GATK invocation is unchanged.
 
+The recipe gate above builds and tests a new package. The separate
+[GATK native Windows smoke](../../.github/workflows/gatk_windows.yml) job runs
+on pull requests and main pushes using the **locked, released package**. It
+requires native kernels and complete tiny-VCF body parity against the stock
+Linux AVX2 oracle in `tests/fixtures/gatk-linux-avx2/` (source/version/ISA/hash
+provenance included), plus the native JNI parity probe. Its input is generated
+locally: a 3-kb reference and 380 reads, with no genome downloads or native
+compilation. Logs, decoded records and numeric/unit diagnostics are uploaded
+even on failure. Neither gate waives the matched-ISA full-chr20 release check.
+
 GKL pins belong in `[feature.gatk.target.win-64.dependencies]`, not the default
 Windows-tools block. The GKL source license is MIT with BSD-3-Clause exceptions. Static GCC runtimes
 use GPL-3.0-or-later with the GCC runtime exception; the sidecar and conda
