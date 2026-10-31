@@ -167,7 +167,7 @@ def test_mitochondrial_tree_links_are_opt_in(tmp_path, capsys):
     _print_haplogrep_result(str(output), None, tree_links=True)
     text = capsys.readouterr().out
     assert "https://www.yfull.com/mtree/H1c/" in text
-    assert "FTDNA" not in text
+    assert "FTDNA mtDNA: https://www.familytreedna.com/public/mtDNA_haplotree" in text
 
 
 def test_y_haplogroup_uses_the_vcf_build(tmp_path):
@@ -349,6 +349,9 @@ def test_mt_haplogroup_from_vcf_hands_haplogrep_only_mtdna(tmp_path, capsys, mt)
     out = capsys.readouterr().out
     assert "Haplogroup      : H1c" in out and "Quality         : 0.93" in out
     assert ("https://www.yfull.com/mtree/H1c/" in out) is (mt == "chrM")
+    assert ("https://www.familytreedna.com/public/mtDNA_haplotree" in out) is (
+        mt == "chrM"
+    )
 
 
 def test_mt_haplogroup_vcf_without_mtdna_fails(tmp_path):
