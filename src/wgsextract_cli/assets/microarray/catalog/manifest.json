@@ -3,6 +3,14 @@
   "complete_grch37_sites": 2862500,
   "corrections_sha256": "3fa70d436278ec736a55cd84bcd8228a889c7eaa3c50370cf8615a5b928b2c8d",
   "format": "wgsextract-legacy-coordinate-catalog-v3",
+  "generator": {
+    "command": "pixi run -e dev python scripts/build_microarray_catalog.py --reference-library REFERENCE --output OUTPUT",
+    "encoding": "v3: gzip, byte-lane shuffled little-endian delta columns",
+    "pyliftover": "0.4.1",
+    "python": "3.13.16",
+    "script": "scripts/build_microarray_catalog.py",
+    "sha256": "02e1ddd1c3b3345378ddfa751c5bb9b62b253a4d5b59941a00a36fe5369289ad"
+  },
   "legacy_grch37_sites": 2392384,
   "maps": {
     "5c0598e500ceb5a78c73086929e8ef993aec309bcafb595139b53d440b125a1d": {
@@ -23,7 +31,8 @@
       "exhaustive_both_strands_chain_parity": true,
       "filename": "hg19-to-hg38.bin.gz",
       "rows": 2862500,
-      "sha256": "51c8cf32c189135bced6acb8dff33b7ec2c90ca62de2a35ff8ea1093150dd0c6"
+      "sha256": "51c8cf32c189135bced6acb8dff33b7ec2c90ca62de2a35ff8ea1093150dd0c6",
+      "source_url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/liftOver/hg19ToHg38.over.chain.gz"
     },
     "a4af0aaac27b26c2b3b52c031ebbdbea1a2f7ffc645a6cab70683f74064920a2": {
       "chain": "hg38ToHg19.over.chain.gz",
@@ -43,7 +52,8 @@
       "exhaustive_both_strands_chain_parity": true,
       "filename": "hg38-to-hg19.bin.gz",
       "rows": 2863605,
-      "sha256": "baaaf8bbdc5dcaf92cad59e55ffb4a09eb2f3371673cf1b059074a52955714f5"
+      "sha256": "baaaf8bbdc5dcaf92cad59e55ffb4a09eb2f3371673cf1b059074a52955714f5",
+      "source_url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/liftOver/hg38ToHg19.over.chain.gz"
     },
     "f1e57673d8f306ea4ed1553ea5fc2001b3cc3d149eef501fc97305b3b3e2a9d6": {
       "chain": "hg18ToHg19.over.chain.gz",
@@ -63,7 +73,8 @@
       "exhaustive_both_strands_chain_parity": true,
       "filename": "hg18-to-hg19.bin.gz",
       "rows": 548011,
-      "sha256": "1b171fb6576f232cc0bff09a2833ff6f5bfe24b8abd23f7ebb5db034c29dae5a"
+      "sha256": "1b171fb6576f232cc0bff09a2833ff6f5bfe24b8abd23f7ebb5db034c29dae5a",
+      "source_url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg18/liftOver/hg18ToHg19.over.chain.gz"
     }
   },
   "policy": {

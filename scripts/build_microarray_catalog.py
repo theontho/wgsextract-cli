@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
+import importlib.metadata
 import json
 import sys
 from array import array
@@ -30,6 +31,13 @@ from wgsextract_cli.core.microarray_utils import (
 )
 
 Site = tuple[str, int]
+CHAIN_URLS = {
+    f"{source}To{target}.over.chain.gz": (
+        f"https://hgdownload.soe.ucsc.edu/goldenPath/{source}/liftOver/"
+        f"{source}To{target}.over.chain.gz"
+    )
+    for source, target in (("hg18", "Hg19"), ("hg19", "Hg38"), ("hg38", "Hg19"))
+}
 
 
 def _digest(path: Path) -> str:
@@ -38,6 +46,20 @@ def _digest(path: Path) -> str:
         while chunk := source.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def generator_provenance() -> dict[str, object]:
+    return {
+        "script": "scripts/build_microarray_catalog.py",
+        "sha256": _digest(Path(__file__)),
+        "python": sys.version.split()[0],
+        "pyliftover": importlib.metadata.version("pyliftover"),
+        "encoding": "v3: gzip, byte-lane shuffled little-endian delta columns",
+        "command": (
+            "pixi run -e dev python scripts/build_microarray_catalog.py "
+            "--reference-library REFERENCE --output OUTPUT"
+        ),
+    }
 
 
 def _integer(value: int) -> bytes:
@@ -125,6 +147,7 @@ def build_map(
     return {
         "filename": destination.name,
         "chain": chain.name,
+        "source_url": CHAIN_URLS.get(chain.name),
         "sha256": hashlib.sha256(compressed).hexdigest(),
         "decoded_sha256": hashlib.sha256(payload).hexdigest(),
         "compressed_bytes": len(compressed),
@@ -198,6 +221,7 @@ def main() -> None:
     manifest = {
         "format": "wgsextract-legacy-coordinate-catalog-v3",
         "source": "Existing ordered consumer templates plus AADR v66.p1",
+        "generator": generator_provenance(),
         "policy": {
             "coordinates": "zero-based; all placements in original chain order",
             "ids_and_order": "authoritative templates, not duplicated in this asset",
