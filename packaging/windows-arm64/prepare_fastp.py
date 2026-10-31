@@ -27,8 +27,14 @@ def main() -> None:
     args = parser.parse_args()
     for file in (args.source / "src").iterdir():
         if file.suffix in (".cpp", ".h"):
-            file.write_text(widen_llp64(file.read_text()))
-    if "long long mBases;" not in (args.source / "src/stats.h").read_text():
+            file.write_text(
+                widen_llp64(file.read_text(encoding="utf-8")),
+                encoding="utf-8",
+                newline="\n",
+            )
+    if "long long mBases;" not in (args.source / "src/stats.h").read_text(
+        encoding="utf-8"
+    ):
         raise RuntimeError("fastp LLP64 base counters were not widened")
 
 

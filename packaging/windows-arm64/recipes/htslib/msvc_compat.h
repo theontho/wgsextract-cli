@@ -1,6 +1,8 @@
 #ifndef WGSE_HTSLIB_ARM64_MSVC_COMPAT_H
 #define WGSE_HTSLIB_ARM64_MSVC_COMPAT_H
 #include "../bwa/msvc_compat.h"
+#include "../../compat/msvc_files.h"
+#include "../../compat/msvc_format.h"
 #include <time.h>
 #include <stdio.h>
 #include <io.h>

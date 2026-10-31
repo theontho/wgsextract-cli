@@ -13,6 +13,10 @@ have PE machine `AA64`; importing the extension modules proves they do not need
 the removed DLL. The package must be tested on Windows, not only inspected.
 Upstream's latest source release is 3.13.18, whereas its ARM64 NuGet is currently
 3.13.17. Qualification is not approval to ship the older security patch level.
+The separate `python-source` recipe stages 3.13.18 from source with every
+CPython external archive pinned by immutable commit and SHA-256, including
+the official native ARM64 OpenSSL/libffi binaries. This avoids a global Python
+version change, but its build and runtime qualification are still pending.
 
 The free public `windows-11-arm` GitHub runner is available and has 4 cores and
 16 GiB RAM. Its tools are not all native: inspect the actual installed Python,
@@ -82,7 +86,7 @@ fixtures do not become silent no-ops through CMake's `NDEBUG` default.
 Samblaster's staged native recipe reuses the existing POSIX/binary-I/O shim,
 adds MSVC's missing `mempcpy`, and supplies a real SAM header before holding
 stdin open for its live process/module audit. Native compilation, allocated-format
-regression and live AA64 audit pass; duplicate-pair qualification is still pending.
+regression, four-record duplicate-pair fixture and live AA64 audit pass.
 Samtools/bcftools 1.24 are staged against the same native HTS library build,
 with all existing Windows optimization patches. Their packages install only
 their own executables, avoiding duplicate HTS files in the installed prefix.
@@ -99,6 +103,11 @@ it is not an acceptable ARM64 implementation. Highway's NEON selection must
 be proved by compiler evidence. The LLP64 widening matches the existing x64
 recipe. Native compilation, gzip correctness and performance are not yet
 qualified; generic C ISA-L is not a claim of optimized ARM compression.
+
+The generated pipeline fixture checks actual sort/index/CRAM round-trip,
+indexed coverage and a truth-known homozygous variant using the built packages.
+It passed with installed Linux tools; native Windows pipeline qualification
+is pending. It is not a substitute for the complete small/full-genome suites.
 
 On an ARM64 Windows OS, configured executable paths and version probes reject
 x64 PE files before launching them. Feature entry also rejects a Prism-hosted

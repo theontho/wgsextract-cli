@@ -16,6 +16,8 @@ foreach ($test in @("cram_stop", "bam_seq", "cram_buffers")) {
     & "$build\hts-build\Release\${test}_test.exe"
     if ($LASTEXITCODE) { throw "Native HTS regression failed: $test" }
 }
+& "$build\hts-build\Release\msvc_files_test.exe"
+if ($LASTEXITCODE) { throw "Native file-descriptor regression failed" }
 & cmake --install $build --config Release
 if ($LASTEXITCODE) { throw "bcftools ARM64 install failed" }
 & "$repo\scripts\audit_windows_arm64.ps1" -Prefix $env:PREFIX -Report "$evidence\pe.json"

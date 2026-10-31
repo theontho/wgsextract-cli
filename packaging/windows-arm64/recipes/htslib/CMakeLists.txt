@@ -4,6 +4,7 @@ option(WGSE_HTSLIB_TOOLS "Build and install standalone HTS tools" ON)
 if(NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8 OR NOT WGSE_HTSLIB_SOURCE)
     message(FATAL_ERROR "HTS qualification requires clang-cl ARM64 and WGSE_HTSLIB_SOURCE")
 endif()
+file(TO_CMAKE_PATH "${WGSE_HTSLIB_SOURCE}" WGSE_HTSLIB_SOURCE)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 find_package(ZLIB REQUIRED)
 find_package(BZip2 REQUIRED)
@@ -51,7 +52,7 @@ target_include_directories(hts PUBLIC
 )
 target_link_libraries(hts PUBLIC
     ZLIB::ZLIB BZip2::BZip2 LibLZMA::LibLZMA libdeflate::libdeflate_static
-    unofficial::tre::tre PThreads4W::PThreads4W getopt::getopt_static ws2_32 psapi
+    unofficial::tre::tre PThreads4W::PThreads4W getopt::getopt_static ws2_32 psapi bcrypt
 )
 set_source_files_properties(
     "${WGSE_HTSLIB_SOURCE}/htscodecs/htscodecs/rANS_static32x16pr_neon.c"
@@ -72,3 +73,6 @@ foreach(name IN ITEMS cram_stop bam_seq cram_buffers)
         "${WGSE_WINDOWS}/compat/wgse_compat.c")
     target_link_libraries(${name}_test PRIVATE hts)
 endforeach()
+add_executable(msvc_files_test "${CMAKE_CURRENT_LIST_DIR}/../../tests/msvc_files.c")
+target_include_directories(msvc_files_test PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../compat")
+target_link_libraries(msvc_files_test PRIVATE hts)
