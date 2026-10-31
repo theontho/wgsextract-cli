@@ -9,6 +9,7 @@ from os import fspath
 from pathlib import Path
 from typing import NamedTuple
 
+from wgsextract_cli.core.atomic_output import atomic_outputs_enabled
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import PathInput, absolute_path
 from wgsextract_cli.core.reference_assets import input_stem, read_fai_lengths
@@ -136,16 +137,21 @@ def derive_output_path(input_path: PathInput, outdir: PathInput, suffix: str) ->
 
 @contextlib.contextmanager
 def cleanup_files(
-    temp: Sequence[PathInput] = (), on_failure: Sequence[PathInput] = ()
+    temp: Sequence[PathInput] = (),
+    on_failure: Sequence[PathInput] = (),
+    *,
+    preserve_outputs: bool = False,
 ) -> Iterator[None]:
     """Always delete ``temp`` files; delete ``on_failure`` (partial outputs) only
-    if the block raises, so they are never mistaken for complete results."""
+    if the block raises, so they are never mistaken for complete results.
+    Only staged writers may opt into preserving previous final outputs."""
     succeeded = False
     try:
         yield
         succeeded = True
     finally:
-        for path in [*temp, *([] if succeeded else on_failure)]:
+        failed = [] if succeeded or preserve_outputs else on_failure
+        for path in [*temp, *failed]:
             if is_run_log_path(Path(path)):
                 continue
             with contextlib.suppress(FileNotFoundError):
@@ -243,27 +249,41 @@ def alignments_to_fastq(
                 out_r2,
                 *([out_other] if out_other else []),
                 *([out_singletons] if out_singletons else []),
-            ]
+            ],
+            preserve_outputs=atomic_outputs_enabled(),
         ),
         tempfile.TemporaryDirectory(
             dir=configured_temp_directory() or temp_parent, prefix=".collate_"
         ) as tmp,
+        contextlib.ExitStack() as outputs,
     ):
+        from wgsextract_cli.core.atomic_output import safe_output
+
+        staged_r1 = outputs.enter_context(safe_output(out_r1))
+        staged_r2 = outputs.enter_context(safe_output(out_r2))
+        staged_other = (
+            outputs.enter_context(safe_output(out_other)) if out_other else None
+        )
+        staged_singletons = (
+            outputs.enter_context(safe_output(out_singletons))
+            if out_singletons
+            else None
+        )
         view_cmd = ["samtools", "view", "-uh", "--no-PG", "-@", threads]
         view_cmd += cram_opt or []
         view_cmd += [fspath(input_path), *([region] if region else [])]
         buckets = _collate_buckets(input_path, threads, memory)
         collate_cmd = ["samtools", "collate", "-u", "-O", "--no-PG", "-@", threads]
         collate_cmd += ["-n", str(buckets), "-T", str(Path(tmp, "collate")), "-"]
-        fastq_cmd = ["samtools", "fastq", "-1", fspath(out_r1), "-2", fspath(out_r2)]
+        fastq_cmd = ["samtools", "fastq", "-1", staged_r1, "-2", staged_r2]
         fastq_cmd += [
             "-s",
-            fspath(out_singletons)
-            if out_singletons
+            staged_singletons
+            if staged_singletons
             else str(Path(tmp, "singletons.fastq")),
         ]
-        if out_other:
-            fastq_cmd += ["-0", fspath(out_other)]
+        if staged_other:
+            fastq_cmd += ["-0", staged_other]
         fastq_cmd += ["-n", "-@", threads, "-"]
         run_pipeline(
             [view_cmd, collate_cmd, fastq_cmd],

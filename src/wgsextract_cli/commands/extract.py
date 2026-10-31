@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from wgsextract_cli.core.alignment_metadata import get_bam_header
+from wgsextract_cli.core.atomic_output import atomic_outputs_enabled
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -168,29 +169,50 @@ def _extract_regions(
 ) -> None:
     """Extract regions into an indexed BAM; warn if it got no reads, naming what
     it should hold (contents), for outputs the user keeps."""
-    with cleanup_files(on_failure=[out_bam, out_bam + ".bai"]):
-        run_command(
-            ["samtools", "view", "-bh", *base.cram_opt, "-@", base.threads]
-            + (["-L", bed] if bed else [])
-            + ["-o", out_bam, input_path, *regions]
-        )
-        run_command(get_sam_index_cmd(out_bam, threads=base.threads))
+    from wgsextract_cli.core.atomic_output import (
+        atomic_output,
+        atomic_outputs_enabled,
+        safe_output,
+    )
+
+    with cleanup_files(
+        on_failure=[out_bam, out_bam + ".bai"],
+        preserve_outputs=atomic_outputs_enabled(),
+    ):
+        with safe_output(out_bam) as staged:
+            run_command(
+                ["samtools", "view", "-bh", *base.cram_opt, "-@", base.threads]
+                + (["-L", bed] if bed else [])
+                + ["-o", staged, input_path, *regions]
+            )
+        command = get_sam_index_cmd(out_bam, threads=base.threads)
+        if atomic_outputs_enabled():
+            with atomic_output(out_bam + ".bai", retire_indexes=False) as index:
+                run_command([*command, index])
+        else:
+            run_command(command)
     if contents:
         warn_if_no_reads(out_bam, contents, empty_hint)
 
 
 def _call_haploid_variants(bam: str, ref: str, out_vcf: str) -> None:
     """Call variants on a haploid contig (chrM / chrY) into an indexed VCF."""
-    for stale_index in (out_vcf + ".tbi", out_vcf + ".csi"):
-        with contextlib.suppress(FileNotFoundError):
-            Path(stale_index).unlink()
-    run_pipeline(
-        [
-            ["bcftools", "mpileup", "-Ou", "-f", ref, bam],
-            ["bcftools", "call", "--ploidy", "1", "-mv", "-Oz", "-o", out_vcf],
-        ],
-        description="Variant calling",
-    )
+    from wgsextract_cli.core.atomic_output import atomic_outputs_enabled
+
+    if not atomic_outputs_enabled():
+        for stale_index in (out_vcf + ".tbi", out_vcf + ".csi"):
+            with contextlib.suppress(FileNotFoundError):
+                Path(stale_index).unlink()
+    from wgsextract_cli.core.atomic_output import safe_output
+
+    with safe_output(out_vcf) as staged:
+        run_pipeline(
+            [
+                ["bcftools", "mpileup", "-Ou", "-f", ref, bam],
+                ["bcftools", "call", "--ploidy", "1", "-mv", "-Oz", "-o", staged],
+            ],
+            description="Variant calling",
+        )
     ensure_vcf_indexed(out_vcf)
     warn_if_no_variants(out_vcf, ref)
 
@@ -220,12 +242,18 @@ def cmd_mito_fasta(args: argparse.Namespace) -> None:
 
     temp = [out_bam, out_bam + ".bai", out_vcf, out_vcf + ".tbi"]
     try:
-        with cleanup_files(temp=temp, on_failure=[out_fasta]):
+        with cleanup_files(
+            temp=temp,
+            on_failure=[out_fasta],
+            preserve_outputs=atomic_outputs_enabled(),
+        ):
             _extract_regions(base, args.input, out_bam, [chr_m])
             _call_haploid_variants(out_bam, ref, out_vcf)
 
             logging.info(LOG_MESSAGES["generating_consensus"].format(output=out_fasta))
-            with open(out_fasta, "wb") as f:
+            from wgsextract_cli.core.atomic_output import safe_output
+
+            with safe_output(out_fasta) as staged, open(staged, "wb") as f:
                 run_pipeline(
                     [
                         ["samtools", "faidx", ref, chr_m],
@@ -249,7 +277,11 @@ def cmd_mito_vcf(args: argparse.Namespace) -> None:
     out_vcf = derive_output_path(args.input, base.outdir, "_MT.vcf.gz")
 
     try:
-        with cleanup_files(temp=[out_bam, out_bam + ".bai"], on_failure=[out_vcf]):
+        with cleanup_files(
+            temp=[out_bam, out_bam + ".bai"],
+            on_failure=[out_vcf],
+            preserve_outputs=atomic_outputs_enabled(),
+        ):
             _extract_regions(base, args.input, out_bam, [chr_m])
             logging.info(LOG_MESSAGES["calling_mito_variants"].format(output=out_vcf))
             _call_haploid_variants(out_bam, ref, out_vcf)
@@ -281,10 +313,17 @@ def cmd_bam_subset(args: argparse.Namespace) -> None:
         LOG_MESSAGES["subsetting_file"].format(fraction=args.fraction, output=out_file)
     )
     try:
-        with cleanup_files(on_failure=[out_file]):
+        from wgsextract_cli.core.atomic_output import safe_output
+
+        with (
+            cleanup_files(
+                on_failure=[out_file], preserve_outputs=atomic_outputs_enabled()
+            ),
+            safe_output(out_file) as staged,
+        ):
             run_command(
                 ["samtools", "view", "-bh", "-s", str(args.fraction), *base.cram_opt]
-                + ["-o", out_file, args.input, *([region] if region else [])]
+                + ["-o", staged, args.input, *([region] if region else [])]
             )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"BAM subsetting failed: {e}") from e
@@ -346,7 +385,11 @@ def cmd_ydna_vcf(args: argparse.Namespace) -> None:
     out_vcf = derive_output_path(args.input, base.outdir, "_Y.vcf.gz")
 
     try:
-        with cleanup_files(temp=[out_bam, out_bam + ".bai"], on_failure=[out_vcf]):
+        with cleanup_files(
+            temp=[out_bam, out_bam + ".bai"],
+            on_failure=[out_vcf],
+            preserve_outputs=atomic_outputs_enabled(),
+        ):
             _extract_regions(base, args.input, out_bam, [chr_y])
             logging.info(LOG_MESSAGES["calling_y_variants"].format(output=out_vcf))
             _call_haploid_variants(out_bam, ref, out_vcf)
