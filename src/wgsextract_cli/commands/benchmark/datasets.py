@@ -18,10 +18,8 @@ from wgsextract_cli.core.dev_download_cache import (
     restore_cached_download,
     store_download_in_dev_cache,
 )
-from wgsextract_cli.core.download_progress import (
-    copy_response_to_file,
-    require_http_url,
-)
+from wgsextract_cli.core.download_progress import require_http_url
+from wgsextract_cli.core.ref_library.downloads import download_file
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
@@ -35,33 +33,15 @@ from .models import (
 )
 
 
-def _download_file(url: str, destination: Path) -> None:
+def _download_file(url: str, destination: Path, *, sha256: str | None = None) -> None:
     require_http_url(url, "benchmark dataset URL")
-    tmp_path = destination.with_suffix(destination.suffix + ".tmp")
-    request = urllib.request.Request(url, headers={"User-Agent": "wgsextract-cli"})
     logging.info("Downloading benchmark dataset to %s", destination.name)
-    try:
-        with urllib.request.urlopen(request, timeout=300) as response:
-            with open(tmp_path, "wb") as handle:
-                copy_response_to_file(
-                    response,
-                    handle,
-                    progress_label=destination.name,
-                )
-        tmp_path.replace(destination)
-    except (OSError, urllib.error.URLError, WGSExtractError) as exc:
-        if tmp_path.exists():
-            try:
-                tmp_path.unlink()
-            except OSError as cleanup_error:
-                logging.warning(
-                    "Failed to remove partial benchmark download %s: %s",
-                    tmp_path,
-                    cleanup_error,
-                )
+    if not download_file(url, str(destination), expected_sha256=sha256):
+        reason = " (download error or SHA256 mismatch)" if sha256 else ""
         raise WGSExtractError(
-            f"Failed to download benchmark dataset {destination.name}: {exc}"
-        ) from exc
+            f"Failed to download benchmark dataset {destination.name}{reason}; "
+            "retry to resume any existing .partial download."
+        )
 
 
 def _file_digest(path: Path, algorithm: str) -> str:
@@ -164,6 +144,7 @@ def _cached_remote_dataset_file(remote: BenchmarkRemoteFile, cache_root: Path) -
         try:
             _verify_digest(path, "md5", remote.md5)
         except WGSExtractError:
+            drop_cached_download(remote.url, path, checksum_hint=None)
             path.unlink(missing_ok=True)
             raise
         _write_verified_md5_marker(path, verified_path, remote.md5)

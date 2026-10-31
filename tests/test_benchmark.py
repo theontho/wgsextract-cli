@@ -103,7 +103,9 @@ def test_benchmark_download_rejects_non_http_url(tmp_path: Path, monkeypatch) ->
     def fail_urlopen(*_args, **_kwargs):
         raise AssertionError("urlopen should not be called for non-HTTP URLs")
 
-    monkeypatch.setattr(benchmark.urllib.request, "urlopen", fail_urlopen)
+    from wgsextract_cli.core.ref_library import downloads
+
+    monkeypatch.setattr(downloads, "urlopen", fail_urlopen)
 
     with pytest.raises(ValueError, match="Unsupported benchmark dataset URL scheme"):
         benchmark._download_file("file:///tmp/dataset.zip", tmp_path / "dataset.zip")
@@ -115,7 +117,9 @@ def test_benchmark_download_error_redacts_url_query(
     def fail_urlopen(*_args, **_kwargs):
         raise OSError("network unavailable")
 
-    monkeypatch.setattr(benchmark.urllib.request, "urlopen", fail_urlopen)
+    from wgsextract_cli.core.ref_library import downloads
+
+    monkeypatch.setattr(downloads, "urlopen", fail_urlopen)
 
     with pytest.raises(benchmark.WGSExtractError) as excinfo:
         benchmark._download_file(

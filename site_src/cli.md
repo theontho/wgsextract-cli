@@ -64,6 +64,10 @@ Calling: `vcf snp`, `vcf indel`, `vcf freebayes`, `vcf gatk`, `vcf deepvariant`,
 ::: card
 ### References and annotation
 `ref bootstrap`, `ref library`, `ref library-list`, `ref status`, `ref download`, `ref index`, `ref verify`, `ref count-ns`, `ref gene-map`, the annotation downloads (`ref clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb`), and `vep download`, `vep run`, `vep verify`.
+
+`ref library-list` is a deprecated compatibility alias for `ref library --list`.
+For annotation, `vep run --assembly GRCh37` also accepts the deprecated
+`--vep-assembly GRCh37`; `vep download --assembly` selects the cache build.
 :::
 
 ::: card

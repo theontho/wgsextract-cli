@@ -107,6 +107,86 @@ def server(monkeypatch):
     srv.httpd.server_close()
 
 
+@pytest.mark.parametrize("entrypoint", ["benchmark", "examples"])
+def test_user_download_entrypoints_resume_without_exposing_partial_files(
+    server, tmp_path, entrypoint
+):
+    from wgsextract_cli.commands import examples
+    from wgsextract_cli.commands.benchmark import datasets
+
+    dest = tmp_path / "example.bam"
+    server.drops = 1
+    if entrypoint == "benchmark":
+        datasets._download_file(server.url, dest)
+    else:
+        examples._download_file(server.url, dest, "https")
+    assert dest.read_bytes() == DATA
+    assert server.gets() == [None, f"bytes={len(DATA) // 2}-"]
+    assert not Path(str(dest) + ".partial").exists()
+
+
+def test_explicit_checksum_verifies_before_replacing_destination(
+    server, tmp_path, monkeypatch
+):
+    dest = tmp_path / "dataset.zip"
+    dest.write_bytes(b"previous verified download")
+    monkeypatch.setattr(
+        downloads,
+        "resolve_github_release_asset_sha256",
+        lambda _: pytest.fail("Explicit checksum must not need GitHub metadata"),
+    )
+    assert not downloads.download_file(server.url, str(dest), expected_sha256="0" * 64)
+    assert dest.read_bytes() == b"previous verified download"
+    assert not Path(str(dest) + ".partial").exists()
+    assert downloads.download_file(
+        server.url, str(dest), expected_sha256=hashlib.sha256(DATA).hexdigest().upper()
+    )
+    assert dest.read_bytes() == DATA
+
+
+@pytest.mark.parametrize("checksum", ["a" * 63, "x" * 64])
+def test_invalid_explicit_checksum_fails_before_network_or_destination_changes(
+    server, tmp_path, checksum
+):
+    from wgsextract_cli.core.utils import WGSExtractError
+
+    dest = tmp_path / "dataset.zip"
+    dest.write_bytes(b"existing data")
+    with pytest.raises(WGSExtractError, match="64 hex digits"):
+        downloads.download_file(server.url, str(dest), expected_sha256=checksum)
+    assert dest.read_bytes() == b"existing data"
+    assert server.gets() == []
+    assert not Path(str(dest) + ".partial").exists()
+
+
+def test_benchmark_md5_failure_drops_unchecked_shared_cache(
+    server, tmp_path, monkeypatch
+):
+    from wgsextract_cli.commands.benchmark import datasets
+    from wgsextract_cli.commands.benchmark.models import BenchmarkRemoteFile
+    from wgsextract_cli.core.utils import WGSExtractError
+
+    monkeypatch.setitem(settings, "dev_download_cache", True)
+    monkeypatch.setattr(
+        dev_download_cache, "download_cache_root", lambda: tmp_path / "dev-cache"
+    )
+    good = b"verified benchmark data"
+    remote = BenchmarkRemoteFile(
+        "bam", server.url, "sample.bam", hashlib.md5(good).hexdigest()
+    )
+    destination = tmp_path / remote.filename
+    unchecked = dev_download_cache.cached_download_path(server.url, destination)
+    server.data = b"corrupt benchmark data"
+    with pytest.raises(WGSExtractError, match="MD5 mismatch"):
+        datasets._cached_remote_dataset_file(remote, tmp_path)
+    assert not destination.exists()
+    assert not unchecked.exists()
+
+    server.data = good
+    assert datasets._cached_remote_dataset_file(remote, tmp_path).read_bytes() == good
+    assert server.gets() == [None, None]
+
+
 @pytest.fixture(params=("urllib", "curl", "segmented"))
 def transport(request, server, monkeypatch):
     if request.param == "curl":
