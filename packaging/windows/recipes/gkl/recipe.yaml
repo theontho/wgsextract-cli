@@ -12,7 +12,7 @@ source:
     - patches/0001-windows-avx-native.patch
 
 build:
-  number: 0
+  number: 1
   string: wgse_${{ build_number }}
   script:
     env:
@@ -26,13 +26,17 @@ requirements:
 
 tests:
   - script:
-      - python -c "import ctypes,os; from pathlib import Path; p=Path(os.environ['CONDA_PREFIX'])/'Library/bin'; [ctypes.WinDLL(str(p/n)) for n in ('gkl_utils.dll','gkl_pairhmm.dll')]"
+      - python -c "import ctypes,os; from pathlib import Path; p=Path(os.environ['CONDA_PREFIX'])/'Library/bin'; [ctypes.WinDLL(str(p/n)) for n in ('gkl_utils.dll','gkl_pairhmm.dll','gkl_pairhmm_omp.dll','gkl_smithwaterman.dll')]"
     requirements:
       run:
         - python 3.10.*
 
 about:
   homepage: https://github.com/IntelLabs/GKL
-  license: MIT AND BSD-3-Clause
-  license_file: LICENSE
-  summary: GKL utils and serial AVX PairHMM JNI kernels, statically linked for native Windows.
+  license: MIT AND BSD-3-Clause AND (GPL-3.0-or-later WITH GCC-exception-3.1)
+  license_file:
+    - LICENSE
+    - .wgse/jar/META-INF/licenses/gcc-runtime/COPYING3
+    - .wgse/jar/META-INF/licenses/gcc-runtime/COPYING.RUNTIME
+    - .wgse/jar/META-INF/licenses/winpthreads/COPYING
+  summary: GKL utils, serial/OpenMP AVX PairHMM and AVX2 Smith-Waterman JNI kernels, statically linked for native Windows.

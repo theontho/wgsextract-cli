@@ -148,14 +148,30 @@ def _probe_environment(prefix: str, tool_names: list[str], windows: bool) -> str
     """
     import json
     import shutil
+    import zipfile
     from pathlib import Path
 
     root = Path(prefix)
     if windows and "gatk" in tool_names:
         jars = sorted(root.glob("share/gatk4-*/gatk-package-4.6.2.0-local.jar"))
-        sidecar = root / "Library" / "share" / "gkl" / "gkl-native-wgse.jar"
+        sidecar = root / "Library/share/gkl/gkl-native-wgse.jar"
         java = root / "Library" / "bin" / "java.exe"
         if not jars or not sidecar.is_file() or not java.is_file():
+            return None
+        try:
+            with zipfile.ZipFile(sidecar) as native:
+                required = {
+                    f"com/intel/gkl/native/{name}.dll"
+                    for name in (
+                        "gkl_utils",
+                        "gkl_pairhmm",
+                        "gkl_pairhmm_omp",
+                        "gkl_smithwaterman",
+                    )
+                }
+                if not required.issubset(native.namelist()):
+                    return None
+        except (OSError, zipfile.BadZipFile):
             return None
         # The upstream launcher uses -jar, which ignores an added classpath.
         # Preserve its packaged JVM options and default heap ergonomics.

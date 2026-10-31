@@ -37,8 +37,8 @@ recipes, patches and build instructions are in
 Java tools (GATK, FastQC, HaploGrep) and Yleaf come from conda-forge,
 Bioconda's platform-independent packages and PyPI as on the other platforms.
 The GATK environment additionally installs the Windows-only, URL/SHA-pinned GKL
-sidecar from the Windows-tools release. It currently accelerates serial AVX
-PairHMM only; OpenMP PairHMM and native Smith-Waterman are still pending.
+sidecar from the Windows-tools release. It accelerates serial/OpenMP AVX
+PairHMM and AVX2 Smith-Waterman; compression still uses Java.
 The Windows installer provisions both the default and GATK environments during
 setup. For a manual Pixi setup, run `pixi install --locked -e gatk` before using
 GATK; commands only validate installed dependencies.

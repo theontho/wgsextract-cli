@@ -30,7 +30,7 @@ jobs:
         with:
           msystem: UCRT64
           update: true
-          install: make mingw-w64-ucrt-x86_64-gcc
+          install: make mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-libgomp
       - uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
         with:
           pixi-version: v0.82.0
@@ -49,6 +49,8 @@ jobs:
         run: |
           $pkg = Get-ChildItem out/conda/win-64/gkl-*.conda | Select-Object -First 1
           if (!$pkg) { throw "Missing native GKL package" }
+          pixi remove --feature gatk --platform win-64 --no-install gkl
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           pixi add --feature gatk --platform win-64 $pkg.FullName
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           pixi install -e dev
@@ -63,6 +65,27 @@ jobs:
           $env:TMP = $env:TEMP
           pixi run pytest -q tests/test_gkl_windows.py --basetemp out/gkl-ci/pytest `
             -o tmp_path_retention_policy=all
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Native likelihood and Smith-Waterman parity
+        shell: pwsh
+        run: |
+          $info = pixi info --json | ConvertFrom-Json
+          $prefix = ($info.environments_info | Where-Object name -eq gatk).prefix
+          $gatk = Get-ChildItem "$prefix/share/gatk4-*/gatk-package-4.6.2.0-local.jar" | Select-Object -First 1
+          if (!$gatk) { throw "Missing pinned GATK jar" }
+          $sidecar = "$prefix/Library/share/gkl/gkl-native-wgse.jar"
+          New-Item -ItemType Directory -Force out/gkl-ci/classes | Out-Null
+          $tmp = (Resolve-Path out/gkl-ci/process-tmp).Path
+          pixi run -e gatk javac -cp $gatk.FullName -d out/gkl-ci/classes `
+            packaging/windows/recipes/gkl/tests/GklParityProbe.java
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          pixi run -e gatk java -Xmx512m "-Djava.io.tmpdir=$tmp" `
+            -cp "out/gkl-ci/classes;$sidecar;$($gatk.FullName)" `
+            GklParityProbe out/gkl-ci/native-jni.tsv $tmp 2>&1 |
+            Tee-Object out/gkl-ci/native-jni.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          pixi run python packaging/windows/recipes/gkl/tests/compare_jni.py `
+            --candidate out/gkl-ci/native-jni.tsv --out out/gkl-ci/native-jni-parity.json
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()

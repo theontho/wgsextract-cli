@@ -190,9 +190,8 @@ def cmd_gatk(args: argparse.Namespace) -> None:
     )
     if sys.platform == "win32":
         logging.warning(
-            "Native Windows GATK acceleration is partial: serial AVX PairHMM "
-            "is available, but OpenMP PairHMM and native Smith-Waterman are "
-            "not yet packaged. Runtime and numeric annotations may differ "
+            "Native Windows GATK uses AVX OpenMP PairHMM and AVX2 Smith-Waterman; "
+            "compression remains Java-based. Runtime and numeric annotations may differ "
             "from Linux; check GATK's kernel-selection logs."
         )
     _threads, outdir, ref, lib = get_base_args(args)
