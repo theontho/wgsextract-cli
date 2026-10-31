@@ -164,7 +164,7 @@ def _probe_environment(prefix: str, tool_names: list[str], windows: bool) -> str
 
     root = Path(prefix)
     if windows and "gatk" in tool_names:
-        jars = sorted(root.glob("share/gatk4-*/gatk-package-*-local.jar"))
+        jars = sorted(root.glob("share/gatk4-*/gatk-package-4.6.2.0-local.jar"))
         sidecar = root / "Library" / "share" / "gkl" / "gkl-native-wgse.jar"
         java = root / "Library" / "bin" / "java.exe"
         if not jars or not sidecar.is_file() or not java.is_file():

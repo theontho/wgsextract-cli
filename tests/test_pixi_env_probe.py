@@ -159,6 +159,14 @@ def test_windows_gatk_missing_sidecar_is_not_a_java_fallback(tmp_path, monkeypat
     )
 
 
+def test_windows_gatk_rejects_an_unqualified_jar_abi(tmp_path, monkeypatch):
+    prefix = _gatk_prefix(tmp_path)
+    jar = prefix / "share/gatk4-4.6.2.0-1/gatk-package-4.6.2.0-local.jar"
+    jar.rename(jar.with_name("gatk-package-4.7.0-local.jar"))
+    monkeypatch.setattr("shutil.which", lambda name: "/unrelated/gatk")
+    assert pixi_tools._probe_environment(str(prefix), ["gatk"], windows=True) is None
+
+
 def test_windows_gatk_command_quotes_classpath_without_a_script(tmp_path, monkeypatch):
     prefix = _gatk_prefix(tmp_path)
     monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", "gatk")
