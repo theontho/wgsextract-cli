@@ -237,7 +237,7 @@ def test_static_collision_survives_multihit_partner_and_contig_filter(
     remaining = mapping.source_lookup("chr1", 1)
     assert remaining is not None
     assert remaining.status == "collision"
-    assert mapping.native_lookup("chr1", 2) is None
+    assert list(mapping.native_range("chr1", 2, 2)) == []
 
 
 def test_ref_diagnostic_complements_inversion_without_masking_reference_difference() -> (

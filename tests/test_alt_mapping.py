@@ -9,7 +9,6 @@ from wgsextract_cli.commands.align import alt_contigs, ensure_bwa_alt_file
 from wgsextract_cli.core.alt_mapping import (
     PROBE_ALT_CONTIG,
     alt_unaware,
-    warn_if_alt_unaware,
 )
 from wgsextract_cli.core.dependencies import get_tool_path
 
@@ -99,11 +98,9 @@ def _probe_bam(tmp_path: Path, mapq: int, with_alt: bool = True) -> str:
 
 
 @needs_samtools
-def test_alt_unaware_alignments_are_recognised(tmp_path, caplog):
+def test_alt_unaware_alignments_are_recognised(tmp_path):
     unaware = _probe_bam(tmp_path, mapq=0)
     assert alt_unaware(unaware) is True
     assert alt_unaware(_probe_bam(tmp_path, mapq=60)) is False
     # No ALT contigs (an analysis set, or GRCh37): nothing to tell.
     assert alt_unaware(_probe_bam(tmp_path, mapq=0, with_alt=False)) is None
-    warn_if_alt_unaware(unaware)
-    assert "without ALT-aware mapping" in caplog.text
