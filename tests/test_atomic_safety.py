@@ -160,6 +160,37 @@ def test_atomic_special_alignment_failure_preserves_the_existing_bam(
     assert set(tmp_path.iterdir()) == {output}
 
 
+def test_atomic_singleton_extraction_failure_preserves_previous_fastqs(
+    tmp_path, monkeypatch
+):
+    from wgsextract_cli.commands import _extract_helpers
+    from wgsextract_cli.core.atomic_output import atomic_output_mode
+
+    paths = [tmp_path / name for name in ("r1.fq.gz", "r2.fq.gz", "single.fq.gz")]
+    for path in paths:
+        path.write_bytes(b"previous FASTQs")
+
+    def interrupted(stages, **kwargs):
+        command = stages[-1]
+        for flag in ("-1", "-2", "-s"):
+            Path(command[command.index(flag) + 1]).write_bytes(b"partial FASTQs")
+        raise RuntimeError("interrupted extraction")
+
+    monkeypatch.setattr(_extract_helpers, "run_pipeline", interrupted)
+    with atomic_output_mode(True), pytest.raises(RuntimeError):
+        _extract_helpers.alignments_to_fastq(
+            "input.bam",
+            paths[0],
+            paths[1],
+            threads="1",
+            memory="1M",
+            temp_parent=tmp_path,
+            out_singletons=paths[2],
+        )
+    assert all(path.read_bytes() == b"previous FASTQs" for path in paths)
+    assert set(tmp_path.iterdir()) == set(paths)
+
+
 def test_live_builder_is_not_evicted_by_a_wait_timeout(tmp_path):
     lock = str(tmp_path / "index.lock")
     with build_lock(lock), pytest.raises(WGSExtractError, match="Timed out"):
