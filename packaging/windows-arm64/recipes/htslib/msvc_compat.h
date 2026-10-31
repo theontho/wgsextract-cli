@@ -7,6 +7,9 @@
 #include <stdlib.h>
 #include <windows.h>
 #include <errno.h>
+#ifndef SSIZE_MAX
+#define SSIZE_MAX INTPTR_MAX
+#endif
 static inline int nanosleep(const struct timespec *request, struct timespec *remaining)
 {
     if (!request || request->tv_sec < 0 || request->tv_nsec < 0 ||

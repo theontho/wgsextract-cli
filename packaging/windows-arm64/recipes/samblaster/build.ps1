@@ -9,6 +9,8 @@ if ($LASTEXITCODE) { throw "samblaster ARM64 configure failed" }
 & cmake --build $build --config Release --parallel 4 2>&1 |
     Tee-Object -FilePath "$evidence\compiler.log"
 if ($LASTEXITCODE) { throw "samblaster ARM64 compile failed" }
+& "$build\Release\msvc_format_test.exe"
+if ($LASTEXITCODE) { throw "Native MSVC allocated-format regression failed" }
 & cmake --install $build --config Release
 if ($LASTEXITCODE) { throw "samblaster ARM64 install failed" }
 & "$repo\scripts\audit_windows_arm64.ps1" -Prefix $env:PREFIX -Report "$evidence\pe.json"

@@ -40,7 +40,8 @@ foreach ($line in Get-Content "$env:SRC_DIR\index64\tiny-index.sha256") {
     }
 }
 & python "$repo\packaging\windows-arm64\tests\bwa_smoke.py" `
-    --bwa $bwa --output "$evidence\smoke"
+    --bwa $bwa --output "$evidence\smoke" `
+    --expected-sha256 de8085bffa55e5578e3b39de5e939a55c917e87334103804e01e9ce0dbac1d72
 if ($LASTEXITCODE) { throw "MEM2 native paired-read truth/thread gate failed" }
 & "$repo\scripts\qualify_windows_arm64_process.ps1" -Executable $bwa `
     -Arguments @("mem", "$evidence\smoke\reference.fa", "-") `

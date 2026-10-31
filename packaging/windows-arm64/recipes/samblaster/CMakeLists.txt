@@ -12,7 +12,8 @@ add_executable(samblaster
     "${CMAKE_CURRENT_LIST_DIR}/../bwa/msvc_time.c"
 )
 target_compile_definitions(samblaster PRIVATE
-    BUILDNUM=26 WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS)
+    BUILDNUM=26 WIN32_LEAN_AND_MEAN NOMINMAX
+    _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS)
 target_compile_options(samblaster PRIVATE
     /UNDEBUG /clang:-O3 /clang:-fsigned-char
     /FI"${CMAKE_CURRENT_LIST_DIR}/msvc_compat.h")
@@ -21,3 +22,5 @@ target_include_directories(samblaster PRIVATE
     "${WGSE_WINDOWS}/compat/include")
 target_link_libraries(samblaster PRIVATE psapi)
 install(TARGETS samblaster RUNTIME DESTINATION Library/bin)
+add_executable(msvc_format_test "${CMAKE_CURRENT_LIST_DIR}/../../tests/msvc_format.c")
+target_compile_options(msvc_format_test PRIVATE /UNDEBUG)
