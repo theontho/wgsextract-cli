@@ -62,8 +62,16 @@ with independent SHA-256 values, without changing the x64 recipes. Native
 are required. This staging is not approval of the still-open #268 release gate.
 The 2.3 source archive still defaults its version string to 2.2.1; the ARM
 recipe explicitly sets the actual pinned source release, 2.3. A matching 2.3
-full-genome oracle remains required. The preserved golden reports 2.2.1:
-establish its actual pinned source provenance before deciding equivalence.
+full-genome oracle remains required. The #188 owner confirms that the preserved
+2.2.1 golden uses the older scientific baseline, not the new 2.3 source.
+
+The staged HTS 1.24 recipe reuses all three unchanged x64 CRAM/BAM optimization
+patches, static pinned compression/TRE dependencies and the existing regressions.
+It includes the native CRAM rANS NEON translation unit; compiler evidence is
+required. This recipe has not yet passed native qualification. Remote access
+and plugins remain disabled, as in the x64 package.
+Native Release builds retain upstream assertions so assertion-based regression
+fixtures do not become silent no-ops through CMake's `NDEBUG` default.
 
 On an ARM64 Windows OS, configured executable paths and version probes reject
 x64 PE files before launching them. Feature entry also rejects a Prism-hosted

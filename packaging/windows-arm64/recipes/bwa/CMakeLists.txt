@@ -38,6 +38,7 @@ target_compile_definitions(bwa_core PUBLIC
     __PTW32_STATIC_LIB HAVE_PTHREAD __ARM_NEON=1
 )
 target_compile_options(bwa_core PUBLIC
+    /UNDEBUG
     /FI"${CMAKE_CURRENT_LIST_DIR}/msvc_compat.h"
 )
 set_source_files_properties("${WGSE_BWA_SOURCE}/ksw.c" PROPERTIES COMPILE_OPTIONS "/showIncludes")

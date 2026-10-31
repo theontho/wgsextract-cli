@@ -28,7 +28,7 @@ target_compile_definitions(mem2_core PUBLIC
     WIN32 __PTW32_STATIC_LIB _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS
     _USE_MATH_DEFINES PACKAGE_VERSION="2.3"
 )
-target_compile_options(mem2_core PUBLIC /FI"${CMAKE_CURRENT_LIST_DIR}/msvc_compat.h")
+target_compile_options(mem2_core PUBLIC /UNDEBUG /FI"${CMAKE_CURRENT_LIST_DIR}/msvc_compat.h")
 target_include_directories(mem2_core PUBLIC
     "${CMAKE_CURRENT_LIST_DIR}/include"
     "${CMAKE_CURRENT_LIST_DIR}/../bwa/include"

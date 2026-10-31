@@ -1,0 +1,33 @@
+context:
+  version: "1.24"
+
+package:
+  name: htslib
+  version: ${{ version }}
+
+source:
+  url: https://github.com/samtools/htslib/releases/download/${{ version }}/htslib-${{ version }}.tar.bz2
+  sha256: 28a8de191381c7a97a35675ceac76fa1ea95e7b678d6a2e9d600a7874e4077de
+  patches:
+    - ../../../windows/recipes/htslib/patches/0001-bounded-cram-stop-copy.patch
+    - ../../../windows/recipes/htslib/patches/0002-vector-bam-sequence-packing.patch
+    - ../../../windows/recipes/htslib/patches/0003-reuse-cram-buffers.patch
+
+build:
+  number: 0
+  string: wgse_arm64_${{ build_number }}
+  script:
+    content:
+      - 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "%RECIPE_DIR%\build.ps1"'
+
+tests:
+  - script:
+      - bgzip --version
+      - tabix --version
+      - htsfile --version
+
+about:
+  homepage: https://www.htslib.org
+  license: MIT
+  license_file: LICENSE
+  summary: Native Windows ARM64 HTS and CRAM NEON qualification.

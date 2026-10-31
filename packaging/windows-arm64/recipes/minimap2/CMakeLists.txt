@@ -37,6 +37,7 @@ target_compile_definitions(minimap2_core PUBLIC
     _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS _USE_MATH_DEFINES
 )
 target_compile_options(minimap2_core PUBLIC
+    /UNDEBUG
     /FI"${CMAKE_CURRENT_LIST_DIR}/msvc_compat.h"
     /clang:-fsigned-char
 )
