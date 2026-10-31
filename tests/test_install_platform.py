@@ -15,7 +15,14 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.mark.parametrize("architecture", ["aarch64", "arm64"])
-def test_linux_arm_fails_before_network_or_dependency_setup(tmp_path, architecture):
+@pytest.mark.parametrize(
+    "parent_path", [True, False], ids=["with-path", "without-path"]
+)
+def test_linux_arm_fails_before_network_or_dependency_setup(
+    tmp_path, monkeypatch, architecture, parent_path
+):
+    if not parent_path:
+        monkeypatch.delenv("PATH", raising=False)
     commands = tmp_path / "commands"
     commands.mkdir()
     uname = commands / "uname"
@@ -38,7 +45,9 @@ def test_linux_arm_fails_before_network_or_dependency_setup(tmp_path, architectu
     env = {
         **os.environ,
         "HOME": str(tmp_path),
-        "PATH": f"{commands}{os.pathsep}{os.environ['PATH']}",
+        "PATH": os.pathsep.join(
+            path for path in (str(commands), os.environ.get("PATH", os.defpath)) if path
+        ),
         "WGSEXTRACT_INSTALL_DIR": str(installation),
         "PIXI_ARCH": "x86_64",
     }
@@ -51,7 +60,7 @@ def test_linux_arm_fails_before_network_or_dependency_setup(tmp_path, architectu
         timeout=10,
     )
     assert result.returncode == 1
-    assert "Native Linux ARM64 (aarch64) is not supported yet" in result.stderr
+    assert f"Native Linux ARM64 ({architecture}) is not supported yet" in result.stderr
     assert "No dependencies were installed" in result.stderr
     assert not marker.exists()
     assert not installation.exists()
