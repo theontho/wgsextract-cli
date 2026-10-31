@@ -42,6 +42,8 @@ def _phylop_needs_bigwig(args: argparse.Namespace) -> bool:
 
 def verify_platform_support(args: argparse.Namespace) -> None:
     command = getattr(args, "command", None)
+    if command in {"align", "realign"} and getattr(args, "gpu", False):
+        require_native_tool("parabricks")
     if command == "vcf":
         subcommand = getattr(args, "vcf_cmd", None)
         if subcommand in {"gatk", "deepvariant"}:

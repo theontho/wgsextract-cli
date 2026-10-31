@@ -1,4 +1,6 @@
 import argparse
+import platform
+import sys
 from collections.abc import Callable
 from unittest.mock import Mock
 
@@ -6,14 +8,14 @@ import pytest
 
 from wgsextract_cli.cli.platform_support import verify_platform_support
 from wgsextract_cli.commands.vcf import callers, deepvariant
-from wgsextract_cli.core import dependency_checks, native_support
+from wgsextract_cli.core import dependency_checks, native_support, parabricks
 from wgsextract_cli.core.utils import WGSExtractError
 
 
 @pytest.fixture
 def linux_arm(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(native_support.sys, "platform", "linux")
-    monkeypatch.setattr(native_support.platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(platform, "machine", lambda: "aarch64")
 
 
 @pytest.mark.parametrize("tool", ["gatk", "run_deepvariant"])
@@ -54,18 +56,40 @@ def test_arm_cli_gate_needs_no_input(linux_arm: None, subcommand: str) -> None:
         verify_platform_support(argparse.Namespace(command="vcf", vcf_cmd=subcommand))
 
 
+@pytest.mark.parametrize("command", ["align", "realign"])
+def test_arm_gpu_alignment_gate_needs_no_input(linux_arm: None, command: str) -> None:
+    with pytest.raises(WGSExtractError, match="Parabricks --gpu"):
+        verify_platform_support(argparse.Namespace(command=command, gpu=True))
+    verify_platform_support(argparse.Namespace(command=command, gpu=False))
+
+
+def test_arm_parabricks_gate_precedes_setup_or_launch(
+    linux_arm: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    probe = Mock(side_effect=AssertionError("must not inspect or launch Docker"))
+    monkeypatch.setattr(parabricks, "parabricks_image", probe)
+    monkeypatch.setattr(parabricks, "run_container", probe)
+    with pytest.raises(WGSExtractError, match="Linux ARM64"):
+        parabricks.verify_parabricks()
+    with pytest.raises(WGSExtractError, match="Linux ARM64"):
+        parabricks.run_pbrun("fq2bam", [], [])
+    with pytest.raises(WGSExtractError, match="Linux ARM64"):
+        parabricks.call_variants("deepvariant", "absent", "absent", "absent/file", None)
+    probe.assert_not_called()
+
+
 @pytest.mark.parametrize("architecture", ["x86_64", "AMD64"])
 def test_x64_policy_is_unchanged(
     monkeypatch: pytest.MonkeyPatch, architecture: str
 ) -> None:
-    monkeypatch.setattr(native_support.sys, "platform", "linux")
-    monkeypatch.setattr(native_support.platform, "machine", lambda: architecture)
-    for tool in ("gatk", "run_deepvariant"):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(platform, "machine", lambda: architecture)
+    for tool in ("gatk", "run_deepvariant", "parabricks"):
         native_support.require_native_tool(tool)
 
 
 def test_macos_arm_policy_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(native_support.sys, "platform", "darwin")
-    monkeypatch.setattr(native_support.platform, "machine", lambda: "arm64")
-    for tool in ("gatk", "run_deepvariant"):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(platform, "machine", lambda: "arm64")
+    for tool in ("gatk", "run_deepvariant", "parabricks"):
         native_support.require_native_tool(tool)

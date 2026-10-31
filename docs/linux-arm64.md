@@ -50,6 +50,10 @@ Docker or running a local binary, including `--gpu` and custom images.
 `deps check` reports these tools as unavailable with the phase-2 explanation.
 Use bcftools for phase-1 variant calling.
 
+GPU alignment/realignment also fails before preparing inputs or inspecting
+Docker: the Parabricks image is not qualified natively on ARM64. Use the
+native CPU aligners; x86 containers are not an ARM64 fallback.
+
 PharmCAT, Cyrius, T1K, ExpansionHunter and PacBio-specific binaries are not
 qualified as part of phase 1. Their existing platform restrictions are not a
 promise of ARM64 support. Native GKL and DeepVariant are separate #236 phase-2
