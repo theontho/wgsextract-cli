@@ -41,6 +41,10 @@ $smoke = Join-Path $env:RECIPE_DIR "..\..\tests\bwa_smoke.py"
 & python $smoke --bwa $bwa --output "$evidence\smoke" `
     --expected-sha256 "efb0d8004175411365b5f740cd833ebcbaf78f39c6aa1fa72a232d5e92b121b6"
 if ($LASTEXITCODE) { throw "BWA native paired-read truth/thread equivalence failed" }
+$qualify = Join-Path $env:RECIPE_DIR "..\..\..\..\scripts\qualify_windows_arm64_process.ps1"
+& $qualify -Executable "$env:PREFIX\Library\bin\bwa.exe" `
+    -Arguments @("mem", "$evidence\smoke\reference.fa", "-") `
+    -Prefix $env:PREFIX -Report "$evidence\process.json"
 
 $notices = Join-Path $env:PREFIX "Library\share\bwa\licenses"
 New-Item -ItemType Directory -Force -Path $notices | Out-Null

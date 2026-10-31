@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include <malloc.h>
 typedef intptr_t ssize_t;
+typedef int pid_t;
 typedef int64_t wgse_off_t;
 #define off_t wgse_off_t
 #define alloca _alloca

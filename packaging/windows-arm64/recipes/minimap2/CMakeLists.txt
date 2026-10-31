@@ -31,10 +31,7 @@ foreach(name IN LISTS NEON_NAMES)
         COMPILE_OPTIONS "/showIncludes"
     )
 endforeach()
-add_library(minimap2_core STATIC
-    ${CORE_SOURCES}
-    "${WGSE_WINDOWS}/compat/wgse_compat.c"
-)
+add_library(minimap2_core STATIC ${CORE_SOURCES})
 target_compile_definitions(minimap2_core PUBLIC
     HAVE_KALLOC WIN32 __PTW32_STATIC_LIB
     _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS _USE_MATH_DEFINES
@@ -50,6 +47,9 @@ target_include_directories(minimap2_core PUBLIC
     "${WGSE_MINIMAP2_SOURCE}"
 )
 target_link_libraries(minimap2_core PUBLIC ZLIB::ZLIB PThreads4W::PThreads4W psapi)
-add_executable(minimap2 "${WGSE_MINIMAP2_SOURCE}/main.c")
+add_executable(minimap2
+    "${WGSE_MINIMAP2_SOURCE}/main.c"
+    "${WGSE_WINDOWS}/compat/wgse_compat.c"
+)
 target_link_libraries(minimap2 PRIVATE minimap2_core)
 install(TARGETS minimap2 RUNTIME DESTINATION Library/bin)

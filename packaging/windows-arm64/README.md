@@ -43,8 +43,16 @@ into clang-cl/CMake: the three extension kernels use the bundled sse2neon
 header, not x86 dispatch. `_M_ARM64` excludes hybrid code generation and
 compiler include logs prove the NEON selection. A seeded short-read smoke test
 checks mapping truth, native index round-trip and one/four-thread equality.
+Its ordered 300-record SAM body must match Linux 2.31-r1302 SHA-256
+`f3075dde712eb8219e2ab446f636f51c5d6ce009c5b10189eb09a26cdee05fa3`;
+comparison preserves raw newlines rather than hiding Windows text-mode changes.
+The binary-I/O constructor is linked directly into the executable, not left in
+an unreferenced archive member.
 Recipes retain evidence under `out/windows-arm64`, outside rattler's build home
 (whose Windows junctions cannot safely be traversed by artifact globbing).
+`scripts/qualify_windows_arm64_process.ps1` holds each real aligner on an input
+pipe, records its live architecture and modules, then closes input and requires
+normal completion. Package file headers alone are not a process audit.
 
 On an ARM64 Windows OS, configured executable paths and version probes reject
 x64 PE files before launching them, including from a Prism-hosted Python.

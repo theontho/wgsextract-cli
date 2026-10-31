@@ -6,6 +6,7 @@ on:
     paths:
       - packaging/windows-arm64/**
       - scripts/audit_windows_arm64.ps1
+      - scripts/qualify_windows_arm64_process.ps1
       - src/wgsextract_cli/core/windows_arm64.py
       - tests/test_windows_arm64.py
       - .github/workflows/windows_arm64.yml

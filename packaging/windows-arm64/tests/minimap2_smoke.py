@@ -18,7 +18,7 @@ def main() -> None:
     rng = random.Random(236)
     reference = "".join(rng.choice("ACGT") for _ in range(8000))
     fasta = args.output / "reference.fa"
-    fasta.write_text(f">chr236\n{reference}\n", encoding="ascii")
+    fasta.write_text(f">chr236\n{reference}\n", encoding="ascii", newline="\n")
     reads = args.output / "reads.fq"
     positions = {f"read{i:03}": i * 17 + 1 for i in range(300)}
     reads.write_text(
@@ -27,6 +27,7 @@ def main() -> None:
             for name, start in positions.items()
         ),
         encoding="ascii",
+        newline="\n",
     )
     index = args.output / "reference.mmi"
     subprocess.run(
@@ -35,7 +36,7 @@ def main() -> None:
     bodies = []
     for threads, target in ((1, fasta), (4, index)):
         sam = args.output / f"t{threads}.sam"
-        with sam.open("w", encoding="ascii", newline="\n") as output:
+        with sam.open("wb") as output:
             subprocess.run(
                 [
                     args.minimap2,
@@ -50,11 +51,12 @@ def main() -> None:
                 stdout=output,
                 check=True,
             )
-        records = [
+        body = b"".join(
             line
-            for line in sam.read_text(encoding="ascii").splitlines()
-            if not line.startswith("@")
-        ]
+            for line in sam.read_bytes().splitlines(keepends=True)
+            if not line.startswith(b"@")
+        ).decode("ascii")
+        records = body.splitlines()
         if len(records) != len(positions):
             raise RuntimeError(
                 f"Expected {len(positions)} mappings, got {len(records)}"
@@ -70,7 +72,7 @@ def main() -> None:
                 or "NM:i:0" not in fields[11:]
             ):
                 raise RuntimeError(f"Incorrect synthetic alignment: {record}")
-        bodies.append("\n".join(records) + "\n")
+        bodies.append(body)
     if bodies[0] != bodies[1]:
         raise RuntimeError(
             "Mapping differs after native index round-trip/thread change"
