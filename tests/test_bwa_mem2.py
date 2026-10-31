@@ -478,9 +478,17 @@ def test_index_is_built_when_it_fits_in_memory(tmp_path, monkeypatch):
     ref = _reference(tmp_path)
     monkeypatch.setattr(bwa_mem2, "prebuilt_index", lambda _ref: None)
     commands = []
-    monkeypatch.setattr(bwa_mem2, "run_command", lambda cmd, **_k: commands.append(cmd))
+
+    def build(cmd, **kwargs):
+        commands.append(cmd)
+        for suffix in bwa_mem2.INDEX_SUFFIXES:
+            Path(cmd[3] + suffix).write_text("index")
+
+    monkeypatch.setattr(bwa_mem2, "run_command", build)
     bwa_mem2.ensure_index(ref, download=True)
-    assert commands == [["bwa-mem2", "index", ref]]
+    assert commands[0][:3] == ["bwa-mem2", "index", "-p"]
+    assert commands[0][-1] == ref
+    assert bwa_mem2.has_index(ref)
 
 
 def test_prebuilt_index_downloads_and_is_checked(tmp_path, monkeypatch):

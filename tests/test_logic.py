@@ -11,6 +11,7 @@ from unittest.mock import patch
 # Ensure src is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
+from wgsextract_cli.core.bwa_index import INDEX_SUFFIXES
 from wgsextract_cli.core.gene_map import GeneMap, resolve_gene_map_reflib
 from wgsextract_cli.core.genome_library import (
     GENOME_CONFIG_NAME,
@@ -35,7 +36,11 @@ class TestAlignToolSelection(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         self.r1 = os.path.join(self.test_dir, "fake_R1.fastq.gz")
         self.ref = os.path.join(self.test_dir, "fake_ref.fa")
-        for path in (self.r1, self.ref, f"{self.ref}.bwt"):
+        for path in (
+            self.r1,
+            self.ref,
+            *(f"{self.ref}{suffix}" for suffix in INDEX_SUFFIXES),
+        ):
             with open(path, "w") as f:
                 f.write("test")
 

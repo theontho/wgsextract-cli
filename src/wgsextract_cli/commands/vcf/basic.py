@@ -178,13 +178,18 @@ def cmd_snp(args: argparse.Namespace) -> None:
     logging.info(LOG_MESSAGES["vcf_calling_snps"].format(output=out_vcf))
     ploidy_args = _ploidy_args(args, lib)
 
-    with sex_samples_args(
-        args.input, outdir, ploidy_args, region=args.region
-    ) as sex_args:
+    from wgsextract_cli.core.atomic_output import safe_output
+
+    with (
+        safe_output(out_vcf) as staged,
+        sex_samples_args(
+            args.input, outdir, ploidy_args, region=args.region
+        ) as sex_args,
+    ):
         call_small_variants(
             args.input,
             ref,
-            out_vcf,
+            staged,
             threads=threads,
             region=args.region,
             profile=profile,
@@ -218,13 +223,18 @@ def cmd_indel(args: argparse.Namespace) -> None:
     logging.info(LOG_MESSAGES["vcf_calling_indels"].format(output=out_vcf))
     ploidy_args = _ploidy_args(args, lib)
 
-    with sex_samples_args(
-        args.input, outdir, ploidy_args, region=args.region
-    ) as sex_args:
+    from wgsextract_cli.core.atomic_output import safe_output
+
+    with (
+        safe_output(out_vcf) as staged,
+        sex_samples_args(
+            args.input, outdir, ploidy_args, region=args.region
+        ) as sex_args,
+    ):
         call_small_variants(
             args.input,
             ref,
-            out_vcf,
+            staged,
             threads=threads,
             region=args.region,
             profile=profile,
