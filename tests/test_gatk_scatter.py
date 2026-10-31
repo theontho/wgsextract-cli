@@ -211,6 +211,56 @@ def test_gatk_scatter_rejects_gpu_before_any_work():
         callers.cmd_gatk(Namespace(scatter=True, gpu=True))
 
 
+def test_atomic_scattered_gatk_rebuilds_the_published_vcf_index(tmp_path, monkeypatch):
+    from wgsextract_cli.core.atomic_output import atomic_output_mode
+
+    output = tmp_path / "gatk.vcf.gz"
+    output.write_text("previous VCF")
+    index = Path(str(output) + ".tbi")
+    index.write_text("previous index")
+    monkeypatch.setattr(callers, "verify_dependencies", lambda tools: None)
+    monkeypatch.setattr(
+        callers,
+        "get_base_args",
+        lambda args: ("2", str(tmp_path), "ref.fa", Namespace(dict_file="ref.dict")),
+    )
+    monkeypatch.setattr(
+        callers,
+        "scatter_intervals",
+        lambda *args: [[("chr1", 1, 10)], [("chr1", 11, 20)]],
+    )
+    monkeypatch.setattr(callers, "preflight_resources", lambda build: None)
+    monkeypatch.setattr(
+        callers.ultima,
+        "alignment_flow_data",
+        lambda *args: Namespace(flow_aware=True),
+    )
+    monkeypatch.setattr(
+        callers, "_prepare_gatk_input", lambda args, *rest: (args.input, None)
+    )
+    monkeypatch.setattr(callers, "warn_if_no_variants", lambda *args: None)
+
+    def scatter(command, shards, path, *args):
+        Path(path).write_text("completed scattered VCF")
+        Path(path + ".tbi").write_text("staged index")
+
+    indexed = []
+
+    def rebuild(path):
+        assert Path(path).read_text() == "completed scattered VCF"
+        indexed.append(path)
+        Path(path + ".tbi").write_text("published index")
+
+    monkeypatch.setattr(callers, "call_scattered", scatter)
+    monkeypatch.setattr(callers, "ensure_vcf_indexed", rebuild)
+    with atomic_output_mode(True):
+        callers.cmd_gatk(
+            Namespace(scatter=True, gpu=False, input="input.bam", region=None)
+        )
+    assert indexed == [str(output)]
+    assert index.read_text() == "published index"
+
+
 def test_scatter_preflight_counts_all_worker_heaps(tmp_path):
     estimate = resource_estimates.estimate_resources(
         "gatk", input_paths=[], output_dir=str(tmp_path), threads="2", gatk_workers=2

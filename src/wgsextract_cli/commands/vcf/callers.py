@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 
 from wgsextract_cli.core import ultima
+from wgsextract_cli.core.atomic_output import safe_output
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
@@ -156,8 +157,9 @@ def cmd_freebayes(args: argparse.Namespace) -> None:
             targets = ["--targets", bed] if bed else []
             stages = [["freebayes", "-f", use_ref, *targets, args.input]]
             keep = []
-        stages.append(["bcftools", "view", *keep, "-Oz", "-o", out_vcf])
-        run_pipeline(stages, description="FreeBayes variant calling")
+        with safe_output(out_vcf) as staged:
+            stages.append(["bcftools", "view", *keep, "-Oz", "-o", staged])
+            run_pipeline(stages, description="FreeBayes variant calling")
     ensure_vcf_indexed(out_vcf)
     warn_if_no_variants(out_vcf, ref, args.region)
 
@@ -173,7 +175,8 @@ def _gatk_gpu(args: argparse.Namespace) -> None:
         ultima.warn_no_flow_model("Parabricks HaplotypeCaller (--gpu)")
     out_vcf = str(Path(outdir, "gatk.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_gatk"].format(output=out_vcf))
-    call_variants("haplotypecaller", args.input, ref, out_vcf, args.region)
+    with safe_output(out_vcf) as staged:
+        call_variants("haplotypecaller", args.input, ref, staged, args.region)
     ensure_vcf_indexed(out_vcf)
     warn_if_no_variants(out_vcf, ref, args.region)
 
@@ -247,21 +250,23 @@ def cmd_gatk(args: argparse.Namespace) -> None:
             with tempfile.TemporaryDirectory(
                 dir=outdir, prefix=".wgse_gatk_scatter_"
             ) as work:
-                call_scattered(
-                    [
-                        "gatk",
-                        "HaplotypeCaller",
-                        "-R",
-                        java_local_path(ref),
-                        "-I",
-                        java_local_path(gatk_input),
-                        *flow_args,
-                    ],
-                    shards,
-                    out_vcf,
-                    Path(work),
-                    gatk_tmp,
-                )
+                with safe_output(out_vcf) as staged:
+                    call_scattered(
+                        [
+                            "gatk",
+                            "HaplotypeCaller",
+                            "-R",
+                            java_local_path(ref),
+                            "-I",
+                            java_local_path(gatk_input),
+                            *flow_args,
+                        ],
+                        shards,
+                        staged,
+                        Path(work),
+                        gatk_tmp,
+                    )
+            ensure_vcf_indexed(out_vcf)
             warn_if_no_variants(out_vcf, ref, args.region)
             return
         cmd = (
@@ -280,7 +285,9 @@ def cmd_gatk(args: argparse.Namespace) -> None:
             + flow_args
             + region_args
         )
-        run_command(cmd)
+        with safe_output(out_vcf) as staged:
+            cmd[cmd.index("-O") + 1] = java_local_path(staged)
+            run_command(cmd)
         ensure_vcf_indexed(out_vcf)
         warn_if_no_variants(out_vcf, ref, args.region)
     except subprocess.CalledProcessError as e:

@@ -10,19 +10,18 @@ and hg38's chrM are both the rCRS. The result is saved in the library as
 older version of this builder.
 """
 
-import contextlib
 import gzip
 import logging
 import os
 import subprocess
 import tempfile
-import time
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 from pyliftover import LiftOver
 
 from wgsextract_cli.core.builds import canonical_build
+from wgsextract_cli.core.file_lock import build_lock as _build_lock
 from wgsextract_cli.core.microarray_utils import (
     _chrom_for_liftover,
     _resolve_templates_roots,
@@ -255,28 +254,3 @@ def _write_target(markers: dict[tuple[str, int], str], out: str) -> None:
     finally:
         for path in (plain, staged, staged + ".tbi"):
             Path(path).unlink(missing_ok=True)
-
-
-@contextlib.contextmanager
-def _build_lock(lock: str, timeout: float = 1800) -> Iterator[None]:
-    """An exclusive lock file; a lock older than timeout is taken as abandoned."""
-    deadline = time.monotonic() + timeout
-    while True:
-        try:
-            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            break
-        except FileExistsError:
-            try:
-                stale = time.time() - Path(lock).stat().st_mtime > timeout
-            except FileNotFoundError:
-                continue
-            if stale or time.monotonic() > deadline:
-                Path(lock).unlink(missing_ok=True)
-                continue
-            logging.info(f"Waiting for another run to finish building {lock[:-5]}...")
-            time.sleep(5)
-    try:
-        os.close(fd)
-        yield
-    finally:
-        Path(lock).unlink(missing_ok=True)
