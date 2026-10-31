@@ -234,6 +234,8 @@ def alignments_to_fastq(
     space than the system temp dir usually has. Singletons are discarded unless
     ``out_singletons`` is given; READ_OTHER reads go to ``out_other`` if given.
     """
+    from wgsextract_cli.core.temp_directory import configured_temp_directory
+
     with (
         cleanup_files(
             on_failure=[
@@ -243,7 +245,9 @@ def alignments_to_fastq(
                 *([out_singletons] if out_singletons else []),
             ]
         ),
-        tempfile.TemporaryDirectory(dir=temp_parent, prefix=".collate_") as tmp,
+        tempfile.TemporaryDirectory(
+            dir=configured_temp_directory() or temp_parent, prefix=".collate_"
+        ) as tmp,
     ):
         view_cmd = ["samtools", "view", "-uh", "--no-PG", "-@", threads]
         view_cmd += cram_opt or []

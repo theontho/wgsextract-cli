@@ -123,7 +123,9 @@ def test_realign_preflight_uses_effective_mem2_budget(tmp_path, monkeypatch):
         realign, "preflight_resources", lambda build: estimates.append(build())
     )
     realign._report_resource_estimates(
-        Namespace(aligner="bwa-mem2", platform="illumina", format="BAM"),
+        Namespace(
+            aligner="bwa-mem2", platform="illumina", format="BAM", keep_fastq=False
+        ),
         ref,
         str(tmp_path),
         "6",
@@ -320,6 +322,7 @@ def test_realign_refuses_mem2_memory_before_extracting(
         memory="512M",
         outdir=str(tmp_path),
         force_extract=False,
+        keep_fastq=False,
     )
     with pytest.raises(WGSExtractError, match="bwa-mem2 alignment is estimated"):
         realign.run(args)
