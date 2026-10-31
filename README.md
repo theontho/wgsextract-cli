@@ -40,6 +40,8 @@ Set these environment variables before running `install.sh`:
 
 Leave `WGSEXTRACT_BIN_DIR`, `WGSEXTRACT_PIXI_HOME`, `WGSEXTRACT_PIXI_CACHE_DIR`, and `WGSEXTRACT_PIXI_ENV_DIR` unset to keep everything inside one directory. For reproducible installs set `WGSEXTRACT_RELEASE_TAG=vX.Y.Z`; for testing unreleased code set `WGSEXTRACT_REF=main` or `WGSEXTRACT_ARCHIVE_URL=<url>`.
 
+When Pixi is missing, installers verify the pinned release's SHA-256 before running it; unsigned upstream installer scripts are not executed. Updating the Pixi pin requires updating its trusted release digests too. `ref library --install` also verifies catalogued references against their sequence-name/length signature after indexing. The catalog's `md5` is this dictionary signature, not a FASTA content checksum.
+
 ### Uninstall
 
 ```bash

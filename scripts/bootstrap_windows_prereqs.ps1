@@ -197,7 +197,13 @@ function Ensure-Pixi {
         Copy-UrlOrFile -Source $url -Destination $download
         Assert-FileSha256 -Path $download -ExpectedSha256 $expected -Label "Pixi executable"
         Move-Item -LiteralPath $download -Destination (Join-Path $bin "pixi.exe") -Force
-        [Environment]::SetEnvironmentVariable("Path", "$bin;" + [Environment]::GetEnvironmentVariable("Path", "User"), "User")
+        $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+        $entries = @($userPath -split ";" | ForEach-Object {
+            [Environment]::ExpandEnvironmentVariables($_).Trim().TrimEnd('\')
+        })
+        if ($entries -notcontains $bin.TrimEnd('\')) {
+            [Environment]::SetEnvironmentVariable("Path", "$bin;" + $userPath, "User")
+        }
         Add-PathForCurrentProcess $bin
         $pixi = Get-Command pixi -ErrorAction SilentlyContinue
         if (-not $pixi) {

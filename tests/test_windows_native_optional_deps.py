@@ -88,7 +88,15 @@ def test_pixi_bootstrap_sha256_fails_closed(tmp_path) -> None:
             f"-ExpectedSha256 '{expected}' -Label 'Pixi executable'\n"
         )
         result = subprocess.run(
-            [pwsh, "-NoProfile", "-File", str(script)], capture_output=True, text=True
+            [pwsh, "-NoProfile"]
+            + (
+                ["-ExecutionPolicy", "Bypass"]
+                if Path(pwsh).stem.lower() == "powershell"
+                else []
+            )
+            + ["-File", str(script)],
+            capture_output=True,
+            text=True,
         )
         assert (result.returncode == 0) is succeeds, result.stderr
 

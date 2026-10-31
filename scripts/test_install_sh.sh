@@ -243,6 +243,9 @@ printf 'corrupt archive' > "$fake_pixi_archive"
 rejected_install_dir="$work_dir/rejected-install"
 if HOME="$embedded_home_dir" \
     PATH="$fake_bin:/usr/bin:/bin" \
+    WGSEXTRACT_INSTALLER_TEST_ARCHIVE="$archive" \
+    WGSEXTRACT_ARCHIVE_URL="$archive" \
+    WGSEXTRACT_INSTALLER_TEST_RELEASE_TAG="$release_tag" \
     WGSEXTRACT_INSTALLER_TEST_PIXI_ARCHIVE="$fake_pixi_archive" \
     WGSEXTRACT_INSTALLER_TEST_CURL_LOG="$curl_log" \
     WGSEXTRACT_INSTALL_DIR="$rejected_install_dir" \

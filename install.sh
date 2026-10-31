@@ -141,6 +141,14 @@ pixi_asset_name() {
     printf 'pixi-%s-%s.tar.gz' "$arch" "$platform"
 }
 
+make_staging_directory() {
+    staging_suffix="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+    [ "${#staging_suffix}" = "32" ] || fail "Could not generate a staging directory name."
+    staging_directory="$1/$2.$staging_suffix"
+    (umask 077; mkdir "$staging_directory") || fail "Could not create private staging directory."
+    printf '%s\n' "$staging_directory"
+}
+
 install_embedded_pixi() {
     pixi_version="$PIXI_VERSION"
     [ "${pixi_version#v}" = "0.82.0" ] || fail "No trusted Pixi checksums for $pixi_version; use v0.82.0."
@@ -156,9 +164,8 @@ install_embedded_pixi() {
     fi
 
     log "Downloading Pixi from $pixi_url"
-    pixi_work_dir="$INSTALL_DIR/.pixi-download-$$"
     mkdir -p "$INSTALL_DIR"
-    mkdir "$pixi_work_dir" || fail "Could not create Pixi download staging directory."
+    pixi_work_dir="$(make_staging_directory "$INSTALL_DIR" ".pixi-download")"
     pixi_archive="$pixi_work_dir/$pixi_asset"
     pixi_extract_dir="$pixi_work_dir/pixi"
     mkdir -p "$pixi_extract_dir" "$pixi_bin_dir"
@@ -491,6 +498,14 @@ PIXI_INSTALLED_BY_SETUP=0
 PIXI_INSTALL_ROOT=""
 PIXI_BIN_DIR=""
 CREATED_PROFILES=""
+WORK_DIR=""
+pixi_work_dir=""
+cleanup() {
+    [ -z "$WORK_DIR" ] || rm -rf "$WORK_DIR"
+    [ -z "$pixi_work_dir" ] || rm -rf "$pixi_work_dir"
+}
+trap cleanup EXIT
+trap 'cleanup; exit 1' INT HUP TERM
 if [ -n "$PIXI" ] && [ ! -x "$PIXI" ]; then
     fail "PIXI is set but is not executable: $PIXI"
 fi
@@ -523,12 +538,7 @@ if [ -z "$PIXI" ]; then
 fi
 
 mkdir -p "$TMP_DIR" "$BIN_DIR" "$PIXI_CACHE_DIR" "$PIXI_ENV_DIR"
-WORK_DIR="$TMP_DIR/install.$$"
-mkdir "$WORK_DIR" || fail "Could not create installer staging directory."
-cleanup() {
-    rm -rf "$WORK_DIR"
-}
-trap cleanup EXIT INT HUP TERM
+WORK_DIR="$(make_staging_directory "$TMP_DIR" "install")"
 
 ARCHIVE="$WORK_DIR/wgsextract-cli.tar.gz"
 EXTRACT_DIR="$WORK_DIR/source"
