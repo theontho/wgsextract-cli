@@ -171,6 +171,54 @@ def test_failed_download_installs_nothing(tmp_path, monkeypatch):
 
 
 @needs_htslib
+def test_catalog_signature_rejects_wrong_mirror_and_accepts_matching_one(
+    tmp_path, monkeypatch, caplog
+):
+    from wgsextract_cli.core.reference_assets import sequence_signature
+
+    first = _genome(url="https://example.org/wrong.fa.gz")
+    second = _genome(url="https://example.org/right.fa.gz")
+    expected = sequence_signature({"chrA": len(CHR_A), "chrB": len(CHR_B)})
+    first["md5"] = second["md5"] = expected
+    _fake_download(
+        monkeypatch,
+        {
+            first["url"]: gzip.compress(b">wrong\nACGT\n"),
+            second["url"]: gzip.compress(FASTA),
+        },
+    )
+    assert not rp.download_and_process_genome(first, str(tmp_path))
+    assert "does not match the catalog sequence dictionary" in caplog.text
+    assert get_genome_status(first["final"], str(tmp_path)) == "missing"
+    assert rp.download_and_process_genome(second, str(tmp_path))
+    _assert_installed(tmp_path, second["final"])
+
+
+@needs_htslib
+def test_existing_install_is_checked_against_catalog(tmp_path, monkeypatch):
+    genome = _genome()
+    _fake_download(monkeypatch, {genome["url"]: gzip.compress(FASTA)})
+    assert rp.download_and_process_genome(genome, str(tmp_path))
+    genome["md5"] = "0" * 32
+    assert not rp.download_and_process_genome(genome, str(tmp_path))
+    assert get_genome_status(genome["final"], str(tmp_path)) == "missing"
+
+
+def test_missing_samtools_never_reports_reference_processing_success(
+    tmp_path, monkeypatch
+):
+    fasta = tmp_path / "reference.fa.gz"
+    fasta.write_bytes(b"stub")
+    monkeypatch.setattr(rp, "ensure_bgzf", lambda *args: str(fasta))
+
+    def missing_tool(*args):
+        raise FileNotFoundError("samtools")
+
+    monkeypatch.setattr(rp, "_run_reference_tool", missing_tool)
+    assert not rp.process_reference_file(str(fasta))
+
+
+@needs_htslib
 @pytest.mark.parametrize("kind", ["gzip", "bgzf"])
 def test_cancelled_install_is_not_reported_installed(tmp_path, monkeypatch, kind):
     _fake_download(monkeypatch, {_genome()["url"]: _compress(kind, FASTA)})

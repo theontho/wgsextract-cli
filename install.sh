@@ -141,8 +141,17 @@ pixi_asset_name() {
     printf 'pixi-%s-%s.tar.gz' "$arch" "$platform"
 }
 
+make_staging_directory() {
+    staging_suffix="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+    [ "${#staging_suffix}" = "32" ] || fail "Could not generate a staging directory name."
+    staging_directory="$1/$2.$staging_suffix"
+    (umask 077; mkdir "$staging_directory") || fail "Could not create private staging directory."
+    printf '%s\n' "$staging_directory"
+}
+
 install_embedded_pixi() {
     pixi_version="$PIXI_VERSION"
+    [ "${pixi_version#v}" = "0.82.0" ] || fail "No trusted Pixi checksums for $pixi_version; use v0.82.0."
     pixi_repo_url="${PIXI_REPOURL:-https://github.com/prefix-dev/pixi}"
     pixi_home="${WGSEXTRACT_PIXI_HOME:-$INSTALL_DIR/.pixi}"
     pixi_home="$(expand_home_path "$pixi_home")"
@@ -155,11 +164,16 @@ install_embedded_pixi() {
     fi
 
     log "Downloading Pixi from $pixi_url"
-    pixi_work_dir="$(mktemp -d "${TMPDIR:-/tmp}/pixi-install.XXXXXX")"
+    mkdir -p "$INSTALL_DIR"
+    pixi_work_dir="$(make_staging_directory "$INSTALL_DIR" ".pixi-download")"
     pixi_archive="$pixi_work_dir/$pixi_asset"
     pixi_extract_dir="$pixi_work_dir/pixi"
     mkdir -p "$pixi_extract_dir" "$pixi_bin_dir"
     if download_with_retry "$pixi_url" "$pixi_archive"; then
+        if ! verify_pixi_download "$pixi_archive" "$pixi_asset"; then
+            rm -rf "$pixi_work_dir"
+            fail "Pixi archive SHA-256 verification failed."
+        fi
         if ! tar -xzf "$pixi_archive" -C "$pixi_extract_dir"; then
             rm -rf "$pixi_work_dir"
             fail "Downloaded Pixi archive could not be extracted."
@@ -176,10 +190,16 @@ install_embedded_pixi() {
     else
         pixi_binary_url="${pixi_url%.tar.gz}"
         log "Pixi archive download failed; downloading raw binary from $pixi_binary_url"
-        if ! download_with_retry "$pixi_binary_url" "$pixi_bin_dir/pixi"; then
+        pixi_binary="$pixi_work_dir/pixi"
+        if ! download_with_retry "$pixi_binary_url" "$pixi_binary"; then
             rm -rf "$pixi_work_dir"
             fail "Could not download Pixi from $pixi_url or $pixi_binary_url"
         fi
+        if ! verify_pixi_download "$pixi_binary" "${pixi_asset%.tar.gz}"; then
+            rm -rf "$pixi_work_dir"
+            fail "Pixi binary SHA-256 verification failed."
+        fi
+        mv "$pixi_binary" "$pixi_bin_dir/pixi" || fail "Could not install verified Pixi."
     fi
     if ! chmod +x "$pixi_bin_dir/pixi"; then
         rm -rf "$pixi_work_dir"
@@ -189,6 +209,32 @@ install_embedded_pixi() {
     PIXI="$pixi_bin_dir/pixi"
     PIXI_INSTALL_ROOT="$(CDPATH= cd "$pixi_bin_dir/.." && pwd)"
     PIXI_BIN_DIR="$(CDPATH= cd "$pixi_bin_dir" && pwd)"
+}
+
+verify_pixi_download() {
+    # v0.82.0 release asset SHA-256s. Update these together with PIXI_VERSION.
+    case "$2" in
+        pixi-aarch64-apple-darwin.tar.gz) expected="3b48bd27de4db31381dc1d5b3d069c98852c0e923aefa30dae0452a088c0810e" ;;
+        pixi-x86_64-apple-darwin.tar.gz) expected="a0e5dc45a2ced8987a4df3c597d96528c87089ea3481ed4bb7c27404699540f1" ;;
+        pixi-aarch64-unknown-linux-musl.tar.gz) expected="b18dadba196c0c77781533184ec3e7757422c0ae9bed0047ff7ca1c688c0f62b" ;;
+        pixi-x86_64-unknown-linux-musl.tar.gz) expected="d305406a7630aab6484419833f9204b2fe9ea40632da8bb536496f123ca86e7f" ;;
+        pixi-riscv64gc-unknown-linux-gnu.tar.gz) expected="03261cc2fa85e6167d99af219bf8d49a608306cb6c6a8ac30f7113b3d925a33b" ;;
+        pixi-aarch64-apple-darwin) expected="92aa551c67a56ec0ba105fa20c3f48094b02586de523e24b96974ba1f092455b" ;;
+        pixi-x86_64-apple-darwin) expected="db4bd6dc3a5f88f2d94cf2e1f8a377b53d3aaac95b45b058854fbf53919d6d36" ;;
+        pixi-aarch64-unknown-linux-musl) expected="c6e3c4d98bb41560b5cfdebbe6cbf766f3547603a0fb96e1450a6ccff74b5e14" ;;
+        pixi-x86_64-unknown-linux-musl) expected="1dff1db704884f078c44b4c7fb3c5bc6f946fc3d1fa679edf214ad79187a9c64" ;;
+        pixi-riscv64gc-unknown-linux-gnu) expected="e34c641729f54bc32c67bc70c07ba2a3fbdc0fbb5651f0d175ea30b42096d74c" ;;
+        *) log "No trusted checksum for Pixi asset $2"; return 1 ;;
+    esac
+    if command_exists sha256sum; then
+        actual="$(sha256sum "$1" | awk '{print $1}')"
+    elif command_exists shasum; then
+        actual="$(shasum -a 256 "$1" | awk '{print $1}')"
+    else
+        log "SHA-256 verification requires sha256sum or shasum."
+        return 1
+    fi
+    [ "$actual" = "$expected" ]
 }
 
 verify_xcode_command_line_tools() {
@@ -271,7 +317,7 @@ BIN_DIR="$(absolute_path "${WGSEXTRACT_BIN_DIR:-$DEFAULT_BIN_DIR}")"
 LAUNCHER="$BIN_DIR/wgsextract"
 PIXI_CACHE_DIR="$(absolute_path "${WGSEXTRACT_PIXI_CACHE_DIR:-$DEFAULT_PIXI_CACHE_DIR}")"
 # The Pixi version this release is tested with (CI pins the same one); a user's
-# own PIXI_VERSION still wins.
+# own PIXI_VERSION is accepted only when trusted checksums are available.
 PIXI_VERSION="${PIXI_VERSION:-v0.82.0}"
 # Pixi writes its own markers (e.g. the telemetry notice) under the Rattler cache,
 # ~/.cache/rattler by default; keep them inside the install so uninstall is clean.
@@ -452,6 +498,14 @@ PIXI_INSTALLED_BY_SETUP=0
 PIXI_INSTALL_ROOT=""
 PIXI_BIN_DIR=""
 CREATED_PROFILES=""
+WORK_DIR=""
+pixi_work_dir=""
+cleanup() {
+    [ -z "$WORK_DIR" ] || rm -rf "$WORK_DIR"
+    [ -z "$pixi_work_dir" ] || rm -rf "$pixi_work_dir"
+}
+trap cleanup EXIT
+trap 'cleanup; exit 1' INT HUP TERM
 if [ -n "$PIXI" ] && [ ! -x "$PIXI" ]; then
     fail "PIXI is set but is not executable: $PIXI"
 fi
@@ -463,47 +517,22 @@ if [ -z "$PIXI" ]; then
         PIXI="$HOME/.pixi/bin/pixi"
     else
         log "Installing Pixi..."
-        if [ -n "${WGSEXTRACT_PIXI_HOME:-}" ]; then
-            install_embedded_pixi
-        else
-            pixi_home="$(expand_home_path "${PIXI_HOME:-$HOME/.pixi}")"
-            PIXI_INSTALL_ROOT="$pixi_home"
-            PIXI_BIN_DIR="$pixi_home/bin"
-            # pixi.sh adds itself to the shell profile and creates the file if
-            # needed; remember profiles that only exist because of this install.
-            missing_profiles=""
-            for profile_path in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.config/fish/config.fish" "$HOME/.tcshrc"; do
-                if [ ! -e "$profile_path" ]; then
-                    missing_profiles="$missing_profiles$profile_path
-"
-                fi
-            done
-            curl -fsSL https://pixi.sh/install.sh | PIXI_HOME="$pixi_home" sh
-            CREATED_PROFILES="$(printf '%s' "$missing_profiles" | while IFS= read -r profile_path; do
-                if [ -e "$profile_path" ]; then
-                    printf '%s\n' "$profile_path"
-                fi
-            done)"
-            if [ -x "$PIXI_BIN_DIR/pixi" ]; then
-                PIXI="$PIXI_BIN_DIR/pixi"
-            elif command_exists pixi; then
-                PIXI="$(command -v pixi)"
-                PIXI_BIN_DIR="$(CDPATH= cd "$(dirname "$PIXI")" && pwd)"
-                PIXI_INSTALL_ROOT="$(CDPATH= cd "$PIXI_BIN_DIR/.." && pwd)"
-            else
-                fail "Pixi installation completed, but pixi was not found. Open a new terminal and rerun this installer."
-            fi
-        fi
+        install_embedded_pixi
         PIXI_INSTALLED_BY_SETUP=1
+        shell_name="${SHELL:-}"
+        case "${shell_name##*/}" in
+            fish)
+                log "For fish, add Pixi to PATH with: fish_add_path $(quote_sh "$PIXI_BIN_DIR")"
+                ;;
+            *)
+                log "To use Pixi directly, add this to your shell profile: export PATH=$(quote_sh "$PIXI_BIN_DIR"):\"\$PATH\""
+                ;;
+        esac
     fi
 fi
 
 mkdir -p "$TMP_DIR" "$BIN_DIR" "$PIXI_CACHE_DIR" "$PIXI_ENV_DIR"
-WORK_DIR="$(mktemp -d "$TMP_DIR/install.XXXXXX")"
-cleanup() {
-    rm -rf "$WORK_DIR"
-}
-trap cleanup EXIT INT HUP TERM
+WORK_DIR="$(make_staging_directory "$TMP_DIR" "install")"
 
 ARCHIVE="$WORK_DIR/wgsextract-cli.tar.gz"
 EXTRACT_DIR="$WORK_DIR/source"

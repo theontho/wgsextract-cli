@@ -33,12 +33,14 @@ Set these environment variables before running `install.sh`:
 | `WGSEXTRACT_REF` | `WGSEXTRACT_RELEASE_TAG` | Git ref to install, or `latest` |
 | `WGSEXTRACT_ARCHIVE_URL` | GitHub source archive for `WGSEXTRACT_REF` | Exact source archive URL |
 | `WGSEXTRACT_BIN_DIR` | `$WGSEXTRACT_INSTALL_DIR` | CLI launcher directory |
-| `WGSEXTRACT_PIXI_HOME` | unset | Install Pixi under this directory when Pixi is missing, instead of using Pixi's normal user installer |
+| `WGSEXTRACT_PIXI_HOME` | unset | Install the SHA-256-verified pinned Pixi under this directory when Pixi is missing, instead of `~/.pixi` |
 | `WGSEXTRACT_PIXI_CACHE_DIR` | `$WGSEXTRACT_INSTALL_DIR/.pixi/cache` | Pixi package cache directory |
 | `WGSEXTRACT_PIXI_ENV_DIR` | `$WGSEXTRACT_INSTALL_DIR/app/.pixi/envs` | Pixi environment directory (kept across updates) |
 | `WGSEXTRACT_NO_OPEN` | unset | Set to `1` to skip opening Finder on macOS |
 
 Leave `WGSEXTRACT_BIN_DIR`, `WGSEXTRACT_PIXI_HOME`, `WGSEXTRACT_PIXI_CACHE_DIR`, and `WGSEXTRACT_PIXI_ENV_DIR` unset to keep everything inside one directory. For reproducible installs set `WGSEXTRACT_RELEASE_TAG=vX.Y.Z`; for testing unreleased code set `WGSEXTRACT_REF=main` or `WGSEXTRACT_ARCHIVE_URL=<url>`.
+
+When Pixi is missing, installers verify the pinned release's SHA-256 before running it; unsigned upstream installer scripts are not executed. Updating the Pixi pin requires updating its trusted release digests too. `ref library --install` also verifies catalogued references against their sequence-name/length signature after indexing. The catalog's `md5` is this dictionary signature, not a FASTA content checksum.
 
 ### Uninstall
 

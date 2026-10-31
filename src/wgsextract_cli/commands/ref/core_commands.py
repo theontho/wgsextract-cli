@@ -31,6 +31,7 @@ from wgsextract_cli.core.reference_assets import (
     reference_dict_path,
     resolve_reference_library,
     sequence_signature,
+    verify_sequence_signature,
 )
 from wgsextract_cli.core.reference_ncount import write_n_count_files
 from wgsextract_cli.core.reference_processing import has_ref_ns
@@ -207,12 +208,7 @@ def cmd_ref_verify(args: argparse.Namespace) -> None:
     )
     if expected:
         logging.info(f"Verifying sequence dictionary signature for {filename}...")
-        if signature != expected:
-            raise WGSExtractError(
-                f"{filename} does not match the catalog sequence dictionary "
-                f"(expected signature {expected}, found {signature}). The file is "
-                "a different build or patch level than the catalog entry."
-            )
+        verify_sequence_signature(filename, lengths, expected)
         logging.info("Sequence dictionary signature: OK")
     else:
         logging.info(f"Sequence dictionary signature: {signature}")
