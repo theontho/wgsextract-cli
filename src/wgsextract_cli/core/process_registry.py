@@ -32,7 +32,7 @@ class ProcessRegistry:
                 del self.processes[key]
 
     def cleanup(self) -> None:
-        """Terminate all registered processes (SIGTERM, then SIGKILL)."""
+        """Terminate registered process trees, escalating Unix groups to SIGKILL."""
         with self._lock:
             all_processes = [
                 proc for processes in self.processes.values() for proc in processes
@@ -45,15 +45,26 @@ class ProcessRegistry:
             if proc.poll() is None:
                 try:
                     if sys.platform == "win32":
-                        proc.send_signal(
-                            getattr(signal, "CTRL_BREAK_EVENT", signal.SIGTERM)
+                        # CTRL_BREAK can exit the launcher while Java descendants
+                        # keep running, losing the root needed by taskkill /T.
+                        result = subprocess.run(
+                            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                            capture_output=True,
+                            timeout=10,
+                            check=False,
                         )
+                        if result.returncode:
+                            logging.warning(
+                                "Process tree %s could not be terminated "
+                                "(taskkill exit %s).",
+                                proc.pid,
+                                result.returncode,
+                            )
                     else:
                         os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                except OSError:
-                    logging.debug(
-                        "Process %s could not be terminated.", proc.pid, exc_info=True
-                    )
+                except (OSError, subprocess.TimeoutExpired):
+                    log = logging.warning if sys.platform == "win32" else logging.debug
+                    log("Process %s could not be terminated.", proc.pid, exc_info=True)
 
         time.sleep(0.5)
 

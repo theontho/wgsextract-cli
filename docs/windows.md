@@ -110,6 +110,13 @@ The CLI launches Java with the sidecar/GATK classpath. Launcher `--java-options`
 remain JVM options, including scatter workers' heap and CPU limits; Linux/macOS
 launching and default caller arguments are unchanged.
 
+## Cancelling commands
+
+Windows cleanup terminates the registered launcher and its descendants together,
+including Java workers. It does not use Ctrl+Break, which Java can ignore.
+Keyboard Ctrl+C delivery may still be delayed while a native tool is running;
+process-tree termination happens when the CLI's cleanup handler runs.
+
 ## Short read alignment
 
 The default `--aligner auto` uses native bwa-mem2 when the reference already
