@@ -5,7 +5,10 @@ import sys
 
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import WGSExtractError
-from wgsextract_cli.core.windows_arm64 import unsupported_windows_arm64_tool
+from wgsextract_cli.core.windows_arm64 import (
+    assert_native_windows_python,
+    unsupported_windows_arm64_tool,
+)
 
 _WINDOWS_VCF_TOOLS = {
     "gerp": "pyBigWig",
@@ -59,6 +62,10 @@ def verify_platform_support(args: argparse.Namespace) -> None:
         reason = unsupported_windows_arm64_tool(getattr(args, "vcf_cmd", "") or "")
         if reason:
             raise WGSExtractError(reason)
+    try:
+        assert_native_windows_python()
+    except ValueError as error:
+        raise WGSExtractError(str(error)) from error
     tool = None
     if command == "vep":
         tool = "VEP"

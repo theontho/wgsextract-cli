@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 
 from wgsextract_cli.cli.platform_support import verify_platform_support
-from wgsextract_cli.core import dependency_checks, utils, windows_arm64
+from wgsextract_cli.core import dependency_checks, pixi_tools, utils, windows_arm64
 from wgsextract_cli.core.utils import WGSExtractError
 
 
@@ -140,6 +140,32 @@ def test_arm64_version_probe_does_not_launch_x64_binary(
     launch = Mock(side_effect=AssertionError("must not launch x64 executable"))
     monkeypatch.setattr(subprocess, "run", launch)
     assert "native ARM64 requires" in str(dependency_checks.get_tool_version("bwa"))
+    launch.assert_not_called()
+
+
+def test_arm64_features_reject_prism_python_before_input_processing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0xAA64)
+    python = tmp_path / "python.exe"
+    _write_pe(python, 0x8664)
+    monkeypatch.setattr(sys, "executable", str(python))
+    with pytest.raises(WGSExtractError, match="Prism-emulated Python"):
+        verify_platform_support(argparse.Namespace(command="info"))
+
+
+def test_arm64_discovery_and_wrappers_do_not_start_foreign_environments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0xAA64)
+    launch = Mock(side_effect=AssertionError("must not probe foreign Python"))
+    monkeypatch.setattr(subprocess, "run", launch)
+    assert pixi_tools._probe_environment_with_pixi("pixi", "bio-tools", ["bwa"]) is None
+    with pytest.raises(ValueError, match="cross-environment Pixi wrappers"):
+        windows_arm64.assert_native_windows_command(
+            ["pixi", "run", "-e", "bio-tools", "bwa"]
+        )
     launch.assert_not_called()
 
 

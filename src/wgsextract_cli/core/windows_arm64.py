@@ -90,12 +90,31 @@ def assert_arm64_pe(path: Path) -> None:
 def assert_native_windows_command(command: list[str]) -> None:
     if not command or windows_native_machine() != IMAGE_FILE_MACHINE_ARM64:
         return
+    assert_native_windows_python()
     name = command[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
     if name.removesuffix(".exe") in ("wsl", "wslhost", "bash", "sh", "docker"):
         raise ValueError(
             "Native Windows ARM64 does not support WSL, Unix compatibility shells "
             "or containers as tool substitutes"
         )
+    if name.removesuffix(".exe") == "pixi" and command[1:2] == ["run"]:
+        raise ValueError(
+            "Native Windows ARM64 requires tools from the active ARM64 environment "
+            "or direct native executable paths; cross-environment Pixi wrappers "
+            "are not qualified"
+        )
     executable = Path(shutil.which(command[0]) or command[0])
     if executable.is_file():
         assert_arm64_pe(executable)
+
+
+def assert_native_windows_python() -> None:
+    if sys.platform != "win32" or windows_native_machine() != IMAGE_FILE_MACHINE_ARM64:
+        return
+    try:
+        assert_arm64_pe(Path(sys.executable))
+    except (OSError, ValueError) as error:
+        raise ValueError(
+            "Native Windows ARM64 requires an ARM64 Python interpreter; "
+            "Prism-emulated Python is not supported"
+        ) from error

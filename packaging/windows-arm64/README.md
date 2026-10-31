@@ -62,10 +62,14 @@ with independent SHA-256 values, without changing the x64 recipes. Native
 are required. This staging is not approval of the still-open #268 release gate.
 The 2.3 source archive still defaults its version string to 2.2.1; the ARM
 recipe explicitly sets the actual pinned source release, 2.3. A matching 2.3
-full-genome oracle remains required; the preserved 2.2.1 golden is insufficient.
+full-genome oracle remains required. The preserved golden reports 2.2.1:
+establish its actual pinned source provenance before deciding equivalence.
 
 On an ARM64 Windows OS, configured executable paths and version probes reject
-x64 PE files before launching them, including from a Prism-hosted Python.
+x64 PE files before launching them. Feature entry also rejects a Prism-hosted
+Python, including pure-Python info/export operations. Discovery does not spawn
+other Pixi environments on ARM64: use the active native environment or direct
+native executable paths; cross-environment Pixi wrappers are not qualified.
 WSL, Unix compatibility shells and container wrappers are not native tool
 substitutes. This guard does not enable an unqualified environment or install
 missing software.

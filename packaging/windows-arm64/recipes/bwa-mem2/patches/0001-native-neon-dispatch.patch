@@ -34,3 +34,12 @@ diff --git a/src/main.cpp b/src/main.cpp
          fprintf(stderr, "Executing in AVX512 mode!!\n");
  #elif __AVX2__
          fprintf(stderr, "Executing in AVX2 mode!!\n");
+diff --git a/src/read_index_ele.cpp b/src/read_index_ele.cpp
+--- a/src/read_index_ele.cpp
++++ b/src/read_index_ele.cpp
+@@ -93,5 +93,4 @@
+ }
+ 
+-#include <sys/file.h>
+ char* indexEle::bwa_idx_infer_prefix(const char *hint)
+ {

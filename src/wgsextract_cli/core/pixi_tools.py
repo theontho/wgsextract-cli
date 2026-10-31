@@ -235,6 +235,14 @@ def _probe_environment_with_pixi(
     pixi_cmd: str, env: str, tool_names: list[str]
 ) -> subprocess.CompletedProcess[str] | None:
     """Run _probe_environment inside another Pixi environment."""
+    from wgsextract_cli.core.windows_arm64 import (
+        IMAGE_FILE_MACHINE_ARM64,
+        windows_native_machine,
+    )
+
+    # Discovery must not start an unqualified environment's emulated Python.
+    if windows_native_machine() == IMAGE_FILE_MACHINE_ARM64:
+        return None
     script = (
         inspect.getsource(_probe_environment)
         + "\nimport os, sys\n"
