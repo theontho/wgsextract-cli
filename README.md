@@ -11,6 +11,9 @@ Documentation site: <https://theontho.github.io/wgsextract-cli/>. A separate gra
 ## Install
 
 macOS and Linux: open Terminal, paste this command, and press Enter.
+Native Linux ARM64 is not supported yet: the installer refuses before downloading
+or installing dependencies. Native ARM64 support is tracked in #236; this is not
+an x86-emulation fallback.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh
@@ -33,12 +36,14 @@ Set these environment variables before running `install.sh`:
 | `WGSEXTRACT_REF` | `WGSEXTRACT_RELEASE_TAG` | Git ref to install, or `latest` |
 | `WGSEXTRACT_ARCHIVE_URL` | GitHub source archive for `WGSEXTRACT_REF` | Exact source archive URL |
 | `WGSEXTRACT_BIN_DIR` | `$WGSEXTRACT_INSTALL_DIR` | CLI launcher directory |
-| `WGSEXTRACT_PIXI_HOME` | unset | Install Pixi under this directory when Pixi is missing, instead of using Pixi's normal user installer |
+| `WGSEXTRACT_PIXI_HOME` | unset | Install the SHA-256-verified pinned Pixi under this directory when Pixi is missing, instead of `~/.pixi` |
 | `WGSEXTRACT_PIXI_CACHE_DIR` | `$WGSEXTRACT_INSTALL_DIR/.pixi/cache` | Pixi package cache directory |
 | `WGSEXTRACT_PIXI_ENV_DIR` | `$WGSEXTRACT_INSTALL_DIR/app/.pixi/envs` | Pixi environment directory (kept across updates) |
 | `WGSEXTRACT_NO_OPEN` | unset | Set to `1` to skip opening Finder on macOS |
 
 Leave `WGSEXTRACT_BIN_DIR`, `WGSEXTRACT_PIXI_HOME`, `WGSEXTRACT_PIXI_CACHE_DIR`, and `WGSEXTRACT_PIXI_ENV_DIR` unset to keep everything inside one directory. For reproducible installs set `WGSEXTRACT_RELEASE_TAG=vX.Y.Z`; for testing unreleased code set `WGSEXTRACT_REF=main` or `WGSEXTRACT_ARCHIVE_URL=<url>`.
+
+When Pixi is missing, installers verify the pinned release's SHA-256 before running it; unsigned upstream installer scripts are not executed. Updating the Pixi pin requires updating its trusted release digests too. `ref library --install` also verifies catalogued references against their sequence-name/length signature after indexing. The catalog's `md5` is this dictionary signature, not a FASTA content checksum.
 
 ### Uninstall
 
@@ -86,11 +91,38 @@ wgsextract --input sample.cram lineage y-haplogroup
 
 Try commands on a small region (`--region chrM`, where supported) before running whole-genome jobs, which can take hours and hundreds of gigabytes of working space. Every command exits non-zero on failure, so they can be chained in scripts.
 
+Alignment/realignment pipelines and GATK scatter print a stderr heartbeat every
+60 seconds, including processed versus expected reads (when known), or completed
+shards, elapsed time and a rate-based ETA. Sampled FASTQ read counts are estimates;
+reaching the read count does not mean sorting/indexing has finished. Stdout data,
+alignment/caller arguments and generated genomic files are unchanged.
+
+Persistent logging is off by default. Use a **new, dedicated** path:
+
+```sh
+pixi run wgsextract --log-file out/run.log --input sample.bam info
+```
+
+Alternatively set `log_dir = "~/wgse_logs"` in `config.toml` to create a unique log
+for each run. The UTF-8 DEBUG log retains Python diagnostics and pipeline/scatter
+tool messages; `run.log.provenance.json` records argv, CLI/platform versions,
+executed tool commands/versions and small reference-index signatures. Provenance
+is available during the run and finalized on normal exit or handled failure. A
+hard kill may leave its status as `running`. Existing logs are never truncated;
+`--quiet` still suppresses informational console messages, not the file log.
+Review logs before sharing: commands and diagnostics may contain private paths
+or URLs. No environment is captured, no tool is installed for logging, and
+complete reference genomes are not hashed.
+
 Output files are named after the full input stem: `HG002.chr20.bam` produces `HG002.chr20_sorted.bam`, `HG002.chr20_coverage.tsv`, and so on. Outputs go to `--outdir`, the configured `outdir`, or the `--genome` folder.
 
 ## Commands
 
 Run `wgsextract help` for the full command tree, and `wgsextract <command> --help` for options.
+
+`info calculate-coverage --bins` replaces the normal summary with a TSV of per-contig counts and fractions at depth **0 / 1–3 / 4–7 / 8+**, also saved as `<input>_coverage_bins.tsv`. It makes one streaming `samtools depth` pass, never writes per-base depths, includes contigs with no reads, and supports `--region` (fractions then describe that interval). As in original WGS Extract v4, depth uses samtools' default base/mapping quality thresholds (zero), excludes unmapped/secondary/QC-failed/duplicate reads, excludes deletion bases and counts overlapping mates separately. Fractions use all reference coordinates (including N bases), not an estimated N-adjustment; the original UI's double-subtraction of N counts is not reproduced. Without `--bins`, the existing report and cache behavior are unchanged.
+
+CRAM bin coverage requires an existing reference FASTA from `--ref`, configuration or the reference library. Missing references fail before decoding; htslib is never allowed to download one implicitly.
 
 | Command | Subcommands / purpose |
 | :--- | :--- |
@@ -118,6 +150,8 @@ Run `wgsextract help` for the full command tree, and `wgsextract <command> --hel
 | `config` | Show the active config file and settings |
 
 Notes on a few commands:
+
+- `extract ydna-bam --poz` writes an indexed `_Y_poz.bam` containing reads overlapping the original WGS Extract CombBED/McDonald/Poznik union (about 12 Mb), **not** all stable Y SNPs or a BigY/exome capture. It supports exact GRCh37/hg19 or GRCh38 Y lengths with either `chrY` or `Y`, including Y-only inputs, and never includes the original BEDs' mitochondrial regions. Reads overlapping BED boundaries are kept whole. T2T, unknown and inconsistent assemblies are rejected rather than silently lifted. Bundled BED provenance/license is in `assets/reference/poz/NOTICE.txt`; no download is needed. Without `--poz`, whole-Y extraction is unchanged.
 
 - `ref verify` checks gzip integrity, the FASTA index, and the sequence-dictionary signature of catalog genomes, and fails on mismatch. `ref count-ns` writes `_ncnt.csv`/`_nbin.csv` next to the FASTA, or into `--outdir`.
 - `vcf snp` and `vcf indel` call the whole alignment as one bcftools stream by default, which keeps results reproducible. `--parallel` calls independent contigs at once for indexed whole-genome BAM/CRAM input, using up to `--threads` workers; sex and ploidy are resolved once, and the results are concatenated in reference-index order before indexing. Parallel calls are not byte-identical on deep data: bcftools subsamples sites with more than 255 bases using one random stream per process, so a few low-quality calls at very deep sites (on a 30x genome, 9 of 4.4 million SNPs, in pericentromeric and unplaced regions) can differ. `--threads 1`, explicit `--region`, unindexed inputs, and inputs whose contig order differs from the reference always use one stream.
@@ -154,6 +188,8 @@ Notes on a few commands:
 - `vcf deepvariant` runs Google's DeepVariant from its Docker image on Linux and macOS (`docker pull google/deepvariant:1.10.0`; set `deepvariant_image` in `config.toml` for another version), or Google's `run_deepvariant` when it's on `PATH`, or Parabricks with `--gpu`. Docker and the image are checked, not installed. Bioconda's `deepvariant` package has contained no DeepVariant since 1.8, so there is no Pixi environment for it. Apple Silicon runs the x86-64 image under emulation, slowly.
 - `vcf sv` and `vcf cnv` use Delly 2 (`delly sr` / `delly cnv`), which needs no mappability map; `vcf cnv --map` is accepted but ignored.
 - `lineage y-haplogroup` writes Yleaf output to `<outdir>/yleaf/`, because Yleaf clears its output folder.
+- `extract unmapped --fastq` also writes `_unmapped_R1.fastq.gz`, `_unmapped_R2.fastq.gz`, `_unmapped_SE.fastq.gz` (unpaired reads) and `_unmapped_singletons.fastq.gz` (mates absent from the extraction). Without the flag, only the BAM is written.
+- `lineage y-haplogroup --tree-links` adds YFull/FTDNA links; `lineage mt-haplogroup --tree-links` adds the YFull mtDNA branch and FTDNA public mtDNA tree (use its branch search). Detailed info omits the uncomputed WES-depth row. Missing-reference errors identify the explicit library install command when the alignment matches a catalog model; references are never downloaded automatically.
 - `pet-align` writes next to the R1 FASTQ unless `--outdir` is given.
 - Ultima Genomics (UG 100) reads, as in MyHeritage's and Nebula/DNA360's WGS, are single-end (~300 bp) and err mostly in homopolymer lengths. Each read carries flow-space probabilities in `tp`/`t0` tags, and its read group has `PL:ULTIMA` and the flow order (`FO`). WGS Extract recognizes them from the read group (or `--platform ultima`, needed for FASTQs, whose names SRA replaces) and:
   - `align`/`realign` use BWA-MEM (`-Y`), as Ultima's and Broad's pipelines do. `tp`/`t0` stay attached to each read: they are reversed for reads that change strand, because `samtools reset` doesn't. Read groups (flow order) are kept. `realign` streams the BAM/CRAM into BWA without writing FASTQs.
@@ -211,7 +247,7 @@ comparison. A separate 200 kb realigned-read smoke was byte-identical across
 
 ### Pixi environments
 
-Some tools live in their own Pixi environment. When such a tool is not on `PATH`, the CLI runs it through `pixi run -e <environment>` automatically, downloading the environment on first use. The `cyrius`, `t1k`, `expansionhunter`, and `pharmcat` environments are the exception: install them yourself with `pixi install -e <environment>` (Cyrius is licensed for noncommercial use only). You can also run a whole command inside an environment from the app directory (`wgsextract-cli/app/`) or a source checkout:
+Some tools live in their own Pixi environment. Install optional environments explicitly with `pixi install --locked -e <environment>` from the app directory (`wgsextract-cli/app/`) or a source checkout before using them. The CLI never installs dependencies at runtime; missing tools report the exact install command, including the app's manifest path so it works from any directory. Installed tools not on `PATH` are launched through `pixi run --no-install -e <environment>`. Cyrius is licensed for noncommercial use only. You can also run a whole command inside an installed environment:
 
 | Environment | Used for |
 | :--- | :--- |
@@ -272,6 +308,10 @@ vep_cache = "~/.vep"
 ```
 
 The short keys above are aliases; `wgsextract config` shows the canonical names (`input_path`, `output_directory`, `reference_fasta`, `reference_library`, `cpu_threads`, `memory_limit`, `yleaf_executable`, and so on). Either form works. Command-line options override config values for a single run. Other settings cover annotation data paths (`clinvar_vcf_path`, `gnomad_vcf_path`, `revel_tsv_path`, ...), default trio VCFs (`mother_vcf`, `father_vcf`), and the developer settings listed under [Development](#development).
+
+### Keep-awake
+
+Add `--keep-awake` to long commands, or set `keep_awake = true` in `config.toml`, to request idle/sleep inhibition until the command exits. `--no-keep-awake` overrides the config, including delegated analyze, annotation-chain and benchmark commands; `keep_awake = false` disables it persistently (the default). macOS uses `caffeinate`, Linux uses `systemd-inhibit` if already present and permitted, and native Windows uses `SetThreadExecutionState`. Missing helpers, denied permissions and cleanup failures never fail the run. This prevents automatic sleep, not shutdown or a forced/manual suspend; display sleep remains allowed. Report-only `help`/`config`/`deps` never inhibit sleep.
 
 ### Genome library
 

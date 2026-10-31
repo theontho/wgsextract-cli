@@ -425,6 +425,7 @@ def run_streamed_alignment(
     ref: str,
     duplicates: str | None,
     upstream: list[Sequence[object]] | None = None,
+    expected_reads: int | None = None,
 ) -> None:
     """Run the aligner (after any upstream stages feeding it), mark duplicates
     (with duplicate_marker's choice, or not at all for long reads: None), sort,
@@ -445,7 +446,12 @@ def run_streamed_alignment(
         stages.append(sort)
     partial = [out_path, out_path + ".bai", out_path + ".crai"]
     with cleanup_files(on_failure=partial):
-        run_pipeline(stages, description="Alignment")
+        run_pipeline(
+            stages,
+            description="Alignment",
+            heartbeat=True,
+            expected_reads=expected_reads,
+        )
         logging.info(LOG_MESSAGES["indexing_output"])
         run_command(get_sam_index_cmd(out_path, threads=threads))
 
@@ -542,6 +548,7 @@ def _bwa_setup(
         additional_ram_bytes=additional_ram_bytes,
     )
     warn_alignment_sort_space(setup.outdir, reads)
+    args._input_read_count = reads
     if tool == "bwa-mem2":
         bwa_mem2.ensure_index(setup.ref, download=False)
     else:
@@ -596,6 +603,7 @@ def align_bwa(
             ref=setup.ref,
             duplicates=duplicate_marker(paired=bool(args.r2)),
             upstream=list(upstream) if upstream else None,
+            expected_reads=getattr(args, "_input_read_count", None),
         )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"{tool} alignment failed: {e}") from e
@@ -676,7 +684,14 @@ def align_ultima(
         if tagged:
             stages.append(ultima.flow_tag_filter())
         try:
-            _sort_and_mark_ultima(stages, out_path, setup, args.format, tmp)
+            _sort_and_mark_ultima(
+                stages,
+                out_path,
+                setup,
+                args.format,
+                tmp,
+                expected_reads=getattr(args, "_input_read_count", None),
+            )
         except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             raise WGSExtractError(f"{tool} alignment failed: {e}") from e
 
@@ -693,6 +708,8 @@ def _sort_and_mark_ultima(
     setup: _AlignSetup,
     fmt: str,
     tmp: str,
+    *,
+    expected_reads: int | None = None,
 ) -> None:
     """Sort the aligner's output, mark duplicates with Picard's flow mode (GATK),
     or samtools markdup when GATK is missing, then index."""
@@ -711,6 +728,7 @@ def _sort_and_mark_ultima(
             ref=setup.ref,
             duplicates="markdup",
             upstream=stages[:-1],
+            expected_reads=expected_reads,
         )
         return
     sorted_bam = str(Path(tmp, "sorted.bam"))
@@ -721,7 +739,12 @@ def _sort_and_mark_ultima(
     )
     partial = [out_path, out_path + ".bai", out_path + ".crai"]
     with cleanup_files(on_failure=partial):
-        run_pipeline([*stages, sort], description="Alignment")
+        run_pipeline(
+            [*stages, sort],
+            description="Alignment",
+            heartbeat=True,
+            expected_reads=expected_reads,
+        )
         logging.info("Marking duplicates in flow mode (GATK MarkDuplicates)...")
         run_command(
             [

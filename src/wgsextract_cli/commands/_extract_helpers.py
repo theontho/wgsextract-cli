@@ -13,6 +13,7 @@ from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import PathInput, absolute_path
 from wgsextract_cli.core.reference_assets import input_stem, read_fai_lengths
 from wgsextract_cli.core.reference_models import sequence_lengths
+from wgsextract_cli.core.run_log import is_run_log_path
 from wgsextract_cli.core.samtools_commands import parse_memory
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -145,6 +146,8 @@ def cleanup_files(
         succeeded = True
     finally:
         for path in [*temp, *([] if succeeded else on_failure)]:
+            if is_run_log_path(Path(path)):
+                continue
             with contextlib.suppress(FileNotFoundError):
                 Path(path).unlink()
 
@@ -283,6 +286,9 @@ def alignments_to_fastq(
     cram_opt: list[str] | None = None,
     region: str | None = None,
     out_other: PathInput | None = None,
+    out_singletons: PathInput | None = None,
+    heartbeat: bool = False,
+    expected_reads: int | None = None,
 ) -> None:
     """
     Pair up a BAM/CRAM's reads and write FASTQs (samtools view | collate | fastq).
@@ -291,11 +297,18 @@ def alignments_to_fastq(
     but faster. Its fast mode (-f) would keep reads in genomic order, which skews
     aligners that estimate insert sizes per batch. Temp files go under
     ``temp_parent`` (the output directory) because a whole genome needs far more
-    space than the system temp dir usually has. Singletons are discarded;
-    READ_OTHER reads go to ``out_other`` if given.
+    space than the system temp dir usually has. Singletons are discarded unless
+    ``out_singletons`` is given; READ_OTHER reads go to ``out_other`` if given.
     """
     with (
-        cleanup_files(on_failure=[out_r1, out_r2, *([out_other] if out_other else [])]),
+        cleanup_files(
+            on_failure=[
+                out_r1,
+                out_r2,
+                *([out_other] if out_other else []),
+                *([out_singletons] if out_singletons else []),
+            ]
+        ),
         tempfile.TemporaryDirectory(dir=temp_parent, prefix=".collate_") as tmp,
     ):
         run_pipeline(
@@ -306,11 +319,13 @@ def alignments_to_fastq(
                 threads=threads,
                 memory=memory,
                 temporary=tmp,
-                singletons=Path(tmp, "singletons.fastq"),
+                singletons=out_singletons or Path(tmp, "singletons.fastq"),
                 cram_opt=cram_opt,
                 region=region,
                 out_other=out_other,
             ),
             stdout=subprocess.DEVNULL,
             description="FASTQ extraction",
+            heartbeat=heartbeat,
+            expected_reads=expected_reads,
         )

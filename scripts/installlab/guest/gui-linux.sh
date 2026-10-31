@@ -149,6 +149,7 @@ fi
 step download_installer download_installer
 step install_app install_app
 step setup app_setup
+step optional_tools sh "$HERE/install-optional-tools.sh" "$HOME/.local/share/$APP_ID"
 step actions app_actions
 snapshot after_install
 step uninstall app_uninstall

@@ -5,7 +5,6 @@ import logging
 import os
 import shutil
 import subprocess
-import sys
 import tarfile
 import tempfile
 from collections.abc import Callable, Mapping
@@ -16,7 +15,9 @@ from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.reference_assets import (
     fasta_prefix,
     n_count_paths,
+    read_fai_lengths,
     reference_dict_path,
+    verify_sequence_signature,
 )
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -186,12 +187,6 @@ def process_reference_file(
             return False
 
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        if sys.platform == "win32" and isinstance(e, FileNotFoundError):
-            logging.warning(
-                f"Warning: Could not index reference on Windows (missing tools): {e}"
-            )
-            logging.warning("Reference is downloaded but remains unindexed.")
-            return True
         logging.error(f"Indexing failed: {e}")
         return False
 
@@ -219,18 +214,29 @@ def download_and_process_genome(
         # Indexes too: an old .fai beside a failed download reads as installed.
         _remove_genome_files(final_path)
 
-    if get_genome_status(genome_data["final"], reflib_dir) == "installed":
-        return process_reference_file(final_path, status_callback, cancel_event)
+    if get_genome_status(genome_data["final"], reflib_dir) != "installed":
+        logging.info(
+            f"Downloading {genome_data['label']} from {genome_data['source']}..."
+        )
+        if not download_file(
+            genome_data["url"], final_path, progress_callback, cancel_event
+        ):
+            return False
 
-    logging.info(f"Downloading {genome_data['label']} from {genome_data['source']}...")
-
-    success = download_file(
-        genome_data["url"], final_path, progress_callback, cancel_event
-    )
-    if not success:
+    if not process_reference_file(final_path, status_callback, cancel_event):
         return False
-
-    return process_reference_file(final_path, status_callback, cancel_event)
+    expected = genome_data.get("md5")
+    if expected:
+        try:
+            verify_sequence_signature(
+                genome_data["final"], read_fai_lengths(final_path), expected
+            )
+        except WGSExtractError as error:
+            logging.error(str(error))
+            # Do not advertise a rejected mirror as installed or trust it on retry.
+            _remove_genome_files(final_path)
+            return False
+    return True
 
 
 def download_bootstrap(

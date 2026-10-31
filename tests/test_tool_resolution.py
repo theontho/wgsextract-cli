@@ -110,7 +110,7 @@ class TestToolResolution(unittest.TestCase):
         ):
             self.assertEqual(
                 dependencies.get_tool_path("samtools"),
-                "/usr/local/bin/pixi run -e default samtools",
+                "/usr/local/bin/pixi run --no-install -e default samtools",
             )
 
     def test_windows_alt_env_tool_resolves_through_pixi(self):
@@ -133,7 +133,7 @@ class TestToolResolution(unittest.TestCase):
         ):
             self.assertEqual(
                 dependencies.get_tool_path("gatk"),
-                rf"{PIXI_EXE} run -e gatk gatk",
+                rf"{PIXI_EXE} run --no-install -e gatk gatk",
             )
         self.assertEqual(
             probe.call_args.args[0][:6],
@@ -158,7 +158,7 @@ class TestToolResolution(unittest.TestCase):
         ):
             self.assertEqual(
                 dependencies.get_tool_path("fastqc"),
-                rf"{PIXI_EXE} run -e default python C:\repo\.pixi\envs\default\opt\fastqc-0.13.0\fastqc",
+                rf"{PIXI_EXE} run --no-install -e default python C:\repo\.pixi\envs\default\opt\fastqc-0.13.0\fastqc",
             )
 
     def test_windows_launches_haplogrep_jar(self):
@@ -179,7 +179,7 @@ class TestToolResolution(unittest.TestCase):
         ):
             self.assertEqual(
                 dependencies.get_tool_path("haplogrep"),
-                f"{PIXI_EXE} run -e default {' '.join(JAVA_JAR)} "
+                f"{PIXI_EXE} run --no-install -e default {' '.join(JAVA_JAR)} "
                 r"C:\repo\.pixi\envs\default\bin\haplogrep.jar",
             )
 

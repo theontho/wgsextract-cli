@@ -19,6 +19,7 @@ release_tag="v0.0.0-installer-test"
 pixi_path="$(command -v pixi)"
 fake_pixi_source="$work_dir/fake-pixi-src"
 fake_pixi_archive="$work_dir/fake-pixi.tar.gz"
+test_installer="$work_dir/install-under-test.sh"
 
 rm -rf "$work_dir"
 mkdir -p "$source_dir" "$home_dir" "$pixi_cache_dir" "$pixi_env_dir" "$fake_bin" "$fake_pixi_source"
@@ -70,6 +71,15 @@ esac
 SH
 chmod +x "$fake_pixi_source/pixi"
 tar -czf "$fake_pixi_archive" -C "$fake_pixi_source" pixi
+if command -v sha256sum >/dev/null 2>&1; then
+    test_digest="$(sha256sum "$fake_pixi_archive" | awk '{print $1}')"
+else
+    test_digest="$(shasum -a 256 "$fake_pixi_archive" | awk '{print $1}')"
+fi
+# Substitute the locally trusted fixture digest in a disposable installer copy.
+# Production has no checksum-bypass option.
+sed "/\\.tar\\.gz) expected=/s/expected=\"[a-f0-9]*\"/expected=\"$test_digest\"/" \
+    "$repo_root/install.sh" > "$test_installer"
 
 cat > "$fake_bin/curl" <<'SH'
 #!/bin/sh
@@ -150,7 +160,7 @@ WGSEXTRACT_INSTALL_DIR="$install_dir" \
 WGSEXTRACT_PIXI_CACHE_DIR="$pixi_cache_dir" \
 WGSEXTRACT_PIXI_ENV_DIR="$pixi_env_dir" \
 WGSEXTRACT_NO_OPEN=1 \
-sh "$repo_root/install.sh"
+sh "$test_installer"
 
 grep -F "/releases/latest" "$curl_log" >/dev/null
 grep -F "/archive/$release_tag.tar.gz" "$curl_log" >/dev/null
@@ -192,7 +202,7 @@ WGSEXTRACT_INSTALL_DIR="$install_dir" \
 WGSEXTRACT_PIXI_CACHE_DIR="$pixi_cache_dir" \
 WGSEXTRACT_PIXI_ENV_DIR="$pixi_env_dir" \
 WGSEXTRACT_NO_OPEN=1 \
-sh "$repo_root/install.sh"
+sh "$test_installer"
 test "$(cat "$install_dir/app/reference/genomes/keep.fa")" = "genome"
 "$install_dir/wgsextract" --help >/dev/null
 
@@ -219,7 +229,7 @@ WGSEXTRACT_PIXI_HOME="$embedded_install_dir/.pixi" \
 WGSEXTRACT_PIXI_CACHE_DIR="$embedded_install_dir/.pixi/cache" \
 WGSEXTRACT_PIXI_ENV_DIR="$embedded_install_dir/app/.pixi/envs" \
 WGSEXTRACT_NO_OPEN=1 \
-sh "$repo_root/install.sh"
+sh "$test_installer"
 
 test -x "$embedded_install_dir/.pixi/bin/pixi"
 test -x "$embedded_install_dir/wgsextract"
@@ -227,6 +237,48 @@ test -x "$embedded_install_dir/wgsextract"
 grep -F "/pixi-" "$curl_log" >/dev/null
 grep -F "\"path\":\"$embedded_install_dir/.pixi\"" "$embedded_install_dir/install-manifest.json" >/dev/null
 grep -F "\"type\":\"userPathEntry\"" "$embedded_install_dir/install-manifest.json" >/dev/null
+
+# A corrupted payload must fail before an executable reaches the install prefix.
+cp "$fake_pixi_archive" "$work_dir/trusted-pixi.tar.gz"
+printf 'corrupt archive' > "$fake_pixi_archive"
+rejected_install_dir="$work_dir/rejected-install"
+if HOME="$embedded_home_dir" \
+    PATH="$fake_bin:/usr/bin:/bin" \
+    WGSEXTRACT_INSTALLER_TEST_ARCHIVE="$archive" \
+    WGSEXTRACT_ARCHIVE_URL="$archive" \
+    WGSEXTRACT_INSTALLER_TEST_RELEASE_TAG="$release_tag" \
+    WGSEXTRACT_INSTALLER_TEST_PIXI_ARCHIVE="$fake_pixi_archive" \
+    WGSEXTRACT_INSTALLER_TEST_CURL_LOG="$curl_log" \
+    WGSEXTRACT_INSTALL_DIR="$rejected_install_dir" \
+    WGSEXTRACT_PIXI_HOME="$rejected_install_dir/.pixi" \
+    sh "$test_installer" > "$work_dir/rejected.log" 2>&1; then
+    printf 'corrupt Pixi archive was accepted\n' >&2
+    exit 1
+fi
+grep -F "Pixi archive SHA-256 verification failed" "$work_dir/rejected.log" >/dev/null
+test ! -e "$rejected_install_dir/.pixi/bin/pixi"
+cp "$work_dir/trusted-pixi.tar.gz" "$fake_pixi_archive"
+
+fish_home_dir="$work_dir/fish-home"
+mkdir -p "$fish_home_dir"
+printf '# Existing user configuration\n' > "$fish_home_dir/.bashrc"
+cp "$fish_home_dir/.bashrc" "$work_dir/bashrc-before"
+HOME="$fish_home_dir" \
+SHELL="/usr/bin/fish" \
+PATH="$fake_bin:/usr/bin:/bin" \
+WGSEXTRACT_INSTALLER_TEST_ARCHIVE="$archive" \
+WGSEXTRACT_INSTALLER_TEST_PIXI_ARCHIVE="$fake_pixi_archive" \
+WGSEXTRACT_INSTALLER_TEST_RELEASE_TAG="$release_tag" \
+WGSEXTRACT_INSTALLER_TEST_CURL_LOG="$curl_log" \
+WGSEXTRACT_INSTALL_DIR="$work_dir/fish-install" \
+WGSEXTRACT_ARCHIVE_URL="$archive" \
+WGSEXTRACT_NO_OPEN=1 \
+sh "$test_installer" > "$work_dir/fish.log" 2>&1
+grep -F "fish_add_path" "$work_dir/fish.log" >/dev/null
+test -x "$work_dir/fish-install/.pixi/bin/pixi"
+test ! -e "$fish_home_dir/.pixi"
+cmp "$fish_home_dir/.bashrc" "$work_dir/bashrc-before"
+test ! -e "$fish_home_dir/.zshrc"
 
 if [ "$(uname -s)" = "Darwin" ]; then
     interactive_install_dir="$work_dir/interactive-install"
@@ -247,7 +299,7 @@ if [ "$(uname -s)" = "Darwin" ]; then
     WGSEXTRACT_PIXI_CACHE_DIR="$interactive_install_dir/.pixi/cache" \
     WGSEXTRACT_PIXI_ENV_DIR="$interactive_install_dir/app/.pixi/envs" \
     WGSEXTRACT_OPEN_COMMAND="$fake_bin/open-install-dir" \
-    sh "$repo_root/install.sh"
+    sh "$test_installer"
 
     test -x "$interactive_install_dir/wgsextract"
     grep -Fx "$interactive_install_dir" "$open_log" >/dev/null

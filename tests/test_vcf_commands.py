@@ -179,14 +179,20 @@ def test_discovery_spliceai_expression_matches_high_scores(tmp_path):
 # --- vcf chain-annotate ---------------------------------------------------------
 
 
-def test_chain_uses_each_steps_known_output(tmp_path):
+@pytest.mark.parametrize("keep_awake", [None, True, False])
+def test_chain_uses_each_steps_known_output(tmp_path, monkeypatch, keep_awake):
     from wgsextract_cli.commands.vcf import chain
+    from wgsextract_cli.core import config
+
+    monkeypatch.setitem(config.settings, "keep_awake", True)
 
     input_vcf = tmp_path / "in.vcf.gz"
     input_vcf.write_bytes(b"")
     step_inputs = []
 
     def fake_run_command(cmd, **_kwargs):
+        if keep_awake is not None:
+            assert ("--keep-awake" if keep_awake else "--no-keep-awake") in cmd
         step_inputs.append(cmd[cmd.index("--input") + 1])
         outdir = Path(cmd[cmd.index("--outdir") + 1])
         # clinvar writes the full annotation, then the (newer) pathogenic subset.
@@ -208,6 +214,7 @@ def test_chain_uses_each_steps_known_output(tmp_path):
         ref=None,
         annotations="clinvar,revel",
         keep_intermediates=False,
+        keep_awake=keep_awake,
     )
     with (
         patch.object(chain, "verify_dependencies"),
