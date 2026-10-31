@@ -12,7 +12,9 @@ on:
       - .github/workflows/remote_resources.yml
       - pixi.toml
       - src/wgsextract_cli/assets/reference/seed_genomes.csv
+      - src/wgsextract_cli/assets/microarray/chm13/**
       - src/wgsextract_cli/commands/benchmark/models.py
+      - src/wgsextract_cli/commands/benchmark/chip.py
       - src/wgsextract_cli/commands/microarray.py
       - src/wgsextract_cli/commands/_microarray_*.py
       - src/wgsextract_cli/core/annotation_resources.py
@@ -24,6 +26,8 @@ on:
       - src/wgsextract_cli/core/pharmgkb.py
       - src/wgsextract_cli/core/ref_library/catalog.py
       - tests/test_remote_*.py
+      - tests/test_microarray_chip_benchmark.py
+      - scripts/benchmark_microarray_chip.py
   workflow_dispatch:
 
 permissions:
@@ -46,4 +50,13 @@ jobs:
             default
             dev
       - name: Check remote resources
-        run: pixi run test-remote -v
+        run: |
+          mkdir -p out
+          pixi run test-remote -v --basetemp out/remote -o tmp_path_retention_policy=all
+      - name: Upload aggregate chip concordance
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chip-concordance
+          path: out/remote/**/chip-concordance.json
+          if-no-files-found: ignore
