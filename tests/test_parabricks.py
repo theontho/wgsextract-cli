@@ -76,7 +76,9 @@ def test_parabricks_is_linux_only(monkeypatch):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
-def test_the_container_sees_each_directory_at_its_own_path(tmp_path, monkeypatch):
+def test_the_container_sees_each_directory_at_its_own_path(
+    tmp_path, monkeypatch, linux
+):
     _tools(monkeypatch, "docker")
     monkeypatch.setattr(parabricks, "parabricks_image", lambda: "pb:test")
     calls = []
