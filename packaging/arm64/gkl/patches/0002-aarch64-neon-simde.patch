@@ -1,0 +1,833 @@
+diff --git a/src/main/java/com/intel/gkl/IntelGKLUtils.java b/src/main/java/com/intel/gkl/IntelGKLUtils.java
+index 298f2da..e6fb0eb 100644
+--- a/src/main/java/com/intel/gkl/IntelGKLUtils.java
++++ b/src/main/java/com/intel/gkl/IntelGKLUtils.java
+@@ -102,6 +102,18 @@ public final class IntelGKLUtils implements NativeLibrary {
+      * Get the number of available OpenMP threads, when enabled.
+      * @return  Number of available threads, as reported by OpenMP.
+      */
++    /**
++     * Checks if the Arm Advanced SIMD (NEON) kernels in this utils library can run.
++     * Libraries built for x86 do not export this probe and therefore report false.
++     */
++    public boolean isNeonSupported() {
++        try {
++            return isNeonSupportedNative();
++        } catch (UnsatisfiedLinkError e) {
++            return false;
++        }
++    }
++
+     public int getAvailableOmpThreads() {
+         return getAvailableOmpThreadsNative();
+     }
+@@ -111,5 +123,6 @@ public final class IntelGKLUtils implements NativeLibrary {
+     private native boolean isAvxSupportedNative();
+     private native boolean isAvx2SupportedNative();
+     private native boolean isAvx512SupportedNative();
++    private native boolean isNeonSupportedNative();
+     private native int getAvailableOmpThreadsNative();
+ }
+diff --git a/src/main/java/com/intel/gkl/NativeLibraryLoader.java b/src/main/java/com/intel/gkl/NativeLibraryLoader.java
+index 16daa35..66a7063 100644
+--- a/src/main/java/com/intel/gkl/NativeLibraryLoader.java
++++ b/src/main/java/com/intel/gkl/NativeLibraryLoader.java
+@@ -75,6 +75,25 @@ public final class NativeLibraryLoader {
+         return false;
+     }
+ 
++    /**
++     * Arm64 libraries live in an OS/architecture directory so an x86 library of the same
++     * name elsewhere on the classpath is never selected; other platforms keep upstream paths.
++     */
++    private static String platformDirectory() {
++        final String arch = System.getProperty("os.arch", "").toLowerCase();
++        if (!arch.equals("aarch64") && !arch.equals("arm64")) {
++            return "";
++        }
++        final String os = System.getProperty("os.name", "").toLowerCase();
++        if (os.startsWith("linux")) {
++            return "linux-aarch64/";
++        }
++        if (os.startsWith("windows")) {
++            return "windows-aarch64/";
++        }
++        return "unsupported-aarch64/";
++    }
++
+     /**
+      * Tries to load the native library from the classpath, usually from a jar file. <p>
+      *
+@@ -111,7 +130,7 @@ public final class NativeLibraryLoader {
+         }
+ 
+         // load from the java classpath
+-        final String resourcePath = "native/" +  systemLibraryName;
++        final String resourcePath = "native/" + platformDirectory() + systemLibraryName;
+         final URL inputUrl = NativeLibraryLoader.class.getResource(resourcePath);
+         if (inputUrl == null) {
+             logger.warn(String.format("Unable to find native library: %s" , resourcePath));
+diff --git a/src/main/java/com/intel/gkl/pairhmm/IntelPairHmm.java b/src/main/java/com/intel/gkl/pairhmm/IntelPairHmm.java
+index 4200833..3e84d0f 100644
+--- a/src/main/java/com/intel/gkl/pairhmm/IntelPairHmm.java
++++ b/src/main/java/com/intel/gkl/pairhmm/IntelPairHmm.java
+@@ -70,11 +70,18 @@ public class IntelPairHmm implements PairHMMNativeBinding {
+             return false;
+         }
+ 
+-        if(!gklUtils.isAvxSupported()) {
++        final boolean neon = !gklUtils.isAvxSupported() && gklUtils.isNeonSupported();
++        if(!gklUtils.isAvxSupported() && !neon) {
+             return false;
+         }
+ 
+-        return NativeLibraryLoader.load(tempDir, nativeLibraryName);
++        if (!NativeLibraryLoader.load(tempDir, nativeLibraryName)) {
++            return false;
++        }
++        if (neon) {
++            logger.info("Using Arm NEON PairHMM kernels (WGSE port of the GKL AVX kernels)");
++        }
++        return true;
+     }
+ 
+     /**
+diff --git a/src/main/java/com/intel/gkl/smithwaterman/IntelSmithWaterman.java b/src/main/java/com/intel/gkl/smithwaterman/IntelSmithWaterman.java
+index b9bf647..52918ac 100644
+--- a/src/main/java/com/intel/gkl/smithwaterman/IntelSmithWaterman.java
++++ b/src/main/java/com/intel/gkl/smithwaterman/IntelSmithWaterman.java
+@@ -84,7 +84,9 @@ public class IntelSmithWaterman implements SWAlignerNativeBinding {
+             return false;
+         }
+ 
+-        if (!gklUtils.isAvxSupported() || !gklUtils.isAvx2Supported()) {
++        final boolean avx2 = gklUtils.isAvxSupported() && gklUtils.isAvx2Supported();
++        final boolean neon = !avx2 && gklUtils.isNeonSupported();
++        if (!avx2 && !neon) {
+             return false;
+         }
+ 
+@@ -101,6 +103,9 @@ public class IntelSmithWaterman implements SWAlignerNativeBinding {
+         if(gklUtils.isAvx512Supported()) {
+             logger.info("Using CPU-supported AVX-512 instructions");
+         }
++        if (neon) {
++            logger.info("Using Arm NEON Smith-Waterman kernel (WGSE port of the GKL AVX2 kernel)");
++        }
+ 
+         /*
+          Initializes the function pointers to use machine specific optimized code
+diff --git a/src/main/native/common/ScopedFtzDaz.h b/src/main/native/common/ScopedFtzDaz.h
+index 4cf3575..a05dada 100644
+--- a/src/main/native/common/ScopedFtzDaz.h
++++ b/src/main/native/common/ScopedFtzDaz.h
+@@ -1,9 +1,19 @@
+ #ifndef WGSE_SCOPED_FTZ_DAZ_H
+ #define WGSE_SCOPED_FTZ_DAZ_H
+ 
+-#include <immintrin.h>
++#include <simd_compat.h>
+ 
+ class ScopedFtzDaz {
++#ifdef WGSE_GKL_NEON
++    uint64_t saved_;
++public:
++    ScopedFtzDaz() : saved_(wgse_get_fpcr()) {
++        wgse_set_fpcr(saved_ | WGSE_FPCR_FZ);
++    }
++    ~ScopedFtzDaz() {
++        wgse_set_fpcr(saved_);
++    }
++#else
+     unsigned int saved_;
+ public:
+     ScopedFtzDaz() : saved_(_mm_getcsr()) {
+@@ -12,6 +22,7 @@ public:
+     ~ScopedFtzDaz() {
+         _mm_setcsr(saved_);
+     }
++#endif
+     ScopedFtzDaz(const ScopedFtzDaz&) = delete;
+     ScopedFtzDaz& operator=(const ScopedFtzDaz&) = delete;
+ };
+diff --git a/src/main/native/common/avx.h b/src/main/native/common/avx.h
+index f03d9c6..6b23b6a 100644
+--- a/src/main/native/common/avx.h
++++ b/src/main/native/common/avx.h
+@@ -24,16 +24,44 @@
+ #ifndef COMMON_AVX_H
+ #define COMMON_AVX_H
+ 
++#include <simd_compat.h>
++
++#ifdef WGSE_GKL_NEON
++#if defined(_WIN32)
++    #include <windows.h>
++#elif defined(__linux__)
++    #include <sys/auxv.h>
++    #include <asm/hwcap.h>
++#endif
++
++// The NEON build never reports x86 features; callers must ask for NEON.
++inline bool is_avx_supported() { return false; }
++inline bool is_avx2_supported() { return false; }
++inline bool is_avx512_supported() { return false; }
++
++inline bool is_neon_supported()
++{
++#if defined(_WIN32)
++    return IsProcessorFeaturePresent(PF_ARM_NEON_INSTRUCTIONS_AVAILABLE) != 0;
++#elif defined(__linux__)
++    return (getauxval(AT_HWCAP) & HWCAP_ASIMD) != 0;
++#else
++    return true; // Advanced SIMD is mandatory in the AArch64 procedure-call ABI.
++#endif
++}
++
++#else
+ #if defined(_MSC_VER)
+     // SIMD intrinsics for Windows
+     #include <intrin.h>
+ #else
+     // SIMD intrinsics for GCC
+-    #include <x86intrin.h>
+     #include <stdint.h>
+     #include <cpuid.h>
+ #endif
+ 
++inline bool is_neon_supported() { return false; }
++
+ // helper function
+ inline
+ int check_xcr0_ymm()
+@@ -167,4 +195,6 @@ bool is_avx512_supported()
+ #endif
+ }
+ 
++#endif // WGSE_GKL_NEON
++
+ #endif
+diff --git a/src/main/native/common/simd_compat.h b/src/main/native/common/simd_compat.h
+new file mode 100644
+index 0000000..98036ec
+--- /dev/null
++++ b/src/main/native/common/simd_compat.h
+@@ -0,0 +1,61 @@
++#ifndef WGSE_SIMD_COMPAT_H
++#define WGSE_SIMD_COMPAT_H
++
++#if defined(__aarch64__) || defined(_M_ARM64)
++  /*
++   * AArch64: SIMDe provides the AVX/AVX2 types and setup code; the PairHMM
++   * (neon-pairhmm.h) and Smith-Waterman (avx2-functions.h) hot loops use native
++   * NEON. Every lane operation (add, sub, mul, div, compare, blend, int32->float
++   * conversion, lane shifts) is an exactly rounded IEEE-754 or integer operation
++   * on both ISAs, so with contraction disabled (-ffp-contract=off) the per-cell
++   * operation order and results match AVX.
++   */
++  #define WGSE_GKL_NEON 1
++  #define SIMDE_ENABLE_NATIVE_ALIASES
++  #include <simde/x86/avx2.h>
++  /* Type-only: GKL's shared PairHMM unions name the AVX-512 vector types. */
++  #include <simde/x86/avx512/types.h>
++  #include <stdint.h>
++
++  /* x86 aligned-allocation helpers used by the Smith-Waterman kernel. */
++  #include <stdlib.h>
++  #if defined(_WIN32)
++    #include <malloc.h>
++    static inline void* _mm_malloc(size_t size, size_t align) { return _aligned_malloc(size, align); }
++    static inline void _mm_free(void* ptr) { _aligned_free(ptr); }
++  #else
++    static inline void* _mm_malloc(size_t size, size_t align) {
++      void* ptr = NULL;
++      return posix_memalign(&ptr, align < sizeof(void*) ? sizeof(void*) : align, size) ? NULL : ptr;
++    }
++    static inline void _mm_free(void* ptr) { free(ptr); }
++  #endif
++
++  /* FPCR.FZ (bit 24) flushes denormal inputs and outputs, i.e. MXCSR FTZ+DAZ. */
++  #define WGSE_FPCR_FZ (UINT64_C(1) << 24)
++
++  static inline uint64_t wgse_get_fpcr(void) {
++    uint64_t value;
++    __asm__ __volatile__("mrs %0, fpcr" : "=r"(value));
++    return value;
++  }
++
++  static inline void wgse_set_fpcr(uint64_t value) {
++    __asm__ __volatile__("msr fpcr, %0" : : "r"(value) : "memory");
++  }
++
++  /* SIMDe's FTZ emulation is a no-op on Arm; map GKL's FTZ calls to FPCR.FZ. */
++  #undef _MM_GET_FLUSH_ZERO_MODE
++  #undef _MM_SET_FLUSH_ZERO_MODE
++  #define _MM_GET_FLUSH_ZERO_MODE() \
++    ((wgse_get_fpcr() & WGSE_FPCR_FZ) ? _MM_FLUSH_ZERO_ON : _MM_FLUSH_ZERO_OFF)
++  #define _MM_SET_FLUSH_ZERO_MODE(mode) \
++    wgse_set_fpcr((mode) == _MM_FLUSH_ZERO_ON \
++        ? (wgse_get_fpcr() | WGSE_FPCR_FZ) : (wgse_get_fpcr() & ~WGSE_FPCR_FZ))
++#elif defined(_MSC_VER)
++  #include <intrin.h>
++#else
++  #include <x86intrin.h>
++#endif
++
++#endif
+diff --git a/src/main/native/pairhmm/avx_impl.cc b/src/main/native/pairhmm/avx_impl.cc
+index a33adcf..393888b 100644
+--- a/src/main/native/pairhmm/avx_impl.cc
++++ b/src/main/native/pairhmm/avx_impl.cc
+@@ -22,8 +22,17 @@
+  * SOFTWARE.
+  */
+ #include "avx_impl.h"
++
++#if defined(WGSE_GKL_NEON) && !defined(WGSE_GKL_SIMDE_PAIRHMM)
++/* AArch64: native NEON port of the AVX kernel (bit-identical results). */
++#include "neon-pairhmm.h"
++
++float (*compute_fp_avxs)(testcase*) = &wgse_neon::compute_full_prob<float>;
++double (*compute_fp_avxd)(testcase*) = &wgse_neon::compute_full_prob<double>;
++#else
+ #include "avx-pairhmm.h"
+ 
+ float (*compute_fp_avxs)(testcase*) = &compute_full_prob_avxs;
+ double (*compute_fp_avxd)(testcase*) = &compute_full_prob_avxd;
++#endif
+ 
+diff --git a/src/main/native/pairhmm/neon-pairhmm.h b/src/main/native/pairhmm/neon-pairhmm.h
+new file mode 100644
+index 0000000..d50d507
+--- /dev/null
++++ b/src/main/native/pairhmm/neon-pairhmm.h
+@@ -0,0 +1,325 @@
++/*
++ * Native AArch64 NEON PairHMM kernel (WGS Extract port of GKL's AVX kernel).
++ *
++ * This is a line-for-line port of avx-pairhmm-template.h for 128-bit NEON.
++ * Each AVX vector (8 floats or 4 doubles) is held as a lo/hi pair of NEON
++ * registers, and every lane performs the same IEEE-754 operations in the
++ * same order as the AVX kernel:
++ *   M = (((M2 * pMM) + (X2 * pGAPM)) + (Y2 * pGAPM)) * distm
++ *   X = (M1 * pMX) + (X1 * pXX)
++ *   Y = (M1y * pMY) + (Y1 * pYY)
++ * With contraction disabled (-ffp-contract=off) the results are bit-identical
++ * to the x86 AVX kernel. The only changes are register-level: lane shifts use
++ * EXT instead of the AVX extract/insert sequence, and the anti-diagonal loop is
++ * unrolled by two so the M/X/Y history rotates by renaming instead of moves.
++ *
++ * SPDX-License-Identifier: MIT
++ */
++#ifndef WGSE_NEON_PAIRHMM_H
++#define WGSE_NEON_PAIRHMM_H
++
++#include <arm_neon.h>
++#include <stdint.h>
++
++#include <algorithm>
++
++#include "Context.h"
++#include "pairhmm_common.h"
++
++#define WGSE_ALWAYS_INLINE inline __attribute__((always_inline))
++
++namespace wgse_neon {
++
++template <class T> struct Lanes;
++
++template <> struct Lanes<float> {
++  typedef float32x4_t V;
++  typedef uint32x4_t U;
++  typedef uint32_t Mask;
++  static const int kHalf = 4;
++  static WGSE_ALWAYS_INLINE V add(V a, V b) { return vaddq_f32(a, b); }
++  static WGSE_ALWAYS_INLINE V sub(V a, V b) { return vsubq_f32(a, b); }
++  static WGSE_ALWAYS_INLINE V mul(V a, V b) { return vmulq_f32(a, b); }
++  static WGSE_ALWAYS_INLINE V div(V a, V b) { return vdivq_f32(a, b); }
++  static WGSE_ALWAYS_INLINE V dup(float x) { return vdupq_n_f32(x); }
++  static WGSE_ALWAYS_INLINE V load(const float* p) { return vld1q_f32(p); }
++  static WGSE_ALWAYS_INLINE V load_dup(const float* p) { return vld1q_dup_f32(p); }
++  static WGSE_ALWAYS_INLINE void store(float* p, V v) { vst1q_f32(p, v); }
++  static WGSE_ALWAYS_INLINE void store_top(float* p, V v) { vst1q_lane_f32(p, v, 3); }
++  static WGSE_ALWAYS_INLINE V lane0(float x) { return vsetq_lane_f32(x, vdupq_n_f32(0.0f), 0); }
++  /* [below[3], v[0], v[1], v[2]]: the AVX lane shift across one 128-bit half. */
++  static WGSE_ALWAYS_INLINE V shift_up(V below, V v) { return vextq_f32(below, v, 3); }
++  static WGSE_ALWAYS_INLINE U load_mask(const Mask* p) { return vld1q_u32(p); }
++  /* _mm256_blendv_ps: take `set` where the mask lane's sign bit is set. */
++  static WGSE_ALWAYS_INLINE V blend(U mask, V set, V clear) {
++    return vbslq_f32(vcltzq_s32(vreinterpretq_s32_u32(mask)), set, clear);
++  }
++  static WGSE_ALWAYS_INLINE U shl1(U mask) { return vshlq_n_u32(mask, 1); }
++};
++
++template <> struct Lanes<double> {
++  typedef float64x2_t V;
++  typedef uint64x2_t U;
++  typedef uint64_t Mask;
++  static const int kHalf = 2;
++  static WGSE_ALWAYS_INLINE V add(V a, V b) { return vaddq_f64(a, b); }
++  static WGSE_ALWAYS_INLINE V sub(V a, V b) { return vsubq_f64(a, b); }
++  static WGSE_ALWAYS_INLINE V mul(V a, V b) { return vmulq_f64(a, b); }
++  static WGSE_ALWAYS_INLINE V div(V a, V b) { return vdivq_f64(a, b); }
++  static WGSE_ALWAYS_INLINE V dup(double x) { return vdupq_n_f64(x); }
++  static WGSE_ALWAYS_INLINE V load(const double* p) { return vld1q_f64(p); }
++  static WGSE_ALWAYS_INLINE V load_dup(const double* p) { return vld1q_dup_f64(p); }
++  static WGSE_ALWAYS_INLINE void store(double* p, V v) { vst1q_f64(p, v); }
++  static WGSE_ALWAYS_INLINE void store_top(double* p, V v) { vst1q_lane_f64(p, v, 1); }
++  static WGSE_ALWAYS_INLINE V lane0(double x) { return vsetq_lane_f64(x, vdupq_n_f64(0.0), 0); }
++  static WGSE_ALWAYS_INLINE V shift_up(V below, V v) { return vextq_f64(below, v, 1); }
++  static WGSE_ALWAYS_INLINE U load_mask(const Mask* p) { return vld1q_u64(p); }
++  static WGSE_ALWAYS_INLINE V blend(U mask, V set, V clear) {
++    return vbslq_f64(vcltzq_s64(vreinterpretq_s64_u64(mask)), set, clear);
++  }
++  static WGSE_ALWAYS_INLINE U shl1(U mask) { return vshlq_n_u64(mask, 1); }
++};
++
++/* One AVX-width vector as two NEON registers (lanes 0..h-1 in lo). */
++template <class T> struct Vec {
++  typename Lanes<T>::V lo, hi;
++};
++
++template <class T> WGSE_ALWAYS_INLINE Vec<T> vload(const T* p) {
++  Vec<T> v = {Lanes<T>::load(p), Lanes<T>::load(p + Lanes<T>::kHalf)};
++  return v;
++}
++
++template <class T> WGSE_ALWAYS_INLINE Vec<T> vsplat(T x) {
++  Vec<T> v = {Lanes<T>::dup(x), Lanes<T>::dup(x)};
++  return v;
++}
++
++/* VEC_SET_LSE: x in lane 0, zero elsewhere. */
++template <class T> WGSE_ALWAYS_INLINE Vec<T> vlane0(T x) {
++  Vec<T> v = {Lanes<T>::lane0(x), Lanes<T>::dup(T(0))};
++  return v;
++}
++
++/*
++ * _vector_shift / _vector_shift_last: move every lane up by one, put
++ * shift_in[0] into lane 0 and (unless LAST) store the old top lane to *out.
++ */
++template <class T, bool LAST>
++WGSE_ALWAYS_INLINE void vshift(Vec<T>& v, const T* shift_in, T* out) {
++  typedef Lanes<T> L;
++  if (!LAST) L::store_top(out, v.hi);
++  v.hi = L::shift_up(v.lo, v.hi);
++  v.lo = L::shift_up(L::load_dup(shift_in), v.lo);
++}
++
++struct Probs;
++
++/*
++ * One anti-diagonal step (computeDistVec + computeMXY + the three shifts).
++ * On entry: M2/X2/Y2 hold the shifted t-2 vectors, M1/X1 the shifted t-1
++ * vectors, Y1 the unshifted Y(t-1) and My the unshifted M(t-1). On exit the
++ * slots hold the next step's values with each pair's roles swapped:
++ * M2 <- shifted M(t), X2 <- shifted X(t), Y1 <- shifted Y(t-1), Y2 <- Y(t),
++ * My <- M(t). The caller swaps (M2,M1), (X2,X1), (Y2,Y1) on the next call.
++ */
++template <class T, bool LAST>
++WGSE_ALWAYS_INLINE void step(Vec<T>& M2, const Vec<T>& M1, Vec<T>& X2, const Vec<T>& X1, Vec<T>& Y2, Vec<T>& Y1,
++                             Vec<T>& My, typename Lanes<T>::U& maskLo, typename Lanes<T>::U& maskHi,
++                             const Vec<T>& distm, const Vec<T>& oneMinusDistm, const Vec<T>& pMM,
++                             const Vec<T>& pGAPM, const Vec<T>& pMX, const Vec<T>& pXX, const Vec<T>& pMY,
++                             const Vec<T>& pYY, T* shiftM, T* shiftX, T* shiftY, int inIdx, int outIdx,
++                             Vec<T>& sumM, Vec<T>& sumX) {
++  typedef Lanes<T> L;
++  Vec<T> sel;
++  sel.lo = L::blend(maskLo, oneMinusDistm.lo, distm.lo);
++  sel.hi = L::blend(maskHi, oneMinusDistm.hi, distm.hi);
++  maskLo = L::shl1(maskLo);
++  maskHi = L::shl1(maskHi);
++
++  Vec<T> Mt, Xt, Yt;
++  Mt.lo = L::mul(L::add(L::add(L::mul(M2.lo, pMM.lo), L::mul(X2.lo, pGAPM.lo)), L::mul(Y2.lo, pGAPM.lo)), sel.lo);
++  Mt.hi = L::mul(L::add(L::add(L::mul(M2.hi, pMM.hi), L::mul(X2.hi, pGAPM.hi)), L::mul(Y2.hi, pGAPM.hi)), sel.hi);
++  Xt.lo = L::add(L::mul(M1.lo, pMX.lo), L::mul(X1.lo, pXX.lo));
++  Xt.hi = L::add(L::mul(M1.hi, pMX.hi), L::mul(X1.hi, pXX.hi));
++  Yt.lo = L::add(L::mul(My.lo, pMY.lo), L::mul(Y1.lo, pYY.lo));
++  Yt.hi = L::add(L::mul(My.hi, pMY.hi), L::mul(Y1.hi, pYY.hi));
++  My = Mt;
++
++  if (LAST) {
++    sumM.lo = L::add(sumM.lo, Mt.lo);
++    sumM.hi = L::add(sumM.hi, Mt.hi);
++    sumX.lo = L::add(sumX.lo, Xt.lo);
++    sumX.hi = L::add(sumX.hi, Xt.hi);
++  }
++  vshift<T, LAST>(Mt, shiftM + inIdx, shiftM + outIdx);
++  vshift<T, LAST>(Xt, shiftX + inIdx, shiftX + outIdx);
++  vshift<T, LAST>(Y1, shiftY + inIdx, shiftY + outIdx);
++  M2 = Mt;
++  X2 = Xt;
++  Y2 = Yt;
++}
++
++/* Runs `count` anti-diagonals starting at diagonal `first` (1-based). */
++template <class T, bool LAST>
++WGSE_ALWAYS_INLINE void run_diagonals(int first, int count, const typename Lanes<T>::Mask* laneMasks, Vec<T>& M2,
++                                      Vec<T>& M1, Vec<T>& X2, Vec<T>& X1, Vec<T>& Y2, Vec<T>& Y1, Vec<T>& My,
++                                      const Vec<T>& distm, const Vec<T>& oneMinusDistm, const Vec<T>& pMM,
++                                      const Vec<T>& pGAPM, const Vec<T>& pMX, const Vec<T>& pXX,
++                                      const Vec<T>& pMY, const Vec<T>& pYY, T* shiftM, T* shiftX, T* shiftY,
++                                      Vec<T>& sumM, Vec<T>& sumX) {
++  typedef Lanes<T> L;
++  const int lanes = 2 * L::kHalf;
++  typename L::U maskLo = L::load_mask(laneMasks);
++  typename L::U maskHi = L::load_mask(laneMasks + L::kHalf);
++  int k = 0;
++  for (; k + 1 < count; k += 2) {
++    int d = first + k;
++    step<T, LAST>(M2, M1, X2, X1, Y2, Y1, My, maskLo, maskHi, distm, oneMinusDistm, pMM, pGAPM, pMX, pXX, pMY, pYY,
++                  shiftM, shiftX, shiftY, d + lanes, d, sumM, sumX);
++    step<T, LAST>(M1, M2, X1, X2, Y1, Y2, My, maskLo, maskHi, distm, oneMinusDistm, pMM, pGAPM, pMX, pXX, pMY, pYY,
++                  shiftM, shiftX, shiftY, d + 1 + lanes, d + 1, sumM, sumX);
++  }
++  if (k < count) {
++    int d = first + k;
++    step<T, LAST>(M2, M1, X2, X1, Y2, Y1, My, maskLo, maskHi, distm, oneMinusDistm, pMM, pGAPM, pMX, pXX, pMY, pYY,
++                  shiftM, shiftX, shiftY, d + lanes, d, sumM, sumX);
++    std::swap(M1, M2);
++    std::swap(X1, X2);
++    std::swap(Y1, Y2);
++  }
++}
++
++template <class T> T compute_full_prob(testcase* tc) {
++  typedef Lanes<T> L;
++  typedef typename L::Mask MaskT;
++  const int lanes = 2 * L::kHalf;
++  const int maskBits = (int)(sizeof(MaskT) * 8);
++  const MaskT allOnes = (MaskT)~(MaskT)0;
++
++  const int ROWS = tc->rslen + 1;
++  const int COLS = tc->haplen + 1;
++  const int padded = ((ROWS + lanes - 1) / lanes) * lanes;
++  const int remainingRows = (ROWS - 1) % lanes;
++  const int stripes = (ROWS - 1) / lanes + (remainingRows != 0);
++  Context<T> ctx;
++
++  /* Per-row probabilities, `lanes` rows per stripe; row r lives at index r-1. */
++  T p_MM[padded], p_GAPM[padded], p_MX[padded], p_XX[padded], p_MY[padded], p_YY[padded], distm1D[padded];
++  T shiftOutM[ROWS + COLS + lanes], shiftOutX[ROWS + COLS + lanes], shiftOutY[ROWS + COLS + lanes];
++
++  const T zero = ctx._(0.0);
++  /* Casting is fine because the algorithm is intended to have limited precision. */
++  const T init_Y = ctx.INITIAL_CONSTANT / (T)(tc->haplen);
++  for (int s = 0; s < ROWS + COLS + lanes; s++) {
++    shiftOutM[s] = zero;
++    shiftOutX[s] = zero;
++    shiftOutY[s] = init_Y;
++  }
++  /* Padding rows of the last stripe only feed lanes above the result lane. */
++  for (int r = ROWS - 1; r < padded; r++) {
++    p_MM[r] = p_GAPM[r] = p_MX[r] = p_XX[r] = p_MY[r] = p_YY[r] = distm1D[r] = zero;
++  }
++  for (int r = 1; r < ROWS; r++) {
++    int _i = tc->i[r - 1] & 127;
++    int _d = tc->d[r - 1] & 127;
++    int _c = tc->c[r - 1] & 127;
++    p_MM[r - 1] = ctx.set_mm_prob(_i, _d);
++    p_GAPM[r - 1] = ctx._(1.0) - ctx.ph2pr[_c];
++    p_MX[r - 1] = ctx.ph2pr[_i];
++    p_XX[r - 1] = ctx.ph2pr[_c];
++    p_MY[r - 1] = ctx.ph2pr[_d];
++    p_YY[r - 1] = ctx.ph2pr[_c];
++    distm1D[r - 1] = ctx.ph2pr[tc->q[r - 1] & 127];
++  }
++
++  /* Haplotype match masks: bit (maskBits-1-k) of word w is column w*maskBits+k+1. */
++  const int numMaskVecs = (COLS + ROWS + maskBits - 1) / maskBits;
++  MaskT maskArr[numMaskVecs][NUM_DISTINCT_CHARS];
++  for (int vi = 0; vi < numMaskVecs; ++vi) {
++    for (int ci = 0; ci < NUM_DISTINCT_CHARS; ++ci) maskArr[vi][ci] = 0;
++    maskArr[vi][AMBIG_CHAR] = allOnes;
++  }
++  for (int col = 1; col < COLS; ++col) {
++    int mIndex = (col - 1) / maskBits;
++    int mOffset = (col - 1) % maskBits;
++    MaskT bitMask = ((MaskT)1) << (maskBits - 1 - mOffset);
++    char hapChar = ConvertChar::get(tc->hap[col - 1]);
++    if (hapChar == AMBIG_CHAR) {
++      for (int ci = 0; ci < NUM_DISTINCT_CHARS; ++ci) maskArr[mIndex][ci] |= bitMask;
++    }
++    maskArr[mIndex][hapChar] |= bitMask;
++  }
++
++  const Vec<T> one = vsplat<T>(T(1.0));
++  const Vec<T> three = vsplat<T>(T(3.0));
++  T result = zero;
++
++  for (int i = 0; i < stripes; i++) {
++    const bool last = i == stripes - 1;
++    const Vec<T> pMM = vload(p_MM + i * lanes), pGAPM = vload(p_GAPM + i * lanes);
++    const Vec<T> pMX = vload(p_MX + i * lanes), pXX = vload(p_XX + i * lanes);
++    const Vec<T> pMY = vload(p_MY + i * lanes), pYY = vload(p_YY + i * lanes);
++    Vec<T> distm = vload(distm1D + i * lanes);
++    Vec<T> oneMinusDistm;
++    oneMinusDistm.lo = L::sub(one.lo, distm.lo);
++    oneMinusDistm.hi = L::sub(one.hi, distm.hi);
++    distm.lo = L::div(distm.lo, three.lo);
++    distm.hi = L::div(distm.hi, three.hi);
++
++    Vec<T> M2 = vsplat<T>(zero), X2 = vsplat<T>(zero), M1, X1, Y2, Y1;
++    if (i == 0) {
++      M1 = vsplat<T>(zero);
++      X1 = vsplat<T>(zero);
++      Y2 = vlane0<T>(init_Y);
++      Y1 = vsplat<T>(zero);
++    } else {
++      X1 = vlane0<T>(shiftOutX[lanes]);
++      M1 = vlane0<T>(shiftOutM[lanes]);
++      Y2 = vsplat<T>(zero);
++      Y1 = vsplat<T>(zero);
++    }
++    Vec<T> My = M1;
++
++    const int rows = last ? (remainingRows == 0 ? lanes : remainingRows) : lanes;
++    int rsArr[lanes];
++    MaskT lastMaskShiftOut[lanes];
++    for (int ri = 0; ri < lanes; ++ri) {
++      rsArr[ri] = ri < rows ? ConvertChar::get(tc->rs[ri + i * lanes]) : 0;
++      lastMaskShiftOut[ri] = 0;
++    }
++
++    Vec<T> sumM = vsplat<T>(zero), sumX = vsplat<T>(zero);
++    const int end = last ? COLS + rows - 1 : COLS + lanes;
++    for (int begin_d = 1; begin_d < end; begin_d += maskBits) {
++      const int count = std::min(maskBits, end - begin_d);
++      const int maskIndex = (begin_d - 1) / maskBits;
++      MaskT laneMasks[lanes];
++      for (int ei = 0; ei < lanes; ++ei) {
++        /* SET_MASK_WORD from the AVX template, with the shift-by-width case made explicit. */
++        MaskT src = maskArr[maskIndex][rsArr[ei]];
++        MaskT next = ei == 0 ? 0 : (MaskT)((src & ((((MaskT)1) << ei) - 1)) << (maskBits - ei));
++        laneMasks[ei] = (MaskT)(src >> ei) | lastMaskShiftOut[ei];
++        lastMaskShiftOut[ei] = next;
++      }
++      if (last) {
++        run_diagonals<T, true>(begin_d, count, laneMasks, M2, M1, X2, X1, Y2, Y1, My, distm, oneMinusDistm, pMM,
++                               pGAPM, pMX, pXX, pMY, pYY, shiftOutM, shiftOutX, shiftOutY, sumM, sumX);
++      } else {
++        run_diagonals<T, false>(begin_d, count, laneMasks, M2, M1, X2, X1, Y2, Y1, My, distm, oneMinusDistm, pMM,
++                                pGAPM, pMX, pXX, pMY, pYY, shiftOutM, shiftOutX, shiftOutY, sumM, sumX);
++      }
++    }
++    if (last) {
++      T sum[lanes];
++      L::store(sum, L::add(sumM.lo, sumX.lo));
++      L::store(sum + L::kHalf, L::add(sumM.hi, sumX.hi));
++      result = sum[rows - 1];
++    }
++  }
++  return result;
++}
++
++}  // namespace wgse_neon
++
++#endif
+diff --git a/src/main/native/pairhmm/pairhmm_common.h b/src/main/native/pairhmm/pairhmm_common.h
+index 47f9e81..2bfbdf8 100644
+--- a/src/main/native/pairhmm/pairhmm_common.h
++++ b/src/main/native/pairhmm/pairhmm_common.h
+@@ -24,11 +24,7 @@
+ #ifndef PAIRHMM_COMMON_H
+ #define PAIRHMM_COMMON_H
+ 
+-#if defined(_MSC_VER)
+-  #include <intrin.h> // SIMD intrinsics for Windows
+-#else
+-  #include <x86intrin.h> // SIMD intrinsics for GCC
+-#endif
++#include <simd_compat.h>
+ 
+ #include <assert.h>
+ #include <stdint.h>
+diff --git a/src/main/native/smithwaterman/IntelSmithWaterman.cc b/src/main/native/smithwaterman/IntelSmithWaterman.cc
+index 973fcbf..c9b441f 100644
+--- a/src/main/native/smithwaterman/IntelSmithWaterman.cc
++++ b/src/main/native/smithwaterman/IntelSmithWaterman.cc
+@@ -31,7 +31,7 @@
+ #include <stdlib.h>
+ #include <stdint.h>
+ #include <string.h>
+-#include <immintrin.h>
++#include <simd_compat.h>
+ #include <assert.h>
+ #include <debug.h>
+ #include "avx2_impl.h"
+diff --git a/src/main/native/smithwaterman/avx2-functions.h b/src/main/native/smithwaterman/avx2-functions.h
+index 9c7c324..50b63dc 100644
+--- a/src/main/native/smithwaterman/avx2-functions.h
++++ b/src/main/native/smithwaterman/avx2-functions.h
+@@ -45,6 +45,73 @@
+ 
+ #define AVX_LENGTH 8
+ 
++#if defined(WGSE_GKL_NEON)
++/*
++ * Native NEON form of the 8 x int32 AVX2 vector used by PairWiseSW.h: two
++ * 128-bit halves that map to AVX2's two 128-bit lanes. Every operation is an
++ * exact integer op, and every blend mask is a whole-lane compare result, so
++ * BSL selects exactly what blendv_ps does. Byte-typed loads/stores keep the
++ * int32/int16/uint32 buffer accesses alias-safe.
++ */
++#include <arm_neon.h>
++typedef struct { int32x4_t lo, hi; } wgse_sw_v8;
++
++static inline wgse_sw_v8 wgse_sw_loadu(const void *p) {
++    const uint8_t *b = (const uint8_t *)p;
++    return {vreinterpretq_s32_u8(vld1q_u8(b)), vreinterpretq_s32_u8(vld1q_u8(b + 16))};
++}
++static inline void wgse_sw_storeu(void *p, wgse_sw_v8 v) {
++    uint8_t *b = (uint8_t *)p;
++    vst1q_u8(b, vreinterpretq_u8_s32(v.lo));
++    vst1q_u8(b + 16, vreinterpretq_u8_s32(v.hi));
++}
++static inline wgse_sw_v8 wgse_sw_set1(int32_t x) { return {vdupq_n_s32(x), vdupq_n_s32(x)}; }
++static inline wgse_sw_v8 wgse_sw_add(wgse_sw_v8 a, wgse_sw_v8 b) { return {vaddq_s32(a.lo, b.lo), vaddq_s32(a.hi, b.hi)}; }
++static inline wgse_sw_v8 wgse_sw_max(wgse_sw_v8 a, wgse_sw_v8 b) { return {vmaxq_s32(a.lo, b.lo), vmaxq_s32(a.hi, b.hi)}; }
++static inline wgse_sw_v8 wgse_sw_cmpgt(wgse_sw_v8 a, wgse_sw_v8 b) {
++    return {vreinterpretq_s32_u32(vcgtq_s32(a.lo, b.lo)), vreinterpretq_s32_u32(vcgtq_s32(a.hi, b.hi))};
++}
++static inline wgse_sw_v8 wgse_sw_cmpeq(wgse_sw_v8 a, wgse_sw_v8 b) {
++    return {vreinterpretq_s32_u32(vceqq_s32(a.lo, b.lo)), vreinterpretq_s32_u32(vceqq_s32(a.hi, b.hi))};
++}
++static inline wgse_sw_v8 wgse_sw_and(wgse_sw_v8 a, wgse_sw_v8 b) { return {vandq_s32(a.lo, b.lo), vandq_s32(a.hi, b.hi)}; }
++static inline wgse_sw_v8 wgse_sw_or(wgse_sw_v8 a, wgse_sw_v8 b) { return {vorrq_s32(a.lo, b.lo), vorrq_s32(a.hi, b.hi)}; }
++/* AVX andnot(a, b) = ~a & b; NEON bic(x, y) = x & ~y. */
++static inline wgse_sw_v8 wgse_sw_andnot(wgse_sw_v8 a, wgse_sw_v8 b) { return {vbicq_s32(b.lo, a.lo), vbicq_s32(b.hi, a.hi)}; }
++static inline wgse_sw_v8 wgse_sw_blend(wgse_sw_v8 clear, wgse_sw_v8 set, wgse_sw_v8 mask) {
++    return {vbslq_s32(vreinterpretq_u32_s32(mask.lo), set.lo, clear.lo),
++            vbslq_s32(vreinterpretq_u32_s32(mask.hi), set.hi, clear.hi)};
++}
++/* _mm256_packs_epi32 saturates and packs within each 128-bit lane. */
++static inline wgse_sw_v8 wgse_sw_packs(wgse_sw_v8 a, wgse_sw_v8 b) {
++    return {vreinterpretq_s32_s16(vqmovn_high_s32(vqmovn_s32(a.lo), b.lo)),
++            vreinterpretq_s32_s16(vqmovn_high_s32(vqmovn_s32(a.hi), b.hi))};
++}
++
++#define VEC_INT_TYPE wgse_sw_v8
++#define VEC_MASK_TYPE wgse_sw_v8
++#define VEC_LOADU(__addr) wgse_sw_loadu((const void *)(__addr))
++#define VEC_STORE(__addr, __v) wgse_sw_storeu((void *)(__addr), __v)
++#define VEC_STOREU(__addr, __v) wgse_sw_storeu((void *)(__addr), __v)
++#define VEC_STREAM(__addr, __v) wgse_sw_storeu((void *)(__addr), __v)
++#define VEC_SET_ZERO() wgse_sw_set1(0)
++#define VEC_SET1_VAL32(__val) wgse_sw_set1(__val)
++#define VEC_ADD(__v1, __v2) wgse_sw_add(__v1, __v2)
++#define VEC_MAX(__v1, __v2) wgse_sw_max(__v1, __v2)
++#define VEC_CMPGT(__v1, __v2) wgse_sw_cmpgt(__v1, __v2)
++#define VEC_CMPGT_MASK(__v1, __v2) wgse_sw_cmpgt(__v1, __v2)
++#define VEC_CMPEQ(__v1, __v2) wgse_sw_cmpeq(__v1, __v2)
++#define VEC_CMPEQ_MASK(__v1, __v2) wgse_sw_cmpeq(__v1, __v2)
++#define VEC_AND(__v1, __v2) wgse_sw_and(__v1, __v2)
++#define VEC_OR(__v1, __v2) wgse_sw_or(__v1, __v2)
++#define VEC_ANDNOT(__v1, __v2) wgse_sw_andnot(__v1, __v2)
++#define VEC_BLEND(__v1, __v2, __mask) wgse_sw_blend(__v1, __v2, __mask)
++#define VEC_PERMUTE2x128_EVEN(__v1, __v2) (wgse_sw_v8{(__v1).lo, (__v2).lo})
++#define VEC_PERMUTE2x128_ODD(__v1, __v2) (wgse_sw_v8{(__v1).hi, (__v2).hi})
++#define VEC_PACKS_32(__v1, __v2) wgse_sw_packs(__v1, __v2)
++
++#else
++
+ #define VEC_INT_TYPE __m256i
+ #define VEC_MASK_TYPE __m256i
+ 
+@@ -107,6 +174,8 @@
+ #define VEC_PACKS_32(__v1, __v2) \
+     _mm256_packs_epi32(__v1, __v2)
+ 
++#endif
++
+ #define INIT_CONSTANTS 
+ 
+ #endif
+diff --git a/src/main/native/smithwaterman/smithwaterman_common.h b/src/main/native/smithwaterman/smithwaterman_common.h
+index 96afce4..b9b2a5e 100644
+--- a/src/main/native/smithwaterman/smithwaterman_common.h
++++ b/src/main/native/smithwaterman/smithwaterman_common.h
+@@ -24,17 +24,13 @@
+ #ifndef SMITHWATERMAN_COMMON_H
+ #define SMITHWATERMAN_COMMON_H
+ 
+-#if defined(_MSC_VER)
+-  #include <intrin.h> // SIMD intrinsics for Windows
+-#else
+-  #include <x86intrin.h> // SIMD intrinsics for GCC
+-#endif
++#include <simd_compat.h>
+ 
+ #define __STDC_LIMIT_MACROS
+ 
+ #include <stdint.h>
+ #include <string.h>
+-#include <immintrin.h>
++#include <simd_compat.h>
+ 
+ #define SW_SUCCESS 0
+ #define SW_MEMORY_ALLOCATION_FAILED 1
+diff --git a/src/main/native/utils/utils.cc b/src/main/native/utils/utils.cc
+index 7280d2c..58db80a 100644
+--- a/src/main/native/utils/utils.cc
++++ b/src/main/native/utils/utils.cc
+@@ -24,11 +24,7 @@
+ #include <atomic>
+ #include <cstdio>
+ 
+-#if defined(_MSC_VER)
+-  #include <intrin.h> // SIMD intrinsics for Windows
+-#else
+-  #include <x86intrin.h> // SIMD intrinsics for GCC
+-#endif
++#include <simd_compat.h>
+ 
+ #ifdef _OPENMP
+   #include <omp.h>
+@@ -75,7 +71,7 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_IntelGKLUtils_setFlushToZeroNative
+ JNIEXPORT jboolean JNICALL Java_com_intel_gkl_IntelGKLUtils_isAvxSupportedNative
+   (JNIEnv *env, jobject obj)
+ {
+-#ifdef _WIN32
++#if defined(_WIN32) && !defined(WGSE_GKL_NEON)
+     static std::atomic_flag reported = ATOMIC_FLAG_INIT;
+     if (!reported.test_and_set())
+         std::fprintf(stderr, "Intel GKL Utils loaded (WGSE Windows AVX build)\n");
+@@ -83,6 +79,17 @@ JNIEXPORT jboolean JNICALL Java_com_intel_gkl_IntelGKLUtils_isAvxSupportedNative
+     return is_avx_supported();
+ }
+ 
++/*
++ * Class:     com_intel_gkl_IntelGKLUtils
++ * Method:    isNeonSupportedNative
++ * Signature: ()Z
++ */
++JNIEXPORT jboolean JNICALL Java_com_intel_gkl_IntelGKLUtils_isNeonSupportedNative
++  (JNIEnv *env, jobject obj)
++{
++    return is_neon_supported();
++}
++
+ /*
+  * Class:     com_intel_gkl_IntelGKLUtils
+  * Method:    isAvx2SupportedNative
+diff --git a/src/main/native/utils/utils.h b/src/main/native/utils/utils.h
+index e677c08..c860239 100644
+--- a/src/main/native/utils/utils.h
++++ b/src/main/native/utils/utils.h
+@@ -70,6 +70,14 @@ JNIEXPORT jboolean JNICALL Java_com_intel_gkl_IntelGKLUtils_isAvx2SupportedNativ
+ JNIEXPORT jboolean JNICALL Java_com_intel_gkl_IntelGKLUtils_isAvx512SupportedNative
+   (JNIEnv *, jobject);
+ 
++/*
++ * Class:     com_intel_gkl_IntelGKLUtils
++ * Method:    isNeonSupportedNative
++ * Signature: ()Z
++ */
++JNIEXPORT jboolean JNICALL Java_com_intel_gkl_IntelGKLUtils_isNeonSupportedNative
++  (JNIEnv *, jobject);
++
+ /*
+  * Class:     com_intel_gkl_IntelGKLUtils
+  * Method:    getAvailableOmpThreadsNative

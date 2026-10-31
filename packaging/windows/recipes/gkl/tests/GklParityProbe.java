@@ -42,11 +42,18 @@ public final class GklParityProbe {
     public static void main(String[] argv) throws Exception {
         File temp = new File(argv[1]);
         IntelGKLUtils utils = new IntelGKLUtils();
-        if (!utils.load(temp) || !utils.isAvx2Supported() || utils.isAvx512Supported()) {
+        // Optional third argument "neon": qualify the WGSE Arm64 sidecar instead of AVX/AVX2.
+        boolean neon = argv.length > 2 && argv[2].equals("neon");
+        if (neon) {
+            if (!utils.load(temp) || utils.isAvxSupported()
+                    || !(Boolean) IntelGKLUtils.class.getMethod("isNeonSupported").invoke(utils)) {
+                throw new IllegalStateException("Expected native Arm NEON ISA");
+            }
+        } else if (!utils.load(temp) || !utils.isAvx2Supported() || utils.isAvx512Supported()) {
             throw new IllegalStateException("Expected native common AVX/AVX2 ISA");
         }
-        System.err.printf("Native AVX/AVX2, AVX512=false, OMP_AVAILABLE=%d%n",
-                utils.getAvailableOmpThreads());
+        System.err.printf("Native %s, OMP_AVAILABLE=%d%n",
+                neon ? "NEON, AVX=false" : "AVX/AVX2, AVX512=false", utils.getAvailableOmpThreads());
         ReadDataHolder[] reads = new ReadDataHolder[5];
         int[] lengths = {40, 76, 151, 512, 1280};
         int[] qualities = {2, 10, 30, 60, 60};
