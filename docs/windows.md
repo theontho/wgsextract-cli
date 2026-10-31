@@ -36,6 +36,12 @@ recipes, patches and build instructions are in
 
 Java tools (GATK, FastQC, HaploGrep) and Yleaf come from conda-forge,
 Bioconda's platform-independent packages and PyPI as on the other platforms.
+The GATK environment additionally installs the Windows-only, URL/SHA-pinned GKL
+sidecar from the Windows-tools release. It currently accelerates serial AVX
+PairHMM only; OpenMP PairHMM and native Smith-Waterman are still pending.
+The CLI warns that performance and numerical annotations may differ from Linux.
+It launches Java 17 directly with the sidecar/GATK classpath, without modifying
+the upstream GATK jar or installing dependencies at command execution time.
 `deps check` lists what isn't available on Windows (for example VEP,
 DeepVariant, Delly and FreeBayes).
 

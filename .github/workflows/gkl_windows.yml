@@ -1,0 +1,67 @@
+name: GKL native Windows
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - packaging/windows/**
+      - src/wgsextract_cli/core/pixi_tools.py
+      - src/wgsextract_cli/commands/vcf/callers.py
+      - tests/test_gkl_windows.py
+      - .github/workflows/gkl_windows.yml
+      - pixi.toml
+      - pixi.lock
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-gkl:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
+        id: msys2
+        with:
+          msystem: UCRT64
+          update: true
+          install: make mingw-w64-ucrt-x86_64-gcc
+      - uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
+        with:
+          pixi-version: v0.82.0
+          run-install: false
+      - name: Build static JNI kernels
+        shell: pwsh
+        env:
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          pixi exec --spec rattler-build==0.77.0 rattler-build build `
+            --recipe-dir packaging/windows/recipes/gkl `
+            --output-dir out/conda --target-platform win-64
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Install the just-built package for the gate
+        shell: pwsh
+        run: |
+          $pkg = Get-ChildItem out/conda/win-64/gkl-*.conda | Select-Object -First 1
+          if (!$pkg) { throw "Missing native GKL package" }
+          pixi add --feature gatk --platform win-64 $pkg.FullName
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          pixi install -e dev
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          pixi install -e gatk
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: HaplotypeCaller native-load and genotype gate
+        shell: pwsh
+        run: |
+          pixi run pytest -q tests/test_gkl_windows.py --basetemp out/gkl-ci/pytest
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: gkl-native-windows
+          path: |
+            out/conda/win-64/gkl-*.conda
+            out/gkl-ci/
+          if-no-files-found: warn

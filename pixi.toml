@@ -29,6 +29,10 @@ python = "3.10.*"
 openjdk = "17.*"
 gatk4 = ">=4.6.2.0,<5"
 
+[feature.gatk.target.win-64.dependencies]
+# gatk-windows-tools-begin
+# gatk-windows-tools-end
+
 # PharmCAT's pipeline is a release download the user extracts (see
 # `vcf pharmcat`); it needs Python with these packages, Java 17 and
 # bcftools/bgzip 1.18. No Windows bcftools build, so macOS and Linux.

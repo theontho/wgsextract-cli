@@ -188,6 +188,13 @@ def cmd_gatk(args: argparse.Namespace) -> None:
     verify_dependencies(
         ["gatk", "samtools", *(["bcftools", "tabix"] if scatter else [])]
     )
+    if sys.platform == "win32":
+        logging.warning(
+            "Native Windows GATK acceleration is partial: serial AVX PairHMM "
+            "is available, but OpenMP PairHMM and native Smith-Waterman are "
+            "not yet packaged. Runtime and numeric annotations may differ "
+            "from Linux; check GATK's kernel-selection logs."
+        )
     _threads, outdir, ref, lib = get_base_args(args)
     shards = scatter_intervals(ref, args.region, _threads) if scatter else []
     preflight_resources(
