@@ -174,8 +174,9 @@ def test_windows_timeout_retries_drain_both_real_pipes(monkeypatch, tmp_path):
         "import pathlib,sys,time;"
         "sys.stdout.buffer.write(('o'*200000+'☃').encode());sys.stdout.flush();"
         "sys.stderr.buffer.write(('e'*200000+'☃').encode());sys.stderr.flush();"
-        "release=pathlib.Path(sys.argv[1]);"
-        "\nwhile not release.exists():time.sleep(0.01)",
+        "release=pathlib.Path(sys.argv[1]);deadline=time.monotonic()+10;"
+        "\nwhile not release.exists() and time.monotonic()<deadline:time.sleep(0.01)"
+        "\nassert release.exists(),'communicate timeout did not release child'",
         str(release),
     ]
     try:
