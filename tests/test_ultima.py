@@ -51,16 +51,17 @@ def _tag(record: str, name: str) -> str:
 
 
 def test_reverse_strand_flow_tags_are_reversed():
-    flipped = ultima.reverse_flow_tags((_record(16) + "\n").encode()).decode()
+    flipper = ultima.FlowTagFlipper()
+    flipped = flipper.flip((_record(16) + "\n").encode()).decode()
     assert _tag(flipped, "tp") == "tp:B:c,2,1,0,0,0,0,0,-1,0,1"
     assert _tag(flipped, "t0") == "t0:Z:9876543210"
     assert flipped.endswith("\n")
-    assert ultima.reverse_flow_tags(flipped.encode()).decode() == _record(16) + "\n"
+    assert flipper.flip(flipped.encode()).decode() == _record(16) + "\n"
 
 
 @pytest.mark.parametrize("line", [_record(0), _record(256), _RG, "@HD\tVN:1.6"])
 def test_forward_reads_and_headers_pass_through(line):
-    assert ultima.reverse_flow_tags(line.encode()) == line.encode()
+    assert ultima.FlowTagFlipper().flip(line.encode()) == line.encode()
 
 
 def test_flow_tag_filter_runs_as_a_pipeline_stage():

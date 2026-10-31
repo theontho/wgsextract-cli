@@ -54,8 +54,3 @@ def alt_unaware_message(alignment: PathInput) -> str:
         "their variants will be missing. Re-align with `wgsextract align`, "
         "which maps ALT-aware, for calls there."
     )
-
-
-def warn_if_alt_unaware(alignment: PathInput, ref: str | None = None) -> None:
-    if alt_unaware(alignment, ref):
-        logging.warning(alt_unaware_message(alignment))

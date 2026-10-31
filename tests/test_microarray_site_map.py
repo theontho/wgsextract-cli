@@ -61,7 +61,7 @@ def test_bidirectional_mapping_preserves_inversion_and_missing_status(
         site.inverted,
         site.ref_status,
     ) == ("chr1", 5, True, "ref_different")
-    assert mapping.native_lookup("chr1", 5) == site
+    assert list(mapping.native_range("chr1", 5, 5)) == [site]
     assert [
         (site.source_chrom, site.source_pos) for site in mapping.native_sites()
     ] == [("chr1", 20), ("chr1", 10), ("chrM", 1)]
@@ -78,10 +78,10 @@ def test_bidirectional_mapping_preserves_inversion_and_missing_status(
     assert mapping.source_lookup("chr1", 1) is None
     assert mapping.source_lookup("chr1", 100) is None
     assert mapping.source_lookup("chr2", 10) is None
-    assert mapping.native_lookup("chr1", 30) is None
-    assert mapping.native_lookup("chr2", 5) is None
-    assert mapping.native_lookup("chr1", 0) is None
-    assert mapping.native_lookup("chr1", 2**32) is None
+    assert list(mapping.native_range("chr1", 30, 30)) == []
+    assert list(mapping.native_range("chr2", 5, 5)) == []
+    assert list(mapping.native_range("chr1", 0, 0)) == []
+    assert list(mapping.native_range("chr1", 2**32, 2**32)) == []
 
 
 @pytest.mark.parametrize(
@@ -182,7 +182,7 @@ def test_read_only_assets_need_no_cache_and_corruption_is_not_cached(
     path.chmod(0o444)
     tmp_path.chmod(0o555)
     try:
-        assert load_site_map(path).native_lookup("chrM", 2) is not None
+        assert list(load_site_map(path).native_range("chrM", 2, 2))
         assert sorted(item.name for item in tmp_path.iterdir()) == before
     finally:
         tmp_path.chmod(0o755)
