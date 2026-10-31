@@ -13,6 +13,8 @@ if ($LASTEXITCODE) { throw "fastp ARM64 configure failed" }
 & cmake --build $build --config Release --parallel 4 2>&1 |
     Tee-Object -FilePath "$evidence\compiler.log"
 if ($LASTEXITCODE) { throw "fastp ARM64 compile failed" }
+& "$build\Release\fastp_cmdline_test.exe"
+if ($LASTEXITCODE) { throw "Native fastp argument/error parsing regression failed" }
 Get-Content "$evidence\compiler.log" | Select-String '(hwy.*neon-inl\.h|arm_neon\.h)' |
     Set-Content "$evidence\neon-selection.txt"
 if (-not (Get-Item "$evidence\neon-selection.txt").Length) {

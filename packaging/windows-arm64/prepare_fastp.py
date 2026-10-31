@@ -21,6 +21,23 @@ def widen_llp64(source: str) -> str:
     return _TOKENS.sub(replace, source)
 
 
+def prepare_cmdline(source: str) -> str:
+    include = "#include <cxxabi.h>"
+    body = (
+        "  int status=0;\n"
+        "  char *p=abi::__cxa_demangle(name.c_str(), 0, 0, &status);\n"
+        "  std::string ret(p);\n"
+        "  free(p);\n"
+        "  return ret;"
+    )
+    if source.count(include) != 1 or source.count(body) != 1:
+        raise RuntimeError("Pinned fastp command-line demangler source changed")
+    return source.replace(include, "#ifndef _MSC_VER\n" + include + "\n#endif").replace(
+        body,
+        "#ifdef _MSC_VER\n  return name;\n#else\n" + body + "\n#endif",
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path)
@@ -36,6 +53,12 @@ def main() -> None:
         encoding="utf-8"
     ):
         raise RuntimeError("fastp LLP64 base counters were not widened")
+    cmdline = args.source / "src/cmdline.h"
+    cmdline.write_text(
+        prepare_cmdline(cmdline.read_text(encoding="utf-8")),
+        encoding="utf-8",
+        newline="\n",
+    )
 
 
 if __name__ == "__main__":

@@ -17,6 +17,9 @@ The separate `python-source` recipe stages 3.13.18 from source with every
 CPython external archive pinned by immutable commit and SHA-256, including
 the official native ARM64 OpenSSL/libffi binaries. This avoids a global Python
 version change, but its build and runtime qualification are still pending.
+MSVC's optimized Unicode-table compilation failed with C1002 even with a native
+ARM64 compiler host and serial projects. The next qualification uses CPython's
+upstream-supported ClangCL toolset, retaining Release optimization and LTO.
 
 The free public `windows-11-arm` GitHub runner is available and has 4 cores and
 16 GiB RAM. Its tools are not all native: inspect the actual installed Python,
@@ -93,6 +96,9 @@ with all existing Windows optimization patches. Their packages install only
 their own executables, avoiding duplicate HTS files in the installed prefix.
 Source checksums and complete upstream C source lists have been checked;
 native build and whole-pipeline qualification remain pending.
+BCFtools' private 32-bit region-index symbols are namespaced independently of
+HTSlib's 64-bit region API; duplicate-symbol suppression would join incompatible
+interfaces. The unchanged upstream region-index regression runs with seed 236.
 An OpenJDK 17.0.21 runtime recipe is also staged from Microsoft's checksum-pinned
 native ARM64 JDK archive. `jlink` retains Java SE, crypto, ZIP and locale modules;
 the resulting runtime and a blocked-input Java process pass the AA64 audit.
@@ -104,6 +110,15 @@ it is not an acceptable ARM64 implementation. Highway's NEON selection must
 be proved by compiler evidence. The LLP64 widening matches the existing x64
 recipe. Native compilation, gzip correctness and performance are not yet
 qualified; generic C ISA-L is not a claim of optimized ARM compression.
+The command-line parser uses MSVC's already-readable `type_info::name()` for
+diagnostics rather than depending on GCC's unavailable `cxxabi.h`.
+
+Default Java applications need separate qualification. FastQC 0.13.0's
+JHDF5 jar embeds 16 foreign native libraries, including x86/x64 Windows DLLs;
+the unchanged noarch package is not an acceptable fully native ARM64 payload.
+FAST5/HDF5 requires an ARM64 JNI port or an explicitly restricted package.
+Haplogrep 2.4.0's jar contains no native libraries, but native installation and
+runtime tests are still required.
 
 The generated pipeline fixture checks actual sort/index/CRAM round-trip,
 indexed coverage and a truth-known homozygous variant using the built packages.

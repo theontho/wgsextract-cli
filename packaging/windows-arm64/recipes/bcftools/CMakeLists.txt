@@ -26,11 +26,28 @@ foreach(name IN LISTS APP_NAMES)
 endforeach()
 set_source_files_properties("${WGSE_BCFTOOLS_SOURCE}/edlib.c"
     PROPERTIES COMPILE_OPTIONS "/FI${CMAKE_CURRENT_LIST_DIR}/../../compat/msvc_no_minmax.h")
+# BCFtools owns a 32-bit region API; HTSlib's 64-bit API must remain separate.
+set(BCF_REGIDX_FUNCTIONS
+    regidx_set regidx_parse_bed regidx_parse_tab regidx_parse_reg regidx_parse_vcf
+    regidx_init regidx_init_string regidx_destroy regidx_overlap regidx_insert
+    regidx_insert_list regidx_push regidx_seq_names regidx_seq_nregs regidx_nregs
+    regitr_init regitr_destroy regitr_reset regitr_overlap regitr_loop regitr_copy
+)
+foreach(name IN LISTS BCF_REGIDX_FUNCTIONS)
+    list(APPEND BCF_REGIDX_DEFINITIONS "${name}=wgse_bcf_${name}")
+endforeach()
 add_executable(bcftools ${APP_SOURCES}
     "${CMAKE_CURRENT_LIST_DIR}/../../../windows/compat/wgse_compat.c")
 target_include_directories(bcftools PRIVATE "${WGSE_BCFTOOLS_SOURCE}")
-target_compile_definitions(bcftools PRIVATE NOMINMAX)
+target_compile_definitions(bcftools PRIVATE NOMINMAX ${BCF_REGIDX_DEFINITIONS})
 target_link_libraries(bcftools PRIVATE hts)
+add_executable(regidx_test "${WGSE_BCFTOOLS_SOURCE}/test/test-regidx.c"
+    "${WGSE_BCFTOOLS_SOURCE}/regidx.c"
+    "${CMAKE_CURRENT_LIST_DIR}/../../../windows/compat/wgse_compat.c")
+target_include_directories(regidx_test PRIVATE "${WGSE_BCFTOOLS_SOURCE}")
+target_compile_definitions(regidx_test PRIVATE
+    NOMINMAX ${BCF_REGIDX_DEFINITIONS} random=rand srandom=srand)
+target_link_libraries(regidx_test PRIVATE hts)
 add_executable(group_copy_test
     "${CMAKE_CURRENT_LIST_DIR}/../../../windows/tests/group_copy.c"
     "${WGSE_BCFTOOLS_SOURCE}/bam_sample.c"

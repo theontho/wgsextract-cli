@@ -28,6 +28,9 @@ foreach ($test in @("cram_stop", "bam_seq", "cram_buffers")) {
 if ($LASTEXITCODE) { throw "Native file-descriptor regression failed" }
 & "$build\Release\group_copy_test.exe"
 if ($LASTEXITCODE) { throw "Native actual-function grouping regression failed" }
+& "$build\Release\regidx_test.exe" -s 236 -v 2>&1 |
+    Tee-Object -FilePath "$evidence\regidx-regression.txt"
+if ($LASTEXITCODE) { throw "Native namespaced region-index regression failed" }
 & cmake --install $build --config Release
 if ($LASTEXITCODE) { throw "bcftools ARM64 install failed" }
 & "$repo\scripts\audit_windows_arm64.ps1" -Prefix $env:PREFIX -Report "$evidence\pe.json"

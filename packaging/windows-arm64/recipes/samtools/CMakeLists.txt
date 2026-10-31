@@ -22,6 +22,8 @@ set(APP_NAMES
 foreach(name IN LISTS APP_NAMES)
     list(APPEND APP_SOURCES "${WGSE_SAMTOOLS_SOURCE}/${name}.c")
 endforeach()
+set_source_files_properties("${WGSE_SAMTOOLS_SOURCE}/stats_isize.c"
+    PROPERTIES COMPILE_OPTIONS "/FI${CMAKE_CURRENT_LIST_DIR}/../../compat/msvc_stats_isize.h")
 add_executable(samtools ${APP_SOURCES}
     "${WGSE_SAMTOOLS_SOURCE}/lz4/lz4.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../../windows/compat/wgse_compat.c")

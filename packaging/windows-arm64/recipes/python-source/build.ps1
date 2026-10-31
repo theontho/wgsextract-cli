@@ -6,7 +6,7 @@ $env:PYTHON = (Get-Command python.exe).Source
 $env:GIT = (Get-Command git.exe).Source
 New-Item -ItemType Directory -Force -Path "$env:SRC_DIR\out" | Out-Null
 $response = "$env:SRC_DIR\out\python-build.rsp"
-"/p:PlatformToolset=v145`n/p:PreferredToolArchitecture=arm64`n/p:KillPython=false" |
+"/p:PlatformToolset=ClangCL`n/p:PreferredToolArchitecture=arm64`n/p:KillPython=false" |
     Set-Content -Encoding utf8 $response
 # All upstream external inputs are prepopulated by checksum-pinned sources.
 & "$env:SRC_DIR\PCbuild\build.bat" -p ARM64 -c Release -M --no-tkinter `
