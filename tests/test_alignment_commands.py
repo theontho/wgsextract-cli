@@ -315,7 +315,14 @@ def test_repair_bam_reports_unreadable_input(tmp_path):
 )
 def test_bwa_always_marks_duplicates(tmp_path, monkeypatch, r2, samblaster, marker):
     ref = tmp_path / "ref.fa"
-    for path in (tmp_path / "r1.fq", tmp_path / "r2.fq", ref, tmp_path / "ref.fa.bwt"):
+    from wgsextract_cli.core.bwa_index import INDEX_SUFFIXES
+
+    for path in (
+        tmp_path / "r1.fq",
+        tmp_path / "r2.fq",
+        ref,
+        *(ref.with_name(ref.name + suffix) for suffix in INDEX_SUFFIXES),
+    ):
         path.write_text("x")
     _no_deps(monkeypatch, align)
     monkeypatch.setattr(align, "print_warning", lambda *_a, **_k: None)

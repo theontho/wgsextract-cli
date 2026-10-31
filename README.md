@@ -282,6 +282,12 @@ Settings live in `config.toml`. Run `wgsextract config` to see its path and ever
 
 `--config FILE` (accepted anywhere on the command line) reads and saves settings in another file instead, so a tool that bundles the CLI, such as the GUI, keeps its settings out of your own config.
 
+Configuration saves are atomic; unknown keys warn with a suggested spelling. `wgsextract config` only prompts in an interactive terminal.
+
+BWA and bwa-mem2 indexes require every nonempty index file. Builds use an exclusive lock and a staged prefix; an interrupted build is rebuilt on the next run instead of being trusted.
+
+`--atomic-output` (or `atomic_outputs = true` in config.toml) opts align/realign, SNP/InDel/GATK/FreeBayes callers, and main extract writers into publishing completed files by rename, with indexes generated afterward. A failed write preserves a previous output. The default remains unchanged because staged paths change tool provenance headers. `--no-atomic-output` disables a configured opt-in. This does not add resume/skip behavior.
+
 ```toml
 # Defaults for --input and --outdir
 input = "/data/genomes/joe/joe.cram"
