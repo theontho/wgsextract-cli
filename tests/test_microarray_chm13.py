@@ -31,7 +31,9 @@ def test_packaged_catalogue_loads_and_roundtrips_native_sites():
     for site in examples:
         assert site.target_chrom is not None and site.target_pos is not None
         assert mapping.source_lookup(site.source_chrom, site.source_pos) == site
-        assert mapping.native_lookup(site.target_chrom, site.target_pos) == site
+        assert list(
+            mapping.native_range(site.target_chrom, site.target_pos, site.target_pos)
+        ) == [site]
 
 
 def _catalogue(
