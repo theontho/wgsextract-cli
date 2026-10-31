@@ -36,6 +36,7 @@ KNOWN_SETTINGS = {
     ),
     "debug_mode": (False, "Enable verbose debug logging"),
     "quiet_mode": (False, "Enable quiet mode (errors only)"),
+    "keep_awake": (False, "Best-effort sleep inhibition while commands run (opt-in)"),
     "yleaf_executable": (None, "Path to yleaf executable"),
     "haplogrep_executable": (None, "Path to haplogrep executable"),
     "jar_directory": (None, "Directory for JAR tools"),
