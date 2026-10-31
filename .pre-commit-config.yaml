@@ -10,8 +10,12 @@ repos:
         exclude: ^packaging/windows/recipes/.*\.patch$
       - id: check-yaml
       - id: check-added-large-files
-        # A shipped microarray template (4.5 MB gzipped); see its README.
-        exclude: ^src/wgsextract_cli/assets/microarray/raw_file_templates/body/
+        # Shipped coordinate data; the CHM13 v1 loader enforces its 7 MiB cap.
+        exclude: |
+          (?x)^src/wgsextract_cli/assets/microarray/(
+            raw_file_templates/body/|
+            chm13/v1/chm13-sites-v1-[0-9a-f]{16}\.bin\.gz$
+          )
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.11.0.1
     hooks:

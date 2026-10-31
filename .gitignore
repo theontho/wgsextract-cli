@@ -26,6 +26,7 @@ genomes/
 *.cram
 *.vcf
 *.vcf.gz
+!src/wgsextract_cli/assets/microarray/chm13/v1/mt-alignment-v1-*.fa.gz
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

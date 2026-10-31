@@ -367,6 +367,21 @@ def test_liftover_maps_block_edges_one_based(tmp_path):
     assert lifted == [["rsLast", "1", "1100", "AC"]]
 
 
+def test_legacy_hg38_mt_keeps_yoruba_chain_coordinates_and_gaps(tmp_path):
+    chain = _chain(
+        tmp_path / "c.chain",
+        "chain 1 chrM 16569 + 0 1000 chrM 16571 + 2 1002 1\n1000",
+    )
+
+    lifted = _lift(
+        tmp_path,
+        [("rsMT", "MT", "500", "CC"), ("rsGap", "MT", "1200", "AA")],
+        chain,
+    )
+
+    assert lifted == [["rsMT", "MT", "502", "CC"]]
+
+
 def test_liftover_complements_genotypes_in_inverted_regions(tmp_path):
     chain = _chain(
         tmp_path / "c.chain",
