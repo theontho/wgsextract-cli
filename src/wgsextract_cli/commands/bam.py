@@ -14,6 +14,7 @@ from wgsextract_cli.core.resource_estimates import (
     estimate_resources,
     preflight_resources,
 )
+from wgsextract_cli.core.temp_directory import configured_temp_directory
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -213,10 +214,17 @@ def _preflight_sort_space(
         needed = max(temp_needed, final_needed)
     else:
         needed = temp_needed + final_needed
-    if not check_free_space(outdir, needed):
-        raise WGSExtractError(
-            f"Insufficient free disk space at {outdir} (needs ~{needed} GB)."
-        )
+    scratch = configured_temp_directory()
+    requirements = (
+        [(scratch, temp_needed), (outdir, final_needed)]
+        if scratch and Path(scratch).stat().st_dev != Path(outdir).stat().st_dev
+        else [(outdir, needed)]
+    )
+    for directory, gigabytes in requirements:
+        if not check_free_space(directory, gigabytes):
+            raise WGSExtractError(
+                f"Insufficient free disk space at {directory} (needs ~{gigabytes} GB)."
+            )
     print_warning(action_key, threads=threads)
 
 
@@ -248,6 +256,7 @@ def cmd_sort(args: argparse.Namespace) -> None:
             "sort",
             input_paths=[args.input],
             output_dir=outdir,
+            temp_dir=configured_temp_directory(),
             threads=threads,
             memory=memory,
             output_format=fmt,
@@ -267,7 +276,9 @@ def cmd_sort(args: argparse.Namespace) -> None:
     partial = [out_file, *(out_file + ext for ext in _INDEX_SUFFIXES)]
     with (
         cleanup_files(on_failure=partial),
-        tempfile.TemporaryDirectory(dir=outdir, prefix=".sort_") as tempdir,
+        tempfile.TemporaryDirectory(
+            dir=configured_temp_directory() or outdir, prefix=".sort_"
+        ) as tempdir,
     ):
         sort_cmd = get_sam_sort_cmd(
             out_file, threads, memory, fmt=fmt, reference=resolved_ref, temp_dir=tempdir

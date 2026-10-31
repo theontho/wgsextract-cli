@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 
 from wgsextract_cli.core import ultima
+from wgsextract_cli.core.atomic_output import safe_output
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
@@ -19,6 +20,7 @@ from wgsextract_cli.core.resource_estimates import (
     estimate_resources,
     preflight_resources,
 )
+from wgsextract_cli.core.temp_directory import configured_temp_directory
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 
@@ -43,7 +45,9 @@ def _prepare_gatk_input(
 
     import tempfile
 
-    fd, temp_bam = tempfile.mkstemp(suffix=".bam", dir=outdir)
+    fd, temp_bam = tempfile.mkstemp(
+        suffix=".bam", dir=configured_temp_directory() or outdir
+    )
     os.close(fd)
     logging.info(f"Preparing regional BAM for GATK from CRAM input ({args.region})...")
     try:
@@ -88,7 +92,7 @@ def _gatk_tmp_dir() -> str:
     bundled config from a temp path with a space ("Unable to automatically
     instantiate codec"), and on Windows %TEMP% is under the user's profile, so
     any user whose name has a space would hit it; use the 8.3 short path there."""
-    path = tempfile.mkdtemp(prefix="wgse-gatk-")
+    path = tempfile.mkdtemp(prefix="wgse-gatk-", dir=configured_temp_directory())
     if " " in path and sys.platform == "win32":
         buffer = ctypes.create_unicode_buffer(32768)
         if ctypes.windll.kernel32.GetShortPathNameW(path, buffer, len(buffer)):
@@ -156,8 +160,9 @@ def cmd_freebayes(args: argparse.Namespace) -> None:
             targets = ["--targets", bed] if bed else []
             stages = [["freebayes", "-f", use_ref, *targets, args.input]]
             keep = []
-        stages.append(["bcftools", "view", *keep, "-Oz", "-o", out_vcf])
-        run_pipeline(stages, description="FreeBayes variant calling")
+        with safe_output(out_vcf) as staged:
+            stages.append(["bcftools", "view", *keep, "-Oz", "-o", staged])
+            run_pipeline(stages, description="FreeBayes variant calling")
     ensure_vcf_indexed(out_vcf)
     warn_if_no_variants(out_vcf, ref, args.region)
 
@@ -173,7 +178,8 @@ def _gatk_gpu(args: argparse.Namespace) -> None:
         ultima.warn_no_flow_model("Parabricks HaplotypeCaller (--gpu)")
     out_vcf = str(Path(outdir, "gatk.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_gatk"].format(output=out_vcf))
-    call_variants("haplotypecaller", args.input, ref, out_vcf, args.region)
+    with safe_output(out_vcf) as staged:
+        call_variants("haplotypecaller", args.input, ref, staged, args.region)
     ensure_vcf_indexed(out_vcf)
     warn_if_no_variants(out_vcf, ref, args.region)
 
@@ -204,7 +210,8 @@ def cmd_gatk(args: argparse.Namespace) -> None:
             reference=ref,
             threads=_threads,
             region=args.region,
-            temp_dir=tempfile.gettempdir(),
+            temp_dir=configured_temp_directory() or tempfile.gettempdir(),
+            gatk_staging_dir=configured_temp_directory(),
             gatk_workers=len(shards) or 1,
         )
     )
@@ -245,23 +252,25 @@ def cmd_gatk(args: argparse.Namespace) -> None:
         gatk_input, temp_gatk_input = _prepare_gatk_input(args, ref, outdir)
         if shards:
             with tempfile.TemporaryDirectory(
-                dir=outdir, prefix=".wgse_gatk_scatter_"
+                dir=configured_temp_directory() or outdir, prefix=".wgse_gatk_scatter_"
             ) as work:
-                call_scattered(
-                    [
-                        "gatk",
-                        "HaplotypeCaller",
-                        "-R",
-                        java_local_path(ref),
-                        "-I",
-                        java_local_path(gatk_input),
-                        *flow_args,
-                    ],
-                    shards,
-                    out_vcf,
-                    Path(work),
-                    gatk_tmp,
-                )
+                with safe_output(out_vcf) as staged:
+                    call_scattered(
+                        [
+                            "gatk",
+                            "HaplotypeCaller",
+                            "-R",
+                            java_local_path(ref),
+                            "-I",
+                            java_local_path(gatk_input),
+                            *flow_args,
+                        ],
+                        shards,
+                        staged,
+                        Path(work),
+                        gatk_tmp,
+                    )
+            ensure_vcf_indexed(out_vcf)
             warn_if_no_variants(out_vcf, ref, args.region)
             return
         cmd = (
@@ -280,7 +289,9 @@ def cmd_gatk(args: argparse.Namespace) -> None:
             + flow_args
             + region_args
         )
-        run_command(cmd)
+        with safe_output(out_vcf) as staged:
+            cmd[cmd.index("-O") + 1] = java_local_path(staged)
+            run_command(cmd)
         ensure_vcf_indexed(out_vcf)
         warn_if_no_variants(out_vcf, ref, args.region)
     except subprocess.CalledProcessError as e:

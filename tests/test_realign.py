@@ -241,6 +241,29 @@ def test_force_extract_reextracts_then_removes_the_fastqs(
     assert (tmp_path / "x_R1.fastq.gz").read_text() == "stale"
 
 
+def test_failed_realign_retains_selected_workspace_fastqs_for_recovery(
+    tmp_path, monkeypatch, source, caplog
+):
+    from wgsextract_cli.core.temp_directory import run_temporary_directory
+
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    fakes = _Fakes(monkeypatch)
+    fakes.align_error = RuntimeError("alignment interrupted")
+    with pytest.raises(RuntimeError), run_temporary_directory(scratch):
+        realign.run(_args(source, outdir=str(tmp_path / "out")))
+    pair = fakes.extracted[0]
+    workspace = Path(pair[0]).parent
+    assert workspace.parent == scratch and workspace.exists()
+    assert all(Path(path).read_text() == "@r\nA\n+\nI\n" for path in pair)
+    assert str(workspace) in caplog.text and "--r1 and --r2" in caplog.text
+    fakes.align_error = None
+    with run_temporary_directory(scratch):
+        realign.run(_args(source, r1=pair[0], r2=pair[1]))
+    assert fakes.aligned == [pair, pair] and len(fakes.extracted) == 1
+    assert all(Path(path).exists() for path in pair)
+
+
 def test_reads_passed_in_are_aligned_and_never_deleted(tmp_path, monkeypatch, source):
     fakes = _Fakes(monkeypatch)
     r1 = tmp_path / "reads.fq"

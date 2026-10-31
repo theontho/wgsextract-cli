@@ -10,6 +10,7 @@ from typing import NamedTuple
 from wgsextract_cli.core import bwa_mem2, ultima
 from wgsextract_cli.core.alignment_memory import check_mapping_memory
 from wgsextract_cli.core.alignment_metadata import get_bam_header
+from wgsextract_cli.core.atomic_output import atomic_outputs_enabled, safe_output
 from wgsextract_cli.core.dependencies import get_tool_path as get_tool_path
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -26,6 +27,7 @@ from wgsextract_cli.core.resource_estimates import (
     preflight_resources,
 )
 from wgsextract_cli.core.samtools_commands import parse_memory
+from wgsextract_cli.core.temp_directory import configured_temp_directory
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -335,13 +337,12 @@ def _prepare_alignment(
 
 
 def ensure_bwa_index(ref: str) -> None:
-    if Path(ref + ".bwt").exists():
-        return
-    logging.info(f"BWA index missing for {ref}. Generating now (may take a while)...")
+    from wgsextract_cli.core.bwa_index import ensure_index
+
     try:
-        run_command(["bwa", "index", ref])
-    except (OSError, subprocess.SubprocessError) as e:
-        raise WGSExtractError(f"Automatic BWA indexing failed: {e}") from e
+        ensure_index(ref, runner=run_command)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise WGSExtractError(f"Automatic BWA indexing failed: {error}") from error
 
 
 def alt_contigs(ref: str) -> list[str]:
@@ -393,13 +394,26 @@ def _sort_and_mark_stages(
     """samtools fixmate | sort | markdup, writing out_path. The sorted stream
     goes straight into markdup uncompressed, so the output is written once.
     fixmate reads the aligner's output directly: it keeps mates together."""
-    tmp = f"{out_path}.tmp"
+    directory = configured_temp_directory()
+    tmp = str(Path(directory, "align")) if directory else f"{out_path}.tmp"
     out_fmt = ["-O", "CRAM", "--reference", ref] if fmt == "CRAM" else ["-O", "BAM"]
     return [
         ["samtools", "fixmate", "-m", "-u", "-", "-"],
         ["samtools", "sort", "-@", threads, "-m", memory, "-u", "-T", tmp, "-"],
         ["samtools", "markdup", "-@", threads, "-T", tmp, *out_fmt, "-", out_path],
     ]
+
+
+def _index_output(path: str, threads: str = "1") -> None:
+    command = get_sam_index_cmd(path, threads=threads)
+    if atomic_outputs_enabled():
+        from wgsextract_cli.core.atomic_output import atomic_output
+
+        suffix = ".crai" if path.lower().endswith(".cram") else ".bai"
+        with atomic_output(path + suffix, retire_indexes=False) as staged:
+            run_command([*command, staged])
+    else:
+        run_command(command)
 
 
 def run_streamed_alignment(
@@ -417,30 +431,33 @@ def run_streamed_alignment(
     """Run the aligner (after any upstream stages feeding it), mark duplicates
     (with duplicate_marker's choice, or not at all for long reads: None), sort,
     then index the output."""
-    stages: list[Sequence[object]] = [*(upstream or []), list(align_cmd)]
-    sort = get_sam_sort_cmd(
-        out_path, threads, memory, fmt=fmt, reference=ref, sam_input=True
-    )
-    if duplicates == "samblaster":
-        logging.info("Using samblaster for marking duplicates...")
-        stages += [["samblaster"], sort]
-    elif duplicates == "markdup":
-        logging.info("Marking duplicates with samtools markdup...")
-        stages += _sort_and_mark_stages(
-            out_path, threads=threads, memory=memory, fmt=fmt, ref=ref
-        )
-    else:
-        stages.append(sort)
+    from wgsextract_cli.core.atomic_output import safe_output
+
     partial = [out_path, out_path + ".bai", out_path + ".crai"]
-    with cleanup_files(on_failure=partial):
-        run_pipeline(
-            stages,
-            description="Alignment",
-            heartbeat=True,
-            expected_reads=expected_reads,
-        )
+    with cleanup_files(on_failure=partial, preserve_outputs=atomic_outputs_enabled()):
+        with safe_output(out_path) as staged:
+            stages: list[Sequence[object]] = [*(upstream or []), list(align_cmd)]
+            sort = get_sam_sort_cmd(
+                staged, threads, memory, fmt=fmt, reference=ref, sam_input=True
+            )
+            if duplicates == "samblaster":
+                logging.info("Using samblaster for marking duplicates...")
+                stages += [["samblaster"], sort]
+            elif duplicates == "markdup":
+                logging.info("Marking duplicates with samtools markdup...")
+                stages += _sort_and_mark_stages(
+                    staged, threads=threads, memory=memory, fmt=fmt, ref=ref
+                )
+            else:
+                stages.append(sort)
+            run_pipeline(
+                stages,
+                description="Alignment",
+                heartbeat=True,
+                expected_reads=expected_reads,
+            )
         logging.info(LOG_MESSAGES["indexing_output"])
-        run_command(get_sam_index_cmd(out_path, threads=threads))
+        _index_output(out_path, threads=threads)
 
 
 # SAM-spec @RG PL values for --platform.
@@ -496,6 +513,7 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
             "align",
             input_paths=[path for path in (args.r1, args.r2) if path],
             output_dir=setup.outdir,
+            temp_dir=configured_temp_directory(),
             reference=setup.ref,
             threads=setup.threads,
             memory=setup.memory,
@@ -523,7 +541,7 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
         platform=getattr(args, "platform", None),
         read_length=read_length,
     )
-    warn_alignment_sort_space(setup.outdir, reads)
+    warn_alignment_sort_space(configured_temp_directory() or setup.outdir, reads)
     args._input_read_count = reads
     if tool == "bwa-mem2":
         bwa_mem2.ensure_index(setup.ref, download=False)
@@ -606,7 +624,9 @@ def align_ultima(
         LOG_MESSAGES["aligning_reads"].format(input=reads, output=out_path, tool=tool)
     )
     bwa = [tool, "mem", "-K", BWA_BATCH_BASES, "-t", setup.threads, "-Y"]
-    with tempfile.TemporaryDirectory(dir=setup.outdir, prefix=".wgse_ug_") as tmp:
+    with tempfile.TemporaryDirectory(
+        dir=configured_temp_directory() or setup.outdir, prefix=".wgse_ug_"
+    ) as tmp:
         stages: list[Sequence[object]] = []
         if reads.lower().endswith((".bam", ".cram")):
             header = get_bam_header(reads, cram_opt)
@@ -687,45 +707,46 @@ def _sort_and_mark_ultima(
         )
         return
     sorted_bam = str(Path(tmp, "sorted.bam"))
-    marked = out_path if fmt == "BAM" else str(Path(tmp, "marked.bam"))
     metrics = str(Path(setup.outdir, f"{setup.stem}_duplicate_metrics.txt"))
     sort = get_sam_sort_cmd(
         sorted_bam, setup.threads, setup.memory, sam_input=True, temp_dir=tmp
     )
     partial = [out_path, out_path + ".bai", out_path + ".crai"]
-    with cleanup_files(on_failure=partial):
-        run_pipeline(
-            [*stages, sort],
-            description="Alignment",
-            heartbeat=True,
-            expected_reads=expected_reads,
-        )
-        logging.info("Marking duplicates in flow mode (GATK MarkDuplicates)...")
-        run_command(
-            [
-                "gatk",
-                "MarkDuplicates",
-                "-I",
-                java_local_path(sorted_bam),
-                "-O",
-                java_local_path(marked),
-                "-M",
-                java_local_path(metrics),
-                "--TMP_DIR",
-                java_local_path(tmp),
-                "--VALIDATION_STRINGENCY",
-                "SILENT",
-            ]
-            + ULTIMA_DUPLICATE_ARGS
-        )
-        Path(sorted_bam).unlink(missing_ok=True)
-        if fmt == "CRAM":
-            run_command(
-                ["samtools", "view", "-C", "-@", setup.threads, "-T", setup.ref]
-                + ["-o", out_path, marked]
+    with cleanup_files(on_failure=partial, preserve_outputs=atomic_outputs_enabled()):
+        with safe_output(out_path) as staged:
+            marked = staged if fmt == "BAM" else str(Path(tmp, "marked.bam"))
+            run_pipeline(
+                [*stages, sort],
+                description="Alignment",
+                heartbeat=True,
+                expected_reads=expected_reads,
             )
+            logging.info("Marking duplicates in flow mode (GATK MarkDuplicates)...")
+            run_command(
+                [
+                    "gatk",
+                    "MarkDuplicates",
+                    "-I",
+                    java_local_path(sorted_bam),
+                    "-O",
+                    java_local_path(marked),
+                    "-M",
+                    java_local_path(metrics),
+                    "--TMP_DIR",
+                    java_local_path(tmp),
+                    "--VALIDATION_STRINGENCY",
+                    "SILENT",
+                ]
+                + ULTIMA_DUPLICATE_ARGS
+            )
+            Path(sorted_bam).unlink(missing_ok=True)
+            if fmt == "CRAM":
+                run_command(
+                    ["samtools", "view", "-C", "-@", setup.threads, "-T", setup.ref]
+                    + ["-o", staged, marked]
+                )
         logging.info(LOG_MESSAGES["indexing_output"])
-        run_command(get_sam_index_cmd(out_path, threads=setup.threads))
+        _index_output(out_path, threads=setup.threads)
 
 
 def _run_gpu(args: argparse.Namespace, aligner: str) -> None:
@@ -829,7 +850,7 @@ def _ensure_read_group_sample(path: str, sample: str, ref: str) -> None:
             with open(rewritten, "wb") as out:
                 run_command(["samtools", "reheader", new_header.name, path], stdout=out)
             os.replace(rewritten, path)
-            run_command(get_sam_index_cmd(path))
+            _index_output(path)
     finally:
         Path(new_header.name).unlink(missing_ok=True)
     logging.info(f"Added the sample name {sample} to the read groups of {path}.")
@@ -856,21 +877,32 @@ def _gpu_align(
         )
     )
     with (
-        cleanup_files(on_failure=[out_path, pb_out, pb_out + ".bai"]),
-        tempfile.TemporaryDirectory(dir=setup.outdir, prefix=".wgse_pb_") as tmp,
+        cleanup_files(
+            on_failure=[out_path, pb_out, pb_out + ".bai"],
+            preserve_outputs=atomic_outputs_enabled(),
+        ),
+        tempfile.TemporaryDirectory(
+            dir=configured_temp_directory() or setup.outdir, prefix=".wgse_pb_"
+        ) as tmp,
     ):
-        run_pbrun(
-            tool,
-            ["--ref", host_path(setup.ref), *tool_args]
-            + ["--out-bam", pb_out, "--tmp-dir", host_path(tmp)],
-            [setup.ref, *reads, pb_out, tmp],
-        )
-        if convert:
-            run_command(
-                ["samtools", "view", "-C", "-@", setup.threads, "-T", setup.ref]
-                + ["-o", out_path, pb_out]
+        with safe_output(out_path) as staged:
+            if atomic_outputs_enabled():
+                pb_out = str(Path(tmp, "aligned.bam")) if convert else staged
+            run_pbrun(
+                tool,
+                ["--ref", host_path(setup.ref), *tool_args]
+                + ["--out-bam", pb_out, "--tmp-dir", host_path(tmp)],
+                [setup.ref, *reads, pb_out, tmp],
             )
-            run_command(get_sam_index_cmd(out_path, threads=setup.threads))
+            if convert:
+                run_command(
+                    ["samtools", "view", "-C", "-@", setup.threads, "-T", setup.ref]
+                    + ["-o", staged, pb_out]
+                )
+            Path(pb_out.rsplit(".", 1)[0] + "_chrs.txt").unlink(missing_ok=True)
+        if convert or atomic_outputs_enabled():
+            _index_output(out_path, threads=setup.threads)
+        if convert:
             for path in (pb_out, pb_out + ".bai"):
                 Path(path).unlink(missing_ok=True)
     # Parabricks also lists the output's chromosomes beside it.
@@ -921,6 +953,10 @@ def align_minimap2(args: argparse.Namespace) -> None:
 
 
 def align_pbmm2(args: argparse.Namespace) -> None:
+    if configured_temp_directory() and not getattr(args, "gpu", False):
+        raise WGSExtractError(
+            "Native pbmm2's internal sorter does not support --tmp-dir. Use --aligner minimap2 or omit the temporary-directory setting."
+        )
     if args.r2:
         raise WGSExtractError(
             "PacBio alignment expects single-end BAM/FASTQ input; do not pass --r2."
@@ -953,8 +989,10 @@ def align_pbmm2(args: argparse.Namespace) -> None:
     if args.r1.lower().endswith((".fastq", ".fastq.gz", ".fq", ".fq.gz")):
         cmd.extend(["--rg", f"@RG\\tID:{setup.stem}\\tSM:{sample}"])
     try:
-        run_command(cmd)
+        with safe_output(out_bam) as staged:
+            cmd[4] = staged
+            run_command(cmd)
         logging.info(LOG_MESSAGES["indexing_output"])
-        run_command(get_sam_index_cmd(out_bam, threads=setup.threads))
+        _index_output(out_bam, threads=setup.threads)
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"PacBio alignment failed: {e}") from e

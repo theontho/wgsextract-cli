@@ -77,7 +77,9 @@ def cmd_index(args: argparse.Namespace) -> None:
             bwa_mem2.ensure_index(args.ref, download=True)
         else:
             logging.info("Indexing FASTA with bwa index (required for alignment)...")
-            run_command(["bwa", "index", args.ref])
+            from wgsextract_cli.core.bwa_index import ensure_index
+
+            ensure_index(args.ref, runner=run_command)
 
         logging.info("Indexing complete.")
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:

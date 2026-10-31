@@ -282,6 +282,14 @@ Settings live in `config.toml`. Run `wgsextract config` to see its path and ever
 
 `--config FILE` (accepted anywhere on the command line) reads and saves settings in another file instead, so a tool that bundles the CLI, such as the GUI, keeps its settings out of your own config.
 
+Set `temp_directory = "/data/scratch"` in config.toml or pass `--tmp-dir DIRECTORY` for one run to place samtools/sambamba sort spills, GATK temporary files, and realign staging on a chosen volume. The directory must already exist and be writable. Each run owns a separate workspace, normally removed after success or failure; final outputs stay in `--outdir`. If realign fails after extracting FASTQs, it retains that workspace and prints the paths to reuse with `--r1` and `--r2`; remove the workspace after recovery. Realign's `--keep-fastq` keeps extracted reads in the output directory instead. When unset, existing defaults and tool arguments are unchanged. Native pbmm2's internal sorter cannot honor this setting; use minimap2 or omit it. This is a capacity/placement option, not a speedup claim.
+
+Configuration saves are atomic; unknown keys warn with a suggested spelling. `wgsextract config` only prompts in an interactive terminal.
+
+BWA and bwa-mem2 indexes require every nonempty index file. Builds use an exclusive lock and a staged prefix; an interrupted build is rebuilt on the next run instead of being trusted.
+
+`--atomic-output` (or `atomic_outputs = true` in config.toml) opts align/realign, SNP/InDel/GATK/FreeBayes callers, and main extract writers into publishing completed files by rename, with indexes generated afterward. A failed write preserves a previous output. The default remains unchanged because staged paths change tool provenance headers. `--no-atomic-output` disables a configured opt-in. This does not add resume/skip behavior.
+
 ```toml
 # Defaults for --input and --outdir
 input = "/data/genomes/joe/joe.cram"
