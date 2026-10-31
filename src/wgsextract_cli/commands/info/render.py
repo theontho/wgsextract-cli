@@ -328,7 +328,11 @@ def _resolve_sample_targets(
             end = int(raw_end) if raw_end else None
         except ValueError as exc:
             raise WGSExtractError(f"Invalid region: {region}") from exc
-    name = next((a for a in chromosome_aliases(contig) if a in lengths), None)
+    name = (
+        contig
+        if contig in lengths
+        else next((a for a in chromosome_aliases(contig) if a in lengths), None)
+    )
     if name is None:
         raise WGSExtractError(f"Region contig {contig!r} is not in the input header.")
     end = min(end or lengths[name], lengths[name])
