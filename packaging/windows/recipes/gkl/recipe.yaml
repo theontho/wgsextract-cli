@@ -38,4 +38,5 @@ about:
     - LICENSE
     - .wgse/jar/META-INF/licenses/gcc-runtime/COPYING3
     - .wgse/jar/META-INF/licenses/gcc-runtime/COPYING.RUNTIME
+    - .wgse/jar/META-INF/licenses/winpthreads/COPYING
   summary: GKL utils, serial/OpenMP AVX PairHMM and AVX2 Smith-Waterman JNI kernels, statically linked for native Windows.

@@ -49,6 +49,9 @@ mkdir -p "$SRC_U/.wgse/jar/META-INF/licenses/gcc-runtime"
 cp /ucrt64/share/licenses/libgomp/COPYING3 \
     /ucrt64/share/licenses/libgomp/COPYING.RUNTIME \
     "$SRC_U/.wgse/jar/META-INF/licenses/gcc-runtime/"
+mkdir -p "$SRC_U/.wgse/jar/META-INF/licenses/winpthreads"
+cp /ucrt64/share/licenses/winpthreads/COPYING \
+    "$SRC_U/.wgse/jar/META-INF/licenses/winpthreads/"
 "$JAR" --create --date=2024-01-01T00:00:00Z \
     --file "$PREFIX_U/Library/share/gkl/gkl-native-wgse.jar" \
     -C "$SRC_U/.wgse/jar" .

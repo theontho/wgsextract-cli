@@ -49,6 +49,8 @@ jobs:
         run: |
           $pkg = Get-ChildItem out/conda/win-64/gkl-*.conda | Select-Object -First 1
           if (!$pkg) { throw "Missing native GKL package" }
+          pixi remove --feature gatk --platform win-64 --no-install gkl
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           pixi add --feature gatk --platform win-64 $pkg.FullName
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           pixi install -e dev
