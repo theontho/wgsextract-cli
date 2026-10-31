@@ -42,6 +42,8 @@ PairHMM only; OpenMP PairHMM and native Smith-Waterman are still pending.
 The CLI warns that performance and numerical annotations may differ from Linux.
 It launches Java 17 directly with the sidecar/GATK classpath, without modifying
 the upstream GATK jar or installing dependencies at command execution time.
+Launcher `--java-options` remain JVM options, including scatter workers' heap
+and CPU limits; they are passed before GATK's main class.
 `deps check` lists what isn't available on Windows (for example VEP,
 DeepVariant, Delly and FreeBayes).
 

@@ -6,6 +6,7 @@ on:
     paths:
       - packaging/windows/**
       - src/wgsextract_cli/core/pixi_tools.py
+      - src/wgsextract_cli/core/utils.py
       - src/wgsextract_cli/commands/vcf/callers.py
       - tests/test_gkl_windows.py
       - .github/workflows/gkl_windows.yml
