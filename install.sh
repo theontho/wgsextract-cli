@@ -153,7 +153,7 @@ install_embedded_pixi() {
     pixi_version="$PIXI_VERSION"
     [ "${pixi_version#v}" = "0.82.0" ] || fail "No trusted Pixi checksums for $pixi_version; use v0.82.0."
     pixi_repo_url="${PIXI_REPOURL:-https://github.com/prefix-dev/pixi}"
-    pixi_home="${WGSEXTRACT_PIXI_HOME:-${PIXI_HOME:-$HOME/.pixi}}"
+    pixi_home="${WGSEXTRACT_PIXI_HOME:-$INSTALL_DIR/.pixi}"
     pixi_home="$(expand_home_path "$pixi_home")"
     pixi_bin_dir="${WGSEXTRACT_PIXI_BIN_DIR:-$pixi_home/bin}"
     pixi_asset="$(pixi_asset_name)"
@@ -519,31 +519,15 @@ if [ -z "$PIXI" ]; then
         log "Installing Pixi..."
         install_embedded_pixi
         PIXI_INSTALLED_BY_SETUP=1
-        if [ -z "${WGSEXTRACT_PIXI_HOME:-}" ]; then
-            for profile_path in "$HOME/.bashrc" "$HOME/.zshrc"; do
-                if [ -L "$profile_path" ]; then
-                    log "Skipping symlinked shell profile: $profile_path"
-                    continue
-                fi
-                if [ ! -e "$profile_path" ]; then
-                    CREATED_PROFILES="$CREATED_PROFILES$profile_path
-"
-                fi
-                if ! grep -F "$PIXI_BIN_DIR" "$profile_path" >/dev/null 2>&1; then
-                    printf '\nexport PATH=%s:"$PATH"\n' "$(quote_sh "$PIXI_BIN_DIR")" >> "$profile_path"
-                fi
-            done
-            shell_name="${SHELL:-}"
-            case "${shell_name##*/}" in
-                fish)
-                    log "For fish, add Pixi to PATH with: fish_add_path $(quote_sh "$PIXI_BIN_DIR")"
-                    ;;
-                bash|zsh|"") ;;
-                *)
-                    log "Add Pixi to your shell's PATH. POSIX-shell command: export PATH=$(quote_sh "$PIXI_BIN_DIR"):\"\$PATH\""
-                    ;;
-            esac
-        fi
+        shell_name="${SHELL:-}"
+        case "${shell_name##*/}" in
+            fish)
+                log "For fish, add Pixi to PATH with: fish_add_path $(quote_sh "$PIXI_BIN_DIR")"
+                ;;
+            *)
+                log "To use Pixi directly, add this to your shell profile: export PATH=$(quote_sh "$PIXI_BIN_DIR"):\"\$PATH\""
+                ;;
+        esac
     fi
 fi
 

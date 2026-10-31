@@ -260,6 +260,8 @@ tar -czf "$fake_pixi_archive" -C "$fake_pixi_source" pixi
 
 fish_home_dir="$work_dir/fish-home"
 mkdir -p "$fish_home_dir"
+printf '# Existing user configuration\n' > "$fish_home_dir/.bashrc"
+cp "$fish_home_dir/.bashrc" "$work_dir/bashrc-before"
 HOME="$fish_home_dir" \
 SHELL="/usr/bin/fish" \
 PATH="$fake_bin:/usr/bin:/bin" \
@@ -272,6 +274,10 @@ WGSEXTRACT_ARCHIVE_URL="$archive" \
 WGSEXTRACT_NO_OPEN=1 \
 sh "$test_installer" > "$work_dir/fish.log" 2>&1
 grep -F "fish_add_path" "$work_dir/fish.log" >/dev/null
+test -x "$work_dir/fish-install/.pixi/bin/pixi"
+test ! -e "$fish_home_dir/.pixi"
+cmp "$fish_home_dir/.bashrc" "$work_dir/bashrc-before"
+test ! -e "$fish_home_dir/.zshrc"
 
 if [ "$(uname -s)" = "Darwin" ]; then
     interactive_install_dir="$work_dir/interactive-install"
