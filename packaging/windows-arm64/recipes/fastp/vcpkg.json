@@ -2,5 +2,5 @@
   "name": "wgsextract-fastp-arm64",
   "version-string": "1.4.0",
   "builtin-baseline": "9a5dfef5d1a0438a7d24856a85bd60f309d355e9",
-  "dependencies": ["highway", "libdeflate", "pthreads"]
+  "dependencies": ["highway", "libdeflate", "pthreads", "getopt-win32"]
 }

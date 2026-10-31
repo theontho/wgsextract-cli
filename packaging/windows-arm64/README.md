@@ -20,6 +20,8 @@ version change, but its build and runtime qualification are still pending.
 MSVC's optimized Unicode-table compilation failed with C1002 even with a native
 ARM64 compiler host and serial projects. The next qualification uses CPython's
 upstream-supported ClangCL toolset, retaining Release optimization and LTO.
+Its strict Windows API argument checking exposed a junction privilege-buffer
+length declared as `int`; the source recipe uses the API's actual `DWORD` type.
 
 The free public `windows-11-arm` GitHub runner is available and has 4 cores and
 16 GiB RAM. Its tools are not all native: inspect the actual installed Python,
@@ -112,6 +114,11 @@ recipe. Native compilation, gzip correctness and performance are not yet
 qualified; generic C ISA-L is not a claim of optimized ARM compression.
 The command-line parser uses MSVC's already-readable `type_info::name()` for
 diagnostics rather than depending on GCC's unavailable `cxxabi.h`.
+
+Curl 8.21.0 is staged from a checksum-pinned upstream archive with static zlib
+and Windows Schannel, without an emulated OpenSSL dependency. Qualification
+checks HTTP redirects/gzip byte preservation, HTTPS certificate verification,
+stdin upload and live native module paths. Native results are still pending.
 
 Default Java applications need separate qualification. FastQC 0.13.0's
 JHDF5 jar embeds 16 foreign native libraries, including x86/x64 Windows DLLs;

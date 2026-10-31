@@ -35,7 +35,7 @@ if ($LASTEXITCODE) { throw "Native fastp gzip/counter qualification failed" }
 $notices = Join-Path $env:PREFIX "Library\share\fastp\licenses"
 New-Item -ItemType Directory -Force -Path $notices | Out-Null
 Copy-Item "$env:SRC_DIR\isa-l\LICENSE" "$notices\isa-l.txt"
-foreach ($dependency in @("highway", "libdeflate", "pthreads")) {
+foreach ($dependency in @("highway", "libdeflate", "pthreads", "getopt-win32")) {
     Copy-Item "$build\vcpkg_installed\arm64-windows-static\share\$dependency\copyright" `
         (Join-Path $notices "$dependency.txt")
 }

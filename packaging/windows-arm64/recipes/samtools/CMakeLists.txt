@@ -27,7 +27,8 @@ set_source_files_properties("${WGSE_SAMTOOLS_SOURCE}/stats_isize.c"
 add_executable(samtools ${APP_SOURCES}
     "${WGSE_SAMTOOLS_SOURCE}/lz4/lz4.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../../windows/compat/wgse_compat.c")
-target_include_directories(samtools PRIVATE "${WGSE_SAMTOOLS_SOURCE}")
+target_include_directories(samtools PRIVATE
+    "${WGSE_SAMTOOLS_SOURCE}" "${WGSE_SAMTOOLS_SOURCE}/lz4")
 target_compile_definitions(samtools PRIVATE NOMINMAX)
 target_link_libraries(samtools PRIVATE hts)
 install(TARGETS samtools RUNTIME DESTINATION Library/bin)

@@ -4,6 +4,13 @@ $evidence = Join-Path $repo "out\windows-arm64\python-source"
 New-Item -ItemType Directory -Force -Path $evidence | Out-Null
 $env:PYTHON = (Get-Command python.exe).Source
 $env:GIT = (Get-Command git.exe).Source
+$winapi = "$env:SRC_DIR\Modules\_winapi.c"
+$source = Get-Content -Raw -Encoding utf8 $winapi
+if ([regex]::Matches($source, "int previousTpSize = 0;").Count -ne 1) {
+    throw "Pinned CPython junction privilege buffer source changed"
+}
+$source = $source.Replace("int previousTpSize = 0;", "DWORD previousTpSize = 0;")
+[IO.File]::WriteAllText($winapi, $source, [Text.UTF8Encoding]::new($false))
 New-Item -ItemType Directory -Force -Path "$env:SRC_DIR\out" | Out-Null
 $response = "$env:SRC_DIR\out\python-build.rsp"
 "/p:PlatformToolset=ClangCL`n/p:PreferredToolArchitecture=arm64`n/p:KillPython=false" |

@@ -8,6 +8,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 find_package(hwy CONFIG REQUIRED)
 find_package(libdeflate CONFIG REQUIRED)
 find_package(PThreads4W REQUIRED)
+find_package(getopt CONFIG REQUIRED)
 set(ISAL "${WGSE_FASTP_SOURCE}/isa-l")
 set(ISAL_NAMES
     igzip igzip_base igzip_icf_base igzip_icf_body igzip_inflate
@@ -42,7 +43,8 @@ target_include_directories(fastp PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/../bwa/include"
     "${WGSE_WINDOWS}/compat/include")
 target_link_libraries(fastp PRIVATE
-    isal_native hwy::hwy libdeflate::libdeflate_static PThreads4W::PThreads4W psapi)
+    isal_native hwy::hwy libdeflate::libdeflate_static
+    PThreads4W::PThreads4W getopt::getopt_static psapi)
 add_executable(fastp_cmdline_test
     "${CMAKE_CURRENT_LIST_DIR}/../../tests/fastp_cmdline.cpp")
 target_include_directories(fastp_cmdline_test PRIVATE "${WGSE_FASTP_SOURCE}/src")
