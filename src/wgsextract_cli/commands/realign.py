@@ -383,7 +383,23 @@ def run(args: argparse.Namespace) -> None:
         statistics = fastq_input_statistics(r1_path, r2_path)
         read_length = statistics.read_length if statistics is not None else None
     align_args._input_read_length = read_length
-    align_cmd.run(align_args)
+    try:
+        align_cmd.run(align_args)
+    except BaseException:
+        if need_extract and not args.keep_fastq:
+            from wgsextract_cli.core.temp_directory import retain_temporary_directory
+
+            directory = retain_temporary_directory()
+            if directory:
+                logging.warning(
+                    "Alignment failed; extracted FASTQs are retained in %s. "
+                    "Rerun with --r1 and --r2 pointing to:\n  %s\n  %s\n"
+                    "Remove the retained workspace after recovery.",
+                    directory,
+                    r1_path,
+                    r2_path,
+                )
+        raise
 
     # 5. Remove the FASTQs this run extracted unless asked to keep them. They are
     # kept when alignment fails so a rerun can reuse them.

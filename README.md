@@ -282,7 +282,7 @@ Settings live in `config.toml`. Run `wgsextract config` to see its path and ever
 
 `--config FILE` (accepted anywhere on the command line) reads and saves settings in another file instead, so a tool that bundles the CLI, such as the GUI, keeps its settings out of your own config.
 
-Set `temp_directory = "/data/scratch"` in config.toml or pass `--tmp-dir DIRECTORY` for one run to place samtools/sambamba sort spills, GATK temporary files, and realign staging on a chosen volume. The directory must already exist and be writable. Each run owns a separate workspace, removed after success or failure; final outputs stay in `--outdir`. Realign's `--keep-fastq` keeps extracted reads in the output directory instead. When unset, existing defaults and tool arguments are unchanged. Native pbmm2's internal sorter cannot honor this setting; use minimap2 or omit it. This is a capacity/placement option, not a speedup claim.
+Set `temp_directory = "/data/scratch"` in config.toml or pass `--tmp-dir DIRECTORY` for one run to place samtools/sambamba sort spills, GATK temporary files, and realign staging on a chosen volume. The directory must already exist and be writable. Each run owns a separate workspace, normally removed after success or failure; final outputs stay in `--outdir`. If realign fails after extracting FASTQs, it retains that workspace and prints the paths to reuse with `--r1` and `--r2`; remove the workspace after recovery. Realign's `--keep-fastq` keeps extracted reads in the output directory instead. When unset, existing defaults and tool arguments are unchanged. Native pbmm2's internal sorter cannot honor this setting; use minimap2 or omit it. This is a capacity/placement option, not a speedup claim.
 
 ```toml
 # Defaults for --input and --outdir
