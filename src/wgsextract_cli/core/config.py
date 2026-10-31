@@ -210,9 +210,12 @@ def set_config_path(path: str | os.PathLike[str] | None) -> None:
     _config_path_override = Path(path).expanduser().resolve() if path else None
 
 
-def config_args() -> list[str]:
-    """Arguments that give a child wgsextract process the same config file."""
-    return ["--config", str(_config_path_override)] if _config_path_override else []
+def config_args(*, keep_awake: bool | None = None) -> list[str]:
+    """Forward the config file and sleep override without changing default argv."""
+    args = ["--config", str(_config_path_override)] if _config_path_override else []
+    if keep_awake or (keep_awake is False and settings.get("keep_awake", False)):
+        args.append("--keep-awake" if keep_awake else "--no-keep-awake")
+    return args
 
 
 def get_config_path() -> Path:

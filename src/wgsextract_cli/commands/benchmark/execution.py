@@ -34,7 +34,7 @@ def _cli_command(
         "wgsextract_cli.main",
         "--parent-pid",
         str(os.getpid()),
-        *config_args(),
+        *config_args(keep_awake=getattr(args, "keep_awake", None)),
     ]
     if getattr(args, "debug", False):
         command.append("--debug")

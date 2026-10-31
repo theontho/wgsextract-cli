@@ -105,7 +105,7 @@ def cmd_chain_annotate(args: argparse.Namespace) -> None:
                 sys.executable,
                 "-m",
                 "wgsextract_cli.main",
-                *config_args(),
+                *config_args(keep_awake=getattr(args, "keep_awake", None)),
                 *_step_command(ann),
             ]
             cmd += ["--input", current_input, "--outdir", step_outdir]

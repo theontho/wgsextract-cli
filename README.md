@@ -274,7 +274,7 @@ The short keys above are aliases; `wgsextract config` shows the canonical names 
 
 ### Keep-awake
 
-Add `--keep-awake` to long commands, or set `keep_awake = true` in `config.toml`, to request idle/sleep inhibition until the command exits. `--no-keep-awake` overrides the config; `keep_awake = false` disables it persistently (the default). macOS uses `caffeinate`, Linux uses `systemd-inhibit` if already present and permitted, and native Windows uses `SetThreadExecutionState`. Missing helpers, denied permissions and cleanup failures never fail the run. This prevents automatic sleep, not shutdown or a forced/manual suspend; display sleep remains allowed. Report-only `help`/`config`/`deps` never inhibit sleep.
+Add `--keep-awake` to long commands, or set `keep_awake = true` in `config.toml`, to request idle/sleep inhibition until the command exits. `--no-keep-awake` overrides the config, including delegated analyze, annotation-chain and benchmark commands; `keep_awake = false` disables it persistently (the default). macOS uses `caffeinate`, Linux uses `systemd-inhibit` if already present and permitted, and native Windows uses `SetThreadExecutionState`. Missing helpers, denied permissions and cleanup failures never fail the run. This prevents automatic sleep, not shutdown or a forced/manual suspend; display sleep remains allowed. Report-only `help`/`config`/`deps` never inhibit sleep.
 
 ### Genome library
 

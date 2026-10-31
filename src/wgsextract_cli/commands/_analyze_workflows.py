@@ -121,7 +121,13 @@ def run_discovery_filter(ann_vcf: str, v_type: str, out_vcf: str) -> int:
 
 def run_cli_subcommand(cmd_args: list[str], args: argparse.Namespace) -> None:
     """Helper to run a wgsextract subcommand."""
-    cmd = [sys.executable, "-m", "wgsextract_cli.main", *config_args(), *cmd_args]
+    cmd = [
+        sys.executable,
+        "-m",
+        "wgsextract_cli.main",
+        *config_args(keep_awake=getattr(args, "keep_awake", None)),
+        *cmd_args,
+    ]
 
     # Use explicit ref if provided, otherwise resolve from env/defaults
     ref_path = args.ref
