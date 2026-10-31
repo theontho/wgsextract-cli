@@ -9,18 +9,20 @@ Broad's Homo_sapiens_assembly38, nf-core's iGenomes publishes the built index.
 
 import hashlib
 import logging
+import os
 import subprocess
 from pathlib import Path
 from typing import NamedTuple
 
 import psutil
 
+from wgsextract_cli.core import bwa_index
 from wgsextract_cli.core.alignment_memory import (
     available_memory,
     estimate_mapping_memory,
     reference_bases,
 )
-from wgsextract_cli.core.paths import append_suffix
+from wgsextract_cli.core.file_lock import build_lock
 from wgsextract_cli.core.ref_library.downloads import (
     download_file,
     verify_download_sha256,
@@ -73,7 +75,7 @@ PREBUILT_INDEXES = {
 
 
 def has_index(ref: str) -> bool:
-    return all(append_suffix(ref, s).is_file() for s in INDEX_SUFFIXES)
+    return bwa_index.has_index(ref, INDEX_SUFFIXES, "bwa-mem2")
 
 
 def _total_memory() -> int:
@@ -153,9 +155,17 @@ def download_index(ref: str, prebuilt: PrebuiltIndex) -> None:
         f"Downloading the bwa-mem2 index for {prebuilt.name} ({_gb(total)}) "
         f"next to {ref}..."
     )
+    stage = Path(ref).parent / f".{Path(ref).name}.bwa-mem2-download"
+    stage.mkdir(exist_ok=True)
+    pending = Path(ref + ".bwa-mem2.pending")
+    pending.write_text("downloading\n", encoding="utf-8", newline="\n")
     for suffix, (size, sha256) in prebuilt.files.items():
-        dest = str(append_suffix(ref, suffix))
-        if Path(dest).is_file() and Path(dest).stat().st_size == size:
+        dest = str(stage / ("index" + suffix))
+        if (
+            Path(dest).is_file()
+            and Path(dest).stat().st_size == size
+            and verify_download_sha256(dest, sha256)
+        ):
             continue
         if not download_file(prebuilt.base_url + suffix, dest):
             raise WGSExtractError(
@@ -166,6 +176,13 @@ def download_index(ref: str, prebuilt: PrebuiltIndex) -> None:
         ):
             Path(dest).unlink(missing_ok=True)
             raise WGSExtractError(f"{dest} didn't download intact; run it again.")
+    for suffix in prebuilt.files:
+        os.replace(stage / ("index" + suffix), ref + suffix)
+    Path(ref + ".bwa-mem2.complete").write_text(
+        "complete\n", encoding="utf-8", newline="\n"
+    )
+    pending.unlink()
+    stage.rmdir()
 
 
 def build_index(ref: str) -> None:
@@ -174,10 +191,9 @@ def build_index(ref: str) -> None:
         f"{_gb(build_memory(ref))} of memory; about an hour for a human genome)..."
     )
     try:
-        run_command(["bwa-mem2", "index", ref])
+        with bwa_index.staged_index(ref, INDEX_SUFFIXES, "bwa-mem2") as staged:
+            run_command(["bwa-mem2", "index", "-p", staged, ref])
     except (OSError, subprocess.SubprocessError) as e:
-        for suffix in INDEX_SUFFIXES:
-            append_suffix(ref, suffix).unlink(missing_ok=True)
         raise WGSExtractError(f"bwa-mem2 indexing failed: {e}") from e
 
 
@@ -186,13 +202,16 @@ def ensure_index(ref: str, *, download: bool) -> None:
     allowed and there is one, else build it if this computer has the memory."""
     if has_index(ref):
         return
-    prebuilt = prebuilt_index(ref)
-    if download and prebuilt:
-        download_index(ref, prebuilt)
-    elif _total_memory() >= build_memory(ref):
-        build_index(ref)
-    else:
-        raise _unbuildable(ref, prebuilt)
+    with build_lock(ref + ".bwa-index.lock"):
+        if has_index(ref):
+            return
+        prebuilt = prebuilt_index(ref)
+        if download and prebuilt:
+            download_index(ref, prebuilt)
+        elif _total_memory() >= build_memory(ref):
+            build_index(ref)
+        else:
+            raise _unbuildable(ref, prebuilt)
 
 
 def check_index(ref: str) -> None:

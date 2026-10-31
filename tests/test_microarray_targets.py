@@ -207,6 +207,7 @@ def test_simultaneous_builds_leave_one_valid_target(tmp_path):
         "raw_file_templates",
         "All_SNPs_hg19_ref.tab.gz",
         "All_SNPs_hg19_ref.tab.gz.tbi",
+        "All_SNPs_hg19_ref.tab.gz.lock.guard",
     }
     assert not leftovers
 

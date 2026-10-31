@@ -1,8 +1,11 @@
+import codecs
 import logging
+import os
 import shlex
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -45,6 +48,22 @@ ProcessStream: TypeAlias = int | IO[bytes] | IO[str] | None
 
 class WGSExtractError(Exception):
     """Base exception for wgsextract-cli errors."""
+
+
+class ToolExecutionError(WGSExtractError, subprocess.CalledProcessError):
+    """Keep subprocess exception attributes for callers' existing recovery paths."""
+
+    def __str__(self) -> str:
+        output = self.stderr or ""
+        if isinstance(output, bytes):
+            output = output.decode(errors="replace")
+        tail = "\n".join(str(output).strip().splitlines()[-8:])[-2000:]
+        tool = Path(str(self.cmd[0])).name if self.cmd else "Tool"
+        return f"{tool} failed (exit {self.returncode}): {tail or 'no error output'}"
+
+
+class ToolLaunchError(WGSExtractError, OSError):
+    """A clean dependency error that remains catchable as an OS failure."""
 
 
 def get_resource_defaults(
@@ -125,6 +144,23 @@ def _normalize_subprocess_cmd(cmd: PathInput | Sequence[object]) -> list[str]:
     return cmd_list
 
 
+def _tee_stderr(fd: int, tail: bytearray, target: IO[str]) -> None:
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    binary = getattr(target, "buffer", None)
+    with os.fdopen(fd, "rb") as stream:
+        while chunk := stream.read1(65536):
+            tail.extend(chunk)
+            del tail[:-65536]
+            if binary is not None:
+                binary.write(chunk)
+                binary.flush()
+            else:
+                target.write(decoder.decode(chunk))
+                target.flush()
+        if binary is None:
+            target.write(decoder.decode(b"", final=True))
+
+
 def run_command(
     cmd: PathInput | Sequence[object],
     capture_output: bool = False,
@@ -144,30 +180,53 @@ def run_command(
     proc_stdout = (
         stdout if stdout is not None else (subprocess.PIPE if capture_output else None)
     )
-    proc_stderr = subprocess.PIPE if capture_output else None
+    stderr_read, stderr_write = (
+        os.pipe() if check and not capture_output else (None, None)
+    )
+    proc_stderr = subprocess.PIPE if capture_output else stderr_write
+    stderr_tail = bytearray()
+    stderr_thread = None
 
     text_mode = capture_output or stdout is None
-    process = subprocess.Popen(
-        cmd_list,
-        stdout=proc_stdout,
-        stderr=proc_stderr,
-        stdin=stdin,
-        text=text_mode,
-        # Tools' messages aren't always UTF-8 (Windows' own are in its code page).
-        errors="replace" if text_mode else None,
-        env=env,
-        cwd=cwd,
-        **process_group_kwargs(),
-    )
+    try:
+        process = subprocess.Popen(
+            cmd_list,
+            stdout=proc_stdout,
+            stderr=proc_stderr,
+            stdin=stdin,
+            text=text_mode,
+            errors="replace" if text_mode else None,
+            env=env,
+            cwd=cwd,
+            **process_group_kwargs(),
+        )
+    except OSError as error:
+        for fd in (stderr_read, stderr_write):
+            if fd is not None:
+                os.close(fd)
+        raise ToolLaunchError(
+            f"Could not start {Path(cmd_list[0]).name}: {error.strerror or error}. "
+            "Run 'wgsextract deps check' to validate installed tools."
+        ) from error
 
+    if stderr_read is not None:
+        assert stderr_write is not None
+        os.close(stderr_write)
+        stderr_thread = threading.Thread(
+            target=_tee_stderr, args=(stderr_read, stderr_tail, sys.stderr), daemon=True
+        )
+        stderr_thread.start()
     proc_registry.register_process(cmd_str, process)
     try:
         res_stdout, res_stderr = process.communicate()
+        if stderr_thread:
+            stderr_thread.join()
         if check and process.returncode != 0:
-            logging.error(f"Command failed: {cmd_str}")
-            if res_stderr:
-                logging.error(res_stderr)
-            raise subprocess.CalledProcessError(
+            if stderr_read is not None:
+                res_stderr = "\n".join(
+                    stderr_tail.decode(errors="replace").splitlines()[-20:]
+                )
+            raise ToolExecutionError(
                 process.returncode, cmd_list, res_stdout, res_stderr
             )
         return subprocess.CompletedProcess(
@@ -175,6 +234,8 @@ def run_command(
         )
     finally:
         proc_registry.unregister_process(cmd_str, process)
+        if stderr_thread:
+            stderr_thread.join(timeout=0.1)
 
 
 @overload
@@ -220,17 +281,23 @@ def popen(
     cmd_str = " ".join(cmd_list)
     logging.debug(f"Popen: {cmd_str}")
 
-    process = subprocess.Popen(
-        cmd_list,
-        stdout=stdout,
-        stderr=stderr,
-        stdin=stdin,
-        text=text,
-        errors="replace" if text else None,
-        env=env,
-        cwd=cwd,
-        **process_group_kwargs(),
-    )
+    try:
+        process = subprocess.Popen(
+            cmd_list,
+            stdout=stdout,
+            stderr=stderr,
+            stdin=stdin,
+            text=text,
+            errors="replace" if text else None,
+            env=env,
+            cwd=cwd,
+            **process_group_kwargs(),
+        )
+    except OSError as error:
+        raise ToolLaunchError(
+            f"Could not start {Path(cmd_list[0]).name}: {error.strerror or error}. "
+            "Run 'wgsextract deps check' to validate installed tools."
+        ) from error
     proc_registry.register_process(cmd_str, process)
 
     def _unregister_finished_process() -> None:
