@@ -125,7 +125,8 @@ _KIT_BODY = (
 # --- y-haplogroup ------------------------------------------------------------
 
 
-def test_y_haplogroup_from_vcf_hands_yleaf_only_chry(tmp_path, capsys):
+@pytest.mark.parametrize("tree_links", [False, True])
+def test_y_haplogroup_from_vcf_hands_yleaf_only_chry(tmp_path, capsys, tree_links):
     vcf = _vcf(tmp_path / "kit.vcf.gz", _HG38, _KIT_BODY, "##reference=GRCh38.fa\n")
     pos = tmp_path / "markers.txt"
     pos.write_text("chrY\t2781480\n")
@@ -133,6 +134,7 @@ def test_y_haplogroup_from_vcf_hands_yleaf_only_chry(tmp_path, capsys):
         "lineage", "y-haplogroup", "--input", vcf, "--outdir", str(tmp_path / "o"),
         "--yleaf-path", _yleaf(tmp_path, "--no-update-check"), "--threads", "2",
         "--pos-file", str(pos), "--extra-args", "-force -dh 5",
+        *(["--tree-links"] if tree_links else []),
     )  # fmt: skip
     (call,) = _calls(tmp_path)
     assert call["records"] == [
@@ -147,7 +149,25 @@ def test_y_haplogroup_from_vcf_hands_yleaf_only_chry(tmp_path, capsys):
     assert call["placeholder"]  # never the ~3 GB reference download
     # Yleaf's working copy of the VCF is cleaned up; the user's folder is not.
     assert sorted(p.name for p in (tmp_path / "o").iterdir()) == ["yleaf"]
-    assert "R1b1a1b1a1a2c1\tR-FGC5494" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "R1b1a1b1a1a2c1\tR-FGC5494" in output
+    assert ("https://www.yfull.com/tree/R-FGC5494/" in output) is tree_links
+    assert (
+        "https://discover.familytreedna.com/y-dna/R-FGC5494/tree" in output
+    ) is tree_links
+
+
+def test_mitochondrial_tree_links_are_opt_in(tmp_path, capsys):
+    from wgsextract_cli.commands.lineage import _print_haplogrep_result
+
+    output = tmp_path / "haplogrep.txt"
+    output.write_text(_HAPLOGREP + '"kit"\t"1-16569"\t"H1c"\t"1"\t"0.93"\n')
+    _print_haplogrep_result(str(output), None)
+    assert "https://" not in capsys.readouterr().out
+    _print_haplogrep_result(str(output), None, tree_links=True)
+    text = capsys.readouterr().out
+    assert "https://www.yfull.com/mtree/H1c/" in text
+    assert "FTDNA mtDNA: https://www.familytreedna.com/public/mt-dna-haplotree" in text
 
 
 def test_y_haplogroup_uses_the_vcf_build(tmp_path):
@@ -318,6 +338,7 @@ def test_mt_haplogroup_from_vcf_hands_haplogrep_only_mtdna(tmp_path, capsys, mt)
     run_wgsextract(
         "lineage", "mt-haplogroup", "--input", vcf, "--outdir", str(tmp_path / "o"),
         "--haplogrep-path", _haplogrep(tmp_path),
+        *(["--tree-links"] if mt == "chrM" else []),
     )  # fmt: skip
     (call,) = _calls(tmp_path)
     assert call["argv"][:3] == ["classify", "--format", "vcf"]
@@ -327,6 +348,10 @@ def test_mt_haplogroup_from_vcf_hands_haplogrep_only_mtdna(tmp_path, capsys, mt)
     ]
     out = capsys.readouterr().out
     assert "Haplogroup      : H1c" in out and "Quality         : 0.93" in out
+    assert ("https://www.yfull.com/mtree/H1c/" in out) is (mt == "chrM")
+    assert ("https://www.familytreedna.com/public/mt-dna-haplotree" in out) is (
+        mt == "chrM"
+    )
 
 
 def test_mt_haplogroup_vcf_without_mtdna_fails(tmp_path):

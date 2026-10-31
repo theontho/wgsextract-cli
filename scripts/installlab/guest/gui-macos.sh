@@ -260,6 +260,7 @@ step install_app install_app
 step gatekeeper gatekeeper
 approve_first_launch
 step setup app_setup
+step optional_tools sh "$HERE/install-optional-tools.sh" "$HOME/Library/Application Support/$BUNDLE_ID"
 if ! is_tauri; then step runner install_runner; fi
 step actions app_actions
 snapshot after_install

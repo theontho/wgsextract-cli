@@ -100,12 +100,6 @@ PIXI_TOOL_ENVS = {
 }
 
 
-# Optional environments the user installs explicitly (`pixi install -e <env>`, as
-# documented) and that are never downloaded on first use: Cyrius's license
-# allows noncommercial use only, so installing it must be the user's choice.
-INSTALL_FIRST_PIXI_ENVS = frozenset({"cyrius", "t1k", "expansionhunter", "pharmcat"})
-
-
 TOOL_EXECUTABLE_ALIASES = {
     "yleaf": ("yleaf", "Yleaf"),
     "pharmcat_python": ("python",),

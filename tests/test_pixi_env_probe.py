@@ -108,6 +108,7 @@ def test_interpreter_alias_uses_its_dedicated_environment(
             assert command is not None and shlex.split(command) == [
                 "pixi",
                 "run",
+                "--no-install",
                 "-e",
                 env,
                 "python",
