@@ -310,6 +310,33 @@ def pixi_env_tool(tool: str) -> str | None:
     return _host_pixi_tool_command(tool)
 
 
+def windows_gatk_java_options(command: list[str]) -> list[str]:
+    """Move launcher-only options before Main for direct Windows Java launches."""
+    main = "org.broadinstitute.hellbender.Main"
+    if (
+        not runtime.is_windows_host()
+        or main not in command
+        or "--java-options" not in command
+    ):
+        return command
+    index = command.index(main)
+    arguments = command[index + 1 :]
+    options: list[str] = []
+    remaining: list[str] = []
+    i = 0
+    while i < len(arguments):
+        if arguments[i] == "--java-options":
+            if i + 1 == len(arguments):
+                raise ValueError("GATK --java-options requires an option string.")
+            # Match the upstream gatk Python launcher's whitespace splitting.
+            options.extend(arguments[i + 1].split())
+            i += 2
+        else:
+            remaining.append(arguments[i])
+            i += 1
+    return [*command[:index], *options, main, *remaining]
+
+
 def pixi_env_prefix(env: str) -> Path | None:
     """An installed Pixi environment's prefix (for data its packages ship)."""
     pixi_cmd = _resolve_pixi_command()
