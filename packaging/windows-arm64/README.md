@@ -54,6 +54,16 @@ Recipes retain evidence under `out/windows-arm64`, outside rattler's build home
 pipe, records its live architecture and modules, then closes input and requires
 normal completion. Package file headers alone are not a process audit.
 
+The staged BWA-MEM2 2.3 recipe uses sse2neon 1.9.1, compiles one NEON
+executable and excludes x86 CPUID/dispatch. It pins #268's index64 patch,
+header and regression sources at `f95d285bbd4a7b781cb51550b07616c6b56b40d9`
+with independent SHA-256 values, without changing the x64 recipes. Native
+>4-GiB sparse seeks/chunk/partial-read tests and five Linux tiny-index hashes
+are required. This staging is not approval of the still-open #268 release gate.
+The 2.3 source archive still defaults its version string to 2.2.1; the ARM
+recipe explicitly sets the actual pinned source release, 2.3. A matching 2.3
+full-genome oracle remains required; the preserved 2.2.1 golden is insufficient.
+
 On an ARM64 Windows OS, configured executable paths and version probes reject
 x64 PE files before launching them, including from a Prism-hosted Python.
 WSL, Unix compatibility shells and container wrappers are not native tool

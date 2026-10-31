@@ -1,0 +1,45 @@
+context:
+  version: "2.3"
+  index_fix_commit: f95d285bbd4a7b781cb51550b07616c6b56b40d9
+
+package:
+  name: bwa-mem2
+  version: ${{ version }}
+
+source:
+  - url: https://github.com/bwa-mem2/bwa-mem2/releases/download/v${{ version }}/Source_code_including_submodules.tar.gz
+    sha256: 0c48a1ea800af499ae7264b4c8908c4ca35fbe5a7df2ad6106c79aa94bb49cbb
+    patches:
+      - ../../../windows/recipes/bwa-mem2/patches/0001-windows-native-build.patch
+      - patches/0001-native-neon-dispatch.patch
+  - url: https://github.com/DLTcollab/sse2neon/archive/refs/tags/v1.9.1.tar.gz
+    sha256: 6b70e7cb8c5ce4641002b85deaafe97efdf9ade9b49884edeaf678b35f0e132f
+    target_directory: sse2neon
+  - url: https://raw.githubusercontent.com/theontho/wgsextract-cli/${{ index_fix_commit }}/packaging/windows/recipes/bwa-mem2/patches/0002-index64-chunked-io.patch
+    sha256: 4377381c85b1bf75070e53370e2d8e1ecd751ee7e97d78ab924146fa6f416a16
+    target_directory: index64
+  - url: https://raw.githubusercontent.com/theontho/wgsextract-cli/${{ index_fix_commit }}/packaging/windows/recipes/bwa-mem2/include/wgse_index_io.h
+    sha256: 0e3bb6ea3c1c59ca61ec868f1f2349525ce3e3b3bc7602246ceed964728b1bc2
+    target_directory: index64
+  - url: https://raw.githubusercontent.com/theontho/wgsextract-cli/${{ index_fix_commit }}/packaging/windows/recipes/bwa-mem2/tiny-index.sha256
+    sha256: 4347e5ef0f6eeb866850ec05d7e47cd1103de3734f5d0b8c50e26c97beb5dee0
+    target_directory: index64
+  - url: https://raw.githubusercontent.com/theontho/wgsextract-cli/${{ index_fix_commit }}/packaging/windows/tests/mem2_io.cpp
+    sha256: 8164b8b8d666398092077191b01fb6aa5c0faa3f304c11aae0f7cf6b7b7e34a6
+    target_directory: index64
+
+build:
+  number: 0
+  string: wgse_arm64_${{ build_number }}
+  script:
+    - 'pwsh.exe -NoProfile -File "%RECIPE_DIR%\build.ps1"'
+
+tests:
+  - script:
+      - bwa-mem2 version
+
+about:
+  homepage: https://github.com/bwa-mem2/bwa-mem2
+  license: MIT
+  license_file: LICENSE
+  summary: Native clang-cl ARM64 BWA-MEM2 with pinned sse2neon kernels.
