@@ -96,6 +96,8 @@ def estimate_resources(
     memory: str = "512M",
     aligner: str = "bwa",
     reads: int | None = None,
+    platform: str | None = None,
+    read_length: float | None = None,
     output_format: str = "BAM",
     samblaster: bool = True,
     extract_fastq: bool = False,
@@ -150,7 +152,20 @@ def estimate_resources(
             memory=memory,
             samblaster=samblaster and duplicate_marking != "gatk-flow",
             reads=reads,
+            platform=platform,
+            read_length=read_length,
         )
+        if aligner == "bwa":
+            length = (
+                read_length
+                if read_length is not None
+                else (300 if platform == "ultima" else 150)
+            )
+            notes.append(
+                f"BWA working memory uses {platform or 'short-read'} / {length:g} bp "
+                f"({'sampled/provided' if read_length is not None else 'fallback'}), "
+                "requested threads and fixed -K 100000000; threads are not auto-capped."
+            )
         memory_components = dict(zip(mapping._fields, mapping, strict=True))
         if reads is None:
             notes.append(

@@ -29,7 +29,7 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.paths import absolute_path
-from wgsextract_cli.core.read_counts import fastq_input_reads
+from wgsextract_cli.core.read_counts import fastq_input_statistics
 from wgsextract_cli.core.reference_assets import (
     find_fasta_by_signature,
     input_stem,
@@ -275,11 +275,15 @@ def run(args: argparse.Namespace) -> None:
         r2_path = str(Path(outdir, f"{base}_R2.fastq.gz"))
         need_extract = True
 
+    statistics = None if need_extract else fastq_input_statistics(r1_path, r2_path)
     reads = (
         indexed_read_count(args.input, threads)
         if need_extract
-        else fastq_input_reads(r1_path, r2_path)
+        else statistics.reads
+        if statistics is not None
+        else None
     )
+    read_length = statistics.read_length if statistics is not None else None
     if selected_aligner in {"bwa", "bwa-mem2"} and not getattr(args, "gpu", False):
         _report_resource_estimates(
             args,
@@ -291,6 +295,7 @@ def run(args: argparse.Namespace) -> None:
             input_paths=[args.input] if need_extract else [r1_path, r2_path],
             need_extract=need_extract,
             paired=bool(r2_path),
+            read_length=read_length,
         )
     if args.aligner == "bwa-mem2" and target and Path(target).is_file():
         check_mapping_memory(
@@ -335,6 +340,10 @@ def run(args: argparse.Namespace) -> None:
     align_args.r1 = r1_path
     align_args.r2 = r2_path
     align_args._input_read_count = reads
+    if need_extract:
+        statistics = fastq_input_statistics(r1_path, r2_path)
+        read_length = statistics.read_length if statistics is not None else None
+    align_args._input_read_length = read_length
     align_cmd.run(align_args)
 
     # 5. Remove the FASTQs this run extracted unless asked to keep them. They are
@@ -358,6 +367,7 @@ def _report_resource_estimates(
     input_paths: list[str],
     need_extract: bool,
     paired: bool,
+    read_length: float | None = None,
 ) -> None:
     def estimate() -> PreflightEstimate:
         samblaster = align_cmd.duplicate_marker(paired=paired) == "samblaster"
@@ -382,6 +392,8 @@ def _report_resource_estimates(
             aligner=tool,
             samblaster=samblaster,
             reads=reads,
+            platform=getattr(args, "platform", None),
+            read_length=read_length,
             output_format=getattr(args, "format", "BAM"),
             extract_fastq=need_extract,
             duplicate_marking=(

@@ -62,6 +62,7 @@ def test_auto_memory_budget_counts_sort_threads_and_available_not_total(
         "virtual_memory",
         lambda: SimpleNamespace(total=128 * GB, available=low),
     )
+    monkeypatch.setattr(alignment_memory, "_cgroup_available_memory", lambda: None)
     monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
     assert (
         align.short_read_aligner("auto", ref, threads="6", memory="256M") == "bwa-mem2"
@@ -84,6 +85,7 @@ def test_mem2_effective_sort_budget_reaches_selection_guard_and_preflight(
         "virtual_memory",
         lambda: SimpleNamespace(total=128 * GB, available=budget),
     )
+    monkeypatch.setattr(alignment_memory, "_cgroup_available_memory", lambda: None)
     monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
     setup = align._AlignSetup("6", "512M", str(tmp_path), ref, "sample")
     monkeypatch.setattr(align, "_prepare_alignment", lambda *_: setup)
@@ -389,7 +391,9 @@ def test_bwa_setup_preserves_realign_index_count_for_selection_and_guard(
     monkeypatch.setattr(align, "_prepare_alignment", lambda *_: setup)
     monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
     monkeypatch.setattr(
-        align, "fastq_input_reads", lambda *_: pytest.fail("resampled indexed input")
+        align,
+        "fastq_input_statistics",
+        lambda *_: pytest.fail("resampled indexed input"),
     )
     budgets = []
 

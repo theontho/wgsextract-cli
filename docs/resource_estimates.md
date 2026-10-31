@@ -86,9 +86,34 @@ filesystem for reference-index storage.
 
 ## Calibration and limitations
 
-- Alignment RAM is the unchanged measured component model from #179/#194:
+- Ordinary 150-bp, up-to-six-thread alignment RAM retains the #179/#194 model:
   resident reference indexes, aligner working set, read-scaled samblaster and
   transient overhead, and threads × sort memory plus 25%.
+- BWA-MEM working memory also accounts for platform, sampled mean read length
+  and threads. FASTQ count and mean length come from the same bounded prefix;
+  BAM/CRAM preflight does not decode the input to measure read length.
+  Unknown lengths use 150 bp for ordinary short reads and 300 bp for Ultima.
+  GUI/API callers can supply `platform="ultima"`, `read_length=300` and
+  `samblaster=False` for single-end Ultima inputs.
+- At fixed `-K 100000000`, Ultima allows 4.5 GiB of working memory at two
+  threads and 10 GiB at four threads (300 bp), **in addition to** the index,
+  sort and pipeline overhead. It scales with read length and populated batch,
+  with a 2 GiB floor. This conservatively covers HG008/hs38DH: BWA peaked at
+  9.18 GiB at two threads; four-thread anonymous memory reached 14.70 GiB
+  before the 16 GiB unit OOM. The two-thread diagnostic timed out: this is a
+  memory observation, not completed full-genome correctness. For 313,736,048
+  reads and 256M sort memory, estimates are approximately 12.0 GiB at two
+  threads and 18.1 GiB at four. Longer ordinary reads and more than six BWA
+  threads also increase the allowance. BWA-MEM2 calibration is unchanged.
+- Available RAM honors Linux cgroup-v2 ancestor caps, including reclaimable
+  inactive file cache; Windows/macOS retain native available-RAM reporting.
+  Namespace/subtree mounts retain their visible descendant limits.
+  LOW-memory BWA warnings recommend a lower thread count plus the resolved
+  `--memory` value, keeping the modeled per-sort-thread allowance fixed.
+  **No automatic thread cap is applied:** requested threads and BWA arguments
+  remain unchanged. Existing BWA advisory and explicit BWA-MEM2 refusal
+  policies remain. Read complexity, flow-tag volume and tool versions can
+  change peaks; estimates are not allocation guarantees.
 - Phase-2 H2 processed **679,639,896 reads** (339,819,948 pairs). Its compressed
   FASTQ inputs totalled **47.84 GB**, and its binned-quality output was only
   **8.63 GB CRAM**, plus a 1.14 MB CRAI. Do not extrapolate that unusually good

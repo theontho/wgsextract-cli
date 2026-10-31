@@ -31,6 +31,19 @@ def test_small_fastqs_count_both_mates_exactly(tmp_path, compressed):
 
 
 @pytest.mark.parametrize("compressed", [False, True])
+def test_sampled_length_weights_different_mate_lengths_and_read_counts(
+    tmp_path, compressed
+):
+    pair = [tmp_path / f"r{i}.fq" for i in (1, 2)]
+    for path, count, length in zip(pair, (2, 3), (100, 300), strict=True):
+        data = (b"@r\n" + b"A" * length + b"\n+\n" + b"I" * length + b"\n") * count
+        path.write_bytes(gzip.compress(data) if compressed else data)
+    assert read_counts.fastq_input_statistics(*pair) == read_counts.FastqStatistics(
+        5, 220
+    )
+
+
+@pytest.mark.parametrize("compressed", [False, True])
 def test_bounded_sample_extrapolates_file_size_including_gzip_members(
     tmp_path, monkeypatch, compressed
 ):

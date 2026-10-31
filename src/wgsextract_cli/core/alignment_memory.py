@@ -1,14 +1,19 @@
 """Memory budgets for the concurrent native BWA/MEM2 alignment pipeline.
 
 Full 30x H2 measured a 17–17.5 GiB BWA working set including paged-out memory,
-not just its capped resident peak. Budget index files, 2 GiB aligner working
+not just its capped resident peak. Budget index files, aligner working
 memory, roughly 6 GiB samblaster signatures, sort plus 25%, and bookkeeping
 with input-read-scaled transient headroom: about 18 GiB for BWA or 29 GiB
-for MEM2 at six threads/256M and 680 million reads. These are estimates,
-not an allocation or a hard limit.
+for MEM2 at six threads/256M and 680 million reads. Ultima BWA working memory
+uses the HG008 300-bp, fixed-K100M thread-dependent envelope instead of the
+ordinary short-read 2 GiB allowance. These are estimates, not an allocation
+or a hard limit.
 """
 
 import logging
+import math
+import re
+from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
 import psutil
@@ -31,6 +36,7 @@ _SAMBLASTER_BYTES_PER_PAIR = 19
 _PIPELINE_OVERHEAD_BYTES = _GIB // 2
 # Full H2 RSS/anonymous+swap observations require headroom beyond steady stages.
 _H2_TRANSIENT_BYTES = 5 * _GIB // 2
+_BWA_BATCH_BASES = 100_000_000
 
 
 class MappingMemory(NamedTuple):
@@ -47,7 +53,116 @@ class MappingMemory(NamedTuple):
 
 def available_memory() -> int:
     """Reclaimable physical memory, using psutil's native API on Windows too."""
-    return max(0, int(psutil.virtual_memory().available))
+    available = max(0, int(psutil.virtual_memory().available))
+    capped = _cgroup_available_memory()
+    return min(available, capped) if capped is not None else available
+
+
+def _cgroup_available_memory(
+    membership: Path = Path("/proc/self/cgroup"),
+    root: Path = Path("/sys/fs/cgroup"),
+    mountinfo: Path = Path("/proc/self/mountinfo"),
+) -> int | None:
+    """Honor Linux cgroup-v2 ancestor caps, not just the host's free RAM."""
+    try:
+        relative = next(
+            line[3:]
+            for line in membership.read_text().splitlines()
+            if line.startswith("0::")
+        )
+        path = PurePosixPath(relative)
+        if ".." in path.parts:
+            group = root
+        else:
+            mounted = _cgroup_mount_root(root, mountinfo)
+            try:
+                path = path.relative_to(mounted)
+            except ValueError:
+                # Membership may already be relative to a cgroup namespace.
+                path = PurePosixPath(relative.lstrip("/"))
+            group = root / str(path)
+        # A container can expose only the namespace root rather than the
+        # host-relative membership path.
+        if not group.is_dir():
+            group = root
+        budgets = []
+        while True:
+            try:
+                limit = (group / "memory.max").read_text().strip()
+                if limit != "max":
+                    current = int((group / "memory.current").read_text())
+                    reclaimable = 0
+                    try:
+                        for line in (group / "memory.stat").read_text().splitlines():
+                            name, value = line.split()
+                            if name == "inactive_file":
+                                reclaimable = int(value)
+                    except (OSError, ValueError):
+                        pass
+                    budgets.append(
+                        min(int(limit), max(0, int(limit) - current + reclaimable))
+                    )
+            except (OSError, ValueError):
+                pass
+            if group == root:
+                break
+            group = group.parent
+        return min(budgets) if budgets else None
+    except (OSError, StopIteration):
+        return None
+
+
+def _cgroup_mount_root(root: Path, mountinfo: Path) -> PurePosixPath:
+    """Translate the visible cgroup2 mount's filesystem-root offset."""
+
+    def decoded(value: str) -> str:
+        return re.sub(r"\\([0-7]{3})", lambda match: chr(int(match[1], 8)), value)
+
+    try:
+        for line in mountinfo.read_text().splitlines():
+            fields = line.split()
+            try:
+                separator = fields.index("-")
+                if (
+                    fields[separator + 1] == "cgroup2"
+                    and Path(decoded(fields[4])) == root
+                ):
+                    return PurePosixPath(decoded(fields[3]))
+            except (ValueError, IndexError):
+                continue
+    except OSError:
+        pass
+    return PurePosixPath("/")
+
+
+def _working_memory(
+    aligner: str,
+    threads: int,
+    reads: int | None,
+    platform: str | None,
+    read_length: float | None,
+) -> int:
+    if read_length is not None and (not math.isfinite(read_length) or read_length <= 0):
+        raise ValueError("read_length must be finite and positive")
+    if threads < 1:
+        raise ValueError("threads must be positive")
+    if aligner != "bwa":
+        return _ALIGNER_WORKING_BYTES
+    if platform == "ultima":
+        length = read_length if read_length is not None else 300
+        batch_fraction = (
+            min(1, reads * length / _BWA_BATCH_BASES) if reads is not None else 1
+        )
+        # HG008, hs38DH, -K 100M: BWA alone reached 9.18 GiB at t2 and
+        # 14.70 GiB anonymous memory at t4, including its ~5.2 GiB index.
+        # Allow 4.5/10 GiB working memory at 300 bp; longer reads cost more.
+        working = (
+            (threads * 11 * _GIB / 4 - _GIB) * max(0.5, length / 300) * batch_fraction
+        )
+    else:
+        length = read_length if read_length is not None else 150
+        working = _ALIGNER_WORKING_BYTES * max(1, length / 150) * max(1, threads / 6)
+    return math.ceil(max(_ALIGNER_WORKING_BYTES, working))
 
 
 def reference_bases(ref: str | None) -> int:
@@ -72,6 +187,8 @@ def estimate_mapping_memory(
     memory: str = "512M",
     samblaster: bool = True,
     reads: int | None = None,
+    platform: str | None = None,
+    read_length: float | None = None,
 ) -> MappingMemory:
     bases = reference_bases(ref) or _HUMAN_REFERENCE_BASES
     suffixes, bytes_per_base = _INDEX_PARTS[aligner]
@@ -89,7 +206,7 @@ def estimate_mapping_memory(
     input_reads = max(0, reads) if reads is not None else _H2_INPUT_READS
     return MappingMemory(
         index,
-        _ALIGNER_WORKING_BYTES,
+        _working_memory(aligner, int(threads), reads, platform, read_length),
         (input_reads * _SAMBLASTER_BYTES_PER_PAIR + 1) // 2 if samblaster else 0,
         int(int(threads) * per_thread * 1.25),
         _PIPELINE_OVERHEAD_BYTES + input_reads * _H2_TRANSIENT_BYTES // _H2_INPUT_READS,
@@ -104,9 +221,18 @@ def check_mapping_memory(
     memory: str,
     samblaster: bool,
     reads: int | None = None,
+    platform: str | None = None,
+    read_length: float | None = None,
 ) -> None:
     estimate = estimate_mapping_memory(
-        ref, aligner, threads=threads, memory=memory, samblaster=samblaster, reads=reads
+        ref,
+        aligner,
+        threads=threads,
+        memory=memory,
+        samblaster=samblaster,
+        reads=reads,
+        platform=platform,
+        read_length=read_length,
     )
     available = available_memory()
     components = ", ".join(
@@ -135,4 +261,28 @@ def check_mapping_memory(
         )
     if aligner == "bwa-mem2":
         raise WGSExtractError(message + " Use --aligner bwa for its smaller index.")
+    low, high = 0, int(threads) - 1
+    while low < high:
+        candidate = (low + high + 1) // 2
+        reduced = estimate_mapping_memory(
+            ref,
+            aligner,
+            threads=str(candidate),
+            memory=memory,
+            samblaster=samblaster,
+            reads=reads,
+            platform=platform,
+            read_length=read_length,
+        )
+        if reduced.total <= available:
+            low = candidate
+        else:
+            high = candidate - 1
+    if low:
+        message += (
+            f" This estimate fits with --threads {low} --memory {memory}; "
+            "requested threads are unchanged."
+        )
+    else:
+        message += " Even one thread exceeds the available-memory estimate."
     logging.warning("%s Continuing with bwa.", message)

@@ -342,7 +342,11 @@ def test_alignment_reports_before_index_building_or_fastq_extraction(
                 "1", "256M", str(tmp_path), str(ref), "sample"
             ),
         )
-        monkeypatch.setattr(align, "fastq_input_reads", lambda *_: 100)
+        monkeypatch.setattr(
+            align,
+            "fastq_input_statistics",
+            lambda *_: SimpleNamespace(reads=100, read_length=150),
+        )
         monkeypatch.setattr(align, "preflight_resources", reported)
         monkeypatch.setattr(
             align, "ensure_bwa_index", lambda *_: pytest.fail("indexing started")

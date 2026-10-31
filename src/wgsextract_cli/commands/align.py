@@ -18,7 +18,7 @@ from wgsextract_cli.core.dependency_checks import (
 from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path, java_local_path
-from wgsextract_cli.core.read_counts import fastq_input_reads
+from wgsextract_cli.core.read_counts import fastq_input_statistics
 from wgsextract_cli.core.reference_assets import is_fasta_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.resource_estimates import (
@@ -467,12 +467,14 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
     samblaster = bool(args.r2) and get_tool_path("samblaster") is not None
     if hasattr(args, "_input_read_count"):
         reads = args._input_read_count
+        read_length = getattr(args, "_input_read_length", None)
+    elif args.r1.lower().endswith((".bam", ".cram")):
+        reads = indexed_read_count(args.r1, setup.threads)
+        read_length = None
     else:
-        reads = (
-            indexed_read_count(args.r1, setup.threads)
-            if args.r1.lower().endswith((".bam", ".cram"))
-            else fastq_input_reads(args.r1, args.r2)
-        )
+        statistics = fastq_input_statistics(args.r1, args.r2)
+        reads = statistics.reads if statistics is not None else None
+        read_length = statistics.read_length if statistics is not None else None
     tool = short_read_aligner(
         args.aligner,
         setup.ref,
@@ -493,6 +495,8 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
             aligner=tool,
             samblaster=samblaster,
             reads=reads,
+            platform=getattr(args, "platform", None),
+            read_length=read_length,
             output_format=getattr(args, "format", "BAM"),
             duplicate_marking=(
                 "gatk-flow"
@@ -509,6 +513,8 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
         memory=setup.memory,
         samblaster=samblaster,
         reads=reads,
+        platform=getattr(args, "platform", None),
+        read_length=read_length,
     )
     warn_alignment_sort_space(setup.outdir, reads)
     if tool == "bwa-mem2":
