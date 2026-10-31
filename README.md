@@ -180,6 +180,13 @@ exposed as an application configuration setting.
 
 Notes on a few commands:
 
+- `ref library-list` is a deprecated compatibility alias for `ref library --list`.
+  `vep run --assembly GRCh37` and the deprecated `--vep-assembly GRCh37` select the
+  same annotation build; `vep download --assembly` selects the cache build.
+- Runtime and working-space needs depend on the input, coverage, hardware and
+  toolchain, so command help does not promise fixed times. Use
+  `wgsextract benchmark --help` to choose a reproducible dataset and profile.
+
 - `extract ydna-bam --poz` writes an indexed `_Y_poz.bam` containing reads overlapping the original WGS Extract CombBED/McDonald/Poznik union (about 12 Mb), **not** all stable Y SNPs or a BigY/exome capture. It supports exact GRCh37/hg19 or GRCh38 Y lengths with either `chrY` or `Y`, including Y-only inputs, and never includes the original BEDs' mitochondrial regions. Reads overlapping BED boundaries are kept whole. T2T, unknown and inconsistent assemblies are rejected rather than silently lifted. Bundled BED provenance/license is in `assets/reference/poz/NOTICE.txt`; no download is needed. Without `--poz`, whole-Y extraction is unchanged.
 
 ### Opt-in yBrowse Y SNP calling (GRCh38 only)
@@ -436,6 +443,22 @@ wgsextract example-genome download hgsvc2-hg00733-pacbio-hifi-bam
 pixi run -e pacbio wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam align --platform hifi --ref /path/to/hs38.fa
 pixi run -e pacbio wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam vcf sv --pacbio --ref /path/to/hs38.fa
 ```
+
+## Pipeline benchmarks
+
+`wgsextract benchmark --help` lists the current datasets and profiles. Start
+with generated chrM data and the lighter operation suite:
+
+```bash
+pixi run wgsextract benchmark --profile smoke --suite core --outdir out/benchmark-smoke
+```
+
+The default dataset is synthetic; `--dataset real` uses the release-backed
+mini-genome, while `real-1x` and `real-30x` use public WGS data. HTTP downloads
+resume from `.partial` files and only replace the destination after completion
+and checksum verification where a digest is provided. `example-genome download`
+uses the same HTTP downloader; FTP and Aspera retain their specialized transports.
+Keep larger runs last and budget their CPU, memory and working space.
 
 ## Development
 

@@ -34,6 +34,7 @@ from wgsextract_cli.commands.benchmark.models import (
 )
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.ref_library import downloads
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 DATASET_DIR = "wgsextract-benchmark-hg19-mini"
@@ -76,6 +77,9 @@ def _sha256(path: Path) -> str:
 
 
 class _Response(io.BytesIO):
+    def getcode(self) -> int:
+        return 200
+
     def info(self) -> dict[str, str]:
         return {"Content-Length": str(len(self.getvalue()))}
 
@@ -92,14 +96,16 @@ def served(monkeypatch):
             raise urllib.error.URLError("404")
         return _Response(files[request.full_url])
 
-    monkeypatch.setattr(datasets.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(downloads, "urlopen", urlopen)
+    monkeypatch.setattr(downloads, "curl_progress_args", lambda: ["--silent"])
+    monkeypatch.setattr(downloads.time, "sleep", lambda _: None)
     return files, fetched
 
 
 # --- datasets: download, cache, checksum ----------------------------------
 
 
-def test_download_file_writes_atomically_and_cleans_partial_on_error(
+def test_download_file_writes_atomically_and_retains_partial_for_resume(
     tmp_path, served, monkeypatch
 ):
     files, _ = served
@@ -109,14 +115,22 @@ def test_download_file_writes_atomically_and_cleans_partial_on_error(
     assert dest.read_bytes() == b"payload"
     assert not (tmp_path / "a.zip.tmp").exists()
 
-    def broken(response, handle, progress_label):
+    original_copy = downloads.copy_response_to_file
+
+    def broken(response, handle, **_kwargs):
         handle.write(b"half")
         raise OSError("connection reset")
 
-    monkeypatch.setattr(datasets, "copy_response_to_file", broken)
-    with pytest.raises(WGSExtractError, match="b.zip: connection reset"):
-        datasets._download_file("https://example.test/a.zip", tmp_path / "b.zip")
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["a.zip"]
+    monkeypatch.setattr(downloads, "copy_response_to_file", broken)
+    failed = tmp_path / "b.zip"
+    with pytest.raises(WGSExtractError, match="b.zip"):
+        datasets._download_file("https://example.test/a.zip", failed)
+    assert not failed.exists()
+    assert (tmp_path / "b.zip.partial").read_bytes() == b"half"
+    monkeypatch.setattr(downloads, "copy_response_to_file", original_copy)
+    datasets._download_file("https://example.test/a.zip", failed)
+    assert failed.read_bytes() == b"payload"
+    assert not (tmp_path / "b.zip.partial").exists()
 
 
 def test_cached_remote_file_downloads_verifies_and_then_trusts_marker(

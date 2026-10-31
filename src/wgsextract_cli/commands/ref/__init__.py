@@ -97,7 +97,7 @@ def register(
     lib_list_parser = ref_subs.add_parser(
         "library-list",
         parents=[base_parser],
-        help="List installed and available reference library assets.",
+        help="Deprecated alias for 'ref library --list': list installed and available assets.",
     )
     lib_list_parser.set_defaults(func=cmd_library_list)
 

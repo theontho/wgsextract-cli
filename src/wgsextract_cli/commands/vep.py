@@ -20,9 +20,16 @@ def _add_run_args(parser: argparse.ArgumentParser) -> None:
         help="Path to VEP cache directory (e.g., $HOME/.vep)",
     )
     parser.add_argument(
-        "--vep-assembly",
+        "--assembly",
+        dest="vep_assembly",
         choices=["GRCh37", "GRCh38"],
         help="Reference assembly for VEP (GRCh37 or GRCh38)",
+    )
+    parser.add_argument(
+        "--vep-assembly",
+        dest="vep_assembly",
+        choices=["GRCh37", "GRCh38"],
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--vep-cache-version", default="116", help="VEP cache version (default: 116)"

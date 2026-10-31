@@ -6,7 +6,7 @@ Edit the Markdown pages in `site_src/`, then run:
 pixi run site-build
 ```
 
-The generator (`scripts/build_site.py`) writes one HTML file per page into `site/`. The Markdown renderer is intentionally small; it supports the components already used by the current pages, plus normal headings, paragraphs, links, inline code, fenced code blocks, lists, and tables.
+The generator (`scripts/build_site.py`) writes one HTML file per page into `site/`. Generated `site/*.html` is gitignored: build it locally for previews rather than committing stale copies. The Markdown renderer is intentionally small; it supports the components already used by the current pages, plus normal headings, paragraphs, links, inline code, fenced code blocks, lists, and tables.
 
 Common acronyms are defined once in `site_src/abbr.toml`. The generator adds matching abbreviation markup and fast site tooltips to generated HTML automatically, so Markdown pages should use plain acronym text rather than embedding abbreviation tags by hand.
 
@@ -23,4 +23,4 @@ The generator only writes `site/*.html`. These files are maintained by hand and 
 
 ## Deployment
 
-`.github/workflows/pages.yml` runs `scripts/build_site.py` on every push to `main` that touches `site/`, `site_src/`, or the generator, then publishes `site/`. The deployed HTML is always rebuilt from `site_src/`, so committed `site/*.html` only needs to be current for local previews and reviews. Run `pixi run site-build` after editing `site_src/` to keep it in sync.
+`.github/workflows/pages.yml` runs `scripts/build_site.py` on every push to `main` that touches `site/`, `site_src/`, or the generator, then publishes `site/`. The deployed HTML is always rebuilt from `site_src/`. Run `pixi run site-build` after editing `site_src/` for a current local preview; commit only the source and hand-maintained assets.

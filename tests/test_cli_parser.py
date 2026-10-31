@@ -27,6 +27,19 @@ def _parse(argv: list[str]) -> tuple[Namespace, set[str]]:
     return parser.parse_args(*parser.build_parser(), argv)
 
 
+@pytest.mark.parametrize("command", [["vep"], ["vep", "run"]])
+@pytest.mark.parametrize("flag", ["--assembly", "--vep-assembly"])
+def test_vep_run_assembly_aliases_preserve_the_runtime_destination(command, flag):
+    args, explicit = _parse([*command, flag, "GRCh37"])
+    assert args.vep_assembly == "GRCh37"
+    assert "vep_assembly" in explicit
+
+
+def test_vep_download_assembly_still_selects_the_cache_build():
+    args, _ = _parse(["vep", "download", "--assembly", "GRCh37"])
+    assert args.assembly == "GRCh37"
+
+
 def test_config_supplies_defaults_that_options_override():
     _config(
         'input = "/cfg/in.bam"\noutdir = "/cfg/out"\nref = "/cfg/ref.fa"\n'
