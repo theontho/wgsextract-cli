@@ -448,7 +448,9 @@ def run_streamed_alignment(
             else:
                 stages.append(sort)
             run_pipeline(
-                stages, description="Alignment", heartbeat=True,
+                stages,
+                description="Alignment",
+                heartbeat=True,
                 expected_reads=expected_reads,
             )
         logging.info(LOG_MESSAGES["indexing_output"])
@@ -708,7 +710,9 @@ def _sort_and_mark_ultima(
         with safe_output(out_path) as staged:
             marked = staged if fmt == "BAM" else str(Path(tmp, "marked.bam"))
             run_pipeline(
-                [*stages, sort], description="Alignment", heartbeat=True,
+                [*stages, sort],
+                description="Alignment",
+                heartbeat=True,
                 expected_reads=expected_reads,
             )
             logging.info("Marking duplicates in flow mode (GATK MarkDuplicates)...")
