@@ -40,13 +40,15 @@ def test_run_pipeline_reports_failed_upstream_stage_with_stderr():
     assert "bad input" in message
 
 
-def test_run_pipeline_does_not_deadlock_on_chatty_stderr():
+@pytest.mark.parametrize("heartbeat", [False, True])
+def test_run_pipeline_does_not_deadlock_on_chatty_stderr(heartbeat):
     # Far more stderr than a pipe buffer holds, from a stage nobody reads.
     noisy = "import sys; sys.stderr.write('x' * 2_000_000); print('done')"
     with open(os.devnull, "wb") as devnull:
         run_pipeline(
             [[PY, "-c", noisy], [PY, "-c", "import sys; sys.stdin.read()"]],
             stdout=devnull,
+            heartbeat=heartbeat,
         )
 
 

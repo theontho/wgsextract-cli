@@ -180,8 +180,8 @@ echo Standalone bootstrap environment variables:
 echo   WGSEXTRACT_RELEASE_TAG    Release tag to download when this file is run alone. Defaults to latest.
 echo   WGSEXTRACT_REF            Git ref to download when this file is run alone.
 echo   WGSEXTRACT_ARCHIVE_URL    ZIP archive URL or local path to download/extract.
-echo   WGSEXTRACT_PIXI_INSTALL_URL    Pixi install.ps1 URL or local path.
-echo   WGSEXTRACT_PIXI_INSTALL_SHA256 Optional SHA-256 for the Pixi installer.
+echo   WGSEXTRACT_PIXI_INSTALL_URL    Pixi executable URL or local path.
+echo   WGSEXTRACT_PIXI_INSTALL_SHA256 Override trusted SHA-256 for a custom Pixi executable.
 exit /b 0
 
 :missing_value

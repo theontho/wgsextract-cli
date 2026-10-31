@@ -20,9 +20,11 @@ from wgsextract_cli.core.process_registry import (
     proc_registry,
     process_group_kwargs,
 )
+from wgsextract_cli.core.progress import Heartbeat
 from wgsextract_cli.core.resource_policy import (
     get_resource_defaults as _get_resource_defaults,
 )
+from wgsextract_cli.core.run_log import active_run_log, record_command
 from wgsextract_cli.core.runtime import (
     default_thread_tuning_profile as default_thread_tuning_profile,
 )
@@ -134,6 +136,7 @@ def run_command(
 ) -> subprocess.CompletedProcess[str]:
     """Helper to run subprocess with logging and registry."""
     cmd_list = _normalize_subprocess_cmd(cmd)
+    record_command(cmd_list)
 
     cmd_str = " ".join(cmd_list)
     logging.debug(f"Running: {cmd_str}")
@@ -212,6 +215,7 @@ def popen(
     Default text=False to allow binary pipes (BAM/BCF).
     """
     cmd_list = _normalize_subprocess_cmd(cmd)
+    record_command(cmd_list)
 
     cmd_str = " ".join(cmd_list)
     logging.debug(f"Popen: {cmd_str}")
@@ -275,6 +279,8 @@ def run_pipeline(
     description: str = "Pipeline",
     cancel_event: CancelEvent | None = None,
     stderr_dir: PathInput | None = None,
+    heartbeat: bool = False,
+    expected_reads: int | None = None,
 ) -> None:
     """
     Run commands connected stdout-to-stdin, wait for every stage, and raise
@@ -291,18 +297,73 @@ def run_pipeline(
 
     procs: list[subprocess.Popen[bytes]] = []
     stderr_files: list[IO[bytes]] = []
+    readers: list[tuple[IO[bytes], bool]] = []
+    partials: list[bytes] = []
+    monitor: Heartbeat | None = None
+    names: list[str] = []
+    progress_args = (
+        [_normalize_subprocess_cmd(stage) for stage in stages]
+        if heartbeat or active_run_log()
+        else []
+    )
+
+    def is_aligner(args: Sequence[str]) -> bool:
+        return any(Path(arg).stem in {"bwa", "bwa-mem2", "minimap2"} for arg in args)
+
+    has_aligner = any(is_aligner(args) for args in progress_args)
+
+    def scan() -> None:
+        for index, (reader, aligner) in enumerate(readers):
+            while chunk := reader.read(65536):
+                logging.debug(
+                    "%s stderr: %s", names[index], chunk.decode(errors="replace")
+                )
+                if aligner and monitor:
+                    data = partials[index] + chunk
+                    lines = data.split(b"\n")
+                    partials[index] = lines.pop()[-65536:]
+                    for line in lines:
+                        monitor.read_line(line.decode(errors="replace"))
+
     try:
         upstream: ProcessStream = stdin
         for index, stage in enumerate(stages):
             if cancel_event and cancel_event.is_set():
                 raise WGSExtractError(f"{description} cancelled")
             is_last = index == len(stages) - 1
-            err_file: IO[bytes] = (
-                tempfile.TemporaryFile(dir=stderr_dir)
-                if stderr_dir is not None
-                else tempfile.TemporaryFile()
-            )
+            err_file: IO[bytes]
+            if heartbeat or active_run_log():
+                err_file = (
+                    tempfile.NamedTemporaryFile(delete=False, dir=stderr_dir)
+                    if stderr_dir is not None
+                    else tempfile.NamedTemporaryFile(delete=False)
+                )
+            else:
+                err_file = (
+                    tempfile.TemporaryFile(dir=stderr_dir)
+                    if stderr_dir is not None
+                    else tempfile.TemporaryFile()
+                )
             stderr_files.append(err_file)
+            if heartbeat or active_run_log():
+                args = progress_args[index]
+                name = Path(args[0]).stem if args else "?"
+                names.append(name)
+                readers.append(
+                    (
+                        open(err_file.name, "rb"),
+                        (
+                            not has_aligner
+                            and any(
+                                Path(arg).stem == "samtools"
+                                and args[position + 1] == "fastq"
+                                for position, arg in enumerate(args[:-1])
+                            )
+                        )
+                        or is_aligner(args),
+                    )
+                )
+                partials.append(b"")
             proc = popen(
                 stage,
                 stdin=upstream,
@@ -317,6 +378,9 @@ def run_pipeline(
             procs.append(proc)
             upstream = proc.stdout
 
+        if heartbeat or active_run_log():
+            monitor = Heartbeat(description, expected_reads, scan=scan, emit=heartbeat)
+            monitor.__enter__()
         returncodes = []
         for proc in procs:
             while cancel_event is not None and proc.poll() is None:
@@ -327,6 +391,9 @@ def run_pipeline(
                 except subprocess.TimeoutExpired:
                     pass
             returncodes.append(proc.wait())
+        if monitor:
+            monitor.__exit__()
+            monitor = None
         failures: list[str] = []
         for index, (stage, returncode) in enumerate(
             zip(stages, returncodes, strict=True)
@@ -358,5 +425,12 @@ def run_pipeline(
                 proc.wait()
             if proc.stdout:
                 proc.stdout.close()
+        if monitor:
+            monitor.__exit__()
+        for reader, _ in readers:
+            reader.close()
         for err_file in stderr_files:
+            name = err_file.name
             err_file.close()
+            if isinstance(name, str):
+                Path(name).unlink(missing_ok=True)

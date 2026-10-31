@@ -11,6 +11,9 @@ Documentation site: <https://theontho.github.io/wgsextract-cli/>. A separate gra
 ## Install
 
 macOS and Linux: open Terminal, paste this command, and press Enter.
+Native Linux ARM64 is not supported yet: the installer refuses before downloading
+or installing dependencies. Native ARM64 support is tracked in #236; this is not
+an x86-emulation fallback.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh
@@ -33,12 +36,14 @@ Set these environment variables before running `install.sh`:
 | `WGSEXTRACT_REF` | `WGSEXTRACT_RELEASE_TAG` | Git ref to install, or `latest` |
 | `WGSEXTRACT_ARCHIVE_URL` | GitHub source archive for `WGSEXTRACT_REF` | Exact source archive URL |
 | `WGSEXTRACT_BIN_DIR` | `$WGSEXTRACT_INSTALL_DIR` | CLI launcher directory |
-| `WGSEXTRACT_PIXI_HOME` | unset | Install Pixi under this directory when Pixi is missing, instead of using Pixi's normal user installer |
+| `WGSEXTRACT_PIXI_HOME` | unset | Install the SHA-256-verified pinned Pixi under this directory when Pixi is missing, instead of `~/.pixi` |
 | `WGSEXTRACT_PIXI_CACHE_DIR` | `$WGSEXTRACT_INSTALL_DIR/.pixi/cache` | Pixi package cache directory |
 | `WGSEXTRACT_PIXI_ENV_DIR` | `$WGSEXTRACT_INSTALL_DIR/app/.pixi/envs` | Pixi environment directory (kept across updates) |
 | `WGSEXTRACT_NO_OPEN` | unset | Set to `1` to skip opening Finder on macOS |
 
 Leave `WGSEXTRACT_BIN_DIR`, `WGSEXTRACT_PIXI_HOME`, `WGSEXTRACT_PIXI_CACHE_DIR`, and `WGSEXTRACT_PIXI_ENV_DIR` unset to keep everything inside one directory. For reproducible installs set `WGSEXTRACT_RELEASE_TAG=vX.Y.Z`; for testing unreleased code set `WGSEXTRACT_REF=main` or `WGSEXTRACT_ARCHIVE_URL=<url>`.
+
+When Pixi is missing, installers verify the pinned release's SHA-256 before running it; unsigned upstream installer scripts are not executed. Updating the Pixi pin requires updating its trusted release digests too. `ref library --install` also verifies catalogued references against their sequence-name/length signature after indexing. The catalog's `md5` is this dictionary signature, not a FASTA content checksum.
 
 ### Uninstall
 
@@ -85,6 +90,29 @@ wgsextract --input sample.cram lineage y-haplogroup
 ```
 
 Try commands on a small region (`--region chrM`, where supported) before running whole-genome jobs, which can take hours and hundreds of gigabytes of working space. Every command exits non-zero on failure, so they can be chained in scripts.
+
+Alignment/realignment pipelines and GATK scatter print a stderr heartbeat every
+60 seconds, including processed versus expected reads (when known), or completed
+shards, elapsed time and a rate-based ETA. Sampled FASTQ read counts are estimates;
+reaching the read count does not mean sorting/indexing has finished. Stdout data,
+alignment/caller arguments and generated genomic files are unchanged.
+
+Persistent logging is off by default. Use a **new, dedicated** path:
+
+```sh
+pixi run wgsextract --log-file out/run.log --input sample.bam info
+```
+
+Alternatively set `log_dir = "~/wgse_logs"` in `config.toml` to create a unique log
+for each run. The UTF-8 DEBUG log retains Python diagnostics and pipeline/scatter
+tool messages; `run.log.provenance.json` records argv, CLI/platform versions,
+executed tool commands/versions and small reference-index signatures. Provenance
+is available during the run and finalized on normal exit or handled failure. A
+hard kill may leave its status as `running`. Existing logs are never truncated;
+`--quiet` still suppresses informational console messages, not the file log.
+Review logs before sharing: commands and diagnostics may contain private paths
+or URLs. No environment is captured, no tool is installed for logging, and
+complete reference genomes are not hashed.
 
 Output files are named after the full input stem: `HG002.chr20.bam` produces `HG002.chr20_sorted.bam`, `HG002.chr20_coverage.tsv`, and so on. Outputs go to `--outdir`, the configured `outdir`, or the `--genome` folder.
 
