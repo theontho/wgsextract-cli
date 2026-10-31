@@ -1,3 +1,4 @@
+import hashlib
 import json
 import platform
 import re
@@ -68,6 +69,28 @@ def test_windows_installer_only_needs_pixi() -> None:
         "pixi install --locked -e gatk",
     ]
     assert "pixi run wgsextract deps check" in installer
+
+
+def test_pixi_bootstrap_sha256_fails_closed(tmp_path) -> None:
+    pwsh = shutil.which("pwsh") or shutil.which("powershell")
+    if not pwsh:
+        pytest.skip("PowerShell is not installed")
+    payload = tmp_path / "pixi.exe"
+    payload.write_bytes(b"fixture executable")
+    bootstrap = (ROOT / "scripts/bootstrap_windows_prereqs.ps1").read_text()
+    functions = bootstrap.rsplit("\nEnsure-Pixi", 1)[0]
+    script = tmp_path / "verify.ps1"
+    quoted = str(payload).replace("'", "''")
+    digest = hashlib.sha256(payload.read_bytes()).hexdigest()
+    for expected, succeeds in [(digest, True), ("0" * 64, False), ("", False)]:
+        script.write_text(
+            functions + f"\nAssert-FileSha256 -Path '{quoted}' "
+            f"-ExpectedSha256 '{expected}' -Label 'Pixi executable'\n"
+        )
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(script)], capture_output=True, text=True
+        )
+        assert (result.returncode == 0) is succeeds, result.stderr
 
 
 def test_windows_installer_accepts_the_old_installers_options() -> None:

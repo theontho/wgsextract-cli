@@ -100,6 +100,22 @@ def sequence_signature(contig_lengths: dict[str, int]) -> str:
     return calculate_bam_md5("", header=header)
 
 
+def verify_sequence_signature(
+    filename: str, lengths: dict[str, int], expected: str
+) -> str:
+    """Check the catalog's SN/LN signature (not a checksum of FASTA bytes)."""
+    from wgsextract_cli.core.utils import WGSExtractError
+
+    signature = sequence_signature(lengths)
+    if signature != expected:
+        raise WGSExtractError(
+            f"{filename} does not match the catalog sequence dictionary "
+            f"(expected signature {expected}, found {signature}). The file is "
+            "a different build or patch level than the catalog entry."
+        )
+    return signature
+
+
 def fasta_signature(fasta: PathInput) -> str | None:
     lengths = read_fai_lengths(fasta)
     return sequence_signature(lengths) if lengths else None

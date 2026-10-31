@@ -2,7 +2,7 @@
 # install_windows.bat. Every tool, Python included, then comes from Pixi.
 [CmdletBinding()]
 param(
-    [string]$PixiInstallUrl = $(if ($env:WGSEXTRACT_PIXI_INSTALL_URL) { $env:WGSEXTRACT_PIXI_INSTALL_URL } else { "https://pixi.sh/install.ps1" }),
+    [string]$PixiInstallUrl = $(if ($env:WGSEXTRACT_PIXI_INSTALL_URL) { $env:WGSEXTRACT_PIXI_INSTALL_URL } else { "" }),
     [string]$PixiInstallSha256 = $(if ($env:WGSEXTRACT_PIXI_INSTALL_SHA256) { $env:WGSEXTRACT_PIXI_INSTALL_SHA256 } else { "" }),
     [switch]$SkipPixiInstall
 )
@@ -146,7 +146,7 @@ function Assert-FileSha256 {
     )
 
     if (-not $ExpectedSha256) {
-        return
+        throw "$Label requires a trusted SHA-256 digest."
     }
     if ($ExpectedSha256 -notmatch '^[0-9a-fA-F]{64}$') {
         throw "$Label SHA-256 must be a 64-character hexadecimal digest."
@@ -173,14 +173,32 @@ function Ensure-Pixi {
     }
 
     Write-Step "Pixi was not found; installing Pixi..."
-    $installScript = Join-Path $env:TEMP ("wgsextract-pixi-install-{0}.ps1" -f ([guid]::NewGuid()))
+    if ($env:PIXI_VERSION -and $env:PIXI_VERSION -notin @("v0.82.0", "0.82.0")) {
+        throw "No trusted Pixi checksums for $env:PIXI_VERSION; use v0.82.0."
+    }
+    $arch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
+    switch ($arch) {
+        "AMD64" {
+            $asset = "pixi-x86_64-pc-windows-msvc.exe"
+            $expected = "89c7455923dac401c1853310894d87fa06602911b838e389a46c7bc8df00171e"
+        }
+        "ARM64" {
+            $asset = "pixi-aarch64-pc-windows-msvc.exe"
+            $expected = "d205d144618bdc83e25dba1a10c8cff8f39e9da85c06e142a9ec0d0c8f6d3559"
+        }
+        default { throw "Unsupported Pixi architecture: $arch" }
+    }
+    $url = if ($PixiInstallUrl) { $PixiInstallUrl } else { "https://github.com/prefix-dev/pixi/releases/download/v0.82.0/$asset" }
+    if ($PixiInstallSha256) { $expected = $PixiInstallSha256 }
+    $bin = Join-Path $env:USERPROFILE ".pixi\bin"
+    New-Item -ItemType Directory -Path $bin -Force | Out-Null
+    $download = Join-Path $bin ("pixi-download-{0}.exe" -f ([guid]::NewGuid()))
     try {
-        Copy-UrlOrFile -Source $PixiInstallUrl -Destination $installScript
-        Assert-FileSha256 -Path $installScript -ExpectedSha256 $PixiInstallSha256 -Label "Pixi installer"
-        # The Pixi version this release is tested with; a user-set PIXI_VERSION wins.
-        if (-not $env:PIXI_VERSION) { $env:PIXI_VERSION = "v0.82.0" }
-        powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installScript
-        Add-PathForCurrentProcess (Join-Path $env:USERPROFILE ".pixi\bin")
+        Copy-UrlOrFile -Source $url -Destination $download
+        Assert-FileSha256 -Path $download -ExpectedSha256 $expected -Label "Pixi executable"
+        Move-Item -LiteralPath $download -Destination (Join-Path $bin "pixi.exe") -Force
+        [Environment]::SetEnvironmentVariable("Path", "$bin;" + [Environment]::GetEnvironmentVariable("Path", "User"), "User")
+        Add-PathForCurrentProcess $bin
         $pixi = Get-Command pixi -ErrorAction SilentlyContinue
         if (-not $pixi) {
             throw "Pixi installation completed, but pixi was not found on PATH."
@@ -188,7 +206,7 @@ function Ensure-Pixi {
         Write-Step "Pixi installed: $($pixi.Source)"
     }
     finally {
-        Remove-Item -LiteralPath $installScript -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $download -Force -ErrorAction SilentlyContinue
     }
 }
 
