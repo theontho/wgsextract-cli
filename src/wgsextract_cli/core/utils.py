@@ -334,6 +334,11 @@ def run_pipeline(
                     (
                         open(err_file.name, "rb"),
                         any(
+                            Path(arg).stem == "samtools"
+                            and args[position + 1] == "fastq"
+                            for position, arg in enumerate(args[:-1])
+                        )
+                        or any(
                             Path(arg).stem in {"bwa", "bwa-mem2", "minimap2"}
                             for arg in args
                         ),

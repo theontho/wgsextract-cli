@@ -48,7 +48,7 @@ class RunLog:
         path.parent.mkdir(parents=True, exist_ok=True)
         # Never truncate an earlier run or its provenance.
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        self.stream = os.fdopen(fd, "w", encoding="utf-8")
+        self.stream = os.fdopen(fd, "w", encoding="utf-8", newline="\n")
         try:
             os.close(
                 os.open(self.provenance, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -87,7 +87,7 @@ class RunLog:
         )
         try:
             fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
                 json.dump(data, stream, indent=2)
                 stream.write("\n")
             temporary.replace(self.provenance)

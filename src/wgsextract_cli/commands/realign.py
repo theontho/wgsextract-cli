@@ -327,6 +327,8 @@ def run(args: argparse.Namespace) -> None:
                 memory=memory,
                 temp_parent=outdir,
                 cram_opt=_input_cram_reference(args),
+                heartbeat=True,
+                expected_reads=reads,
             )
         except BaseException:
             # Never leave truncated FASTQs behind for a later run to "reuse".

@@ -46,3 +46,13 @@ def test_heartbeat_reports_while_no_shards_complete_and_stops(caplog):
     assert caplog.text.count("0/2 shards") >= 2
     assert "1/2 shards" in caplog.text
     assert not progress._thread.is_alive()
+
+
+def test_progress_scan_error_cannot_fail_the_data_pipeline(caplog):
+    def unavailable():
+        raise OSError("monitor unavailable")
+
+    caplog.set_level(logging.INFO)
+    with Heartbeat("Extraction", 10, scan=unavailable, interval=0.01):
+        time.sleep(0.03)
+    assert "Progress scan unavailable" in caplog.text

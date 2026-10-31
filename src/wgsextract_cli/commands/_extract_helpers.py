@@ -220,6 +220,8 @@ def alignments_to_fastq(
     cram_opt: list[str] | None = None,
     region: str | None = None,
     out_other: PathInput | None = None,
+    heartbeat: bool = False,
+    expected_reads: int | None = None,
 ) -> None:
     """
     Pair up a BAM/CRAM's reads and write FASTQs (samtools view | collate | fastq).
@@ -250,4 +252,6 @@ def alignments_to_fastq(
             [view_cmd, collate_cmd, fastq_cmd],
             stdout=subprocess.DEVNULL,
             description="FASTQ extraction",
+            heartbeat=heartbeat,
+            expected_reads=expected_reads,
         )
