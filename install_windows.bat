@@ -121,8 +121,10 @@ pixi config set --local detached-environments "%PIXI_PROJECT_ENVIRONMENT_DIR%"
 if errorlevel 1 exit /b 1
 
 if "%SKIP_PIXI_INSTALL%"=="0" (
-    echo Installing the WGS Extract CLI Pixi environment...
+    echo Installing the WGS Extract CLI and native GATK Pixi environments...
     pixi install --locked
+    if errorlevel 1 exit /b 1
+    pixi install --locked -e gatk
     if errorlevel 1 exit /b 1
 ) else (
     echo Skipping Pixi install.

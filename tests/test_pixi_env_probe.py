@@ -1,6 +1,7 @@
 """Finding a tool in a Pixi environment: in this process when the CLI already
 runs in that environment (`pixi run` takes seconds on Windows), else inside it."""
 
+import json
 import shlex
 import subprocess
 import sys
@@ -112,3 +113,105 @@ def test_interpreter_alias_uses_its_dedicated_environment(
             ]
         else:
             assert command is None
+
+
+def _gatk_prefix(tmp_path: Path) -> Path:
+    prefix = tmp_path / "profile with spaces"
+    package = prefix / "share" / "gatk4-4.6.2.0-1"
+    package.mkdir(parents=True)
+    (package / "gatk-package-4.6.2.0-local.jar").write_bytes(b"PK")
+    sidecar = prefix / "Library" / "share" / "gkl"
+    sidecar.mkdir(parents=True)
+    (sidecar / "gkl-native-wgse.jar").write_bytes(b"PK")
+    java = prefix / "Library" / "bin"
+    java.mkdir(parents=True)
+    (java / "java.exe").write_bytes(b"MZ")
+    return prefix
+
+
+def test_windows_gatk_uses_sidecar_classpath_and_environment_java(
+    tmp_path, monkeypatch
+):
+    prefix = _gatk_prefix(tmp_path)
+    monkeypatch.setattr("shutil.which", lambda name: "/unrelated/gatk")
+    found = pixi_tools._probe_environment(str(prefix), ["gatk"], windows=True)
+    assert found is not None
+    args = json.loads(found.removeprefix("gatk:"))
+    assert args[0] == str(prefix / "Library/bin/java.exe")
+    assert "-jar" not in args
+    assert args[-1] == "org.broadinstitute.hellbender.Main"
+    assert args[args.index("-cp") + 1].split(";") == [
+        str(prefix / "Library/share/gkl/gkl-native-wgse.jar"),
+        str(prefix / "share/gatk4-4.6.2.0-1/gatk-package-4.6.2.0-local.jar"),
+    ]
+    assert "-Dsamjdk.use_async_io_write_samtools=true" in args
+    assert not any(arg.startswith("-Xmx") for arg in args)
+
+
+@pytest.mark.parametrize(
+    "missing_jar",
+    [
+        "Library/share/gkl/gkl-native-wgse.jar",
+        "share/gatk4-4.6.2.0-1/gatk-package-4.6.2.0-local.jar",
+    ],
+)
+def test_windows_gatk_missing_native_jar_has_repair_advice(
+    tmp_path, monkeypatch, missing_jar
+):
+    from wgsextract_cli.core import dependency_checks
+    from wgsextract_cli.core.utils import WGSExtractError
+
+    prefix = _gatk_prefix(tmp_path)
+    (prefix / missing_jar).unlink()
+    monkeypatch.setattr("shutil.which", lambda name: "/unrelated/gatk")
+    assert pixi_tools._probe_environment(str(prefix), ["gatk"], windows=True) is None
+    assert (
+        pixi_tools._probe_environment(str(prefix), ["gatk"], windows=False)
+        == "direct-name:gatk"
+    )
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(dependency_checks, "check_dependencies", lambda tools: ["gatk"])
+    with pytest.raises(WGSExtractError) as exc:
+        dependency_checks.verify_dependencies(["gatk"])
+    assert "install_windows.bat" in str(exc.value)
+    assert "pixi install --locked -e gatk" in str(exc.value)
+
+
+def test_windows_gatk_rejects_an_unqualified_jar_abi(tmp_path, monkeypatch):
+    prefix = _gatk_prefix(tmp_path)
+    jar = prefix / "share/gatk4-4.6.2.0-1/gatk-package-4.6.2.0-local.jar"
+    jar.rename(jar.with_name("gatk-package-4.7.0-local.jar"))
+    monkeypatch.setattr("shutil.which", lambda name: "/unrelated/gatk")
+    assert pixi_tools._probe_environment(str(prefix), ["gatk"], windows=True) is None
+
+
+def test_windows_gatk_command_quotes_classpath_without_a_script(tmp_path, monkeypatch):
+    prefix = _gatk_prefix(tmp_path)
+    monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", "gatk")
+    monkeypatch.setattr(pixi_tools.sys, "prefix", str(prefix))
+    monkeypatch.setattr(pixi_tools.runtime, "is_windows_host", lambda: True)
+    monkeypatch.setattr(pixi_tools, "_resolve_pixi_command", lambda: "pixi")
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    found = pixi_tools.pixi_env_tool("gatk")
+    assert found is not None
+    probed = pixi_tools._probe_environment(str(prefix), ["gatk"], True)
+    assert probed is not None
+    args = json.loads(probed.removeprefix("gatk:"))
+    assert found == subprocess.list2cmdline(args)
+
+
+def test_windows_gatk_does_not_install_or_launch_a_first_use_script(monkeypatch):
+    monkeypatch.delenv("PIXI_ENVIRONMENT_NAME", raising=False)
+    monkeypatch.setattr(pixi_tools.runtime, "is_windows_host", lambda: True)
+    monkeypatch.setattr(pixi_tools, "_resolve_pixi_command", lambda: "pixi")
+    monkeypatch.setattr(
+        pixi_tools,
+        "_probe_environment_with_pixi",
+        lambda *_: subprocess.CompletedProcess([], 1, ""),
+    )
+
+    def no_install_probe(*_):
+        raise AssertionError("Tried optional-environment first-use installation")
+
+    monkeypatch.setattr(pixi_tools, "_locked_package_available", no_install_probe)
+    assert pixi_tools.pixi_env_tool("gatk") is None

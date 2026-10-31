@@ -1,0 +1,81 @@
+diff --git i/src/main/native/common/avx.h w/src/main/native/common/avx.h
+index 14f7af3..dae3bd0 100644
+--- i/src/main/native/common/avx.h
++++ w/src/main/native/common/avx.h
+@@ -127,7 +127,7 @@ bool is_avx2_supported()
+ inline
+ bool is_avx512_supported()
+ {
+-#ifndef __APPLE__
++#if !defined(__APPLE__) && !defined(WGSE_GKL_AVX_ONLY)
+     uint32_t a, b, c, d;
+     uint32_t osxsave_mask = (1 << 27); // OSX.
+     uint32_t avx512_skx_mask = (1 << 16) | // AVX-512F
+@@ -162,4 +162,3 @@ bool is_avx512_supported()
+ }
+ 
+ #endif
+-
+diff --git i/src/main/native/pairhmm/IntelPairHmm.cc w/src/main/native/pairhmm/IntelPairHmm.cc
+index 3aa04dc..eb7e7a6 100644
+--- i/src/main/native/pairhmm/IntelPairHmm.cc
++++ w/src/main/native/pairhmm/IntelPairHmm.cc
+@@ -96,6 +96,7 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_pairhmm_IntelPairHmm_initNative
+   _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
+ 
+   // set function pointers
++#ifndef WGSE_GKL_AVX_ONLY
+   if(is_avx512_supported())
+   {
+ #ifndef __APPLE__
+@@ -107,6 +108,7 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_pairhmm_IntelPairHmm_initNative
+ #endif
+   }
+   else
++#endif
+   {
+     g_compute_full_prob_float = compute_fp_avxs;
+     g_compute_full_prob_double = compute_fp_avxd;
+diff --git i/src/main/native/pairhmm/avx-pairhmm-template.h w/src/main/native/pairhmm/avx-pairhmm-template.h
+index d683618..9f448f1 100644
+--- i/src/main/native/pairhmm/avx-pairhmm-template.h
++++ w/src/main/native/pairhmm/avx-pairhmm-template.h
+@@ -257,7 +257,6 @@ template<class NUMBER> NUMBER CONCAT(CONCAT(compute_full_prob_,SIMD_ENGINE), PRE
+     /* Probality vectors */
+     SIMD_TYPE pGAPM, pMM, pMX, pXX, pMY, pYY;
+ 
+-    struct timeval start, end;
+     NUMBER result_avx2;
+     Context<NUMBER> ctx;
+     UNION_TYPE rs , rsN;
+@@ -372,4 +371,3 @@ template<class NUMBER> NUMBER CONCAT(CONCAT(compute_full_prob_,SIMD_ENGINE), PRE
+ }
+ 
+ #endif
+-
+diff --git i/src/main/native/utils/utils.cc w/src/main/native/utils/utils.cc
+index 854938a..78fa27b 100644
+--- i/src/main/native/utils/utils.cc
++++ w/src/main/native/utils/utils.cc
+@@ -21,6 +21,9 @@
+  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  * SOFTWARE.
+  */
++#include <atomic>
++#include <cstdio>
++
+ #if defined(_MSC_VER)
+   #include <intrin.h> // SIMD intrinsics for Windows
+ #else
+@@ -72,6 +75,11 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_IntelGKLUtils_setFlushToZeroNative
+ JNIEXPORT jboolean JNICALL Java_com_intel_gkl_IntelGKLUtils_isAvxSupportedNative
+   (JNIEnv *env, jobject obj)
+ {
++#ifdef _WIN32
++    static std::atomic_flag reported = ATOMIC_FLAG_INIT;
++    if (!reported.test_and_set())
++        std::fprintf(stderr, "Intel GKL Utils loaded (WGSE Windows AVX build)\n");
++#endif
+     return is_avx_supported();
+ }
+ 

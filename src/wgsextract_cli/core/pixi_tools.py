@@ -20,18 +20,6 @@ from wgsextract_cli.core.tool_catalog import (
     _tool_executable_names,
 )
 
-# Runs <env prefix>/bin/<script> with its interpreter from inside `pixi run`, for
-# a Windows script tool whose environment isn't installed yet (its prefix, and
-# so the script's path, only exists once `pixi run` has installed it).
-_WINDOWS_FIRST_USE_STUB = (
-    "import subprocess, sys; from pathlib import Path; "
-    "name = sys.argv[2]; "
-    "root = Path(sys.prefix); "
-    "found = sorted(p for d in ('share', 'opt') for p in (root / d).glob('*/' + name)) + "
-    "[p for p in (root / d / name for d in ('bin', 'Scripts')) if p.exists()]; "
-    "sys.exit(subprocess.call([sys.argv[1], str(found[0]) if found else name, *sys.argv[3:]]))"
-)
-
 
 def is_pixi_tool_command(path: str) -> bool:
     """Return whether a resolved command is explicitly launched through Pixi."""
@@ -158,14 +146,38 @@ def _probe_environment(prefix: str, tool_names: list[str], windows: bool) -> str
     Runs in this process or, for another environment, inside it: its source is
     sent to that environment's Python, so it imports what it needs itself.
     """
+    import json
     import shutil
     from pathlib import Path
+
+    root = Path(prefix)
+    if windows and "gatk" in tool_names:
+        jars = sorted(root.glob("share/gatk4-*/gatk-package-4.6.2.0-local.jar"))
+        sidecar = root / "Library" / "share" / "gkl" / "gkl-native-wgse.jar"
+        java = root / "Library" / "bin" / "java.exe"
+        if not jars or not sidecar.is_file() or not java.is_file():
+            return None
+        # The upstream launcher uses -jar, which ignores an added classpath.
+        # Preserve its packaged JVM options and default heap ergonomics.
+        return "gatk:" + json.dumps(
+            [
+                str(java),
+                "-Dstdout.encoding=UTF-8",
+                "-Dstderr.encoding=UTF-8",
+                "-Dsamjdk.use_async_io_read_samtools=false",
+                "-Dsamjdk.use_async_io_write_samtools=true",
+                "-Dsamjdk.use_async_io_write_tribble=false",
+                "-Dsamjdk.compression_level=2",
+                "-cp",
+                f"{sidecar};{jars[-1]}",
+                "org.broadinstitute.hellbender.Main",
+            ]
+        )
 
     for tool in tool_names:
         if shutil.which(tool):
             return "direct-name:" + tool
 
-    root = Path(prefix)
     if "haplogrep" in tool_names:
         jar = root / "bin" / "haplogrep.jar"
         if jar.exists():
@@ -261,6 +273,9 @@ def _host_pixi_tool_command(tool: str) -> str | None:
         return _join_command([program or args[0], *args[1:]])
 
     if not found:
+        if tool == "gatk" and runtime.is_windows_host():
+            # A first-use script stub would run java -jar and silently omit GKL.
+            return None
         # An optional environment that isn't installed yet: `pixi run` installs it
         # (with visible progress) the first time the tool is actually used.
         # An installed environment that fails the probe hasn't got the tool.
@@ -270,20 +285,6 @@ def _host_pixi_tool_command(tool: str) -> str | None:
             and _locked_package_available(pixi_cmd, env, tool)
             and pixi_env_prefix(env) is None
         ):
-            launcher = WINDOWS_PIXI_SCRIPT_LAUNCHERS.get(tool)
-            if launcher and runtime.is_windows_host():
-                # Windows can't run the extensionless script by name.
-                return _pixi_run_command(
-                    pixi_cmd,
-                    env,
-                    [
-                        "python",
-                        "-c",
-                        _WINDOWS_FIRST_USE_STUB,
-                        *launcher,
-                        executable_names[0],
-                    ],
-                )
             return _pixi_run_command(pixi_cmd, env, [executable_names[0]])
         return None
 
@@ -293,6 +294,8 @@ def _host_pixi_tool_command(tool: str) -> str | None:
 
     if kind == "direct-name":
         return command([value])
+    if kind == "gatk":
+        return command(json.loads(value))
     if kind == "haplogrep":
         return command([*JAVA_JAR, java_local_path(value)])
     if kind == "script" and tool in WINDOWS_PIXI_SCRIPT_LAUNCHERS:
@@ -305,6 +308,33 @@ def _host_pixi_tool_command(tool: str) -> str | None:
 def pixi_env_tool(tool: str) -> str | None:
     """How to run a tool from its Pixi environment only (not from PATH)."""
     return _host_pixi_tool_command(tool)
+
+
+def windows_gatk_java_options(command: list[str]) -> list[str]:
+    """Move launcher-only options before Main for direct Windows Java launches."""
+    main = "org.broadinstitute.hellbender.Main"
+    if (
+        not runtime.is_windows_host()
+        or main not in command
+        or "--java-options" not in command
+    ):
+        return command
+    index = command.index(main)
+    arguments = command[index + 1 :]
+    options: list[str] = []
+    remaining: list[str] = []
+    i = 0
+    while i < len(arguments):
+        if arguments[i] == "--java-options":
+            if i + 1 == len(arguments):
+                raise ValueError("GATK --java-options requires an option string.")
+            # Match the upstream gatk Python launcher's whitespace splitting.
+            options.extend(arguments[i + 1].split())
+            i += 2
+        else:
+            remaining.append(arguments[i])
+            i += 1
+    return [*command[:index], *options, main, *remaining]
 
 
 def pixi_env_prefix(env: str) -> Path | None:

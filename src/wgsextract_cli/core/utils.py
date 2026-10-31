@@ -113,6 +113,13 @@ def _normalize_subprocess_cmd(cmd: PathInput | Sequence[object]) -> list[str]:
                 else:
                     cmd_list = _tool_command_parts(resolved) + cmd_list[1:]
 
+    if "--java-options" in cmd_list:
+        from wgsextract_cli.core.pixi_tools import windows_gatk_java_options
+
+        try:
+            cmd_list = windows_gatk_java_options(cmd_list)
+        except ValueError as e:
+            raise WGSExtractError(str(e)) from e
     return cmd_list
 
 

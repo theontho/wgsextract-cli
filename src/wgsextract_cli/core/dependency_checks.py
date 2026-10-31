@@ -260,13 +260,21 @@ def verify_dependencies(
             logging.error(f" - {t}")
 
         if is_optional:
-            logging.info(
-                "Please install the missing tools using your system package manager "
-                "(e.g., brew, apt, conda) or follow the project installation guide."
-            )
-            raise WGSExtractError(
-                f"Missing required optional tool(s): {', '.join(missing)}"
-            )
+            message = f"Missing required optional tool(s): {', '.join(missing)}"
+            if sys.platform == "win32" and "gatk" in missing:
+                repair = (
+                    "Re-run install_windows.bat or run "
+                    "'pixi install --locked -e gatk' to restore GATK 4.6.2.0 "
+                    "and its native GKL sidecar."
+                )
+                logging.info(repair)
+                message += f". {repair}"
+            else:
+                logging.info(
+                    "Please install the missing tools using your system package manager "
+                    "(e.g., brew, apt, conda) or follow the project installation guide."
+                )
+            raise WGSExtractError(message)
         logging.error(
             "Please ensure all mandatory tools are installed and in your PATH."
         )

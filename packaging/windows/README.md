@@ -13,6 +13,7 @@ WGS Extract's own builds of them instead, made from these recipes:
 | minimap2 | minimap2 |
 | fastp | fastp |
 | samblaster | samblaster |
+| gkl (GATK environment only) | JNI DLLs and a resource-only sidecar jar |
 
 Each is a native Windows executable built with MSYS2's UCRT64 GCC and linked
 statically, so it needs only Windows' own DLLs: no MSYS2, Cygwin or WSL on the
@@ -73,6 +74,25 @@ other tool recipes keep their own compiler settings.
 
 ## Building
 
+### GATK kernels
+
+GKL is a separate Windows-only dependency of the `gatk` feature. Its
+`Library/share/gkl/gkl-native-wgse.jar` adds statically linked GKL 0.8.11 utils
+and serial AVX PairHMM DLLs to the unchanged GATK 4.6.2.0 jar. The CLI invokes
+the environment's Java 17 with an explicit classpath and the upstream
+launcher's JVM options; `java -jar` would ignore the sidecar.
+OpenMP PairHMM, native Smith-Waterman and compression are not included yet.
+The caller warns about this partial acceleration: numerical annotations and
+throughput need not match Linux. The dedicated hosted Windows CI gate requires
+actual utils/AVX PairHMM loading and a correct tiny-region genotype, not Java
+PairHMM fallback. Linux/macOS GATK invocation is unchanged.
+
+GKL pins belong in `[feature.gatk.target.win-64.dependencies]`, not the default
+Windows-tools block. The package's top-level license is MIT with BSD-3-Clause
+exceptions; preserve the upstream notices.
+
+### Tool release
+
 The [Windows Tools](../../.github/workflows/windows_tools.yml) workflow builds
 every recipe on pull requests that change them. To release a complete set, run
 it with a new `release_tag` (`windows-tools-<n>`), then pin it:
@@ -82,7 +102,7 @@ python packaging/windows/pin.py windows-tools-<n>
 pixi lock
 ```
 
-**Partial releases:** never use `pin.py`, which replaces the entire pin block
+**Partial default-tool releases:** never use `pin.py`, which replaces that entire pin block
 with the release's assets and would remove the other tools. Update only the
 selected URL/SHA-256 entries by hand, then run `pixi lock`, preserving all
 other pins. `windows-tools-5` contains only htslib, samtools and bcftools;

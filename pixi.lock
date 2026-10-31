@@ -1466,6 +1466,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/vc-14.5-ha367084_41.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/vc14_runtime-14.51.36247-habf1de7_41.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/vcomp14-14.51.36247-habf1de7_41.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-6/gkl-0.8.11-wgse_0.conda
   pacbio:
     channels:
     - url: https://conda.anaconda.org/conda-forge/
@@ -17167,51 +17168,49 @@ packages:
 - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-3/bwa-mem2-2.3-wgse_1.conda
   subdir: win-64
   sha256: ed33b6af264ae0ea56dd628f501a5282e88347752a42630d030f76dbc30e9890
-  channel: null
   license: MIT
   timestamp: 1792971593097
 - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-3/fastp-1.4.0-wgse_1.conda
   subdir: win-64
   sha256: 42849b9e13cdc7dc346c6f6268836436ad500e576a9b316804742a560df797da
-  channel: null
   license: MIT
   timestamp: 1792971593100
 - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-3/minimap2-2.31-wgse_1.conda
   subdir: win-64
   sha256: 78e5650ade8221f59f5ab397f2cd640bbd6d4f8b02559feda22299b963a11fb2
-  channel: null
   license: MIT
   timestamp: 1792971593105
 - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-3/samblaster-0.1.26-wgse_1.conda
   subdir: win-64
   sha256: 4adecc079154101e1e8aefe9fe22cdb0511d05090705c3474db5232d329c222c
-  channel: null
   license: MIT
   timestamp: 1792971593108
 - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-4/bwa-0.7.19-wgse_2.conda
   subdir: win-64
   sha256: 2726f14fa5f229629bce01e3c6c600c8d5daedf8a8c4d26aeeb298c33cd117fb
-  channel: null
   license: GPL-3.0-only
   timestamp: 1792979530709
 - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-5/bcftools-1.24-wgse_3.conda
   subdir: win-64
   sha256: 4b01933d38820a9a693e2414581530789c134fab03b314644f70a709ebcff6b3
-  channel: null
   license: MIT
   timestamp: 1793004900699
 - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-5/htslib-1.24-wgse_2.conda
   subdir: win-64
   sha256: d4a3101d88768b1092a38ec5f83302ac361e8011652437a3338b8bf83173a335
-  channel: null
   license: MIT
   timestamp: 1793004900719
 - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-5/samtools-1.24-wgse_3.conda
   subdir: win-64
   sha256: d8422d0c21059001bbaa7d27aac7771f3033e20a3d7a9bd2009730eb17165b89
-  channel: null
   license: MIT
   timestamp: 1793004900726
+- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-6/gkl-0.8.11-wgse_0.conda
+  subdir: win-64
+  sha256: 3ad191912ac0a23a21696448a79f5b1499982305844f183e0052e9f20f33c982
+  channel: null
+  license: MIT AND BSD-3-Clause
+  timestamp: 1793417684385
 - pypi: ./
   name: wgsextract-cli
   requires_dist:

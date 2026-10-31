@@ -36,6 +36,35 @@ def _outside_a_pixi_environment(monkeypatch):
 PIXI_EXE = r"C:\Users\test\.pixi\bin\pixi.exe"
 
 
+@pytest.mark.parametrize("windows", [True, False])
+def test_gatk_direct_java_preserves_launcher_heap_and_worker_options(
+    monkeypatch, tmp_path, windows
+):
+    monkeypatch.setattr(runtime, "is_windows_host", lambda: windows)
+    command = [
+        tmp_path / "gatk env" / "java.exe",
+        "-Dsamjdk.compression_level=2",
+        "-cp", r"C:\gatk env\sidecar.jar;C:\gatk env\gatk.jar",
+        "org.broadinstitute.hellbender.Main",
+        "--java-options",
+        "-Xmx4g -XX:ActiveProcessorCount=1 -XX:ParallelGCThreads=1",
+        "HaplotypeCaller", "-I", r"C:\sample folder\sample.bam",
+    ]  # fmt: skip
+    actual = _normalize_subprocess_cmd(command)
+    if windows:
+        main_at = actual.index("org.broadinstitute.hellbender.Main")
+        assert "--java-options" not in actual
+        assert actual[main_at - 3 : main_at] == [
+            "-Xmx4g",
+            "-XX:ActiveProcessorCount=1",
+            "-XX:ParallelGCThreads=1",
+        ]
+        assert actual[-1] == r"C:\sample folder\sample.bam"
+        assert actual[actual.index("-cp") + 1] == command[command.index("-cp") + 1]
+    else:
+        assert actual == [str(argument) for argument in command]
+
+
 def _which_only_pixi(tool: str) -> str | None:
     return PIXI_EXE if tool == "pixi" else None
 

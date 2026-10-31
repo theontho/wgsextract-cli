@@ -199,6 +199,28 @@ def test_gatk_dict_generation_failure_is_reported(monkeypatch, tmp_path):
         callers.cmd_gatk(args)
 
 
+@pytest.mark.parametrize("platform", ["win32", "linux", "darwin"])
+def test_gatk_partial_acceleration_warning_only_on_windows(
+    monkeypatch, tmp_path, caplog, platform
+):
+    commands = []
+
+    def run(cmd, **_kwargs):
+        commands.append(cmd)
+        raise subprocess.CalledProcessError(1, cmd)
+
+    _mock_gatk(monkeypatch, tmp_path, run)
+    monkeypatch.setattr(
+        callers.ultima, "alignment_flow_data", lambda *_: Namespace(flow_aware=False)
+    )
+    monkeypatch.setattr(callers.sys, "platform", platform)
+    args = Namespace(input="s.bam", region=None, gpu=False)
+    with pytest.raises(WGSExtractError, match="GATK failed"):
+        callers.cmd_gatk(args)
+    assert commands[0][:2] == ["gatk", "HaplotypeCaller"]
+    assert ("acceleration is partial" in caplog.text) == (platform == "win32")
+
+
 def test_failed_cram_conversion_removes_the_partial_bam(monkeypatch, tmp_path):
     def run(cmd, **_kwargs):
         Path(cmd[cmd.index("-o") + 1]).write_text("partial")
