@@ -316,11 +316,25 @@ def run(args: argparse.Namespace) -> None:
         message = LOG_MESSAGES["ref_required_for"].format(task="microarray generation")
         raise WGSExtractError(message)
     if indel_bindings and not (
-        is_hg37_build(lib.build or "") or is_hg38_build(lib.build or "")
+        is_hg37_build(lib.build or "")
+        or is_hg38_build(lib.build or "")
+        or is_t2t_build(lib.build or "")
     ):
         raise WGSExtractError(
-            "Indel manifests require a known GRCh37 or GRCh38 reference."
+            "Indel manifests require a known GRCh37 or GRCh38 reference, "
+            "or supported CHM13 for no-call masking."
         )
+
+    if lib.build and is_t2t_build(lib.build):
+        from ._microarray_chm13 import run_chm13
+
+        try:
+            run_chm13(
+                args, lib, ref_fasta, outdir, threads, indel_bindings=indel_bindings
+            )
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            raise WGSExtractError(f"CHM13 microarray failed: {error}") from error
+        return
 
     if (
         not args.ref_vcf_tab

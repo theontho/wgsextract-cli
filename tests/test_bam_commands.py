@@ -2,16 +2,20 @@
 tiny BAM: the exact reads, flags and headers each one writes, the reference a CRAM
 is made with, and what is left behind when a step fails."""
 
+import gzip
 import hashlib
 import logging
 import random
 import shutil
+import struct
+import zlib
 from pathlib import Path
 
 import pytest
 
 from tests.htslib_helpers import needs_htslib, run_wgsextract, sam_to_bam, write_fasta
 from wgsextract_cli.commands import bam as bam_module
+from wgsextract_cli.core import samtools_commands
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.samtools_commands import _use_sambamba
 from wgsextract_cli.core.utils import WGSExtractError, run_command
@@ -96,6 +100,48 @@ def _header(path) -> list[str]:
     ]
 
 
+def _truncate_alignment_block(path: Path) -> None:
+    """Keep the BAM header intact and cut a nonempty BGZF alignment block."""
+    header = _header(path)
+    compressed = path.read_bytes()
+    payload = gzip.decompress(compressed)
+    assert payload[:4] == b"BAM\x01"
+    header_end = 8 + struct.unpack_from("<i", payload, 4)[0]
+    reference_count = struct.unpack_from("<i", payload, header_end)[0]
+    header_end += 4
+    for _ in range(reference_count):
+        header_end += 8 + struct.unpack_from("<i", payload, header_end)[0]
+    assert header_end < len(payload), "The corruption fixture needs alignments"
+
+    offset = decoded = 0
+    while offset < len(compressed):
+        assert compressed[offset : offset + 4] == b"\x1f\x8b\x08\x04"
+        assert compressed[offset + 10 : offset + 16] == b"\x06\x00BC\x02\x00"
+        block_size = struct.unpack_from("<H", compressed, offset + 16)[0] + 1
+        end = offset + block_size
+        assert end <= len(compressed)
+        block_payload = gzip.decompress(compressed[offset:end])
+        if decoded >= header_end and block_payload:
+            # BGZF has an 18-byte header and an 8-byte trailer.
+            cut = offset + 18 + max(1, (block_size - 26) // 2)
+            assert offset + 18 < cut < end - 8
+            truncated = compressed[:cut]
+            with pytest.raises((EOFError, zlib.error)):
+                gzip.decompress(truncated)
+            path.write_bytes(truncated)
+            assert _header(path) == header
+            result = run_command(
+                ["samtools", "view", "-c", str(path)],
+                capture_output=True,
+                check=False,
+            )
+            assert result.returncode != 0, "Alignment decoding must fail"
+            return
+        decoded += len(block_payload)
+        offset = end
+    raise AssertionError("The fixture needs an alignment block after its header")
+
+
 def _copy(genome, tmp_path: Path, *with_index: str) -> Path:
     """The fixture BAM (and the named index suffixes) copied into tmp_path."""
     dst = tmp_path / "s.bam"
@@ -161,10 +207,16 @@ def test_sort_cram_writes_cram_against_the_reference(genome, tmp_path):
     assert _records(out, genome["ref"]) == _records(genome["bam"])
 
 
-@with_sambamba
-def test_failed_sort_leaves_no_partial_output(genome, tmp_path):
+@pytest.mark.parametrize(
+    "sambamba",
+    [False, pytest.param(True, marks=with_sambamba)],
+    ids=["samtools", "sambamba"],
+)
+def test_failed_sort_leaves_no_partial_output(genome, tmp_path, monkeypatch, sambamba):
+    monkeypatch.setattr(samtools_commands, "_use_sambamba", lambda: sambamba)
     broken = tmp_path / "broken.bam"
-    broken.write_bytes(Path(genome["bam"]).read_bytes()[:300])  # truncated BGZF
+    shutil.copy(genome["bam"], broken)
+    _truncate_alignment_block(broken)
     out_dir = tmp_path / "out"
     with pytest.raises(WGSExtractError):
         _bam("sort", "--input", str(broken), "--outdir", str(out_dir))
@@ -614,9 +666,12 @@ def test_merge_keeps_conflicting_read_groups_apart(genome, tmp_path, caplog):
     assert len([h for h in _header(out) if h.startswith("@RG")]) == 2
 
 
-def test_merge_failure_leaves_no_partial_output(genome, tmp_path):
+@pytest.mark.parametrize("large_header", [False, True], ids=["compact", "multi-block"])
+def test_merge_failure_leaves_no_partial_output(genome, tmp_path, large_header):
     a, b = _split(genome, tmp_path)
-    Path(b).write_bytes(Path(b).read_bytes()[:-200])  # truncated BGZF
+    if large_header:
+        _reheader(b, lambda lines: [*lines, "@CO\t" + "x" * 70_000])
+    _truncate_alignment_block(Path(b))
     with pytest.raises(WGSExtractError, match="Merging failed"):
         _bam("merge", a, b, "--outdir", str(tmp_path / "o"))
     assert list((tmp_path / "o").iterdir()) == []
