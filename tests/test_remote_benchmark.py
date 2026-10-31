@@ -65,6 +65,48 @@ def _in_called_region(chrom: str, pos: str, lifter: LiftOver) -> bool:
     return target == "chr20" and strand == "+" and 9_999_999 <= position < 12_000_000
 
 
+def _score_all_exports(
+    outdir: Path,
+    stem: str,
+    chip_file: Path,
+    control_file: Path,
+    report_file: Path,
+) -> None:
+    chip = read_chip_export(chip_file, "CombinedKit")
+    control_chip = read_chip_export(control_file, "CombinedKit")
+    reports = {}
+    for name in ("CombinedKit", *CONSUMER_FORMATS):
+        info = get_template_format(name)
+        suffix = info["suffix"] if info else ".txt"
+        paths = list(outdir.rglob(f"{stem}_{name}{suffix}"))
+        assert len(paths) == 1, (name, paths)
+        calls = read_chip_export(paths[0], name)
+        score = score_chip(calls, chip)
+        control = score_chip(calls, control_chip)
+        reports[name] = {
+            "matched_sample": score.as_dict(),
+            "different_sample": control.as_dict(),
+        }
+    report_file.write_text(json.dumps(reports, indent=2) + "\n", newline="\n")
+    print(json.dumps(reports, indent=2))
+    for name, report in reports.items():
+        matched = report["matched_sample"]["total"]
+        negative = report["different_sample"]["total"]
+        minimum = (
+            MIN_MARKERS
+            if name == "CombinedKit"
+            else MIN_MARKERS // 2
+            if name == "23andMe_V5"
+            else 20
+        )
+        assert matched["chromosome_mismatch"] == 0, name
+        assert matched["called"] >= minimum, name
+        assert matched["call_rate"] >= 0.90, name
+        assert matched["concordance"] >= MIN_CONCORDANCE, name
+        assert negative["called"] >= minimum, name
+        assert negative["concordance"] < 0.90, name
+
+
 def test_kit_from_hg00096_matches_its_omni_chip(tmp_path: Path) -> None:
     samtools, bcftools = get_tool_path("samtools"), get_tool_path("bcftools")
     cli = [sys.executable, "-m", "wgsextract_cli.main"]
@@ -96,7 +138,7 @@ def test_kit_from_hg00096_matches_its_omni_chip(tmp_path: Path) -> None:
             )
         ]
         + ["-r", REGION_HG38, "--input", str(bam), "--ref", str(fasta)]
-        + ["--outdir", str(outdir)],
+        + ["--outdir", str(outdir), "--threads", "2"],
         tmp_path,
     )
     # Independent chip truth, including a different-sample negative control.
@@ -120,37 +162,8 @@ def test_kit_from_hg00096_matches_its_omni_chip(tmp_path: Path) -> None:
     chip_file, control_file = tmp_path / "chip.tsv", tmp_path / "control.tsv"
     chip_file.write_text("".join(truth_rows), newline="\n")
     control_file.write_text("".join(control_rows), newline="\n")
-    chip = read_chip_export(chip_file, "CombinedKit")
-    control_chip = read_chip_export(control_file, "CombinedKit")
-    reports = {}
-    for name in ("CombinedKit", *CONSUMER_FORMATS):
-        info = get_template_format(name)
-        suffix = info["suffix"] if info else ".txt"
-        calls = read_chip_export(outdir / f"HG00096_{name}{suffix}", name)
-        score = score_chip(calls, chip)
-        control = score_chip(calls, control_chip)
-        reports[name] = {
-            "matched_sample": score.as_dict(),
-            "different_sample": control.as_dict(),
-        }
-    report_file = tmp_path / "chip-concordance.json"
-    report_file.write_text(json.dumps(reports, indent=2) + "\n", newline="\n")
-    print(json.dumps(reports, indent=2))
     # All layouts must actually have independently measured overlap. A no-call
     # kit must not pass merely because its called-only concordance is undefined.
-    for name, report in reports.items():
-        matched = report["matched_sample"]["total"]
-        negative = report["different_sample"]["total"]
-        minimum = (
-            MIN_MARKERS
-            if name == "CombinedKit"
-            else MIN_MARKERS // 2
-            if name == "23andMe_V5"
-            else 20
-        )
-        assert matched["chromosome_mismatch"] == 0, name
-        assert matched["called"] >= minimum, name
-        assert matched["call_rate"] >= 0.90, name
-        assert matched["concordance"] >= MIN_CONCORDANCE, name
-        assert negative["called"] >= minimum, name
-        assert negative["concordance"] < 0.90, name
+    _score_all_exports(
+        outdir, "HG00096", chip_file, control_file, tmp_path / "chip-concordance.json"
+    )

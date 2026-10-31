@@ -7,6 +7,7 @@ import pytest
 
 from scripts.benchmark_microarray_chip import main
 from tests.test_remote_benchmark import _in_called_region
+from tests.test_remote_benchmark_chm13 import _in_native_called_region
 from wgsextract_cli.commands.benchmark.chip import (
     CONSUMER_FORMATS,
     ChipCall,
@@ -201,3 +202,26 @@ def test_regional_eligibility_uses_unique_forward_mapping(
 ) -> None:
     lifter = SimpleNamespace(convert_coordinate=lambda chrom, pos: hits)
     assert _in_called_region("20", "11000000", lifter) is inside
+
+
+@pytest.mark.parametrize(
+    ("status", "chrom", "position", "inside"),
+    [
+        ("mapped", "chr20", 9_999_999, False),
+        ("mapped", "chr20", 10_000_000, True),
+        ("mapped", "chr20", 12_000_000, True),
+        ("mapped", "chr20", 12_000_001, False),
+        ("mapped", "chr21", 11_000_000, False),
+        ("mapped", "chr20", None, False),
+        ("nonreciprocal", "chr20", 11_000_000, False),
+        ("collision", "chr20", 11_000_000, False),
+    ],
+)
+def test_native_eligibility_uses_only_valid_mapped_coordinates(
+    status: str, chrom: str, position: int | None, inside: bool
+) -> None:
+    site = SimpleNamespace(status=status, target_chrom=chrom, target_pos=position)
+    mapping = SimpleNamespace(source_lookup=lambda chrom, pos: site)
+    assert _in_native_called_region("20", "11000000", mapping) is inside
+    mapping = SimpleNamespace(source_lookup=lambda chrom, pos: None)
+    assert not _in_native_called_region("20", "11000000", mapping)
