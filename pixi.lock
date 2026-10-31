@@ -23709,6 +23709,7 @@ packages:
 - pypi: direct+https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379
   name: yleaf
   version: 4.1.6
+  sha256: 3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379
   requires_dist:
   - setuptools
   - graphviz
