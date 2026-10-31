@@ -78,14 +78,17 @@ other tool recipes keep their own compiler settings.
 
 GKL is a separate Windows-only dependency of the `gatk` feature. Its
 `Library/share/gkl/gkl-native-wgse.jar` adds statically linked GKL 0.8.11 utils
-and serial AVX PairHMM DLLs to the unchanged GATK 4.6.2.0 jar. The CLI invokes
+and serial/OpenMP AVX PairHMM plus AVX2 Smith-Waterman DLLs to the unchanged
+GATK 4.6.2.0 jar. OpenMP workers enable FTZ/DAZ and restore their prior MXCSR.
+The CLI rejects an older sidecar missing the new kernels and gives explicit
+installer/Pixi repair instructions. The CLI invokes
 the environment's Java 17 with an explicit classpath and the upstream
 launcher's JVM options; `java -jar` would ignore the sidecar.
-OpenMP PairHMM, native Smith-Waterman and compression are not included yet.
-The caller warns about this partial acceleration: numerical annotations and
-throughput need not match Linux. The dedicated hosted Windows CI gate requires
-actual utils/AVX PairHMM loading and a correct tiny-region genotype, not Java
-PairHMM fallback. Linux/macOS GATK invocation is unchanged.
+Native compression is still deferred. The caller warns about Java compression
+and potential numerical variation. The dedicated hosted Windows CI gate requires
+actual utils/AVX OpenMP PairHMM/AVX2 SW loading, a correct tiny-region genotype,
+and the matched-ISA JNI parity probe, never Java kernel fallback.
+Linux/macOS GATK invocation is unchanged.
 
 GKL pins belong in `[feature.gatk.target.win-64.dependencies]`, not the default
 Windows-tools block. The package's top-level license is MIT with BSD-3-Clause

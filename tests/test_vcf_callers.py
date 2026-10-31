@@ -200,7 +200,7 @@ def test_gatk_dict_generation_failure_is_reported(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("platform", ["win32", "linux", "darwin"])
-def test_gatk_partial_acceleration_warning_only_on_windows(
+def test_gatk_native_numeric_warning_only_on_windows(
     monkeypatch, tmp_path, caplog, platform
 ):
     commands = []
@@ -218,7 +218,7 @@ def test_gatk_partial_acceleration_warning_only_on_windows(
     with pytest.raises(WGSExtractError, match="GATK failed"):
         callers.cmd_gatk(args)
     assert commands[0][:2] == ["gatk", "HaplotypeCaller"]
-    assert ("acceleration is partial" in caplog.text) == (platform == "win32")
+    assert ("compression remains Java-based" in caplog.text) == (platform == "win32")
 
 
 def test_failed_cram_conversion_removes_the_partial_bam(monkeypatch, tmp_path):

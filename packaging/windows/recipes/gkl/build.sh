@@ -11,9 +11,21 @@ COMMON=(-std=c++11 -O3 -march=x86-64-v2 -mtune=generic -DWGSE_GKL_AVX_ONLY
     "-I$JNI" "-I$JNI/win32" "-I$NATIVE/common")
 
 # Only the compute translation units require AVX; loading utils is baseline-safe.
-g++ "${COMMON[@]}" -shared "$NATIVE/utils/utils.cc" \
+g++ "${COMMON[@]}" -fopenmp -shared "$NATIVE/utils/utils.cc" \
     -o "$BIN/gkl_utils.dll" -static -static-libgcc -static-libstdc++ \
     -Wl,--no-insert-timestamp -s
+g++ "${COMMON[@]}" -mavx -fopenmp -shared "$NATIVE/pairhmm/IntelPairHmm.cc" \
+    "$NATIVE/pairhmm/avx_impl.cc" "$NATIVE/pairhmm/pairhmm_common.cc" \
+    -o "$BIN/gkl_pairhmm_omp.dll" -static -static-libgcc -static-libstdc++ \
+    -Wl,--no-insert-timestamp -s
+g++ "${COMMON[@]}" -mavx2 -shared "$NATIVE/smithwaterman/IntelSmithWaterman.cc" \
+    "$NATIVE/smithwaterman/avx2_impl.cc" "$NATIVE/smithwaterman/smithwaterman_common.cc" \
+    -o "$BIN/gkl_smithwaterman.dll" -static -static-libgcc -static-libstdc++ \
+    -Wl,--no-insert-timestamp -s
+
+g++ "${COMMON[@]}" -fopenmp "$RECIPE_DIR/tests/omp_fp_state.cc" \
+    -o "$SRC_U/.wgse-fp-test.exe" -static -static-libgcc -static-libstdc++
+"$SRC_U/.wgse-fp-test.exe"
 g++ "${COMMON[@]}" -mavx -shared "$NATIVE/pairhmm/IntelPairHmm.cc" \
     "$NATIVE/pairhmm/avx_impl.cc" "$NATIVE/pairhmm/pairhmm_common.cc" \
     -o "$BIN/gkl_pairhmm.dll" -static -static-libgcc -static-libstdc++ \
@@ -21,7 +33,7 @@ g++ "${COMMON[@]}" -mavx -shared "$NATIVE/pairhmm/IntelPairHmm.cc" \
 
 RES="$SRC_U/.wgse/jar/com/intel/gkl/native"
 mkdir -p "$RES" "$PREFIX_U/Library/share/gkl"
-for dll in gkl_utils gkl_pairhmm; do
+for dll in gkl_utils gkl_pairhmm gkl_pairhmm_omp gkl_smithwaterman; do
     deps=$(ldd "$BIN/$dll.dll" | grep -viE '/c/windows/' || true)
     if [ -n "$deps" ]; then
         echo "$dll links non-system DLLs: $deps" >&2

@@ -1,8 +1,62 @@
-diff --git i/src/main/native/common/avx.h w/src/main/native/common/avx.h
-index 14f7af3..dae3bd0 100644
---- i/src/main/native/common/avx.h
-+++ w/src/main/native/common/avx.h
-@@ -127,7 +127,7 @@ bool is_avx2_supported()
+diff --git a/src/main/native/common/ScopedFtzDaz.h b/src/main/native/common/ScopedFtzDaz.h
+new file mode 100644
+index 0000000..4cf3575
+--- /dev/null
++++ b/src/main/native/common/ScopedFtzDaz.h
+@@ -0,0 +1,19 @@
++#ifndef WGSE_SCOPED_FTZ_DAZ_H
++#define WGSE_SCOPED_FTZ_DAZ_H
++
++#include <immintrin.h>
++
++class ScopedFtzDaz {
++    unsigned int saved_;
++public:
++    ScopedFtzDaz() : saved_(_mm_getcsr()) {
++        _mm_setcsr(saved_ | 0x8040);
++    }
++    ~ScopedFtzDaz() {
++        _mm_setcsr(saved_);
++    }
++    ScopedFtzDaz(const ScopedFtzDaz&) = delete;
++    ScopedFtzDaz& operator=(const ScopedFtzDaz&) = delete;
++};
++
++#endif
+diff --git a/src/main/native/common/avx.h b/src/main/native/common/avx.h
+index 14f7af3..f03d9c6 100644
+--- a/src/main/native/common/avx.h
++++ b/src/main/native/common/avx.h
+@@ -72,6 +72,9 @@ bool is_avx_supported()
+     uint32_t a, b, c, d;
+     uint32_t avx_mask = (1 << 27) | (1 << 28);
+ 
++    if (__get_cpuid_max(0, 0) < 1) {
++        return false;
++    }
+     __cpuid_count(1, 0, a, b, c, d);
+     if((c & avx_mask) != avx_mask)
+     {
+@@ -92,6 +95,9 @@ bool is_avx_supported()
+ inline
+ bool is_avx2_supported()
+ {
++    if (!is_avx_supported() || __get_cpuid_max(0, 0) < 7) {
++        return false;
++    }
+     uint32_t a, b, c, d;
+     uint32_t osxsave_mask = (1 << 27); // OSX.
+     uint32_t avx2_bmi_mask = (1 << 5) | // AVX2
+@@ -102,7 +108,7 @@ bool is_avx2_supported()
+     __cpuid_count(1, 0, a, b, c, d);
+     if((c & osxsave_mask) != osxsave_mask)
+     {
+-        return true;
++        return false;
+     }
+ 
+     // step 2 - must ensure OS supports YMM registers (and XMM)
+@@ -127,7 +133,7 @@ bool is_avx2_supported()
  inline
  bool is_avx512_supported()
  {
@@ -11,16 +65,27 @@ index 14f7af3..dae3bd0 100644
      uint32_t a, b, c, d;
      uint32_t osxsave_mask = (1 << 27); // OSX.
      uint32_t avx512_skx_mask = (1 << 16) | // AVX-512F
-@@ -162,4 +162,3 @@ bool is_avx512_supported()
+@@ -162,4 +168,3 @@ bool is_avx512_supported()
  }
  
  #endif
 -
-diff --git i/src/main/native/pairhmm/IntelPairHmm.cc w/src/main/native/pairhmm/IntelPairHmm.cc
-index 3aa04dc..eb7e7a6 100644
---- i/src/main/native/pairhmm/IntelPairHmm.cc
-+++ w/src/main/native/pairhmm/IntelPairHmm.cc
-@@ -96,6 +96,7 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_pairhmm_IntelPairHmm_initNative
+diff --git a/src/main/native/pairhmm/IntelPairHmm.cc b/src/main/native/pairhmm/IntelPairHmm.cc
+index 3aa04dc..a257623 100644
+--- a/src/main/native/pairhmm/IntelPairHmm.cc
++++ b/src/main/native/pairhmm/IntelPairHmm.cc
+@@ -21,8 +21,9 @@
+  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  * SOFTWARE.
+  */
+-#ifdef linux
++#ifdef _OPENMP
+ #include <omp.h>
++#include <ScopedFtzDaz.h>
+ #endif
+ #include <vector>
+ #include <math.h>
+@@ -96,6 +97,7 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_pairhmm_IntelPairHmm_initNative
    _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
  
    // set function pointers
@@ -28,7 +93,7 @@ index 3aa04dc..eb7e7a6 100644
    if(is_avx512_supported())
    {
  #ifndef __APPLE__
-@@ -107,6 +108,7 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_pairhmm_IntelPairHmm_initNative
+@@ -107,6 +109,7 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_pairhmm_IntelPairHmm_initNative
  #endif
    }
    else
@@ -36,10 +101,41 @@ index 3aa04dc..eb7e7a6 100644
    {
      g_compute_full_prob_float = compute_fp_avxs;
      g_compute_full_prob_double = compute_fp_avxd;
-diff --git i/src/main/native/pairhmm/avx-pairhmm-template.h w/src/main/native/pairhmm/avx-pairhmm-template.h
+@@ -147,9 +150,11 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_pairhmm_IntelPairHmm_computeLikelihood
+   //==================================================================
+   // calcutate pairHMM
+ 
+-    try {
+         #ifdef _OPENMP
+-              #pragma omp parallel for schedule(dynamic, 1) num_threads(g_max_threads)
++              #pragma omp parallel num_threads(g_max_threads)
++              {
++                ScopedFtzDaz fpState;
++                #pragma omp for schedule(dynamic, 1)
+         #endif
+         for (int i = 0; i < testcases.size(); i++) {
+ 
+@@ -167,15 +172,9 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_pairhmm_IntelPairHmm_computeLikelihood
+             javaResults[i] = result_final;
+             DBG("result = %e", result_final);
+           }
+-    }
+-    catch (JavaException& e) {
+        #ifdef _OPENMP
+-            #pragma omp barrier
++              }
+        #endif
+-       env->ExceptionClear();
+-       env->ThrowNew(env->FindClass(e.classPath), "Error in pairhmm processing.");
+-       return;
+-    }
+ 
+   DBG("Exit");
+ }
+diff --git a/src/main/native/pairhmm/avx-pairhmm-template.h b/src/main/native/pairhmm/avx-pairhmm-template.h
 index d683618..9f448f1 100644
---- i/src/main/native/pairhmm/avx-pairhmm-template.h
-+++ w/src/main/native/pairhmm/avx-pairhmm-template.h
+--- a/src/main/native/pairhmm/avx-pairhmm-template.h
++++ b/src/main/native/pairhmm/avx-pairhmm-template.h
 @@ -257,7 +257,6 @@ template<class NUMBER> NUMBER CONCAT(CONCAT(compute_full_prob_,SIMD_ENGINE), PRE
      /* Probality vectors */
      SIMD_TYPE pGAPM, pMM, pMX, pXX, pMY, pYY;
@@ -53,11 +149,33 @@ index d683618..9f448f1 100644
  
  #endif
 -
-diff --git i/src/main/native/utils/utils.cc w/src/main/native/utils/utils.cc
-index 854938a..78fa27b 100644
---- i/src/main/native/utils/utils.cc
-+++ w/src/main/native/utils/utils.cc
-@@ -21,6 +21,9 @@
+diff --git a/src/main/native/smithwaterman/IntelSmithWaterman.cc b/src/main/native/smithwaterman/IntelSmithWaterman.cc
+index af18ae0..973fcbf 100644
+--- a/src/main/native/smithwaterman/IntelSmithWaterman.cc
++++ b/src/main/native/smithwaterman/IntelSmithWaterman.cc
+@@ -35,7 +35,7 @@
+ #include <assert.h>
+ #include <debug.h>
+ #include "avx2_impl.h"
+-#ifndef __APPLE__
++#if !defined(__APPLE__) && !defined(WGSE_GKL_AVX_ONLY)
+   #include "avx512_impl.h"
+ #endif
+ 
+@@ -51,7 +51,7 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_smithwaterman_IntelSmithWaterman_initN
+ 
+ if(is_avx512_supported())
+       {
+-    #ifndef __APPLE__
++    #if !defined(__APPLE__) && !defined(WGSE_GKL_AVX_ONLY)
+         DBG("Using CPU-supported AVX-512 instructions");
+         g_runSWOnePairBT = runSWOnePairBT_fp_avx512;
+ 
+diff --git a/src/main/native/utils/utils.cc b/src/main/native/utils/utils.cc
+index 854938a..7280d2c 100644
+--- a/src/main/native/utils/utils.cc
++++ b/src/main/native/utils/utils.cc
+@@ -21,13 +21,16 @@
   * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   * SOFTWARE.
   */
@@ -67,6 +185,14 @@ index 854938a..78fa27b 100644
  #if defined(_MSC_VER)
    #include <intrin.h> // SIMD intrinsics for Windows
  #else
+   #include <x86intrin.h> // SIMD intrinsics for GCC
+ #endif
+ 
+-#ifdef linux
++#ifdef _OPENMP
+   #include <omp.h>
+ #endif
+ 
 @@ -72,6 +75,11 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_IntelGKLUtils_setFlushToZeroNative
  JNIEXPORT jboolean JNICALL Java_com_intel_gkl_IntelGKLUtils_isAvxSupportedNative
    (JNIEnv *env, jobject obj)

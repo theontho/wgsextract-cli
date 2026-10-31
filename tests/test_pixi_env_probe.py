@@ -5,6 +5,7 @@ import json
 import shlex
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -122,7 +123,14 @@ def _gatk_prefix(tmp_path: Path) -> Path:
     (package / "gatk-package-4.6.2.0-local.jar").write_bytes(b"PK")
     sidecar = prefix / "Library" / "share" / "gkl"
     sidecar.mkdir(parents=True)
-    (sidecar / "gkl-native-wgse.jar").write_bytes(b"PK")
+    with zipfile.ZipFile(sidecar / "gkl-native-wgse.jar", "w") as native:
+        for name in (
+            "gkl_utils",
+            "gkl_pairhmm",
+            "gkl_pairhmm_omp",
+            "gkl_smithwaterman",
+        ):
+            native.writestr(f"com/intel/gkl/native/{name}.dll", b"MZ")
     java = prefix / "Library" / "bin"
     java.mkdir(parents=True)
     (java / "java.exe").write_bytes(b"MZ")
@@ -182,6 +190,23 @@ def test_windows_gatk_rejects_an_unqualified_jar_abi(tmp_path, monkeypatch):
     jar = prefix / "share/gatk4-4.6.2.0-1/gatk-package-4.6.2.0-local.jar"
     jar.rename(jar.with_name("gatk-package-4.7.0-local.jar"))
     monkeypatch.setattr("shutil.which", lambda name: "/unrelated/gatk")
+    assert pixi_tools._probe_environment(str(prefix), ["gatk"], windows=True) is None
+
+
+@pytest.mark.parametrize("missing", ["gkl_pairhmm_omp", "gkl_smithwaterman"])
+def test_windows_gatk_rejects_incomplete_older_sidecar(tmp_path, missing):
+    prefix = _gatk_prefix(tmp_path)
+    with zipfile.ZipFile(
+        prefix / "Library/share/gkl/gkl-native-wgse.jar", "w"
+    ) as native:
+        for name in (
+            "gkl_utils",
+            "gkl_pairhmm",
+            "gkl_pairhmm_omp",
+            "gkl_smithwaterman",
+        ):
+            if name != missing:
+                native.writestr(f"com/intel/gkl/native/{name}.dll", b"MZ")
     assert pixi_tools._probe_environment(str(prefix), ["gatk"], windows=True) is None
 
 
