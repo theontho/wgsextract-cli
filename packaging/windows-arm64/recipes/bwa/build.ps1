@@ -5,7 +5,7 @@ if (-not (Test-Path "$vcpkg\vcpkg.exe")) {
     throw "Install the pinned vcpkg build prerequisite; no runtime auto-install"
 }
 
-& cmake -S $env:RECIPE_DIR -B $build -G "Visual Studio 17 2022" -A ARM64 -T ClangCL `
+& cmake -S $env:RECIPE_DIR -B $build -G "Visual Studio 18 2026" -A ARM64 -T ClangCL `
     "-DCMAKE_TOOLCHAIN_FILE=$vcpkg\scripts\buildsystems\vcpkg.cmake" `
     "-DVCPKG_TARGET_TRIPLET=arm64-windows-static" `
     "-DWGSE_BWA_SOURCE=$env:SRC_DIR" "-DCMAKE_INSTALL_PREFIX=$env:PREFIX"

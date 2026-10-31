@@ -17,10 +17,20 @@ Upstream's latest source release is 3.13.18, whereas its ARM64 NuGet is currentl
 The free public `windows-11-arm` GitHub runner is available and has 4 cores and
 16 GiB RAM. Its tools are not all native: inspect the actual installed Python,
 Pixi, compilers and every application artifact rather than relying on the label.
+The `windows-11-arm` image switched to VS 2026, so VS 2022 is not a valid
+generator there; the recipe explicitly requires VS 2026 with clang-cl.
 Use `scripts/audit_windows_arm64.ps1 -Prefix <environment> -ProcessIds <pids>`
 to capture file machine types, process architecture and loaded-module paths.
 ARM64EC (`A641`), ARM64X (`A64E`), x64 (`8664`) and x86 (`014C`) application
 artifacts cannot pass the native package audit.
+
+The BWA 0.7.19 recipe reuses the unchanged x64 portability and batched
+suffix-array patches, but builds with clang-cl's ARM64 target and KSW NEON.
+Static zlib, PThreads4W and getopt come from a fixed vcpkg baseline; its port
+recipes pin and checksum their sources. Compiler include output must show
+`neon_sse.h`; `_M_ARM64` is asserted and ARM64EC/x86 macros rejected.
+The native suffix-array equivalence probe is part of the recipe. This build
+is not yet a full-genome acceptance or performance result.
 
 Before enabling `win-arm64` in `pixi.toml`:
 
