@@ -122,7 +122,9 @@ if errorlevel 1 exit /b 1
 
 if "%SKIP_PIXI_INSTALL%"=="0" (
     echo Installing the WGS Extract CLI and native GATK Pixi environments...
-    pixi install --locked -e default -e gatk
+    pixi install --locked
+    if errorlevel 1 exit /b 1
+    pixi install --locked -e gatk
     if errorlevel 1 exit /b 1
 ) else (
     echo Skipping Pixi install.
