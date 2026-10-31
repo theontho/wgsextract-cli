@@ -218,9 +218,22 @@ def run_command(
         stderr_thread.start()
     proc_registry.register_process(cmd_str, process)
     try:
-        res_stdout, res_stderr = process.communicate()
+        if sys.platform == "win32":
+            # Infinite Windows waits defer Python's main-thread signal handlers.
+            while True:
+                try:
+                    res_stdout, res_stderr = process.communicate(timeout=0.5)
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
+        else:
+            res_stdout, res_stderr = process.communicate()
         if stderr_thread:
-            stderr_thread.join()
+            if sys.platform == "win32":
+                while stderr_thread.is_alive():
+                    stderr_thread.join(timeout=0.5)
+            else:
+                stderr_thread.join()
         if check and process.returncode != 0:
             if stderr_read is not None:
                 res_stderr = "\n".join(
@@ -232,6 +245,10 @@ def run_command(
         return subprocess.CompletedProcess(
             cmd_list, process.returncode, res_stdout, res_stderr
         )
+    except KeyboardInterrupt:
+        if sys.platform == "win32":
+            cleanup_processes()
+        raise
     finally:
         proc_registry.unregister_process(cmd_str, process)
         if stderr_thread:

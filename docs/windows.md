@@ -114,8 +114,10 @@ launching and default caller arguments are unchanged.
 
 Windows cleanup terminates the registered launcher and its descendants together,
 including Java workers. It does not use Ctrl+Break, which Java can ignore.
-Keyboard Ctrl+C delivery may still be delayed while a native tool is running;
-process-tree termination happens when the CLI's cleanup handler runs.
+Native GATK single-shard subprocess and stderr waits check back with Python every
+half second, so foreground keyboard Ctrl+C does not wait for Java to finish before
+the CLI's signal handler can terminate the process tree. The half-second interval
+is not a guarantee on total cleanup time; Windows must also stop the descendants.
 
 ## Short read alignment
 
