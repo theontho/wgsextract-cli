@@ -338,6 +338,7 @@ def test_mt_haplogroup_from_vcf_hands_haplogrep_only_mtdna(tmp_path, capsys, mt)
     run_wgsextract(
         "lineage", "mt-haplogroup", "--input", vcf, "--outdir", str(tmp_path / "o"),
         "--haplogrep-path", _haplogrep(tmp_path),
+        *(["--tree-links"] if mt == "chrM" else []),
     )  # fmt: skip
     (call,) = _calls(tmp_path)
     assert call["argv"][:3] == ["classify", "--format", "vcf"]
@@ -347,6 +348,7 @@ def test_mt_haplogroup_from_vcf_hands_haplogrep_only_mtdna(tmp_path, capsys, mt)
     ]
     out = capsys.readouterr().out
     assert "Haplogroup      : H1c" in out and "Quality         : 0.93" in out
+    assert ("https://www.yfull.com/mtree/H1c/" in out) is (mt == "chrM")
 
 
 def test_mt_haplogroup_vcf_without_mtdna_fails(tmp_path):
