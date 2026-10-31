@@ -8,7 +8,7 @@ def print_tree_links(haplogroup: str, *, mitochondrial: bool = False) -> None:
         return
     if mitochondrial:
         print(f"YFull mtDNA: https://www.yfull.com/mtree/{value}/")
-        print("FTDNA mtDNA: https://www.familytreedna.com/public/mtDNA_haplotree")
+        print("FTDNA mtDNA: https://www.familytreedna.com/public/mt-dna-haplotree")
     else:
         print(f"YFull: https://www.yfull.com/tree/{value}/")
         print(f"FTDNA: https://discover.familytreedna.com/y-dna/{value}/tree")
