@@ -58,7 +58,7 @@ def test_windows_installer_only_needs_pixi() -> None:
     ):
         assert retired not in installer
     assert "msys2" not in prereqs.lower()
-    assert "pixi install --locked" in installer
+    assert "pixi install --locked -e default -e gatk" in installer
     assert "pixi run wgsextract deps check" in installer
 
 

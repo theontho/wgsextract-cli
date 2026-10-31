@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - packaging/windows/**
+      - install_windows.bat
       - src/wgsextract_cli/core/pixi_tools.py
       - src/wgsextract_cli/core/utils.py
       - src/wgsextract_cli/commands/vcf/callers.py

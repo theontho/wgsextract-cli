@@ -269,9 +269,13 @@ if __name__ == "__main__":
     unittest.main()
 
 
-def test_uninstalled_optional_env_resolves_from_lockfile_without_installing():
+@pytest.mark.parametrize("host_platform", ["linux", "darwin", "win32"])
+def test_uninstalled_optional_env_resolves_without_installing(
+    monkeypatch, host_platform
+):
     from wgsextract_cli.core import pixi_tools
 
+    monkeypatch.setattr(pixi_tools.sys, "platform", host_platform)
     calls = []
 
     def fake_run(cmd, **kwargs):
@@ -292,10 +296,12 @@ def test_uninstalled_optional_env_resolves_from_lockfile_without_installing():
     ):
         command = pixi_tools._host_pixi_tool_command("gatk")
 
-    assert [c[0] for c in calls] == ["run", "list", "info"]
-    # Windows runs the GATK script through its first-use launcher stub.
-    tail = " python gatk" if sys.platform == "win32" else "-e gatk gatk"
-    assert command is not None and "-e gatk " in command and command.endswith(tail)
+    if host_platform == "win32":
+        assert [c[0] for c in calls] == ["run"]
+        assert command is None
+    else:
+        assert [c[0] for c in calls] == ["run", "list", "info"]
+        assert command is not None and command.endswith("-e gatk gatk")
     assert not any(c[0] == "install" for c in calls)
 
 
