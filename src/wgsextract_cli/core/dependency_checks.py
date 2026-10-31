@@ -159,7 +159,13 @@ def get_tool_version(tool: str) -> str | None:
     if optional_env:
         # A version probe must never download an optional environment.
         if not _pixi_env_installed(full_cmd, optional_env):
-            return f"Error: Pixi env '{optional_env}' is not installed. Run: {pixi_install_command(tool)}"
+            command = pixi_install_command(tool)
+            hint = (
+                f" Run: {command}"
+                if command
+                else " See the installation guide for host support."
+            )
+            return f"Error: Pixi env '{optional_env}' is not installed.{hint}"
         if "--no-install" not in full_cmd:
             full_cmd.insert(full_cmd.index("run") + 1, "--no-install")
 

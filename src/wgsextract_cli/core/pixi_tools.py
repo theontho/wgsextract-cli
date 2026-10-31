@@ -145,8 +145,11 @@ def pixi_install_command(tool: str) -> str | None:
     env = PIXI_TOOL_ENVS.get(tool)
     if env is None:
         return None
+    pixi_cmd = _resolve_pixi_command()
+    if pixi_cmd and not _locked_package_available(pixi_cmd, env, tool):
+        return None
     return _join_command(
-        ["pixi", "install", "--locked", *_pixi_manifest_args(), "-e", env]
+        [pixi_cmd or "pixi", "install", "--locked", *_pixi_manifest_args(), "-e", env]
     )
 
 

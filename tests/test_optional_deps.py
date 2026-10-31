@@ -313,12 +313,22 @@ def test_missing_optional_tool_reports_exact_install_command(monkeypatch):
     monkeypatch.setattr(
         pixi_tools, "_pixi_manifest_args", lambda: ["--manifest-path", "/app/pixi.toml"]
     )
+    monkeypatch.setattr(pixi_tools, "_resolve_pixi_command", lambda: "/owned/bin/pixi")
+    monkeypatch.setattr(pixi_tools, "_locked_package_available", lambda *args: True)
     with pytest.raises(WGSExtractError) as error:
         _deps_status.run(Namespace(tool="vep", debug=False))
     assert str(error.value) == (
-        "Tool not found: vep. Run: pixi install --locked "
+        "Tool not found: vep. Run: /owned/bin/pixi install --locked "
         "--manifest-path /app/pixi.toml -e vep"
     )
+
+
+def test_unsupported_host_tool_does_not_offer_an_install_command(monkeypatch):
+    from wgsextract_cli.core import pixi_tools
+
+    monkeypatch.setattr(pixi_tools, "_resolve_pixi_command", lambda: "/owned/bin/pixi")
+    monkeypatch.setattr(pixi_tools, "_locked_package_available", lambda *args: False)
+    assert pixi_tools.pixi_install_command("pbmm2") is None
 
 
 def test_installed_env_without_the_tool_is_unavailable(tmp_path):
@@ -414,6 +424,11 @@ def test_version_probe_never_runs_a_tool_from_a_missing_env(tmp_path):
     prefix = tmp_path / "envs" / "pacbio"  # never installed
     with (
         patch.object(dependency_checks, "get_tool_path", return_value=COMMAND),
+        patch.object(
+            dependency_checks,
+            "pixi_install_command",
+            return_value="pixi install --locked --manifest-path /app/pixi.toml -e pacbio",
+        ),
         patch.object(
             dependency_checks.subprocess,
             "run",
