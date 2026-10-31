@@ -287,6 +287,7 @@ def run_chm13(
     target = _target(catalogue, markers, names, regions, directory)
     base = input_stem(args.input)
     out_vcf = str(directory / f"{base}_native.vcf.gz")
+    indel_calls = {}
     if is_vcf:
         _extract_vcf(args.input, target, out_vcf, catalogue, names, directory)
     else:
@@ -323,6 +324,24 @@ def run_chm13(
                 out_vcf=out_vcf,
                 input_chroms=input_chroms,
             )
+            if indel_bindings:
+                from wgsextract_cli.core.microarray_chm13_indels import (
+                    call_chm13_indels,
+                )
+
+                indel_calls = call_chm13_indels(
+                    indel_bindings,
+                    roots,
+                    args=args,
+                    catalogue=catalogue,
+                    names=names,
+                    fasta=ref_fasta,
+                    directory=directory / "indels",
+                    regions=regions,
+                    ploidy_path=ploidy,
+                    sex_args=sex_args,
+                    threads=threads,
+                )
     samples = list(_command_lines(["bcftools", "query", "-l", out_vcf], str(directory)))
     if len(samples) != 1:
         raise WGSExtractError("CHM13 microarray requires exactly one input sample.")
@@ -443,7 +462,10 @@ def run_chm13(
             roots,
             chain36,
             identity=identity,
-            indel_calls=vendor_no_calls(real_format, roots, rejected_ids),
+            indel_calls={
+                **vendor_no_calls(real_format, roots, rejected_ids),
+                **indel_calls.get(real_format, {}),
+            },
         )
     report = Path(outdir, f"{base}_CHM13_report.json")
     report.write_text(
@@ -456,6 +478,11 @@ def run_chm13(
                 "probe_types": "Marker-only vendor IDs are not certified SNP probe types",
                 "asset_summary": asset_summary,
                 "combined_kit": str(combined),
+                **(
+                    {"indel_report": str(directory / "indels" / "summary.json")}
+                    if indel_bindings and not is_vcf
+                    else {}
+                ),
             },
             indent=2,
             sort_keys=True,
