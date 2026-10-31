@@ -191,7 +191,8 @@ def cmd_download(args: Namespace) -> None:
 
 
 def register(
-    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+    subparsers: "argparse._SubParsersAction[argparse.ArgumentParser]",
+    base_parser: argparse.ArgumentParser,
 ) -> None:
     """Register the example-genome list/download subcommands."""
     parser = subparsers.add_parser(

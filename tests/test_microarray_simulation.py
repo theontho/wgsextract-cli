@@ -122,12 +122,20 @@ def library(tmp_path):
     return _library(tmp_path / "reference")
 
 
-@pytest.fixture
-def quality_library(tmp_path, monkeypatch):
+@pytest.fixture(autouse=True)
+def _synthetic_templates_only(monkeypatch):
     from wgsextract_cli.core import microarray_targets
 
+    def unexpected_download(url, _destination):
+        pytest.fail(f"Synthetic microarray simulation attempted a download: {url}")
+
     monkeypatch.setattr(microarray_targets, "_FORMATS", ["23andMe_V3", "FTDNA_V2"])
-    return _library(tmp_path / "reference")
+    monkeypatch.setattr(microarray_targets, "download_file", unexpected_download)
+
+
+@pytest.fixture
+def quality_library(library):
+    return library
 
 
 def _microarray(bam: str, fasta: str, outdir: Path, *extra: str) -> None:
@@ -590,8 +598,7 @@ def test_vcf_input_region_in_the_vcfs_naming_style(tmp_path, library):
     _microarray(vcf, fasta, tmp_path / "out", "--region", "1")
 
     kit = _genotypes(tmp_path / "out" / "female_CombinedKit.txt")
-    # The kit's other chr1 markers lie past the 5 kb test genome (NN).
-    assert {k: v for k, v in kit.items() if v != "NN"} == {
+    assert kit == {
         "rsHet": "AC",
         "rsAlt": "CC",
         "rsRef": "AA",
