@@ -102,7 +102,7 @@ Run `wgsextract help` for the full command tree, and `wgsextract <command> --hel
 | `lineage` | `y-haplogroup` (Yleaf), `mt-haplogroup` (Haplogrep) |
 | `vcf` | Calling: `snp`, `indel`, `freebayes`, `gatk`, `deepvariant`, `sv`, `cnv`. Annotation: `annotate`, `chain-annotate`, `clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb`, `pharmcat`. Other: `filter`, `trio`, `to-fasta` (personal consensus genome) |
 | `typing` | From a WGS BAM/CRAM: `cyp2d6` (Cyrius), `hla` (T1K), `str` (ExpansionHunter repeat expansions) |
-| `gatk`, `freebayes` | Used automatically by `vcf gatk` / `vcf freebayes`; the first run downloads the environment |
+| `gatk`, `freebayes` | Used by `vcf gatk` / `vcf freebayes` from optional environments; [Windows GATK](docs/windows.md#gatk-on-native-windows) is prepared at setup, not during calling |
 | `vep` | `download`, `run`, `verify` (Ensembl Variant Effect Predictor) |
 | `align` | Align FASTQ reads with bwa, bwa-mem2, minimap2, or pbmm2, or on an NVIDIA GPU with `--gpu` |
 | `realign` | Re-align an existing BAM/CRAM to another reference, reusing or extracting FASTQs |
