@@ -12,7 +12,6 @@ from pathlib import Path
 from wgsextract_cli.core import runtime
 from wgsextract_cli.core.paths import absolute_path, expand_path, java_local_path
 from wgsextract_cli.core.tool_catalog import (
-    INSTALL_FIRST_PIXI_ENVS,
     JAVA_JAR,
     PIXI_TOOL_ENVS,
     PIXI_TOOL_PACKAGES,
@@ -136,7 +135,19 @@ def _join_command(command: list[str]) -> str:
 
 
 def _pixi_run_command(pixi_cmd: str, env: str, args: list[str]) -> str:
-    return _join_command([pixi_cmd, "run", *_pixi_manifest_args(), "-e", env, *args])
+    return _join_command(
+        [pixi_cmd, "run", "--no-install", *_pixi_manifest_args(), "-e", env, *args]
+    )
+
+
+def pixi_install_command(tool: str) -> str | None:
+    """An explicit, checkout-independent repair command for a packaged tool."""
+    env = PIXI_TOOL_ENVS.get(tool)
+    if env is None:
+        return None
+    return _join_command(
+        ["pixi", "install", "--locked", *_pixi_manifest_args(), "-e", env]
+    )
 
 
 def _probe_environment(prefix: str, tool_names: list[str], windows: bool) -> str | None:
@@ -289,19 +300,6 @@ def _host_pixi_tool_command(tool: str) -> str | None:
         return _join_command([program or args[0], *args[1:]])
 
     if not found:
-        if tool == "gatk" and runtime.is_windows_host():
-            # A first-use script stub would run java -jar and silently omit GKL.
-            return None
-        # An optional environment that isn't installed yet: `pixi run` installs it
-        # (with visible progress) the first time the tool is actually used.
-        # An installed environment that fails the probe hasn't got the tool.
-        if (
-            env != "default"
-            and env not in INSTALL_FIRST_PIXI_ENVS
-            and _locked_package_available(pixi_cmd, env, tool)
-            and pixi_env_prefix(env) is None
-        ):
-            return _pixi_run_command(pixi_cmd, env, [executable_names[0]])
         return None
 
     kind, separator, value = found.partition(":")

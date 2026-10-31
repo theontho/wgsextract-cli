@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from wgsextract_cli.core.pixi_tools import pixi_install_command
 from wgsextract_cli.core.utils import WGSExtractError
 
 from .dependencies import (
@@ -158,8 +159,9 @@ def get_tool_version(tool: str) -> str | None:
     if optional_env:
         # A version probe must never download an optional environment.
         if not _pixi_env_installed(full_cmd, optional_env):
-            return f"Available (Pixi env '{optional_env}', downloaded on first use)"
-        full_cmd.insert(full_cmd.index("run") + 1, "--no-install")
+            return f"Error: Pixi env '{optional_env}' is not installed. Run: {pixi_install_command(tool)}"
+        if "--no-install" not in full_cmd:
+            full_cmd.insert(full_cmd.index("run") + 1, "--no-install")
 
     try:
         # 1. Try --version first (standard)
@@ -261,6 +263,11 @@ def verify_dependencies(
 
         if is_optional:
             message = f"Missing required optional tool(s): {', '.join(missing)}"
+            commands = sorted(
+                {command for tool in missing if (command := pixi_install_command(tool))}
+            )
+            if commands:
+                message += ". Run: " + "; ".join(commands)
             if sys.platform == "win32" and "gatk" in missing:
                 repair = (
                     "Re-run install_windows.bat or run "
@@ -337,7 +344,13 @@ def check_all_dependencies(
         if tool == "python3":
             continue  # Already checked above as Runtime
         path = get_tool_path(tool)
-        version = get_tool_version(tool) if path else None
+        version = (
+            get_tool_version(tool)
+            if path
+            else (
+                f"Run: {command}" if (command := pixi_install_command(tool)) else None
+            )
+        )
         is_broken = version and version.startswith("Error:")
         present_path = path if not is_broken else None
 
@@ -353,7 +366,13 @@ def check_all_dependencies(
 
     for tool in optional:
         path = get_tool_path(tool)
-        version = get_tool_version(tool) if path else None
+        version = (
+            get_tool_version(tool)
+            if path
+            else (
+                f"Run: {command}" if (command := pixi_install_command(tool)) else None
+            )
+        )
 
         is_broken = version and version.startswith("Error:")
         present_path = path if not is_broken else None

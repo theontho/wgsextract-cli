@@ -133,7 +133,7 @@ class TestOptionalDependencies(unittest.TestCase):
         ):
             self.assertEqual(
                 get_tool_path("samtools"),
-                f"/usr/local/bin/pixi run --manifest-path {MANIFEST} -e default samtools",
+                f"/usr/local/bin/pixi run --no-install --manifest-path {MANIFEST} -e default samtools",
             )
 
     def test_get_tool_path_can_return_uppercase_yleaf_pixi_fallback(self):
@@ -154,7 +154,7 @@ class TestOptionalDependencies(unittest.TestCase):
         ):
             self.assertEqual(
                 get_tool_path("yleaf"),
-                f"/usr/local/bin/pixi run --manifest-path {MANIFEST} -e default Yleaf",
+                f"/usr/local/bin/pixi run --no-install --manifest-path {MANIFEST} -e default Yleaf",
             )
 
         self.assertEqual(mock_run.call_args.args[0][-2:], ["yleaf", "Yleaf"])
@@ -270,8 +270,9 @@ if __name__ == "__main__":
 
 
 @pytest.mark.parametrize("host_platform", ["linux", "darwin", "win32"])
-def test_uninstalled_optional_env_resolves_without_installing(
-    monkeypatch, host_platform
+@pytest.mark.parametrize("tool", ["gatk", "vep", "freebayes", "pbmm2"])
+def test_uninstalled_optional_env_is_unavailable_without_installing(
+    monkeypatch, host_platform, tool
 ):
     from wgsextract_cli.core import pixi_tools
 
@@ -294,15 +295,30 @@ def test_uninstalled_optional_env_resolves_without_installing(
         patch.object(pixi_tools.shutil, "which", return_value="/usr/bin/pixi"),
         patch.object(pixi_tools.subprocess, "run", side_effect=fake_run),
     ):
-        command = pixi_tools._host_pixi_tool_command("gatk")
+        command = pixi_tools._host_pixi_tool_command(tool)
 
-    if host_platform == "win32":
-        assert [c[0] for c in calls] == ["run"]
-        assert command is None
-    else:
-        assert [c[0] for c in calls] == ["run", "list", "info"]
-        assert command is not None and command.endswith("-e gatk gatk")
+    assert [c[0] for c in calls] == ["run"]
+    assert command is None
     assert not any(c[0] == "install" for c in calls)
+
+
+def test_missing_optional_tool_reports_exact_install_command(monkeypatch):
+    from argparse import Namespace
+
+    from wgsextract_cli.commands import _deps_status
+    from wgsextract_cli.core import dependencies, pixi_tools
+    from wgsextract_cli.core.utils import WGSExtractError
+
+    monkeypatch.setattr(dependencies, "get_tool_path", lambda tool: None)
+    monkeypatch.setattr(
+        pixi_tools, "_pixi_manifest_args", lambda: ["--manifest-path", "/app/pixi.toml"]
+    )
+    with pytest.raises(WGSExtractError) as error:
+        _deps_status.run(Namespace(tool="vep", debug=False))
+    assert str(error.value) == (
+        "Tool not found: vep. Run: pixi install --locked "
+        "--manifest-path /app/pixi.toml -e vep"
+    )
 
 
 def test_installed_env_without_the_tool_is_unavailable(tmp_path):
@@ -407,7 +423,10 @@ def test_version_probe_never_runs_a_tool_from_a_missing_env(tmp_path):
         version = dependency_checks.get_tool_version("sniffles")
 
     assert tool_calls == []
-    assert version == "Available (Pixi env 'pacbio', downloaded on first use)"
+    assert version.startswith(
+        "Error: Pixi env 'pacbio' is not installed. Run: pixi install --locked"
+    )
+    assert version.endswith("-e pacbio")
 
 
 def test_version_probe_runs_an_installed_env_without_installing(tmp_path):

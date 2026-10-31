@@ -136,6 +136,14 @@ mark_user_data() {
 }
 
 DATA="$DATA_PARENT/hg19-mini-hg00096"
+install_optional_tools() {
+    pixi="$INSTALL_DIR/.pixi/bin/pixi"
+    if [ ! -x "$pixi" ]; then
+        pixi="$(command -v pixi || printf '%s' "$HOME/.pixi/bin/pixi")"
+    fi
+    "$pixi" install --locked --manifest-path "$INSTALL_DIR/app/pixi.toml" -e gatk
+}
+
 if [ -n "${LAB_UPDATE_FROM:-}" ]; then
     # Update a real earlier release, then test what the update produced.
     step install install_release
@@ -143,12 +151,14 @@ if [ -n "${LAB_UPDATE_FROM:-}" ]; then
     step update install_cli
     snapshot after_install
     step dataset fetch_dataset
+    step optional_tools install_optional_tools
     apply_post_install_sabotage
     step workload sh "$HERE/workload.sh" "$WGSE" "$DATA" "$R/workload"
 else
     step install install_cli
     snapshot after_install
     step dataset fetch_dataset
+    step optional_tools install_optional_tools
     apply_post_install_sabotage
     step workload sh "$HERE/workload.sh" "$WGSE" "$DATA" "$R/workload"
     mark_user_data

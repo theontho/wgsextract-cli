@@ -265,7 +265,7 @@ def test_check_all_dependencies_marks_crashing_tools_missing(tmp_path, monkeypat
     assert by_name["bcftools"]["path"] is None
     assert by_name["bcftools"]["version"] == f"Error: bcftools {CRASHED['SIGSEGV']}"
     assert by_name["bcftools"]["runtime"] == "missing"
-    assert by_name["minimap2"]["version"] is None
+    assert by_name["minimap2"]["version"].startswith("Run: pixi install --locked")
     assert {tool for (tool,) in calls} == {
         "samtools",
         "bcftools",
@@ -346,9 +346,11 @@ def test_unreadable_pixi_info_counts_the_env_as_not_installed(tmp_path, monkeypa
     pixi = _fake_pixi(tmp_path, tmp_path, info_stdout="WARN pixi is updating")
     _use_tools(monkeypatch, {"sniffles": f"{pixi} run -e pacbio sniffles"})
 
-    assert dependency_checks.get_tool_version("sniffles") == (
-        "Available (Pixi env 'pacbio', downloaded on first use)"
+    version = dependency_checks.get_tool_version("sniffles")
+    assert version.startswith(
+        "Error: Pixi env 'pacbio' is not installed. Run: pixi install --locked"
     )
+    assert version.endswith("-e pacbio")
     assert [c[0] for c in _pixi_calls(tmp_path)] == ["info"]
 
 
@@ -491,7 +493,10 @@ def test_probe_finds_a_tool_on_the_envs_path(tmp_path, monkeypatch, pixi_env):
     monkeypatch.setattr(pixi_tools, "_resolve_pixi_command", lambda: pixi)
     monkeypatch.setattr(pixi_tools, "_pixi_manifest_args", lambda: [])
 
-    assert pixi_tools.pixi_env_tool("samtools") == f"{pixi} run -e default samtools"
+    assert (
+        pixi_tools.pixi_env_tool("samtools")
+        == f"{pixi} run --no-install -e default samtools"
+    )
 
 
 @pytest.mark.parametrize(
@@ -520,7 +525,7 @@ def test_probe_finds_tools_inside_the_env_prefix(
 
     env = pixi_tools.PIXI_TOOL_ENVS[tool]
     tail = [part.format(file=file.resolve()) for part in expected_tail]
-    assert command == " ".join([pixi, "run", "-e", env, *tail])
+    assert command == " ".join([pixi, "run", "--no-install", "-e", env, *tail])
 
 
 @pytest.mark.parametrize("stdout", ["", "no separator", "script:"])
@@ -591,9 +596,15 @@ def test_deps_check_report(tmp_path, monkeypatch, capsys):
         row["samtools"].startswith("✅")
         and "[native] (samtools 1.21)" in row["samtools"]
     )
-    assert row["sniffles"].startswith("🔵")
-    assert "[pixi alt env: pacbio] (Available (Pixi env 'pacbio'" in row["sniffles"]
-    assert row["minimap2"].startswith("⚠️ ") and row["minimap2"].endswith("[missing]")
+    assert row["sniffles"].startswith("⚠️ ")
+    assert (
+        "[missing] (Error: Pixi env 'pacbio' is not installed. Run: pixi install --locked"
+        in row["sniffles"]
+    )
+    assert (
+        row["minimap2"].startswith("⚠️ ")
+        and "[missing] (Run: pixi install --locked" in row["minimap2"]
+    )
 
 
 def test_deps_check_report_in_ascii(monkeypatch, capsys):

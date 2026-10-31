@@ -93,8 +93,8 @@ of failed tests only (`tmp_path_retention_policy = "failed"`).
    `deps check`, `ref bootstrap` (a real GitHub release download with digest
    verification), `info` on BAM and CRAM, `extract mt-bam` / `mito-vcf`,
    `lineage mt-haplogroup` / `y-haplogroup`, `vcf snp`, `microarray`, `align`
-   (bwa, from FASTQs), `vcf gatk` (first use of the optional `gatk` Pixi
-   environment), and a command that must fail.
+   (bwa, from FASTQs), `vcf gatk` (after explicitly installing the optional
+   `gatk` Pixi environment), and a command that must fail.
 4. Update by rerunning the installer; a marker in `app/reference/` must survive,
    and the CLI must still work. With `--update-from <tag>` the run instead
    installs that published release with its own installer (and the
@@ -432,4 +432,3 @@ app is native, with editable text), a minimal WebKitGTK window on Linux and a
 minimal WebView2 window on Windows. The stand-in must report that it loaded,
 or the control run fails: a control whose stand-in never opened measures less
 than an app run causes, and would make real leftovers look like noise.
-
