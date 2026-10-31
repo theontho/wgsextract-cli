@@ -13,6 +13,10 @@ you downloaded the CLI to (or alone, in an empty folder: it then downloads the
 latest release there first). It installs Pixi for your user if it is missing,
 installs the Pixi environment and checks the tools with `wgsextract deps check`.
 
+If Pixi was installed for the first time, close and reopen PowerShell or the
+command prompt before running `pixi`, so the new window picks up the updated
+user PATH.
+
 ```bat
 .\install_windows.bat
 pixi run wgsextract --help
