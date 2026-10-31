@@ -25,6 +25,10 @@ typedef int64_t wgse_off_t;
 #define sleep(seconds) Sleep((DWORD)(seconds) * 1000)
 #ifdef __cplusplus
 #include "sse2neon.h"
+static inline void _mm_prefetch(const void *address, int hint)
+{
+    _mm_prefetch(static_cast<const char *>(address), hint);
+}
 #define __rdtsc _rdtsc
 #include "wgse_index_io.h"
 #endif
