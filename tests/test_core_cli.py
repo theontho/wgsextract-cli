@@ -1,11 +1,14 @@
 """Regression tests for CLI bootstrap, config, and core runtime helpers."""
 
+import csv
 import logging
 import subprocess
 import sys
 import threading
+import time
 from argparse import Namespace
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -138,6 +141,115 @@ def test_registry_cleanup_reenters_while_lock_held():
     assert done.wait(5), "cleanup deadlocked while the registry lock was held"
     assert proc.wait(5) is not None
     assert registry.processes == {}
+
+
+def test_windows_cleanup_terminates_tree_before_launcher_exits(monkeypatch):
+    registry = process_registry.ProcessRegistry()
+    proc = Mock(pid=1234)
+    proc.poll.side_effect = [None, 0]
+    registry.register_process("gatk", proc)
+    run = Mock(return_value=subprocess.CompletedProcess([], 0))
+    monkeypatch.setattr(process_registry.sys, "platform", "win32")
+    monkeypatch.setattr(process_registry.subprocess, "run", run)
+    monkeypatch.setattr(process_registry.time, "sleep", lambda _: None)
+
+    registry.cleanup()
+
+    run.assert_called_once_with(
+        ["taskkill", "/F", "/T", "/PID", "1234"],
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    proc.send_signal.assert_not_called()
+    proc.kill.assert_not_called()
+    assert registry.processes == {}
+
+
+def test_windows_cleanup_falls_back_when_taskkill_times_out(monkeypatch, caplog):
+    registry = process_registry.ProcessRegistry()
+    proc = Mock(pid=1234)
+    proc.poll.return_value = None
+    registry.register_process("gatk", proc)
+    monkeypatch.setattr(process_registry.sys, "platform", "win32")
+    monkeypatch.setattr(
+        process_registry.subprocess,
+        "run",
+        Mock(side_effect=subprocess.TimeoutExpired("taskkill", 10)),
+    )
+    monkeypatch.setattr(process_registry.time, "sleep", lambda _: None)
+
+    registry.cleanup()
+
+    proc.kill.assert_called_once()
+    assert "Process 1234 could not be terminated" in caplog.text
+    assert registry.processes == {}
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows process-tree regression")
+def test_windows_cleanup_kills_break_ignoring_descendants(tmp_path):
+    child_pid = tmp_path / "child.pid"
+    grandchild_pid = tmp_path / "grandchild.pid"
+    grandchild = (
+        "import os, signal, time; from pathlib import Path; "
+        "signal.signal(signal.SIGBREAK, signal.SIG_IGN); "
+        f"Path({str(grandchild_pid)!r}).write_text(str(os.getpid())); "
+        "time.sleep(60)"
+    )
+    child = (
+        "import os, signal, subprocess, sys, time; from pathlib import Path; "
+        "signal.signal(signal.SIGBREAK, signal.SIG_IGN); "
+        f"subprocess.Popen([sys.executable, '-c', {grandchild!r}]); "
+        f"Path({str(child_pid)!r}).write_text(str(os.getpid())); "
+        "time.sleep(60)"
+    )
+    parent = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            f"import subprocess, sys, time; "
+            f"subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(60)",
+        ],
+        **process_registry.process_group_kwargs(),
+    )
+    registry = process_registry.ProcessRegistry()
+    registry.register_process("launcher", parent)
+    descendants = []
+    try:
+        deadline = time.monotonic() + 15
+        while not all(
+            path.exists() and path.stat().st_size > 0
+            for path in (child_pid, grandchild_pid)
+        ):
+            assert parent.poll() is None
+            assert time.monotonic() < deadline, "descendants did not initialize"
+            time.sleep(0.05)
+        descendants = [int(path.read_text()) for path in (child_pid, grandchild_pid)]
+        registry.cleanup()
+        parent.wait(timeout=5)
+        for pid in descendants:
+            listing = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=10,
+            )
+            assert not any(
+                len(row) > 1 and row[1] == str(pid)
+                for row in csv.reader(listing.stdout.splitlines())
+            ), f"descendant {pid} survived cleanup"
+        descendants.clear()
+    finally:
+        remaining = descendants + ([parent.pid] if parent.poll() is None else [])
+        for pid in remaining:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+        parent.wait(timeout=5)
 
 
 def test_deps_check_exits_nonzero_when_mandatory_missing(monkeypatch, capsys):
