@@ -22,6 +22,10 @@ T = TypeVar("T")
 KNOWN_SETTINGS = {
     "input_path": (None, "Default input BAM/CRAM or FASTQ file"),
     "output_directory": (None, "Default output directory"),
+    "temp_directory": (
+        None,
+        "Optional volume for sort spills, GATK and realign staging",
+    ),
     "reference_fasta": (None, "Path to the reference genome FASTA"),
     "reference_library": (None, "Reference library directory (genomes/)"),
     "genome_library": (None, "Directory containing per-person genome folders"),
@@ -119,6 +123,7 @@ KNOWN_SETTINGS = {
 
 PATH_SETTINGS = {
     "log_dir",
+    "temp_directory",
     "input_path",
     "output_directory",
     "reference_fasta",
@@ -220,6 +225,11 @@ def config_args(*, keep_awake: bool | None = None) -> list[str]:
     args = ["--config", str(_config_path_override)] if _config_path_override else []
     if keep_awake or (keep_awake is False and settings.get("keep_awake", False)):
         args.append("--keep-awake" if keep_awake else "--no-keep-awake")
+    from wgsextract_cli.core.temp_directory import configured_temp_directory
+
+    temporary = configured_temp_directory()
+    if temporary:
+        args += ["--tmp-dir", temporary]
     return args
 
 

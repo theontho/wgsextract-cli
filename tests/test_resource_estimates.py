@@ -17,6 +17,30 @@ GIB = 1024**3
 H2_READS = 679_639_896
 
 
+def test_realign_staged_fastqs_are_budgeted_on_the_temporary_volume(
+    tmp_path, source, monkeypatch
+):
+    out = str(tmp_path / "out")
+    spill = str(tmp_path / "spill")
+    monkeypatch.setattr(resources, "_disk_space", lambda path: (path, 100 * GIB))
+    estimate = resources.estimate_resources(
+        "realign",
+        input_paths=[str(source)],
+        output_dir=out,
+        temp_dir=spill,
+        fastq_dir=spill,
+        extract_fastq=True,
+        reads=1000,
+    )
+    disks = {
+        row.paths[0]: row
+        for row in estimate.resources
+        if row.resource == "disk" and row.paths
+    }
+    assert "extracted_fastqs" in disks[spill].components
+    assert "extracted_fastqs" not in disks[out].components
+
+
 @pytest.fixture
 def source(tmp_path):
     source = tmp_path / "input.cram"

@@ -101,6 +101,7 @@ def estimate_resources(
     output_format: str = "BAM",
     samblaster: bool = True,
     extract_fastq: bool = False,
+    fastq_dir: str | None = None,
     temp_dir: str | None = None,
     region: str | None = None,
     duplicate_marking: Literal["samblaster", "markdup", "gatk-flow"] | None = None,
@@ -192,7 +193,7 @@ def estimate_resources(
         if extract_fastq:
             demands.append(
                 (
-                    output_dir,
+                    fastq_dir or output_dir,
                     "extracted_fastqs",
                     None if disk_reads is None else disk_reads * FASTQ_BYTES_PER_READ,
                 )

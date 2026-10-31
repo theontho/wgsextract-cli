@@ -83,6 +83,7 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
         ref=settings.get("reference_fasta"),
         threads=default_threads,
         memory=settings.get("memory_limit"),
+        tmp_dir=settings.get("temp_directory"),
         parent_pid=None,
         log_file=None,
         log_dir=settings.get("log_dir"),
@@ -174,6 +175,12 @@ def add_shared_arguments(base_parser: argparse.ArgumentParser) -> None:
         "-m",
         default=argparse.SUPPRESS,
         help=CLI_HELP["arg_memory"],
+    )
+    base_parser.add_argument(
+        "--tmp-dir",
+        default=argparse.SUPPRESS,
+        metavar="DIRECTORY",
+        help="Use an existing writable directory for sort spills, GATK and realign staging (overrides temp_directory).",
     )
     base_parser.add_argument(
         "--config",

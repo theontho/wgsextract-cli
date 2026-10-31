@@ -19,6 +19,7 @@ from wgsextract_cli.core.resource_estimates import (
     estimate_resources,
     preflight_resources,
 )
+from wgsextract_cli.core.temp_directory import configured_temp_directory
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 
@@ -43,7 +44,9 @@ def _prepare_gatk_input(
 
     import tempfile
 
-    fd, temp_bam = tempfile.mkstemp(suffix=".bam", dir=outdir)
+    fd, temp_bam = tempfile.mkstemp(
+        suffix=".bam", dir=configured_temp_directory() or outdir
+    )
     os.close(fd)
     logging.info(f"Preparing regional BAM for GATK from CRAM input ({args.region})...")
     try:
@@ -88,7 +91,7 @@ def _gatk_tmp_dir() -> str:
     bundled config from a temp path with a space ("Unable to automatically
     instantiate codec"), and on Windows %TEMP% is under the user's profile, so
     any user whose name has a space would hit it; use the 8.3 short path there."""
-    path = tempfile.mkdtemp(prefix="wgse-gatk-")
+    path = tempfile.mkdtemp(prefix="wgse-gatk-", dir=configured_temp_directory())
     if " " in path and sys.platform == "win32":
         buffer = ctypes.create_unicode_buffer(32768)
         if ctypes.windll.kernel32.GetShortPathNameW(path, buffer, len(buffer)):
@@ -204,7 +207,7 @@ def cmd_gatk(args: argparse.Namespace) -> None:
             reference=ref,
             threads=_threads,
             region=args.region,
-            temp_dir=tempfile.gettempdir(),
+            temp_dir=configured_temp_directory() or tempfile.gettempdir(),
             gatk_workers=len(shards) or 1,
         )
     )
@@ -245,7 +248,7 @@ def cmd_gatk(args: argparse.Namespace) -> None:
         gatk_input, temp_gatk_input = _prepare_gatk_input(args, ref, outdir)
         if shards:
             with tempfile.TemporaryDirectory(
-                dir=outdir, prefix=".wgse_gatk_scatter_"
+                dir=configured_temp_directory() or outdir, prefix=".wgse_gatk_scatter_"
             ) as work:
                 call_scattered(
                     [

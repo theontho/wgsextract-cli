@@ -27,7 +27,13 @@ def dispatch_command(args: argparse.Namespace, explicit_dests: set[str]) -> None
             bool(getattr(args, "keep_awake", False))
             and getattr(args, "command", None) not in READ_ONLY_COMMANDS
         ):
-            args.func(args)
+            from wgsextract_cli.core.temp_directory import run_temporary_directory
+
+            if getattr(args, "command", None) in READ_ONLY_COMMANDS:
+                args.func(args)
+            else:
+                with run_temporary_directory(getattr(args, "tmp_dir", None)):
+                    args.func(args)
     except WGSExtractError as e:
         logging.error(str(e))
         sys.exit(1)

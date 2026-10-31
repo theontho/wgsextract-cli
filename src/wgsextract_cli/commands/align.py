@@ -26,6 +26,7 @@ from wgsextract_cli.core.resource_estimates import (
     preflight_resources,
 )
 from wgsextract_cli.core.samtools_commands import parse_memory
+from wgsextract_cli.core.temp_directory import configured_temp_directory
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -392,7 +393,8 @@ def _sort_and_mark_stages(
     """samtools fixmate | sort | markdup, writing out_path. The sorted stream
     goes straight into markdup uncompressed, so the output is written once.
     fixmate reads the aligner's output directly: it keeps mates together."""
-    tmp = f"{out_path}.tmp"
+    directory = configured_temp_directory()
+    tmp = str(Path(directory, "align")) if directory else f"{out_path}.tmp"
     out_fmt = ["-O", "CRAM", "--reference", ref] if fmt == "CRAM" else ["-O", "BAM"]
     return [
         ["samtools", "fixmate", "-m", "-u", "-", "-"],
@@ -495,6 +497,7 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
             "align",
             input_paths=[path for path in (args.r1, args.r2) if path],
             output_dir=setup.outdir,
+            temp_dir=configured_temp_directory(),
             reference=setup.ref,
             threads=setup.threads,
             memory=setup.memory,
@@ -522,7 +525,7 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
         platform=getattr(args, "platform", None),
         read_length=read_length,
     )
-    warn_alignment_sort_space(setup.outdir, reads)
+    warn_alignment_sort_space(configured_temp_directory() or setup.outdir, reads)
     args._input_read_count = reads
     if tool == "bwa-mem2":
         bwa_mem2.ensure_index(setup.ref, download=False)
@@ -605,7 +608,9 @@ def align_ultima(
         LOG_MESSAGES["aligning_reads"].format(input=reads, output=out_path, tool=tool)
     )
     bwa = [tool, "mem", "-K", BWA_BATCH_BASES, "-t", setup.threads, "-Y"]
-    with tempfile.TemporaryDirectory(dir=setup.outdir, prefix=".wgse_ug_") as tmp:
+    with tempfile.TemporaryDirectory(
+        dir=configured_temp_directory() or setup.outdir, prefix=".wgse_ug_"
+    ) as tmp:
         stages: list[Sequence[object]] = []
         if reads.lower().endswith((".bam", ".cram")):
             header = get_bam_header(reads, cram_opt)
@@ -856,7 +861,9 @@ def _gpu_align(
     )
     with (
         cleanup_files(on_failure=[out_path, pb_out, pb_out + ".bai"]),
-        tempfile.TemporaryDirectory(dir=setup.outdir, prefix=".wgse_pb_") as tmp,
+        tempfile.TemporaryDirectory(
+            dir=configured_temp_directory() or setup.outdir, prefix=".wgse_pb_"
+        ) as tmp,
     ):
         run_pbrun(
             tool,
@@ -920,6 +927,10 @@ def align_minimap2(args: argparse.Namespace) -> None:
 
 
 def align_pbmm2(args: argparse.Namespace) -> None:
+    if configured_temp_directory() and not getattr(args, "gpu", False):
+        raise WGSExtractError(
+            "Native pbmm2's internal sorter does not support --tmp-dir. Use --aligner minimap2 or omit the temporary-directory setting."
+        )
     if args.r2:
         raise WGSExtractError(
             "PacBio alignment expects single-end BAM/FASTQ input; do not pass --r2."
