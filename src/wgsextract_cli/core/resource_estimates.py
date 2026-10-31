@@ -103,6 +103,7 @@ def estimate_resources(
     extract_fastq: bool = False,
     fastq_dir: str | None = None,
     temp_dir: str | None = None,
+    gatk_staging_dir: str | None = None,
     region: str | None = None,
     duplicate_marking: Literal["samblaster", "markdup", "gatk-flow"] | None = None,
     parallel: bool = False,
@@ -241,7 +242,7 @@ def estimate_resources(
             if cram_input and region:
                 demands.append(
                     (
-                        output_dir,
+                        gatk_staging_dir or output_dir,
                         "regional_bam",
                         None if disk_reads is None else disk_reads * BAM_BYTES_PER_READ,
                     )
@@ -259,10 +260,10 @@ def estimate_resources(
         )
     indexes = None if output is None else max(64 * 1024, math.ceil(output / 100))
     if operation == "gatk" and gatk_workers > 1:
-        # Shards coexist with the gathered output, on the output filesystem.
+        # Shards coexist with the gathered output.
         demands += [
-            (output_dir, "scatter_parts", output),
-            (output_dir, "scatter_indexes", indexes),
+            (gatk_staging_dir or output_dir, "scatter_parts", output),
+            (gatk_staging_dir or output_dir, "scatter_indexes", indexes),
         ]
     demands += [
         (output_dir, "output", output),

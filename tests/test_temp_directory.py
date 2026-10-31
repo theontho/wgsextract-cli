@@ -51,6 +51,44 @@ def test_realign_preflight_budgets_output_and_staging_volumes_separately(
     assert checked == [(str(output), expected[0]), (str(scratch), expected[1])]
 
 
+@pytest.mark.parametrize("sort_type", ["Name", "Coord"])
+def test_bam_preflight_checks_selected_spill_capacity_separately(
+    tmp_path, monkeypatch, sort_type
+):
+    from wgsextract_cli.commands import bam
+
+    source, output, scratch = (
+        tmp_path / "source.bam",
+        tmp_path / "output",
+        tmp_path / "scratch",
+    )
+    source.write_bytes(b"input")
+    output.mkdir()
+    scratch.mkdir()
+    original_stat = Path.stat
+
+    def stat(path, **kwargs):
+        result = original_stat(path, **kwargs)
+        values = list(result)
+        if path == scratch:
+            values[2] += 1
+        return os.stat_result(values)
+
+    monkeypatch.setattr(Path, "stat", stat)
+    monkeypatch.setattr(bam, "configured_temp_directory", lambda: str(scratch))
+    monkeypatch.setattr(bam, "indexed_read_count", lambda *args: 100)
+    monkeypatch.setattr(bam, "get_free_space_needed", lambda *args, **kwargs: (3, 4))
+    monkeypatch.setattr(bam, "print_warning", lambda *args, **kwargs: None)
+    checked = []
+    monkeypatch.setattr(
+        bam, "check_free_space", lambda path, size: checked.append((path, size)) or True
+    )
+    bam._preflight_sort_space(
+        str(source), str(output), sort_type, "sort", None, "sort", "1"
+    )
+    assert checked == [(str(scratch), 3), (str(output), 4)]
+
+
 def test_cli_override_routes_sort_spills_and_is_cleaned_on_failure(
     tmp_path, monkeypatch
 ):

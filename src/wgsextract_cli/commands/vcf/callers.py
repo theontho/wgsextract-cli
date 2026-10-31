@@ -208,6 +208,7 @@ def cmd_gatk(args: argparse.Namespace) -> None:
             threads=_threads,
             region=args.region,
             temp_dir=configured_temp_directory() or tempfile.gettempdir(),
+            gatk_staging_dir=configured_temp_directory(),
             gatk_workers=len(shards) or 1,
         )
     )

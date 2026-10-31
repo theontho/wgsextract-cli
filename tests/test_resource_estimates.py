@@ -41,6 +41,30 @@ def test_realign_staged_fastqs_are_budgeted_on_the_temporary_volume(
     assert "extracted_fastqs" not in disks[out].components
 
 
+def test_regional_gatk_and_scatter_artifacts_are_budgeted_on_the_selected_volume(
+    monkeypatch,
+):
+    monkeypatch.setattr(resources, "_input_size", lambda _: 100 * 1024**2)
+    monkeypatch.setattr(resources, "_disk_space", lambda path: (path, 100 * GIB))
+    estimate = resources.estimate_resources(
+        "gatk",
+        input_paths=["input.cram"],
+        output_dir="output",
+        temp_dir="scratch",
+        gatk_staging_dir="scratch",
+        region="chrM",
+        gatk_workers=2,
+    )
+    disks = {
+        row.paths[0]: row
+        for row in estimate.resources
+        if row.resource == "disk" and row.paths
+    }
+    expected = {"regional_bam", "scatter_parts", "scatter_indexes"}
+    assert expected <= disks["scratch"].components.keys()
+    assert not expected & disks["output"].components.keys()
+
+
 @pytest.fixture
 def source(tmp_path):
     source = tmp_path / "input.cram"
