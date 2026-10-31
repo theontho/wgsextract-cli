@@ -4,9 +4,12 @@ $evidence = Join-Path $repo "out\windows-arm64\python-source"
 New-Item -ItemType Directory -Force -Path $evidence | Out-Null
 $env:PYTHON = (Get-Command python.exe).Source
 $env:GIT = (Get-Command git.exe).Source
+New-Item -ItemType Directory -Force -Path "$env:SRC_DIR\out" | Out-Null
+$response = "$env:SRC_DIR\out\python-build.rsp"
+"/p:PlatformToolset=v145`n/p:KillPython=false" | Set-Content -Encoding utf8 $response
 # All upstream external inputs are prepopulated by checksum-pinned sources.
 & "$env:SRC_DIR\PCbuild\build.bat" -p ARM64 -c Release --no-tkinter `
-    "/p:PlatformToolset=v145" "/p:KillPython=false" 2>&1 |
+    "@$response" 2>&1 |
     Tee-Object -FilePath "$evidence\compiler.log"
 if ($LASTEXITCODE) { throw "CPython 3.13.18 ARM64 source build failed" }
 & python "$env:SRC_DIR\PC\layout" --source $env:SRC_DIR `

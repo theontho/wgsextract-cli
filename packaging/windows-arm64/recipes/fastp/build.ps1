@@ -21,6 +21,15 @@ if (-not (Get-Item "$evidence\neon-selection.txt").Length) {
 & cmake --install $build --config Release
 if ($LASTEXITCODE) { throw "fastp ARM64 install failed" }
 & "$repo\scripts\audit_windows_arm64.ps1" -Prefix $env:PREFIX -Report "$evidence\pe.json"
+& python "$repo\packaging\windows-arm64\tests\fastp_smoke.py" `
+    --fastp "$env:PREFIX\Library\bin\fastp.exe" --output "$evidence\smoke"
+if ($LASTEXITCODE) { throw "Native fastp gzip/counter qualification failed" }
+& "$repo\scripts\qualify_windows_arm64_process.ps1" `
+    -Executable "$env:PREFIX\Library\bin\fastp.exe" `
+    -Arguments @("--stdin", "--stdout", "--disable_adapter_trimming", "--dont_eval_duplication",
+        "--json", "$evidence\stdin.json", "--html", "$evidence\stdin.html") `
+    -InputPrefix ("@arm236`n" + ("ACGT" * 37) + "AC`n+`n" + ("I" * 150) + "`n") `
+    -Prefix $env:PREFIX -Report "$evidence\process.json"
 $notices = Join-Path $env:PREFIX "Library\share\fastp\licenses"
 New-Item -ItemType Directory -Force -Path $notices | Out-Null
 Copy-Item "$env:SRC_DIR\isa-l\LICENSE" "$notices\isa-l.txt"

@@ -17,6 +17,8 @@
 #define R_OK 4
 #define W_OK 2
 #define F_OK 0
+#define S_IRUSR _S_IREAD
+#define S_IWUSR _S_IWRITE
 #define stat _stat64
 #define fstat _fstat64
 #define S_ISDIR(mode) (((mode) & _S_IFMT) == _S_IFDIR)
@@ -49,7 +51,17 @@ static inline int nanosleep(const struct timespec *request, struct timespec *rem
 #define fseeko _fseeki64
 #define ftello _ftelli64
 #define strtok_r strtok_s
-#define ftruncate(fd, length) _chsize_s((fd), (length))
+static inline int wgse_ftruncate(int fd, wgse_off_t length)
+{
+    if (fd < 0 || length < 0) {
+        errno = fd < 0 ? EBADF : EINVAL;
+        return -1;
+    }
+    errno_t result = _chsize_s(fd, length);
+    if (result) { errno = result; return -1; }
+    return 0;
+}
+#define ftruncate wgse_ftruncate
 #define localtime_r(value, result) (localtime_s((result), (value)) ? NULL : (result))
 #define gmtime_r(value, result) (gmtime_s((result), (value)) ? NULL : (result))
 #define realpath(path, result) _fullpath((result), (path), _MAX_PATH)

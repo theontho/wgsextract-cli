@@ -79,7 +79,8 @@ Do not reject or identify this oracle from the reported version alone.
 The staged HTS 1.24 recipe reuses all three unchanged x64 CRAM/BAM optimization
 patches, static pinned compression/TRE dependencies and the existing regressions.
 It includes the native CRAM rANS NEON translation unit; compiler evidence is
-required. This recipe has not yet passed native qualification. Remote access
+required. Native compilation, packaging, PE audit and CRAM/BAM optimization
+regressions pass; whole-pipeline qualification is pending. Remote access
 and plugins remain disabled, as in the x64 package.
 Native Release builds retain upstream assertions so assertion-based regression
 fixtures do not become silent no-ops through CMake's `NDEBUG` default.

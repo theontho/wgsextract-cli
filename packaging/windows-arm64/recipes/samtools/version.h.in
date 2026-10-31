@@ -3,5 +3,6 @@
 #define SAMTOOLS_CPPFLAGS "WIN32 WIN32_LEAN_AND_MEAN NOMINMAX"
 #define SAMTOOLS_CFLAGS "@CMAKE_C_FLAGS@ @CMAKE_C_FLAGS_RELEASE@ /MT /UNDEBUG /clang:-fsigned-char"
 #define SAMTOOLS_LDFLAGS "static"
+#define SAMTOOLS_HTSDIR "htslib-1.24"
 #define SAMTOOLS_CURSES_LIB ""
-#define SAMTOOLS_LIBS "hts zlib libdeflate bzip2 liblzma tre pthreads getopt lz4 ws2_32 psapi"
+#define SAMTOOLS_LIBS "hts zlib libdeflate bzip2 liblzma tre pthreads getopt lz4 ws2_32 psapi bcrypt"

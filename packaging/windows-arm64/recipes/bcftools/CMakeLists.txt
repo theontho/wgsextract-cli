@@ -29,4 +29,12 @@ add_executable(bcftools ${APP_SOURCES}
 target_include_directories(bcftools PRIVATE "${WGSE_BCFTOOLS_SOURCE}")
 target_compile_definitions(bcftools PRIVATE NOMINMAX)
 target_link_libraries(bcftools PRIVATE hts)
+add_executable(group_copy_test
+    "${CMAKE_CURRENT_LIST_DIR}/../../../windows/tests/group_copy.c"
+    "${WGSE_BCFTOOLS_SOURCE}/bam_sample.c"
+    "${CMAKE_CURRENT_LIST_DIR}/../../../windows/compat/wgse_compat.c")
+target_include_directories(group_copy_test PRIVATE
+    "${WGSE_BCFTOOLS_SOURCE}" "${CMAKE_CURRENT_BINARY_DIR}/group-probe")
+target_compile_definitions(group_copy_test PRIVATE NOMINMAX)
+target_link_libraries(group_copy_test PRIVATE hts)
 install(TARGETS bcftools RUNTIME DESTINATION Library/bin)
