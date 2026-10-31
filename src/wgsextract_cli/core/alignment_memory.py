@@ -12,7 +12,8 @@ or a hard limit.
 
 import logging
 import math
-from pathlib import Path
+import re
+from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
 import psutil
@@ -60,6 +61,7 @@ def available_memory() -> int:
 def _cgroup_available_memory(
     membership: Path = Path("/proc/self/cgroup"),
     root: Path = Path("/sys/fs/cgroup"),
+    mountinfo: Path = Path("/proc/self/mountinfo"),
 ) -> int | None:
     """Honor Linux cgroup-v2 ancestor caps, not just the host's free RAM."""
     try:
@@ -68,9 +70,17 @@ def _cgroup_available_memory(
             for line in membership.read_text().splitlines()
             if line.startswith("0::")
         )
-        if ".." in Path(relative).parts:
-            return None
-        group = root / relative.lstrip("/")
+        path = PurePosixPath(relative)
+        if ".." in path.parts:
+            group = root
+        else:
+            mounted = _cgroup_mount_root(root, mountinfo)
+            try:
+                path = path.relative_to(mounted)
+            except ValueError:
+                # Membership may already be relative to a cgroup namespace.
+                path = PurePosixPath(relative.lstrip("/"))
+            group = root / str(path)
         # A container can expose only the namespace root rather than the
         # host-relative membership path.
         if not group.is_dir():
@@ -100,6 +110,29 @@ def _cgroup_available_memory(
         return min(budgets) if budgets else None
     except (OSError, StopIteration):
         return None
+
+
+def _cgroup_mount_root(root: Path, mountinfo: Path) -> PurePosixPath:
+    """Translate the visible cgroup2 mount's filesystem-root offset."""
+
+    def decoded(value: str) -> str:
+        return re.sub(r"\\([0-7]{3})", lambda match: chr(int(match[1], 8)), value)
+
+    try:
+        for line in mountinfo.read_text().splitlines():
+            fields = line.split()
+            try:
+                separator = fields.index("-")
+                if (
+                    fields[separator + 1] == "cgroup2"
+                    and Path(decoded(fields[4])) == root
+                ):
+                    return PurePosixPath(decoded(fields[3]))
+            except (ValueError, IndexError):
+                continue
+    except OSError:
+        pass
+    return PurePosixPath("/")
 
 
 def _working_memory(
@@ -246,7 +279,10 @@ def check_mapping_memory(
         else:
             high = candidate - 1
     if low:
-        message += f" This estimate fits with --threads {low}; requested threads are unchanged."
+        message += (
+            f" This estimate fits with --threads {low} --memory {memory}; "
+            "requested threads are unchanged."
+        )
     else:
         message += " Even one thread exceeds the available-memory estimate."
     logging.warning("%s Continuing with bwa.", message)

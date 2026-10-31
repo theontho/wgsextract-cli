@@ -107,7 +107,9 @@ filesystem for reference-index storage.
   threads also increase the allowance. BWA-MEM2 calibration is unchanged.
 - Available RAM honors Linux cgroup-v2 ancestor caps, including reclaimable
   inactive file cache; Windows/macOS retain native available-RAM reporting.
-  LOW-memory BWA warnings recommend a lower thread count that fits, if any.
+  Namespace/subtree mounts retain their visible descendant limits.
+  LOW-memory BWA warnings recommend a lower thread count plus the resolved
+  `--memory` value, keeping the modeled per-sort-thread allowance fixed.
   **No automatic thread cap is applied:** requested threads and BWA arguments
   remain unchanged. Existing BWA advisory and explicit BWA-MEM2 refusal
   policies remain. Read complexity, flow-tag volume and tool versions can

@@ -51,6 +51,7 @@ def test_ultima_preflight_covers_measured_hg008_memory(
     if status == "LOW":
         assert "requested threads are unchanged" in caplog.text
         assert "--threads 3" in caplog.text
+        assert "--threads 3 --memory 256M" in caplog.text
         assert "Continuing with bwa" in caplog.text
     else:
         assert "Continuing with bwa" not in caplog.text
@@ -136,6 +137,32 @@ def test_available_ram_honors_cgroup_ancestors_and_reclaimable_file_cache(
         lambda: SimpleNamespace(available=host_available * GIB),
     )
     assert alignment_memory.available_memory() == expected * GIB
+
+
+def test_parent_relative_membership_retains_readable_mounted_root_limit(tmp_path):
+    membership = tmp_path / "membership"
+    membership.write_text("0::/../../outside\n")
+    (tmp_path / "memory.max").write_text(str(16 * GIB))
+    (tmp_path / "memory.current").write_text(str(4 * GIB))
+    assert alignment_memory._cgroup_available_memory(membership, tmp_path) == 12 * GIB
+
+
+def test_subtree_mount_offset_retains_tighter_descendant_limit(tmp_path):
+    root = tmp_path / "mounted cgroup"
+    worker = root / "worker"
+    worker.mkdir(parents=True)
+    membership = tmp_path / "membership"
+    membership.write_text("0::/host/container/worker\n")
+    mountinfo = tmp_path / "mountinfo"
+    point = str(root).replace("\\", r"\134").replace(" ", r"\040")
+    mountinfo.write_text(f"31 22 0:28 /host/container {point} rw - cgroup2 cgroup rw\n")
+    for group, limit, current in [(root, 16, 4), (worker, 4, 1)]:
+        (group / "memory.max").write_text(str(limit * GIB))
+        (group / "memory.current").write_text(str(current * GIB))
+    assert (
+        alignment_memory._cgroup_available_memory(membership, root, mountinfo)
+        == 3 * GIB
+    )
 
 
 def test_namespaced_cgroup_root_and_unavailable_limits(tmp_path):
