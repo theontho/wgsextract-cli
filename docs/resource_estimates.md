@@ -25,7 +25,8 @@ still bypasses realignment's disk refusal, not its memory guard; informational
 estimates are still printed. Realignment reports before FASTQ extraction and
 alignment reports again when the final aligner is selected.
 
-Paired BWA realignment without `--keep-fastq` streams newly extracted reads:
+Paired BWA realignment without `--keep-fastq` normally streams newly extracted reads
+(forced refresh of cached FASTQs at the exact output paths retains file handling):
 there is no retained `extracted_fastqs` demand. Its live collate bucket and codec
 headroom are included in RAM, and `collation_spill` is conservatively added
 alongside sorter spill/output on the same volume. Collate removes buckets as

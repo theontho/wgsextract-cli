@@ -249,6 +249,26 @@ def test_force_extract_streams_without_touching_existing_fastqs(
     assert (tmp_path / "x_R1.fastq.gz").read_text() == "stale"
 
 
+@pytest.mark.parametrize("failed", [False, True])
+def test_force_refreshes_exact_output_cache_with_legacy_retention(
+    tmp_path, monkeypatch, source, failed
+):
+    fakes = _Fakes(monkeypatch)
+    pair = (str(tmp_path / "x_R1.fastq.gz"), str(tmp_path / "x_R2.fastq.gz"))
+    for path in pair:
+        Path(path).write_text("stale")
+    if failed:
+        fakes.align_error = WGSExtractError("alignment failed")
+        with pytest.raises(WGSExtractError, match="alignment failed"):
+            realign.run(_args(source, force_extract=True))
+        assert all(Path(path).read_text() == "@r\nA\n+\nI\n" for path in pair)
+    else:
+        realign.run(_args(source, force_extract=True))
+        assert not any(Path(path).exists() for path in pair)
+    assert fakes.extracted == [pair] and fakes.aligned == [pair]
+    assert fakes.streamed == []
+
+
 def test_reads_passed_in_are_aligned_and_never_deleted(tmp_path, monkeypatch, source):
     fakes = _Fakes(monkeypatch)
     r1 = tmp_path / "reads.fq"

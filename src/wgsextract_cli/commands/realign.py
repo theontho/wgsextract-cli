@@ -293,11 +293,17 @@ def run(args: argparse.Namespace) -> None:
         r2_path = str(Path(outdir, f"{base}_R2.fastq.gz"))
         need_extract = True
 
+    refresh_cached_fastqs = (
+        need_extract
+        and args.force_extract
+        and any(Path(path).is_file() for path in (r1_path, r2_path) if path)
+    )
     streaming = (
         need_extract
         and selected_aligner in {"bwa", "bwa-mem2"}
         and not getattr(args, "keep_fastq", False)
         and not getattr(args, "gpu", False)
+        and not refresh_cached_fastqs
     )
     statistics = None if need_extract else fastq_input_statistics(r1_path, r2_path)
     reads = (
