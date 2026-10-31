@@ -258,4 +258,11 @@ def cmd_ydna(args: argparse.Namespace) -> None:
     print(f"\n🧬 Yleaf Lineage Result ({input_stem(args.input)}):")
     print("-" * 30)
     print(content)
+    if getattr(args, "tree_links", False):
+        from ._lineage_links import print_tree_links
+
+        for row in rows:
+            # The terminal SNP, rather than the long-form lineage, identifies
+            # branches in the public trees.
+            print_tree_links(row.get("Hg_marker") or row.get("Hg") or "")
     print("-" * 30 + "\n")

@@ -125,7 +125,7 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
         except (OSError, subprocess.SubprocessError) as e:
             raise WGSExtractError(f"Haplogrep failed: {e}") from e
 
-    _print_haplogrep_result(out_file, reference)
+    _print_haplogrep_result(out_file, reference, getattr(args, "tree_links", False))
 
 
 def _require_rcrs(path: str, chr_m: str, cram_opt: list[str] | None = None) -> None:
@@ -141,7 +141,9 @@ def _require_rcrs(path: str, chr_m: str, cram_opt: list[str] | None = None) -> N
     )
 
 
-def _print_haplogrep_result(out_file: str, reference: str | None) -> None:
+def _print_haplogrep_result(
+    out_file: str, reference: str | None, tree_links: bool = False
+) -> None:
     try:
         with open(out_file, newline="") as f:
             rows = list(csv.DictReader(f, delimiter="\t"))
@@ -165,6 +167,10 @@ def _print_haplogrep_result(out_file: str, reference: str | None) -> None:
     for header, value in rows[0].items():
         if header and value:
             print(f"{header:<15} : {value}")
+    if tree_links:
+        from ._lineage_links import print_tree_links
+
+        print_tree_links(rows[0]["Haplogroup"], mitochondrial=True)
     print("-" * 30 + "\n")
 
 
@@ -187,6 +193,9 @@ def register(
         "--extra-args", help="Extra arguments to pass to Yleaf (e.g. -force)"
     )
     ydna_parser.set_defaults(func=cmd_ydna)
+    ydna_parser.add_argument(
+        "--tree-links", action="store_true", help="Print YFull and FTDNA tree links."
+    )
 
     mtdna_parser = lin_subs.add_parser(
         "mt-haplogroup",
@@ -199,3 +208,6 @@ def register(
         help="Path to haplogrep executable or JAR (optional if in PATH)",
     )
     mtdna_parser.set_defaults(func=cmd_mtdna)
+    mtdna_parser.add_argument(
+        "--tree-links", action="store_true", help="Print a YFull mtDNA tree link."
+    )
