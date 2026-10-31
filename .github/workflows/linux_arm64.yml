@@ -34,6 +34,7 @@ jobs:
       - name: Check installed tools and VEP
         run: |
           pixi run wgsextract deps check
+          pixi run --no-install Yleaf --help > /dev/null
           pixi run -e vep --no-install vep --help > /dev/null
       - name: Test installer
         run: scripts/test_install_sh.sh

@@ -36,6 +36,11 @@ construction can require about 90 GB; reuse the verified public index where
 available or use a sufficiently large native machine. Alignment needs much
 less RAM, and the usual preflight still applies.
 
+The upstream MEM2 v2.3 source archive still reports `2.2.1` from its executable.
+Use the locked package version and upstream source checksum as well as
+`--version` when matching a scientific golden; the reported version alone is
+not evidence that two builds use the same source.
+
 ## Deliberately unavailable
 
 GATK commands fail fast on Linux ARM64, including `--gpu`: the pinned GKL

@@ -88,6 +88,11 @@ sambamba = ">=1.0.1,<2"
 # Match the qualified x64 calling version; do not introduce architecture drift.
 bcftools = "==1.24"
 
+[feature.bio-tools.target.linux-aarch64.pypi-dependencies]
+# Ancient boto3 forces six 1.7.3, whose import hook cannot run on Python 3.13.
+boto3 = ">=1.35,<2"
+six = ">=1.17,<2"
+
 [feature.bio-tools.target.win-64.dependencies]
 fastqc = ">=0.13,<0.14"
 haplogrep = ">=2.4,<3"
