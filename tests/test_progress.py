@@ -2,6 +2,8 @@ import logging
 import sys
 import time
 
+import pytest
+
 from wgsextract_cli.core import utils
 from wgsextract_cli.core.progress import Heartbeat
 
@@ -56,3 +58,35 @@ def test_progress_scan_error_cannot_fail_the_data_pipeline(caplog):
     with Heartbeat("Extraction", 10, scan=unavailable, interval=0.01):
         time.sleep(0.03)
     assert "Progress scan unavailable" in caplog.text
+
+
+@pytest.mark.parametrize("with_aligner", [False, True])
+def test_pipeline_counts_aligner_only_or_fastq_as_fallback(
+    tmp_path, caplog, with_aligner
+):
+    caplog.set_level(logging.INFO)
+    stages = [
+        [
+            sys.executable,
+            "-c",
+            "import sys;sys.stderr.write('[M::bam2fq_mainloop] processed 2 reads\\n');"
+            "sys.stdout.buffer.write(b'paired-data')",
+            "samtools",
+            "fastq",
+        ]
+    ]
+    if with_aligner:
+        stages.append(
+            [
+                sys.executable,
+                "-c",
+                "import sys;sys.stderr.write('Processed 2 reads in 1s\\n');"
+                "sys.stdout.buffer.write(sys.stdin.buffer.read())",
+                "bwa",
+            ]
+        )
+    with (tmp_path / "data").open("wb") as output:
+        utils.run_pipeline(stages, stdout=output, heartbeat=True, expected_reads=2)
+    assert (tmp_path / "data").read_bytes() == b"paired-data"
+    assert "2/2 reads (100.0%)" in caplog.text
+    assert "4/2 reads" not in caplog.text

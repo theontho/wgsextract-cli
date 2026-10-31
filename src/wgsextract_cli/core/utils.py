@@ -300,6 +300,16 @@ def run_pipeline(
     partials: list[bytes] = []
     monitor: Heartbeat | None = None
     names: list[str] = []
+    progress_args = (
+        [_normalize_subprocess_cmd(stage) for stage in stages]
+        if heartbeat or active_run_log()
+        else []
+    )
+
+    def is_aligner(args: Sequence[str]) -> bool:
+        return any(Path(arg).stem in {"bwa", "bwa-mem2", "minimap2"} for arg in args)
+
+    has_aligner = any(is_aligner(args) for args in progress_args)
 
     def scan() -> None:
         for index, (reader, aligner) in enumerate(readers):
@@ -327,21 +337,21 @@ def run_pipeline(
             )
             stderr_files.append(err_file)
             if heartbeat or active_run_log():
-                args = _normalize_subprocess_cmd(stage)
+                args = progress_args[index]
                 name = Path(args[0]).stem if args else "?"
                 names.append(name)
                 readers.append(
                     (
                         open(err_file.name, "rb"),
-                        any(
-                            Path(arg).stem == "samtools"
-                            and args[position + 1] == "fastq"
-                            for position, arg in enumerate(args[:-1])
+                        (
+                            not has_aligner
+                            and any(
+                                Path(arg).stem == "samtools"
+                                and args[position + 1] == "fastq"
+                                for position, arg in enumerate(args[:-1])
+                            )
                         )
-                        or any(
-                            Path(arg).stem in {"bwa", "bwa-mem2", "minimap2"}
-                            for arg in args
-                        ),
+                        or is_aligner(args),
                     )
                 )
                 partials.append(b"")
