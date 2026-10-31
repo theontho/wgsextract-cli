@@ -20,18 +20,6 @@ from wgsextract_cli.core.tool_catalog import (
     _tool_executable_names,
 )
 
-# Runs <env prefix>/bin/<script> with its interpreter from inside `pixi run`, for
-# a Windows script tool whose environment isn't installed yet (its prefix, and
-# so the script's path, only exists once `pixi run` has installed it).
-_WINDOWS_FIRST_USE_STUB = (
-    "import subprocess, sys; from pathlib import Path; "
-    "name = sys.argv[2]; "
-    "root = Path(sys.prefix); "
-    "found = sorted(p for d in ('share', 'opt') for p in (root / d).glob('*/' + name)) + "
-    "[p for p in (root / d / name for d in ('bin', 'Scripts')) if p.exists()]; "
-    "sys.exit(subprocess.call([sys.argv[1], str(found[0]) if found else name, *sys.argv[3:]]))"
-)
-
 
 def is_pixi_tool_command(path: str) -> bool:
     """Return whether a resolved command is explicitly launched through Pixi."""
@@ -297,20 +285,6 @@ def _host_pixi_tool_command(tool: str) -> str | None:
             and _locked_package_available(pixi_cmd, env, tool)
             and pixi_env_prefix(env) is None
         ):
-            launcher = WINDOWS_PIXI_SCRIPT_LAUNCHERS.get(tool)
-            if launcher and runtime.is_windows_host():
-                # Windows can't run the extensionless script by name.
-                return _pixi_run_command(
-                    pixi_cmd,
-                    env,
-                    [
-                        "python",
-                        "-c",
-                        _WINDOWS_FIRST_USE_STUB,
-                        *launcher,
-                        executable_names[0],
-                    ],
-                )
             return _pixi_run_command(pixi_cmd, env, [executable_names[0]])
         return None
 

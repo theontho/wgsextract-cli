@@ -445,13 +445,14 @@ def test_version_probe_reports_a_crashing_tool(returncode):
         )
 
 
-def test_uninstalled_windows_script_tool_runs_through_its_interpreter(tmp_path):
-    """On Windows `gatk` is an extensionless Python script, so the first-use
-    command can't name it; it runs it from the new env with its interpreter."""
+def test_uninstalled_windows_gatk_requires_the_native_environment():
+    """Do not auto-install then silently launch java -jar without the sidecar."""
     from wgsextract_cli.core import pixi_tools
-    from wgsextract_cli.core.tool_commands import _tool_command_parts
+
+    probes = []
 
     def fake_run(cmd, **kwargs):
+        probes.append(cmd)
         if cmd[1] == "run":
             return MagicMock(returncode=1, stdout="", stderr="env not installed")
         return MagicMock(returncode=0, stdout='[{"name": "gatk4"}]', stderr="")
@@ -462,26 +463,8 @@ def test_uninstalled_windows_script_tool_runs_through_its_interpreter(tmp_path):
         patch.object(pixi_tools.runtime, "is_windows_host", return_value=True),
     ):
         command = pixi_tools._host_pixi_tool_command("gatk")
-        assert command is not None
-        argv = _tool_command_parts(command)
-    stub_at = argv.index("-c") + 1
-    assert argv[stub_at - 2 : stub_at - 1] == ["python"]
-    assert argv[stub_at + 1 :] == ["python", "gatk"]
-
-    # The stub finds the script in the env prefix and runs it with the launcher.
-    (tmp_path / "share" / "gatk4-4.6.2.0-1").mkdir(parents=True)
-    (tmp_path / "share" / "gatk4-4.6.2.0-1" / "gatk").write_text("")
-    calls = []
-    with (
-        patch.object(sys, "prefix", str(tmp_path)),
-        patch.object(sys, "argv", ["-c", "python", "gatk", "HaplotypeCaller"]),
-        patch("subprocess.call", side_effect=lambda cmd: calls.append(cmd) or 0),
-        pytest.raises(SystemExit) as exit_info,
-    ):
-        exec(argv[stub_at], {})
-    assert exit_info.value.code == 0
-    real_script = tmp_path / "share" / "gatk4-4.6.2.0-1" / "gatk"
-    assert calls == [["python", str(real_script), "HaplotypeCaller"]]
+        assert command is None
+    assert probes and all("--no-install" in cmd for cmd in probes)
 
 
 @pytest.mark.parametrize(
