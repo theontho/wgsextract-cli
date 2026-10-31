@@ -7,6 +7,7 @@ from wgsextract_cli.core.config import reload_settings, settings
 from wgsextract_cli.core.dependencies import clear_tool_caches
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     """Keep module-owned outputs and shared synthetic-data generation serialized."""
     for item in items:
@@ -61,6 +62,7 @@ def _isolate_user_config(
     """
     saved = dict(settings)
     if request.node.get_closest_marker("real_config") is None:
+        monkeypatch.setattr("wgsextract_cli.core.config._config_path_override", None)
         isolate_home(monkeypatch, tmp_path_factory.mktemp("home"))
         reload_settings()
     try:
