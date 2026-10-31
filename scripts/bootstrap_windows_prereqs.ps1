@@ -159,6 +159,21 @@ function Assert-FileSha256 {
     Write-Step "$Label SHA-256 verified."
 }
 
+function Add-PixiToUserPath {
+    param([string]$Directory, [Microsoft.Win32.RegistryKey]$Key)
+    $userPath = [string]$Key.GetValue(
+        "Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames
+    )
+    $entries = @($userPath -split ";" | ForEach-Object {
+        [Environment]::ExpandEnvironmentVariables($_).Trim().TrimEnd('\')
+    })
+    if ($entries -notcontains $Directory.TrimEnd('\')) {
+        $Key.SetValue(
+            "Path", "$Directory;$userPath", [Microsoft.Win32.RegistryValueKind]::ExpandString
+        )
+    }
+}
+
 function Ensure-Pixi {
     if ($SkipPixiInstall) {
         Write-Step "Skipping Pixi bootstrap."
@@ -197,12 +212,11 @@ function Ensure-Pixi {
         Copy-UrlOrFile -Source $url -Destination $download
         Assert-FileSha256 -Path $download -ExpectedSha256 $expected -Label "Pixi executable"
         Move-Item -LiteralPath $download -Destination (Join-Path $bin "pixi.exe") -Force
-        $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-        $entries = @($userPath -split ";" | ForEach-Object {
-            [Environment]::ExpandEnvironmentVariables($_).Trim().TrimEnd('\')
-        })
-        if ($entries -notcontains $bin.TrimEnd('\')) {
-            [Environment]::SetEnvironmentVariable("Path", "$bin;" + $userPath, "User")
+        $environment = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey("Environment")
+        try {
+            Add-PixiToUserPath -Directory $bin -Key $environment
+        } finally {
+            $environment.Dispose()
         }
         Add-PathForCurrentProcess $bin
         $pixi = Get-Command pixi -ErrorAction SilentlyContinue

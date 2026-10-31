@@ -101,6 +101,42 @@ def test_pixi_bootstrap_sha256_fails_closed(tmp_path) -> None:
         assert (result.returncode == 0) is succeeds, result.stderr
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows registry")
+def test_pixi_user_path_preserves_variables_and_deduplicates(tmp_path) -> None:
+    pwsh = shutil.which("pwsh") or shutil.which("powershell")
+    if not pwsh:
+        pytest.skip("PowerShell is not installed")
+    bootstrap = (ROOT / "scripts/bootstrap_windows_prereqs.ps1").read_text()
+    script = tmp_path / "registry-path.ps1"
+    script.write_text(
+        bootstrap.rsplit("\nEnsure-Pixi", 1)[0]
+        + r"""
+$name = "Software\\WGSETests\\" + [guid]::NewGuid().ToString()
+$key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($name)
+try {
+    $original = '%USERPROFILE%\\Tools;C:\\custom'
+    $key.SetValue('Path', $original, [Microsoft.Win32.RegistryValueKind]::ExpandString)
+    Add-PixiToUserPath -Directory 'C:\\pixi\\bin' -Key $key
+    Add-PixiToUserPath -Directory 'c:\\PIXI\\bin\\' -Key $key
+    $raw = $key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    if ($raw -ne ('C:\\pixi\\bin;' + $original)) { throw "PATH changed or duplicated: $raw" }
+    if ($key.GetValueKind('Path') -ne [Microsoft.Win32.RegistryValueKind]::ExpandString) {
+        throw 'PATH lost its expandable registry type'
+    }
+} finally {
+    $key.Dispose()
+    [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($name)
+}
+"""
+    )
+    result = subprocess.run(
+        [pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_windows_installer_accepts_the_old_installers_options() -> None:
     # gui-for-cli and older docs still pass these: ignored, not an error.
     installer = (ROOT / "install_windows.bat").read_text(encoding="utf-8")

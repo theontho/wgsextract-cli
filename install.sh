@@ -533,6 +533,16 @@ if [ -z "$PIXI" ]; then
                     printf '\nexport PATH=%s:"$PATH"\n' "$(quote_sh "$PIXI_BIN_DIR")" >> "$profile_path"
                 fi
             done
+            shell_name="${SHELL:-}"
+            case "${shell_name##*/}" in
+                fish)
+                    log "For fish, add Pixi to PATH with: fish_add_path $(quote_sh "$PIXI_BIN_DIR")"
+                    ;;
+                bash|zsh|"") ;;
+                *)
+                    log "Add Pixi to your shell's PATH. POSIX-shell command: export PATH=$(quote_sh "$PIXI_BIN_DIR"):\"\$PATH\""
+                    ;;
+            esac
         fi
     fi
 fi

@@ -258,6 +258,21 @@ grep -F "Pixi archive SHA-256 verification failed" "$work_dir/rejected.log" >/de
 test ! -e "$rejected_install_dir/.pixi/bin/pixi"
 tar -czf "$fake_pixi_archive" -C "$fake_pixi_source" pixi
 
+fish_home_dir="$work_dir/fish-home"
+mkdir -p "$fish_home_dir"
+HOME="$fish_home_dir" \
+SHELL="/usr/bin/fish" \
+PATH="$fake_bin:/usr/bin:/bin" \
+WGSEXTRACT_INSTALLER_TEST_ARCHIVE="$archive" \
+WGSEXTRACT_INSTALLER_TEST_PIXI_ARCHIVE="$fake_pixi_archive" \
+WGSEXTRACT_INSTALLER_TEST_RELEASE_TAG="$release_tag" \
+WGSEXTRACT_INSTALLER_TEST_CURL_LOG="$curl_log" \
+WGSEXTRACT_INSTALL_DIR="$work_dir/fish-install" \
+WGSEXTRACT_ARCHIVE_URL="$archive" \
+WGSEXTRACT_NO_OPEN=1 \
+sh "$test_installer" > "$work_dir/fish.log" 2>&1
+grep -F "fish_add_path" "$work_dir/fish.log" >/dev/null
+
 if [ "$(uname -s)" = "Darwin" ]; then
     interactive_install_dir="$work_dir/interactive-install"
     interactive_home_dir="$work_dir/interactive-home"
