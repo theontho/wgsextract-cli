@@ -304,6 +304,10 @@ def run(args: argparse.Namespace) -> None:
     if info_cmd == "calculate-coverage" and getattr(args, "bins", False):
         from .bins import run_depth_bins
 
+        if args.input.lower().endswith(".cram") and (
+            not resolved_ref or not Path(resolved_ref).is_file()
+        ):
+            raise WGSExtractError("--ref required for detailed mode with CRAM.")
         run_depth_bins(
             args.input,
             resolved_ref,

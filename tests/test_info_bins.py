@@ -1,12 +1,15 @@
 import csv
 import io
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
-from tests.htslib_helpers import needs_htslib, run_wgsextract, sam_to_bam, write_fasta
+from tests.htslib_helpers import needs_tools, run_wgsextract, sam_to_bam, write_fasta
 from wgsextract_cli.commands.info.bins import count_depth_bins
 from wgsextract_cli.core.utils import WGSExtractError, run_command
+
+needs_samtools = needs_tools("samtools")
 
 
 def test_bin_boundaries_and_inferred_uncovered_contigs():
@@ -20,7 +23,7 @@ def test_bin_boundaries_and_inferred_uncovered_contigs():
         count_depth_bins(["bad\n"], {"chrY": 10})
 
 
-@needs_htslib
+@needs_samtools
 @pytest.mark.parametrize("region", [None, "Y:2-5"])
 @pytest.mark.parametrize("cram", [False, True])
 def test_bins_real_samtools_default_filters_and_region(
@@ -78,3 +81,70 @@ def test_bins_real_samtools_default_filters_and_region(
         assert rows[1]["Depth 0 bases"] == "3"
     assert len(list((tmp_path / "o").glob("*_coverage_bins.tsv"))) == 1
     assert not list((tmp_path / "o").glob("*_coverage.tsv"))
+
+
+@needs_samtools
+@pytest.mark.parametrize("directory_ref", [False, True])
+def test_cram_bins_require_a_usable_explicit_reference(
+    tmp_path, monkeypatch, directory_ref
+):
+    from wgsextract_cli.commands.info import bins
+
+    reference = write_fasta(tmp_path / "reference.fa", {"chrY": "AAAA"})
+    bam = sam_to_bam(
+        ["@SQ\tSN:chrY\tLN:4", "read\t0\tchrY\t1\t60\t1M\t*\t0\t0\tA\tI"],
+        tmp_path / "sample.bam",
+    )
+    cram = tmp_path / "sample.cram"
+    run_command(["samtools", "view", "-C", "-T", reference, "-o", cram, bam])
+    launch = Mock(
+        side_effect=AssertionError("depth must not decode without a reference")
+    )
+    monkeypatch.setattr(bins, "popen", launch)
+    args = [
+        "info",
+        "calculate-coverage",
+        "--bins",
+        "--input",
+        str(cram),
+        "--outdir",
+        str(tmp_path / "o"),
+    ]
+    if directory_ref:
+        empty_library = tmp_path / "empty-library"
+        empty_library.mkdir()
+        args += ["--ref", str(empty_library)]
+    with pytest.raises(WGSExtractError, match="--ref required"):
+        run_wgsextract(*args)
+    launch.assert_not_called()
+
+
+@needs_samtools
+@pytest.mark.parametrize("region", ["MT", "MT:2-5"])
+def test_bins_honor_exact_name_before_mitochondrial_aliases(tmp_path, capsys, region):
+    bam = sam_to_bam(
+        [
+            "@SQ\tSN:chrM\tLN:6",
+            "@SQ\tSN:MT\tLN:10",
+            "prefixed\t0\tchrM\t2\t60\t1M\t*\t0\t0\tA\tI",
+            "exact1\t0\tMT\t2\t60\t1M\t*\t0\t0\tA\tI",
+            "exact2\t0\tMT\t4\t60\t1M\t*\t0\t0\tA\tI",
+        ],
+        tmp_path / "dual.bam",
+    )
+    run_wgsextract(
+        "info",
+        "calculate-coverage",
+        "--bins",
+        "--input",
+        bam,
+        "--outdir",
+        str(tmp_path / "o"),
+        "--region",
+        region,
+    )
+    rows = list(csv.DictReader(io.StringIO(capsys.readouterr().out), delimiter="\t"))
+    assert len(rows) == 1
+    assert rows[0]["Seq Name"] == "MT"
+    assert rows[0]["Model Len"] == ("10" if region == "MT" else "4")
+    assert rows[0]["Depth 1-3 bases"] == "2"
