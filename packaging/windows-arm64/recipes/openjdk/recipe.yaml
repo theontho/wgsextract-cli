@@ -1,0 +1,24 @@
+package:
+  name: openjdk
+  version: "17.0.21"
+
+source:
+  url: https://aka.ms/download-jdk/microsoft-jdk-17.0.21.0.2-windows-aarch64.zip
+  sha256: 2c0e7679022f1666da64b586f9941e86481c6f369212e918be3e505581085336
+
+build:
+  number: 0
+  string: wgse_arm64_${{ build_number }}
+  script:
+    content:
+      - 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "%RECIPE_DIR%\build.ps1"'
+
+tests:
+  - script:
+      - java -version
+
+about:
+  homepage: https://learn.microsoft.com/java/openjdk/
+  license: GPL-2.0-only WITH Classpath-exception-2.0
+  license_file: legal/java.base/LICENSE
+  summary: Native Microsoft OpenJDK 17 ARM64 runtime qualification.

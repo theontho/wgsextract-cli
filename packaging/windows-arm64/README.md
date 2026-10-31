@@ -87,6 +87,10 @@ with all existing Windows optimization patches. Their packages install only
 their own executables, avoiding duplicate HTS files in the installed prefix.
 Source checksums and complete upstream C source lists have been checked;
 native build and whole-pipeline qualification remain pending.
+An OpenJDK 17.0.21 runtime recipe is also staged from Microsoft's checksum-pinned
+native ARM64 JDK archive. `jlink` retains Java SE, crypto, ZIP and locale modules;
+the resulting runtime and a blocked-input Java process must audit AA64.
+This is a Java runtime package, not a compiler SDK and not GATK/GKL enablement.
 
 On an ARM64 Windows OS, configured executable paths and version probes reject
 x64 PE files before launching them. Feature entry also rejects a Prism-hosted

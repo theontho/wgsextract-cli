@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        recipe: [python, bwa, minimap2, bwa-mem2, htslib, samblaster, samtools, bcftools]
+        recipe: [python, bwa, minimap2, bwa-mem2, htslib, samblaster, samtools, bcftools, openjdk]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -49,14 +49,14 @@ jobs:
           pixi-version: v0.83.0
           run-install: false
       - name: Check out pinned MSVC dependency recipes
-        if: matrix.recipe != 'python' && matrix.recipe != 'samblaster'
+        if: matrix.recipe != 'python' && matrix.recipe != 'samblaster' && matrix.recipe != 'openjdk'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: microsoft/vcpkg
           ref: 9a5dfef5d1a0438a7d24856a85bd60f309d355e9
           path: scratch/vcpkg
       - name: Bootstrap the build-only dependency manager
-        if: matrix.recipe != 'python' && matrix.recipe != 'samblaster'
+        if: matrix.recipe != 'python' && matrix.recipe != 'samblaster' && matrix.recipe != 'openjdk'
         shell: pwsh
         run: |
           & scratch/vcpkg/bootstrap-vcpkg.bat -disableMetrics
