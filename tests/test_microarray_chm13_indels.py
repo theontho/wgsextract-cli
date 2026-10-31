@@ -6,7 +6,9 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
+
 from scripts.build_microarray_chm13_map import write_site_map
+from tests.htslib_helpers import needs_tools, sam_to_bam, write_fasta
 from wgsextract_cli.core.microarray_chm13 import CHM13Catalogue, ReferenceContig
 from wgsextract_cli.core.microarray_chm13_indels import (
     FlankedSite,
@@ -21,8 +23,6 @@ from wgsextract_cli.core.microarray_chm13_indels import (
 )
 from wgsextract_cli.core.microarray_indel_probes import IndelProbe, IndelSite
 from wgsextract_cli.core.microarray_site_map import SiteProjection, load_site_map
-
-from tests.htslib_helpers import needs_tools, sam_to_bam, write_fasta
 
 LEFT = "ACCGTGACTGCATGC"
 RIGHT = "GACTACGTAGCTGCA"
