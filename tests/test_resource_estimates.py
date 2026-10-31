@@ -329,7 +329,9 @@ def test_alignment_reports_before_index_building_or_fastq_extraction(
         estimate = build()
         assert estimate.operation == operation
         if operation == "realign" and platform != "ultima":
-            assert estimate.resources[1].components["extracted_fastqs"] > 0
+            assert "extracted_fastqs" not in estimate.resources[1].components
+            assert estimate.resources[1].components["collation_spill"] > 0
+            assert estimate.resources[0].components["collation"] > 0
         if platform == "ultima":
             assert estimate.resources[1].components["temporary"] == 20_000
         raise Reported
@@ -338,7 +340,7 @@ def test_alignment_reports_before_index_building_or_fastq_extraction(
         monkeypatch.setattr(
             align,
             "_prepare_alignment",
-            lambda *_: align._AlignSetup(
+            lambda *_a, **_k: align._AlignSetup(
                 "1", "256M", str(tmp_path), str(ref), "sample"
             ),
         )

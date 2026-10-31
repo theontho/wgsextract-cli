@@ -188,11 +188,14 @@ class _Fakes:
     def __init__(self, monkeypatch):
         self.extracted = []
         self.aligned = []
+        self.streamed = []
         self.align_error = None
         monkeypatch.setattr(realign, "verify_dependencies", lambda _tools: None)
         monkeypatch.setattr(realign, "log_dependency_info", lambda _tools: None)
         monkeypatch.setattr(realign, "alignments_to_fastq", self.extract)
         monkeypatch.setattr(realign.align_cmd, "run", self.align)
+        monkeypatch.setattr(realign.align_cmd, "align_bwa", self.stream)
+        monkeypatch.setattr(realign, "alignment_read_length", lambda *_a, **_k: 100)
 
     def extract(self, _input, r1, r2, **_kwargs):
         self.extracted.append((r1, r2))
@@ -203,6 +206,10 @@ class _Fakes:
         self.aligned.append((args.r1, args.r2))
         if self.align_error:
             raise self.align_error
+
+    def stream(self, args, **kwargs):
+        self.streamed.append(kwargs)
+        self.align(args)
 
 
 @pytest.fixture
@@ -224,7 +231,7 @@ def test_existing_fastqs_are_reused_and_kept(tmp_path, monkeypatch, source):
     assert all(Path(p).read_text() == "reads" for p in pair)
 
 
-def test_force_extract_reextracts_then_removes_the_fastqs(
+def test_force_extract_streams_without_touching_existing_fastqs(
     tmp_path, monkeypatch, source
 ):
     fakes = _Fakes(monkeypatch)
@@ -235,10 +242,31 @@ def test_force_extract_reextracts_then_removes_the_fastqs(
     realign.run(_args(source, outdir=str(outdir), force_extract=True))
 
     pair = (str(outdir / "x_R1.fastq.gz"), str(outdir / "x_R2.fastq.gz"))
-    assert fakes.extracted == [pair] and fakes.aligned == [pair]
+    assert fakes.extracted == [] and fakes.aligned == [pair]
+    assert fakes.streamed[0]["read_paths"] == [str(source)]
     assert not any(Path(p).exists() for p in pair)
     # The pair beside the input is not this run's to delete.
     assert (tmp_path / "x_R1.fastq.gz").read_text() == "stale"
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_force_refreshes_exact_output_cache_with_legacy_retention(
+    tmp_path, monkeypatch, source, failed
+):
+    fakes = _Fakes(monkeypatch)
+    pair = (str(tmp_path / "x_R1.fastq.gz"), str(tmp_path / "x_R2.fastq.gz"))
+    for path in pair:
+        Path(path).write_text("stale")
+    if failed:
+        fakes.align_error = WGSExtractError("alignment failed")
+        with pytest.raises(WGSExtractError, match="alignment failed"):
+            realign.run(_args(source, force_extract=True))
+        assert all(Path(path).read_text() == "@r\nA\n+\nI\n" for path in pair)
+    else:
+        realign.run(_args(source, force_extract=True))
+        assert not any(Path(path).exists() for path in pair)
+    assert fakes.extracted == [pair] and fakes.aligned == [pair]
+    assert fakes.streamed == []
 
 
 def test_reads_passed_in_are_aligned_and_never_deleted(tmp_path, monkeypatch, source):
@@ -266,7 +294,7 @@ def test_failed_extraction_leaves_no_truncated_fastqs(
 
     monkeypatch.setattr(realign, "alignments_to_fastq", truncated)
     with pytest.raises(type(error)):
-        realign.run(_args(source))
+        realign.run(_args(source, keep_fastq=True))
     assert list(tmp_path.glob("*.fastq.gz")) == []
     assert fakes.aligned == []
 
@@ -275,7 +303,7 @@ def test_failed_alignment_keeps_fastqs_for_the_rerun(tmp_path, monkeypatch, sour
     fakes = _Fakes(monkeypatch)
     fakes.align_error = WGSExtractError("bwa alignment failed")
     with pytest.raises(WGSExtractError, match="bwa alignment failed"):
-        realign.run(_args(source))
+        realign.run(_args(source, keep_fastq=True))
     pair = (str(tmp_path / "x_R1.fastq.gz"), str(tmp_path / "x_R2.fastq.gz"))
     assert all(Path(p).is_file() for p in pair)
 
@@ -286,13 +314,126 @@ def test_failed_alignment_keeps_fastqs_for_the_rerun(tmp_path, monkeypatch, sour
     assert all(Path(p).is_file() for p in pair)
 
 
+@pytest.mark.parametrize("error", [WGSExtractError("boom"), KeyboardInterrupt()])
+def test_stream_failure_leaves_no_fastqs_or_collate_spills(monkeypatch, source, error):
+    fakes = _Fakes(monkeypatch)
+    fakes.align_error = error
+    with pytest.raises(type(error)):
+        realign.run(_args(source))
+    assert fakes.extracted == [] and len(fakes.streamed) == 1
+    assert list(source.parent.glob("*.fastq.gz")) == []
+    assert list(source.parent.glob(".collate_*")) == []
+
+
+@needs_tools("bwa", "samtools")
+@pytest.mark.parametrize("cram", [False, True], ids=["bam", "cram"])
+@pytest.mark.parametrize("markdup", [False, True], ids=["auto-marker", "markdup"])
+@pytest.mark.parametrize("aligner", ["bwa", "bwa-mem2"])
+def test_paired_stream_body_matches_files_including_discarded_reads(
+    tmp_path, genome_and_ref, monkeypatch, cram, markdup, aligner
+):
+    if realign.align_cmd.get_tool_path(aligner) is None:
+        pytest.skip(f"{aligner} unavailable")
+    genome, ref = genome_and_ref
+    source, pairs = _old_alignment(tmp_path, genome)
+    records = _view("view", source).splitlines()
+    extra = []
+    for flag in (0x100, 0x800):
+        fields = records[0].split("\t")
+        fields[1] = str(int(fields[1]) | flag)
+        extra.append("\t".join(fields))
+    for name, flag in (("singleton", 73), ("other", 0)):
+        extra.append(
+            f"{name}\t{flag}\told1\t1\t60\t100M\t*\t0\t0\t{genome[:100]}\t{'I' * 100}"
+        )
+    source = sam_to_bam(
+        [*_view("view", "-H", source).splitlines(), *records, *extra],
+        tmp_path / "old" / "filtered.bam",
+    )
+    input_ref = None
+    if cram:
+        input_ref = str(write_fasta(tmp_path / "old" / "encode.fa", {"old1": genome}))
+        encoded = tmp_path / "old" / "filtered.cram"
+        run_command(["samtools", "view", "-C", "-T", input_ref, "-o", encoded, source])
+        run_command(["samtools", "index", encoded])
+        source = str(encoded)
+    if markdup:
+        original = realign.align_cmd.get_tool_path
+        monkeypatch.setattr(
+            realign.align_cmd,
+            "get_tool_path",
+            lambda tool: None if tool == "samblaster" else original(tool),
+        )
+    for mode in ("files", "stream"):
+        realign.run(
+            _args(
+                source,
+                ref=ref,
+                input_ref=input_ref,
+                aligner=aligner,
+                outdir=str(tmp_path / mode),
+                keep_fastq=mode == "files",
+            )
+        )
+    files = tmp_path / "files" / "filtered_aligned.bam"
+    stream = tmp_path / "stream" / "filtered_aligned.bam"
+    body = _view("view", stream)
+    assert body == _view("view", files)
+    assert len(body.splitlines()) == pairs * 2
+    assert not any(name in body for name in ("singleton", "other"))
+    assert "-p " in _view("view", "-H", stream)
+    assert ".fastq.gz" in _view("view", "-H", files)
+    assert not list((tmp_path / "stream").glob("*.fastq.gz"))
+    assert not list((tmp_path / "stream").glob(".collate_*"))
+
+
+@needs_tools("bwa", "samtools")
+def test_streamed_cram_output_matches_file_path(tmp_path, genome_and_ref):
+    genome, ref = genome_and_ref
+    source, _ = _old_alignment(tmp_path, genome)
+    for mode in ("files", "stream"):
+        realign.run(
+            _args(
+                source,
+                ref=ref,
+                aligner="bwa",
+                format="CRAM",
+                outdir=str(tmp_path / mode),
+                keep_fastq=mode == "files",
+            )
+        )
+    outputs = [tmp_path / mode / "x_aligned.cram" for mode in ("files", "stream")]
+    assert _view("view", "-T", ref, str(outputs[0])) == _view(
+        "view",
+        "-T",
+        ref,
+        str(outputs[1]),
+    )
+    assert Path(str(outputs[1]) + ".crai").is_file()
+
+
+@needs_tools("bwa", "samtools")
+def test_native_stream_failure_removes_partial_output_and_collation(
+    tmp_path,
+    genome_and_ref,
+    monkeypatch,
+):
+    genome, ref = genome_and_ref
+    source, _ = _old_alignment(tmp_path, genome)
+    monkeypatch.setattr(realign.align_cmd, "ensure_bwa_index", lambda _ref: None)
+    outdir = tmp_path / "failure"
+    with pytest.raises(WGSExtractError, match="bwa alignment failed"):
+        realign.run(_args(source, ref=ref, outdir=str(outdir), aligner="bwa"))
+    assert list(outdir.iterdir()) == []
+
+
 def test_cleanup_problem_does_not_fail_a_finished_realign(
     tmp_path, monkeypatch, source, caplog
 ):
     fakes = _Fakes(monkeypatch)
     monkeypatch.setattr(realign.align_cmd, "run", lambda args: Path(args.r1).unlink())
     with caplog.at_level(logging.WARNING):
-        realign.run(_args(source))
+        realign.run(_args(source, gpu=True))
     assert "Could not remove" in caplog.text
     assert fakes.extracted and not list(tmp_path.glob("*.fastq.gz"))
 
@@ -317,7 +458,12 @@ def test_preflight_needs_room_for_the_extraction_only_when_extracting(
     monkeypatch.setattr(realign, "check_free_space", no_room)
     reads = tmp_path / "reads.fq"
     reads.write_text("")
-    args = _args(source, no_preflight=False, r1=None if extract else str(reads))
+    args = _args(
+        source,
+        no_preflight=False,
+        r1=None if extract else str(reads),
+        keep_fastq=extract,
+    )
 
     # Extraction's temp space is freed before alignment; its FASTQs are not:
     # max(10, 4 + 3 + 2) when extracting, 3 + 2 when not.
@@ -325,6 +471,29 @@ def test_preflight_needs_room_for_the_extraction_only_when_extracting(
         realign.run(args)
     assert asked == [(str(tmp_path), needed)]
     assert fakes.extracted == [] and fakes.aligned == []
+
+
+def test_stream_preflight_reserves_overlapping_collate_and_sort_spills(
+    tmp_path,
+    monkeypatch,
+    source,
+):
+    estimates = {"Name": (10, 4), "Coord": (3, 2)}
+    monkeypatch.setattr(
+        realign,
+        "get_free_space_needed",
+        lambda _size, sort_type, **_k: estimates[sort_type],
+    )
+    monkeypatch.setattr(realign, "check_free_space", lambda _path, gb: gb <= 12)
+    realign._preflight_disk_space(str(source), str(tmp_path), True, 100)
+    with pytest.raises(WGSExtractError, match="needs ~15 GB"):
+        realign._preflight_disk_space(
+            str(source),
+            str(tmp_path),
+            False,
+            100,
+            streaming=True,
+        )
 
 
 @pytest.mark.parametrize("provided_fastqs", [False, True])
@@ -356,6 +525,11 @@ def test_realign_uses_actual_input_count_before_extraction_for_memory_and_disk(
         realign.align_cmd,
         "run",
         lambda args: budgets.append(("align", args._input_read_count)),
+    )
+    monkeypatch.setattr(
+        realign.align_cmd,
+        "align_bwa",
+        lambda args, **_kwargs: budgets.append(("align", args._input_read_count)),
     )
     overrides = {}
     if provided_fastqs:

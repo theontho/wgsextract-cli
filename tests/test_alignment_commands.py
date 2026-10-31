@@ -352,7 +352,7 @@ def test_bwa_batch_size_does_not_depend_on_threads(
     tmp_path, monkeypatch, tool, threads
 ):
     setup = align._AlignSetup(threads, "100M", str(tmp_path), "ref.fa", "sample")
-    monkeypatch.setattr(align, "_bwa_setup", lambda *_a: (setup, tool))
+    monkeypatch.setattr(align, "_bwa_setup", lambda *_a, **_k: (setup, tool))
     monkeypatch.setattr(align, "duplicate_marker", lambda **_k: None)
     commands = []
     monkeypatch.setattr(
@@ -378,12 +378,12 @@ def test_mem2_sort_cap_respects_smaller_explicit_budgets(
     tmp_path, monkeypatch, tool, budget, sort_memory
 ):
     setup = align._AlignSetup("2", budget, str(tmp_path), "ref.fa", "sample")
-    monkeypatch.setattr(align, "_prepare_alignment", lambda *_: setup)
+    monkeypatch.setattr(align, "_prepare_alignment", lambda *_a, **_k: setup)
     monkeypatch.setattr(align, "check_mapping_memory", lambda *_a, **_kw: None)
     monkeypatch.setattr(align, "ensure_bwa_index", lambda *_: None)
     monkeypatch.setattr(align, "ensure_bwa_alt_file", lambda *_: None)
     monkeypatch.setattr(align.bwa_mem2, "ensure_index", lambda *_a, **_k: None)
-    monkeypatch.setattr(align.bwa_mem2, "can_map", lambda *_: True)
+    monkeypatch.setattr(align.bwa_mem2, "can_map", lambda *_a, **_k: True)
     monkeypatch.setattr(align, "print_warning", lambda *_a, **_k: None)
     monkeypatch.setattr(align, "run_command", lambda *_a, **_k: None)
     pipelines = []

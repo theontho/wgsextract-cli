@@ -106,6 +106,7 @@ def estimate_resources(
     duplicate_marking: Literal["samblaster", "markdup", "gatk-flow"] | None = None,
     parallel: bool = False,
     gatk_workers: int = 1,
+    additional_ram_bytes: int = 0,
 ) -> PreflightEstimate:
     """Estimate a resolved command without creating files or running tools.
 
@@ -115,9 +116,14 @@ def estimate_resources(
     Regional operations retain whole-input disk bounds, not guessed coverage.
     """
     count = int(threads)
-    if count < 1 or gatk_workers < 1 or (reads is not None and reads < 0):
+    if (
+        count < 1
+        or gatk_workers < 1
+        or (reads is not None and reads < 0)
+        or additional_ram_bytes < 0
+    ):
         raise ValueError(
-            "threads/workers must be positive and reads must be nonnegative"
+            "threads/workers must be positive and reads/additional RAM nonnegative"
         )
     amount, unit = parse_memory(memory)
     sort_memory = math.ceil(count * amount * (GIB if unit == "G" else 1024**2) * 1.25)
@@ -167,6 +173,16 @@ def estimate_resources(
                 "requested threads and fixed -K 100000000; threads are not auto-capped."
             )
         memory_components = dict(zip(mapping._fields, mapping, strict=True))
+        if additional_ram_bytes:
+            memory_components["collation"] = additional_ram_bytes
+            notes.append("Streamed FASTQ collation overlaps the alignment pipeline.")
+            demands.append(
+                (
+                    output_dir,
+                    "collation_spill",
+                    None if disk_reads is None else disk_reads * SORT_BYTES_PER_READ,
+                )
+            )
         if reads is None:
             notes.append(
                 "Alignment RAM uses the D3 680-million-read unknown-count fallback."
