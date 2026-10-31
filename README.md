@@ -349,6 +349,8 @@ Developer tools live in the `dev` Pixi environment, which Pixi selects automatic
 | `pixi run benchmark-dataset` | Rebuild the release-backed mini-genome benchmark dataset |
 | `pixi run stats` | Code statistics (needs [cloc](https://github.com/AlDanial/cloc) installed separately) |
 
+If you have [just](https://github.com/casey/just) installed, the `justfile` offers short aliases for these tasks: `just run <args>` runs the CLI, and `just test`, `just lint`, `just fmt`, `just typecheck` and `just check` (all four) run the checks. Run `just` to list every recipe.
+
 Real-data tests read their inputs from pytest options or from config:
 
 ```bash
