@@ -210,6 +210,7 @@ def read_haplotype(fields: list[str], probe: FlankedSite) -> str | None:
     initial = ref
     pieces = []
     ambiguous = False
+    flank_deletion = False
     core_first = probe.site.position
     core_last = core_first + len(probe.site.ref) - 1
     for size, operation in cigar:
@@ -238,16 +239,18 @@ def read_haplotype(fields: list[str], probe: FlankedSite) -> str | None:
             if ref <= core_last and last >= core_first:
                 if operation == "N" or ref < probe.start or last > probe.end:
                     ambiguous = True
+                elif ref < core_first or last > core_last:
+                    flank_deletion = True
             ref += length
         elif operation == "S":
             query += length
     if ambiguous:
         return "!"
     if initial > probe.start or ref - 1 < probe.end:
-        return None
+        return "!" if flank_deletion else None
     haplotype = "".join(pieces).upper()
     if not haplotype.startswith(probe.left) or not haplotype.endswith(probe.right):
-        return None
+        return "!" if flank_deletion else None
     if haplotype == probe.left + probe.site.ref + probe.right:
         return "ref"
     if haplotype == probe.left + probe.site.alt + probe.right:

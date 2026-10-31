@@ -82,6 +82,32 @@ def test_fragment_deduplication_conflicts_and_read_quality_are_fail_closed():
 
 
 @pytest.mark.parametrize(
+    ("cigar", "sequence"),
+    [
+        ("14M4D15M", LEFT[:14] + RIGHT),
+        ("16M4D13M", LEFT + "C" + RIGHT[2:]),
+    ],
+)
+def test_contained_core_overlapping_deletions_quarantine_reference_calls(
+    cigar, sequence
+):
+    deletion = _read("contained", cigar, sequence)
+    assert read_haplotype(deletion, SITE) == "!"
+    rows = [_read(f"ref{i}", "33M", LEFT + "CGT" + RIGHT) for i in range(4)]
+    rows.append(deletion)
+    evidence = flank_evidence(("\t".join(row) for row in rows), {"P": SITE})["P"]
+    assert supported_call("II", SITE.site, evidence, 2) == "--"
+
+
+def test_contained_repeat_equivalent_deletion_requires_complete_haplotype():
+    probe = FlankedSite(IndelSite("chr1", 100, "CAA", "C", "I"), LEFT, "A" + "T" * 14)
+    assert (
+        read_haplotype(_read("equivalent", "17M2D14M", LEFT + "CA" + "T" * 14), probe)
+        == "alt"
+    )
+
+
+@pytest.mark.parametrize(
     ("gt", "pl", "expected"),
     [
         ("0/0", "0,60,214", "60"),
