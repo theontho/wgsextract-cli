@@ -80,6 +80,11 @@ def register(
     y_bam_parser = ext_subs.add_parser(
         "ydna-bam", parents=[base_parser], help=CLI_HELP["cmd_ydna-bam"]
     )
+    y_bam_parser.add_argument(
+        "--poz",
+        action="store_true",
+        help="Restrict Y reads to the bundled CombBED/McDonald/Poznik union (GRCh37/38 only).",
+    )
     y_bam_parser.set_defaults(func=cmd_ydna_bam)
 
     y_vcf_parser = ext_subs.add_parser(
@@ -259,18 +264,39 @@ def cmd_ydna_bam(args: argparse.Namespace) -> None:
     _warn_if_female(args.input, base.outdir)
 
     chr_y = get_chr_name(args.input, "Y", base.cram_opt)
-    out_bam = derive_output_path(args.input, base.outdir, "_Y.bam")
+    use_poz = bool(getattr(args, "poz", False))
+    out_bam = derive_output_path(
+        args.input, base.outdir, "_Y_poz.bam" if use_poz else "_Y.bam"
+    )
 
     logging.info(LOG_MESSAGES["extracting_y"].format(chr_y=chr_y, output=out_bam))
     try:
-        _extract_regions(
-            base,
-            args.input,
-            out_bam,
-            [chr_y],
-            contents=f"{chr_y} reads",
-            empty_hint="a female sample has none",
-        )
+        if use_poz:
+            from wgsextract_cli.core.alignment_metadata import get_bam_header
+            from wgsextract_cli.core.reference_models import sequence_lengths
+
+            from ._extract_poz import poz_bed
+
+            contigs = sequence_lengths(get_bam_header(args.input, base.cram_opt))
+            with poz_bed(contigs, chr_y, base.outdir) as bed:
+                _extract_regions(
+                    base,
+                    args.input,
+                    out_bam,
+                    [chr_y],
+                    bed=bed,
+                    contents=f"{chr_y} reads overlapping Poz regions",
+                    empty_hint="the Poz preset covers only selected Y regions",
+                )
+        else:
+            _extract_regions(
+                base,
+                args.input,
+                out_bam,
+                [chr_y],
+                contents=f"{chr_y} reads",
+                empty_hint="a female sample has none",
+            )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Y BAM extraction failed: {e}") from e
 

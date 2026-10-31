@@ -1,0 +1,29 @@
+Poz Y-region presets: merged CombBED / McDonald / Poznik regions.
+
+Source: WGSExtract/WGSExtract-Dev, snapshot
+108d1ad395e613552ad4dc01acfb1ff0de1ad08e (files introduced by 3eb23a1).
+https://github.com/WGSExtract/WGSExtract-Dev/tree/108d1ad395e613552ad4dc01acfb1ff0de1ad08e/reference
+
+The source repository distributes these files under its GNU GPL version 3
+LICENSE, compatible with this application's GPL-3.0-or-later. Preserve this
+notice and the GPL license when redistributing the presets. No separate license
+or conflicting terms accompany the BED files.
+
+Original files and SHA256:
+CombBED_McDonald_Poznik_Merged_hg37.bed
+b1f801de781e0e1489052ab3596a3a8d41fc39a3850a5a49c17540f9525a201b
+CombBED_McDonald_Poznik_Merged_hg38.bed
+c5269685faacd94399bce37ec9b14ade07a30b42c57f7b531d779221e7523649
+Source LICENSE SHA256:
+3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986
+
+Changes: retain only chrY intervals; omit the original mitochondrial intervals.
+Coordinates are copied unchanged: BED zero-based, half-open.
+hg19.bed is the original hg37 BED (GRCh37 chrY, also UCSC hg19 chrY).
+Contig naming is adapted at runtime to the input's chrY/Y name.
+
+Original reference/00README.txt credits David Vance's HG38 spreadsheet.
+WGS Extract v4 manual section "To Poz BAM" describes this union as approximately
+12 million bases of regions used in phylogenetic/age analyses; it is NOT all
+stable Y SNP sites, an exome capture kit, or a BigY capture BED.
+https://github.com/theontho/WGSExtractRepo/blob/f45c60e/docs/WGS_Extract_Manual_Alphav4.md
