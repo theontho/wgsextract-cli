@@ -64,7 +64,10 @@ def test_unknown_memory_does_not_start_parallel_jvms(tmp_path, monkeypatch):
     assert len(gatk_scatter.scatter_intervals(_reference(tmp_path), None, "8")) == 1
 
 
-def test_scatter_windows_argv_and_gather_order(tmp_path, monkeypatch, caplog):
+@pytest.mark.parametrize("custom_temp", [False, True])
+def test_scatter_windows_argv_and_gather_order(
+    tmp_path, monkeypatch, caplog, custom_temp
+):
     monkeypatch.setattr(paths, "sys", Namespace(platform="win32"))
     completed_second = Event()
     commands = []
@@ -73,6 +76,21 @@ def test_scatter_windows_argv_and_gather_order(tmp_path, monkeypatch, caplog):
     temporary = tmp_path / "java"
     temporary.mkdir()
     output = tmp_path / "gatk.vcf.gz"
+    monkeypatch.setattr(
+        gatk_scatter,
+        "configured_temp_directory",
+        lambda: str(work) if custom_temp else None,
+    )
+    replace = Path.replace
+
+    def cross_volume_replace(source, target):
+        if custom_temp and source.parent == work:
+            import errno
+
+            raise OSError(errno.EXDEV, "different filesystems")
+        return replace(source, target)
+
+    monkeypatch.setattr(Path, "replace", cross_volume_replace)
 
     def worker(command, _log, _cancelled):
         commands.append(command)
@@ -116,6 +134,7 @@ def test_scatter_windows_argv_and_gather_order(tmp_path, monkeypatch, caplog):
     assert output.read_text() == "000000.vcf,000001.vcf"
     assert Path(str(output) + ".tbi").read_text() == "index"
     assert len(commands) == 2
+    assert not list(tmp_path.glob(".wgse_gather_*"))
     assert "can change annotations and genotypes" in caplog.text
     assert "away from interval boundaries" in caplog.text
     for command in commands:
