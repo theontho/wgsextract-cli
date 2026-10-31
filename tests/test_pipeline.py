@@ -67,6 +67,28 @@ def test_run_pipeline_requires_a_stage():
         run_pipeline([])
 
 
+@pytest.mark.parametrize("heartbeat", [False, True])
+def test_pipeline_explicit_scratch_reports_errors_and_cleans_up(
+    tmp_path, monkeypatch, heartbeat
+):
+    scratch = tmp_path / "scratch with spaces"
+    scratch.mkdir()
+    monkeypatch.setattr(utils.tempfile, "tempdir", str(tmp_path / "nonexistent"))
+    with pytest.raises(WGSExtractError, match="explicit scratch error"):
+        run_pipeline(
+            [
+                [
+                    PY,
+                    "-c",
+                    "import sys; sys.stderr.write('explicit scratch error'); sys.exit(2)",
+                ]
+            ],
+            stderr_dir=scratch,
+            heartbeat=heartbeat,
+        )
+    assert not list(scratch.iterdir())
+
+
 @pytest.mark.parametrize("before_start", [False, True])
 def test_pipeline_cancellation_reaps_every_started_stage(monkeypatch, before_start):
     cancelled = Event()

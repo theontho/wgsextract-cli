@@ -278,6 +278,7 @@ def run_pipeline(
     env: Mapping[str, str] | None = None,
     description: str = "Pipeline",
     cancel_event: CancelEvent | None = None,
+    stderr_dir: PathInput | None = None,
     heartbeat: bool = False,
     expected_reads: int | None = None,
 ) -> None:
@@ -330,11 +331,19 @@ def run_pipeline(
             if cancel_event and cancel_event.is_set():
                 raise WGSExtractError(f"{description} cancelled")
             is_last = index == len(stages) - 1
-            err_file: IO[bytes] = (
-                tempfile.NamedTemporaryFile(delete=False)
-                if heartbeat or active_run_log()
-                else tempfile.TemporaryFile()
-            )
+            err_file: IO[bytes]
+            if heartbeat or active_run_log():
+                err_file = (
+                    tempfile.NamedTemporaryFile(delete=False, dir=stderr_dir)
+                    if stderr_dir is not None
+                    else tempfile.NamedTemporaryFile(delete=False)
+                )
+            else:
+                err_file = (
+                    tempfile.TemporaryFile(dir=stderr_dir)
+                    if stderr_dir is not None
+                    else tempfile.TemporaryFile()
+                )
             stderr_files.append(err_file)
             if heartbeat or active_run_log():
                 args = progress_args[index]
