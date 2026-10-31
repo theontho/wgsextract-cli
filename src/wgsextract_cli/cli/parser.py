@@ -32,6 +32,7 @@ DEFAULT_CONFIG = """# WGS Extract Configuration
 # System resources
 # threads = "auto"  # Apple Silicon perf cores, otherwise all cores
 # memory = "2G"  # per thread; "auto" uses 25% of RAM split across threads
+# keep_awake = false  # opt-in best-effort sleep inhibition during commands
 
 # --- External Tools ---
 # Paths to specific tool executables or directories
@@ -80,6 +81,7 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
         threads=default_threads,
         memory=settings.get("memory_limit"),
         parent_pid=None,
+        keep_awake=settings.get("keep_awake", False),
     )
     parser.add_argument(
         "--version", action="version", version=f"wgsextract {__version__}"
@@ -108,6 +110,12 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
 
 
 def add_shared_arguments(base_parser: argparse.ArgumentParser) -> None:
+    base_parser.add_argument(
+        "--keep-awake",
+        action=argparse.BooleanOptionalAction,
+        default=argparse.SUPPRESS,
+        help="Best-effort idle/sleep inhibition during this command; --no-keep-awake disables it.",
+    )
     base_parser.add_argument(
         "--debug",
         action="store_true",
