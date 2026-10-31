@@ -5,9 +5,41 @@ import pytest
 
 from wgsextract_cli.core import alignment_memory
 from wgsextract_cli.core import resource_estimates as resources
+from wgsextract_cli.core.utils import WGSExtractError
 
 GIB = 1024**3
 ULTIMA_READS = 313_736_048
+
+
+def test_stream_collation_can_make_an_otherwise_fitting_mem2_pipeline_unsafe(
+    tmp_path,
+    monkeypatch,
+):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nA\n")
+    Path(str(ref) + ".fai").write_text("chr1\t1000000\t0\t1\t2\n")
+    options = {"threads": "2", "memory": "100M", "reads": 10000, "samblaster": True}
+    baseline = alignment_memory.estimate_mapping_memory(str(ref), "bwa-mem2", **options)
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: baseline.total)
+    alignment_memory.check_mapping_memory(str(ref), "bwa-mem2", **options)
+    with pytest.raises(WGSExtractError, match="collation"):
+        alignment_memory.check_mapping_memory(
+            str(ref),
+            "bwa-mem2",
+            additional_ram_bytes=100 * 1024**2,
+            **options,
+        )
+    estimate = resources.estimate_resources(
+        "realign",
+        input_paths=[],
+        output_dir=str(tmp_path),
+        reference=str(ref),
+        aligner="bwa-mem2",
+        additional_ram_bytes=100 * 1024**2,
+        **options,
+    )
+    assert estimate.resources[0].status == "LOW"
+    assert estimate.resources[0].components["collation"] == 100 * 1024**2
 
 
 @pytest.mark.parametrize(

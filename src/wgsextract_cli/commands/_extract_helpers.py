@@ -5,7 +5,7 @@ import math
 import subprocess
 import tempfile
 from collections.abc import Iterator, Sequence
-from os import fspath
+from os import devnull, fspath
 from pathlib import Path
 from typing import NamedTuple
 
@@ -206,6 +206,72 @@ def _collate_buckets(input_path: PathInput, threads: str, memory: str) -> int:
     return min(200, max(64, math.ceil(in_memory / budget)))
 
 
+def collate_working_memory(input_path: PathInput, threads: str, memory: str) -> int:
+    """One live collate bucket plus codec/bookkeeping headroom."""
+    size = Path(input_path).stat().st_size
+    in_memory = size * (70 if Path(input_path).suffix.lower() == ".cram" else 20)
+    return (
+        math.ceil(in_memory / _collate_buckets(input_path, threads, memory))
+        + 64 * 1024**2
+    )
+
+
+def _fastq_stages(
+    input_path: PathInput,
+    out_r1: PathInput,
+    out_r2: PathInput,
+    *,
+    threads: str,
+    memory: str,
+    temporary: str,
+    singletons: PathInput,
+    cram_opt: list[str] | None = None,
+    region: str | None = None,
+    out_other: PathInput | None = None,
+) -> list[list[str]]:
+    view = ["samtools", "view", "-uh", "--no-PG", "-@", threads]
+    view += cram_opt or []
+    view += [fspath(input_path), *([region] if region else [])]
+    collate = ["samtools", "collate", "-u", "-O", "--no-PG", "-@", threads]
+    collate += [
+        "-n",
+        str(_collate_buckets(input_path, threads, memory)),
+        "-T",
+        str(Path(temporary, "collate")),
+        "-",
+    ]
+    fastq = ["samtools", "fastq", "-1", fspath(out_r1), "-2", fspath(out_r2)]
+    fastq += ["-s", fspath(singletons)]
+    if out_other:
+        fastq += ["-0", fspath(out_other)]
+    fastq += ["-n", "-@", threads, "-"]
+    return [view, collate, fastq]
+
+
+@contextlib.contextmanager
+def paired_fastq_stream(
+    input_path: PathInput,
+    *,
+    threads: str,
+    memory: str,
+    temp_parent: PathInput,
+    cram_opt: list[str] | None = None,
+) -> Iterator[list[list[str]]]:
+    """The same collate order/filtering as file extraction, with paired stdout."""
+    with tempfile.TemporaryDirectory(dir=temp_parent, prefix=".collate_") as tmp:
+        yield _fastq_stages(
+            input_path,
+            "-",
+            "-",
+            threads=threads,
+            memory=memory,
+            temporary=tmp,
+            singletons=devnull,
+            out_other=devnull,
+            cram_opt=cram_opt,
+        )
+
+
 def alignments_to_fastq(
     input_path: PathInput,
     out_r1: PathInput,
@@ -232,19 +298,19 @@ def alignments_to_fastq(
         cleanup_files(on_failure=[out_r1, out_r2, *([out_other] if out_other else [])]),
         tempfile.TemporaryDirectory(dir=temp_parent, prefix=".collate_") as tmp,
     ):
-        view_cmd = ["samtools", "view", "-uh", "--no-PG", "-@", threads]
-        view_cmd += cram_opt or []
-        view_cmd += [fspath(input_path), *([region] if region else [])]
-        buckets = _collate_buckets(input_path, threads, memory)
-        collate_cmd = ["samtools", "collate", "-u", "-O", "--no-PG", "-@", threads]
-        collate_cmd += ["-n", str(buckets), "-T", str(Path(tmp, "collate")), "-"]
-        fastq_cmd = ["samtools", "fastq", "-1", fspath(out_r1), "-2", fspath(out_r2)]
-        fastq_cmd += ["-s", str(Path(tmp, "singletons.fastq"))]
-        if out_other:
-            fastq_cmd += ["-0", fspath(out_other)]
-        fastq_cmd += ["-n", "-@", threads, "-"]
         run_pipeline(
-            [view_cmd, collate_cmd, fastq_cmd],
+            _fastq_stages(
+                input_path,
+                out_r1,
+                out_r2,
+                threads=threads,
+                memory=memory,
+                temporary=tmp,
+                singletons=Path(tmp, "singletons.fastq"),
+                cram_opt=cram_opt,
+                region=region,
+                out_other=out_other,
+            ),
             stdout=subprocess.DEVNULL,
             description="FASTQ extraction",
         )

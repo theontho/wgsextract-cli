@@ -25,6 +25,14 @@ still bypasses realignment's disk refusal, not its memory guard; informational
 estimates are still printed. Realignment reports before FASTQ extraction and
 alignment reports again when the final aligner is selected.
 
+Paired BWA realignment without `--keep-fastq` streams newly extracted reads:
+there is no retained `extracted_fastqs` demand. Its live collate bucket and codec
+headroom are included in RAM, and `collation_spill` is conservatively added
+alongside sorter spill/output on the same volume. Collate removes buckets as
+they drain, so this disk sum is an upper bound, not a prediction of actual peak.
+The alignment read-length sample is bounded to 4096 paired primary records /
+16 MiB and does not replace the indexed input count.
+
 Preflight is advisory: `preflight_resources()` guards estimation and reporting
 against `ValueError`, `OSError` and subprocess failures, warns that the resource
 estimate is unavailable, and lets the command continue. Existing dependency,

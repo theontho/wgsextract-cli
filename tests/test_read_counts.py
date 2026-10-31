@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.htslib_helpers import needs_tools, sam_to_bam
 from wgsextract_cli.core import read_counts
 
 
@@ -18,6 +19,21 @@ def _fastq(reads=100):
         )
         for i in range(reads)
     )
+
+
+@needs_tools("samtools")
+def test_alignment_length_samples_only_primary_pairs_and_stops_at_record_limit(
+    tmp_path,
+):
+    records = ["@HD\tVN:1.6\tSO:unsorted"]
+    for i in range(4100):
+        length = 10 if i < 4096 else 1000
+        records.append(f"r{i}\t77\t*\t0\t0\t*\t*\t0\t0\t{'A' * length}\t{'I' * length}")
+    for flag in (4, 77 | 0x100, 77 | 0x800):
+        records.insert(1, f"skip\t{flag}\t*\t0\t0\t*\t*\t0\t0\tAAAA\tIIII")
+    source = sam_to_bam(records, tmp_path / "reads.bam")
+    assert read_counts.alignment_read_length(source) == 10
+    assert read_counts.alignment_read_length(tmp_path / "missing.bam") is None
 
 
 @pytest.mark.parametrize("compressed", [False, True])

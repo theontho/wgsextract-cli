@@ -109,9 +109,14 @@ def can_map(
     memory: str = "512M",
     samblaster: bool = True,
     reads: int | None = None,
+    additional_ram_bytes: int = 0,
 ) -> bool:
-    return available_memory() >= mapping_memory(
-        ref, threads=threads, memory=memory, samblaster=samblaster, reads=reads
+    return (
+        available_memory()
+        >= mapping_memory(
+            ref, threads=threads, memory=memory, samblaster=samblaster, reads=reads
+        )
+        + additional_ram_bytes
     )
 
 

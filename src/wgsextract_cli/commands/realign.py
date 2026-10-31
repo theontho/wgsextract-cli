@@ -7,7 +7,7 @@ Workflow:
      - Otherwise look next to the input BAM and in the output directory for
        previously extracted FASTQ files (common naming patterns: ``<base>_R1.fastq.gz``, ``<base>.r1.fq.gz``,
        etc). If found, reuse them rather than re-extracting.
-     - Otherwise extract them with ``samtools fastq``.
+     - Otherwise stream paired FASTQ into BWA, or extract when files are needed.
   2. Pre-flight resource check: estimate disk space for both the extraction
      stage (if needed) and the alignment stage, and refuse to start unless
      enough free space is available at the output directory. This avoids the
@@ -29,7 +29,10 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.paths import absolute_path
-from wgsextract_cli.core.read_counts import fastq_input_statistics
+from wgsextract_cli.core.read_counts import (
+    alignment_read_length,
+    fastq_input_statistics,
+)
 from wgsextract_cli.core.reference_assets import (
     find_fasta_by_signature,
     input_stem,
@@ -53,7 +56,11 @@ from wgsextract_cli.core.warnings import (
 )
 
 from . import align as align_cmd
-from ._extract_helpers import alignments_to_fastq
+from ._extract_helpers import (
+    alignments_to_fastq,
+    collate_working_memory,
+    paired_fastq_stream,
+)
 
 # Patterns used to locate previously extracted FASTQ files next to a BAM/CRAM.
 # Each entry is (suffix_for_r1, suffix_for_r2). Order is preference.
@@ -150,24 +157,35 @@ def _find_existing_fastqs(input_path: str, outdir: str) -> tuple[str, str] | Non
 
 
 def _preflight_disk_space(
-    input_path: str, outdir: str, need_extract: bool, reads: int | None
+    input_path: str,
+    outdir: str,
+    need_extract: bool,
+    reads: int | None,
+    *,
+    streaming: bool = False,
 ) -> None:
     """Estimate the peak disk usage and bail out if outdir lacks space."""
     file_size = Path(input_path).stat().st_size
     is_cram = input_path.lower().endswith(".cram")
 
     extract_temp_gb, extract_final_gb = (0, 0)
-    if need_extract:
+    if need_extract or streaming:
         extract_temp_gb, extract_final_gb = get_free_space_needed(
             file_size, sort_type="Name", is_cram=is_cram, reads=reads
         )
+        if streaming:
+            extract_final_gb = 0
 
     align_temp_gb, align_final_gb = get_free_space_needed(
         file_size, sort_type="Coord", is_cram=is_cram, reads=reads
     )
 
-    # Extraction's temp files are gone before alignment; its FASTQs are not.
-    total_gb = max(extract_temp_gb, extract_final_gb + align_temp_gb + align_final_gb)
+    # Streamed collate deletes buckets as it drains, but overlaps sorter spills.
+    total_gb = (
+        extract_temp_gb + align_temp_gb + align_final_gb
+        if streaming
+        else max(extract_temp_gb, extract_final_gb + align_temp_gb + align_final_gb)
+    )
     logging.warning(
         "Realign pre-flight: ~%d GB free space required at %s "
         "(extract %d+%d, align %d+%d).",
@@ -275,6 +293,12 @@ def run(args: argparse.Namespace) -> None:
         r2_path = str(Path(outdir, f"{base}_R2.fastq.gz"))
         need_extract = True
 
+    streaming = (
+        need_extract
+        and selected_aligner in {"bwa", "bwa-mem2"}
+        and not getattr(args, "keep_fastq", False)
+        and not getattr(args, "gpu", False)
+    )
     statistics = None if need_extract else fastq_input_statistics(r1_path, r2_path)
     reads = (
         indexed_read_count(args.input, threads)
@@ -284,6 +308,10 @@ def run(args: argparse.Namespace) -> None:
         else None
     )
     read_length = statistics.read_length if statistics is not None else None
+    additional_ram_bytes = 0
+    cram_opt = None
+    if streaming:
+        additional_ram_bytes = collate_working_memory(args.input, threads, memory)
     if selected_aligner in {"bwa", "bwa-mem2"} and not getattr(args, "gpu", False):
         _report_resource_estimates(
             args,
@@ -293,9 +321,10 @@ def run(args: argparse.Namespace) -> None:
             memory,
             reads,
             input_paths=[args.input] if need_extract else [r1_path, r2_path],
-            need_extract=need_extract,
+            need_extract=need_extract and not streaming,
             paired=bool(r2_path),
             read_length=read_length,
+            additional_ram_bytes=additional_ram_bytes,
         )
     if args.aligner == "bwa-mem2" and target and Path(target).is_file():
         check_mapping_memory(
@@ -305,13 +334,48 @@ def run(args: argparse.Namespace) -> None:
             memory=align_cmd.short_read_sort_memory("bwa-mem2", memory, log=False),
             samblaster=align_cmd.duplicate_marker(paired=bool(r2_path)) == "samblaster",
             reads=reads,
+            read_length=read_length,
+            platform=args.platform,
+            additional_ram_bytes=additional_ram_bytes,
         )
 
     # 2. Disk-space pre-flight.
     if not args.no_preflight:
         _preflight_disk_space(
-            args.input, outdir, need_extract=need_extract, reads=reads
+            args.input,
+            outdir,
+            need_extract=need_extract and not streaming,
+            reads=reads,
+            streaming=streaming,
         )
+
+    if streaming:
+        verify_dependencies(["samtools"])
+        cram_opt = _input_cram_reference(args)
+        read_length = alignment_read_length(args.input, cram_opt=cram_opt)
+        logging.info(
+            "Streaming paired FASTQ from %s into BWA; no gzipped FASTQ files.",
+            args.input,
+        )
+        align_args = argparse.Namespace(**vars(args))
+        # Logical mate names preserve existing output stems/read groups, not read paths.
+        align_args.r1, align_args.r2 = r1_path, r2_path
+        align_args._input_read_count = reads
+        align_args._input_read_length = read_length
+        with paired_fastq_stream(
+            args.input,
+            threads=threads,
+            memory=memory,
+            temp_parent=outdir,
+            cram_opt=cram_opt,
+        ) as stages:
+            align_cmd.align_bwa(
+                align_args,
+                upstream=stages,
+                read_paths=[args.input],
+                additional_ram_bytes=additional_ram_bytes,
+            )
+        return
 
     # 3. Extract if needed.
     if need_extract:
@@ -368,6 +432,7 @@ def _report_resource_estimates(
     need_extract: bool,
     paired: bool,
     read_length: float | None = None,
+    additional_ram_bytes: int = 0,
 ) -> None:
     def estimate() -> PreflightEstimate:
         samblaster = align_cmd.duplicate_marker(paired=paired) == "samblaster"
@@ -381,6 +446,7 @@ def _report_resource_estimates(
                 memory=memory,
                 samblaster=samblaster,
                 reads=reads,
+                additional_ram_bytes=additional_ram_bytes,
             )
         return estimate_resources(
             "realign",
@@ -394,6 +460,7 @@ def _report_resource_estimates(
             reads=reads,
             platform=getattr(args, "platform", None),
             read_length=read_length,
+            additional_ram_bytes=additional_ram_bytes,
             output_format=getattr(args, "format", "BAM"),
             extract_fastq=need_extract,
             duplicate_marking=(
