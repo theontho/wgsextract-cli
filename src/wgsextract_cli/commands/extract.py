@@ -4,6 +4,7 @@ import logging
 import subprocess
 from pathlib import Path
 
+from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -14,6 +15,8 @@ from wgsextract_cli.core.output_checks import (
     warn_if_no_reads,
     warn_if_no_variants,
 )
+from wgsextract_cli.core.ref_library.catalog import get_available_genomes
+from wgsextract_cli.core.reference_models import identify_reference
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_sam_index_cmd,
@@ -21,6 +24,7 @@ from wgsextract_cli.core.utils import (
     run_pipeline,
 )
 from wgsextract_cli.core.variant_files import (
+    calculate_bam_md5,
     ensure_vcf_indexed,
     get_chr_name,
 )
@@ -28,6 +32,7 @@ from wgsextract_cli.core.warnings import print_warning
 
 from ._extract_helpers import (
     BaseArgs,
+    alignments_to_fastq,
     cleanup_files,
     derive_output_path,
     get_base_args,
@@ -97,6 +102,11 @@ def register(
     unmapped_parser = ext_subs.add_parser(
         "unmapped", parents=[base_parser], help=CLI_HELP["cmd_unmapped"]
     )
+    unmapped_parser.add_argument(
+        "--fastq",
+        action="store_true",
+        help="Also write paired, single-end and singleton unmapped FASTQs.",
+    )
     unmapped_parser.set_defaults(func=cmd_unmapped)
 
     custom_parser = ext_subs.add_parser(
@@ -113,9 +123,30 @@ def _setup(args: argparse.Namespace, tools: list[str]) -> BaseArgs:
     return get_base_args(args)
 
 
-def require_reference(resolved_ref: str | None, task: str) -> str:
+def require_reference(
+    resolved_ref: str | None, task: str, input_path: str | None = None
+) -> str:
     if not resolved_ref:
-        raise WGSExtractError(LOG_MESSAGES["ref_required_for"].format(task=task))
+        hint = ""
+        if input_path:
+            model = identify_reference(
+                get_bam_header(input_path) or "", calculate_bam_md5(input_path, None)
+            )
+            if model and model.fasta:
+                genome = next(
+                    (
+                        g
+                        for g in get_available_genomes()
+                        if g["final"] == model.fasta
+                        or g["url"].rsplit("/", 1)[-1] == model.fasta
+                    ),
+                    None,
+                )
+                if genome:
+                    hint = f" Install the matching reference explicitly: wgsextract ref library --install {genome['code']}"
+        if not hint:
+            hint = " Select the matching reference with wgsextract ref library, then pass its FASTA with --ref."
+        raise WGSExtractError(LOG_MESSAGES["ref_required_for"].format(task=task) + hint)
     return resolved_ref
 
 
@@ -171,7 +202,7 @@ def _warn_if_female(input_path: str, outdir: str) -> None:
 
 def cmd_mito_fasta(args: argparse.Namespace) -> None:
     base = _setup(args, _CALLING_TOOLS)
-    ref = require_reference(base.ref, "mitochondrial extraction")
+    ref = require_reference(base.ref, "mitochondrial extraction", args.input)
 
     print_warning("ButtonMitoFASTA", threads=base.threads)
 
@@ -202,7 +233,7 @@ def cmd_mito_fasta(args: argparse.Namespace) -> None:
 
 def cmd_mito_vcf(args: argparse.Namespace) -> None:
     base = _setup(args, _CALLING_TOOLS)
-    ref = require_reference(base.ref, "mitochondrial extraction")
+    ref = require_reference(base.ref, "mitochondrial extraction", args.input)
 
     print_warning("ButtonMitoVCF", threads=base.threads)
 
@@ -277,7 +308,7 @@ def cmd_ydna_bam(args: argparse.Namespace) -> None:
 
 def cmd_ydna_vcf(args: argparse.Namespace) -> None:
     base = _setup(args, _CALLING_TOOLS)
-    ref = require_reference(base.ref, "Y extraction")
+    ref = require_reference(base.ref, "Y extraction", args.input)
 
     print_warning("ButtonYOnlyVCF", threads=base.threads)
     _warn_if_female(args.input, base.outdir)
@@ -348,6 +379,21 @@ def cmd_unmapped(args: argparse.Namespace) -> None:
         # Unlike the other extractions, none can be right: an aligner that
         # dropped its unmapped reads.
         logging.info(f"{args.input} has no unmapped reads.")
+    if getattr(args, "fastq", False):
+        alignments_to_fastq(
+            out_bam,
+            derive_output_path(args.input, base.outdir, "_unmapped_R1.fastq.gz"),
+            derive_output_path(args.input, base.outdir, "_unmapped_R2.fastq.gz"),
+            threads=base.threads,
+            memory=base.memory,
+            temp_parent=base.outdir,
+            out_other=derive_output_path(
+                args.input, base.outdir, "_unmapped_SE.fastq.gz"
+            ),
+            out_singletons=derive_output_path(
+                args.input, base.outdir, "_unmapped_singletons.fastq.gz"
+            ),
+        )
 
 
 def cmd_custom(args: argparse.Namespace) -> None:

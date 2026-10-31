@@ -1,6 +1,7 @@
 """`extract` commands on a tiny BAM: which reads each one keeps, and the
 haploid chrM/chrY calls and consensus made from a planted SNP."""
 
+import gzip
 import logging
 import random
 from pathlib import Path
@@ -104,6 +105,46 @@ def test_ydna_bam_of_a_female_sample_warns_it_holds_no_y_dna(genome, tmp_path, c
 def test_unmapped_keeps_only_unmapped_reads(genome, tmp_path):
     _extract("unmapped", genome["male"], tmp_path)
     assert _names(tmp_path / "male_unmapped.bam") == {"unmapped_1", "unmapped_2"}
+    assert not list(tmp_path.glob("*.fastq.gz"))
+
+
+def test_unmapped_fastq_preserves_pairs_single_end_and_singletons(tmp_path):
+    common = "\t*\t0\t0\t*\t*\t0\t0\tACGTACGT\tIIIIIIII"
+    bam = sam_to_bam(
+        [
+            "@SQ\tSN:chr1\tLN:1000",
+            "pair\t77" + common,
+            "pair\t141" + common,
+            "orphan\t77" + common,
+            "single\t4" + common,
+            "mapped\t0\tchr1\t1\t60\t8M\t*\t0\t0\tACGTACGT\tIIIIIIII",
+        ],
+        tmp_path / "mixed.bam",
+    )
+    out = tmp_path / "o"
+    _extract("unmapped", bam, out, "--fastq", "--threads", "2", "--memory", "256M")
+    for suffix, names in [
+        ("R1", {"pair"}),
+        ("R2", {"pair"}),
+        ("SE", {"single"}),
+        ("singletons", {"orphan"}),
+    ]:
+        with gzip.open(out / f"mixed_unmapped_{suffix}.fastq.gz", "rt") as f:
+            records = f.read().splitlines()
+        assert {name[1:].split("/")[0] for name in records[::4]} == names
+    assert _names(out / "mixed_unmapped.bam") == {"pair", "orphan", "single"}
+
+
+def test_missing_reference_names_the_exact_catalog_install(tmp_path):
+    from wgsextract_cli.commands.extract import require_reference
+
+    bam = sam_to_bam(
+        ["@SQ\tSN:chr1\tLN:248956422"]
+        + [f"@SQ\tSN:extra{i}\tLN:100" for i in range(194)],
+        tmp_path / "hs38.bam",
+    )
+    with pytest.raises(WGSExtractError, match="wgsextract ref library --install hs38"):
+        require_reference(None, "Y extraction", bam)
 
 
 def test_unmapped_says_when_there_are_none(genome, tmp_path, caplog):

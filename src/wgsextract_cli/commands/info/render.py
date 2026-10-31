@@ -86,9 +86,6 @@ def render_info(data: Mapping[str, Any], detailed: bool = False) -> str:
             f"{LOG_MESSAGES['info_avg_read_depth']:<28}{m.get('ard_mapped', 0):.0f} x{'':<11}{m.get('ard_raw', 0):.0f} x"
         )
         output_lines.append(
-            f"{LOG_MESSAGES['info_avg_read_depth_wes']:<28}{m.get('ard_wes_mapped', '')}{'':<11}{m.get('ard_wes_raw', '')}"
-        )
-        output_lines.append(
             f"{LOG_MESSAGES['info_gigabases']:<28}{m.get('gbases_mapped', 0):.2f}{'':<11}{m.get('gbases_raw', 0):.2f}"
         )
         output_lines.append(
