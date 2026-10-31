@@ -451,11 +451,23 @@ def test_derived_alignment_subsamples_to_indexed_cram_and_is_reused(
 # --- execution -------------------------------------------------------------
 
 
-def test_cli_command_carries_flags_threads_and_memory(monkeypatch):
-    monkeypatch.setattr(execution, "config_args", lambda: ["--config", "/c.toml"])
+@pytest.mark.parametrize("keep_awake", [None, True, False])
+def test_cli_command_carries_flags_threads_and_memory(
+    monkeypatch, tmp_path, keep_awake
+):
+    from wgsextract_cli.core import config
+
+    own = tmp_path / "own.toml"
+    monkeypatch.setattr(config, "_config_path_override", own)
+    monkeypatch.setitem(config.settings, "keep_awake", True)
     plan = BenchmarkThreadPlan("3", 3, "test")
     args = Namespace(
-        debug=True, quiet=True, memory="2G", _benchmark_thread_plan=plan, threads=9
+        debug=True,
+        quiet=True,
+        memory="2G",
+        _benchmark_thread_plan=plan,
+        threads=9,
+        keep_awake=keep_awake,
     )
     cmd = execution._cli_command(
         args, ["bam", "sort"], execution._benchmark_threads(args)
@@ -463,7 +475,12 @@ def test_cli_command_carries_flags_threads_and_memory(monkeypatch):
     assert cmd[:3] == [sys.executable, "-m", "wgsextract_cli.main"]
     assert cmd[5:] == [
         "--config",
-        "/c.toml",
+        str(own),
+        *(
+            ["--keep-awake" if keep_awake else "--no-keep-awake"]
+            if keep_awake is not None
+            else []
+        ),
         "--debug",
         "bam",
         "sort",

@@ -404,20 +404,35 @@ def _args(**kw: object) -> argparse.Namespace:
     return argparse.Namespace(**{**base, **kw})
 
 
+@pytest.mark.parametrize(
+    "keep_awake,configured,flag",
+    [
+        (None, True, None),
+        (True, True, "--keep-awake"),
+        (False, True, "--no-keep-awake"),
+        (False, False, None),
+    ],
+)
 def test_subcommand_forwards_ref_threads_debug_force_and_config(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    keep_awake: bool | None,
+    configured: bool,
+    flag: str | None,
 ) -> None:
     seen: list[list[str]] = []
     monkeypatch.setattr(wf, "run_command", lambda cmd: seen.append(cmd))
     own = tmp_path / "own.toml"
     monkeypatch.setattr(config, "_config_path_override", own)
-    args = _args(ref="/refs", threads=2, debug=True, force=True)
+    monkeypatch.setitem(config.settings, "keep_awake", configured)
+    args = _args(ref="/refs", threads=2, debug=True, force=True, keep_awake=keep_awake)
     wf.run_cli_subcommand(["info", "--input", "x.bam"], args)
     assert seen[0][1:] == [
         "-m",
         "wgsextract_cli.main",
         "--config",
         str(own),
+        *([flag] if flag else []),
         "info",
         "--input",
         "x.bam",
