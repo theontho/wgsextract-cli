@@ -175,7 +175,8 @@ def _print_haplogrep_result(
 
 
 def register(
-    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+    subparsers: "argparse._SubParsersAction[argparse.ArgumentParser]",
+    base_parser: argparse.ArgumentParser,
 ) -> None:
     parser = subparsers.add_parser("lineage", help="Executes Yleaf or Haplogrep.")
     lin_subs = parser.add_subparsers(dest="lin_cmd", required=True)

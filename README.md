@@ -378,18 +378,33 @@ Developer tools live in the `dev` Pixi environment, which Pixi selects automatic
 | Task | What it runs |
 | :--- | :--- |
 | `pixi run test` | Unit and integration tests (excludes the end-to-end suites) |
+| `pixi run test-ci` | Parallel tests with timing/JUnit and non-gating coverage reports under `out/` |
 | `pixi run smoke-test` | CLI smoke tests (`smoke-test-full` adds full-genome and pet tests) |
 | `pixi run test-e2e` | End-to-end suites against real data |
-| `pixi run test-e2e-fake` | End-to-end suites against generated data (`pytest --fake-data`); CI runs them on Linux and macOS |
+| `pixi run test-e2e-fake` | End-to-end suites against generated data (`pytest --fake-data`); CI runs them on Linux, macOS and Windows |
 | `pixi run test-remote` | Live checks that every file the CLI downloads is still published, SpliceAI is in the expected format, and a microarray kit made from public 1000 Genomes data (HG00096) matches its real Omni chip; CI runs them weekly |
 | `pixi run lint` | Ruff, site-source validation, and GitHub Actions checks |
 | `pixi run format` | `ruff format .` |
-| `pixi run typecheck` | mypy on `src/wgsextract_cli` |
+| `pixi run typecheck` | Strict mypy on `src/wgsextract_cli` |
 | `pixi run site-build` | Rebuild the documentation site (see [docs/site_generation.md](docs/site_generation.md)) |
 | `pixi run benchmark-dataset` | Rebuild the release-backed mini-genome benchmark dataset |
 | `pixi run stats` | Code statistics (needs [cloc](https://github.com/AlDanial/cloc) installed separately) |
 
 If you have [just](https://github.com/casey/just) installed, the `justfile` offers short aliases for these tasks: `just run <args>` runs the CLI, and `just test`, `just lint`, `just fmt`, `just typecheck` and `just check` (all four) run the checks. Run `just` to list every recipe.
+
+PR and main-branch CI are bounded and cancel superseded runs. A separate
+lint-only environment runs Ruff, workflow validation and strict mypy without
+reference downloads; genomic jobs cache the public hs38 reference. Action
+updates must retain a full commit SHA and version comment from an allow-listed
+source, rather than updating a duplicate SHA table in the validator.
+
+The weekly **Pixi refresh** workflow resolves updates within the declared
+manifest pins, restores declared direct-archive digests, and publishes a lockfile
+patch artifact and its validation outcome for a reviewed PR. Publication alone
+does not mean validation passed. It never merges dependencies automatically.
+Automatic PR creation is currently blocked by the repository's Actions permission policy; no new secret
+or permission change is required for the artifact handoff. Numerical-tool
+changes still need public small/full-genome byte-parity validation before merge.
 
 Real-data tests read their inputs from pytest options or from config:
 

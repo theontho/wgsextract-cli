@@ -44,7 +44,8 @@ _CALLING_TOOLS = ["samtools", "bcftools", "tabix"]
 
 
 def register(
-    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+    subparsers: "argparse._SubParsersAction[argparse.ArgumentParser]",
+    base_parser: argparse.ArgumentParser,
 ) -> None:
     parser = subparsers.add_parser(
         "extract", help="Extract specific chromosomes or unmapped reads."

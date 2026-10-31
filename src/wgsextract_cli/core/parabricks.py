@@ -16,9 +16,11 @@ from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.containers import (
     docker,
     docker_info,
-    host_path,
     require_image,
     run_container,
+)
+from wgsextract_cli.core.containers import (
+    host_path as host_path,
 )
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.utils import WGSExtractError

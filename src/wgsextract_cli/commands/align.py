@@ -10,7 +10,7 @@ from typing import NamedTuple
 from wgsextract_cli.core import bwa_mem2, ultima
 from wgsextract_cli.core.alignment_memory import check_mapping_memory
 from wgsextract_cli.core.alignment_metadata import get_bam_header
-from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.dependencies import get_tool_path as get_tool_path
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -74,7 +74,8 @@ _READ_FILE_SUFFIXES = (
 
 
 def register(
-    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+    subparsers: "argparse._SubParsersAction[argparse.ArgumentParser]",
+    base_parser: argparse.ArgumentParser,
 ) -> None:
     parser = subparsers.add_parser(
         "align", parents=[base_parser], help=CLI_HELP["cmd_align"]

@@ -103,7 +103,8 @@ def _add_min_score(
 
 
 def register(
-    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+    subparsers: "argparse._SubParsersAction[argparse.ArgumentParser]",
+    base_parser: argparse.ArgumentParser,
 ) -> None:
     parser = subparsers.add_parser(
         "vcf",

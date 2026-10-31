@@ -85,7 +85,8 @@ def cmd_fake_data(args: argparse.Namespace) -> None:
 
 
 def register(
-    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+    subparsers: "argparse._SubParsersAction[argparse.ArgumentParser]",
+    base_parser: argparse.ArgumentParser,
 ) -> None:
     parser = subparsers.add_parser("qc", help=CLI_HELP["cmd_qc"])
     qc_subs = parser.add_subparsers(dest="qc_cmd", required=True)

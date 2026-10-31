@@ -6,7 +6,8 @@ from ._deps_status import run
 
 
 def register(
-    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+    subparsers: "argparse._SubParsersAction[argparse.ArgumentParser]",
+    base_parser: argparse.ArgumentParser,
 ) -> None:
     deps_parser = subparsers.add_parser("deps", help=CLI_HELP["cmd_deps"])
     deps_subparsers = deps_parser.add_subparsers(dest="subcommand", required=True)
