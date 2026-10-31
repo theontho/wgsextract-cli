@@ -28,7 +28,8 @@ function Get-PeMachine {
     }
 }
 
-Add-Type -TypeDefinition @'
+if (-not ("WgseArm64Audit" -as [type])) {
+    Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public static class WgseArm64Audit {
@@ -36,6 +37,7 @@ public static class WgseArm64Audit {
     public static extern bool IsWow64Process2(IntPtr process, out ushort machine, out ushort native);
 }
 '@
+}
 
 $rows = @()
 $failures = @()
@@ -56,12 +58,26 @@ foreach ($idToAudit in $ProcessIds) {
         throw "Cannot query process $idToAudit"
     }
     $pe = Get-PeMachine $process.Path
+    $modules = @()
+    foreach ($module in $process.Modules) {
+        $moduleMachine = Get-PeMachine $module.FileName
+        $modules += [ordered]@{
+            path = $module.FileName; machine = ("{0:X4}" -f $moduleMachine)
+        }
+        # Windows itself may ship hybrid system images. Application modules
+        # outside the audited prefix still must not introduce x64/ARM64EC.
+        if (-not $module.FileName.StartsWith(
+            $env:SystemRoot + "\", [System.StringComparison]::OrdinalIgnoreCase
+        ) -and $moduleMachine -ne 0xAA64) {
+            $failures += $module.FileName
+        }
+    }
     $processRows += [ordered]@{
         pid = $idToAudit; path = $process.Path
         process_machine = ("{0:X4}" -f $machine)
         native_machine = ("{0:X4}" -f $native)
         pe_machine = ("{0:X4}" -f $pe)
-        modules = @($process.Modules | ForEach-Object { $_.FileName })
+        modules = $modules
     }
     if ($native -ne 0xAA64 -or $machine -ne 0 -or $pe -ne 0xAA64) {
         $failures += "process $idToAudit ($($process.Path))"

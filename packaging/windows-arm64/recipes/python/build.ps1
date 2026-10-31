@@ -19,7 +19,13 @@ foreach ($relative in $remove) {
     Remove-Item -LiteralPath (Join-Path $env:PREFIX $relative) -ErrorAction Stop
 }
 $audit = Join-Path $env:RECIPE_DIR "..\..\..\..\scripts\audit_windows_arm64.ps1"
-& $audit -Prefix $env:PREFIX -Report "out/python-arm64-pe.json"
+$native = Start-Process -FilePath "$env:PREFIX\python.exe" `
+    -ArgumentList @("-c", '"import time; time.sleep(60)"') -PassThru
+try {
+    & $audit -Prefix $env:PREFIX -ProcessIds @($native.Id) -Report "out/python-arm64-pe.json"
+} finally {
+    if (-not $native.HasExited) { Stop-Process -Id $native.Id }
+}
 
 & "$env:PREFIX\python.exe" -c "import ssl, sqlite3, bz2, lzma, ctypes; print(ssl.OPENSSL_VERSION)"
 if ($LASTEXITCODE) { throw "Native Python extension imports failed" }

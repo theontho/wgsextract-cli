@@ -16,7 +16,11 @@ permissions:
 jobs:
   qualify:
     runs-on: windows-11-arm
-    timeout-minutes: 30
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        recipe: [python, bwa]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -31,6 +35,7 @@ jobs:
       - name: Fail-fast and PE validation tests
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force -Path out | Out-Null
           python -m pytest tests/test_windows_arm64.py --basetemp=out/pytest-arm64 --junitxml=out/windows-arm64-tests.xml
           if ($LASTEXITCODE) { throw "ARM64 qualification tests failed" }
       - name: Set up native Pixi
@@ -38,16 +43,31 @@ jobs:
         with:
           pixi-version: v0.83.0
           run-install: false
-      - name: Package native Python
+      - name: Check out pinned MSVC dependency recipes
+        if: matrix.recipe == 'bwa'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: microsoft/vcpkg
+          ref: 9a5dfef5d1a0438a7d24856a85bd60f309d355e9
+          path: scratch/vcpkg
+      - name: Bootstrap the build-only dependency manager
+        if: matrix.recipe == 'bwa'
         shell: pwsh
         run: |
+          & scratch/vcpkg/bootstrap-vcpkg.bat -disableMetrics
+          if ($LASTEXITCODE) { throw "Pinned vcpkg bootstrap failed" }
+      - name: Package native components
+        shell: pwsh
+        env:
+          RECIPE_NAME: ${{ matrix.recipe }}
+        run: |
           pixi exec --spec rattler-build==0.77.0 rattler-build build `
-            --recipe-dir packaging/windows-arm64/recipes --target-platform win-arm64 `
+            --recipe-dir "packaging/windows-arm64/recipes/$env:RECIPE_NAME" --target-platform win-arm64 `
             --output-dir out/conda
           if ($LASTEXITCODE) { throw "ARM64 Python recipe failed" }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: windows-arm64-qualification
+          name: windows-arm64-qualification-${{ matrix.recipe }}
           path: out/
           if-no-files-found: error
