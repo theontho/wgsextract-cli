@@ -28,6 +28,8 @@ def poz_bed(contigs: dict[str, int], chromosome: str, outdir: str) -> Iterator[s
             for line in (_BEDS / f"{build}.bed").read_text().splitlines()
         ]
         path.write_text(
-            "".join(f"{chromosome}\t{start}\t{end}\n" for _, start, end in rows)
+            "".join(f"{chromosome}\t{start}\t{end}\n" for _, start, end in rows),
+            encoding="utf-8",
+            newline="\n",
         )
         yield str(path)
