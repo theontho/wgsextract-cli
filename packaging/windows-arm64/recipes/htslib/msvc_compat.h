@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <windows.h>
 #include <errno.h>
+#include <signal.h>
 #ifndef SSIZE_MAX
 #define SSIZE_MAX INTPTR_MAX
 #endif

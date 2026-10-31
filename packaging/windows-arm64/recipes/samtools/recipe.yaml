@@ -1,0 +1,32 @@
+context:
+  version: "1.24"
+
+package:
+  name: samtools
+  version: ${{ version }}
+
+source:
+  url: https://github.com/samtools/samtools/releases/download/${{ version }}/samtools-${{ version }}.tar.bz2
+  sha256: 89b2a440123eeaa400392ce1736e7d60ce9041843027d76819753c5a8246bfdd
+  patches:
+    - ../../../windows/recipes/samtools/patches/0001-windows-path-separators.patch
+    - ../../../windows/recipes/samtools/patches/0002-bounded-cram-stop-copy.patch
+    - ../../../windows/recipes/samtools/patches/0003-vector-bam-sequence-packing.patch
+    - ../../../windows/recipes/samtools/patches/0004-reuse-cram-buffers.patch
+
+build:
+  number: 0
+  string: wgse_arm64_${{ build_number }}
+  script:
+    content:
+      - 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "%RECIPE_DIR%\build.ps1"'
+
+tests:
+  - script:
+      - samtools --version
+
+about:
+  homepage: https://www.htslib.org
+  license: MIT
+  license_file: LICENSE
+  summary: Native Windows ARM64 samtools qualification.

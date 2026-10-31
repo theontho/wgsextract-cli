@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 project(wgse_htslib_arm64 VERSION 1.24 LANGUAGES C)
+option(WGSE_HTSLIB_TOOLS "Build and install standalone HTS tools" ON)
 if(NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8 OR NOT WGSE_HTSLIB_SOURCE)
     message(FATAL_ERROR "HTS qualification requires clang-cl ARM64 and WGSE_HTSLIB_SOURCE")
 endif()
@@ -55,17 +56,19 @@ target_link_libraries(hts PUBLIC
 set_source_files_properties(
     "${WGSE_HTSLIB_SOURCE}/htscodecs/htscodecs/rANS_static32x16pr_neon.c"
     PROPERTIES COMPILE_OPTIONS "/showIncludes")
-foreach(name IN ITEMS bgzip tabix htsfile)
-    add_executable(${name} "${WGSE_HTSLIB_SOURCE}/${name}.c"
-        "${WGSE_WINDOWS}/compat/wgse_compat.c")
-    target_link_libraries(${name} PRIVATE hts)
-    install(TARGETS ${name} RUNTIME DESTINATION Library/bin)
-endforeach()
+if(WGSE_HTSLIB_TOOLS)
+    foreach(name IN ITEMS bgzip tabix htsfile)
+        add_executable(${name} "${WGSE_HTSLIB_SOURCE}/${name}.c"
+            "${WGSE_WINDOWS}/compat/wgse_compat.c")
+        target_link_libraries(${name} PRIVATE hts)
+        install(TARGETS ${name} RUNTIME DESTINATION Library/bin)
+    endforeach()
+    install(TARGETS hts ARCHIVE DESTINATION Library/lib)
+    install(DIRECTORY "${WGSE_HTSLIB_SOURCE}/htslib" DESTINATION Library/include
+        FILES_MATCHING PATTERN "*.h")
+endif()
 foreach(name IN ITEMS cram_stop bam_seq cram_buffers)
     add_executable(${name}_test "${WGSE_WINDOWS}/tests/${name}.c"
         "${WGSE_WINDOWS}/compat/wgse_compat.c")
     target_link_libraries(${name}_test PRIVATE hts)
 endforeach()
-install(TARGETS hts ARCHIVE DESTINATION Library/lib)
-install(DIRECTORY "${WGSE_HTSLIB_SOURCE}/htslib" DESTINATION Library/include
-    FILES_MATCHING PATTERN "*.h")

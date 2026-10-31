@@ -66,8 +66,11 @@ not merely the version text. Live executable/process/modules audit AA64.
 These small-fixture results are not approval of #268's full-index release gate.
 The 2.3 source archive still defaults its version string to 2.2.1; the ARM
 recipe explicitly sets the actual pinned source release, 2.3. A matching 2.3
-full-genome oracle remains required. The #188 owner confirms that the preserved
-2.2.1 golden uses the older scientific baseline, not the new 2.3 source.
+full-genome comparison remains required. The golden's executable reports 2.2.1,
+but inspecting `37668c53763709613267b96eb151a245aa9d1443:pixi.lock` and the
+embedded Linux package recipe proves it uses the same 2.3 source archive.
+The Windows recipe at that commit also pins the identical source SHA.
+Do not reject or identify this oracle from the reported version alone.
 
 The staged HTS 1.24 recipe reuses all three unchanged x64 CRAM/BAM optimization
 patches, static pinned compression/TRE dependencies and the existing regressions.
@@ -79,6 +82,11 @@ fixtures do not become silent no-ops through CMake's `NDEBUG` default.
 Samblaster's staged native recipe reuses the existing POSIX/binary-I/O shim,
 adds MSVC's missing `mempcpy`, and supplies a real SAM header before holding
 stdin open for its live process/module audit. It is not yet qualified.
+Samtools/bcftools 1.24 are staged against the same native HTS library build,
+with all existing Windows optimization patches. Their packages install only
+their own executables, avoiding duplicate HTS files in the installed prefix.
+Source checksums and complete upstream C source lists have been checked;
+native build and whole-pipeline qualification remain pending.
 
 On an ARM64 Windows OS, configured executable paths and version probes reject
 x64 PE files before launching them. Feature entry also rejects a Prism-hosted
