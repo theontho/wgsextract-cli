@@ -87,22 +87,6 @@ class SiteMap:
             return None
         return self._projection(index)
 
-    def native_lookup(self, chrom: str, position: int) -> SiteProjection | None:
-        if position < 1 or position > _UINT32_MAX:
-            return None
-        try:
-            code = self._target_names.index(chrom) + 1
-        except ValueError:
-            return None
-        key = (code << 32) | position
-        index = bisect_left(self._native_order, key, key=self._native_key)
-        if index == len(self._native_order):
-            return None
-        source_index = self._native_order[index]
-        if self._native_key(source_index) != key:
-            return None
-        return self._projection(source_index)
-
     def source_sites(self) -> Iterator[SiteProjection]:
         for index in range(len(self._source_positions)):
             yield self._projection(index)

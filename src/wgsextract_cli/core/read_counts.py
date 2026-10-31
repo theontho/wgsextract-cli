@@ -97,12 +97,6 @@ def fastq_statistics(path: PathInput) -> FastqStatistics | None:
     return FastqStatistics(reads, read_length or None)
 
 
-def fastq_read_count(path: PathInput) -> int | None:
-    """Estimate individual reads using the bounded FASTQ prefix sample."""
-    statistics = fastq_statistics(path)
-    return statistics.reads if statistics is not None else None
-
-
 def fastq_input_statistics(
     r1: PathInput, r2: PathInput | None = None
 ) -> FastqStatistics | None:
