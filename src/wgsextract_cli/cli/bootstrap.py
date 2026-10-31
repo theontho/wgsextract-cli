@@ -73,6 +73,9 @@ def _reconfigure_stream(stream: TextIO) -> None:
 
 def configure_logging(*, debug: bool = False, quiet: bool = False) -> None:
     handler = logging.StreamHandler()
+    handler.setLevel(
+        logging.DEBUG if debug else logging.ERROR if quiet else logging.INFO
+    )
     handler.setFormatter(
         EmojiFormatter("[%(asctime)s] %(levelname)s: %(message)s", datefmt="%H:%M:%S")
     )

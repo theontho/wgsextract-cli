@@ -12,8 +12,10 @@ import psutil
 
 from wgsextract_cli.core.alignment_memory import available_memory
 from wgsextract_cli.core.paths import java_local_path
+from wgsextract_cli.core.progress import Heartbeat
 from wgsextract_cli.core.reference_assets import read_fai_lengths
 from wgsextract_cli.core.resource_estimates import GATK_WORKER_BYTES
+from wgsextract_cli.core.run_log import active_run_log
 from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 
@@ -133,6 +135,14 @@ def _run_worker(command: list[str], log: Path, cancelled: Event) -> None:
         finally:
             if process.poll() is None:
                 _stop_worker(process)
+            if active_run_log():
+                with log.open("rb") as source:
+                    while chunk := source.read(65536):
+                        logging.debug(
+                            "GATK shard %s: %s",
+                            log.name,
+                            chunk.decode(errors="replace"),
+                        )
 
 
 def call_scattered(
@@ -183,7 +193,10 @@ def call_scattered(
         "Calling %s GATK shards with one CPU and a 4 GiB heap each.", len(shards)
     )
     logging.debug("GATK scatter intervals: %s", shards)
-    with ThreadPoolExecutor(max_workers=len(shards)) as pool:
+    with (
+        ThreadPoolExecutor(max_workers=len(shards)) as pool,
+        Heartbeat("GATK scatter", len(shards), "shards") as progress,
+    ):
         futures = [
             pool.submit(_run_worker, cmd, work / f"{index:06d}.log", cancelled)
             for index, cmd in enumerate(commands)
@@ -191,6 +204,8 @@ def call_scattered(
         try:
             for future in as_completed(futures):
                 future.result()
+                progress.advance()
+                progress.report()
         except BaseException:
             cancelled.set()
             for future in futures:
