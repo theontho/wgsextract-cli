@@ -239,6 +239,7 @@ grep -F "\"path\":\"$embedded_install_dir/.pixi\"" "$embedded_install_dir/instal
 grep -F "\"type\":\"userPathEntry\"" "$embedded_install_dir/install-manifest.json" >/dev/null
 
 # A corrupted payload must fail before an executable reaches the install prefix.
+cp "$fake_pixi_archive" "$work_dir/trusted-pixi.tar.gz"
 printf 'corrupt archive' > "$fake_pixi_archive"
 rejected_install_dir="$work_dir/rejected-install"
 if HOME="$embedded_home_dir" \
@@ -256,7 +257,7 @@ if HOME="$embedded_home_dir" \
 fi
 grep -F "Pixi archive SHA-256 verification failed" "$work_dir/rejected.log" >/dev/null
 test ! -e "$rejected_install_dir/.pixi/bin/pixi"
-tar -czf "$fake_pixi_archive" -C "$fake_pixi_source" pixi
+cp "$work_dir/trusted-pixi.tar.gz" "$fake_pixi_archive"
 
 fish_home_dir="$work_dir/fish-home"
 mkdir -p "$fish_home_dir"
