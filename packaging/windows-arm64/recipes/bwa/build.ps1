@@ -35,6 +35,10 @@ if ($LASTEXITCODE) { throw "BWA suffix-array test input failed" }
 if ($LASTEXITCODE) { throw "BWA native indexing failed" }
 & $probe "$reference.bwt" "$reference.sa"
 if ($LASTEXITCODE) { throw "BWA native suffix-array equivalence failed" }
+$smoke = Join-Path $env:RECIPE_DIR "..\..\tests\bwa_smoke.py"
+& python $smoke --bwa $bwa --output "$build\smoke" `
+    --expected-sha256 "efb0d8004175411365b5f740cd833ebcbaf78f39c6aa1fa72a232d5e92b121b6"
+if ($LASTEXITCODE) { throw "BWA native paired-read truth/thread equivalence failed" }
 
 $notices = Join-Path $env:PREFIX "Library\share\bwa\licenses"
 New-Item -ItemType Directory -Force -Path $notices | Out-Null

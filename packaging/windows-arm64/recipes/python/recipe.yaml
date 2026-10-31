@@ -25,5 +25,5 @@ tests:
 about:
   homepage: https://www.python.org/
   license: Python-2.0
-  license_file: tools/LICENSE.txt
+  license_file: out/nuget/tools/LICENSE.txt
   summary: Official PSF native Windows ARM64 Python, repackaged for qualification.

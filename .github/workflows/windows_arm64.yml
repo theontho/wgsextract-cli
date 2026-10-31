@@ -74,4 +74,5 @@ jobs:
             out/conda/**/pe.json
             out/conda/**/python-arm64-pe.json
             out/conda/**/ksw-neon-selection.txt
+            out/conda/**/body.sha256
           if-no-files-found: error

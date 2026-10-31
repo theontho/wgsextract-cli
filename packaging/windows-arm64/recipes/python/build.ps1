@@ -4,7 +4,9 @@ if ($env:CONDA_BUILD_TARGET -and $env:CONDA_BUILD_TARGET -ne "win-arm64") {
     throw "This recipe is only for win-arm64"
 }
 New-Item -ItemType Directory -Force -Path $env:PREFIX | Out-Null
-Copy-Item -Path tools\* -Destination $env:PREFIX -Recurse -Force
+# Rattler treats the NuGet URL as a file source, even with a .zip file_name.
+Expand-Archive -LiteralPath "pythonarm64.zip" -DestinationPath "out\nuget"
+Copy-Item -Path out\nuget\tools\* -Destination $env:PREFIX -Recurse -Force
 
 # Upstream NuGet contains unused x86/x64 distlib launcher templates and an x64
 # C++ exception runtime. Native Python and its extensions must load without it.

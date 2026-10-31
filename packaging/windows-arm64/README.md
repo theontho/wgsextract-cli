@@ -31,6 +31,12 @@ recipes pin and checksum their sources. Compiler include output must show
 `neon_sse.h`; `_M_ARM64` is asserted and ARM64EC/x86 macros rejected.
 The native suffix-array equivalence probe is part of the recipe. This build
 is not yet a full-genome acceptance or performance result.
+The paired-read smoke gate truth-checks 600 alignments, compares one/four
+threads and requires the complete ordered SAM body to match Linux BWA
+0.7.19-r1273, SHA-256
+`efb0d8004175411365b5f740cd833ebcbaf78f39c6aa1fa72a232d5e92b121b6`.
+The reference and reads are generated with Python's seeded `random.Random(236)`;
+no genome download is needed and genuine `@PG` command headers are preserved.
 
 Before enabling `win-arm64` in `pixi.toml`:
 
