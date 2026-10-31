@@ -6,15 +6,14 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
-
 from scripts.build_microarray_chm13_map import write_site_map
-from tests.htslib_helpers import needs_tools, sam_to_bam, write_fasta
 from wgsextract_cli.core.microarray_chm13 import CHM13Catalogue, ReferenceContig
 from wgsextract_cli.core.microarray_chm13_indels import (
     FlankedSite,
     call_chm13_indels,
     expected_ploidy,
     flank_evidence,
+    flanked_sites,
     likelihood_gq,
     native_probe_sites,
     read_haplotype,
@@ -22,6 +21,8 @@ from wgsextract_cli.core.microarray_chm13_indels import (
 )
 from wgsextract_cli.core.microarray_indel_probes import IndelProbe, IndelSite
 from wgsextract_cli.core.microarray_site_map import SiteProjection, load_site_map
+
+from tests.htslib_helpers import needs_tools, sam_to_bam, write_fasta
 
 LEFT = "ACCGTGACTGCATGC"
 RIGHT = "GACTACGTAGCTGCA"
@@ -105,6 +106,86 @@ def test_contained_repeat_equivalent_deletion_requires_complete_haplotype():
         read_haplotype(_read("equivalent", "17M2D14M", LEFT + "CA" + "T" * 14), probe)
         == "alt"
     )
+
+
+@needs_tools("samtools")
+@pytest.mark.parametrize("insertion", [False, True])
+@pytest.mark.parametrize("motif", ["A", "AT"])
+def test_long_repeat_requires_spanning_unique_outer_flanks(tmp_path, insertion, motif):
+    repeat = motif * 30
+    sequence = "T" * 84 + LEFT + "G" + repeat + RIGHT + "T" * 100
+    fasta = write_fasta(tmp_path / "repeat.fa", {"chr1": sequence})
+    site = (
+        IndelSite("chr1", 100, "G", "G" + motif, "D")
+        if insertion
+        else IndelSite("chr1", 100, "G" + motif, "G", "I")
+    )
+    probe = flanked_sites({"P": site}, str(fasta), tmp_path)["P"]
+    assert probe.start == 85 and probe.end == 115 + len(repeat)
+    partial = _read("partial", "46M", sequence[79:125], start=80)
+    assert read_haplotype(partial, probe) is None
+    alt = LEFT + "G" + motif * (31 if insertion else 29) + RIGHT
+    size = len(motif)
+    left_cigar = (
+        f"16M{size}I{len(repeat) + 15}M"
+        if insertion
+        else f"16M{size}D{len(repeat) - size + 15}M"
+    )
+    right_cigar = (
+        f"{16 + len(repeat)}M{size}I15M"
+        if insertion
+        else f"{16 + len(repeat) - size}M{size}D15M"
+    )
+    assert read_haplotype(_read("left", left_cigar, alt), probe) == "alt"
+    assert read_haplotype(_read("right", right_cigar, alt), probe) == "alt"
+    assert (
+        read_haplotype(
+            _read(
+                "repeat-overlap",
+                f"40M{len(repeat) - 20}D11M",
+                LEFT + "G" + repeat[:24] + RIGHT[4:],
+            ),
+            probe,
+        )
+        == "!"
+    )
+    rows = [
+        _read(f"partial{i}", "46M", sequence[79:125], start=80) for i in range(3)
+    ] + [_read(f"alt{i}", right_cigar, alt) for i in range(3)]
+    evidence = flank_evidence(("\t".join(row) for row in rows), {"P": probe})["P"]
+    assert evidence == Counter(alt=3)
+    assert supported_call("DI", site, evidence, 2) == "--"
+    assert supported_call("II" if insertion else "DD", site, evidence, 2) != "--"
+    rows += [
+        _read(f"ref{i}", f"{31 + len(repeat)}M", LEFT + "G" + repeat + RIGHT)
+        for i in range(3)
+    ]
+    evidence = flank_evidence(("\t".join(row) for row in rows), {"P": probe})["P"]
+    assert supported_call("DI", site, evidence, 2) == "DI"
+
+
+@needs_tools("samtools")
+@pytest.mark.parametrize("insertion", [False, True])
+@pytest.mark.parametrize("unbounded", [False, True])
+def test_unresolved_repeat_or_nonunique_outer_anchor_no_calls(
+    tmp_path, insertion, unbounded
+):
+    sequence = (
+        "T" * 84
+        + LEFT
+        + "G"
+        + "A" * (5000 if unbounded else 30)
+        + RIGHT
+        + "T" * 20
+        + RIGHT
+    )
+    fasta = write_fasta(tmp_path / "uncertain.fa", {"chr1": sequence})
+    site = (
+        IndelSite("chr1", 100, "G", "GA", "D")
+        if insertion
+        else IndelSite("chr1", 100, "GA", "G", "I")
+    )
+    assert flanked_sites({"P": site}, str(fasta), tmp_path) == {}
 
 
 @pytest.mark.parametrize(

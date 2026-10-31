@@ -38,6 +38,7 @@ from wgsextract_cli.core.microarray_utils import (
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 
 _FLANK = 15
+_MAX_REPEAT_SHIFT = 4096
 _MIN_SUPPORT = 2
 _MAPQ = 20
 _BASEQ = 20
@@ -150,7 +151,7 @@ def flanked_sites(
     sites: Mapping[str, IndelSite], fasta: str, directory: Path
 ) -> dict[str, FlankedSite]:
     regions = {
-        key: f"{site.chrom}:{site.position - _FLANK}-{site.position + len(site.ref) - 1 + _FLANK}"
+        key: f"{site.chrom}:{site.position - _FLANK}-{site.position + len(site.ref) - 1 + _MAX_REPEAT_SHIFT + _FLANK}"
         for key, site in sites.items()
         if site.position > _FLANK
     }
@@ -161,11 +162,43 @@ def flanked_sites(
     for key, region in regions.items():
         site, sequence = sites[key], sequences[region]
         if (
-            len(sequence) == len(site.ref) + 2 * _FLANK
-            and set(sequence) <= set("ACGT")
-            and sequence[_FLANK:-_FLANK] == site.ref
+            min(len(site.ref), len(site.alt)) != 1
+            or len(site.ref) == len(site.alt)
+            or site.ref[0] != site.alt[0]
+            or sequence[_FLANK : _FLANK + len(site.ref)] != site.ref
         ):
-            result[key] = FlankedSite(site, sequence[:_FLANK], sequence[-_FLANK:])
+            continue
+        motif = (site.ref if len(site.ref) > len(site.alt) else site.alt)[1:]
+        if set(motif) - set("ACGT"):
+            continue
+        offset = _FLANK + len(site.ref)
+        shift = 0
+        while (
+            shift < _MAX_REPEAT_SHIFT
+            and offset + shift < len(sequence)
+            and sequence[offset + shift] == motif[shift % len(motif)]
+        ):
+            shift += 1
+        # A missing/unknown next base cannot certify the rightmost placement.
+        if (
+            shift == _MAX_REPEAT_SHIFT
+            or offset + shift >= len(sequence)
+            or sequence[offset + shift] not in "ACGT"
+        ):
+            continue
+        end = offset + shift + _FLANK
+        context = sequence[:end]
+        if len(context) != end or set(context) - set("ACGT"):
+            continue
+        left, right = context[:_FLANK], context[offset:]
+        alternate = left + site.alt + right
+        if any(
+            text.find(anchor) < 0 or text.find(anchor) != text.rfind(anchor)
+            for anchor in (left, right[-_FLANK:])
+            for text in (sequence, alternate)
+        ):
+            continue
+        result[key] = FlankedSite(site, left, right)
     return result
 
 
@@ -194,7 +227,7 @@ def expected_ploidy(path: Path, sex: str, site: FlankedSite) -> int:
 
 
 def read_haplotype(fields: list[str], probe: FlankedSite) -> str | None:
-    """Extract both complete flanks using CIGAR, not an anchor pileup base.
+    """Span all repeat-equivalent placements and both unique outer flanks.
 
     An overlapping deletion/skip that removes a flank is ambiguous (``!``),
     not evidence for the shorter probe allele. Unmatched/low-quality reads
@@ -212,7 +245,7 @@ def read_haplotype(fields: list[str], probe: FlankedSite) -> str | None:
     ambiguous = False
     flank_deletion = False
     core_first = probe.site.position
-    core_last = core_first + len(probe.site.ref) - 1
+    core_last = probe.end - _FLANK
     for size, operation in cigar:
         length = int(size)
         if operation in "M=X":
@@ -600,6 +633,8 @@ def call_chm13_indels(
                 "counts": dict(counts),
                 "manifest_sha256_by_format": hashes,
                 "minimum_flank_bases": _FLANK,
+                "maximum_repeat_equivalent_shift": _MAX_REPEAT_SHIFT,
+                "unique_outer_anchors_required": True,
                 "minimum_fragments_per_called_allele": _MIN_SUPPORT,
                 "minimum_mapping_quality": _MAPQ,
                 "minimum_base_quality": _BASEQ,

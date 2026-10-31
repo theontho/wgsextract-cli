@@ -87,8 +87,15 @@ genotype likelihoods. Missing/incomplete likelihoods cannot supply quality.
 Existing FILTER and rsID-identity exclusions apply and cannot be restored.
 
 The genotype additionally requires at least **two distinct read fragments per
-called allele**, spanning the whole normalized event and **15 exact reference
-bases on each side**. Mapping and every supporting base quality must be at
+called allele**, spanning every repeat-equivalent placement of the normalized
+event and **15 exact reference bases beyond each end of that span**. The native
+reference determines the rightmost equivalent placement, including motif
+rotations for tandem-repeat insertions and deletions. Both outer anchors must
+occur once in the fetched local reference window and complete alternate
+haplotype. An unresolved shift of 4,096 bases, non-unique anchors, missing bases
+or ambiguous reference sequence stays a no-call. Reads ending inside a repeat
+provide neither REF nor ALT support, even when their alignment is gapless.
+Mapping and every supporting base quality must be at
 least 20. Secondary, supplementary, duplicate and QC-failed reads are excluded;
 overlapping mates are counted once. Partial reads and flanking mismatches
 provide no support. A conflicting fragment, other fully-flanked haplotype,
