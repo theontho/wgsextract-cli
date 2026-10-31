@@ -3,6 +3,7 @@
 import gzip
 import json
 import random
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -90,6 +91,7 @@ def test_fastp_failure_is_reported(tmp_path):
     [
         (["qc", "fastp", "--r1"], "fastp"),
         (["qc", "fastqc", "--input"], "fastqc"),
+        (["qc", "multiqc", "--input"], "multiqc"),
         (["qc", "vcf", "--input"], "bcftools"),
     ],
 )
@@ -127,6 +129,107 @@ def test_fastqc_failure_is_reported(tmp_path):
 def test_fastqc_requires_input():
     with pytest.raises(WGSExtractError, match="--input is required"):
         run_wgsextract("qc", "fastqc")
+
+
+@needs_tools("fastqc", "multiqc")
+def test_multiqc_combines_mates_without_changing_fastqc_reports(tmp_path):
+    from hashlib import sha256
+
+    reports = tmp_path / "fastqc reports"
+    for mate in (1, 2):
+        reads = _fastq(tmp_path / f"sample_R{mate}.fastq", NAMES, mate)
+        run_wgsextract(
+            "qc", "fastqc", "--input", reads, "--outdir", str(reports), "--threads", "1"
+        )
+    before = {p.name: sha256(p.read_bytes()).hexdigest() for p in reports.iterdir()}
+    output = tmp_path / "combined"
+    run_wgsextract("qc", "multiqc", "--input", str(reports), "--outdir", str(output))
+    html = (output / "multiqc_report.html").read_text()
+    assert "sample_R1" in html and "sample_R2" in html
+    assert sorted(p.name for p in output.iterdir()) == ["multiqc_report.html"]
+    assert before == {
+        p.name: sha256(p.read_bytes()).hexdigest() for p in reports.iterdir()
+    }
+    run_wgsextract("qc", "multiqc", "--input", str(reports / "sample_R1_fastqc.zip"))
+    single = (reports / "multiqc_report.html").read_text()
+    assert "sample_R1" in single and "sample_R2" not in single
+
+
+@needs_tools("multiqc")
+def test_multiqc_rejects_missing_fastqc_reports_and_cleans_staging(tmp_path):
+    source = tmp_path / "empty"
+    source.mkdir()
+    output = tmp_path / "combined"
+    with pytest.raises(WGSExtractError, match="MultiQC failed"):
+        run_wgsextract("qc", "multiqc", "--input", str(source), "--outdir", str(output))
+    assert list(output.iterdir()) == []
+
+
+def test_multiqc_requires_existing_input(tmp_path):
+    with pytest.raises(WGSExtractError, match="--input is required"):
+        run_wgsextract("qc", "multiqc")
+    with pytest.raises(WGSExtractError, match="--input must be an existing"):
+        run_wgsextract("qc", "multiqc", "--input", str(tmp_path / "missing"))
+
+
+@pytest.fixture
+def multiqc_stub(monkeypatch):
+    from wgsextract_cli.commands.qc import commands
+
+    monkeypatch.setattr(commands, "verify_dependencies", lambda _tools: None)
+    monkeypatch.setattr(commands, "log_dependency_info", lambda _tools: None)
+    return lambda command: monkeypatch.setattr(commands, "run_command", command)
+
+
+def test_multiqc_force_replaces_only_its_report_and_stays_offline(
+    tmp_path, multiqc_stub
+):
+    report = tmp_path / "multiqc_report.html"
+    report.write_text("previous")
+    unrelated = tmp_path / "keep.txt"
+    unrelated.write_text("keep")
+    with pytest.raises(WGSExtractError, match="already exists"):
+        run_wgsextract("qc", "multiqc", "--input", str(tmp_path))
+
+    def generate(cmd, **kwargs):
+        assert {"--no-megaqc-upload", "--no-version-check", "--no-ai"} <= set(cmd)
+        assert json.loads(cmd[cmd.index("--cl-config") + 1]) == {
+            "ai_summary": False,
+            "ai_summary_full": False,
+        }
+        stage = Path(cmd[cmd.index("--outdir") + 1])
+        assert kwargs["cwd"] == str(stage)
+        assert kwargs["env"]["TMPDIR"] == str(stage)
+        (stage / report.name).write_text("new")
+
+    multiqc_stub(generate)
+    run_wgsextract("qc", "multiqc", "--input", str(tmp_path), "--force")
+    assert report.read_text() == "new"
+    assert unrelated.read_text() == "keep"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["keep.txt", report.name]
+
+
+def test_multiqc_failed_force_preserves_previous_report(tmp_path, multiqc_stub):
+    report = tmp_path / "multiqc_report.html"
+    report.write_text("previous")
+
+    def fail(cmd, **_kwargs):
+        stage = Path(cmd[cmd.index("--outdir") + 1])
+        (stage / report.name).write_text("partial")
+        raise subprocess.CalledProcessError(1, cmd)
+
+    multiqc_stub(fail)
+    with pytest.raises(WGSExtractError, match="MultiQC failed"):
+        run_wgsextract("qc", "multiqc", "--input", str(tmp_path), "--force")
+    assert report.read_text() == "previous"
+    assert sorted(p.name for p in tmp_path.iterdir()) == [report.name]
+
+
+def test_multiqc_zero_exit_without_report_is_not_success(tmp_path, multiqc_stub):
+    multiqc_stub(lambda *_args, **_kwargs: None)
+    with pytest.raises(WGSExtractError, match="produced no FastQC report"):
+        run_wgsextract("qc", "multiqc", "--input", str(tmp_path))
+    assert list(tmp_path.iterdir()) == []
 
 
 def _vcf(path: Path) -> str:

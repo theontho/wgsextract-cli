@@ -1,7 +1,9 @@
 import argparse
 import json
 import logging
+import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 from wgsextract_cli.core.dependency_checks import (
@@ -127,6 +129,64 @@ def cmd_fastqc(args: argparse.Namespace) -> None:
         )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"FastQC failed: {e}") from e
+
+
+def cmd_multiqc(args: argparse.Namespace) -> None:
+    if not args.input:
+        raise WGSExtractError("--input is required: choose existing FastQC reports.")
+
+    source = absolute_path(args.input)
+    if not source.is_file() and not source.is_dir():
+        raise WGSExtractError(
+            f"--input must be an existing file or directory: {source}."
+        )
+    outdir = (
+        absolute_path(args.outdir)
+        if args.outdir
+        else (source if source.is_dir() else source.parent)
+    )
+    report = outdir / "multiqc_report.html"
+    exists = report.exists() or report.is_symlink()
+    if exists and not args.force:
+        raise WGSExtractError(
+            f"Report already exists: {report}. Choose another --outdir or use --force."
+        )
+    if exists and not report.is_file():
+        raise WGSExtractError(f"Report path is not a file: {report}.")
+
+    verify_dependencies(["multiqc"])
+    log_dependency_info(["multiqc"])
+    try:
+        outdir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=".multiqc_", dir=outdir) as work:
+            # Home-directory MultiQC configuration can otherwise enable AI uploads.
+            config = json.dumps({"ai_summary": False, "ai_summary_full": False})
+            run_command(
+                [
+                    "multiqc",
+                    "--module",
+                    "fastqc",
+                    "--require-logs",
+                    "--no-data-dir",
+                    "--no-megaqc-upload",
+                    "--no-version-check",
+                    "--no-ai",
+                    "--cl-config",
+                    config,
+                    "--outdir",
+                    work,
+                    str(source),
+                ],
+                cwd=work,
+                env={**os.environ, "TMPDIR": work},
+            )
+            staged = Path(work, report.name)
+            if not staged.is_file() or staged.stat().st_size == 0:
+                raise WGSExtractError("MultiQC produced no FastQC report.")
+            os.replace(staged, report)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise WGSExtractError(f"MultiQC failed: {e}") from e
+    logging.info("MultiQC report: %s", report)
 
 
 def cmd_vcf_qc(args: argparse.Namespace) -> None:
