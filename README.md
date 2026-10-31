@@ -139,6 +139,9 @@ It writes one standalone `multiqc_report.html` (no parsed-data directory).
 `--input` accepts a report file or directory; without `--outdir`, the report goes
 beside the input file or into the input directory. Existing reports require
 `--force`; a failed replacement leaves the previous report intact.
+Non-force publication uses atomic hard links to prevent concurrent overwrite;
+filesystems without hard-link support need a different `--outdir` or explicit
+`--force`. Inherited report titles cannot change the fixed output filename.
 
 MultiQC **1.32 or newer, below 2** must already be installed. The command only
 validates dependencies, never installs them. An optional Pixi `multiqc`

@@ -132,7 +132,7 @@ def test_fastqc_requires_input():
 
 
 @needs_tools("fastqc", "multiqc")
-def test_multiqc_combines_mates_without_changing_fastqc_reports(tmp_path):
+def test_multiqc_combines_mates_without_changing_fastqc_reports(tmp_path, monkeypatch):
     from hashlib import sha256
 
     reports = tmp_path / "fastqc reports"
@@ -142,10 +142,25 @@ def test_multiqc_combines_mates_without_changing_fastqc_reports(tmp_path):
             "qc", "fastqc", "--input", reads, "--outdir", str(reports), "--threads", "1"
         )
     before = {p.name: sha256(p.read_bytes()).hexdigest() for p in reports.iterdir()}
+    home = tmp_path / "multiqc-home"
+    home.mkdir()
+    unexpected = tmp_path / "must-not-be-written.html"
+    (home / ".multiqc_config.yaml").write_text(
+        json.dumps(
+            {
+                "title": "Inherited QC project",
+                "output_fn_name": str(unexpected),
+            }
+        )
+    )
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     output = tmp_path / "combined"
     run_wgsextract("qc", "multiqc", "--input", str(reports), "--outdir", str(output))
     html = (output / "multiqc_report.html").read_text()
     assert "sample_R1" in html and "sample_R2" in html
+    assert "Inherited QC project" in html
+    assert not unexpected.exists()
     assert sorted(p.name for p in output.iterdir()) == ["multiqc_report.html"]
     assert before == {
         p.name: sha256(p.read_bytes()).hexdigest() for p in reports.iterdir()
@@ -196,6 +211,7 @@ def test_multiqc_force_replaces_only_its_report_and_stays_offline(
         assert json.loads(cmd[cmd.index("--cl-config") + 1]) == {
             "ai_summary": False,
             "ai_summary_full": False,
+            "output_fn_name": report.name,
         }
         stage = Path(cmd[cmd.index("--outdir") + 1])
         assert kwargs["cwd"] == str(stage)
@@ -222,6 +238,23 @@ def test_multiqc_failed_force_preserves_previous_report(tmp_path, multiqc_stub):
     with pytest.raises(WGSExtractError, match="MultiQC failed"):
         run_wgsextract("qc", "multiqc", "--input", str(tmp_path), "--force")
     assert report.read_text() == "previous"
+    assert sorted(p.name for p in tmp_path.iterdir()) == [report.name]
+
+
+def test_multiqc_non_force_preserves_a_concurrently_created_report(
+    tmp_path, multiqc_stub
+):
+    report = tmp_path / "multiqc_report.html"
+
+    def concurrent(cmd, **_kwargs):
+        report.write_text("another invocation")
+        stage = Path(cmd[cmd.index("--outdir") + 1])
+        (stage / report.name).write_text("our report")
+
+    multiqc_stub(concurrent)
+    with pytest.raises(WGSExtractError, match="already exists"):
+        run_wgsextract("qc", "multiqc", "--input", str(tmp_path))
+    assert report.read_text() == "another invocation"
     assert sorted(p.name for p in tmp_path.iterdir()) == [report.name]
 
 

@@ -160,7 +160,13 @@ def cmd_multiqc(args: argparse.Namespace) -> None:
         outdir.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=".multiqc_", dir=outdir) as work:
             # Home-directory MultiQC configuration can otherwise enable AI uploads.
-            config = json.dumps({"ai_summary": False, "ai_summary_full": False})
+            config = json.dumps(
+                {
+                    "ai_summary": False,
+                    "ai_summary_full": False,
+                    "output_fn_name": report.name,
+                }
+            )
             run_command(
                 [
                     "multiqc",
@@ -173,6 +179,8 @@ def cmd_multiqc(args: argparse.Namespace) -> None:
                     "--no-ai",
                     "--cl-config",
                     config,
+                    "--filename",
+                    report.name,
                     "--outdir",
                     work,
                     str(source),
@@ -183,7 +191,15 @@ def cmd_multiqc(args: argparse.Namespace) -> None:
             staged = Path(work, report.name)
             if not staged.is_file() or staged.stat().st_size == 0:
                 raise WGSExtractError("MultiQC produced no FastQC report.")
-            os.replace(staged, report)
+            if args.force:
+                os.replace(staged, report)
+            else:
+                try:
+                    os.link(staged, report)
+                except FileExistsError as e:
+                    raise WGSExtractError(
+                        f"Report already exists: {report}. Choose another --outdir or use --force."
+                    ) from e
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"MultiQC failed: {e}") from e
     logging.info("MultiQC report: %s", report)
