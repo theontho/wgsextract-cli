@@ -1,8 +1,26 @@
+import runpy
+import sys
 from pathlib import Path
 
 import pytest
 
 from scripts.restore_pixi_hashes import restore_hashes
+
+
+def test_hash_restoration_without_stdlib_tomllib(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "tomllib", None)
+    helper = runpy.run_path(
+        str(Path(__file__).resolve().parents[1] / "scripts" / "restore_pixi_hashes.py")
+    )
+    digest = "a" * 64
+    url = f"https://example.invalid/source.tar.gz#sha256={digest}"
+    manifest = tmp_path / "pixi.toml"
+    manifest.write_text(f'[pypi-dependencies]\npackage = {{ url = "{url}" }}\n')
+    lock = tmp_path / "pixi.lock"
+    lock.write_text(f"version: 6\npackages:\n- pypi: direct+{url}\n  name: package\n")
+
+    assert helper["restore_hashes"](manifest, lock) == 1
+    assert f"  sha256: {digest}\n" in lock.read_text()
 
 
 def test_restore_direct_archive_hash_without_reformatting_lock(tmp_path: Path) -> None:

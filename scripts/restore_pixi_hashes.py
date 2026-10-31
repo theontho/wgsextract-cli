@@ -7,7 +7,10 @@ import re
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
 
 
 def declared_digests(value: object) -> dict[str, str]:

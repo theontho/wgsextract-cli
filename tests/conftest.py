@@ -2,9 +2,22 @@ from collections.abc import Iterator
 
 import pytest
 
-from tests.smoke_utils import isolate_home
+from tests.smoke_utils import ensure_fake_data, isolate_home
 from wgsextract_cli.core.config import reload_settings, settings
 from wgsextract_cli.core.dependencies import clear_tool_caches
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Keep module-owned outputs and shared synthetic-data generation serialized."""
+    for item in items:
+        module = getattr(item, "module", None)
+        if module is not None:
+            group = (
+                "shared-smoke"
+                if getattr(module, "ensure_fake_data", None) is ensure_fake_data
+                else module.__name__
+            )
+            item.add_marker(pytest.mark.xdist_group(group))
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
