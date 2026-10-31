@@ -130,6 +130,19 @@ def test_arm64_runtime_rejects_non_native_tool_substitutes(
         windows_arm64.assert_native_windows_command([wrapper, "samtools"])
 
 
+def test_arm64_version_probe_does_not_launch_x64_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0xAA64)
+    binary = tmp_path / "bwa.exe"
+    _write_pe(binary, 0x8664)
+    monkeypatch.setattr(dependency_checks, "get_tool_path", lambda _: str(binary))
+    launch = Mock(side_effect=AssertionError("must not launch x64 executable"))
+    monkeypatch.setattr(subprocess, "run", launch)
+    assert "native ARM64 requires" in str(dependency_checks.get_tool_version("bwa"))
+    launch.assert_not_called()
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="native Windows installer")
 def test_native_arm64_installer_refuses_before_bootstrap() -> None:
     if windows_arm64.windows_native_machine() != 0xAA64:

@@ -38,6 +38,20 @@ threads and requires the complete ordered SAM body to match Linux BWA
 The reference and reads are generated with Python's seeded `random.Random(236)`;
 no genome download is needed and genuine `@PG` command headers are preserved.
 
+The minimap2 recipe translates the upstream `arm_neon=1` Makefile selection
+into clang-cl/CMake: the three extension kernels use the bundled sse2neon
+header, not x86 dispatch. `_M_ARM64` excludes hybrid code generation and
+compiler include logs prove the NEON selection. A seeded short-read smoke test
+checks mapping truth, native index round-trip and one/four-thread equality.
+Recipes retain evidence under `out/windows-arm64`, outside rattler's build home
+(whose Windows junctions cannot safely be traversed by artifact globbing).
+
+On an ARM64 Windows OS, configured executable paths and version probes reject
+x64 PE files before launching them, including from a Prism-hosted Python.
+WSL, Unix compatibility shells and container wrappers are not native tool
+substitutes. This guard does not enable an unqualified environment or install
+missing software.
+
 Before enabling `win-arm64` in `pixi.toml`:
 
 1. Build BWA 0.7.19 with the existing Windows fixes and KSW `neon_sse.h`,

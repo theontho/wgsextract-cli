@@ -1,0 +1,28 @@
+context:
+  version: "2.31"
+
+package:
+  name: minimap2
+  version: ${{ version }}
+
+source:
+  url: https://github.com/lh3/minimap2/archive/refs/tags/v${{ version }}.tar.gz
+  sha256: bff334a0e4512644e2f3e29944aeec408f49450f4f74dc39fe89e5273869255b
+  patches:
+    - ../../../windows/recipes/minimap2/patches/0001-windows-64-bit-index-offset.patch
+
+build:
+  number: 0
+  string: wgse_arm64_${{ build_number }}
+  script:
+    - 'pwsh.exe -NoProfile -File "%RECIPE_DIR%\build.ps1"'
+
+tests:
+  - script:
+      - minimap2 --version
+
+about:
+  homepage: https://github.com/lh3/minimap2
+  license: MIT
+  license_file: LICENSE.txt
+  summary: Native clang-cl ARM64 minimap2 with upstream arm_neon kernels.

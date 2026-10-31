@@ -34,7 +34,7 @@ add_library(bwa_core STATIC
     msvc_time.c
 )
 target_compile_definitions(bwa_core PUBLIC
-    _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS
+    _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS _USE_MATH_DEFINES
     __PTW32_STATIC_LIB HAVE_PTHREAD __ARM_NEON=1
 )
 target_compile_options(bwa_core PUBLIC
