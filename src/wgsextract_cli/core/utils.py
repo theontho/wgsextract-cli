@@ -142,7 +142,10 @@ def _normalize_subprocess_cmd(cmd: PathInput | Sequence[object]) -> list[str]:
         except ValueError as e:
             raise WGSExtractError(str(e)) from e
     if cmd_list:
-        from wgsextract_cli.core.windows_arm64 import unsupported_windows_arm64_tool
+        from wgsextract_cli.core.windows_arm64 import (
+            assert_native_windows_command,
+            unsupported_windows_arm64_tool,
+        )
 
         executable_name = cmd_list[0].replace("\\", "/").rsplit("/", 1)[-1]
         tool = executable_name.lower().removesuffix(".exe")
@@ -150,6 +153,10 @@ def _normalize_subprocess_cmd(cmd: PathInput | Sequence[object]) -> list[str]:
             tool = "gatk"
         if reason := unsupported_windows_arm64_tool(tool):
             raise WGSExtractError(reason)
+        try:
+            assert_native_windows_command(cmd_list)
+        except (OSError, ValueError) as error:
+            raise WGSExtractError(str(error)) from error
     return cmd_list
 
 

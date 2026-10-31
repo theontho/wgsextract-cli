@@ -70,9 +70,5 @@ jobs:
           path: |
             out/*.xml
             out/conda/win-arm64/*.conda
-            out/conda/**/*.log
-            out/conda/**/pe.json
-            out/conda/**/python-arm64-pe.json
-            out/conda/**/ksw-neon-selection.txt
-            out/conda/**/body.sha256
+            out/windows-arm64/
           if-no-files-found: error

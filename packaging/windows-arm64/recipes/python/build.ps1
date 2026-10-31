@@ -1,4 +1,6 @@
 $ErrorActionPreference = "Stop"
+$evidence = Join-Path $env:RECIPE_DIR "..\..\..\..\out\windows-arm64\python"
+New-Item -ItemType Directory -Force -Path $evidence | Out-Null
 
 if ($env:CONDA_BUILD_TARGET -and $env:CONDA_BUILD_TARGET -ne "win-arm64") {
     throw "This recipe is only for win-arm64"
@@ -24,7 +26,7 @@ $audit = Join-Path $env:RECIPE_DIR "..\..\..\..\scripts\audit_windows_arm64.ps1"
 $native = Start-Process -FilePath "$env:PREFIX\python.exe" `
     -ArgumentList @("-c", '"import time; time.sleep(60)"') -PassThru
 try {
-    & $audit -Prefix $env:PREFIX -ProcessIds @($native.Id) -Report "out/python-arm64-pe.json"
+    & $audit -Prefix $env:PREFIX -ProcessIds @($native.Id) -Report "$evidence\pe.json"
 } finally {
     if (-not $native.HasExited) { Stop-Process -Id $native.Id }
 }

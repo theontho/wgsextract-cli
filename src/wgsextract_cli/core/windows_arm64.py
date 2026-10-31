@@ -2,6 +2,7 @@
 
 import ctypes
 import platform
+import shutil
 import struct
 import sys
 from pathlib import Path
@@ -84,3 +85,17 @@ def assert_arm64_pe(path: Path) -> None:
             f"{path}: PE machine 0x{machine:04X}; native ARM64 requires 0xAA64 "
             "(x64/ARM64EC/ARM64X are not accepted)"
         )
+
+
+def assert_native_windows_command(command: list[str]) -> None:
+    if not command or windows_native_machine() != IMAGE_FILE_MACHINE_ARM64:
+        return
+    name = command[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if name.removesuffix(".exe") in ("wsl", "wslhost", "bash", "sh", "docker"):
+        raise ValueError(
+            "Native Windows ARM64 does not support WSL, Unix compatibility shells "
+            "or containers as tool substitutes"
+        )
+    executable = Path(shutil.which(command[0]) or command[0])
+    if executable.is_file():
+        assert_arm64_pe(executable)

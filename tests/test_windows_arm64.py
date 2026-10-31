@@ -109,6 +109,27 @@ def test_native_audit_rejects_invalid_headers(content: bytes, tmp_path: Path) ->
         windows_arm64.assert_arm64_pe(binary)
 
 
+def test_arm64_runtime_rejects_configured_x64_binary_before_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0xAA64)
+    binary = tmp_path / "bwa.exe"
+    _write_pe(binary, 0x8664)
+    with pytest.raises(WGSExtractError, match="native ARM64 requires"):
+        utils._normalize_subprocess_cmd([binary, "mem"])
+    _write_pe(binary, 0xAA64)
+    assert utils._normalize_subprocess_cmd([binary, "mem"]) == [str(binary), "mem"]
+
+
+@pytest.mark.parametrize("wrapper", ["wsl.exe", "bash.exe", "docker.exe"])
+def test_arm64_runtime_rejects_non_native_tool_substitutes(
+    wrapper: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0xAA64)
+    with pytest.raises(ValueError, match="tool substitutes"):
+        windows_arm64.assert_native_windows_command([wrapper, "samtools"])
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="native Windows installer")
 def test_native_arm64_installer_refuses_before_bootstrap() -> None:
     if windows_arm64.windows_native_machine() != 0xAA64:

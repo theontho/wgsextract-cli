@@ -1,5 +1,7 @@
 $ErrorActionPreference = "Stop"
 $build = Join-Path $env:SRC_DIR "out\arm64-build"
+$evidence = Join-Path $env:RECIPE_DIR "..\..\..\..\out\windows-arm64\bwa"
+New-Item -ItemType Directory -Force -Path $evidence | Out-Null
 $vcpkg = (Resolve-Path (Join-Path $env:RECIPE_DIR "..\..\..\..\scratch\vcpkg")).Path
 if (-not (Test-Path "$vcpkg\vcpkg.exe")) {
     throw "Install the pinned vcpkg build prerequisite; no runtime auto-install"
@@ -11,20 +13,20 @@ if (-not (Test-Path "$vcpkg\vcpkg.exe")) {
     "-DWGSE_BWA_SOURCE=$env:SRC_DIR" "-DCMAKE_INSTALL_PREFIX=$env:PREFIX"
 if ($LASTEXITCODE) { throw "BWA ARM64 configure failed" }
 & cmake --build $build --config Release --parallel 4 --verbose 2>&1 |
-    Tee-Object -FilePath "$build\compiler.log"
+    Tee-Object -FilePath "$evidence\compiler.log"
 if ($LASTEXITCODE) { throw "BWA ARM64 compile failed" }
 
 # The compiler's /showIncludes proves KSW selected neon_sse.h, not scalar_sse.h.
-Get-Content "$build\compiler.log" |
+Get-Content "$evidence\compiler.log" |
     Select-String -Pattern 'neon_sse.h' |
-    Set-Content -Path "$build\ksw-neon-selection.txt"
-if (-not (Get-Item "$build\ksw-neon-selection.txt").Length) {
+    Set-Content -Path "$evidence\ksw-neon-selection.txt"
+if (-not (Get-Item "$evidence\ksw-neon-selection.txt").Length) {
     throw "KSW NEON selection was not proved"
 }
 & cmake --install $build --config Release
 if ($LASTEXITCODE) { throw "BWA ARM64 install failed" }
 $audit = Join-Path $env:RECIPE_DIR "..\..\..\..\scripts\audit_windows_arm64.ps1"
-& $audit -Prefix $env:PREFIX -Report "$build\pe.json"
+& $audit -Prefix $env:PREFIX -Report "$evidence\pe.json"
 
 $probe = "$build\Release\bwa_sa_test.exe"
 $bwa = "$build\Release\bwa.exe"
@@ -36,7 +38,7 @@ if ($LASTEXITCODE) { throw "BWA native indexing failed" }
 & $probe "$reference.bwt" "$reference.sa"
 if ($LASTEXITCODE) { throw "BWA native suffix-array equivalence failed" }
 $smoke = Join-Path $env:RECIPE_DIR "..\..\tests\bwa_smoke.py"
-& python $smoke --bwa $bwa --output "$build\smoke" `
+& python $smoke --bwa $bwa --output "$evidence\smoke" `
     --expected-sha256 "efb0d8004175411365b5f740cd833ebcbaf78f39c6aa1fa72a232d5e92b121b6"
 if ($LASTEXITCODE) { throw "BWA native paired-read truth/thread equivalence failed" }
 

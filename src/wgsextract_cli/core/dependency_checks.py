@@ -9,7 +9,10 @@ from typing import Any
 
 from wgsextract_cli.core.pixi_tools import pixi_install_command
 from wgsextract_cli.core.utils import WGSExtractError
-from wgsextract_cli.core.windows_arm64 import unsupported_windows_arm64_tool
+from wgsextract_cli.core.windows_arm64 import (
+    assert_native_windows_command,
+    unsupported_windows_arm64_tool,
+)
 
 from .dependencies import (
     check_dependencies,
@@ -158,6 +161,10 @@ def get_tool_version(tool: str) -> str | None:
         return None
 
     full_cmd = _tool_command_parts(cmd_base)
+    try:
+        assert_native_windows_command(full_cmd)
+    except (OSError, ValueError) as error:
+        return f"Error: {error}"
     optional_env = _optional_pixi_env(full_cmd)
     if optional_env:
         # A version probe must never download an optional environment.
