@@ -35,7 +35,7 @@ add_library(bwa_core STATIC
 )
 target_compile_definitions(bwa_core PUBLIC
     _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS
-    PTW32_STATIC_LIB HAVE_PTHREAD __ARM_NEON=1
+    __PTW32_STATIC_LIB HAVE_PTHREAD __ARM_NEON=1
 )
 target_compile_options(bwa_core PUBLIC
     /FI"${CMAKE_CURRENT_LIST_DIR}/msvc_compat.h"

@@ -1,5 +1,6 @@
 import argparse
 import struct
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import Mock
@@ -106,3 +107,19 @@ def test_native_audit_rejects_invalid_headers(content: bytes, tmp_path: Path) ->
     binary.write_bytes(content)
     with pytest.raises(ValueError):
         windows_arm64.assert_arm64_pe(binary)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows installer")
+def test_native_arm64_installer_refuses_before_bootstrap() -> None:
+    if windows_arm64.windows_native_machine() != 0xAA64:
+        pytest.skip("requires Windows ARM64")
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        ["cmd.exe", "/d", "/c", str(root / "install_windows.bat"), "--dry-run"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert "win-arm64" in result.stdout
+    assert "Ensuring Pixi" not in result.stdout

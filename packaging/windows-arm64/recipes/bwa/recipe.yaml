@@ -17,7 +17,7 @@ build:
   string: wgse_arm64_${{ build_number }}
   script:
     content:
-      - 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%RECIPE_DIR%\build.ps1"'
+      - 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "%RECIPE_DIR%\build.ps1"'
 
 tests:
   - script:
