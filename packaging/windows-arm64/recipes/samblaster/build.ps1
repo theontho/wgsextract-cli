@@ -14,6 +14,8 @@ if ($LASTEXITCODE) { throw "Native MSVC allocated-format regression failed" }
 & cmake --install $build --config Release
 if ($LASTEXITCODE) { throw "samblaster ARM64 install failed" }
 & "$repo\scripts\audit_windows_arm64.ps1" -Prefix $env:PREFIX -Report "$evidence\pe.json"
+& "$repo\packaging\windows-arm64\tests\samblaster_smoke.ps1" `
+    -Executable "$env:PREFIX\Library\bin\samblaster.exe" -Output "$evidence\smoke"
 & "$repo\scripts\qualify_windows_arm64_process.ps1" `
     -Executable "$env:PREFIX\Library\bin\samblaster.exe" -Arguments @("--ignoreUnmated") `
     -Prefix $env:PREFIX -Report "$evidence\process.json" `

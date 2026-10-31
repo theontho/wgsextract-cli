@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <errno.h>
 #include <signal.h>
+#include <direct.h>
 #ifndef SSIZE_MAX
 #define SSIZE_MAX INTPTR_MAX
 #endif
@@ -16,6 +17,9 @@
 #define F_OK 0
 #define stat _stat64
 #define fstat _fstat64
+#define S_ISDIR(mode) (((mode) & _S_IFMT) == _S_IFDIR)
+#define mkdir(path, mode) _mkdir(path)
+#define getcwd _getcwd
 static inline int nanosleep(const struct timespec *request, struct timespec *remaining)
 {
     if (!request || request->tv_sec < 0 || request->tv_nsec < 0 ||

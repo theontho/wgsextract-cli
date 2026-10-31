@@ -81,7 +81,8 @@ Native Release builds retain upstream assertions so assertion-based regression
 fixtures do not become silent no-ops through CMake's `NDEBUG` default.
 Samblaster's staged native recipe reuses the existing POSIX/binary-I/O shim,
 adds MSVC's missing `mempcpy`, and supplies a real SAM header before holding
-stdin open for its live process/module audit. It is not yet qualified.
+stdin open for its live process/module audit. Native compilation, allocated-format
+regression and live AA64 audit pass; duplicate-pair qualification is still pending.
 Samtools/bcftools 1.24 are staged against the same native HTS library build,
 with all existing Windows optimization patches. Their packages install only
 their own executables, avoiding duplicate HTS files in the installed prefix.
@@ -89,8 +90,15 @@ Source checksums and complete upstream C source lists have been checked;
 native build and whole-pipeline qualification remain pending.
 An OpenJDK 17.0.21 runtime recipe is also staged from Microsoft's checksum-pinned
 native ARM64 JDK archive. `jlink` retains Java SE, crypto, ZIP and locale modules;
-the resulting runtime and a blocked-input Java process must audit AA64.
+the resulting runtime and a blocked-input Java process pass the AA64 audit.
 This is a Java runtime package, not a compiler SDK and not GATK/GKL enablement.
+
+Fastp 1.4.0 is staged with pinned Highway/libdeflate dependencies and ISA-L
+2.32.1's generic C baseline. The upstream Windows ISA-L assembly is x86-only;
+it is not an acceptable ARM64 implementation. Highway's NEON selection must
+be proved by compiler evidence. The LLP64 widening matches the existing x64
+recipe. Native compilation, gzip correctness and performance are not yet
+qualified; generic C ISA-L is not a claim of optimized ARM compression.
 
 On an ARM64 Windows OS, configured executable paths and version probes reject
 x64 PE files before launching them. Feature entry also rejects a Prism-hosted

@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        recipe: [python, bwa, minimap2, bwa-mem2, htslib, samblaster, samtools, bcftools, openjdk]
+        recipe: [python, bwa, minimap2, bwa-mem2, htslib, samblaster, samtools, bcftools, openjdk, fastp]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -41,7 +41,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path out | Out-Null
-          python -m pytest tests/test_windows_arm64.py --basetemp=out/pytest-arm64 --junitxml=out/windows-arm64-tests.xml
+          python -m pytest tests/test_windows_arm64.py packaging/windows-arm64/tests/test_prepare_fastp.py --basetemp=out/pytest-arm64 --junitxml=out/windows-arm64-tests.xml
           if ($LASTEXITCODE) { throw "ARM64 qualification tests failed" }
       - name: Set up native Pixi
         uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
