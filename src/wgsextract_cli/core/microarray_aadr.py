@@ -11,9 +11,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
-from pyliftover import LiftOver
-
 from wgsextract_cli.core.builds import canonical_build
+from wgsextract_cli.core.microarray_catalog import CatalogLiftOver as LiftOver
 from wgsextract_cli.core.microarray_targets import (
     HG19_TO_HG38_CHAIN_URL,
     _write_target,

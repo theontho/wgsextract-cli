@@ -20,9 +20,8 @@ import time
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
-from pyliftover import LiftOver
-
 from wgsextract_cli.core.builds import canonical_build
+from wgsextract_cli.core.microarray_catalog import CatalogLiftOver as LiftOver
 from wgsextract_cli.core.microarray_utils import (
     _chrom_for_liftover,
     _resolve_templates_roots,

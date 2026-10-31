@@ -8,8 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO, TypedDict
 
-from pyliftover import LiftOver
-
+from wgsextract_cli.core.microarray_catalog import CatalogLiftOver as LiftOver
 from wgsextract_cli.core.microarray_identity import MicroarrayIdentity, resolve_rsid
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.utils import WGSExtractError

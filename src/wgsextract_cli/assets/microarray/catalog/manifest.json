@@ -1,0 +1,250 @@
+{
+  "aadr_sha256": "7ecbbc06a876c57236c36b4779f881648dbe7754851c42fd12d625ada8269b05",
+  "complete_grch37_sites": 2862500,
+  "corrections_sha256": "3fa70d436278ec736a55cd84bcd8228a889c7eaa3c50370cf8615a5b928b2c8d",
+  "format": "wgsextract-legacy-coordinate-catalog-v3",
+  "legacy_grch37_sites": 2392384,
+  "maps": {
+    "5c0598e500ceb5a78c73086929e8ef993aec309bcafb595139b53d440b125a1d": {
+      "chain": "hg19ToHg38.over.chain.gz",
+      "compressed_bytes": 8566003,
+      "counts": {
+        "collision_destinations": 7,
+        "collision_placements": 14,
+        "inverted": 3274,
+        "multiple": 0,
+        "nonprimary": 708,
+        "placements": 2861230,
+        "rows": 2862500,
+        "unmapped": 1270
+      },
+      "decoded_bytes": 82991378,
+      "decoded_sha256": "cc31752b9dfa12d7f82adc9ae26e9edbf7431ce63acd3b64f12ef61dfcd009a6",
+      "exhaustive_both_strands_chain_parity": true,
+      "filename": "hg19-to-hg38.bin.gz",
+      "rows": 2862500,
+      "sha256": "51c8cf32c189135bced6acb8dff33b7ec2c90ca62de2a35ff8ea1093150dd0c6"
+    },
+    "a4af0aaac27b26c2b3b52c031ebbdbea1a2f7ffc645a6cab70683f74064920a2": {
+      "chain": "hg38ToHg19.over.chain.gz",
+      "compressed_bytes": 8557967,
+      "counts": {
+        "collision_destinations": 1,
+        "collision_placements": 2,
+        "inverted": 2951,
+        "multiple": 0,
+        "nonprimary": 1,
+        "placements": 2863570,
+        "rows": 2863605,
+        "unmapped": 35
+      },
+      "decoded_bytes": 83044125,
+      "decoded_sha256": "75fa8534153ac96e31bb5ecd7003de59e998f7ffc6f7c1fed446b5ed87964784",
+      "exhaustive_both_strands_chain_parity": true,
+      "filename": "hg38-to-hg19.bin.gz",
+      "rows": 2863605,
+      "sha256": "baaaf8bbdc5dcaf92cad59e55ffb4a09eb2f3371673cf1b059074a52955714f5"
+    },
+    "f1e57673d8f306ea4ed1553ea5fc2001b3cc3d149eef501fc97305b3b3e2a9d6": {
+      "chain": "hg18ToHg19.over.chain.gz",
+      "compressed_bytes": 1926130,
+      "counts": {
+        "collision_destinations": 0,
+        "collision_placements": 0,
+        "inverted": 49,
+        "multiple": 0,
+        "nonprimary": 0,
+        "placements": 547926,
+        "rows": 548011,
+        "unmapped": 85
+      },
+      "decoded_bytes": 15891011,
+      "decoded_sha256": "6d54f917bdfacc6d3c3b7dae6dcbeaff25dacf7f7f8d6567ac9fb61645755fb1",
+      "exhaustive_both_strands_chain_parity": true,
+      "filename": "hg18-to-hg19.bin.gz",
+      "rows": 548011,
+      "sha256": "1b171fb6576f232cc0bff09a2833ff6f5bfe24b8abd23f7ebb5db034c29dae5a"
+    }
+  },
+  "policy": {
+    "ambiguity": "unfiltered static graph; existing caller policy unchanged",
+    "coordinates": "zero-based; all placements in original chain order",
+    "custom_queries": "original chain, loaded lazily",
+    "ids_and_order": "authoritative templates, not duplicated in this asset",
+    "mitochondria": "hg38 target rCRS identity; reverse export UCSC Yoruba chain",
+    "ncbi36_without_chain": "existing sample-dependent rsID lookup unchanged"
+  },
+  "source": "Existing ordered consumer templates plus AADR v66.p1",
+  "templates": {
+    "23andMe_SNPs_API": [
+      {
+        "part": 1,
+        "sha256": "d78b93030e7123d844f85287cd258e528146467a68ea5edba870940b79aac25c"
+      }
+    ],
+    "23andMe_V2": [
+      {
+        "part": 1,
+        "sha256": "82a2748db20df151c02a2a9d7251a6e463f834c8799efc8497df47c86813f992"
+      }
+    ],
+    "23andMe_V3": [
+      {
+        "part": 1,
+        "sha256": "cbc56b27dc1ba751c99ccb327b90c1507c1af523b3b51743c1d91b0610f212c8"
+      }
+    ],
+    "23andMe_V35": [
+      {
+        "part": 1,
+        "sha256": "360b992eaa1841ddc0bdce150dfc01f23552b269aa647f5759264cf1e7cd8abe"
+      }
+    ],
+    "23andMe_V4": [
+      {
+        "part": 1,
+        "sha256": "02373b669f01aef4f00662f21283a7e6ad788b67fc559af6a870a8ff635d949c"
+      },
+      {
+        "part": 2,
+        "sha256": "93b6594cb91120897d888caafa6ca2b3e1a7e562223c1efd256019a8263dccd4"
+      }
+    ],
+    "23andMe_V5": [
+      {
+        "part": 1,
+        "sha256": "92733b3318eef0cadf0019cb16413d97bbeec90b9f00f36f5ff401a121b40e18"
+      },
+      {
+        "part": 2,
+        "sha256": "717b3a43351b055703de37f7f07f521c9f2920b4d9ef6f631244f79227496968"
+      }
+    ],
+    "23andMe_V5_2025": [
+      {
+        "part": 1,
+        "sha256": "daacd09b66d960a7e2e74674baefbb26e924970060c48c94609b9756ec37176f"
+      }
+    ],
+    "Ancestry_V1": [
+      {
+        "part": 1,
+        "sha256": "09e1a358d777be353437c39891cd58ca09049dcab6941c6af6c08bcc0d305e45"
+      },
+      {
+        "part": 2,
+        "sha256": "eaabf7aedf0a4df4a4b60c23f2bee9e20eba534fcbec888853ce591257e6d449"
+      },
+      {
+        "part": 3,
+        "sha256": "d4a5a2c835cd00b9be7f56d4c1ef81307ca64f372a12845ddea6e0770a8b1090"
+      },
+      {
+        "part": 4,
+        "sha256": "01c3d32d1484c23179baf03b303676cc5d3cc80f02944c447201bf1df4475aee"
+      }
+    ],
+    "Ancestry_V2": [
+      {
+        "part": 1,
+        "sha256": "8965b5d3e97cfb652dc9d4e169597526a64982706f49aa231b12c83b47fd4635"
+      },
+      {
+        "part": 2,
+        "sha256": "7c176c90d406a17d07d68a0e0f32dc8a9b88448c83b6b170738dd152f42790f8"
+      },
+      {
+        "part": 3,
+        "sha256": "4bb2676d355d8cdf0a369d666be32d33b3fa3477cd6db34465447e01794f84ea"
+      },
+      {
+        "part": 4,
+        "sha256": "e634d693c390f69f3b48fc5c5343c3de3902e1a5a3cc2fbed680cd8100c37935"
+      },
+      {
+        "part": 5,
+        "sha256": "4e44055679e971686fe87a301f20b2ed3f933216e36c9dac10c79421b1b9c8d5"
+      }
+    ],
+    "Ancestry_V2_2021": [
+      {
+        "part": 1,
+        "sha256": "ee36765bc746c1893211ab5f9fafe8d76dc7698cae631fc345791880d4f1b61e"
+      }
+    ],
+    "Ancestry_V2_2024": [
+      {
+        "part": 1,
+        "sha256": "5179a0d246ba70dd253dbb78f5fe83eb186cfc90e380655f4bcf91a0a9960a4c"
+      }
+    ],
+    "FTDNA_V1_Affy": [
+      {
+        "part": 1,
+        "sha256": "dd45244550869a979681f3291d8a5ca5947fc3d95a10fd76c283e88b94fc7bd8"
+      }
+    ],
+    "FTDNA_V2": [
+      {
+        "part": 1,
+        "sha256": "44cdd8245f5d9373f0fb149cdc7298805fdef6086b029a745de32c2852100083"
+      }
+    ],
+    "FTDNA_V3": [
+      {
+        "part": 1,
+        "sha256": "10d47e5e546bb9e2fba6bb2e47286ec06d1849c6215346bf923493fb624d6e6b"
+      },
+      {
+        "part": 2,
+        "sha256": "4f78c061b64642e226c8f6730740c065ff041cd5e18ac091ada1632bf2f53b7f"
+      },
+      {
+        "part": 3,
+        "sha256": "b398f2001d0c1792e14a91dd3db11041a7450fc18240168d86c6b9a34b8d22fd"
+      }
+    ],
+    "LDNA_V1": [
+      {
+        "part": 1,
+        "sha256": "85b70a66fccabfc1c255d90cc120d88f51c1bf677283f1c39802a05440e990ab"
+      }
+    ],
+    "LDNA_V2": [
+      {
+        "part": 1,
+        "sha256": "f74004a1c825bb38673356b30dc985b7c33ff7e9f04fd8ed64a8ca66c9bff08b"
+      }
+    ],
+    "MyHeritage_GSA_2025": [
+      {
+        "part": 1,
+        "sha256": "12cdc3156834683d7518ca0953028feaaa246ce7959b2d47b53ea3804b3dff89"
+      }
+    ],
+    "MyHeritage_GSA_2025_609424": [
+      {
+        "part": 1,
+        "sha256": "8d031e853fc573296f668bc8f0a4b500b6c4f8b0fec38b3ec800c803cfa7cb20"
+      }
+    ],
+    "MyHeritage_V1": [
+      {
+        "part": 1,
+        "sha256": "00937218df3aaf2bbe1eaa08fb49fd1f8dc74981e720f530e4506fbc4aa80631"
+      }
+    ],
+    "MyHeritage_V2": [
+      {
+        "part": 1,
+        "sha256": "4811b24a6a76c21d94c24dd36e85ff6b57205e324d4a1efd43a41b9bd3fe79b5"
+      }
+    ],
+    "Nucleus_V1": [
+      {
+        "part": 1,
+        "sha256": "ec66b6c24242d49f8ef2b708e41a1fd39bb0457164fc3e838cd8f32c99d7fbfc"
+      }
+    ]
+  }
+}
