@@ -92,20 +92,19 @@ jobs:
       - name: Install build-time integration dependencies
         shell: pwsh
         run: |
-          python -m pip install -e . zstandard==0.25.0
+          python -m pip install -e . pytest zstandard==0.25.0
           if ($LASTEXITCODE) { throw "Integration dependency installation failed" }
+          python -m pytest packaging/windows-arm64/tests/test_unpack_packages.py --basetemp=out/integration/pytest-packages
+          if ($LASTEXITCODE) { throw "Integration package extraction regression failed" }
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: windows-arm64-qualification-samtools
-          path: out/integration/packages/samtools
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: windows-arm64-qualification-bcftools
-          path: out/integration/packages/bcftools
+          pattern: windows-arm64-qualification-*
+          path: out/integration/packages
       - name: Native CRAM coverage and variant-calling qualification
         shell: pwsh
         run: |
-          python packaging/windows-arm64/unpack_packages.py --source out/integration/packages --prefix out/integration/prefix
+          # Python recipes qualify separately; do not overlay two interpreter versions.
+          python packaging/windows-arm64/unpack_packages.py --source out/integration/packages --prefix out/integration/prefix --exclude-package python
           if ($LASTEXITCODE) { throw "Native package extraction failed" }
           $prefix = (Resolve-Path out/integration/prefix).Path
           $samtools = "$prefix\Library\bin\samtools.exe"
@@ -118,6 +117,15 @@ jobs:
           & scripts/qualify_windows_arm64_process.ps1 -Executable $bcftools -Arguments @("view", "-Ov", "-") `
             -InputPrefix "##fileformat=VCFv4.2`n##contig=<ID=chr1,length=4000>`n#CHROM`tPOS`tID`tREF`tALT`tQUAL`tFILTER`tINFO`n" `
             -Prefix $prefix -Report out/integration/bcftools-process.json
+      - name: Selected small-genome CLI suite
+        shell: pwsh
+        run: |
+          $prefix = (Resolve-Path out/integration/prefix).Path
+          $env:Path = "$prefix\Library\bin;$env:Path"
+          python -m pytest --fake-data tests/test_e2e_fast_chrM.py tests/test_smoke_real_basics.py `
+            -k "test_01_info or test_02_info_detailed or test_06_bam_sort_chrm or test_07_bam_tocram_chrm or test_13_vcf_snp_chrm or test_align_to_cram or test_bam_index or test_bam_to_cram or test_info_base or test_info_coverage_sample or test_microarray_basics" `
+            --basetemp=out/integration/pytest-small --junitxml=out/integration/small-genome.xml
+          if ($LASTEXITCODE) { throw "Native small-genome CLI qualification failed" }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

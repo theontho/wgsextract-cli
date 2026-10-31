@@ -109,6 +109,10 @@ The generated pipeline fixture checks actual sort/index/CRAM round-trip,
 indexed coverage and a truth-known homozygous variant using the built packages.
 It passed with installed Linux tools; native Windows pipeline qualification
 is pending. It is not a substitute for the complete small/full-genome suites.
+The integration job also stages selected existing small-genome CLI tests for
+realignment, sort/index/CRAM, calling, info/coverage and microarray export.
+It uses the independently audited hosted ARM64 Python rather than overlaying
+the two separately qualified interpreter packages into one environment.
 
 On an ARM64 Windows OS, configured executable paths and version probes reject
 x64 PE files before launching them. Feature entry also rejects a Prism-hosted

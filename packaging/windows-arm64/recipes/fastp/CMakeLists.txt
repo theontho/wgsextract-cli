@@ -22,7 +22,7 @@ add_library(isal_native STATIC ${ISAL_SOURCES}
     "${ISAL}/crc/crc_base_aliases.c")
 target_include_directories(isal_native PRIVATE "${ISAL}/include" "${ISAL}/igzip")
 target_compile_definitions(isal_native PRIVATE ISAL_DEPRECATED_INTERNAL)
-target_compile_options(isal_native PRIVATE /UNDEBUG /clang:-O3)
+target_compile_options(isal_native PRIVATE /UNDEBUG /clang:-O3 /FIintrin.h)
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/include/isa-l")
 file(COPY "${ISAL}/include/igzip_lib.h" "${ISAL}/include/isal_api.h"
     DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/include/isa-l")

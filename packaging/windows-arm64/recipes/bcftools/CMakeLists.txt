@@ -24,6 +24,8 @@ set(APP_NAMES
 foreach(name IN LISTS APP_NAMES)
     list(APPEND APP_SOURCES "${WGSE_BCFTOOLS_SOURCE}/${name}.c")
 endforeach()
+set_source_files_properties("${WGSE_BCFTOOLS_SOURCE}/edlib.c"
+    PROPERTIES COMPILE_OPTIONS "/FI${CMAKE_CURRENT_LIST_DIR}/../../compat/msvc_no_minmax.h")
 add_executable(bcftools ${APP_SOURCES}
     "${CMAKE_CURRENT_LIST_DIR}/../../../windows/compat/wgse_compat.c")
 target_include_directories(bcftools PRIVATE "${WGSE_BCFTOOLS_SOURCE}")
