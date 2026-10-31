@@ -1,13 +1,14 @@
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
+from importlib.resources import files
 from pathlib import Path
 
 from wgsextract_cli.core.builds import build_from_chr1_length
 from wgsextract_cli.core.utils import WGSExtractError
 
 _Y_BUILDS = {59_373_566: "hg19", 57_227_415: "hg38"}
-_BEDS = Path(__file__).resolve().parents[1] / "assets" / "reference" / "poz"
+_BEDS = files("wgsextract_cli").joinpath("assets").joinpath("reference").joinpath("poz")
 
 
 @contextmanager
@@ -25,7 +26,9 @@ def poz_bed(contigs: dict[str, int], chromosome: str, outdir: str) -> Iterator[s
         path = Path(directory, "targets.bed")
         rows = [
             line.split("\t")
-            for line in (_BEDS / f"{build}.bed").read_text().splitlines()
+            for line in _BEDS.joinpath(f"{build}.bed")
+            .read_text(encoding="utf-8")
+            .splitlines()
         ]
         path.write_text(
             "".join(f"{chromosome}\t{start}\t{end}\n" for _, start, end in rows),

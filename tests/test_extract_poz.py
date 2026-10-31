@@ -1,3 +1,8 @@
+import subprocess
+import sys
+import zipfile
+from pathlib import Path
+
 import pytest
 
 from tests.htslib_helpers import needs_htslib, run_wgsextract, sam_to_bam
@@ -61,3 +66,21 @@ def test_poz_rejects_unknown_t2t_and_inconsistent_coordinates(tmp_path, contigs)
     with pytest.raises(WGSExtractError, match="GRCh37/hg19"):
         with poz_bed(contigs, "chrY", str(tmp_path)):
             pytest.fail("must not select a BED")
+
+
+def test_poz_resources_work_when_package_is_zip_imported(tmp_path):
+    source = Path(__file__).resolve().parents[1] / "src" / "wgsextract_cli"
+    archive = tmp_path / "package.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        for path in [*source.rglob("*.py"), *source.glob("assets/reference/poz/*")]:
+            bundle.write(path, path.relative_to(source.parent).as_posix())
+    code = (
+        "import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]);"
+        "from wgsextract_cli.commands import _extract_poz as p;"
+        "assert 'package.zip' in p.__file__;"
+        "\nwith p.poz_bed({'Y': 57227415}, 'Y', sys.argv[2]) as bed:"
+        "\n    assert Path(bed).read_text().startswith('Y\\t')"
+    )
+    subprocess.run(
+        [sys.executable, "-c", code, str(archive), str(tmp_path)], check=True
+    )
