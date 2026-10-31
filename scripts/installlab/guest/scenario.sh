@@ -141,7 +141,9 @@ install_optional_tools() {
     if [ ! -x "$pixi" ]; then
         pixi="$(command -v pixi || printf '%s' "$HOME/.pixi/bin/pixi")"
     fi
-    "$pixi" install --locked --manifest-path "$INSTALL_DIR/app/pixi.toml" -e gatk
+    PIXI_CACHE_DIR="$INSTALL_DIR/.pixi/cache" \
+    RATTLER_CACHE_DIR="$INSTALL_DIR/.pixi/cache/rattler" \
+        "$pixi" install --locked --manifest-path "$INSTALL_DIR/app/pixi.toml" -e gatk
 }
 
 if [ -n "${LAB_UPDATE_FROM:-}" ]; then
