@@ -42,10 +42,15 @@ def mini_snapshot(path: Path, rows: list[str] | None = None) -> Path:
 
 
 @needs_htslib
+@pytest.mark.parametrize("compressed", [False, True])
 def test_install_strips_samples_aggregates_only_matching_alleles_and_detects_corruption(
-    tmp_path,
+    tmp_path, compressed
 ):
     source = mini_snapshot(tmp_path / "mini.vcf")
+    if compressed:
+        zipped = source.with_suffix(".vcf.gz")
+        zipped.write_bytes(gzip.compress(source.read_bytes()))
+        source = zipped
     library = tmp_path / "library"
     installed = ybrowse.install_snapshot(library, source)
     with gzip.open(installed / "sites.vcf.gz", "rt") as stream:
@@ -107,28 +112,30 @@ def test_bad_snapshot_headers_and_coordinates_fail(tmp_path, change, error):
 
 
 @pytest.fixture
-def synthetic_y(tmp_path):
+def synthetic_y(tmp_path, request):
+    name = getattr(request, "param", "chrY")
     reference = tmp_path / "ref.fa"
     with reference.open("w", newline="\n") as stream:
-        stream.write(">chrY\n")
+        stream.write(f">{name}\n")
         for start in range(0, ybrowse.Y_LENGTH, 100_000):
             stream.write("A" * min(100_000, ybrowse.Y_LENGTH - start) + "\n")
     run_command(["samtools", "faidx", str(reference)])
-    lines = [f"@SQ\tSN:chrY\tLN:{ybrowse.Y_LENGTH}"]
+    lines = [f"@SQ\tSN:{name}\tLN:{ybrowse.Y_LENGTH}"]
     for i in range(30):
         lines.append(
-            f"r{i}\t{16 if i % 2 else 0}\tchrY\t11\t60\t20M\t*\t0\t0"
+            f"r{i}\t{16 if i % 2 else 0}\t{name}\t11\t60\t20M\t*\t0\t0"
             "\tCAAAGAAAAAAAAAAAAAAA\tIIIIIIIIIIIIIIIIIIII"
         )
     bam = sam_to_bam(lines, tmp_path / "sample.bam")
-    return reference, bam
+    return reference, bam, name
 
 
 @needs_htslib
+@pytest.mark.parametrize("synthetic_y", ["chrY", "Y"], indirect=True)
 def test_actual_targeted_call_preserves_called_gt_and_allele_specific_names(
     tmp_path, synthetic_y, monkeypatch
 ):
-    reference, bam = synthetic_y
+    reference, bam, name = synthetic_y
     library = tmp_path / "library"
     monkeypatch.setitem(settings, "reference_library", str(library))
     run_wgsextract(
@@ -198,7 +205,7 @@ def test_actual_targeted_call_preserves_called_gt_and_allele_specific_names(
             "bcftools",
             "query",
             "-r",
-            "chrY:11-11",
+            f"{name}:11-11",
             "-f",
             "%POS\t%ID[\t%GT]\n",
             str(output),
@@ -214,7 +221,7 @@ def test_reference_mismatch_is_rejected_before_extracting_reads(
 ):
     from wgsextract_cli.commands import extract
 
-    reference, bam = synthetic_y
+    reference, bam, _ = synthetic_y
     library = tmp_path / "library"
     ybrowse.install_snapshot(
         library,
