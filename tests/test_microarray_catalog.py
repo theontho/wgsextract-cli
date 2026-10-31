@@ -84,6 +84,28 @@ def test_static_multiple_hits_and_collision_partners_survive_filtered_queries(co
     assert cached._lifter is None
 
 
+@pytest.mark.parametrize("excluded_partner", ["quality", "contig"])
+def test_filtered_call_partner_does_not_repair_aadr_mapping_ambiguity(
+    compiled, tmp_path, monkeypatch, excluded_partner
+):
+    chain, _, _, _ = compiled
+    lifter = catalog.CatalogLiftOver(str(chain))
+    marker = aadr.AADRMarker("rs1", "1", "0", 100, "A", "G", True)
+    monkeypatch.setattr(aadr, "aadr_markers", lambda _: iter([marker]))
+    calls = tmp_path / "filtered.txt"
+    # One mapped placement is called. The other is either a quality no-call or
+    # outside the selected contig. Neither sample condition changes the graph.
+    calls.write_text(
+        "rs1\t1\t200\tAA\n"
+        + ("rs1\t2\t1901\t--\n" if excluded_partner == "quality" else "")
+    )
+    prefix = str(tmp_path / excluded_partner)
+    aadr.write_aadr_outputs("1240k", str(calls), prefix, lifter=lifter)
+    assert (tmp_path / f"{excluded_partner}.geno").read_text() == "9\n"
+    assert len(lifter.convert_coordinate("chr1", 99)) == 2
+    assert lifter._lifter is None
+
+
 def test_custom_positions_use_the_original_chain_only_when_needed(compiled):
     chain, _, _, _ = compiled
     cached = catalog.CatalogLiftOver(str(chain))
