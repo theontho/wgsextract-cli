@@ -141,6 +141,15 @@ def _normalize_subprocess_cmd(cmd: PathInput | Sequence[object]) -> list[str]:
             cmd_list = windows_gatk_java_options(cmd_list)
         except ValueError as e:
             raise WGSExtractError(str(e)) from e
+    if cmd_list:
+        from wgsextract_cli.core.windows_arm64 import unsupported_windows_arm64_tool
+
+        executable_name = cmd_list[0].replace("\\", "/").rsplit("/", 1)[-1]
+        tool = executable_name.lower().removesuffix(".exe")
+        if "org.broadinstitute.hellbender.Main" in cmd_list:
+            tool = "gatk"
+        if reason := unsupported_windows_arm64_tool(tool):
+            raise WGSExtractError(reason)
     return cmd_list
 
 

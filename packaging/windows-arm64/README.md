@@ -1,0 +1,46 @@
+# Native Windows ARM64 qualification
+
+This directory is **not an enabled platform or a release promise**. The existing
+`packaging/windows` UCRT64/GCC recipes target x64 and are unchanged. Windows
+ARM64 must not use those packages under Prism.
+
+The first qualification recipe repackages the PSF's official `pythonarm64`
+NuGet 3.13.17 artifact into the project's existing rattler-build/conda mechanism,
+with a fixed URL and SHA-256. It removes four unused x86/x64 pip launchers
+(retaining `t64-arm.exe` and `w64-arm.exe`) and the unused x64
+`vcruntime140_1.dll`. All remaining executables, extension modules and DLLs must
+have PE machine `AA64`; importing the extension modules proves they do not need
+the removed DLL. The package must be tested on Windows, not only inspected.
+Upstream's latest source release is 3.13.18, whereas its ARM64 NuGet is currently
+3.13.17. Qualification is not approval to ship the older security patch level.
+
+The free public `windows-11-arm` GitHub runner is available and has 4 cores and
+16 GiB RAM. Its tools are not all native: inspect the actual installed Python,
+Pixi, compilers and every application artifact rather than relying on the label.
+Use `scripts/audit_windows_arm64.ps1 -Prefix <environment> -ProcessIds <pids>`
+to capture file machine types, process architecture and loaded-module paths.
+ARM64EC (`A641`), ARM64X (`A64E`), x64 (`8664`) and x86 (`014C`) application
+artifacts cannot pass the native package audit.
+
+Before enabling `win-arm64` in `pixi.toml`:
+
+1. Build BWA 0.7.19 with the existing Windows fixes and KSW `neon_sse.h`,
+   BWA-MEM2 2.3 with sse2neon, and minimap2 2.31 with `arm_neon=1`.
+   MSVC/clang-cl ARM64 must be used and selected NEON translation units proved
+   in compiler/preprocessor output, not inferred from a successful build.
+2. Build/pin the native HTS and compression stack, samtools, bcftools, fastp,
+   samblaster, and any promised optional tools. The existing Windows HTS recipe
+   disables libcurl/S3/GCS/plugins; do not accidentally promise remote HTS I/O.
+3. Solve all Python/Yleaf transitive dependencies, preserving x64 and Linux
+   defaults and byte-identical pins. The presence of Python alone is insufficient.
+4. Publish arch-specific packages and hashes, perform a fresh documented
+   installation, then small-genome and full public 30x decoded-CRAM/VCF exactness
+   with fixed `-K 100000000` and the matched x64 Windows golden.
+5. Benchmark comparable hardware and publish topology, storage, wall time,
+   peak working set and performance per dollar. Median ARM/x64 must be ≤1.20.
+
+GATK and DeepVariant fail fast in phase 1. GATK's Java-only kernel fallback,
+WSL and x86 containers cannot satisfy qualification. Phase 2 needs native
+GKL NEON PairHMM/SW, truthful Java capability dispatch and per-worker ARM FPCR
+preservation/restoration. ARM FZ is not x86 MXCSR FTZ/DAZ; test subnormal input,
+underflow, worker reuse and Java/native transitions against the golden.

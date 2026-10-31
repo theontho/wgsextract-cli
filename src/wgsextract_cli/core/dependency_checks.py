@@ -9,6 +9,7 @@ from typing import Any
 
 from wgsextract_cli.core.pixi_tools import pixi_install_command
 from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.windows_arm64 import unsupported_windows_arm64_tool
 
 from .dependencies import (
     check_dependencies,
@@ -149,6 +150,8 @@ VERSION_ARGS = {"yleaf": "--help", "bwa-mem2": "version"}
 
 def get_tool_version(tool: str) -> str | None:
     """Attempt to get the version of a tool by running it."""
+    if reason := unsupported_windows_arm64_tool(tool):
+        return f"Error: {reason}"
     # Use the path/command from get_tool_path to handle pixi correctly
     cmd_base = get_tool_path(tool)
     if not cmd_base:
@@ -253,6 +256,9 @@ def verify_dependencies(
     Checks if all required tools or JAR files are available.
     Exits gracefully if a tool is missing or version is too old.
     """
+    for tool in tool_list:
+        if reason := unsupported_windows_arm64_tool(tool):
+            raise WGSExtractError(reason)
     if optional_list is None:
         optional_list = OPTIONAL_TOOLS
 
