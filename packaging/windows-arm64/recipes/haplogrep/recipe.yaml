@@ -1,0 +1,31 @@
+package:
+  name: haplogrep
+  version: "2.4.0"
+
+source:
+  - url: https://github.com/seppinho/haplogrep-cmd/releases/download/v2.4.0/haplogrep.zip
+    sha256: 22b8d4609ef7aa3a42dc7e2f3baab5278c3e58ed6b300e85ff4f9234b607e82e
+    target_directory: haplogrep
+  - url: https://raw.githubusercontent.com/seppinho/haplogrep-cmd/fc038fbbd3585838091960f8e5a878d069ca0572/LICENSE
+    sha256: c45bc8f5312a08b68fd3a358c00a283e2727a39ea480d67b11b86cdc7b5a5e73
+    target_directory: license
+  - url: https://aka.ms/download-jdk/microsoft-jdk-17.0.21.0.2-windows-aarch64.zip
+    sha256: 2c0e7679022f1666da64b586f9941e86481c6f369212e918be3e505581085336
+    target_directory: sdk
+
+build:
+  number: 0
+  string: wgse_arm64_${{ build_number }}
+  script:
+    content:
+      - 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "%RECIPE_DIR%\build.ps1"'
+
+requirements:
+  run:
+    - openjdk 17.*
+
+about:
+  homepage: https://github.com/seppinho/haplogrep-cmd
+  license: MIT
+  license_file: license/LICENSE
+  summary: Pure-Java Haplogrep qualified with native ARM64 Microsoft Java 17.

@@ -11,6 +11,13 @@ if ([regex]::Matches($source, "int previousTpSize = 0;").Count -ne 1) {
 }
 $source = $source.Replace("int previousTpSize = 0;", "DWORD previousTpSize = 0;")
 [IO.File]::WriteAllText($winapi, $source, [Text.UTF8Encoding]::new($false))
+$semaphore = "$env:SRC_DIR\Modules\_multiprocessing\semaphore.c"
+$source = Get-Content -Raw -Encoding utf8 $semaphore
+if ([regex]::Matches($source, "int sval;").Count -ne 2) {
+    throw "Pinned CPython semaphore value source changed"
+}
+$source = $source.Replace("int sval;", "long sval;")
+[IO.File]::WriteAllText($semaphore, $source, [Text.UTF8Encoding]::new($false))
 New-Item -ItemType Directory -Force -Path "$env:SRC_DIR\out" | Out-Null
 $response = "$env:SRC_DIR\out\python-build.rsp"
 "/p:PlatformToolset=ClangCL`n/p:PreferredToolArchitecture=arm64`n/p:KillPython=false" |
@@ -36,6 +43,9 @@ foreach ($relative in @(
 & "$env:PREFIX\python.exe" -c `
     "import sys, ssl, sqlite3, bz2, lzma, ctypes; assert sys.version_info[:3] == (3, 13, 18); print(sys.version); print(ssl.OPENSSL_VERSION)"
 if ($LASTEXITCODE) { throw "Native CPython extension imports failed" }
+& "$env:PREFIX\python.exe" -c `
+    "from multiprocessing import Semaphore; s = Semaphore(2); assert s._semlock._get_value() == 2 and not s._semlock._is_zero(); assert s.acquire(False) and s.acquire(False); assert s._semlock._get_value() == 0 and s._semlock._is_zero(); s.release(); s.release(); assert s._semlock._get_value() == 2"
+if ($LASTEXITCODE) { throw "Native CPython semaphore value regression failed" }
 & "$env:PREFIX\python.exe" -m pip --version
 if ($LASTEXITCODE) { throw "Native CPython pip qualification failed" }
 $native = Start-Process -FilePath "$env:PREFIX\python.exe" `

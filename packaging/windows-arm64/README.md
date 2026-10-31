@@ -96,8 +96,9 @@ regression, four-record duplicate-pair fixture and live AA64 audit pass.
 Samtools/bcftools 1.24 are staged against the same native HTS library build,
 with all existing Windows optimization patches. Their packages install only
 their own executables, avoiding duplicate HTS files in the installed prefix.
-Source checksums and complete upstream C source lists have been checked;
-native build and whole-pipeline qualification remain pending.
+Source checksums and complete upstream C source lists have been checked.
+BCFtools' native package, existing regressions and region-index regression pass;
+samtools and whole-pipeline qualification remain pending.
 BCFtools' private 32-bit region-index symbols are namespaced independently of
 HTSlib's 64-bit region API; duplicate-symbol suppression would join incompatible
 interfaces. The unchanged upstream region-index regression runs with seed 236.
@@ -115,17 +116,22 @@ qualified; generic C ISA-L is not a claim of optimized ARM compression.
 The command-line parser uses MSVC's already-readable `type_info::name()` for
 diagnostics rather than depending on GCC's unavailable `cxxabi.h`.
 
-Curl 8.21.0 is staged from a checksum-pinned upstream archive with static zlib
+Curl 8.21.0 is built from a checksum-pinned upstream archive with static zlib
 and Windows Schannel, without an emulated OpenSSL dependency. Qualification
 checks HTTP redirects/gzip byte preservation, HTTPS certificate verification,
-stdin upload and live native module paths. Native results are still pending.
+stdin upload and live native module paths. These gates pass natively.
 
-Default Java applications need separate qualification. FastQC 0.13.0's
-JHDF5 jar embeds 16 foreign native libraries, including x86/x64 Windows DLLs;
-the unchanged noarch package is not an acceptable fully native ARM64 payload.
-FAST5/HDF5 requires an ARM64 JNI port or an explicitly restricted package.
-Haplogrep 2.4.0's jar contains no native libraries, but native installation and
-runtime tests are still required.
+FastQC 0.13.0's staged restricted recipe compiles upstream sources with native
+Java 17 and removes 16 foreign HDF5 JNI payloads from the unsigned JHDF5 jar,
+retaining bytecode and license notices. FAST5 fails before starting Java;
+FASTQ/BAM/SAM remain eligible for qualification. Both Python and any `--java`
+override must have AA64 PE headers; ambient CLASSPATH cannot add unaudited jars.
+Java 17 compilation and known-read statistics passed locally, but native
+Windows package/runtime qualification is pending. Upstream's source uses a
+Java-10+ desktop API despite its Java-8 build setting; this package targets 17.
+Haplogrep 2.4.0's staged jar contains no native libraries; its native Java
+version/application-class audit remains pending. Archive qualification also
+examines nested jars for foreign PE/ELF/Mach-O payloads.
 
 The generated pipeline fixture checks actual sort/index/CRAM round-trip,
 indexed coverage and a truth-known homozygous variant using the built packages.

@@ -44,7 +44,7 @@ target_include_directories(fastp PRIVATE
     "${WGSE_WINDOWS}/compat/include")
 target_link_libraries(fastp PRIVATE
     isal_native hwy::hwy libdeflate::libdeflate_static
-    PThreads4W::PThreads4W getopt::getopt_static psapi)
+    PThreads4W::PThreads4W getopt::getopt_static psapi bcrypt)
 add_executable(fastp_cmdline_test
     "${CMAKE_CURRENT_LIST_DIR}/../../tests/fastp_cmdline.cpp")
 target_include_directories(fastp_cmdline_test PRIVATE "${WGSE_FASTP_SOURCE}/src")

@@ -9,6 +9,12 @@ set(WGSE_HTSLIB_TOOLS OFF CACHE BOOL "" FORCE)
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../htslib" hts-build)
 file(WRITE "${WGSE_SAMTOOLS_SOURCE}/config.h" "/* Curses disabled, as on Windows x64. */\n")
 configure_file(version.h.in "${WGSE_SAMTOOLS_SOURCE}/version.h" @ONLY)
+file(READ "${WGSE_SAMTOOLS_SOURCE}/stats_isize.c" STATS_ISIZE)
+foreach(name IN ITEMS IN OUT)
+    string(REGEX REPLACE "(^|[^A-Za-z0-9_])${name}([^A-Za-z0-9_]|$)"
+        "\\1WGSE_ISIZE_${name}\\2" STATS_ISIZE "${STATS_ISIZE}")
+endforeach()
+file(WRITE "${WGSE_SAMTOOLS_SOURCE}/stats_isize.c" "${STATS_ISIZE}")
 set(APP_NAMES
     bam_aux bam_index bam_plcmd sam_view bam_fastq bam_cat bam_md bam_plbuf
     bam_reheader bam_sort bam_rmdup bam_rmdupse bam_mate bam_stat bam_color
@@ -23,7 +29,7 @@ foreach(name IN LISTS APP_NAMES)
     list(APPEND APP_SOURCES "${WGSE_SAMTOOLS_SOURCE}/${name}.c")
 endforeach()
 set_source_files_properties("${WGSE_SAMTOOLS_SOURCE}/stats_isize.c"
-    PROPERTIES COMPILE_OPTIONS "/FI${CMAKE_CURRENT_LIST_DIR}/../../compat/msvc_stats_isize.h")
+    PROPERTIES COMPILE_OPTIONS "/FI${CMAKE_CURRENT_LIST_DIR}/../../compat/msvc_no_minmax.h")
 add_executable(samtools ${APP_SOURCES}
     "${WGSE_SAMTOOLS_SOURCE}/lz4/lz4.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../../windows/compat/wgse_compat.c")
