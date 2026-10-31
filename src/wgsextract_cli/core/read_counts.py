@@ -5,6 +5,7 @@ import math
 import stat
 import zlib
 from pathlib import Path
+from typing import NamedTuple
 
 from wgsextract_cli.core.paths import PathInput
 
@@ -13,7 +14,12 @@ _DECODED_SAMPLE_BYTES = 16 * 1024**2
 _CHUNK_BYTES = 64 * 1024
 
 
-def fastq_read_count(path: PathInput) -> int | None:
+class FastqStatistics(NamedTuple):
+    reads: int
+    read_length: float | None
+
+
+def fastq_statistics(path: PathInput) -> FastqStatistics | None:
     """Estimate individual reads from file size and a bounded prefix sample.
 
     Plain FASTQ, gzip and concatenated gzip/BGZF members are supported. Small
@@ -75,6 +81,9 @@ def fastq_read_count(path: PathInput) -> int | None:
             ):
                 raise ValueError("not a four-line FASTQ sample")
         reads = records if exact else math.ceil(size * records / consumed)
+        read_length = (
+            sum(len(lines[offset]) for offset in range(1, records * 4, 4)) / records
+        )
     except (OSError, EOFError, ValueError, zlib.error) as error:
         logging.warning("Could not estimate input read count from %s: %s", path, error)
         return None
@@ -85,14 +94,33 @@ def fastq_read_count(path: PathInput) -> int | None:
         f"{reads:,}",
         f"{consumed:,}",
     )
-    return reads
+    return FastqStatistics(reads, read_length or None)
+
+
+def fastq_read_count(path: PathInput) -> int | None:
+    """Estimate individual reads using the bounded FASTQ prefix sample."""
+    statistics = fastq_statistics(path)
+    return statistics.reads if statistics is not None else None
+
+
+def fastq_input_statistics(
+    r1: PathInput, r2: PathInput | None = None
+) -> FastqStatistics | None:
+    """Count both mates and their read-weighted sampled mean length."""
+    samples = [fastq_statistics(path) for path in (r1, r2) if path is not None]
+    if any(sample is None for sample in samples):
+        return None
+    valid = [sample for sample in samples if sample is not None]
+    reads = sum(sample.reads for sample in valid)
+    length = (
+        sum(sample.reads * (sample.read_length or 0) for sample in valid) / reads
+        if reads and all(sample.read_length is not None for sample in valid)
+        else None
+    )
+    return FastqStatistics(reads, length)
 
 
 def fastq_input_reads(r1: PathInput, r2: PathInput | None = None) -> int | None:
     """Total individual reads, not pairs; do not omit an unreadable mate."""
-    counts = [fastq_read_count(path) for path in (r1, r2) if path is not None]
-    return (
-        sum(count for count in counts if count is not None)
-        if None not in counts
-        else None
-    )
+    statistics = fastq_input_statistics(r1, r2)
+    return statistics.reads if statistics is not None else None
