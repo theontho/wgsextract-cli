@@ -7,6 +7,7 @@ on:
       - packaging/windows/**
       - install_windows.bat
       - src/wgsextract_cli/core/pixi_tools.py
+      - src/wgsextract_cli/core/dependency_checks.py
       - src/wgsextract_cli/core/utils.py
       - src/wgsextract_cli/commands/vcf/callers.py
       - tests/test_gkl_windows.py

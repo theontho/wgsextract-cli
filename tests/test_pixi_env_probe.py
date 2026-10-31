@@ -148,15 +148,33 @@ def test_windows_gatk_uses_sidecar_classpath_and_environment_java(
     assert not any(arg.startswith("-Xmx") for arg in args)
 
 
-def test_windows_gatk_missing_sidecar_is_not_a_java_fallback(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "missing_jar",
+    [
+        "Library/share/gkl/gkl-native-wgse.jar",
+        "share/gatk4-4.6.2.0-1/gatk-package-4.6.2.0-local.jar",
+    ],
+)
+def test_windows_gatk_missing_native_jar_has_repair_advice(
+    tmp_path, monkeypatch, missing_jar
+):
+    from wgsextract_cli.core import dependency_checks
+    from wgsextract_cli.core.utils import WGSExtractError
+
     prefix = _gatk_prefix(tmp_path)
-    (prefix / "Library/share/gkl/gkl-native-wgse.jar").unlink()
+    (prefix / missing_jar).unlink()
     monkeypatch.setattr("shutil.which", lambda name: "/unrelated/gatk")
     assert pixi_tools._probe_environment(str(prefix), ["gatk"], windows=True) is None
     assert (
         pixi_tools._probe_environment(str(prefix), ["gatk"], windows=False)
         == "direct-name:gatk"
     )
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(dependency_checks, "check_dependencies", lambda tools: ["gatk"])
+    with pytest.raises(WGSExtractError) as exc:
+        dependency_checks.verify_dependencies(["gatk"])
+    assert "install_windows.bat" in str(exc.value)
+    assert "pixi install --locked -e gatk" in str(exc.value)
 
 
 def test_windows_gatk_rejects_an_unqualified_jar_abi(tmp_path, monkeypatch):
