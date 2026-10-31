@@ -1466,7 +1466,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/vc-14.5-ha367084_41.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/vc14_runtime-14.51.36247-habf1de7_41.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/vcomp14-14.51.36247-habf1de7_41.conda
-      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-6/gkl-0.8.11-wgse_0.conda
+      - conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-7/gkl-0.8.11-wgse_1.conda
   pacbio:
     channels:
     - url: https://conda.anaconda.org/conda-forge/
@@ -17205,12 +17205,12 @@ packages:
   sha256: d8422d0c21059001bbaa7d27aac7771f3033e20a3d7a9bd2009730eb17165b89
   license: MIT
   timestamp: 1793004900726
-- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-6/gkl-0.8.11-wgse_0.conda
+- conda: https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-7/gkl-0.8.11-wgse_1.conda
   subdir: win-64
-  sha256: 3ad191912ac0a23a21696448a79f5b1499982305844f183e0052e9f20f33c982
+  sha256: 7d97405a41fb808564ec73c4d07f7508922179bea5837c95f9d27a735a75c6e3
   channel: null
-  license: MIT AND BSD-3-Clause
-  timestamp: 1793417684385
+  license: MIT AND BSD-3-Clause AND (GPL-3.0-or-later WITH GCC-exception-3.1)
+  timestamp: 1793425845789
 - pypi: ./
   name: wgsextract-cli
   requires_dist:

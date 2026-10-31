@@ -33,7 +33,7 @@ gatk4 = ">=4.6.2.0,<5"
 # The sidecar implements GKL 0.8.11's JNI ABI bundled with this GATK version.
 gatk4 = "==4.6.2.0"
 # gatk-windows-tools-begin
-gkl = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-6/gkl-0.8.11-wgse_0.conda", sha256 = "3ad191912ac0a23a21696448a79f5b1499982305844f183e0052e9f20f33c982" }
+gkl = { url = "https://github.com/theontho/wgsextract-cli/releases/download/windows-tools-7/gkl-0.8.11-wgse_1.conda", sha256 = "7d97405a41fb808564ec73c4d07f7508922179bea5837c95f9d27a735a75c6e3" }
 # gatk-windows-tools-end
 
 # PharmCAT's pipeline is a release download the user extracts (see
