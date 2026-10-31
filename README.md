@@ -214,7 +214,7 @@ comparison. A separate 200 kb realigned-read smoke was byte-identical across
 
 ### Pixi environments
 
-Some tools live in their own Pixi environment. When such a tool is not on `PATH`, the CLI runs it through `pixi run -e <environment>` automatically, downloading the environment on first use. The `cyrius`, `t1k`, `expansionhunter`, and `pharmcat` environments are the exception: install them yourself with `pixi install -e <environment>` (Cyrius is licensed for noncommercial use only). You can also run a whole command inside an environment from the app directory (`wgsextract-cli/app/`) or a source checkout:
+Some tools live in their own Pixi environment. Install optional environments explicitly with `pixi install --locked -e <environment>` from the app directory (`wgsextract-cli/app/`) or a source checkout before using them. The CLI never installs dependencies at runtime; missing tools report the exact install command, including the app's manifest path so it works from any directory. Installed tools not on `PATH` are launched through `pixi run --no-install -e <environment>`. Cyrius is licensed for noncommercial use only. You can also run a whole command inside an installed environment:
 
 | Environment | Used for |
 | :--- | :--- |

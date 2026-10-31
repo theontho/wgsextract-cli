@@ -47,7 +47,7 @@ step y_haplo     "$WGSE" lineage y-haplogroup --input "$BAM" --ref "$REF" --outd
 step snp         "$WGSE" vcf snp --input "$BAM" --ref "$REF" --region 20 --ploidy 2 --outdir "$OUT/snp"
 step microarray  "$WGSE" microarray --input "$BAM" --ref "$REF" --ref-vcf-tab "$TARGETS" --formats 23andme_v5 --outdir "$OUT/microarray"
 step align       "$WGSE" align --r1 "$R1" --r2 "$R2" --ref "$REF" --outdir "$OUT/align"
-# First use of an optional Pixi environment: downloads it on a clean machine.
+# The scenario explicitly installed this optional environment before the workload.
 step gatk        "$WGSE" vcf gatk --input "$BAM" --ref "$REF" --region 20:1-200000 --outdir "$OUT/gatk"
 # A bad input must fail loudly, not "succeed" with no output.
 step must_fail   "$WGSE" info --input "$DATA/does-not-exist.bam" --outdir "$OUT/must_fail"

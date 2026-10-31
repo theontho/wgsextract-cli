@@ -4,6 +4,7 @@ import sys
 from typing import Any
 
 from wgsextract_cli.core.dependency_checks import check_all_dependencies
+from wgsextract_cli.core.pixi_tools import pixi_install_command
 from wgsextract_cli.core.utils import WGSExtractError
 
 
@@ -53,7 +54,9 @@ def run(args: argparse.Namespace) -> None:
                 logging.debug(f"Found {args.tool} at {path}")
             return
         else:
-            raise WGSExtractError(f"Tool not found: {args.tool}")
+            command = pixi_install_command(args.tool)
+            hint = f". Run: {command}" if command else ""
+            raise WGSExtractError(f"Tool not found: {args.tool}{hint}")
 
     logging.info("Verifying bioinformatics tool installations...")
     results = check_all_dependencies()
