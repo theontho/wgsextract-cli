@@ -124,6 +124,35 @@ Run `wgsextract help` for the full command tree, and `wgsextract <command> --hel
 
 CRAM bin coverage requires an existing reference FASTA from `--ref`, configuration or the reference library. Missing references fail before decoding; htslib is never allowed to download one implicitly.
 
+### Combining FastQC mate reports
+
+`qc multiqc` is opt-in and combines existing FastQC reports without rerunning
+FastQC or changing its default outputs:
+
+```bash
+wgsextract qc fastqc --input sample_R1.fastq.gz --outdir out/fastqc
+wgsextract qc fastqc --input sample_R2.fastq.gz --outdir out/fastqc
+wgsextract qc multiqc --input out/fastqc --outdir out/combined
+```
+
+It writes one standalone `multiqc_report.html` (no parsed-data directory).
+`--input` accepts a report file or directory; without `--outdir`, the report goes
+beside the input file or into the input directory. Existing reports require
+`--force`; a failed replacement leaves the previous report intact.
+Non-force publication uses atomic hard links to prevent concurrent overwrite;
+filesystems without hard-link support need a different `--outdir` or explicit
+`--force`. Inherited report titles cannot change the fixed output filename.
+
+MultiQC **1.32 or newer, below 2** must already be installed. The command only
+validates dependencies, never installs them. An optional Pixi `multiqc`
+environment is available for explicit user-managed setup (`pixi install -e
+multiqc`); development environments include it for tiny real-tool tests.
+[MultiQC](https://github.com/MultiQC/MultiQC) is an external GPLv3 tool, not a
+bundled dataset. Only its FastQC module runs. Version checks, MegaQC uploads,
+AI summaries and AI report controls are disabled; no browser is launched.
+The standard subprocess `TMPDIR` is set to an owned report workspace, not
+exposed as an application configuration setting.
+
 | Command | Subcommands / purpose |
 | :--- | :--- |
 | `info` | Reference build, file integrity, and read metrics. `calculate-coverage` (exact, via samtools coverage), `coverage-sample` (fast estimate) |
@@ -139,7 +168,7 @@ CRAM bin coverage requires an existing reference FASTA from `--ref`, configurati
 | `align` | Align FASTQ reads with bwa, bwa-mem2, minimap2, or pbmm2, or on an NVIDIA GPU with `--gpu` |
 | `realign` | Re-align an existing BAM/CRAM to another reference, reusing or extracting FASTQs |
 | `pet-align` | Align dog or cat FASTQs and call variants |
-| `qc` | `fastp`, `fastqc`, `vcf` (stats), `fake-data` (synthetic BAM/CRAM/VCF/FASTQ) |
+| `qc` | `fastp`, `fastqc`, `multiqc` (existing FastQC reports), `vcf` (stats), `fake-data` (synthetic BAM/CRAM/VCF/FASTQ) |
 | `repair` | `ftdna-bam`, `ftdna-vcf` |
 | `analyze` | `comprehensive` (QC, lineage, calling, annotation in one run), `batch-gen` |
 | `ref` | Library: `bootstrap`, `library`, `library-list`, `status`, `download`, `index`, `verify`, `count-ns`, `gene-map`. Annotation data: `clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb`, `ybrowse` (GRCh38 only) |

@@ -168,6 +168,10 @@ statsmodels = ">=0.14"
 # Brings pysam's PyPI wheel (a conda pysam would be installed twice).
 cyrius = "==1.1.1"
 
+# Optional report aggregation; never installed by command invocation.
+[feature.multiqc.pypi-dependencies]
+multiqc = ">=1.32,<2"
+
 # Developer tooling (tests, lint, type checking, packaging, site/CI checks).
 # Kept out of the default environment that end-user installers set up; tasks
 # defined here run in the `dev` environment automatically.
@@ -218,8 +222,9 @@ vncdotool = ">=1.2, <2"
 
 [environments]
 default = { features = ["bio-tools", "pysam"], solve-group = "default" }
-dev = { features = ["bio-tools", "pysam", "dev", "lint"], solve-group = "default" }
+dev = { features = ["bio-tools", "pysam", "dev", "lint", "multiqc"], solve-group = "default" }
 lint = { features = ["lint"], no-default-feature = true }
+multiqc = { features = ["multiqc"], solve-group = "default" }
 gatk = { features = ["gatk"], no-default-feature = true }
 freebayes = { features = ["freebayes"], no-default-feature = true }
 t1k = { features = ["t1k"], no-default-feature = true }
