@@ -43,7 +43,8 @@ _SPECIES_REFERENCES = {
 
 
 def register(
-    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+    subparsers: "argparse._SubParsersAction[argparse.ArgumentParser]",
+    base_parser: argparse.ArgumentParser,
 ) -> None:
     parser = subparsers.add_parser(
         "pet-align", parents=[base_parser], help=CLI_HELP["cmd_pet-align"]

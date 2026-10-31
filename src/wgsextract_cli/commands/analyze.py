@@ -277,7 +277,8 @@ def cmd_batch_gen(args: argparse.Namespace) -> None:
 
 
 def register(
-    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+    subparsers: "argparse._SubParsersAction[argparse.ArgumentParser]",
+    base_parser: argparse.ArgumentParser,
 ) -> None:
     parser = subparsers.add_parser(
         "analyze", help=CLI_HELP.get("cmd_analyze", "Analyze genomic data.")

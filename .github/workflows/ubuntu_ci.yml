@@ -1,6 +1,8 @@
 name: CI Ubuntu
 
 on:
+  push:
+    branches: [ main ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -8,9 +10,32 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up lint-only Pixi environment
+        uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
+        with:
+          pixi-version: v0.82.0
+          locked: true
+          environments: lint
+      - name: Lint, workflow validation and strict type check
+        run: |
+          pixi run -e lint -x ruff check .
+          pixi run -e lint -x python scripts/validate_site_sources.py
+          pixi run -e lint -x actionlint
+          pixi run -e lint -x python scripts/validate_github_actions.py
+          pixi run -e lint -x mypy src/wgsextract_cli
   test-ubuntu:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Pixi
@@ -31,14 +56,15 @@ jobs:
         run: |
           pixi run python -c "from wgsextract_cli.core.config import save_config; save_config({'reference_library': 'reference'})"
           pixi run python -m wgsextract_cli.main ref bootstrap --ref reference
+      - name: Cache public hs38 reference
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: reference/genomes
+          key: hs38-v1-${{ hashFiles('src/wgsextract_cli/assets/reference/seed_genomes.csv', 'src/wgsextract_cli/core/ref_library/catalog.py') }}
       - name: Install Reference Genome
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: pixi run python -m wgsextract_cli.main ref library --install hs38 --ref reference
-      - name: Lint and Type Check
-        run: |
-          pixi run lint
-          pixi run typecheck
       - name: Build and Smoke Test Package
         run: pixi run package-smoke
       - name: Run Benchmark
@@ -48,7 +74,15 @@ jobs:
           pixi run wgsextract benchmark --dataset real --profile smoke
           echo "Benchmark timing is published in this job summary."
       - name: Run Tests
-        run: pixi run test
+        run: pixi run test-ci
+      - name: Publish test timings and non-gating coverage
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tests-ubuntu
+          path: |
+            out/coverage.xml
+            out/pytest.xml
       # Each extract, call and annotate command run end to end on generated chrM
       # and whole-genome data; about 30 s, no downloads.
       - name: Run end-to-end tests on generated data

@@ -1,0 +1,57 @@
+name: Weekly Pixi refresh
+
+on:
+  schedule:
+    - cron: "43 6 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pixi-refresh
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Pixi
+        uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
+        with:
+          pixi-version: v0.82.0
+          locked: true
+          environments: dev
+      - name: Refresh within the declared pins
+        run: |
+          mkdir -p out/pixi-update
+          pixi update --concurrent-solves 2 --concurrent-downloads 8
+          # Use the installed interpreter; repair digests before candidate installation.
+          pixi run --frozen --no-install -e dev -x python scripts/restore_pixi_hashes.py
+          git diff --exit-code -- pixi.toml pyproject.toml
+          git diff -- pixi.lock > out/pixi-update/pixi-lock.patch
+          git diff --stat -- pixi.lock | tee out/pixi-update/summary.txt
+      - name: Validate the candidate resolution
+        id: validate
+        run: |
+          pixi run lint
+          pixi run typecheck
+          pixi run test
+      - name: Publish candidate for a reviewed dependency PR
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pixi-update-candidate
+          path: out/pixi-update
+      - name: Explain manual PR handoff
+        if: always()
+        run: |
+          {
+            echo '## Pixi update candidate'
+            echo 'The lockfile patch is published as an artifact; no updates are merged automatically.'
+            echo 'Candidate validation: ${{ steps.validate.outcome }}. A published patch is not proof of passing tests.'
+            echo 'Repository policy currently prevents GITHUB_TOKEN from creating pull requests.'
+            echo 'Review numerical-tool changes against public small/full-genome byte-parity gates before merging.'
+          } >> "$GITHUB_STEP_SUMMARY"

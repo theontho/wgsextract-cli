@@ -28,7 +28,8 @@ _VERIFY_TIMEOUT = 10
 
 
 def register(
-    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+    subparsers: "argparse._SubParsersAction[argparse.ArgumentParser]",
+    base_parser: argparse.ArgumentParser,
 ) -> None:
     parser = subparsers.add_parser("sign", help=CLI_HELP["cmd_sign"])
     subs = parser.add_subparsers(dest="sign_cmd", required=True)
