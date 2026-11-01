@@ -92,5 +92,49 @@ of 487.97 s on Cobalt AArch64 versus 424.51 s on AMD x64: **14.95% slower**,
 within the 20% target. ARM has 16 physical cores; x64 has eight with SMT.
 CPU-time medians are 6,614.15 / 6,173.57 s and maximum-child RSS medians
 26,979,616 / 12,075,748 KiB (ARM / x64). The native path needs materially
-more memory. Whole-genome qualification is still pending; do not treat this
-chromosome benchmark as a whole-genome claim.
+more memory.
+
+## Completed public whole-genome qualification
+
+The complete public HG002 35x BAM (46,033,519,192 bytes) was verified on both
+guests: SHA256 `b5f1255aa08ecda8f0ec01682d32d9a37a7327ca21ea681d94c250f6a2f22de6`.
+Both original WGS pipelines completed successfully, with no region restriction.
+All **7,709,239 REF/ALT sites** match; all PASS-site genotypes match.
+One non-PASS genotype differs: chr1:31445438 CG>C is x64 `0/0;RefCall;GQ=20`
+versus ARM `./.;NoCall;GQ=19`. Its unchanged reference argmax has actual Phred
+scores 19.5000106 / 19.4999183. Original integer rounding and the GQ-20
+hom-reference no-call safeguard explain this difference.
+
+Confidence is not byte-identical. There are 244,796 changed records:
+241,646 QUAL, 10,521 GQ, 351 PL, five MID changes and the above GT/FILTER change.
+Maximum QUAL/GQ/PL deltas are 29.7 / 30 / 19, not the smaller chr20 bounds.
+Two additional numerical effects explain those larger bounds:
+
+- Six candidates cross the original small-model acceptance thresholds
+  (SNP GQ 20 / indel GQ 28), changing their small/large-model route. Passing-side
+  scores are only 20.0000300 or 28.0000156. Five final MID labels change; the
+  sixth is a multiallelic merge at chr10:24436757 (PL delta 19).
+  All six candidates retain the same argmax across the alternative routes.
+- At chr6:170418998 C>T, the small model's homozygous-alt probability is
+  exactly 1.0 on x64 versus 0.9999998807907104 on ARM. The original capped
+  Phred calculation gives QUAL/GQ 99/99 versus 69.3/69 without changing GT or PL.
+
+Every actual full-run CVO was compared: all 8,286,723 combined candidate keys
+match, including the six cross-stage substitutions. The 8,286,717 same-stage
+vectors have no argmax differences; maximum absolute errors are 3.10e-6
+(large model) and 4.77e-7 (small model). The actual probabilities, original
+threshold/rounding source and exhaustive unnormalized VCF differences are saved.
+Full-genome image tensors were not traced; the tensor-identity claim is chr20-only.
+These boundaries are disclosed, not hidden by precision changes or VCF rewriting.
+
+| Whole-genome measurement | x64 | AArch64 |
+|---|---:|---:|
+| Wall seconds | 13,143 (3:39:03) | 14,157 (3:55:57) |
+| User + system CPU seconds | 202,727.02 | 208,481.02 |
+| Maximum-child RSS KiB | 12,381,064 | 25,920,200 |
+| Aggregate cgroup peak bytes, including cache | 64,424,509,440 | 54,063,599,616 |
+
+The matched-vCPU whole-genome ARM wall time is **7.72% slower**, meeting the
+20% target. This is one complete run per architecture, separately from the
+three-run chr20 medians. Both task-owned guests and related resources were
+deleted after the outputs and scientific evidence were saved.

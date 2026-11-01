@@ -105,3 +105,10 @@ See [PR #273](https://github.com/theontho/wgsextract-cli/pull/273) and
 [issue #236](https://github.com/theontho/wgsextract-cli/issues/236) for measured
 hardware, controls and qualification limits. Support here does not imply
 that an untested ARM tool or x86-emulated executable is qualified.
+
+The [native DeepVariant follow-up](deepvariant-arm64.md) separately qualifies
+the original 1.10.0 WGS path: complete chr20 genotypes match, and all 7,709,239
+whole-genome sites and PASS genotypes match. One filtered hom-reference no-call
+and rare confidence/model-routing boundaries are disclosed with actual
+probability evidence. Whole-genome wall time is 7.72% slower than the matched
+16-vCPU x64 guest; this does not qualify other models or close the BWA gate.
