@@ -1,0 +1,6 @@
+{
+  "name": "wgsextract-htslib-arm64",
+  "version-string": "1.24",
+  "builtin-baseline": "9a5dfef5d1a0438a7d24856a85bd60f309d355e9",
+  "dependencies": ["zlib", "libdeflate", "bzip2", "liblzma", "tre", "pthreads", "getopt-win32"]
+}

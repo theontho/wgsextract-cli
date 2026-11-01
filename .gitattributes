@@ -3,6 +3,7 @@
 *.py text eol=lf
 *.toml text eol=lf
 packaging/windows/recipes/bwa-mem2/tiny-index.sha256 text eol=lf
+packaging/windows-arm64/recipes/*/patches/*.patch -whitespace
 # cmd.exe needs CRLF batch files: with LF, `goto` and `call :label` miss labels
 # (install_windows.bat: "The system cannot find the batch label specified").
 # GitHub's source archives apply these attributes too.

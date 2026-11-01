@@ -1,0 +1,21 @@
+package:
+  name: setuptools
+  version: "84.2.1"
+
+source:
+  url: https://files.pythonhosted.org/packages/ef/55/6dc6d6bb953bdfc52519a0059592c52b6e3b8ad51cf8256dffceb55b0610/setuptools-84.2.1-py3-none-any.whl
+  sha256: ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2
+  file_name: setuptools.zip
+
+build:
+  number: 0
+  string: wgse_arm64_${{ build_number }}
+  script:
+    content:
+      - 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "%RECIPE_DIR%\build.ps1"'
+
+about:
+  homepage: https://setuptools.pypa.io/
+  license: MIT
+  license_file: out/wheel/setuptools-84.2.1.dist-info/licenses/LICENSE
+  summary: Setuptools with native ARM64 launchers and foreign templates removed.

@@ -1,0 +1,6 @@
+{
+  "name": "wgse-minimap2-arm64",
+  "version-string": "2.31",
+  "builtin-baseline": "9a5dfef5d1a0438a7d24856a85bd60f309d355e9",
+  "dependencies": ["zlib", "pthreads"]
+}

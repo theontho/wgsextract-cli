@@ -1,0 +1,5 @@
+#define HTS_CC "@WGSE_HTS_CC@"
+#define HTS_CPPFLAGS "WIN32 WIN32_LEAN_AND_MEAN __ARM_NEON=1 __PTW32_STATIC_LIB"
+#define HTS_CFLAGS "@CMAKE_C_FLAGS@ @CMAKE_C_FLAGS_RELEASE@ /MT /UNDEBUG /clang:-fsigned-char"
+#define HTS_LDFLAGS "static"
+#define HTS_LIBS "zlib libdeflate bzip2 liblzma tre pthreads getopt ws2_32 psapi"

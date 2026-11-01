@@ -1,0 +1,31 @@
+package:
+  name: fastqc
+  version: "0.13.0"
+
+source:
+  - url: https://github.com/s-andrews/FastQC/archive/refs/tags/v0.13.0.tar.gz
+    sha256: 68c1c84775ee9e7ec41cf45ba770f217d17d5d377c3fcad13b5b4389c483e69f
+    target_directory: fastqc
+  - url: https://aka.ms/download-jdk/microsoft-jdk-17.0.21.0.2-windows-aarch64.zip
+    sha256: 2c0e7679022f1666da64b586f9941e86481c6f369212e918be3e505581085336
+    target_directory: sdk
+
+build:
+  number: 0
+  string: wgse_arm64_${{ build_number }}
+  script:
+    content:
+      - 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "%RECIPE_DIR%\build.ps1"'
+
+requirements:
+  run:
+    - python 3.13.*
+    - openjdk 17.*
+
+about:
+  homepage: https://www.bioinformatics.babraham.ac.uk/projects/fastqc/
+  license: GPL-3.0-or-later
+  license_file:
+    - fastqc/LICENSE
+    - fastqc/LICENSE_JHDF5.txt
+  summary: Native-Java Windows ARM64 FastQC qualification; FAST5 is unsupported.

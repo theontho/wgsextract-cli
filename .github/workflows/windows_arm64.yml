@@ -1,0 +1,181 @@
+name: Windows ARM64 qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      calling_control_only:
+        description: Run only the native Windows x64 public VCF control
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - packaging/windows-arm64/**
+      - scripts/audit_windows_arm64.ps1
+      - scripts/qualify_windows_arm64_process.ps1
+      - scripts/restore_pixi_hashes.py
+      - src/wgsextract_cli/core/windows_arm64.py
+      - tests/test_windows_arm64.py
+      - tests/test_pixi_hash_restore.py
+      - .github/workflows/windows_arm64.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-arm64-qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  calling-control:
+    if: github.event_name == 'workflow_dispatch' && inputs.calling_control_only
+    uses: ./.github/workflows/windows_arm64_calling_control.yml
+  qualify:
+    if: github.event_name != 'workflow_dispatch' || !inputs.calling_control_only
+    runs-on: windows-11-arm
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        recipe: [python, python-source, bwa, minimap2, bwa-mem2, htslib, samblaster, samtools, bcftools, openjdk, fastp, curl, fastqc, haplogrep, setuptools]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13.17"
+          architecture: arm64
+      - name: Install test dependencies
+        shell: pwsh
+        run: |
+          python -m pip install -e . pytest zstandard==0.25.0
+          if ($LASTEXITCODE) { throw "Native test dependency installation failed" }
+      - name: Fail-fast and PE validation tests
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          python -m pytest tests/test_windows_arm64.py tests/test_dependency_probes.py packaging/windows-arm64/tests/test_prepare_fastp.py packaging/windows-arm64/tests/test_prepare_setuptools.py packaging/windows-arm64/tests/test_setuptools_purl.py packaging/windows-arm64/tests/test_audit_java_archives.py --basetemp=out/pytest-arm64 --junitxml=out/windows-arm64-tests.xml
+          if ($LASTEXITCODE) { throw "ARM64 qualification tests failed" }
+      - name: Set up native Pixi
+        uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
+        with:
+          pixi-version: v0.83.0
+          run-install: false
+      - name: Check out pinned MSVC dependency recipes
+        if: matrix.recipe != 'python' && matrix.recipe != 'python-source' && matrix.recipe != 'samblaster' && matrix.recipe != 'openjdk' && matrix.recipe != 'fastqc' && matrix.recipe != 'haplogrep' && matrix.recipe != 'setuptools'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: microsoft/vcpkg
+          ref: 9a5dfef5d1a0438a7d24856a85bd60f309d355e9
+          path: scratch/vcpkg
+      - name: Bootstrap the build-only dependency manager
+        if: matrix.recipe != 'python' && matrix.recipe != 'python-source' && matrix.recipe != 'samblaster' && matrix.recipe != 'openjdk' && matrix.recipe != 'fastqc' && matrix.recipe != 'haplogrep' && matrix.recipe != 'setuptools'
+        shell: pwsh
+        run: |
+          & scratch/vcpkg/bootstrap-vcpkg.bat -disableMetrics
+          if ($LASTEXITCODE) { throw "Pinned vcpkg bootstrap failed" }
+      - name: Package native components
+        shell: pwsh
+        run: |
+          pixi exec --spec rattler-build==0.77.0 rattler-build build `
+            --recipe-dir "packaging/windows-arm64/recipes/${{ matrix.recipe }}" --target-platform win-arm64 `
+            --output-dir out/conda
+          if ($LASTEXITCODE) { throw "ARM64 recipe failed" }
+          if ("${{ matrix.recipe }}" -eq "setuptools") {
+            $package = (Get-ChildItem out/conda/win-arm64/setuptools-*.conda).FullName
+            python packaging/windows-arm64/add_setuptools_purl.py $package $package
+            if ($LASTEXITCODE) { throw "Native setuptools package identity failed" }
+          }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: windows-arm64-qualification-${{ matrix.recipe }}
+          path: |
+            out/*.xml
+            out/conda/win-arm64/*.conda
+            out/windows-arm64/
+          if-no-files-found: error
+
+  pipeline:
+    needs: qualify
+    if: always() && !cancelled() && (github.event_name != 'workflow_dispatch' || !inputs.calling_control_only)
+    runs-on: windows-11-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13.17"
+          architecture: arm64
+      - name: Install build-time integration dependencies
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out/integration | Out-Null
+          python -m pip install -e . pytest tomli zstandard==0.25.0
+          if ($LASTEXITCODE) { throw "Integration dependency installation failed" }
+          python -m pytest packaging/windows-arm64/tests/test_unpack_packages.py packaging/windows-arm64/tests/test_stage_candidate.py tests/test_pixi_hash_restore.py --basetemp=out/integration/pytest-packages
+          if ($LASTEXITCODE) { throw "Integration package extraction regression failed" }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: windows-arm64-qualification-*
+          path: out/integration/packages
+      - name: Set up native candidate installer Pixi
+        uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
+        with:
+          pixi-version: v0.83.0
+          run-install: false
+      - name: Fresh checksum-pinned candidate installation
+        shell: pwsh
+        run: |
+          python -c "from pathlib import Path; from zipfile import ZipFile; root=Path('out/integration/packages'); z=ZipFile('out/integration/candidate-packages.zip','w'); [z.write(p,p.relative_to(root)) for p in root.rglob('*.conda')]; z.close()"
+          if ($LASTEXITCODE) { throw "Candidate artifact assembly failed" }
+          python packaging/windows-arm64/stage_candidate.py `
+            --artifact out/integration/candidate-packages.zip `
+            --output out/integration/candidate-packages `
+            --qualification-run "${{ github.run_id }}"
+          if ($LASTEXITCODE) { throw "Candidate exact version/build staging failed" }
+          & packaging/windows-arm64/install_candidate.ps1 `
+            -Packages out/integration/candidate-packages -Source . `
+            -Destination out/integration/fresh-candidate
+      - name: Native CRAM coverage and variant-calling qualification
+        shell: pwsh
+        run: |
+          # Never overlay the older NuGet interpreter with the secure source build.
+          python packaging/windows-arm64/unpack_packages.py --source out/integration/packages --prefix out/integration/prefix --exclude-package python
+          if ($LASTEXITCODE) { throw "Native package extraction failed" }
+          python packaging/windows-arm64/unpack_packages.py --source out/integration/packages/windows-arm64-qualification-python-source --prefix out/integration/prefix
+          if ($LASTEXITCODE) { throw "Secure native Python package extraction failed" }
+          $prefix = (Resolve-Path out/integration/prefix).Path
+          $python = "$prefix\python.exe"
+          & $python -m pip install -e . pytest
+          if ($LASTEXITCODE) { throw "Secure native integration dependency installation failed" }
+          & $python -m pip install --no-deps --require-hashes -r packaging/windows-arm64/python313-wheels.txt
+          if ($LASTEXITCODE) { throw "Pinned native Python wheel installation failed" }
+          & $python -m pip install --no-build-isolation `
+            "six==1.17.0" "https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379"
+          if ($LASTEXITCODE) { throw "Default Yleaf library installation failed" }
+          & $python packaging/windows-arm64/tests/python_libraries_smoke.py --output out/integration/python-libraries --prefix $prefix
+          if ($LASTEXITCODE) { throw "Native default Python library qualification failed" }
+          $samtools = "$prefix\Library\bin\samtools.exe"
+          $bcftools = "$prefix\Library\bin\bcftools.exe"
+          & scripts/audit_windows_arm64.ps1 -Prefix $prefix -Report out/integration/pe.json
+          & $python packaging/windows-arm64/tests/pipeline_smoke.py --samtools $samtools --bcftools $bcftools --output out/integration/pipeline
+          if ($LASTEXITCODE) { throw "Native pipeline truth/CRAM/calling gate failed" }
+          & scripts/qualify_windows_arm64_process.ps1 -Executable $samtools -Arguments @("view", "-h", "-") `
+            -InputPrefix "@HD`tVN:1.6`n@SQ`tSN:chr1`tLN:4000`n" -Prefix $prefix -Report out/integration/samtools-process.json
+          & scripts/qualify_windows_arm64_process.ps1 -Executable $bcftools -Arguments @("view", "-Ov", "-") `
+            -InputPrefix "##fileformat=VCFv4.2`n##contig=<ID=chr1,length=4000>`n#CHROM`tPOS`tID`tREF`tALT`tQUAL`tFILTER`tINFO`n" `
+            -Prefix $prefix -Report out/integration/bcftools-process.json
+      - name: Selected small-genome CLI suite
+        shell: pwsh
+        run: |
+          $prefix = (Resolve-Path out/integration/prefix).Path
+          $env:Path = "$prefix\Library\bin;$env:Path"
+          & "$prefix\python.exe" -m pytest --fake-data tests/test_e2e_fast_chrM.py tests/test_smoke_real_basics.py `
+            -k "test_01_info or test_02_info_detailed or test_06_bam_sort_chrm or test_07_bam_tocram_chrm or test_13_vcf_snp_chrm or test_align_to_cram or test_bam_index or test_bam_to_cram or test_info_base or test_info_coverage_sample or test_microarray_basics" `
+            --basetemp=out/integration/pytest-small --junitxml=out/integration/small-genome.xml
+          if ($LASTEXITCODE) { throw "Native small-genome CLI qualification failed" }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: windows-arm64-pipeline-qualification
+          path: out/integration/
+          if-no-files-found: error

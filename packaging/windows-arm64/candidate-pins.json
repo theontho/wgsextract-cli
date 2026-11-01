@@ -1,0 +1,16 @@
+{
+  "bcftools": ["1.24", "wgse_arm64_1"],
+  "bwa": ["0.7.19", "wgse_arm64_0"],
+  "bwa-mem2": ["2.3", "wgse_arm64_0"],
+  "curl": ["8.21.0", "wgse_arm64_0"],
+  "fastp": ["1.4.0", "wgse_arm64_0"],
+  "fastqc": ["0.13.0", "wgse_arm64_0"],
+  "haplogrep": ["2.4.0", "wgse_arm64_0"],
+  "htslib": ["1.24", "wgse_arm64_1"],
+  "minimap2": ["2.31", "wgse_arm64_0"],
+  "openjdk": ["17.0.21", "wgse_arm64_0"],
+  "python": ["3.13.18", "wgse_arm64_0"],
+  "samblaster": ["0.1.26", "wgse_arm64_0"],
+  "samtools": ["1.24", "wgse_arm64_2"],
+  "setuptools": ["84.2.1", "wgse_arm64_0"]
+}

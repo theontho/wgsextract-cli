@@ -1,0 +1,30 @@
+context:
+  version: "0.7.19"
+
+package:
+  name: bwa
+  version: ${{ version }}
+
+source:
+  url: https://github.com/lh3/bwa/archive/refs/tags/v${{ version }}.tar.gz
+  sha256: cdff5db67652c5b805a3df08c4e813a822c65791913eccfb3cf7d528588f37bc
+  patches:
+    - ../../../windows/recipes/bwa/patches/0001-windows-native-build.patch
+    - ../../../windows/recipes/bwa/patches/0002-batched-suffix-array-lookups.patch
+
+build:
+  number: 0
+  string: wgse_arm64_${{ build_number }}
+  script:
+    content:
+      - 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "%RECIPE_DIR%\build.ps1"'
+
+tests:
+  - script:
+      - 'bwa 2>&1 | findstr /C:"Version: ${{ version }}"'
+
+about:
+  homepage: https://github.com/lh3/bwa
+  license: GPL-3.0-only
+  license_file: COPYING
+  summary: Native Windows ARM64 BWA with KSW NEON, qualification build.

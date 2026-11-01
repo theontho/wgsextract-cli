@@ -1,3 +1,4 @@
+import hashlib
 import runpy
 import sys
 from pathlib import Path
@@ -50,4 +51,76 @@ def test_conflicting_lock_hash_fails_closed(tmp_path: Path) -> None:
     lock.write_text(original)
     with pytest.raises(ValueError, match="disagrees"):
         restore_hashes(manifest, lock)
+    assert lock.read_text() == original
+
+
+@pytest.mark.parametrize(
+    "locked_path",
+    [r"C:\candidate\package.conda", "C:/candidate/package.conda"],
+)
+@pytest.mark.parametrize("existing_digest", [None, "a" * 64, "b" * 64])
+def test_native_windows_conda_path_matches_file_uri_pin(
+    tmp_path: Path, locked_path: str, existing_digest: str | None
+) -> None:
+    manifest = tmp_path / "pixi.toml"
+    manifest.write_text(
+        '[dependencies]\npackage = { url = "file:///C:/candidate/package.conda", '
+        f'sha256 = "{"a" * 64}" }}\n'
+    )
+    lock = tmp_path / "pixi.lock"
+    original = f"version: 6\npackages:\n- conda: {locked_path}\n  name: package\n"
+    if existing_digest is not None:
+        original += f"  sha256: {existing_digest}\n"
+    lock.write_text(original)
+    if existing_digest == "b" * 64:
+        with pytest.raises(ValueError, match="disagrees"):
+            restore_hashes(manifest, lock, require_all=True)
+        assert lock.read_text() == original
+    else:
+        assert restore_hashes(manifest, lock, require_all=True) == (
+            existing_digest is None
+        )
+        assert f"  sha256: {'a' * 64}\n" in lock.read_text()
+
+
+def test_candidate_local_archive_receives_explicit_hash(
+    tmp_path: Path,
+) -> None:
+    archive = tmp_path / "yleaf.tar.gz"
+    archive.write_bytes(b"verified archive")
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    manifest = tmp_path / "pixi.toml"
+    manifest.write_text('[pypi-dependencies]\nyleaf = { path = "yleaf.tar.gz" }\n')
+    lock = tmp_path / "pixi.lock"
+    lock.write_text("version: 6\npackages:\n- pypi: ./yleaf.tar.gz\n  name: yleaf\n")
+    assert (
+        restore_hashes(
+            manifest, lock, require_all=True, path_pins={"yleaf.tar.gz": digest}
+        )
+        == 1
+    )
+    assert f"  sha256: {digest}\n" in lock.read_text()
+    archive.write_bytes(b"substituted archive")
+    with pytest.raises(ValueError, match="Local archive checksum"):
+        restore_hashes(
+            manifest, lock, require_all=True, path_pins={"yleaf.tar.gz": digest}
+        )
+
+
+def test_missing_candidate_pin_does_not_write_a_partial_lock(tmp_path: Path) -> None:
+    manifest = tmp_path / "pixi.toml"
+    manifest.write_text(
+        "[pypi-dependencies]\n"
+        f'yleaf = {{ url = "https://example.invalid/yleaf.tar.gz#sha256={"a" * 64}" }}\n'
+        f'numpy = {{ url = "https://example.invalid/numpy.whl#sha256={"b" * 64}" }}\n'
+    )
+    lock = tmp_path / "pixi.lock"
+    original = (
+        "version: 6\npackages:\n"
+        f"- pypi: direct+https://example.invalid/yleaf.tar.gz#sha256={'a' * 64}\n"
+        "  name: yleaf\n"
+    )
+    lock.write_text(original)
+    with pytest.raises(ValueError, match="missing from lock"):
+        restore_hashes(manifest, lock, require_all=True)
     assert lock.read_text() == original

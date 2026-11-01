@@ -15,16 +15,18 @@ import pytest
 
 from tests.fake_tools import python_tool
 from wgsextract_cli.commands import _deps_status
-from wgsextract_cli.core import dependency_checks, pixi_tools
+from wgsextract_cli.core import dependency_checks, pixi_tools, windows_arm64
 from wgsextract_cli.core.tool_catalog import JAVA_JAR
 from wgsextract_cli.core.utils import WGSExtractError
 
 
 @pytest.fixture(autouse=True)
-def _outside_a_pixi_environment(monkeypatch):
+def _outside_a_pixi_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """These tests simulate the Pixi environment probe; under `pixi run` the CLI
     would look in its own environment first instead."""
     monkeypatch.delenv("PIXI_ENVIRONMENT_NAME", raising=False)
+    # The fake CMD tools exercise probe parsing, not native ARM64 qualification.
+    monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0x8664)
 
 
 _PRELUDE = """\

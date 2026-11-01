@@ -152,3 +152,12 @@ Older Windows installs used a `tool_runtime` setting (`windows`, `pacman`,
 `wsl`, `cygwin` or `msys2`) and `pacman_ucrt64_bin`. The CLI now ignores these
 settings, and drops them from `config.toml` the next time it saves it. Rerun
 `install_windows.bat` to get the native tools.
+# Windows ARM64
+
+Native Windows ARM64 (`win-arm64`) is being qualified separately in
+[`packaging/windows-arm64`](../packaging/windows-arm64/README.md). It is not yet
+enabled in the locked installer. The installer refuses ARM64 before downloads
+or environment creation, including when invoked from an x64 terminal under
+Prism. Do not substitute x64 emulation, ARM64EC, WSL or x86 containers.
+GATK/GKL and DeepVariant are unavailable on this architecture in phase 1;
+they fail before caller execution instead of silently choosing Java kernels.

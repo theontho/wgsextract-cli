@@ -1,0 +1,45 @@
+diff --git a/src/fastmap.cpp b/src/fastmap.cpp
+--- a/src/fastmap.cpp
++++ b/src/fastmap.cpp
+@@ -48,4 +48,5 @@
+ // ---------------
+ 
++#ifndef _M_ARM64
+ void __cpuid(unsigned int i, unsigned int cpuid[4]) {
+ #ifdef _WIN32
+@@ -93,6 +94,14 @@
+     return ht;
+ }
+ 
+ 
++#else
++int HTStatus()
++{
++    fprintf(stderr, "Native ARM64 NEON; no x86 CPU dispatch.\n");
++    return 0;
++}
++#endif
++
+ /*** Memory pre-allocations ***/
+ void memoryAlloc(ktp_aux_t *aux, worker_t &w, int32_t nreads, int32_t nthreads)
+diff --git a/src/main.cpp b/src/main.cpp
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -77,5 +77,7 @@
+         fprintf(stderr, "-----------------------------\n");
+-#if __AVX512BW__
++#if defined(_M_ARM64)
++        fprintf(stderr, "Executing in native ARM64 NEON mode!!\n");
++#elif __AVX512BW__
+         fprintf(stderr, "Executing in AVX512 mode!!\n");
+ #elif __AVX2__
+         fprintf(stderr, "Executing in AVX2 mode!!\n");
+diff --git a/src/read_index_ele.cpp b/src/read_index_ele.cpp
+--- a/src/read_index_ele.cpp
++++ b/src/read_index_ele.cpp
+@@ -93,5 +93,4 @@
+ }
+ 
+-#include <sys/file.h>
+ char* indexEle::bwa_idx_infer_prefix(const char *hint)
+ {

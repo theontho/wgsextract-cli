@@ -72,6 +72,15 @@ shift
 goto parse_args
 
 :args_done
+rem Do not install the x64 environment under Prism while ARM64 is unqualified.
+set "WGSE_NATIVE_ARCH=%PROCESSOR_ARCHITECTURE%"
+if defined PROCESSOR_ARCHITEW6432 set "WGSE_NATIVE_ARCH=%PROCESSOR_ARCHITEW6432%"
+if /I "%WGSE_NATIVE_ARCH%"=="ARM64" (
+    echo ERROR: Native Windows ARM64 ^(win-arm64^) is not yet qualified.
+    echo Do not use Prism, ARM64EC, WSL or x86 containers as a substitute.
+    echo Track native toolchain qualification in issue #236.
+    exit /b 1
+)
 if not defined PIXI_CACHE_DIR set "PIXI_CACHE_DIR=%CD%\tmp\pixi-cache\windows"
 if not defined PIXI_PROJECT_ENVIRONMENT_DIR set "PIXI_PROJECT_ENVIRONMENT_DIR=%CD%\tmp\pixi-envs\windows"
 

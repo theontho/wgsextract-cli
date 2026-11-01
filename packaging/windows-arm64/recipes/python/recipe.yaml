@@ -1,0 +1,29 @@
+context:
+  version: "3.13.17"
+
+package:
+  name: python
+  version: ${{ version }}
+
+source:
+  url: https://api.nuget.org/v3-flatcontainer/pythonarm64/${{ version }}/pythonarm64.${{ version }}.nupkg
+  sha256: aaa8c60c0adffde214ebd13e19bd79289aedb6452b4883eb08a59592c008456b
+  file_name: pythonarm64.zip
+
+build:
+  number: 0
+  string: wgse_arm64_${{ build_number }}
+  script:
+    content:
+      - 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "%RECIPE_DIR%\build.ps1"'
+
+tests:
+  - script:
+      - 'python -c "import platform, struct; assert platform.machine().lower() == ''arm64''; assert struct.calcsize(''P'') == 8; import ssl, sqlite3, bz2, lzma, ctypes"'
+      - 'python -m pip --version'
+
+about:
+  homepage: https://www.python.org/
+  license: Python-2.0
+  license_file: out/nuget/tools/LICENSE.txt
+  summary: Official PSF native Windows ARM64 Python, repackaged for qualification.

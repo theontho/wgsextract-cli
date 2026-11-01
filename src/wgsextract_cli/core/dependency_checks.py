@@ -9,6 +9,10 @@ from typing import Any
 
 from wgsextract_cli.core.pixi_tools import pixi_install_command
 from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.windows_arm64 import (
+    assert_native_windows_command,
+    unsupported_windows_arm64_tool,
+)
 
 from .dependencies import (
     check_dependencies,
@@ -149,12 +153,18 @@ VERSION_ARGS = {"yleaf": "--help", "bwa-mem2": "version"}
 
 def get_tool_version(tool: str) -> str | None:
     """Attempt to get the version of a tool by running it."""
+    if reason := unsupported_windows_arm64_tool(tool):
+        return f"Error: {reason}"
     # Use the path/command from get_tool_path to handle pixi correctly
     cmd_base = get_tool_path(tool)
     if not cmd_base:
         return None
 
     full_cmd = _tool_command_parts(cmd_base)
+    try:
+        assert_native_windows_command(full_cmd)
+    except (OSError, ValueError) as error:
+        return f"Error: {error}"
     optional_env = _optional_pixi_env(full_cmd)
     if optional_env:
         # A version probe must never download an optional environment.
@@ -253,6 +263,9 @@ def verify_dependencies(
     Checks if all required tools or JAR files are available.
     Exits gracefully if a tool is missing or version is too old.
     """
+    for tool in tool_list:
+        if reason := unsupported_windows_arm64_tool(tool):
+            raise WGSExtractError(reason)
     if optional_list is None:
         optional_list = OPTIONAL_TOOLS
 
@@ -321,6 +334,14 @@ def verify_dependencies(
                     raise WGSExtractError(f"{tool} version {version_str} is too old.")
 
 
+def _missing_tool_hint(tool: str) -> str | None:
+    unsupported = unsupported_windows_arm64_tool(tool)
+    if unsupported:
+        return f"Error: {unsupported}"
+    command = pixi_install_command(tool)
+    return f"Run: {command}" if command else None
+
+
 def check_all_dependencies(
     mandatory: list[str] | None = None,
     optional: list[str] | None = None,
@@ -350,13 +371,7 @@ def check_all_dependencies(
         if tool == "python3":
             continue  # Already checked above as Runtime
         path = get_tool_path(tool)
-        version = (
-            get_tool_version(tool)
-            if path
-            else (
-                f"Run: {command}" if (command := pixi_install_command(tool)) else None
-            )
-        )
+        version = get_tool_version(tool) if path else _missing_tool_hint(tool)
         is_broken = version and version.startswith("Error:")
         present_path = path if not is_broken else None
 
@@ -372,13 +387,7 @@ def check_all_dependencies(
 
     for tool in optional:
         path = get_tool_path(tool)
-        version = (
-            get_tool_version(tool)
-            if path
-            else (
-                f"Run: {command}" if (command := pixi_install_command(tool)) else None
-            )
-        )
+        version = get_tool_version(tool) if path else _missing_tool_hint(tool)
 
         is_broken = version and version.startswith("Error:")
         present_path = path if not is_broken else None
