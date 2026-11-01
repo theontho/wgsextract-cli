@@ -58,9 +58,9 @@ from wgsextract_cli.core.warnings import (
 
 from . import align as align_cmd
 from ._extract_helpers import (
-    STREAM_COLLATE_MEMORY_LIMIT,
     alignments_to_fastq,
     collate_working_memory,
+    collate_working_memory_limit,
     paired_fastq_stream,
 )
 
@@ -189,7 +189,15 @@ def _preflight_disk_space(
         staged_fastq = 0 if keep_fastq else extract_final_gb
         requirements = [
             (outdir, retained_fastq + align_final_gb),
-            (scratch, staged_fastq + max(extract_temp_gb, align_temp_gb)),
+            (
+                scratch,
+                staged_fastq
+                + (
+                    extract_temp_gb + align_temp_gb
+                    if streaming
+                    else max(extract_temp_gb, align_temp_gb)
+                ),
+            ),
         ]
         for directory, gigabytes in requirements:
             logging.warning(
@@ -351,7 +359,7 @@ def run(args: argparse.Namespace) -> None:
     cram_opt = None
     if streaming:
         additional_ram_bytes = collate_working_memory(args.input, threads, memory)
-        fits = additional_ram_bytes <= STREAM_COLLATE_MEMORY_LIMIT
+        fits = additional_ram_bytes <= collate_working_memory_limit(threads, memory)
         if fits and target and Path(target).is_file():
             samblaster = (
                 align_cmd.duplicate_marker(paired=bool(r2_path)) == "samblaster"
@@ -412,14 +420,43 @@ def run(args: argparse.Namespace) -> None:
 
     # 2. Disk-space pre-flight.
     if not args.no_preflight:
-        _preflight_disk_space(
-            args.input,
-            outdir,
-            need_extract=need_extract and not streaming,
-            reads=reads,
-            keep_fastq=args.keep_fastq,
-            streaming=streaming,
-        )
+        try:
+            _preflight_disk_space(
+                args.input,
+                outdir,
+                need_extract=need_extract and not streaming,
+                reads=reads,
+                keep_fastq=args.keep_fastq,
+                streaming=streaming,
+            )
+        except WGSExtractError:
+            if not streaming:
+                raise
+            logging.info(
+                "Streaming spills do not fit available disk; extracting "
+                "FASTQs without changing the aligner."
+            )
+            streaming = False
+            additional_ram_bytes = 0
+            _report_resource_estimates(
+                args,
+                target,
+                outdir,
+                threads,
+                memory,
+                reads,
+                input_paths=[args.input],
+                need_extract=True,
+                paired=bool(r2_path),
+                read_length=read_length,
+            )
+            _preflight_disk_space(
+                args.input,
+                outdir,
+                need_extract=True,
+                reads=reads,
+                keep_fastq=args.keep_fastq,
+            )
 
     if streaming:
         verify_dependencies(["samtools"])

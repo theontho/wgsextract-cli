@@ -14,9 +14,12 @@ from wgsextract_cli.core.temp_directory import (
 from wgsextract_cli.core.utils import WGSExtractError
 
 
-@pytest.mark.parametrize("keep, expected", [(False, (6, 9)), (True, (10, 5))])
+@pytest.mark.parametrize(
+    "keep, streaming, expected",
+    [(False, False, (6, 9)), (True, False, (10, 5)), (False, True, (6, 8))],
+)
 def test_realign_preflight_budgets_output_and_staging_volumes_separately(
-    tmp_path, monkeypatch, keep, expected
+    tmp_path, monkeypatch, keep, streaming, expected
 ):
     from wgsextract_cli.commands import realign
 
@@ -47,7 +50,9 @@ def test_realign_preflight_budgets_output_and_staging_volumes_separately(
         "check_free_space",
         lambda path, size: checked.append((path, size)) or True,
     )
-    realign._preflight_disk_space(str(source), str(output), True, 100, keep_fastq=keep)
+    realign._preflight_disk_space(
+        str(source), str(output), True, 100, keep_fastq=keep, streaming=streaming
+    )
     assert checked == [(str(output), expected[0]), (str(scratch), expected[1])]
 
 
@@ -121,6 +126,27 @@ def test_sambamba_spills_follow_the_selected_directory(tmp_path, monkeypatch):
     with run_temporary_directory(tmp_path):
         command = samtools_commands.get_sam_sort_cmd("final.bam", "1", "1M")
         assert command[command.index("--tmpdir") + 1] == configured_temp_directory()
+
+
+def test_streamed_collation_uses_selected_temporary_directory(tmp_path):
+    from wgsextract_cli.commands import _extract_helpers
+
+    source = tmp_path / "source.bam"
+    source.write_bytes(b"bam")
+    output, scratch = tmp_path / "output", tmp_path / "scratch"
+    output.mkdir()
+    scratch.mkdir()
+    with run_temporary_directory(scratch):
+        selected = configured_temp_directory()
+        assert selected is not None
+        with _extract_helpers.paired_fastq_stream(
+            source, threads="1", memory="100M", temp_parent=output
+        ) as stages:
+            collate = stages[1]
+            prefix = Path(collate[collate.index("-T") + 1])
+            assert prefix.is_relative_to(selected)
+            assert not prefix.is_relative_to(output)
+    assert list(scratch.iterdir()) == []
 
 
 def test_invalid_temp_directory_fails_before_starting_tools(tmp_path):

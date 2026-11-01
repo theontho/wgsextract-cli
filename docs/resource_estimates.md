@@ -25,14 +25,23 @@ still bypasses realignment's disk refusal, not its memory guard; informational
 estimates are still printed. Realignment reports before FASTQ extraction and
 alignment reports again when the final aligner is selected.
 
-Paired BWA realignment without `--keep-fastq` normally streams newly extracted reads
+Eligible paired BWA realignment without `--keep-fastq` streams newly extracted reads
 (forced refresh of cached FASTQs at the exact output paths retains file handling):
 there is no retained `extracted_fastqs` demand. Its live collate bucket and codec
 headroom are included in RAM, and `collation_spill` is conservatively added
-alongside sorter spill/output on the same volume. Collate removes buckets as
-they drain, so this disk sum is an upper bound, not a prediction of actual peak.
-The alignment read-length sample is bounded to 4096 paired primary records /
-16 MiB and does not replace the indexed input count.
+alongside sorter spills on the configured temporary volume (or output volume
+when none is configured). Collate removes buckets as they drain, so this disk
+sum is an upper bound, not a prediction of actual peak. If streaming spills
+do not fit but file extraction does, realignment uses files.
+The alignment read-length sample reads at most 4096 input SAM records / 16 MiB
+and applies paired-primary filtering within that prefix; it does not replace
+the indexed input count.
+
+Collation's 20× BAM / 70× CRAM expansion model is heuristic, not an enforced
+native-process RSS limit. Estimated bucket memory plus 64 MiB bookkeeping must
+fit both the configured collation budget and the 1 GiB overlap ceiling. The
+200-bucket ceiling gives best-case input limits around 9.4 GiB BAM / 2.7 GiB CRAM;
+smaller budgets or less available RAM reduce eligibility. 30x WGS uses files.
 
 Preflight is advisory: `preflight_resources()` guards estimation and reporting
 against `ValueError`, `OSError` and subprocess failures, warns that the resource

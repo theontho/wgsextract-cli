@@ -388,6 +388,7 @@ def test_paired_stream_body_matches_files_including_discarded_reads(
 
     if realign.align_cmd.get_tool_path(aligner) is None:
         pytest.skip(f"{aligner} unavailable")
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 8 * 1024**3)
     monkeypatch.setattr(
         realign.align_cmd, "streaming_mapping_fits", lambda *_a, **_kw: True
     )
@@ -546,6 +547,7 @@ def test_stream_preflight_reserves_overlapping_collate_and_sort_spills(
     monkeypatch,
     source,
 ):
+    fakes = _Fakes(monkeypatch)
     estimates = {"Name": (10, 4), "Coord": (3, 2)}
     monkeypatch.setattr(
         realign,
@@ -562,6 +564,9 @@ def test_stream_preflight_reserves_overlapping_collate_and_sort_spills(
             100,
             streaming=True,
         )
+    realign.run(_args(source, no_preflight=False, aligner="bwa"))
+    assert len(fakes.extracted) == 1 and not fakes.streamed
+    assert len(fakes.aligned) == 1
 
 
 @pytest.mark.parametrize("requested", ["bwa", "bwa-mem2", "auto"])
@@ -618,6 +623,20 @@ def test_whole_genome_over_200_bucket_capacity_uses_file_mode(
     monkeypatch.setattr(realign, "calculate_bam_md5", lambda *_a: None)
     monkeypatch.setattr(realign, "resolve_reference", lambda *_a: None)
     realign.run(_args(source, aligner="bwa", threads="8", memory="2G"))
+    assert len(fakes.extracted) == 1 and not fakes.streamed
+    assert len(fakes.aligned) == 1
+
+
+def test_stream_bucket_capacity_cannot_exceed_configured_collation_budget(
+    tmp_path, monkeypatch, source
+):
+    fakes = _Fakes(monkeypatch)
+    with source.open("wb") as output:
+        output.truncate(2 * 1024**3)
+    monkeypatch.setattr(realign, "indexed_read_count", lambda *_a: 100)
+    monkeypatch.setattr(realign, "calculate_bam_md5", lambda *_a: None)
+    monkeypatch.setattr(realign, "resolve_reference", lambda *_a: None)
+    realign.run(_args(source, aligner="bwa", threads="1", memory="100M"))
     assert len(fakes.extracted) == 1 and not fakes.streamed
     assert len(fakes.aligned) == 1
 

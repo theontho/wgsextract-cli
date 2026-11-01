@@ -25,17 +25,13 @@ def alignment_read_length(
     *,
     cram_opt: list[str] | None = None,
 ) -> float | None:
-    """Sample at most 4096 paired primary SAM records / 16 MiB, without a full scan."""
+    """Read at most 4096 SAM records / 16 MiB, sampling paired primary lengths."""
     from wgsextract_cli.core.process_registry import proc_registry
     from wgsextract_cli.core.utils import popen
 
     command = [
         "samtools",
         "view",
-        "-f",
-        "1",
-        "-F",
-        "0x900",
         *(cram_opt or []),
         str(path),
     ]
@@ -43,14 +39,15 @@ def alignment_read_length(
     try:
         process = popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         assert process.stdout is not None
-        records = bases = consumed = 0
-        while records < 4096 and consumed < _DECODED_SAMPLE_BYTES:
+        scanned = records = bases = consumed = 0
+        while scanned < 4096 and consumed < _DECODED_SAMPLE_BYTES:
             line = process.stdout.readline(_DECODED_SAMPLE_BYTES - consumed)
             if not line or not line.endswith(b"\n"):
                 break
             consumed += len(line)
+            scanned += 1
             fields = line.split(b"\t")
-            if len(fields) >= 11 and fields[9] != b"*":
+            if len(fields) >= 11 and int(fields[1]) & 0x901 == 1 and fields[9] != b"*":
                 bases += len(fields[9])
                 records += 1
         return bases / records if records else None

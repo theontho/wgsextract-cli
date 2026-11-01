@@ -180,7 +180,7 @@ def estimate_resources(
             notes.append("Streamed FASTQ collation overlaps the alignment pipeline.")
             demands.append(
                 (
-                    output_dir,
+                    temp_dir or output_dir,
                     "collation_spill",
                     None if disk_reads is None else disk_reads * SORT_BYTES_PER_READ,
                 )

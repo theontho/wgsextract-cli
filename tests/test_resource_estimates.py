@@ -72,6 +72,29 @@ def source(tmp_path):
     return source
 
 
+def test_streamed_collation_spill_is_charged_to_selected_temporary_volume(
+    tmp_path, source, monkeypatch
+):
+    output, scratch = str(tmp_path / "output"), str(tmp_path / "scratch")
+    monkeypatch.setattr(resources, "_disk_space", lambda path: (path, 100 * GIB))
+    estimate = resources.estimate_resources(
+        "realign",
+        input_paths=[str(source)],
+        output_dir=output,
+        temp_dir=scratch,
+        reads=1000,
+        additional_ram_bytes=64 * 1024**2,
+    )
+    disks = {
+        row.paths[0]: row
+        for row in estimate.resources
+        if row.resource == "disk" and row.paths
+    }
+    assert "collation_spill" not in disks[output].components
+    assert disks[scratch].components["collation_spill"] > 0
+    assert disks[scratch].components["temporary"] > 0
+
+
 def test_h2_envelope_reuses_memory_model_and_scales_disk_by_input_reads(
     tmp_path, source, monkeypatch
 ):

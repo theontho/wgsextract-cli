@@ -36,6 +36,15 @@ def test_alignment_length_samples_only_primary_pairs_and_stops_at_record_limit(
     assert read_counts.alignment_read_length(tmp_path / "missing.bam") is None
 
 
+@needs_tools("samtools")
+def test_alignment_length_sampling_bounds_unpaired_input_scanning(tmp_path):
+    records = ["@HD\tVN:1.6\tSO:unsorted"]
+    records.extend(f"single{i}\t4\t*\t0\t0\t*\t*\t0\t0\tA\tI" for i in range(4096))
+    records.append("tail\t77\t*\t0\t0\t*\t*\t0\t0\tAAAA\tIIII")
+    source = sam_to_bam(records, tmp_path / "unpaired.bam")
+    assert read_counts.alignment_read_length(source) is None
+
+
 @pytest.mark.parametrize("compressed", [False, True])
 def test_small_fastqs_count_both_mates_exactly(tmp_path, compressed):
     pair = [tmp_path / f"r{i}.fq" for i in (1, 2)]

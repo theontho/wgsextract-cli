@@ -16,6 +16,7 @@ from wgsextract_cli.core.reference_assets import input_stem, read_fai_lengths
 from wgsextract_cli.core.reference_models import sequence_lengths
 from wgsextract_cli.core.run_log import is_run_log_path
 from wgsextract_cli.core.samtools_commands import parse_memory
+from wgsextract_cli.core.temp_directory import configured_temp_directory
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -201,6 +202,20 @@ STREAM_COLLATE_MEMORY_LIMIT = 1024**3
 _COLLATE_HEADROOM = 64 * 1024**2
 
 
+def _collate_budget(threads: str, memory: str, *, streaming: bool) -> int:
+    amount, unit = parse_memory(memory)
+    budget = int(int(threads) * amount * (1024**3 if unit == "G" else 1024**2))
+    return (
+        min(budget, STREAM_COLLATE_MEMORY_LIMIT - _COLLATE_HEADROOM)
+        if streaming
+        else budget
+    )
+
+
+def collate_working_memory_limit(threads: str, memory: str) -> int:
+    return _collate_budget(threads, memory, streaming=True) + _COLLATE_HEADROOM
+
+
 def _collate_buckets(
     input_path: PathInput, threads: str, memory: str, *, streaming: bool = False
 ) -> int:
@@ -208,20 +223,18 @@ def _collate_buckets(
 
     Records in memory take about 70x their CRAM size and 20x their BAM size
     (generous for highly compressed files), so this keeps a bucket within the
-    sort memory budget (threads x per-thread memory). Streaming reserves at
-    most 1 GiB including headroom; if 200 buckets cannot achieve that, realign
-    uses file extraction. At most 200 files stay under macOS's default limit
-    of 256 open files.
+    sort memory budget (threads x per-thread memory). Streaming targets an
+    estimated 1 GiB including headroom; if 200 buckets cannot achieve the
+    configured budget, realign uses file extraction. These expansion estimates
+    are not enforced native-process memory limits. At most 200 files stay under
+    macOS's default limit of 256 open files.
     """
     try:
         size = Path(input_path).stat().st_size
     except OSError:
         size = 0
     in_memory = size * (70 if Path(input_path).suffix.lower() == ".cram" else 20)
-    amount, unit = parse_memory(memory)
-    budget = int(threads) * amount * (1024**3 if unit == "G" else 1024**2)
-    if streaming:
-        budget = min(budget, STREAM_COLLATE_MEMORY_LIMIT - _COLLATE_HEADROOM)
+    budget = _collate_budget(threads, memory, streaming=streaming)
     return min(200, max(64, math.ceil(in_memory / budget)))
 
 
@@ -279,8 +292,10 @@ def paired_fastq_stream(
     temp_parent: PathInput,
     cram_opt: list[str] | None = None,
 ) -> Iterator[list[list[str]]]:
-    """Standard collate/filtering with a bounded bucket budget and paired stdout."""
-    with tempfile.TemporaryDirectory(dir=temp_parent, prefix=".collate_") as tmp:
+    """Standard collate/filtering with an estimated bucket budget and paired stdout."""
+    with tempfile.TemporaryDirectory(
+        dir=configured_temp_directory() or temp_parent, prefix=".collate_"
+    ) as tmp:
         yield _fastq_stages(
             input_path,
             "-",
@@ -320,8 +335,6 @@ def alignments_to_fastq(
     space than the system temp dir usually has. Singletons are discarded unless
     ``out_singletons`` is given; READ_OTHER reads go to ``out_other`` if given.
     """
-    from wgsextract_cli.core.temp_directory import configured_temp_directory
-
     with (
         cleanup_files(
             on_failure=[
