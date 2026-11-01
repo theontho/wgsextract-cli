@@ -1,7 +1,10 @@
 import argparse
 import gzip
 import logging
+import math
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -23,7 +26,7 @@ from wgsextract_cli.core.reference_assets import read_fai_lengths
 from wgsextract_cli.core.samtools_commands import get_sam_index_cmd, get_sam_view_cmd
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
-from wgsextract_cli.core.warnings import check_free_space, get_free_space_needed
+from wgsextract_cli.core.warnings import GB, check_free_space, get_free_space_needed
 
 from .basic import get_base_args
 
@@ -98,9 +101,29 @@ def _cram_version(path: str) -> tuple[int, int] | None:
     return definition[4], definition[5]
 
 
-def _transcode_regions(region: str | None, ref: str, work: str) -> list[str]:
+def _literal_region(selection: str, lengths: dict[str, int]) -> tuple[str, int, int]:
+    if selection in lengths:
+        return selection, 0, lengths[selection]
+    match = re.match(r"^(\S+):([0-9,]+)-([0-9,]+)$", selection)
+    if match:
+        chrom, start_text, end_text = match.groups()
+        start, end = int(start_text.replace(",", "")), int(end_text.replace(",", ""))
+    else:
+        match = re.match(r"^(\S+):([0-9,]+)$", selection)
+        if not match:
+            raise ValueError(f"Invalid interval: {selection}")
+        chrom, position = match.groups()
+        start = end = int(position.replace(",", ""))
+    if start < 1 or end < start:
+        raise ValueError(f"Invalid interval: {selection}")
+    return chrom, start - 1, end
+
+
+def _transcode_regions(
+    region: str | None, ref: str, work: str
+) -> tuple[list[str], float]:
     if not region:
-        return []
+        return [], 1.0
     lengths = read_fai_lengths(ref)
     if not lengths:
         run_command(["samtools", "faidx", ref])
@@ -139,18 +162,30 @@ def _transcode_regions(region: str | None, ref: str, work: str) -> list[str]:
                                 raise ValueError(f"Invalid interval: {line.strip()}")
                             destination.write(f"{chrom}\t{start}\t{end}\n")
                 else:
-                    chrom, _, span = selection.partition(":")
-                    start_text, _, end_text = span.replace(",", "").partition("-")
-                    start = int(start_text) if start_text else 1
-                    end = int(end_text) if end_text else lengths[chrom]
-                    if start < 1 or end < start:
-                        raise ValueError(f"Invalid interval: {selection}")
-                    destination.write(f"{chrom}\t{start - 1}\t{end}\n")
+                    chrom, start, end = _literal_region(selection, lengths)
+                    destination.write(f"{chrom}\t{start}\t{end}\n")
+        intervals: dict[str, list[tuple[int, int]]] = {}
+        with bed.open() as source:
+            for line in source:
+                chrom, start_text, end_text = line.split()
+                length = lengths[chrom]
+                start = min(int(start_text), length)
+                end = min(int(end_text), length)
+                intervals.setdefault(chrom, []).append((start, end))
+        covered = 0
+        for ranges in intervals.values():
+            previous_end = 0
+            for start, end in sorted(ranges):
+                covered += max(0, end - max(start, previous_end))
+                previous_end = max(previous_end, end)
+        genome_size = sum(lengths.values())
+        if genome_size <= 0:
+            raise ValueError("Reference index contains no bases.")
     except (ValueError, KeyError, IndexError) as error:
         raise WGSExtractError(
             f"Invalid DeepVariant region selection: {region}"
         ) from error
-    return ["-M", "-L", str(bed)]
+    return ["-M", "-L", str(bed)], covered / genome_size
 
 
 def _compatible_reads(
@@ -161,12 +196,19 @@ def _compatible_reads(
         return alignment
     # Gate/remove this workaround when supported DV images ship htslib >=1.19
     # (htscodecs >=1.5.2); a host-samtools decode cannot detect their SSE4 bug.
+    selection, fraction = _transcode_regions(region, ref, work)
     _, final_gb = get_free_space_needed(Path(alignment).stat().st_size, is_cram=True)
     required_gb = final_gb + 1  # Round up the CRAM expansion estimate; allow its index.
-    if not check_free_space(work, required_gb):
+    required_bytes = max(64 * 1024**2, math.ceil(required_gb * GB * fraction))
+    enough_space = (
+        shutil.disk_usage(work).free >= required_bytes
+        if region
+        else check_free_space(work, required_gb)
+    )
+    if not enough_space:
         raise WGSExtractError(
             f"Insufficient free disk space for DeepVariant CRAM 3.0 staging "
-            f"at {work} (needs ~{required_gb} GiB)."
+            f"at {work} (needs ~{required_bytes / GB:.2f} GiB)."
         )
     logging.info(
         "Transcoding CRAM %s.%s to temporary CRAM 3.0: DeepVariant's htslib "
@@ -174,7 +216,6 @@ def _compatible_reads(
         *version,
     )
     compatible = str(Path(work, "reads.cram"))
-    selection = _transcode_regions(region, ref, work)
     run_command(
         [
             *get_sam_view_cmd(threads, fmt="CRAM", reference=ref),

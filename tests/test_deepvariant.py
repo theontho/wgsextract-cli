@@ -9,6 +9,7 @@ import subprocess
 import sys
 from argparse import Namespace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -212,6 +213,64 @@ def test_transcode_fails_before_writing_when_disk_is_low(files, monkeypatch):
     with pytest.raises(WGSExtractError, match="Insufficient free disk"):
         deepvariant._compatible_reads(str(alignment), str(ref), str(work), "1", None)
     assert not (work / "reads.cram").exists()
+
+
+@pytest.mark.parametrize("selection", ["chrM", "chr1:1-1000000", "bed"])
+def test_targeted_transcode_scales_disk_estimate_and_keeps_a_small_minimum(
+    files, monkeypatch, selection
+):
+    ref, alignment, work = files
+    alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
+    Path(str(ref) + ".fai").write_text(
+        "chr1\t2000000\t0\t1000\t1001\nchrM\t1000\t0\t1000\t1001\n"
+    )
+    if selection == "bed":
+        bed = work / "targets.bed"
+        bed.write_text("chr1\t0\t750000\nchr1\t500000\t1000000\n")
+        selection = str(bed)
+    calls = []
+    free = [20 * deepvariant.GB]
+    monkeypatch.setattr(
+        deepvariant,
+        "shutil",
+        SimpleNamespace(disk_usage=lambda _: SimpleNamespace(free=free[0])),
+    )
+    # A 16 GiB input has a whole-input staging estimate of about 32 GiB.
+    monkeypatch.setattr(deepvariant, "get_free_space_needed", lambda *a, **kw: (0, 31))
+    monkeypatch.setattr(deepvariant, "check_free_space", lambda *a: False)
+    monkeypatch.setattr(deepvariant, "run_command", lambda cmd: calls.append(cmd))
+    with pytest.raises(WGSExtractError, match="Insufficient free disk"):
+        deepvariant._compatible_reads(str(alignment), str(ref), str(work), "1", None)
+    deepvariant._compatible_reads(str(alignment), str(ref), str(work), "1", selection)
+    assert len(calls) == 2
+    free[0] = 63 * 1024**2 if selection == "chrM" else 15 * deepvariant.GB
+    with pytest.raises(WGSExtractError, match="Insufficient free disk"):
+        deepvariant._compatible_reads(
+            str(alignment), str(ref), str(work), "1", selection
+        )
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize(
+    ("selection", "expected"),
+    [
+        ("HLA-A*01:01:01:01", (0, 5000)),
+        ("HLA-A*01:01:01:01:1,001-2,000", (1000, 2000)),
+        ("HLA-A*01:01:01:01:1,001", (1000, 1001)),
+    ],
+)
+def test_colon_contigs_use_nucleus_whole_range_and_position_semantics(
+    tmp_path, selection, expected
+):
+    ref = tmp_path / "ref.fa"
+    chrom = "HLA-A*01:01:01:01"
+    Path(str(ref) + ".fai").write_text(f"{chrom}\t5000\t0\t5000\t5001\n")
+    options, fraction = deepvariant._transcode_regions(
+        selection, str(ref), str(tmp_path)
+    )
+    bed = Path(options[options.index("-L") + 1])
+    assert bed.read_text() == f"{chrom}\t{expected[0]}\t{expected[1]}\n"
+    assert fraction == pytest.approx((expected[1] - expected[0]) / 5000)
 
 
 @pytest.mark.parametrize(
