@@ -97,12 +97,12 @@ def aadr_lifter(
         installed = Path(reflib_dir, "hg19ToHg38.over.chain.gz")
         if installed.is_file():
             return LiftOver(str(installed))
-    chain = Path(outdir, "hg19ToHg38.over.chain.gz")
-    if not chain.is_file() and not allow_download:
+    if not allow_download:
         raise WGSExtractError(
             "AADR 2M on GRCh38 requires an installed hg19ToHg38.over.chain.gz "
             "in the reference library; use 'wgsextract ref download' explicitly."
         )
+    chain = Path(outdir, "hg19ToHg38.over.chain.gz")
     if not chain.is_file() and not download_file(HG19_TO_HG38_CHAIN_URL, str(chain)):
         raise WGSExtractError("Could not download the GRCh37-to-GRCh38 AADR chain.")
     return LiftOver(str(chain))
@@ -146,7 +146,10 @@ def build_aadr_target(
                     )
                 ] = snp_id
     panel = "2m" if "2m" in panels else ("ho" if set(panels) == {"ho"} else "1240k")
-    for marker in aadr_markers(panel, reflib_dir):
+    marker_source = (
+        aadr_markers(panel, reflib_dir) if panel == "2m" else aadr_markers(panel)
+    )
+    for marker in marker_source:
         coordinate = _marker_coordinate(marker, lifter)
         if coordinate:
             chrom, pos, _inverted = coordinate
@@ -241,7 +244,12 @@ def write_aadr_outputs(
             geno = stack.enter_context(staged[".geno"].open("w", newline="\n"))
             snp = stack.enter_context(staged[".snp"].open("w", newline="\n"))
             bed.write(b"\x6c\x1b\x01")
-            for marker in aadr_markers(panel, reflib_dir):
+            markers = (
+                aadr_markers(panel, reflib_dir)
+                if panel == "2m"
+                else aadr_markers(panel)
+            )
+            for marker in markers:
                 genotype = "--"
                 coordinate = _marker_coordinate(marker, lifter)
                 if coordinate:

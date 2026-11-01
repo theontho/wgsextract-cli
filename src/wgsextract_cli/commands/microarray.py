@@ -61,6 +61,7 @@ from ._microarray_vcf import (
     _alignment_chromosomes,
     _normalize_region_args_for_input,
     _prepare_microarray_vcf,
+    _prepare_vcf_target_tab_for_input,
 )
 
 _MICROARRAY_TEMPLATE_MAP = {
@@ -159,6 +160,7 @@ def _convert_microarray_outputs(
     aadr_vcf: str | None = None,
     aadr_workdir: str | None = None,
     indel_calls: IndelCalls | None = None,
+    legacy_combined_kit_txt: str | None = None,
 ) -> None:
     from wgsextract_cli.core.microarray_utils import (
         convert_to_vendor_format,
@@ -177,20 +179,20 @@ def _convert_microarray_outputs(
     requested_formats = args.formats.split(",")
 
     # 3. Liftover if needed (vendor templates use hg19 coordinates)
-    final_txt = combined_kit_txt
+    final_txt = legacy_combined_kit_txt or combined_kit_txt
     chain = (
         _liftover_chain_for(lib)
         if any(aadr_panel(key) is None for key in requested_formats)
         else None
     )
     if chain:
-        combined_path = Path(combined_kit_txt)
+        combined_path = Path(final_txt)
         hg19_txt = str(combined_path.with_name(combined_path.stem + "_hg19.txt"))
         logging.info(LOG_MESSAGES["micro_liftover_warn"])
         start_lift = time.time()
         try:
             liftover_hg38_to_hg19(
-                combined_kit_txt,
+                final_txt,
                 hg19_txt,
                 chain,
                 templates_dir=template_search_roots,
@@ -230,7 +232,11 @@ def _convert_microarray_outputs(
                         vcf_nocalls = aadr_vcf_nocalls(aadr_vcf, aadr_workdir or outdir)
                 write_aadr_outputs(
                     panel,
-                    combined_kit_txt,
+                    (
+                        combined_kit_txt
+                        if panel == "2m"
+                        else legacy_combined_kit_txt or combined_kit_txt
+                    ),
                     output_prefix,
                     sample_id=getattr(args, "aadr_sample_id", "sample"),
                     sex=getattr(args, "aadr_sex", "U"),
@@ -315,6 +321,8 @@ def run(args: argparse.Namespace) -> None:
     requested = args.formats.split(",")
     aadr_panels = [panel for key in requested if (panel := aadr_panel(key))]
     legacy_requested = any(aadr_panel(key) is None for key in requested)
+    is_vcf = args.input.endswith((".vcf", ".vcf.gz", ".bcf"))
+    lifter = None
     if aadr_panels:
         validate_aadr_sample_id(getattr(args, "aadr_sample_id", "sample"))
         if "2m" in aadr_panels:
@@ -324,6 +332,7 @@ def run(args: argparse.Namespace) -> None:
                     "projection is not supported."
                 )
             require_aadr_2m(lib.root)
+            lifter = aadr_lifter(lib.build, outdir, lib.root, allow_download=False)
 
     logging.debug(f"Resolved Reference FASTA: {ref_fasta}")
     logging.debug(f"Resolved Target SNP Tab: {ref_vcf_tab}")
@@ -369,15 +378,28 @@ def run(args: argparse.Namespace) -> None:
             lib.root, lib.build, _template_search_roots(ref_fasta, lib)
         )
 
+    legacy_target = None
+    legacy_workdir = None
     if aadr_panels:
         Path(outdir).mkdir(parents=True, exist_ok=True)
         calling_outdir = tempfile.mkdtemp(prefix="AADR_", dir=outdir)
         try:
-            lifter = (
-                aadr_lifter(lib.build, calling_outdir, lib.root, allow_download=False)
-                if "2m" in aadr_panels
-                else aadr_lifter(lib.build, calling_outdir, lib.root)
-            )
+            if "2m" not in aadr_panels:
+                lifter = aadr_lifter(lib.build, calling_outdir, lib.root)
+            legacy_panels = [panel for panel in aadr_panels if panel != "2m"]
+            if "2m" in aadr_panels and is_vcf and (legacy_panels or legacy_requested):
+                legacy_workdir = str(Path(calling_outdir, "legacy"))
+                Path(legacy_workdir).mkdir()
+                legacy_target = (
+                    build_aadr_target(
+                        legacy_panels,
+                        legacy_workdir,
+                        lifter,
+                        ref_vcf_tab if args.ref_vcf_tab or legacy_requested else None,
+                    )
+                    if legacy_panels
+                    else ref_vcf_tab
+                )
             ref_vcf_tab = build_aadr_target(
                 aadr_panels,
                 calling_outdir,
@@ -407,7 +429,6 @@ def run(args: argparse.Namespace) -> None:
     # 1. Variant Calling or VCF Extraction
     base_name = input_stem(args.input)
     out_vcf = str(Path(calling_outdir, f"{base_name}_combined.vcf.gz"))
-    is_vcf = args.input.endswith((".vcf", ".vcf.gz", ".bcf"))
     if not is_vcf:
         warn_about_alignment(args.input, ref_fasta)
     calling_args = args
@@ -480,6 +501,21 @@ def run(args: argparse.Namespace) -> None:
         ref_fasta=ref_fasta,
         ref_vcf_tab=ref_vcf_tab,
     )
+    legacy_combined_kit_txt = None
+    if legacy_target and legacy_workdir:
+        legacy_target = _prepare_vcf_target_tab_for_input(
+            legacy_target, out_vcf, legacy_workdir
+        )
+        legacy_combined_kit_txt = _write_microarray_combined_kit(
+            args=args,
+            outdir=legacy_workdir,
+            base_name=base_name,
+            is_vcf=True,
+            out_vcf=out_vcf,
+            ref_fasta=ref_fasta,
+            ref_vcf_tab=legacy_target,
+            restrict_reference_fill=True,
+        )
     _convert_microarray_outputs(
         args=args,
         outdir=outdir,
@@ -491,6 +527,7 @@ def run(args: argparse.Namespace) -> None:
         aadr_vcf=out_vcf if is_vcf and aadr_panels else None,
         aadr_workdir=calling_outdir if aadr_panels else None,
         indel_calls=indel_calls,
+        legacy_combined_kit_txt=legacy_combined_kit_txt,
     )
 
 

@@ -44,6 +44,7 @@ def installed_2m(tmp_path, markers, monkeypatch):
         "rs3 1 0.003 300 G A\n"
         "rs4 1 0.004 400 A C\n"
         "rs5 23 0.005 500 A G\n"
+        "new_probe_x 23 0.0055 550 T C\n"
     )
     monkeypatch.setattr(
         aadr_resources,
@@ -150,11 +151,128 @@ def test_explicit_install_uses_verified_shared_fetch_and_is_idempotent(
 def test_2m_grch38_requires_an_installed_chain_without_auto_fetch(
     tmp_path, monkeypatch
 ):
+    (tmp_path / "hg19ToHg38.over.chain.gz").write_bytes(
+        gzip.compress(b"chain 1000 chr1 1000 + 0 500 chr1 1100 + 100 600 1\n500\n\n")
+    )
     monkeypatch.setattr(
         aadr, "download_file", lambda *a, **kw: pytest.fail("runtime chain download")
     )
     with pytest.raises(WGSExtractError, match="installed hg19ToHg38"):
         aadr.aadr_lifter("hg38", str(tmp_path), allow_download=False)
+
+
+def test_mixed_2m_vendor_preflights_chain_before_consumer_target_build(
+    tmp_path, installed_2m, monkeypatch
+):
+    input_file = tmp_path / "input.vcf"
+    input_file.touch()
+    fasta = tmp_path / "hg38.fa"
+    fasta.touch()
+    monkeypatch.setattr(microarray, "calculate_bam_md5", lambda *_: "")
+    monkeypatch.setattr(microarray, "verify_dependencies", lambda *_: None)
+    monkeypatch.setattr(microarray, "log_dependency_info", lambda *_: None)
+    monkeypatch.setattr(
+        microarray,
+        "ReferenceLibrary",
+        lambda *a, **kw: SimpleNamespace(
+            root=str(installed_2m),
+            build="hg38",
+            fasta=str(fasta),
+            ref_vcf_tab=None,
+            ploidy_file=None,
+            liftover_chain="unused",
+        ),
+    )
+    monkeypatch.setattr(
+        microarray,
+        "build_genome_wide_target",
+        lambda *a: pytest.fail(
+            "consumer target preparation ran before chain preflight"
+        ),
+    )
+    monkeypatch.setattr(
+        aadr, "download_file", lambda *a, **kw: pytest.fail("runtime chain download")
+    )
+    output = tmp_path / "not_created"
+    with pytest.raises(WGSExtractError, match="installed hg19ToHg38"):
+        microarray.run(
+            argparse.Namespace(
+                input=str(input_file),
+                ref=str(installed_2m),
+                formats="aadr_2m,23andme_v5",
+                threads="1",
+                outdir=str(output),
+                ref_vcf_tab=None,
+                ploidy_file=None,
+            )
+        )
+    assert not output.exists()
+
+
+@needs_tools("bcftools", "bgzip", "tabix", "samtools")
+@pytest.mark.parametrize("chroms", [("chr1", "chrX"), ("1", "X")])
+def test_sparse_vcf_2m_only_hit_does_not_reference_fill_legacy_panels(
+    tmp_path, installed_2m, monkeypatch, chroms
+):
+    fasta = tmp_path / "hg19.fa"
+    sequence = list("A" * 600)
+    sequence[199], sequence[299], sequence[549] = "C", "G", "T"
+    fasta.write_text("".join(f">{chrom}\n{''.join(sequence)}\n" for chrom in chroms))
+    run_command(["samtools", "faidx", str(fasta)])
+    plain = tmp_path / "input.vcf"
+    plain.write_text(
+        "##fileformat=VCFv4.2\n"
+        + "".join(f"##contig=<ID={chrom},length=600>\n" for chrom in chroms)
+        + '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample\n"
+        f"{chroms[0]}\t100\trs1\tA\tG\t.\tPASS\t.\tGT\t1/1\n"
+        f"{chroms[1]}\t550\tnew_probe_x\tT\tC\t.\tPASS\t.\tGT\t0/1\n"
+    )
+    compressed = str(plain) + ".gz"
+    with open(compressed, "wb") as stream:
+        run_command(["bgzip", "-c", str(plain)], stdout=stream)
+    run_command(["tabix", "-p", "vcf", compressed])
+    lib = SimpleNamespace(
+        root=str(installed_2m),
+        build="hg19",
+        fasta=str(fasta),
+        ref_vcf_tab=None,
+        ploidy_file=None,
+        liftover_chain=None,
+    )
+    monkeypatch.setattr(microarray, "ReferenceLibrary", lambda *a, **kw: lib)
+    args = argparse.Namespace(
+        input=compressed,
+        ref=str(fasta),
+        outdir=str(tmp_path / "legacy"),
+        threads="1",
+        region=None,
+        formats="aadr_1240k,aadr_ho",
+        parallel=False,
+        ref_vcf_tab=None,
+        ploidy_file=None,
+    )
+    microarray.run(args)
+    baseline = {
+        path.name: path.read_bytes()
+        for path in (tmp_path / "legacy").glob("input_AADR_*")
+    }
+    args.formats = "aadr_2m,aadr_1240k,aadr_ho"
+    args.outdir = str(tmp_path / "mixed")
+    microarray.run(args)
+    assert len(baseline) == 12
+    assert all(
+        (tmp_path / "mixed" / name).read_bytes() == data
+        for name, data in baseline.items()
+    )
+    assert (tmp_path / "mixed/input_AADR_ho.geno").read_text().splitlines()[-1] == "9"
+    snps = (tmp_path / "mixed/input_AADR_2m.snp").read_text().splitlines()
+    genotypes = (tmp_path / "mixed/input_AADR_2m.geno").read_text().splitlines()
+    projected = {
+        snp.split()[0]: genotype for snp, genotype in zip(snps, genotypes, strict=True)
+    }
+    assert projected["rs5"] == "2"
+    assert projected["new_probe_x"] == "1"
 
 
 @pytest.mark.parametrize("build", ["t2t", "unknown"])

@@ -45,6 +45,11 @@ The 2M panel contains **2,142,271** GRCh37 SNPs, including every current v66.p1
 alleles. It is **not** the separate 1,243,531-site `2M_compatibility` panel.
 It is excluded from `--formats all`; legacy panel choices and defaults are unchanged.
 Selecting `aadr_2m,aadr_1240k,aadr_ho` writes each panel separately.
+For a variant-only VCF, legacy reference-fill eligibility is evaluated against
+the original legacy target set: a 2M-only hit cannot turn a previously missing
+legacy chromosome into homozygous reference. Sparse VCFs can therefore have
+different absent-site calls in the two panels. Use `--no-assume-hom-ref` to
+avoid the inherited reference-filling assumption.
 
 **Genetic maps are not interchangeable:** the official 2M genetic distance
 differs at **1,200,251** legacy 1240K sites (**583,490** HO sites). Each export
@@ -105,7 +110,10 @@ No individual genotypes, annotations or identifiers are installed.
 The AADR target and calling intermediates are retained in a unique
 `AADR_*` subdirectory of the output directory for each invocation, isolating
 concurrent samples/builds/panels. The chain is reused read-only from the reference
-library when installed, otherwise downloaded into that invocation's directory.
+library when installed, otherwise downloaded into that invocation's directory
+for legacy-only runs. Runs selecting 2M require it in the library before any
+consumer-target preparation; even a chain left in an output directory is not
+treated as an installed 2M prerequisite.
 The intermediate CombinedKit and calling VCF also stay in that directory;
 the selected PLINK/EIGENSTRAT and vendor exports are written at the output root.
 Legacy cached consumer-chip targets are not
