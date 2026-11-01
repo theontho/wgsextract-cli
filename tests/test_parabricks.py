@@ -13,7 +13,7 @@ import pytest
 from tests.htslib_helpers import needs_tools, sam_to_bam
 from wgsextract_cli.commands import align
 from wgsextract_cli.commands.vcf import callers, deepvariant
-from wgsextract_cli.core import containers, parabricks
+from wgsextract_cli.core import containers, native_support, parabricks
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 
@@ -24,6 +24,7 @@ def _completed(returncode: int = 0, stdout: str = "", stderr: str = ""):
 @pytest.fixture
 def linux(monkeypatch):
     monkeypatch.setattr(parabricks.sys, "platform", "linux")
+    monkeypatch.setattr(native_support.platform, "machine", lambda: "x86_64")
 
 
 def _tools(monkeypatch, *present: str) -> None:
@@ -75,7 +76,9 @@ def test_parabricks_is_linux_only(monkeypatch):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
-def test_the_container_sees_each_directory_at_its_own_path(tmp_path, monkeypatch):
+def test_the_container_sees_each_directory_at_its_own_path(
+    tmp_path, monkeypatch, linux
+):
     _tools(monkeypatch, "docker")
     monkeypatch.setattr(parabricks, "parabricks_image", lambda: "pb:test")
     calls = []
@@ -209,7 +212,7 @@ def _call_args(tmp_path: Path, **extra) -> Namespace:
     ],
 )  # fmt: skip
 def test_gpu_calling_runs_the_parabricks_caller(
-    tmp_path, monkeypatch, module, command, tool, extra, expected_extra
+    tmp_path, monkeypatch, linux, module, command, tool, extra, expected_extra
 ):
     monkeypatch.setattr(module, "verify_dependencies", lambda *_a: None)
     monkeypatch.setattr(parabricks, "verify_parabricks", lambda: None)
@@ -228,7 +231,7 @@ def test_gpu_calling_runs_the_parabricks_caller(
     assert pb_args[pb_args.index("-L") :] == ["-L", "chr20", "-L", "chr21:1-500", *expected_extra]  # fmt: skip
 
 
-def test_gpu_deepvariant_refuses_a_custom_checkpoint(tmp_path):
+def test_gpu_deepvariant_refuses_a_custom_checkpoint(tmp_path, linux):
     with pytest.raises(WGSExtractError, match="checkpoint"):
         deepvariant.cmd_deepvariant(_call_args(tmp_path, checkpoint="model.ckpt"))
 

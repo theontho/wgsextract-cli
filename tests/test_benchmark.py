@@ -16,6 +16,7 @@ from wgsextract_cli.commands.benchmark import models as _benchmark_models
 from wgsextract_cli.commands.benchmark import qc as _benchmark_qc
 from wgsextract_cli.commands.benchmark import reports as _benchmark_reports
 from wgsextract_cli.commands.benchmark import setup as _benchmark_setup
+from wgsextract_cli.core import native_support
 
 
 class _ModuleGroup:
@@ -451,6 +452,8 @@ def test_heavy_suite_runs_extra_processing_steps(
 def test_heavy_processing_steps_include_local_only_commands(
     tmp_path: Path, monkeypatch
 ) -> None:
+    monkeypatch.setattr(native_support.platform, "machine", lambda: "x86_64")
+
     def touch(path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"x")

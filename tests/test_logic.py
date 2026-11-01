@@ -1051,6 +1051,7 @@ class TestCLILogic(unittest.TestCase):
         with (
             patch.object(vcf, "get_tool_path", return_value="run_deepvariant"),
             patch.object(vcf, "verify_dependencies"),
+            patch.object(vcf, "require_native_tool"),
             patch.object(
                 vcf,
                 "get_base_args",

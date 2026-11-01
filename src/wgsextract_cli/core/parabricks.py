@@ -23,6 +23,7 @@ from wgsextract_cli.core.containers import (
     host_path as host_path,
 )
 from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.native_support import require_native_tool
 from wgsextract_cli.core.utils import WGSExtractError
 
 DEFAULT_IMAGE = "nvcr.io/nvidia/clara/clara-parabricks:4.8.0-1"
@@ -38,6 +39,7 @@ def parabricks_image() -> str:
 
 def verify_parabricks() -> None:
     """Raise WGSExtractError naming the first missing piece of a Parabricks setup."""
+    require_native_tool("parabricks")
     image = parabricks_image()
     setup = _SETUP.format(image=image)
     if not sys.platform.startswith("linux"):
@@ -60,6 +62,7 @@ def verify_parabricks() -> None:
 
 def run_pbrun(tool: str, args: list[str], paths: Iterable[str | None]) -> None:
     """Run `pbrun <tool> <args>` in the Parabricks container (see run_container)."""
+    require_native_tool("parabricks")
     logging.info(f"Running Parabricks {tool} on the GPU...")
     try:
         run_container(parabricks_image(), ["pbrun", tool, *args], paths, gpus=True)
@@ -77,6 +80,7 @@ def call_variants(
 ) -> None:
     """GPU variant calling (pbrun deepvariant or haplotypecaller) into out_vcf;
     a comma-separated --region becomes one interval each."""
+    require_native_tool("parabricks")
     intervals = [arg for r in (region or "").split(",") if r for arg in ("-L", r)]
     with tempfile.TemporaryDirectory(
         dir=str(Path(out_vcf).parent), prefix=".wgse_pb_"

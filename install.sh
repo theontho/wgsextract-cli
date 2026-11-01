@@ -438,14 +438,6 @@ remove_legacy_gui_launchers() {
 }
 
 OS_NAME="$(uname -s)"
-if [ "$OS_NAME" = "Linux" ]; then
-    MACHINE="$(uname -m)"
-    case "$MACHINE" in
-        aarch64|arm64)
-            fail "Native Linux ARM64 ($MACHINE) is not supported yet. Use a supported x86_64 Linux host or wait for native ARM64 support. No dependencies were installed."
-            ;;
-    esac
-fi
 case "$OS_NAME" in
     Darwin|Linux)
         ;;
@@ -477,9 +469,9 @@ fi
 
 print_banner
 log "This installer will:"
-log "  1. Use Pixi if it is already installed, or install Pixi if it is missing."
-log "  2. Download WGS Extract CLI from:"
+log "  1. Download WGS Extract CLI from:"
 log "     $ARCHIVE_URL"
+log "  2. Use Pixi if it is already installed, or install Pixi if it is missing."
 log "  3. Install or update the app in:"
 log "     $INSTALL_DIR"
 log "  4. Create the CLI launcher:"
@@ -508,15 +500,63 @@ PIXI_BIN_DIR=""
 CREATED_PROFILES=""
 WORK_DIR=""
 pixi_work_dir=""
+INSTALL_DIR_CREATED=0
 cleanup() {
     [ -z "$WORK_DIR" ] || rm -rf "$WORK_DIR"
     [ -z "$pixi_work_dir" ] || rm -rf "$pixi_work_dir"
+    if [ "$INSTALL_DIR_CREATED" -eq 1 ]; then
+        rmdir "$INSTALL_DIR" 2>/dev/null || true
+    fi
 }
 trap cleanup EXIT
 trap 'cleanup; exit 1' INT HUP TERM
 if [ -n "$PIXI" ] && [ ! -x "$PIXI" ]; then
     fail "PIXI is set but is not executable: $PIXI"
 fi
+
+if [ ! -d "$INSTALL_DIR" ]; then
+    mkdir -p "$INSTALL_DIR"
+    INSTALL_DIR_CREATED=1
+fi
+WORK_DIR="$(make_staging_directory "$INSTALL_DIR" ".source-download")"
+
+ARCHIVE="$WORK_DIR/wgsextract-cli.tar.gz"
+EXTRACT_DIR="$WORK_DIR/source"
+mkdir -p "$EXTRACT_DIR"
+
+log "Downloading WGS Extract CLI from $ARCHIVE_URL"
+download_source_archive "$ARCHIVE_URL" "$ARCHIVE_FALLBACK_URL" "$ARCHIVE"
+tar -xzf "$ARCHIVE" -C "$EXTRACT_DIR"
+
+SOURCE_DIR="$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+if [ -z "$SOURCE_DIR" ]; then
+    fail "Downloaded archive did not contain a source directory."
+fi
+
+case "$OS_NAME:$(uname -m)" in
+    Linux:aarch64|Linux:arm64)
+        # Inspect the workspace declaration, not a feature's platforms or a comment.
+        if ! awk '
+            {
+                sub(/#.*/, "")
+                if (!collecting && /^[[:space:]]*\[/)
+                    workspace = /^[[:space:]]*\[(workspace|project)\][[:space:]]*$/
+                if (!collecting && workspace && /^[[:space:]]*platforms[[:space:]]*=/)
+                    collecting = 1
+                if (collecting) {
+                    platforms = platforms " " $0
+                    if (index($0, "]")) {
+                        print platforms
+                        exit
+                    }
+                }
+            }
+        ' "$SOURCE_DIR/pixi.toml" 2>/dev/null |
+            grep -Eq "^[[:space:]]*platforms[[:space:]]*=[[:space:]]*\\[([^]#]*,)?[[:space:]]*(\"linux-aarch64\"|'linux-aarch64')[[:space:]]*(,|\\])"; then
+            fail "Downloaded ref '$REF' does not support native Linux ARM64 (linux-aarch64). No dependencies were installed and the existing app was not changed. Use WGSEXTRACT_REF=main or a release that includes this change."
+        fi
+        ;;
+esac
 
 if [ -z "$PIXI" ]; then
     if command_exists pixi; then
@@ -540,20 +580,6 @@ if [ -z "$PIXI" ]; then
 fi
 
 mkdir -p "$TMP_DIR" "$BIN_DIR" "$PIXI_CACHE_DIR" "$PIXI_ENV_DIR"
-WORK_DIR="$(make_staging_directory "$TMP_DIR" "install")"
-
-ARCHIVE="$WORK_DIR/wgsextract-cli.tar.gz"
-EXTRACT_DIR="$WORK_DIR/source"
-mkdir -p "$EXTRACT_DIR"
-
-log "Downloading WGS Extract CLI from $ARCHIVE_URL"
-download_source_archive "$ARCHIVE_URL" "$ARCHIVE_FALLBACK_URL" "$ARCHIVE"
-tar -xzf "$ARCHIVE" -C "$EXTRACT_DIR"
-
-SOURCE_DIR="$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-if [ -z "$SOURCE_DIR" ]; then
-    fail "Downloaded archive did not contain a source directory."
-fi
 
 rm -rf "$APP_DIR.new"
 mv "$SOURCE_DIR" "$APP_DIR.new"

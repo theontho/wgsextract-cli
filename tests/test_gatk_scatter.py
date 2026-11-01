@@ -225,7 +225,8 @@ def test_cancellation_reaps_java_children_and_launcher(monkeypatch):
     ]
 
 
-def test_gatk_scatter_rejects_gpu_before_any_work():
+def test_gatk_scatter_rejects_gpu_before_any_work(monkeypatch):
+    monkeypatch.setattr(callers, "require_native_tool", lambda _tool: None)
     with pytest.raises(WGSExtractError, match="cannot be combined"):
         callers.cmd_gatk(Namespace(scatter=True, gpu=True))
 
@@ -234,6 +235,7 @@ def test_atomic_scattered_gatk_rebuilds_the_published_vcf_index(tmp_path, monkey
     from wgsextract_cli.core.atomic_output import atomic_output_mode
 
     output = tmp_path / "gatk.vcf.gz"
+    monkeypatch.setattr(callers, "require_native_tool", lambda _tool: None)
     output.write_text("previous VCF")
     index = Path(str(output) + ".tbi")
     index.write_text("previous index")

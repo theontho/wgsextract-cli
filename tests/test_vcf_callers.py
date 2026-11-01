@@ -145,6 +145,7 @@ def _mock_gatk(monkeypatch, tmp_path, run):
     stands in for run_command."""
     lib = Namespace(dict_file=str(tmp_path / "ref.dict"))
     monkeypatch.setattr(callers, "verify_dependencies", lambda _tools: None)
+    monkeypatch.setattr(callers, "require_native_tool", lambda _tool: None)
     monkeypatch.setattr(
         callers, "get_base_args", lambda _a: ("2", str(tmp_path), "ref.fa", lib)
     )

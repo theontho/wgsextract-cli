@@ -1,8 +1,9 @@
-"""Reject unavailable Windows features before resolving inputs or creating outputs."""
+"""Reject unavailable features before resolving inputs or creating outputs."""
 
 import argparse
 import sys
 
+from wgsextract_cli.core.native_support import require_native_tool
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.core.windows_arm64 import (
@@ -41,6 +42,16 @@ def _phylop_needs_bigwig(args: argparse.Namespace) -> bool:
 
 def verify_platform_support(args: argparse.Namespace) -> None:
     command = getattr(args, "command", None)
+    if command in {"align", "realign"} and getattr(args, "gpu", False):
+        require_native_tool("parabricks")
+    if command in {"align", "realign"} and getattr(args, "platform", None) == "ultima":
+        require_native_tool("gatk")
+    if command == "deps" and getattr(args, "tool", None):
+        require_native_tool(args.tool)
+    if command == "vcf":
+        subcommand = getattr(args, "vcf_cmd", None)
+        if subcommand in {"gatk", "deepvariant"}:
+            require_native_tool("gatk" if subcommand == "gatk" else "run_deepvariant")
     if (
         not sys.platform.startswith("linux")
         and getattr(args, "gpu", False)

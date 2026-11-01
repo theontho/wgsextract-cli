@@ -22,6 +22,7 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
+from wgsextract_cli.core.native_support import require_native_tool
 from wgsextract_cli.core.paths import absolute_path, java_local_path
 from wgsextract_cli.core.read_counts import fastq_input_statistics
 from wgsextract_cli.core.reference_assets import is_fasta_path
@@ -138,6 +139,7 @@ def select_aligner(args: argparse.Namespace) -> str:
     long_read = args.long_read or args.platform in _LONG_READ_PLATFORMS
     aligner: str = args.aligner
     if args.platform == "ultima":
+        require_native_tool("gatk")
         if aligner not in ("auto", *_BWA_ALIGNERS) or long_read or args.preset:
             raise WGSExtractError(
                 "Ultima reads align with BWA-MEM (--aligner auto, bwa or bwa-mem2), "
@@ -716,6 +718,7 @@ def align_ultima(
     tags travel through the FASTQ comment (-C) in each read's own orientation;
     -Y soft-clips supplementary alignments, so every record keeps the whole
     read its tp/t0 arrays describe. Duplicates are marked in flow mode."""
+    require_native_tool("gatk")
     setup, tool = _bwa_setup(args, "Ultima alignment")
     ext = ".cram" if args.format == "CRAM" else ".bam"
     out_path = str(Path(setup.outdir, f"{setup.stem}_aligned{ext}"))
@@ -787,6 +790,7 @@ def _sort_and_mark_ultima(
 ) -> None:
     """Sort the aligner's output, mark duplicates with Picard's flow mode (GATK),
     or samtools markdup when GATK is missing, then index."""
+    require_native_tool("gatk")
     if get_tool_path("gatk") is None:
         logging.warning(
             "GATK isn't installed, so duplicates are marked with samtools markdup, "

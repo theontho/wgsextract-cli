@@ -1,5 +1,6 @@
 """Ultima Genomics reads: detection, flow-tag orientation and the tooling chosen."""
 
+import platform
 import subprocess
 from argparse import Namespace
 
@@ -9,13 +10,19 @@ from tests.htslib_helpers import needs_tools, sam_to_bam
 from wgsextract_cli.commands import align
 from wgsextract_cli.commands._bam_ubam import read_group_from_name
 from wgsextract_cli.commands.vcf import deepvariant
-from wgsextract_cli.core import paths, ultima
+from wgsextract_cli.core import native_support, paths, ultima
 from wgsextract_cli.core.utils import WGSExtractError
 
 _RG = "@RG\tID:Z0138\tFO:TGCATGCA\tPL:ULTIMA\tSM:HG008\tmc:20\ttp:reference"
 _SEQ = "ACGTTGCAAC"
 
 
+@pytest.fixture
+def x64_policy(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+
+
+@pytest.mark.usefixtures("x64_policy")
 def test_flow_markduplicates_windows_argv_uses_native_local_paths(monkeypatch):
     commands = []
     monkeypatch.setattr(paths, "sys", Namespace(platform="win32"))
@@ -128,6 +135,7 @@ def _align_args(**overrides):
     return Namespace(**{**values, **overrides})
 
 
+@pytest.mark.usefixtures("x64_policy")
 def test_ultima_aligns_with_bwa():
     assert align.select_aligner(_align_args()) == "bwa"
     assert align.select_aligner(_align_args(aligner="bwa-mem2")) == "bwa-mem2"
@@ -141,6 +149,7 @@ def test_ultima_aligns_with_bwa():
         ({"r2": "r2.fq"}, "single-end"),
     ],
 )
+@pytest.mark.usefixtures("x64_policy")
 def test_ultima_refuses_what_would_lose_its_flow_data(overrides, message):
     with pytest.raises(WGSExtractError, match=message):
         align.select_aligner(_align_args(**overrides))
@@ -202,6 +211,10 @@ _GENOME = (
 
 
 @needs_tools("samtools", "bwa")
+@pytest.mark.skipif(
+    native_support.tool_unsupported_reason("gatk") is not None,
+    reason="Ultima alignment is outside Linux ARM64 phase-1 qualification",
+)
 def test_align_ultima_bam_carries_flow_tags_through_bwa(tmp_path):
     """Realigning an Ultima BAM: a read the aligner turns around gets its tp/t0
     reversed, its read group (flow order) is kept, and it lands where it came from."""

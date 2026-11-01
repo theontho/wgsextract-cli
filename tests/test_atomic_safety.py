@@ -1,5 +1,6 @@
 import json
 import os
+import platform
 import socket
 import subprocess
 import sys
@@ -128,6 +129,7 @@ def test_atomic_alignment_retires_basename_index_and_config_leaves_neighbors(tmp
 def test_atomic_special_alignment_failure_preserves_the_existing_bam(
     tmp_path, monkeypatch, backend
 ):
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
     from argparse import Namespace
 
     from wgsextract_cli.commands import align

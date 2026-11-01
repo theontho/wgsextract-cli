@@ -11,12 +11,21 @@ Documentation site: <https://theontho.github.io/wgsextract-cli/>. A separate gra
 ## Install
 
 macOS and Linux: open Terminal, paste this command, and press Enter.
-Native Linux ARM64 is not supported yet: the installer refuses before downloading
-or installing dependencies. Native ARM64 support is tracked in #236; this is not
-an x86-emulation fallback.
+Linux x86_64 and native ARM64 (`linux-aarch64`) use the same installer.
+ARM64 phase 1 supports the default alignment/CRAM/calling/export pipeline, VEP,
+Yleaf and Haplogrep; GATK and DeepVariant fail before execution because their
+native ARM64 kernels/distribution are not yet qualified. There is no silent
+Java or x86-emulation fallback. See [Linux ARM64](docs/linux-arm64.md).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh
+```
+
+Native Linux ARM64 needs a release that includes ARM64 support; v0.6.5 and
+earlier do not. Until a supporting release is available, select `main` explicitly:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | WGSEXTRACT_REF=main sh
 ```
 
 The bootstrap script comes from `main`, but it installs the latest published GitHub release, not `main`. It creates `wgsextract-cli/` in the current directory (or next to a downloaded `install.sh`) containing the app (`app/`), Pixi files (`.pixi/`), the `wgsextract` launcher, and `uninstall.sh`. On macOS it checks for the Xcode Command Line Tools first.
