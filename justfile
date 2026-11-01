@@ -7,6 +7,16 @@ set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 default:
     @just --list --unsorted
 
+# Set up a development machine (Pixi, environments, hooks, checks); see docs/developer_setup.md
+[unix]
+setup *args:
+    ./scripts/dev_setup.sh {{args}}
+
+# Set up a development machine (Pixi, environments, hooks, checks); see docs/developer_setup.md
+[windows]
+setup *args:
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/dev_setup.ps1 {{args}}
+
 # Install the default and dev Pixi environments
 install:
     pixi install

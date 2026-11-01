@@ -486,9 +486,11 @@ Keep larger runs last and budget their CPU, memory and working space.
 ```bash
 git clone https://github.com/theontho/wgsextract-cli.git
 cd wgsextract-cli
-pixi install
-pixi run wgsextract --help
+./scripts/dev_setup.sh   # Windows: powershell -ExecutionPolicy Bypass -File scripts\dev_setup.ps1
+just run --help
 ```
+
+The setup script installs Pixi, the environments, `just` and the pre-commit hooks, then checks that everything works. [docs/developer_setup.md](docs/developer_setup.md) covers what it does and how to make a change, by hand or with an AI agent.
 
 Use `pathlib.Path` for filesystem operations. Shared path helpers accept strings
 and `os.PathLike[str]` (the `PathInput` alias in `core.paths`); keep path objects
