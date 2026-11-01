@@ -59,7 +59,10 @@ Tests (`tests/`):
 - `fp_semantics.cc`: reports control-register flush/denormal/tininess behaviour and
   the fingerprints of the libm results GKL uses (`libm_*`, which must match across
   platforms; on Windows also the raw UCRT `crt_*`).
-- `omp_fpcr_state.cc`: checks per-worker FZ and full FPCR restoration.
+- `omp_fpcr_state.cc`: on a cold OpenMP pool, runs the production FZ arrangement and
+  then asserts in an unguarded region that every pool thread is back to its original
+  FPCR. It also checks per-worker FZ and full FPCR restoration. `legacy` mode runs the
+  pre-fix caller guard; the Linux build requires it to leak (exit 2).
 - `GklVectorProbe.java`: native float/double and Java `LoglessPairHMM` bits over
   GKL test vectors and seeded random batches, plus all 14,196 GKL Smith-Waterman
   test pairs × 4 overhang strategies.

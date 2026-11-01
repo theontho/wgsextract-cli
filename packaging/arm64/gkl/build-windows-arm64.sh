@@ -113,6 +113,9 @@ done
     -o "$BUILD/fp_semantics.exe"
 "$CXX" "${COMMON[@]}" -fopenmp "$HERE/tests/omp_fpcr_state.cc" -static -fopenmp \
     -o "$BUILD/omp_fpcr_state.exe"
+# Informational: Windows threads start with a default FPCR, so the pre-fix caller guard
+# is not expected to leak here (exit 2 would mean it does).
+"$BUILD/omp_fpcr_state.exe" legacy || echo "omp_fpcr_state legacy status $?"
 "$BUILD/omp_fpcr_state.exe"
 
 JAVA_SRC="$SRC/src/main/java/com/intel/gkl"

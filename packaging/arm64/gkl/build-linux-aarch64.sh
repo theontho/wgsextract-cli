@@ -85,6 +85,14 @@ done
 
 "$CXX" "${COMMON[@]}" -std=c++17 -fopenmp "$HERE/tests/fp_semantics.cc" -o "$BUILD/fp_semantics"
 "$CXX" "${COMMON[@]}" -fopenmp "$HERE/tests/omp_fpcr_state.cc" -o "$BUILD/omp_fpcr_state"
+# Negative control: the pre-fix caller guard must visibly leak FZ into libgomp's pool,
+# otherwise the cold-pool check above proves nothing.
+status=0
+"$BUILD/omp_fpcr_state" legacy || status=$?
+if [ "$status" != 2 ]; then
+    echo "omp_fpcr_state legacy did not reproduce the FZ pool leak (status $status)" >&2
+    exit 1
+fi
 "$BUILD/omp_fpcr_state"
 
 JAVA_SRC="$SRC/src/main/java/com/intel/gkl"

@@ -169,7 +169,7 @@ index b9bf647..52918ac 100644
          /*
           Initializes the function pointers to use machine specific optimized code
 diff --git a/src/main/native/common/ScopedFtzDaz.h b/src/main/native/common/ScopedFtzDaz.h
-index 4cf3575..a05dada 100644
+index 4cf3575..1cf49f3 100644
 --- a/src/main/native/common/ScopedFtzDaz.h
 +++ b/src/main/native/common/ScopedFtzDaz.h
 @@ -1,9 +1,19 @@
@@ -193,7 +193,7 @@ index 4cf3575..a05dada 100644
      unsigned int saved_;
  public:
      ScopedFtzDaz() : saved_(_mm_getcsr()) {
-@@ -12,6 +22,7 @@ public:
+@@ -12,8 +22,19 @@ public:
      ~ScopedFtzDaz() {
          _mm_setcsr(saved_);
      }
@@ -201,6 +201,18 @@ index 4cf3575..a05dada 100644
      ScopedFtzDaz(const ScopedFtzDaz&) = delete;
      ScopedFtzDaz& operator=(const ScopedFtzDaz&) = delete;
  };
+ 
++// FP guard for the thread that calls a kernel batch. OpenMP builds must guard only
++// inside the parallel region, which every team thread (the caller included) enters:
++// with FZ set before the region, pool workers created there inherit it (Linux copies
++// FPCR into new threads), and their in-region guards then restore FZ=on for good.
++#if defined(WGSE_GKL_NEON) && !defined(_OPENMP)
++#define WGSE_CALLER_FTZ_GUARD ScopedFtzDaz wgseCallerFpState
++#else
++#define WGSE_CALLER_FTZ_GUARD do { } while (0)
++#endif
++
+ #endif
 diff --git a/src/main/native/common/avx.h b/src/main/native/common/avx.h
 index f03d9c6..6b23b6a 100644
 --- a/src/main/native/common/avx.h
@@ -1100,7 +1112,7 @@ index 20e66b8..0f385f6 100644
  
    static float _(double n){ return ((float) n); }
 diff --git a/src/main/native/pairhmm/IntelPairHmm.cc b/src/main/native/pairhmm/IntelPairHmm.cc
-index a257623..40ec9ab 100644
+index a257623..b60cbfa 100644
 --- a/src/main/native/pairhmm/IntelPairHmm.cc
 +++ b/src/main/native/pairhmm/IntelPairHmm.cc
 @@ -23,8 +23,8 @@
@@ -1129,18 +1141,16 @@ index a257623..40ec9ab 100644
  
    // set function pointers
  #ifndef WGSE_GKL_AVX_ONLY
-@@ -149,6 +154,10 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_pairhmm_IntelPairHmm_computeLikelihood
+@@ -149,6 +154,8 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_pairhmm_IntelPairHmm_computeLikelihood
    
    //==================================================================
    // calcutate pairHMM
-+#ifdef WGSE_GKL_NEON
-+  // Calling thread: FZ only for this call; OpenMP workers scope their own below.
-+  ScopedFtzDaz callerFpState;
-+#endif
++  // Arm: FZ only for this call (see ScopedFtzDaz.h); OpenMP threads scope it below.
++  WGSE_CALLER_FTZ_GUARD;
  
          #ifdef _OPENMP
                #pragma omp parallel num_threads(g_max_threads)
-@@ -163,10 +172,10 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_pairhmm_IntelPairHmm_computeLikelihood
+@@ -163,10 +170,10 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_pairhmm_IntelPairHmm_computeLikelihood
  
              if (result_float < MIN_ACCEPTED) {
                double result_double = g_compute_full_prob_double(&testcases[i]);

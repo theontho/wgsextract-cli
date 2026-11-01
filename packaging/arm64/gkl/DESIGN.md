@@ -73,12 +73,20 @@ Conclusion: no validated, exact Arm64 GKL exists. We port GKL's own kernels.
 6. **FTZ:** GKL sets FTZ (x86 MXCSR) around the kernels and the OMP workers. On Arm we
    set FPCR.FZ only for the duration of each compute call:
    - `ScopedFtzDaz` has an FPCR branch that saves, sets and restores FPCR;
-   - `computeLikelihoodsNative` holds one on the calling thread, and each OMP worker
-     region holds its own;
+   - in the OpenMP library the guard sits only inside the parallel region, which every
+     team thread (the caller included) enters. Setting FZ on the caller before the
+     region would leak: Linux copies FPCR into new threads, so a cold libgomp pool would
+     start with FZ on, and each worker's guard would then restore FZ=on. The
+     single-threaded library guards the calling thread around the loop instead
+     (`WGSE_CALLER_FTZ_GUARD`);
    - stock `initialize` sets FTZ persistently on x86. The Arm build skips that, so
      FPCR is unchanged after `initialize`, compute and `done()`, and Java code never
      runs with FZ on;
-   - `omp_fpcr_state.cc` verifies each worker's FZ and the full FPCR restore, and
+   - `omp_fpcr_state.cc` runs the production arrangement on a cold pool, then asserts
+     that every pool thread's full FPCR equals the original in a later unguarded region.
+     Its `legacy` mode (caller guard before the region) must reproduce the leak on
+     Linux, which proves the check works. It also verifies each worker's FZ and the
+     full FPCR restore;
      `JavaThreadFtzProbe` asserts that the JVM's FP state is clean (see risk 2).
 
    Semantics differ:
