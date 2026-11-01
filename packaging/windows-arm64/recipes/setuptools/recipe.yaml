@@ -17,5 +17,5 @@ build:
 about:
   homepage: https://setuptools.pypa.io/
   license: MIT
-  license_file: setuptools-84.2.1.dist-info/licenses/LICENSE
+  license_file: out/wheel/setuptools-84.2.1.dist-info/licenses/LICENSE
   summary: Setuptools with native ARM64 launchers and foreign templates removed.
