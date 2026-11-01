@@ -107,7 +107,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path out/integration | Out-Null
-          python -m pip install -e . pytest zstandard==0.25.0
+          python -m pip install -e . pytest tomli zstandard==0.25.0
           if ($LASTEXITCODE) { throw "Integration dependency installation failed" }
           python -m pytest packaging/windows-arm64/tests/test_unpack_packages.py packaging/windows-arm64/tests/test_stage_candidate.py tests/test_pixi_hash_restore.py --basetemp=out/integration/pytest-packages
           if ($LASTEXITCODE) { throw "Integration package extraction regression failed" }

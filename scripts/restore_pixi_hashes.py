@@ -1,4 +1,4 @@
-"""Restore manifest-declared direct URL digests dropped by Pixi lock refreshes."""
+"""Restore direct-URL and verified local-archive digests after Pixi lock refreshes."""
 
 from __future__ import annotations
 
@@ -50,7 +50,9 @@ def restore_hashes(
     path_pins: dict[str, str] | None = None,
 ) -> int:
     digests: dict[str, str] = {}
-    for url, digest in declared_digests(tomllib.loads(manifest.read_text())).items():
+    for url, digest in declared_digests(
+        tomllib.loads(manifest.read_text(encoding="utf-8"))
+    ).items():
         base = lock_key(url, manifest.parent)
         if base in digests and digests[base] != digest:
             raise ValueError(f"Conflicting declared digests for {base}")
@@ -67,7 +69,7 @@ def restore_hashes(
             raise ValueError(f"Local archive checksum disagrees with pin for {path}")
         digests[lock_key(path, manifest.parent)] = digest
     found: set[str] = set()
-    lines = lock.read_text().splitlines()
+    lines = lock.read_text(encoding="utf-8").splitlines()
     output: list[str] = []
     restored = 0
     index = 0
@@ -109,7 +111,7 @@ def restore_hashes(
             f"Declared URL pins missing from lock: {digests.keys() - found}"
         )
     if restored:
-        lock.write_text("\n".join(output) + "\n")
+        lock.write_text("\n".join(output) + "\n", encoding="utf-8")
     return restored
 
 
@@ -121,7 +123,7 @@ def main() -> None:
     parser.add_argument("--path-pins", type=Path)
     args = parser.parse_args()
     print(
-        f"Restored {restore_hashes(args.manifest, args.lock, require_all=args.require_all, path_pins=json.loads(args.path_pins.read_text()) if args.path_pins else None)} declared SHA256 pin(s)."
+        f"Restored {restore_hashes(args.manifest, args.lock, require_all=args.require_all, path_pins=json.loads(args.path_pins.read_text(encoding='utf-8')) if args.path_pins else None)} declared SHA256 pin(s)."
     )
 
 
