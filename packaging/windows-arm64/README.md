@@ -44,6 +44,39 @@ The hosted combined prefix audits 156 PE files; a fresh native-only Pixi
 candidate installation on Windows 11 ARM64 audits 153 before test tools are added.
 These are candidate qualification results, not release/full-genome approval.
 
+## Explicit fresh candidate installation
+
+This is an opt-in qualification path, **not** an enabled release environment.
+Use artifacts from one successful `windows_arm64.yml` run, including its
+post-processed setuptools package. Check the run's source revision and package
+qualification evidence before running an installer; keep its logs and SHA-256
+manifest with the results. The staging command rejects incomplete/duplicate
+packages and older Python. It never replaces an existing destination.
+
+```powershell
+python packaging/windows-arm64/stage_candidate.py `
+  --artifact out/native-pipeline.zip --output scratch/native-packages `
+  --qualification-run <successful-run-id>
+pwsh -NoProfile -File packaging/windows-arm64/install_candidate.ps1 `
+  -Packages scratch/native-packages -Source . -Destination scratch/native-install
+```
+
+The explicit setup requires already-installed native ARM64 Pixi and PowerShell 7;
+it rejects an emulated bootstrap process and checks Pixi's PE header. It pins
+the native package artifacts and numerical wheels, creates a fresh Pixi
+environment, and audits every installed PE file. Feature execution never
+installs missing dependencies.
+
+Fresh Windows images may not yet contain a public website's trusted root:
+Python's default Windows-store import cannot itself trigger Windows' automatic
+trusted-root download. A fresh Azure guest initially failed UCSC HTTPS with
+22 roots. Verified native Schannel HTTPS triggered Windows' normal root update
+(23 roots), then unchanged Python HTTPS passed. The installer performs this
+verified preflight and requires Python verification too; it neither disables
+TLS verification nor downloads/imports arbitrary CA certificates. After this
+preflight, the selected 11 native CLI tests and all three aligner truth/thread
+gates passed on the fresh guest.
+
 The free public `windows-11-arm` GitHub runner is available and has 4 cores and
 16 GiB RAM. Its tools are not all native: inspect the actual installed Python,
 Pixi, compilers and every application artifact rather than relying on the label.

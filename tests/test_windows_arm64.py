@@ -79,6 +79,24 @@ def test_arm64_rejects_gatk_java_dispatch_before_process_start(
         )
 
 
+@pytest.mark.parametrize("category", ["mandatory", "optional"])
+def test_arm64_dependency_report_explains_unsupported_tools_without_install_hint(
+    category: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0xAA64)
+    monkeypatch.setattr(dependency_checks, "get_tool_path", lambda tool: None)
+    install = Mock(side_effect=AssertionError("must not suggest an x64 environment"))
+    monkeypatch.setattr(dependency_checks, "pixi_install_command", install)
+    arguments: dict[str, list[str]] = {"mandatory": [], "optional": []}
+    arguments[category] = ["gatk", "run_deepvariant"]
+    results = dependency_checks.check_all_dependencies(**arguments)
+    reports = [row for row in results[category] if row["name"] != "Python Runtime"]
+    assert len(reports) == 2
+    assert all("native Windows ARM64" in row["version"] for row in reports)
+    assert all(row["path"] is None for row in reports)
+    install.assert_not_called()
+
+
 @pytest.mark.parametrize("machine", [0x8664, None])
 def test_x64_windows_gatk_remains_available(
     machine: int | None, monkeypatch: pytest.MonkeyPatch

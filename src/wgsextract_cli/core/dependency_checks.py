@@ -334,6 +334,14 @@ def verify_dependencies(
                     raise WGSExtractError(f"{tool} version {version_str} is too old.")
 
 
+def _missing_tool_hint(tool: str) -> str | None:
+    unsupported = unsupported_windows_arm64_tool(tool)
+    if unsupported:
+        return f"Error: {unsupported}"
+    command = pixi_install_command(tool)
+    return f"Run: {command}" if command else None
+
+
 def check_all_dependencies(
     mandatory: list[str] | None = None,
     optional: list[str] | None = None,
@@ -363,13 +371,7 @@ def check_all_dependencies(
         if tool == "python3":
             continue  # Already checked above as Runtime
         path = get_tool_path(tool)
-        version = (
-            get_tool_version(tool)
-            if path
-            else (
-                f"Run: {command}" if (command := pixi_install_command(tool)) else None
-            )
-        )
+        version = get_tool_version(tool) if path else _missing_tool_hint(tool)
         is_broken = version and version.startswith("Error:")
         present_path = path if not is_broken else None
 
@@ -385,13 +387,7 @@ def check_all_dependencies(
 
     for tool in optional:
         path = get_tool_path(tool)
-        version = (
-            get_tool_version(tool)
-            if path
-            else (
-                f"Run: {command}" if (command := pixi_install_command(tool)) else None
-            )
-        )
+        version = get_tool_version(tool) if path else _missing_tool_hint(tool)
 
         is_broken = version and version.startswith("Error:")
         present_path = path if not is_broken else None
