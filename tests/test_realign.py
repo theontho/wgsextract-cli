@@ -1,5 +1,6 @@
 import gzip
 import logging
+import platform
 import random
 from argparse import Namespace
 from pathlib import Path
@@ -736,6 +737,7 @@ def test_realign_uses_actual_input_count_before_extraction_for_memory_and_disk(
 def test_ultima_realign_counts_index_once_and_passes_through_unknown_counts(
     tmp_path, monkeypatch, source, no_preflight, reads
 ):
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
     calls = []
 
     def count(*_args):

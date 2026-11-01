@@ -44,6 +44,10 @@ def verify_platform_support(args: argparse.Namespace) -> None:
     command = getattr(args, "command", None)
     if command in {"align", "realign"} and getattr(args, "gpu", False):
         require_native_tool("parabricks")
+    if command in {"align", "realign"} and getattr(args, "platform", None) == "ultima":
+        require_native_tool("gatk")
+    if command == "deps" and getattr(args, "tool", None):
+        require_native_tool(args.tool)
     if command == "vcf":
         subcommand = getattr(args, "vcf_cmd", None)
         if subcommand in {"gatk", "deepvariant"}:

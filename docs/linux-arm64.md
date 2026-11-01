@@ -47,9 +47,15 @@ GATK commands fail fast on Linux ARM64, including `--gpu`: the pinned GKL
 PairHMM and Smith-Waterman kernels require x86 AVX. No slow pure-Java fallback
 is silently enabled. DeepVariant also fails before checking input, launching
 Docker or running a local binary, including `--gpu` and custom images.
-The phase-2 explanation is shown when a gated command or version probe is
-requested; `deps check` marks unavailable optional tools as missing.
+The phase-2 explanation is shown for gated commands, version probes, selected
+`deps check --tool` requests and missing optional tools in `deps check`.
+Unavailable tools are marked missing, without an unusable installation hint.
 Use bcftools for phase-1 variant calling.
+
+Ultima alignment/realignment is outside phase 1 because flow-based duplicate
+marking uses GATK. Explicit `--platform ultima` and automatically detected
+Ultima read groups fail before alignment/reference/output preparation, even
+when GATK is installed. GATK-free Ultima data transformations are unaffected.
 
 GPU alignment/realignment also fails before preparing inputs or inspecting
 Docker: the Parabricks image is not qualified natively on ARM64. Use the

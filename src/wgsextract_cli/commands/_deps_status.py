@@ -4,6 +4,7 @@ import sys
 from typing import Any
 
 from wgsextract_cli.core.dependency_checks import check_all_dependencies
+from wgsextract_cli.core.native_support import require_native_tool
 from wgsextract_cli.core.pixi_tools import pixi_install_command
 from wgsextract_cli.core.utils import WGSExtractError
 
@@ -44,6 +45,7 @@ def _tool_source(tool: dict[str, Any]) -> str:
 
 def run(args: argparse.Namespace) -> None:
     if args.tool:
+        require_native_tool(args.tool)
         from wgsextract_cli.core.dependencies import get_tool_path
 
         path = get_tool_path(args.tool)

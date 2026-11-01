@@ -1,6 +1,7 @@
 import argparse
 import json
 import logging
+import platform as host_platform
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -391,6 +392,7 @@ def test_commands_report_before_work(
 def test_alignment_reports_before_index_building_or_fastq_extraction(
     operation, platform, tmp_path, source, monkeypatch
 ):
+    monkeypatch.setattr(host_platform, "machine", lambda: "x86_64")
     ref = tmp_path / "ref.fa"
     ref.write_text(">chr1\nA\n")
 

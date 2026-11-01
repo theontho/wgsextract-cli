@@ -343,7 +343,7 @@ def verify_dependencies(
 
 
 def _missing_tool_hint(tool: str) -> str | None:
-    unsupported = unsupported_windows_arm64_tool(tool)
+    unsupported = unsupported_windows_arm64_tool(tool) or tool_unsupported_reason(tool)
     if unsupported:
         return f"Error: {unsupported}"
     command = pixi_install_command(tool)
