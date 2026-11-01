@@ -1,0 +1,429 @@
+diff --git a/src/FMI_search.cpp b/src/FMI_search.cpp
+index 5f0ff48..e771911 100644
+--- a/src/FMI_search.cpp
++++ b/src/FMI_search.cpp
+@@ -142,7 +142,7 @@ void FMI_search::pac2nt(const char *fn_pac, std::string &reference_seq)
+ }
+ 
+ int FMI_search::build_fm_index(const char *ref_file_name, char *binary_seq, int64_t ref_seq_len, int64_t *sa_bwt, int64_t *count) {
+-    printf("ref_seq_len = %ld\n", ref_seq_len);
++    printf("ref_seq_len = %" PRId64 "\n", ref_seq_len);
+     fflush(stdout);
+ 
+     char outname[PATH_MAX];
+@@ -152,16 +152,16 @@ int FMI_search::build_fm_index(const char *ref_file_name, char *binary_seq, int6
+     //sprintf(outname, "%s.bwt.2bit.%d", ref_file_name, CP_BLOCK_SIZE);
+ 
+     std::fstream outstream (outname, std::ios::out | std::ios::binary);
+-    outstream.seekg(0);	
++    outstream.seekp(0);	
+ 
+-    printf("count = %ld, %ld, %ld, %ld, %ld\n", count[0], count[1], count[2], count[3], count[4]);
++    printf("count = %" PRId64 ", %" PRId64 ", %" PRId64 ", %" PRId64 ", %" PRId64 "\n", count[0], count[1], count[2], count[3], count[4]);
+     fflush(stdout);
+ 
+     uint8_t *bwt;
+ 
+     ref_seq_len++;
+-    outstream.write((char *)(&ref_seq_len), 1 * sizeof(int64_t));
+-    outstream.write((char*)count, 5 * sizeof(int64_t));
++    wgse_index_stream_write(outstream, (char *)(&ref_seq_len), 1 * sizeof(int64_t));
++    wgse_index_stream_write(outstream, (char*)count, 5 * sizeof(int64_t));
+ 
+     int64_t i;
+     int64_t ref_seq_len_aligned = ((ref_seq_len + CP_BLOCK_SIZE - 1) / CP_BLOCK_SIZE) * CP_BLOCK_SIZE;
+@@ -175,7 +175,7 @@ int FMI_search::build_fm_index(const char *ref_file_name, char *binary_seq, int6
+         if(sa_bwt[i] == 0)
+         {
+             bwt[i] = 4;
+-            printf("BWT[%ld] = 4\n", i);
++            printf("BWT[%" PRId64 "] = 4\n", i);
+             sentinel_index = i;
+         }
+         else
+@@ -192,7 +192,7 @@ int FMI_search::build_fm_index(const char *ref_file_name, char *binary_seq, int6
+                 case 3: bwt[i] = 3;
+                           break;
+                 default:
+-                        fprintf(stderr, "ERROR! i = %ld, c = %c\n", i, c);
++                        fprintf(stderr, "ERROR! i = %" PRId64 ", c = %c\n", i, c);
+                         exit(EXIT_FAILURE);
+             }
+         }
+@@ -202,7 +202,7 @@ int FMI_search::build_fm_index(const char *ref_file_name, char *binary_seq, int6
+ 
+ 
+     printf("CP_SHIFT = %d, CP_MASK = %d\n", CP_SHIFT, CP_MASK);
+-    printf("sizeof CP_OCC = %ld\n", sizeof(CP_OCC));
++    printf("sizeof CP_OCC = %zu\n", sizeof(CP_OCC));
+     fflush(stdout);
+     // create checkpointed occ
+     int64_t cp_occ_size = (ref_seq_len >> CP_SHIFT) + 1;
+@@ -249,7 +249,7 @@ int FMI_search::build_fm_index(const char *ref_file_name, char *binary_seq, int6
+         }
+         cp_count[bwt[i]]++;
+     }
+-    outstream.write((char*)cp_occ, cp_occ_size * sizeof(CP_OCC));
++    wgse_index_stream_write(outstream, (char*)cp_occ, cp_occ_size * sizeof(CP_OCC));
+     _mm_free(cp_occ);
+     _mm_free(bwt);
+ 
+@@ -271,9 +271,9 @@ int FMI_search::build_fm_index(const char *ref_file_name, char *binary_seq, int6
+             pos++;
+         }
+     }
+-    fprintf(stderr, "pos: %d, ref_seq_len__: %ld\n", pos, ref_seq_len >> SA_COMPX);
+-    outstream.write((char*)sa_ms_byte, ((ref_seq_len >> SA_COMPX) + 1) * sizeof(int8_t));
+-    outstream.write((char*)sa_ls_word, ((ref_seq_len >> SA_COMPX) + 1) * sizeof(uint32_t));
++    fprintf(stderr, "pos: %d, ref_seq_len__: %" PRId64 "\n", pos, ref_seq_len >> SA_COMPX);
++    wgse_index_stream_write(outstream, (char*)sa_ms_byte, ((ref_seq_len >> SA_COMPX) + 1) * sizeof(int8_t));
++    wgse_index_stream_write(outstream, (char*)sa_ls_word, ((ref_seq_len >> SA_COMPX) + 1) * sizeof(uint32_t));
+     
+     #else
+     
+@@ -288,14 +288,15 @@ int FMI_search::build_fm_index(const char *ref_file_name, char *binary_seq, int6
+         sa_ls_word[i] = sa_bwt[i] & 0xffffffff;
+         sa_ms_byte[i] = (sa_bwt[i] >> 32) & 0xff;
+     }
+-    outstream.write((char*)sa_ms_byte, ref_seq_len * sizeof(int8_t));
+-    outstream.write((char*)sa_ls_word, ref_seq_len * sizeof(uint32_t));
++    wgse_index_stream_write(outstream, (char*)sa_ms_byte, ref_seq_len * sizeof(int8_t));
++    wgse_index_stream_write(outstream, (char*)sa_ls_word, ref_seq_len * sizeof(uint32_t));
+     
+     #endif
+ 
+-    outstream.write((char *)(&sentinel_index), 1 * sizeof(int64_t));
++    wgse_index_stream_write(outstream, (char *)(&sentinel_index), 1 * sizeof(int64_t));
++    wgse_index_stream_flush(outstream);
+     outstream.close();
+-    printf("max_occ_ind = %ld\n", i >> CP_SHIFT);    
++    printf("max_occ_ind = %" PRId64 "\n", i >> CP_SHIFT);    
+     fflush(stdout);
+ 
+     _mm_free(sa_ms_byte);
+@@ -327,7 +328,7 @@ int FMI_search::build_index() {
+     strcat_s(binary_ref_name, PATH_MAX, ".0123");
+     //sprintf(binary_ref_name, "%s.0123", prefix);
+     std::fstream binary_ref_stream (binary_ref_name, std::ios::out | std::ios::binary);
+-    binary_ref_stream.seekg(0);
++    binary_ref_stream.seekp(0);
+     fprintf(stderr, "init ticks = %llu\n", __rdtsc() - startTick);
+     startTick = __rdtsc();
+     int64_t i, count[16];
+@@ -358,8 +359,10 @@ int FMI_search::build_index() {
+     count[2]=count[0]+count[1];
+     count[1]=count[0];
+     count[0]=0;
+-    fprintf(stderr, "ref seq len = %ld\n", pac_len);
+-    binary_ref_stream.write(binary_ref_seq, pac_len * sizeof(char));
++    fprintf(stderr, "ref seq len = %" PRId64 "\n", pac_len);
++    wgse_index_stream_write(binary_ref_stream, binary_ref_seq, pac_len * sizeof(char));
++    wgse_index_stream_flush(binary_ref_stream);
++    binary_ref_stream.close();
+     fprintf(stderr, "binary seq ticks = %llu\n", __rdtsc() - startTick);
+     startTick = __rdtsc();
+ 
+@@ -416,7 +419,7 @@ void FMI_search::load_index()
+     assert(reference_seq_len > 0);
+     assert(reference_seq_len <= 0x7fffffffffL);
+ 
+-    fprintf(stderr, "* Reference seq len for bi-index = %ld\n", reference_seq_len);
++    fprintf(stderr, "* Reference seq len for bi-index = %" PRId64 "\n", reference_seq_len);
+ 
+     // create checkpointed occ
+     int64_t cp_occ_size = (reference_seq_len >> CP_SHIFT) + 1;
+@@ -455,7 +458,7 @@ void FMI_search::load_index()
+     sentinel_index = -1;
+     #if SA_COMPRESSION
+     err_fread_noeof(&sentinel_index, sizeof(int64_t), 1, cpstream);
+-    fprintf(stderr, "* sentinel-index: %ld\n", sentinel_index);
++    fprintf(stderr, "* sentinel-index: %" PRId64 "\n", sentinel_index);
+     #endif
+     fclose(cpstream);
+ 
+@@ -476,13 +479,13 @@ void FMI_search::load_index()
+         }
+         #endif
+     }
+-    fprintf(stderr, "\nsentinel_index: %ld\n", x);    
++    fprintf(stderr, "\nsentinel_index: %" PRId64 "\n", x);    
+     #endif
+ 
+     fprintf(stderr, "* Count:\n");
+     for(x = 0; x < 5; x++)
+     {
+-        fprintf(stderr, "%ld,\t%lu\n", x, (unsigned long)count[x]);
++        fprintf(stderr, "%" PRId64 ",\t%" PRIu64 "\n", x, (uint64_t)count[x]);
+     }
+     fprintf(stderr, "\n");  
+ 
+diff --git a/src/bntseq.cpp b/src/bntseq.cpp
+index 13aceb4..0e03743 100644
+--- a/src/bntseq.cpp
++++ b/src/bntseq.cpp
+@@ -474,8 +474,8 @@ uint8_t *bns_fetch_seq(const bntseq_t *bns, const uint8_t *pac, int64_t *beg, in
+ 	seq = bns_get_seq(bns->l_pac, pac, *beg, *end, &len);
+ 	
+ 	if (seq == 0 || *end - *beg != len) {
+-		fprintf(stderr, "[E::%s] begin=%ld, mid=%ld, end=%ld, len=%ld, seq=%p, rid=%d, far_beg=%ld, far_end=%ld\n",
+-				__func__, (long)*beg, (long)mid, (long)*end, (long)len, seq, *rid, (long)far_beg, (long)far_end);
++		fprintf(stderr, "[E::%s] begin=%" PRId64 ", mid=%" PRId64 ", end=%" PRId64 ", len=%" PRId64 ", seq=%p, rid=%d, far_beg=%" PRId64 ", far_end=%" PRId64 "\n",
++				__func__, (int64_t)*beg, (int64_t)mid, (int64_t)*end, (int64_t)len, seq, *rid, (int64_t)far_beg, (int64_t)far_end);
+ 	}
+ 	assert(seq && *end - *beg == len); // assertion failure should never happen
+ 	return seq;
+diff --git a/src/bwamem.cpp b/src/bwamem.cpp
+index 88e693e..46b30cd 100755
+--- a/src/bwamem.cpp
++++ b/src/bwamem.cpp
+@@ -189,10 +189,10 @@ int mem_patch_reg(const mem_opt_t *opt, const bntseq_t *bns, const uint8_t *pac,
+     r = r > 0.? r : -r; // r = fabs(r)
+ 
+     if (bwa_verbose >= 4)
+-        fprintf(stderr, "* potential hit merge between [%d,%d)<=>[%ld,%ld) and "
+-               "[%d,%d)<=>[%ld,%ld), @ %s; w=%d, r=%.4g\n",
+-               a->qb, a->qe, (long)a->rb, (long)a->re, b->qb, b->qe,
+-               (long)b->rb, (long)b->re, bns->anns[a->rid].name, w, r);
++        fprintf(stderr, "* potential hit merge between [%d,%d)<=>[%" PRId64 ",%" PRId64 ") and "
++               "[%d,%d)<=>[%" PRId64 ",%" PRId64 "), @ %s; w=%d, r=%.4g\n",
++               a->qb, a->qe, (int64_t)a->rb, (int64_t)a->re, b->qb, b->qe,
++               (int64_t)b->rb, (int64_t)b->re, bns->anns[a->rid].name, w, r);
+ 
+     if (a->re < b->rb || a->qe < b->qb) // no overlap on query or on ref
+     {
+@@ -459,10 +459,10 @@ void mem_print_chain(const bntseq_t *bns, mem_chain_v *chn)
+             int is_rev;
+             pos = bns_depos(bns, p->seeds[j].rbeg, &is_rev);
+             if (is_rev) pos -= p->seeds[j].len - 1;
+-            fprintf(stderr, "\t%d;%d;%d,%ld(%s:%c%ld)",
++            fprintf(stderr, "\t%d;%d;%d,%" PRId64 "(%s:%c%" PRId64 ")",
+                        p->seeds[j].score, p->seeds[j].len, p->seeds[j].qbeg,
+-                       (long)p->seeds[j].rbeg, bns->anns[p->rid].name,
+-                       "+-"[is_rev], (long)(pos - bns->anns[p->rid].offset) + 1);
++                       (int64_t)p->seeds[j].rbeg, bns->anns[p->rid].name,
++                       "+-"[is_rev], (int64_t)(pos - bns->anns[p->rid].offset) + 1);
+         }
+         fputc('\n', stderr);
+     }
+@@ -908,7 +908,7 @@ void mem_chain_seeds(FMI_search *fmi, const mem_opt_t *opt,
+                 s.qbeg = p->m;
+                 s.score= s.len = slen;
+                 if (s.rbeg < 0 || s.len < 0)
+-                    fprintf(stderr, "rbeg: %ld, slen: %d, cnt: %d, n: %d, m: %d, num_smem: %ld\n",
++                    fprintf(stderr, "rbeg: %" PRId64 ", slen: %d, cnt: %d, n: %d, m: %d, num_smem: %" PRId64 "\n",
+                             s.rbeg, s.len, cnt-1, p->n, p->m, num_smem);
+ 
+                 rid = bns_intv2rid(bns, s.rbeg, s.rbeg + s.len);
+@@ -1044,11 +1044,11 @@ int mem_kernel1_core(FMI_search *fmi,
+                                   tid);
+ 
+     if (num_smem >= *wsize_mem){
+-        fprintf(stderr, "Error [bug]: num_smem: %ld are more than allocated space %ld.\n",
++        fprintf(stderr, "Error [bug]: num_smem: %" PRId64 " are more than allocated space %" PRId64 ".\n",
+                 num_smem, *wsize_mem);
+         exit(EXIT_FAILURE);
+     }
+-    printf_(VER, "6. Done! mem_collect_smem, num_smem: %ld\n", num_smem);
++    printf_(VER, "6. Done! mem_collect_smem, num_smem: %" PRId64 "\n", num_smem);
+     tprof[MEM_COLLECT][tid] += __rdtsc() - tim;
+ 
+ 
+@@ -1370,7 +1370,7 @@ void mem_process_seqs(mem_opt_t *opt,
+                                                          // distribution as pes0
+         else {
+             fprintf(stderr, "[0000] Inferring insert size distribution of PE reads from data, "
+-                    "l_pac: %ld, n: %d\n", w.fmi->idx->bns->l_pac, n);
++                    "l_pac: %" PRId64 ", n: %d\n", w.fmi->idx->bns->l_pac, n);
+             mem_pestat(opt, w.fmi->idx->bns->l_pac, n, w.regs, pes); // otherwise, infer the insert size
+                                                          // distribution from data
+         }
+@@ -1913,8 +1913,8 @@ uint8_t *bns_fetch_seq_v2(const bntseq_t *bns, const uint8_t *pac,
+     seq = bns_get_seq_v2(bns->l_pac, pac, *beg, *end, &len, ref_string, seqb);
+ 
+     if (seq == 0 || *end - *beg != len) {
+-        fprintf(stderr, "[E::%s] begin=%ld, mid=%ld, end=%ld, len=%ld, seq=%p, rid=%d, far_beg=%ld, far_end=%ld\n",
+-                __func__, (long)*beg, (long)mid, (long)*end, (long)len, seq, *rid, (long)far_beg, (long)far_end);
++        fprintf(stderr, "[E::%s] begin=%" PRId64 ", mid=%" PRId64 ", end=%" PRId64 ", len=%" PRId64 ", seq=%p, rid=%d, far_beg=%" PRId64 ", far_end=%" PRId64 "\n",
++                __func__, (int64_t)*beg, (int64_t)mid, (int64_t)*end, (int64_t)len, seq, *rid, (int64_t)far_beg, (int64_t)far_end);
+     }
+     assert(seq && *end - *beg == len); // assertion failure should never happen
+ 
+diff --git a/src/bwamem_pair.cpp b/src/bwamem_pair.cpp
+index f3305a8..065c604 100644
+--- a/src/bwamem_pair.cpp
++++ b/src/bwamem_pair.cpp
+@@ -100,7 +100,7 @@ void mem_pestat(const mem_opt_t *opt, int64_t l_pac, int n,
+         dir = mem_infer_dir(l_pac, r[0]->a[0].rb, r[1]->a[0].rb, &is);
+         if (is && is <= opt->max_ins) kv_push(uint64_t, isize[dir], is);
+     }
+-    if (bwa_verbose >= 3) fprintf(stderr, "[0000][PE] # candidate unique pairs for (FF, FR, RF, RR): (%ld, %ld, %ld, %ld)\n", isize[0].n, isize[1].n, isize[2].n, isize[3].n);
++    if (bwa_verbose >= 3) fprintf(stderr, "[0000][PE] # candidate unique pairs for (FF, FR, RF, RR): (%" PRId64 ", %" PRId64 ", %" PRId64 ", %" PRId64 ")\n", isize[0].n, isize[1].n, isize[2].n, isize[3].n);
+     for (d = 0; d < 4; ++d) { // TODO: this block is nearly identical to the one in bwtsw2_pair.c. It would be better to merge these two.
+         mem_pestat_t *r = &pes[d];
+         uint64_v *q = &isize[d];
+@@ -337,7 +337,7 @@ int mem_pair(const mem_opt_t *opt, const bntseq_t *bns, const uint8_t *pac, cons
+         z[v.a[k].y&1] = v.a[k].y<<32>>34;
+         ret = u.a[u.n-1].x >> 32;
+         *sub = u.n > 1? u.a[u.n-2].x>>32 : 0;
+-        for (i = (long)u.n - 2, *n_sub = 0; i >= 0; --i)
++        for (i = (int64_t)u.n - 2, *n_sub = 0; i >= 0; --i)
+             if (*sub - (int)(u.a[i].x>>32) <= tmp) ++*n_sub;
+ 
+     } else ret = 0, *sub = 0, *n_sub = 0;
+diff --git a/src/fastmap.cpp b/src/fastmap.cpp
+index 65c4e06..99b44ce 100644
+--- a/src/fastmap.cpp
++++ b/src/fastmap.cpp
+@@ -206,7 +206,7 @@ ktp_data_t *kt_pipeline(void *shared, int step, void *data, mem_opt_t *opt, work
+ 
+         tprof[READ_IO][0] += __rdtsc() - tim;
+ 
+-        fprintf(stderr, "[0000] read_chunk: %ld, work_chunk_size: %ld, nseq: %d\n",
++        fprintf(stderr, "[0000] read_chunk: %" PRId64 ", work_chunk_size: %" PRId64 ", nseq: %d\n",
+                 aux->task_size, sz, ret->n_seqs);
+ 
+         if (ret->seqs == 0) {
+@@ -223,8 +223,8 @@ ktp_data_t *kt_pipeline(void *shared, int step, void *data, mem_opt_t *opt, work
+             int64_t size = 0;
+             for (int i = 0; i < ret->n_seqs; ++i) size += ret->seqs[i].l_seq;
+ 
+-            fprintf(stderr, "\t[0000][ M::%s] read %d sequences (%ld bp)...\n",
+-                    __func__, ret->n_seqs, (long)size);
++            fprintf(stderr, "\t[0000][ M::%s] read %d sequences (%" PRId64 " bp)...\n",
++                    __func__, ret->n_seqs, (int64_t)size);
+         }
+ 
+         return ret;
+@@ -571,7 +571,7 @@ static void usage(const mem_opt_t *opt)
+     fprintf(stderr, "    -w INT        band width for banded alignment [%d]\n", opt->w);
+     fprintf(stderr, "    -d INT        off-diagonal X-dropoff [%d]\n", opt->zdrop);
+     fprintf(stderr, "    -r FLOAT      look for internal seeds inside a seed longer than {-k} * FLOAT [%g]\n", opt->split_factor);
+-    fprintf(stderr, "    -y INT        seed occurrence for the 3rd round seeding [%ld]\n", (long)opt->max_mem_intv);
++    fprintf(stderr, "    -y INT        seed occurrence for the 3rd round seeding [%" PRId64 "]\n", (int64_t)opt->max_mem_intv);
+     fprintf(stderr, "    -c INT        skip seeds with more than INT occurrences [%d]\n", opt->max_occ);
+     fprintf(stderr, "    -D FLOAT      drop chains shorter than FLOAT fraction of the longest overlapping chain [%.2f]\n", opt->drop_ratio);
+     fprintf(stderr, "    -W INT        discard a chain if seeded bases shorter than INT [0]\n");
+@@ -884,7 +884,7 @@ int main_mem(int argc, char *argv[])
+     tprof[REF_IO][0] += timer - tim;
+ 
+     fclose(fr);
+-    fprintf(stderr, "* Reference genome size: %ld bp\n", rlen);
++    fprintf(stderr, "* Reference genome size: %" PRId64 " bp\n", rlen);
+     fprintf(stderr, "* Done reading reference genome !!\n\n");
+ 
+     if (ignore_alt)
+diff --git a/src/kstring.h b/src/kstring.h
+index 52e033c..3ffa9b3 100644
+--- a/src/kstring.h
++++ b/src/kstring.h
+@@ -123,10 +123,10 @@ static inline int kputuw(unsigned c, kstring_t *s)
+ 	return 0;
+ }
+ 
+-static inline int kputl(long c, kstring_t *s)
++static inline int kputl(int64_t c, kstring_t *s)
+ {
+ 	char buf[32];
+-	long l, x;
++	int64_t l, x;
+ 	if (c == 0) return kputc('0', s);
+ 	for (l = 0, x = c < 0? -c : c; x > 0; x /= 10) buf[l++] = x%10 + '0';
+ 	if (c < 0) buf[l++] = '-';
+diff --git a/src/ksw.cpp b/src/ksw.cpp
+index ad9bc50..2a8ac81 100644
+--- a/src/ksw.cpp
++++ b/src/ksw.cpp
+@@ -565,7 +565,7 @@ int ksw_global2(int qlen, const uint8_t *query, int tlen, const uint8_t *target,
+ 	// allocate memory
+ 	n_col = qlen < 2*w+1? qlen : 2*w+1; // maximum #columns of the backtrack matrix
+     if (n_cigar_ && cigar_) {
+-        z = (uint8_t *) malloc((long)n_col * tlen);
++        z = (uint8_t *) malloc((int64_t)n_col * tlen);
+         assert(z != NULL);
+     }
+     else {
+@@ -593,7 +593,7 @@ int ksw_global2(int qlen, const uint8_t *query, int tlen, const uint8_t *target,
+ 		end = i + w + 1 < qlen? i + w + 1 : qlen; // only loop through [beg,end) of the query sequence
+ 		h1 = beg == 0? -(o_del + e_del * (i + 1)) : MINUS_INF;
+ 		if (n_cigar_ && cigar_) {
+-			uint8_t *zi = &z[(long)i * n_col];
++			uint8_t *zi = &z[(int64_t)i * n_col];
+ 			for (j = beg; LIKELY(j < end); ++j) {
+ 				// At the beginning of the loop: eh[j] = { H(i-1,j-1), E(i,j) }, f = F(i,j) and h1 = H(i,j-1)
+ 				// Cells are computed in the following order:
+@@ -652,7 +652,7 @@ int ksw_global2(int qlen, const uint8_t *query, int tlen, const uint8_t *target,
+ 		uint32_t *cigar = 0, tmp;
+ 		i = tlen - 1; k = (i + w + 1 < qlen? i + w + 1 : qlen) - 1; // (i,k) points to the last cell
+ 		while (i >= 0 && k >= 0) {
+-			which = z[(long)i * n_col + (k - (i > w? i - w : 0))] >> (which<<1) & 3;
++			which = z[(int64_t)i * n_col + (k - (i > w? i - w : 0))] >> (which<<1) & 3;
+ 			if (which == 0)      cigar = push_cigar(&n_cigar, &m_cigar, cigar, 0, 1), --i, --k;
+ 			else if (which == 1) cigar = push_cigar(&n_cigar, &m_cigar, cigar, 2, 1), --i;
+ 			else                 cigar = push_cigar(&n_cigar, &m_cigar, cigar, 1, 1), --k;
+diff --git a/src/kthread.cpp b/src/kthread.cpp
+index 44b7abf..c8c443e 100644
+--- a/src/kthread.cpp
++++ b/src/kthread.cpp
+@@ -38,10 +38,10 @@ extern int affy[256];
+ 
+ extern uint64_t tprof[LIM_R][LIM_C];
+ 
+-static inline long steal_work(kt_for_t *t)
++static inline int64_t steal_work(kt_for_t *t)
+ {
+ 	int i, min_i = -1;
+-	long k, min = LONG_MAX;
++	int64_t k, min = INT64_MAX;
+ 	for (i = 0; i < t->n_threads; ++i)
+ 		if (min > t->w[i].i) min = t->w[i].i, min_i = i;
+ 	k = __sync_fetch_and_add(&t->w[min_i].i, t->n_threads);
+@@ -53,7 +53,7 @@ static inline long steal_work(kt_for_t *t)
+ static void *ktf_worker(void *data)
+ {
+ 	ktf_worker_t *w = (ktf_worker_t*)data;
+-	long i;
++	int64_t i;
+ 	int tid = w->i;
+ 
+ #if AFF && (__linux__)
+diff --git a/src/kthread.h b/src/kthread.h
+index 97cab43..b3a8091 100644
+--- a/src/kthread.h
++++ b/src/kthread.h
+@@ -73,12 +73,12 @@ struct kt_for_t;
+ 
+ typedef struct {
+ 	struct kt_for_t *t;
+-	long i;
++	int64_t i;
+ } ktf_worker_t;
+ 
+ typedef struct kt_for_t {
+ 	int n_threads;
+-	long n;
++	int64_t n;
+ 	ktf_worker_t *w;
+ 	void (*func)(void*, int, int, int);
+ 	void *data;
+diff --git a/src/utils.cpp b/src/utils.cpp
+index 237c8ba..cd9e6cc 100644
+--- a/src/utils.cpp
++++ b/src/utils.cpp
+@@ -123,7 +123,7 @@ void _err_fatal_simple_core(const char *func, const char *msg)
+ 
+ size_t err_fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
+ {
+-	size_t ret = fwrite(ptr, size, nmemb, stream);
++	size_t ret = wgse_index_write(ptr, size, nmemb, stream, wgse_index_io_chunk);
+ 	if (ret != nmemb) 
+ 		_err_fatal_simple("fwrite", strerror(errno));
+ 	return ret;
+@@ -131,7 +131,7 @@ size_t err_fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
+ 
+ size_t err_fread_noeof(void *ptr, size_t size, size_t nmemb, FILE *stream)
+ {
+-	size_t ret = fread(ptr, size, nmemb, stream);
++	size_t ret = wgse_index_read(ptr, size, nmemb, stream, wgse_index_io_chunk);
+ 	if (ret != nmemb)
+ 	{
+ 		_err_fatal_simple("fread", ferror(stream) ? strerror(errno) : "Unexpected end of file");

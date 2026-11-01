@@ -14,9 +14,10 @@ source:
     # popcounts and SIMD mask bits (else seeding never finishes). Also no POSIX
     # pipes or sockets, and no unused global named `stat`.
     - patches/0001-windows-native-build.patch
+    - patches/0002-index64-chunked-io.patch
 
 build:
-  number: 1
+  number: 2
   string: wgse_${{ build_number }}
   script:
     # MSYS2 UCRT64 builds it (see ../env.sh); MSYS2_ROOT says where it is.
