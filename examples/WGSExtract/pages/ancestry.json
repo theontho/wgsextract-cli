@@ -11,6 +11,18 @@
       "textIcon": "🌳",
       "controls": [
         {
+          "id": "lineage_tree_links",
+          "label": "controls.ancestry.post-v063.tree-links.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--tree-links",
+              "title": "controls.ancestry.post-v063.tree-links.label"
+            }
+          ],
+          "tooltip": "controls.ancestry.post-v063.tree-links.tooltip"
+        },
+        {
           "id": "bam_path",
           "label": "controls.ancestry.ancestry-inputs.bam_path.label",
           "kind": "path",
@@ -53,6 +65,9 @@
             ],
             "optionalArguments": [
               [
+                "{{lineage_tree_links}}"
+              ],
+              [
                 "--pos-file",
                 "{{yleaf_pos}}"
               ]
@@ -74,6 +89,9 @@
               "{{haplogrep_path}}"
             ],
             "optionalArguments": [
+              [
+                "{{lineage_tree_links}}"
+              ],
               [
                 "--outdir",
                 "{{out_dir}}"

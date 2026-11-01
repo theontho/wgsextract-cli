@@ -1,0 +1,72 @@
+{
+  "name": "CLI v0.6.4 opt-in features - run after the baseline hg19 mini plan and bundle bump",
+  "inputs": {
+    "fieldValues": {
+      "bam_path": "{{bundleWorkspace}}/genomes/wgsextract-benchmark-hg19-mini/HG00096.hg19-mini.bam",
+      "ref_fasta": "{{bundleWorkspace}}/genomes/wgsextract-benchmark-hg19-mini/hg19-mini.fa.gz",
+      "ref_path": "{{bundleWorkspace}}/reference",
+      "out_dir": "{{bundleWorkspace}}/output/post-v063",
+      "fastq_r1": "{{bundleWorkspace}}/genomes/wgsextract-benchmark-hg19-mini/HG00096.hg19-mini_R1.fastq.gz",
+      "multiqc_directory": "{{bundleWorkspace}}/output"
+    }
+  },
+  "steps": [
+    {
+      "id": "exact-coverage-bins",
+      "kind": "action",
+      "pageID": "info-bam",
+      "sectionID": "info-commands",
+      "actionID": "coverage-bins",
+      "inputs": {
+        "fieldValues": {
+          "ref_path": "{{bundleWorkspace}}/genomes/wgsextract-benchmark-hg19-mini/hg19-mini.fa.gz"
+        }
+      },
+      "timeoutSeconds": 1800
+    },
+    {
+      "id": "unmapped-with-fastqs",
+      "kind": "action",
+      "pageID": "extract",
+      "sectionID": "extract-inputs",
+      "actionID": "unmapped",
+      "inputs": {
+        "checkedOptions": {
+          "extract_unmapped_fastq": ["--fastq"]
+        }
+      },
+      "timeoutSeconds": 1800
+    },
+    {
+      "id": "fastqc-for-aggregation",
+      "kind": "action",
+      "pageID": "fastq",
+      "sectionID": "fastq-align",
+      "actionID": "fastqc",
+      "timeoutSeconds": 1800
+    },
+    {
+      "id": "offline-multiqc",
+      "kind": "action",
+      "pageID": "fastq",
+      "sectionID": "multiqc",
+      "actionID": "multiqc-directory",
+      "requiredOutput": ["multiqc_report.html"],
+      "timeoutSeconds": 600
+    },
+    {
+      "id": "offline-multiqc-explicit-replace",
+      "kind": "action",
+      "pageID": "fastq",
+      "sectionID": "multiqc",
+      "actionID": "multiqc-directory",
+      "inputs": {
+        "checkedOptions": {
+          "multiqc_force": ["--force"]
+        }
+      },
+      "requiredOutput": ["multiqc_report.html"],
+      "timeoutSeconds": 600
+    }
+  ]
+}

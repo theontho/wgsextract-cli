@@ -31,6 +31,18 @@
       "textIcon": "🩺",
       "controls": [
         {
+          "id": "gatk_scatter",
+          "label": "controls.vcf.post-v063.scatter.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--scatter",
+              "title": "controls.vcf.post-v063.scatter.label"
+            }
+          ],
+          "tooltip": "controls.vcf.post-v063.scatter.tooltip"
+        },
+        {
           "id": "bam_path",
           "label": "controls.vcf.vcf-inputs.bam_path.label",
           "kind": "path",
@@ -199,6 +211,9 @@
               "{{bam_path}}"
             ],
             "optionalArguments": [
+              [
+                "{{gatk_scatter}}"
+              ],
               [
                 "--ref",
                 "{{ref_path}}"

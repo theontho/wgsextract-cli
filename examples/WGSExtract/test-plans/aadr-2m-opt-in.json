@@ -1,0 +1,26 @@
+{
+  "name": "AADR 2M opt-in - requires explicitly installed metadata and real bam_path/ref_fasta overrides",
+  "inputs": {
+    "fieldValues": {
+      "bam_path": "",
+      "ref_fasta": "",
+      "ref_path": "{{bundleWorkspace}}/reference",
+      "out_dir": "{{bundleWorkspace}}/output/aadr-2m",
+      "aadr_sample_id": "research_sample",
+      "aadr_sex": "U"
+    },
+    "checkedOptions": {
+      "microarray_formats": ["aadr_2m"]
+    }
+  },
+  "steps": [
+    {
+      "id": "aadr-2m-export",
+      "kind": "action",
+      "pageID": "microarray",
+      "sectionID": "microarray-formats",
+      "actionID": "microarray-generate",
+      "timeoutSeconds": 14400
+    }
+  ]
+}

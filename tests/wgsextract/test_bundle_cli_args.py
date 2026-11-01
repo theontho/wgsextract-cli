@@ -29,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 BUNDLE = REPO_ROOT / "examples" / "WGSExtract"
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
-from json_comments import loads_json_with_comments  # noqa: E402
+from json_comments import loads_json_with_comments
 
 PLACEHOLDER = re.compile(r"\{\{([^}]+)\}\}")
 
@@ -200,6 +200,26 @@ class BundleSandbox:
             "pet_output_format": "CRAM",
             "pet_species": "dog",
             "microarray_formats": "23andme_v5,ancestry_v2",
+            "microarray_min_gq": "20",
+            "microarray_min_dp": "5",
+            "microarray_strand_ambiguous": "no-call",
+            "microarray_resolve_rsids": "--resolve-rsids",
+            "microarray_absent_no_call": "--no-assume-hom-ref",
+            "microarray_exclude_filtered": "--exclude-filtered",
+            "microarray_call_reasons": "--call-reasons",
+            "aadr_sample_id": "research_sample",
+            "aadr_sex": "U",
+            "indel_format": "myheritage_gsa_2025",
+            "indel_manifest": self._file("manifests/matching chip.csv"),
+            "extract_poz": "--poz",
+            "extract_ybrowse": "--ybrowse",
+            "extract_unmapped_fastq": "--fastq",
+            "lineage_tree_links": "--tree-links",
+            "realign_keep_fastq": "--keep-fastq",
+            "gatk_scatter": "--scatter",
+            "multiqc_input": self._file("reports/sample_fastqc.zip"),
+            "multiqc_directory": str(data / "reports"),
+            "multiqc_force": "--force",
         }
 
     def render(self, value: str) -> str:

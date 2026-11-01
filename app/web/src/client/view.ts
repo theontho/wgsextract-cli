@@ -204,7 +204,7 @@ export function renderDropdownControl(control: ControlSpec) {
       <span class="row-label">${escapeHTML(control.label)}${renderTooltip(control.tooltip)}</span>
       <select data-field-id="${escapeAttribute(control.id)}">
         ${(control.options ?? [])
-        .map((option) => `<option value="${escapeAttribute(option.id)}" ${option.id === value ? "selected" : ""}>${escapeHTML(displayOption(option))}</option>`)
+        .map((option) => `<option value="${escapeAttribute(option.id)}" ${option.id === String(value) ? "selected" : ""}>${escapeHTML(displayOption(option))}</option>`)
         .join("")}
       </select>
     </label>
@@ -339,7 +339,7 @@ export function renderConfigSetting(control: ControlSpec, setting: ConfigSetting
         <span class="row-label">${escapeHTML(setting.label)}${renderTooltip(setting.tooltip)}</span>
         <select ${common}>
           ${options
-            .map((option) => `<option value="${escapeAttribute(option.id)}" ${option.id === value ? "selected" : ""}>${escapeHTML(displayOption(option))}</option>`)
+            .map((option) => `<option value="${escapeAttribute(option.id)}" ${option.id === String(value) ? "selected" : ""}>${escapeHTML(displayOption(option))}</option>`)
             .join("")}
         </select>
       </label>
@@ -349,7 +349,7 @@ export function renderConfigSetting(control: ControlSpec, setting: ConfigSetting
         return `
       <label class="toggle-row">
         <span class="row-label">${escapeHTML(setting.label)}${renderTooltip(setting.tooltip)}</span>
-        <input type="checkbox" ${value === "true" ? "checked" : ""} ${common} data-toggle>
+        <input type="checkbox" ${value === true || value === "true" ? "checked" : ""} ${common} data-toggle>
       </label>
     `;
     }

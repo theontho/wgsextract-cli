@@ -64,6 +64,11 @@
           "enum": ["text", "path", "dropdown", "toggle", "checkboxGroup", "infoGrid", "libraryList", "configEditor"]
         },
         "value": { "type": "string" },
+        "pathType": {
+          "type": "string",
+          "enum": ["file", "directory", "bundle"],
+          "description": "Explicit native picker kind, independent of translated labels."
+        },
         "placeholder": { "type": "string" },
         "tooltip": { "type": "string" },
         "options": {
@@ -228,7 +233,10 @@
           "enum": ["text", "path", "dropdown", "toggle", "checkboxGroup"],
           "default": "text"
         },
-        "value": { "type": "string" },
+        "value": {
+          "type": ["string", "boolean", "number"],
+          "description": "Scalar default: toggles use native TOML booleans, numeric defaults declare numeric settings, and other settings remain strings."
+        },
         "placeholder": { "type": "string" },
         "tooltip": { "type": "string" },
         "options": {

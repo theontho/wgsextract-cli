@@ -5,6 +5,86 @@
   "sidebarGroup": "sidebar.groups.convert",
   "sections": [
     {
+      "id": "multiqc",
+      "title": "sections.fastq.post-v063.multiqc.title",
+      "controls": [
+        {
+          "id": "multiqc_input",
+          "label": "controls.fastq.post-v063.multiqc-file.label",
+          "kind": "path",
+          "pathType": "file",
+          "tooltip": "controls.fastq.post-v063.multiqc-input.tooltip"
+        },
+        {
+          "id": "multiqc_directory",
+          "label": "controls.fastq.post-v063.multiqc-directory.label",
+          "kind": "path",
+          "pathType": "directory",
+          "tooltip": "controls.fastq.post-v063.multiqc-input.tooltip"
+        },
+        {
+          "id": "multiqc_force",
+          "label": "controls.fastq.post-v063.multiqc-force.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--force",
+              "title": "controls.fastq.post-v063.multiqc-force.label"
+            }
+          ],
+          "tooltip": "controls.fastq.post-v063.multiqc-force.tooltip"
+        }
+      ],
+      "actions": [
+        {
+          "id": "multiqc",
+          "title": "actions.fastq.post-v063.multiqc.title",
+          "tooltip": "actions.fastq.post-v063.multiqc.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "qc",
+              "multiqc",
+              "--input",
+              "{{multiqc_input}}"
+            ],
+            "optionalArguments": [
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ],
+              [
+                "{{multiqc_force}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "multiqc-directory",
+          "title": "actions.fastq.post-v063.multiqc-directory.title",
+          "tooltip": "actions.fastq.post-v063.multiqc.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "qc",
+              "multiqc",
+              "--input",
+              "{{multiqc_directory}}"
+            ],
+            "optionalArguments": [
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ],
+              [
+                "{{multiqc_force}}"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
       "id": "fastq-align",
       "title": "sections.fastq.fastq-align.title",
       "iconName": "sequence-reads",

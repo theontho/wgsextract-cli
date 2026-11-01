@@ -58,6 +58,31 @@
       "title": "sections.info-bam.info-commands.title",
       "actions": [
         {
+          "id": "coverage-bins",
+          "title": "actions.info-bam.post-v063.coverage-bins.title",
+          "tooltip": "actions.info-bam.post-v063.coverage-bins.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "info",
+              "calculate-coverage",
+              "--input",
+              "{{bam_path}}",
+              "--bins"
+            ],
+            "optionalArguments": [
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        },
+        {
           "id": "basic-info",
           "title": "actions.info-bam.info-commands.basic-info.title",
           "tooltip": "actions.info-bam.info-commands.basic-info.tooltip",
@@ -324,6 +349,18 @@
       "textIcon": "🔀",
       "controls": [
         {
+          "id": "realign_keep_fastq",
+          "label": "controls.info-bam.post-v063.keep-fastq.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--keep-fastq",
+              "title": "controls.info-bam.post-v063.keep-fastq.label"
+            }
+          ],
+          "tooltip": "controls.info-bam.post-v063.keep-fastq.tooltip"
+        },
+        {
           "id": "realign_bam",
           "label": "controls.info-bam.realign-commands.realign_bam.label",
           "kind": "path",
@@ -377,6 +414,9 @@
               "{{realign_ref}}"
             ],
             "optionalArguments": [
+              [
+                "{{realign_keep_fastq}}"
+              ],
               [
                 "--outdir",
                 "{{out_dir}}"

@@ -384,6 +384,7 @@ export interface ManifestResponse {
     manifest: BundleManifest;
     devReload?: boolean;
     stateWarning?: string;
+    configWarnings?: string[];
     iconMap?: IconMap;
     labels: Labels;
     localizationCode: string;
@@ -403,6 +404,7 @@ export interface ManifestResponse {
 export interface ConfigLoadResponse {
     path: string;
     values: ValueMap;
+    warnings: string[];
 }
 
 export interface ConfigSaveResponse {

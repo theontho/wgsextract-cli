@@ -18,7 +18,7 @@ export async function loadInitialConfigs() {
 export async function loadConfig(control: ControlSpec) {
     try {
         const result = await loadConfigIntoState(control);
-        appendTerminal("config", formatLabel(state.labels.configLoadedFormat, { path: result.path }));
+        appendTerminal("config", formatLabel(state.labels.configLoadedFormat, { path: result.path }), result.warnings.join("\n"));
     }
     catch (error) {
         appendTerminal("error", formatLabel(state.labels.configLoadErrorFormat, { label: control.label, error: errorMessage(error) }));

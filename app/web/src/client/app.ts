@@ -48,6 +48,9 @@ async function bootstrap(locale?: string) {
         if (bundle.stateWarning) {
             appendTerminal("error", "Saved state was reset", bundle.stateWarning);
         }
+        if (bundle.configWarnings?.length) {
+            appendTerminal("config", state.labels.settingsFileLabel, bundle.configWarnings.join("\n"));
+        }
         state.activePageID = validPageID(bundle.bundleState?.selectedPageID, bundle.manifest) ?? state.activePageID ?? bundle.manifest.pages[0]?.id;
         state.fieldValues = bundle.fieldValues ?? initialFieldValues(bundle.manifest);
         state.checkedOptions = Object.fromEntries(Object.entries(bundle.checkedOptions ?? {}).map(([key, value]) => [

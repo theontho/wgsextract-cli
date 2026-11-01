@@ -261,12 +261,14 @@ export async function loadLocalizedBundle(locale: string | undefined, repoRoot: 
     manifest.exitCodeReference = effectiveExitCodeReference(manifest.exitCodeReference, table);
     const configFilePaths = initialConfigFilePaths(manifest, bundleState, bundleRoot);
     await bootstrapConfigFiles(manifest, bundleRoot, configFilePaths);
-    const configValues = await initialConfigValues(manifest, configFilePaths, bundleRoot);
+    const configWarnings: string[] = [];
+    const configValues = await initialConfigValues(manifest, configFilePaths, bundleRoot, configWarnings);
     const fieldValues = initialFieldValues(manifest, configValues, bundleState);
     const checkedOptions = initialCheckedOptions(manifest, configValues, bundleState);
     const stateWarning = takeBundleStateWarning(bundleRoot);
     return {
         ...(stateWarning ? { stateWarning } : {}),
+        configWarnings,
         manifest,
         labels: localizationLabels(table),
         iconMap,

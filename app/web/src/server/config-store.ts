@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { allControls, configEditorControls, parseFlatToml, persistsFieldValue, serializeFlatToml } from "../../../shared/rendering.js";
-import type { BundleManifest, ConfigBootstrapScriptSpec, ConfigSetting, ControlSpec, LooseRecord, SetupRun, StringMap, ValueMap } from "../../../shared/types.js";
+import type { BundleManifest, ConfigBootstrapScriptSpec, ConfigSetting, ControlSpec, LooseRecord, SetupRun, StateValue, StringMap, ValueMap } from "../../../shared/types.js";
 import { configPath, expandPathTokens } from "./paths.js";
 import { resolvePlatformScriptPath } from "./platform-scripts.js";
 import { errnoCode, errorMessage } from "./errors.js";
@@ -245,7 +245,7 @@ async function bootstrapConfigFilesNow(manifest: BundleManifest, bundleRoot: str
         await bootstrapToml(mode, document.url, defaults);
     }
 }
-function shouldSkipBootstrap(mode: string, existing: StringMap | null, defaultKeys: string[]) {
+function shouldSkipBootstrap(mode: string, existing: ValueMap | null, defaultKeys: string[]) {
     if (mode === "createIfMissing") {
         return existing != null;
     }
@@ -371,7 +371,7 @@ async function scriptContents(payload: LooseRecord, bundleRoot: string): Promise
     }
     return "";
 }
-async function bootstrapToml(mode: string, url: string, defaults: StringMap) {
+async function bootstrapToml(mode: string, url: string, defaults: ValueMap) {
     const existing = await readOptionalFlatToml(url);
     if (mode === "createIfMissing" && existing != null) {
         return;
@@ -391,7 +391,7 @@ async function bootstrapToml(mode: string, url: string, defaults: StringMap) {
     }
     await writeFileAtomically(url, serializeFlatToml(next));
 }
-async function readOptionalFlatToml(filePath: string): Promise<StringMap | null> {
+async function readOptionalFlatToml(filePath: string): Promise<ValueMap | null> {
     try {
         return parseFlatToml(await readFile(filePath, "utf8"));
     }
@@ -402,7 +402,7 @@ async function readOptionalFlatToml(filePath: string): Promise<StringMap | null>
         throw error;
     }
 }
-export async function initialConfigValues(manifest: BundleManifest, configFilePaths: StringMap, bundleRoot: string): Promise<ValueMap> {
+export async function initialConfigValues(manifest: BundleManifest, configFilePaths: StringMap, bundleRoot: string, warnings: string[] = []): Promise<ValueMap> {
     const values: ValueMap = Object.fromEntries(configEditorControls(manifest).flatMap((control) => (control.settings ?? []).map((setting) => [`${control.id}.${setting.id}`, setting.value ?? ""])));
     for (const control of configEditorControls(manifest)) {
         const requestedPath = configFilePaths[control.id];
@@ -413,7 +413,7 @@ export async function initialConfigValues(manifest: BundleManifest, configFilePa
             for (const setting of control.settings ?? []) {
                 const fileValue = fileValues[settingKey(setting)];
                 if (fileValue != null) {
-                    values[`${control.id}.${setting.id}`] = fileValue;
+                    values[`${control.id}.${setting.id}`] = loadedSettingValue(setting, fileValue, warnings);
                 }
             }
         }
@@ -496,7 +496,8 @@ export function configSettingBindings(manifest: BundleManifest, fieldID: string)
 }
 export async function loadConfig(control: ControlSpec, requestedPath: string | undefined, bundleRoot: string) {
     const filePath = configPath(control, requestedPath, bundleRoot);
-    let values: StringMap = {};
+    const warnings: string[] = [];
+    let values: ValueMap = {};
     try {
         values = parseFlatToml(await readFile(filePath, "utf8"));
     }
@@ -505,9 +506,14 @@ export async function loadConfig(control: ControlSpec, requestedPath: string | u
             throw error;
         }
     }
+    const loadedValues = Object.fromEntries((control.settings ?? []).map((setting) => [
+            settingKey(setting),
+            loadedSettingValue(setting, values[settingKey(setting)] ?? setting.value ?? "", warnings),
+        ]));
     return {
         path: filePath,
-        values: Object.fromEntries((control.settings ?? []).map((setting) => [settingKey(setting), values[settingKey(setting)] ?? setting.value ?? ""])),
+        values: loadedValues,
+        warnings,
     };
 }
 export async function saveConfig(control: ControlSpec, requestedPath: string | undefined, values: Readonly<Record<string, unknown>>, bundleRoot: string) {
@@ -515,7 +521,10 @@ export async function saveConfig(control: ControlSpec, requestedPath: string | u
     const byKey: Record<string, unknown> = {};
     for (const setting of control.settings ?? []) {
         const key = settingKey(setting);
-        byKey[key] = values[key] ?? values[setting.id] ?? values[`${control.id}.${setting.id}`] ?? setting.value ?? "";
+        byKey[key] = typedSettingValue(
+            setting,
+            values[key] ?? values[setting.id] ?? values[`${control.id}.${setting.id}`] ?? setting.value ?? "",
+        );
     }
     await writeFileAtomically(filePath, serializeFlatToml(byKey));
     return { path: filePath, keyCount: Object.keys(byKey).length };
@@ -524,4 +533,47 @@ export async function saveConfig(control: ControlSpec, requestedPath: string | u
 /** The settings-file key a config setting is stored under (required by the schema). */
 function settingKey(setting: ConfigSetting): string {
     return setting.key ?? setting.id;
+}
+
+function loadedSettingValue(setting: ConfigSetting, value: unknown, warnings: string[]): StateValue {
+    try {
+        const expectedType = setting.kind === "toggle" || typeof setting.value === "boolean"
+            ? "boolean" : typeof setting.value === "number" ? "number" : "string";
+        if (typeof value !== expectedType) {
+            throw new Error(`Invalid ${expectedType} value for setting ${settingKey(setting)}.`);
+        }
+        return typedSettingValue(setting, value);
+    }
+    catch (error) {
+        const warning = `${errorMessage(error)} Ignoring it and using the declared default.`;
+        warnings.push(warning);
+        console.warn(warning);
+        return typedSettingValue(setting, setting.value ?? "");
+    }
+}
+
+function typedSettingValue(setting: ConfigSetting, value: unknown): StateValue {
+    if (setting.kind === "toggle" || typeof setting.value === "boolean") {
+        if (typeof value === "boolean") {
+            return value;
+        }
+        if (value === "") {
+            return setting.value === true;
+        }
+        if (value === "true" || value === "false") {
+            return value === "true";
+        }
+        throw new Error(`Invalid boolean value for setting ${settingKey(setting)}.`);
+    }
+    if (typeof setting.value === "number") {
+        const number = typeof value === "string" && value.trim() === "" ? setting.value : Number(value);
+        if ((typeof value !== "string" && typeof value !== "number") || !Number.isFinite(number)) {
+            throw new Error(`Invalid number value for setting ${settingKey(setting)}.`);
+        }
+        return number;
+    }
+    if (typeof value !== "string") {
+        throw new Error(`Invalid string value for setting ${settingKey(setting)}.`);
+    }
+    return value;
 }

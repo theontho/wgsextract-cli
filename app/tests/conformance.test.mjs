@@ -2,12 +2,61 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
+import { parseJsonWithComments } from "../dist/shared/json-comments.js";
 import { conditionMatches, displayCommand, hydrateRows, missingPlaceholders } from "../dist/shared/rendering.js";
 import { loadLocalizedBundle } from "../dist/web/src/server/bundle-loader.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const conformanceBundleRoot = path.join(repoRoot, "tests/conformance/basic-bundle");
 const wgsExtractBundleRoot = path.join(repoRoot, "examples/WGSExtract");
+
+function assertWgsExtractReleaseCompatible(tag, pages) {
+  const match = /^v(\d+)\.(\d+)\.(\d+)$/.exec(tag);
+  assert.ok(match, `Invalid bundled WGSExtract CLI release tag: ${tag}`);
+  const [major, minor, patch] = match.slice(1).map(Number);
+  const supportsNewFeatures = major > 0 || minor > 6 || (minor === 6 && patch >= 4);
+  const newFormats = new Set([
+    "myheritage_gsa_2025", "myheritage_gsa_2025_609424", "ancestry_v2_2021", "ancestry_v2_2024",
+    "aadr_1240k", "aadr_ho", "aadr_1240k_ho", "aadr_2m",
+  ]);
+  const newSettings = new Set(["atomic_outputs", "keep_awake", "temp_directory", "log_dir"]);
+  const newFlags = new Set([
+    "--poz", "--ybrowse", "--fastq", "--bins", "--tree-links", "--scatter", "--indel-manifest", "--keep-fastq",
+    "--min-gq", "--min-dp", "--strand-ambiguous", "--resolve-rsids", "--no-assume-hom-ref",
+    "--exclude-filtered", "--call-reasons", "--aadr-sample-id", "--aadr-sex",
+  ]);
+  const features = [];
+  function inspect(value) {
+    if (typeof value === "string") {
+      if (value.includes(".post-v063.") || newFormats.has(value) || newSettings.has(value) || newFlags.has(value)) {
+        features.push(value);
+      }
+    } else if (value && typeof value === "object") {
+      for (const child of Object.values(value)) inspect(child);
+    }
+  }
+  inspect(pages);
+  assert.ok(supportsNewFeatures || features.length === 0,
+    `Post-v0.6.3 GUI controls/actions/formats require bundled CLI >= v0.6.4; found ${tag}: ${features.slice(0, 5).join(", ")}. Land the real release bump before merging.`);
+}
+
+test("WGSExtract post-v0.6.3 controls/actions/formats require a v0.6.4-or-newer bundle pin", async () => {
+  const manifest = parseJsonWithComments(await readFile(path.join(wgsExtractBundleRoot, "manifest.json"), "utf8"));
+  const pages = await Promise.all(manifest.pages.map(async (file) =>
+    parseJsonWithComments(await readFile(path.join(wgsExtractBundleRoot, "pages", file), "utf8"))));
+  const tag = (await readFile(path.join(wgsExtractBundleRoot, "scripts/wgsextract-release-tag.txt"), "utf8")).trim();
+  assertWgsExtractReleaseCompatible(tag, pages);
+});
+
+test("WGSExtract release conformance rejects unsupported features without blocking older pages", () => {
+  const pages = [{ sections: [{ controls: [{ label: "controls.fastq.post-v063.multiqc-file.label" }] }] }];
+  assert.throws(() => assertWgsExtractReleaseCompatible("v0.6.3", pages), /require bundled CLI >= v0.6.4/);
+  assert.throws(() => assertWgsExtractReleaseCompatible("v0.6.3", [{ options: [{ id: "aadr_1240k" }] }]), /require bundled CLI/);
+  assert.doesNotThrow(() => assertWgsExtractReleaseCompatible("v0.6.3", [{ id: "original-page" }]));
+  assert.doesNotThrow(() => assertWgsExtractReleaseCompatible("v0.6.4", pages));
+  assert.doesNotThrow(() => assertWgsExtractReleaseCompatible("v0.7.0", pages));
+});
 
 test("conformance bundle preserves shared runtime semantics in TypeScript", async () => {
   const bundle = await loadLocalizedBundle("en", repoRoot, conformanceBundleRoot, conformanceBundleRoot);

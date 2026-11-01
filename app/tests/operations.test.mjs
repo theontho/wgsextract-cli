@@ -16,6 +16,7 @@ globalThis.document = {
 
 const { createInitialState, state } = await import("../dist/web/src/client/state.js");
 const { ensureDataSource, openBundleWorkspace, retryDataSource, runAction, runSetup } = await import("../dist/web/src/client/operations.js");
+const { renderConfigSetting, renderDropdownControl } = await import("../dist/web/src/client/view.js");
 
 function resetState() {
   Object.assign(state, createInitialState(), {
@@ -35,6 +36,35 @@ function resetState() {
     bundleRootPath: "/bundle",
   });
 }
+
+test("Settings toggles display native and form-encoded boolean values correctly", () => {
+  resetState();
+  const control = { id: "settings" };
+  const setting = { id: "enabled", kind: "toggle", label: "Enabled", value: false };
+  for (const [value, checked] of [[true, true], ["true", true], [false, false], ["false", false]]) {
+    state.configValues = { "settings.enabled": value };
+    const html = renderConfigSetting(control, setting, {});
+    assert.equal(/type="checkbox"\s+checked/.test(html), checked);
+  }
+});
+
+test("Settings numeric dropdowns select the loaded number without converting stored values", () => {
+  resetState();
+  const control = { id: "settings" };
+  const setting = {
+    id: "workers", kind: "dropdown", label: "Workers", value: 4,
+    options: [{ id: "4", title: "Four" }, { id: "8", title: "Eight" }],
+  };
+  state.configValues = { "settings.workers": 8 };
+  const html = renderConfigSetting(control, setting, {});
+  assert.match(html, /value="8"\s+selected/);
+  assert.doesNotMatch(html, /value="4"\s+selected/);
+  assert.equal(state.configValues["settings.workers"], 8);
+  state.fieldValues.workers = 8;
+  const boundDropdown = renderDropdownControl({ id: "workers", label: "Workers", options: setting.options });
+  assert.match(boundDropdown, /value="8"\s+selected/);
+  assert.equal(state.fieldValues.workers, 8);
+});
 
 async function waitUntil(predicate) {
   for (let attempt = 0; attempt < 50; attempt += 1) {

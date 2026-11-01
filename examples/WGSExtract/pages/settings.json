@@ -25,6 +25,36 @@
           },
           "settings": [
             {
+              "id": "temp_directory",
+              "key": "temp_directory",
+              "label": "controls.settings.post-v063.temp.label",
+              "kind": "path",
+              "tooltip": "controls.settings.post-v063.temp.tooltip"
+            },
+            {
+              "id": "log_dir",
+              "key": "log_dir",
+              "label": "controls.settings.post-v063.logs.label",
+              "kind": "path",
+              "tooltip": "controls.settings.post-v063.logs.tooltip"
+            },
+            {
+              "id": "atomic_outputs",
+              "key": "atomic_outputs",
+              "label": "controls.settings.post-v063.atomic.label",
+              "kind": "toggle",
+              "value": false,
+              "tooltip": "controls.settings.post-v063.atomic.tooltip"
+            },
+            {
+              "id": "keep_awake",
+              "key": "keep_awake",
+              "label": "controls.settings.post-v063.awake.label",
+              "kind": "toggle",
+              "value": false,
+              "tooltip": "controls.settings.post-v063.awake.tooltip"
+            },
+            {
               "id": "out_dir",
               "key": "output_directory",
               "label": "controls.settings.settings-paths.out_dir.label",

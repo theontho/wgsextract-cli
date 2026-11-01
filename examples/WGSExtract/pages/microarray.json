@@ -7,6 +7,7 @@
     {
       "id": "microarray-inputs",
       "title": "sections.microarray.microarray-inputs.title",
+      "subtitle": "sections.microarray.post-v063.builds.subtitle",
       "iconName": "microarray-config",
       "textIcon": "⚙️",
       "controls": [
@@ -35,12 +36,109 @@
           "label": "controls.microarray.microarray-inputs.out_dir.label",
           "kind": "path",
           "tooltip": "controls.microarray.microarray-inputs.out_dir.tooltip"
+        },
+        {
+          "id": "microarray_min_gq",
+          "label": "controls.microarray.post-v063.min-gq.label",
+          "kind": "text",
+          "tooltip": "controls.microarray.post-v063.min-gq.tooltip"
+        },
+        {
+          "id": "microarray_min_dp",
+          "label": "controls.microarray.post-v063.min-dp.label",
+          "kind": "text",
+          "tooltip": "controls.microarray.post-v063.min-dp.tooltip"
+        },
+        {
+          "id": "microarray_strand_ambiguous",
+          "label": "controls.microarray.post-v063.strand.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "no-call",
+              "title": "controls.microarray.post-v063.strand.label"
+            }
+          ],
+          "tooltip": "controls.microarray.post-v063.strand.tooltip"
+        },
+        {
+          "id": "microarray_resolve_rsids",
+          "label": "controls.microarray.post-v063.rsids.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--resolve-rsids",
+              "title": "controls.microarray.post-v063.rsids.label"
+            }
+          ],
+          "tooltip": "controls.microarray.post-v063.rsids.tooltip"
+        },
+        {
+          "id": "microarray_absent_no_call",
+          "label": "controls.microarray.post-v063.absent.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--no-assume-hom-ref",
+              "title": "controls.microarray.post-v063.absent.label"
+            }
+          ],
+          "tooltip": "controls.microarray.post-v063.absent.tooltip"
+        },
+        {
+          "id": "microarray_exclude_filtered",
+          "label": "controls.microarray.post-v063.filtered.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--exclude-filtered",
+              "title": "controls.microarray.post-v063.filtered.label"
+            }
+          ],
+          "tooltip": "controls.microarray.post-v063.filtered.tooltip"
+        },
+        {
+          "id": "microarray_call_reasons",
+          "label": "controls.microarray.post-v063.reasons.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--call-reasons",
+              "title": "controls.microarray.post-v063.reasons.label"
+            }
+          ],
+          "tooltip": "controls.microarray.post-v063.reasons.tooltip"
+        },
+        {
+          "id": "aadr_sample_id",
+          "label": "controls.microarray.post-v063.aadr-sample.label",
+          "kind": "text",
+          "tooltip": "controls.microarray.post-v063.aadr-sample.tooltip"
+        },
+        {
+          "id": "aadr_sex",
+          "label": "controls.microarray.post-v063.aadr-sex.label",
+          "kind": "text",
+          "tooltip": "controls.microarray.post-v063.aadr-sex.tooltip"
+        },
+        {
+          "id": "indel_format",
+          "label": "controls.microarray.post-v063.indel-format.label",
+          "kind": "text",
+          "tooltip": "controls.microarray.post-v063.indel-format.tooltip"
+        },
+        {
+          "id": "indel_manifest",
+          "label": "controls.microarray.post-v063.indel-manifest.label",
+          "kind": "path",
+          "tooltip": "controls.microarray.post-v063.indel-manifest.tooltip"
         }
       ]
     },
     {
       "id": "microarray-formats",
       "title": "sections.microarray.microarray-formats.title",
+      "subtitle": "sections.microarray.post-v063.aadr-2m.subtitle",
       "iconName": "microarray-grid",
       "textIcon": "▦",
       "controls": [
@@ -117,6 +215,46 @@
               "id": "myheritage_v2",
               "title": "options.microarray.microarray-formats.microarray_formats.myheritage-v2.title",
               "group": "MyHeritage"
+            },
+            {
+              "id": "myheritage_gsa_2025",
+              "title": "options.microarray.post-v063.myheritage-gsa.title",
+              "group": "MyHeritage"
+            },
+            {
+              "id": "myheritage_gsa_2025_609424",
+              "title": "options.microarray.post-v063.myheritage-gsa-609424.title",
+              "group": "MyHeritage"
+            },
+            {
+              "id": "ancestry_v2_2021",
+              "title": "options.microarray.post-v063.ancestry-2021.title",
+              "group": "AncestryDNA"
+            },
+            {
+              "id": "ancestry_v2_2024",
+              "title": "options.microarray.post-v063.ancestry-2024.title",
+              "group": "AncestryDNA"
+            },
+            {
+              "id": "aadr_1240k",
+              "title": "options.microarray.post-v063.aadr-1240k.title",
+              "group": "AADR"
+            },
+            {
+              "id": "aadr_ho",
+              "title": "options.microarray.post-v063.aadr-ho.title",
+              "group": "AADR"
+            },
+            {
+              "id": "aadr_1240k_ho",
+              "title": "options.microarray.post-v063.aadr-union.title",
+              "group": "AADR"
+            },
+            {
+              "id": "aadr_2m",
+              "title": "options.microarray.post-v063.aadr-2m.title",
+              "group": "AADR"
             }
           ]
         }
@@ -151,6 +289,42 @@
               [
                 "--outdir",
                 "{{out_dir}}"
+              ],
+              [
+                "--min-gq",
+                "{{microarray_min_gq}}"
+              ],
+              [
+                "--min-dp",
+                "{{microarray_min_dp}}"
+              ],
+              [
+                "--strand-ambiguous",
+                "{{microarray_strand_ambiguous}}"
+              ],
+              [
+                "{{microarray_resolve_rsids}}"
+              ],
+              [
+                "{{microarray_absent_no_call}}"
+              ],
+              [
+                "{{microarray_exclude_filtered}}"
+              ],
+              [
+                "{{microarray_call_reasons}}"
+              ],
+              [
+                "--aadr-sample-id",
+                "{{aadr_sample_id}}"
+              ],
+              [
+                "--aadr-sex",
+                "{{aadr_sex}}"
+              ],
+              [
+                "--indel-manifest",
+                "{{indel_format}}={{indel_manifest}}"
               ]
             ]
           }

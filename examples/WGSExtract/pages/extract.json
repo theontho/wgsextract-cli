@@ -11,6 +11,42 @@
       "textIcon": "✂️",
       "controls": [
         {
+          "id": "extract_poz",
+          "label": "controls.extract.post-v063.poz.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--poz",
+              "title": "controls.extract.post-v063.poz.label"
+            }
+          ],
+          "tooltip": "controls.extract.post-v063.poz.tooltip"
+        },
+        {
+          "id": "extract_ybrowse",
+          "label": "controls.extract.post-v063.ybrowse.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--ybrowse",
+              "title": "controls.extract.post-v063.ybrowse.label"
+            }
+          ],
+          "tooltip": "controls.extract.post-v063.ybrowse.tooltip"
+        },
+        {
+          "id": "extract_unmapped_fastq",
+          "label": "controls.extract.post-v063.fastq.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--fastq",
+              "title": "controls.extract.post-v063.fastq.label"
+            }
+          ],
+          "tooltip": "controls.extract.post-v063.fastq.tooltip"
+        },
+        {
           "id": "bam_path",
           "label": "controls.extract.extract-inputs.bam_path.label",
           "kind": "path",
@@ -125,6 +161,9 @@
             ],
             "optionalArguments": [
               [
+                "{{extract_poz}}"
+              ],
+              [
                 "--ref",
                 "{{ref_path}}"
               ],
@@ -148,6 +187,9 @@
               "{{bam_path}}"
             ],
             "optionalArguments": [
+              [
+                "{{extract_ybrowse}}"
+              ],
               [
                 "--ref",
                 "{{ref_path}}"
@@ -222,6 +264,9 @@
               "{{bam_path}}"
             ],
             "optionalArguments": [
+              [
+                "{{extract_unmapped_fastq}}"
+              ],
               [
                 "--outdir",
                 "{{out_dir}}"

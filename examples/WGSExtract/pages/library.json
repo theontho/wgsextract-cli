@@ -42,6 +42,36 @@
       },
       "actions": [
         {
+          "id": "aadr-2m-install",
+          "title": "actions.library.post-v063.aadr-2m.title",
+          "tooltip": "actions.library.post-v063.aadr-2m.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "ref",
+              "aadr",
+              "--install",
+              "--ref",
+              "{{ref_path}}"
+            ]
+          }
+        },
+        {
+          "id": "ybrowse-install",
+          "title": "actions.library.post-v063.ybrowse.title",
+          "tooltip": "actions.library.post-v063.ybrowse.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "ref",
+              "ybrowse",
+              "--install",
+              "--ref",
+              "{{ref_path}}"
+            ]
+          }
+        },
+        {
           "id": "vep-download",
           "title": "actions.library.databases-tools.vep-download.title",
           "tooltip": "actions.library.databases-tools.vep-download.tooltip",
