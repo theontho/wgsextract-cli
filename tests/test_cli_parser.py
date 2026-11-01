@@ -4,6 +4,7 @@ the help and config commands."""
 import sys
 from argparse import Namespace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import tomllib
@@ -29,10 +30,19 @@ def _parse(argv: list[str]) -> tuple[Namespace, set[str]]:
 
 @pytest.mark.parametrize("command", [["vep"], ["vep", "run"]])
 @pytest.mark.parametrize("flag", ["--assembly", "--vep-assembly"])
-def test_vep_run_assembly_aliases_preserve_the_runtime_destination(command, flag):
+def test_vep_run_assembly_aliases_preserve_the_runtime_destination(
+    command, flag, caplog
+):
+    from wgsextract_cli.commands._vep_run import _apply_forced_assembly
+
     args, explicit = _parse([*command, flag, "GRCh37"])
     assert args.vep_assembly == "GRCh37"
     assert "vep_assembly" in explicit
+    lib = SimpleNamespace(build="hg38", fasta="/lib/GRCh38.fa")
+    _apply_forced_assembly(lib, args.vep_assembly)  # type: ignore[arg-type]
+    assert lib.build == "hg19" and lib.fasta is None
+    assert "--assembly GRCh37" in caplog.text
+    assert "--vep-assembly" not in caplog.text
 
 
 def test_vep_download_assembly_still_selects_the_cache_build():

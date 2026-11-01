@@ -183,8 +183,10 @@ Notes on a few commands:
 - `ref library-list` is a deprecated compatibility alias for `ref library --list`.
   `vep run --assembly GRCh37` and the deprecated `--vep-assembly GRCh37` select the
   same annotation build; `vep download --assembly` selects the cache build.
+  VEP conflict warnings use the canonical `--assembly` spelling for either alias.
 - Runtime and working-space needs depend on the input, coverage, hardware and
-  toolchain, so command help does not promise fixed times. Use
+  toolchain, so command help and realignment stage descriptions do not promise
+  fixed times. Thread-based runtime estimates remain advisory. Use
   `wgsextract benchmark --help` to choose a reproducible dataset and profile.
 
 - `extract ydna-bam --poz` writes an indexed `_Y_poz.bam` containing reads overlapping the original WGS Extract CombBED/McDonald/Poznik union (about 12 Mb), **not** all stable Y SNPs or a BigY/exome capture. It supports exact GRCh37/hg19 or GRCh38 Y lengths with either `chrY` or `Y`, including Y-only inputs, and never includes the original BEDs' mitochondrial regions. Reads overlapping BED boundaries are kept whole. T2T, unknown and inconsistent assemblies are rejected rather than silently lifted. Bundled BED provenance/license is in `assets/reference/poz/NOTICE.txt`; no download is needed. Without `--poz`, whole-Y extraction is unchanged.
