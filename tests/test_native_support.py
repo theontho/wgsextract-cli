@@ -25,7 +25,7 @@ def linux_arm(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(platform, "machine", lambda: "aarch64")
 
 
-@pytest.mark.parametrize("tool", ["gatk", "run_deepvariant"])
+@pytest.mark.parametrize("tool", ["gatk"])
 def test_arm_dependency_gate_precedes_resolution(
     linux_arm: None, monkeypatch: pytest.MonkeyPatch, tool: str
 ) -> None:
@@ -39,8 +39,14 @@ def test_arm_dependency_gate_precedes_resolution(
     probe.assert_not_called()
 
 
-@pytest.mark.parametrize("gpu", [False, True])
-@pytest.mark.parametrize("command", [callers.cmd_gatk, deepvariant.cmd_deepvariant])
+@pytest.mark.parametrize(
+    ("command", "gpu"),
+    [
+        (callers.cmd_gatk, False),
+        (callers.cmd_gatk, True),
+        (deepvariant.cmd_deepvariant, True),
+    ],
+)
 def test_arm_callers_fail_before_input_or_container_work(
     linux_arm: None,
     monkeypatch: pytest.MonkeyPatch,
@@ -57,13 +63,20 @@ def test_arm_callers_fail_before_input_or_container_work(
     probe.assert_not_called()
 
 
-@pytest.mark.parametrize("subcommand", ["gatk", "deepvariant"])
+def test_arm_cpu_deepvariant_passes_platform_gate(linux_arm: None) -> None:
+    native_support.require_native_tool("run_deepvariant")
+    verify_platform_support(
+        argparse.Namespace(command="vcf", vcf_cmd="deepvariant", gpu=False)
+    )
+
+
+@pytest.mark.parametrize("subcommand", ["gatk"])
 def test_arm_cli_gate_needs_no_input(linux_arm: None, subcommand: str) -> None:
     with pytest.raises(WGSExtractError, match="Linux ARM64"):
         verify_platform_support(argparse.Namespace(command="vcf", vcf_cmd=subcommand))
 
 
-@pytest.mark.parametrize("tool", ["gatk", "run_deepvariant"])
+@pytest.mark.parametrize("tool", ["gatk"])
 def test_arm_selected_dependency_gate_precedes_resolution(
     linux_arm: None, monkeypatch: pytest.MonkeyPatch, tool: str
 ) -> None:
@@ -79,7 +92,7 @@ def test_arm_selected_dependency_gate_precedes_resolution(
     probe.assert_not_called()
 
 
-@pytest.mark.parametrize("tool", ["gatk", "run_deepvariant"])
+@pytest.mark.parametrize("tool", ["gatk"])
 def test_arm_missing_optional_tool_explains_restriction(
     linux_arm: None, monkeypatch: pytest.MonkeyPatch, tool: str
 ) -> None:

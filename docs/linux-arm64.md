@@ -49,8 +49,10 @@ not evidence that two builds use the same source.
 
 GATK commands fail fast on Linux ARM64, including `--gpu`: the pinned GKL
 PairHMM and Smith-Waterman kernels require x86 AVX. No slow pure-Java fallback
-is silently enabled. DeepVariant also fails before checking input, launching
-Docker or running a local binary, including `--gpu` and custom images.
+is silently enabled. DeepVariant CPU has an explicit
+[native source-build path](deepvariant-arm64.md) for the pinned 1.10.0 release;
+the image must already exist and pass native engine/image checks.
+DeepVariant `--gpu` and experimental ULTIMA remain unavailable.
 The phase-2 explanation is shown for gated commands, version probes, selected
 `deps check --tool` requests and missing optional tools in `deps check`.
 Unavailable tools are marked missing, without an unusable installation hint.
