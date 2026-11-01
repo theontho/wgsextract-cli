@@ -175,6 +175,11 @@ after changing only its stack reserve. BCFtools `mpileup` and `htsfile --view`
 also reproduce the inadequate default on that CRAM. The package implements the correction
 at link time; manually edited PE files are qualification experiments, not
 distributable artifacts. This setting does not change the x64 Windows recipes.
+Native BAM reheader duplicates stdout before transferring its descriptor to
+BGZF. Closing the original descriptor made samtools' final `fclose(stdout)`
+invoke the UCRT invalid-parameter fast-fail (`0xC0000409`), despite upstream
+intending to ignore `EBADF`. A native header-rewrite regression requires normal
+exit, complete BAM output and byte-identical ordered alignment records.
 BCFtools' private 32-bit region-index symbols are namespaced independently of
 HTSlib's 64-bit region API; duplicate-symbol suppression would join incompatible
 interfaces. The unchanged upstream region-index regression runs with seed 236.

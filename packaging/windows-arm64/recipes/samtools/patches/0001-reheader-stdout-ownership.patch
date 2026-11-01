@@ -1,0 +1,17 @@
+--- a/bam_reheader.c
++++ b/bam_reheader.c
+@@ -627,7 +627,13 @@ int main_reheader(int argc, char *argv[])
+             print_error("reheader", "cannot reheader BAM '%s' in-place", argv[optind+1]);
+             r = -1;
+         } else {
+-            r = bam_reheader(in->fp.bgzf, h, fileno(stdout), arg_list, no_pg, skip_header);
++            int output_fd = dup(fileno(stdout));
++            if (output_fd < 0) {
++                print_error_errno("reheader", "Couldn't duplicate standard output");
++                r = -1;
++            } else {
++                r = bam_reheader(in->fp.bgzf, h, output_fd, arg_list, no_pg, skip_header);
++            }
+         }
+     } else if (hts_get_format(in)->format == cram) {
+         if (inplace)

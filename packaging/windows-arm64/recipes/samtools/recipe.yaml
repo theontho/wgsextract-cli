@@ -13,9 +13,10 @@ source:
     - ../../../windows/recipes/samtools/patches/0002-bounded-cram-stop-copy.patch
     - ../../../windows/recipes/samtools/patches/0003-vector-bam-sequence-packing.patch
     - ../../../windows/recipes/samtools/patches/0004-reuse-cram-buffers.patch
+    - patches/0001-reheader-stdout-ownership.patch
 
 build:
-  number: 1
+  number: 2
   string: wgse_arm64_${{ build_number }}
   script:
     content:

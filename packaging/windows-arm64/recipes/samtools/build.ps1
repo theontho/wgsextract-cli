@@ -20,6 +20,9 @@ foreach ($test in @("cram_stop", "bam_seq", "cram_buffers")) {
 if ($LASTEXITCODE) { throw "Native file-descriptor regression failed" }
 & cmake --install $build --config Release
 if ($LASTEXITCODE) { throw "samtools ARM64 install failed" }
+& "$repo\packaging\windows-arm64\tests\samtools_reheader_smoke.ps1" `
+    -Samtools "$env:PREFIX\Library\bin\samtools.exe" -Output "$evidence\reheader"
+if ($LASTEXITCODE) { throw "Native BAM reheader/stdout lifetime regression failed" }
 & "$repo\scripts\audit_windows_arm64.ps1" -Prefix $env:PREFIX -Report "$evidence\pe.json"
 $notices = Join-Path $env:PREFIX "Library\share\samtools\licenses"
 New-Item -ItemType Directory -Force -Path $notices | Out-Null
