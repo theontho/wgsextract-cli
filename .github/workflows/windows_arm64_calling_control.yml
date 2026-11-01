@@ -1,0 +1,130 @@
+name: Windows ARM64 public calling x64 control
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-calling-control:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
+        with:
+          pixi-version: v0.83.0
+          run-install: false
+      - name: Install the unchanged locked x64 environment
+        run: |
+          if ([Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -ne "X64" -or
+              [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne "X64") {
+            throw "This control requires a native x64 Windows host, never ARM emulation"
+          }
+          pixi install --locked
+          if ($LASTEXITCODE) { throw "Locked x64 installation failed" }
+      - name: Verify public input and reference
+        run: |
+          New-Item -ItemType Directory -Force out/calling-control/inputs | Out-Null
+          $files = @(
+            @{
+              file = "HG00096.final.cram"
+              base = "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/data/ERR3240114"
+              sha256 = "2eeb67780a86a6ccab24764dd2afcb41b0d307c57ebebab894240402bc12c88e"
+            },
+            @{
+              file = "HG00096.final.cram.crai"
+              base = "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/data/ERR3240114"
+              sha256 = "36eb0e305db7aebb22b60949840d26c1244c008c8c4c49841fc70583737b3544"
+            },
+            @{
+              file = "GRCh38_full_analysis_set_plus_decoy_hla.fa"
+              base = "https://1000genomes.s3.amazonaws.com/technical/reference/GRCh38_reference_genome"
+              sha256 = "3b103f4742abfd54938fb0333e19ad067635c8eb86f1dbf0ce44b165c4292b50"
+            },
+            @{
+              file = "GRCh38_full_analysis_set_plus_decoy_hla.fa.fai"
+              base = "https://1000genomes.s3.amazonaws.com/technical/reference/GRCh38_reference_genome"
+              sha256 = "f361f004bdae5ca68d632458b01a3848d02834ac7176f378e177344d148a6a6d"
+            }
+          )
+          foreach ($file in $files) {
+            $path = "out/calling-control/inputs/$($file.file)"
+            pixi run curl --fail --silent --show-error --location --retry 2 `
+              --proto "=https" --proto-redir "=https" --output $path "$($file.base)/$($file.file)"
+            if ($LASTEXITCODE) { throw "Public download failed: $($file.file)" }
+            if ((Get-FileHash $path -Algorithm SHA256).Hash -ine $file.sha256) {
+              throw "Public SHA256 mismatch: $($file.file)"
+            }
+          }
+          $files | ConvertTo-Json | Set-Content out/calling-control/inputs.json
+      - name: Call the identical public 1 Mb chr20 SNP region
+        run: |
+          $prefix = (Resolve-Path .pixi/envs/default).Path
+          $script = @'
+          import json, platform, struct, sys
+          from pathlib import Path
+          assert platform.machine().lower() in ("amd64", "x86_64")
+          prefix = Path(sys.executable).parent
+          files = [Path(sys.executable), prefix / "Library/bin/bcftools.exe", prefix / "Library/bin/samtools.exe"]
+          machines = {}
+          for path in files:
+              with path.open("rb") as stream:
+                  assert stream.read(2) == b"MZ"
+                  stream.seek(60)
+                  offset = struct.unpack("<I", stream.read(4))[0]
+                  stream.seek(offset)
+                  assert stream.read(4) == b"PE\0\0"
+                  machine = struct.unpack("<H", stream.read(2))[0]
+              assert machine == 0x8664, (path, machine)
+              machines[str(path)] = f"{machine:04X}"
+          Path("out/calling-control/native-x64.json").write_text(json.dumps(machines, indent=2))
+          reference = Path("out/calling-control/inputs").resolve().as_posix()
+          Path("out/calling-control/config.toml").write_text("reference_library = " + json.dumps(reference) + "\n")
+          '@
+          $script | & "$prefix/python.exe" -
+          if ($LASTEXITCODE) { throw "Native x64 PE verification failed" }
+          pixi run wgsextract --config out/calling-control/config.toml `
+            --input out/calling-control/inputs/HG00096.final.cram `
+            --ref out/calling-control/inputs/GRCh38_full_analysis_set_plus_decoy_hla.fa `
+            --threads 16 --memory 256M --outdir out/calling-control/calls `
+            vcf snp --region chr20:10000000-11000000 2>&1 |
+            Tee-Object out/calling-control/command.log
+          if ($LASTEXITCODE) { throw "Native x64 public calling failed" }
+      - name: Compare raw decoded VCF records without normalization
+        run: |
+          $script = @'
+          import gzip, hashlib, json
+          from pathlib import Path
+          digest = hashlib.sha256()
+          count = size = 0
+          with gzip.open("out/calling-control/calls/snps.vcf.gz", "rb") as stream:
+              for line in stream:
+                  if not line.startswith(b"#"):
+                      digest.update(line)
+                      count += 1
+                      size += len(line)
+          result = {"records": count, "body_bytes": size, "body_sha256": digest.hexdigest(),
+                    "region": "chr20:10000000-11000000",
+                    "policy": "Raw decoded body, order/newlines/values unchanged; headers excluded."}
+          Path("out/calling-control/fingerprint.json").write_text(json.dumps(result, indent=2) + "\n")
+          print(json.dumps(result))
+          assert count == 1437
+          assert digest.hexdigest() == "589fb4b1189290eab285992b71f9e0231455cfb93f3ab4e20e877a828db0b861"
+          '@
+          $script | pixi run python -
+          if ($LASTEXITCODE) { throw "Native x64/ARM64 public VCF equality failed" }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.0
+        if: always()
+        with:
+          name: windows-native-x64-public-calling-control
+          path: |
+            out/calling-control/*.json
+            out/calling-control/*.log
+            out/calling-control/config.toml
+            out/calling-control/calls/snps.vcf.gz*
+          if-no-files-found: error
