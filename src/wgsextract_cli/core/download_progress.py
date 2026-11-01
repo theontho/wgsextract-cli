@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import sys
 import time
 import urllib.parse
@@ -9,6 +10,23 @@ from email.message import Message
 from typing import BinaryIO, Protocol
 
 ProgressCallback = Callable[[int, int, float], None]
+
+_URL_PATTERN = re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s<>]+")
+
+
+def redact_urls(text: str) -> str:
+    """Keep URL locations in diagnostics without credentials or signed queries."""
+
+    def redact(match: re.Match[str]) -> str:
+        try:
+            parsed = urllib.parse.urlsplit(match.group())
+            return urllib.parse.urlunsplit(
+                (parsed.scheme, parsed.netloc.rsplit("@", 1)[-1], parsed.path, "", "")
+            )
+        except ValueError:
+            return "<redacted-url>"
+
+    return _URL_PATTERN.sub(redact, text)
 
 
 class DownloadCancelled(Exception):
@@ -45,7 +63,9 @@ def require_http_url(url: str, label: str = "download URL") -> None:
     """Reject URL schemes that should not be opened by network download paths."""
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in {"http", "https"}:
-        raise ValueError(f"Unsupported {label} scheme '{parsed.scheme}' for {url!r}")
+        raise ValueError(
+            f"Unsupported {label} scheme '{parsed.scheme}' for {redact_urls(url)!r}"
+        )
 
 
 def curl_progress_args() -> list[str]:

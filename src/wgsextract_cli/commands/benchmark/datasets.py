@@ -18,7 +18,7 @@ from wgsextract_cli.core.dev_download_cache import (
     restore_cached_download,
     store_download_in_dev_cache,
 )
-from wgsextract_cli.core.download_progress import require_http_url
+from wgsextract_cli.core.download_progress import redact_urls, require_http_url
 from wgsextract_cli.core.ref_library.downloads import download_file
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -33,7 +33,9 @@ from .models import (
 )
 
 
-def _download_file(url: str, destination: Path, *, sha256: str | None = None) -> None:
+def _download_file(
+    url: str, destination: Path, *, sha256: str | None = None, use_cache: bool = True
+) -> None:
     require_http_url(url, "benchmark dataset URL")
     logging.info("Downloading benchmark dataset to %s", destination.name)
     normalized_sha256 = sha256.strip().lower() if sha256 is not None else None
@@ -42,6 +44,7 @@ def _download_file(url: str, destination: Path, *, sha256: str | None = None) ->
         str(destination),
         expected_sha256=normalized_sha256 or None,
         resolve_release_digest=normalized_sha256 != "",
+        use_cache=use_cache,
     ):
         reason = " (download error or SHA256 mismatch)" if normalized_sha256 else ""
         raise WGSExtractError(
@@ -145,7 +148,7 @@ def _cached_remote_dataset_file(remote: BenchmarkRemoteFile, cache_root: Path) -
             except WGSExtractError:
                 drop_cached_download(remote.url, path, checksum_hint=checksum_hint)
                 path.unlink(missing_ok=True)
-        _download_file(remote.url, path)
+        _download_file(remote.url, path, use_cache=not bool(remote.md5))
     if remote.md5:
         try:
             _verify_digest(path, "md5", remote.md5)
@@ -404,5 +407,7 @@ def _normalized_dataset_sha256(args: argparse.Namespace) -> str | None:
 def _download_filename(url: str) -> str:
     filename = urllib.parse.urlsplit(url).path.rsplit("/", 1)[-1]
     if not filename:
-        raise WGSExtractError(f"Dataset URL must end with a filename: {url}")
+        raise WGSExtractError(
+            f"Dataset URL must end with a filename: {redact_urls(url)}"
+        )
     return filename

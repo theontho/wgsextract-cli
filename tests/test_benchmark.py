@@ -687,7 +687,7 @@ def test_cached_remote_file_rechecks_verified_md5(monkeypatch, tmp_path: Path) -
 
     downloads = []
 
-    def fake_download(url: str, destination: Path) -> None:
+    def fake_download(url: str, destination: Path, **_kwargs) -> None:
         downloads.append(url)
         destination.write_bytes(b"")
 

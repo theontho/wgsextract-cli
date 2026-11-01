@@ -143,6 +143,38 @@ def test_registry_cleanup_reenters_while_lock_held():
     assert registry.processes == {}
 
 
+def test_command_echo_and_streamed_stderr_redact_urls_but_execute_original(
+    tmp_path, monkeypatch, caplog, capsys
+):
+    from wgsextract_cli.core import utils
+
+    url = "https://private-user:private-password@example.test/a?token=private-token"
+    received = tmp_path / "request-url"
+    recorded = []
+    monkeypatch.setattr(utils, "record_command", recorded.append)
+    script = (
+        "import sys,time;from pathlib import Path;"
+        "Path(sys.argv[2]).write_text(sys.argv[1]);"
+        "sys.stderr.write(sys.argv[1][:35]);sys.stderr.flush();time.sleep(.03);"
+        "sys.stderr.write(sys.argv[1][35:]+'\\n');sys.stderr.flush();sys.exit(1)"
+    )
+    with (
+        caplog.at_level(logging.DEBUG),
+        pytest.raises(subprocess.CalledProcessError) as error,
+    ):
+        utils.run_command(
+            [sys.executable, "-c", script, url, str(received)],
+            redact_output_urls=True,
+        )
+    assert received.read_text() == url
+    diagnostics = (
+        caplog.text + capsys.readouterr().err + str(error.value) + str(recorded)
+    )
+    assert "example.test/a" in diagnostics
+    for secret in ("private-user", "private-password", "private-token"):
+        assert secret not in diagnostics
+
+
 def test_windows_cleanup_terminates_tree_before_launcher_exits(monkeypatch):
     registry = process_registry.ProcessRegistry()
     proc = Mock(pid=1234)
@@ -286,7 +318,7 @@ def _download_args(root: Path, force: bool) -> Namespace:
 
 
 def _fake_http_download(calls):
-    def download(_source, destination):
+    def download(_source, destination, **_kwargs):
         output = Path(destination)
         partial = examples._partial_path(output)
         calls.append(partial.read_bytes() if partial.exists() else None)
