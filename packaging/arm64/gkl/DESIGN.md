@@ -125,8 +125,9 @@ unchanged (Java fallback).
   - libomp: ship `libomp.dll` alongside, or link the OMP PairHMM statically. If libomp
     is a burden, drop the OMP variant (GATK defaults to it only when requested
     threads > 1).
-  - Also needs: a Windows-on-Arm JDK (Microsoft Build of OpenJDK 17/21 aarch64) and a
-    native Arm64 Windows tools chain from the arm-windows agent.
+  - JDK: the phase-1 native Arm64 runtime (Microsoft Build of OpenJDK 17.0.21 ARM64,
+    jlink'd; recipe `packaging/windows-arm64/recipes/openjdk` on `p2-arm64-windows`)
+    has been validated. The JNI build compiles against its `include/win32` headers.
 - **x64 byte-identity:**
   - x64 never loads the sidecar. All patch hunks are guarded by `__aarch64__` /
     `_M_ARM64` / `WGSE_GKL_NEON`.
