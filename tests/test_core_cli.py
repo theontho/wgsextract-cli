@@ -73,17 +73,147 @@ def test_invalid_threads_flag_is_a_usage_error(temp_config):
     assert exc.value.code == 2
 
 
-def test_invalid_config_threads_is_ignored_with_warning(temp_config, caplog):
-    temp_config.write_text('threads = "max"\n')
+@pytest.mark.parametrize("value", ['"max"', '"4.0"', "true", "0", "1.5"])
+def test_invalid_config_threads_warns_and_allows_cli_override(
+    temp_config, caplog, value
+):
+    temp_config.write_text(f"threads = {value}\n")
+    config.set_config_path(temp_config)
     config.reload_settings()
-    with caplog.at_level(logging.WARNING):
-        cli_parser, base_parser = parser.build_parser()
+    cli_parser, base_parser = parser.build_parser()
     assert "Ignoring invalid cpu_threads" in caplog.text
-
+    assert str(temp_config) in caplog.text
     args, _ = parser.parse_args(cli_parser, base_parser, ["info"])
     assert args.threads is None
-    args, _ = parser.parse_args(cli_parser, base_parser, ["info", "--threads", "4"])
+    args, explicit = parser.parse_args(
+        cli_parser, base_parser, ["info", "--threads", "4"]
+    )
+    assert args.threads == 4 and "threads" in explicit
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        key
+        for key, (default, _) in config.KNOWN_SETTINGS.items()
+        if type(default) is bool
+    ],
+)
+@pytest.mark.parametrize("value", ['"false"', "0", "[]", "{}"])
+def test_boolean_config_settings_require_toml_booleans(temp_config, key, value):
+    temp_config.write_text(f"{key} = {value}\n")
+    with pytest.raises(WGSExtractError, match=rf"{key}.*TOML boolean"):
+        config.load_config()
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "expected"),
+    [
+        ("microarray_min_dp", '"15"', "TOML integer"),
+        ("microarray_min_gq", "false", "TOML integer"),
+        ("dev_download_cache_ttl_seconds", "1.5", "TOML integer"),
+        ("memory", "2", "TOML string"),
+        ("ref", "false", "TOML string"),
+        ("output_directory", "[]", "TOML string"),
+        ("vcf_input_paths", '["sample.vcf", 1]', "array of TOML strings"),
+    ],
+)
+def test_other_config_types_are_validated_at_load(temp_config, key, value, expected):
+    temp_config.write_text(f"{key} = {value}\n")
+    with pytest.raises(WGSExtractError, match=rf"{key}.*{expected}"):
+        config.load_config()
+
+
+def test_valid_config_types_preserve_values_and_defaults(temp_config):
+    temp_config.write_text(
+        'atomic_outputs = false\nkeep_awake = true\nthreads = 4\nmemory = "512M"\n'
+        'ref = "~/reference.fa"\nvcf_input_paths = ["a.vcf", "b.vcf"]\n'
+        "microarray_min_dp = 15\ndev_download_cache_ttl_seconds = 0\n"
+    )
+    loaded = config.load_config()
+    assert loaded["atomic_outputs"] is False and loaded["keep_awake"] is True
+    assert loaded["cpu_threads"] == 4 and loaded["memory_limit"] == "512M"
+    assert loaded["reference_fasta"] == str(Path.home() / "reference.fa")
+    assert loaded["vcf_input_paths"] == ["a.vcf", "b.vcf"]
+    assert loaded["microarray_min_dp"] == 15
+    assert loaded["dev_download_cache_ttl_seconds"] == 0
+    assert "quiet_mode" not in loaded
+    temp_config.write_text("")
+    assert config.load_config() == {}
+
+
+def test_config_threads_retains_supported_numeric_string(temp_config):
+    temp_config.write_text('cpu_threads = "4"\n')
+    config.reload_settings()
+    assert config.settings["cpu_threads"] == "4"
+    cli_parser, base_parser = parser.build_parser()
+    args, _ = parser.parse_args(cli_parser, base_parser, ["info"])
     assert args.threads == 4
+
+
+def test_save_config_rejects_invalid_types_before_publication(temp_config):
+    temp_config.write_text("atomic_outputs = false\n")
+    config.reload_settings()
+    with pytest.raises(WGSExtractError, match="atomic_outputs.*TOML boolean"):
+        config.save_config({"atomic_outputs": "false"})
+    assert temp_config.read_text() == "atomic_outputs = false\n"
+    assert config.settings["atomic_outputs"] is False
+
+
+def test_save_config_rejects_invalid_threads_before_publication(temp_config):
+    temp_config.write_text("threads = 4\n")
+    with pytest.raises(WGSExtractError, match="cpu_threads.*positive TOML integer"):
+        config.save_config({"cpu_threads": "max"})
+    assert temp_config.read_text() == "threads = 4\n"
+
+
+@pytest.mark.parametrize("command", [["--version"], ["help"], ["config"], ["info"]])
+def test_config_load_errors_are_one_line_without_traceback(tmp_path, capsys, command):
+    from wgsextract_cli.main import main
+
+    path = tmp_path / "bad.toml"
+    path.write_text('keep_awake = "false"\n')
+    with pytest.raises(SystemExit) as exc:
+        main(["--config", str(path), *command])
+    assert exc.value.code == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert len(output.err.splitlines()) == 1
+    assert "keep_awake" in output.err and str(path) in output.err
+    assert "TOML boolean" in output.err and "Traceback" not in output.err
+    assert "config set/show are not supported" in output.err
+
+
+def test_startup_selects_alternate_config_before_validating_default(
+    tmp_path, monkeypatch
+):
+    from tests.smoke_utils import isolate_home
+
+    home = tmp_path / "home"
+    isolate_home(monkeypatch, home)
+    default = config.get_config_path()
+    assert default.is_relative_to(home)
+    default.parent.mkdir(parents=True, exist_ok=True)
+    default.write_text('atomic_outputs = "false"\n')
+    alternate = tmp_path / "alternate.toml"
+    alternate.write_text("atomic_outputs = false\nkeep_awake = false\n")
+    command = [sys.executable, "-m", "wgsextract_cli.main"]
+
+    selected = subprocess.run(
+        [*command, "--config", str(alternate), "help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert selected.returncode == 0, selected.stderr
+    assert "COMMAND TREE:" in selected.stdout
+    rejected = subprocess.run(
+        [*command, "help"], capture_output=True, text=True, check=False
+    )
+    assert rejected.returncode != 0
+    assert "atomic_outputs" in rejected.stderr and "TOML boolean" in rejected.stderr
+    assert "Traceback" not in rejected.stderr
+    assert len(rejected.stderr.splitlines()) == 1
 
 
 def test_save_config_clears_aliases_of_cleared_key(temp_config):

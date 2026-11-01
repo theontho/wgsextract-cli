@@ -50,6 +50,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
+def pytest_sessionstart() -> None:
+    """Initialize real/session test defaults explicitly, not during config import."""
+    reload_settings()
+
+
 @pytest.fixture(autouse=True)
 def _isolate_user_config(
     request: pytest.FixtureRequest,

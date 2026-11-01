@@ -14,6 +14,7 @@ from .cli.dispatch import dispatch_command
 from .cli.parser import build_parser, config_path_from_argv, parse_args, print_full_help
 from .core.config import reload_settings, set_config_path
 from .core.run_log import RunLogError, run_logging
+from .core.utils import WGSExtractError
 
 __all__ = ["main"]
 
@@ -21,7 +22,16 @@ __all__ = ["main"]
 def main(argv: Sequence[str] | None = None) -> None:
     configure_stdio_encoding()
     set_config_path(config_path_from_argv(sys.argv[1:] if argv is None else argv))
-    reload_settings()
+    try:
+        reload_settings()
+    except WGSExtractError as exc:
+        detail = " ".join(str(exc).splitlines())
+        print(
+            f"Configuration error: {detail} Edit the file directly or use "
+            "--config PATH; config set/show are not supported.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from None
 
     parser, base_parser = build_parser()
     args, explicit_dests = parse_args(parser, base_parser, argv)
