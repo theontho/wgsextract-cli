@@ -18,8 +18,10 @@ from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.output_checks import warn_if_no_variants
+from wgsextract_cli.core.samtools_commands import get_sam_index_cmd, get_sam_view_cmd
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
+from wgsextract_cli.core.warnings import check_free_space, get_free_space_needed
 
 from .basic import get_base_args
 
@@ -85,6 +87,48 @@ def _dv_env() -> dict[str, str]:
     return env
 
 
+def _cram_version(path: str) -> tuple[int, int] | None:
+    """Read the CRAM file definition, independently of the filename."""
+    with open(path, "rb") as source:
+        definition = source.read(6)
+    if len(definition) != 6 or definition[:4] != b"CRAM":
+        return None
+    return definition[4], definition[5]
+
+
+def _compatible_reads(
+    alignment: str, ref: str, work: str, threads: str, region: str | None
+) -> str:
+    version = _cram_version(alignment)
+    if version is None or version < (3, 1):
+        return alignment
+    # Gate/remove this workaround when supported DV images ship htslib >=1.19
+    # (htscodecs >=1.5.2); a host-samtools decode cannot detect their SSE4 bug.
+    _, final_gb = get_free_space_needed(Path(alignment).stat().st_size, is_cram=True)
+    required_gb = final_gb + 1  # Round up the CRAM expansion estimate; allow its index.
+    if not check_free_space(work, required_gb):
+        raise WGSExtractError(
+            f"Insufficient free disk space for DeepVariant CRAM 3.0 staging "
+            f"at {work} (needs ~{required_gb} GiB)."
+        )
+    logging.info(
+        "Transcoding CRAM %s.%s to temporary CRAM 3.0: DeepVariant's htslib "
+        "1.18 SSE4 rANS decoder can fail on valid CRAM 3.1 blocks.",
+        *version,
+    )
+    compatible = str(Path(work, "reads.cram"))
+    run_command(
+        [
+            *get_sam_view_cmd(threads, fmt="CRAM", reference=ref),
+            "--output-fmt-option", "version=3.0",
+            "--no-PG", "-o", compatible, alignment,
+            *([region] if region else []),
+        ]
+    )  # fmt: skip
+    run_command(get_sam_index_cmd(compatible, threads))
+    return compatible
+
+
 # Parabricks DeepVariant: its --mode per model type (WGS and WES are short reads).
 _PARABRICKS_MODES = {
     "WGS": [],
@@ -139,10 +183,11 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
 
     try:
         with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_dv_") as work:
+            reads = _compatible_reads(args.input, ref, work, threads, args.region)
             dv_args = [
                 "--model_type", model_type,
                 "--ref", host_path(ref),
-                "--reads", host_path(args.input),
+                "--reads", host_path(reads),
                 "--output_vcf", host_path(out_vcf),
                 "--num_shards", str(threads),
                 "--intermediate_results_dir", host_path(work),
@@ -155,7 +200,7 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
                 run_container(
                     image,
                     ["/opt/deepvariant/bin/run_deepvariant", *dv_args],
-                    [ref, args.input, out_vcf, work, args.checkpoint],
+                    [ref, reads, out_vcf, work, args.checkpoint],
                 )
             else:
                 # stdin closed: DeepVariant's GNU parallel would read it otherwise.

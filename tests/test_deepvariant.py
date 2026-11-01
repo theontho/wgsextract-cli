@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.htslib_helpers import needs_tools, sam_to_bam, write_fasta
 from wgsextract_cli.commands.vcf import deepvariant
 from wgsextract_cli.core import containers
 from wgsextract_cli.core.utils import WGSExtractError
@@ -146,3 +147,184 @@ def test_run_deepvariant_on_path_is_used_without_docker(files, monkeypatch):
     assert "PYTHONPATH" not in kwargs["env"]
     assert kwargs["stdin"] == subprocess.DEVNULL
     assert (out / "deepvariant.vcf.gz").exists()
+
+
+@pytest.mark.parametrize(
+    ("definition", "expected"),
+    [
+        (b"CRAM\x03\x00" + bytes(20), (3, 0)),
+        (b"CRAM\x03\x01" + bytes(20), (3, 1)),
+        (b"CRAM\x04\x00" + bytes(20), (4, 0)),
+        (b"BAM\x01" + bytes(20), None),
+        (b"\x1f\x8b" + bytes(20), None),
+        (b"CRAM\x03", None),
+        (b"", None),
+        (b"garbage", None),
+    ],
+)
+def test_cram_version_sniffs_definition_not_extension(tmp_path, definition, expected):
+    alignment = tmp_path / "reads.bam"
+    alignment.write_bytes(definition)
+    assert deepvariant._cram_version(str(alignment)) == expected
+
+
+@pytest.mark.parametrize("version", [None, (3, 0), (3, 1), (4, 0)])
+def test_only_new_cram_is_transcoded_and_indexed(files, monkeypatch, version, caplog):
+    ref, alignment, work = files
+    if version:
+        alignment.write_bytes(b"CRAM" + bytes(version) + bytes(20))
+    calls = []
+    monkeypatch.setattr(deepvariant, "run_command", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(deepvariant, "check_free_space", lambda *_: True)
+    with caplog.at_level("INFO"):
+        result = deepvariant._compatible_reads(
+            str(alignment), str(ref), str(work), "4", "chr20:1-100"
+        )
+    if version is None or version < (3, 1):
+        assert result == str(alignment)
+        assert calls == []
+        assert "Transcoding CRAM" not in caplog.text
+        return
+    assert result == str(work / "reads.cram")
+    view, index = calls
+    assert view[:2] == ["samtools", "view"]
+    assert view[view.index("-@") + 1] == "4"
+    assert view[view.index("-T") + 1] == str(ref)
+    assert view[view.index("--output-fmt-option") + 1] == "version=3.0"
+    assert view[-2:] == [str(alignment), "chr20:1-100"]
+    assert index == ["samtools", "index", result]
+    assert caplog.text.count("Transcoding CRAM") == 1
+    assert "htslib 1.18 SSE4 rANS decoder" in caplog.text
+
+
+def test_transcode_fails_before_writing_when_disk_is_low(files, monkeypatch):
+    ref, alignment, work = files
+    alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
+    monkeypatch.setattr(deepvariant, "check_free_space", lambda *_: False)
+    monkeypatch.setattr(
+        deepvariant, "run_command", lambda *_: pytest.fail("must check disk first")
+    )
+    with pytest.raises(WGSExtractError, match="Insufficient free disk"):
+        deepvariant._compatible_reads(str(alignment), str(ref), str(work), "1", None)
+    assert not (work / "reads.cram").exists()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [None, "view", "index", "caller", "cancel", "cancel-view", "cancel-index"],
+)
+def test_staged_cram_is_used_and_cleaned_on_all_exit_paths(files, monkeypatch, failure):
+    _ref, alignment, out = files
+    alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
+    monkeypatch.setattr(
+        deepvariant,
+        "get_tool_path",
+        lambda tool: "/opt/dv/run_deepvariant" if tool == "run_deepvariant" else None,
+    )
+    monkeypatch.setattr(deepvariant, "check_free_space", lambda *_: True)
+    staged = []
+
+    def fake(cmd, **kwargs):
+        if cmd[0] == "samtools":
+            if cmd[1] == "view":
+                path = Path(cmd[cmd.index("-o") + 1])
+                staged.append(path)
+                path.write_bytes(b"partial")
+                assert cmd[-1] == str(alignment)  # Whole input, without a region.
+            else:
+                Path(cmd[-1] + ".crai").touch()
+            if cmd[1] == failure:
+                raise subprocess.CalledProcessError(1, cmd)
+            if failure == f"cancel-{cmd[1]}":
+                raise KeyboardInterrupt
+        else:
+            reads = Path(cmd[cmd.index("--reads") + 1])
+            assert reads == staged[0]
+            assert reads.is_file()
+            assert Path(str(reads) + ".crai").exists()
+            if failure == "caller":
+                raise subprocess.CalledProcessError(1, cmd)
+            if failure == "cancel":
+                raise KeyboardInterrupt
+            Path(cmd[cmd.index("--output_vcf") + 1]).write_text("vcf")
+
+    monkeypatch.setattr(deepvariant, "run_command", fake)
+    if failure:
+        error = KeyboardInterrupt if failure.startswith("cancel") else WGSExtractError
+        with pytest.raises(error):
+            deepvariant.cmd_deepvariant(_args(alignment, region=None))
+    else:
+        deepvariant.cmd_deepvariant(_args(alignment, region=None))
+    assert len(staged) == 1
+    assert not staged[0].parent.exists()
+    assert alignment.read_bytes() == b"CRAM\x03\x01" + bytes(20)
+    assert sorted(p.name for p in out.iterdir()) == (
+        ["deepvariant.vcf.gz"] if failure is None else []
+    )
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
+def test_container_mounts_staged_cram_instead_of_original(files, monkeypatch):
+    _ref, alignment, out = files
+    alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
+    runs = _docker(monkeypatch)
+    monkeypatch.setattr(deepvariant, "check_free_space", lambda *_: True)
+    monkeypatch.setattr(deepvariant, "run_command", lambda *a, **kw: None)
+    deepvariant.cmd_deepvariant(_args(alignment))
+    (cmd,) = runs
+    reads = Path(cmd[cmd.index("--reads") + 1])
+    assert reads.name == "reads.cram"
+    assert reads.parent.parent == out
+    mounts = {cmd[i + 1].split(":")[0] for i, a in enumerate(cmd) if a == "-v"}
+    assert str(reads.parent) in mounts
+    assert str(alignment.parent) not in mounts
+    assert not reads.parent.exists()
+
+
+@needs_tools("samtools")
+@pytest.mark.parametrize("region", [None, "chr20:1-50"])
+def test_real_cram31_roundtrip_has_cram30_header_and_read_parity(tmp_path, region):
+    from wgsextract_cli.core.utils import run_command
+
+    ref = write_fasta(tmp_path / "ref.fa", {"chr20": "ACGT" * 100})
+    bam = sam_to_bam(
+        [
+            "@HD\tVN:1.6\tSO:coordinate",
+            "@SQ\tSN:chr20\tLN:400",
+            "r1\t0\tchr20\t1\t60\t20M\t*\t0\t0\tACGTACGTACGTACGTACGT\tIIIIIIIIIIIIIIIIIIII",
+            "r2\t0\tchr20\t101\t60\t20M\t*\t0\t0\tACGTACGTACGTACGTACGT\tIIIIIIIIIIIIIIIIIIII",
+        ],
+        tmp_path / "reads.bam",
+    )
+    cram = tmp_path / "source.cram"
+    run_command(
+        [
+            "samtools", "view", "-C", "--output-fmt-option", "version=3.1",
+            "-T", str(ref), "-o", str(cram), bam,
+        ]
+    )  # fmt: skip
+    run_command(["samtools", "index", str(cram)])
+    assert deepvariant._cram_version(str(cram)) == (3, 1)
+    work = tmp_path / "dv"
+    work.mkdir()
+    converted = deepvariant._compatible_reads(
+        str(cram), str(ref), str(work), "1", region
+    )
+    assert deepvariant._cram_version(converted) == (3, 0)
+    assert Path(converted + ".crai").is_file()
+    original_count = run_command(
+        [
+            "samtools",
+            "view",
+            "-c",
+            "-T",
+            str(ref),
+            str(cram),
+            *([region] if region else []),
+        ],
+        capture_output=True,
+    ).stdout.strip()
+    converted_count = run_command(
+        ["samtools", "view", "-c", "-T", str(ref), converted], capture_output=True
+    ).stdout.strip()
+    assert converted_count == original_count == ("1" if region else "2")
