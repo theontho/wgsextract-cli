@@ -147,7 +147,7 @@ def _fast_metrics(
         "is_paired": is_paired,
         "avg_insert_size": avg_tlen,
         "std_insert_size": std_tlen,
-        "sequencer": determine_sequencer(first_qname),
+        "sequencer": determine_sequencer(first_qname, header),
         "first_qname": first_qname,
         "alignment_health": alignment_health(
             input_p, cram_opt[1] if cram_opt else None
@@ -340,6 +340,9 @@ def run(args: argparse.Namespace) -> None:
             f"{data.get('ref_model_str')!r}, not {ref_model[0]!r}"
         )
         data = {}
+    # Likewise the sequencer, from the cached first read name and the header.
+    if data.get("avg_read_len"):
+        data["sequencer"] = determine_sequencer(data.get("first_qname"), header)
 
     if data.get("avg_read_len") and "alignment_health" not in data:
         # A cache from before these checks existed.

@@ -341,10 +341,44 @@ def test_file_stats_finds_replaced_extension_crai(tmp_path):
         ("read1", "Unknown"),
         ("A00910:1:ABCDEFGHI:1:1:1:1", "Illumina NS 6000 (Dante)"),
         ("E200006123L1C001R0010012345", "MGI DNB T7 (Dante, 6123 bad)"),
+        # Ultima's own CRAMs (GIAB HG008) carry the barcode; MyHeritage's don't.
+        ("038266_2-Z0138-3185054028", "Ultima Genomics UG 100"),
+        ("608478_2-3317701967", "Ultima Genomics UG 100"),
+        ("439863_1-0160611537", "Ultima Genomics UG 100"),
     ],
 )
 def test_determine_sequencer(qname, sequencer):
     assert metrics.determine_sequencer(qname) == sequencer
+
+
+def test_ultima_read_group_names_the_sequencer_when_read_names_dont():
+    ultima = "@HD\tVN:1.6\n@RG\tID:Z0092-TwiP1-9\tPL:ULTIMA\tSM:S\n"
+    assert metrics.determine_sequencer("renamed.1", ultima) == "Ultima Genomics UG 100"
+    assert metrics.determine_sequencer(None, ultima) == "Ultima Genomics UG 100"
+    illumina = "@RG\tID:L1\tPL:ILLUMINA\tSM:S\n"
+    assert metrics.determine_sequencer("renamed.1", illumina) == "Unknown"
+    # A recognized read name wins over the read group.
+    a00910 = "A00910:1:ABCDEFGHI:1:1:1:1"
+    assert metrics.determine_sequencer(a00910, ultima) == "Illumina NS 6000 (Dante)"
+
+
+@needs_htslib
+def test_cached_unknown_sequencer_is_redetected(tmp_path):
+    seq = "ACGT" * 25
+    reads = [
+        f"608478_1-000000000{i}\t0\tchr1\t{1 + i}\t60\t100M\t*\t0\t0\t{seq}\t"
+        f"{'I' * 100}\tRG:Z:Z0092"
+        for i in range(5)
+    ]
+    header = ["@SQ\tSN:chr1\tLN:1000", "@RG\tID:Z0092\tPL:ULTIMA\tSM:S"]
+    bam = sam_to_bam([*header, *reads], tmp_path / "mh.bam")
+    assert _field(_info(bam), "Sequencer") == "Ultima Genomics UG 100"
+    # A cache from before MyHeritage's read names were known.
+    cache = tmp_path / "mh.bam.wgse_info.json"
+    data = json.loads(cache.read_text())
+    data["sequencer"] = "Unknown"
+    cache.write_text(json.dumps(data))
+    assert _field(_info(bam), "Sequencer") == "Ultima Genomics UG 100"
 
 
 def test_load_n_counts_without_reference_or_sidecar(tmp_path):
