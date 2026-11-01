@@ -114,8 +114,9 @@ Fastp 1.4.0 is staged with pinned Highway/libdeflate dependencies and ISA-L
 2.32.1's generic C baseline. The upstream Windows ISA-L assembly is x86-only;
 it is not an acceptable ARM64 implementation. Highway's NEON selection must
 be proved by compiler evidence. The LLP64 widening matches the existing x64
-recipe. Native compilation, gzip correctness and performance are not yet
-qualified; generic C ISA-L is not a claim of optimized ARM compression.
+recipe. Native compilation, gzip/counter correctness, parser regressions,
+NEON include selection and live AA64 audits pass. Performance remains
+unqualified; generic C ISA-L is not a claim of optimized ARM compression.
 The command-line parser uses MSVC's already-readable `type_info::name()` for
 diagnostics rather than depending on GCC's unavailable `cxxabi.h`.
 Its private debug flag is renamed from reserved `_DEBUG` to prevent
@@ -131,13 +132,14 @@ Java 17 and removes 16 foreign HDF5 JNI payloads from the unsigned JHDF5 jar,
 retaining bytecode and license notices. FAST5 fails before starting Java;
 FASTQ/BAM/SAM remain eligible for qualification. Both Python and any `--java`
 override must have AA64 PE headers; ambient CLASSPATH cannot add unaudited jars.
-Java 17 compilation, known-read statistics and live native Windows runtime
-audits pass; package qualification remains pending. Upstream's source uses a
+Java 17 compilation, known-read statistics, archive and live native Windows
+runtime audits and package qualification pass. Upstream's source uses a
 Java-10+ desktop API despite its Java-8 build setting; this package targets 17.
 Haplogrep 2.4.0 hides 13 foreign native objects/libraries inside `jbwa.zip`.
 The restricted unsigned jar removes that resource; FASTA/JBWA and FASTA-MSA
 requests fail before Java. Original/restricted VCF classification is byte-exact
-locally; native Windows package/runtime qualification remains pending.
+locally and natively; native Windows version, application-class, live SDK
+process/module and restricted-package qualification pass.
 Archive qualification recursively examines nested jars and ZIP resources for
 foreign PE/ELF/Mach-O payloads, not only entries with DLL suffixes.
 

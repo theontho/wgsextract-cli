@@ -64,11 +64,7 @@ foreach ($idToAudit in $ProcessIds) {
         $modules += [ordered]@{
             path = $module.FileName; machine = ("{0:X4}" -f $moduleMachine)
         }
-        # Windows itself may ship hybrid system images. Application modules
-        # outside the audited prefix still must not introduce x64/ARM64EC.
-        if (-not $module.FileName.StartsWith(
-            $env:SystemRoot + "\", [System.StringComparison]::OrdinalIgnoreCase
-        ) -and $moduleMachine -ne 0xAA64) {
+        if ($moduleMachine -ne 0xAA64) {
             $failures += $module.FileName
         }
     }

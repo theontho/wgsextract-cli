@@ -104,14 +104,19 @@ jobs:
       - name: Native CRAM coverage and variant-calling qualification
         shell: pwsh
         run: |
-          # Python recipes qualify separately; do not overlay two interpreter versions.
+          # Never overlay the older NuGet interpreter with the secure source build.
           python packaging/windows-arm64/unpack_packages.py --source out/integration/packages --prefix out/integration/prefix --exclude-package python
           if ($LASTEXITCODE) { throw "Native package extraction failed" }
+          python packaging/windows-arm64/unpack_packages.py --source out/integration/packages/windows-arm64-qualification-python-source --prefix out/integration/prefix
+          if ($LASTEXITCODE) { throw "Secure native Python package extraction failed" }
           $prefix = (Resolve-Path out/integration/prefix).Path
+          $python = "$prefix\python.exe"
+          & $python -m pip install -e . pytest
+          if ($LASTEXITCODE) { throw "Secure native integration dependency installation failed" }
           $samtools = "$prefix\Library\bin\samtools.exe"
           $bcftools = "$prefix\Library\bin\bcftools.exe"
           & scripts/audit_windows_arm64.ps1 -Prefix $prefix -Report out/integration/pe.json
-          python packaging/windows-arm64/tests/pipeline_smoke.py --samtools $samtools --bcftools $bcftools --output out/integration/pipeline
+          & $python packaging/windows-arm64/tests/pipeline_smoke.py --samtools $samtools --bcftools $bcftools --output out/integration/pipeline
           if ($LASTEXITCODE) { throw "Native pipeline truth/CRAM/calling gate failed" }
           & scripts/qualify_windows_arm64_process.ps1 -Executable $samtools -Arguments @("view", "-h", "-") `
             -InputPrefix "@HD`tVN:1.6`n@SQ`tSN:chr1`tLN:4000`n" -Prefix $prefix -Report out/integration/samtools-process.json
@@ -123,7 +128,7 @@ jobs:
         run: |
           $prefix = (Resolve-Path out/integration/prefix).Path
           $env:Path = "$prefix\Library\bin;$env:Path"
-          python -m pytest --fake-data tests/test_e2e_fast_chrM.py tests/test_smoke_real_basics.py `
+          & "$prefix\python.exe" -m pytest --fake-data tests/test_e2e_fast_chrM.py tests/test_smoke_real_basics.py `
             -k "test_01_info or test_02_info_detailed or test_06_bam_sort_chrm or test_07_bam_tocram_chrm or test_13_vcf_snp_chrm or test_align_to_cram or test_bam_index or test_bam_to_cram or test_info_base or test_info_coverage_sample or test_microarray_basics" `
             --basetemp=out/integration/pytest-small --junitxml=out/integration/small-genome.xml
           if ($LASTEXITCODE) { throw "Native small-genome CLI qualification failed" }
