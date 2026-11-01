@@ -6,7 +6,7 @@ import argparse
 import hashlib
 import json
 import re
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from urllib.parse import parse_qs, urlsplit
 
 try:
@@ -37,6 +37,8 @@ def declared_digests(value: object) -> dict[str, str]:
 
 
 def lock_key(uri: str, root: Path) -> str:
+    if PureWindowsPath(uri).is_absolute():
+        return PureWindowsPath(uri).as_uri()
     if urlsplit(uri).scheme:
         return urlsplit(uri)._replace(fragment="").geturl()
     return (root / uri).resolve().as_uri()

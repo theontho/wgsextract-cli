@@ -54,6 +54,35 @@ def test_conflicting_lock_hash_fails_closed(tmp_path: Path) -> None:
     assert lock.read_text() == original
 
 
+@pytest.mark.parametrize(
+    "locked_path",
+    [r"C:\candidate\package.conda", "C:/candidate/package.conda"],
+)
+@pytest.mark.parametrize("existing_digest", [None, "a" * 64, "b" * 64])
+def test_native_windows_conda_path_matches_file_uri_pin(
+    tmp_path: Path, locked_path: str, existing_digest: str | None
+) -> None:
+    manifest = tmp_path / "pixi.toml"
+    manifest.write_text(
+        '[dependencies]\npackage = { url = "file:///C:/candidate/package.conda", '
+        f'sha256 = "{"a" * 64}" }}\n'
+    )
+    lock = tmp_path / "pixi.lock"
+    original = f"version: 6\npackages:\n- conda: {locked_path}\n  name: package\n"
+    if existing_digest is not None:
+        original += f"  sha256: {existing_digest}\n"
+    lock.write_text(original)
+    if existing_digest == "b" * 64:
+        with pytest.raises(ValueError, match="disagrees"):
+            restore_hashes(manifest, lock, require_all=True)
+        assert lock.read_text() == original
+    else:
+        assert restore_hashes(manifest, lock, require_all=True) == (
+            existing_digest is None
+        )
+        assert f"  sha256: {'a' * 64}\n" in lock.read_text()
+
+
 def test_candidate_local_archive_receives_explicit_hash(
     tmp_path: Path,
 ) -> None:

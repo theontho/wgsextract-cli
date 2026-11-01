@@ -12,8 +12,10 @@ on:
       - packaging/windows-arm64/**
       - scripts/audit_windows_arm64.ps1
       - scripts/qualify_windows_arm64_process.ps1
+      - scripts/restore_pixi_hashes.py
       - src/wgsextract_cli/core/windows_arm64.py
       - tests/test_windows_arm64.py
+      - tests/test_pixi_hash_restore.py
       - .github/workflows/windows_arm64.yml
 
 permissions:
