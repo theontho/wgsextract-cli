@@ -14,7 +14,7 @@ from os import PathLike
 from pathlib import Path
 from typing import IO, Literal, TypeAlias, overload
 
-from wgsextract_cli.core.download_progress import CancelEvent
+from wgsextract_cli.core.download_progress import CancelEvent, redact_urls
 from wgsextract_cli.core.paths import PathInput, command_is_path, expand_path
 from wgsextract_cli.core.process_registry import (
     cleanup_processes as cleanup_processes,
@@ -57,7 +57,7 @@ class ToolExecutionError(WGSExtractError, subprocess.CalledProcessError):
         output = self.stderr or ""
         if isinstance(output, bytes):
             output = output.decode(errors="replace")
-        tail = "\n".join(str(output).strip().splitlines()[-8:])[-2000:]
+        tail = "\n".join(redact_urls(str(output)).strip().splitlines()[-8:])[-2000:]
         tool = Path(str(self.cmd[0])).name if self.cmd else "Tool"
         return f"{tool} failed (exit {self.returncode}): {tail or 'no error output'}"
 
@@ -144,20 +144,43 @@ def _normalize_subprocess_cmd(cmd: PathInput | Sequence[object]) -> list[str]:
     return cmd_list
 
 
-def _tee_stderr(fd: int, tail: bytearray, target: IO[str]) -> None:
+def _tee_stderr(
+    fd: int,
+    tail: bytearray,
+    target: IO[str],
+    redact_output_urls: bool = False,
+    sources: Sequence[str] = (),
+) -> None:
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
     binary = getattr(target, "buffer", None)
+    pending = ""
     with os.fdopen(fd, "rb") as stream:
         while chunk := stream.read1(65536):
             tail.extend(chunk)
             del tail[:-65536]
+            if redact_output_urls:
+                pending += decoder.decode(chunk)
+                lines = pending.splitlines(keepends=True)
+                pending = ""
+                for line in lines:
+                    if line.endswith(("\n", "\r")):
+                        target.write(redact_urls(line, sources=sources))
+                        target.flush()
+                    else:
+                        pending = line
+                continue
             if binary is not None:
                 binary.write(chunk)
                 binary.flush()
             else:
                 target.write(decoder.decode(chunk))
                 target.flush()
-        if binary is None:
+        if redact_output_urls:
+            target.write(
+                redact_urls(pending + decoder.decode(b"", final=True), sources=sources)
+            )
+            target.flush()
+        elif binary is None:
             target.write(decoder.decode(b"", final=True))
 
 
@@ -169,12 +192,15 @@ def run_command(
     stdin: IO[bytes] | IO[str] | int | None = None,
     stdout: IO[bytes] | IO[str] | int | None = None,
     cwd: PathInput | None = None,
+    *,
+    redact_output_urls: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Helper to run subprocess with logging and registry."""
     cmd_list = _normalize_subprocess_cmd(cmd)
-    record_command(cmd_list)
+    display_cmd = [redact_urls(part) for part in cmd_list]
+    record_command(display_cmd)
 
-    cmd_str = " ".join(cmd_list)
+    cmd_str = " ".join(display_cmd)
     logging.debug(f"Running: {cmd_str}")
 
     proc_stdout = (
@@ -213,7 +239,9 @@ def run_command(
         assert stderr_write is not None
         os.close(stderr_write)
         stderr_thread = threading.Thread(
-            target=_tee_stderr, args=(stderr_read, stderr_tail, sys.stderr), daemon=True
+            target=_tee_stderr,
+            args=(stderr_read, stderr_tail, sys.stderr, redact_output_urls, cmd_list),
+            daemon=True,
         )
         stderr_thread.start()
     proc_registry.register_process(cmd_str, process)
@@ -240,7 +268,12 @@ def run_command(
                     stderr_tail.decode(errors="replace").splitlines()[-20:]
                 )
             raise ToolExecutionError(
-                process.returncode, cmd_list, res_stdout, res_stderr
+                process.returncode,
+                display_cmd,
+                res_stdout,
+                redact_urls(res_stderr, sources=cmd_list)
+                if isinstance(res_stderr, str)
+                else res_stderr,
             )
         return subprocess.CompletedProcess(
             cmd_list, process.returncode, res_stdout, res_stderr
@@ -293,9 +326,10 @@ def popen(
     Default text=False to allow binary pipes (BAM/BCF).
     """
     cmd_list = _normalize_subprocess_cmd(cmd)
-    record_command(cmd_list)
+    display_cmd = [redact_urls(part) for part in cmd_list]
+    record_command(display_cmd)
 
-    cmd_str = " ".join(cmd_list)
+    cmd_str = " ".join(display_cmd)
     logging.debug(f"Popen: {cmd_str}")
 
     try:

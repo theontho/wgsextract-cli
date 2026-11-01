@@ -112,7 +112,8 @@ def test_download_file_verifies_github_release_asset_digest(tmp_path, monkeypatc
     digest = hashlib.sha256(payload).hexdigest()
     dest = tmp_path / "hs38.fa.gz"
 
-    def fake_run_command(cmd, capture_output=False):
+    def fake_run_command(cmd, capture_output=False, *, redact_output_urls=False):
+        assert redact_output_urls
         output_path = Path(cmd[cmd.index("-o") + 1])
         output_path.write_bytes(payload)
 
@@ -134,10 +135,17 @@ def test_download_file_resume_keeps_curl_output_argument_order(tmp_path, monkeyp
     payload = b"resumed reference genome test payload"
     dest = tmp_path / "hs38.fa.gz"
     Path(f"{dest}.partial").write_bytes(b"partial")
+    url = (
+        "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz"
+    )
+    Path(f"{dest}.partial.source").write_text(
+        hashlib.sha256(url.encode()).hexdigest() + "\n", encoding="ascii", newline="\n"
+    )
     seen_commands = []
     seen_capture_output = []
 
-    def fake_run_command(cmd, capture_output=False):
+    def fake_run_command(cmd, capture_output=False, *, redact_output_urls=False):
+        assert redact_output_urls
         seen_commands.append(cmd)
         seen_capture_output.append(capture_output)
         output_path = Path(cmd[cmd.index("-o") + 1])
@@ -150,7 +158,7 @@ def test_download_file_resume_keeps_curl_output_argument_order(tmp_path, monkeyp
     )
 
     assert ref_library.downloads.download_file(
-        "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
+        url,
         str(dest),
     )
     assert seen_commands == [
@@ -163,7 +171,7 @@ def test_download_file_resume_keeps_curl_output_argument_order(tmp_path, monkeyp
             "-",
             "-o",
             f"{dest}.partial",
-            "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
+            url,
         ]
     ]
     assert seen_capture_output == [False]
@@ -210,7 +218,8 @@ def test_download_file_rejects_github_release_asset_digest_mismatch(
     expected_digest = hashlib.sha256(b"expected payload").hexdigest()
     dest = tmp_path / "hs38.fa.gz"
 
-    def fake_run_command(cmd, capture_output=False):
+    def fake_run_command(cmd, capture_output=False, *, redact_output_urls=False):
+        assert redact_output_urls
         output_path = Path(cmd[cmd.index("-o") + 1])
         output_path.write_bytes(payload)
 
@@ -234,7 +243,8 @@ def test_download_file_warns_and_continues_when_github_digest_lookup_fails(
     payload = b"reference genome payload without digest metadata"
     dest = tmp_path / "hs38.fa.gz"
 
-    def fake_run_command(cmd, capture_output=False):
+    def fake_run_command(cmd, capture_output=False, *, redact_output_urls=False):
+        assert redact_output_urls
         output_path = Path(cmd[cmd.index("-o") + 1])
         output_path.write_bytes(payload)
 

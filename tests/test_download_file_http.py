@@ -22,6 +22,11 @@ from wgsextract_cli.core.ref_library.segmented import ranged_size
 DATA = os.urandom(600_000)
 
 
+def _write_bound_partial(path: Path, url: str, data: bytes) -> None:
+    path.write_bytes(data)
+    Path(str(path) + ".source").write_text(hashlib.sha256(url.encode()).hexdigest())
+
+
 class _Server:
     """Serves DATA with byte ranges and records each request.
 
@@ -107,6 +112,95 @@ def server(monkeypatch):
     srv.httpd.server_close()
 
 
+@pytest.mark.parametrize("entrypoint", ["benchmark", "examples"])
+def test_user_download_entrypoints_resume_without_exposing_partial_files(
+    server, tmp_path, entrypoint
+):
+    from wgsextract_cli.commands import examples
+    from wgsextract_cli.commands.benchmark import datasets
+
+    dest = tmp_path / "example.bam"
+    server.drops = 1
+    if entrypoint == "benchmark":
+        datasets._download_file(server.url, dest)
+    else:
+        examples._download_file(server.url, dest, "https")
+    assert dest.read_bytes() == DATA
+    assert server.gets() == [None, f"bytes={len(DATA) // 2}-"]
+    assert not Path(str(dest) + ".partial").exists()
+
+
+@pytest.mark.parametrize("resolve_release_digest", [True, False])
+def test_explicit_checksum_verifies_before_replacing_destination(
+    server, tmp_path, monkeypatch, resolve_release_digest
+):
+    dest = tmp_path / "dataset.zip"
+    dest.write_bytes(b"previous verified download")
+    monkeypatch.setattr(
+        downloads,
+        "resolve_github_release_asset_sha256",
+        lambda _: pytest.fail("Explicit checksum must not need GitHub metadata"),
+    )
+    assert not downloads.download_file(
+        server.url,
+        str(dest),
+        expected_sha256="0" * 64,
+        resolve_release_digest=resolve_release_digest,
+    )
+    assert dest.read_bytes() == b"previous verified download"
+    assert not Path(str(dest) + ".partial").exists()
+    assert downloads.download_file(
+        server.url,
+        str(dest),
+        expected_sha256=hashlib.sha256(DATA).hexdigest().upper(),
+        resolve_release_digest=resolve_release_digest,
+    )
+    assert dest.read_bytes() == DATA
+
+
+@pytest.mark.parametrize("checksum", ["a" * 63, "x" * 64])
+def test_invalid_explicit_checksum_fails_before_network_or_destination_changes(
+    server, tmp_path, checksum
+):
+    from wgsextract_cli.core.utils import WGSExtractError
+
+    dest = tmp_path / "dataset.zip"
+    dest.write_bytes(b"existing data")
+    with pytest.raises(WGSExtractError, match="64 hex digits"):
+        downloads.download_file(server.url, str(dest), expected_sha256=checksum)
+    assert dest.read_bytes() == b"existing data"
+    assert server.gets() == []
+    assert not Path(str(dest) + ".partial").exists()
+
+
+def test_benchmark_md5_failure_drops_unchecked_shared_cache(
+    server, tmp_path, monkeypatch
+):
+    from wgsextract_cli.commands.benchmark import datasets
+    from wgsextract_cli.commands.benchmark.models import BenchmarkRemoteFile
+    from wgsextract_cli.core.utils import WGSExtractError
+
+    monkeypatch.setitem(settings, "dev_download_cache", True)
+    monkeypatch.setattr(
+        dev_download_cache, "download_cache_root", lambda: tmp_path / "dev-cache"
+    )
+    good = b"verified benchmark data"
+    remote = BenchmarkRemoteFile(
+        "bam", server.url, "sample.bam", hashlib.md5(good).hexdigest()
+    )
+    destination = tmp_path / remote.filename
+    unchecked = dev_download_cache.cached_download_path(server.url, destination)
+    server.data = b"corrupt benchmark data"
+    with pytest.raises(WGSExtractError, match="MD5 mismatch"):
+        datasets._cached_remote_dataset_file(remote, tmp_path)
+    assert not destination.exists()
+    assert not unchecked.exists()
+
+    server.data = good
+    assert datasets._cached_remote_dataset_file(remote, tmp_path).read_bytes() == good
+    assert server.gets() == [None, None]
+
+
 @pytest.fixture(params=("urllib", "curl", "segmented"))
 def transport(request, server, monkeypatch):
     if request.param == "curl":
@@ -190,6 +284,220 @@ def test_a_dropped_connection_resumes_where_it_stopped(server, tmp_path):
     assert server.gets() == [None, f"bytes={len(DATA) // 2}-"]
 
 
+def test_changed_url_discards_partial_even_when_filename_and_size_match(
+    server, tmp_path
+):
+    destination = tmp_path / "hs38.fa.gz"
+    cancel = threading.Event()
+    assert not downloads.download_file(
+        server.url, str(destination), lambda *_a: cancel.set(), cancel
+    )
+    source = Path(str(destination) + ".partial.source")
+    replacement = b"z" * len(DATA)
+    server.data = replacement
+    assert downloads.download_file(server.url + "?revision=2", str(destination))
+    assert destination.read_bytes() == replacement
+    assert server.gets() == [None, None]
+    assert not source.exists()
+
+
+def test_legacy_partial_without_source_metadata_restarts_safely(server, tmp_path):
+    destination = tmp_path / "hs38.fa.gz"
+    Path(str(destination) + ".partial").write_bytes(b"unknown-source-prefix")
+    assert downloads.download_file(server.url, str(destination))
+    assert destination.read_bytes() == DATA
+    assert server.gets() == [None]
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_md5_download_is_not_published_unchecked_during_verification(
+    server, tmp_path, monkeypatch, interrupted
+):
+    from wgsextract_cli.commands.benchmark import datasets
+    from wgsextract_cli.commands.benchmark.models import BenchmarkRemoteFile
+
+    monkeypatch.setitem(settings, "dev_download_cache", True)
+    monkeypatch.setattr(
+        dev_download_cache, "download_cache_root", lambda: tmp_path / "dev-cache"
+    )
+    remote = BenchmarkRemoteFile(
+        "bam", server.url, "sample.bam", hashlib.md5(DATA).hexdigest()
+    )
+    destination = tmp_path / remote.filename
+    unchecked = dev_download_cache.cached_download_path(server.url, destination)
+    original = datasets._verify_digest
+
+    def verify(*args):
+        assert not unchecked.exists()
+        if interrupted:
+            raise KeyboardInterrupt
+        original(*args)
+
+    monkeypatch.setattr(datasets, "_verify_digest", verify)
+    if interrupted:
+        with pytest.raises(KeyboardInterrupt):
+            datasets._cached_remote_dataset_file(remote, tmp_path)
+        assert not unchecked.exists()
+    else:
+        assert (
+            datasets._cached_remote_dataset_file(remote, tmp_path).read_bytes() == DATA
+        )
+        assert not unchecked.exists()
+        assert (
+            dev_download_cache.cached_download_path(
+                server.url, destination, checksum_hint=f"md5:{remote.md5}"
+            ).read_bytes()
+            == DATA
+        )
+
+
+def test_forced_example_download_bypasses_cache_read_and_publication(
+    server, tmp_path, monkeypatch
+):
+    from wgsextract_cli.commands import examples
+
+    monkeypatch.setitem(settings, "dev_download_cache", True)
+    monkeypatch.setattr(
+        dev_download_cache, "download_cache_root", lambda: tmp_path / "dev-cache"
+    )
+    seed = tmp_path / "old"
+    seed.write_bytes(b"stale cached content")
+    cached = dev_download_cache.store_download_in_dev_cache(server.url, seed)
+    assert cached is not None
+    destination = tmp_path / "hs38.fa.gz"
+    monkeypatch.setattr(
+        examples,
+        "_planned_downloads",
+        lambda *_a: [(server.url, destination, "bam", "https")],
+    )
+    monkeypatch.setattr(examples.shutil, "which", lambda _name: "/path/to/curl")
+    from argparse import Namespace
+
+    examples.cmd_download(
+        Namespace(
+            example_ids=["phase3-chrmt-vcf"],
+            all=False,
+            tag=None,
+            method="https",
+            aspera_key=None,
+            target_root=str(tmp_path),
+            force=True,
+            dry_run=False,
+        )
+    )
+    assert destination.read_bytes() == DATA
+    assert server.gets() == [None]
+    assert cached.read_bytes() == b"stale cached content"
+
+
+def test_aspera_switch_discards_sparse_segmented_state(tmp_path, monkeypatch):
+    from wgsextract_cli.commands import examples
+
+    destination = tmp_path / "reads.cram"
+    partial = Path(str(destination) + ".partial")
+    partial.write_bytes(b"incomplete sparse payload")
+    segments = Path(str(partial) + ".segments")
+    segments.write_text("{}")
+    source = Path(str(partial) + ".source")
+    source.write_text("old source")
+    monkeypatch.setattr(examples, "_resolve_aspera_key", lambda _key: tmp_path / "key")
+
+    def ascp(command, **_kwargs):
+        assert not partial.exists() and not segments.exists() and not source.exists()
+        Path(command[-1]).write_bytes(b"complete contiguous download")
+
+    monkeypatch.setattr(examples, "run_command", ascp)
+    examples._download_file("era-fasp@host:/reads.cram", destination, "aspera")
+    assert destination.read_bytes() == b"complete contiguous download"
+
+
+@pytest.mark.parametrize("failure", ["metadata", "curl", "urllib"])
+def test_download_diagnostics_redact_urls_without_changing_requests(
+    tmp_path, monkeypatch, caplog, failure
+):
+    url = "https://secret-user:secret-password@example.test/a?token='signed-secret with spaces'"
+    monkeypatch.setattr(downloads, "DOWNLOAD_ATTEMPTS", 1)
+    monkeypatch.setattr(downloads.segmented, "ranged_size", lambda _url: None)
+    monkeypatch.setattr(
+        downloads, "resolve_github_release_asset_sha256", lambda _url: None
+    )
+    seen = []
+
+    def fail_request(request, **_kwargs):
+        seen.append(request.full_url)
+        raise URLError(f"request failed: {request.full_url}")
+
+    monkeypatch.setattr(downloads, "urlopen", fail_request)
+    if failure == "metadata":
+
+        def fail_metadata(request_url):
+            seen.append(request_url)
+            raise ValueError(f"missing metadata: {request_url}")
+
+        monkeypatch.setattr(
+            downloads, "resolve_github_release_asset_sha256", fail_metadata
+        )
+    elif failure == "curl":
+        monkeypatch.setattr(downloads, "curl_progress_args", lambda: ["--progress-bar"])
+
+        def fail_curl(command, **_kwargs):
+            seen.append(command[-1])
+            raise subprocess.CalledProcessError(1, command)
+
+        monkeypatch.setattr(downloads, "run_command", fail_curl)
+    else:
+        monkeypatch.setattr(downloads, "curl_progress_args", lambda: ["--silent"])
+    assert not downloads.download_file(url, str(tmp_path / "a"))
+    assert seen and all(value == url for value in seen)
+    assert "example.test/a" in caplog.text
+    for secret in ("secret-user", "secret-password", "signed-secret"):
+        assert secret not in caplog.text
+
+
+@pytest.mark.parametrize("entrypoint", ["benchmark", "examples"])
+def test_invalid_download_filename_diagnostics_do_not_expose_url_secrets(entrypoint):
+    from wgsextract_cli.commands import examples
+    from wgsextract_cli.commands.benchmark import datasets
+    from wgsextract_cli.core.utils import WGSExtractError
+
+    filename = (
+        datasets._download_filename if entrypoint == "benchmark" else examples._filename
+    )
+    with pytest.raises(WGSExtractError) as error:
+        filename(
+            "https://private-user:private-password@example.test/?token='private-token'"
+        )
+    assert "example.test/" in str(error.value)
+    for secret in ("private-user", "private-password", "private-token"):
+        assert secret not in str(error.value)
+
+
+def test_redaction_covers_multiple_urls_and_malformed_query_tails():
+    from wgsextract_cli.core.download_progress import redact_urls
+
+    message = redact_urls(
+        "from https://example.test/a to "
+        "https://user:password@other.test/b?token='secret with spaces'\n"
+    )
+    assert "example.test/a" in message and "other.test/b" in message
+    assert (
+        "user:" not in message and "password" not in message and "secret" not in message
+    )
+
+
+@pytest.mark.parametrize("userinfo", ["", "private-user:private-password@"])
+def test_actual_urlopen_errors_do_not_expose_relative_query_or_credentials(
+    server, tmp_path, monkeypatch, caplog, userinfo
+):
+    monkeypatch.setattr(downloads, "DOWNLOAD_ATTEMPTS", 1)
+    url = (
+        server.url.replace("://", f"://{userinfo}") + "?token=private-token with spaces"
+    )
+    assert not downloads.download_file(url, str(tmp_path / "invalid-request"))
+    for secret in ("private-user", "private-password", "private-token"):
+        assert secret not in caplog.text
+
+
 def test_a_cancelled_download_keeps_its_partial_for_the_next_run(server, tmp_path):
     dest = tmp_path / "hs38.fa.gz"
     partial = tmp_path / "hs38.fa.gz.partial"
@@ -211,7 +519,9 @@ def test_a_cancelled_download_keeps_its_partial_for_the_next_run(server, tmp_pat
 def test_a_server_that_ignores_ranges_restarts_the_file(server, tmp_path):
     server.ignore_ranges = True
     dest = tmp_path / "hs38.fa.gz"
-    (tmp_path / "hs38.fa.gz.partial").write_bytes(b"stale bytes from elsewhere")
+    _write_bound_partial(
+        tmp_path / "hs38.fa.gz.partial", server.url, b"stale bytes from elsewhere"
+    )
 
     assert downloads.download_file(server.url, str(dest))
 
@@ -233,7 +543,7 @@ def test_a_bare_416_is_checked_against_the_size_from_head(server, tmp_path):
     server.bare_416 = True
     dest = tmp_path / "hs38.fa.gz"
     partial = Path(str(dest) + ".partial")
-    partial.write_bytes(DATA)
+    _write_bound_partial(partial, server.url, DATA)
 
     assert downloads.download_file(server.url, str(dest))
     assert server.requests == [("GET", f"bytes={len(DATA)}-"), ("HEAD", None)]
@@ -241,7 +551,7 @@ def test_a_bare_416_is_checked_against_the_size_from_head(server, tmp_path):
     # Without a size to compare, the file can't be trusted: fetch it again.
     server.head_status = 405
     server.requests.clear()
-    partial.write_bytes(DATA)
+    _write_bound_partial(partial, server.url, DATA)
     assert downloads.download_file(server.url, str(dest))
     assert dest.read_bytes() == DATA
     assert server.gets() == [f"bytes={len(DATA)}-", None]
@@ -328,7 +638,7 @@ def test_curl_failure_falls_back_to_urllib_and_resumes_its_bytes(
     dest = tmp_path / "hs38.fa.gz"
     commands = []
 
-    def half_curl(cmd, capture_output=False):
+    def half_curl(cmd, capture_output=False, **_kwargs):
         commands.append(cmd)
         Path(cmd[cmd.index("-o") + 1]).write_bytes(DATA[:1000])
         raise subprocess.CalledProcessError(18, cmd)
@@ -351,7 +661,7 @@ def test_an_interrupted_curl_preserves_the_final_name(
     if existing:
         dest.write_bytes(b"previous complete file")
 
-    def interrupted_curl(cmd, capture_output=False):
+    def interrupted_curl(cmd, capture_output=False, **_kwargs):
         Path(cmd[cmd.index("-o") + 1]).write_bytes(DATA[:1000])
         raise KeyboardInterrupt
 
@@ -374,7 +684,7 @@ def test_curl_resumes_into_the_partial_and_finishes_at_dest(
     monkeypatch.setattr(downloads, "curl_progress_args", lambda: ["--progress-bar"])
     dest = tmp_path / "hs38.fa.gz"
     if have:
-        (tmp_path / "hs38.fa.gz.partial").write_bytes(DATA[:have])
+        _write_bound_partial(tmp_path / "hs38.fa.gz.partial", server.url, DATA[:have])
 
     assert downloads.download_file(server.url, str(dest))
 

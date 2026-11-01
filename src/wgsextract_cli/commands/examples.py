@@ -6,8 +6,9 @@ from argparse import Namespace
 from pathlib import Path
 from urllib.parse import urlparse
 
-from wgsextract_cli.core.download_progress import curl_progress_args
+from wgsextract_cli.core.download_progress import curl_progress_args, redact_urls
 from wgsextract_cli.core.genome_library import GENOME_CONFIG_NAME
+from wgsextract_cli.core.ref_library.downloads import download_file
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
@@ -63,7 +64,9 @@ def _filename(url_path: str) -> str:
     parsed = urlparse(url_path)
     name = Path(parsed.path if parsed.scheme else url_path).name
     if not name:
-        raise WGSExtractError(f"URL path must end with a filename: {url_path}")
+        raise WGSExtractError(
+            f"URL path must end with a filename: {redact_urls(url_path)}"
+        )
     return name
 
 
@@ -86,13 +89,29 @@ def _partial_path(destination: Path) -> Path:
 
 
 def _download_file(
-    source: str, destination: Path, method: str, aspera_key: str | None = None
+    source: str,
+    destination: Path,
+    method: str,
+    aspera_key: str | None = None,
+    *,
+    force: bool = False,
 ) -> None:
     """Download into <destination>.partial (resuming it if present), then rename."""
     partial = _partial_path(destination)
-    logging.info(f"{'Resuming' if partial.exists() else 'Downloading'} {source}")
+    logging.info(
+        "%s %s", "Resuming" if partial.exists() else "Downloading", redact_urls(source)
+    )
+    if method != "aspera" and urlparse(source).scheme in {"http", "https"}:
+        if not download_file(source, str(destination), use_cache=not force):
+            raise WGSExtractError(f"Download failed. Re-run to resume from {partial}.")
+        return
     try:
         if method == "aspera":
+            segments = Path(str(partial) + ".segments")
+            if segments.exists():
+                partial.unlink(missing_ok=True)
+                segments.unlink()
+            Path(str(partial) + ".source").unlink(missing_ok=True)
             key = _resolve_aspera_key(aspera_key)
             if key is None:
                 raise WGSExtractError("No Aspera private key available.")
@@ -112,7 +131,8 @@ def _download_file(
                     ASPERA_MAX_BANDWIDTH,
                     source,
                     str(partial),
-                ]
+                ],
+                redact_output_urls=True,
             )
         else:
             run_command(
@@ -126,12 +146,15 @@ def _download_file(
                     "--output",
                     str(partial),
                     source,
-                ]
+                ],
+                redact_output_urls=True,
             )
         partial.replace(destination)
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(
-            f"Download failed for {source}: {e}. Re-run to resume from {partial}."
+            f"Download failed for {redact_urls(source)}: "
+            f"{redact_urls(str(e), sources=(source,))}. "
+            f"Re-run to resume from {partial}."
         ) from e
 
 
@@ -154,7 +177,7 @@ def _print_plan(
 ) -> None:
     print(f"{example.example_id}: {example.label}")
     for source, destination, role, _transfer_method in planned:
-        print(f"  {role}: {source}")
+        print(f"  {role}: {redact_urls(source)}")
         print(f"        -> {destination}")
 
 
@@ -179,10 +202,18 @@ def cmd_download(args: Namespace) -> None:
             if args.force:
                 destination.unlink(missing_ok=True)
                 _partial_path(destination).unlink(missing_ok=True)
+                Path(str(_partial_path(destination)) + ".segments").unlink(
+                    missing_ok=True
+                )
+                Path(str(_partial_path(destination)) + ".source").unlink(
+                    missing_ok=True
+                )
             elif destination.exists():
                 logging.info(f"Skipping existing {destination}")
                 continue
-            _download_file(source, destination, transfer_method, aspera_key)
+            _download_file(
+                source, destination, transfer_method, aspera_key, force=args.force
+            )
         _write_genome_config(example, example_dir)
         logging.info(
             f"Installed {example.label}. Use --genome "

@@ -25,6 +25,7 @@ from wgsextract_cli.core.download_progress import (
     DownloadIncomplete,
     copy_response_to_file,
     curl_progress_args,
+    redact_urls,
     require_http_url,
 )
 from wgsextract_cli.core.utils import WGSExtractError, run_command
@@ -129,39 +130,59 @@ def download_file(
     dest: str,
     progress_callback: ProgressCallback | None = None,
     cancel_event: CancelEvent | None = None,
+    *,
+    expected_sha256: str | None = None,
+    resolve_release_digest: bool = True,
+    use_cache: bool = True,
 ) -> bool:
-    """Resume explicit .partial files; replace dest only after verification."""
+    """Resume .partial files; replace dest only after verification.
+
+    Disabling release metadata lookup does not disable an explicit checksum.
+    Disabling cache use bypasses both restoration and publication.
+    """
     require_http_url(url, "download URL")
     partial_dest = dest + ".partial"
+    if expected_sha256 is not None and not re.fullmatch(
+        r"[a-fA-F0-9]{64}", expected_sha256
+    ):
+        raise WGSExtractError("Expected SHA256 must contain exactly 64 hex digits.")
     try:
-        expected_sha256 = resolve_github_release_asset_sha256(url)
+        if expected_sha256 is not None:
+            expected_sha256 = expected_sha256.lower()
+        elif resolve_release_digest:
+            expected_sha256 = resolve_github_release_asset_sha256(url)
     except OSError as e:
         logging.warning(
             "Could not resolve GitHub release asset checksum for %s: %s. "
             "Continuing without GitHub asset SHA-256 verification.",
-            url,
-            e,
+            redact_urls(url),
+            redact_urls(str(e), sources=(url,)),
         )
         expected_sha256 = None
     except ValueError as e:
         logging.error(
-            "Could not resolve GitHub release asset checksum for %s: %s", url, e
+            "Could not resolve GitHub release asset checksum for %s: %s",
+            redact_urls(url),
+            redact_urls(str(e), sources=(url,)),
         )
         return False
 
     checksum_hint = f"sha256:{expected_sha256}" if expected_sha256 else None
     dest_path = Path(dest)
     partial_path = Path(partial_dest)
-    if not dest_path.exists() and not partial_path.exists():
+    segments_path = Path(partial_dest + ".segments")
+    if partial_path.exists() and not segments_path.exists():
+        _bind_single_partial(url, partial_path)
+    if use_cache and not dest_path.exists() and not partial_path.exists():
         if restore_cached_download(url, dest_path, checksum_hint=checksum_hint):
             if verify_download_sha256(dest, expected_sha256):
+                Path(partial_dest + ".source").unlink(missing_ok=True)
                 return True
             drop_cached_download(url, dest_path, checksum_hint=checksum_hint)
             dest_path.unlink(missing_ok=True)
 
     # A large file over several connections (servers that cap each one), unless
     # an earlier single-connection attempt left a partial to resume.
-    segments_path = Path(partial_dest + ".segments")
     single_partial = partial_path.exists() and not segments_path.exists()
     if not single_partial:
         size = segmented.ranged_size(url)
@@ -190,18 +211,24 @@ def download_file(
                 for leftover in (partial_dest, partial_dest + ".segments"):
                     Path(leftover).unlink(missing_ok=True)
             except DownloadCancelled as e:
-                logging.info(str(e))
+                logging.info(redact_urls(str(e), sources=(url,)))
                 return False
             except (OSError, HTTPException) as e:
-                logging.error(f"Download error: {e} (run the command again to resume)")
+                logging.error(
+                    "Download error: %s (run the command again to resume)",
+                    redact_urls(str(e), sources=(url,)),
+                )
                 return False
             else:
                 if verified:
+                    Path(partial_dest + ".source").unlink(missing_ok=True)
+                if verified and use_cache:
                     store_download_in_dev_cache(
                         url, dest_path, checksum_hint=checksum_hint
                     )
                 return verified
 
+    _bind_single_partial(url, partial_path)
     # Use curl only when it can surface its native progress bar directly.
     # Non-TTY runs should take the urllib path so progress is emitted as logs.
     curl_args = curl_progress_args()
@@ -219,12 +246,15 @@ def download_file(
                 cmd.extend(["-C", "-"])
             cmd.extend(["-o", partial_dest, url])
 
-            run_command(cmd, capture_output=False)
+            run_command(cmd, capture_output=False, redact_output_urls=True)
             return _finish_download(
-                url, dest, partial_dest, expected_sha256, checksum_hint
+                url, dest, partial_dest, expected_sha256, checksum_hint, use_cache
             )
         except (OSError, subprocess.SubprocessError) as e:
-            logging.warning("curl download failed, falling back to urllib: %s", e)
+            logging.warning(
+                "curl download failed, falling back to urllib: %s",
+                redact_urls(str(e), sources=(url,)),
+            )
 
     for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
         try:
@@ -235,20 +265,34 @@ def download_file(
                 cancel_event,
                 expected_sha256,
                 checksum_hint,
+                use_cache,
             )
         except _RESUMABLE as e:
             if attempt == DOWNLOAD_ATTEMPTS:
                 logging.error(
-                    f"Download error: {e} (gave up after {attempt} attempts; "
+                    f"Download error: {redact_urls(str(e), sources=(url,))} (gave up after {attempt} attempts; "
                     "run the command again to resume)"
                 )
                 return False
             logging.warning(
-                f"Download interrupted ({e}); resuming "
+                f"Download interrupted ({redact_urls(str(e), sources=(url,))}); resuming "
                 f"(attempt {attempt + 1} of {DOWNLOAD_ATTEMPTS})..."
             )
             time.sleep(min(30, 2**attempt))
     return False
+
+
+def _bind_single_partial(url: str, partial: Path) -> None:
+    source = Path(str(partial) + ".source")
+    digest = hashlib.sha256(url.encode()).hexdigest()
+    try:
+        previous = source.read_text(encoding="ascii").strip()
+    except (OSError, UnicodeError):
+        previous = None
+    if partial.exists() and previous != digest:
+        logging.info("Partial download has a different or unknown source; restarting.")
+        partial.unlink()
+    source.write_text(digest + "\n", encoding="ascii", newline="\n")
 
 
 def _urllib_download(
@@ -258,6 +302,7 @@ def _urllib_download(
     cancel_event: CancelEvent | None,
     expected_sha256: str | None,
     checksum_hint: str | None,
+    use_cache: bool = True,
 ) -> bool:
     """One attempt; an interrupted transfer raises one of _RESUMABLE and leaves
     dest.partial for the next attempt to resume."""
@@ -294,10 +339,11 @@ def _urllib_download(
                     cancel_event,
                     expected_sha256,
                     checksum_hint,
+                    use_cache,
                 )
             logging.info("%s is already fully downloaded.", Path(dest).name)
             return _finish_download(
-                url, dest, partial_dest, expected_sha256, checksum_hint
+                url, dest, partial_dest, expected_sha256, checksum_hint, use_cache
             )
         with response_cm as response:
             code = response.getcode()
@@ -322,9 +368,11 @@ def _urllib_download(
             with open(partial_dest, mode) as f:
                 write_partial(f)
 
-        return _finish_download(url, dest, partial_dest, expected_sha256, checksum_hint)
+        return _finish_download(
+            url, dest, partial_dest, expected_sha256, checksum_hint, use_cache
+        )
     except DownloadCancelled as e:
-        logging.info(str(e))
+        logging.info(redact_urls(str(e), sources=(url,)))
     except _RESUMABLE:
         raise
     except URLError as e:
@@ -332,13 +380,14 @@ def _urllib_download(
         # down) may pass; retry those. A client error (4xx) won't.
         if not isinstance(e, HTTPError) or e.code >= 500:
             raise ConnectionError(str(e)) from e
-        logging.error(f"Download error: {e}")
+        logging.error("Download error: %s", redact_urls(str(e), sources=(url,)))
     except (
         OSError,
+        HTTPException,
         subprocess.SubprocessError,
         WGSExtractError,
     ) as e:
-        logging.error(f"Download error: {e}")
+        logging.error("Download error: %s", redact_urls(str(e), sources=(url,)))
     return False
 
 
@@ -368,9 +417,13 @@ def _finish_download(
     partial_dest: str,
     expected_sha256: str | None,
     checksum_hint: str | None,
+    use_cache: bool = True,
 ) -> bool:
     if not verify_download_sha256(partial_dest, expected_sha256):
+        Path(partial_dest + ".source").unlink(missing_ok=True)
         return False
     Path(partial_dest).replace(dest)
-    store_download_in_dev_cache(url, Path(dest), checksum_hint=checksum_hint)
+    Path(partial_dest + ".source").unlink(missing_ok=True)
+    if use_cache:
+        store_download_in_dev_cache(url, Path(dest), checksum_hint=checksum_hint)
     return True

@@ -155,7 +155,8 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
-# Generated documentation build output (the checked-in GitHub Pages source lives in /site)
+# Generated HTML; site_src and hand-maintained site assets remain tracked.
+/site/*.html
 /site_build
 
 # mypy

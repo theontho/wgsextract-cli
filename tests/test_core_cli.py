@@ -143,6 +143,40 @@ def test_registry_cleanup_reenters_while_lock_held():
     assert registry.processes == {}
 
 
+def test_command_echo_and_streamed_stderr_redact_urls_but_execute_original(
+    tmp_path, monkeypatch, caplog, capsys
+):
+    from wgsextract_cli.core import utils
+
+    url = "https://private-user:private-password@example.test/a?token=private-token"
+    received = tmp_path / "request-url"
+    recorded = []
+    monkeypatch.setattr(utils, "record_command", recorded.append)
+    script = (
+        "import sys,time;from pathlib import Path;"
+        "Path(sys.argv[2]).write_text(sys.argv[1]);"
+        "sys.stderr.write(sys.argv[1][:35]);sys.stderr.flush();time.sleep(.03);"
+        "sys.stderr.write(sys.argv[1][35:]+'\\n');"
+        "sys.stderr.write('signature rejected '+sys.argv[1].rsplit('=',1)[-1]+'\\n');"
+        "sys.stderr.flush();sys.exit(1)"
+    )
+    with (
+        caplog.at_level(logging.DEBUG),
+        pytest.raises(subprocess.CalledProcessError) as error,
+    ):
+        utils.run_command(
+            [sys.executable, "-c", script, url, str(received)],
+            redact_output_urls=True,
+        )
+    assert received.read_text() == url
+    diagnostics = (
+        caplog.text + capsys.readouterr().err + str(error.value) + str(recorded)
+    )
+    assert "example.test/a" in diagnostics
+    for secret in ("private-user", "private-password", "private-token"):
+        assert secret not in diagnostics
+
+
 def test_windows_cleanup_terminates_tree_before_launcher_exits(monkeypatch):
     registry = process_registry.ProcessRegistry()
     proc = Mock(pid=1234)
@@ -285,20 +319,23 @@ def _download_args(root: Path, force: bool) -> Namespace:
     )
 
 
-def _fake_curl(calls):
-    def run(cmd, **_kwargs):
-        output = Path(cmd[cmd.index("--output") + 1])
-        calls.append(output.read_bytes() if output.exists() else None)
-        with output.open("ab") as f:
+def _fake_http_download(calls):
+    def download(_source, destination, **_kwargs):
+        output = Path(destination)
+        partial = examples._partial_path(output)
+        calls.append(partial.read_bytes() if partial.exists() else None)
+        with partial.open("ab") as f:
             f.write(b"rest")
+        partial.replace(output)
+        return True
 
-    return run
+    return download
 
 
 def test_example_download_resumes_partial_and_skips_complete(tmp_path, monkeypatch):
     monkeypatch.setattr(examples.shutil, "which", lambda _name: "/usr/bin/curl")
     calls: list[bytes | None] = []
-    monkeypatch.setattr(examples, "run_command", _fake_curl(calls))
+    monkeypatch.setattr(examples, "download_file", _fake_http_download(calls))
     example = examples._select_examples(["phase3-chrmt-vcf"], False)[0]
     example_dir = tmp_path / examples.COLLECTION_DIR / example.example_id
     example_dir.mkdir(parents=True)
@@ -318,7 +355,7 @@ def test_example_download_resumes_partial_and_skips_complete(tmp_path, monkeypat
 def test_example_download_force_discards_existing(tmp_path, monkeypatch):
     monkeypatch.setattr(examples.shutil, "which", lambda _name: "/usr/bin/curl")
     calls: list[bytes | None] = []
-    monkeypatch.setattr(examples, "run_command", _fake_curl(calls))
+    monkeypatch.setattr(examples, "download_file", _fake_http_download(calls))
     example = examples._select_examples(["phase3-chrmt-vcf"], False)[0]
     example_dir = tmp_path / examples.COLLECTION_DIR / example.example_id
     example_dir.mkdir(parents=True)

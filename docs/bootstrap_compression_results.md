@@ -2,6 +2,10 @@
 
 Historical measurements used to choose the format of the reference bootstrap bundle. The benchmark script that produced them has since been removed from the repository.
 
+For current pipeline benchmarks, use [`wgsextract benchmark`](../README.md#pipeline-benchmarks)
+(`wgsextract benchmark --help` lists datasets and profiles). These historical
+compression measurements are not extraction, alignment, or variant-calling benchmarks.
+
 **Source data:** `reference/microarray/raw_file_templates`
 **Raw size:** 335.76 MB
 

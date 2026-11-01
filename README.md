@@ -180,6 +180,13 @@ exposed as an application configuration setting.
 
 Notes on a few commands:
 
+- `ref library-list` is a deprecated compatibility alias for `ref library --list`.
+  `vep run --assembly GRCh37` and the deprecated `--vep-assembly GRCh37` select the
+  same annotation build; `vep download --assembly` selects the cache build.
+- Runtime and working-space needs depend on the input, coverage, hardware and
+  toolchain, so command help does not promise fixed times. Use
+  `wgsextract benchmark --help` to choose a reproducible dataset and profile.
+
 - `extract ydna-bam --poz` writes an indexed `_Y_poz.bam` containing reads overlapping the original WGS Extract CombBED/McDonald/Poznik union (about 12 Mb), **not** all stable Y SNPs or a BigY/exome capture. It supports exact GRCh37/hg19 or GRCh38 Y lengths with either `chrY` or `Y`, including Y-only inputs, and never includes the original BEDs' mitochondrial regions. Reads overlapping BED boundaries are kept whole. T2T, unknown and inconsistent assemblies are rejected rather than silently lifted. Bundled BED provenance/license is in `assets/reference/poz/NOTICE.txt`; no download is needed. Without `--poz`, whole-Y extraction is unchanged.
 
 ### Opt-in yBrowse Y SNP calling (GRCh38 only)
@@ -245,7 +252,7 @@ outputs are unchanged.
 - `vcf pharmcat` calls star-allele diplotypes and drug-response phenotypes (CYP2C19, CYP2C9, DPYD, TPMT, ...) with [PharmCAT](https://pharmcat.org) and writes its prescribing report. PharmCAT isn't on conda: extract `pharmcat-pipeline-<version>.tar.gz` from its [releases](https://github.com/PharmGKB/PharmCAT/releases) into `<reference library>/pharmcat` (or set `pharmcat_directory`); `pixi install -e pharmcat` provides its runtime (macOS/Linux). Input must be GRCh38; gVCFs are handled. CYP2D6 and HLA can't be called from a VCF: pass the `<stem>.cyp2d6.pharmcat.tsv` and `<stem>.hla.pharmcat.tsv` files written by `typing cyp2d6` and `typing hla` with `--outside-call` (repeatable); they are merged into `<stem>.outside.tsv` in the output directory, which PharmCAT also picks up on later runs.
 - `typing cyp2d6`, `typing hla`, and `typing str` need a whole-genome BAM/CRAM (about 30x) with an index. Their tools live in the `cyrius`, `t1k`, and `expansionhunter` Pixi environments (Linux and macOS; install each with `pixi install -e <environment>`). Cyrius is licensed for noncommercial use only. The first `typing hla` run builds T1K's allele index from IPD-IMGT/HLA into `<reference library>/ref/t1k_hla`. `typing str` compares repeat sizes with [STRchive](https://strchive.org)'s ranges; give `--sex` when known, otherwise it is inferred from read depth.
 - `ref gnomad --release 4.1` streams gnomAD v4.1's native-GRCh38 exome and genome VCFs (about 880 GB, hours) into one allele-frequency-only table; the default 2.1.1 release is exome-only and lifted over to hg38.
-- Reference downloads resume only explicit `.partial` files. Refreshing an existing complete file starts from byte zero and preserves it until the replacement finishes and passes available checksum verification, then replaces it atomically.
+- Reference downloads resume only explicit `.partial` files bound to the source URL by a `.partial.source` hash sidecar (segmented downloads retain their own source metadata). Unknown legacy partials or changed URLs restart safely. Refreshing an existing complete file starts from byte zero and preserves it until the replacement finishes and passes available checksum verification, then replaces it atomically. Diagnostic URLs omit userinfo and query strings; requests keep the original URL. MD5-pinned benchmark downloads enter the dev cache only after verification.
 - `ref cadd` downloads CADD v1.7 (about 85 GB per build) and `ref gerp` the GERP++ bigWig; `vcf cadd` and `vcf gerp` add `CADD_RAW`/`CADD_PHRED` and `GERP` to a VCF.
 - `sign create` writes a `SHA256SUMS` manifest that `sha256sum -c` also reads, signed with `ssh-keygen -Y sign` when `--key` is given; `sign verify` checks the signature against a trusted key, then re-hashes every file.
 - `align` with FASTQs needs `--ref <FASTA>` when the reference library holds more than one genome, since reads don't say which genome they belong to.
@@ -426,7 +433,7 @@ wgsextract --genome joe vcf filter --expr 'QUAL>30'
 
 ### Example genomes
 
-`example-genome` downloads curated 1000 Genomes and HGSVC2 datasets into the genome library. Some are very large, so check with `--dry-run` first. Interrupted downloads resume; `--force` starts over.
+`example-genome` downloads curated 1000 Genomes and HGSVC2 datasets into the genome library. Some are very large, so check with `--dry-run` first. Interrupted downloads resume; `--force` starts over and bypasses dev-cache reads and writes. Switching from an interrupted segmented HTTP download to Aspera discards sparse partial data before resuming.
 
 ```bash
 wgsextract example-genome list
@@ -436,6 +443,22 @@ wgsextract example-genome download hgsvc2-hg00733-pacbio-hifi-bam
 pixi run -e pacbio wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam align --platform hifi --ref /path/to/hs38.fa
 pixi run -e pacbio wgsextract --genome test-1000genomes/hgsvc2-hg00733-pacbio-hifi-bam vcf sv --pacbio --ref /path/to/hs38.fa
 ```
+
+## Pipeline benchmarks
+
+`wgsextract benchmark --help` lists the current datasets and profiles. Start
+with generated chrM data and the lighter operation suite:
+
+```bash
+pixi run wgsextract benchmark --profile smoke --suite core --outdir out/benchmark-smoke
+```
+
+The default dataset is synthetic; `--dataset real` uses the release-backed
+mini-genome, while `real-1x` and `real-30x` use public WGS data. HTTP downloads
+resume from `.partial` files and only replace the destination after completion
+and checksum verification where a digest is provided. `example-genome download`
+uses the same HTTP downloader; FTP and Aspera retain their specialized transports.
+Keep larger runs last and budget their CPU, memory and working space.
 
 ## Development
 

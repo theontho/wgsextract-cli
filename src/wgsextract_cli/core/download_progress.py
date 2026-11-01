@@ -1,14 +1,51 @@
 from __future__ import annotations
 
 import logging
+import re
 import sys
 import time
 import urllib.parse
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from email.message import Message
 from typing import BinaryIO, Protocol
 
 ProgressCallback = Callable[[int, int, float], None]
+
+# Malformed URLs can contain spaces/quotes; do not expose their query tails.
+_URL_PATTERN = re.compile(
+    r"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\r\n<>]+?"
+    r"(?=\b[a-zA-Z][a-zA-Z0-9+.-]*://|[\r\n<>]|$)"
+)
+
+
+def redact_urls(text: str, *, sources: Iterable[str] = ()) -> str:
+    """Keep URL locations in diagnostics without credentials or signed queries."""
+
+    def redact(match: re.Match[str]) -> str:
+        try:
+            parsed = urllib.parse.urlsplit(match.group())
+            return urllib.parse.urlunsplit(
+                (parsed.scheme, parsed.netloc.rsplit("@", 1)[-1], parsed.path, "", "")
+            )
+        except ValueError:
+            return "<redacted-url>"
+
+    text = _URL_PATTERN.sub(redact, text)
+    # Client errors may echo a relative request path or credentials without a URL.
+    for source in sources:
+        try:
+            parsed = urllib.parse.urlsplit(source)
+            if parsed.scheme not in {"http", "https", "ftp"}:
+                continue
+            parts = [parsed.username, parsed.password, parsed.query, parsed.fragment]
+            parts.extend(value for _, value in urllib.parse.parse_qsl(parsed.query))
+        except ValueError:
+            continue
+        for value in sorted({part for part in parts if part}, key=len, reverse=True):
+            decoded = urllib.parse.unquote(value)
+            for secret in (value, decoded, repr(value)[1:-1], repr(decoded)[1:-1]):
+                text = text.replace(secret, "<redacted>")
+    return text
 
 
 class DownloadCancelled(Exception):
@@ -45,7 +82,9 @@ def require_http_url(url: str, label: str = "download URL") -> None:
     """Reject URL schemes that should not be opened by network download paths."""
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in {"http", "https"}:
-        raise ValueError(f"Unsupported {label} scheme '{parsed.scheme}' for {url!r}")
+        raise ValueError(
+            f"Unsupported {label} scheme '{parsed.scheme}' for {redact_urls(url)!r}"
+        )
 
 
 def curl_progress_args() -> list[str]:
