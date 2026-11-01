@@ -44,6 +44,16 @@ The hosted combined prefix audits 156 PE files; a fresh native-only Pixi
 candidate installation on Windows 11 ARM64 audits 153 before test tools are added.
 These are candidate qualification results, not release/full-genome approval.
 
+## Public native x64 calling control
+
+The opt-in `calling_control_only=true` input on `windows_arm64.yml` runs a
+native Windows x64 control without rebuilding ARM packages. It uses the unchanged
+x64 lock and checksum-pinned public HG00096 CRAM/reference, calling exactly
+`chr20:10000000-11000000` with 16 threads. The artifact preserves the raw VCF,
+command, input hashes, PE identities and decoded body fingerprint. Comparison
+does not normalize, sort or round variant records. This is a 1 Mb correctness
+control, not a full-genome VCF or a matched-hardware performance benchmark.
+
 ## Explicit fresh candidate installation
 
 This is an opt-in qualification path, **not** an enabled release environment.
