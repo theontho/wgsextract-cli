@@ -11,7 +11,7 @@ fi
 CXX=${CXX:-g++}
 rm -rf "$O"; mkdir -p "$O"
 # Ask the compiler: MSYS2 shells on Windows Arm64 are x64 processes (uname -m lies).
-if "$CXX" -dumpmachine | grep -q aarch64; then
+if [[ $("$CXX" -dumpmachine) == *aarch64* ]]; then
     ARCH=(-march=armv8-a "-I$S"); AVX=(); AVX2=()
 else
     ARCH=(); AVX=(-mavx); AVX2=(-mavx -mavx2)
