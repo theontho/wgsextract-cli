@@ -13,6 +13,7 @@ from pathlib import Path
 
 from pyliftover import LiftOver
 
+from wgsextract_cli.core.aadr_resources import require_aadr_2m
 from wgsextract_cli.core.builds import canonical_build
 from wgsextract_cli.core.microarray_targets import (
     HG19_TO_HG38_CHAIN_URL,
@@ -26,6 +27,7 @@ AADR_FORMATS = {
     "aadr_ho": "ho",
     "aadr_1240k+ho": "1240k_ho",
     "aadr_1240k_ho": "1240k_ho",
+    "aadr_2m": "2m",
 }
 _MARKERS = Path(__file__).resolve().parents[1] / "assets/microarray/aadr/v66.p1.tsv.gz"
 _COMPLEMENT = str.maketrans("ACGT", "TGCA")
@@ -41,14 +43,20 @@ class AADRMarker:
     position: int
     ref: str
     alt: str
-    ho: bool
+    ho: bool | None
 
 
 def aadr_panel(format_key: str) -> str | None:
     return AADR_FORMATS.get(format_key.strip().lower().replace("-", "_"))
 
 
-def aadr_markers(panel: str) -> Iterator[AADRMarker]:
+def aadr_markers(panel: str, reflib_dir: str | None = None) -> Iterator[AADRMarker]:
+    if panel == "2m":
+        with require_aadr_2m(reflib_dir).open(encoding="ascii") as source:
+            for line in source:
+                snp_id, chrom, genetic, pos, ref, alt = line.split()
+                yield AADRMarker(snp_id, chrom, genetic, int(pos), ref, alt, None)
+        return
     if panel not in {"1240k", "ho", "1240k_ho"}:
         raise ValueError(f"Unknown AADR panel: {panel}")
     with gzip.open(_MARKERS, "rt") as source:
@@ -74,7 +82,11 @@ def _chrom_name(chrom: str) -> str:
 
 
 def aadr_lifter(
-    build: str | None, outdir: str, reflib_dir: str | None = None
+    build: str | None,
+    outdir: str,
+    reflib_dir: str | None = None,
+    *,
+    allow_download: bool = True,
 ) -> LiftOver | None:
     build = canonical_build(build or "")
     if build == "hg19":
@@ -86,6 +98,11 @@ def aadr_lifter(
         if installed.is_file():
             return LiftOver(str(installed))
     chain = Path(outdir, "hg19ToHg38.over.chain.gz")
+    if not chain.is_file() and not allow_download:
+        raise WGSExtractError(
+            "AADR 2M on GRCh38 requires an installed hg19ToHg38.over.chain.gz "
+            "in the reference library; use 'wgsextract ref download' explicitly."
+        )
     if not chain.is_file() and not download_file(HG19_TO_HG38_CHAIN_URL, str(chain)):
         raise WGSExtractError("Could not download the GRCh37-to-GRCh38 AADR chain.")
     return LiftOver(str(chain))
@@ -109,6 +126,8 @@ def build_aadr_target(
     outdir: str,
     lifter: LiftOver | None,
     base_target: str | None = None,
+    *,
+    reflib_dir: str | None = None,
 ) -> str:
     """Use a separate run-local target; never change legacy cached targets."""
     markers: dict[tuple[str, int], str] = {}
@@ -126,8 +145,8 @@ def build_aadr_target(
                         int(position),
                     )
                 ] = snp_id
-    panel = "ho" if set(panels) == {"ho"} else "1240k"
-    for marker in aadr_markers(panel):
+    panel = "2m" if "2m" in panels else ("ho" if set(panels) == {"ho"} else "1240k")
+    for marker in aadr_markers(panel, reflib_dir):
         coordinate = _marker_coordinate(marker, lifter)
         if coordinate:
             chrom, pos, _inverted = coordinate
@@ -203,11 +222,14 @@ def write_aadr_outputs(
     sex: str = "U",
     lifter: LiftOver | None = None,
     vcf_nocalls: set[tuple[str, int]] | None = None,
+    reflib_dir: str | None = None,
 ) -> dict[str, int]:
     """Write one diploid sample, retaining AADR order, alleles and genetic map."""
     validate_aadr_sample_id(sample_id)
     if sex not in {"U", "M", "F"}:
         raise ValueError("AADR sex must be U, M or F")
+    if panel == "2m":
+        require_aadr_2m(reflib_dir)
     calls = _read_calls(combined_kit)
     counts = {"markers": 0, "called": 0, "incompatible": 0}
     suffixes = (".bed", ".bim", ".fam", ".geno", ".snp", ".ind")
@@ -219,7 +241,7 @@ def write_aadr_outputs(
             geno = stack.enter_context(staged[".geno"].open("w", newline="\n"))
             snp = stack.enter_context(staged[".snp"].open("w", newline="\n"))
             bed.write(b"\x6c\x1b\x01")
-            for marker in aadr_markers(panel):
+            for marker in aadr_markers(panel, reflib_dir):
                 genotype = "--"
                 coordinate = _marker_coordinate(marker, lifter)
                 if coordinate:

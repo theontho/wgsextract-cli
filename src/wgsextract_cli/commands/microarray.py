@@ -6,6 +6,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from wgsextract_cli.core.aadr_resources import require_aadr_2m
 from wgsextract_cli.core.alignment_health import warn_about_alignment
 from wgsextract_cli.core.builds import (
     is_hg37_build,
@@ -212,9 +213,19 @@ def _convert_microarray_outputs(
             output_prefix = str(Path(outdir, f"{base_name}_AADR_{panel}"))
             try:
                 if not written_panels:
-                    aadr_liftover = aadr_lifter(
-                        lib.build, aadr_workdir or outdir, getattr(lib, "root", None)
-                    )
+                    if any(aadr_panel(key) == "2m" for key in requested_formats):
+                        aadr_liftover = aadr_lifter(
+                            lib.build,
+                            aadr_workdir or outdir,
+                            getattr(lib, "root", None),
+                            allow_download=False,
+                        )
+                    else:
+                        aadr_liftover = aadr_lifter(
+                            lib.build,
+                            aadr_workdir or outdir,
+                            getattr(lib, "root", None),
+                        )
                     if aadr_vcf:
                         vcf_nocalls = aadr_vcf_nocalls(aadr_vcf, aadr_workdir or outdir)
                 write_aadr_outputs(
@@ -225,6 +236,7 @@ def _convert_microarray_outputs(
                     sex=getattr(args, "aadr_sex", "U"),
                     lifter=aadr_liftover,
                     vcf_nocalls=vcf_nocalls,
+                    reflib_dir=getattr(lib, "root", None),
                 )
             except (
                 OSError,
@@ -305,6 +317,13 @@ def run(args: argparse.Namespace) -> None:
     legacy_requested = any(aadr_panel(key) is None for key in requested)
     if aadr_panels:
         validate_aadr_sample_id(getattr(args, "aadr_sample_id", "sample"))
+        if "2m" in aadr_panels:
+            if not (is_hg37_build(lib.build or "") or is_hg38_build(lib.build or "")):
+                raise WGSExtractError(
+                    "AADR 2M requires GRCh37 or GRCh38; its CHM13/T2T "
+                    "projection is not supported."
+                )
+            require_aadr_2m(lib.root)
 
     logging.debug(f"Resolved Reference FASTA: {ref_fasta}")
     logging.debug(f"Resolved Target SNP Tab: {ref_vcf_tab}")
@@ -354,11 +373,17 @@ def run(args: argparse.Namespace) -> None:
         Path(outdir).mkdir(parents=True, exist_ok=True)
         calling_outdir = tempfile.mkdtemp(prefix="AADR_", dir=outdir)
         try:
+            lifter = (
+                aadr_lifter(lib.build, calling_outdir, lib.root, allow_download=False)
+                if "2m" in aadr_panels
+                else aadr_lifter(lib.build, calling_outdir, lib.root)
+            )
             ref_vcf_tab = build_aadr_target(
                 aadr_panels,
                 calling_outdir,
-                aadr_lifter(lib.build, calling_outdir, lib.root),
+                lifter,
                 ref_vcf_tab if args.ref_vcf_tab or legacy_requested else None,
+                reflib_dir=lib.root,
             )
         except (OSError, ValueError) as e:
             raise WGSExtractError(f"Could not prepare AADR targets: {e}") from e

@@ -111,6 +111,8 @@ Available formats:
     nucleus (array export, 2025)
   AADR v66.p1 (GRCh37 outputs, PLINK .bed/.bim/.fam AND EIGENSTRAT .geno/.snp/.ind):
     aadr_1240k, aadr_ho, aadr_1240k+ho (HO is a subset of 1240K in this release)
+    aadr_2m (opt-in; first run 'ref aadr --install'; v66.p1 genetic distances
+      differ from legacy 1240K/HO at 1,200,251 sites; maps are never mixed)
 """,
     "arg_region": "Chromosomal region (e.g. chrM, chrY:10000-20000)",
     "arg_fraction": "Decimal percentage (e.g. 0.1 for 10%%)",

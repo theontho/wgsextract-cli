@@ -134,6 +134,19 @@ It preserves SNP IDs and allele order and adds no source filenames or timestamps
 to gzip metadata. See [AADR export and validation](../../../../../docs/aadr.md)
 for file conventions, allele checks, and compatibility limitations.
 
+## External AADR 2M resource
+
+`aadr_2m` uses the **unbundled**, explicitly installed v66.p1 2M SNP metadata
+from the same CC0 Dataverse version 14.0 release:
+<https://dataverse.harvard.edu/api/access/datafile/13994517>.
+The file `v66.p1_2M.aadr.patch.PUB.snp` contains **2,142,271** markers and is
+134,963,073 bytes; SHA256
+`39312150ce88ec757a88e52a7921ca7fd1190d9cce11cfe39c756ea5737b7a9b`.
+Every current 1240K/HO ID, physical coordinate and allele pair is included,
+but **1,200,251** legacy 1240K genetic distances differ. The panel's metadata
+are kept separate; existing bundled 1240K/HO data are not changed.
+See [explicit installation, attribution and map differences](../../../../../docs/aadr.md#opt-in-aadr-2m-v66p1).
+
 ## corrections.tsv
 
 Position fixes applied when reading the reference library's templates. 102 MT

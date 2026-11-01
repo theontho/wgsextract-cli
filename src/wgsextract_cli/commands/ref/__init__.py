@@ -11,6 +11,7 @@ from .core_commands import (
     cmd_ref_verify,
 )
 from .library_commands import (
+    cmd_aadr,
     cmd_alphamissense_dl,
     cmd_bootstrap,
     cmd_cadd_dl,
@@ -34,6 +35,14 @@ def register(
 ) -> None:
     parser = subparsers.add_parser("ref", help="Reference Data Management commands.")
     ref_subs = parser.add_subparsers(dest="ref_cmd", required=True)
+
+    aadr_parser = ref_subs.add_parser(
+        "aadr",
+        parents=[base_parser],
+        help="Explicitly fetch the hash-pinned CC0 AADR v66.p1 2M SNP panel.",
+    )
+    aadr_parser.add_argument("--install", action="store_true", required=True)
+    aadr_parser.set_defaults(func=cmd_aadr)
 
     ybrowse_parser = ref_subs.add_parser(
         "ybrowse",
