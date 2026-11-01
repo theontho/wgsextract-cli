@@ -64,3 +64,18 @@ CI runs the generated small-genome end-to-end suite on GitHub's native
 native, appropriately sized machines and matched pinned inputs, references,
 versions, fixed batch size, CPU/memory limits and local storage. Compare decoded
 records, not compressed CRAM bytes or command-line provenance headers.
+
+## Qualification status
+
+Fresh Ubuntu 24.04 ARM installation, native unit tests and generated-genome
+tests pass. Full public HG00096 MEM2 output (779,820,884 decoded records) and
+bcftools calling (4,408,885 records, including all genotypes) exactly match the
+same-source x64 control. Full BWA 30x validation is still budget-blocked; its
+native small-genome and complete-pair public pilots pass. Stock ARM MEM2 index
+construction is 39.1% slower in the measured comparison.
+
+Phase 1 is not acceptance-complete while the full BWA gate remains open.
+See [PR #273](https://github.com/theontho/wgsextract-cli/pull/273) and
+[issue #236](https://github.com/theontho/wgsextract-cli/issues/236) for measured
+hardware, limits and remaining qualification. Support here does not imply
+that an untested ARM tool or x86-emulated executable is qualified.
