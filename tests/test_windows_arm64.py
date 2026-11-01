@@ -1,4 +1,5 @@
 import argparse
+import platform
 import shutil
 import struct
 import subprocess
@@ -111,7 +112,7 @@ def test_os_architecture_is_queried_instead_of_emulated_python_machine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setattr(windows_arm64.platform, "machine", lambda: "AMD64")
+    monkeypatch.setattr(platform, "machine", lambda: "AMD64")
     query = Mock()
 
     def set_native(_handle: object, _process: object, native: object) -> int:
@@ -127,11 +128,34 @@ def test_os_architecture_is_queried_instead_of_emulated_python_machine(
     assert windows_arm64.unsupported_windows_arm64_tool("gatk") is not None
 
 
+def test_simulated_windows_does_not_infer_os_architecture_from_an_arm_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(platform, "machine", lambda: "arm64")
+    monkeypatch.setattr(windows_arm64.ctypes, "WinDLL", None, raising=False)
+    host = Mock()
+    host.name = "posix"
+    monkeypatch.setattr(windows_arm64, "os", host)
+    assert windows_arm64.windows_native_machine() is None
+    host.name = "nt"
+    with pytest.raises(OSError, match="architecture query is unavailable"):
+        windows_arm64.windows_native_machine()
+
+
 def _write_pe(path: Path, machine: int) -> None:
     header = bytearray(64)
     header[:2] = b"MZ"
     struct.pack_into("<I", header, 60, 64)
     path.write_bytes(header + b"PE\0\0" + struct.pack("<H", machine) + bytes(18))
+
+
+@pytest.fixture
+def _native_arm64_python(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    python = tmp_path / "native-python.exe"
+    _write_pe(python, 0xAA64)
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "executable", str(python))
 
 
 @pytest.mark.parametrize("machine", [0x8664, 0x014C, 0xA641, 0xA64E])
@@ -162,7 +186,7 @@ def test_native_audit_rejects_invalid_headers(content: bytes, tmp_path: Path) ->
 
 
 def test_arm64_runtime_rejects_configured_x64_binary_before_launch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _native_arm64_python: None
 ) -> None:
     monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0xAA64)
     binary = tmp_path / "bwa.exe"
@@ -175,7 +199,7 @@ def test_arm64_runtime_rejects_configured_x64_binary_before_launch(
 
 @pytest.mark.parametrize("wrapper", ["wsl.exe", "bash.exe", "docker.exe"])
 def test_arm64_runtime_rejects_non_native_tool_substitutes(
-    wrapper: str, monkeypatch: pytest.MonkeyPatch
+    wrapper: str, monkeypatch: pytest.MonkeyPatch, _native_arm64_python: None
 ) -> None:
     monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0xAA64)
     with pytest.raises(ValueError, match="tool substitutes"):
@@ -183,7 +207,7 @@ def test_arm64_runtime_rejects_non_native_tool_substitutes(
 
 
 def test_arm64_version_probe_does_not_launch_x64_binary(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _native_arm64_python: None
 ) -> None:
     monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0xAA64)
     binary = tmp_path / "bwa.exe"
@@ -199,7 +223,10 @@ def test_arm64_version_probe_does_not_launch_x64_binary(
     "arguments", [["--format", "fasta"], ["--format=fasta"], ["--write-fasta-msa"]]
 )
 def test_arm64_haplogrep_rejects_foreign_jbwa_before_java(
-    arguments: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    arguments: list[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    _native_arm64_python: None,
 ) -> None:
     monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0xAA64)
     java = tmp_path / "java.exe"
@@ -229,7 +256,7 @@ def test_arm64_features_reject_prism_python_before_input_processing(
 
 
 def test_arm64_discovery_and_wrappers_do_not_start_foreign_environments(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, _native_arm64_python: None
 ) -> None:
     monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0xAA64)
     launch = Mock(side_effect=AssertionError("must not probe foreign Python"))

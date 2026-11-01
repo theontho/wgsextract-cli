@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import re
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -34,8 +36,37 @@ def declared_digests(value: object) -> dict[str, str]:
     return result
 
 
-def restore_hashes(manifest: Path, lock: Path) -> int:
-    digests = declared_digests(tomllib.loads(manifest.read_text()))
+def lock_key(uri: str, root: Path) -> str:
+    if urlsplit(uri).scheme:
+        return urlsplit(uri)._replace(fragment="").geturl()
+    return (root / uri).resolve().as_uri()
+
+
+def restore_hashes(
+    manifest: Path,
+    lock: Path,
+    *,
+    require_all: bool = False,
+    path_pins: dict[str, str] | None = None,
+) -> int:
+    digests: dict[str, str] = {}
+    for url, digest in declared_digests(tomllib.loads(manifest.read_text())).items():
+        base = lock_key(url, manifest.parent)
+        if base in digests and digests[base] != digest:
+            raise ValueError(f"Conflicting declared digests for {base}")
+        digests[base] = digest
+    for path, digest in (path_pins or {}).items():
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError(f"Invalid declared SHA256 for {path}")
+        payload = manifest.parent / path
+        payload_hash = hashlib.sha256()
+        with payload.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                payload_hash.update(chunk)
+        if payload_hash.hexdigest() != digest:
+            raise ValueError(f"Local archive checksum disagrees with pin for {path}")
+        digests[lock_key(path, manifest.parent)] = digest
+    found: set[str] = set()
     lines = lock.read_text().splitlines()
     output: list[str] = []
     restored = 0
@@ -47,9 +78,11 @@ def restore_hashes(manifest: Path, lock: Path) -> int:
             while end < len(lines) and not lines[end].startswith("- "):
                 end += 1
             uri = line.split(": ", 1)[1].strip("'\"").removeprefix("direct+")
-            expected = digests.get(uri)
+            base = lock_key(uri, manifest.parent)
+            expected = digests.get(base)
             block = lines[index:end]
             if expected is not None:
+                found.add(base)
                 actual = next(
                     (
                         item.removeprefix("  sha256: ")
@@ -71,6 +104,10 @@ def restore_hashes(manifest: Path, lock: Path) -> int:
         else:
             output.append(line)
         index = end
+    if require_all and digests.keys() != found:
+        raise ValueError(
+            f"Declared URL pins missing from lock: {digests.keys() - found}"
+        )
     if restored:
         lock.write_text("\n".join(output) + "\n")
     return restored
@@ -80,9 +117,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=Path("pixi.toml"))
     parser.add_argument("--lock", type=Path, default=Path("pixi.lock"))
+    parser.add_argument("--require-all", action="store_true")
+    parser.add_argument("--path-pins", type=Path)
     args = parser.parse_args()
     print(
-        f"Restored {restore_hashes(args.manifest, args.lock)} declared SHA256 pin(s)."
+        f"Restored {restore_hashes(args.manifest, args.lock, require_all=args.require_all, path_pins=json.loads(args.path_pins.read_text()) if args.path_pins else None)} declared SHA256 pin(s)."
     )
 
 

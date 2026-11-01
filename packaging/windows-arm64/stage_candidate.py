@@ -6,22 +6,9 @@ import json
 from pathlib import Path
 from zipfile import ZipFile
 
-EXPECTED = {
-    "bcftools": "1.24",
-    "bwa": "0.7.19",
-    "bwa-mem2": "2.3",
-    "curl": "8.21.0",
-    "fastp": "1.4.0",
-    "fastqc": "0.13.0",
-    "haplogrep": "2.4.0",
-    "htslib": "1.24",
-    "minimap2": "2.31",
-    "openjdk": "17.0.21",
-    "python": "3.13.18",
-    "samblaster": "0.1.26",
-    "samtools": "1.24",
-    "setuptools": "84.2.1",
-}
+EXPECTED: dict[str, list[str]] = json.loads(
+    Path(__file__).with_name("candidate-pins.json").read_text(encoding="utf-8")
+)
 
 
 def stage_candidate(
@@ -40,7 +27,7 @@ def stage_candidate(
                 name, version, build = filename.removesuffix(".conda").rsplit("-", 2)
                 if name == "python" and version == "3.13.17":
                     continue
-                if EXPECTED.get(name) != version or not build.startswith("wgse_arm64_"):
+                if EXPECTED.get(name) != [version, build]:
                     raise ValueError(f"Unqualified candidate package: {filename}")
                 if name in packages:
                     raise ValueError(f"Duplicate candidate package: {name}")
@@ -48,6 +35,7 @@ def stage_candidate(
                 packages[name] = {
                     "name": name,
                     "version": version,
+                    "build": build,
                     "file": filename,
                     "sha256": hashlib.sha256(payload).hexdigest(),
                 }

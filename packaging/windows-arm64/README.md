@@ -118,8 +118,10 @@ This is an opt-in qualification path, **not** an enabled release environment.
 Use artifacts from one successful `windows_arm64.yml` run, including its
 post-processed setuptools package. Check the run's source revision and package
 qualification evidence before running an installer; keep its logs and SHA-256
-manifest with the results. The staging command rejects incomplete/duplicate
-packages and older Python. It never replaces an existing destination.
+manifest with the results. The staging command and installer share exact
+version/build pins and reject incomplete, duplicate or stale packages, including
+samtools before build 2 and HTSlib/BCFtools before build 1. Neither replaces an
+existing destination.
 
 ```powershell
 python packaging/windows-arm64/stage_candidate.py `
@@ -132,7 +134,12 @@ pwsh -NoProfile -File packaging/windows-arm64/install_candidate.ps1 `
 The explicit setup requires already-installed native ARM64 Pixi and PowerShell 7;
 it rejects an emulated bootstrap process and checks Pixi's PE header. It pins
 the native package artifacts and numerical wheels, creates a fresh Pixi
-environment, and audits every installed PE file. Feature execution never
+environment, and audits every installed PE file. A conda-only checksum-pinned
+native bootstrap verifies every direct-URL PyPI archive/wheel before lock
+resolution can execute source metadata. The final lock must contain matching
+explicit SHA-256 fields for every declared URL; installation and all later Pixi
+runs use `--locked`, not merely URL hash fragments. Native CI exercises this
+fresh installer against the actual qualified packages. Feature execution never
 installs missing dependencies.
 
 Fresh Windows images may not yet contain a public website's trusted root:

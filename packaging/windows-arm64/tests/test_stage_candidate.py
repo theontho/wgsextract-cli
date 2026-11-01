@@ -14,10 +14,17 @@ candidate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(candidate)
 
 
-def artifact(path: Path, build: str = "wgse_arm64_0") -> None:
+def artifact(path: Path, build: str | None = None, stale: str | None = None) -> None:
     with ZipFile(path, "w") as archive:
-        for name, version in candidate.EXPECTED.items():
-            archive.writestr(f"win-arm64/{name}-{version}-{build}.conda", name.encode())
+        for name, (version, qualified_build) in candidate.EXPECTED.items():
+            selected = (
+                build
+                if build is not None and (stale is None or stale == name)
+                else qualified_build
+            )
+            archive.writestr(
+                f"win-arm64/{name}-{version}-{selected}.conda", name.encode()
+            )
         archive.writestr("python-3.13.17-wgse_arm64_0.conda", b"obsolete")
 
 
@@ -46,6 +53,27 @@ def test_duplicate_and_foreign_packages_leave_no_destination(tmp_path: Path) -> 
         candidate.stage_candidate([source, source], output, ["qualified-run"])
     assert not output.exists()
     artifact(source, "wgse_x64_0")
+    with pytest.raises(ValueError, match="Unqualified"):
+        candidate.stage_candidate([source], output, ["qualified-run"])
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    ("name", "build"),
+    [
+        ("samtools", "wgse_arm64_0"),
+        ("samtools", "wgse_arm64_1"),
+        ("htslib", "wgse_arm64_0"),
+        ("bcftools", "wgse_arm64_0"),
+        ("samtools", "wgse_arm64_3"),
+    ],
+)
+def test_stale_or_unqualified_builds_leave_no_destination(
+    name: str, build: str, tmp_path: Path
+) -> None:
+    source = tmp_path / "artifact.zip"
+    artifact(source, build, name)
+    output = tmp_path / "candidate"
     with pytest.raises(ValueError, match="Unqualified"):
         candidate.stage_candidate([source], output, ["qualified-run"])
     assert not output.exists()

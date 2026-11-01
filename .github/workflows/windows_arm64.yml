@@ -109,12 +109,30 @@ jobs:
           New-Item -ItemType Directory -Force -Path out/integration | Out-Null
           python -m pip install -e . pytest zstandard==0.25.0
           if ($LASTEXITCODE) { throw "Integration dependency installation failed" }
-          python -m pytest packaging/windows-arm64/tests/test_unpack_packages.py packaging/windows-arm64/tests/test_stage_candidate.py --basetemp=out/integration/pytest-packages
+          python -m pytest packaging/windows-arm64/tests/test_unpack_packages.py packaging/windows-arm64/tests/test_stage_candidate.py tests/test_pixi_hash_restore.py --basetemp=out/integration/pytest-packages
           if ($LASTEXITCODE) { throw "Integration package extraction regression failed" }
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: windows-arm64-qualification-*
           path: out/integration/packages
+      - name: Set up native candidate installer Pixi
+        uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
+        with:
+          pixi-version: v0.83.0
+          run-install: false
+      - name: Fresh checksum-pinned candidate installation
+        shell: pwsh
+        run: |
+          python -c "from pathlib import Path; from zipfile import ZipFile; root=Path('out/integration/packages'); z=ZipFile('out/integration/candidate-packages.zip','w'); [z.write(p,p.relative_to(root)) for p in root.rglob('*.conda')]; z.close()"
+          if ($LASTEXITCODE) { throw "Candidate artifact assembly failed" }
+          python packaging/windows-arm64/stage_candidate.py `
+            --artifact out/integration/candidate-packages.zip `
+            --output out/integration/candidate-packages `
+            --qualification-run "${{ github.run_id }}"
+          if ($LASTEXITCODE) { throw "Candidate exact version/build staging failed" }
+          & packaging/windows-arm64/install_candidate.ps1 `
+            -Packages out/integration/candidate-packages -Source . `
+            -Destination out/integration/fresh-candidate
       - name: Native CRAM coverage and variant-calling qualification
         shell: pwsh
         run: |

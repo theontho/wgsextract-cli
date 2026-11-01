@@ -1,7 +1,7 @@
 """Native Windows ARM64 qualification; never treat Prism as native support."""
 
 import ctypes
-import platform
+import os
 import shutil
 import struct
 import sys
@@ -16,12 +16,9 @@ def windows_native_machine() -> int | None:
         return None
     loader = getattr(ctypes, "WinDLL", None)
     if loader is None:
-        # Allows platform simulation in non-Windows tests.
-        return (
-            IMAGE_FILE_MACHINE_ARM64
-            if platform.machine().lower() in ("arm64", "aarch64")
-            else None
-        )
+        if os.name == "nt":
+            raise OSError("Windows native architecture query is unavailable")
+        return None
     kernel = loader("kernel32", use_last_error=True)
     kernel.GetCurrentProcess.restype = ctypes.c_void_p
     query = kernel.IsWow64Process2

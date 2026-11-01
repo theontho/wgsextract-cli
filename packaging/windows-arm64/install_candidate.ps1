@@ -29,7 +29,9 @@ if (!(Test-Path "$Source\pyproject.toml")) { throw "Missing candidate CLI source
 if (!(Test-Path "$Source\scripts\audit_windows_arm64.ps1")) { throw "Missing native audit" }
 if (Test-Path $Destination) { throw "Fresh candidate destination must not exist" }
 $manifest = Get-Content "$Packages\manifest.json" -Raw | ConvertFrom-Json
-$expected = @("bcftools", "bwa", "bwa-mem2", "curl", "fastp", "fastqc", "haplogrep", "htslib", "minimap2", "openjdk", "python", "samblaster", "samtools", "setuptools")
+$pins = Get-Content "$Source\packaging\windows-arm64\candidate-pins.json" -Raw |
+    ConvertFrom-Json -AsHashtable
+$expected = @($pins.Keys)
 if (@($manifest.packages).Count -ne $expected.Count) { throw "Incomplete native package set" }
 foreach ($name in $expected) {
     if (@($manifest.packages | Where-Object name -eq $name).Count -ne 1) {
@@ -50,9 +52,12 @@ foreach ($package in $manifest.packages) {
     if ((Get-FileHash $path -Algorithm SHA256).Hash -ine $package.sha256) {
         throw "Candidate package checksum mismatch: $($package.file)"
     }
-    if ($package.name -eq "python" -and $package.version -ne "3.13.18") {
-        throw "Only the qualified secure Python 3.13.18 is permitted"
+    $version, $build = $pins[$package.name]
+    if ($package.version -ne $version -or $package.build -ne $build -or
+        $package.file -ne "$($package.name)-$version-$build.conda") {
+        throw "Unqualified native package version/build: $($package.file)"
     }
+    $condaLines = $lines
     $url = ([uri]$path).AbsoluteUri | ConvertTo-Json -Compress
     $lines += "$($package.name) = { url = $url, sha256 = `"$($package.sha256)`" }"
 }
@@ -69,12 +74,49 @@ $lines += @(
 )
 New-Item -ItemType Directory -Path $Destination | Out-Null
 $manifestPath = Join-Path $Destination "pixi.toml"
-$lines | Set-Content $manifestPath -Encoding utf8NoBOM
-& $pixi install --manifest-path $manifestPath
-if ($LASTEXITCODE) { throw "Native candidate environment installation failed" }
-& $pixi run --manifest-path $manifestPath python -c "import sys; assert sys.version_info[:3] == (3,13,18); from wgsextract_cli.core.windows_arm64 import assert_native_windows_python; assert_native_windows_python()"
-if ($LASTEXITCODE) { throw "Installed interpreter is not qualified native Python" }
+$condaLines | Set-Content $manifestPath -Encoding utf8NoBOM
+# Bootstrap only checksum-pinned conda packages, before resolving any PyPI source.
+& $pixi lock --manifest-path $manifestPath
+if ($LASTEXITCODE) { throw "Native candidate bootstrap lock failed" }
+& $pixi install --manifest-path $manifestPath --locked
+if ($LASTEXITCODE) { throw "Native candidate bootstrap failed" }
 $prefix = (Resolve-Path (Join-Path $Destination ".pixi\envs\default")).Path
+& "$Source\scripts\audit_windows_arm64.ps1" -Prefix $prefix `
+    -Report (Join-Path $Destination "out\bootstrap-architecture.json")
+$cache = Join-Path $Destination "out\pypi"
+New-Item -ItemType Directory -Force -Path $cache | Out-Null
+$verifiedPypi = @{}
+$verifiedLines = foreach ($line in $lines) {
+    if ($line -match '^(?<name>[\w-]+) = \{ url = "(?<url>https://[^"#]+)#sha256=(?<digest>[a-f0-9]{64})" \}$') {
+        $name, $url, $digest = $Matches.name, $Matches.url, $Matches.digest
+        $payload = Join-Path $cache ([IO.Path]::GetFileName(([uri]$url).AbsolutePath))
+        & "$prefix\Library\bin\curl.exe" --fail --silent --show-error --location `
+            --max-time 300 --output $payload $url
+        if ($LASTEXITCODE) { throw "Pinned PyPI download failed: $name" }
+        if ((Get-FileHash $payload -Algorithm SHA256).Hash -ine $digest) {
+            throw "Pinned PyPI checksum mismatch: $name"
+        }
+        $relative = "out/pypi/$([IO.Path]::GetFileName($payload))"
+        $verifiedPypi[$relative] = $digest
+        $localPath = $relative |
+            ConvertTo-Json -Compress
+        "$name = { path = $localPath }"
+    } else { $line }
+}
+if ($verifiedPypi.Count -ne 4) { throw "Missing verified direct-URL PyPI inputs" }
+$pathPins = Join-Path $Destination "out\pypi-pins.json"
+$verifiedPypi | ConvertTo-Json | Set-Content $pathPins -Encoding utf8NoBOM
+$verifiedLines | Set-Content $manifestPath -Encoding utf8NoBOM
+& $pixi lock --manifest-path $manifestPath
+if ($LASTEXITCODE) { throw "Native candidate lock generation failed" }
+& "$prefix\python.exe" "$Source\scripts\restore_pixi_hashes.py" `
+    --manifest $manifestPath --lock (Join-Path $Destination "pixi.lock") `
+    --path-pins $pathPins --require-all
+if ($LASTEXITCODE) { throw "Native candidate lock hash validation failed" }
+& $pixi install --manifest-path $manifestPath --locked
+if ($LASTEXITCODE) { throw "Native candidate locked installation failed" }
+& $pixi run --manifest-path $manifestPath --locked python -c "import sys; assert sys.version_info[:3] == (3,13,18); from wgsextract_cli.core.windows_arm64 import assert_native_windows_python; assert_native_windows_python()"
+if ($LASTEXITCODE) { throw "Installed interpreter is not qualified native Python" }
 & "$Source\scripts\audit_windows_arm64.ps1" -Prefix $prefix `
     -Report (Join-Path $Destination "out\architecture.json")
 
@@ -82,7 +124,7 @@ $prefix = (Resolve-Path (Join-Path $Destination ".pixi\envs\default")).Path
 & "$prefix\Library\bin\curl.exe" --fail --silent --show-error --head --max-time 30 `
     https://hgdownload.soe.ucsc.edu/goldenPath/hg19/liftOver/hg19ToHg38.over.chain.gz
 if ($LASTEXITCODE) { throw "Windows certificate trust/HTTPS preflight failed" }
-& $pixi run --manifest-path $manifestPath python -c "from urllib.request import urlopen; r=urlopen('https://hgdownload.soe.ucsc.edu/goldenPath/hg19/liftOver/hg19ToHg38.over.chain.gz', timeout=30); assert r.status == 200; r.close()"
+& $pixi run --manifest-path $manifestPath --locked python -c "from urllib.request import urlopen; r=urlopen('https://hgdownload.soe.ucsc.edu/goldenPath/hg19/liftOver/hg19ToHg38.over.chain.gz', timeout=30); assert r.status == 200; r.close()"
 if ($LASTEXITCODE) { throw "Installed Python certificate verification failed" }
-& $pixi run --manifest-path $manifestPath wgsextract deps check
+& $pixi run --manifest-path $manifestPath --locked wgsextract deps check
 if ($LASTEXITCODE) { throw "Native default tool dependency check failed" }
