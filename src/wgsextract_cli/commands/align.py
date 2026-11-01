@@ -345,12 +345,16 @@ def ensure_bwa_index(ref: str) -> None:
         raise WGSExtractError(f"Automatic BWA indexing failed: {error}") from error
 
 
+def ensure_fasta_index(ref: str) -> None:
+    if not Path(ref + ".fai").is_file():
+        run_command(["samtools", "faidx", ref])
+
+
 def alt_contigs(ref: str) -> list[str]:
     """The reference's ALT haplotype contigs (GRCh38's *_alt, and the HLA alleles
     in hs38DH), which repeat stretches of the primary chromosomes."""
     fai = Path(ref + ".fai")
-    if not fai.is_file():
-        run_command(["samtools", "faidx", ref])
+    ensure_fasta_index(ref)
     if not fai.is_file():
         return []
     names = [line.split("\t", 1)[0] for line in fai.read_text().splitlines()]
@@ -507,6 +511,8 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
         samblaster=samblaster,
         reads=reads,
     )
+    if tool == "bwa-mem2":
+        ensure_fasta_index(setup.ref)
     setup = setup._replace(memory=short_read_sort_memory(tool, setup.memory))
     preflight_resources(
         lambda: estimate_resources(

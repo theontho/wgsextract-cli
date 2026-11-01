@@ -555,6 +555,32 @@ def test_ann_length_can_protect_large_build_without_a_fai(tmp_path, monkeypatch)
         bwa_mem2.ensure_index(ref, download=False)
 
 
+@needs_tools("samtools", "bwa-mem2")
+def test_align_prepares_missing_fai_before_mem2_memory_and_index(tmp_path, monkeypatch):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\n" + "ACGT" * 1500 + "\n")
+    assert not Path(str(ref) + ".fai").exists()
+    assert not Path(str(ref) + ".ann").exists()
+    setup = align._AlignSetup("1", "100M", str(tmp_path), str(ref), "sample")
+    monkeypatch.setattr(align, "_prepare_alignment", lambda *_: setup)
+    monkeypatch.setattr(bwa_mem2, "_total_memory", lambda: 8 * GB)
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 8 * GB)
+    monkeypatch.setattr(align, "print_warning", lambda *_a, **_kw: None)
+    args = Namespace(
+        aligner="bwa-mem2",
+        r1="r1.fq",
+        r2=None,
+        format="BAM",
+        _input_read_count=1,
+    )
+
+    _, tool = align._bwa_setup(args, "test")
+
+    assert tool == "bwa-mem2"
+    assert Path(str(ref) + ".fai").read_text().split("\t")[:2] == ["chr1", "6000"]
+    assert bwa_mem2.has_index(str(ref))
+
+
 def test_ref_index_starts_supported_large_mem2_build(tmp_path, monkeypatch):
     from wgsextract_cli.commands.ref import core_commands
 

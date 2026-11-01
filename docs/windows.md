@@ -136,7 +136,8 @@ All five index files for the 3,217,346,917-base GRCh38 reference were verified
 byte-identical to a Linux-built index. Building it needs roughly 80 GB of RAM;
 the CLI checks its build-memory estimate before starting. Existing indexes and
 the verified published hs38DH index download remain supported.
-`ref index` prepares the FASTA length metadata automatically. Direct build
+`ref index`, alignment and realignment prepare missing FASTA length metadata
+automatically with samtools. Direct build
 preflight refuses missing or incomplete length metadata rather than assuming
 the build needs no memory; complete BWA `.ann` metadata can also supply the length.
 

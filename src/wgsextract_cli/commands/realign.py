@@ -256,6 +256,7 @@ def run(args: argparse.Namespace) -> None:
         signature = calculate_bam_md5(args.input, None)
     target = resolve_reference(args.ref, signature) if args.ref or signature else None
     if args.aligner == "bwa-mem2" and target and Path(target).is_file():
+        align_cmd.ensure_fasta_index(target)
         bwa_mem2.check_index(target)
 
     threads, memory = get_resource_defaults(args.threads, args.memory)
