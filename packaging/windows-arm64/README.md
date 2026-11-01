@@ -16,7 +16,8 @@ Upstream's latest source release is 3.13.18, whereas its ARM64 NuGet is currentl
 The separate `python-source` recipe stages 3.13.18 from source with every
 CPython external archive pinned by immutable commit and SHA-256, including
 the official native ARM64 OpenSSL/libffi binaries. This avoids a global Python
-version change, but its build and runtime qualification are still pending.
+version change. Native build, extension imports, semaphore/pip regression,
+installed-file and live-process/module qualification now pass.
 MSVC's optimized Unicode-table compilation failed with C1002 even with a native
 ARM64 compiler host and serial projects. Qualification uses CPython's ClangCL
 project configuration with Release optimization; this is not an official PSF build.
@@ -24,6 +25,15 @@ Its strict Windows API argument checking exposed a junction privilege-buffer
 length declared as `int`; the source recipe uses the API's actual `DWORD` type.
 Windows semaphore counts likewise use `long`, matching the Windows API;
 POSIX retains `int`. A real semaphore count/zero-state regression is required.
+The source layout also copied an unused x64 `vcruntime140_1.dll`; remove it
+before imports and require strict native audits to pass. Archive build
+provenance must not inherit the surrounding CLI checkout's Git revision.
+
+Yleaf's setuptools 84.2.1 wheel contains six unused x86/x64 launcher templates.
+The staged native-only recipe preserves the two AA64 launchers, all Python
+code/notices and consistent RECORD metadata. Native qualification is pending.
+Python-3.13 NumPy/Pandas/psutil wheels are available; all 68 PE files in the
+audited pinned wheels are AA64. Installed native library/Yleaf tests remain pending.
 
 The free public `windows-11-arm` GitHub runner is available and has 4 cores and
 16 GiB RAM. Its tools are not all native: inspect the actual installed Python,
@@ -149,12 +159,13 @@ foreign PE/ELF/Mach-O payloads, not only entries with DLL suffixes.
 The generated pipeline fixture checks actual sort/index/CRAM round-trip,
 indexed coverage and a truth-known homozygous variant using the built packages.
 Its 40 decoded records and complete VCF body now match the Linux fixture
-exactly on native Windows ARM64. Whole integration qualification is pending;
-it is not a substitute for the complete small/full-genome suites.
+exactly on native Windows ARM64. Live samtools/bcftools module audits and 11
+selected existing small-genome CLI tests also pass with secure packaged Python.
+These selected gates are not the complete small/full-genome suites.
 The integration job also stages selected existing small-genome CLI tests for
 realignment, sort/index/CRAM, calling, info/coverage and microarray export.
-It uses the independently audited hosted ARM64 Python rather than overlaying
-the two separately qualified interpreter packages into one environment.
+It installs and uses the secure source-built Python package, never overlaying
+the older NuGet interpreter.
 
 On an ARM64 Windows OS, configured executable paths and version probes reject
 x64 PE files before launching them. Feature entry also rejects a Prism-hosted
