@@ -83,7 +83,7 @@ for lib in libgkl_utils libgkl_pairhmm libgkl_pairhmm_omp libgkl_smithwaterman; 
     reject_fma objdump "$so"
 done
 
-"$CXX" "${COMMON[@]}" -std=c++17 -fopenmp "$HERE/tests/fp_semantics.cc" -o "$BUILD/fp_semantics"
+"$CXX" "${COMMON[@]}" -std=c++17 -fopenmp "-I$NATIVE" "$HERE/tests/fp_semantics.cc" -o "$BUILD/fp_semantics"
 "$CXX" "${COMMON[@]}" -fopenmp "$HERE/tests/omp_fpcr_state.cc" -o "$BUILD/omp_fpcr_state"
 # Negative control: the pre-fix caller guard must visibly leak FZ into libgomp's pool,
 # otherwise the cold-pool check above proves nothing.

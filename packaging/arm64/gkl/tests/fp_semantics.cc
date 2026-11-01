@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "pairhmm/Context.h"
 #include "wgse_libm.h"
 
 #if defined(__aarch64__) || defined(_M_ARM64)
@@ -43,6 +44,30 @@ OPAQUE static double dmul(double a, double b) { return a * b; }
 static uint64_t fnv(uint64_t h, uint64_t v) {
     for (int i = 0; i < 8; i++) { h ^= (v >> (8 * i)) & 0xff; h *= 1099511628211ULL; }
     return h;
+}
+
+static uint64_t bits(float f) { return fbits(f); }
+static uint64_t bits(double d) { return dbits(d); }
+
+template <class T, size_t N>
+static uint64_t hash_table(const T (&table)[N]) {
+    uint64_t h = 14695981039346656037ULL;
+    for (size_t i = 0; i < N; i++) h = fnv(h, bits(table[i]));
+    return h;
+}
+
+// Fingerprints the tables exactly as GKL initializes them (Context<T> constructor, including
+// approximateLog10SumLog10 for matchToMatchProb), so equal hashes mean equal PairHMM tables.
+template <class T>
+static void context_tables(const char* label) {
+    Context<T> ctx;
+    typedef ContextBase<T> B;
+    std::printf("context_%s_ph2pr\t%016" PRIx64 "\n", label, hash_table(B::ph2pr));
+    std::printf("context_%s_jacobian_log\t%016" PRIx64 "\n", label, hash_table(B::jacobianLogTable));
+    std::printf("context_%s_match_to_match\t%016" PRIx64 "\n", label, hash_table(B::matchToMatchProb));
+    uint64_t h = 14695981039346656037ULL;
+    h = fnv(fnv(fnv(h, bits(B::INITIAL_CONSTANT)), bits(B::LOG10_INITIAL_CONSTANT)), bits(B::RESULT_THRESHOLD));
+    std::printf("context_%s_constants\t%016" PRIx64 "\n", label, h);
 }
 
 // Products whose exact value is below FLT_MIN but rounds (unbounded exponent) up to it.
@@ -91,23 +116,19 @@ int main() {
     tininess("ftz_only", FTZ_ONLY);
     tininess("ftz_daz", FTZ_DAZ);
 
-    // Exactly the libm calls Context.h uses to build PairHMM tables (log10/log10f/pow/log1p via
-    // wgse_libm, as GKL calls them); crt_* fingerprint the platform's own log10/log10f.
+    context_tables<float>("float");
+    context_tables<double>("double");
+
+    // The libm calls Context.h makes (log10/log10f/pow via wgse_libm, as GKL calls them), to
+    // localize a context_* mismatch; crt_* fingerprint the platform's own log10/log10f.
     uint64_t h_ph2pr = 14695981039346656037ULL, h_ph2prf = h_ph2pr, h_jac = h_ph2pr;
-    uint64_t h_mm = h_ph2pr, h_log10f = h_ph2pr, h_log10 = h_ph2pr, h_crtf = h_ph2pr, h_crt = h_ph2pr;
+    uint64_t h_log10f = h_ph2pr, h_log10 = h_ph2pr, h_crtf = h_ph2pr, h_crt = h_ph2pr;
     for (int x = 0; x < 128; x++) {
         h_ph2pr = fnv(h_ph2pr, dbits(wgse_libm::pow(10.0, -((double) x) / 10.0)));
         h_ph2prf = fnv(h_ph2prf, fbits(powf(10.f, -((float) x) / 10.f)));
     }
     for (int k = 0; k <= 400000; k++) {  // JACOBIAN_LOG_TABLE_SIZE upper bound
         h_jac = fnv(h_jac, dbits(wgse_libm::log10(1.0 + wgse_libm::pow(10.0, -((double) k) * 0.0001))));
-    }
-    for (int i = 0; i < 128; i++) {
-        for (int j = 0; j < 128; j++) {
-            double s = wgse_libm::log10(wgse_libm::pow(10.0, -0.1 * i) + wgse_libm::pow(10.0, -0.1 * j));
-            double v = wgse_libm::log1p(-std::fmin(1.0, wgse_libm::pow(10.0, s))) * (1.0 / std::log(10.0));
-            h_mm = fnv(h_mm, dbits(wgse_libm::pow(10.0, v)));
-        }
     }
     uint32_t u = 0x0d000000u;  // 1e-28 .. 1, every 97th float
     for (; u < 0x3f800000u; u += 97) {
@@ -122,7 +143,6 @@ int main() {
     std::printf("libm_ph2pr_pow\t%016" PRIx64 "\n", h_ph2pr);
     std::printf("libm_ph2pr_powf\t%016" PRIx64 "\n", h_ph2prf);
     std::printf("libm_jacobian_log10_pow\t%016" PRIx64 "\n", h_jac);
-    std::printf("libm_match_to_match\t%016" PRIx64 "\n", h_mm);
     std::printf("libm_log10f_sweep\t%016" PRIx64 "\n", h_log10f);
     std::printf("libm_log10_sweep\t%016" PRIx64 "\n", h_log10);
     std::printf("crt_log10f_sweep\t%016" PRIx64 "\n", h_crtf);

@@ -109,7 +109,7 @@ for lib in libomp gkl_utils gkl_pairhmm gkl_pairhmm_omp gkl_smithwaterman; do
     fi
 done
 
-"$CXX" "${COMMON[@]}" -std=c++17 -fopenmp "$HERE/tests/fp_semantics.cc" -static -fopenmp \
+"$CXX" "${COMMON[@]}" -std=c++17 -fopenmp "-I$NATIVE" "$HERE/tests/fp_semantics.cc" -static -fopenmp \
     -o "$BUILD/fp_semantics.exe"
 "$CXX" "${COMMON[@]}" -fopenmp "$HERE/tests/omp_fpcr_state.cc" -static -fopenmp \
     -o "$BUILD/omp_fpcr_state.exe"

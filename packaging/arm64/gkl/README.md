@@ -57,8 +57,9 @@ that reports Arm support truthfully.
 Tests (`tests/`):
 
 - `fp_semantics.cc`: reports control-register flush/denormal/tininess behaviour and
-  the fingerprints of the libm results GKL uses (`libm_*`, which must match across
-  platforms; on Windows also the raw UCRT `crt_*`).
+  hashes of the PairHMM tables exactly as `Context<float>`/`Context<double>` initialize
+  them (`context_*`), plus fingerprints of the libm calls they use (`libm_*`). Both must
+  match across platforms; on Windows the raw UCRT is also reported (`crt_*`).
 - `omp_fpcr_state.cc`: on a cold OpenMP pool, runs the production FZ arrangement and
   then asserts in an unguarded region that every pool thread is back to its original
   FPCR. It also checks per-worker FZ and full FPCR restoration. `legacy` mode runs the
@@ -68,7 +69,9 @@ Tests (`tests/`):
   test pairs × 4 overhang strategies.
 - `kbench.cc` / `kbench.sh GKL_NATIVE_DIR SIMDE_DIR OUT`: kernel-only timing
   and exact-bit hashes over 20,000 seeded PairHMM cases and the GKL SW pairs.
-  x86-64 and AArch64 must print the same `hash_*` values.
+  x86-64 and AArch64 must print the same `hash_*` values. A missing, empty, odd-length
+  or blank-line SW input exits non-zero instead of printing the initial hash, and
+  `kbench.sh` self-tests that before the real run.
 - `compare_vectors.py`: compares the Arm64 probe output against the x64 output.
 - `JavaThreadFtzProbe.java THREADS`: asserts that the FP state of the calling thread
   and of a newly created thread is clean (subnormals survive, FTZ off) after

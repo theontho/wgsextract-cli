@@ -76,6 +76,29 @@ int main(int argc, char** argv) {
     fprintf(stderr, "usage: kbench SW_INPUT CASES REPS\n");
     return 2;
   }
+  // Read and validate the SW pairs first: a missing, empty or odd input would otherwise
+  // report the unchanged initial hash_sw as if Smith-Waterman had run.
+  std::vector<std::string> lines;
+  std::ifstream in(argv[1]);
+  if (!in.is_open()) {
+    fprintf(stderr, "kbench: cannot open SW input %s\n", argv[1]);
+    return 1;
+  }
+  for (std::string l; std::getline(in, l);) lines.push_back(l);
+  if (in.bad()) {
+    fprintf(stderr, "kbench: error reading SW input %s\n", argv[1]);
+    return 1;
+  }
+  if (lines.empty() || lines.size() % 2 != 0) {
+    fprintf(stderr, "kbench: SW input %s has %zu lines; expected a non-zero even count\n", argv[1], lines.size());
+    return 1;
+  }
+  for (size_t k = 0; k < lines.size(); k++) {
+    if (lines[k].empty()) {
+      fprintf(stderr, "kbench: SW input %s line %zu is empty\n", argv[1], k + 1);
+      return 1;
+    }
+  }
 #if defined(__aarch64__)
   uint64_t fpcr;
   __asm__ volatile("mrs %0, fpcr" : "=r"(fpcr));
@@ -151,9 +174,6 @@ int main(int argc, char** argv) {
     if (rep == 0) hd = fnv(hd, results.data(), results.size() * sizeof(double));
   }
 
-  std::vector<std::string> lines;
-  std::ifstream in(argv[1]);
-  for (std::string l; std::getline(in, l);) lines.push_back(l);
   double best_sw = 1e30;
   uint64_t hs = 1469598103934665603ULL;
   std::vector<char> cigar;
