@@ -120,6 +120,7 @@ class TestWarnings(unittest.TestCase):
         estimated_hours = 5 + 160 / cpus
         expected_msg = f"!!! {MESSAGES['RealignBAMTimeWarnMesg'].format(time=f'{estimated_hours:.1f}')} !!!"
         mock_warning.assert_any_call(expected_msg)
+        self.assertNotRegex(expected_msg, r"\(\d+(?:-\d+)? hours\)")
 
     @patch("logging.warning")
     def test_new_warnings(self, mock_warning):

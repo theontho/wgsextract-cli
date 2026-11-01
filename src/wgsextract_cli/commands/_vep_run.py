@@ -99,7 +99,7 @@ def _vep_input_files(input_path: str) -> list[str]:
 
 
 def _apply_forced_assembly(lib: ReferenceLibrary, vep_assembly: str | None) -> None:
-    """Make the library agree with an explicit --vep-assembly."""
+    """Make the library agree with the explicit assembly override."""
     if not vep_assembly:
         return
     forced_build = "hg38" if vep_assembly == "GRCh38" else "hg19"
@@ -114,7 +114,7 @@ def _apply_forced_assembly(lib: ReferenceLibrary, vep_assembly: str | None) -> N
     ):
         logging.warning(
             f"Discarding auto-resolved FASTA '{lib.fasta}' because it conflicts "
-            f"with --vep-assembly {vep_assembly}"
+            f"with --assembly {vep_assembly}"
         )
         lib.fasta = None
 

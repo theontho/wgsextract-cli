@@ -274,12 +274,12 @@ LOG_MESSAGES = {
 # System and Warning Messages
 SYSTEM_MESSAGES = {
     "infoFreeSpace": "Operation {app} needs {size} GB of Free Space in the Temporary Directory to proceed. You likely also need {final} GB of free space in the Output Directory for the final file to be created. This is in addition to any space already used. Make sure the needed space is available before continuing.",
-    "RealignBAMTimeWarnMesg": """There are several long tasks to (re)align a BAM file. Each major step and the rough time to complete it are:
-(1) Unalign the BAM to create the FASTQ files (1-3 hours)
-(2) Create new Reference Genome Index (2-3 hours)
-(3) Align FASTQ to Reference Genome (8-160 hours)
-(4) Remove Duplicates, Sort and Index to Create the Final BAM (1-2 hours)
-(5) Create the CRAM (1-2 hours)
+    "RealignBAMTimeWarnMesg": """There are several long tasks to (re)align a BAM file. The major steps are:
+(1) Unalign the BAM to create the FASTQ files
+(2) Create new Reference Genome Index
+(3) Align FASTQ to Reference Genome
+(4) Remove Duplicates, Sort and Index to Create the Final BAM
+(5) Create the CRAM
 
 We estimate, on this machine, this will take {time} hours.""",
     "ExpectedWait": "Expected Wait is {time}",
