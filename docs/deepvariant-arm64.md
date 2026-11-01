@@ -75,9 +75,22 @@ unnormalized VCF differences, matched-vCPU timings and cloud cost are recorded
 in the task's `out/arm64/deepvariant/report.md`; a draft PR does not by itself
 establish full-genome or performance qualification.
 
-Initial public HG002 chr20 qualification has 210,390 identical sites and
+Public HG002 chr20 qualification has 210,390 identical sites and
 genotypes against the pinned x64 control. Differences are confined to
 QUAL (at most 0.5), GQ (at most 2) and PL (at most 1), not alleles, FILTER,
 depth or model routing. FP32 TensorFlow kernels differ between architectures;
 confidence fields are not promised byte-identical. Other models remain
 unqualified until equivalent evidence exists.
+
+All 81,898 large-model input tensors and decoded candidate variants match
+exactly. Maximum probability differences before postprocessing are 2.81e-6
+(large model) and 2.39e-7 (small model), with no argmax changes. Three repetitions
+on each architecture have identical within-architecture VCF bodies.
+
+Matched standard 16-vCPU/64-GB Azure guests give a three-run chr20 wall median
+of 487.97 s on Cobalt AArch64 versus 424.51 s on AMD x64: **14.95% slower**,
+within the 20% target. ARM has 16 physical cores; x64 has eight with SMT.
+CPU-time medians are 6,614.15 / 6,173.57 s and maximum-child RSS medians
+26,979,616 / 12,075,748 KiB (ARM / x64). The native path needs materially
+more memory. Whole-genome qualification is still pending; do not treat this
+chromosome benchmark as a whole-genome claim.
