@@ -32,10 +32,17 @@ provenance must not inherit the surrounding CLI checkout's Git revision.
 Yleaf's setuptools 84.2.1 wheel contains six unused x86/x64 launcher templates.
 The staged native-only recipe preserves the two AA64 launchers, all Python
 code/notices and consistent RECORD metadata. Native package qualification passes.
+Its conda metadata also declares `pkg:pypi/setuptools`: without that standard
+identity, Pixi installs an additional stock PyPI wheel over the native package,
+reintroducing six foreign templates. `add_setuptools_purl.py` changes only the
+information archive; the qualified runtime payload remains byte-identical.
 Python-3.13 NumPy/Pandas/psutil wheels are available; all 68 PE files in the
 audited pinned wheels are AA64. `python313-wheels.txt` pins their artifacts and
 checksums. Installed numerical operations, Yleaf imports/help/marker tables and
-live loaded-library audits are staged; native results remain pending.
+live loaded-library audits pass natively with source Python 3.13.18.
+The hosted combined prefix audits 156 PE files; a fresh native-only Pixi
+candidate installation on Windows 11 ARM64 audits 153 before test tools are added.
+These are candidate qualification results, not release/full-genome approval.
 
 The free public `windows-11-arm` GitHub runner is available and has 4 cores and
 16 GiB RAM. Its tools are not all native: inspect the actual installed Python,

@@ -35,13 +35,13 @@ jobs:
       - name: Install test dependencies
         shell: pwsh
         run: |
-          python -m pip install -e . pytest
+          python -m pip install -e . pytest zstandard==0.25.0
           if ($LASTEXITCODE) { throw "Native test dependency installation failed" }
       - name: Fail-fast and PE validation tests
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path out | Out-Null
-          python -m pytest tests/test_windows_arm64.py packaging/windows-arm64/tests/test_prepare_fastp.py packaging/windows-arm64/tests/test_prepare_setuptools.py packaging/windows-arm64/tests/test_audit_java_archives.py --basetemp=out/pytest-arm64 --junitxml=out/windows-arm64-tests.xml
+          python -m pytest tests/test_windows_arm64.py packaging/windows-arm64/tests/test_prepare_fastp.py packaging/windows-arm64/tests/test_prepare_setuptools.py packaging/windows-arm64/tests/test_setuptools_purl.py packaging/windows-arm64/tests/test_audit_java_archives.py --basetemp=out/pytest-arm64 --junitxml=out/windows-arm64-tests.xml
           if ($LASTEXITCODE) { throw "ARM64 qualification tests failed" }
       - name: Set up native Pixi
         uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
@@ -68,6 +68,11 @@ jobs:
             --recipe-dir "packaging/windows-arm64/recipes/${{ matrix.recipe }}" --target-platform win-arm64 `
             --output-dir out/conda
           if ($LASTEXITCODE) { throw "ARM64 recipe failed" }
+          if ("${{ matrix.recipe }}" -eq "setuptools") {
+            $package = (Get-ChildItem out/conda/win-arm64/setuptools-*.conda).FullName
+            python packaging/windows-arm64/add_setuptools_purl.py $package $package
+            if ($LASTEXITCODE) { throw "Native setuptools package identity failed" }
+          }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
