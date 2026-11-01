@@ -312,6 +312,25 @@ def test_load_dataset_reports_missing_files_and_manifest(tmp_path):
 # --- archive dataset: zip checksum, cache and extraction ------------------
 
 
+def test_md5_pinned_github_asset_does_not_require_release_sha_metadata(
+    tmp_path, served, monkeypatch
+):
+    monkeypatch.setitem(settings, "dev_download_cache", False)
+    files, fetched = served
+    url = "https://github.com/example/benchmarks/releases/download/test/sample.cram"
+    metadata = "https://api.github.com/repos/example/benchmarks/releases/tags/test"
+    payload = b"MD5-pinned benchmark data"
+    files[url] = payload
+    files[metadata] = json.dumps({"assets": [{"name": "sample.cram"}]}).encode()
+    remote = BenchmarkRemoteFile(
+        "bam", url, "sample.cram", hashlib.md5(payload).hexdigest()
+    )
+    assert (
+        datasets._cached_remote_dataset_file(remote, tmp_path).read_bytes() == payload
+    )
+    assert fetched == [url]
+
+
 def test_real_archive_downloads_once_verifies_and_extracts(
     tmp_path, served, monkeypatch
 ):

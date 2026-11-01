@@ -34,7 +34,12 @@ from .models import (
 
 
 def _download_file(
-    url: str, destination: Path, *, sha256: str | None = None, use_cache: bool = True
+    url: str,
+    destination: Path,
+    *,
+    sha256: str | None = None,
+    use_cache: bool = True,
+    resolve_release_digest: bool = True,
 ) -> None:
     require_http_url(url, "benchmark dataset URL")
     logging.info("Downloading benchmark dataset to %s", destination.name)
@@ -43,7 +48,7 @@ def _download_file(
         url,
         str(destination),
         expected_sha256=normalized_sha256 or None,
-        resolve_release_digest=normalized_sha256 != "",
+        resolve_release_digest=resolve_release_digest and normalized_sha256 != "",
         use_cache=use_cache,
     ):
         reason = " (download error or SHA256 mismatch)" if normalized_sha256 else ""
@@ -148,7 +153,12 @@ def _cached_remote_dataset_file(remote: BenchmarkRemoteFile, cache_root: Path) -
             except WGSExtractError:
                 drop_cached_download(remote.url, path, checksum_hint=checksum_hint)
                 path.unlink(missing_ok=True)
-        _download_file(remote.url, path, use_cache=not bool(remote.md5))
+        _download_file(
+            remote.url,
+            path,
+            use_cache=not bool(remote.md5),
+            resolve_release_digest=not bool(remote.md5),
+        )
     if remote.md5:
         try:
             _verify_digest(path, "md5", remote.md5)
