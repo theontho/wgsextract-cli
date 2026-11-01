@@ -27,7 +27,7 @@ The script needs only git (and the Xcode Command Line Tools on macOS). It:
 5. Runs `wgsextract --version`, `wgsextract deps check` and the quick smoke tests.
 6. Lists anything else worth having: a git identity, the GitHub CLI (`gh`), and an AI coding agent.
 
-`deps check` marks tools in optional Pixi environments (GATK, VEP, DeepVariant, ...) as missing. That's expected: they install on first use, or with `pixi install -e <environment>`. When the script installs Pixi or `just`, open a new terminal before using them (or add `~/.pixi/bin`, `%USERPROFILE%\.pixi\bin` on Windows, to `PATH`). Rerun the script at any time; `just setup` does the same once `just` is installed. `--skip-tests` (`-SkipTests` on Windows) skips the smoke tests.
+`deps check` marks tools in optional Pixi environments (GATK, VEP, DeepVariant, ...) as missing. That's expected: install one when you need it with the `pixi install` command `deps check` prints. When the script installs Pixi or `just`, open a new terminal before using them (or add `~/.pixi/bin`, `%USERPROFILE%\.pixi\bin` on Windows, to `PATH`). Rerun the script at any time; `just setup` does the same once `just` is installed. `--skip-tests` (`-SkipTests` on Windows) skips the smoke tests.
 
 ## Make a change
 
