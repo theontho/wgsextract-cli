@@ -41,7 +41,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path out | Out-Null
-          python -m pytest tests/test_windows_arm64.py packaging/windows-arm64/tests/test_prepare_fastp.py packaging/windows-arm64/tests/test_prepare_setuptools.py packaging/windows-arm64/tests/test_setuptools_purl.py packaging/windows-arm64/tests/test_audit_java_archives.py --basetemp=out/pytest-arm64 --junitxml=out/windows-arm64-tests.xml
+          python -m pytest tests/test_windows_arm64.py tests/test_dependency_probes.py packaging/windows-arm64/tests/test_prepare_fastp.py packaging/windows-arm64/tests/test_prepare_setuptools.py packaging/windows-arm64/tests/test_setuptools_purl.py packaging/windows-arm64/tests/test_audit_java_archives.py --basetemp=out/pytest-arm64 --junitxml=out/windows-arm64-tests.xml
           if ($LASTEXITCODE) { throw "ARM64 qualification tests failed" }
       - name: Set up native Pixi
         uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
