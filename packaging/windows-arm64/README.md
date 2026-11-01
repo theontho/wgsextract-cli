@@ -22,6 +22,8 @@ ARM64 compiler host and serial projects. The next qualification uses CPython's
 upstream-supported ClangCL toolset, retaining Release optimization and LTO.
 Its strict Windows API argument checking exposed a junction privilege-buffer
 length declared as `int`; the source recipe uses the API's actual `DWORD` type.
+Windows semaphore counts likewise use `long`, matching the Windows API;
+POSIX retains `int`. A real semaphore count/zero-state regression is required.
 
 The free public `windows-11-arm` GitHub runner is available and has 4 cores and
 16 GiB RAM. Its tools are not all native: inspect the actual installed Python,
@@ -98,7 +100,8 @@ with all existing Windows optimization patches. Their packages install only
 their own executables, avoiding duplicate HTS files in the installed prefix.
 Source checksums and complete upstream C source lists have been checked.
 BCFtools' native package, existing regressions and region-index regression pass;
-samtools and whole-pipeline qualification remain pending.
+samtools' native package and regressions now also pass. Whole-pipeline
+qualification remains pending.
 BCFtools' private 32-bit region-index symbols are namespaced independently of
 HTSlib's 64-bit region API; duplicate-symbol suppression would join incompatible
 interfaces. The unchanged upstream region-index regression runs with seed 236.
@@ -115,6 +118,8 @@ recipe. Native compilation, gzip correctness and performance are not yet
 qualified; generic C ISA-L is not a claim of optimized ARM compression.
 The command-line parser uses MSVC's already-readable `type_info::name()` for
 diagnostics rather than depending on GCC's unavailable `cxxabi.h`.
+Its private debug flag is renamed from reserved `_DEBUG` to prevent
+include-order-dependent MSVC STL iterator-debug ABI mismatches.
 
 Curl 8.21.0 is built from a checksum-pinned upstream archive with static zlib
 and Windows Schannel, without an emulated OpenSSL dependency. Qualification
@@ -126,12 +131,15 @@ Java 17 and removes 16 foreign HDF5 JNI payloads from the unsigned JHDF5 jar,
 retaining bytecode and license notices. FAST5 fails before starting Java;
 FASTQ/BAM/SAM remain eligible for qualification. Both Python and any `--java`
 override must have AA64 PE headers; ambient CLASSPATH cannot add unaudited jars.
-Java 17 compilation and known-read statistics passed locally, but native
-Windows package/runtime qualification is pending. Upstream's source uses a
+Java 17 compilation, known-read statistics and live native Windows runtime
+audits pass; package qualification remains pending. Upstream's source uses a
 Java-10+ desktop API despite its Java-8 build setting; this package targets 17.
-Haplogrep 2.4.0's staged jar contains no native libraries; its native Java
-version/application-class audit remains pending. Archive qualification also
-examines nested jars for foreign PE/ELF/Mach-O payloads.
+Haplogrep 2.4.0 hides 13 foreign native objects/libraries inside `jbwa.zip`.
+The restricted unsigned jar removes that resource; FASTA/JBWA and FASTA-MSA
+requests fail before Java. Original/restricted VCF classification is byte-exact
+locally; native Windows package/runtime qualification remains pending.
+Archive qualification recursively examines nested jars and ZIP resources for
+foreign PE/ELF/Mach-O payloads, not only entries with DLL suffixes.
 
 The generated pipeline fixture checks actual sort/index/CRAM round-trip,
 indexed coverage and a truth-known homozygous variant using the built packages.

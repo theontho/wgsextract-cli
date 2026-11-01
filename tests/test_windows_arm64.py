@@ -143,6 +143,27 @@ def test_arm64_version_probe_does_not_launch_x64_binary(
     launch.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "arguments", [["--format", "fasta"], ["--format=fasta"], ["--write-fasta-msa"]]
+)
+def test_arm64_haplogrep_rejects_foreign_jbwa_before_java(
+    arguments: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0xAA64)
+    java = tmp_path / "java.exe"
+    _write_pe(java, 0xAA64)
+    command = [str(java), "-jar", "haplogrep.jar", "classify"]
+    with pytest.raises(WGSExtractError, match="JBWA JNI kernels are not qualified"):
+        utils._normalize_subprocess_cmd([*command, *arguments])
+    allowed = [*command, "--format", "vcf"]
+    assert utils._normalize_subprocess_cmd(allowed) == allowed
+    monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0x8664)
+    assert utils._normalize_subprocess_cmd([*command, *arguments]) == [
+        *command,
+        *arguments,
+    ]
+
+
 def test_arm64_features_reject_prism_python_before_input_processing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

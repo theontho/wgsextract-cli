@@ -92,6 +92,7 @@ jobs:
       - name: Install build-time integration dependencies
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force -Path out/integration | Out-Null
           python -m pip install -e . pytest zstandard==0.25.0
           if ($LASTEXITCODE) { throw "Integration dependency installation failed" }
           python -m pytest packaging/windows-arm64/tests/test_unpack_packages.py --basetemp=out/integration/pytest-packages

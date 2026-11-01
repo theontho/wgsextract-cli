@@ -11,11 +11,13 @@ def test_widen_counts_offsets_without_changing_literals() -> None:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     source = (
+        "#define _DEBUG false\n"
         "unsigned long bases; long long reads; long double mean;\n"
         'printf("long ftell()"); // long fseek()\n'
         "long offset = ftell(fp); fseek(fp, offset, SEEK_SET);\n"
     )
     assert module.widen_llp64(source) == (
+        "#define WGSE_FASTP_DEBUG false\n"
         "unsigned long long bases; long long reads; long double mean;\n"
         'printf("long ftell()"); // long fseek()\n'
         "long long offset = ftello(fp); fseeko(fp, offset, SEEK_SET);\n"

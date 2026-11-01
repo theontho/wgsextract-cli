@@ -13,10 +13,12 @@ $source = $source.Replace("int previousTpSize = 0;", "DWORD previousTpSize = 0;"
 [IO.File]::WriteAllText($winapi, $source, [Text.UTF8Encoding]::new($false))
 $semaphore = "$env:SRC_DIR\Modules\_multiprocessing\semaphore.c"
 $source = Get-Content -Raw -Encoding utf8 $semaphore
-if ([regex]::Matches($source, "int sval;").Count -ne 2) {
+if ([regex]::Matches($source, "(?m)^[ \t]*int sval;").Count -ne 3) {
     throw "Pinned CPython semaphore value source changed"
 }
-$source = $source.Replace("int sval;", "long sval;")
+$source = [regex]::Replace($source, "(?m)^([ \t]*)int sval;",
+    '#ifdef MS_WINDOWS' + "`n" + '${1}long sval;' + "`n#else`n" +
+    '${1}int sval;' + "`n#endif")
 [IO.File]::WriteAllText($semaphore, $source, [Text.UTF8Encoding]::new($false))
 New-Item -ItemType Directory -Force -Path "$env:SRC_DIR\out" | Out-Null
 $response = "$env:SRC_DIR\out\python-build.rsp"

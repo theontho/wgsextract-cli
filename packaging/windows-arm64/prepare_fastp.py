@@ -1,4 +1,4 @@
-"""Apply the same LLP64 source widening as the existing Windows x64 recipe."""
+"""Apply LLP64 widening and isolate fastp's MSVC-reserved debug macro."""
 
 import argparse
 import re
@@ -6,7 +6,7 @@ from pathlib import Path
 
 _TOKENS = re.compile(
     r'("(?:[^"\\]|\\.)*")|(//[^\n]*)|'
-    r"(?<!long )\blong\b(?!\s+(?:long|double)\b)|\bftell\(|\bfseek\("
+    r"(?<!long )\blong\b(?!\s+(?:long|double)\b)|\bftell\(|\bfseek\(|\b_DEBUG\b"
 )
 
 
@@ -14,9 +14,12 @@ def widen_llp64(source: str) -> str:
     def replace(match: re.Match[str]) -> str:
         if match.group(1) is not None or match.group(2) is not None:
             return match.group(0)
-        return {"long": "long long", "ftell(": "ftello(", "fseek(": "fseeko("}[
-            match.group(0)
-        ]
+        return {
+            "long": "long long",
+            "ftell(": "ftello(",
+            "fseek(": "fseeko(",
+            "_DEBUG": "WGSE_FASTP_DEBUG",
+        }[match.group(0)]
 
     return _TOKENS.sub(replace, source)
 

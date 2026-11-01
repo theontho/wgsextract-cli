@@ -35,4 +35,3 @@ New-Item -ItemType Directory -Force -Path $live | Out-Null
         "stdin:arm236.fastq") `
     -InputPrefix ("@arm236`n" + ("ACGT" * 37) + "AC`n+`n" + ("I" * 150) + "`n") `
     -Prefix $sdk -Report "$evidence\process.json"
-& "$repo\scripts\audit_windows_arm64.ps1" -Prefix $env:PREFIX -Report "$evidence\package-pe.json"

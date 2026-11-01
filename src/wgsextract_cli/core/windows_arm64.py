@@ -91,6 +91,21 @@ def assert_native_windows_command(command: list[str]) -> None:
     if not command or windows_native_machine() != IMAGE_FILE_MACHINE_ARM64:
         return
     assert_native_windows_python()
+    if any(
+        argument.replace("\\", "/").rsplit("/", 1)[-1].lower() == "haplogrep.jar"
+        for argument in command
+    ) and (
+        any(argument.lower() == "--format=fasta" for argument in command)
+        or any(
+            first == "--format" and second.lower() == "fasta"
+            for first, second in zip(command, command[1:], strict=False)
+        )
+        or any(argument.startswith("--write-fasta-msa") for argument in command)
+    ):
+        raise ValueError(
+            "Haplogrep FASTA alignment is not supported on native Windows ARM64: "
+            "the bundled JBWA JNI kernels are not qualified. Use VCF or HSD input."
+        )
     name = command[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
     if name.removesuffix(".exe") in ("wsl", "wslhost", "bash", "sh", "docker"):
         raise ValueError(
