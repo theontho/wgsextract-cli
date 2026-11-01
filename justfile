@@ -31,7 +31,7 @@ run *args:
 # Run the CLI, e.g. `just run info --input sample.bam`
 [extension(".ps1")]
 [positional-arguments]
-[script("powershell.exe", "-NoLogo", "-NoProfile", "-File")]
+[script("powershell.exe", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File")]
 [windows]
 run *args:
     pixi run wgsextract @args
@@ -50,7 +50,7 @@ test *args:
 # Unit and integration tests; extra args go to pytest, e.g. `just test -k microarray`
 [extension(".ps1")]
 [positional-arguments]
-[script("powershell.exe", "-NoLogo", "-NoProfile", "-File")]
+[script("powershell.exe", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File")]
 [windows]
 test *args:
     pixi run test @args
