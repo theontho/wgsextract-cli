@@ -417,6 +417,43 @@ def test_bwa_setup_preserves_realign_index_count_for_selection_and_guard(
     assert budgets == [reads] * 3
 
 
+def test_bwa_setup_rejects_stream_overlap_without_downgrading_auto(
+    tmp_path, monkeypatch
+):
+    ref = _reference(tmp_path)
+    setup = align._AlignSetup("8", "2G", str(tmp_path), ref, "sample")
+    monkeypatch.setattr(align, "_prepare_alignment", lambda *_a, **_kw: setup)
+    monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
+    monkeypatch.setattr(bwa_mem2, "has_index", lambda *_a: True)
+    monkeypatch.setattr(
+        bwa_mem2,
+        "can_map",
+        lambda *_a, **kw: kw.get("additional_ram_bytes", 0) == 0,
+    )
+    selected = []
+
+    def insufficient(_ref, tool, **_kw):
+        selected.append(tool)
+        return False
+
+    monkeypatch.setattr(align, "streaming_mapping_fits", insufficient)
+    monkeypatch.setattr(
+        align, "run_command", lambda *_a, **_kw: pytest.fail("pipeline started")
+    )
+    with pytest.raises(align.StreamingMemoryUnavailable):
+        align._bwa_setup(
+            Namespace(
+                aligner="auto",
+                r1="r1.fq",
+                r2="r2.fq",
+                _input_read_count=680_000_000,
+            ),
+            "alignment",
+            additional_ram_bytes=1024**3,
+        )
+    assert selected == ["bwa-mem2"]
+
+
 def test_select_aligner_accepts_bwa_mem2_for_short_reads():
     args = Namespace(
         aligner="bwa-mem2", platform="dnbseq", long_read=False, preset=None

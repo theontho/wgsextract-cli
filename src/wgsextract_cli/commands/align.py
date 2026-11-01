@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import NamedTuple
 
 from wgsextract_cli.core import bwa_mem2, ultima
-from wgsextract_cli.core.alignment_memory import check_mapping_memory
+from wgsextract_cli.core.alignment_memory import (
+    available_memory,
+    check_mapping_memory,
+    estimate_mapping_memory,
+)
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import (
@@ -215,7 +219,6 @@ def short_read_aligner(
     memory: str = "512M",
     samblaster: bool = True,
     reads: int | None = None,
-    additional_ram_bytes: int = 0,
 ) -> str:
     """bwa or bwa-mem2 for --aligner bwa, bwa-mem2 or auto. Auto takes bwa-mem2,
     whose alignments are bwa's in less time, when it's installed and the
@@ -231,14 +234,13 @@ def short_read_aligner(
         memory=memory,
         samblaster=samblaster,
         reads=reads,
-        additional_ram_bytes=additional_ram_bytes,
     )
     if bwa_mem2.has_index(ref):
         if fits:
             return "bwa-mem2"
         logging.info(
             f"Not using bwa-mem2: the alignment pipeline needs about "
-            f"{(bwa_mem2.mapping_memory(ref, threads=threads, memory=memory, samblaster=samblaster, reads=reads) + additional_ram_bytes) / 1024**3:.1f} "
+            f"{bwa_mem2.mapping_memory(ref, threads=threads, memory=memory, samblaster=samblaster, reads=reads) / 1024**3:.1f} "
             "GiB of available RAM. Use --aligner bwa or lower --memory."
         )
     elif fits:
@@ -247,6 +249,35 @@ def short_read_aligner(
             f"`wgsextract ref index --aligner bwa-mem2 --ref {ref}` sets it up."
         )
     return "bwa"
+
+
+class StreamingMemoryUnavailable(WGSExtractError):
+    """Retry file extraction before starting an overlapping alignment pipeline."""
+
+
+def streaming_mapping_fits(
+    ref: str,
+    tool: str,
+    *,
+    threads: str,
+    memory: str,
+    samblaster: bool,
+    reads: int | None,
+    platform: str | None,
+    read_length: float | None,
+    additional_ram_bytes: int,
+) -> bool:
+    estimate = estimate_mapping_memory(
+        ref,
+        tool,
+        threads=threads,
+        memory=short_read_sort_memory(tool, memory, log=False),
+        samblaster=samblaster,
+        reads=reads,
+        platform=platform,
+        read_length=read_length,
+    )
+    return estimate.total + additional_ram_bytes <= available_memory()
 
 
 def reads_stem(path: str) -> str:
@@ -508,9 +539,20 @@ def _bwa_setup(
         memory=setup.memory,
         samblaster=samblaster,
         reads=reads,
-        additional_ram_bytes=additional_ram_bytes,
     )
     setup = setup._replace(memory=short_read_sort_memory(tool, setup.memory))
+    if additional_ram_bytes and not streaming_mapping_fits(
+        setup.ref,
+        tool,
+        threads=setup.threads,
+        memory=setup.memory,
+        samblaster=samblaster,
+        reads=reads,
+        platform=getattr(args, "platform", None),
+        read_length=read_length,
+        additional_ram_bytes=additional_ram_bytes,
+    ):
+        raise StreamingMemoryUnavailable("Collation exceeds available alignment RAM")
     preflight_resources(
         lambda: estimate_resources(
             "align",
@@ -536,17 +578,22 @@ def _bwa_setup(
             ),
         )
     )
-    check_mapping_memory(
-        setup.ref,
-        tool,
-        threads=setup.threads,
-        memory=setup.memory,
-        samblaster=samblaster,
-        reads=reads,
-        platform=getattr(args, "platform", None),
-        read_length=read_length,
-        additional_ram_bytes=additional_ram_bytes,
-    )
+    try:
+        check_mapping_memory(
+            setup.ref,
+            tool,
+            threads=setup.threads,
+            memory=setup.memory,
+            samblaster=samblaster,
+            reads=reads,
+            platform=getattr(args, "platform", None),
+            read_length=read_length,
+            additional_ram_bytes=additional_ram_bytes,
+        )
+    except WGSExtractError as error:
+        if additional_ram_bytes:
+            raise StreamingMemoryUnavailable(str(error)) from error
+        raise
     warn_alignment_sort_space(setup.outdir, reads)
     args._input_read_count = reads
     if tool == "bwa-mem2":

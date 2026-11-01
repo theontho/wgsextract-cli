@@ -8,6 +8,7 @@ import pytest
 
 from tests.htslib_helpers import needs_tools, sam_to_bam, write_fasta
 from wgsextract_cli.commands import realign
+from wgsextract_cli.core.alignment_memory import MappingMemory
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
@@ -196,6 +197,7 @@ class _Fakes:
         monkeypatch.setattr(realign.align_cmd, "run", self.align)
         monkeypatch.setattr(realign.align_cmd, "align_bwa", self.stream)
         monkeypatch.setattr(realign, "alignment_read_length", lambda *_a, **_k: 100)
+        monkeypatch.setattr(realign.align_cmd, "available_memory", lambda: 1024**4)
 
     def extract(self, _input, r1, r2, **_kwargs):
         self.extracted.append((r1, r2))
@@ -332,8 +334,18 @@ def test_stream_failure_leaves_no_fastqs_or_collate_spills(monkeypatch, source, 
 def test_paired_stream_body_matches_files_including_discarded_reads(
     tmp_path, genome_and_ref, monkeypatch, cram, markdup, aligner
 ):
+    from wgsextract_cli.commands import _extract_helpers
+
     if realign.align_cmd.get_tool_path(aligner) is None:
         pytest.skip(f"{aligner} unavailable")
+    monkeypatch.setattr(
+        realign.align_cmd, "streaming_mapping_fits", lambda *_a, **_kw: True
+    )
+    monkeypatch.setattr(
+        _extract_helpers,
+        "_collate_buckets",
+        lambda *_a, streaming=False, **_kw: 128 if streaming else 64,
+    )
     genome, ref = genome_and_ref
     source, pairs = _old_alignment(tmp_path, genome)
     records = _view("view", source).splitlines()
@@ -388,7 +400,10 @@ def test_paired_stream_body_matches_files_including_discarded_reads(
 
 
 @needs_tools("bwa", "samtools")
-def test_streamed_cram_output_matches_file_path(tmp_path, genome_and_ref):
+def test_streamed_cram_output_matches_file_path(tmp_path, genome_and_ref, monkeypatch):
+    monkeypatch.setattr(
+        realign.align_cmd, "streaming_mapping_fits", lambda *_a, **_kw: True
+    )
     genome, ref = genome_and_ref
     source, _ = _old_alignment(tmp_path, genome)
     for mode in ("files", "stream"):
@@ -418,6 +433,9 @@ def test_native_stream_failure_removes_partial_output_and_collation(
     genome_and_ref,
     monkeypatch,
 ):
+    monkeypatch.setattr(
+        realign.align_cmd, "streaming_mapping_fits", lambda *_a, **_kw: True
+    )
     genome, ref = genome_and_ref
     source, _ = _old_alignment(tmp_path, genome)
     monkeypatch.setattr(realign.align_cmd, "ensure_bwa_index", lambda _ref: None)
@@ -494,6 +512,85 @@ def test_stream_preflight_reserves_overlapping_collate_and_sort_spills(
             100,
             streaming=True,
         )
+
+
+@pytest.mark.parametrize("requested", ["bwa", "bwa-mem2", "auto"])
+def test_stream_overlap_without_ram_uses_files_without_changing_aligner(
+    tmp_path, monkeypatch, source, requested
+):
+    fakes = _Fakes(monkeypatch)
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">c\nA\n")
+    monkeypatch.setattr(realign.bwa_mem2, "check_index", lambda *_a: None)
+    monkeypatch.setattr(realign.bwa_mem2, "has_index", lambda *_a: True)
+    monkeypatch.setattr(
+        realign.bwa_mem2,
+        "can_map",
+        lambda *_a, **kw: kw.get("additional_ram_bytes", 0) == 0,
+    )
+    monkeypatch.setattr(realign.align_cmd, "get_tool_path", lambda *_a: "tool")
+    monkeypatch.setattr(realign.align_cmd, "available_memory", lambda: 8 * 1024**3)
+    monkeypatch.setattr(
+        realign.align_cmd,
+        "estimate_mapping_memory",
+        lambda *_a, **_kw: MappingMemory(8 * 1024**3, 0, 0, 0, 0),
+    )
+    checked = []
+    monkeypatch.setattr(
+        realign,
+        "check_mapping_memory",
+        lambda *_a, **kw: checked.append(kw["additional_ram_bytes"]),
+    )
+    chosen = []
+
+    def align_files(args):
+        fakes.align(args)
+        chosen.append(
+            realign.align_cmd.short_read_aligner(
+                args.aligner, str(ref), reads=args._input_read_count
+            )
+        )
+
+    monkeypatch.setattr(realign.align_cmd, "run", align_files)
+    realign.run(_args(source, ref=str(ref), aligner=requested))
+    assert len(fakes.extracted) == 1 and not fakes.streamed
+    assert chosen == ["bwa" if requested == "bwa" else "bwa-mem2"]
+    assert all(extra == 0 for extra in checked)
+
+
+def test_whole_genome_over_200_bucket_capacity_uses_file_mode(
+    tmp_path, monkeypatch, source
+):
+    fakes = _Fakes(monkeypatch)
+    with source.open("wb") as output:
+        output.truncate(60 * 1024**3)
+    monkeypatch.setattr(realign, "indexed_read_count", lambda *_a: 680_000_000)
+    monkeypatch.setattr(realign, "calculate_bam_md5", lambda *_a: None)
+    monkeypatch.setattr(realign, "resolve_reference", lambda *_a: None)
+    realign.run(_args(source, aligner="bwa", threads="8", memory="2G"))
+    assert len(fakes.extracted) == 1 and not fakes.streamed
+    assert len(fakes.aligned) == 1
+
+
+def test_late_stream_memory_change_retries_file_extraction(
+    tmp_path, monkeypatch, source
+):
+    fakes = _Fakes(monkeypatch)
+
+    def unavailable(*_a, **_kw):
+        raise realign.align_cmd.StreamingMemoryUnavailable("RAM changed")
+
+    monkeypatch.setattr(realign.align_cmd, "align_bwa", unavailable)
+    disk = []
+    monkeypatch.setattr(
+        realign,
+        "_preflight_disk_space",
+        lambda *_a, **kw: disk.append(kw.get("streaming", False)),
+    )
+    realign.run(_args(source, aligner="bwa", no_preflight=False))
+    assert disk == [True, False]
+    assert len(fakes.extracted) == 1 and len(fakes.aligned) == 1
+    assert not list(tmp_path.glob(".collate_*"))
 
 
 @pytest.mark.parametrize("provided_fastqs", [False, True])

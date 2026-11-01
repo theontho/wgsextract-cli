@@ -57,6 +57,7 @@ from wgsextract_cli.core.warnings import (
 
 from . import align as align_cmd
 from ._extract_helpers import (
+    STREAM_COLLATE_MEMORY_LIMIT,
     alignments_to_fastq,
     collate_working_memory,
     paired_fastq_stream,
@@ -318,6 +319,38 @@ def run(args: argparse.Namespace) -> None:
     cram_opt = None
     if streaming:
         additional_ram_bytes = collate_working_memory(args.input, threads, memory)
+        fits = additional_ram_bytes <= STREAM_COLLATE_MEMORY_LIMIT
+        if fits and target and Path(target).is_file():
+            samblaster = (
+                align_cmd.duplicate_marker(paired=bool(r2_path)) == "samblaster"
+            )
+            tool = align_cmd.short_read_aligner(
+                args.aligner,
+                target,
+                threads=threads,
+                memory=memory,
+                samblaster=samblaster,
+                reads=reads,
+            )
+            fits = align_cmd.streaming_mapping_fits(
+                target,
+                tool,
+                threads=threads,
+                memory=memory,
+                samblaster=samblaster,
+                reads=reads,
+                platform=args.platform,
+                read_length=read_length,
+                additional_ram_bytes=additional_ram_bytes,
+            )
+        if not fits:
+            logging.info(
+                "Collation overlap does not fit the 1 GiB streaming budget or "
+                "available alignment RAM; extracting FASTQs without changing "
+                "the aligner."
+            )
+            streaming = False
+            additional_ram_bytes = 0
     if selected_aligner in {"bwa", "bwa-mem2"} and not getattr(args, "gpu", False):
         _report_resource_estimates(
             args,
@@ -342,7 +375,7 @@ def run(args: argparse.Namespace) -> None:
             reads=reads,
             read_length=read_length,
             platform=args.platform,
-            additional_ram_bytes=additional_ram_bytes,
+            additional_ram_bytes=0,
         )
 
     # 2. Disk-space pre-flight.
@@ -368,20 +401,46 @@ def run(args: argparse.Namespace) -> None:
         align_args.r1, align_args.r2 = r1_path, r2_path
         align_args._input_read_count = reads
         align_args._input_read_length = read_length
-        with paired_fastq_stream(
-            args.input,
-            threads=threads,
-            memory=memory,
-            temp_parent=outdir,
-            cram_opt=cram_opt,
-        ) as stages:
-            align_cmd.align_bwa(
-                align_args,
-                upstream=stages,
-                read_paths=[args.input],
-                additional_ram_bytes=additional_ram_bytes,
+        try:
+            with paired_fastq_stream(
+                args.input,
+                threads=threads,
+                memory=memory,
+                temp_parent=outdir,
+                cram_opt=cram_opt,
+            ) as stages:
+                align_cmd.align_bwa(
+                    align_args,
+                    upstream=stages,
+                    read_paths=[args.input],
+                    additional_ram_bytes=additional_ram_bytes,
+                )
+        except align_cmd.StreamingMemoryUnavailable:
+            logging.info(
+                "Available RAM changed before streaming started; extracting "
+                "FASTQs without changing the aligner."
             )
-        return
+            _report_resource_estimates(
+                args,
+                target,
+                outdir,
+                threads,
+                memory,
+                reads,
+                input_paths=[args.input],
+                need_extract=True,
+                paired=bool(r2_path),
+                read_length=read_length,
+            )
+            if not args.no_preflight:
+                _preflight_disk_space(
+                    args.input,
+                    outdir,
+                    need_extract=True,
+                    reads=reads,
+                )
+        else:
+            return
 
     # 3. Extract if needed.
     if need_extract:
@@ -454,7 +513,6 @@ def _report_resource_estimates(
                 memory=memory,
                 samblaster=samblaster,
                 reads=reads,
-                additional_ram_bytes=additional_ram_bytes,
             )
         return estimate_resources(
             "realign",

@@ -191,13 +191,21 @@ def resolve_region_or_gene(
     return str(resolved_region)
 
 
-def _collate_buckets(input_path: PathInput, threads: str, memory: str) -> int:
+STREAM_COLLATE_MEMORY_LIMIT = 1024**3
+_COLLATE_HEADROOM = 64 * 1024**2
+
+
+def _collate_buckets(
+    input_path: PathInput, threads: str, memory: str, *, streaming: bool = False
+) -> int:
     """Temp files for `samtools collate`, which holds one in memory at a time.
 
     Records in memory take about 70x their CRAM size and 20x their BAM size
     (generous for highly compressed files), so this keeps a bucket within the
-    sort memory budget (threads x per-thread memory). At most 200 files stay
-    under macOS's default limit of 256 open files.
+    sort memory budget (threads x per-thread memory). Streaming reserves at
+    most 1 GiB including headroom; if 200 buckets cannot achieve that, realign
+    uses file extraction. At most 200 files stay under macOS's default limit
+    of 256 open files.
     """
     try:
         size = Path(input_path).stat().st_size
@@ -206,6 +214,8 @@ def _collate_buckets(input_path: PathInput, threads: str, memory: str) -> int:
     in_memory = size * (70 if Path(input_path).suffix.lower() == ".cram" else 20)
     amount, unit = parse_memory(memory)
     budget = int(threads) * amount * (1024**3 if unit == "G" else 1024**2)
+    if streaming:
+        budget = min(budget, STREAM_COLLATE_MEMORY_LIMIT - _COLLATE_HEADROOM)
     return min(200, max(64, math.ceil(in_memory / budget)))
 
 
@@ -214,8 +224,10 @@ def collate_working_memory(input_path: PathInput, threads: str, memory: str) -> 
     size = Path(input_path).stat().st_size
     in_memory = size * (70 if Path(input_path).suffix.lower() == ".cram" else 20)
     return (
-        math.ceil(in_memory / _collate_buckets(input_path, threads, memory))
-        + 64 * 1024**2
+        math.ceil(
+            in_memory / _collate_buckets(input_path, threads, memory, streaming=True)
+        )
+        + _COLLATE_HEADROOM
     )
 
 
@@ -231,6 +243,7 @@ def _fastq_stages(
     cram_opt: list[str] | None = None,
     region: str | None = None,
     out_other: PathInput | None = None,
+    streaming: bool = False,
 ) -> list[list[str]]:
     view = ["samtools", "view", "-uh", "--no-PG", "-@", threads]
     view += cram_opt or []
@@ -238,7 +251,7 @@ def _fastq_stages(
     collate = ["samtools", "collate", "-u", "-O", "--no-PG", "-@", threads]
     collate += [
         "-n",
-        str(_collate_buckets(input_path, threads, memory)),
+        str(_collate_buckets(input_path, threads, memory, streaming=streaming)),
         "-T",
         str(Path(temporary, "collate")),
         "-",
@@ -260,7 +273,7 @@ def paired_fastq_stream(
     temp_parent: PathInput,
     cram_opt: list[str] | None = None,
 ) -> Iterator[list[list[str]]]:
-    """The same collate order/filtering as file extraction, with paired stdout."""
+    """Standard collate/filtering with a bounded bucket budget and paired stdout."""
     with tempfile.TemporaryDirectory(dir=temp_parent, prefix=".collate_") as tmp:
         yield _fastq_stages(
             input_path,
@@ -272,6 +285,7 @@ def paired_fastq_stream(
             singletons=devnull,
             out_other=devnull,
             cram_opt=cram_opt,
+            streaming=True,
         )
 
 

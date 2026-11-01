@@ -198,6 +198,27 @@ def test_collate_buckets_fit_the_memory_budget(tmp_path):
     assert _collate_buckets(str(tmp_path / "missing.bam"), "1", "1G") == 64
 
 
+def test_streaming_collate_caps_overlap_independently_of_sort_memory(tmp_path):
+    from wgsextract_cli.commands._extract_helpers import (
+        STREAM_COLLATE_MEMORY_LIMIT,
+        _collate_buckets,
+        collate_working_memory,
+        paired_fastq_stream,
+    )
+
+    bam = tmp_path / "large.bam"
+    with bam.open("wb") as output:
+        output.truncate(5 * 1024**3)
+    legacy = _collate_buckets(bam, "8", "2G")
+    with paired_fastq_stream(
+        bam, threads="8", memory="2G", temp_parent=tmp_path
+    ) as stages:
+        collate = stages[1]
+        buckets = int(collate[collate.index("-n") + 1])
+    assert legacy < buckets <= 200
+    assert collate_working_memory(bam, "8", "2G") <= STREAM_COLLATE_MEMORY_LIMIT
+
+
 def test_extract_custom_requires_region(tmp_path, monkeypatch):
     _no_deps(monkeypatch, extract)
     monkeypatch.setattr(extract, "get_base_args", lambda _a: _fake_base(tmp_path))
