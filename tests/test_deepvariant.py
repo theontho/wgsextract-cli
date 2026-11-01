@@ -564,3 +564,104 @@ def test_real_cram31_roundtrip_has_cram30_header_and_read_parity(
         ["samtools", "view", "-c", "-T", str(ref), converted], capture_output=True
     ).stdout.strip()
     assert converted_count == original_count == expected
+
+
+def _arm_docker(monkeypatch, *, engine="aarch64", image_arch="linux/arm64"):
+    monkeypatch.setattr(native_support.platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(
+        deepvariant, "docker_info", lambda _setup, field=None: engine if field else "27"
+    )
+    monkeypatch.setattr(deepvariant, "require_image", lambda *_args: None)
+    monkeypatch.setattr(deepvariant, "docker", lambda _setup: "docker")
+    monkeypatch.setattr(
+        deepvariant,
+        "run_command",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, image_arch, ""),
+    )
+
+
+@pytest.mark.parametrize(
+    ("engine", "image_arch", "message"),
+    [
+        ("x86_64", "linux/arm64", "native ARM64 Docker engine"),
+        ("aarch64", "linux/amd64", "must be linux/arm64"),
+        ("aarch64", "", "must be linux/arm64"),
+    ],
+)
+def test_arm_rejects_emulation_before_input_work(
+    files, monkeypatch, engine, image_arch, message
+):
+    _ref, bam, _out = files
+    _arm_docker(monkeypatch, engine=engine, image_arch=image_arch)
+    monkeypatch.setattr(
+        deepvariant,
+        "get_base_args",
+        lambda _args: pytest.fail("input preparation must not run"),
+    )
+    with pytest.raises(WGSExtractError, match=message):
+        deepvariant.cmd_deepvariant(_args(bam))
+
+
+def test_arm_image_bypasses_autoconfig_and_unaudited_path_launcher(files, monkeypatch):
+    _ref, bam, out = files
+    _arm_docker(monkeypatch)
+    monkeypatch.setattr(
+        deepvariant,
+        "get_tool_path",
+        lambda _tool: pytest.fail("do not resolve unaudited PATH launchers on ARM"),
+    )
+    calls = []
+
+    def run(image, command, paths, **kwargs):
+        calls.append((image, command, kwargs))
+        Path(command[command.index("--output_vcf") + 1]).write_text("vcf")
+
+    monkeypatch.setattr(deepvariant, "run_container", run)
+    deepvariant.cmd_deepvariant(_args(bam))
+    ((image, command, kwargs),) = calls
+    assert image == deepvariant.DEFAULT_ARM64_IMAGE
+    assert kwargs["entrypoint"] == "/opt/deepvariant/bin/run_deepvariant"
+    assert kwargs["local_only"] is True
+    assert command[0] == "--model_type"
+    assert "--use_onnx" not in command
+    assert (out / "deepvariant.vcf.gz").exists()
+
+
+def test_arm_ultima_does_not_fall_back_to_x86_image(files, monkeypatch):
+    _ref, bam, _out = files
+    _arm_docker(monkeypatch)
+    with pytest.raises(WGSExtractError, match="ULTIMA.*not qualified"):
+        deepvariant.cmd_deepvariant(_args(bam, model_type="ULTIMA"))
+
+
+def test_arm_missing_native_image_gives_manual_build_instructions(files, monkeypatch):
+    _ref, bam, _out = files
+    _arm_docker(monkeypatch)
+
+    def missing(_image, instructions):
+        raise WGSExtractError(instructions)
+
+    monkeypatch.setattr(deepvariant, "require_image", missing)
+    with pytest.raises(WGSExtractError, match="docs/deepvariant-arm64.md"):
+        deepvariant.cmd_deepvariant(_args(bam))
+
+
+def test_arm_container_overrides_entrypoint_before_image(files, monkeypatch):
+    _ref, bam, _out = files
+    runs = _docker(monkeypatch)
+    _arm_docker(monkeypatch)
+    monkeypatch.setitem(
+        deepvariant.settings, "deepvariant_image", "local/native@sha256:abc"
+    )
+    deepvariant.cmd_deepvariant(_args(bam))
+    (cmd,) = runs
+    image_at = cmd.index("local/native@sha256:abc")
+    entrypoint_at = cmd.index("--entrypoint")
+    assert entrypoint_at < image_at
+    assert cmd.index("--pull=never") < image_at
+    assert cmd[entrypoint_at + 1] == "/opt/deepvariant/bin/run_deepvariant"
+    assert cmd[image_at + 1] == "--model_type"
+    assert "--platform" not in cmd
+    work = cmd[cmd.index("--intermediate_results_dir") + 1]
+    assert f"HOME={work}" in cmd
+    assert f"TMPDIR={work}" in cmd

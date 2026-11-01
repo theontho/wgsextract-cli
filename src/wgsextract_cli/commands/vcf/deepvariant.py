@@ -15,6 +15,7 @@ from wgsextract_cli.core import ultima
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.containers import (
+    docker,
     docker_info,
     host_path,
     require_image,
@@ -23,7 +24,7 @@ from wgsextract_cli.core.containers import (
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
-from wgsextract_cli.core.native_support import require_native_tool
+from wgsextract_cli.core.native_support import is_linux_arm64, require_native_tool
 from wgsextract_cli.core.output_checks import warn_if_no_variants
 from wgsextract_cli.core.reference_assets import read_fai_lengths
 from wgsextract_cli.core.samtools_commands import (
@@ -39,6 +40,7 @@ from .basic import get_base_args
 
 # Google's image; Bioconda's deepvariant has shipped no DeepVariant since 1.8.
 DEFAULT_IMAGE = "google/deepvariant:1.10.0"
+DEFAULT_ARM64_IMAGE = "wgsextract/deepvariant:1.10.0-arm64"
 # Google's experimental image with the ULTIMA model (google/deepvariant#1100),
 # until a release has it.
 DEFAULT_ULTIMA_IMAGE = "google/deepvariant:gh1100-ultima"
@@ -52,7 +54,47 @@ _SETUP = (
 def deepvariant_image(model_type: str = "WGS") -> str:
     if model_type == "ULTIMA":
         return str(settings.get("deepvariant_ultima_image") or DEFAULT_ULTIMA_IMAGE)
-    return str(settings.get("deepvariant_image") or DEFAULT_IMAGE)
+    default = DEFAULT_ARM64_IMAGE if is_linux_arm64() else DEFAULT_IMAGE
+    return str(settings.get("deepvariant_image") or default)
+
+
+_ARM64_SETUP = (
+    "Build the native CPU DeepVariant 1.10.0 image following "
+    "docs/deepvariant-arm64.md; set deepvariant_image in config.toml if you "
+    "use another local tag. Dependencies and images must already be installed. "
+    "Google's x86 image, emulation and unaudited PATH launchers are not supported."
+)
+
+
+def _verify_arm64_image(model_type: str = "WGS") -> str:
+    if model_type == "ULTIMA":
+        raise WGSExtractError(
+            "DeepVariant's experimental ULTIMA image is not qualified on "
+            f"Linux ARM64. {_ARM64_SETUP}"
+        )
+    docker_info(_ARM64_SETUP)
+    architecture = docker_info(_ARM64_SETUP, "{{.Architecture}}").strip().lower()
+    if architecture not in {"aarch64", "arm64"}:
+        raise WGSExtractError(
+            "DeepVariant requires a native ARM64 Docker engine on Linux ARM64; "
+            "an x64 engine or emulation is not supported."
+        )
+    image = deepvariant_image(model_type)
+    require_image(
+        image, f"Native DeepVariant image isn't installed: {image}. {_ARM64_SETUP}"
+    )
+    inspected = run_command(
+        [docker(_ARM64_SETUP), "image", "inspect", "--format",
+         "{{.Os}}/{{.Architecture}}", image],
+        capture_output=True,
+        check=False,
+    )  # fmt: skip
+    if inspected.returncode or (inspected.stdout or "").strip() != "linux/arm64":
+        raise WGSExtractError(
+            f"DeepVariant image {image} must be linux/arm64; "
+            "x86 images and emulation are not supported."
+        )
+    return image
 
 
 def _model_type(args: argparse.Namespace, ref: str | None = None) -> str:
@@ -333,19 +375,25 @@ def _deepvariant_gpu(args: argparse.Namespace) -> None:
 def cmd_deepvariant(args: argparse.Namespace) -> None:
     require_native_tool("run_deepvariant")
     if getattr(args, "gpu", False):
+        require_native_tool("parabricks")
         _deepvariant_gpu(args)
         return
-    run_deepvariant = get_tool_path("run_deepvariant")
-    if not run_deepvariant:
+    arm64_image = _verify_arm64_image(_model_type(args)) if is_linux_arm64() else None
+    run_deepvariant = None if arm64_image else get_tool_path("run_deepvariant")
+    if not run_deepvariant and not arm64_image:
         _verify_docker()
     verify_dependencies(["samtools", "tabix"])
     threads, outdir, ref, _lib = get_base_args(args)
     model_type = _model_type(args, ref)
+    if arm64_image and model_type == "ULTIMA":
+        _verify_arm64_image(model_type)
     if model_type == "ULTIMA" and run_deepvariant:
         # A local run_deepvariant is a release, which has no ULTIMA model yet.
         _verify_docker(model_type)
         run_deepvariant = None
-    image = None if run_deepvariant else _verify_docker_image(model_type)
+    image = arm64_image or (
+        None if run_deepvariant else _verify_docker_image(model_type)
+    )
     out_vcf = str(Path(outdir, "deepvariant.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_deepvariant"].format(output=out_vcf))
     region_args = ["--regions", args.region] if args.region else []
@@ -366,11 +414,19 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
                 dv_args += ["--customized_model", host_path(args.checkpoint)]
             if image:
                 logging.info(f"Running DeepVariant from {image}...")
-                run_container(
-                    image,
-                    ["/opt/deepvariant/bin/run_deepvariant", *dv_args],
-                    [ref, args.input, out_vcf, work, args.checkpoint],
-                )
+                paths = [ref, args.input, out_vcf, work, args.checkpoint]
+                if arm64_image:
+                    # Bypass community entrypoints that auto-select INT8/BF16.
+                    run_container(
+                        image, dv_args, paths,
+                        entrypoint="/opt/deepvariant/bin/run_deepvariant",
+                        temporary_directory=work,
+                        local_only=True,
+                    )  # fmt: skip
+                else:
+                    run_container(
+                        image, ["/opt/deepvariant/bin/run_deepvariant", *dv_args], paths
+                    )
             else:
                 # stdin closed: DeepVariant's GNU parallel would read it otherwise.
                 run_command(

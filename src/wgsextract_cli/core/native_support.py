@@ -6,11 +6,15 @@ import sys
 from wgsextract_cli.core.utils import WGSExtractError
 
 
-def tool_unsupported_reason(tool: str) -> str | None:
-    if not sys.platform.startswith("linux") or platform.machine().lower() not in {
+def is_linux_arm64() -> bool:
+    return sys.platform.startswith("linux") and platform.machine().lower() in {
         "aarch64",
         "arm64",
-    }:
+    }
+
+
+def tool_unsupported_reason(tool: str) -> str | None:
+    if not is_linux_arm64():
         return None
     if tool == "gatk":
         return (
@@ -18,13 +22,6 @@ def tool_unsupported_reason(tool: str) -> str | None:
             "native PairHMM/Smith-Waterman kernels are x86-only. A slow "
             "pure-Java fallback is not enabled. Use bcftools calling instead; "
             "native GKL support is tracked in #236 phase 2."
-        )
-    if tool == "run_deepvariant":
-        return (
-            "DeepVariant is not supported on Linux ARM64 in phase 1: no "
-            "qualified native ARM64 distribution is available. x86 emulation "
-            "and x86 Docker images are not supported. Use bcftools calling "
-            "instead; native DeepVariant is tracked in #236 phase 2."
         )
     if tool == "parabricks":
         return (

@@ -47,7 +47,14 @@ def host_path(path: str) -> str:
 
 
 def run_container(
-    image: str, command: list[str], paths: Iterable[str | None], *, gpus: bool = False
+    image: str,
+    command: list[str],
+    paths: Iterable[str | None],
+    *,
+    gpus: bool = False,
+    entrypoint: str | None = None,
+    temporary_directory: str | None = None,
+    local_only: bool = False,
 ) -> None:
     """Run ``command`` in ``image``. ``paths`` are the files and directories it
     reads or writes, and ``command`` names them by host_path; their directories
@@ -57,11 +64,18 @@ def run_container(
          for p in paths if p}
     )  # fmt: skip
     cmd = [docker(""), "run", "--rm", *(["--gpus", "all"] if gpus else [])]
+    if local_only:
+        cmd += ["--pull=never"]
+    if entrypoint is not None:
+        cmd += ["--entrypoint", entrypoint]
     # The user has no home in the image; tools that write settings use /tmp.
     # Docker Desktop on Windows maps file ownership itself and has no POSIX ids.
     if sys.platform != "win32":
         cmd += ["-u", f"{os.getuid()}:{os.getgid()}"]
-    cmd += ["-e", "HOME=/tmp"]
+    home = host_path(temporary_directory) if temporary_directory else "/tmp"
+    cmd += ["-e", f"HOME={home}"]
+    if temporary_directory:
+        cmd += ["-e", f"TMPDIR={home}"]
     for mount in mounts:
         cmd += ["-v", f"{mount}:{mount}"]
     run_command([*cmd, "-w", mounts[0], image, *command])
