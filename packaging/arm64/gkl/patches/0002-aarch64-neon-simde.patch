@@ -1100,10 +1100,47 @@ index 20e66b8..0f385f6 100644
  
    static float _(double n){ return ((float) n); }
 diff --git a/src/main/native/pairhmm/IntelPairHmm.cc b/src/main/native/pairhmm/IntelPairHmm.cc
-index a257623..c4627cb 100644
+index a257623..40ec9ab 100644
 --- a/src/main/native/pairhmm/IntelPairHmm.cc
 +++ b/src/main/native/pairhmm/IntelPairHmm.cc
-@@ -163,10 +163,10 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_pairhmm_IntelPairHmm_computeLikelihood
+@@ -23,8 +23,8 @@
+  */
+ #ifdef _OPENMP
+ #include <omp.h>
+-#include <ScopedFtzDaz.h>
+ #endif
++#include <ScopedFtzDaz.h>
+ #include <vector>
+ #include <math.h>
+ #include <debug.h>
+@@ -91,10 +91,15 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_pairhmm_IntelPairHmm_initNative
+ 
+ 
+   // enable FTZ
++#ifdef WGSE_GKL_NEON
++  // Arm: FPCR.FZ also flushes denormal inputs and Linux threads inherit FPCR, so a
++  // persistent FZ here would change Java FP results; computeLikelihoodsNative scopes it.
++#else
+   if (_MM_GET_FLUSH_ZERO_MODE() != _MM_FLUSH_ZERO_ON) {
+     DBG("Flush-to-zero (FTZ) is enabled when running PairHMM");
+   }
+   _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
++#endif
+ 
+   // set function pointers
+ #ifndef WGSE_GKL_AVX_ONLY
+@@ -149,6 +154,10 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_pairhmm_IntelPairHmm_computeLikelihood
+   
+   //==================================================================
+   // calcutate pairHMM
++#ifdef WGSE_GKL_NEON
++  // Calling thread: FZ only for this call; OpenMP workers scope their own below.
++  ScopedFtzDaz callerFpState;
++#endif
+ 
+         #ifdef _OPENMP
+               #pragma omp parallel num_threads(g_max_threads)
+@@ -163,10 +172,10 @@ JNIEXPORT void JNICALL Java_com_intel_gkl_pairhmm_IntelPairHmm_computeLikelihood
  
              if (result_float < MIN_ACCEPTED) {
                double result_double = g_compute_full_prob_double(&testcases[i]);

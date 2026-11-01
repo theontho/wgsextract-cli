@@ -65,12 +65,21 @@ Conclusion: no validated, exact Arm64 GKL exists. We port GKL's own kernels.
    All of these are integer operations, so exactness is by construction.
 5. **Exactness guards:**
    - `-ffp-contract=off` and `-fno-fast-math`;
-   - the build fails if `objdump` finds any `fmla/fmadd/...` instruction;
+   - the build fails if `objdump` finds any `fmla/fmadd/...` instruction. The guard
+     (`fma_guard.sh`) fails closed: it writes the whole disassembly to a file first,
+     fails if `objdump` fails or prints no functions, and a self-test proves it
+     rejects a sample built with `__builtin_fma` before each build trusts it;
    - `-march=armv8-a`, so the build runs on every Arm64 CPU.
 6. **FTZ:** GKL sets FTZ (x86 MXCSR) around the kernels and the OMP workers. On Arm we
-   set FPCR.FZ the same way:
-   - `ScopedFtzDaz` has an FPCR branch;
-   - `omp_fpcr_state.cc` verifies each worker's FZ and the full FPCR restore.
+   set FPCR.FZ only for the duration of each compute call:
+   - `ScopedFtzDaz` has an FPCR branch that saves, sets and restores FPCR;
+   - `computeLikelihoodsNative` holds one on the calling thread, and each OMP worker
+     region holds its own;
+   - stock `initialize` sets FTZ persistently on x86. The Arm build skips that, so
+     FPCR is unchanged after `initialize`, compute and `done()`, and Java code never
+     runs with FZ on;
+   - `omp_fpcr_state.cc` verifies each worker's FZ and the full FPCR restore, and
+     `JavaThreadFtzProbe` asserts that the JVM's FP state is clean (see risk 2).
 
    Semantics differ:
    - Arm FZ also flushes denormal *inputs* (DAZ).
@@ -186,19 +195,20 @@ unchanged (Java fallback).
      `-XX:-UseLibmIntrinsic` on the x64 side.
 2. **FZ semantics** (DAZ and tininess before rounding on Arm). The kernels are
    unaffected on all probes.
-   - Stock GKL leaves FTZ set on the JVM thread after `initialize` on **both**
-     architectures (`java-thread-ftz.txt`), so this matches.
-   - Difference: on AArch64 Linux, threads created afterwards inherit FPCR.FZ; on x86
-     they do not. This would only matter for Java code computing denormals on new
-     threads, and we saw no effect.
-   - Windows Arm64 behaves like x86 here: new threads start with FZ clear.
-   - A future hardening step is to restore FPCR after `initialize`. That would also
-     change x86, so it is out of scope.
+   - Stock GKL leaves FTZ set on the JVM thread after `initialize` on x86. Doing the
+     same on Arm leaked further: on AArch64 Linux, threads created afterwards inherit
+     FPCR.FZ, so Java code on any new thread silently flushed subnormals.
+   - The Arm build therefore scopes FZ to each compute call (item 6 above). The kernels
+     see the same FPCR as before, so their results are unchanged; Java code now sees
+     IEEE subnormals on every thread. `JavaThreadFtzProbe 1|4` fails the Arm qualification
+     if the calling thread or a new thread is not clean after `initialize`, compute or
+     `done()`.
+   - x86 keeps the stock leak, because x64 must stay byte-identical to upstream.
 3. **128-bit SIMD throughput.** Neoverse N2/V2 have 2–4×128-bit pipes, so per-core
    kernel speed is about 1.25–1.3× slower than Zen 3 AVX2 (kbench). Cobalt vCPUs are
    full cores, while x64 vCPUs are SMT threads, so the gap closes at equal vCPU count.
 4. **Compiler drift.** A future compiler could introduce contraction or
-   reassociation. The FMA objdump guard and the kbench/probe hashes catch this.
+   reassociation. The fail-closed FMA objdump guard and the kbench/probe hashes catch this.
 5. **C runtime libm on Windows.** The UCRT's last-bit differences from glibc changed
    0.15% of PairHMM vector results and the kbench hashes until `wgse_libm.h` replaced
    `log10/log10f/pow/log1p`. The chr20 VCF was identical even before the fix, but the

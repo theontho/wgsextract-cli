@@ -9,6 +9,8 @@ set -euo pipefail
 
 # Native (non-MSYS) tools need Windows paths; mixed C:/x form also works in bash.
 HERE=$(cygpath -m "$(cd "$(dirname "$0")" && pwd)")
+# shellcheck source=fma_guard.sh disable=SC1091
+. "$HERE/fma_guard.sh"
 WINDOWS_RECIPE="$HERE/../../windows/recipes/gkl"
 WORK=$(cygpath -m "$(realpath -m "$1")")
 GATK_JAR=$(cygpath -m "$(realpath "$2")")
@@ -77,14 +79,10 @@ compile smithwaterman -- smithwaterman/IntelSmithWaterman smithwaterman/avx2_imp
 # Bit-exactness guard on the GKL code itself: no fused multiply-add outside
 # wgse_libm, whose explicit fma calls reproduce glibc's log10/log10f/log1p/pow.
 # (The static CRT's printf float formatter, __gdtoa, legitimately uses FMA and is
-# not on any kernel path.)
+# not on any kernel path, so the objects are checked rather than the DLLs.)
+fma_guard_selftest "$CXX" llvm-objdump "$BUILD/fma-selftest" "${COMMON[@]}"
 for o in "$OBJ"/*.o; do
-    fused=$(llvm-objdump -d -C "$o" | awk '/^[0-9a-f]+ <.*>:$/ { fn = $0 }
-        /[[:space:]](fmla|fmls|fmadd|fmsub|fnmadd|fnmsub)[[:space:]]/ && fn !~ /wgse_libm::/ { print fn }' | sort -u)
-    if [ -n "$fused" ]; then
-        echo "$o contains fused multiply-add instructions in: $fused" >&2
-        exit 1
-    fi
+    reject_fma llvm-objdump "$o" 'wgse_libm::'
 done
 LIBOMP="$MINGW_PREFIX/lib/libomp.dll.a"
 "$CXX" "$OBJ"/utils-*.o "${LINK[@]}" "$(cygpath -m "$LIBOMP")" -o "$RES/gkl_utils.dll"
@@ -97,7 +95,8 @@ cp "$MINGW_PREFIX/bin/libomp.dll" "$RES/libomp.dll"
 SYSTEM_DLLS='^(kernel32|advapi32|psapi|user32|ucrtbase|msvcrt|api-ms-win-[a-z0-9-]+)\.dll$'
 for lib in libomp gkl_utils gkl_pairhmm gkl_pairhmm_omp gkl_smithwaterman; do
     dll="$RES/$lib.dll"
-    llvm-readobj --file-headers "$dll" | grep -q 'Machine: IMAGE_FILE_MACHINE_ARM64 (0xAA64)'
+    hdr=$(llvm-readobj --file-headers "$dll")
+    grep -q 'Machine: IMAGE_FILE_MACHINE_ARM64 (0xAA64)' <<<"$hdr"
     llvm-objdump -p "$dll" > "$BUILD/$lib-pe.txt"
     [ "$lib" = libomp ] || grep -q 'Java_com_intel_gkl_' "$BUILD/$lib-pe.txt"
     allowed=$SYSTEM_DLLS

@@ -29,7 +29,9 @@ that reports Arm support truthfully.
   - builds `libgkl_{utils,pairhmm,pairhmm_omp,smithwaterman}.so` with
     `-march=armv8-a -ffp-contract=off`, static libstdc++/libgcc and dynamic
     glibc/libgomp;
-  - rejects unexpected dynamic dependencies and any fused multiply-add instruction;
+  - rejects unexpected dynamic dependencies and any fused multiply-add instruction,
+    using the fail-closed guard in `fma_guard.sh` after its self-test proves it
+    rejects an FMA-bearing sample;
   - runs the OpenMP FPCR test;
   - writes a reproducible `gkl-native-wgse-linux-aarch64.jar` (patched classes,
     `.so` files and licences).
@@ -65,8 +67,11 @@ Tests (`tests/`):
   and exact-bit hashes over 20,000 seeded PairHMM cases and the GKL SW pairs.
   x86-64 and AArch64 must print the same `hash_*` values.
 - `compare_vectors.py`: compares the Arm64 probe output against the x64 output.
-- `JavaThreadFtzProbe.java`: checks whether initialisation leaves flush-to-zero on
-  the JVM thread.
+- `JavaThreadFtzProbe.java THREADS`: asserts that the FP state of the calling thread
+  and of a newly created thread is clean (subnormals survive, FTZ off) after
+  `initialize`, compute and `done()`, for float and double. `1` tests `IntelPairHmm`
+  and `4` tests `IntelPairHmmOMP`; run each in its own JVM. It exits 1 on Arm64 if
+  FP state leaks; on x86 the stock leak is reported only.
 - `packaging/windows/recipes/gkl/tests/GklParityProbe.java` accepts a third argument,
   `neon`, so that it can qualify this sidecar against `linux-avx2-golden.tsv`.
 

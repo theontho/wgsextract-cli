@@ -6,6 +6,8 @@
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=fma_guard.sh disable=SC1091
+. "$HERE/fma_guard.sh"
 WINDOWS_RECIPE="$HERE/../../windows/recipes/gkl"
 WORK=$(realpath -m "$1")
 GATK_JAR=$(realpath "$2")
@@ -47,6 +49,7 @@ mkdir -p "$RES" "$BUILD/classes"
 COMMON=(-std=c++11 -O3 -march=armv8-a -ffp-contract=off -fno-fast-math -fPIC
     -DWGSE_GKL_AVX_ONLY -Wno-ignored-attributes
     "-I$SIMDE" "-I$JAVA_HOME/include" "-I$JAVA_HOME/include/linux" "-I$NATIVE/common")
+fma_guard_selftest "$CXX" objdump "$BUILD/fma-selftest" "${COMMON[@]}"
 # shellcheck disable=SC2054 # commas are linker -Wl arguments, not separators
 LINK=(-shared -static-libstdc++ -static-libgcc -Wl,--no-undefined -Wl,-z,noexecstack
     -Wl,--build-id=none -s)
@@ -64,8 +67,11 @@ LINK=(-shared -static-libstdc++ -static-libgcc -Wl,--no-undefined -Wl,-z,noexecs
 
 for lib in libgkl_utils libgkl_pairhmm libgkl_pairhmm_omp libgkl_smithwaterman; do
     so="$RES/$lib.so"
-    readelf -h "$so" | grep -q 'Machine:.*AArch64'
-    nm -D --defined-only "$so" | grep -q ' Java_com_intel_gkl_'
+    # Capture before grep -q: an early grep exit would SIGPIPE the producer under pipefail.
+    hdr=$(readelf -h "$so")
+    grep -q 'Machine:.*AArch64' <<<"$hdr"
+    syms=$(nm -D --defined-only "$so")
+    grep -q ' Java_com_intel_gkl_' <<<"$syms"
     # Only glibc (libc, libm, loader) and libgomp may be dynamic; libstdc++ is static.
     deps=$(readelf -d "$so" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' |
         grep -vE '^(libc|libm|libgomp)\.so|^ld-linux-aarch64\.so' || true)
@@ -73,11 +79,8 @@ for lib in libgkl_utils libgkl_pairhmm libgkl_pairhmm_omp libgkl_smithwaterman; 
         echo "$lib links unexpected libraries: $deps" >&2
         exit 1
     fi
-    # Bit-exactness guard: no fused multiply-add anywhere in the kernels.
-    if objdump -d "$so" | grep -qE '\s(fmla|fmls|fmadd|fmsub|fnmadd|fnmsub)\s'; then
-        echo "$lib contains fused multiply-add instructions" >&2
-        exit 1
-    fi
+    # Bit-exactness guard: no fused multiply-add anywhere in the library.
+    reject_fma objdump "$so"
 done
 
 "$CXX" "${COMMON[@]}" -std=c++17 -fopenmp "$HERE/tests/fp_semantics.cc" -o "$BUILD/fp_semantics"
