@@ -157,10 +157,12 @@ Source checksums and complete upstream C source lists have been checked.
 BCFtools' native package, existing regressions and region-index regression pass;
 samtools' native package and regressions now also pass. The generated whole-pipeline
 fixture passes; full-genome qualification remains pending.
-The ARM64 samtools linker reserves an 8 MiB stack. The default MSVC 1 MiB
+The ARM64 HTS library propagates an 8 MiB linker stack reserve to its consumers.
+The default MSVC 1 MiB
 reserve caused `0xC00000FD` while indexing a public-genome realigned CRAM:
 indexing the identical file failed with the original executable and passed
-after changing only its stack reserve. The package implements the correction
+after changing only its stack reserve. BCFtools `mpileup` and `htsfile --view`
+also reproduce the inadequate default on that CRAM. The package implements the correction
 at link time; manually edited PE files are qualification experiments, not
 distributable artifacts. This setting does not change the x64 Windows recipes.
 BCFtools' private 32-bit region-index symbols are namespaced independently of

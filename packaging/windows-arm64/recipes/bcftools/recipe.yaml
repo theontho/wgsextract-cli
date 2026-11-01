@@ -18,7 +18,7 @@ source:
     target_directory: original-source
 
 build:
-  number: 0
+  number: 1
   string: wgse_arm64_${{ build_number }}
   script:
     content:

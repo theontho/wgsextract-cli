@@ -54,6 +54,8 @@ target_link_libraries(hts PUBLIC
     ZLIB::ZLIB BZip2::BZip2 LibLZMA::LibLZMA libdeflate::libdeflate_static
     unofficial::tre::tre PThreads4W::PThreads4W getopt::getopt_static ws2_32 psapi bcrypt
 )
+# All CRAM consumers need more than MSVC's default 1 MiB codec stack.
+target_link_options(hts INTERFACE /STACK:8388608)
 set_source_files_properties(
     "${WGSE_HTSLIB_SOURCE}/htscodecs/htscodecs/rANS_static32x16pr_neon.c"
     PROPERTIES COMPILE_OPTIONS "/showIncludes")

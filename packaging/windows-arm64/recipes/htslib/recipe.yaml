@@ -14,7 +14,7 @@ source:
     - ../../../windows/recipes/htslib/patches/0003-reuse-cram-buffers.patch
 
 build:
-  number: 0
+  number: 1
   string: wgse_arm64_${{ build_number }}
   script:
     content:
