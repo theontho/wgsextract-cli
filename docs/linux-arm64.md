@@ -71,8 +71,10 @@ records, not compressed CRAM bytes or command-line provenance headers.
 Fresh Ubuntu 24.04 ARM installation, native unit tests and generated-genome
 tests pass. Full public HG00096 MEM2 output (779,820,884 decoded records) and
 bcftools calling (4,408,885 records, including all genotypes) exactly match the
-same-source x64 control. Full BWA 30x validation is funded and running; its
-native small-genome and complete-pair public pilots pass. Stock ARM MEM2 index
+same-source x64 control. Full BWA 30x output also exactly matches the x64
+#189 golden: 779,820,884 ordered records and 370,846,991,252 decoded bytes,
+including matching portable headers, flagstat and idxstats. Native small-genome
+and complete-pair public pilots pass. Stock ARM MEM2 index
 construction is 39.1% slower in the measured comparison. This one-time
 reference-preparation cost is not an acceptance blocker. A bounded native
 50 Mb indexing experiment found only a 1.1% median improvement from
@@ -82,8 +84,14 @@ sorting/FM-index construction rather than NEON alignment or compression as
 the hot path. No CPU-specific rebuild or unqualified sorting replacement is
 enabled by default.
 
-Phase 1 is not acceptance-complete while the full BWA gate remains open.
+BWA took 20,980.295 seconds on ARM versus the historical x64 control's
+26,380.628 seconds (20.47% faster). Both use 16 vCPU, 128 GiB and local NVMe;
+ARM has 16 physical cores, x64 eight cores with SMT. This is explicitly a
+historical full x64 comparison, not a fresh same-branch full benchmark.
+Full MEM2 is 19.84% slower (within 20%); clean full bcftools calling is
+30.61% faster. Regional pricing and core topology affect performance/USD.
+
 See [PR #273](https://github.com/theontho/wgsextract-cli/pull/273) and
 [issue #236](https://github.com/theontho/wgsextract-cli/issues/236) for measured
-hardware, limits and remaining qualification. Support here does not imply
+hardware, controls and qualification limits. Support here does not imply
 that an untested ARM tool or x86-emulated executable is qualified.
