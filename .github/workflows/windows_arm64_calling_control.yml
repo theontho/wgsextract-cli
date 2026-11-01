@@ -2,6 +2,7 @@ name: Windows ARM64 public calling x64 control
 
 on:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read

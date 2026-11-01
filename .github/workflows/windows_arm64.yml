@@ -2,6 +2,11 @@ name: Windows ARM64 qualification
 
 on:
   workflow_dispatch:
+    inputs:
+      calling_control_only:
+        description: Run only the native Windows x64 public VCF control
+        type: boolean
+        default: false
   pull_request:
     paths:
       - packaging/windows-arm64/**
@@ -19,7 +24,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  calling-control:
+    if: github.event_name == 'workflow_dispatch' && inputs.calling_control_only
+    uses: ./.github/workflows/windows_arm64_calling_control.yml
   qualify:
+    if: github.event_name != 'workflow_dispatch' || !inputs.calling_control_only
     runs-on: windows-11-arm
     timeout-minutes: 60
     strategy:
