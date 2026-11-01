@@ -518,6 +518,43 @@ def test_large_mem2_index_can_be_built_on_every_platform(
     assert not Path(ref + ".bwa-mem2.pending").exists()
 
 
+@pytest.mark.parametrize("metadata", [None, "chr1\t10\t6\t60\t61\nchr2\n"])
+@pytest.mark.parametrize("entry", ["build_index", "check_index", "ensure_index"])
+def test_unknown_or_incomplete_length_cannot_bypass_build_memory_preflight(
+    tmp_path, monkeypatch, metadata, entry
+):
+    ref = _reference(tmp_path)
+    fai = Path(ref + ".fai")
+    if metadata is None:
+        fai.unlink()
+    else:
+        fai.write_text(metadata)
+    monkeypatch.setattr(bwa_mem2, "prebuilt_index", lambda *_a: None)
+    monkeypatch.setattr(bwa_mem2, "_total_memory", lambda: 8 * GB)
+    monkeypatch.setattr(
+        bwa_mem2, "run_command", lambda *_a, **_kw: pytest.fail("index process started")
+    )
+    with pytest.raises(WGSExtractError, match="reference length.*samtools faidx"):
+        if entry == "ensure_index":
+            bwa_mem2.ensure_index(ref, download=False)
+        else:
+            getattr(bwa_mem2, entry)(ref)
+    assert not Path(ref + ".bwa-mem2.pending").exists()
+
+
+def test_ann_length_can_protect_large_build_without_a_fai(tmp_path, monkeypatch):
+    ref = _reference(tmp_path, bases=3_217_346_917)
+    Path(ref + ".fai").unlink()
+    Path(ref + ".ann").write_text("3217346917 3366 11\n")
+    monkeypatch.setattr(bwa_mem2, "prebuilt_index", lambda *_a: None)
+    monkeypatch.setattr(bwa_mem2, "_total_memory", lambda: 8 * GB)
+    monkeypatch.setattr(
+        bwa_mem2, "run_command", lambda *_a, **_kw: pytest.fail("index process started")
+    )
+    with pytest.raises(WGSExtractError, match="needs.*memory"):
+        bwa_mem2.ensure_index(ref, download=False)
+
+
 def test_ref_index_starts_supported_large_mem2_build(tmp_path, monkeypatch):
     from wgsextract_cli.commands.ref import core_commands
 

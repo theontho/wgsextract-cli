@@ -101,7 +101,33 @@ def mapping_memory(
 
 
 def build_memory(ref: str) -> int:
-    return reference_bases(ref) * BUILD_BYTES_PER_BASE
+    try:
+        fai = Path(ref + ".fai")
+        if fai.is_file():
+            lengths: dict[str, int] = {}
+            for row in fai.read_text().splitlines():
+                fields = row.split("\t")
+                if (
+                    len(fields) != 5
+                    or not fields[0]
+                    or fields[0] in lengths
+                    or not all(value.isdecimal() for value in fields[1:])
+                    or int(fields[1]) <= 0
+                ):
+                    raise ValueError("Incomplete or malformed FASTA index")
+                lengths[fields[0]] = int(fields[1])
+            bases = sum(lengths.values())
+        else:
+            bases = reference_bases(ref)
+    except (OSError, ValueError):
+        bases = 0
+    if not bases:
+        raise WGSExtractError(
+            "Cannot determine the reference length for a safe bwa-mem2 index "
+            "build. Prepare complete length metadata with `samtools faidx` or "
+            "`wgsextract ref index --aligner bwa-mem2` first."
+        )
+    return bases * BUILD_BYTES_PER_BASE
 
 
 def can_map(
