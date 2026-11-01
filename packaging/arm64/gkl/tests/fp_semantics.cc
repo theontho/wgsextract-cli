@@ -7,6 +7,8 @@
 #include <cstdio>
 #include <cstring>
 
+#include "wgse_libm.h"
+
 #if defined(__aarch64__) || defined(_M_ARM64)
 #define ARM 1
 static uint64_t get_ctl() { uint64_t v; __asm__ __volatile__("mrs %0, fpcr" : "=r"(v)); return v; }
@@ -89,30 +91,33 @@ int main() {
     tininess("ftz_only", FTZ_ONLY);
     tininess("ftz_daz", FTZ_DAZ);
 
-    // Exactly the libm calls Context.h uses to build PairHMM tables.
+    // Exactly the libm calls Context.h uses to build PairHMM tables (log10/log10f/pow/log1p via
+    // wgse_libm, as GKL calls them); crt_* fingerprint the platform's own log10/log10f.
     uint64_t h_ph2pr = 14695981039346656037ULL, h_ph2prf = h_ph2pr, h_jac = h_ph2pr;
-    uint64_t h_mm = h_ph2pr, h_log10f = h_ph2pr, h_log10 = h_ph2pr;
+    uint64_t h_mm = h_ph2pr, h_log10f = h_ph2pr, h_log10 = h_ph2pr, h_crtf = h_ph2pr, h_crt = h_ph2pr;
     for (int x = 0; x < 128; x++) {
-        h_ph2pr = fnv(h_ph2pr, dbits(std::pow(10.0, -((double) x) / 10.0)));
+        h_ph2pr = fnv(h_ph2pr, dbits(wgse_libm::pow(10.0, -((double) x) / 10.0)));
         h_ph2prf = fnv(h_ph2prf, fbits(powf(10.f, -((float) x) / 10.f)));
     }
     for (int k = 0; k <= 400000; k++) {  // JACOBIAN_LOG_TABLE_SIZE upper bound
-        h_jac = fnv(h_jac, dbits(std::log10(1.0 + std::pow(10.0, -((double) k) * 0.0001))));
+        h_jac = fnv(h_jac, dbits(wgse_libm::log10(1.0 + wgse_libm::pow(10.0, -((double) k) * 0.0001))));
     }
     for (int i = 0; i < 128; i++) {
         for (int j = 0; j < 128; j++) {
-            double s = std::log10(std::pow(10.0, -0.1 * i) + std::pow(10.0, -0.1 * j));
-            double v = std::log1p(-std::fmin(1.0, std::pow(10, s))) * (1.0 / std::log(10.0));
-            h_mm = fnv(h_mm, dbits(std::pow(10, v)));
+            double s = wgse_libm::log10(wgse_libm::pow(10.0, -0.1 * i) + wgse_libm::pow(10.0, -0.1 * j));
+            double v = wgse_libm::log1p(-std::fmin(1.0, wgse_libm::pow(10.0, s))) * (1.0 / std::log(10.0));
+            h_mm = fnv(h_mm, dbits(wgse_libm::pow(10.0, v)));
         }
     }
     uint32_t u = 0x0d000000u;  // 1e-28 .. 1, every 97th float
     for (; u < 0x3f800000u; u += 97) {
-        h_log10f = fnv(h_log10f, fbits(log10f(ffrom(u))));
+        h_log10f = fnv(h_log10f, fbits(wgse_libm::log10f(ffrom(u))));
+        h_crtf = fnv(h_crtf, fbits(log10f(ffrom(u))));
     }
     for (uint64_t v = 0x0010000000000000ULL; v < 0x3ff0000000000000ULL; v += 0x00000f0000000001ULL) {
         double d; std::memcpy(&d, &v, 8);
-        h_log10 = fnv(h_log10, dbits(std::log10(d)));
+        h_log10 = fnv(h_log10, dbits(wgse_libm::log10(d)));
+        h_crt = fnv(h_crt, dbits(std::log10(d)));
     }
     std::printf("libm_ph2pr_pow\t%016" PRIx64 "\n", h_ph2pr);
     std::printf("libm_ph2pr_powf\t%016" PRIx64 "\n", h_ph2prf);
@@ -120,5 +125,7 @@ int main() {
     std::printf("libm_match_to_match\t%016" PRIx64 "\n", h_mm);
     std::printf("libm_log10f_sweep\t%016" PRIx64 "\n", h_log10f);
     std::printf("libm_log10_sweep\t%016" PRIx64 "\n", h_log10);
+    std::printf("crt_log10f_sweep\t%016" PRIx64 "\n", h_crtf);
+    std::printf("crt_log10_sweep\t%016" PRIx64 "\n", h_crt);
     return 0;
 }

@@ -20,6 +20,15 @@
 #include "pairhmm/avx_impl.h"
 #include "pairhmm/pairhmm_common.h"
 #include "smithwaterman/avx2_impl.h"
+// GKL's own log10/log10f (the Arm patch routes them through wgse_libm).
+#if __has_include("wgse_libm.h")
+#include "wgse_libm.h"
+static double gkl_log10(double x) { return wgse_libm::log10(x); }
+static float gkl_log10f(float x) { return wgse_libm::log10f(x); }
+#else
+static double gkl_log10(double x) { return log10(x); }
+static float gkl_log10f(float x) { return log10f(x); }
+#endif
 #undef min
 #undef max
 
@@ -131,8 +140,8 @@ int main(int argc, char** argv) {
     double t0 = now();
     for (size_t k = 0; k < tcs.size(); k++) {
       float f = compute_fp_avxs(&tcs[k]);
-      results[k] = f < MIN_ACCEPTED ? log10(compute_fp_avxd(&tcs[k])) - ctxd.LOG10_INITIAL_CONSTANT
-                                    : (double)(log10f(f) - ctxf.LOG10_INITIAL_CONSTANT);
+      results[k] = f < MIN_ACCEPTED ? gkl_log10(compute_fp_avxd(&tcs[k])) - ctxd.LOG10_INITIAL_CONSTANT
+                                    : (double)(gkl_log10f(f) - ctxf.LOG10_INITIAL_CONSTANT);
     }
     best_f = std::min(best_f, now() - t0);
     if (rep == 0) hf = fnv(hf, results.data(), results.size() * sizeof(double));

@@ -1,8 +1,8 @@
 # Native Arm64 GKL for GATK 4.6.2 HaplotypeCaller — design (issue #236, phase 2)
 
-Status: prototype built and validated on Azure Cobalt 100 (linux-aarch64). Windows
-Arm64 is designed here but not built. Measurements are summarised in the PR and
-recorded in `out/arm64/gkl/prototype-results.md` of the issue #236 work.
+Status: prototype built and validated on Azure Cobalt 100 for linux-aarch64 and
+win-arm64 (Windows 11 Arm64, native AA64 DLLs). Measurements are summarised in the
+PR and recorded in `out/arm64/gkl/prototype-results.md` of the issue #236 work.
 
 ## 1. Problem
 
@@ -93,7 +93,9 @@ the sidecar jar ahead of `gatk-package-4.6.2.0-local.jar` on the classpath:
 - `IntelPairHmm` / `IntelPairHmmOMP` / `IntelSmithWaterman`: accept AVX *or*
   (aarch64 and NEON). They log `Using Arm NEON ... (WGSE port of the GKL ... kernel)`.
 - `NativeLibraryLoader`: resource directories `native/linux-aarch64/` and
-  `native/windows-aarch64/`. The x86 path `native/` is unchanged.
+  `native/windows-aarch64/`. The x86 path `native/` is unchanged. On Windows Arm64 it
+  first extracts and loads the shipped `libomp.dll` under its exact name, so the
+  `gkl_utils`/`gkl_pairhmm_omp` imports resolve to that one copy.
 
 GATK still constructs `PairHMMNativeArguments` and calls the same JNI entry points,
 so no GATK code changes are needed. With the stock jar alone, Arm64 behaviour is
@@ -113,21 +115,37 @@ unchanged (Java fallback).
   publish it as a conda package (`gkl-wgse` for `linux-aarch64`), mirroring the
   Windows `gkl-0.8.11-wgse_0.conda` flow. The CLI puts the sidecar first on the
   GATK classpath when `platform.machine()` is arm64.
-- **win-arm64 (design):**
-  - Build natively on a `windows-11-arm` runner with MSYS2 **CLANGARM64** (clang + LLVM
-    libomp). This is the Arm counterpart of the UCRT64 static build used for x64 in #207.
-  - Use the same patch. `simd_compat.h` already covers `_M_ARM64` and uses
-    `_aligned_malloc` on `_WIN32`. Its GNU inline-asm `mrs/msr fpcr` works under
-    clang. An MSVC build would instead need `_ReadStatusReg/_WriteStatusReg`.
-  - Output: `gkl_*.dll` under `native/windows-aarch64/`.
-  - Libraries must be clang-built for `-ffp-contract=off` parity; we measured clang
-    and gcc giving identical hashes on Linux.
-  - libomp: ship `libomp.dll` alongside, or link the OMP PairHMM statically. If libomp
-    is a burden, drop the OMP variant (GATK defaults to it only when requested
-    threads > 1).
+- **win-arm64 (prototype, built):** `build-windows-arm64.sh WORK GATK_JAR OUT`, run in
+  an MSYS2 **CLANGARM64** shell on Windows 11 Arm64, produces
+  `gkl-native-wgse-windows-aarch64.jar` with `gkl_{utils,pairhmm,pairhmm_omp,smithwaterman}.dll`
+  and `libomp.dll` under `native/windows-aarch64/`.
+  - clang, lld and every output are native ARM64 PE (`0xAA64`); the build checks each
+    DLL's machine type and import table (system DLLs, plus `libomp.dll` for the two
+    OpenMP users). Only the MSYS2 base tools (bash, tar, patch) run x64-emulated, at
+    build time. At run time the JVM process is native (`IsWow64Process2`
+    `process_machine=0`).
+  - Same pinned sources and patches as Linux; same `-march=armv8-a -ffp-contract=off`
+    and no-FMA guard (which exempts only `wgse_libm::`, see below).
+  - libc++, libunwind, compiler-rt and winpthreads are static. **LLVM OpenMP is
+    shared:** `gkl_utils` and `gkl_pairhmm_omp` both load into the JVM, and two static
+    libomp copies in one process abort with OMP Error #15.
+  - **UCRT libm is not glibc.** GKL's PairHMM uses `log10`/`log10f` for every result
+    and `pow`/`log1p` for its jacobian and match-to-match tables. The Windows Arm64 UCRT
+    differs from glibc in the last bit, which changed 31 float and 3 double results of
+    the 20,104 PairHMM vectors, and 265 of 400k jacobian and 2,811 of 16k `log1p` table
+    inputs. (The chr20 VCF happened to be unaffected.) On `_WIN32 && __aarch64__`,
+    `common/wgse_libm.h` replaces those four functions with ports of glibc 2.39's AArch64
+    implementations (fdlibm `log10`/`log10f`/`log1p`, Arm optimized-routines
+    `log`/`logf`/`pow`/`exp` and their tables), with GCC's fused multiply-adds written
+    as explicit `fma` calls. They were proven bit-identical to glibc under qemu: every
+    positive float for `log10f`, and 100 M random doubles each for `log10`, `pow` and `log1p`.
+    Elsewhere the header forwards to the platform libm, so Linux and x64 objects are
+    unchanged. `powf` stays on the CRT, because GKL evaluates it only on 128 fixed
+    inputs, where UCRT and glibc agree.
   - JDK: the phase-1 native Arm64 runtime (Microsoft Build of OpenJDK 17.0.21 ARM64,
-    jlink'd; recipe `packaging/windows-arm64/recipes/openjdk` on `p2-arm64-windows`)
-    has been validated. The JNI build compiles against its `include/win32` headers.
+    recipe `packaging/windows-arm64/recipes/openjdk` on `p2-arm64-windows`).
+  - Production: build on a GitHub `windows-11-arm` runner and publish as the
+    `win-arm64` conda package, mirroring the x64 `gkl-0.8.11-wgse` flow.
 - **x64 byte-identity:**
   - x64 never loads the sidecar. All patch hunks are guarded by `__aarch64__` /
     `_M_ARM64` / `WGSE_GKL_NEON`.
@@ -140,6 +158,13 @@ unchanged (Java fallback).
 - GKL: BSD-3-Clause (IntelLabs).
 - SIMDe: MIT.
 - New NEON code: MIT (SPDX headers), compatible with both.
+- `wgse_libm.h` (win-arm64 only): fdlibm (Sun, "freely distributable with this
+  notice") and Arm optimized-routines (MIT OR Apache-2.0 WITH LLVM-exception, used under
+  MIT). The tables come from upstream optimized-routines, not glibc's LGPL sources.
+  Both notices ship in `META-INF/licenses/wgse_libm/`.
+- Windows runtimes: LLVM libc++/libunwind/compiler-rt (static) and `libomp.dll`
+  (Apache-2.0 WITH LLVM-exception); mingw-w64 CRT and winpthreads (ZPL/MIT-style).
+  Their licence files are copied from the MSYS2 packages.
 - Static libstdc++/libgcc fall under the GCC Runtime Library Exception; their copyright
   file is included.
 - libgomp is dynamic (GPL + runtime exception).
@@ -166,6 +191,7 @@ unchanged (Java fallback).
    - Difference: on AArch64 Linux, threads created afterwards inherit FPCR.FZ; on x86
      they do not. This would only matter for Java code computing denormals on new
      threads, and we saw no effect.
+   - Windows Arm64 behaves like x86 here: new threads start with FZ clear.
    - A future hardening step is to restore FPCR after `initialize`. That would also
      change x86, so it is out of scope.
 3. **128-bit SIMD throughput.** Neoverse N2/V2 have 2–4×128-bit pipes, so per-core
@@ -173,7 +199,13 @@ unchanged (Java fallback).
    full cores, while x64 vCPUs are SMT threads, so the gap closes at equal vCPU count.
 4. **Compiler drift.** A future compiler could introduce contraction or
    reassociation. The FMA objdump guard and the kbench/probe hashes catch this.
-5. **Upstream churn.** GKL is archived and GATK 4.6.2 pins GKL 0.8.11, so the patch
+5. **C runtime libm on Windows.** The UCRT's last-bit differences from glibc changed
+   0.15% of PairHMM vector results and the kbench hashes until `wgse_libm.h` replaced
+   `log10/log10f/pow/log1p`. The chr20 VCF was identical even before the fix, but the
+   kernels would not otherwise be bit-exact. A new libm call in the kernel path would reopen this;
+   `fp_semantics.cc` fingerprints and the kbench hashes catch it. `crt_*` lines record
+   the UCRT's own fingerprints for comparison.
+6. **Upstream churn.** GKL is archived and GATK 4.6.2 pins GKL 0.8.11, so the patch
    target is stable.
 
 ## 6. Effort estimate (to production)
@@ -182,6 +214,6 @@ unchanged (Java fallback).
 |---|---|
 | Upstream patch review and hardening, CI job on `ubuntu-24.04-arm`, conda recipe | 2–3 days |
 | CLI classpath wiring, capability check, tests | 1 day |
-| win-arm64 build (CLANGARM64, FPCR intrinsics, libomp), Windows Arm VM validation | 3–4 days, depends on the arm-windows toolchain |
+| win-arm64 build (CLANGARM64, libomp, glibc-exact libm): **done in prototype**; remaining work is the `windows-11-arm` CI job and conda recipe | 1–2 days |
 | Full-genome and second-sample validation on Arm (the parity gate needs the `UseLibmIntrinsic` caveat) | 1–2 days plus VM time |
 | Optional: SVE/SVE2 kernels for V2/Graviton4, a further kernel speed-up | 1–2 weeks; not needed for the target |

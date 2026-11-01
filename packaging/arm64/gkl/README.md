@@ -33,15 +33,30 @@ that reports Arm support truthfully.
   - runs the OpenMP FPCR test;
   - writes a reproducible `gkl-native-wgse-linux-aarch64.jar` (patched classes,
     `.so` files and licences).
+- `build-windows-arm64.sh WORK GATK_JAR OUT` is the win-arm64 counterpart. Run it
+  in an MSYS2 CLANGARM64 shell on Windows 11 Arm64 with `JAVA_HOME` set to an Arm64
+  JDK 17. It does the following:
+  - builds native ARM64 (`0xAA64`) `gkl_{utils,pairhmm,pairhmm_omp,smithwaterman}.dll`
+    with clang and the same flags and no-FMA guard;
+  - links the LLVM runtimes statically, but ships `libomp.dll` shared, because
+    two static OpenMP runtimes in one JVM abort;
+  - checks each DLL's machine type and imports;
+  - writes `gkl-native-wgse-windows-aarch64.jar`.
+
+  On this target `common/wgse_libm.h` replaces the UCRT `log10/log10f/pow/log1p`
+  with glibc-exact ports, so results match Linux bit for bit
+  (`licenses/wgse_libm/NOTICE.txt`).
 - Launch: `java -cp gkl-native-wgse-linux-aarch64.jar:gatk-package-4.6.2.0-local.jar org.broadinstitute.hellbender.Main HaplotypeCaller ...`.
   The sidecar classes shadow GATK's bundled GKL classes. With the stock GATK
   jar alone, Arm64 keeps the Java fallback. Compression stays on the JDK
-  deflater/inflater.
+  deflater/inflater. On Windows, use the `windows-aarch64` jar and `;` as the
+  classpath separator.
 
 Tests (`tests/`):
 
 - `fp_semantics.cc`: reports control-register flush/denormal/tininess behaviour and
-  libm fingerprints.
+  the fingerprints of the libm results GKL uses (`libm_*`, which must match across
+  platforms; on Windows also the raw UCRT `crt_*`).
 - `omp_fpcr_state.cc`: checks per-worker FZ and full FPCR restoration.
 - `GklVectorProbe.java`: native float/double and Java `LoglessPairHMM` bits over
   GKL test vectors and seeded random batches, plus all 14,196 GKL Smith-Waterman
@@ -56,5 +71,4 @@ Tests (`tests/`):
   `neon`, so that it can qualify this sidecar against `linux-avx2-golden.tsv`.
 
 See `DESIGN.md` for the design rationale; the prototype results are in
-`out/arm64/gkl/prototype-results.md` of the issue #236 work. Windows Arm64 is
-designed but not built here.
+`out/arm64/gkl/prototype-results.md` of the issue #236 work.

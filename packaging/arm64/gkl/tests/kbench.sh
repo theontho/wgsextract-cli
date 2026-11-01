@@ -5,9 +5,13 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 N=$(realpath "$1"); S=$(realpath -m "$2"); O=$(realpath -m "$3")
+if command -v cygpath > /dev/null; then # MSYS2: native compilers need Windows paths
+    HERE=$(cygpath -m "$HERE"); N=$(cygpath -m "$N"); S=$(cygpath -m "$S"); O=$(cygpath -m "$O")
+fi
 CXX=${CXX:-g++}
 rm -rf "$O"; mkdir -p "$O"
-if [ "$(uname -m)" = aarch64 ]; then
+# Ask the compiler: MSYS2 shells on Windows Arm64 are x64 processes (uname -m lies).
+if "$CXX" -dumpmachine | grep -q aarch64; then
     ARCH=(-march=armv8-a "-I$S"); AVX=(); AVX2=()
 else
     ARCH=(); AVX=(-mavx); AVX2=(-mavx -mavx2)
