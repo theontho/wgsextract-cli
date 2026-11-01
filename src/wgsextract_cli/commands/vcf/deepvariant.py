@@ -27,6 +27,10 @@ from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.native_support import is_linux_arm64, require_native_tool
 from wgsextract_cli.core.output_checks import warn_if_no_variants
 from wgsextract_cli.core.reference_assets import read_fai_lengths
+from wgsextract_cli.core.resource_estimates import (
+    estimate_resources,
+    preflight_resources,
+)
 from wgsextract_cli.core.samtools_commands import (
     alignment_index,
     get_sam_index_cmd,
@@ -374,7 +378,12 @@ def _deepvariant_gpu(args: argparse.Namespace) -> None:
 
 def cmd_deepvariant(args: argparse.Namespace) -> None:
     require_native_tool("run_deepvariant")
+    batch_size = getattr(args, "batch_size", None)
+    if batch_size is not None and batch_size < 1:
+        raise WGSExtractError("DeepVariant --batch-size must be positive.")
     if getattr(args, "gpu", False):
+        if batch_size is not None:
+            raise WGSExtractError("DeepVariant --batch-size is a CPU-only option.")
         require_native_tool("parabricks")
         _deepvariant_gpu(args)
         return
@@ -394,6 +403,18 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
     image = arm64_image or (
         None if run_deepvariant else _verify_docker_image(model_type)
     )
+    if arm64_image:
+        preflight_resources(
+            lambda: estimate_resources(
+                "deepvariant",
+                input_paths=[args.input],
+                output_dir=outdir,
+                reference=ref,
+                threads=threads,
+                region=args.region,
+                inference_batch_size=batch_size or 1024,
+            )
+        )
     out_vcf = str(Path(outdir, "deepvariant.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_deepvariant"].format(output=out_vcf))
     region_args = ["--regions", args.region] if args.region else []
@@ -412,6 +433,8 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
             ]  # fmt: skip
             if args.checkpoint:
                 dv_args += ["--customized_model", host_path(args.checkpoint)]
+            if batch_size is not None:
+                dv_args += ["--call_variants_extra_args", f"batch_size={batch_size}"]
             if image:
                 logging.info(f"Running DeepVariant from {image}...")
                 paths = [ref, args.input, out_vcf, work, args.checkpoint]

@@ -665,3 +665,52 @@ def test_arm_container_overrides_entrypoint_before_image(files, monkeypatch):
     work = cmd[cmd.index("--intermediate_results_dir") + 1]
     assert f"HOME={work}" in cmd
     assert f"TMPDIR={work}" in cmd
+
+
+def test_arm_run_reports_deepvariant_preflight_not_bcftools(files, monkeypatch):
+    ref, bam, out = files
+    _docker(monkeypatch)
+    _arm_docker(monkeypatch)
+    requested = []
+
+    def estimate(operation, **options):
+        requested.append((operation, options))
+
+    monkeypatch.setattr(deepvariant, "estimate_resources", estimate)
+    monkeypatch.setattr(deepvariant, "preflight_resources", lambda factory: factory())
+    deepvariant.cmd_deepvariant(_args(bam))
+    assert requested == [
+        (
+            "deepvariant",
+            {
+                "input_paths": [str(bam)],
+                "output_dir": str(out),
+                "reference": str(ref),
+                "threads": "4",
+                "region": "chr20",
+                "inference_batch_size": 1024,
+            },
+        )
+    ]
+
+
+def test_explicit_batch_size_is_forwarded_without_altering_shards(files, monkeypatch):
+    _ref, bam, _out = files
+    runs = _docker(monkeypatch)
+    deepvariant.cmd_deepvariant(_args(bam, batch_size=256))
+    (cmd,) = runs
+    assert cmd[cmd.index("--call_variants_extra_args") + 1] == "batch_size=256"
+    assert cmd[cmd.index("--num_shards") + 1] == "4"
+
+
+@pytest.mark.parametrize("batch_size", [0, -1])
+def test_invalid_batch_size_is_rejected_before_container_setup(files, batch_size):
+    _ref, bam, _out = files
+    with pytest.raises(WGSExtractError, match="must be positive"):
+        deepvariant.cmd_deepvariant(_args(bam, batch_size=batch_size))
+
+
+def test_batch_size_is_not_silently_ignored_by_gpu(files):
+    _ref, bam, _out = files
+    with pytest.raises(WGSExtractError, match="CPU-only"):
+        deepvariant.cmd_deepvariant(_args(bam, batch_size=256, gpu=True))

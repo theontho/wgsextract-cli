@@ -138,3 +138,62 @@ The matched-vCPU whole-genome ARM wall time is **7.72% slower**, meeting the
 20% target. This is one complete run per architecture, separately from the
 three-run chr20 medians. Both task-owned guests and related resources were
 deleted after the outputs and scientific evidence were saved.
+
+## Resident-memory diagnosis and optional mitigation
+
+The reported full-run RSS is the Linux maximum-child RSS, not an aggregate
+and not multiplied by the 16 shards. Both guests used 16 vCPUs, 16 shards and
+4,096-byte pages. Aggregate cgroup memory including cache is a different metric.
+
+A bounded native chr20 replay instrumented all three scientific executables:
+
+| Stage | Timed processes | Maximum-child RSS KiB |
+|---|---:|---:|
+| `make_examples` | 16 | 984,812 (each shard at most this much) |
+| `call_variants` | 1 | 26,971,300 |
+| `postprocess_variants` | 1, including children | 626,044 |
+
+Thus inference reproduces the original chr20 ~27-million-KiB peak and explains
+the similar full-run 25,920,200-KiB maximum. The original full run did not record
+per-stage RSS; its stage attribution is corroborated by this replay, not falsely
+presented as an original full-run measurement.
+
+Actual model convolution tracing shows oneDNN 3.2.1
+`indirect_gemm:acl`, FP32, batch `mb1024`, on AArch64 SVE-128.
+The ARM TensorFlow/ACL inference tensor/scratch/buffer working set is dominant.
+This is a backend/batch footprint, not duplicated biological inputs or extra
+shards. Separate TensorFlow activations, prefetch buffers and ACL scratch
+allocations were not individually traced, and x64 primitive-level allocation
+was not reprofiled.
+
+Allocator experiments preserve the exact chr20 VCF body but do not solve
+the footprint: `MALLOC_ARENA_MAX=2` gives 26,553,356 KiB (only 1.55% lower);
+`TF_CPU_ALLOCATOR_USE_BFC=1` gives 27,035,236 KiB. Neither is installed as a
+new default or exposed as user/environment-variable configuration.
+
+Google's existing inference `batch_size=256` reduces `call_variants` to
+**7,981,020 KiB (70.41% lower)**. All 210,390 records, genotypes and other
+VCF fields remain byte-identical to the qualified native chr20 body.
+Instrumented pipeline wall was 537.12 s versus baseline 539.25 s; these are
+single diagnostic runs, not new full-genome or repeat-median speed claims.
+
+Use the CPU-only, opt-in forwarding option:
+
+```bash
+wgsextract vcf deepvariant -i sample.bam --ref reference.fna \
+    --batch-size 256 -t 8 -o results
+```
+
+It forwards `--call_variants_extra_args batch_size=256`; no weights, precision
+or DeepVariant scientific code change. Omit it to retain all existing defaults,
+including byte-identical x64 command construction. `--threads` controls
+`make_examples` shards, not the inference batch.
+
+ARM preflight uses the larger sequential-stage budget, not the sum:
+inference allowance `2 + 30 × batch_size/1024` GiB, or `2 × shards` GiB,
+plus 1 GiB driver/headroom. Defaults at 16 shards estimate 33 GiB; the example
+estimates 17 GiB. These are conservative WGS estimates against reclaimable,
+cgroup-aware available memory, not allocations or custom-model guarantees.
+The smaller batch is chr20-qualified; the full-genome results above retain
+the original default batch. The additional replay compute estimate was
+$0.8131 (under $2 even with a $0.50 allowance); its resources were deleted.
