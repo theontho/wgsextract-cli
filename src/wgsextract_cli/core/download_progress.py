@@ -5,7 +5,7 @@ import re
 import sys
 import time
 import urllib.parse
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from email.message import Message
 from typing import BinaryIO, Protocol
 
@@ -18,7 +18,7 @@ _URL_PATTERN = re.compile(
 )
 
 
-def redact_urls(text: str) -> str:
+def redact_urls(text: str, *, sources: Iterable[str] = ()) -> str:
     """Keep URL locations in diagnostics without credentials or signed queries."""
 
     def redact(match: re.Match[str]) -> str:
@@ -30,7 +30,22 @@ def redact_urls(text: str) -> str:
         except ValueError:
             return "<redacted-url>"
 
-    return _URL_PATTERN.sub(redact, text)
+    text = _URL_PATTERN.sub(redact, text)
+    # Client errors may echo a relative request path or credentials without a URL.
+    for source in sources:
+        try:
+            parsed = urllib.parse.urlsplit(source)
+            if parsed.scheme not in {"http", "https", "ftp"}:
+                continue
+            parts = [parsed.username, parsed.password, parsed.query, parsed.fragment]
+            parts.extend(value for _, value in urllib.parse.parse_qsl(parsed.query))
+        except ValueError:
+            continue
+        for value in sorted({part for part in parts if part}, key=len, reverse=True):
+            decoded = urllib.parse.unquote(value)
+            for secret in (value, decoded, repr(value)[1:-1], repr(decoded)[1:-1]):
+                text = text.replace(secret, "<redacted>")
+    return text
 
 
 class DownloadCancelled(Exception):

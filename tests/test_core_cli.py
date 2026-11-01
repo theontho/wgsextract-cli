@@ -156,7 +156,9 @@ def test_command_echo_and_streamed_stderr_redact_urls_but_execute_original(
         "import sys,time;from pathlib import Path;"
         "Path(sys.argv[2]).write_text(sys.argv[1]);"
         "sys.stderr.write(sys.argv[1][:35]);sys.stderr.flush();time.sleep(.03);"
-        "sys.stderr.write(sys.argv[1][35:]+'\\n');sys.stderr.flush();sys.exit(1)"
+        "sys.stderr.write(sys.argv[1][35:]+'\\n');"
+        "sys.stderr.write('signature rejected '+sys.argv[1].rsplit('=',1)[-1]+'\\n');"
+        "sys.stderr.flush();sys.exit(1)"
     )
     with (
         caplog.at_level(logging.DEBUG),

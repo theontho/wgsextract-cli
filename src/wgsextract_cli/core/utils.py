@@ -145,7 +145,11 @@ def _normalize_subprocess_cmd(cmd: PathInput | Sequence[object]) -> list[str]:
 
 
 def _tee_stderr(
-    fd: int, tail: bytearray, target: IO[str], redact_output_urls: bool = False
+    fd: int,
+    tail: bytearray,
+    target: IO[str],
+    redact_output_urls: bool = False,
+    sources: Sequence[str] = (),
 ) -> None:
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
     binary = getattr(target, "buffer", None)
@@ -160,7 +164,7 @@ def _tee_stderr(
                 pending = ""
                 for line in lines:
                     if line.endswith(("\n", "\r")):
-                        target.write(redact_urls(line))
+                        target.write(redact_urls(line, sources=sources))
                         target.flush()
                     else:
                         pending = line
@@ -172,7 +176,9 @@ def _tee_stderr(
                 target.write(decoder.decode(chunk))
                 target.flush()
         if redact_output_urls:
-            target.write(redact_urls(pending + decoder.decode(b"", final=True)))
+            target.write(
+                redact_urls(pending + decoder.decode(b"", final=True), sources=sources)
+            )
             target.flush()
         elif binary is None:
             target.write(decoder.decode(b"", final=True))
@@ -234,7 +240,7 @@ def run_command(
         os.close(stderr_write)
         stderr_thread = threading.Thread(
             target=_tee_stderr,
-            args=(stderr_read, stderr_tail, sys.stderr, redact_output_urls),
+            args=(stderr_read, stderr_tail, sys.stderr, redact_output_urls, cmd_list),
             daemon=True,
         )
         stderr_thread.start()
@@ -265,7 +271,9 @@ def run_command(
                 process.returncode,
                 display_cmd,
                 res_stdout,
-                redact_urls(res_stderr) if isinstance(res_stderr, str) else res_stderr,
+                redact_urls(res_stderr, sources=cmd_list)
+                if isinstance(res_stderr, str)
+                else res_stderr,
             )
         return subprocess.CompletedProcess(
             cmd_list, process.returncode, res_stdout, res_stderr

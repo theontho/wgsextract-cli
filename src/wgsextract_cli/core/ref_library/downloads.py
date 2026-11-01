@@ -156,14 +156,14 @@ def download_file(
             "Could not resolve GitHub release asset checksum for %s: %s. "
             "Continuing without GitHub asset SHA-256 verification.",
             redact_urls(url),
-            redact_urls(str(e)),
+            redact_urls(str(e), sources=(url,)),
         )
         expected_sha256 = None
     except ValueError as e:
         logging.error(
             "Could not resolve GitHub release asset checksum for %s: %s",
             redact_urls(url),
-            redact_urls(str(e)),
+            redact_urls(str(e), sources=(url,)),
         )
         return False
 
@@ -211,12 +211,12 @@ def download_file(
                 for leftover in (partial_dest, partial_dest + ".segments"):
                     Path(leftover).unlink(missing_ok=True)
             except DownloadCancelled as e:
-                logging.info(redact_urls(str(e)))
+                logging.info(redact_urls(str(e), sources=(url,)))
                 return False
             except (OSError, HTTPException) as e:
                 logging.error(
                     "Download error: %s (run the command again to resume)",
-                    redact_urls(str(e)),
+                    redact_urls(str(e), sources=(url,)),
                 )
                 return False
             else:
@@ -252,7 +252,8 @@ def download_file(
             )
         except (OSError, subprocess.SubprocessError) as e:
             logging.warning(
-                "curl download failed, falling back to urllib: %s", redact_urls(str(e))
+                "curl download failed, falling back to urllib: %s",
+                redact_urls(str(e), sources=(url,)),
             )
 
     for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
@@ -269,12 +270,12 @@ def download_file(
         except _RESUMABLE as e:
             if attempt == DOWNLOAD_ATTEMPTS:
                 logging.error(
-                    f"Download error: {redact_urls(str(e))} (gave up after {attempt} attempts; "
+                    f"Download error: {redact_urls(str(e), sources=(url,))} (gave up after {attempt} attempts; "
                     "run the command again to resume)"
                 )
                 return False
             logging.warning(
-                f"Download interrupted ({redact_urls(str(e))}); resuming "
+                f"Download interrupted ({redact_urls(str(e), sources=(url,))}); resuming "
                 f"(attempt {attempt + 1} of {DOWNLOAD_ATTEMPTS})..."
             )
             time.sleep(min(30, 2**attempt))
@@ -371,7 +372,7 @@ def _urllib_download(
             url, dest, partial_dest, expected_sha256, checksum_hint, use_cache
         )
     except DownloadCancelled as e:
-        logging.info(redact_urls(str(e)))
+        logging.info(redact_urls(str(e), sources=(url,)))
     except _RESUMABLE:
         raise
     except URLError as e:
@@ -379,13 +380,14 @@ def _urllib_download(
         # down) may pass; retry those. A client error (4xx) won't.
         if not isinstance(e, HTTPError) or e.code >= 500:
             raise ConnectionError(str(e)) from e
-        logging.error("Download error: %s", redact_urls(str(e)))
+        logging.error("Download error: %s", redact_urls(str(e), sources=(url,)))
     except (
         OSError,
+        HTTPException,
         subprocess.SubprocessError,
         WGSExtractError,
     ) as e:
-        logging.error("Download error: %s", redact_urls(str(e)))
+        logging.error("Download error: %s", redact_urls(str(e), sources=(url,)))
     return False
 
 

@@ -485,6 +485,19 @@ def test_redaction_covers_multiple_urls_and_malformed_query_tails():
     )
 
 
+@pytest.mark.parametrize("userinfo", ["", "private-user:private-password@"])
+def test_actual_urlopen_errors_do_not_expose_relative_query_or_credentials(
+    server, tmp_path, monkeypatch, caplog, userinfo
+):
+    monkeypatch.setattr(downloads, "DOWNLOAD_ATTEMPTS", 1)
+    url = (
+        server.url.replace("://", f"://{userinfo}") + "?token=private-token with spaces"
+    )
+    assert not downloads.download_file(url, str(tmp_path / "invalid-request"))
+    for secret in ("private-user", "private-password", "private-token"):
+        assert secret not in caplog.text
+
+
 def test_a_cancelled_download_keeps_its_partial_for_the_next_run(server, tmp_path):
     dest = tmp_path / "hs38.fa.gz"
     partial = tmp_path / "hs38.fa.gz.partial"

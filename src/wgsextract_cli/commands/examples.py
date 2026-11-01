@@ -152,7 +152,8 @@ def _download_file(
         partial.replace(destination)
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(
-            f"Download failed for {redact_urls(source)}: {redact_urls(str(e))}. "
+            f"Download failed for {redact_urls(source)}: "
+            f"{redact_urls(str(e), sources=(source,))}. "
             f"Re-run to resume from {partial}."
         ) from e
 
