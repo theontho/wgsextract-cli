@@ -42,7 +42,7 @@ checksums. Installed numerical operations, Yleaf imports/help/marker tables and
 live loaded-library audits pass natively with source Python 3.13.18.
 The hosted combined prefix audits 156 PE files; a fresh native-only Pixi
 candidate installation on Windows 11 ARM64 audits 153 before test tools are added.
-These are candidate qualification results, not release/full-genome approval.
+These are candidate qualification results, not release approval.
 
 ## Public native x64 calling control
 
@@ -53,6 +53,59 @@ x64 lock and checksum-pinned public HG00096 CRAM/reference, calling exactly
 command, input hashes, PE identities and decoded body fingerprint. Comparison
 does not normalize, sort or round variant records. This is a 1 Mb correctness
 control, not a full-genome VCF or a matched-hardware performance benchmark.
+
+## Public full-genome candidate qualification
+
+Native Windows 11 ARM64 qualification uses the public 30x HG00096
+ERR3240114 CRAM and GRCh38 full-analysis/decoy/HLA reference, with 16 threads,
+`--memory 256M`, complete-pair extraction and `-K 100000000`.
+Both complete ordered decoded SAM bodies exactly match the preserved native
+Windows x64 gold, without sorting, normalization or value substitutions:
+
+| Aligner | Records | Raw ordered body SHA-256 |
+| --- | ---: | --- |
+| BWA 0.7.19 | 779,820,884 | `a458f05a26951158c3fa8f3daa1af2591aa5d303fdd8427c3c9ceb0bbe1cb19c` |
+| BWA-MEM2 2.3 | 779,820,884 | `74890656b61e2ad38a22a5247e639e5c0f07cbe6e1efff6658e80b3041d68058` |
+
+Portable headers, flagstat and idxstats also match; cleanup, preflight and
+exit status pass. All five full MEM2 index members exactly match independently
+preserved Linux ARM64 and x64 hashes, including the >4 GiB members.
+The complete native small suite passes **119 tests, 14 skipped** on final
+samtools build 2. Installed-file audits cover 156 AA64 files with QA launchers
+(153 before QA); live mapping processes and every loaded module are AA64,
+with `IsWow64Process2` process machine `0000` and native machine `AA64`.
+
+| Aligner | ARM wall (s) | x64 wall (s) | ARM/x64 | ARM/x64 peak WS (GiB) | ARM compute $/genome |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| BWA | 18,905.63 | 27,255.29 | 0.694 | 17.19 / 16.69 | 4.92 |
+| MEM2 | 16,763.65 | 23,460.62 | 0.715 | 29.69 / 28.96 | 4.36 |
+
+These are matched-workload VM comparisons, **not ISA-isolated benchmarks**:
+ARM runs Windows 11 on 16 physical/logical cores with local NVMe; the preserved
+x64 control runs Windows Server 2022 on 8 physical/16 logical cores.
+Both guests have 128 GiB RAM. ARM compute uses the verified standard E16pds_v6
+rate of $0.936/hour and excludes setup, indexing, verification and reserves.
+BWA was measured with samtools build 1; the build 2 change only fixes BAM
+reheader stdout ownership and was installed and requalified after that run.
+MEM2 uses final build 2.
+
+Final-build-2 calling repeats four serial 1 Mb chr20 pilots: all 1,437 records
+match both native Windows x64 and Linux x64 controls, body SHA-256
+`589fb4b1189290eab285992b71f9e0231455cfb93f3ab4e20e877a828db0b861`.
+Full original-CRAM `vcf snp --parallel` also exactly matches the native Linux
+x64 full oracle: **4,408,885 records / 755,112,547 decoded body bytes**, SHA-256
+`b2c720c5dc4ec55a19042998745d1725f161b8cb6bda8ec282d6b62e01127528`.
+There is no native Windows x64 full-calling oracle; do not describe the Linux
+full comparison as one. The raw full and pilot VCFs are preserved and their
+body hashes independently rechecked after download; headers remain separate.
+Full native calling takes **892.02 s**, sampled peak group RSS **3.717 GiB**,
+compute **$0.232**; live Python/BCFtools and every loaded module audit AA64.
+The complete Windows ARM assignment settles at **$15.00865 including
+conservative disk/network reserves**, below the $20 cap. All three owned VMs
+and associated assets are deleted and independently verified absent.
+
+Package publication, an enabled default lock and root release approval remain
+separate gates; this evidence does not enable the platform.
 
 ## Explicit fresh candidate installation
 
@@ -102,8 +155,8 @@ suffix-array patches, but builds with clang-cl's ARM64 target and KSW NEON.
 Static zlib, PThreads4W and getopt come from a fixed vcpkg baseline; its port
 recipes pin and checksum their sources. Compiler include output must show
 `neon_sse.h`; `_M_ARM64` is asserted and ARM64EC/x86 macros rejected.
-The native suffix-array equivalence probe is part of the recipe. This build
-is not yet a full-genome acceptance or performance result.
+The native suffix-array equivalence probe is part of the recipe. Full-genome
+candidate exactness and performance are reported separately above.
 The paired-read smoke gate truth-checks 600 alignments, compares one/four
 threads and requires the complete ordered SAM body to match Linux BWA
 0.7.19-r1273, SHA-256
@@ -141,8 +194,8 @@ The Linux package's embedded recipe confirms the identical pinned source SHA,
 not merely the version text. Live executable/process/modules audit AA64.
 These small-fixture results are not approval of #268's full-index release gate.
 The 2.3 source archive still defaults its version string to 2.2.1; the ARM
-recipe explicitly sets the actual pinned source release, 2.3. A matching 2.3
-full-genome comparison remains required. The golden's executable reports 2.2.1,
+recipe explicitly sets the actual pinned source release, 2.3. The matching 2.3
+full-genome comparison above passes. The golden's executable reports 2.2.1,
 but inspecting `37668c53763709613267b96eb151a245aa9d1443:pixi.lock` and the
 embedded Linux package recipe proves it uses the same 2.3 source archive.
 The Windows recipe at that commit also pins the identical source SHA.
@@ -166,7 +219,7 @@ their own executables, avoiding duplicate HTS files in the installed prefix.
 Source checksums and complete upstream C source lists have been checked.
 BCFtools' native package, existing regressions and region-index regression pass;
 samtools' native package and regressions now also pass. The generated whole-pipeline
-fixture passes; full-genome qualification remains pending.
+fixture passes; full-genome candidate qualification is reported above.
 The ARM64 HTS library propagates an 8 MiB linker stack reserve to its consumers.
 The default MSVC 1 MiB
 reserve caused `0xC00000FD` while indexing a public-genome realigned CRAM:
@@ -226,7 +279,8 @@ indexed coverage and a truth-known homozygous variant using the built packages.
 Its 40 decoded records and complete VCF body now match the Linux fixture
 exactly on native Windows ARM64. Live samtools/bcftools module audits and 11
 selected existing small-genome CLI tests also pass with secure packaged Python.
-These selected gates are not the complete small/full-genome suites.
+The separately executed complete native small suite and full-genome candidate
+gates are reported above; the hosted fixture is not a full-genome benchmark.
 The integration job also stages selected existing small-genome CLI tests for
 realignment, sort/index/CRAM, calling, info/coverage and microarray export.
 It installs and uses the secure source-built Python package, never overlaying
