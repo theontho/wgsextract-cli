@@ -1,0 +1,48 @@
+name: Developer setup
+
+# Runs scripts/dev_setup.sh and scripts/dev_setup.ps1 on fresh runners, without
+# setup-pixi, the way a new contributor runs them.
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - scripts/dev_setup.sh
+      - scripts/dev_setup.ps1
+      - scripts/bootstrap_windows_prereqs.ps1
+      - justfile
+      - pixi.toml
+      - pixi.lock
+      - .pre-commit-config.yaml
+      - .github/workflows/dev_setup.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  setup:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up (macOS and Linux)
+        if: runner.os != 'Windows'
+        run: ./scripts/dev_setup.sh
+      - name: Set up (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/dev_setup.ps1
+      - name: Use just from a new shell
+        shell: bash
+        run: |
+          export PATH="$HOME/.pixi/bin:$PATH"
+          just --list
+          just run --version
