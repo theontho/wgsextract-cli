@@ -29,7 +29,7 @@ $response = "$env:SRC_DIR\out\python-build.rsp"
     "@$response" 2>&1 |
     Tee-Object -FilePath "$evidence\compiler.log"
 if ($LASTEXITCODE) { throw "CPython 3.13.18 ARM64 source build failed" }
-& python "$env:SRC_DIR\PC\layout" --source $env:SRC_DIR `
+& "$env:SRC_DIR\PCbuild\arm64\python.exe" "$env:SRC_DIR\PC\layout" --source $env:SRC_DIR `
     --build "$env:SRC_DIR\PCbuild\arm64" --arch arm64 --preset-nuget `
     --copy $env:PREFIX
 if ($LASTEXITCODE) { throw "CPython ARM64 package layout failed" }

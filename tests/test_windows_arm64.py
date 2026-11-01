@@ -1,4 +1,5 @@
 import argparse
+import shutil
 import struct
 import subprocess
 import sys
@@ -10,6 +11,39 @@ import pytest
 from wgsextract_cli.cli.platform_support import verify_platform_support
 from wgsextract_cli.core import dependency_checks, pixi_tools, utils, windows_arm64
 from wgsextract_cli.core.utils import WGSExtractError
+
+
+@pytest.mark.skipif(
+    windows_arm64.windows_native_machine() != 0xAA64,
+    reason="requires a native Windows ARM64 process",
+)
+def test_native_process_audit_drains_both_full_output_pipes(tmp_path: Path) -> None:
+    script = Path(__file__).resolve().parents[1] / "scripts"
+    script /= "qualify_windows_arm64_process.ps1"
+    shutil.copyfile(sys.executable, tmp_path / "native-python.exe")
+    report = tmp_path / "audit.json"
+    code = (
+        "import sys; sys.stdin.read(); "
+        "sys.stdout.write('x'*65536); sys.stderr.write('y'*65536)"
+    )
+
+    def quote(value: str | Path) -> str:
+        return "'" + str(value).replace("'", "''") + "'"
+
+    command = (
+        f"& {quote(script)} -Executable {quote(sys.executable)} "
+        f"-Arguments @('-u', '-c', {quote(code)}) "
+        f"-Prefix {quote(tmp_path)} -Report {quote(report)}"
+    )
+    subprocess.run(
+        ["pwsh", "-NoProfile", "-Command", command],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    )
+    assert Path(str(report) + ".stdout.log").read_bytes() == b"x" * 65536
+    assert Path(str(report) + ".stderr.log").read_bytes() == b"y" * 65536
 
 
 @pytest.mark.parametrize("tool", ["gatk", "deepvariant"])
