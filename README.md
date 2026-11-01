@@ -378,7 +378,9 @@ Integer thresholds and cache TTLs require TOML integers, not quoted numbers or
 booleans. Memory limits (for example `memory = "2G"`), paths,
 and image names are strings. `vcf_input_paths` also accepts an array of strings.
 Errors name the setting and expected type; canonical keys and aliases follow
-the same rules. Valid values and missing-setting defaults are unchanged.
+the same rules. `--config` selects its file before validation, so an invalid
+unused default file does not block a valid alternate configuration. Valid
+values and missing-setting defaults are unchanged.
 
 BWA and bwa-mem2 indexes require every nonempty index file. Builds use an exclusive lock and a staged prefix; an interrupted build is rebuilt on the next run instead of being trusted.
 

@@ -60,6 +60,8 @@ def _isolate_user_config(
     spawn by pointing the home/config dirs at an empty per-test home. Tests
     marked ``real_config`` intentionally read the real config.
     """
+    if request.node.get_closest_marker("real_config") is not None:
+        reload_settings()
     saved = dict(settings)
     if request.node.get_closest_marker("real_config") is None:
         monkeypatch.setattr("wgsextract_cli.core.config._config_path_override", None)

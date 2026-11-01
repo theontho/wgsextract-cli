@@ -152,6 +152,29 @@ def test_save_config_rejects_invalid_types_before_publication(temp_config):
     assert config.settings["atomic_outputs"] is False
 
 
+def test_startup_selects_alternate_config_before_validating_default(tmp_path):
+    default = config.get_config_path()
+    default.parent.mkdir(parents=True, exist_ok=True)
+    default.write_text('atomic_outputs = "false"\n')
+    alternate = tmp_path / "alternate.toml"
+    alternate.write_text("atomic_outputs = false\nkeep_awake = false\n")
+    command = [sys.executable, "-m", "wgsextract_cli.main"]
+
+    selected = subprocess.run(
+        [*command, "--config", str(alternate), "help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert selected.returncode == 0, selected.stderr
+    assert "COMMAND TREE:" in selected.stdout
+    rejected = subprocess.run(
+        [*command, "help"], capture_output=True, text=True, check=False
+    )
+    assert rejected.returncode != 0
+    assert "atomic_outputs" in rejected.stderr and "TOML boolean" in rejected.stderr
+
+
 def test_save_config_clears_aliases_of_cleared_key(temp_config):
     temp_config.write_text('reflib = "/old/reference"\nthreads = 4\n')
     config.reload_settings()

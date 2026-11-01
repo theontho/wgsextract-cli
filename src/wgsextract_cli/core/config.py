@@ -327,8 +327,8 @@ def load_config() -> dict[str, Any]:
     return normalize_config_paths(config)
 
 
-# Global config object
-settings = load_config()
+# main selects --config before loading; importers share this stable dictionary.
+settings: dict[str, Any] = {}
 
 
 def reload_settings() -> None:
