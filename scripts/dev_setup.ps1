@@ -89,3 +89,5 @@ Setup complete. Common commands (run 'just' for the full list):
   just ci            the checks CI runs; run before opening a pull request
 See docs/developer_setup.md for the change-to-pull-request walkthrough.
 "@
+
+exit 0
