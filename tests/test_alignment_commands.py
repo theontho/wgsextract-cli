@@ -198,6 +198,27 @@ def test_collate_buckets_fit_the_memory_budget(tmp_path):
     assert _collate_buckets(str(tmp_path / "missing.bam"), "1", "1G") == 64
 
 
+def test_streaming_collate_caps_overlap_independently_of_sort_memory(tmp_path):
+    from wgsextract_cli.commands._extract_helpers import (
+        STREAM_COLLATE_MEMORY_LIMIT,
+        _collate_buckets,
+        collate_working_memory,
+        paired_fastq_stream,
+    )
+
+    bam = tmp_path / "large.bam"
+    with bam.open("wb") as output:
+        output.truncate(5 * 1024**3)
+    legacy = _collate_buckets(bam, "8", "2G")
+    with paired_fastq_stream(
+        bam, threads="8", memory="2G", temp_parent=tmp_path
+    ) as stages:
+        collate = stages[1]
+        buckets = int(collate[collate.index("-n") + 1])
+    assert legacy < buckets <= 200
+    assert collate_working_memory(bam, "8", "2G") <= STREAM_COLLATE_MEMORY_LIMIT
+
+
 def test_extract_custom_requires_region(tmp_path, monkeypatch):
     _no_deps(monkeypatch, extract)
     monkeypatch.setattr(extract, "get_base_args", lambda _a: _fake_base(tmp_path))
@@ -359,7 +380,7 @@ def test_bwa_batch_size_does_not_depend_on_threads(
     tmp_path, monkeypatch, tool, threads
 ):
     setup = align._AlignSetup(threads, "100M", str(tmp_path), "ref.fa", "sample")
-    monkeypatch.setattr(align, "_bwa_setup", lambda *_a: (setup, tool))
+    monkeypatch.setattr(align, "_bwa_setup", lambda *_a, **_k: (setup, tool))
     monkeypatch.setattr(align, "duplicate_marker", lambda **_k: None)
     commands = []
     monkeypatch.setattr(
@@ -385,12 +406,12 @@ def test_mem2_sort_cap_respects_smaller_explicit_budgets(
     tmp_path, monkeypatch, tool, budget, sort_memory
 ):
     setup = align._AlignSetup("2", budget, str(tmp_path), "ref.fa", "sample")
-    monkeypatch.setattr(align, "_prepare_alignment", lambda *_: setup)
+    monkeypatch.setattr(align, "_prepare_alignment", lambda *_a, **_k: setup)
     monkeypatch.setattr(align, "check_mapping_memory", lambda *_a, **_kw: None)
     monkeypatch.setattr(align, "ensure_bwa_index", lambda *_: None)
     monkeypatch.setattr(align, "ensure_bwa_alt_file", lambda *_: None)
     monkeypatch.setattr(align.bwa_mem2, "ensure_index", lambda *_a, **_k: None)
-    monkeypatch.setattr(align.bwa_mem2, "can_map", lambda *_: True)
+    monkeypatch.setattr(align.bwa_mem2, "can_map", lambda *_a, **_k: True)
     monkeypatch.setattr(align, "print_warning", lambda *_a, **_k: None)
     monkeypatch.setattr(align, "run_command", lambda *_a, **_k: None)
     pipelines = []

@@ -3,9 +3,10 @@
 import logging
 import math
 import stat
+import subprocess
 import zlib
 from pathlib import Path
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 from wgsextract_cli.core.paths import PathInput
 
@@ -17,6 +18,56 @@ _CHUNK_BYTES = 64 * 1024
 class FastqStatistics(NamedTuple):
     reads: int
     read_length: float | None
+
+
+def alignment_read_length(
+    path: PathInput,
+    *,
+    cram_opt: list[str] | None = None,
+) -> float | None:
+    """Read at most 4096 SAM records / 16 MiB, sampling paired primary lengths."""
+    from wgsextract_cli.core.process_registry import proc_registry
+    from wgsextract_cli.core.utils import popen
+
+    command = [
+        "samtools",
+        "view",
+        *(cram_opt or []),
+        str(path),
+    ]
+    process = None
+    try:
+        process = popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        assert process.stdout is not None
+        scanned = records = bases = consumed = 0
+        while scanned < 4096 and consumed < _DECODED_SAMPLE_BYTES:
+            line = process.stdout.readline(_DECODED_SAMPLE_BYTES - consumed)
+            if not line or not line.endswith(b"\n"):
+                break
+            consumed += len(line)
+            scanned += 1
+            fields = line.split(b"\t")
+            if len(fields) >= 11 and int(fields[1]) & 0x901 == 1 and fields[9] != b"*":
+                bases += len(fields[9])
+                records += 1
+        return bases / records if records else None
+    except (OSError, subprocess.SubprocessError):
+        logging.debug("Could not sample alignment read length: %s", path, exc_info=True)
+        return None
+    finally:
+        if process is not None:
+            if process.stdout:
+                process.stdout.close()
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+            proc_registry.unregister_process(
+                " ".join(cast(list[str], process.args)), process
+            )
 
 
 def fastq_statistics(path: PathInput) -> FastqStatistics | None:

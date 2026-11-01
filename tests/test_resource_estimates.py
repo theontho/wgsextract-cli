@@ -72,6 +72,29 @@ def source(tmp_path):
     return source
 
 
+def test_streamed_collation_spill_is_charged_to_selected_temporary_volume(
+    tmp_path, source, monkeypatch
+):
+    output, scratch = str(tmp_path / "output"), str(tmp_path / "scratch")
+    monkeypatch.setattr(resources, "_disk_space", lambda path: (path, 100 * GIB))
+    estimate = resources.estimate_resources(
+        "realign",
+        input_paths=[str(source)],
+        output_dir=output,
+        temp_dir=scratch,
+        reads=1000,
+        additional_ram_bytes=64 * 1024**2,
+    )
+    disks = {
+        row.paths[0]: row
+        for row in estimate.resources
+        if row.resource == "disk" and row.paths
+    }
+    assert "collation_spill" not in disks[output].components
+    assert disks[scratch].components["collation_spill"] > 0
+    assert disks[scratch].components["temporary"] > 0
+
+
 def test_h2_envelope_reuses_memory_model_and_scales_disk_by_input_reads(
     tmp_path, source, monkeypatch
 ):
@@ -377,7 +400,9 @@ def test_alignment_reports_before_index_building_or_fastq_extraction(
         estimate = build()
         assert estimate.operation == operation
         if operation == "realign" and platform != "ultima":
-            assert estimate.resources[1].components["extracted_fastqs"] > 0
+            assert "extracted_fastqs" not in estimate.resources[1].components
+            assert estimate.resources[1].components["collation_spill"] > 0
+            assert estimate.resources[0].components["collation"] > 0
         if platform == "ultima":
             assert estimate.resources[1].components["temporary"] == 20_000
         raise Reported
@@ -386,7 +411,7 @@ def test_alignment_reports_before_index_building_or_fastq_extraction(
         monkeypatch.setattr(
             align,
             "_prepare_alignment",
-            lambda *_: align._AlignSetup(
+            lambda *_a, **_k: align._AlignSetup(
                 "1", "256M", str(tmp_path), str(ref), "sample"
             ),
         )
@@ -407,6 +432,7 @@ def test_alignment_reports_before_index_building_or_fastq_extraction(
                 "align",
             )
     else:
+        monkeypatch.setattr(align, "streaming_mapping_fits", lambda *_a, **_kw: True)
         monkeypatch.setattr(realign, "resolve_reference", lambda *_: str(ref))
         monkeypatch.setattr(realign, "indexed_read_count", lambda *_: 100)
         monkeypatch.setattr(realign, "preflight_resources", reported)

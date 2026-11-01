@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import NamedTuple
 
 from wgsextract_cli.core import bwa_mem2, ultima
-from wgsextract_cli.core.alignment_memory import check_mapping_memory
+from wgsextract_cli.core.alignment_memory import (
+    available_memory,
+    check_mapping_memory,
+    estimate_mapping_memory,
+)
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.atomic_output import atomic_outputs_enabled, safe_output
 from wgsextract_cli.core.dependencies import get_tool_path as get_tool_path
@@ -228,7 +232,11 @@ def short_read_aligner(
         return "bwa"
     memory = short_read_sort_memory("bwa-mem2", memory, log=False)
     fits = bwa_mem2.can_map(
-        ref, threads=threads, memory=memory, samblaster=samblaster, reads=reads
+        ref,
+        threads=threads,
+        memory=memory,
+        samblaster=samblaster,
+        reads=reads,
     )
     if bwa_mem2.has_index(ref):
         if fits:
@@ -244,6 +252,35 @@ def short_read_aligner(
             f"`wgsextract ref index --aligner bwa-mem2 --ref {ref}` sets it up."
         )
     return "bwa"
+
+
+class StreamingMemoryUnavailable(WGSExtractError):
+    """Retry file extraction before starting an overlapping alignment pipeline."""
+
+
+def streaming_mapping_fits(
+    ref: str,
+    tool: str,
+    *,
+    threads: str,
+    memory: str,
+    samblaster: bool,
+    reads: int | None,
+    platform: str | None,
+    read_length: float | None,
+    additional_ram_bytes: int,
+) -> bool:
+    estimate = estimate_mapping_memory(
+        ref,
+        tool,
+        threads=threads,
+        memory=short_read_sort_memory(tool, memory, log=False),
+        samblaster=samblaster,
+        reads=reads,
+        platform=platform,
+        read_length=read_length,
+    )
+    return estimate.total + additional_ram_bytes <= available_memory()
 
 
 def reads_stem(path: str) -> str:
@@ -302,7 +339,11 @@ def _require_unambiguous_library(ref: str | None, task: str) -> None:
 
 
 def _prepare_alignment(
-    args: argparse.Namespace, tools: list[str], task: str
+    args: argparse.Namespace,
+    tools: list[str],
+    task: str,
+    *,
+    read_paths: list[str] | None = None,
 ) -> _AlignSetup:
     verify_dependencies(tools)
     log_dependency_info(tools)
@@ -310,8 +351,12 @@ def _prepare_alignment(
 
     if not args.r1:
         raise WGSExtractError("--r1 is required unless --genome resolves read inputs.")
-    paths_to_check = {"--r1": args.r1}
-    if args.r2:
+    paths_to_check = (
+        {f"read input {index + 1}": path for index, path in enumerate(read_paths)}
+        if read_paths is not None
+        else {"--r1": args.r1}
+    )
+    if read_paths is None and args.r2:
         paths_to_check["--r2"] = args.r2
     verify_paths_exist(paths_to_check)
 
@@ -487,11 +532,17 @@ def read_group(args: argparse.Namespace, stem: str) -> str:
     return f"@RG\\tID:{stem}\\tSM:{sample}\\tLB:{sample}\\tPL:{platform}"
 
 
-def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
+def _bwa_setup(
+    args: argparse.Namespace,
+    task: str,
+    *,
+    read_paths: list[str] | None = None,
+    additional_ram_bytes: int = 0,
+) -> tuple[_AlignSetup, str]:
     """The alignment setup and bwa or bwa-mem2 (short_read_aligner's choice),
     with the reference's index and ALT contig list in place."""
     tool = "bwa-mem2" if args.aligner == "bwa-mem2" else "bwa"
-    setup = _prepare_alignment(args, [tool, "samtools"], task)
+    setup = _prepare_alignment(args, [tool, "samtools"], task, read_paths=read_paths)
     samblaster = bool(args.r2) and get_tool_path("samblaster") is not None
     if hasattr(args, "_input_read_count"):
         reads = args._input_read_count
@@ -514,10 +565,24 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
     if tool == "bwa-mem2":
         ensure_fasta_index(setup.ref)
     setup = setup._replace(memory=short_read_sort_memory(tool, setup.memory))
+    if additional_ram_bytes and not streaming_mapping_fits(
+        setup.ref,
+        tool,
+        threads=setup.threads,
+        memory=setup.memory,
+        samblaster=samblaster,
+        reads=reads,
+        platform=getattr(args, "platform", None),
+        read_length=read_length,
+        additional_ram_bytes=additional_ram_bytes,
+    ):
+        raise StreamingMemoryUnavailable("Collation exceeds available alignment RAM")
     preflight_resources(
         lambda: estimate_resources(
             "align",
-            input_paths=[path for path in (args.r1, args.r2) if path],
+            input_paths=read_paths
+            if read_paths is not None
+            else [path for path in (args.r1, args.r2) if path],
             output_dir=setup.outdir,
             temp_dir=configured_temp_directory(),
             reference=setup.ref,
@@ -528,6 +593,7 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
             reads=reads,
             platform=getattr(args, "platform", None),
             read_length=read_length,
+            additional_ram_bytes=additional_ram_bytes,
             output_format=getattr(args, "format", "BAM"),
             duplicate_marking=(
                 "gatk-flow"
@@ -537,16 +603,22 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
             ),
         )
     )
-    check_mapping_memory(
-        setup.ref,
-        tool,
-        threads=setup.threads,
-        memory=setup.memory,
-        samblaster=samblaster,
-        reads=reads,
-        platform=getattr(args, "platform", None),
-        read_length=read_length,
-    )
+    try:
+        check_mapping_memory(
+            setup.ref,
+            tool,
+            threads=setup.threads,
+            memory=setup.memory,
+            samblaster=samblaster,
+            reads=reads,
+            platform=getattr(args, "platform", None),
+            read_length=read_length,
+            additional_ram_bytes=additional_ram_bytes,
+        )
+    except WGSExtractError as error:
+        if additional_ram_bytes:
+            raise StreamingMemoryUnavailable(str(error)) from error
+        raise
     warn_alignment_sort_space(configured_temp_directory() or setup.outdir, reads)
     args._input_read_count = reads
     if tool == "bwa-mem2":
@@ -558,15 +630,30 @@ def _bwa_setup(args: argparse.Namespace, task: str) -> tuple[_AlignSetup, str]:
     return setup, tool
 
 
-def align_bwa(args: argparse.Namespace) -> None:
+def align_bwa(
+    args: argparse.Namespace,
+    *,
+    upstream: Sequence[Sequence[object]] = (),
+    read_paths: list[str] | None = None,
+    additional_ram_bytes: int = 0,
+) -> None:
     """BWA-MEM alignment with bwa or bwa-mem2 (short_read_aligner's choice)."""
-    setup, tool = _bwa_setup(args, "BWA alignment")
+    setup, tool = _bwa_setup(
+        args,
+        "BWA alignment",
+        read_paths=read_paths,
+        additional_ram_bytes=additional_ram_bytes,
+    )
 
     ext = ".cram" if args.format == "CRAM" else ".bam"
     out_bam = str(Path(setup.outdir, f"{setup.stem}_aligned{ext}"))
 
     logging.info(
-        LOG_MESSAGES["aligning_reads"].format(input=args.r1, output=out_bam, tool=tool)
+        LOG_MESSAGES["aligning_reads"].format(
+            input=read_paths[0] if read_paths else args.r1,
+            output=out_bam,
+            tool=tool,
+        )
     )
     align_cmd = [
         tool, "mem", "-K", BWA_BATCH_BASES, "-t", setup.threads,
@@ -574,14 +661,20 @@ def align_bwa(args: argparse.Namespace) -> None:
     ]  # fmt: skip
     align_cmd += [setup.ref, args.r1]
     try:
+        command = (
+            [*align_cmd[:-2], "-p", setup.ref, "-"]
+            if upstream
+            else align_cmd + ([args.r2] if args.r2 else [])
+        )
         run_streamed_alignment(
-            align_cmd + ([args.r2] if args.r2 else []),
+            command,
             out_bam,
             threads=setup.threads,
             memory=setup.memory,
             fmt=args.format,
             ref=setup.ref,
             duplicates=duplicate_marker(paired=bool(args.r2)),
+            upstream=list(upstream) if upstream else None,
             expected_reads=getattr(args, "_input_read_count", None),
         )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:

@@ -223,6 +223,7 @@ def check_mapping_memory(
     reads: int | None = None,
     platform: str | None = None,
     read_length: float | None = None,
+    additional_ram_bytes: int = 0,
 ) -> None:
     estimate = estimate_mapping_memory(
         ref,
@@ -239,17 +240,20 @@ def check_mapping_memory(
         f"{name.replace('_', ' ')} {value / _GIB:.1f}"
         for name, value in zip(estimate._fields, estimate, strict=True)
     )
+    if additional_ram_bytes:
+        components += f", collation {additional_ram_bytes / _GIB:.1f}"
+    total = estimate.total + additional_ram_bytes
     logging.info(
         "%s alignment memory estimate: %.2f GiB for %s input reads (%s GiB).",
         aligner,
-        estimate.total / _GIB,
+        total / _GIB,
         f"{reads:,}" if reads is not None else "unknown; 680-million-read fallback",
         components,
     )
-    if estimate.total <= available:
+    if total <= available:
         return
     message = (
-        f"{aligner} alignment is estimated to need {estimate.total / _GIB:.2f} GiB "
+        f"{aligner} alignment is estimated to need {total / _GIB:.2f} GiB "
         f"but only {available / _GIB:.2f} GiB RAM is available "
         f"({components} GiB). Lower --memory (per sort thread) or --threads, "
         "or free memory."
@@ -274,7 +278,7 @@ def check_mapping_memory(
             platform=platform,
             read_length=read_length,
         )
-        if reduced.total <= available:
+        if reduced.total + additional_ram_bytes <= available:
             low = candidate
         else:
             high = candidate - 1

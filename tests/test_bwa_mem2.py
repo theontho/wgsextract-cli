@@ -88,7 +88,7 @@ def test_mem2_effective_sort_budget_reaches_selection_guard_and_preflight(
     monkeypatch.setattr(alignment_memory, "_cgroup_available_memory", lambda: None)
     monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
     setup = align._AlignSetup("6", "512M", str(tmp_path), ref, "sample")
-    monkeypatch.setattr(align, "_prepare_alignment", lambda *_: setup)
+    monkeypatch.setattr(align, "_prepare_alignment", lambda *_a, **_k: setup)
     monkeypatch.setattr(align, "ensure_bwa_alt_file", lambda *_: None)
     monkeypatch.setattr(align, "print_warning", lambda *_a, **_kw: None)
     estimates, pipelines = [], []
@@ -191,7 +191,7 @@ def test_low_available_memory_refuses_mem2_but_bwa_warns_and_runs(
     ref = _reference(tmp_path, bases=3_000_000_000, index=True)
     monkeypatch.setattr(alignment_memory, "available_memory", lambda: GB)
     setup = align._AlignSetup("6", "512M", str(tmp_path), ref, "sample")
-    monkeypatch.setattr(align, "_prepare_alignment", lambda *_: setup)
+    monkeypatch.setattr(align, "_prepare_alignment", lambda *_a, **_k: setup)
     monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
     monkeypatch.setattr(align, "ensure_bwa_index", lambda *_: None)
     monkeypatch.setattr(align, "ensure_bwa_alt_file", lambda *_: None)
@@ -391,7 +391,7 @@ def test_bwa_setup_preserves_realign_index_count_for_selection_and_guard(
 ):
     ref = _reference(tmp_path, bases=3_217_346_917)
     setup = align._AlignSetup("6", "256M", str(tmp_path), ref, "sample")
-    monkeypatch.setattr(align, "_prepare_alignment", lambda *_: setup)
+    monkeypatch.setattr(align, "_prepare_alignment", lambda *_a, **_k: setup)
     monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
     monkeypatch.setattr(
         align,
@@ -418,6 +418,43 @@ def test_bwa_setup_preserves_realign_index_count_for_selection_and_guard(
         "alignment",
     )
     assert budgets == [reads] * 3
+
+
+def test_bwa_setup_rejects_stream_overlap_without_downgrading_auto(
+    tmp_path, monkeypatch
+):
+    ref = _reference(tmp_path)
+    setup = align._AlignSetup("8", "2G", str(tmp_path), ref, "sample")
+    monkeypatch.setattr(align, "_prepare_alignment", lambda *_a, **_kw: setup)
+    monkeypatch.setattr(align, "get_tool_path", lambda tool: tool)
+    monkeypatch.setattr(bwa_mem2, "has_index", lambda *_a: True)
+    monkeypatch.setattr(
+        bwa_mem2,
+        "can_map",
+        lambda *_a, **kw: kw.get("additional_ram_bytes", 0) == 0,
+    )
+    selected = []
+
+    def insufficient(_ref, tool, **_kw):
+        selected.append(tool)
+        return False
+
+    monkeypatch.setattr(align, "streaming_mapping_fits", insufficient)
+    monkeypatch.setattr(
+        align, "run_command", lambda *_a, **_kw: pytest.fail("pipeline started")
+    )
+    with pytest.raises(align.StreamingMemoryUnavailable):
+        align._bwa_setup(
+            Namespace(
+                aligner="auto",
+                r1="r1.fq",
+                r2="r2.fq",
+                _input_read_count=680_000_000,
+            ),
+            "alignment",
+            additional_ram_bytes=1024**3,
+        )
+    assert selected == ["bwa-mem2"]
 
 
 def test_select_aligner_accepts_bwa_mem2_for_short_reads():
@@ -562,7 +599,7 @@ def test_align_prepares_missing_fai_before_mem2_memory_and_index(tmp_path, monke
     assert not Path(str(ref) + ".fai").exists()
     assert not Path(str(ref) + ".ann").exists()
     setup = align._AlignSetup("1", "100M", str(tmp_path), str(ref), "sample")
-    monkeypatch.setattr(align, "_prepare_alignment", lambda *_: setup)
+    monkeypatch.setattr(align, "_prepare_alignment", lambda *_a, **_kw: setup)
     monkeypatch.setattr(bwa_mem2, "_total_memory", lambda: 8 * GB)
     monkeypatch.setattr(alignment_memory, "available_memory", lambda: 8 * GB)
     monkeypatch.setattr(align, "print_warning", lambda *_a, **_kw: None)
