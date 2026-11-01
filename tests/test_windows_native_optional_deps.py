@@ -83,8 +83,12 @@ def test_pixi_bootstrap_sha256_fails_closed(tmp_path) -> None:
     quoted = str(payload).replace("'", "''")
     digest = hashlib.sha256(payload.read_bytes()).hexdigest()
     for expected, succeeds in [(digest, True), ("0" * 64, False), ("", False)]:
+        # Windows PowerShell started from PowerShell 7 (the GUI installer) can't
+        # load Get-FileHash; the check mustn't depend on it.
         script.write_text(
-            functions + f"\nAssert-FileSha256 -Path '{quoted}' "
+            functions
+            + "\nfunction Get-FileHash { throw 'Get-FileHash unavailable' }"
+            + f"\nAssert-FileSha256 -Path '{quoted}' "
             f"-ExpectedSha256 '{expected}' -Label 'Pixi executable'\n"
         )
         result = subprocess.run(

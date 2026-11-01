@@ -152,7 +152,17 @@ function Assert-FileSha256 {
         throw "$Label SHA-256 must be a 64-character hexadecimal digest."
     }
 
-    $actual = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+    # Not Get-FileHash: Windows PowerShell 5.1 started from PowerShell 7 (as the
+    # GUI installer does) inherits a PSModulePath that hides it.
+    $stream = [System.IO.File]::OpenRead((Convert-Path -LiteralPath $Path))
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $actual = [System.BitConverter]::ToString($sha256.ComputeHash($stream)).Replace("-", "")
+    }
+    finally {
+        $sha256.Dispose()
+        $stream.Dispose()
+    }
     if ($actual -ine $ExpectedSha256) {
         throw "$Label SHA-256 mismatch. Expected $ExpectedSha256 but got $actual."
     }
