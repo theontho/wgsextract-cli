@@ -37,4 +37,6 @@ target_include_directories(samtools PRIVATE
     "${WGSE_SAMTOOLS_SOURCE}" "${WGSE_SAMTOOLS_SOURCE}/lz4")
 target_compile_definitions(samtools PRIVATE NOMINMAX)
 target_link_libraries(samtools PRIVATE hts)
+# CRAM indexing can enter codec paths exceeding MSVC's default 1 MiB stack.
+target_link_options(samtools PRIVATE /STACK:8388608)
 install(TARGETS samtools RUNTIME DESTINATION Library/bin)
