@@ -59,6 +59,11 @@ control, not a full-genome VCF or a matched-hardware performance benchmark.
 Native Windows 11 ARM64 qualification uses the public 30x HG00096
 ERR3240114 CRAM and GRCh38 full-analysis/decoy/HLA reference, with 16 threads,
 `--memory 256M`, complete-pair extraction and `-K 100000000`.
+These public measurements used scientific source SHA-256
+`f062273380e70c0d1f4a81ce856c432625a4b00cbe6e30e824d180c1cc192989`,
+before the subsequent rebase onto main's shared CLI and paired-realignment
+refactors. Post-rebase lint, type checking and generated small/full-genome
+integration tests are separate gates, not a repeated public-genome benchmark.
 Both complete ordered decoded SAM bodies exactly match the preserved native
 Windows x64 gold, without sorting, normalization or value substitutions:
 

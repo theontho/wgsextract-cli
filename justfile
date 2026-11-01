@@ -65,6 +65,11 @@ typecheck:
 # Format, lint, typecheck and test
 check: fmt lint typecheck test
 
+# Read-only CI checks plus generated small/full-genome integration tests
+ci: lint typecheck
+    pixi run test --basetemp=out/ci-pytest-tmp
+    pixi run test-e2e-fake --basetemp=out/ci-e2e-pytest-tmp
+
 # Check that external tools are installed
 deps:
     pixi run deps-check
