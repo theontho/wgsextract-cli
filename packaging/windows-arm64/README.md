@@ -18,8 +18,8 @@ CPython external archive pinned by immutable commit and SHA-256, including
 the official native ARM64 OpenSSL/libffi binaries. This avoids a global Python
 version change, but its build and runtime qualification are still pending.
 MSVC's optimized Unicode-table compilation failed with C1002 even with a native
-ARM64 compiler host and serial projects. The next qualification uses CPython's
-upstream-supported ClangCL toolset, retaining Release optimization and LTO.
+ARM64 compiler host and serial projects. Qualification uses CPython's ClangCL
+project configuration with Release optimization; this is not an official PSF build.
 Its strict Windows API argument checking exposed a junction privilege-buffer
 length declared as `int`; the source recipe uses the API's actual `DWORD` type.
 Windows semaphore counts likewise use `long`, matching the Windows API;
@@ -64,6 +64,9 @@ Recipes retain evidence under `out/windows-arm64`, outside rattler's build home
 `scripts/qualify_windows_arm64_process.ps1` holds each real aligner on an input
 pipe, records its live architecture and modules, then closes input and requires
 normal completion. Package file headers alone are not a process audit.
+This build/qualification helper requires PowerShell 7 and drains both output
+pipes concurrently. A real native regression floods each pipe after stdin EOF.
+Loaded modules must be AA64 even when their paths are under the Windows directory.
 
 The BWA-MEM2 2.3 recipe uses sse2neon 1.9.1, compiles one NEON
 executable and excludes x86 CPUID/dispatch. It pins #268's index64 patch,
@@ -145,8 +148,9 @@ foreign PE/ELF/Mach-O payloads, not only entries with DLL suffixes.
 
 The generated pipeline fixture checks actual sort/index/CRAM round-trip,
 indexed coverage and a truth-known homozygous variant using the built packages.
-It passed with installed Linux tools; native Windows pipeline qualification
-is pending. It is not a substitute for the complete small/full-genome suites.
+Its 40 decoded records and complete VCF body now match the Linux fixture
+exactly on native Windows ARM64. Whole integration qualification is pending;
+it is not a substitute for the complete small/full-genome suites.
 The integration job also stages selected existing small-genome CLI tests for
 realignment, sort/index/CRAM, calling, info/coverage and microarray export.
 It uses the independently audited hosted ARM64 Python rather than overlaying

@@ -4,6 +4,15 @@ $evidence = Join-Path $repo "out\windows-arm64\python-source"
 New-Item -ItemType Directory -Force -Path $evidence | Out-Null
 $env:PYTHON = (Get-Command python.exe).Source
 $env:GIT = (Get-Command git.exe).Source
+$project = "$env:SRC_DIR\PCbuild\pythoncore.vcxproj"
+$source = Get-Content -Raw -Encoding utf8 $project
+$target = '<Target Name="_GetBuildInfo" BeforeTargets="PrepareForBuild">'
+if ([regex]::Matches($source, [regex]::Escape($target)).Count -ne 1) {
+    throw "Pinned CPython build provenance target changed"
+}
+$source = $source.Replace($target,
+    '<Target Name="_GetBuildInfo" BeforeTargets="PrepareForBuild" Condition="Exists(''$(MSBuildThisFileDirectory)..\.git'')">')
+[IO.File]::WriteAllText($project, $source, [Text.UTF8Encoding]::new($false))
 $winapi = "$env:SRC_DIR\Modules\_winapi.c"
 $source = Get-Content -Raw -Encoding utf8 $winapi
 if ([regex]::Matches($source, "int previousTpSize = 0;").Count -ne 1) {
@@ -34,6 +43,7 @@ if ($LASTEXITCODE) { throw "CPython 3.13.18 ARM64 source build failed" }
     --copy $env:PREFIX
 if ($LASTEXITCODE) { throw "CPython ARM64 package layout failed" }
 foreach ($relative in @(
+    "vcruntime140_1.dll",
     "Lib\site-packages\pip\_vendor\distlib\t32.exe",
     "Lib\site-packages\pip\_vendor\distlib\t64.exe",
     "Lib\site-packages\pip\_vendor\distlib\w32.exe",
