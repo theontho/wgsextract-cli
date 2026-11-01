@@ -35,6 +35,26 @@ def test_hs38d1s_signature_is_hg38():
     assert canonical_build(model.name) == "hg38"
 
 
+@pytest.mark.parametrize(
+    ("signature", "name", "contigs"),
+    [
+        ("fae44dd244ce77ff30499b64b8e008a8", "hs38d1t", 2582),
+        ("7bdc7b6c9928b422cacc4244f7d448cb", "hs38d1c", 2779),
+    ],
+)
+def test_hs38d1_variants_are_hg38_by_signature_and_contig_count(
+    signature, name, contigs
+):
+    model = identify_reference("", signature)
+    assert model is not None
+    assert (model.name, model.fasta, model.mito) == (name, f"{name}.fa.gz", "rCRS")
+    assert canonical_build(model.name) == "hg38"
+    # A dictionary with the same count but no recognised chr1 still points there.
+    by_count = _identify(_header({"MT": 16569}, pad_to=contigs))
+    assert by_count is not None
+    assert (by_count.fasta, by_count.evidence) == (f"{name}.fa.gz", "contig count")
+
+
 def test_distributed_t2t_signature():
     model = identify_reference("", "ed9f80c8e04c461cba35dd1b85a2e2e8")
     assert model is not None and model.name == "T2Tv2.0"

@@ -122,6 +122,8 @@ REFERENCE_MODELS = {
     "2777429fbb9f8cbcde449ac60b1b8613": ["hs38d1a", "rCRS", "hs38d1a.fna.gz"],
     "14b392c68a6a34d0083b360d734eb5f7": ["hs37", "rCRS", "hs37.fa.gz"],
     "89cbafdbfcd4369f5aaa3bb34911125d": ["hs38d1s", "rCRS", "hs38d1s.fa.gz"],
+    "fae44dd244ce77ff30499b64b8e008a8": ["hs38d1t", "rCRS", "hs38d1t.fa.gz"],
+    "7bdc7b6c9928b422cacc4244f7d448cb": ["hs38d1c", "rCRS", "hs38d1c.fa.gz"],
     "d52b52352eb5bb59ac527a918131bf2d": ["hg38", "rCRS", "hg38_CP086569.fasta.gz"],
     "38482ccb4720d61b3caceaf0cb2c0df0": [
         "hg19",
@@ -199,6 +201,8 @@ REFGEN_BY_SNCOUNT = {
         "hg38",
     ],
     2581: [False, "hs38d1s.fa.gz", "MT", "hg38"],
+    2582: [False, "hs38d1t.fa.gz", "MT", "hg38"],
+    2779: [False, "hs38d1c.fa.gz", "chrM", "hg38"],
     2841: [
         False,
         "GCA_000001405.15_GRCh38_full_plus_hs38d1_analysis_set.fna.gz",
@@ -222,6 +226,8 @@ REF_GENOME_FILENAMES = {
     "hs38a": "hs38a.fna.gz",
     "hs38d1": "hs38d1.fna.gz",
     "hs38d1s": "hs38d1s.fa.gz",
+    "hs38d1t": "hs38d1t.fa.gz",
+    "hs38d1c": "hs38d1c.fa.gz",
     "hs38d1v": "GRCh38_Verily_v1.genome.fa.gz",
     "hs38d1a": "hs38d1a.fna.gz",
     "hs38DH": "hs38DH.fa.gz",
