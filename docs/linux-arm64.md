@@ -15,6 +15,8 @@ pixi run wgsextract --help
 For unreleased code, choose the branch explicitly with the existing
 `WGSEXTRACT_REF` installer option. The default installer installs the latest
 published release, which may predate ARM64 support.
+The installer validates the downloaded workspace's ARM64 platform before
+installing Pixi or changing an existing app; unsupported refs fail cleanly.
 
 ## Supported phase-1 commands
 

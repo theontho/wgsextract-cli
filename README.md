@@ -21,6 +21,13 @@ Java or x86-emulation fallback. See [Linux ARM64](docs/linux-arm64.md).
 curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh
 ```
 
+Native Linux ARM64 needs a release that includes ARM64 support; v0.6.5 and
+earlier do not. Until a supporting release is available, select `main` explicitly:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | WGSEXTRACT_REF=main sh
+```
+
 The bootstrap script comes from `main`, but it installs the latest published GitHub release, not `main`. It creates `wgsextract-cli/` in the current directory (or next to a downloaded `install.sh`) containing the app (`app/`), Pixi files (`.pixi/`), the `wgsextract` launcher, and `uninstall.sh`. On macOS it checks for the Xcode Command Line Tools first.
 
 Windows: clone or download the repository and run `install_windows.bat` from PowerShell. It installs Pixi when missing, then the CLI and its native Windows tools (WGS Extract's own builds of samtools, bcftools, BWA, bwa-mem2, minimap2, fastp and samblaster) into the Pixi environment. No WSL or MSYS2 is needed. See [docs/windows.md](docs/windows.md).
