@@ -3,6 +3,7 @@ import logging
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
+from wgsextract_cli.core.aadr_resources import install_aadr_2m
 from wgsextract_cli.core.annotation_resources import (
     build_gnomad_af,
     download_alphamissense,
@@ -52,6 +53,11 @@ _MENU_DOWNLOADS: dict[str, tuple[str, Callable[[str], bool]]] = {
     "E": ("GERP hg38 (~9.6 GB)", download_gerp),
     "F": ("gnomAD v4.1 frequencies hg38 (streams ~900 GB)", build_gnomad_af),
 }
+
+
+def cmd_aadr(args: argparse.Namespace) -> None:
+    installed = install_aadr_2m(resolve_reference_library(args.ref))
+    logging.info("Installed CC0 AADR v66.p1 2M SNP metadata: %s", installed)
 
 
 def cmd_ybrowse(args: argparse.Namespace) -> None:

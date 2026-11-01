@@ -134,6 +134,7 @@ def _write_vcf_mode_kit(
     ref_fasta: str,
     ref_vcf_tab: str,
     reasons: dict[tuple[str, str], str] | None = None,
+    restrict_reference_fill: bool = False,
 ) -> None:
     policy = quality_policy(args)
     identity = identity_policy(args)
@@ -187,6 +188,13 @@ def _write_vcf_mode_kit(
     # Absent targets read as the reference only on chromosomes the VCF has
     # calls on: a woman's VCF has no chrY, which mustn't become Y genotypes.
     called_contigs = {alias for alias, _pos in variant_calls}
+    if restrict_reference_fill:
+        # Extra panel hits must not make legacy-only targets appear covered.
+        called_contigs = set()
+        for line in _target_lines(args, ref_vcf_tab, outdir):
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) >= 2 and (parts[0], parts[1]) in variant_calls:
+                called_contigs.add(parts[0])
 
     logging.info("Pre-fetching reference alleles for target SNPs...")
     ref_alleles = (
@@ -468,6 +476,7 @@ def _write_microarray_combined_kit(
     out_vcf: str,
     ref_fasta: str,
     ref_vcf_tab: str,
+    restrict_reference_fill: bool = False,
 ) -> str:
     combined_kit_txt = str(Path(outdir, f"{base_name}_CombinedKit.txt"))
     logging.info(f"Extracting genotypes to {combined_kit_txt}...")
@@ -488,6 +497,7 @@ def _write_microarray_combined_kit(
                     ref_fasta=ref_fasta,
                     ref_vcf_tab=ref_vcf_tab,
                     reasons=reasons,
+                    restrict_reference_fill=restrict_reference_fill,
                 )
             else:
                 _write_alignment_mode_kit(

@@ -18,6 +18,59 @@ markers. In this release HO is a strict subset, so `aadr_1240k+ho` (also
 [Provenance, licence and hashes](../src/wgsextract_cli/assets/microarray/raw_file_templates/README.md#aadr-v66p1-aadr_1240k-aadr_ho-aadr_1240kho)
 identify the exact public SNP-only sources.
 
+## Opt-in AADR 2M (v66.p1)
+
+Install the marker resource **explicitly**, then select the additional panel:
+
+```sh
+wgsextract ref aadr --install --ref reference
+wgsextract microarray --input sample.bam --ref reference \
+  --formats aadr_2m --aadr-sample-id sample01 --outdir out/aadr-2m
+```
+
+`ref aadr --install` uses the existing resumable, shared-download mechanism and
+verifies the pinned SHA256 before installing
+`reference/aadr/v66.p1_2M.aadr.patch.PUB.snp`. The library can also be selected
+through the existing `reference_library` setting in `config.toml`. Pass the same
+library to the extraction (a FASTA under its `genomes/` directory is also supported).
+The marker data are **not bundled**. `microarray` checks that the file is present
+and hash-correct before calling; it never automatically fetches or repairs it.
+For GRCh38 input, `hg19ToHg38.over.chain.gz` must also already be in the library:
+install it explicitly with `wgsextract ref download --url
+https://hgdownload.soe.ucsc.edu/goldenPath/hg19/liftOver/hg19ToHg38.over.chain.gz
+--out reference/hg19ToHg38.over.chain.gz`. T2T remains unsupported.
+
+The 2M panel contains **2,142,271** GRCh37 SNPs, including every current v66.p1
+1240K and HO SNP with the same ID, physical coordinate and reference/variant
+alleles. It is **not** the separate 1,243,531-site `2M_compatibility` panel.
+It is excluded from `--formats all`; legacy panel choices and defaults are unchanged.
+Selecting `aadr_2m,aadr_1240k,aadr_ho` writes each panel separately.
+For a variant-only VCF, legacy reference-fill eligibility is evaluated against
+the original legacy target set: a 2M-only hit cannot turn a previously missing
+legacy chromosome into homozygous reference. Sparse VCFs can therefore have
+different absent-site calls in the two panels. Use `--no-assume-hom-ref` to
+avoid the inherited reference-filling assumption.
+
+**Genetic maps are not interchangeable:** the official 2M genetic distance
+differs at **1,200,251** legacy 1240K sites (**583,490** HO sites). Each export
+uses its own panel's metadata, never a mixture: 2M `.snp` preserves the official
+v66.p1 2M Morgans, and `.bim` converts those values to centimorgans. Legacy
+1240K/HO retain their existing map and bytes. Restricting a 2M export to 1240K
+therefore permits genotype comparisons but not byte-identical `.snp`/`.bim`
+metadata. For example, rs3094315 has 0.000665 Morgans in 2M versus 0.020130
+in legacy 1240K/HO.
+
+Source: [Reich Lab AADR](https://reich.hms.harvard.edu/) /
+[Harvard Dataverse version 14.0](https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/FFIDCW&version=14.0),
+released 2026-06-08, panel v66.p1.
+The [SNP-only file](https://dataverse.harvard.edu/api/access/datafile/13994517)
+is 134,963,073 bytes, SHA256
+`39312150ce88ec757a88e52a7921ca7fd1190d9cce11cfe39c756ea5737b7a9b`.
+It is published under **CC0 1.0**; cite the release and Mallick et al. (2024),
+*Scientific Data* 11, 182,
+[doi:10.1038/s41597-024-03031-7](https://doi.org/10.1038/s41597-024-03031-7).
+No individual genotypes, annotations or identifiers are installed.
+
 ## Coordinates and allele coding
 
 - `.snp` preserves AADR order, chromosome codes (X=23, Y=24), genetic positions
@@ -39,7 +92,10 @@ identify the exact public SNP-only sources.
 - GRCh38 input uses the forward GRCh37-to-GRCh38 UCSC chain to locate each AADR
   marker. Only unique primary-contig hits are used; inverted mappings explicitly
   complement the call back to the AADR strand. Output remains GRCh37. Unmapped
-  and ambiguous markers are missing. Unknown builds and T2T are not supported.
+  and ambiguous markers are missing. Unknown builds are not supported.
+- The existing CHM13 pathway can project legacy 1240K/HO through its bundled
+  marker map. That map does not contain the full 2M panel: `aadr_2m` on
+  CHM13/T2T is rejected before calling, rather than exporting unmapped new sites.
 - Haploid calls are represented as homozygous diploid dosage, as in the
   CombinedKit; this is **not random pseudo-haploid sampling** for ancient DNA.
 - A region-limited run still writes the complete selected panel, with missing
@@ -54,7 +110,10 @@ identify the exact public SNP-only sources.
 The AADR target and calling intermediates are retained in a unique
 `AADR_*` subdirectory of the output directory for each invocation, isolating
 concurrent samples/builds/panels. The chain is reused read-only from the reference
-library when installed, otherwise downloaded into that invocation's directory.
+library when installed, otherwise downloaded into that invocation's directory
+for legacy-only runs. Runs selecting 2M require it in the library before any
+consumer-target preparation; even a chain left in an output directory is not
+treated as an installed 2M prerequisite.
 The intermediate CombinedKit and calling VCF also stay in that directory;
 the selected PLINK/EIGENSTRAT and vendor exports are written at the output root.
 Legacy cached consumer-chip targets are not
