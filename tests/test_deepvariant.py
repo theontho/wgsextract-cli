@@ -4,6 +4,7 @@ The image is too big for CI; these check the setup checks and what Docker is
 asked to run.
 """
 
+import gzip
 import subprocess
 import sys
 from argparse import Namespace
@@ -29,6 +30,7 @@ def files(tmp_path, monkeypatch):
     ref = tmp_path / "ref" / "hs38DH.fa.gz"
     bam = tmp_path / "bam" / "s.bam"
     ref.write_text("x")
+    Path(str(ref) + ".fai").write_text("chr20\t1000\t0\t1000\t1001\n")
     bam.write_text("x")
     out = tmp_path / "out"
     monkeypatch.setattr(
@@ -191,7 +193,10 @@ def test_only_new_cram_is_transcoded_and_indexed(files, monkeypatch, version, ca
     assert view[view.index("-@") + 1] == "4"
     assert view[view.index("-T") + 1] == str(ref)
     assert view[view.index("--output-fmt-option") + 1] == "version=3.0"
-    assert view[-2:] == [str(alignment), "chr20:1-100"]
+    assert view[-1] == str(alignment)
+    assert "-M" in view
+    bed = Path(view[view.index("-L") + 1])
+    assert bed.read_text() == "chr20\t0\t100\n"
     assert index == ["samtools", "index", result]
     assert caplog.text.count("Transcoding CRAM") == 1
     assert "htslib 1.18 SSE4 rANS decoder" in caplog.text
@@ -264,26 +269,45 @@ def test_staged_cram_is_used_and_cleaned_on_all_exit_paths(files, monkeypatch, f
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
-def test_container_mounts_staged_cram_instead_of_original(files, monkeypatch):
+@pytest.mark.parametrize("region", ["chr20", "chr20:1-50 chr20:101-150"])
+def test_container_reads_staged_cram_and_preserves_existing_mounts(
+    files, monkeypatch, region
+):
     _ref, alignment, out = files
     alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
     runs = _docker(monkeypatch)
     monkeypatch.setattr(deepvariant, "check_free_space", lambda *_: True)
     monkeypatch.setattr(deepvariant, "run_command", lambda *a, **kw: None)
-    deepvariant.cmd_deepvariant(_args(alignment))
+    deepvariant.cmd_deepvariant(_args(alignment, region=region))
     (cmd,) = runs
     reads = Path(cmd[cmd.index("--reads") + 1])
     assert reads.name == "reads.cram"
+    assert cmd[cmd.index("--regions") + 1] == region
     assert reads.parent.parent == out
     mounts = {cmd[i + 1].split(":")[0] for i, a in enumerate(cmd) if a == "-v"}
     assert str(reads.parent) in mounts
-    assert str(alignment.parent) not in mounts
+    assert str(alignment.parent) in mounts
     assert not reads.parent.exists()
 
 
 @needs_tools("samtools")
-@pytest.mark.parametrize("region", [None, "chr20:1-50"])
-def test_real_cram31_roundtrip_has_cram30_header_and_read_parity(tmp_path, region):
+@pytest.mark.parametrize(
+    ("region", "expected", "source_region"),
+    [
+        (None, "2", None),
+        ("chr20:1-50", "1", "chr20:1-50"),
+        ("chr20", "2", None),
+        ("chr20:1-50 chr20:101-150", "2", None),
+        ("chr20:1-50 chr20:1-30", "1", "chr20:1-50"),
+        ("bed", "1", "chr20:1-50"),
+        ("bed.gz", "1", "chr20:1-50"),
+        ("bed-mixed", "2", None),
+        ("bedpe", "2", None),
+    ],
+)
+def test_real_cram31_roundtrip_has_cram30_header_and_read_parity(
+    tmp_path, region, expected, source_region
+):
     from wgsextract_cli.core.utils import run_command
 
     ref = write_fasta(tmp_path / "ref.fa", {"chr20": "ACGT" * 100})
@@ -307,6 +331,17 @@ def test_real_cram31_roundtrip_has_cram30_header_and_read_parity(tmp_path, regio
     assert deepvariant._cram_version(str(cram)) == (3, 1)
     work = tmp_path / "dv"
     work.mkdir()
+    if region and region.startswith("bed"):
+        suffix = ".bed" if region == "bed-mixed" else "." + region
+        regions_file = tmp_path / ("selection" + suffix)
+        if region == "bedpe":
+            regions_file.write_text("chr20\t0\t20\tchr20\t100\t120\n")
+        elif region == "bed.gz":
+            with gzip.open(regions_file, "wt") as stream:
+                stream.write("chr20\t0\t50\nchr20\t0\t30\n")
+        else:
+            regions_file.write_text("chr20\t0\t50\nchr20\t0\t30\n")
+        region = str(regions_file) + (" chr20:101-150" if region == "bed-mixed" else "")
     converted = deepvariant._compatible_reads(
         str(cram), str(ref), str(work), "1", region
     )
@@ -320,11 +355,11 @@ def test_real_cram31_roundtrip_has_cram30_header_and_read_parity(tmp_path, regio
             "-T",
             str(ref),
             str(cram),
-            *([region] if region else []),
+            *([source_region] if source_region else []),
         ],
         capture_output=True,
     ).stdout.strip()
     converted_count = run_command(
         ["samtools", "view", "-c", "-T", str(ref), converted], capture_output=True
     ).stdout.strip()
-    assert converted_count == original_count == ("1" if region else "2")
+    assert converted_count == original_count == expected

@@ -1,4 +1,5 @@
 import argparse
+import gzip
 import logging
 import os
 import subprocess
@@ -18,6 +19,7 @@ from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.output_checks import warn_if_no_variants
+from wgsextract_cli.core.reference_assets import read_fai_lengths
 from wgsextract_cli.core.samtools_commands import get_sam_index_cmd, get_sam_view_cmd
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
@@ -96,6 +98,61 @@ def _cram_version(path: str) -> tuple[int, int] | None:
     return definition[4], definition[5]
 
 
+def _transcode_regions(region: str | None, ref: str, work: str) -> list[str]:
+    if not region:
+        return []
+    lengths = read_fai_lengths(ref)
+    if not lengths:
+        run_command(["samtools", "faidx", ref])
+        lengths = read_fai_lengths(ref)
+    bed = Path(work, "regions.bed")
+    # DV accepts whitespace-separated literals and BED/BED.gz/BEDPE files.
+    # One BED + the multi-region iterator preserves their union without duplicates.
+    try:
+        with bed.open("w", newline="\n") as destination:
+            for selection in region.split():
+                lower = selection.lower()
+                if lower.endswith((".bed", ".bed.gz", ".bedpe")):
+                    opener = gzip.open if lower.endswith(".gz") else open
+                    with opener(selection, "rt") as source:
+                        for line in source:
+                            if not line.strip() or line.startswith(
+                                ("#", "track", "browser")
+                            ):
+                                continue
+                            fields = line.split()
+                            if lower.endswith(".bedpe"):
+                                if fields[0] != fields[3]:
+                                    continue
+                                chrom, start, end = (
+                                    fields[0],
+                                    int(fields[1]),
+                                    int(fields[5]),
+                                )
+                            else:
+                                chrom, start, end = (
+                                    fields[0],
+                                    int(fields[1]),
+                                    int(fields[2]),
+                                )
+                            if start < 0 or end < start:
+                                raise ValueError(f"Invalid interval: {line.strip()}")
+                            destination.write(f"{chrom}\t{start}\t{end}\n")
+                else:
+                    chrom, _, span = selection.partition(":")
+                    start_text, _, end_text = span.replace(",", "").partition("-")
+                    start = int(start_text) if start_text else 1
+                    end = int(end_text) if end_text else lengths[chrom]
+                    if start < 1 or end < start:
+                        raise ValueError(f"Invalid interval: {selection}")
+                    destination.write(f"{chrom}\t{start - 1}\t{end}\n")
+    except (ValueError, KeyError, IndexError) as error:
+        raise WGSExtractError(
+            f"Invalid DeepVariant region selection: {region}"
+        ) from error
+    return ["-M", "-L", str(bed)]
+
+
 def _compatible_reads(
     alignment: str, ref: str, work: str, threads: str, region: str | None
 ) -> str:
@@ -117,12 +174,12 @@ def _compatible_reads(
         *version,
     )
     compatible = str(Path(work, "reads.cram"))
+    selection = _transcode_regions(region, ref, work)
     run_command(
         [
             *get_sam_view_cmd(threads, fmt="CRAM", reference=ref),
             "--output-fmt-option", "version=3.0",
-            "--no-PG", "-o", compatible, alignment,
-            *([region] if region else []),
+            "--no-PG", *selection, "-o", compatible, alignment,
         ]
     )  # fmt: skip
     run_command(get_sam_index_cmd(compatible, threads))
@@ -200,7 +257,7 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
                 run_container(
                     image,
                     ["/opt/deepvariant/bin/run_deepvariant", *dv_args],
-                    [ref, reads, out_vcf, work, args.checkpoint],
+                    [ref, args.input, out_vcf, work, args.checkpoint],
                 )
             else:
                 # stdin closed: DeepVariant's GNU parallel would read it otherwise.
