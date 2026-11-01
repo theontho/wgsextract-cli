@@ -185,7 +185,7 @@ jobs:
       # lab uses may live in that account's home before the scenario: lab.py
       # runs on a tool-cache Python (not Homebrew's, which lab.py hides), and
       # Pixi (for the oracle's samtools/bcftools) is only set up afterwards.
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
       - name: Use the image's newest Xcode (the released SwiftUI app's runner needs Swift 6.2+)
