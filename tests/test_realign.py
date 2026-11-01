@@ -8,6 +8,7 @@ import pytest
 
 from tests.htslib_helpers import needs_tools, sam_to_bam, write_fasta
 from wgsextract_cli.commands import realign
+from wgsextract_cli.core import alignment_memory
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
@@ -224,6 +225,26 @@ def test_existing_fastqs_are_reused_and_kept(tmp_path, monkeypatch, source):
     assert all(Path(p).read_text() == "reads" for p in pair)
 
 
+@needs_tools("samtools")
+def test_mem2_realign_prepares_missing_fai_before_index_preflight(
+    tmp_path, monkeypatch, source
+):
+    fakes = _Fakes(monkeypatch)
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 8 * 1024**3)
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nACGT\n")
+    pair = (str(tmp_path / "r1.fq"), str(tmp_path / "r2.fq"))
+    for path in pair:
+        Path(path).write_text("@r\nA\n+\nI\n")
+    assert not Path(str(ref) + ".fai").exists()
+    assert not Path(str(ref) + ".ann").exists()
+
+    realign.run(_args(source, ref=str(ref), aligner="bwa-mem2", r1=pair[0], r2=pair[1]))
+
+    assert Path(str(ref) + ".fai").read_text().split("\t")[:2] == ["chr1", "4"]
+    assert fakes.aligned == [pair]
+
+
 def test_force_extract_reextracts_then_removes_the_fastqs(
     tmp_path, monkeypatch, source
 ):
@@ -357,6 +378,7 @@ def test_realign_uses_actual_input_count_before_extraction_for_memory_and_disk(
     _Fakes(monkeypatch)
     ref = tmp_path / "ref.fa"
     ref.write_text(">c\nA\n")
+    Path(str(ref) + ".fai").write_text("c\t1\t3\t1\t2\n")
     monkeypatch.setattr(realign.bwa_mem2, "check_index", lambda *_: None)
 
     def indexed_count(*_args):

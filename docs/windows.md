@@ -129,12 +129,17 @@ the bwa-mem2 index for your reference, run:
 pixi run wgsextract ref index --aligner bwa-mem2 --ref C:\path\to\reference.fa
 ```
 
-**Temporary native indexing restriction (#264):** the current Windows bwa-mem2
-build truncates large reference lengths. The CLI refuses native index
-construction for references with **2,147,483,648 bases or more**, before
-starting bwa-mem2; use BWA or a complete, verified Linux-built bwa-mem2 index.
-Existing indexes and the CLI's verified published hs38DH index download remain
-supported. `ref index` prepares the FASTA length metadata automatically.
+Native full-human index construction is supported with the pinned
+`windows-tools-8` bwa-mem2 `2.3-wgse_2` package. It fixes the large-transfer
+and 64-bit-offset corruption tracked in [#264](https://github.com/theontho/wgsextract-cli/issues/264).
+All five index files for the 3,217,346,917-base GRCh38 reference were verified
+byte-identical to a Linux-built index. Building it needs roughly 80 GB of RAM;
+the CLI checks its build-memory estimate before starting. Existing indexes and
+the verified published hs38DH index download remain supported.
+`ref index`, alignment and realignment prepare missing FASTA length metadata
+automatically with samtools. Direct build
+preflight refuses missing or incomplete length metadata rather than assuming
+the build needs no memory; complete BWA `.ann` metadata can also supply the length.
 
 The human bwa-mem2 index occupies about 17 GB of RAM, with additional memory
 needed for reads, sorting and Windows. The CLI checks the reference's memory
