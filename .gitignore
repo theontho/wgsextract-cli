@@ -180,3 +180,6 @@ cython_debug/
 # PyCharm
 #  JetBrains specific template is usually in a separate gitignore section
 # .idea/
+
+# Personal, uncommitted settings (e.g. .claude/settings.local.json)
+*.local.json
