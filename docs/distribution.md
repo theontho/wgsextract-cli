@@ -135,6 +135,12 @@ needs **Allow GitHub Actions to create and approve pull requests** (Settings >
 Actions > General); without it the job pushes the branch and fails once with a
 link to open the PR by hand.
 
+When the app release is published, Distribution appends the bundled CLI
+release's notes (under `## WGSExtract CLI vX.Y.Z`) to the app release notes, so
+users see what changed in the CLI without leaving the app release page. Bare
+`#123` references in those notes are rewritten as `theontho/wgsextract-cli#123`
+so they keep pointing at the CLI repository.
+
 ## Self-updates
 
 The app uses Tauri's v2 updater plugin with GitHub Releases as the release
