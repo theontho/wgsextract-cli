@@ -292,7 +292,7 @@ def _bind_single_partial(url: str, partial: Path) -> None:
     if partial.exists() and previous != digest:
         logging.info("Partial download has a different or unknown source; restarting.")
         partial.unlink()
-    source.write_text(digest + "\n", encoding="ascii")
+    source.write_text(digest + "\n", encoding="ascii", newline="\n")
 
 
 def _urllib_download(

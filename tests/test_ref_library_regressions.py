@@ -1,4 +1,5 @@
 import gzip
+import hashlib
 import io
 import tarfile
 from argparse import Namespace
@@ -300,6 +301,11 @@ def test_download_treats_416_for_complete_partial_as_done(tmp_path, monkeypatch)
     _no_curl_download(monkeypatch)
     dest = tmp_path / "file.bin"
     (tmp_path / "file.bin.partial").write_bytes(b"complete")
+    Path(f"{dest}.partial.source").write_text(
+        hashlib.sha256(b"https://example.org/f").hexdigest() + "\n",
+        encoding="ascii",
+        newline="\n",
+    )
     requests = []
 
     def fake_urlopen(request, timeout):
@@ -318,6 +324,11 @@ def test_download_restarts_when_partial_does_not_fit_remote(tmp_path, monkeypatc
     _no_curl_download(monkeypatch)
     dest = tmp_path / "file.bin"
     (tmp_path / "file.bin.partial").write_bytes(b"0123456789")
+    Path(f"{dest}.partial.source").write_text(
+        hashlib.sha256(b"https://example.org/f").hexdigest() + "\n",
+        encoding="ascii",
+        newline="\n",
+    )
     calls = []
 
     def fake_urlopen(request, timeout):
@@ -351,6 +362,11 @@ def test_download_416_without_size_asks_the_server_for_it(tmp_path, monkeypatch)
     _no_curl_download(monkeypatch)
     dest = tmp_path / "file.bin"
     (tmp_path / "file.bin.partial").write_bytes(b"complete")
+    Path(f"{dest}.partial.source").write_text(
+        hashlib.sha256(b"https://example.org/f").hexdigest() + "\n",
+        encoding="ascii",
+        newline="\n",
+    )
     methods = []
 
     def fake_urlopen(request, timeout):

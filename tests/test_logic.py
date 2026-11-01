@@ -371,7 +371,8 @@ class TestExamplesDownload(unittest.TestCase):
             dry_run=False,
         )
 
-        def fake_download(_source, destination, _method, _aspera_key):
+        def fake_download(_source, destination, _method, _aspera_key, *, force=False):
+            self.assertFalse(force)
             destination.write_text("data")
 
         with patch.object(examples, "_download_file", side_effect=fake_download):
