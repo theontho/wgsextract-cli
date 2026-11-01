@@ -4,10 +4,10 @@ repos:
     hooks:
       - id: trailing-whitespace
         # Vendor headers are copied verbatim, trailing spaces included.
-        exclude: ^src/wgsextract_cli/assets/microarray/raw_file_templates/head/|^packaging/windows/recipes/.*\.patch$
+        exclude: ^src/wgsextract_cli/assets/microarray/raw_file_templates/head/|^packaging/(windows/recipes|arm64)/.*\.patch$
       - id: end-of-file-fixer
         # Upstream patch context must retain its exact whitespace and line endings.
-        exclude: ^packaging/windows/recipes/.*\.patch$
+        exclude: ^packaging/(windows/recipes|arm64)/.*\.patch$
       - id: check-yaml
       - id: check-added-large-files
         # Shipped coordinate data; the CHM13 v1 loader enforces its 7 MiB cap.
