@@ -113,6 +113,13 @@ jobs:
           $python = "$prefix\python.exe"
           & $python -m pip install -e . pytest
           if ($LASTEXITCODE) { throw "Secure native integration dependency installation failed" }
+          & $python -m pip install --no-deps --require-hashes -r packaging/windows-arm64/python313-wheels.txt
+          if ($LASTEXITCODE) { throw "Pinned native Python wheel installation failed" }
+          & $python -m pip install --no-build-isolation `
+            "six==1.17.0" "https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379"
+          if ($LASTEXITCODE) { throw "Default Yleaf library installation failed" }
+          & $python packaging/windows-arm64/tests/python_libraries_smoke.py --output out/integration/python-libraries --prefix $prefix
+          if ($LASTEXITCODE) { throw "Native default Python library qualification failed" }
           $samtools = "$prefix\Library\bin\samtools.exe"
           $bcftools = "$prefix\Library\bin\bcftools.exe"
           & scripts/audit_windows_arm64.ps1 -Prefix $prefix -Report out/integration/pe.json

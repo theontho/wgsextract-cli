@@ -31,9 +31,11 @@ provenance must not inherit the surrounding CLI checkout's Git revision.
 
 Yleaf's setuptools 84.2.1 wheel contains six unused x86/x64 launcher templates.
 The staged native-only recipe preserves the two AA64 launchers, all Python
-code/notices and consistent RECORD metadata. Native qualification is pending.
+code/notices and consistent RECORD metadata. Native package qualification passes.
 Python-3.13 NumPy/Pandas/psutil wheels are available; all 68 PE files in the
-audited pinned wheels are AA64. Installed native library/Yleaf tests remain pending.
+audited pinned wheels are AA64. `python313-wheels.txt` pins their artifacts and
+checksums. Installed numerical operations, Yleaf imports/help/marker tables and
+live loaded-library audits are staged; native results remain pending.
 
 The free public `windows-11-arm` GitHub runner is available and has 4 cores and
 16 GiB RAM. Its tools are not all native: inspect the actual installed Python,
@@ -100,7 +102,7 @@ The staged HTS 1.24 recipe reuses all three unchanged x64 CRAM/BAM optimization
 patches, static pinned compression/TRE dependencies and the existing regressions.
 It includes the native CRAM rANS NEON translation unit; compiler evidence is
 required. Native compilation, packaging, PE audit and CRAM/BAM optimization
-regressions pass; whole-pipeline qualification is pending. Remote access
+regressions pass; the generated whole-pipeline fixture also passes. Remote access
 and plugins remain disabled, as in the x64 package.
 Native Release builds retain upstream assertions so assertion-based regression
 fixtures do not become silent no-ops through CMake's `NDEBUG` default.
@@ -113,8 +115,8 @@ with all existing Windows optimization patches. Their packages install only
 their own executables, avoiding duplicate HTS files in the installed prefix.
 Source checksums and complete upstream C source lists have been checked.
 BCFtools' native package, existing regressions and region-index regression pass;
-samtools' native package and regressions now also pass. Whole-pipeline
-qualification remains pending.
+samtools' native package and regressions now also pass. The generated whole-pipeline
+fixture passes; full-genome qualification remains pending.
 BCFtools' private 32-bit region-index symbols are namespaced independently of
 HTSlib's 64-bit region API; duplicate-symbol suppression would join incompatible
 interfaces. The unchanged upstream region-index regression runs with seed 236.
