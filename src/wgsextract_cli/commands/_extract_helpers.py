@@ -200,6 +200,18 @@ def resolve_region_or_gene(
 
 STREAM_COLLATE_MEMORY_LIMIT = 1024**3
 _COLLATE_HEADROOM = 64 * 1024**2
+# Streaming estimates cover the worst tiny record-allocation projections
+# (13.42x BAM / 64.83x CRAM), add 50%, then round upward to the next ten.
+# Chr20 and nominal30x record/header projections are lower; see resource_estimates.md.
+# These are heuristics, not enforced RSS bounds. Keep file-mode ordering unchanged.
+_STREAM_BAM_EXPANSION = 30
+_STREAM_CRAM_EXPANSION = 100
+
+
+def _collate_expansion(input_path: PathInput, *, streaming: bool) -> int:
+    if Path(input_path).suffix.lower() == ".cram":
+        return _STREAM_CRAM_EXPANSION if streaming else 70
+    return _STREAM_BAM_EXPANSION if streaming else 20
 
 
 def _collate_budget(threads: str, memory: str, *, streaming: bool) -> int:
@@ -221,10 +233,9 @@ def _collate_buckets(
 ) -> int:
     """Temp files for `samtools collate`, which holds one in memory at a time.
 
-    Records in memory take about 70x their CRAM size and 20x their BAM size
-    (generous for highly compressed files), so this keeps a bucket within the
-    sort memory budget (threads x per-thread memory). Streaming targets an
-    estimated 1 GiB including headroom; if 200 buckets cannot achieve the
+    File extraction retains 70x CRAM / 20x BAM and the sort memory budget
+    (threads x per-thread memory). Streaming uses calibrated 100x CRAM / 30x BAM
+    estimates and targets 1 GiB including headroom; if 200 buckets cannot achieve the
     configured budget, realign uses file extraction. These expansion estimates
     are not enforced native-process memory limits. At most 200 files stay under
     macOS's default limit of 256 open files.
@@ -233,7 +244,7 @@ def _collate_buckets(
         size = Path(input_path).stat().st_size
     except OSError:
         size = 0
-    in_memory = size * (70 if Path(input_path).suffix.lower() == ".cram" else 20)
+    in_memory = size * _collate_expansion(input_path, streaming=streaming)
     budget = _collate_budget(threads, memory, streaming=streaming)
     return min(200, max(64, math.ceil(in_memory / budget)))
 
@@ -241,7 +252,7 @@ def _collate_buckets(
 def collate_working_memory(input_path: PathInput, threads: str, memory: str) -> int:
     """One live collate bucket plus codec/bookkeeping headroom."""
     size = Path(input_path).stat().st_size
-    in_memory = size * (70 if Path(input_path).suffix.lower() == ".cram" else 20)
+    in_memory = size * _collate_expansion(input_path, streaming=True)
     return (
         math.ceil(
             in_memory / _collate_buckets(input_path, threads, memory, streaming=True)

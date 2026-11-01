@@ -27,8 +27,9 @@ alignment reports again when the final aligner is selected.
 
 Eligible paired BWA realignment without `--keep-fastq` streams newly extracted reads
 (forced refresh of cached FASTQs at the exact output paths retains file handling):
-there is no retained `extracted_fastqs` demand. Its live collate bucket and codec
-headroom are included in RAM, and `collation_spill` is conservatively added
+there is no retained `extracted_fastqs` demand. The **full 1 GiB overlap allowance**
+is included in mapping's RAM preflight even when its bucket estimate is smaller,
+and `collation_spill` is conservatively added
 alongside sorter spills on the configured temporary volume (or output volume
 when none is configured). Collate removes buckets as they drain, so this disk
 sum is an upper bound, not a prediction of actual peak. If streaming spills
@@ -37,11 +38,39 @@ The alignment read-length sample reads at most 4096 input SAM records / 16 MiB
 and applies paired-primary filtering within that prefix; it does not replace
 the indexed input count.
 
-Collation's 20× BAM / 70× CRAM expansion model is heuristic, not an enforced
-native-process RSS limit. Estimated bucket memory plus 64 MiB bookkeeping must
+Streaming collation's **30× BAM / 100× CRAM** expansion model is heuristic, not an
+enforced native-process RSS limit. Estimated bucket memory plus 64 MiB bookkeeping must
 fit both the configured collation budget and the 1 GiB overlap ceiling. The
-200-bucket ceiling gives best-case input limits around 9.4 GiB BAM / 2.7 GiB CRAM;
+200-bucket ceiling gives best-case input limits around **6.25 GiB BAM / 1.875 GiB CRAM**;
 smaller budgets or less available RAM reduce eligibility. 30x WGS uses files.
+Mapping must fit with the full overlap allowance before streaming starts; if it
+does not, extraction uses files without changing the baseline aligner. Ordinary
+bucket-estimation overruns consume accounted headroom; no hard RSS guarantee
+is claimed. File extraction retains its original 20×/70× bucket policy.
+
+Calibration uses the worst observed decoded-SAM/compressed-input expansion or
+projected record allocation below, adds **50% margin**, then rounds upward to
+the next multiple of ten:
+
+| Input | Decoded expansion | Record-allocation estimate |
+| --- | ---: | ---: |
+| Actual tiny paired BAM (302 records, 8,642 bytes) | 8.66× | 13.42× |
+| Same tiny CRAM (1,789 bytes) | 44.53× | 64.83× |
+| Chr20 BAM (961,538,643 bytes, 17,651,438 primary reads) | 8.19× | 11.75× |
+| Nominal30x HG00096 CRAM (15,741,370,187 bytes, 768,049,130 primary reads) | 23.17× | 31.23× |
+| Same WGS count projected onto a representative 60 GiB BAM | 5.66× | 7.63× |
+
+These are **not isolated native collate RSS measurements**. Tiny allocation
+estimates use actual QNAME/CIGAR/SEQ/auxiliary shapes, power-of-two payload
+allocation and 128 bytes per record for structure/sort/allocator bookkeeping.
+WGS projections use preserved reference-header/input-count contracts and an
+assumed conservative Illumina shape: 151 bases, 64-byte QNAME, eight CIGAR
+operations, 128 auxiliary bytes, rounded to a 512-byte payload plus the same
+128-byte overhead. The 151-base length and 60 GiB BAM size are assumptions,
+not header measurements. Verified decoded chr20/WGS outputs are shape proxies,
+not independent scans of all input SAM records. Thus the worst ratios,
+13.42×/64.83×, become 30×/100× after margin and rounding; pathological
+compression or name skew can still exceed these estimates.
 
 Preflight is advisory: `preflight_resources()` guards estimation and reporting
 against `ValueError`, `OSError` and subprocess failures, warns that the resource

@@ -588,7 +588,7 @@ def test_stream_overlap_without_ram_uses_files_without_changing_aligner(
     monkeypatch.setattr(
         realign.align_cmd,
         "estimate_mapping_memory",
-        lambda *_a, **_kw: MappingMemory(8 * 1024**3, 0, 0, 0, 0),
+        lambda *_a, **_kw: MappingMemory(8 * 1024**3 - 512 * 1024**2, 0, 0, 0, 0),
     )
     checked = []
     monkeypatch.setattr(
@@ -613,15 +613,35 @@ def test_stream_overlap_without_ram_uses_files_without_changing_aligner(
     assert all(extra == 0 for extra in checked)
 
 
-def test_whole_genome_over_200_bucket_capacity_uses_file_mode(
+def test_small_stream_bucket_still_reserves_full_overlap_for_reporting_and_mapping(
     tmp_path, monkeypatch, source
 ):
     fakes = _Fakes(monkeypatch)
+    reported = []
+    monkeypatch.setattr(
+        realign,
+        "_report_resource_estimates",
+        lambda *_a, **kwargs: reported.append(kwargs["additional_ram_bytes"]),
+    )
+    assert realign.collate_working_memory(source, "2", "100M") < 128 * 1024**2
+    realign.run(_args(source, aligner="bwa"))
+    assert not fakes.extracted
+    assert reported == [1024**3]
+    assert fakes.streamed[0]["additional_ram_bytes"] == 1024**3
+
+
+@pytest.mark.parametrize("size_gib,suffix", [(60, ".bam"), (7, ".bam"), (2, ".cram")])
+def test_input_over_calibrated_200_bucket_capacity_uses_file_mode(
+    tmp_path, monkeypatch, source, size_gib, suffix
+):
+    fakes = _Fakes(monkeypatch)
+    source = source.rename(source.with_suffix(suffix))
     with source.open("wb") as output:
-        output.truncate(60 * 1024**3)
+        output.truncate(size_gib * 1024**3)
     monkeypatch.setattr(realign, "indexed_read_count", lambda *_a: 680_000_000)
     monkeypatch.setattr(realign, "calculate_bam_md5", lambda *_a: None)
     monkeypatch.setattr(realign, "resolve_reference", lambda *_a: None)
+    monkeypatch.setattr(realign, "_input_cram_reference", lambda *_a: None)
     realign.run(_args(source, aligner="bwa", threads="8", memory="2G"))
     assert len(fakes.extracted) == 1 and not fakes.streamed
     assert len(fakes.aligned) == 1

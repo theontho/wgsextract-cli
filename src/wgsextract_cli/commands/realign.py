@@ -58,6 +58,7 @@ from wgsextract_cli.core.warnings import (
 
 from . import align as align_cmd
 from ._extract_helpers import (
+    STREAM_COLLATE_MEMORY_LIMIT,
     alignments_to_fastq,
     collate_working_memory,
     collate_working_memory_limit,
@@ -358,8 +359,11 @@ def run(args: argparse.Namespace) -> None:
     additional_ram_bytes = 0
     cram_opt = None
     if streaming:
-        additional_ram_bytes = collate_working_memory(args.input, threads, memory)
-        fits = additional_ram_bytes <= collate_working_memory_limit(threads, memory)
+        estimated_collate_bytes = collate_working_memory(args.input, threads, memory)
+        fits = estimated_collate_bytes <= collate_working_memory_limit(threads, memory)
+        # Reserve the full overlap allowance, not just the estimated bucket:
+        # ordinary estimation overruns can consume that accounted RAM headroom.
+        additional_ram_bytes = STREAM_COLLATE_MEMORY_LIMIT if fits else 0
         if fits and target and Path(target).is_file():
             samblaster = (
                 align_cmd.duplicate_marker(paired=bool(r2_path)) == "samblaster"
