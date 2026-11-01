@@ -42,6 +42,7 @@ fi
 note "git: $(git --version)"
 
 step "Pixi"
+ORIG_PATH="$PATH"
 PATH="$HOME/.pixi/bin:$PATH"
 export PATH
 if ! command -v pixi >/dev/null 2>&1; then
@@ -95,6 +96,10 @@ if ! command -v copilot >/dev/null 2>&1 && ! command -v claude >/dev/null 2>&1; 
     missing=1
 fi
 [ "$missing" -eq 0 ] && note "All present."
+
+if ! (PATH="$ORIG_PATH" && command -v just) >/dev/null 2>&1; then
+    printf '\nOpen a new terminal before running the commands below (or add %s to PATH).\n' "$HOME/.pixi/bin"
+fi
 
 cat <<'EOF'
 

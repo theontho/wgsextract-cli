@@ -28,6 +28,7 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 Note (git --version)
 
 Step "Pixi"
+$OrigPath = $env:PATH
 & (Join-Path $PSScriptRoot "bootstrap_windows_prereqs.ps1")
 $env:PATH = "$env:USERPROFILE\.pixi\bin;$env:PATH"
 if (-not (Get-Command pixi -ErrorAction SilentlyContinue)) {
@@ -71,14 +72,23 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
     $missing = $true
 }
 else {
+    # Windows PowerShell 5.1 turns native stderr into terminating errors under "Stop".
+    $ErrorActionPreference = "Continue"
     gh auth status *> $null
-    if ($LASTEXITCODE -ne 0) { Note "Log in to GitHub: gh auth login"; $missing = $true }
+    $ghOk = $LASTEXITCODE -eq 0
+    $ErrorActionPreference = "Stop"
+    if (-not $ghOk) { Note "Log in to GitHub: gh auth login"; $missing = $true }
 }
 if (-not (Get-Command copilot -ErrorAction SilentlyContinue) -and -not (Get-Command claude -ErrorAction SilentlyContinue)) {
     Note "An AI coding agent, e.g. GitHub Copilot CLI: npm install -g @github/copilot"
     $missing = $true
 }
 if (-not $missing) { Note "All present." }
+
+$justOnOrigPath = $OrigPath -split ";" | Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $_ "just.exe")) }
+if (-not $justOnOrigPath) {
+    Write-Host "`nOpen a new terminal before running the commands below (or add $env:USERPROFILE\.pixi\bin to PATH)."
+}
 
 Write-Host @"
 

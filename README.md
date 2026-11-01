@@ -487,6 +487,7 @@ Keep larger runs last and budget their CPU, memory and working space.
 git clone https://github.com/theontho/wgsextract-cli.git
 cd wgsextract-cli
 ./scripts/dev_setup.sh   # Windows: powershell -ExecutionPolicy Bypass -File scripts\dev_setup.ps1
+# open a new terminal if the script installed Pixi or just
 just run --help
 ```
 

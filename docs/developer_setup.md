@@ -27,7 +27,7 @@ The script needs only git (and the Xcode Command Line Tools on macOS). It:
 5. Runs `wgsextract --version`, `wgsextract deps check` and the quick smoke tests.
 6. Lists anything else worth having: a git identity, the GitHub CLI (`gh`), and an AI coding agent.
 
-`deps check` marks tools in optional Pixi environments (GATK, VEP, DeepVariant, ...) as missing. That's expected: they install on first use, or with `pixi install -e <environment>`. Rerun the script at any time; `just setup` does the same once `just` is installed. `--skip-tests` (`-SkipTests` on Windows) skips the smoke tests.
+`deps check` marks tools in optional Pixi environments (GATK, VEP, DeepVariant, ...) as missing. That's expected: they install on first use, or with `pixi install -e <environment>`. When the script installs Pixi or `just`, open a new terminal before using them (or add `~/.pixi/bin`, `%USERPROFILE%\.pixi\bin` on Windows, to `PATH`). Rerun the script at any time; `just setup` does the same once `just` is installed. `--skip-tests` (`-SkipTests` on Windows) skips the smoke tests.
 
 ## Make a change
 
@@ -50,7 +50,7 @@ The project is developed with AI coding agents. [AGENTS.md](../AGENTS.md) holds 
 1. Install an agent, for example GitHub Copilot CLI (`npm install -g @github/copilot`), and start it in the repository: `copilot`.
 2. Describe the outcome, how to check it, and where to stop. For example:
 
-   > `wgsextract info` reports "Unknown" sequencer for Ultima Genomics data, whose read names look like `038266_1-Z0138-1404984397` (run id, lane, barcode, read number). Add Ultima detection to `SEQUENCERS` in `src/wgsextract_cli/core/constants.py`, add cases to `test_determine_sequencer` in `tests/test_info_metrics.py` (including names that must not match), run `just check`, then open a pull request.
+   > `wgsextract info` reports an "Unknown" sequencer for Element Biosciences AVITI data. Find the AVITI read-name format in Element's documentation or a public AVITI run and cite the source. Add an entry to `SEQUENCERS` in `src/wgsextract_cli/core/constants.py` (`determine_sequencer` returns the first pattern that matches, so check its position), add cases to `test_determine_sequencer` in `tests/test_info_metrics.py`, including names that must not match, run `just check`, then open a pull request.
 
 3. Review what it did: read the diff (`/diff` in Copilot CLI, or `git diff`), and check that the tests would fail without the change. Run the command yourself on real data when you have it.
 4. Have it push and open the pull request, then watch CI (`gh pr checks --watch`). Paste failures or review comments back to the agent until it's green.

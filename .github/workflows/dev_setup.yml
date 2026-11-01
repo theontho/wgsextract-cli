@@ -38,11 +38,21 @@ jobs:
         run: ./scripts/dev_setup.sh
       - name: Set up (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
-        run: ./scripts/dev_setup.ps1
-      - name: Use just from a new shell
-        shell: bash
+        # The documented command runs Windows PowerShell 5.1.
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File scripts\dev_setup.ps1
+      # A new terminal sees only what the installers persisted, not the PATH the
+      # setup script added for itself.
+      - name: Use just from a new shell (macOS and Linux)
+        if: runner.os != 'Windows'
         run: |
-          export PATH="$HOME/.pixi/bin:$PATH"
+          "$SHELL" -ic 'just --list && just run --version'
+      - name: Use just from a new shell (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
           just --list
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           just run --version
+          exit $LASTEXITCODE
