@@ -69,12 +69,14 @@ def test_bounded_sample_extrapolates_file_size_including_gzip_members(
     monkeypatch.setattr(read_counts, "_COMPRESSED_SAMPLE_BYTES", len(member) * 3)
     path = tmp_path / "reads.fq"
     path.write_bytes(member * 4)
-    small = read_counts.fastq_read_count(path)
-    assert small == pytest.approx(800, rel=0.02)
+    small = read_counts.fastq_statistics(path)
+    assert small is not None
+    assert small.reads == pytest.approx(800, rel=0.02)
     path.write_bytes(member * 40)
-    large = read_counts.fastq_read_count(path)
-    assert large == pytest.approx(8000, rel=0.02)
-    assert large == pytest.approx(small * 10, abs=10)
+    large = read_counts.fastq_statistics(path)
+    assert large is not None
+    assert large.reads == pytest.approx(8000, rel=0.02)
+    assert large.reads == pytest.approx(small.reads * 10, abs=10)
 
 
 def test_sample_respects_compressed_byte_limit(tmp_path, monkeypatch):
@@ -82,7 +84,7 @@ def test_sample_respects_compressed_byte_limit(tmp_path, monkeypatch):
     path = tmp_path / "reads.gz"
     path.write_bytes(member * 20)
     monkeypatch.setattr(read_counts, "_COMPRESSED_SAMPLE_BYTES", len(member) * 2)
-    assert read_counts.fastq_read_count(path) == 4000
+    assert read_counts.fastq_statistics(path) == read_counts.FastqStatistics(4000, 150)
 
 
 def test_gzip_read_ahead_does_not_bias_highly_compressed_reads(tmp_path, monkeypatch):
@@ -91,7 +93,9 @@ def test_gzip_read_ahead_does_not_bias_highly_compressed_reads(tmp_path, monkeyp
     path = tmp_path / "repeats.gz"
     path.write_bytes(member * 40)
     monkeypatch.setattr(read_counts, "_DECODED_SAMPLE_BYTES", len(data) * 3)
-    assert read_counts.fastq_read_count(path) == pytest.approx(400000, rel=0.02)
+    statistics = read_counts.fastq_statistics(path)
+    assert statistics is not None
+    assert statistics.reads == pytest.approx(400000, rel=0.02)
 
 
 @pytest.mark.parametrize(
@@ -105,7 +109,7 @@ def test_unreadable_or_invalid_samples_do_not_omit_a_mate(tmp_path, data, caplog
     bad.write_bytes(data)
     assert read_counts.fastq_input_reads(good, bad) is None
     assert "Could not estimate input read count" in caplog.text
-    assert read_counts.fastq_read_count(tmp_path / "missing.fq") is None
+    assert read_counts.fastq_statistics(tmp_path / "missing.fq") is None
 
 
 def test_streams_are_not_opened_or_consumed_for_sampling(tmp_path, monkeypatch):
@@ -115,4 +119,4 @@ def test_streams_are_not_opened_or_consumed_for_sampling(tmp_path, monkeypatch):
     monkeypatch.setattr(
         read_counts, "open", lambda *_a: pytest.fail("opened a stream"), raising=False
     )
-    assert read_counts.fastq_read_count(tmp_path / "pipe") is None
+    assert read_counts.fastq_statistics(tmp_path / "pipe") is None

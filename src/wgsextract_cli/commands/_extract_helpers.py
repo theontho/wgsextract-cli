@@ -9,6 +9,7 @@ from os import devnull, fspath
 from pathlib import Path
 from typing import NamedTuple
 
+from wgsextract_cli.core.atomic_output import atomic_outputs_enabled
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import PathInput, absolute_path
 from wgsextract_cli.core.reference_assets import input_stem, read_fai_lengths
@@ -136,16 +137,21 @@ def derive_output_path(input_path: PathInput, outdir: PathInput, suffix: str) ->
 
 @contextlib.contextmanager
 def cleanup_files(
-    temp: Sequence[PathInput] = (), on_failure: Sequence[PathInput] = ()
+    temp: Sequence[PathInput] = (),
+    on_failure: Sequence[PathInput] = (),
+    *,
+    preserve_outputs: bool = False,
 ) -> Iterator[None]:
     """Always delete ``temp`` files; delete ``on_failure`` (partial outputs) only
-    if the block raises, so they are never mistaken for complete results."""
+    if the block raises, so they are never mistaken for complete results.
+    Only staged writers may opt into preserving previous final outputs."""
     succeeded = False
     try:
         yield
         succeeded = True
     finally:
-        for path in [*temp, *([] if succeeded else on_failure)]:
+        failed = [] if succeeded or preserve_outputs else on_failure
+        for path in [*temp, *failed]:
             if is_run_log_path(Path(path)):
                 continue
             with contextlib.suppress(FileNotFoundError):
@@ -314,6 +320,8 @@ def alignments_to_fastq(
     space than the system temp dir usually has. Singletons are discarded unless
     ``out_singletons`` is given; READ_OTHER reads go to ``out_other`` if given.
     """
+    from wgsextract_cli.core.temp_directory import configured_temp_directory
+
     with (
         cleanup_files(
             on_failure=[
@@ -321,22 +329,38 @@ def alignments_to_fastq(
                 out_r2,
                 *([out_other] if out_other else []),
                 *([out_singletons] if out_singletons else []),
-            ]
+            ],
+            preserve_outputs=atomic_outputs_enabled(),
         ),
-        tempfile.TemporaryDirectory(dir=temp_parent, prefix=".collate_") as tmp,
+        tempfile.TemporaryDirectory(
+            dir=configured_temp_directory() or temp_parent, prefix=".collate_"
+        ) as tmp,
+        contextlib.ExitStack() as outputs,
     ):
+        from wgsextract_cli.core.atomic_output import safe_output
+
+        staged_r1 = outputs.enter_context(safe_output(out_r1))
+        staged_r2 = outputs.enter_context(safe_output(out_r2))
+        staged_other = (
+            outputs.enter_context(safe_output(out_other)) if out_other else None
+        )
+        staged_singletons = (
+            outputs.enter_context(safe_output(out_singletons))
+            if out_singletons
+            else None
+        )
         run_pipeline(
             _fastq_stages(
                 input_path,
-                out_r1,
-                out_r2,
+                staged_r1,
+                staged_r2,
                 threads=threads,
                 memory=memory,
                 temporary=tmp,
-                singletons=out_singletons or Path(tmp, "singletons.fastq"),
+                singletons=staged_singletons or Path(tmp, "singletons.fastq"),
                 cram_opt=cram_opt,
                 region=region,
-                out_other=out_other,
+                out_other=staged_other,
             ),
             stdout=subprocess.DEVNULL,
             description="FASTQ extraction",

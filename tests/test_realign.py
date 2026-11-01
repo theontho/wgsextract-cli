@@ -8,6 +8,7 @@ import pytest
 
 from tests.htslib_helpers import needs_tools, sam_to_bam, write_fasta
 from wgsextract_cli.commands import realign
+from wgsextract_cli.core import alignment_memory
 from wgsextract_cli.core.alignment_memory import MappingMemory
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.utils import WGSExtractError, run_command
@@ -233,6 +234,26 @@ def test_existing_fastqs_are_reused_and_kept(tmp_path, monkeypatch, source):
     assert all(Path(p).read_text() == "reads" for p in pair)
 
 
+@needs_tools("samtools")
+def test_mem2_realign_prepares_missing_fai_before_index_preflight(
+    tmp_path, monkeypatch, source
+):
+    fakes = _Fakes(monkeypatch)
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 8 * 1024**3)
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nACGT\n")
+    pair = (str(tmp_path / "r1.fq"), str(tmp_path / "r2.fq"))
+    for path in pair:
+        Path(path).write_text("@r\nA\n+\nI\n")
+    assert not Path(str(ref) + ".fai").exists()
+    assert not Path(str(ref) + ".ann").exists()
+
+    realign.run(_args(source, ref=str(ref), aligner="bwa-mem2", r1=pair[0], r2=pair[1]))
+
+    assert Path(str(ref) + ".fai").read_text().split("\t")[:2] == ["chr1", "4"]
+    assert fakes.aligned == [pair]
+
+
 def test_force_extract_streams_without_touching_existing_fastqs(
     tmp_path, monkeypatch, source
 ):
@@ -269,6 +290,35 @@ def test_force_refreshes_exact_output_cache_with_legacy_retention(
         assert not any(Path(path).exists() for path in pair)
     assert fakes.extracted == [pair] and fakes.aligned == [pair]
     assert fakes.streamed == []
+
+
+def test_failed_realign_retains_selected_workspace_fastqs_for_recovery(
+    tmp_path, monkeypatch, source, caplog
+):
+    from wgsextract_cli.core.temp_directory import run_temporary_directory
+
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    fakes = _Fakes(monkeypatch)
+    monkeypatch.setattr(
+        realign, "collate_working_memory", lambda *_a, **_kw: 2 * 1024**3
+    )
+    fakes.align_error = RuntimeError("alignment interrupted")
+    with (
+        pytest.raises(RuntimeError, match="alignment interrupted"),
+        run_temporary_directory(scratch),
+    ):
+        realign.run(_args(source, outdir=str(tmp_path / "out")))
+    pair = fakes.extracted[0]
+    workspace = Path(pair[0]).parent
+    assert workspace.parent == scratch and workspace.exists()
+    assert all(Path(path).read_text() == "@r\nA\n+\nI\n" for path in pair)
+    assert str(workspace) in caplog.text and "--r1 and --r2" in caplog.text
+    fakes.align_error = None
+    with run_temporary_directory(scratch):
+        realign.run(_args(source, r1=pair[0], r2=pair[1]))
+    assert fakes.aligned == [pair, pair] and len(fakes.extracted) == 1
+    assert all(Path(path).exists() for path in pair)
 
 
 def test_reads_passed_in_are_aligned_and_never_deleted(tmp_path, monkeypatch, source):
@@ -600,6 +650,7 @@ def test_realign_uses_actual_input_count_before_extraction_for_memory_and_disk(
     _Fakes(monkeypatch)
     ref = tmp_path / "ref.fa"
     ref.write_text(">c\nA\n")
+    Path(str(ref) + ".fai").write_text("c\t1\t3\t1\t2\n")
     monkeypatch.setattr(realign.bwa_mem2, "check_index", lambda *_: None)
 
     def indexed_count(*_args):

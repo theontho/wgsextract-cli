@@ -29,6 +29,12 @@ Unix tools assume what Windows doesn't give them. The recipes deal with:
   index (`.bwt`, 3 GB) made `bwa mem` fail at once with `[ftell] Invalid
   argument`, bwa-mem2's 32-bit popcount and mask bits kept it seeding forever,
   and fastp's read and base counts overflow on a 30x genome. Patches widen them.
+- **Large transfers.** A single C++ stream write of the 6.4 GB human
+  bwa-mem2 `.0123` index was truncated by exactly 4 GiB on Windows (#264).
+  The recipe now chunks both C stdio and C++ stream transfers at 1 GiB,
+  checks stream failures, and uses explicit 64-bit worker/length types.
+  Its build tests real sparse-file offsets above 4 GiB, partial reads,
+  chunk boundaries, and every tiny index file against Linux SHA-256 goldens.
 - **Binary I/O.** Windows' C runtime rewrites `\n` as `\r\n` in text mode, and
   UCRT's `binmode.o` is empty. `compat/wgse_compat.c` makes all I/O binary
   before `main()`, so output matches Linux byte for byte.
@@ -43,9 +49,14 @@ Unix tools assume what Windows doesn't give them. The recipes deal with:
 Each tool's output was compared with the Linux Bioconda build on the same
 input, using real reads against the full hs38DH reference: bwa, minimap2,
 samblaster, fastp, and the `align`, `vcf snp`, `bam unalign` and `microarray`
-workflows give identical results. bwa-mem2 equivalence (including its index)
-was verified with the chr20 reference only; full-human alignment falls back
-to BWA under the 10 GiB memory guard.
+workflows give identical results. bwa-mem2 alignment equivalence was verified
+with the chr20 reference. Its `windows-tools-8` package (`2.3-wgse_2`) also
+passed the separate native Windows/Linux full-human index gate: all five
+files' sizes and SHA-256 hashes match for the 3,217,346,917-base GRCh38
+reference, including the 6,434,693,834-byte `.0123` file. See
+[#264](https://github.com/theontho/wgsextract-cli/issues/264) for the reference
+and complete hash manifest. Tiny tests alone do not establish full-human parity.
+Complete verified Linux-built indexes remain usable.
 
 The native BWA build also batches independent suffix-array lookups to overlap
 memory reads through the large human index. It retains the original seed

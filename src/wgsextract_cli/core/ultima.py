@@ -221,12 +221,6 @@ class FlowTagFlipper:
         return b"\t".join(fields) + newline
 
 
-def reverse_flow_tags(record: bytes) -> bytes:
-    """A SAM record with tp and t0 reversed when it is on the reverse strand
-    (reference-oriented tags, as Ultima writes them)."""
-    return FlowTagFlipper().flip(record)
-
-
 def main() -> None:
     flipper = FlowTagFlipper()
     out = sys.stdout.buffer

@@ -83,6 +83,8 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
         ref=settings.get("reference_fasta"),
         threads=default_threads,
         memory=settings.get("memory_limit"),
+        tmp_dir=settings.get("temp_directory"),
+        atomic_output=settings.get("atomic_outputs", False),
         parent_pid=None,
         log_file=None,
         log_dir=settings.get("log_dir"),
@@ -174,6 +176,18 @@ def add_shared_arguments(base_parser: argparse.ArgumentParser) -> None:
         "-m",
         default=argparse.SUPPRESS,
         help=CLI_HELP["arg_memory"],
+    )
+    base_parser.add_argument(
+        "--tmp-dir",
+        default=argparse.SUPPRESS,
+        metavar="DIRECTORY",
+        help="Use an existing writable directory for sort spills, GATK and realign staging (overrides temp_directory).",
+    )
+    base_parser.add_argument(
+        "--atomic-output",
+        action=argparse.BooleanOptionalAction,
+        default=argparse.SUPPRESS,
+        help="Opt in to atomic main-output publication; staged tool provenance paths may differ.",
     )
     base_parser.add_argument(
         "--config",
@@ -285,6 +299,15 @@ def _display_config_value(key: str, value: object) -> str:
 def bootstrap_default_config(config_path: Path) -> None:
     print("\nConfig file does not exist yet.")
     try:
+        interactive = sys.stdin.isatty()
+    except (AttributeError, OSError, ValueError):
+        interactive = False
+    if not interactive:
+        print(
+            f"Create {config_path} with your settings, or rerun 'wgsextract config' in a terminal."
+        )
+        return
+    try:
         choice = (
             input("Would you like to bootstrap a default config.toml? [y/N]: ")
             .strip()
@@ -292,7 +315,9 @@ def bootstrap_default_config(config_path: Path) -> None:
         )
         if choice == "y":
             config_path.parent.mkdir(parents=True, exist_ok=True)
-            config_path.write_text(DEFAULT_CONFIG, newline="\n")
+            from wgsextract_cli.core.atomic_output import atomic_write
+
+            atomic_write(config_path, DEFAULT_CONFIG.encode("utf-8"))
             print(f"\n✅ Created default config at {config_path}")
             print("You can now edit this file to persist your settings.")
         else:

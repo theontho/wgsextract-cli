@@ -1,3 +1,4 @@
+import difflib
 import logging
 import os
 import sys
@@ -6,6 +7,7 @@ from typing import Any, TypeVar, overload
 
 from platformdirs import user_config_dir
 
+from wgsextract_cli.core.atomic_output import atomic_write
 from wgsextract_cli.core.paths import expand_path, windows_local_app_dir
 from wgsextract_cli.core.utils import WGSExtractError
 
@@ -18,10 +20,19 @@ else:
 APP_NAME = "wgsextract"
 APP_AUTHOR = "theontho"
 T = TypeVar("T")
+_warned_unknown_keys: set[tuple[str, str]] = set()
 
 KNOWN_SETTINGS = {
     "input_path": (None, "Default input BAM/CRAM or FASTQ file"),
     "output_directory": (None, "Default output directory"),
+    "temp_directory": (
+        None,
+        "Optional volume for sort spills, GATK and realign staging",
+    ),
+    "atomic_outputs": (
+        False,
+        "Publish completed main outputs by rename (changes tool provenance paths)",
+    ),
     "reference_fasta": (None, "Path to the reference genome FASTA"),
     "reference_library": (None, "Reference library directory (genomes/)"),
     "genome_library": (None, "Directory containing per-person genome folders"),
@@ -119,6 +130,7 @@ KNOWN_SETTINGS = {
 
 PATH_SETTINGS = {
     "log_dir",
+    "temp_directory",
     "input_path",
     "output_directory",
     "reference_fasta",
@@ -220,6 +232,11 @@ def config_args(*, keep_awake: bool | None = None) -> list[str]:
     args = ["--config", str(_config_path_override)] if _config_path_override else []
     if keep_awake or (keep_awake is False and settings.get("keep_awake", False)):
         args.append("--keep-awake" if keep_awake else "--no-keep-awake")
+    from wgsextract_cli.core.temp_directory import configured_temp_directory
+
+    temporary = configured_temp_directory()
+    if temporary:
+        args += ["--tmp-dir", temporary]
     return args
 
 
@@ -258,6 +275,15 @@ def load_config() -> dict[str, Any]:
     for old_key, new_key in CONFIG_ALIASES.items():
         if old_key in config and new_key not in config:
             config[new_key] = config[old_key]
+
+    for key in config.keys() - KNOWN_SETTINGS.keys() - CONFIG_ALIASES.keys():
+        identity = (str(config_path), key)
+        if identity in _warned_unknown_keys:
+            continue
+        _warned_unknown_keys.add(identity)
+        matches = difflib.get_close_matches(key, KNOWN_SETTINGS, n=1)
+        hint = f" Did you mean {matches[0]!r}?" if matches else ""
+        logging.warning(f"Unknown setting {key!r} in {config_path}.{hint}")
 
     return normalize_config_paths(config)
 
@@ -310,8 +336,7 @@ def save_config(updates: dict[str, Any]) -> None:
             current_config[key] = _normalize_path_setting(value)
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(config_path, "wb") as f:
-        tomli_w.dump(current_config, f)
+    atomic_write(config_path, tomli_w.dumps(current_config).encode("utf-8"))
     reload_settings()
 
 

@@ -3,8 +3,10 @@
 import logging
 import math
 import subprocess
+import tempfile
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import nullcontext
 from pathlib import Path
 from threading import Event
 
@@ -16,6 +18,7 @@ from wgsextract_cli.core.progress import Heartbeat
 from wgsextract_cli.core.reference_assets import read_fai_lengths
 from wgsextract_cli.core.resource_estimates import GATK_WORKER_BYTES
 from wgsextract_cli.core.run_log import active_run_log
+from wgsextract_cli.core.temp_directory import configured_temp_directory
 from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 
@@ -215,12 +218,18 @@ def call_scattered(
     file_list.write_text(
         "".join(f"{part}\n" for part in parts), encoding="utf-8", newline="\n"
     )
-    merged = str(work / "merged.vcf.gz")
-    run_command(["bcftools", "concat", "-f", str(file_list), "-Oz", "-o", merged])
-    ensure_vcf_indexed(merged)
-    Path(merged).replace(output)
-    for suffix in (".tbi", ".csi"):
-        Path(output + suffix).unlink(missing_ok=True)
-        source = Path(merged + suffix)
-        if source.exists():
-            source.replace(output + suffix)
+    publication = (
+        tempfile.TemporaryDirectory(dir=Path(output).parent, prefix=".wgse_gather_")
+        if configured_temp_directory()
+        else nullcontext(str(work))
+    )
+    with publication as directory:
+        merged = str(Path(directory) / "merged.vcf.gz")
+        run_command(["bcftools", "concat", "-f", str(file_list), "-Oz", "-o", merged])
+        ensure_vcf_indexed(merged)
+        Path(merged).replace(output)
+        for suffix in (".tbi", ".csi"):
+            Path(output + suffix).unlink(missing_ok=True)
+            source = Path(merged + suffix)
+            if source.exists():
+                source.replace(output + suffix)

@@ -34,6 +34,10 @@ def info_env(tmp_path, monkeypatch):
     """A real (dummy) input file with all samtools-backed helpers mocked."""
     sample = tmp_path / "sample.bam"
     sample.write_bytes(b"not really a bam")
+    monkeypatch.setattr(
+        "wgsextract_cli.core.alignment_input.validate_alignment_input",
+        lambda _path: None,
+    )
     mocks = {
         "verify_dependencies": None,
         "log_dependency_info": None,
@@ -199,7 +203,10 @@ def test_info_errors_exit_nonzero(tmp_path, info_env, monkeypatch):
 
 
 def test_global_options_before_subcommand_are_preserved(tmp_path):
-    with patch("wgsextract_cli.commands.info.run") as mock_run:
+    with (
+        patch("wgsextract_cli.commands.info.run") as mock_run,
+        patch("wgsextract_cli.core.alignment_input.validate_alignment_input"),
+    ):
         _run_cli(
             "--input", "sample.bam", "--outdir", str(tmp_path), "--ref", "ref", "info"
         )

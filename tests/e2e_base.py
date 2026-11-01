@@ -5,6 +5,7 @@ when those are missing (or with ``pytest --fake-data``) the suite runs against
 synthetic data generated into out/fake_30x with an isolated, empty config.
 """
 
+import argparse
 import os
 import shutil
 import time
@@ -15,6 +16,7 @@ from typing import ClassVar, TypedDict
 import pytest
 
 from tests.smoke_utils import REPO_ROOT, ensure_fake_data, isolate_home, vep_cache_dir
+from wgsextract_cli.cli.platform_support import verify_platform_support
 from wgsextract_cli.core.config import reload_settings, settings
 from wgsextract_cli.core.dependencies import (
     PIXI_TOOL_ENVS,
@@ -22,7 +24,7 @@ from wgsextract_cli.core.dependencies import (
     is_pixi_tool_command,
     pixi_env_prefix,
 )
-from wgsextract_cli.core.utils import run_command, run_pipeline
+from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 from wgsextract_cli.core.warnings import EXPECTED_TIME
 from wgsextract_cli.main import main
@@ -428,6 +430,10 @@ class E2EBase:
         )
 
     def test_35_vcf_cnv_chrm(self) -> None:
+        try:
+            verify_platform_support(argparse.Namespace(command="vcf", vcf_cmd="cnv"))
+        except WGSExtractError as exc:
+            pytest.skip(str(exc))
         self.run_real(
             "35 vcf cnv (chrM)",
             [

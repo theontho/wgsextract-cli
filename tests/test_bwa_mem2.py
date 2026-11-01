@@ -123,7 +123,9 @@ def test_realign_preflight_uses_effective_mem2_budget(tmp_path, monkeypatch):
         realign, "preflight_resources", lambda build: estimates.append(build())
     )
     realign._report_resource_estimates(
-        Namespace(aligner="bwa-mem2", platform="illumina", format="BAM"),
+        Namespace(
+            aligner="bwa-mem2", platform="illumina", format="BAM", keep_fastq=False
+        ),
         ref,
         str(tmp_path),
         "6",
@@ -320,6 +322,7 @@ def test_realign_refuses_mem2_memory_before_extracting(
         memory="512M",
         outdir=str(tmp_path),
         force_extract=False,
+        keep_fastq=False,
     )
     with pytest.raises(WGSExtractError, match="bwa-mem2 alignment is estimated"):
         realign.run(args)
@@ -512,13 +515,148 @@ def test_index_is_built_when_it_fits_in_memory(tmp_path, monkeypatch):
     ref = _reference(tmp_path)
     monkeypatch.setattr(bwa_mem2, "prebuilt_index", lambda _ref: None)
     commands = []
-    monkeypatch.setattr(bwa_mem2, "run_command", lambda cmd, **_k: commands.append(cmd))
+
+    def build(cmd, **kwargs):
+        commands.append(cmd)
+        for suffix in bwa_mem2.INDEX_SUFFIXES:
+            Path(cmd[3] + suffix).write_text("index")
+
+    monkeypatch.setattr(bwa_mem2, "run_command", build)
     bwa_mem2.ensure_index(ref, download=True)
-    assert commands == [["bwa-mem2", "index", ref]]
+    assert commands[0][:3] == ["bwa-mem2", "index", "-p"]
+    assert commands[0][-1] == ref
+    assert bwa_mem2.has_index(ref)
+
+
+@pytest.mark.parametrize("bases", [2**31 - 1, 2**31, 3_217_346_917])
+@pytest.mark.parametrize("entry", ["build_index", "ensure_index"])
+def test_large_mem2_index_can_be_built_on_every_platform(
+    tmp_path, monkeypatch, bases, entry
+):
+    ref = _reference(tmp_path, bases=bases)
+    monkeypatch.setattr(bwa_mem2, "prebuilt_index", lambda _ref: None)
+    monkeypatch.setattr(bwa_mem2, "_total_memory", lambda: 128 * GB)
+    commands = []
+
+    def build(command):
+        commands.append(command)
+        for suffix in bwa_mem2.INDEX_SUFFIXES:
+            Path(command[3] + suffix).write_bytes(b"index")
+
+    monkeypatch.setattr(bwa_mem2, "run_command", build)
+    bwa_mem2.check_index(ref)
+    if entry == "ensure_index":
+        bwa_mem2.ensure_index(ref, download=False)
+    else:
+        bwa_mem2.build_index(ref)
+    assert commands[0][:3] == ["bwa-mem2", "index", "-p"]
+    assert commands[0][-1] == ref
+    assert bwa_mem2.has_index(ref)
+    assert not Path(ref + ".bwa-mem2.pending").exists()
+
+
+@pytest.mark.parametrize("metadata", [None, "chr1\t10\t6\t60\t61\nchr2\n"])
+@pytest.mark.parametrize("entry", ["build_index", "check_index", "ensure_index"])
+def test_unknown_or_incomplete_length_cannot_bypass_build_memory_preflight(
+    tmp_path, monkeypatch, metadata, entry
+):
+    ref = _reference(tmp_path)
+    fai = Path(ref + ".fai")
+    if metadata is None:
+        fai.unlink()
+    else:
+        fai.write_text(metadata)
+    monkeypatch.setattr(bwa_mem2, "prebuilt_index", lambda *_a: None)
+    monkeypatch.setattr(bwa_mem2, "_total_memory", lambda: 8 * GB)
+    monkeypatch.setattr(
+        bwa_mem2, "run_command", lambda *_a, **_kw: pytest.fail("index process started")
+    )
+    with pytest.raises(WGSExtractError, match="reference length.*samtools faidx"):
+        if entry == "ensure_index":
+            bwa_mem2.ensure_index(ref, download=False)
+        else:
+            getattr(bwa_mem2, entry)(ref)
+    assert not Path(ref + ".bwa-mem2.pending").exists()
+
+
+def test_ann_length_can_protect_large_build_without_a_fai(tmp_path, monkeypatch):
+    ref = _reference(tmp_path, bases=3_217_346_917)
+    Path(ref + ".fai").unlink()
+    Path(ref + ".ann").write_text("3217346917 3366 11\n")
+    monkeypatch.setattr(bwa_mem2, "prebuilt_index", lambda *_a: None)
+    monkeypatch.setattr(bwa_mem2, "_total_memory", lambda: 8 * GB)
+    monkeypatch.setattr(
+        bwa_mem2, "run_command", lambda *_a, **_kw: pytest.fail("index process started")
+    )
+    with pytest.raises(WGSExtractError, match="needs.*memory"):
+        bwa_mem2.ensure_index(ref, download=False)
+
+
+@needs_tools("samtools", "bwa-mem2")
+def test_align_prepares_missing_fai_before_mem2_memory_and_index(tmp_path, monkeypatch):
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\n" + "ACGT" * 1500 + "\n")
+    assert not Path(str(ref) + ".fai").exists()
+    assert not Path(str(ref) + ".ann").exists()
+    setup = align._AlignSetup("1", "100M", str(tmp_path), str(ref), "sample")
+    monkeypatch.setattr(align, "_prepare_alignment", lambda *_a, **_kw: setup)
+    monkeypatch.setattr(bwa_mem2, "_total_memory", lambda: 8 * GB)
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 8 * GB)
+    monkeypatch.setattr(align, "print_warning", lambda *_a, **_kw: None)
+    args = Namespace(
+        aligner="bwa-mem2",
+        r1="r1.fq",
+        r2=None,
+        format="BAM",
+        _input_read_count=1,
+    )
+
+    _, tool = align._bwa_setup(args, "test")
+
+    assert tool == "bwa-mem2"
+    assert Path(str(ref) + ".fai").read_text().split("\t")[:2] == ["chr1", "6000"]
+    assert bwa_mem2.has_index(str(ref))
+
+
+def test_ref_index_starts_supported_large_mem2_build(tmp_path, monkeypatch):
+    from wgsextract_cli.commands.ref import core_commands
+
+    ref = _reference(tmp_path, bases=2**31)
+    monkeypatch.setattr(bwa_mem2, "prebuilt_index", lambda _ref: None)
+    monkeypatch.setattr(bwa_mem2, "_total_memory", lambda: 128 * GB)
+    monkeypatch.setattr(core_commands, "verify_dependencies", lambda *_a: None)
+    monkeypatch.setattr(core_commands, "log_dependency_info", lambda *_a: None)
+    commands = []
+    monkeypatch.setattr(core_commands, "run_command", commands.append)
+    index_commands = []
+
+    def build(command):
+        index_commands.append(command)
+        for suffix in bwa_mem2.INDEX_SUFFIXES:
+            Path(command[3] + suffix).write_bytes(b"index")
+
+    monkeypatch.setattr(bwa_mem2, "run_command", build)
+    core_commands.cmd_index(Namespace(ref=ref, aligner="bwa-mem2"))
+    assert [command[:2] for command in commands] == [
+        ["samtools", "faidx"],
+        ["samtools", "dict"],
+    ]
+    assert index_commands[0][:3] == ["bwa-mem2", "index", "-p"]
+    assert index_commands[0][-1] == ref
+    assert bwa_mem2.has_index(ref)
+
+
+def test_large_existing_index_remains_usable(tmp_path, monkeypatch):
+    ref = _reference(tmp_path, bases=2**31, index=True)
+    monkeypatch.setattr(
+        bwa_mem2, "run_command", lambda *_a, **_kw: pytest.fail("index process started")
+    )
+    bwa_mem2.check_index(ref)
+    bwa_mem2.ensure_index(ref, download=False)
 
 
 def test_prebuilt_index_downloads_and_is_checked(tmp_path, monkeypatch):
-    ref = _reference(tmp_path)
+    ref = _reference(tmp_path, bases=3_217_346_917)
     content = {s: f"index{s}".encode() for s in bwa_mem2.INDEX_SUFFIXES}
     prebuilt = bwa_mem2.PrebuiltIndex(
         "test",

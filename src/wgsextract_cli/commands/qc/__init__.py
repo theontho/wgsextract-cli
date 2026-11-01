@@ -17,6 +17,7 @@ from wgsextract_cli.core.messages import CLI_HELP
 from .commands import (
     cmd_fastp,
     cmd_fastqc,
+    cmd_multiqc,
     cmd_vcf_qc,
 )
 from .fake_data import (
@@ -85,7 +86,8 @@ def cmd_fake_data(args: argparse.Namespace) -> None:
 
 
 def register(
-    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+    subparsers: "argparse._SubParsersAction[argparse.ArgumentParser]",
+    base_parser: argparse.ArgumentParser,
 ) -> None:
     parser = subparsers.add_parser("qc", help=CLI_HELP["cmd_qc"])
     qc_subs = parser.add_subparsers(dest="qc_cmd", required=True)
@@ -101,6 +103,16 @@ def register(
         "fastqc", parents=[base_parser], help=CLI_HELP["cmd_fastqc"]
     )
     fastqc_parser.set_defaults(func=cmd_fastqc)
+
+    multiqc_parser = qc_subs.add_parser(
+        "multiqc",
+        parents=[base_parser],
+        help="Combine existing FastQC reports into one local HTML report.",
+    )
+    multiqc_parser.add_argument(
+        "--force", action="store_true", help="Replace an existing MultiQC report."
+    )
+    multiqc_parser.set_defaults(func=cmd_multiqc)
 
     vcf_parser = qc_subs.add_parser(
         "vcf", parents=[base_parser], help=CLI_HELP["cmd_vcf-qc"]

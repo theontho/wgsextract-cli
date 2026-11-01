@@ -64,7 +64,10 @@ def test_unknown_memory_does_not_start_parallel_jvms(tmp_path, monkeypatch):
     assert len(gatk_scatter.scatter_intervals(_reference(tmp_path), None, "8")) == 1
 
 
-def test_scatter_windows_argv_and_gather_order(tmp_path, monkeypatch, caplog):
+@pytest.mark.parametrize("custom_temp", [False, True])
+def test_scatter_windows_argv_and_gather_order(
+    tmp_path, monkeypatch, caplog, custom_temp
+):
     monkeypatch.setattr(paths, "sys", Namespace(platform="win32"))
     completed_second = Event()
     commands = []
@@ -73,6 +76,21 @@ def test_scatter_windows_argv_and_gather_order(tmp_path, monkeypatch, caplog):
     temporary = tmp_path / "java"
     temporary.mkdir()
     output = tmp_path / "gatk.vcf.gz"
+    monkeypatch.setattr(
+        gatk_scatter,
+        "configured_temp_directory",
+        lambda: str(work) if custom_temp else None,
+    )
+    replace = Path.replace
+
+    def cross_volume_replace(source, target):
+        if custom_temp and source.parent == work:
+            import errno
+
+            raise OSError(errno.EXDEV, "different filesystems")
+        return replace(source, target)
+
+    monkeypatch.setattr(Path, "replace", cross_volume_replace)
 
     def worker(command, _log, _cancelled):
         commands.append(command)
@@ -116,6 +134,7 @@ def test_scatter_windows_argv_and_gather_order(tmp_path, monkeypatch, caplog):
     assert output.read_text() == "000000.vcf,000001.vcf"
     assert Path(str(output) + ".tbi").read_text() == "index"
     assert len(commands) == 2
+    assert not list(tmp_path.glob(".wgse_gather_*"))
     assert "can change annotations and genotypes" in caplog.text
     assert "away from interval boundaries" in caplog.text
     for command in commands:
@@ -209,6 +228,56 @@ def test_cancellation_reaps_java_children_and_launcher(monkeypatch):
 def test_gatk_scatter_rejects_gpu_before_any_work():
     with pytest.raises(WGSExtractError, match="cannot be combined"):
         callers.cmd_gatk(Namespace(scatter=True, gpu=True))
+
+
+def test_atomic_scattered_gatk_rebuilds_the_published_vcf_index(tmp_path, monkeypatch):
+    from wgsextract_cli.core.atomic_output import atomic_output_mode
+
+    output = tmp_path / "gatk.vcf.gz"
+    output.write_text("previous VCF")
+    index = Path(str(output) + ".tbi")
+    index.write_text("previous index")
+    monkeypatch.setattr(callers, "verify_dependencies", lambda tools: None)
+    monkeypatch.setattr(
+        callers,
+        "get_base_args",
+        lambda args: ("2", str(tmp_path), "ref.fa", Namespace(dict_file="ref.dict")),
+    )
+    monkeypatch.setattr(
+        callers,
+        "scatter_intervals",
+        lambda *args: [[("chr1", 1, 10)], [("chr1", 11, 20)]],
+    )
+    monkeypatch.setattr(callers, "preflight_resources", lambda build: None)
+    monkeypatch.setattr(
+        callers.ultima,
+        "alignment_flow_data",
+        lambda *args: Namespace(flow_aware=True),
+    )
+    monkeypatch.setattr(
+        callers, "_prepare_gatk_input", lambda args, *rest: (args.input, None)
+    )
+    monkeypatch.setattr(callers, "warn_if_no_variants", lambda *args: None)
+
+    def scatter(command, shards, path, *args):
+        Path(path).write_text("completed scattered VCF")
+        Path(path + ".tbi").write_text("staged index")
+
+    indexed = []
+
+    def rebuild(path):
+        assert Path(path).read_text() == "completed scattered VCF"
+        indexed.append(path)
+        Path(path + ".tbi").write_text("published index")
+
+    monkeypatch.setattr(callers, "call_scattered", scatter)
+    monkeypatch.setattr(callers, "ensure_vcf_indexed", rebuild)
+    with atomic_output_mode(True):
+        callers.cmd_gatk(
+            Namespace(scatter=True, gpu=False, input="input.bam", region=None)
+        )
+    assert indexed == [str(output)]
+    assert index.read_text() == "published index"
 
 
 def test_scatter_preflight_counts_all_worker_heaps(tmp_path):

@@ -124,6 +124,35 @@ Run `wgsextract help` for the full command tree, and `wgsextract <command> --hel
 
 CRAM bin coverage requires an existing reference FASTA from `--ref`, configuration or the reference library. Missing references fail before decoding; htslib is never allowed to download one implicitly.
 
+### Combining FastQC mate reports
+
+`qc multiqc` is opt-in and combines existing FastQC reports without rerunning
+FastQC or changing its default outputs:
+
+```bash
+wgsextract qc fastqc --input sample_R1.fastq.gz --outdir out/fastqc
+wgsextract qc fastqc --input sample_R2.fastq.gz --outdir out/fastqc
+wgsextract qc multiqc --input out/fastqc --outdir out/combined
+```
+
+It writes one standalone `multiqc_report.html` (no parsed-data directory).
+`--input` accepts a report file or directory; without `--outdir`, the report goes
+beside the input file or into the input directory. Existing reports require
+`--force`; a failed replacement leaves the previous report intact.
+Non-force publication uses atomic hard links to prevent concurrent overwrite;
+filesystems without hard-link support need a different `--outdir` or explicit
+`--force`. Inherited report titles cannot change the fixed output filename.
+
+MultiQC **1.32 or newer, below 2** must already be installed. The command only
+validates dependencies, never installs them. An optional Pixi `multiqc`
+environment is available for explicit user-managed setup (`pixi install -e
+multiqc`); development environments include it for tiny real-tool tests.
+[MultiQC](https://github.com/MultiQC/MultiQC) is an external GPLv3 tool, not a
+bundled dataset. Only its FastQC module runs. Version checks, MegaQC uploads,
+AI summaries and AI report controls are disabled; no browser is launched.
+The standard subprocess `TMPDIR` is set to an owned report workspace, not
+exposed as an application configuration setting.
+
 | Command | Subcommands / purpose |
 | :--- | :--- |
 | `info` | Reference build, file integrity, and read metrics. `calculate-coverage` (exact, via samtools coverage), `coverage-sample` (fast estimate) |
@@ -139,10 +168,10 @@ CRAM bin coverage requires an existing reference FASTA from `--ref`, configurati
 | `align` | Align FASTQ reads with bwa, bwa-mem2, minimap2, or pbmm2, or on an NVIDIA GPU with `--gpu` |
 | `realign` | Re-align an existing BAM/CRAM to another reference, streaming paired reads into BWA or reusing FASTQs |
 | `pet-align` | Align dog or cat FASTQs and call variants |
-| `qc` | `fastp`, `fastqc`, `vcf` (stats), `fake-data` (synthetic BAM/CRAM/VCF/FASTQ) |
+| `qc` | `fastp`, `fastqc`, `multiqc` (existing FastQC reports), `vcf` (stats), `fake-data` (synthetic BAM/CRAM/VCF/FASTQ) |
 | `repair` | `ftdna-bam`, `ftdna-vcf` |
 | `analyze` | `comprehensive` (QC, lineage, calling, annotation in one run), `batch-gen` |
-| `ref` | Library: `bootstrap`, `library`, `library-list`, `status`, `download`, `index`, `verify`, `count-ns`, `gene-map`. Annotation data: `clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb` |
+| `ref` | Library: `bootstrap`, `library`, `library-list`, `status`, `download`, `index`, `verify`, `count-ns`, `gene-map`. Annotation data: `clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb`, `ybrowse` (GRCh38 only) |
 | `sign` | `create` (SHA256SUMS manifest, optionally signed with an OpenSSH key), `verify` |
 | `example-genome` | `list`, `download` curated 1000 Genomes / HGSVC2 datasets |
 | `deps` | `check` |
@@ -152,6 +181,51 @@ CRAM bin coverage requires an existing reference FASTA from `--ref`, configurati
 Notes on a few commands:
 
 - `extract ydna-bam --poz` writes an indexed `_Y_poz.bam` containing reads overlapping the original WGS Extract CombBED/McDonald/Poznik union (about 12 Mb), **not** all stable Y SNPs or a BigY/exome capture. It supports exact GRCh37/hg19 or GRCh38 Y lengths with either `chrY` or `Y`, including Y-only inputs, and never includes the original BEDs' mitochondrial regions. Reads overlapping BED boundaries are kept whole. T2T, unknown and inconsistent assemblies are rejected rather than silently lifted. Bundled BED provenance/license is in `assets/reference/poz/NOTICE.txt`; no download is needed. Without `--poz`, whole-Y extraction is unchanged.
+
+### Opt-in yBrowse Y SNP calling (GRCh38 only)
+
+```bash
+# Explicit download; --ref here names the reference library directory.
+wgsextract ref ybrowse --install --ref /path/to/reference-library
+# Or explicitly install your own header-verified GRCh38 snapshot (VCF or VCF.gz).
+wgsextract ref ybrowse --install --snapshot /path/to/snps_hg38.vcf.gz --ref /path/to/reference-library
+# Set reference_library in config.toml (wgsextract config shows its location).
+wgsextract extract ydna-vcf --ybrowse --input sample.bam --ref /path/to/GRCh38.fa --outdir results
+```
+
+```toml
+reference_library = "/path/to/reference-library"
+```
+
+The explicit download pins compressed SHA256
+`b7984349c575c3d582933993a92770d6143603d3b895d3a0612340b167f37b62`
+from <https://ybrowse.org/gbrowse2/gff/snps_hg38.vcf.gz>. Upstream URLs are
+mutable: a changed hash fails without replacing the installed snapshot. Use
+`--snapshot` for a deliberately selected local replacement; its GRCh38 Y
+length, copyright, annotation header and sorted coordinates are verified and
+its own hash is recorded. Installation retains only SNP sites/annotations, never
+the upstream sample columns. No dataset is bundled or redistributed.
+
+Data attribution/copyright: **CC-BY-SA Thomas Krahn YSEQ (2022).**
+The exact statement and source attribution are retained in the local manifest
+and output VCF header. The upstream grant does not specify a CC-BY-SA version:
+clarify it before redistributing adapted data. These commands perform local
+processing, not a licensed-data mirror.
+
+Calling never downloads or refreshes resources. It validates installed
+samtools/bcftools/bgzip/tabix, checks an indexed matching GRCh38 FASTA and rejects
+REF-allele disagreements before calling. It writes `_Y_ybrowse.vcf.gz` with
+haploid genotypes at installed SNP targets, SNP aliases in ID and allele-matched
+HG/ISOGG annotations. Duplicate aliases are combined only for the same REF/ALT.
+Multi-allelic sites are split without turning another ALT into a reference call;
+uncovered sites remain missing, not ancestral. Ancestral alleles (AA) are retained:
+GRCh38 REF can itself be derived, so GT=1 does not always mean derived.
+HG is a marker annotation, **not a sample haplogroup prediction**. Non-SNP/symbolic upstream
+alleles are omitted and counted in the manifest. `chrY`/`Y` naming is adapted,
+but GRCh37 and T2T are out of scope. Without `--ybrowse`, existing extraction
+outputs are unchanged.
+
+### Other command notes
 
 - `ref verify` checks gzip integrity, the FASTA index, and the sequence-dictionary signature of catalog genomes, and fails on mismatch. `ref count-ns` writes `_ncnt.csv`/`_nbin.csv` next to the FASTA, or into `--outdir`.
 - `vcf snp` and `vcf indel` call the whole alignment as one bcftools stream by default, which keeps results reproducible. `--parallel` calls independent contigs at once for indexed whole-genome BAM/CRAM input, using up to `--threads` workers; sex and ploidy are resolved once, and the results are concatenated in reference-index order before indexing. Parallel calls are not byte-identical on deep data: bcftools subsamples sites with more than 255 bases using one random stream per process, so a few low-quality calls at very deep sites (on a 30x genome, 9 of 4.4 million SNPs, in pericentromeric and unplaced regions) can differ. `--threads 1`, explicit `--region`, unindexed inputs, and inputs whose contig order differs from the reference always use one stream.
@@ -283,6 +357,14 @@ Settings live in `config.toml`. Run `wgsextract config` to see its path and ever
 
 `--config FILE` (accepted anywhere on the command line) reads and saves settings in another file instead, so a tool that bundles the CLI, such as the GUI, keeps its settings out of your own config.
 
+Set `temp_directory = "/data/scratch"` in config.toml or pass `--tmp-dir DIRECTORY` for one run to place samtools/sambamba sort spills, GATK temporary files, and realign staging on a chosen volume. The directory must already exist and be writable. Each run owns a separate workspace, normally removed after success or failure; final outputs stay in `--outdir`. If realign fails after extracting FASTQs, it retains that workspace and prints the paths to reuse with `--r1` and `--r2`; remove the workspace after recovery. Realign's `--keep-fastq` keeps extracted reads in the output directory instead. When unset, existing defaults and tool arguments are unchanged. Native pbmm2's internal sorter cannot honor this setting; use minimap2 or omit it. This is a capacity/placement option, not a speedup claim.
+
+Configuration saves are atomic; unknown keys warn with a suggested spelling. `wgsextract config` only prompts in an interactive terminal.
+
+BWA and bwa-mem2 indexes require every nonempty index file. Builds use an exclusive lock and a staged prefix; an interrupted build is rebuilt on the next run instead of being trusted.
+
+`--atomic-output` (or `atomic_outputs = true` in config.toml) opts align/realign, SNP/InDel/GATK/FreeBayes callers, and main extract writers into publishing completed files by rename, with indexes generated afterward. A failed write preserves a previous output. The default remains unchanged because staged paths change tool provenance headers. `--no-atomic-output` disables a configured opt-in. This does not add resume/skip behavior.
+
 ```toml
 # Defaults for --input and --outdir
 input = "/data/genomes/joe/joe.cram"
@@ -379,18 +461,33 @@ Developer tools live in the `dev` Pixi environment, which Pixi selects automatic
 | Task | What it runs |
 | :--- | :--- |
 | `pixi run test` | Unit and integration tests (excludes the end-to-end suites) |
+| `pixi run test-ci` | Parallel tests with timing/JUnit and non-gating coverage reports under `out/` |
 | `pixi run smoke-test` | CLI smoke tests (`smoke-test-full` adds full-genome and pet tests) |
 | `pixi run test-e2e` | End-to-end suites against real data |
-| `pixi run test-e2e-fake` | End-to-end suites against generated data (`pytest --fake-data`); CI runs them on Linux and macOS |
+| `pixi run test-e2e-fake` | End-to-end suites against generated data (`pytest --fake-data`); CI runs them on Linux, macOS and Windows |
 | `pixi run test-remote` | Live checks that every file the CLI downloads is still published, SpliceAI is in the expected format, and a microarray kit made from public 1000 Genomes data (HG00096) matches its real Omni chip; CI runs them weekly |
 | `pixi run lint` | Ruff, site-source validation, and GitHub Actions checks |
 | `pixi run format` | `ruff format .` |
-| `pixi run typecheck` | mypy on `src/wgsextract_cli` |
+| `pixi run typecheck` | Strict mypy on `src/wgsextract_cli` |
 | `pixi run site-build` | Rebuild the documentation site (see [docs/site_generation.md](docs/site_generation.md)) |
 | `pixi run benchmark-dataset` | Rebuild the release-backed mini-genome benchmark dataset |
 | `pixi run stats` | Code statistics (needs [cloc](https://github.com/AlDanial/cloc) installed separately) |
 
 If you have [just](https://github.com/casey/just) installed, the `justfile` offers short aliases for these tasks: `just run <args>` runs the CLI, and `just test`, `just lint`, `just fmt`, `just typecheck` and `just check` (all four) run the checks. Run `just` to list every recipe.
+
+PR and main-branch CI are bounded and cancel superseded runs. A separate
+lint-only environment runs Ruff, workflow validation and strict mypy without
+reference downloads; genomic jobs cache the public hs38 reference. Action
+updates must retain a full commit SHA and version comment from an allow-listed
+source, rather than updating a duplicate SHA table in the validator.
+
+The weekly **Pixi refresh** workflow resolves updates within the declared
+manifest pins, restores declared direct-archive digests, and publishes a lockfile
+patch artifact and its validation outcome for a reviewed PR. Publication alone
+does not mean validation passed. It never merges dependencies automatically.
+Automatic PR creation is currently blocked by the repository's Actions permission policy; no new secret
+or permission change is required for the artifact handoff. Numerical-tool
+changes still need public small/full-genome byte-parity validation before merge.
 
 Real-data tests read their inputs from pytest options or from config:
 

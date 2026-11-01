@@ -46,6 +46,10 @@ def get_sam_sort_cmd(
     Uses sambamba for BAM output when available, else samtools. sambamba sort
     cannot read SAM, so pass sam_input=True for aligner output streams.
     """
+    from wgsextract_cli.core.temp_directory import configured_temp_directory
+
+    if temp_dir is None:
+        temp_dir = configured_temp_directory()
     threads_val = int(threads)
     mem_val, mem_unit = parse_memory(memory)
 

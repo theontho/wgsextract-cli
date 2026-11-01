@@ -43,6 +43,7 @@ from wgsextract_cli.core.resource_estimates import (
     estimate_resources,
     preflight_resources,
 )
+from wgsextract_cli.core.temp_directory import configured_temp_directory
 from wgsextract_cli.core.utils import WGSExtractError, get_resource_defaults
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
@@ -78,7 +79,8 @@ _FASTQ_PATTERNS: list[tuple[str, str]] = [
 
 
 def register(
-    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+    subparsers: "argparse._SubParsersAction[argparse.ArgumentParser]",
+    base_parser: argparse.ArgumentParser,
 ) -> None:
     parser = subparsers.add_parser(
         "realign",
@@ -162,6 +164,7 @@ def _preflight_disk_space(
     outdir: str,
     need_extract: bool,
     reads: int | None,
+    keep_fastq: bool = False,
     *,
     streaming: bool = False,
 ) -> None:
@@ -180,6 +183,25 @@ def _preflight_disk_space(
     align_temp_gb, align_final_gb = get_free_space_needed(
         file_size, sort_type="Coord", is_cram=is_cram, reads=reads
     )
+    scratch = configured_temp_directory()
+    if scratch and Path(scratch).stat().st_dev != Path(outdir).stat().st_dev:
+        retained_fastq = extract_final_gb if keep_fastq else 0
+        staged_fastq = 0 if keep_fastq else extract_final_gb
+        requirements = [
+            (outdir, retained_fastq + align_final_gb),
+            (scratch, staged_fastq + max(extract_temp_gb, align_temp_gb)),
+        ]
+        for directory, gigabytes in requirements:
+            logging.warning(
+                "Realign pre-flight: ~%d GB free space required at %s.",
+                gigabytes,
+                directory,
+            )
+            if not check_free_space(directory, gigabytes):
+                raise WGSExtractError(
+                    f"Insufficient free disk space at {directory} for realign (needs ~{gigabytes} GB)."
+                )
+        return
 
     # Streamed collate deletes buckets as it drains, but overlaps sorter spills.
     total_gb = (
@@ -235,6 +257,14 @@ def run(args: argparse.Namespace) -> None:
     args.platform = align_cmd.resolve_platform(args, args.r1 or args.input)
     # Reject bad aligner/platform/preset combinations before hours of extraction.
     selected_aligner = align_cmd.select_aligner(args)
+    if (
+        selected_aligner == "pbmm2"
+        and configured_temp_directory()
+        and not getattr(args, "gpu", False)
+    ):
+        raise WGSExtractError(
+            "Native pbmm2's internal sorter does not support --tmp-dir. Use --aligner minimap2 or omit the temporary-directory setting."
+        )
     signature = None
     if selected_aligner in {"bwa", "bwa-mem2"} and not (
         args.ref and Path(args.ref).is_file()
@@ -242,6 +272,7 @@ def run(args: argparse.Namespace) -> None:
         signature = calculate_bam_md5(args.input, None)
     target = resolve_reference(args.ref, signature) if args.ref or signature else None
     if args.aligner == "bwa-mem2" and target and Path(target).is_file():
+        align_cmd.ensure_fasta_index(target)
         bwa_mem2.check_index(target)
 
     threads, memory = get_resource_defaults(args.threads, args.memory)
@@ -290,8 +321,9 @@ def run(args: argparse.Namespace) -> None:
         logging.info("Reusing existing FASTQs:\n  R1: %s\n  R2: %s", r1_path, r2_path)
     else:
         base = input_stem(args.input)
-        r1_path = str(Path(outdir, f"{base}_R1.fastq.gz"))
-        r2_path = str(Path(outdir, f"{base}_R2.fastq.gz"))
+        staging = outdir if args.keep_fastq else configured_temp_directory() or outdir
+        r1_path = str(Path(staging, f"{base}_R1.fastq.gz"))
+        r2_path = str(Path(staging, f"{base}_R2.fastq.gz"))
         need_extract = True
 
     refresh_cached_fastqs = (
@@ -385,6 +417,7 @@ def run(args: argparse.Namespace) -> None:
             outdir,
             need_extract=need_extract and not streaming,
             reads=reads,
+            keep_fastq=args.keep_fastq,
             streaming=streaming,
         )
 
@@ -438,6 +471,7 @@ def run(args: argparse.Namespace) -> None:
                     outdir,
                     need_extract=True,
                     reads=reads,
+                    keep_fastq=args.keep_fastq,
                 )
         else:
             return
@@ -475,7 +509,23 @@ def run(args: argparse.Namespace) -> None:
         statistics = fastq_input_statistics(r1_path, r2_path)
         read_length = statistics.read_length if statistics is not None else None
     align_args._input_read_length = read_length
-    align_cmd.run(align_args)
+    try:
+        align_cmd.run(align_args)
+    except BaseException:
+        if need_extract and not args.keep_fastq:
+            from wgsextract_cli.core.temp_directory import retain_temporary_directory
+
+            directory = retain_temporary_directory()
+            if directory:
+                logging.warning(
+                    "Alignment failed; extracted FASTQs are retained in %s. "
+                    "Rerun with --r1 and --r2 pointing to:\n  %s\n  %s\n"
+                    "Remove the retained workspace after recovery.",
+                    directory,
+                    r1_path,
+                    r2_path,
+                )
+        raise
 
     # 5. Remove the FASTQs this run extracted unless asked to keep them. They are
     # kept when alignment fails so a rerun can reuse them.
@@ -518,6 +568,7 @@ def _report_resource_estimates(
             "realign",
             input_paths=[path for path in input_paths if path],
             output_dir=outdir,
+            temp_dir=configured_temp_directory(),
             reference=resolved,
             threads=threads,
             memory=align_cmd.short_read_sort_memory(tool, memory, log=False),
@@ -529,6 +580,7 @@ def _report_resource_estimates(
             additional_ram_bytes=additional_ram_bytes,
             output_format=getattr(args, "format", "BAM"),
             extract_fastq=need_extract,
+            fastq_dir=outdir if args.keep_fastq else configured_temp_directory(),
             duplicate_marking=(
                 "gatk-flow"
                 if getattr(args, "platform", None) == "ultima"

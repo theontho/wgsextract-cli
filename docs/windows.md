@@ -110,6 +110,15 @@ The CLI launches Java with the sidecar/GATK classpath. Launcher `--java-options`
 remain JVM options, including scatter workers' heap and CPU limits; Linux/macOS
 launching and default caller arguments are unchanged.
 
+## Cancelling commands
+
+Windows cleanup terminates the registered launcher and its descendants together,
+including Java workers. It does not use Ctrl+Break, which Java can ignore.
+Native GATK single-shard subprocess and stderr waits check back with Python every
+half second, so foreground keyboard Ctrl+C does not wait for Java to finish before
+the CLI's signal handler can terminate the process tree. The half-second interval
+is not a guarantee on total cleanup time; Windows must also stop the descendants.
+
 ## Short read alignment
 
 The default `--aligner auto` uses native bwa-mem2 when the reference already
@@ -119,6 +128,18 @@ the bwa-mem2 index for your reference, run:
 ```bat
 pixi run wgsextract ref index --aligner bwa-mem2 --ref C:\path\to\reference.fa
 ```
+
+Native full-human index construction is supported with the pinned
+`windows-tools-8` bwa-mem2 `2.3-wgse_2` package. It fixes the large-transfer
+and 64-bit-offset corruption tracked in [#264](https://github.com/theontho/wgsextract-cli/issues/264).
+All five index files for the 3,217,346,917-base GRCh38 reference were verified
+byte-identical to a Linux-built index. Building it needs roughly 80 GB of RAM;
+the CLI checks its build-memory estimate before starting. Existing indexes and
+the verified published hs38DH index download remain supported.
+`ref index`, alignment and realignment prepare missing FASTA length metadata
+automatically with samtools. Direct build
+preflight refuses missing or incomplete length metadata rather than assuming
+the build needs no memory; complete BWA `.ann` metadata can also supply the length.
 
 The human bwa-mem2 index occupies about 17 GB of RAM, with additional memory
 needed for reads, sorting and Windows. The CLI checks the reference's memory

@@ -2,9 +2,23 @@ from collections.abc import Iterator
 
 import pytest
 
-from tests.smoke_utils import isolate_home
+from tests.smoke_utils import ensure_fake_data, isolate_home
 from wgsextract_cli.core.config import reload_settings, settings
 from wgsextract_cli.core.dependencies import clear_tool_caches
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Keep module-owned outputs and shared synthetic-data generation serialized."""
+    for item in items:
+        module = getattr(item, "module", None)
+        if module is not None:
+            group = (
+                "shared-smoke"
+                if getattr(module, "ensure_fake_data", None) is ensure_fake_data
+                else module.__name__
+            )
+            item.add_marker(pytest.mark.xdist_group(group))
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -48,6 +62,7 @@ def _isolate_user_config(
     """
     saved = dict(settings)
     if request.node.get_closest_marker("real_config") is None:
+        monkeypatch.setattr("wgsextract_cli.core.config._config_path_override", None)
         isolate_home(monkeypatch, tmp_path_factory.mktemp("home"))
         reload_settings()
     try:

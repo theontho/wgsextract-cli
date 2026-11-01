@@ -1,4 +1,5 @@
 import argparse
+from pathlib import Path
 
 from wgsextract_cli.core.messages import CLI_HELP
 
@@ -22,15 +23,30 @@ from .library_commands import (
     cmd_phylop_dl,
     cmd_revel_dl,
     cmd_spliceai_dl,
+    cmd_ybrowse,
 )
 from .status import cmd_ref_status
 
 
 def register(
-    subparsers: argparse._SubParsersAction, base_parser: argparse.ArgumentParser
+    subparsers: "argparse._SubParsersAction[argparse.ArgumentParser]",
+    base_parser: argparse.ArgumentParser,
 ) -> None:
     parser = subparsers.add_parser("ref", help="Reference Data Management commands.")
     ref_subs = parser.add_subparsers(dest="ref_cmd", required=True)
+
+    ybrowse_parser = ref_subs.add_parser(
+        "ybrowse",
+        parents=[base_parser],
+        help="Explicitly install a hash-pinned, sites-only GRCh38 yBrowse snapshot.",
+    )
+    ybrowse_parser.add_argument("--install", action="store_true", required=True)
+    ybrowse_parser.add_argument(
+        "--snapshot",
+        type=Path,
+        help="Use a local GRCh38 VCF(.gz), verifying its header instead of the upstream pin.",
+    )
+    ybrowse_parser.set_defaults(func=cmd_ybrowse)
 
     dl_parser = ref_subs.add_parser(
         "download", parents=[base_parser], help=CLI_HELP["cmd_ref-download"]

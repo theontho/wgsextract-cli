@@ -124,6 +124,7 @@ def test_config_command_offers_to_bootstrap_a_default_config(
 ):
     path = config.get_config_path()
     monkeypatch.setattr("builtins.input", lambda prompt: answer)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
 
     main(["config"])
 
@@ -138,6 +139,7 @@ def test_config_bootstrap_survives_a_closed_stdin(monkeypatch, capsys, tmp_path)
         raise EOFError
 
     monkeypatch.setattr("builtins.input", closed)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
 
     parser.bootstrap_default_config(tmp_path / "cfg" / "config.toml")
 
@@ -163,7 +165,11 @@ def test_every_default_config_entry_is_a_setting_once_uncommented():
 
 
 @pytest.fixture
-def genome(tmp_path):
+def genome(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "wgsextract_cli.core.alignment_input.validate_alignment_input",
+        lambda path: None,
+    )
     library = tmp_path / "genomes"
     folder = library / "ken"
     (folder / "calls").mkdir(parents=True)
