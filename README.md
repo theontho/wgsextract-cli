@@ -370,6 +370,16 @@ Set `temp_directory = "/data/scratch"` in config.toml or pass `--tmp-dir DIRECTO
 
 Configuration saves are atomic; unknown keys warn with a suggested spelling. `wgsextract config` only prompts in an interactive terminal.
 
+Known settings are type-checked when loading or saving. Boolean settings require
+unquoted TOML `true` or `false`; strings such as `"false"` are errors, not toggles.
+Threads require a positive integer (for example `threads = 4`) or `"auto"`;
+previously supported numeric thread strings such as `"4"` remain accepted.
+Integer thresholds and cache TTLs require TOML integers, not quoted numbers or
+booleans. Memory limits (for example `memory = "2G"`), paths,
+and image names are strings. `vcf_input_paths` also accepts an array of strings.
+Errors name the setting and expected type; canonical keys and aliases follow
+the same rules. Valid values and missing-setting defaults are unchanged.
+
 BWA and bwa-mem2 indexes require every nonempty index file. Builds use an exclusive lock and a staged prefix; an interrupted build is rebuilt on the next run instead of being trusted.
 
 `--atomic-output` (or `atomic_outputs = true` in config.toml) opts align/realign, SNP/InDel/GATK/FreeBayes callers, and main extract writers into publishing completed files by rename, with indexes generated afterward. A failed write preserves a previous output. The default remains unchanged because staged paths change tool provenance headers. `--no-atomic-output` disables a configured opt-in. This does not add resume/skip behavior.

@@ -210,6 +210,44 @@ LEGACY_SETTINGS = {
 }
 
 
+def _validate_config_types(config: dict[str, Any], config_path: Path) -> None:
+    for key, value in config.items():
+        canonical = CONFIG_ALIASES.get(key, key)
+        if canonical not in KNOWN_SETTINGS:
+            continue
+        default = KNOWN_SETTINGS[canonical][0]
+        if canonical == "cpu_threads":
+            from wgsextract_cli.core.resource_policy import parse_thread_count
+
+            expected = "a positive TOML integer, positive integer string, or 'auto'"
+            valid = type(value) is int or isinstance(value, str)
+            if valid:
+                try:
+                    parse_thread_count(value)
+                except ValueError:
+                    valid = False
+        elif canonical == "vcf_input_paths":
+            expected = "a TOML string or an array of TOML strings"
+            valid = isinstance(value, str) or (
+                isinstance(value, list) and all(isinstance(path, str) for path in value)
+            )
+        elif type(default) is bool:
+            expected = "a TOML boolean (true or false)"
+            valid = type(value) is bool
+        elif type(default) is int:
+            expected = "a TOML integer"
+            valid = type(value) is int
+        else:
+            expected = "a TOML string"
+            valid = isinstance(value, str)
+        if not valid:
+            alias = f" ({canonical})" if canonical != key else ""
+            raise WGSExtractError(
+                f"Invalid setting {key!r}{alias} in {config_path}: "
+                f"expected {expected}; got {type(value).__name__}."
+            )
+
+
 def get_config_dir() -> Path:
     """Get the standard user configuration directory for this app."""
     return windows_local_app_dir(APP_NAME, APP_AUTHOR) or Path(
@@ -285,6 +323,7 @@ def load_config() -> dict[str, Any]:
         hint = f" Did you mean {matches[0]!r}?" if matches else ""
         logging.warning(f"Unknown setting {key!r} in {config_path}.{hint}")
 
+    _validate_config_types(config, config_path)
     return normalize_config_paths(config)
 
 
@@ -335,6 +374,7 @@ def save_config(updates: dict[str, Any]) -> None:
         else:
             current_config[key] = _normalize_path_setting(value)
 
+    _validate_config_types(current_config, config_path)
     config_path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write(config_path, tomli_w.dumps(current_config).encode("utf-8"))
     reload_settings()

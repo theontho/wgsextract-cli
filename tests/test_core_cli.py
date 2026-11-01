@@ -73,17 +73,83 @@ def test_invalid_threads_flag_is_a_usage_error(temp_config):
     assert exc.value.code == 2
 
 
-def test_invalid_config_threads_is_ignored_with_warning(temp_config, caplog):
+def test_invalid_config_threads_is_rejected_without_replacing_settings(temp_config):
     temp_config.write_text('threads = "max"\n')
-    config.reload_settings()
-    with caplog.at_level(logging.WARNING):
-        cli_parser, base_parser = parser.build_parser()
-    assert "Ignoring invalid cpu_threads" in caplog.text
+    previous = dict(config.settings)
+    with pytest.raises(WGSExtractError, match=r"threads.*cpu_threads.*TOML integer"):
+        config.reload_settings()
+    assert config.settings == previous
 
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        key
+        for key, (default, _) in config.KNOWN_SETTINGS.items()
+        if type(default) is bool
+    ],
+)
+@pytest.mark.parametrize("value", ['"false"', "0", "[]", "{}"])
+def test_boolean_config_settings_require_toml_booleans(temp_config, key, value):
+    temp_config.write_text(f"{key} = {value}\n")
+    with pytest.raises(WGSExtractError, match=rf"{key}.*TOML boolean"):
+        config.load_config()
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "expected"),
+    [
+        ("threads", "true", "TOML integer"),
+        ("cpu_threads", '"4.0"', "TOML integer"),
+        ("microarray_min_dp", '"15"', "TOML integer"),
+        ("microarray_min_gq", "false", "TOML integer"),
+        ("dev_download_cache_ttl_seconds", "1.5", "TOML integer"),
+        ("memory", "2", "TOML string"),
+        ("ref", "false", "TOML string"),
+        ("output_directory", "[]", "TOML string"),
+        ("vcf_input_paths", '["sample.vcf", 1]', "array of TOML strings"),
+    ],
+)
+def test_other_config_types_are_validated_at_load(temp_config, key, value, expected):
+    temp_config.write_text(f"{key} = {value}\n")
+    with pytest.raises(WGSExtractError, match=rf"{key}.*{expected}"):
+        config.load_config()
+
+
+def test_valid_config_types_preserve_values_and_defaults(temp_config):
+    temp_config.write_text(
+        'atomic_outputs = false\nkeep_awake = true\nthreads = 4\nmemory = "512M"\n'
+        'ref = "~/reference.fa"\nvcf_input_paths = ["a.vcf", "b.vcf"]\n'
+        "microarray_min_dp = 15\ndev_download_cache_ttl_seconds = 0\n"
+    )
+    loaded = config.load_config()
+    assert loaded["atomic_outputs"] is False and loaded["keep_awake"] is True
+    assert loaded["cpu_threads"] == 4 and loaded["memory_limit"] == "512M"
+    assert loaded["reference_fasta"] == str(Path.home() / "reference.fa")
+    assert loaded["vcf_input_paths"] == ["a.vcf", "b.vcf"]
+    assert loaded["microarray_min_dp"] == 15
+    assert loaded["dev_download_cache_ttl_seconds"] == 0
+    assert "quiet_mode" not in loaded
+    temp_config.write_text("")
+    assert config.load_config() == {}
+
+
+def test_config_threads_retains_supported_numeric_string(temp_config):
+    temp_config.write_text('cpu_threads = "4"\n')
+    config.reload_settings()
+    assert config.settings["cpu_threads"] == "4"
+    cli_parser, base_parser = parser.build_parser()
     args, _ = parser.parse_args(cli_parser, base_parser, ["info"])
-    assert args.threads is None
-    args, _ = parser.parse_args(cli_parser, base_parser, ["info", "--threads", "4"])
     assert args.threads == 4
+
+
+def test_save_config_rejects_invalid_types_before_publication(temp_config):
+    temp_config.write_text("atomic_outputs = false\n")
+    config.reload_settings()
+    with pytest.raises(WGSExtractError, match="atomic_outputs.*TOML boolean"):
+        config.save_config({"atomic_outputs": "false"})
+    assert temp_config.read_text() == "atomic_outputs = false\n"
+    assert config.settings["atomic_outputs"] is False
 
 
 def test_save_config_clears_aliases_of_cleared_key(temp_config):
