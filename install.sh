@@ -500,9 +500,13 @@ PIXI_BIN_DIR=""
 CREATED_PROFILES=""
 WORK_DIR=""
 pixi_work_dir=""
+INSTALL_DIR_CREATED=0
 cleanup() {
     [ -z "$WORK_DIR" ] || rm -rf "$WORK_DIR"
     [ -z "$pixi_work_dir" ] || rm -rf "$pixi_work_dir"
+    if [ "$INSTALL_DIR_CREATED" -eq 1 ]; then
+        rmdir "$INSTALL_DIR" 2>/dev/null || true
+    fi
 }
 trap cleanup EXIT
 trap 'cleanup; exit 1' INT HUP TERM
@@ -510,7 +514,10 @@ if [ -n "$PIXI" ] && [ ! -x "$PIXI" ]; then
     fail "PIXI is set but is not executable: $PIXI"
 fi
 
-mkdir -p "$INSTALL_DIR"
+if [ ! -d "$INSTALL_DIR" ]; then
+    mkdir -p "$INSTALL_DIR"
+    INSTALL_DIR_CREATED=1
+fi
 WORK_DIR="$(make_staging_directory "$INSTALL_DIR" ".source-download")"
 
 ARCHIVE="$WORK_DIR/wgsextract-cli.tar.gz"
@@ -529,7 +536,22 @@ fi
 case "$OS_NAME:$(uname -m)" in
     Linux:aarch64|Linux:arm64)
         # Inspect the workspace declaration, not a feature's platforms or a comment.
-        if ! sed -n '/^[[:space:]]*platforms[[:space:]]*=/ { p; q; }' "$SOURCE_DIR/pixi.toml" 2>/dev/null |
+        if ! awk '
+            {
+                sub(/#.*/, "")
+                if (!collecting && /^[[:space:]]*\[/)
+                    workspace = /^[[:space:]]*\[(workspace|project)\][[:space:]]*$/
+                if (!collecting && workspace && /^[[:space:]]*platforms[[:space:]]*=/)
+                    collecting = 1
+                if (collecting) {
+                    platforms = platforms " " $0
+                    if (index($0, "]")) {
+                        print platforms
+                        exit
+                    }
+                }
+            }
+        ' "$SOURCE_DIR/pixi.toml" 2>/dev/null |
             grep -Eq "^[[:space:]]*platforms[[:space:]]*=[[:space:]]*\\[([^]#]*,)?[[:space:]]*(\"linux-aarch64\"|'linux-aarch64')[[:space:]]*(,|\\])"; then
             fail "Downloaded ref '$REF' does not support native Linux ARM64 (linux-aarch64). No dependencies were installed and the existing app was not changed. Use WGSEXTRACT_REF=main or a release that includes this change."
         fi

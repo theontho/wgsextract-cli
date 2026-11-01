@@ -111,6 +111,23 @@ def test_linux_arm_pixi_asset_is_native(tmp_path: Path, architecture: str) -> No
         ('platforms = ["linux-64", "linux-aarch64", "win-64"]', True, False),
         ('platforms = ["linux-64", "linux-aarch64", "win-64"]', True, True),
         ("platforms = ['linux-aarch64', 'linux-64']", True, True),
+        ('platforms = [\n "linux-aarch64",\n]', True, False),
+        ('platforms = ["linux-64",\n "linux-aarch64"]', True, True),
+        (
+            "platforms = [ # a comment with ]\n"
+            ' "linux-64", # another ]\n "linux-aarch64",\n]',
+            True,
+            False,
+        ),
+        ('platforms = [\n "linux-64",\n]', False, False),
+        (
+            'platforms = [\n "linux-aarch64-other",\n'
+            ' # "linux-aarch64"\n]\n[feature.optional]\n'
+            'platforms = ["linux-aarch64"]',
+            False,
+            True,
+        ),
+        ('[feature.optional]\nplatforms = ["linux-aarch64"]', False, False),
     ],
 )
 def test_linux_arm_validates_downloaded_ref_before_pixi_or_app_changes(
@@ -195,6 +212,8 @@ def test_linux_arm_validates_downloaded_ref_before_pixi_or_app_changes(
         assert "WGSEXTRACT_REF=main" in result.stderr
         assert not pixi_marker.exists()
         assert not (home / ".pixi").exists()
+        if not existing_app:
+            assert not installation.exists()
         assert {
             path.relative_to(installation): path.read_bytes()
             if path.is_file()

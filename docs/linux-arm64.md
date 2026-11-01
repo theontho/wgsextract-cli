@@ -17,6 +17,8 @@ For unreleased code, choose the branch explicitly with the existing
 published release, which may predate ARM64 support.
 The installer validates the downloaded workspace's ARM64 platform before
 installing Pixi or changing an existing app; unsupported refs fail cleanly.
+Inline and multi-line platform arrays are accepted. Refusal preserves existing
+installations and removes an empty destination created for a fresh attempt.
 
 ## Supported phase-1 commands
 
