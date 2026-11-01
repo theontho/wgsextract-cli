@@ -47,7 +47,8 @@ GATK commands fail fast on Linux ARM64, including `--gpu`: the pinned GKL
 PairHMM and Smith-Waterman kernels require x86 AVX. No slow pure-Java fallback
 is silently enabled. DeepVariant also fails before checking input, launching
 Docker or running a local binary, including `--gpu` and custom images.
-`deps check` reports these tools as unavailable with the phase-2 explanation.
+The phase-2 explanation is shown when a gated command or version probe is
+requested; `deps check` marks unavailable optional tools as missing.
 Use bcftools for phase-1 variant calling.
 
 GPU alignment/realignment also fails before preparing inputs or inspecting
@@ -70,9 +71,16 @@ records, not compressed CRAM bytes or command-line provenance headers.
 Fresh Ubuntu 24.04 ARM installation, native unit tests and generated-genome
 tests pass. Full public HG00096 MEM2 output (779,820,884 decoded records) and
 bcftools calling (4,408,885 records, including all genotypes) exactly match the
-same-source x64 control. Full BWA 30x validation is still budget-blocked; its
+same-source x64 control. Full BWA 30x validation is funded and running; its
 native small-genome and complete-pair public pilots pass. Stock ARM MEM2 index
-construction is 39.1% slower in the measured comparison.
+construction is 39.1% slower in the measured comparison. This one-time
+reference-preparation cost is not an acceptance blocker. A bounded native
+50 Mb indexing experiment found only a 1.1% median improvement from
+Neoverse-N2 compiler flags, smaller than run variation; all five index
+members remained byte-identical. Native profiling identified suffix-array
+sorting/FM-index construction rather than NEON alignment or compression as
+the hot path. No CPU-specific rebuild or unqualified sorting replacement is
+enabled by default.
 
 Phase 1 is not acceptance-complete while the full BWA gate remains open.
 See [PR #273](https://github.com/theontho/wgsextract-cli/pull/273) and
