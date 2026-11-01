@@ -36,8 +36,14 @@ from .models import (
 def _download_file(url: str, destination: Path, *, sha256: str | None = None) -> None:
     require_http_url(url, "benchmark dataset URL")
     logging.info("Downloading benchmark dataset to %s", destination.name)
-    if not download_file(url, str(destination), expected_sha256=sha256):
-        reason = " (download error or SHA256 mismatch)" if sha256 else ""
+    normalized_sha256 = sha256.strip().lower() if sha256 is not None else None
+    if not download_file(
+        url,
+        str(destination),
+        expected_sha256=normalized_sha256 or None,
+        resolve_release_digest=normalized_sha256 != "",
+    ):
+        reason = " (download error or SHA256 mismatch)" if normalized_sha256 else ""
         raise WGSExtractError(
             f"Failed to download benchmark dataset {destination.name}{reason}; "
             "retry to resume any existing .partial download."

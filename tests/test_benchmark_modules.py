@@ -372,6 +372,29 @@ def test_real_archive_without_checksum_reuses_cached_zip(tmp_path, served):
     assert fetched == [url]
 
 
+@pytest.mark.parametrize("checksum", ["", "  ", None])
+def test_empty_archive_checksum_skips_missing_github_release_digest(
+    tmp_path, served, monkeypatch, checksum
+):
+    monkeypatch.setitem(settings, "dev_download_cache", False)
+    files, fetched = served
+    url = "https://github.com/example/benchmarks/releases/download/test/fixture.zip"
+    metadata = "https://api.github.com/repos/example/benchmarks/releases/tags/test"
+    files[url] = _dataset_zip(tmp_path / "asset.zip").read_bytes()
+    files[metadata] = json.dumps({"assets": [{"name": "fixture.zip"}]}).encode()
+    args = Namespace(
+        dataset_url=url, dataset_sha256=checksum, dataset_cache_dir=str(tmp_path / "c")
+    )
+    if checksum is None:
+        with pytest.raises(WGSExtractError, match="Failed to download"):
+            environment._real_dataset_zip_path(args, tmp_path)
+        assert fetched == [metadata]
+    else:
+        downloaded = environment._real_dataset_zip_path(args, tmp_path)
+        assert downloaded.read_bytes() == files[url]
+        assert fetched == [url]
+
+
 def test_real_archive_restores_from_dev_cache_without_downloading(
     tmp_path, served, monkeypatch
 ):

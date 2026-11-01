@@ -81,7 +81,7 @@ def _real_dataset_zip_path(args: argparse.Namespace, outdir: Path) -> Path:
             drop_cached_download(url, zip_path, checksum_hint=checksum_hint)
             zip_path.unlink(missing_ok=True)
 
-    _download_file(url, zip_path, sha256=expected_sha256)
+    _download_file(url, zip_path, sha256=getattr(args, "dataset_sha256", None))
     if expected_sha256:
         _verify_digest(zip_path, "sha256", expected_sha256)
         store_download_in_dev_cache(url, zip_path, checksum_hint=checksum_hint)

@@ -125,8 +125,9 @@ def test_user_download_entrypoints_resume_without_exposing_partial_files(
     assert not Path(str(dest) + ".partial").exists()
 
 
+@pytest.mark.parametrize("resolve_release_digest", [True, False])
 def test_explicit_checksum_verifies_before_replacing_destination(
-    server, tmp_path, monkeypatch
+    server, tmp_path, monkeypatch, resolve_release_digest
 ):
     dest = tmp_path / "dataset.zip"
     dest.write_bytes(b"previous verified download")
@@ -135,11 +136,19 @@ def test_explicit_checksum_verifies_before_replacing_destination(
         "resolve_github_release_asset_sha256",
         lambda _: pytest.fail("Explicit checksum must not need GitHub metadata"),
     )
-    assert not downloads.download_file(server.url, str(dest), expected_sha256="0" * 64)
+    assert not downloads.download_file(
+        server.url,
+        str(dest),
+        expected_sha256="0" * 64,
+        resolve_release_digest=resolve_release_digest,
+    )
     assert dest.read_bytes() == b"previous verified download"
     assert not Path(str(dest) + ".partial").exists()
     assert downloads.download_file(
-        server.url, str(dest), expected_sha256=hashlib.sha256(DATA).hexdigest().upper()
+        server.url,
+        str(dest),
+        expected_sha256=hashlib.sha256(DATA).hexdigest().upper(),
+        resolve_release_digest=resolve_release_digest,
     )
     assert dest.read_bytes() == DATA
 

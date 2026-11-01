@@ -131,8 +131,12 @@ def download_file(
     cancel_event: CancelEvent | None = None,
     *,
     expected_sha256: str | None = None,
+    resolve_release_digest: bool = True,
 ) -> bool:
-    """Resume explicit .partial files; replace dest only after verification."""
+    """Resume .partial files; replace dest only after verification.
+
+    Disabling release metadata lookup does not disable an explicit checksum.
+    """
     require_http_url(url, "download URL")
     partial_dest = dest + ".partial"
     if expected_sha256 is not None and not re.fullmatch(
@@ -140,11 +144,10 @@ def download_file(
     ):
         raise WGSExtractError("Expected SHA256 must contain exactly 64 hex digits.")
     try:
-        expected_sha256 = (
-            expected_sha256.lower()
-            if expected_sha256 is not None
-            else resolve_github_release_asset_sha256(url)
-        )
+        if expected_sha256 is not None:
+            expected_sha256 = expected_sha256.lower()
+        elif resolve_release_digest:
+            expected_sha256 = resolve_github_release_asset_sha256(url)
     except OSError as e:
         logging.warning(
             "Could not resolve GitHub release asset checksum for %s: %s. "
