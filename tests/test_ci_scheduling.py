@@ -1,6 +1,20 @@
+import os
+from pathlib import Path
+
 import pytest
 
 pytest_plugins = ["pytester"]
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(autouse=True)
+def _repo_on_subprocess_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The generated conftests import `tests.*`, which the pytester subprocess
+    # can only resolve when the repository root is on its PYTHONPATH.
+    existing = os.environ.get("PYTHONPATH")
+    paths = [str(REPO_ROOT), *([existing] if existing else [])]
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(paths))
 
 
 def test_shared_smoke_modules_run_on_one_xdist_worker(
