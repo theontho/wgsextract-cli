@@ -24,7 +24,9 @@ class CheckResult:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--quiet", action="store_true", help="Suppress passing check output.")
+    parser.add_argument(
+        "--quiet", action="store_true", help="Suppress passing check output."
+    )
     parser.add_argument("--repo-root", default=".", help="Repository root to check.")
     args = parser.parse_args(argv)
 
@@ -34,7 +36,9 @@ def main(argv: list[str] | None = None) -> int:
         check_command("Node.js", ["node", "--version"], cwd=repo_root),
         check_command("npm", ["npm", "--version"], cwd=repo_root),
         check_npm_dependencies(repo_root),
-        check_command("Rust Cargo (Tauri builds)", ["cargo", "--version"], cwd=repo_root),
+        check_command(
+            "Rust Cargo (Tauri builds)", ["cargo", "--version"], cwd=repo_root
+        ),
         check_repository_hooks(repo_root),
         check_config_directory(),
     ]
@@ -73,15 +77,25 @@ def check_npm_dependencies(repo_root: Path) -> CheckResult:
     modules = repo_root / "app" / "node_modules"
     if (modules / "typescript").is_dir():
         return CheckResult("npm dependencies", True, str(modules))
-    return CheckResult("npm dependencies", False, "run 'make setup' (or '.\\make.ps1 setup' on Windows)")
+    return CheckResult(
+        "npm dependencies",
+        False,
+        "run 'make setup' (or 'powershell -ExecutionPolicy Bypass -File .\\make.ps1 setup' on Windows)",
+    )
 
 
 def check_repository_hooks(repo_root: Path) -> CheckResult:
     if not (repo_root / ".git").exists():
-        return CheckResult("Repository hooks", False, "not inside the repository; run from the repo root")
+        return CheckResult(
+            "Repository hooks",
+            False,
+            "not inside the repository; run from the repo root",
+        )
     script = repo_root / "scripts" / "setup-hooks.py"
     if not script.exists():
-        return CheckResult("Repository hooks", False, "scripts/setup-hooks.py was not found")
+        return CheckResult(
+            "Repository hooks", False, "scripts/setup-hooks.py was not found"
+        )
     try:
         result = subprocess.run(
             [sys.executable, "scripts/setup-hooks.py", "--check"],
@@ -93,10 +107,14 @@ def check_repository_hooks(repo_root: Path) -> CheckResult:
             check=False,
         )
     except subprocess.TimeoutExpired:
-        return CheckResult("Repository hooks", False, f"timed out after {CHECK_TIMEOUT_SECONDS}s")
+        return CheckResult(
+            "Repository hooks", False, f"timed out after {CHECK_TIMEOUT_SECONDS}s"
+        )
     except OSError as error:
         return CheckResult("Repository hooks", False, str(error))
-    return CheckResult("Repository hooks", result.returncode == 0, first_line(result.stdout))
+    return CheckResult(
+        "Repository hooks", result.returncode == 0, first_line(result.stdout)
+    )
 
 
 def check_config_directory() -> CheckResult:
@@ -125,8 +143,6 @@ def nearest_existing_parent(path: Path) -> Path:
     return candidate
 
 
-
-
 def app_support_dir() -> Path:
     override = os.environ.get("GUI_FOR_CLI_APP_SUPPORT_NAME")
     name = safe_path_component(override) if override else "gui-for-cli"
@@ -134,13 +150,22 @@ def app_support_dir() -> Path:
         return Path.home() / "Library" / "Application Support" / name
     if sys.platform == "win32":
         local_app_data = os.environ.get("LOCALAPPDATA")
-        return (Path(local_app_data) if local_app_data else Path.home() / "AppData" / "Local") / name
+        return (
+            Path(local_app_data)
+            if local_app_data
+            else Path.home() / "AppData" / "Local"
+        ) / name
     data_home = os.environ.get("XDG_DATA_HOME")
-    return (Path(data_home).expanduser() if data_home else Path.home() / ".local" / "share") / name
+    return (
+        Path(data_home).expanduser() if data_home else Path.home() / ".local" / "share"
+    ) / name
 
 
 def safe_path_component(value: str) -> str:
-    sanitized = "".join(character if character.isalnum() or character in "-_." else "-" for character in value)
+    sanitized = "".join(
+        character if character.isalnum() or character in "-_." else "-"
+        for character in value
+    )
     trimmed = sanitized.strip(".-")
     return trimmed or "bundle"
 

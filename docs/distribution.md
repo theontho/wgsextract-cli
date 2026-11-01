@@ -12,7 +12,7 @@ Build distributables for the current host into `out/release/tauri/`:
 
 ```bash
 make package           # macOS / Linux
-.\make.ps1 package     # Windows
+powershell -ExecutionPolicy Bypass -File .\make.ps1 package     # Windows
 ```
 
 `make package-windows-cross` builds the Windows x64 NSIS installer on macOS or
@@ -79,7 +79,7 @@ installs it, launches the packaged app, runs bundle setup, runs bundle uninstall
 hooks, runs the native uninstaller, and checks cleanup. Run the same check
 locally on Windows with
 `pwsh -File scripts\validate-windows-tauri-lifecycle.ps1 -AutomatedAdmin` after
-`.\make.ps1 package`.
+`powershell -ExecutionPolicy Bypass -File .\make.ps1 package`.
 
 ## CI / release automation
 

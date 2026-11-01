@@ -46,11 +46,11 @@ def python(*args: str) -> Command:
 
 
 def setup(_: str) -> list[Command]:
-    commands = [npm("install")]
-    if not (REPO_ROOT / ".dev_id").exists():
-        commands.append(python("scripts/dev-register.py"))
-    commands.append(python("scripts/setup-hooks.py"))
-    return commands
+    return (
+        [powershell("scripts/dev_setup.ps1")]
+        if IS_WINDOWS
+        else [["sh", "scripts/dev_setup.sh"]]
+    )
 
 
 def precheck(_: str) -> list[Command]:
@@ -58,24 +58,51 @@ def precheck(_: str) -> list[Command]:
 
 
 def bundle_paths() -> list[str]:
-    bundles = sorted(path for path in (REPO_ROOT / "examples").iterdir() if (path / "manifest.json").is_file())
-    bundles += sorted(path.parent for path in (REPO_ROOT / "tests" / "conformance").glob("*/manifest.json"))
+    bundles = sorted(
+        path
+        for path in (REPO_ROOT / "examples").iterdir()
+        if (path / "manifest.json").is_file()
+    )
+    bundles += sorted(
+        path.parent
+        for path in (REPO_ROOT / "tests" / "conformance").glob("*/manifest.json")
+    )
     return [path.relative_to(REPO_ROOT).as_posix() for path in bundles]
 
 
 def lint(_: str) -> list[Command]:
     return [
         npm("run", "check"),
-        ["node", f"{APP_DIR}/dist/web/src/server/bundle-validate-cli.js", "--quiet", *bundle_paths()],
+        [
+            "node",
+            f"{APP_DIR}/dist/web/src/server/bundle-validate-cli.js",
+            "--quiet",
+            *bundle_paths(),
+        ],
         python("tools/localization/lint_locales.py", "--strict"),
         python("-m", "compileall", "-q", "tools", "scripts"),
-        ["npx", "--prefix", APP_DIR, "jscpd", "--config", ".jscpd.json", "--reporters", "console", "."],
+        [
+            "npx",
+            "--prefix",
+            APP_DIR,
+            "jscpd",
+            "--config",
+            ".jscpd.json",
+            "--reporters",
+            "console",
+            ".",
+        ],
     ]
 
 
 def test(_: str) -> list[Command]:
-    test_dirs = PYTHON_TEST_DIRS if IS_WINDOWS else (*PYTHON_TEST_DIRS, *POSIX_TEST_DIRS)
-    return [npm("test"), *(python("-m", "unittest", "discover", "-s", path) for path in test_dirs)]
+    test_dirs = (
+        PYTHON_TEST_DIRS if IS_WINDOWS else (*PYTHON_TEST_DIRS, *POSIX_TEST_DIRS)
+    )
+    return [
+        npm("test"),
+        *(python("-m", "unittest", "discover", "-s", path) for path in test_dirs),
+    ]
 
 
 def build(target: str) -> list[Command]:
@@ -87,8 +114,12 @@ def build(target: str) -> list[Command]:
 
 def run(target: str) -> list[Command]:
     return {
-        "web": [npm("run", "start", "--", "--bundle", bundle_root(), "--port", web_port())],
-        "dev": [npm("run", "dev", "--", "--bundle", bundle_root(), "--port", web_port())],
+        "web": [
+            npm("run", "start", "--", "--bundle", bundle_root(), "--port", web_port())
+        ],
+        "dev": [
+            npm("run", "dev", "--", "--bundle", bundle_root(), "--port", web_port())
+        ],
         "tauri": [npm("run", "tauri:dev")],
     }[target]
 
@@ -144,11 +175,15 @@ ACTIONS: dict[str, tuple[Callable[[str], list[Command]], str, tuple[str, ...]]] 
 
 def resolve(action: str, target: str | None) -> list[Command]:
     if action not in ACTIONS:
-        raise SystemExit(f"unknown action: {action}\nKnown actions: {', '.join(ACTIONS)}")
+        raise SystemExit(
+            f"unknown action: {action}\nKnown actions: {', '.join(ACTIONS)}"
+        )
     handler, default_target, targets = ACTIONS[action]
     chosen = target or default_target
     if targets and chosen not in targets:
-        raise SystemExit(f"unknown {action} target: {chosen}\nKnown targets: {', '.join(targets)}")
+        raise SystemExit(
+            f"unknown {action} target: {chosen}\nKnown targets: {', '.join(targets)}"
+        )
     if not targets and target:
         raise SystemExit(f"{action} does not take a target")
     return handler(chosen)
@@ -156,14 +191,20 @@ def resolve(action: str, target: str | None) -> list[Command]:
 
 def execute(command: Command) -> int:
     executable = shutil.which(command[0]) or command[0]
-    return subprocess.run([executable, *command[1:]], cwd=REPO_ROOT, check=False).returncode
+    return subprocess.run(
+        [executable, *command[1:]], cwd=REPO_ROOT, check=False
+    ).returncode
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("action", choices=list(ACTIONS))
     parser.add_argument("target", nargs="?")
-    parser.add_argument("--dry-run", action="store_true", help="Print commands without running them.")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print commands without running them."
+    )
     args = parser.parse_args(argv)
 
     for command in resolve(args.action, args.target):

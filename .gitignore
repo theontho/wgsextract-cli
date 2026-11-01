@@ -7,6 +7,7 @@
 
 # Package manager and SDK caches
 .node/
+.venv/
 
 # Repository output workspaces and runner-local drive roots
 /c/

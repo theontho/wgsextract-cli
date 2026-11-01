@@ -27,18 +27,23 @@ Earlier work, including the SwiftUI macOS app, the Swift CLI, Electron and a doz
 - Python 3.11 or newer for repository tooling ([uv](https://docs.astral.sh/uv/) recommended).
 - Rust/Cargo and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS to build the desktop app.
 
-On Windows, `.\make.ps1 setup` installs Python, Node.js, and Rust with winget when they are missing.
+`make setup` (Windows: `powershell -ExecutionPolicy Bypass -File .\make.ps1 setup`)
+bootstraps missing user-level tools, installs locked dependencies and hooks, and
+runs a quick Web UI smoke test. It never elevates or installs system packages.
+See [developer setup](docs/developer_setup.md) for manual OS prerequisites,
+the change-to-PR loop, and an AI-agent walkthrough.
 
 ## Getting started
 
 ```bash
-make setup      # npm install, dev identity, git hooks
+make setup      # user tools, locked deps, dev identity, hooks, smoke test
 make precheck   # verify the toolchain
 make run        # serve the Web UI at http://127.0.0.1:8787 with examples/WGSExtract
 make tauri      # run the desktop app in dev mode
 ```
 
-On Windows, use `.\make.ps1 <target>` with the same target names.
+On Windows, use `powershell -ExecutionPolicy Bypass -File .\make.ps1 <target>`
+with the same target names; no machine execution-policy change is needed.
 
 `make run` and `make dev` take `BUNDLE=<path>` and `PORT=<port>`:
 
@@ -63,7 +68,7 @@ make dev BUNDLE=examples/GitHelper PORT=9000
 | `make worktree-setup BRANCH=my-feature` | Create a sibling developer worktree, copy local ignored dev config, and run setup. Set `WORKTREE_PATH=...` to override the location. |
 | `make worktree-teardown BRANCH=my-feature` | Remove that worktree. Dirty worktrees are refused unless `FORCE=1` is set. |
 
-Every target runs through `tools/tasks.py`, so `python tools/tasks.py <action> [target]` works anywhere.
+Development targets run through `tools/tasks.py`, so `uv run python tools/tasks.py <action> [target]` works too.
 
 ## Bundles
 

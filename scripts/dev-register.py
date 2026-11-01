@@ -8,7 +8,6 @@ import json
 import subprocess
 import sys
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -16,7 +15,7 @@ class Identity:
     source: str
     name: str
     email: str
-    login: Optional[str]
+    login: str | None
     active: bool
 
 
@@ -40,7 +39,7 @@ def git_config(key: str) -> str:
 
 def parse_github_accounts(output: str) -> list[tuple[str, bool]]:
     accounts: list[list] = []
-    current_index: Optional[int] = None
+    current_index: int | None = None
     for line in output.splitlines():
         marker = line.find(" account ")
         if marker >= 0:
@@ -78,7 +77,9 @@ def github_identity(username: str, active: bool) -> Identity:
     else:
         email = f"{login}@users.noreply.github.com"
     source = (
-        f"GitHub active account ({username})" if active else f"GitHub account ({username})"
+        f"GitHub active account ({username})"
+        if active
+        else f"GitHub account ({username})"
     )
     return Identity(source=source, name=name, email=email, login=login, active=active)
 
@@ -105,12 +106,18 @@ def available_identities() -> list[Identity]:
     email = git_config("user.email")
     if name or email:
         identities.append(
-            Identity(source="Local Git Config", name=name, email=email, login=None, active=False)
+            Identity(
+                source="Local Git Config",
+                name=name,
+                email=email,
+                login=None,
+                active=False,
+            )
         )
     return identities
 
 
-def select_identity(identities: list[Identity], choice: Optional[int]) -> Identity:
+def select_identity(identities: list[Identity], choice: int | None) -> Identity:
     default_choice = next(
         (i + 1 for i, ident in enumerate(identities) if ident.active),
         1,
@@ -138,7 +145,14 @@ def select_identity(identities: list[Identity], choice: Optional[int]) -> Identi
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--choice", type=int, help="Pre-select identity index (1-based).")
+    parser.add_argument(
+        "--choice", type=int, help="Pre-select identity index (1-based)."
+    )
+    parser.add_argument(
+        "--local-only",
+        action="store_true",
+        help="Register the existing Git identity without querying GitHub accounts.",
+    )
     parser.add_argument(
         "--no-update-git-config",
         dest="update_git_config",
@@ -147,9 +161,19 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    identities = available_identities()
+    if args.local_only:
+        name, email = git_config("user.name"), git_config("user.email")
+        identities = (
+            [Identity("Local Git Config", name, email, None, False)]
+            if name and email
+            else []
+        )
+    else:
+        identities = available_identities()
     if not identities:
-        sys.stderr.write("No git or GitHub identity found. Configure git or login to gh.\n")
+        sys.stderr.write(
+            "No git or GitHub identity found. Configure git or login to gh.\n"
+        )
         return 1
 
     print("Available Identities:")

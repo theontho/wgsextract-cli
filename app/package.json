@@ -12,7 +12,7 @@
     "tauri:dist": "npm run tauri:prepare-node && npm run build && node scripts/tauri-build-dist.mjs",
     "tauri:dev": "npm run tauri:prepare-node && npm run build && node scripts/run-tauri.mjs dev",
     "vendor-icons": "node scripts/update-bootstrap-icons.mjs",
-    "dev": "npm run build && sh -c 'tsc -p tsconfig.json --watch --preserveWatchOutput & tsc_pid=$!; trap \"kill $tsc_pid 2>/dev/null\" EXIT; WEBUI_DEV_RELOAD=1 node --watch --watch-path=dist/web/src/server dist/web/src/server/main.js \"$@\"' --",
+    "dev": "npm run build && node scripts/dev.mjs",
     "start": "npm run build && node dist/web/src/server/main.js",
     "bundle:test": "npm run build && node dist/web/src/server/bundle-test-cli.js",
     "bundle:validate": "npm run build && node dist/web/src/server/bundle-validate-cli.js",

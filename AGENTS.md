@@ -41,7 +41,7 @@ benchmarks) live on the `old-experimental` branch; do not reintroduce them here.
 
 ## Test Your Work
 
-- Run `make lint` and `make test` (`.\make.ps1 lint` / `.\make.ps1 test` on Windows) after changing TypeScript or tooling.
+- Run `make lint` and `make test` (`powershell -ExecutionPolicy Bypass -File .\make.ps1 lint` / `powershell -ExecutionPolicy Bypass -File .\make.ps1 test` on Windows) after changing TypeScript or tooling.
 - Run `make build-tauri` after changing the Tauri shell or packaging scripts.
 - Use `make run BUNDLE=<path>` to check UI changes in a browser and `make tauri` to check the desktop app.
 - Verify both interactive and non-interactive behavior for scripts and CLIs.

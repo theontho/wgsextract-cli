@@ -44,7 +44,7 @@ make tauri    # desktop app in dev mode
 make package  # installers for this host
 ```
 
-On Windows, use `.\make.ps1` with the same target names.
+On Windows, use `powershell -ExecutionPolicy Bypass -File .\make.ps1 <target>` with the same target names.
 :::
 :::
 

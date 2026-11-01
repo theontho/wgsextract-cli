@@ -47,6 +47,8 @@ run_python tools/tasks.py lint
         """#!/bin/sh
 set -eu
 cd "$(git rev-parse --show-toplevel)"
+# Tests initialize their own repositories, not the repository being pushed.
+unset $(git rev-parse --local-env-vars)
 run_python() {
   if [ -n "${PYTHON:-}" ]; then
     $PYTHON "$@"
@@ -95,7 +97,9 @@ def check_hooks(root: Path) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true", help="Verify hooks are installed and current.")
+    parser.add_argument(
+        "--check", action="store_true", help="Verify hooks are installed and current."
+    )
     args = parser.parse_args()
 
     status, output = run("git", ["rev-parse", "--show-toplevel"])
