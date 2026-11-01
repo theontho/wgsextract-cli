@@ -11,7 +11,11 @@ from typing import BinaryIO, Protocol
 
 ProgressCallback = Callable[[int, int, float], None]
 
-_URL_PATTERN = re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s<>]+")
+# Malformed URLs can contain spaces/quotes; do not expose their query tails.
+_URL_PATTERN = re.compile(
+    r"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\r\n<>]+?"
+    r"(?=\b[a-zA-Z][a-zA-Z0-9+.-]*://|[\r\n<>]|$)"
+)
 
 
 def redact_urls(text: str) -> str:

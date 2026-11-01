@@ -415,7 +415,7 @@ def test_aspera_switch_discards_sparse_segmented_state(tmp_path, monkeypatch):
 def test_download_diagnostics_redact_urls_without_changing_requests(
     tmp_path, monkeypatch, caplog, failure
 ):
-    url = "https://secret-user:secret-password@example.test/a?token='signed-secret'"
+    url = "https://secret-user:secret-password@example.test/a?token='signed-secret with spaces'"
     monkeypatch.setattr(downloads, "DOWNLOAD_ATTEMPTS", 1)
     monkeypatch.setattr(downloads.segmented, "ranged_size", lambda _url: None)
     monkeypatch.setattr(
@@ -470,6 +470,19 @@ def test_invalid_download_filename_diagnostics_do_not_expose_url_secrets(entrypo
     assert "example.test/" in str(error.value)
     for secret in ("private-user", "private-password", "private-token"):
         assert secret not in str(error.value)
+
+
+def test_redaction_covers_multiple_urls_and_malformed_query_tails():
+    from wgsextract_cli.core.download_progress import redact_urls
+
+    message = redact_urls(
+        "from https://example.test/a to "
+        "https://user:password@other.test/b?token='secret with spaces'\n"
+    )
+    assert "example.test/a" in message and "other.test/b" in message
+    assert (
+        "user:" not in message and "password" not in message and "secret" not in message
+    )
 
 
 def test_a_cancelled_download_keeps_its_partial_for_the_next_run(server, tmp_path):
