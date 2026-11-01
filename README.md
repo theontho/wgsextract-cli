@@ -382,6 +382,13 @@ the same rules. `--config` selects its file before validation, so an invalid
 unused default file does not block a valid alternate configuration. Valid
 values and missing-setting defaults are unchanged.
 
+Invalid configured thread counts warn and fall back to automatic threads;
+an explicit `--threads` overrides that fallback. Saves still require a valid
+thread count. Other invalid types stop startup with one concise error line
+naming the key, file and expected type. This CLI has no `config set`/`config show`
+repair commands: edit the reported file directly, or select a valid file with
+`--config PATH`, before rerunning `config`, help or another command.
+
 BWA and bwa-mem2 indexes require every nonempty index file. Builds use an exclusive lock and a staged prefix; an interrupted build is rebuilt on the next run instead of being trusted.
 
 `--atomic-output` (or `atomic_outputs = true` in config.toml) opts align/realign, SNP/InDel/GATK/FreeBayes callers, and main extract writers into publishing completed files by rename, with indexes generated afterward. A failed write preserves a previous output. The default remains unchanged because staged paths change tool provenance headers. `--no-atomic-output` disables a configured opt-in. This does not add resume/skip behavior.

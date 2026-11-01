@@ -73,12 +73,22 @@ def test_invalid_threads_flag_is_a_usage_error(temp_config):
     assert exc.value.code == 2
 
 
-def test_invalid_config_threads_is_rejected_without_replacing_settings(temp_config):
-    temp_config.write_text('threads = "max"\n')
-    previous = dict(config.settings)
-    with pytest.raises(WGSExtractError, match=r"threads.*cpu_threads.*TOML integer"):
-        config.reload_settings()
-    assert config.settings == previous
+@pytest.mark.parametrize("value", ['"max"', '"4.0"', "true", "0", "1.5"])
+def test_invalid_config_threads_warns_and_allows_cli_override(
+    temp_config, caplog, value
+):
+    temp_config.write_text(f"threads = {value}\n")
+    config.set_config_path(temp_config)
+    config.reload_settings()
+    cli_parser, base_parser = parser.build_parser()
+    assert "Ignoring invalid cpu_threads" in caplog.text
+    assert str(temp_config) in caplog.text
+    args, _ = parser.parse_args(cli_parser, base_parser, ["info"])
+    assert args.threads is None
+    args, explicit = parser.parse_args(
+        cli_parser, base_parser, ["info", "--threads", "4"]
+    )
+    assert args.threads == 4 and "threads" in explicit
 
 
 @pytest.mark.parametrize(
@@ -99,8 +109,6 @@ def test_boolean_config_settings_require_toml_booleans(temp_config, key, value):
 @pytest.mark.parametrize(
     ("key", "value", "expected"),
     [
-        ("threads", "true", "TOML integer"),
-        ("cpu_threads", '"4.0"', "TOML integer"),
         ("microarray_min_dp", '"15"', "TOML integer"),
         ("microarray_min_gq", "false", "TOML integer"),
         ("dev_download_cache_ttl_seconds", "1.5", "TOML integer"),
@@ -152,8 +160,39 @@ def test_save_config_rejects_invalid_types_before_publication(temp_config):
     assert config.settings["atomic_outputs"] is False
 
 
-def test_startup_selects_alternate_config_before_validating_default(tmp_path):
+def test_save_config_rejects_invalid_threads_before_publication(temp_config):
+    temp_config.write_text("threads = 4\n")
+    with pytest.raises(WGSExtractError, match="cpu_threads.*positive TOML integer"):
+        config.save_config({"cpu_threads": "max"})
+    assert temp_config.read_text() == "threads = 4\n"
+
+
+@pytest.mark.parametrize("command", [["--version"], ["help"], ["config"], ["info"]])
+def test_config_load_errors_are_one_line_without_traceback(tmp_path, capsys, command):
+    from wgsextract_cli.main import main
+
+    path = tmp_path / "bad.toml"
+    path.write_text('keep_awake = "false"\n')
+    with pytest.raises(SystemExit) as exc:
+        main(["--config", str(path), *command])
+    assert exc.value.code == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert len(output.err.splitlines()) == 1
+    assert "keep_awake" in output.err and str(path) in output.err
+    assert "TOML boolean" in output.err and "Traceback" not in output.err
+    assert "config set/show are not supported" in output.err
+
+
+def test_startup_selects_alternate_config_before_validating_default(
+    tmp_path, monkeypatch
+):
+    from tests.smoke_utils import isolate_home
+
+    home = tmp_path / "home"
+    isolate_home(monkeypatch, home)
     default = config.get_config_path()
+    assert default.is_relative_to(home)
     default.parent.mkdir(parents=True, exist_ok=True)
     default.write_text('atomic_outputs = "false"\n')
     alternate = tmp_path / "alternate.toml"
@@ -173,6 +212,8 @@ def test_startup_selects_alternate_config_before_validating_default(tmp_path):
     )
     assert rejected.returncode != 0
     assert "atomic_outputs" in rejected.stderr and "TOML boolean" in rejected.stderr
+    assert "Traceback" not in rejected.stderr
+    assert len(rejected.stderr.splitlines()) == 1
 
 
 def test_save_config_clears_aliases_of_cleared_key(temp_config):

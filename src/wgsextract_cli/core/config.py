@@ -210,13 +210,17 @@ LEGACY_SETTINGS = {
 }
 
 
-def _validate_config_types(config: dict[str, Any], config_path: Path) -> None:
+def _validate_config_types(
+    config: dict[str, Any], config_path: Path, *, allow_invalid_threads: bool = False
+) -> None:
     for key, value in config.items():
         canonical = CONFIG_ALIASES.get(key, key)
         if canonical not in KNOWN_SETTINGS:
             continue
         default = KNOWN_SETTINGS[canonical][0]
         if canonical == "cpu_threads":
+            if allow_invalid_threads:
+                continue
             from wgsextract_cli.core.resource_policy import parse_thread_count
 
             expected = "a positive TOML integer, positive integer string, or 'auto'"
@@ -323,7 +327,7 @@ def load_config() -> dict[str, Any]:
         hint = f" Did you mean {matches[0]!r}?" if matches else ""
         logging.warning(f"Unknown setting {key!r} in {config_path}.{hint}")
 
-    _validate_config_types(config, config_path)
+    _validate_config_types(config, config_path, allow_invalid_threads=True)
     return normalize_config_paths(config)
 
 
