@@ -57,10 +57,10 @@ foreach ($package in $manifest.packages) {
         $package.file -ne "$($package.name)-$version-$build.conda") {
         throw "Unqualified native package version/build: $($package.file)"
     }
-    $condaLines = $lines
     $url = ([uri]$path).AbsoluteUri | ConvertTo-Json -Compress
     $lines += "$($package.name) = { url = $url, sha256 = `"$($package.sha256)`" }"
 }
+$condaLines = $lines
 $sourceString = ($Source -replace "\\", "/") | ConvertTo-Json -Compress
 $lines += @(
     "",
