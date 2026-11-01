@@ -48,9 +48,9 @@ gh pr create --fill
 The project is developed with AI coding agents. [AGENTS.md](../AGENTS.md) holds the rules they follow: test and run what they write, run ruff and mypy, keep outputs in `out/` or `tmp/`, keep defaults unchanged.
 
 1. Install an agent, for example GitHub Copilot CLI (`npm install -g @github/copilot`), and start it in the repository: `copilot`.
-2. Describe the outcome, how to check it, and where to stop. For example:
+2. Pick an issue from the [good first issue](https://github.com/theontho/wgsextract-cli/labels/good%20first%20issue) list and tell the agent the outcome, how to check it, and where to stop. For example:
 
-   > `wgsextract info` reports an "Unknown" sequencer for Element Biosciences AVITI data. Find the AVITI read-name format in Element's documentation or a public AVITI run and cite the source. Add an entry to `SEQUENCERS` in `src/wgsextract_cli/core/constants.py` (`determine_sequencer` returns the first pattern that matches, so check its position), add cases to `test_determine_sequencer` in `tests/test_info_metrics.py`, including names that must not match, run `just check`, then open a pull request.
+   > Fix issue #N. Add tests that fail without the change, run `just check`, then open a pull request that closes the issue.
 
 3. Review what it did: read the diff (`/diff` in Copilot CLI, or `git diff`), and check that the tests would fail without the change. Run the command yourself on real data when you have it.
 4. Have it push and open the pull request, then watch CI (`gh pr checks --watch`). Paste failures or review comments back to the agent until it's green.
