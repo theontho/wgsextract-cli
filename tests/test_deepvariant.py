@@ -4,13 +4,16 @@ The image is too big for CI; these check the setup checks and what Docker is
 asked to run.
 """
 
+import gzip
 import subprocess
 import sys
 from argparse import Namespace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from tests.htslib_helpers import needs_tools, sam_to_bam, write_fasta
 from wgsextract_cli.commands.vcf import deepvariant
 from wgsextract_cli.core import containers, native_support
 from wgsextract_cli.core.utils import WGSExtractError
@@ -29,6 +32,7 @@ def files(tmp_path, monkeypatch):
     ref = tmp_path / "ref" / "hs38DH.fa.gz"
     bam = tmp_path / "bam" / "s.bam"
     ref.write_text("x")
+    Path(str(ref) + ".fai").write_text("chr20\t1000\t0\t1000\t1001\n")
     bam.write_text("x")
     out = tmp_path / "out"
     monkeypatch.setattr(
@@ -147,3 +151,416 @@ def test_run_deepvariant_on_path_is_used_without_docker(files, monkeypatch):
     assert "PYTHONPATH" not in kwargs["env"]
     assert kwargs["stdin"] == subprocess.DEVNULL
     assert (out / "deepvariant.vcf.gz").exists()
+
+
+@pytest.mark.parametrize(
+    ("definition", "expected"),
+    [
+        (b"CRAM\x03\x00" + bytes(20), (3, 0)),
+        (b"CRAM\x03\x01" + bytes(20), (3, 1)),
+        (b"CRAM\x04\x00" + bytes(20), (4, 0)),
+        (b"BAM\x01" + bytes(20), None),
+        (b"\x1f\x8b" + bytes(20), None),
+        (b"CRAM\x03", None),
+        (b"", None),
+        (b"garbage", None),
+    ],
+)
+def test_cram_version_sniffs_definition_not_extension(tmp_path, definition, expected):
+    alignment = tmp_path / "reads.bam"
+    alignment.write_bytes(definition)
+    assert deepvariant._cram_version(str(alignment)) == expected
+
+
+@pytest.mark.parametrize("version", [None, (3, 0), (3, 1), (4, 0)])
+def test_only_new_cram_is_transcoded_and_indexed(files, monkeypatch, version, caplog):
+    ref, alignment, work = files
+    if version:
+        alignment.write_bytes(b"CRAM" + bytes(version) + bytes(20))
+    calls = []
+    monkeypatch.setattr(deepvariant, "run_command", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(deepvariant, "check_free_space", lambda *_: True)
+    with caplog.at_level("INFO"):
+        result = deepvariant._compatible_reads(
+            str(alignment), str(ref), str(work), "4", "chr20:1-100"
+        )
+    if version is None or version < (3, 1):
+        assert result == str(alignment)
+        assert calls == []
+        assert "Transcoding CRAM" not in caplog.text
+        return
+    assert result == str(work / "reads.cram")
+    view, index = calls
+    assert view[:2] == ["samtools", "view"]
+    assert view[view.index("-@") + 1] == "4"
+    assert view[view.index("-T") + 1] == str(ref)
+    assert view[view.index("--output-fmt-option") + 1] == "version=3.0"
+    assert view[-1] == str(alignment)
+    assert "-M" in view
+    bed = Path(view[view.index("-L") + 1])
+    assert bed.read_text() == "chr20\t0\t100\n"
+    assert index == ["samtools", "index", result]
+    assert caplog.text.count("Transcoding CRAM") == 1
+    assert "htslib 1.18 SSE4 rANS decoder" in caplog.text
+
+
+def test_transcode_fails_before_writing_when_disk_is_low(files, monkeypatch):
+    ref, alignment, work = files
+    alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
+    monkeypatch.setattr(deepvariant, "check_free_space", lambda *_: False)
+    monkeypatch.setattr(
+        deepvariant, "run_command", lambda *_: pytest.fail("must check disk first")
+    )
+    with pytest.raises(WGSExtractError, match="Insufficient free disk"):
+        deepvariant._compatible_reads(str(alignment), str(ref), str(work), "1", None)
+    assert not (work / "reads.cram").exists()
+
+
+@pytest.mark.parametrize("selection", ["chrM", "chr1:1-1000000", "bed"])
+def test_targeted_transcode_uses_indexed_sizes_and_keeps_a_small_minimum(
+    files, monkeypatch, selection
+):
+    ref, alignment, work = files
+    alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
+    Path(str(ref) + ".fai").write_text(
+        "chr1\t2000000\t0\t1000\t1001\nchrM\t1000\t0\t1000\t1001\n"
+    )
+    if selection == "bed":
+        bed = work / "targets.bed"
+        bed.write_text("chr1\t0\t750000\nchr1\t500000\t1000000\n")
+        selection = str(bed)
+    calls = []
+    free = [20 * deepvariant.GB]
+    monkeypatch.setattr(
+        deepvariant,
+        "shutil",
+        SimpleNamespace(disk_usage=lambda _: SimpleNamespace(free=free[0])),
+    )
+    # A 16 GiB input has a whole-input staging estimate of about 32 GiB.
+    monkeypatch.setattr(deepvariant, "get_free_space_needed", lambda *a, **kw: (0, 31))
+    monkeypatch.setattr(deepvariant, "check_free_space", lambda *a: False)
+    monkeypatch.setattr(deepvariant, "run_command", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(
+        deepvariant,
+        "get_bam_header",
+        lambda *a: "@SQ\tSN:chrM\tLN:1000\n@SQ\tSN:chr1\tLN:2000000\n",
+    )
+    Path(str(alignment) + ".crai").write_text(
+        f"0\t1\t1000\t100\t0\t{16 * 1024**2}\n"
+        f"1\t1\t1000000\t1000\t0\t{8 * deepvariant.GB}\n"
+    )
+    with pytest.raises(WGSExtractError, match="Insufficient free disk"):
+        deepvariant._compatible_reads(str(alignment), str(ref), str(work), "1", None)
+    deepvariant._compatible_reads(str(alignment), str(ref), str(work), "1", selection)
+    assert len(calls) == 2
+    free[0] = 63 * 1024**2 if selection == "chrM" else 15 * deepvariant.GB
+    with pytest.raises(WGSExtractError, match="Insufficient free disk"):
+        deepvariant._compatible_reads(
+            str(alignment), str(ref), str(work), "1", selection
+        )
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize(
+    ("selection", "expected"),
+    [
+        ("HLA-A*01:01:01:01", (0, 5000)),
+        ("HLA-A*01:01:01:01:1,001-2,000", (1000, 2000)),
+        ("HLA-A*01:01:01:01:1,001", (1000, 1001)),
+    ],
+)
+def test_colon_contigs_use_nucleus_whole_range_and_position_semantics(
+    tmp_path, selection, expected
+):
+    ref = tmp_path / "ref.fa"
+    chrom = "HLA-A*01:01:01:01"
+    Path(str(ref) + ".fai").write_text(f"{chrom}\t5000\t0\t5000\t5001\n")
+    options, intervals = deepvariant._transcode_regions(
+        selection, str(ref), str(tmp_path)
+    )
+    bed = Path(options[options.index("-L") + 1])
+    assert bed.read_text() == f"{chrom}\t{expected[0]}\t{expected[1]}\n"
+    assert intervals == {chrom: [expected]}
+
+
+def test_region_selection_drops_unknown_rows_and_rejects_empty_or_bare_unknown(files):
+    ref, _alignment, work = files
+    bed = work / "capture.bed"
+    bed.write_text("chrUn_stray\t0\t50\nchr20\t10\t30\nchr20\t20\t40\n")
+    options, intervals = deepvariant._transcode_regions(
+        f"{bed} chrUn_stray:1-10", str(ref), str(work)
+    )
+    assert intervals == {"chr20": [(10, 40)]}
+    assert Path(options[-1]).read_text() == "chr20\t10\t40\n"
+    bed.write_text("chrUn_stray\t0\t50\n")
+    with pytest.raises(WGSExtractError, match="covers no reference bases"):
+        deepvariant._transcode_regions(str(bed), str(ref), str(work))
+    with pytest.raises(WGSExtractError, match="covers no reference bases"):
+        deepvariant._transcode_regions("chrUn_stray:1-10", str(ref), str(work))
+    with pytest.raises(WGSExtractError, match="Invalid interval"):
+        deepvariant._transcode_regions("chr20 chrUn_stray", str(ref), str(work))
+
+
+@pytest.mark.parametrize("compressed", [False, True])
+def test_capture_cram_disk_estimate_counts_selected_slices_not_genome_fraction(
+    files, monkeypatch, compressed
+):
+    ref, alignment, work = files
+    alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
+    bed = work / "capture.bed"
+    bed.write_text("chr20\t10\t20\n")
+    monkeypatch.setattr(
+        deepvariant, "get_bam_header", lambda *a: "@SQ\tSN:chr20\tLN:1000\n"
+    )
+    index = Path(str(alignment) + ".crai")
+    data = f"0\t1\t100\t100\t0\t{16 * deepvariant.GB}\n".encode()
+    index.write_bytes(gzip.compress(data) if compressed else data)
+    monkeypatch.setattr(deepvariant, "get_free_space_needed", lambda *a, **kw: (0, 31))
+    monkeypatch.setattr(
+        deepvariant,
+        "shutil",
+        SimpleNamespace(disk_usage=lambda _: SimpleNamespace(free=20 * deepvariant.GB)),
+    )
+    monkeypatch.setattr(
+        deepvariant,
+        "run_command",
+        lambda *a: pytest.fail("must reject before transcode"),
+    )
+    with pytest.raises(WGSExtractError, match="needs ~32.00 GiB"):
+        deepvariant._compatible_reads(
+            str(alignment), str(ref), str(work), "1", str(bed)
+        )
+
+
+@pytest.mark.parametrize(
+    "index_data",
+    [
+        None,
+        b"",
+        b"malformed\n",
+        b"0 1 20 100 0 50\nbad trailing row\n",
+        b"9 1 20 100 0 50\n",
+        gzip.compress(b"0 1 20 100 0 50\n")[:-4],
+        b"\x1f\x8b\x08\x00" + bytes(6) + b"\x07",
+    ],
+)
+def test_missing_or_unparseable_crai_uses_whole_input_disk_bound(
+    files, monkeypatch, index_data
+):
+    ref, alignment, work = files
+    alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
+    if index_data is not None:
+        Path(str(alignment) + ".crai").write_bytes(index_data)
+    monkeypatch.setattr(
+        deepvariant, "get_bam_header", lambda *a: "@SQ\tSN:chr20\tLN:1000\n"
+    )
+    monkeypatch.setattr(deepvariant, "get_free_space_needed", lambda *a, **kw: (0, 31))
+    monkeypatch.setattr(
+        deepvariant,
+        "shutil",
+        SimpleNamespace(disk_usage=lambda _: SimpleNamespace(free=20 * deepvariant.GB)),
+    )
+    monkeypatch.setattr(
+        deepvariant,
+        "run_command",
+        lambda *a: pytest.fail("must reject before transcode"),
+    )
+    with pytest.raises(WGSExtractError, match="needs ~32.00 GiB"):
+        deepvariant._compatible_reads(
+            str(alignment), str(ref), str(work), "1", "chr20:1"
+        )
+
+
+def test_crai_mapping_uses_header_order_and_counts_shared_slices_once(
+    files, monkeypatch
+):
+    ref, alignment, _work = files
+    monkeypatch.setattr(
+        deepvariant,
+        "get_bam_header",
+        lambda *a: "@SQ\tSN:chrM\tLN:1000\n@SQ\tSN:chr20\tLN:1000\n",
+    )
+    Path(str(alignment) + ".crai").write_text(
+        "0\t1\t100\t100\t10\t200\n"
+        "1\t1\t100\t100\t10\t200\n"
+        "1\t101\t20\t500\t10\t300\n"
+        "1\t121\t20\t900\t10\t400\n"
+    )
+    assert (
+        deepvariant._indexed_slice_bytes(
+            str(alignment), str(ref), {"chr20": [(10, 20)], "chrM": [(10, 20)]}
+        )
+        == 200
+    )
+    assert (
+        deepvariant._indexed_slice_bytes(
+            str(alignment), str(ref), {"chr20": [(100, 120)]}
+        )
+        == 300
+    )
+
+
+@pytest.mark.parametrize("header", ["", "@SQ\tLN:1000\n", "@SQ\tSN:\tLN:1000\n"])
+def test_crai_without_usable_header_order_requires_conservative_fallback(
+    files, monkeypatch, header
+):
+    ref, alignment, _work = files
+    monkeypatch.setattr(deepvariant, "get_bam_header", lambda *a: header)
+    Path(str(alignment) + ".crai").write_text("0\t1\t20\t100\t0\t50\n")
+    assert (
+        deepvariant._indexed_slice_bytes(
+            str(alignment), str(ref), {"chr20": [(10, 20)]}
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [None, "view", "index", "caller", "cancel", "cancel-view", "cancel-index"],
+)
+def test_staged_cram_is_used_and_cleaned_on_all_exit_paths(files, monkeypatch, failure):
+    _ref, alignment, out = files
+    alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
+    monkeypatch.setattr(
+        deepvariant,
+        "get_tool_path",
+        lambda tool: "/opt/dv/run_deepvariant" if tool == "run_deepvariant" else None,
+    )
+    monkeypatch.setattr(deepvariant, "check_free_space", lambda *_: True)
+    staged = []
+
+    def fake(cmd, **kwargs):
+        if cmd[0] == "samtools":
+            if cmd[1] == "view":
+                path = Path(cmd[cmd.index("-o") + 1])
+                staged.append(path)
+                path.write_bytes(b"partial")
+                assert cmd[-1] == str(alignment)  # Whole input, without a region.
+            else:
+                Path(cmd[-1] + ".crai").touch()
+            if cmd[1] == failure:
+                raise subprocess.CalledProcessError(1, cmd)
+            if failure == f"cancel-{cmd[1]}":
+                raise KeyboardInterrupt
+        else:
+            reads = Path(cmd[cmd.index("--reads") + 1])
+            assert reads == staged[0]
+            assert reads.is_file()
+            assert Path(str(reads) + ".crai").exists()
+            if failure == "caller":
+                raise subprocess.CalledProcessError(1, cmd)
+            if failure == "cancel":
+                raise KeyboardInterrupt
+            Path(cmd[cmd.index("--output_vcf") + 1]).write_text("vcf")
+
+    monkeypatch.setattr(deepvariant, "run_command", fake)
+    if failure:
+        error = KeyboardInterrupt if failure.startswith("cancel") else WGSExtractError
+        with pytest.raises(error):
+            deepvariant.cmd_deepvariant(_args(alignment, region=None))
+    else:
+        deepvariant.cmd_deepvariant(_args(alignment, region=None))
+    assert len(staged) == 1
+    assert not staged[0].parent.exists()
+    assert alignment.read_bytes() == b"CRAM\x03\x01" + bytes(20)
+    assert sorted(p.name for p in out.iterdir()) == (
+        ["deepvariant.vcf.gz"] if failure is None else []
+    )
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
+@pytest.mark.parametrize("region", ["chr20", "chr20:1-50 chr20:101-150"])
+def test_container_reads_staged_cram_and_preserves_existing_mounts(
+    files, monkeypatch, region
+):
+    _ref, alignment, out = files
+    alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
+    runs = _docker(monkeypatch)
+    monkeypatch.setattr(deepvariant, "check_free_space", lambda *_: True)
+    monkeypatch.setattr(deepvariant, "run_command", lambda *a, **kw: None)
+    deepvariant.cmd_deepvariant(_args(alignment, region=region))
+    (cmd,) = runs
+    reads = Path(cmd[cmd.index("--reads") + 1])
+    assert reads.name == "reads.cram"
+    assert cmd[cmd.index("--regions") + 1] == region
+    assert reads.parent.parent == out
+    mounts = {cmd[i + 1].split(":")[0] for i, a in enumerate(cmd) if a == "-v"}
+    assert str(reads.parent) in mounts
+    assert str(alignment.parent) in mounts
+    assert not reads.parent.exists()
+
+
+@needs_tools("samtools")
+@pytest.mark.parametrize(
+    ("region", "expected", "source_region"),
+    [
+        (None, "2", None),
+        ("chr20:1-50", "1", "chr20:1-50"),
+        ("chr20", "2", None),
+        ("chr20:1-50 chr20:101-150", "2", None),
+        ("chr20:1-50 chr20:1-30", "1", "chr20:1-50"),
+        ("bed", "1", "chr20:1-50"),
+        ("bed.gz", "1", "chr20:1-50"),
+        ("bed-mixed", "2", None),
+        ("bedpe", "2", None),
+    ],
+)
+def test_real_cram31_roundtrip_has_cram30_header_and_read_parity(
+    tmp_path, region, expected, source_region
+):
+    from wgsextract_cli.core.utils import run_command
+
+    ref = write_fasta(tmp_path / "ref.fa", {"chr20": "ACGT" * 100})
+    bam = sam_to_bam(
+        [
+            "@HD\tVN:1.6\tSO:coordinate",
+            "@SQ\tSN:chr20\tLN:400",
+            "r1\t0\tchr20\t1\t60\t20M\t*\t0\t0\tACGTACGTACGTACGTACGT\tIIIIIIIIIIIIIIIIIIII",
+            "r2\t0\tchr20\t101\t60\t20M\t*\t0\t0\tACGTACGTACGTACGTACGT\tIIIIIIIIIIIIIIIIIIII",
+        ],
+        tmp_path / "reads.bam",
+    )
+    cram = tmp_path / "source.cram"
+    run_command(
+        [
+            "samtools", "view", "-C", "--output-fmt-option", "version=3.1",
+            "-T", str(ref), "-o", str(cram), bam,
+        ]
+    )  # fmt: skip
+    run_command(["samtools", "index", str(cram)])
+    assert deepvariant._cram_version(str(cram)) == (3, 1)
+    work = tmp_path / "dv"
+    work.mkdir()
+    if region and region.startswith("bed"):
+        suffix = ".bed" if region == "bed-mixed" else "." + region
+        regions_file = tmp_path / ("selection" + suffix)
+        if region == "bedpe":
+            regions_file.write_text("chr20\t0\t20\tchr20\t100\t120\n")
+        elif region == "bed.gz":
+            with gzip.open(regions_file, "wt") as stream:
+                stream.write("chr20\t0\t50\nchr20\t0\t30\n")
+        else:
+            regions_file.write_text("chr20\t0\t50\nchr20\t0\t30\n")
+        region = str(regions_file) + (" chr20:101-150" if region == "bed-mixed" else "")
+    converted = deepvariant._compatible_reads(
+        str(cram), str(ref), str(work), "1", region
+    )
+    assert deepvariant._cram_version(converted) == (3, 0)
+    assert Path(converted + ".crai").is_file()
+    original_count = run_command(
+        [
+            "samtools",
+            "view",
+            "-c",
+            "-T",
+            str(ref),
+            str(cram),
+            *([source_region] if source_region else []),
+        ],
+        capture_output=True,
+    ).stdout.strip()
+    converted_count = run_command(
+        ["samtools", "view", "-c", "-T", str(ref), converted], capture_output=True
+    ).stdout.strip()
+    assert converted_count == original_count == expected

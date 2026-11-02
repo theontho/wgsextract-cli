@@ -1,12 +1,18 @@
 import argparse
+import gzip
 import logging
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import zlib
+from bisect import bisect_left
 from pathlib import Path
 
 from wgsextract_cli.core import ultima
+from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.containers import (
     docker_info,
@@ -19,8 +25,15 @@ from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.native_support import require_native_tool
 from wgsextract_cli.core.output_checks import warn_if_no_variants
+from wgsextract_cli.core.reference_assets import read_fai_lengths
+from wgsextract_cli.core.samtools_commands import (
+    alignment_index,
+    get_sam_index_cmd,
+    get_sam_view_cmd,
+)
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
+from wgsextract_cli.core.warnings import GB, check_free_space, get_free_space_needed
 
 from .basic import get_base_args
 
@@ -86,6 +99,204 @@ def _dv_env() -> dict[str, str]:
     return env
 
 
+def _cram_version(path: str) -> tuple[int, int] | None:
+    """Read the CRAM file definition, independently of the filename."""
+    with open(path, "rb") as source:
+        definition = source.read(6)
+    if len(definition) != 6 or definition[:4] != b"CRAM":
+        return None
+    return definition[4], definition[5]
+
+
+def _literal_region(selection: str, lengths: dict[str, int]) -> tuple[str, int, int]:
+    if selection in lengths:
+        return selection, 0, lengths[selection]
+    match = re.match(r"^(\S+):([0-9,]+)-([0-9,]+)$", selection)
+    if match:
+        chrom, start_text, end_text = match.groups()
+        start, end = int(start_text.replace(",", "")), int(end_text.replace(",", ""))
+    else:
+        match = re.match(r"^(\S+):([0-9,]+)$", selection)
+        if not match:
+            raise ValueError(f"Invalid interval: {selection}")
+        chrom, position = match.groups()
+        start = end = int(position.replace(",", ""))
+    if start < 1 or end < start:
+        raise ValueError(f"Invalid interval: {selection}")
+    return chrom, start - 1, end
+
+
+def _transcode_regions(
+    region: str | None, ref: str, work: str
+) -> tuple[list[str], dict[str, list[tuple[int, int]]]]:
+    if not region:
+        return [], {}
+    lengths = read_fai_lengths(ref)
+    if not lengths:
+        run_command(["samtools", "faidx", ref])
+        lengths = read_fai_lengths(ref)
+    bed = Path(work, "regions.bed")
+    # DV accepts whitespace-separated literals and BED/BED.gz/BEDPE files.
+    # One BED + the multi-region iterator preserves their union without duplicates.
+    try:
+        with bed.open("w", newline="\n") as destination:
+            for selection in region.split():
+                lower = selection.lower()
+                if lower.endswith((".bed", ".bed.gz", ".bedpe")):
+                    opener = gzip.open if lower.endswith(".gz") else open
+                    with opener(selection, "rt") as source:
+                        for line in source:
+                            if not line.strip() or line.startswith(
+                                ("#", "track", "browser")
+                            ):
+                                continue
+                            fields = line.split()
+                            if lower.endswith(".bedpe"):
+                                if fields[0] != fields[3]:
+                                    continue
+                                chrom, start, end = (
+                                    fields[0],
+                                    int(fields[1]),
+                                    int(fields[5]),
+                                )
+                            else:
+                                chrom, start, end = (
+                                    fields[0],
+                                    int(fields[1]),
+                                    int(fields[2]),
+                                )
+                            if start < 0 or end < start:
+                                raise ValueError(f"Invalid interval: {line.strip()}")
+                            if chrom in lengths:
+                                destination.write(f"{chrom}\t{start}\t{end}\n")
+                else:
+                    chrom, start, end = _literal_region(selection, lengths)
+                    if chrom in lengths:
+                        destination.write(f"{chrom}\t{start}\t{end}\n")
+        intervals: dict[str, list[tuple[int, int]]] = {}
+        with bed.open() as source:
+            for line in source:
+                chrom, start_text, end_text = line.split()
+                length = lengths[chrom]
+                start = min(int(start_text), length)
+                end = min(int(end_text), length)
+                if end > start:
+                    intervals.setdefault(chrom, []).append((start, end))
+        merged: dict[str, list[tuple[int, int]]] = {}
+        for chrom, ranges in intervals.items():
+            union: list[tuple[int, int]] = []
+            for start, end in sorted(ranges):
+                if union and start <= union[-1][1]:
+                    union[-1] = (union[-1][0], max(union[-1][1], end))
+                else:
+                    union.append((start, end))
+            merged[chrom] = union
+        if not merged:
+            raise ValueError("Selection covers no reference bases.")
+        with bed.open("w", newline="\n") as destination:
+            for chrom, ranges in merged.items():
+                for start, end in ranges:
+                    destination.write(f"{chrom}\t{start}\t{end}\n")
+    except (ValueError, KeyError, IndexError) as error:
+        raise WGSExtractError(
+            f"Invalid DeepVariant region selection: {region}: {error}"
+        ) from error
+    return ["-M", "-L", str(bed)], merged
+
+
+def _indexed_slice_bytes(
+    alignment: str, ref: str, intervals: dict[str, list[tuple[int, int]]]
+) -> int | None:
+    """CRAI slice sizes reflect capture depth; reference-base fractions do not."""
+    index = alignment_index(alignment)
+    if not index or not index.endswith(".crai"):
+        return None
+    try:
+        names = [
+            next(field[3:] for field in line.split("\t") if field.startswith("SN:"))
+            for line in get_bam_header(alignment, ref).splitlines()
+            if line.startswith("@SQ\t")
+        ]
+        if not names or not all(names) or len(set(names)) != len(names):
+            return None
+        with open(index, "rb") as signature:
+            compressed = signature.read(2) == b"\x1f\x8b"
+        opener = gzip.open if compressed else open
+        seen: dict[tuple[int, int], int] = {}
+        selected: set[tuple[int, int]] = set()
+        with opener(index, "rt") as source:
+            for line in source:
+                rid, start, span, container, offset, size = map(int, line.split())
+                if (
+                    rid < -1
+                    or rid >= len(names)
+                    or min(container, offset) < 0
+                    or size <= 0
+                    or (rid >= 0 and (start < 1 or span < 1))
+                ):
+                    return None
+                key = (container, offset)
+                if key in seen and seen[key] != size:
+                    return None
+                seen[key] = size
+                if rid == -1:
+                    continue
+                ranges = intervals.get(names[rid], [])
+                start -= 1  # CRAI is 1-based; the staging BED is 0-based.
+                hit = bisect_left(ranges, (start + span, 0)) - 1
+                if hit >= 0 and ranges[hit][1] > start:
+                    # A multi-reference slice has one CRAI row per reference.
+                    selected.add(key)
+        return sum(seen[key] for key in selected) if seen else None
+    except (OSError, EOFError, ValueError, StopIteration, zlib.error):
+        return None
+
+
+def _compatible_reads(
+    alignment: str, ref: str, work: str, threads: str, region: str | None
+) -> str:
+    version = _cram_version(alignment)
+    if version is None or version < (3, 1):
+        return alignment
+    # Gate/remove this workaround when supported DV images ship htslib >=1.19
+    # (htscodecs >=1.5.2); a host-samtools decode cannot detect their SSE4 bug.
+    selection, intervals = _transcode_regions(region, ref, work)
+    _, final_gb = get_free_space_needed(Path(alignment).stat().st_size, is_cram=True)
+    required_gb = final_gb + 1  # Round up the CRAM expansion estimate; allow its index.
+    selected_bytes = _indexed_slice_bytes(alignment, ref, intervals) if region else None
+    # Round the existing ~1.95x CRAM expansion allowance up to 2x for slices.
+    required_bytes = (
+        max(64 * 1024**2, 2 * selected_bytes)
+        if selected_bytes is not None
+        else required_gb * GB
+    )
+    enough_space = (
+        shutil.disk_usage(work).free >= required_bytes
+        if region
+        else check_free_space(work, required_gb)
+    )
+    if not enough_space:
+        raise WGSExtractError(
+            f"Insufficient free disk space for DeepVariant CRAM 3.0 staging "
+            f"at {work} (needs ~{required_bytes / GB:.2f} GiB)."
+        )
+    logging.info(
+        "Transcoding CRAM %s.%s to temporary CRAM 3.0: DeepVariant's htslib "
+        "1.18 SSE4 rANS decoder can fail on valid CRAM 3.1 blocks.",
+        *version,
+    )
+    compatible = str(Path(work, "reads.cram"))
+    run_command(
+        [
+            *get_sam_view_cmd(threads, fmt="CRAM", reference=ref),
+            "--output-fmt-option", "version=3.0",
+            "--no-PG", *selection, "-o", compatible, alignment,
+        ]
+    )  # fmt: skip
+    run_command(get_sam_index_cmd(compatible, threads))
+    return compatible
+
+
 # Parabricks DeepVariant: its --mode per model type (WGS and WES are short reads).
 _PARABRICKS_MODES = {
     "WGS": [],
@@ -141,10 +352,11 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
 
     try:
         with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_dv_") as work:
+            reads = _compatible_reads(args.input, ref, work, threads, args.region)
             dv_args = [
                 "--model_type", model_type,
                 "--ref", host_path(ref),
-                "--reads", host_path(args.input),
+                "--reads", host_path(reads),
                 "--output_vcf", host_path(out_vcf),
                 "--num_shards", str(threads),
                 "--intermediate_results_dir", host_path(work),
