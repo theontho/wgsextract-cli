@@ -74,7 +74,7 @@ For annotation, `vep run --assembly GRCh37` also accepts the deprecated
 
 ::: card
 ### Analysis and alignment
-`microarray`, `lineage y-haplogroup`, `lineage mt-haplogroup`, `typing cyp2d6`, `typing hla`, `typing str`, `sign create`, `sign verify`, `align`, `realign`, `pet-align`, `analyze comprehensive`, `analyze batch-gen`, `example-genome list/download`, `benchmark`, `deps check`, and `config`.
+`microarray`, `lineage y-haplogroup`, `lineage y-str`, `lineage mt-haplogroup`, `typing cyp2d6`, `typing hla`, `typing str`, `sign create`, `sign verify`, `align`, `realign`, `pet-align`, `analyze comprehensive`, `analyze batch-gen`, `example-genome list/download`, `benchmark`, `deps check`, and `config`.
 :::
 :::
 :::

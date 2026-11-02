@@ -1,0 +1,1114 @@
+{
+  "generator": "scripts/build_ystr_panel.py",
+  "kmer": 14,
+  "sources": {
+    "hipstr_hg38": {
+      "url": "https://raw.githubusercontent.com/HipSTR-Tool/HipSTR-references/a396cd453c3ad6e5df6415f6a596fde56f20085c/human/all_annot_markers.hg38.fixed.bed",
+      "sha256": "d5b91757c7de756ada8a940cb5588e6f51aa79513ae6ce8cb4f1b9df63df9e61",
+      "license": "MIT (HipSTR-Tool/HipSTR-references)",
+      "cite": "Willems et al. 2016, Am J Hum Genet 98:919-933 (PMID 27126583)",
+      "retrieved_sha256": "d5b91757c7de756ada8a940cb5588e6f51aa79513ae6ce8cb4f1b9df63df9e61"
+    },
+    "strbase_assembly": {
+      "url": "https://strbase.nist.gov/api/RelLociAssembly",
+      "license": "Public domain (NIST, 17 U.S.C. 105)",
+      "cite": "NIST STRBase, https://strbase.nist.gov",
+      "retrieved_sha256": "c8ee4e7bb08afc938e6b5f748cd0142de45532570d58af155fb305659aae6654"
+    },
+    "nist_ystr_fact": {
+      "url": "https://web.archive.org/web/20201208195221id_/https://strbase.nist.gov/ystr_fact.htm",
+      "sha256": "3ccdd31e4c3378d9dc2cfc763a38fcf44e2f88e8c713ec26fe7ea85273092703",
+      "license": "Public domain (NIST, 17 U.S.C. 105)",
+      "cite": "NIST STRBase Y-STR fact sheet (reference alleles); Butler, Kline & Decker 2008, J Genet Geneal 4:125-148",
+      "retrieved_sha256": "3ccdd31e4c3378d9dc2cfc763a38fcf44e2f88e8c713ec26fe7ea85273092703"
+    },
+    "ylt_panel": {
+      "url": "https://raw.githubusercontent.com/Shuhua-Group/Y-LineageTracker/82b14c74be95ef2d4d929ce20bf7436869f163ea/LineageTracker/Data/Y_STR_panel.csv",
+      "sha256": "6a210052be456a31b507f6e529c7d74f097638a4d45567cd06e867b0142d5fe3",
+      "license": "MIT (Shuhua-Group/Y-LineageTracker)",
+      "cite": "Chen et al. 2021, BMC Bioinformatics 22:557",
+      "retrieved_sha256": "6a210052be456a31b507f6e529c7d74f097638a4d45567cd06e867b0142d5fe3"
+    },
+    "ystrkit_info": {
+      "url": "https://raw.githubusercontent.com/savolab/Y-STR_Kit/82c95cc68e890bc735c7e0657c34a60ee7136601/ref/ystr_info.txt",
+      "sha256": "dc403aa48304c401422f7da2e46f2475c9fd057c789ba0bbc8f9ef303fc577cd",
+      "license": "README states MIT, but the repository has no LICENSE file; only its GRCh37 windows and regexes are used, to locate repeats in the references and count their units. No Y-STR_Kit file is bundled",
+      "cite": "Y-STR Kit, https://github.com/savolab/Y-STR_Kit",
+      "retrieved_sha256": "dc403aa48304c401422f7da2e46f2475c9fd057c789ba0bbc8f9ef303fc577cd"
+    }
+  },
+  "genbank_bacs": {
+    "AC002531": {
+      "version": "AC002531.1",
+      "sha256": "8f12963ed7d8f7d018fad05d8785fa58bb0f61a87819eb79e22635e54f95a85b"
+    },
+    "AC002992": {
+      "version": "AC002992.1",
+      "sha256": "fe39fc270dcb77382a548caf633eaf516b3444407903e425b88d49c03621bd97"
+    },
+    "AC004474": {
+      "version": "AC004474.1",
+      "sha256": "afd785645ac89601371c5c108ea8816cb562193173c4a7bbab82be9f64e55f93"
+    },
+    "AC004617": {
+      "version": "AC004617.3",
+      "sha256": "cb763ba41f9274b850c2f6cec96113cc1eeb997cca26b2512764f34403a06be2"
+    },
+    "AC004772": {
+      "version": "AC004772.3",
+      "sha256": "d4a4e51239908603832cbe5a655244d7ccba0dc2bd90a086d831c3575332b3f5"
+    },
+    "AC004810": {
+      "version": "AC004810.1",
+      "sha256": "18a39f4a9f982d288c1897c58e1846247d1d6b20ae2d44f87d77eb24aa9758ee"
+    },
+    "AC005820": {
+      "version": "AC005820.1",
+      "sha256": "f8a7fe28ac0202b372e23128625a407c75ac9039f21478b3b2b0c36ac86de264"
+    },
+    "AC006152": {
+      "version": "AC006152.4",
+      "sha256": "ccf095802ac2775338f0be4d2029cc4a10647e7dc84b2d06012f76f08260aba0"
+    },
+    "AC006157": {
+      "version": "AC006157.2",
+      "sha256": "f3146ab9a895aa7025607d7486f300707de16b36873ed5fd4b00966b1e09e4e0"
+    },
+    "AC006371": {
+      "version": "AC006371.2",
+      "sha256": "2db782c34beaa89c29d19ef19e38db01a054dd209d87b098a911895029066a25"
+    },
+    "AC007007": {
+      "version": "AC007007.3",
+      "sha256": "d52df05be4ebcd7b3213a79deebfe684b8c3096ae2f14e929d938b7d537f56f6"
+    },
+    "AC007034": {
+      "version": "AC007034.4",
+      "sha256": "b2317cb4a6c694486398f7d026f36b00f2607f0db9bbcd00c750445e7461de4a"
+    },
+    "AC007043": {
+      "version": "AC007043.3",
+      "sha256": "d22b66d683000618b794025532165d7ff73e859c23f8993fdb1ac2aa632f4758"
+    },
+    "AC007244": {
+      "version": "AC007244.2",
+      "sha256": "cd92a8108664ee7053c664902c945cb409849be3d2636292aa13438fabf212bd"
+    },
+    "AC007247": {
+      "version": "AC007247.5",
+      "sha256": "023d2776f02a4b684e1144d423dd888a128b7ce79299db4268fe3ab1b38dfa4c"
+    },
+    "AC007275": {
+      "version": "AC007275.4",
+      "sha256": "35c5ce75e9c49b2272a4c95e9afce2d780a2be8478371c90b95c5dfc7e1b6d34"
+    },
+    "AC007876": {
+      "version": "AC007876.2",
+      "sha256": "db06a5c8b3875d8e008a254bc758fdc76794575da2ba4a285dd8ef5ea489a8ff"
+    },
+    "AC009233": {
+      "version": "AC009233.3",
+      "sha256": "d5a119a9329127f0fc405d5c927f61ae9e94013ee07268d4bcb7faebbd88b34d"
+    },
+    "AC009235": {
+      "version": "AC009235.4",
+      "sha256": "8aa75d90ae01bd957118dee7a9d98ba00ca1f6940a61e8a7d6cd462135d22df7"
+    },
+    "AC010104": {
+      "version": "AC010104.3",
+      "sha256": "fe4a2fc42c8a3483b5019059f532a81553f9348c3dde6cc10be43d29a48ac869"
+    },
+    "AC010106": {
+      "version": "AC010106.2",
+      "sha256": "fb1e5e6eb1685f3166a288a54393aac01dcd00d8099dd5169359e2bd101918ae"
+    },
+    "AC010133": {
+      "version": "AC010133.4",
+      "sha256": "f33a457e877123e36467d28fed9ff2710b51b684653304ae83ab98f8b9fdaf5c"
+    },
+    "AC010135": {
+      "version": "AC010135.3",
+      "sha256": "e23f0b6173c59e8d124ef51c9d1c3f96c0f5d460b5896a905f587180936725df"
+    },
+    "AC010137": {
+      "version": "AC010137.3",
+      "sha256": "3ee2e9d7966605dcc17c5acada1ef38ad748a387cbc2820c0045ff5e4a959215"
+    },
+    "AC010726": {
+      "version": "AC010726.4",
+      "sha256": "e5b1af855c18ff3dc6525acb45143702b0558a416fe48c6cbcd894e15b8a4060"
+    },
+    "AC010902": {
+      "version": "AC010902.4",
+      "sha256": "5e29fa9fd0a6b39bab5ebec380a7d362d8b718188e4c96c2dc3c954d653ed888"
+    },
+    "AC011289": {
+      "version": "AC011289.4",
+      "sha256": "bf4d08490a5edf0c56be05751d1d72fc647d7c499f8dc5bfe7cfe215f2119be3"
+    },
+    "AC011302": {
+      "version": "AC011302.3",
+      "sha256": "52e411ca8926200483f1bdf4c8325d33e929f554cd3c7319e45e3090f69ad9f3"
+    },
+    "AC011745": {
+      "version": "AC011745.4",
+      "sha256": "e04046d0779d87638eb300e35270a46c11d32361934cfc0af02652cf4a7dc482"
+    },
+    "AC011751": {
+      "version": "AC011751.2",
+      "sha256": "ff48c256f01d397dca9f706411abf7de023135476b6e5ea73bbf97cb3a413a23"
+    },
+    "AC012068": {
+      "version": "AC012068.5",
+      "sha256": "334465e4e4a247fe0c4733cd83e34c3484a5fba8cd2e39814b9a044c9d05ad45"
+    },
+    "AC012078": {
+      "version": "AC012078.3",
+      "sha256": "690e2d687bafe03ffb49c8b5b993b9c44e7383b51a2220dbd258333ce27d60ef"
+    },
+    "AC016991": {
+      "version": "AC016991.5",
+      "sha256": "03d69b8b1f5bb0cfb2a521793e75c698f456e5413ced511b0e7d4f94756ee167"
+    },
+    "AC017019": {
+      "version": "AC017019.3",
+      "sha256": "c1ca033f0efea71abc0d1d8073065ccaf3ff516251fd2cdabe4893a32170e986"
+    },
+    "AC018677": {
+      "version": "AC018677.3",
+      "sha256": "e6d60e19e6d20d74d701b5b8c3eda4ce9b40befb2a2c9ad0e5acc4c746ea0941"
+    },
+    "AC019058": {
+      "version": "AC019058.4",
+      "sha256": "5a85326648c7c2f6f6b49c4c98d510ee397cbe9a1bc4b5b3d4c5d41fe9b3ea73"
+    },
+    "AC025227": {
+      "version": "AC025227.6",
+      "sha256": "8d70d5c01486a04f8675b035a9bb48cf8ffd645b4cb57b543306611af30a756d"
+    },
+    "AC025731": {
+      "version": "AC025731.12",
+      "sha256": "d74d66ca0ecca058806c9a2cb2f419df28b8a4f81ae66a60df501bcce0df752e"
+    },
+    "AC051663": {
+      "version": "AC051663.9",
+      "sha256": "e4af67677221a811c035dba80bdefe08d2a104b121fc727cf1d7d3c8a56788b3"
+    },
+    "AC053516": {
+      "version": "AC053516.10",
+      "sha256": "a64cb825242cf3b6af9f5c70e6431c702664b7e4dee1cef097047312a72b80d3"
+    },
+    "AC095380": {
+      "version": "AC095380.1",
+      "sha256": "c3599c3925f7ba44234e587d855b9b0e2b54d11d5f229f800a88ab495355879d"
+    }
+  },
+  "reference_value_votes": {
+    "DYS393": {
+      "chosen": 12,
+      "source": "NIST reference allele (AC006152.4)",
+      "votes": {
+        "Y-STR_Kit": 12,
+        "Y-LineageTracker": 12
+      }
+    },
+    "DYS390": {
+      "chosen": 24,
+      "source": "NIST reference allele (AC011289.4)",
+      "votes": {
+        "Y-STR_Kit": 26,
+        "Y-LineageTracker": 24
+      }
+    },
+    "DYS19": {
+      "chosen": 15,
+      "source": "NIST reference allele (AC017019.3)",
+      "votes": {
+        "Y-STR_Kit": 15,
+        "Y-LineageTracker": 15
+      }
+    },
+    "DYS391": {
+      "chosen": 11,
+      "source": "NIST reference allele (AC011302.3)",
+      "votes": {
+        "Y-STR_Kit": 11,
+        "Y-LineageTracker": 11
+      }
+    },
+    "DYS385a": {
+      "chosen": null,
+      "source": "",
+      "votes": {}
+    },
+    "DYS385b": {
+      "chosen": null,
+      "source": "",
+      "votes": {}
+    },
+    "DYS426": {
+      "chosen": 12,
+      "source": "NIST reference allele (AC007034.4)",
+      "votes": {
+        "Y-STR_Kit": 12,
+        "Y-LineageTracker": 12,
+        "HipSTR-references": 12
+      }
+    },
+    "DYS388": {
+      "chosen": 12,
+      "source": "NIST reference allele (AC004810.1)",
+      "votes": {
+        "Y-STR_Kit": 12,
+        "Y-LineageTracker": 12,
+        "HipSTR-references": 12
+      }
+    },
+    "DYS439": {
+      "chosen": 12,
+      "source": "NIST reference allele (AC002992.1)",
+      "votes": {
+        "Y-STR_Kit": 12,
+        "Y-LineageTracker": 12
+      }
+    },
+    "DYS389I": {
+      "chosen": 12,
+      "source": "NIST reference allele (AC004617.3)",
+      "votes": {
+        "Y-STR_Kit": 12,
+        "Y-LineageTracker": 12,
+        "HipSTR-references": 12
+      }
+    },
+    "DYS392": {
+      "chosen": 13,
+      "source": "NIST reference allele (AC011745.4)",
+      "votes": {
+        "Y-STR_Kit": 13,
+        "Y-LineageTracker": 13
+      }
+    },
+    "DYS389II": {
+      "chosen": 29,
+      "source": "NIST reference allele (AC004617.3)",
+      "votes": {
+        "Y-STR_Kit": 29,
+        "Y-LineageTracker": 29,
+        "HipSTR-references": 24
+      }
+    },
+    "DYS458": {
+      "chosen": 16,
+      "source": "NIST reference allele (AC010902.4)",
+      "votes": {
+        "Y-STR_Kit": 16,
+        "Y-LineageTracker": 16
+      }
+    },
+    "DYS459a": {
+      "chosen": null,
+      "source": "",
+      "votes": {}
+    },
+    "DYS459b": {
+      "chosen": null,
+      "source": "",
+      "votes": {}
+    },
+    "DYS455": {
+      "chosen": 11,
+      "source": "NIST reference allele (AC012068.5)",
+      "votes": {
+        "Y-STR_Kit": 11,
+        "Y-LineageTracker": 11,
+        "HipSTR-references": 11
+      }
+    },
+    "DYS454": {
+      "chosen": 11,
+      "source": "NIST reference allele (AC025731.12)",
+      "votes": {
+        "Y-STR_Kit": 11,
+        "Y-LineageTracker": 11,
+        "HipSTR-references": 11
+      }
+    },
+    "DYS447": {
+      "chosen": 25,
+      "source": "NIST reference allele (AC005820.1)",
+      "votes": {
+        "Y-LineageTracker": 25
+      }
+    },
+    "DYS437": {
+      "chosen": 15,
+      "source": "NIST reference allele (AC002992.1)",
+      "votes": {
+        "Y-STR_Kit": 15,
+        "Y-LineageTracker": 13
+      }
+    },
+    "DYS448": {
+      "chosen": 22,
+      "source": "NIST reference allele (AC025227.6)",
+      "votes": {
+        "Y-STR_Kit": 19,
+        "HipSTR-references": 20
+      }
+    },
+    "DYS449": {
+      "chosen": 29,
+      "source": "NIST reference allele (AC051663.9)",
+      "votes": {
+        "Y-STR_Kit": 29,
+        "HipSTR-references": 36
+      }
+    },
+    "DYS464a": {
+      "chosen": null,
+      "source": "",
+      "votes": {}
+    },
+    "DYS464b": {
+      "chosen": null,
+      "source": "",
+      "votes": {}
+    },
+    "DYS464c": {
+      "chosen": null,
+      "source": "",
+      "votes": {}
+    },
+    "DYS464d": {
+      "chosen": null,
+      "source": "",
+      "votes": {}
+    },
+    "DYS460": {
+      "chosen": 10,
+      "source": "NIST reference allele (AC009235.4)",
+      "votes": {
+        "Y-STR_Kit": 10
+      }
+    },
+    "Y-GATA-H4": {
+      "chosen": 12,
+      "source": "NIST reference allele (AC011751.2)",
+      "votes": {
+        "Y-STR_Kit": 12
+      }
+    },
+    "YCAIIa": {
+      "chosen": null,
+      "source": "",
+      "votes": {}
+    },
+    "YCAIIb": {
+      "chosen": null,
+      "source": "",
+      "votes": {}
+    },
+    "DYS456": {
+      "chosen": 15,
+      "source": "NIST reference allele (AC010106.2)",
+      "votes": {
+        "Y-STR_Kit": 15,
+        "Y-LineageTracker": 15
+      }
+    },
+    "DYS607": {
+      "chosen": 15,
+      "source": "unverified: Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 15,
+        "Y-LineageTracker": 17,
+        "HipSTR-references": 19
+      }
+    },
+    "DYS576": {
+      "chosen": 17,
+      "source": "NIST reference allele (AC010104.3)",
+      "votes": {
+        "Y-STR_Kit": 17,
+        "Y-LineageTracker": 17
+      }
+    },
+    "DYS570": {
+      "chosen": 17,
+      "source": "NIST reference allele (AC012068.5)",
+      "votes": {
+        "Y-STR_Kit": 17,
+        "Y-LineageTracker": 17
+      }
+    },
+    "CDYa": {
+      "chosen": null,
+      "source": "",
+      "votes": {}
+    },
+    "CDYb": {
+      "chosen": null,
+      "source": "",
+      "votes": {}
+    },
+    "DYS442": {
+      "chosen": 17,
+      "source": "NIST reference allele (AC004810.1)",
+      "votes": {
+        "Y-STR_Kit": 12,
+        "Y-LineageTracker": 16,
+        "HipSTR-references": 15
+      }
+    },
+    "DYS438": {
+      "chosen": 12,
+      "source": "NIST reference allele (AC002531.1)",
+      "votes": {
+        "Y-STR_Kit": 12,
+        "Y-LineageTracker": 12
+      }
+    },
+    "DYS531": {
+      "chosen": 11,
+      "source": "unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 11,
+        "Y-LineageTracker": 11,
+        "HipSTR-references": 11
+      }
+    },
+    "DYS578": {
+      "chosen": 9,
+      "source": "unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 9,
+        "Y-LineageTracker": 9,
+        "HipSTR-references": 9
+      }
+    },
+    "DYF395S1a": {
+      "chosen": null,
+      "source": "",
+      "votes": {}
+    },
+    "DYF395S1b": {
+      "chosen": null,
+      "source": "",
+      "votes": {}
+    },
+    "DYS590": {
+      "chosen": 8,
+      "source": "unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 8,
+        "Y-LineageTracker": 8,
+        "HipSTR-references": 8
+      }
+    },
+    "DYS537": {
+      "chosen": 10,
+      "source": "unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 10,
+        "Y-LineageTracker": 10,
+        "HipSTR-references": 10
+      }
+    },
+    "DYS641": {
+      "chosen": 10,
+      "source": "NIST reference allele (AC018677.3)",
+      "votes": {
+        "Y-STR_Kit": 10,
+        "Y-LineageTracker": 10,
+        "HipSTR-references": 10
+      }
+    },
+    "DYS472": {
+      "chosen": 8,
+      "source": "unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 8,
+        "Y-LineageTracker": 8,
+        "HipSTR-references": 8
+      }
+    },
+    "DYF406S1": {
+      "chosen": 9,
+      "source": "unverified: Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 9,
+        "HipSTR-references": 10
+      }
+    },
+    "DYS511": {
+      "chosen": 9,
+      "source": "unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 9,
+        "Y-LineageTracker": 9,
+        "HipSTR-references": 9
+      }
+    },
+    "DYS425": {
+      "chosen": 10,
+      "source": "NIST reference allele (AC095380.1)",
+      "votes": {
+        "Y-LineageTracker": 10,
+        "HipSTR-references": 10
+      }
+    },
+    "DYS413a": {
+      "chosen": null,
+      "source": "",
+      "votes": {}
+    },
+    "DYS413b": {
+      "chosen": null,
+      "source": "",
+      "votes": {}
+    },
+    "DYS557": {
+      "chosen": 16,
+      "source": "NIST reference allele (AC007876.2)",
+      "votes": {
+        "Y-STR_Kit": 16,
+        "Y-LineageTracker": 16,
+        "HipSTR-references": 26
+      }
+    },
+    "DYS594": {
+      "chosen": 10,
+      "source": "NIST reference allele (AC010137.3)",
+      "votes": {
+        "Y-STR_Kit": 10,
+        "Y-LineageTracker": 10,
+        "HipSTR-references": 10
+      }
+    },
+    "DYS436": {
+      "chosen": 12,
+      "source": "NIST reference allele (AC005820.1)",
+      "votes": {
+        "Y-STR_Kit": 12,
+        "Y-LineageTracker": 12,
+        "HipSTR-references": 12
+      }
+    },
+    "DYS490": {
+      "chosen": 12,
+      "source": "NIST reference allele (AC019058.4)",
+      "votes": {
+        "Y-STR_Kit": 12,
+        "Y-LineageTracker": 12,
+        "HipSTR-references": 12
+      }
+    },
+    "DYS534": {
+      "chosen": 15,
+      "source": "NIST reference allele (AC053516.10)",
+      "votes": {
+        "Y-STR_Kit": 15,
+        "Y-LineageTracker": 15,
+        "HipSTR-references": 20
+      }
+    },
+    "DYS450": {
+      "chosen": 9,
+      "source": "NIST reference allele (AC051663.9)",
+      "votes": {
+        "Y-STR_Kit": 9,
+        "Y-LineageTracker": 9,
+        "HipSTR-references": 9
+      }
+    },
+    "DYS444": {
+      "chosen": 14,
+      "source": "NIST reference allele (AC007043.3)",
+      "votes": {
+        "Y-STR_Kit": 14,
+        "Y-LineageTracker": 14,
+        "HipSTR-references": 14
+      }
+    },
+    "DYS481": {
+      "chosen": 22,
+      "source": "unverified: Y-LineageTracker, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 22,
+        "Y-LineageTracker": 22
+      }
+    },
+    "DYS520": {
+      "chosen": 20,
+      "source": "NIST reference allele (AC007275.4)",
+      "votes": {
+        "Y-STR_Kit": 24,
+        "Y-LineageTracker": 20,
+        "HipSTR-references": 21
+      }
+    },
+    "DYS446": {
+      "chosen": 14,
+      "source": "NIST reference allele (AC006152.4)",
+      "votes": {
+        "Y-STR_Kit": 14,
+        "Y-LineageTracker": 14,
+        "HipSTR-references": 14
+      }
+    },
+    "DYS617": {
+      "chosen": 12,
+      "source": "unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 12,
+        "Y-LineageTracker": 12,
+        "HipSTR-references": 12
+      }
+    },
+    "DYS568": {
+      "chosen": 10,
+      "source": "unverified: HipSTR-references, Y-LineageTracker",
+      "votes": {
+        "Y-STR_Kit": 11,
+        "Y-LineageTracker": 10,
+        "HipSTR-references": 10
+      }
+    },
+    "DYS487": {
+      "chosen": 13,
+      "source": "unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 13,
+        "Y-LineageTracker": 13,
+        "HipSTR-references": 13
+      }
+    },
+    "DYS572": {
+      "chosen": 10,
+      "source": "unverified: HipSTR-references, Y-LineageTracker",
+      "votes": {
+        "Y-LineageTracker": 10,
+        "HipSTR-references": 10
+      }
+    },
+    "DYS640": {
+      "chosen": 11,
+      "source": "unverified: HipSTR-references, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 11,
+        "Y-LineageTracker": 9,
+        "HipSTR-references": 11
+      }
+    },
+    "DYS492": {
+      "chosen": 12,
+      "source": "unverified: HipSTR-references, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 12,
+        "Y-LineageTracker": 11,
+        "HipSTR-references": 12
+      }
+    },
+    "DYS565": {
+      "chosen": 12,
+      "source": "NIST reference allele (AC010726.4)",
+      "votes": {
+        "Y-STR_Kit": 11,
+        "Y-LineageTracker": 11,
+        "HipSTR-references": 12
+      }
+    },
+    "DYS710": {
+      "chosen": 28,
+      "source": "unverified: Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 28
+      }
+    },
+    "DYS485": {
+      "chosen": 16,
+      "source": "unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 16,
+        "Y-LineageTracker": 16,
+        "HipSTR-references": 16
+      }
+    },
+    "DYS632": {
+      "chosen": 9,
+      "source": "NIST reference allele (AC006371.2)",
+      "votes": {
+        "Y-STR_Kit": 9,
+        "HipSTR-references": 11
+      }
+    },
+    "DYS495": {
+      "chosen": 16,
+      "source": "NIST reference allele (AC004474.1)",
+      "votes": {
+        "Y-STR_Kit": 16,
+        "Y-LineageTracker": 16,
+        "HipSTR-references": 15
+      }
+    },
+    "DYS540": {
+      "chosen": 12,
+      "source": "NIST reference allele (AC010135.3)",
+      "votes": {
+        "Y-STR_Kit": 12,
+        "HipSTR-references": 15
+      }
+    },
+    "DYS714": {
+      "chosen": 27,
+      "source": "unverified: Y-LineageTracker, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 27,
+        "Y-LineageTracker": 27,
+        "HipSTR-references": 26
+      }
+    },
+    "DYS716": {
+      "chosen": 20,
+      "source": "unverified: Y-LineageTracker",
+      "votes": {
+        "Y-LineageTracker": 20
+      }
+    },
+    "DYS717": {
+      "chosen": 16,
+      "source": "unverified: HipSTR-references, Y-LineageTracker",
+      "votes": {
+        "Y-STR_Kit": 20,
+        "Y-LineageTracker": 16,
+        "HipSTR-references": 16
+      }
+    },
+    "DYS505": {
+      "chosen": 12,
+      "source": "NIST reference allele (AC012078.3)",
+      "votes": {
+        "Y-STR_Kit": 12,
+        "Y-LineageTracker": 12
+      }
+    },
+    "DYS556": {
+      "chosen": 11,
+      "source": "NIST reference allele (AC011745.4)",
+      "votes": {
+        "Y-STR_Kit": 11,
+        "Y-LineageTracker": 11,
+        "HipSTR-references": 11
+      }
+    },
+    "DYS549": {
+      "chosen": 13,
+      "source": "NIST reference allele (AC010133.4)",
+      "votes": {
+        "Y-STR_Kit": 12,
+        "Y-LineageTracker": 13
+      }
+    },
+    "DYS589": {
+      "chosen": 13,
+      "source": "unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 13,
+        "Y-LineageTracker": 13,
+        "HipSTR-references": 13
+      }
+    },
+    "DYS522": {
+      "chosen": 10,
+      "source": "NIST reference allele (AC007247.5)",
+      "votes": {
+        "Y-STR_Kit": 10,
+        "Y-LineageTracker": 10
+      }
+    },
+    "DYS494": {
+      "chosen": 10,
+      "source": "unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 10,
+        "Y-LineageTracker": 10,
+        "HipSTR-references": 10
+      }
+    },
+    "DYS533": {
+      "chosen": 12,
+      "source": "NIST reference allele (AC053516.10)",
+      "votes": {
+        "Y-STR_Kit": 12,
+        "Y-LineageTracker": 12
+      }
+    },
+    "DYS636": {
+      "chosen": 11,
+      "source": "unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 11,
+        "Y-LineageTracker": 11,
+        "HipSTR-references": 11
+      }
+    },
+    "DYS575": {
+      "chosen": 10,
+      "source": "NIST reference allele (AC007247.5)",
+      "votes": {
+        "Y-STR_Kit": 10,
+        "Y-LineageTracker": 10,
+        "HipSTR-references": 10
+      }
+    },
+    "DYS638": {
+      "chosen": 11,
+      "source": "unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 11,
+        "Y-LineageTracker": 11,
+        "HipSTR-references": 11
+      }
+    },
+    "DYS462": {
+      "chosen": 11,
+      "source": "NIST reference allele (AC007244.2)",
+      "votes": {
+        "Y-STR_Kit": 11,
+        "Y-LineageTracker": 11,
+        "HipSTR-references": 11
+      }
+    },
+    "DYS452": {
+      "chosen": 31,
+      "source": "NIST reference allele (AC010137.3)",
+      "votes": {
+        "Y-STR_Kit": 27,
+        "Y-LineageTracker": 31,
+        "HipSTR-references": 31
+      }
+    },
+    "DYS445": {
+      "chosen": 12,
+      "source": "NIST reference allele (AC009233.3)",
+      "votes": {
+        "Y-STR_Kit": 12,
+        "Y-LineageTracker": 12,
+        "HipSTR-references": 12
+      }
+    },
+    "Y-GATA-A10": {
+      "chosen": 15,
+      "source": "NIST reference allele (AC011751.2)",
+      "votes": {
+        "Y-STR_Kit": 13,
+        "HipSTR-references": 13
+      }
+    },
+    "DYS463": {
+      "chosen": 24,
+      "source": "NIST reference allele (AC007275.4)",
+      "votes": {
+        "Y-STR_Kit": 22,
+        "HipSTR-references": 22
+      }
+    },
+    "DYS441": {
+      "chosen": 14,
+      "source": "NIST reference allele (AC004474.1)",
+      "votes": {
+        "Y-STR_Kit": 13,
+        "Y-LineageTracker": 14
+      }
+    },
+    "Y-GGAAT-1B07": {
+      "chosen": null,
+      "source": "",
+      "votes": {}
+    },
+    "DYS525": {
+      "chosen": 10,
+      "source": "NIST reference allele (AC010104.3)",
+      "votes": {
+        "Y-STR_Kit": 10,
+        "HipSTR-references": 10
+      }
+    },
+    "DYS712": {
+      "chosen": 22,
+      "source": "unverified: Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 22
+      }
+    },
+    "DYS593": {
+      "chosen": 16,
+      "source": "unverified: Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 16,
+        "HipSTR-references": 15
+      }
+    },
+    "DYS650": {
+      "chosen": 17,
+      "source": "unverified: Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 17
+      }
+    },
+    "DYS532": {
+      "chosen": 14,
+      "source": "NIST reference allele (AC016991.5)",
+      "votes": {
+        "Y-STR_Kit": 14,
+        "HipSTR-references": 28
+      }
+    },
+    "DYS715": {
+      "chosen": 27,
+      "source": "unverified: Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 27
+      }
+    },
+    "DYS504": {
+      "chosen": 18,
+      "source": "NIST reference allele (AC006157.2)",
+      "votes": {
+        "Y-STR_Kit": 18,
+        "HipSTR-references": 20
+      }
+    },
+    "DYS513": {
+      "chosen": 12,
+      "source": "unverified: Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 12,
+        "HipSTR-references": 21
+      }
+    },
+    "DYS561": {
+      "chosen": 11,
+      "source": "unverified: Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 11,
+        "HipSTR-references": 14
+      }
+    },
+    "DYS552": {
+      "chosen": 24,
+      "source": "unverified: HipSTR-references, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 24,
+        "HipSTR-references": 24
+      }
+    },
+    "DYS726": {
+      "chosen": 12,
+      "source": "unverified: Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 12
+      }
+    },
+    "DYS635": {
+      "chosen": 23,
+      "source": "NIST reference allele (AC004772.3)",
+      "votes": {
+        "Y-STR_Kit": 23,
+        "Y-LineageTracker": 17
+      }
+    },
+    "DYS587": {
+      "chosen": 17,
+      "source": "unverified: HipSTR-references, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 17,
+        "HipSTR-references": 17
+      }
+    },
+    "DYS643": {
+      "chosen": 11,
+      "source": "NIST reference allele (AC007007.3)",
+      "votes": {
+        "Y-STR_Kit": 11,
+        "Y-LineageTracker": 11
+      }
+    },
+    "DYS497": {
+      "chosen": 14,
+      "source": "unverified: HipSTR-references, Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 14,
+        "HipSTR-references": 14
+      }
+    },
+    "DYS510": {
+      "chosen": 17,
+      "source": "unverified: Y-STR_Kit",
+      "votes": {
+        "Y-STR_Kit": 17,
+        "HipSTR-references": 24
+      }
+    },
+    "DYS434": {
+      "chosen": 10,
+      "source": "NIST reference allele (AC002992.1)",
+      "votes": {
+        "Y-STR_Kit": 9,
+        "Y-LineageTracker": 9,
+        "HipSTR-references": 9
+      }
+    },
+    "DYS461": {
+      "chosen": 12,
+      "source": "NIST reference allele (AC009235.4)",
+      "votes": {
+        "Y-STR_Kit": 12,
+        "Y-LineageTracker": 11
+      }
+    },
+    "DYS435": {
+      "chosen": 11,
+      "source": "NIST reference allele (AC002992.1)",
+      "votes": {
+        "Y-STR_Kit": 11,
+        "Y-LineageTracker": 11,
+        "HipSTR-references": 9
+      }
+    },
+    "DYS518": {
+      "chosen": 43,
+      "source": "unverified: HipSTR-references",
+      "votes": {
+        "HipSTR-references": 43
+      }
+    },
+    "DYS627": {
+      "chosen": 28,
+      "source": "unverified: HipSTR-references",
+      "votes": {
+        "HipSTR-references": 28
+      }
+    },
+    "DYF387S1": {
+      "chosen": null,
+      "source": "",
+      "votes": {}
+    }
+  },
+  "references": {
+    "hg38": {
+      "fasta": "hs38DH.fa.gz",
+      "contig": "chrY"
+    },
+    "hg19": {
+      "fasta": "hs37d5.fa.gz",
+      "contig": "Y"
+    },
+    "t2t": {
+      "fasta": "chm13v2.0.fa.gz",
+      "contig": "chrY"
+    }
+  }
+}

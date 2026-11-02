@@ -104,6 +104,7 @@ wgsextract --input sample.cram microarray --formats 23andme_v5
 wgsextract --input sample.cram extract mito-vcf
 wgsextract --input sample.cram lineage mt-haplogroup
 wgsextract --input sample.cram lineage y-haplogroup
+wgsextract --input sample.cram lineage y-str --panel Y-37
 ```
 
 Try commands on a small region (`--region chrM`, where supported) before running whole-genome jobs, which can take hours and hundreds of gigabytes of working space. Every command exits non-zero on failure, so they can be chained in scripts.
@@ -194,7 +195,7 @@ exposed as an application configuration setting.
 | `extract` | `mito-fasta`, `mito-vcf`, `mt-bam`, `ydna-bam`, `ydna-vcf`, `y-mt-extract`, `unmapped`, `custom`, `bam-subset` |
 | `microarray` | Simulate 23andMe, AncestryDNA, FTDNA, Living DNA, MyHeritage, and combined (`all`) raw-data files |
 | `microarray --formats aadr_1240k,aadr_ho,aadr_1240k+ho` | Export pinned AADR research panels as PLINK and EIGENSTRAT ([conventions and validation](docs/aadr.md)) |
-| `lineage` | `y-haplogroup` (Yleaf), `mt-haplogroup` (Haplogrep) |
+| `lineage` | `y-haplogroup` (Yleaf), `y-str` (genealogy Y-STR panels), `mt-haplogroup` (Haplogrep) |
 | `vcf` | Calling: `snp`, `indel`, `freebayes`, `gatk`, `deepvariant`, `sv`, `cnv`. Annotation: `annotate`, `chain-annotate`, `clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb`, `pharmcat`. Other: `filter`, `trio`, `to-fasta` (personal consensus genome) |
 | `typing` | From a WGS BAM/CRAM: `cyp2d6` (Cyrius), `hla` (T1K), `str` (ExpansionHunter repeat expansions) |
 | `gatk`, `freebayes` | Used by `vcf gatk` / `vcf freebayes` from optional environments; [Windows GATK](docs/windows.md#gatk-on-native-windows) is prepared at setup, not during calling |
@@ -315,6 +316,7 @@ outputs are unchanged.
   - ARM memory preflight accounts separately for the inference batch and concurrent `make_examples` shards. Lowering only `--threads` does not remove the default inference floor. For lower-memory hosts, combine `--batch-size 256` with fewer shards, e.g. `wgsextract vcf deepvariant -i sample.bam --ref reference.fna --batch-size 256 -t 8 -o results`. The conservative WGS estimate is 33 GiB at the qualified 16-shard default, or 17 GiB for this example; it warns about insufficient reclaimable/cgroup-limited RAM, not a memory allocation or promise for custom models. The smaller batch was validated on chr20, not a new full-genome benchmark.
 - `vcf sv` and `vcf cnv` use Delly 2 (`delly sr` / `delly cnv`), which needs no mappability map; `vcf cnv --map` is accepted but ignored.
 - `lineage y-haplogroup` uses native code derived from [Yleaf v4.1.6](https://github.com/genid/Yleaf), not an external Yleaf installation. It writes predictions, marker/QC tables and version provenance to `<outdir>/yleaf/` without deleting the user's directory. Build-specific tables download lazily, SHA-256 verified, from this repo's `yleaf-data-v4.1.6` release into the configured `reference_library`. CRAM and variant-only VCF inference need a matching `--ref`; use `--no-ref-inference` for targeted VCF panels. Choose `--tree yfull|yfull_v10|ftdna|isogg`; `--min-reads`, `--base-quality`, `--base-majority`, `--min-score`, `--ancient` and `--pos-file` replace external-tool passthrough. Align FASTQ first with `align`. See [native Yleaf documentation](src/wgsextract_cli/ydna/yleaf_native/README.md).
+- `lineage y-str` reports FamilyTreeDNA Y-12 to Y-111, PowerPlex Y23 and Yfiler Plus repeat counts from a hg19, hg38 or T2T BAM/CRAM. It needs only samtools; `typing str` (ExpansionHunter) is for disease expansions. Results go to `<outdir>/ystr/` as a per-marker TSV, an FTDNA-ordered CSV and `run.json`. Reads must span a repeat and both its flanks, so long markers may be no-calls, and DYS464, CDY, DYF387S1 and Y-GGAAT-1B07 are not callable. Against 1000 Genomes PowerPlex Y23 typings, 99.9% of 30x calls match, with 8% no-calls. See the [Y-STR documentation](src/wgsextract_cli/ydna/ystr/README.md) for sources, licences, conventions and accuracy.
 - `extract unmapped --fastq` also writes `_unmapped_R1.fastq.gz`, `_unmapped_R2.fastq.gz`, `_unmapped_SE.fastq.gz` (unpaired reads) and `_unmapped_singletons.fastq.gz` (mates absent from the extraction). Without the flag, only the BAM is written.
 - `lineage y-haplogroup --tree-links` adds YFull/FTDNA links; `lineage mt-haplogroup --tree-links` adds the YFull mtDNA branch and FTDNA public mtDNA tree (use its branch search). Detailed info omits the uncomputed WES-depth row. Missing-reference errors identify the explicit library install command when the alignment matches a catalog model; references are never downloaded automatically.
 - `pet-align` writes next to the R1 FASTQ unless `--outdir` is given.

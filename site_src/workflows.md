@@ -87,9 +87,12 @@ Y-DNA extraction can produce smaller alignment or variant files for lineage tool
 wgsextract --input sample.bam extract ydna-bam
 wgsextract --input sample.bam extract ydna-vcf
 wgsextract --input sample.bam lineage y-haplogroup
+wgsextract --input sample.bam lineage y-str --panel Y-37
 ```
 
 Native Yleaf-derived results go to `<outdir>/yleaf/`: prediction TSV, marker tables and `run.json` record the upstream/data tag, build, tree and QC settings. No external Yleaf installation is needed. Tables download on demand, with pinned SHA-256 verification, into the configured reference library. CRAM and variant-only VCF inference require the matching `--ref`; targeted VCF panels should use `--no-ref-inference`. Choose `--tree yfull|yfull_v10|ftdna|isogg`. A missing or `NA` haplogroup is an error, not a successful prediction. Credits: Yleaf authors at Erasmus MC; Ralf et al., *Mol Biol Evol* (2018), [doi:10.1093/molbev/msy032](https://doi.org/10.1093/molbev/msy032). Use `lineage mt-haplogroup` for the maternal haplogroup with Haplogrep.
+
+`lineage y-str` writes FamilyTreeDNA Y-12 to Y-111, PowerPlex Y23 or Yfiler Plus repeat counts to `<outdir>/ystr/`, including an FTDNA-ordered CSV. Markers that short reads cannot span are reported as no-calls rather than guessed. 99.9% of calls on 30x 1000 Genomes samples match their published PowerPlex Y23 typings.
 :::
 :::
 :::

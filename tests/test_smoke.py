@@ -86,6 +86,7 @@ COMMANDS: list[tuple[str, list[str]]] = [
             "fake.txt",
         ],
     ),
+    ("lineage y-str", ["lineage", "y-str", "--input", "{bam}"]),
     ("repair ftdna-bam", ["repair", "ftdna-bam", "--input", "{bam}"]),
     ("repair ftdna-vcf", ["repair", "ftdna-vcf", "--input", "{vcf}"]),
     ("qc fastp", ["qc", "fastp", "--r1", "{fastq}", "--r2", "{fastq}"]),
