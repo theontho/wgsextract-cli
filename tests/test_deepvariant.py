@@ -216,7 +216,7 @@ def test_transcode_fails_before_writing_when_disk_is_low(files, monkeypatch):
 
 
 @pytest.mark.parametrize("selection", ["chrM", "chr1:1-1000000", "bed"])
-def test_targeted_transcode_scales_disk_estimate_and_keeps_a_small_minimum(
+def test_targeted_transcode_uses_indexed_sizes_and_keeps_a_small_minimum(
     files, monkeypatch, selection
 ):
     ref, alignment, work = files
@@ -239,6 +239,15 @@ def test_targeted_transcode_scales_disk_estimate_and_keeps_a_small_minimum(
     monkeypatch.setattr(deepvariant, "get_free_space_needed", lambda *a, **kw: (0, 31))
     monkeypatch.setattr(deepvariant, "check_free_space", lambda *a: False)
     monkeypatch.setattr(deepvariant, "run_command", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(
+        deepvariant,
+        "get_bam_header",
+        lambda *a: "@SQ\tSN:chrM\tLN:1000\n@SQ\tSN:chr1\tLN:2000000\n",
+    )
+    Path(str(alignment) + ".crai").write_text(
+        f"0\t1\t1000\t100\t0\t{16 * 1024**2}\n"
+        f"1\t1\t1000000\t1000\t0\t{8 * deepvariant.GB}\n"
+    )
     with pytest.raises(WGSExtractError, match="Insufficient free disk"):
         deepvariant._compatible_reads(str(alignment), str(ref), str(work), "1", None)
     deepvariant._compatible_reads(str(alignment), str(ref), str(work), "1", selection)
@@ -265,12 +274,144 @@ def test_colon_contigs_use_nucleus_whole_range_and_position_semantics(
     ref = tmp_path / "ref.fa"
     chrom = "HLA-A*01:01:01:01"
     Path(str(ref) + ".fai").write_text(f"{chrom}\t5000\t0\t5000\t5001\n")
-    options, fraction = deepvariant._transcode_regions(
+    options, intervals = deepvariant._transcode_regions(
         selection, str(ref), str(tmp_path)
     )
     bed = Path(options[options.index("-L") + 1])
     assert bed.read_text() == f"{chrom}\t{expected[0]}\t{expected[1]}\n"
-    assert fraction == pytest.approx((expected[1] - expected[0]) / 5000)
+    assert intervals == {chrom: [expected]}
+
+
+def test_region_selection_drops_unknown_rows_and_rejects_empty_or_bare_unknown(files):
+    ref, _alignment, work = files
+    bed = work / "capture.bed"
+    bed.write_text("chrUn_stray\t0\t50\nchr20\t10\t30\nchr20\t20\t40\n")
+    options, intervals = deepvariant._transcode_regions(
+        f"{bed} chrUn_stray:1-10", str(ref), str(work)
+    )
+    assert intervals == {"chr20": [(10, 40)]}
+    assert Path(options[-1]).read_text() == "chr20\t10\t40\n"
+    bed.write_text("chrUn_stray\t0\t50\n")
+    with pytest.raises(WGSExtractError, match="covers no reference bases"):
+        deepvariant._transcode_regions(str(bed), str(ref), str(work))
+    with pytest.raises(WGSExtractError, match="covers no reference bases"):
+        deepvariant._transcode_regions("chrUn_stray:1-10", str(ref), str(work))
+    with pytest.raises(WGSExtractError, match="Invalid interval"):
+        deepvariant._transcode_regions("chr20 chrUn_stray", str(ref), str(work))
+
+
+@pytest.mark.parametrize("compressed", [False, True])
+def test_capture_cram_disk_estimate_counts_selected_slices_not_genome_fraction(
+    files, monkeypatch, compressed
+):
+    ref, alignment, work = files
+    alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
+    bed = work / "capture.bed"
+    bed.write_text("chr20\t10\t20\n")
+    monkeypatch.setattr(
+        deepvariant, "get_bam_header", lambda *a: "@SQ\tSN:chr20\tLN:1000\n"
+    )
+    index = Path(str(alignment) + ".crai")
+    data = f"0\t1\t100\t100\t0\t{16 * deepvariant.GB}\n".encode()
+    index.write_bytes(gzip.compress(data) if compressed else data)
+    monkeypatch.setattr(deepvariant, "get_free_space_needed", lambda *a, **kw: (0, 31))
+    monkeypatch.setattr(
+        deepvariant,
+        "shutil",
+        SimpleNamespace(disk_usage=lambda _: SimpleNamespace(free=20 * deepvariant.GB)),
+    )
+    monkeypatch.setattr(
+        deepvariant,
+        "run_command",
+        lambda *a: pytest.fail("must reject before transcode"),
+    )
+    with pytest.raises(WGSExtractError, match="needs ~32.00 GiB"):
+        deepvariant._compatible_reads(
+            str(alignment), str(ref), str(work), "1", str(bed)
+        )
+
+
+@pytest.mark.parametrize(
+    "index_data",
+    [
+        None,
+        b"",
+        b"malformed\n",
+        b"0 1 20 100 0 50\nbad trailing row\n",
+        b"9 1 20 100 0 50\n",
+        gzip.compress(b"0 1 20 100 0 50\n")[:-4],
+        b"\x1f\x8b\x08\x00" + bytes(6) + b"\x07",
+    ],
+)
+def test_missing_or_unparseable_crai_uses_whole_input_disk_bound(
+    files, monkeypatch, index_data
+):
+    ref, alignment, work = files
+    alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
+    if index_data is not None:
+        Path(str(alignment) + ".crai").write_bytes(index_data)
+    monkeypatch.setattr(
+        deepvariant, "get_bam_header", lambda *a: "@SQ\tSN:chr20\tLN:1000\n"
+    )
+    monkeypatch.setattr(deepvariant, "get_free_space_needed", lambda *a, **kw: (0, 31))
+    monkeypatch.setattr(
+        deepvariant,
+        "shutil",
+        SimpleNamespace(disk_usage=lambda _: SimpleNamespace(free=20 * deepvariant.GB)),
+    )
+    monkeypatch.setattr(
+        deepvariant,
+        "run_command",
+        lambda *a: pytest.fail("must reject before transcode"),
+    )
+    with pytest.raises(WGSExtractError, match="needs ~32.00 GiB"):
+        deepvariant._compatible_reads(
+            str(alignment), str(ref), str(work), "1", "chr20:1"
+        )
+
+
+def test_crai_mapping_uses_header_order_and_counts_shared_slices_once(
+    files, monkeypatch
+):
+    ref, alignment, _work = files
+    monkeypatch.setattr(
+        deepvariant,
+        "get_bam_header",
+        lambda *a: "@SQ\tSN:chrM\tLN:1000\n@SQ\tSN:chr20\tLN:1000\n",
+    )
+    Path(str(alignment) + ".crai").write_text(
+        "0\t1\t100\t100\t10\t200\n"
+        "1\t1\t100\t100\t10\t200\n"
+        "1\t101\t20\t500\t10\t300\n"
+        "1\t121\t20\t900\t10\t400\n"
+    )
+    assert (
+        deepvariant._indexed_slice_bytes(
+            str(alignment), str(ref), {"chr20": [(10, 20)], "chrM": [(10, 20)]}
+        )
+        == 200
+    )
+    assert (
+        deepvariant._indexed_slice_bytes(
+            str(alignment), str(ref), {"chr20": [(100, 120)]}
+        )
+        == 300
+    )
+
+
+@pytest.mark.parametrize("header", ["", "@SQ\tLN:1000\n", "@SQ\tSN:\tLN:1000\n"])
+def test_crai_without_usable_header_order_requires_conservative_fallback(
+    files, monkeypatch, header
+):
+    ref, alignment, _work = files
+    monkeypatch.setattr(deepvariant, "get_bam_header", lambda *a: header)
+    Path(str(alignment) + ".crai").write_text("0\t1\t20\t100\t0\t50\n")
+    assert (
+        deepvariant._indexed_slice_bytes(
+            str(alignment), str(ref), {"chr20": [(10, 20)]}
+        )
+        is None
+    )
 
 
 @pytest.mark.parametrize(

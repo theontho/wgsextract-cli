@@ -1,16 +1,18 @@
 import argparse
 import gzip
 import logging
-import math
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import zlib
+from bisect import bisect_left
 from pathlib import Path
 
 from wgsextract_cli.core import ultima
+from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.containers import (
     docker_info,
@@ -23,7 +25,11 @@ from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.output_checks import warn_if_no_variants
 from wgsextract_cli.core.reference_assets import read_fai_lengths
-from wgsextract_cli.core.samtools_commands import get_sam_index_cmd, get_sam_view_cmd
+from wgsextract_cli.core.samtools_commands import (
+    alignment_index,
+    get_sam_index_cmd,
+    get_sam_view_cmd,
+)
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 from wgsextract_cli.core.warnings import GB, check_free_space, get_free_space_needed
@@ -121,9 +127,9 @@ def _literal_region(selection: str, lengths: dict[str, int]) -> tuple[str, int, 
 
 def _transcode_regions(
     region: str | None, ref: str, work: str
-) -> tuple[list[str], float]:
+) -> tuple[list[str], dict[str, list[tuple[int, int]]]]:
     if not region:
-        return [], 1.0
+        return [], {}
     lengths = read_fai_lengths(ref)
     if not lengths:
         run_command(["samtools", "faidx", ref])
@@ -160,10 +166,12 @@ def _transcode_regions(
                                 )
                             if start < 0 or end < start:
                                 raise ValueError(f"Invalid interval: {line.strip()}")
-                            destination.write(f"{chrom}\t{start}\t{end}\n")
+                            if chrom in lengths:
+                                destination.write(f"{chrom}\t{start}\t{end}\n")
                 else:
                     chrom, start, end = _literal_region(selection, lengths)
-                    destination.write(f"{chrom}\t{start}\t{end}\n")
+                    if chrom in lengths:
+                        destination.write(f"{chrom}\t{start}\t{end}\n")
         intervals: dict[str, list[tuple[int, int]]] = {}
         with bed.open() as source:
             for line in source:
@@ -171,21 +179,76 @@ def _transcode_regions(
                 length = lengths[chrom]
                 start = min(int(start_text), length)
                 end = min(int(end_text), length)
-                intervals.setdefault(chrom, []).append((start, end))
-        covered = 0
-        for ranges in intervals.values():
-            previous_end = 0
+                if end > start:
+                    intervals.setdefault(chrom, []).append((start, end))
+        merged: dict[str, list[tuple[int, int]]] = {}
+        for chrom, ranges in intervals.items():
+            union: list[tuple[int, int]] = []
             for start, end in sorted(ranges):
-                covered += max(0, end - max(start, previous_end))
-                previous_end = max(previous_end, end)
-        genome_size = sum(lengths.values())
-        if genome_size <= 0:
-            raise ValueError("Reference index contains no bases.")
+                if union and start <= union[-1][1]:
+                    union[-1] = (union[-1][0], max(union[-1][1], end))
+                else:
+                    union.append((start, end))
+            merged[chrom] = union
+        if not merged:
+            raise ValueError("Selection covers no reference bases.")
+        with bed.open("w", newline="\n") as destination:
+            for chrom, ranges in merged.items():
+                for start, end in ranges:
+                    destination.write(f"{chrom}\t{start}\t{end}\n")
     except (ValueError, KeyError, IndexError) as error:
         raise WGSExtractError(
-            f"Invalid DeepVariant region selection: {region}"
+            f"Invalid DeepVariant region selection: {region}: {error}"
         ) from error
-    return ["-M", "-L", str(bed)], covered / genome_size
+    return ["-M", "-L", str(bed)], merged
+
+
+def _indexed_slice_bytes(
+    alignment: str, ref: str, intervals: dict[str, list[tuple[int, int]]]
+) -> int | None:
+    """CRAI slice sizes reflect capture depth; reference-base fractions do not."""
+    index = alignment_index(alignment)
+    if not index or not index.endswith(".crai"):
+        return None
+    try:
+        names = [
+            next(field[3:] for field in line.split("\t") if field.startswith("SN:"))
+            for line in get_bam_header(alignment, ref).splitlines()
+            if line.startswith("@SQ\t")
+        ]
+        if not names or not all(names) or len(set(names)) != len(names):
+            return None
+        with open(index, "rb") as signature:
+            compressed = signature.read(2) == b"\x1f\x8b"
+        opener = gzip.open if compressed else open
+        seen: dict[tuple[int, int], int] = {}
+        selected: set[tuple[int, int]] = set()
+        with opener(index, "rt") as source:
+            for line in source:
+                rid, start, span, container, offset, size = map(int, line.split())
+                if (
+                    rid < -1
+                    or rid >= len(names)
+                    or min(container, offset) < 0
+                    or size <= 0
+                    or (rid >= 0 and (start < 1 or span < 1))
+                ):
+                    return None
+                key = (container, offset)
+                if key in seen and seen[key] != size:
+                    return None
+                seen[key] = size
+                if rid == -1:
+                    continue
+                ranges = intervals.get(names[rid], [])
+                start -= 1  # CRAI is 1-based; the staging BED is 0-based.
+                hit = bisect_left(ranges, (start + span, 0)) - 1
+                if hit >= 0 and ranges[hit][1] > start:
+                    # A multi-reference slice has one CRAI row per reference.
+                    selected.add(key)
+        return sum(seen[key] for key in selected) if seen else None
+    except (OSError, EOFError, ValueError, StopIteration, zlib.error):
+        return None
 
 
 def _compatible_reads(
@@ -196,10 +259,16 @@ def _compatible_reads(
         return alignment
     # Gate/remove this workaround when supported DV images ship htslib >=1.19
     # (htscodecs >=1.5.2); a host-samtools decode cannot detect their SSE4 bug.
-    selection, fraction = _transcode_regions(region, ref, work)
+    selection, intervals = _transcode_regions(region, ref, work)
     _, final_gb = get_free_space_needed(Path(alignment).stat().st_size, is_cram=True)
     required_gb = final_gb + 1  # Round up the CRAM expansion estimate; allow its index.
-    required_bytes = max(64 * 1024**2, math.ceil(required_gb * GB * fraction))
+    selected_bytes = _indexed_slice_bytes(alignment, ref, intervals) if region else None
+    # Round the existing ~1.95x CRAM expansion allowance up to 2x for slices.
+    required_bytes = (
+        max(64 * 1024**2, 2 * selected_bytes)
+        if selected_bytes is not None
+        else required_gb * GB
+    )
     enough_space = (
         shutil.disk_usage(work).free >= required_bytes
         if region
