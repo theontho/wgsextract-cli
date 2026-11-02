@@ -86,6 +86,18 @@ def test_multicopy_shared_allele_needs_enough_reads():
         ("low_support", ""),
         ("low_support", ""),
     ]
+    # A read of another length (not stutter) may be the second copy.
+    assert _dys385(_multicopy_reads({14: 8, 11: 1})) == [
+        ("low_support", ""),
+        ("low_support", ""),
+    ]
+
+
+def test_multicopy_alleles_need_the_requested_reads():
+    assert _dys385(_multicopy_reads({11: 8, 14: 2}), min_reads=5) == [
+        ("called", "11"),
+        ("low_support", ""),
+    ]
 
 
 def test_multicopy_reads_ending_in_a_longer_repeat_show_an_unspanned_copy():
@@ -105,10 +117,10 @@ def test_ftdna_csv_follows_the_ftdna_column_order(tmp_path):
     assert row[4] == "10-10"
 
 
-def _spanning_reads(marker: str, units: int, n: int) -> list[str]:
+def _spanning_reads(marker: str, units: int, n: int, build="hg38") -> list[str]:
     """``n`` reads spanning ``marker`` with ``units`` repeats."""
     m = _marker(marker)
-    (tract,) = tracts("hg38")[m.group]
+    (tract,) = tracts(build)[m.group]
     assert m.hg38_value is not None
     length = tract.hg38_length + (units - m.hg38_value) * m.period
     seq = "C" * 20 + tract.left + "A" * length + tract.right + "C" * 20
@@ -125,6 +137,7 @@ def test_y_str_cli_writes_calls_and_an_ftdna_row(tmp_path):
         _spanning_reads("DYS393", 13, 4)
         + _spanning_reads("DYS390", 24, 4)
         + _spanning_reads("DYS391", 11, 3)
+        + _spanning_reads("DYS19", 15, 1)
     )
     bam = sam_to_bam(
         ["@SQ\tSN:chr1\tLN:248956422", "@SQ\tSN:chrY\tLN:57227415", *reads],
@@ -141,7 +154,23 @@ def test_y_str_cli_writes_calls_and_an_ftdna_row(tmp_path):
         csv.DictReader((tmp_path / "ystr/kit.ystr.tsv").open(), delimiter="\t")
     )
     dys19 = next(r for r in table if r["marker"] == "DYS19")
-    assert dys19["status"] == "no_reads"
+    assert (dys19["status"], dys19["read_alleles"]) == ("low_support", "15:1")
+    dys392 = next(r for r in table if r["marker"] == "DYS392")
+    assert dys392["status"] == "no_reads"
+
+
+@needs_htslib
+def test_y_str_cli_detects_the_build_from_the_header(tmp_path):
+    reads = [
+        read
+        for marker, units in (("DYS393", 13), ("DYS390", 24), ("DYS391", 11))
+        for read in _spanning_reads(marker, units, 3, build="t2t")
+    ]
+    bam = sam_to_bam(["@SQ\tSN:chrY\tLN:62460029", *reads], tmp_path / "kit.bam")
+    run_wgsextract("lineage", "y-str", "--input", bam, "--panel", "Y-12")
+    header, row = list(csv.reader((tmp_path / "ystr/kit.ftdna.csv").open()))
+    values = dict(zip(header, row, strict=True))
+    assert (values["DYS393"], values["DYS390"], values["DYS391"]) == ("13", "24", "11")
 
 
 @needs_htslib

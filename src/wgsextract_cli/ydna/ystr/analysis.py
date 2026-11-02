@@ -10,12 +10,14 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from wgsextract_cli.core.builds import build_from_chr1_length
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 from .counter import TractReads, collect
 from .panel import Marker, Tract, markers, provenance, tracts
 
 Y_NAMES = ("chrY", "Y")
+Y_LENGTH_BUILDS = {59373566: "hg19", 57227415: "hg38", 62460029: "t2t"}
 # Unmapped, secondary, QC-fail, duplicate and supplementary reads.
 EXCLUDE_FLAGS = "0xF04"
 # Reads of a multicopy marker map to any copy with low MAPQ; an allele one
@@ -105,32 +107,35 @@ def call_single(
 ) -> Call:
     """A one-copy marker: the modal length of each part, summed."""
     assert marker.hg38_value is not None
-    total_bp = marker.hg38_value * marker.period
+    status = "called"
     spanning: list[int] = []
     support: list[int] = []
-    modes: list[int] = []
+    # Each part's modal length; a part without one stays at the reference's.
+    lengths: list[int] = []
     for tract in parts:
         part = reads[key(tract)]
-        status = _part_status(part, tract, marker.period, min_reads, min_fraction)
+        part_status = _part_status(part, tract, marker.period, min_reads, min_fraction)
+        if status == "called":
+            status = part_status
         mode = part.mode()
         spanning.append(part.spanning)
         support.append(mode[1] if mode else 0)
-        if status != "called":
-            return Call(marker, status, spanning=min(spanning), support=min(support))
-        assert mode is not None
-        modes.append(mode[0])
-        total_bp += mode[0] - tract.hg38_length
-    # Each part's reads as marker values, the other parts at their modal length.
+        lengths.append(mode[0] if mode else tract.hg38_length)
+    total_bp = marker.hg38_value * marker.period + sum(
+        length - tract.hg38_length for tract, length in zip(parts, lengths, strict=True)
+    )
+    # Each part's reads as marker values, the other parts at their modal length;
+    # kept for no-calls too, to show why the marker was rejected.
     distributions = []
-    for tract, mode_len in zip(parts, modes, strict=True):
+    for tract, base in zip(parts, lengths, strict=True):
         counts: Counter[str] = Counter()
         for length, n in reads[key(tract)].lengths.items():
-            counts[format_count(total_bp + length - mode_len, marker.period)] += n
+            counts[format_count(total_bp + length - base, marker.period)] += n
         distributions.append(dict(counts))
     return Call(
         marker,
-        "called",
-        format_count(total_bp, marker.period),
+        status,
+        format_count(total_bp, marker.period) if status == "called" else "",
         min(spanning),
         min(support),
         distributions,
@@ -196,7 +201,7 @@ def call_multicopy(
             abs(bp - other) == period and weight[other] > weight[bp] for other in weight
         )
 
-    alleles = [bp for bp, n in ranked if n >= min(2, min_reads) and not stutter(bp)]
+    alleles = [bp for bp, n in ranked if n >= min_reads and not stutter(bp)]
     if status == "called" and len(alleles) > len(group):
         status = "conflicting"
     table = [{format_count(bp, period): n for bp, n in sorted(pooled.items())}]
@@ -229,9 +234,11 @@ def call_multicopy(
                 Call(m, status, spanning=spanning, alleles=table)
                 for m in group[len(values) :]
             ]
-        if pooled[values[-1]] < max(min_reads, HOMOZYGOUS_READS):
-            # Without enough reads the copies can't be called identical, nor
-            # the one allele seen be assigned to a copy.
+        others = any(bp not in values and not stutter(bp) for bp in pooled)
+        if others or pooled[values[-1]] < max(min_reads, HOMOZYGOUS_READS):
+            # Without enough reads, or with reads of another length, the copies
+            # can't be called identical, nor the one allele seen be assigned
+            # to a copy.
             return [
                 Call(m, "low_support", spanning=spanning, alleles=table) for m in group
             ]
@@ -275,20 +282,32 @@ def read_alignments(
     return reads
 
 
-def y_contig(path: Path) -> str:
-    """The Y chromosome's name in the alignment header."""
+def header_lengths(path: Path) -> dict[str, int]:
+    """Contig lengths from the alignment's @SQ header lines."""
     header = run_command(["samtools", "view", "-H", str(path)], capture_output=True)
-    names = {
-        field[3:]
-        for line in header.stdout.splitlines()
-        if line.startswith("@SQ")
-        for field in line.split("\t")
-        if field.startswith("SN:")
-    }
+    lengths = {}
+    for line in header.stdout.splitlines():
+        if line.startswith("@SQ"):
+            fields = dict(f.split(":", 1) for f in line.split("\t")[1:] if ":" in f)
+            if "SN" in fields and fields.get("LN", "").isdigit():
+                lengths[fields["SN"]] = int(fields["LN"])
+    return lengths
+
+
+def y_contig(lengths: dict[str, int], path: Path) -> str:
+    """The Y chromosome's name in the alignment header."""
     for name in Y_NAMES:
-        if name in names:
+        if name in lengths:
             return name
     raise WGSExtractError(f"{path} has no Y chromosome (chrY or Y).")
+
+
+def header_build(lengths: dict[str, int]) -> str | None:
+    """The build from the chrY length, else chr1's (for Y-only extracts)."""
+    for name in Y_NAMES:
+        if name in lengths and lengths[name] in Y_LENGTH_BUILDS:
+            return Y_LENGTH_BUILDS[lengths[name]]
+    return build_from_chr1_length(lengths)
 
 
 def call_markers(
@@ -426,7 +445,7 @@ def analyze(
     selected = tuple(selected or markers())
     output.mkdir(parents=True, exist_ok=True)
     sample = input_path.name.rsplit(".", 1)[0]
-    contig = y_contig(input_path)
+    contig = y_contig(header_lengths(input_path), input_path)
     logging.info(
         "Y-STR panel: %d markers, build %s, contig %s", len(selected), build, contig
     )

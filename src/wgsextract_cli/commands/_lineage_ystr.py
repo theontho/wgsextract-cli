@@ -21,7 +21,12 @@ NO_Y_FRACTION = 0.1
 
 
 def cmd_ystr(args: argparse.Namespace) -> None:
-    from wgsextract_cli.ydna.ystr.analysis import STATUS_TEXT, analyze
+    from wgsextract_cli.ydna.ystr.analysis import (
+        STATUS_TEXT,
+        analyze,
+        header_build,
+        header_lengths,
+    )
     from wgsextract_cli.ydna.ystr.panel import select
 
     if not args.input:
@@ -42,7 +47,12 @@ def cmd_ystr(args: argparse.Namespace) -> None:
     lib = ReferenceLibrary(
         args.ref, calculate_bam_md5(args.input, None), input_path=args.input
     )
-    build = _yleaf_build(getattr(args, "build", None) or lib.build)
+    # The header's chrY length identifies the build without a reference library.
+    build = _yleaf_build(
+        getattr(args, "build", None)
+        or lib.build
+        or header_build(header_lengths(Path(args.input)))
+    )
     if is_cram and not lib.fasta:
         raise WGSExtractError(
             "A reference FASTA is needed to decode CRAM; pass it with --ref."
