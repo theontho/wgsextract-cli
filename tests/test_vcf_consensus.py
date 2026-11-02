@@ -223,6 +223,40 @@ def test_uncalled_mask_lists_gaps_between_overlapping_records(tmp_path):
         consensus.write_uncalled_mask(str(tmp_path / "none.vcf.gz"), lengths, str(bed))
 
 
+def test_regional_mask_queries_only_overlapping_records(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    body = (
+        _rec(5, "A", "<*>", "0/0", info="END=10")
+        + _rec(8, "TACG", "T", "1/1")
+        + _rec(20, "T", "C", "1/1", "FAIL")
+        + _rec(100, "T", "C", "1/1")
+        + _rec(12, "T", "C", "1/1", chrom="chr2")
+    )
+    vcf = _vcf(tmp_path / "v.vcf.gz", body, contigs=("chr1", "chr2"))
+    observed = []
+    real_popen = consensus.popen
+
+    def capture(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+
+        def lines():
+            with process.stdout as source:
+                for line in source:
+                    observed.append(line)
+                    yield line
+
+        return SimpleNamespace(stdout=lines(), wait=process.wait)
+
+    monkeypatch.setattr(consensus, "popen", capture)
+    bed = tmp_path / "regional.bed"
+    consensus.write_uncalled_mask(
+        vcf, {"chr1": 200, "chr2": 200}, str(bed), "chr1:8-25", 'FILTER="PASS"'
+    )
+    assert bed.read_text() == "chr1\t11\t25\n"
+    assert observed == ["chr1\t4\t10\n", "chr1\t7\t11\n"]
+
+
 @pytest.mark.parametrize(
     ("record_ref", "alt", "fasta", "expected"),
     [
