@@ -226,7 +226,9 @@ def test_command_construction(tmp_path, monkeypatch):
         f"--model_path={model}",
         "--sample_name=HG002",
     ]
-    assert command[7].startswith(f"--output={tmp_path}/.wgse_clair3_")
+    output = Path(command[7].removeprefix("--output="))
+    assert output.parent.parent == tmp_path
+    assert output.parent.name.startswith(".wgse_clair3_")
     assert command[8].endswith("regions.bed")
     assert bed == "chr20\t1000\t2000\n"
     assert kwargs["stdin"] == clair3.subprocess.DEVNULL
