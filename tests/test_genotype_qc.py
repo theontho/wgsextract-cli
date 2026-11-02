@@ -106,10 +106,14 @@ def test_cram_depth_comes_from_container_headers(sample, tmp_path, caplog):
     assert "CRAM container headers" in caplog.text
     assert not _warnings(caplog)
     # htslib packs the small chrY and chrM into a multi-reference container,
-    # whose header doesn't say which contigs hold its reads.
+    # whose header doesn't say which contigs hold its reads; its index does.
     run_command(
         ["samtools", "view", "-C", "-T", sample["ref"], "-o", str(cram), sample["bam"]]
     )
+    assert warn_low_depth(str(cram), {AUTOSOMES}, ref=sample["ref"]) is None
+    run_command(["samtools", "index", str(cram)])
+    depths = warn_low_depth(str(cram), {AUTOSOMES}, ref=sample["ref"])
+    assert depths == pytest.approx({AUTOSOMES: 2.5, CHR_X: 1.25})
     assert warn_low_depth(str(cram), {MTDNA}, ref=sample["ref"]) is None
     assert "isn't known without reading it" in caplog.text
 
@@ -189,3 +193,24 @@ def test_thresholds_come_from_config(tmp_path, caplog):
     with patch.dict(genotype_qc.settings, {"qc_max_autosomal_homozygosity": 0.97}):
         warn_about_genotypes(kit)
     assert not _warnings(caplog)
+
+
+def test_chrY_only_cram_keeps_the_assembly_n_adjustment(tmp_path):
+    # A chrY extract keeps the full GRCh38 header; chrY is 57.2 Mb with
+    # 33.6 Mb of N, so 10x over its non-N bases is 4.1x over its length.
+    header = "@SQ\tSN:chr1\tLN:248956422\n@SQ\tSN:chrY\tLN:57227415\n"
+    cram = tmp_path / "y.cram"
+    cram.touch()
+    with (
+        patch.object(
+            genotype_qc, "cram_container_totals", return_value={1: (1, 236_363_550)}
+        ),
+        patch(
+            "wgsextract_cli.core.alignment_metadata.get_bam_header",
+            return_value=header,
+        ),
+    ):
+        depths = warn_low_depth(str(cram), {CHR_Y})
+    assert depths == pytest.approx(
+        {AUTOSOMES: 0.0, CHR_X: 0.0, CHR_Y: 10.0, MTDNA: 0.0}
+    )

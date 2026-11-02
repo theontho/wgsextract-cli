@@ -5,6 +5,7 @@ placed-unmapped records belong to the same container as mapped records. These
 totals must never be substituted for idxstats' mapped/unmapped columns.
 """
 
+import gzip
 import io
 import os
 import struct
@@ -69,12 +70,15 @@ def cram_read_counts(path: PathInput) -> dict[int, int] | None:
     return {ref: records for ref, (records, _bases) in totals.items()}
 
 
-def cram_container_totals(path: PathInput) -> dict[int, tuple[int, int]] | None:
+def cram_container_totals(
+    path: PathInput, multi_ref_offsets: set[int] | None = None
+) -> dict[int, tuple[int, int]] | None:
     """(records, bases) per reference id from CRAM 3.0/3.1 container headers.
 
     Multi-reference containers are totalled under MULTI_REF, since only their
-    slices say which references they hold. None for other versions or an
-    invalid header chain/EOF marker.
+    slices say which references they hold; their file offsets are added to
+    `multi_ref_offsets`. None for other versions or an invalid header
+    chain/EOF marker.
     """
     try:
         with open(path, "rb", buffering=0) as raw:
@@ -139,7 +143,24 @@ def cram_container_totals(path: PathInput) -> dict[int, tuple[int, int]] | None:
                 else:
                     records_by_ref[ref] += records
                     bases_by_ref[ref] += bases
+                    if ref == MULTI_REF and multi_ref_offsets is not None:
+                        multi_ref_offsets.add(start)
                 stream.seek(end)
     except (OSError, ValueError, OverflowError):
         return None
     return None
+
+
+def multi_ref_contigs(crai: PathInput, offsets: set[int]) -> set[int] | None:
+    """Reference ids a .crai index places in the containers at `offsets`, or
+    None if the index can't be read."""
+    contigs = set()
+    try:
+        with gzip.open(crai, "rt") as f:
+            for line in f:
+                ref, _start, _span, offset, *_ = line.split("\t")
+                if int(offset) in offsets and int(ref) >= 0:
+                    contigs.add(int(ref))
+    except (OSError, EOFError, ValueError):
+        return None
+    return contigs

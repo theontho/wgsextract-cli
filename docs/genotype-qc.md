@@ -29,14 +29,18 @@ The check reads nothing new when it can avoid it, using in order:
 
 1. the metrics cached by `wgsextract info --detailed` for this very file;
 2. a CRAM's container headers, which record the bases in each container (about
-   10 seconds for a 30x CRAM on an SSD; no decoding or index is needed);
+   10 seconds for a 30x CRAM on an SSD; no decoding is needed). Contigs that
+   htslib packs together into multi-reference containers are attributed from
+   the `.crai` index, or left unknown without one. These totals also include
+   unmapped mates placed beside their mapped partners (0.2% of the reads in
+   a public HG002 NovaSeq genome), so the depth can be slightly high;
 3. a BAM's index (`samtools idxstats`), with the read length from a 20,000-read
    sample.
 
 Depth counts every mapped base, including duplicates, over the reference's
 non-N length, like `info`. When none of these sources is available (an
-unindexed BAM, or a CRAM whose header doesn't say which contigs hold its
-reads), the check is skipped with an informational message.
+unindexed BAM, or an unindexed CRAM with multi-reference containers), the
+check is skipped with an informational message.
 
 ## After: genotype rates
 

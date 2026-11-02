@@ -1,3 +1,4 @@
+import gzip
 import struct
 import zlib
 from pathlib import Path
@@ -11,6 +12,7 @@ from wgsextract_cli.core.cram_counts import (
     MULTI_REF,
     cram_container_totals,
     cram_read_counts,
+    multi_ref_contigs,
 )
 from wgsextract_cli.core.utils import run_command
 from wgsextract_cli.core.warnings import indexed_read_count
@@ -72,7 +74,18 @@ def test_container_base_totals_keep_multi_ref_apart(tmp_path: Path):
         _container(MULTI_REF, 4, bases=60),
     )
     path.write_bytes(_file(*containers))
-    assert cram_container_totals(path) == {0: (3, 45), MULTI_REF: (4, 60)}
+    offsets: set[int] = set()
+    assert cram_container_totals(path, offsets) == {0: (3, 45), MULTI_REF: (4, 60)}
+    multi = len(_file()) - len(_container(-1, 0, 0x454F46, b"\0" * 15))
+    multi += sum(map(len, containers[:2]))
+    assert offsets == {multi}
+    crai = tmp_path / "reads.cram.crai"
+    with gzip.open(crai, "wt") as f:
+        f.write(f"0\t1\t9\t{multi - 1}\t0\t1\n1\t1\t9\t{multi}\t0\t1\n")
+        f.write(f"2\t1\t9\t{multi}\t0\t1\n-1\t0\t0\t{multi}\t0\t1\n")
+    assert multi_ref_contigs(crai, offsets) == {1, 2}
+    crai.write_text("not gzip")
+    assert multi_ref_contigs(crai, offsets) is None
     # Read counts need every record's reference.
     assert cram_read_counts(path) is None
 

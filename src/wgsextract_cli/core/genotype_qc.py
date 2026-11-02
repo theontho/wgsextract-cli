@@ -13,7 +13,7 @@ from collections.abc import Collection, Iterable, Mapping
 from pathlib import Path
 
 from wgsextract_cli.core.config import KNOWN_SETTINGS, settings
-from wgsextract_cli.core.cram_counts import MULTI_REF, cram_container_totals
+from wgsextract_cli.core.cram_counts import cram_container_totals, multi_ref_contigs
 from wgsextract_cli.core.microarray_utils import GenotypeTally, is_autosome
 from wgsextract_cli.core.paths import PathInput
 from wgsextract_cli.core.samtools_commands import alignment_index
@@ -88,7 +88,7 @@ def _aggregate(
     return {
         target: bases[target] / length[target] if length[target] else 0.0
         for target in TARGETS
-        if target not in unknown or length[target]
+        if target not in unknown
     }
 
 
@@ -133,21 +133,40 @@ def _counted_depths(
 
     unknown: set[str] = set()
     if alignment.lower().endswith(".cram"):
-        totals = cram_container_totals(alignment)
+        offsets: set[int] = set()
+        totals = cram_container_totals(alignment, offsets)
         if totals is None:
             return None
         lengths = sequence_lengths(get_bam_header(alignment, ref))
         if not lengths or max(totals) >= len(lengths):
             return None
+        names = list(lengths)
+        # Every contig is kept so that info's N adjustment recognises the build.
         stats = [
-            IdxStat(name=name, length=length, mapped=totals[i][1], unmapped=0)
+            IdxStat(
+                name=name, length=length, mapped=totals.get(i, (0, 0))[1], unmapped=0
+            )
             for i, (name, length) in enumerate(lengths.items())
-            if i in totals
         ]
         avg_len, source = 1.0, "CRAM container headers"
-        if MULTI_REF in totals:
-            # Their slices, not their headers, say which contigs they hold.
-            unknown = set(TARGETS)
+        if offsets:
+            # Only their slices, listed in the index, say which contigs a
+            # multi-reference container's reads are on.
+            index = alignment_index(alignment)
+            shared = (
+                multi_ref_contigs(index, offsets)
+                if index and index.endswith(".crai")
+                else None
+            )
+            unknown = (
+                set(TARGETS)
+                if shared is None
+                else {
+                    t
+                    for i in shared
+                    if i < len(names) and (t := contig_target(names[i]))
+                }
+            )
     elif alignment.lower().endswith(".bam") and alignment_index(alignment):
         stats, *_ = parse_idxstats(alignment)
         lengths = {s["name"]: s["length"] for s in stats if s["name"] != "*"}
