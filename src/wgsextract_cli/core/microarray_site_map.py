@@ -6,11 +6,13 @@ import gzip
 import hashlib
 import io
 import json
+import logging
 import re
 import zlib
 from array import array
 from bisect import bisect_left
 from collections.abc import Iterator, Mapping
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -350,12 +352,20 @@ def load_site_map(
             mapping = microarray_site_map_cache.read(cached, metadata)
             if mapping is not None:
                 return mapping
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            with build_lock(str(cached) + ".lock"):
+            with ExitStack() as stack:
+                try:
+                    cache_dir.mkdir(parents=True, exist_ok=True)
+                    stack.enter_context(build_lock(str(cached) + ".lock"))
+                except OSError as error:
+                    logging.warning("CHM13 decoded cache unavailable: %s", error)
+                    return _decode(data, metadata)
                 mapping = microarray_site_map_cache.read(cached, metadata)
                 if mapping is None:
                     mapping = _decode(data, metadata)
-                    microarray_site_map_cache.write(cached, mapping)
+                    try:
+                        microarray_site_map_cache.write(cached, mapping)
+                    except OSError as error:
+                        logging.warning("Could not save CHM13 decoded cache: %s", error)
                 return mapping
         return _decode(data, metadata)
     except (OSError, EOFError, ValueError, TypeError, zlib.error) as error:

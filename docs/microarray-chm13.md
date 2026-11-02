@@ -163,4 +163,7 @@ template/chain/AADR file paths, sizes, and modification times. Target keys also
 include chromosome aliases and the selected native regions. Changing these
 inputs invalidates the corresponding cache. These files are disposable; delete
 `microarray/chm13/` to reclaim them or force a rebuild. Without a configured
-reference library, setup remains uncached.
+reference library, setup remains uncached. An explicit `--ref` FASTA never
+chooses the cache location. Unwritable caches also fall back to uncached setup
+and targets in the output directory; existing valid read-only caches remain
+usable.

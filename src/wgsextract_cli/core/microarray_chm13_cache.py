@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
+import shutil
 import tempfile
 from collections.abc import Callable, Mapping
+from contextlib import ExitStack
 from pathlib import Path
 
 from wgsextract_cli.core.file_lock import build_lock
@@ -65,26 +68,47 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _record(path: Path) -> dict[str, int | str]:
+    return {"size": path.stat().st_size, "sha256": _sha256(path)}
+
+
 def _verified(path: Path) -> bool:
     try:
         record = json.loads(path.with_suffix(path.suffix + ".json").read_text())
-        return bool(
-            record
-            == {
-                "size": path.stat().st_size,
-                "sha256": _sha256(path),
-            }
-        )
+        return bool(record == _record(path))
     except (OSError, ValueError):
         return False
 
 
 def _publish(source: Path, destination: Path) -> None:
-    record = {"size": source.stat().st_size, "sha256": _sha256(source)}
+    record = _record(source)
     metadata = source.with_suffix(source.suffix + ".json")
     metadata.write_text(json.dumps(record), encoding="utf-8", newline="\n")
     os.replace(source, destination)
     os.replace(metadata, destination.with_suffix(destination.suffix + ".json"))
+
+
+def _target_record(path: Path) -> dict[str, dict[str, int | str]]:
+    return {suffix: _record(Path(str(path) + suffix)) for suffix in ("", ".tbi")}
+
+
+def _target_current(path: Path) -> bool:
+    try:
+        record = json.loads(Path(str(path) + ".json").read_text())
+        return bool(record == _target_record(path))
+    except (OSError, ValueError):
+        return False
+
+
+def _publish_target(source: Path, destination: Path) -> None:
+    metadata = Path(str(source) + ".json")
+    metadata.write_text(
+        json.dumps(_target_record(source)), encoding="utf-8", newline="\n"
+    )
+    os.replace(source, destination)
+    os.replace(str(source) + ".tbi", str(destination) + ".tbi")
+    # Commit the pair only after both files are in place.
+    os.replace(metadata, str(destination) + ".json")
 
 
 def marker_ids(directory: Path | None, build: Callable[[], MarkerIDs]) -> MarkerIDs:
@@ -108,18 +132,26 @@ def marker_ids(directory: Path | None, build: Callable[[], MarkerIDs]) -> Marker
     cached = read()
     if cached is not None:
         return cached
-    directory.mkdir(parents=True, exist_ok=True)
-    with build_lock(str(path) + ".lock"):
+    with ExitStack() as stack:
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            stack.enter_context(build_lock(str(path) + ".lock"))
+        except OSError as error:
+            logging.warning("CHM13 marker cache unavailable: %s", error)
+            return build()
         cached = read()
         if cached is not None:
             return cached
         result = build()
-        with tempfile.TemporaryDirectory(dir=directory, prefix="markers-") as work:
-            staged = Path(work, path.name)
-            with staged.open("w", encoding="utf-8", newline="\n") as destination:
-                for (chrom, position), marker in result.items():
-                    destination.write(f"{chrom}\t{position}\t{marker}\n")
-            _publish(staged, path)
+        try:
+            with tempfile.TemporaryDirectory(dir=directory, prefix="markers-") as work:
+                staged = Path(work, path.name)
+                with staged.open("w", encoding="utf-8", newline="\n") as destination:
+                    for (chrom, position), marker in result.items():
+                        destination.write(f"{chrom}\t{position}\t{marker}\n")
+                _publish(staged, path)
+        except OSError as error:
+            logging.warning("Could not save CHM13 marker cache: %s", error)
         return result
 
 
@@ -133,14 +165,26 @@ def target(
     if directory is None:
         return build(work)
     path = directory / f"target-{_key((dict(names), regions))}.tab.gz"
-    index = Path(str(path) + ".tbi")
-    if _verified(path) and _verified(index):
+    if _target_current(path):
         return str(path)
-    directory.mkdir(parents=True, exist_ok=True)
-    with build_lock(str(path) + ".lock"):
-        if not (_verified(path) and _verified(index)):
-            with tempfile.TemporaryDirectory(dir=directory, prefix="target-") as stage:
-                built = Path(build(Path(stage)))
-                _publish(built, path)
-                _publish(Path(str(built) + ".tbi"), index)
+    with ExitStack() as stack:
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            stack.enter_context(build_lock(str(path) + ".lock"))
+        except OSError as error:
+            logging.warning("CHM13 target cache unavailable: %s", error)
+            return build(work)
+        if not _target_current(path):
+            built = Path(build(work))
+            try:
+                with tempfile.TemporaryDirectory(
+                    dir=directory, prefix="target-"
+                ) as stage:
+                    staged = Path(stage, path.name)
+                    shutil.copyfile(built, staged)
+                    shutil.copyfile(str(built) + ".tbi", str(staged) + ".tbi")
+                    _publish_target(staged, path)
+            except OSError as error:
+                logging.warning("Could not save CHM13 target cache: %s", error)
+                return str(built)
     return str(path)

@@ -122,6 +122,29 @@ def test_decoded_cache_does_not_survive_manifest_changes(tmp_path: Path) -> None
     assert len(list(directory.glob("*.bin"))) == 2
 
 
+@pytest.mark.parametrize("unavailable", ["lock", "publication"])
+def test_unwritable_decoded_cache_still_verifies_and_decodes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unavailable: str
+) -> None:
+    from wgsextract_cli.core import microarray_site_map as maps
+
+    manifest = _fixture(tmp_path)
+    expected = load_site_map(manifest)
+
+    def denied(*_args):
+        raise PermissionError("read-only cache")
+
+    if unavailable == "lock":
+        monkeypatch.setattr(maps, "build_lock", denied)
+    else:
+        monkeypatch.setattr(maps.microarray_site_map_cache, "write", denied)
+    assert load_site_map(manifest, cache_dir=tmp_path / "cache") == expected
+    asset = tmp_path / "sites.bin.gz"
+    asset.write_bytes(asset.read_bytes()[:-1] + b"x")
+    with pytest.raises(WGSExtractError, match="Compressed SHA256 mismatch"):
+        load_site_map(manifest, cache_dir=tmp_path / "cache")
+
+
 @pytest.mark.parametrize(
     "payload",
     [
