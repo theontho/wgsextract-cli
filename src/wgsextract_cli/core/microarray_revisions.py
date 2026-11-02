@@ -394,6 +394,15 @@ def _margin(candidate: Candidate) -> float:
     return max(_EXACT_MARGIN, 2 * math.sqrt(max(p * (1 - p), 0.01) / SKETCH_SIZE))
 
 
+def _rank(candidate: Candidate) -> tuple[float, bool, bool, str]:
+    return (
+        -candidate.score,
+        not candidate.exact_score,
+        candidate.match != "exact",
+        candidate.revision.id,
+    )
+
+
 def detect(
     export: RawExport,
     catalogue: Sequence[Revision] | None = None,
@@ -427,7 +436,7 @@ def detect(
             bound = min(small / large, (large - 1) / (large + 1))
             estimate = min(estimate_jaccard(fp.sketch, revision.sketch), bound)
             scored.append(Candidate(revision, estimate, False, "closest"))
-    scored.sort(key=lambda c: (-c.score, not c.exact_score, c.revision.id))
+    scored.sort(key=_rank)
     if scored and not scored[0].exact_score and template_roots:
         refined: list[Candidate] = []
         cutoff = scored[0].score - 2 * _margin(scored[0])
@@ -445,13 +454,13 @@ def detect(
                 continue
             score = len(fp.ids & ids) / len(fp.ids | ids)
             refined.append(Candidate(revision, score, True, "closest"))
-        scored = sorted(
-            refined, key=lambda c: (-c.score, not c.exact_score, c.revision.id)
-        )
-    ambiguous = (
-        len(scored) > 1
-        and scored[0].match != "exact"
-        and scored[0].score - scored[1].score
+        scored = sorted(refined, key=_rank)
+    # An identical marker list is decisive, whatever its coordinates, unless
+    # another revision has that list on other coordinates too.
+    ambiguous = len(scored) > 1 and (
+        scored[0].match == scored[1].match == "markers"
+        if scored[0].match in {"exact", "markers"}
+        else scored[0].score - scored[1].score
         < max(_margin(scored[0]), _margin(scored[1]))
     )
     return Detection(export, tuple(scored[:limit]), ambiguous)

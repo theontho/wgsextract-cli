@@ -42,7 +42,9 @@ otherwise `markers`). Any other file is scored by the Jaccard similarity of its
 marker-ID set to each revision: exactly, against the revision's installed
 template, or estimated from the sketch (about ±0.03 at 0.9, marked `~`).
 Confidence is the best score, halved when the runner-up is within the
-estimate's error, so a closely related revision could be the right one. A
+estimate's error, so a closely related revision could be the right one. An
+identical marker list is decisive even on other coordinates (another build, a
+lifted-over file), unless a second revision has that list too. A
 header naming the vendor restricts candidates to that vendor.
 
 ## Sources
