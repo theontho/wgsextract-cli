@@ -287,7 +287,7 @@ We estimate, on this machine, this will take {time} hours.""",
     "ExpectedWait": "Expected Wait is {time}",
     "YorubaWarning": "Your BAM file uses the Yoruba reference genome for mitochondrial DNA. This is incompatible with the rCRS genome that tools use. We cannot convert this for you at this time.",
     "LowCoverageWarning": "This BAM file has a low mapped average read depth. This can lead to incorrect and fewer variant calls.",
-    "LongReadSequenceWarning": "The BAM file appears to be from a long-read sequencer (e.g. Nanopore). Tools have not been tuned to handle this special case.",
+    "LongReadSequenceWarning": "Input appears to be from a long-read sequencer: ONT detection, CPU minimap2 map-ont alignment/realignment and MM/ML tag retention are supported. ONT variant calling, methylation analysis and whole-genome accuracy are not yet qualified. PacBio should use its platform-specific aligners/callers; short-read workflows are not validated for long reads.",
     "insufficient_disk_title": "EXTRA LARGE WARNING: Insufficient Disk Space Detected!",
     "insufficient_disk_msg": "Detected: {detected} GB available on {path}\nEstimated: {needed} GB needed\nThis operation will likely consume more space than you have available.",
 }
