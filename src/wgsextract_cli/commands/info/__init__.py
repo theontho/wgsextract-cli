@@ -2,6 +2,7 @@ import argparse
 
 from wgsextract_cli.core.messages import CLI_HELP
 
+from . import chip
 from .runner import (
     run,
 )
@@ -44,5 +45,18 @@ def register(
     )
     samp_cov.add_argument("-r", "--region", help=CLI_HELP["arg_region"])
     samp_cov.set_defaults(func=run)
+
+    chip_parser = info_subs.add_parser(
+        "chip", parents=[base_parser], help=CLI_HELP["cmd_info-chip"]
+    )
+    chip_parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List the catalogued chip revisions and their matching templates.",
+    )
+    chip_parser.add_argument(
+        "--json", action="store_true", help="Print the result as JSON."
+    )
+    chip_parser.set_defaults(func=chip.run)
 
     parser.set_defaults(func=run)
