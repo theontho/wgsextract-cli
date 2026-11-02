@@ -140,7 +140,7 @@ the independent GRCh38 cross-check chains, indexed source/native references with
 sequence dictionaries, and the published CHM13 PAR BED.
 
 The runtime asset is bounded delta-encoded arrays plus a JSON manifest and its
-SHA256 sidecar, not SQLite or a writable cache. The independent GRCh38 eligibility
+SHA256 sidecar. The independent GRCh38 eligibility
 table is validation-only and is not shipped. Direct GRCh37↔CHM13 mappings remain
 authoritative when the GRCh38 route disagrees.
 
@@ -149,3 +149,21 @@ union). Its compact payload is 6,802,944 compressed / 16,621,310 decoded bytes.
 Runtime limits are 7 MiB compressed, 17 MiB decoded and 3,000,000 rows. Changing
 these measured budgets requires an explicit asset update, not a writable cache
 or an automatic download.
+
+### Derived caches
+
+Runs reuse decoded site-map columns, the validated marker-ID union, and indexed
+native targets under `microarray/chm13/` in the configured reference library.
+The packaged assets are never modified: their SHA256 checks still run before
+using cached columns. Derived files have checksums and are published under
+builder locks; missing, truncated, or corrupt files are rebuilt.
+
+Keys include the catalogue manifest/reference profile, builder version, and
+template/chain/AADR file paths, sizes, and modification times. Target keys also
+include chromosome aliases and the selected native regions. Changing these
+inputs invalidates the corresponding cache. These files are disposable; delete
+`microarray/chm13/` to reclaim them or force a rebuild. Without a configured
+reference library, setup remains uncached. An explicit `--ref` FASTA never
+chooses the cache location. Unwritable caches also fall back to uncached setup
+and targets in the output directory; existing valid read-only caches remain
+usable.

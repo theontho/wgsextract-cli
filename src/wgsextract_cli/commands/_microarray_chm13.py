@@ -12,10 +12,13 @@ import tempfile
 import time
 from collections import Counter
 from collections.abc import Iterator
+from functools import partial
 from pathlib import Path
 
 from wgsextract_cli.commands._microarray_combined import _read_evidence
+from wgsextract_cli.core import microarray_chm13_cache
 from wgsextract_cli.core.alignment_metadata import get_bam_header
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.microarray_aadr import (
     _chrom_name,
     aadr_markers,
@@ -46,7 +49,7 @@ from wgsextract_cli.core.microarray_utils import (
     convert_to_vendor_format,
     get_template_format,
 )
-from wgsextract_cli.core.reference_assets import input_stem
+from wgsextract_cli.core.reference_assets import input_stem, resolve_reference_library
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.sample_ploidy import sex_samples_args
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
@@ -240,7 +243,10 @@ def run_chm13(
             "CHM13 uses its pinned site map and validated PAR ploidy; "
             "--ref-vcf-tab and --ploidy-file overrides are not supported."
         )
-    catalogue = load_chm13_catalogue()
+    library = resolve_reference_library() if settings.get("reference_library") else None
+    catalogue = load_chm13_catalogue(
+        cache_dir=Path(library, "microarray", "chm13") if library else None
+    )
     names = validate_chm13_reference(Path(ref_fasta), catalogue)
     regions = _regions(args.region)
     if any(chrom not in names for chrom, _start, _end in regions):
@@ -252,7 +258,10 @@ def run_chm13(
             get_bam_header(args.input, ref_fasta), catalogue, names
         )
     roots = _template_search_roots(ref_fasta, lib)
-    markers = _marker_ids(catalogue, roots)
+    cache = microarray_chm13_cache.cache_directory(library, catalogue, roots)
+    markers = microarray_chm13_cache.marker_ids(
+        cache, lambda: _marker_ids(catalogue, roots)
+    )
     manifest_ids, marker_rejections = manifest_exclusions(indel_bindings or {})
     rejected_ids = manifest_ids | set(catalogue.non_snv_ids)
     marker_rejections.update(
@@ -284,7 +293,13 @@ def run_chm13(
     quality, identity = quality_policy(args), identity_policy(args)
     Path(outdir).mkdir(parents=True, exist_ok=True)
     directory = Path(tempfile.mkdtemp(prefix="CHM13_", dir=outdir))
-    target = _target(catalogue, markers, names, regions, directory)
+    target = microarray_chm13_cache.target(
+        cache,
+        names,
+        regions,
+        partial(_target, catalogue, markers, names, regions),
+        directory,
+    )
     base = input_stem(args.input)
     out_vcf = str(directory / f"{base}_native.vcf.gz")
     indel_calls = {}
