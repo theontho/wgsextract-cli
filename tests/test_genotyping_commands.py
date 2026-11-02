@@ -809,7 +809,7 @@ def test_str_all_normal_has_no_warnings(tmp_path, eh, caplog):
 @pytest.mark.parametrize(
     ("x", "y", "sex", "warned"),
     [
-        (10, 0, "female", False),
+        (10, 0, "female", True),  # chrX alone, with no chrY or chr7 to compare
         (0, 0, "female", True),
         (30, 1, "female", False),
         (10, 1, "male", False),

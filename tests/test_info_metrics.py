@@ -275,7 +275,7 @@ def test_sample_sex_ignores_the_cache_of_a_replaced_file(genome, tmp_path):
     _sample(genome, bam, MALE)
     _info(bam, "--detailed")
     # The file is replaced by a female sample aligned to the same reference.
-    _sample(genome, tmp_path / "f.bam", FEMALE)
+    _sample(genome, tmp_path / "f.bam", {**FEMALE, "chrY": 1})
     shutil.move(tmp_path / "f.bam", bam)
     shutil.move(tmp_path / "f.bam.bai", f"{bam}.bai")
     assert metrics.sample_sex(str(bam)) == "Female"
@@ -427,6 +427,25 @@ def test_infer_sex_thresholds():
         )
         == "Male"
     )
+
+
+@pytest.mark.parametrize(
+    ("stats", "sex"),
+    [
+        # No chrY: chrX against chr7 (two X copies read about like chr7)
+        ([_stat("chr7", 1, 100), _stat("chrX", 1, 95)], "Female"),
+        ([_stat("chr7", 1, 100), _stat("chrX", 1, 50)], "Male"),
+        # No chrX: chrY against chr19 (about half of chrY is N)
+        ([_stat("chr19", 1, 100), _stat("chrY", 1, 20)], "Male"),
+        ([_stat("chr19", 1, 100), _stat("chrY", 1, 1)], "Female"),
+        # Autosomes alone, or a sex chromosome without its stand-in
+        ([_stat("chr7", 1, 100), _stat("chr19", 1, 100)], "Unknown"),
+        ([_stat("chrX", 1, 100)], "Unknown"),
+        ([_stat("chrM", 1, 100)], "Unknown"),
+    ],
+)
+def test_infer_sex_falls_back_to_a_similar_sized_autosome(stats, sex):
+    assert metrics.infer_sex(stats) == sex
 
 
 def test_chrom_table_dog_cat_and_other_contigs():

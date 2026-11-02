@@ -210,16 +210,25 @@ def load_n_counts(ref_path: str | None) -> dict[str, int]:
 
 
 def infer_sex(idx_stats: list[IdxStat]) -> str:
-    """ "Male", "Female" or "Unknown" from chrY reads relative to chrX."""
+    """ "Male", "Female" or "Unknown" from chrX/chrY reads, falling back to a
+    similar-sized autosome (chr7 ~ X, chr19 ~ Y) when one of them is absent."""
     mapped: dict[str, int] = {}
     for s in idx_stats:
         if s["name"] != "*":
             key = contig_key(s["name"])
             mapped[key] = mapped.get(key, 0) + s["mapped"]
-    y_reads, x_reads = mapped.get("Y", 0), mapped.get("X", 0)
-    if x_reads <= 0:
-        return "Unknown"
-    return "Male" if y_reads > x_reads * 0.05 else "Female"
+    x_reads, y_reads = mapped.get("X", 0), mapped.get("Y", 0)
+    c7_reads, c19_reads = mapped.get("7", 0), mapped.get("19", 0)
+    if x_reads > 0 and y_reads > 0:
+        # Females still pick up a few mismapped chrY reads
+        return "Male" if y_reads > x_reads * 0.05 else "Female"
+    if x_reads > 0 and c7_reads > 0:
+        # No chrY: two X copies read about like chr7, one X about half of it
+        return "Female" if x_reads > c7_reads * 0.75 else "Male"
+    if y_reads > 0 and c19_reads > 0:
+        # No chrX: about half of chrY is N, so a male's Y is ~0.2 of chr19
+        return "Male" if y_reads > c19_reads * 0.05 else "Female"
+    return "Unknown"
 
 
 def sample_sex(input_path: str, outdir: str | None = None) -> str:
