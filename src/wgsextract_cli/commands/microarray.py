@@ -14,6 +14,7 @@ from wgsextract_cli.core.builds import (
     is_t2t_build,
     ploidy_for_build,
 )
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -196,6 +197,11 @@ def _convert_microarray_outputs(
                 hg19_txt,
                 chain,
                 templates_dir=template_search_roots,
+                reflib_dir=(
+                    resolve_reference_library()
+                    if settings.get("reference_library")
+                    else None
+                ),
             )
         except (OSError, ValueError) as e:
             raise WGSExtractError(f"Microarray liftover failed: {e}") from e
