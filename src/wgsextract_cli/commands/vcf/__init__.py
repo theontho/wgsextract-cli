@@ -262,8 +262,9 @@ def register(
     sv_parser.add_argument(
         "--caller",
         choices=["delly", "pbsv", "sniffles"],
-        help="SV caller to use (default: delly, or pbsv/sniffles with --pacbio). "
-        "Use pbsv or sniffles for PacBio long-read BAMs.",
+        help="SV caller to use (default: sniffles for detected ONT, else delly; "
+        "pbsv/sniffles with --pacbio; sniffles with --ont or --long-read). "
+        "pbsv is PacBio-only and is refused for ONT reads.",
     )
     sv_parser.add_argument(
         "--pacbio",
@@ -272,13 +273,26 @@ def register(
         "with CCS thresholds.",
     )
     sv_parser.add_argument(
+        "--ont",
+        action="store_true",
+        help="Oxford Nanopore data: use Sniffles (detected ONT input selects it "
+        "automatically).",
+    )
+    sv_parser.add_argument(
+        "--long-read",
+        action="store_true",
+        help="Long-read data from any platform: use Sniffles unless --caller "
+        "selects pbsv for PacBio reads.",
+    )
+    sv_parser.add_argument(
         "--ccs",
         action="store_true",
         help="Use pbsv CCS/HiFi thresholds when --caller pbsv is selected.",
     )
     sv_parser.add_argument(
         "--tandem-repeats",
-        help="Optional tandem-repeat BED for pbsv discover.",
+        help="Optional tandem-repeat BED for pbsv discover or Sniffles "
+        "(recommended for long-read SV calling).",
     )
     sv_parser.set_defaults(func=cmd_sv)
 

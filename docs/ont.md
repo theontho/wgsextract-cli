@@ -56,10 +56,32 @@ mapping is tested, but GPU ONT accuracy has not been hardware-qualified here.
 CPU container temporary files and HOME stay inside the owned output work
 directory and are removed after the run.
 
-Platform detection, tagged CPU alignment/realignment and regional x86-64
-DeepVariant ONT_R104 calling are supported. Whole-genome ONT accuracy,
-structural calling and methylation analysis are not qualified by this change;
-whole-genome validation is tracked in #299.
+## Structural variants
+
+`vcf sv` runs Sniffles2 for detected ONT input; `--ont` requests the same
+explicitly, and the platform-neutral `--long-read` selects Sniffles for any
+long-read data. pbsv is PacBio-only, so it is refused for ONT (detected or
+`--ont`), whether chosen by `--caller pbsv` or by `--pacbio`'s pbsv default. `--ont`/`--long-read` with `--caller delly`, and `--ont`
+with `--pacbio`, are rejected; an explicit `--caller delly` on detected ONT runs
+but warns that Delly is a short-read caller. PacBio behavior is unchanged:
+`--pacbio` still prefers pbsv (falling back to Sniffles) with CCS thresholds,
+and PacBio input without flags still uses Delly.
+
+```sh
+wgsextract vcf sv -i hg002-ont.bam --ref chr20.fa \
+  --region chr20:10000000-11000000 --threads 1 --outdir ont-svs
+```
+
+Sniffles2 runs with its defaults, which are tuned for both ONT and HiFi. Pass
+a tandem-repeat BED with `--tandem-repeats` (now forwarded to Sniffles as well
+as pbsv) to improve calls in repeats. Mosaic mode (`--mosaic`) is not used:
+this command calls germline SVs. Install Sniffles (for example via the `pacbio`
+Pixi environment); it is checked, not installed automatically.
+
+Platform detection, tagged CPU alignment/realignment, regional x86-64
+DeepVariant ONT_R104 calling and Sniffles SV calling are supported.
+Whole-genome ONT accuracy and methylation analysis are not qualified by this
+change; whole-genome validation is tracked in #299.
 
 ## CLI / GUI contract
 
@@ -72,4 +94,6 @@ GUI integrations should allow automatic platform selection and surface the
 tag-preservation limitations above.
 Expose `ONT_R104` and `--ont` for DeepVariant, preserve an unset model for
 automatic selection, and show its chemistry and architecture restrictions.
+For `vcf sv`, expose `--ont`/`--long-read`, leave `--caller` unset for
+automatic Sniffles selection, and do not offer pbsv for ONT input.
 The GUI repository is separate; these CLI changes do not update it.
