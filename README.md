@@ -134,6 +134,13 @@ Run `wgsextract help` for the full command tree, and `wgsextract <command> --hel
 
 CRAM bin coverage requires an existing reference FASTA from `--ref`, configuration or the reference library. Missing references fail before decoding; htslib is never allowed to download one implicitly.
 
+Disk-space preflight counts records in single-reference CRAM 3.0/3.1 files
+directly from container headers, falling back to `samtools idxstats` for other
+versions, multi-reference containers or invalid headers. This preserves placed
+and unplaced unmapped reads in the total. Detailed `info` and sex inference
+still use idxstats: container totals cannot distinguish mapped reads from
+placed-unmapped reads, so using those totals as mapped counts would be inexact.
+
 ### Combining FastQC mate reports
 
 `qc multiqc` is opt-in and combines existing FastQC reports without rerunning

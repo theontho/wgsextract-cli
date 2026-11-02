@@ -3,6 +3,7 @@ import math
 import shutil
 from pathlib import Path
 
+from wgsextract_cli.core.cram_counts import cram_read_counts
 from wgsextract_cli.core.messages import SYSTEM_MESSAGES as MESSAGES
 from wgsextract_cli.core.paths import PathInput
 from wgsextract_cli.core.samtools_commands import alignment_index
@@ -87,12 +88,15 @@ def format_time(seconds: int) -> str:
 
 
 def indexed_read_count(path: PathInput, threads: str | int = 1) -> int | None:
-    """Reads in an indexed BAM/CRAM per samtools idxstats (seconds even for a
-    whole-genome CRAM); None when it has no index or idxstats fails."""
+    """Exact total records in indexed BAM/CRAM, or None if unavailable."""
     # Without an index, idxstats silently decodes the whole file instead.
     if not alignment_index(path):
         return None
     logging.info(f"Counting reads in {path} to estimate the disk space needed...")
+    if Path(path).suffix.lower() == ".cram":
+        counts = cram_read_counts(path)
+        if counts is not None:
+            return sum(counts.values()) or None
     # CRAM idxstats decodes every container; more than 4 threads only slows it.
     threads = min(int(threads), 4)
     try:
