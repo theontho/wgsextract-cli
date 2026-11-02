@@ -84,13 +84,19 @@ def test_header_checksum_requests_fallback(tmp_path: Path):
 
 @needs_htslib
 @pytest.mark.parametrize("version", ["3.0", "3.1"])
-def test_real_cram_counts_preserve_placed_unmapped_split(tmp_path: Path, version: str):
+@pytest.mark.parametrize("unmapped_only", [False, True])
+def test_real_cram_counts_preserve_placed_unmapped_split(
+    tmp_path: Path, version: str, unmapped_only: bool
+):
     reference = write_fasta(tmp_path / "ref.fa", {"chr1": "A" * 100})
+    reads = [
+        "mapped\t0\tchr1\t1\t60\t10M\t*\t0\t0\tAAAAAAAAAA\tIIIIIIIIII",
+        "placed\t4\tchr1\t1\t0\t*\t*\t0\t0\tAAAAAAAAAA\tIIIIIIIIII",
+    ]
     bam = sam_to_bam(
         [
             "@SQ\tSN:chr1\tLN:100",
-            "mapped\t0\tchr1\t1\t60\t10M\t*\t0\t0\tAAAAAAAAAA\tIIIIIIIIII",
-            "placed\t4\tchr1\t1\t0\t*\t*\t0\t0\tAAAAAAAAAA\tIIIIIIIIII",
+            *([] if unmapped_only else reads),
             "unplaced\t4\t*\t0\t0\t*\t*\t0\t0\tAAAAAAAAAA\tIIIIIIIIII",
         ],
         tmp_path / "reads.bam",
@@ -114,10 +120,10 @@ def test_real_cram_counts_preserve_placed_unmapped_split(tmp_path: Path, version
     )
     run_command(["samtools", "index", str(cram)])
     rows, _, mapped, unmapped = parse_idxstats(str(cram))
-    assert (mapped, unmapped) == (1, 2)
+    assert (mapped, unmapped) == ((0, 1) if unmapped_only else (1, 2))
     counts = cram_read_counts(cram)
-    assert counts == {0: 2, -1: 1}
+    assert counts == ({-1: 1} if unmapped_only else {0: 2, -1: 1})
     assert sum(counts.values()) == mapped + unmapped
     assert indexed_read_count(cram) == mapped + unmapped
-    assert rows[0]["mapped"] == 1
-    assert rows[0]["unmapped"] == 1
+    assert rows[0]["mapped"] == (0 if unmapped_only else 1)
+    assert rows[0]["unmapped"] == (0 if unmapped_only else 1)

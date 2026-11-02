@@ -87,7 +87,7 @@ def cram_read_counts(path: PathInput) -> dict[int, int] | None:
                     or span < 0
                     or blocks < 0
                     or landmarks < 0
-                    or landmarks > length
+                    or landmarks > min(length, 65536)
                 ):
                     return None
                 previous = -1
