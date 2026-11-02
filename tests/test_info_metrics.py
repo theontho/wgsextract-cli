@@ -417,13 +417,13 @@ def _stat(name, length, mapped, unmapped=0):
 
 
 def test_infer_sex_thresholds():
-    assert metrics.infer_sex([_stat("chrX", 1, 100), _stat("chrY", 1, 6)]) == "Male"
-    assert metrics.infer_sex([_stat("X", 1, 100), _stat("Y", 1, 5)]) == "Female"
+    assert metrics.infer_sex([_stat("chrX", 1, 100), _stat("chrY", 1, 11)]) == "Male"
+    assert metrics.infer_sex([_stat("X", 1, 100), _stat("Y", 1, 10)]) == "Female"
     assert metrics.infer_sex([_stat("chr1", 1, 100), _stat("chrY", 1, 5)]) == "Unknown"
     # Split contigs (e.g. chrY and chrY_random) of one key add up.
     assert (
         metrics.infer_sex(
-            [_stat("chrX", 1, 100), _stat("chrY", 1, 3), _stat("CHRY", 1, 3)]
+            [_stat("chrX", 1, 100), _stat("chrY", 1, 6), _stat("CHRY", 1, 6)]
         )
         == "Male"
     )
@@ -446,6 +446,23 @@ def test_infer_sex_thresholds():
 )
 def test_infer_sex_falls_back_to_a_similar_sized_autosome(stats, sex):
     assert metrics.infer_sex(stats) == sex
+
+
+@pytest.mark.parametrize(
+    ("counts", "sex"),
+    [
+        # The samples nearest the thresholds among WGSE v4 stats of real
+        # BAMs/CRAMs (read segments, or Map Gbases x 1000 where rounded).
+        ({"chrX": 125_000, "chrY": 6_000}, "Female"),  # T2T exome, Y/X 0.048
+        ({"X": 3_110, "Y": 480}, "Male"),  # hs37d5 WGS, Y/X 0.154
+        ({"chr19": 710_000, "chrY": 47_000}, "Female"),  # hs38DH, Y/19 0.066
+        ({"19": 2_330, "Y": 480}, "Male"),  # hs37d5, Y/19 0.206
+        ({"chr7": 938_000, "chrX": 722_000}, "Female"),  # hs38DH exome, X/7 0.77
+        ({"chr7": 1_000, "chrX": 536}, "Male"),  # hs37d5 2% low-pass, X/7 0.54
+    ],
+)
+def test_infer_sex_on_real_samples_nearest_the_thresholds(counts, sex):
+    assert metrics.infer_sex([_stat(c, 1, n) for c, n in counts.items()]) == sex
 
 
 def test_chrom_table_dog_cat_and_other_contigs():

@@ -219,15 +219,19 @@ def infer_sex(idx_stats: list[IdxStat]) -> str:
             mapped[key] = mapped.get(key, 0) + s["mapped"]
     x_reads, y_reads = mapped.get("X", 0), mapped.get("Y", 0)
     c7_reads, c19_reads = mapped.get("7", 0), mapped.get("19", 0)
+    # Thresholds sit between the sexes as seen in real WGS and WES samples
+    # (hs37, hs38 and T2T): Y/X is up to 0.05 for females (exomes) and from
+    # 0.15 for males; Y/chr19 up to 0.07 and from 0.2; X/chr7 0.93-0.98 and
+    # 0.46-0.54 for WGS, though exomes don't follow X/chr7.
     if x_reads > 0 and y_reads > 0:
         # Females still pick up a few mismapped chrY reads
-        return "Male" if y_reads > x_reads * 0.05 else "Female"
+        return "Male" if y_reads > x_reads * 0.10 else "Female"
     if x_reads > 0 and c7_reads > 0:
         # No chrY: two X copies read about like chr7, one X about half of it
         return "Female" if x_reads > c7_reads * 0.75 else "Male"
     if y_reads > 0 and c19_reads > 0:
-        # No chrX: about half of chrY is N, so a male's Y is ~0.2 of chr19
-        return "Male" if y_reads > c19_reads * 0.05 else "Female"
+        # No chrX: about half of chrY is N, so a male's Y is ~0.2-0.5 of chr19
+        return "Male" if y_reads > c19_reads * 0.12 else "Female"
     return "Unknown"
 
 

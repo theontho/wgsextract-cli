@@ -812,7 +812,7 @@ def test_str_all_normal_has_no_warnings(tmp_path, eh, caplog):
         (10, 0, "female", True),  # chrX alone, with no chrY or chr7 to compare
         (0, 0, "female", True),
         (30, 1, "female", False),
-        (10, 1, "male", False),
+        (10, 2, "male", False),
     ],
 )
 def test_str_infers_sex_from_chrx_chry_reads(tmp_path, eh, caplog, x, y, sex, warned):
