@@ -1,0 +1,222 @@
+{
+  "description": "SHA-256 of Clair3 v2 (PyTorch) ONT models from HKU's public catalogs; verified before calling.",
+  "models": {
+    "ont": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_pytorch/ont/",
+      "files": {
+        "full_alignment.pt": "cffb6e68c54095056b104e98023e91df7df52401c156ae2ea2ea6e0c4b81a162",
+        "pileup.pt": "8fe535c5ebe287c43af365430492db9a4f30ffde2aae0d8e3bcb10635b9a3a35"
+      }
+    },
+    "ont_guppy5": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_pytorch/ont_guppy5/",
+      "files": {
+        "full_alignment.pt": "6930314007f33359cc11b5d23b4735de735ef08971dbcef1ad15f959a9d0a084",
+        "pileup.pt": "f46d901e89129ef16b653a1a8a331e6864ac3e1eaa3caaab5e84a43d44dad01b"
+      }
+    },
+    "r1041_e82_260bps_fast_g632": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_260bps_fast_g632/",
+      "files": {
+        "full_alignment.pt": "5aeafc57e5b6d92cb6eddd68e07c3dc549943c12dcd058c298e93e992dcc31e9",
+        "pileup.pt": "ff09e98501a4edfdcbf2d68b9756d1e774cd61fe874269acf07f3bf0754e7aaa"
+      }
+    },
+    "r1041_e82_260bps_hac_g632": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_260bps_hac_g632/",
+      "files": {
+        "full_alignment.pt": "6472d250c7c84e5227b8ca7ad1cc1633edbe4efbdda1949887f88bb53d358dff",
+        "pileup.pt": "29a0bcca37d1c036e45d5f524f26431ee7705dfc746c12e266f4cb083b6afa3b"
+      }
+    },
+    "r1041_e82_260bps_hac_v400": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_260bps_hac_v400/",
+      "files": {
+        "full_alignment.pt": "d2033a9ec4b15d91e170387156eee6c17821b386aade638dfc1b207abde54293",
+        "pileup.pt": "6236da62bd7740c383fa9e3e243b5c602dc13d6a52a7aaeb96e12303852000c0"
+      }
+    },
+    "r1041_e82_260bps_hac_v410": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_260bps_hac_v410/",
+      "files": {
+        "full_alignment.pt": "04f9e129208ba748d2b8361590804405d8a3762f3c6414484aa4856a2ff20661",
+        "pileup.pt": "adccb7a86147b80a5e4debd86041ce16132192dde7d6a056416971be41dbdb82"
+      }
+    },
+    "r1041_e82_260bps_sup_g632": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_260bps_sup_g632/",
+      "files": {
+        "full_alignment.pt": "56c7f52f680ecfdcda933a1e13d2b656410946163af0c614c47fcae6237c646d",
+        "pileup.pt": "9de5ae739ccece0e2a6bb6b54ef81d77ea355bbc2bf765a4cec9fe12cbe42447"
+      }
+    },
+    "r1041_e82_260bps_sup_v400": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_260bps_sup_v400/",
+      "files": {
+        "full_alignment.pt": "167d45777a6bcd835053090cbee408c1d8121ade4d04c6173cff2b07c3feb59b",
+        "pileup.pt": "b9f7c2acc4e1d5dacf3eadf5b5fda5e659233cb95539e169545a6d0c8e2388ca"
+      }
+    },
+    "r1041_e82_260bps_sup_v410": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_260bps_sup_v410/",
+      "files": {
+        "full_alignment.pt": "59fd38fdae0d208ea16d12af0b3178544899dac681487a75a519fea91aa61386",
+        "pileup.pt": "fe246cb4215040a7b7eaaee0722f186cee53d7f27d79e84daebf8e9ab4cfdd35"
+      }
+    },
+    "r1041_e82_400bps_fast_g615": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_400bps_fast_g615/",
+      "files": {
+        "full_alignment.pt": "c5b10d92bd5c019f61bb535d8d1c8e1b91f7506335f435b43d9369ecf66108b2",
+        "pileup.pt": "91f1fe8b6eaae3d8dd7cda2e1ef85325be2ae8b48c2c63657ed0b9a2b18ec60b"
+      }
+    },
+    "r1041_e82_400bps_fast_g632": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_400bps_fast_g632/",
+      "files": {
+        "full_alignment.pt": "1b1302f5fa0225db7a909c88115db1c0d339ac6e40b27754e76122dc728e2405",
+        "pileup.pt": "c86855560a8a960c8f913783c1187bf5aef598334d76359776c08efdc3d374d2"
+      }
+    },
+    "r1041_e82_400bps_hac_g615": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_400bps_hac_g615/",
+      "files": {
+        "full_alignment.pt": "4b990f8b95b730fa80ab30917792db36caf1553786cc8715e439096fd52cc00a",
+        "pileup.pt": "3ae566fa9ccecf93c0d022e7c30e629233f56e9b57dfd94f3c37973d0c4a0ef8"
+      }
+    },
+    "r1041_e82_400bps_hac_g632": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_400bps_hac_g632/",
+      "files": {
+        "full_alignment.pt": "8e3259584e023d3f2e105ecfa70275b58beadd467f1072f29e3adbae9cfb0453",
+        "pileup.pt": "b391353babd835465becc54808bc0add6c7743aea4776302a610d4e3ea48fb55"
+      }
+    },
+    "r1041_e82_400bps_hac_v400": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_400bps_hac_v400/",
+      "files": {
+        "full_alignment.pt": "024ead7c5e8f89a59b69904d73633193952dd9b65e10f2d1e248860242acf0a5",
+        "pileup.pt": "35e67e9e2f730dab9e17491956843ab0705778db7f1f49063232b49333b9be6c"
+      }
+    },
+    "r1041_e82_400bps_hac_v410": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_400bps_hac_v410/",
+      "files": {
+        "full_alignment.pt": "0e2b51c68900e486480eb3beab80d229180eb2c39e6257ddd29c142a58233c12",
+        "pileup.pt": "1b658315d3ca5691a9245b34a3a3f228cd0343f73ba0f9506a7b91e3138f1cb0"
+      }
+    },
+    "r1041_e82_400bps_hac_v420": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_400bps_hac_v420/",
+      "files": {
+        "full_alignment.pt": "ab36f291e75ac014868660cec2ff4ec32cf91209b7af03adf59c003f728bffce",
+        "pileup.pt": "0ba96587793deab1e06f6d9bcbd951e7af7c1d78df87c2132896f49094c6c76b"
+      }
+    },
+    "r1041_e82_400bps_hac_v430": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_400bps_hac_v430/",
+      "files": {
+        "full_alignment.pt": "bac8823367f2c571c954252f7c6fea111b3f80560d9db41c1ae8065cab2cc7a9",
+        "pileup.pt": "6e3b94040e7d7e722107f186076cbd348249ee384f9e9d4a3a175534023906bd"
+      }
+    },
+    "r1041_e82_400bps_hac_v500": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_400bps_hac_v500/",
+      "files": {
+        "full_alignment.pt": "1405f6c433658ee4ac7febc25ce1412e875704eb57c399002c74c6f177b23f9f",
+        "pileup.pt": "0472460ab8f592f236dfeeefac4fa1b10fd2d66af0316be68156d6efb141d7d4"
+      }
+    },
+    "r1041_e82_400bps_hac_v520": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_400bps_hac_v520/",
+      "files": {
+        "full_alignment.pt": "d04662b6404b618332c8924d005a5493390a96d460d3b5b3515c9389ddb5d2b6",
+        "pileup.pt": "3c6320c3f09ea8a77453d29caa977a69fb562c6f7d13b51389cb5f7513ae4c53"
+      }
+    },
+    "r1041_e82_400bps_hac_v600": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_400bps_hac_v600/",
+      "files": {
+        "full_alignment.pt": "27a0fdb06eb3c40ecff6e1627b31ceb28ad2dfe95bc310b3871460760fc965dc",
+        "pileup.pt": "3bfb71ef09e3b533b1a79e9eb64ab8606a0de481a17148ded621bde3f6462d63"
+      }
+    },
+    "r1041_e82_400bps_sup_g615": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_400bps_sup_g615/",
+      "files": {
+        "full_alignment.pt": "e250f4ffddac532db0e351c2a1687c323955fd1eabc36ec52bb7536f22900188",
+        "pileup.pt": "295d1306d568066559d1d0642359fd8e693d4b3e268eb2c215f83dca4f9800f9"
+      }
+    },
+    "r1041_e82_400bps_sup_v400": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_400bps_sup_v400/",
+      "files": {
+        "full_alignment.pt": "3424b2b45ca90859d7ab6ad30c01d5f308c80d8b31700fb7804a6337f25ab8c4",
+        "pileup.pt": "a7d306b1a720daffde2116eda92269c0335bee38b73e81880977eba866272df2"
+      }
+    },
+    "r1041_e82_400bps_sup_v410": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_400bps_sup_v410/",
+      "files": {
+        "full_alignment.pt": "fdadb44490fd67ee4c63b71499424f373f1c46fb191d25d43fb9d74f03c71908",
+        "pileup.pt": "40eb2816275a754ff4e03fe594825720a4115eaa86109e441dcbad73279c161b"
+      }
+    },
+    "r1041_e82_400bps_sup_v420": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_400bps_sup_v420/",
+      "files": {
+        "full_alignment.pt": "1bf505d7e3ad72a7390cfa09899f44575aff13e0bfb90cbaf55eaf5a6e38d1d6",
+        "pileup.pt": "e02ed85af067afd119e94a8129b85c8a5526422ab208136fa240b28093dea0f3"
+      }
+    },
+    "r1041_e82_400bps_sup_v430": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_400bps_sup_v430/",
+      "files": {
+        "full_alignment.pt": "235bbde32c675bf09032a2bd410f63e521ee36e0a2ab70b9bdc1988dfe768f87",
+        "pileup.pt": "806d7439555c157f3b75f2d7fb317c15985a2be6562184bb734c72aaf68d0287"
+      }
+    },
+    "r1041_e82_400bps_sup_v500": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_400bps_sup_v500/",
+      "files": {
+        "full_alignment.pt": "320f7083ae1b8eeba390471fbbeb6fbefb93dab079300ce2605a7222d7d65388",
+        "pileup.pt": "d84d9f1a1da0a68204404cac1817724ada4d15363d8a62d87703b6ed56c4a4ff"
+      }
+    },
+    "r1041_e82_400bps_sup_v520": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r1041_e82_400bps_sup_v520/",
+      "files": {
+        "full_alignment.pt": "3d45d34401613df5c4dcd31f3c444e13338a5cb0c8beb395d4f6ab71682f25d3",
+        "pileup.pt": "ec73e7fd3d955d8d64efbab29ba81f45c6129774a6c18beecc67c5829611fb4b"
+      }
+    },
+    "r104_e81_hac_g5015": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r104_e81_hac_g5015/",
+      "files": {
+        "full_alignment.pt": "928c55ac042070f4777daaab3845221683f520c22abe002eb696c35523aa2e4b",
+        "pileup.pt": "38495d91ee53bd3f4b7a6b13d9279ac7106c62237d64d24f3935a751c0a6153a"
+      }
+    },
+    "r104_e81_sup_g5015": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/r104_e81_sup_g5015/",
+      "files": {
+        "full_alignment.pt": "d5176a49c1c66c4295961b42a1053fd1556081b4cb321280e26542e46c2975ec",
+        "pileup.pt": "bd785b36889ef370a6a3118a5addfc6a0b1fea800def3c829d6916d5920a4bbd"
+      }
+    },
+    "r941_prom_hac_g360+g422": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_pytorch/r941_prom_hac_g360+g422/",
+      "files": {
+        "full_alignment.pt": "cffb6e68c54095056b104e98023e91df7df52401c156ae2ea2ea6e0c4b81a162",
+        "pileup.pt": "8fe535c5ebe287c43af365430492db9a4f30ffde2aae0d8e3bcb10635b9a3a35"
+      }
+    },
+    "r941_prom_sup_g5014": {
+      "url": "https://www.bio8.cs.hku.hk/clair3/clair3_models_pytorch/r941_prom_sup_g5014/",
+      "files": {
+        "full_alignment.pt": "6930314007f33359cc11b5d23b4735de735ef08971dbcef1ad15f959a9d0a084",
+        "pileup.pt": "f46d901e89129ef16b653a1a8a331e6864ac3e1eaa3caaab5e84a43d44dad01b"
+      }
+    }
+  }
+}

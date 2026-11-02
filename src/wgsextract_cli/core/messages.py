@@ -48,6 +48,7 @@ CLI_HELP = {
     "cmd_freebayes": "A Bayesian genetic variant detector. Excellent for finding small variants in complex regions or when you have variable sequencing depth.",
     "cmd_gatk": "Industry-standard GATK HaplotypeCaller. Best for high-accuracy clinical-grade SNP and InDel calling using local de novo assembly.",
     "cmd_deepvariant": "Google's Deep Variant variant caller. Supports WGS/WES and PacBio HiFi models; uses a neural network to achieve superior accuracy by 'looking' at read alignments as images. (Not tested on macOS.)",
+    "cmd_clair3": "Clair3 small-variant caller for Oxford Nanopore reads (optional; Linux x86-64 only, install with `pixi install -e clair3`). DeepVariant remains the default ONT caller.",
     "cmd_annotate": "Add external metadata (like population frequencies or disease risk) to your VCF file.",
     "cmd_filter": "Filter your results. Use this to focus on specific genes of interest or to remove low-quality 'noisy' variant calls.",
     "cmd_vcf-to-fasta": "Build your personal consensus genome: the reference FASTA with your variants applied (heterozygous SNVs as IUPAC codes by default), and N where a gVCF has no call.",
@@ -124,7 +125,7 @@ Available formats:
     "cmd_bam_mgmt": "BAM/CRAM management commands.",
     "cmd_deps": "Manage system dependencies.",
     "cmd_qc": "Quality control for raw reads and VCFs (fastp, FastQC, VCF stats) and test data generation.",
-    "cmd_vcf": "Variant calling (bcftools, freebayes, GATK, DeepVariant, Delly, pbsv, Sniffles), annotation, filtering, and trio analysis.",
+    "cmd_vcf": "Variant calling (bcftools, freebayes, GATK, DeepVariant, Clair3, Delly, pbsv, Sniffles), annotation, filtering, and trio analysis.",
 }
 
 # Log Messages
@@ -205,6 +206,7 @@ LOG_MESSAGES = {
     "vcf_generating_dict": "GATK .dict file not found. Generating...",
     "vcf_calling_gatk": "Calling variants using GATK HaplotypeCaller to {output}",
     "vcf_calling_deepvariant": "Calling variants using DeepVariant to {output}",
+    "vcf_calling_clair3": "Calling variants using Clair3 to {output}",
     "vcf_clinvar_start": "Annotating VCF with ClinVar data: {input}",
     "vcf_clinvar_resolve": "Auto-resolved ClinVar VCF: {path}",
     "vcf_clinvar_missing": "ClinVar VCF not found. Please run 'ref clinvar' first.",

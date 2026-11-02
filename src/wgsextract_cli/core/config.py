@@ -72,6 +72,11 @@ KNOWN_SETTINGS = {
         "DeepVariant Docker image with the ULTIMA model, for Ultima reads "
         "(default google/deepvariant:gh1100-ultima)",
     ),
+    "clair3_model": (
+        None,
+        "Clair3 ONT model for `vcf clair3`: a model directory or the name of one "
+        "Clair3 bundles (default: chosen from the reads' basecaller metadata)",
+    ),
     "default_input_vcf": (None, "Default input VCF file"),
     "microarray_min_gq": (0, "Microarray minimum sample GQ (0 disables filtering)"),
     "microarray_min_dp": (0, "Microarray minimum sample DP (0 disables filtering)"),
