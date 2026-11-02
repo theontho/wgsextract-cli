@@ -30,6 +30,15 @@ def test_coordinate_cache_preserves_exact_output_and_never_caches_genotypes(
         ("rsMT", "MT", "500", "CC"),
     ]
     expected = _lift(tmp_path, rows, chain)
+    # Legacy chr_to_int() order places MT before the sex chromosomes.
+    assert [row[1] for row in expected if len(row) == 4] == [
+        "1",
+        "1",
+        "1",
+        "3",
+        "MT",
+        "X",
+    ]
     original = (tmp_path / "kit_hg19.txt").read_bytes()
     library = str(tmp_path / "library")
     assert _lift(tmp_path, rows, chain, reflib_dir=library) == expected

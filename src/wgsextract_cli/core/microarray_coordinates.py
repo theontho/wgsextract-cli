@@ -16,9 +16,10 @@ from pyliftover import LiftOver
 
 from wgsextract_cli.core.file_lock import build_lock
 
-_CHROMS = (*(f"chr{i}" for i in range(1, 23)), "chrX", "chrY", "chrM")
+# Codes double as the output sort order, matching legacy chr_to_int(): MT before X/Y.
+_CHROMS = (*(f"chr{i}" for i in range(1, 23)), "chrM", "chrX", "chrY")
 _CODES = {chrom: code for code, chrom in enumerate(_CHROMS)}
-_MAGIC = b"WGSHG19\x01"
+_MAGIC = b"WGSHG19\x02"
 _HEADER = struct.Struct("<8sIII")
 _ROW = struct.Struct("<IBQB")
 
