@@ -20,6 +20,13 @@ SEQUENCERS = {
     "Illumina MiniSeq": r"^(MN\d{3,5}):\d+:[a-zA-Z0-9]{9}:\d:\d+:\d+:\d+$",
     "Solexa GA (MiSeq)": r"^(HWI-M\d{3,5}):\d+:[a-zA-Z0-9]{9}:\d:\d+:\d+:\d+$",
     "Illumina MiSeq": r"^(M\d{3,5}):\d+:[a-zA-Z0-9]{9}:\d:\d+:\d+:\d+$",
+    # Older Bases2Fastq runs can retain comma-separated flow-cell barcode fields.
+    "Element AVITI": (
+        r"^(?:AV[0-9]{6}|[A-Za-z0-9_-]+_AVITI):[A-Za-z0-9_-]+:"
+        r"(?:[A-Za-z0-9]+(?:,[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)*|FC-[A-Za-z0-9_-]+)"
+        r":[12]:[0-9]+:[0-9]{4}:[0-9]{4}"
+        r"(?::[ACGTN]+(?:\+[ACGTN]+)?)?(?:/[12])?$"
+    ),
     "MGI DNB T7 (ProPhase)": r"^(PRO\d{7})(_[A-Za-z0-9_]{25,29}_)(E100\d{6})(L\d)(C\d{3})(R\d{3})(\d{6,8})([/1]?|[/2]?)$",
     "MGI DNB T7 (ProPhase-bug)": r"^(<NEBULA_ID>)(_[A-Za-z0-9_]{25,29}_)(E100\d{6})(L\d)(C\d{3})(R\d{3})(\d{6,8})([/1]?|[/2]?)$",
     "MGI DNB T7 (ProPhase 2)": r"^(N[A-Z0-9]{9}_[0-9_]{17}_ProPhase_BP_)(E\d{9})(L\d)(C\d{3})(R\d{3})(\d{6,8})([/1]?|[/2]?)$",
