@@ -116,6 +116,7 @@ def load_strand_quirks(path: Path | None = None) -> tuple[StrandQuirk, ...]:
                     or (quirk.fixed_in is not None and quirk.fixed_in not in revisions)
                     or quirk.exports <= 0
                     or not quirk.confirmed_by
+                    or quirk.revision in quirk.confirmed_by
                     or any(name not in revisions for name in quirk.confirmed_by)
                 ):
                     raise ValueError(f"line {number} is not a valid strand quirk")

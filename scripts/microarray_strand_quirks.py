@@ -330,7 +330,8 @@ def build(
             confirming = [
                 other
                 for other in seen
-                if other.orientation == "forward"
+                if other.revision != obs.revision
+                and other.orientation == "forward"
                 and other.alleles == forward
                 and other.calls >= MIN_CALLS
                 and abs(other.reference_share - obs.reference_share)
@@ -388,13 +389,13 @@ def build(
 
     rows = []
     for obs, chrom, pos, forward, confirming in quirks:
-        revision = catalogue[obs.revision]
-        start = _period_start(revision)
+        origin = catalogue[obs.revision]
+        start = _period_start(origin)
         fixed = sorted(
             (_period_start(catalogue[o.revision]) or "", o.revision)
             for o in confirming
             if o.marker == obs.marker
-            and catalogue[o.revision].vendor == revision.vendor
+            and catalogue[o.revision].vendor == origin.vendor
             and start
             and (_period_start(catalogue[o.revision]) or "") > start
         )

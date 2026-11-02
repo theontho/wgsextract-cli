@@ -105,6 +105,9 @@ def test_default_output_is_unchanged_by_the_table(tmp_path, table):
         "\t23andme_v4_610544_681e6673\n",
         # Every entry needs a confirming forward-strand revision.
         "23andme_v3_960613_a600774c\trsQ\t1\t1000\tAG\tCT\t.\t23andMe_V3\t10\t.\n",
+        # ...from another revision: a second probe in the same one doesn't count.
+        "23andme_v3_960613_a600774c\trsQ\t1\t1000\tAG\tCT\t.\t23andMe_V3\t10"
+        "\t23andme_v3_960613_a600774c\n",
         "23andme_v3_960613_a600774c\trsQ\t1\t1000\tAG\tCT\tunknown_rev\t23andMe_V3"
         "\t10\t23andme_v4_610544_681e6673\n",
     ],
