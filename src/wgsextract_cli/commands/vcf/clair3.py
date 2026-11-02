@@ -27,6 +27,7 @@ from wgsextract_cli.core.output_checks import warn_if_no_variants
 from wgsextract_cli.core.paths import expand_path
 from wgsextract_cli.core.pixi_tools import pixi_env_prefix
 from wgsextract_cli.core.reference_assets import read_fai_lengths
+from wgsextract_cli.core.ultima import read_groups
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 
@@ -314,8 +315,42 @@ def select_model(args: argparse.Namespace, header: str) -> Path:
     return model
 
 
+def sample_name(header: str, reads: str) -> str:
+    """The reads' @RG SM (Clair3 would otherwise write "SAMPLE")."""
+    samples = {group["SM"] for group in read_groups(header) if group.get("SM")}
+    if len(samples) > 1:
+        raise WGSExtractError(
+            f"The read groups name several samples ({', '.join(sorted(samples))}); "
+            "Clair3 calls one sample per run. Split the BAM/CRAM by sample first."
+        )
+    if samples:
+        return samples.pop()
+    name = Path(reads).name.split(".")[0]
+    logging.warning(f"No @RG SM sample name in {reads}; naming the sample {name}.")
+    return name
+
+
+def require_ont_read_groups(header: str) -> None:
+    """Reads from other platforms must not enter an ONT model."""
+    platforms = {
+        group["PL"].upper() for group in read_groups(header) if group.get("PL")
+    }
+    if platforms - {"ONT"}:
+        raise WGSExtractError(
+            f"The read groups name platform(s) {', '.join(sorted(platforms))}; "
+            "`vcf clair3` calls Nanopore (PL:ONT) reads only. Use `vcf deepvariant` "
+            "for other platforms, or split out the ONT read groups."
+        )
+
+
 def clair3_command(
-    reads: str, ref: str, model: Path, threads: str, output: str, bed: str | None
+    reads: str,
+    ref: str,
+    model: Path,
+    threads: str,
+    output: str,
+    bed: str | None,
+    sample: str,
 ) -> list[str]:
     command = [
         CLAIR3,
@@ -324,6 +359,7 @@ def clair3_command(
         f"--threads={threads}",
         "--platform=ont",
         f"--model_path={model}",
+        f"--sample_name={sample}",
         f"--output={output}",
     ]
     if bed:
@@ -350,7 +386,10 @@ def cmd_clair3(args: argparse.Namespace) -> None:
             f"The input looks like {detected} reads; `vcf clair3` calls Nanopore "
             "reads. Use `vcf deepvariant` for other platforms."
         )
-    model = select_model(args, get_bam_header(args.input, ref))
+    header = get_bam_header(args.input, ref)
+    require_ont_read_groups(header)
+    sample = sample_name(header, args.input)
+    model = select_model(args, header)
 
     out_vcf = str(Path(outdir, "clair3.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_clair3"].format(output=out_vcf))
@@ -366,7 +405,9 @@ def cmd_clair3(args: argparse.Namespace) -> None:
         try:
             # stdin closed: Clair3's GNU parallel would read it otherwise.
             run_command(
-                clair3_command(args.input, use_ref, model, threads, output, bed),
+                clair3_command(
+                    args.input, use_ref, model, threads, output, bed, sample
+                ),
                 env=_clair3_env(),
                 stdin=subprocess.DEVNULL,
             )

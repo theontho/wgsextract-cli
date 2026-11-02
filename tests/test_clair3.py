@@ -9,7 +9,7 @@ import pytest
 from wgsextract_cli.cli.parser import build_parser
 from wgsextract_cli.cli.platform_support import verify_platform_support
 from wgsextract_cli.commands.vcf import clair3
-from wgsextract_cli.core import dependency_checks
+from wgsextract_cli.core import dependency_checks, pixi_tools
 from wgsextract_cli.core.utils import WGSExtractError
 
 DORADO_V500 = "@RG\tID:run_dna_r10.4.1_e8.2_400bps_sup@v5.0.0\tDS:basecall_model=dna_r10.4.1_e8.2_400bps_sup@v5.0.0\n"
@@ -201,7 +201,9 @@ def test_command_construction(tmp_path, monkeypatch):
     monkeypatch.setattr(
         clair3, "get_base_args", lambda args: ("2", str(tmp_path), str(ref), None)
     )
-    monkeypatch.setattr(clair3, "get_bam_header", lambda *_: DORADO_V500)
+    monkeypatch.setattr(
+        clair3, "get_bam_header", lambda *_: DORADO_V500.replace("\n", "\tSM:HG002\n")
+    )
     monkeypatch.setattr(clair3, "select_model", lambda args, header: model)
     monkeypatch.setattr(clair3, "run_command", fake_run)
     monkeypatch.setattr(clair3, "ensure_vcf_indexed", lambda vcf: None)
@@ -222,10 +224,10 @@ def test_command_construction(tmp_path, monkeypatch):
         "--threads=2",
         "--platform=ont",
         f"--model_path={model}",
-        command[6],
+        "--sample_name=HG002",
     ]
-    assert command[6].startswith(f"--output={tmp_path}/.wgse_clair3_")
-    assert command[7].endswith("regions.bed")
+    assert command[7].startswith(f"--output={tmp_path}/.wgse_clair3_")
+    assert command[8].endswith("regions.bed")
     assert bed == "chr20\t1000\t2000\n"
     assert kwargs["stdin"] == clair3.subprocess.DEVNULL
     assert "PYTHONPATH" not in kwargs["env"]
@@ -246,9 +248,33 @@ def test_non_ont_input_is_refused(tmp_path, monkeypatch):
         clair3.cmd_clair3(args)
 
 
+@pytest.mark.parametrize(
+    ("header", "sample"),
+    [
+        ("@RG\tID:a\tSM:HG002\n@RG\tID:b\tSM:HG002\n", "HG002"),
+        ("@RG\tID:a\n", "reads"),
+    ],
+)
+def test_sample_name_comes_from_read_groups(header, sample):
+    assert clair3.sample_name(header, "/data/reads.sorted.bam") == sample
+
+
+def test_several_samples_are_refused():
+    with pytest.raises(WGSExtractError, match="several samples"):
+        clair3.sample_name("@RG\tID:a\tSM:A\n@RG\tID:b\tSM:B\n", "reads.bam")
+
+
+def test_mixed_platform_read_groups_are_refused():
+    clair3.require_ont_read_groups("@RG\tID:a\tPL:ONT\n@RG\tID:b\n")
+    with pytest.raises(WGSExtractError, match="ILLUMINA, ONT"):
+        clair3.require_ont_read_groups("@RG\tID:a\tPL:ONT\n@RG\tID:b\tPL:ILLUMINA\n")
+
+
 def test_missing_clair3_names_its_pixi_environment(monkeypatch):
     monkeypatch.setattr(clair3, "require_supported_platform", lambda: None)
     monkeypatch.setattr(dependency_checks, "require_native_tool", lambda tool: None)
+    # The clair3 environment is locked for linux-64 only; CI also runs on ARM.
+    monkeypatch.setattr(pixi_tools, "_locked_package_available", lambda *args: True)
     monkeypatch.setattr(
         dependency_checks, "check_dependencies", lambda tools: [clair3.CLAIR3]
     )
