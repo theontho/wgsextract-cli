@@ -36,6 +36,7 @@ from ._lineage_ydna import (
     resolve_lineage_tool,
     tool_command,
 )
+from ._lineage_ystr import add_ystr_parser
 
 
 def _haplogrep_command(haplogrep_path: str) -> list[str]:
@@ -223,6 +224,8 @@ def register(
     ydna_parser.add_argument(
         "--tree-links", action="store_true", help="Print YFull and FTDNA tree links."
     )
+
+    add_ystr_parser(lin_subs, base_parser, CLI_HELP["cmd_lineage-y-str"])
 
     mtdna_parser = lin_subs.add_parser(
         "mt-haplogroup",
