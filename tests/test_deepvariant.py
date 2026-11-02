@@ -204,7 +204,8 @@ def test_only_new_cram_is_transcoded_and_indexed(files, monkeypatch, version, ca
     assert bed.read_text() == "chr20\t0\t100\n"
     assert index == ["samtools", "index", result]
     assert caplog.text.count("Transcoding CRAM") == 1
-    assert "htslib 1.18 SSE4 rANS decoder" in caplog.text
+    assert "x86-64 images (htslib 1.18 / htscodecs 1.5.1)" in caplog.text
+    assert "staging applies to every image" in caplog.text
 
 
 def test_transcode_fails_before_writing_when_disk_is_low(files, monkeypatch):
@@ -473,15 +474,22 @@ def test_staged_cram_is_used_and_cleaned_on_all_exit_paths(files, monkeypatch, f
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
+@pytest.mark.parametrize("arm64", [False, True])
 @pytest.mark.parametrize("region", ["chr20", "chr20:1-50 chr20:101-150"])
 def test_container_reads_staged_cram_and_preserves_existing_mounts(
-    files, monkeypatch, region
+    files, monkeypatch, region, arm64
 ):
     _ref, alignment, out = files
     alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
     runs = _docker(monkeypatch)
+    if arm64:
+        _arm_docker(monkeypatch)
     monkeypatch.setattr(deepvariant, "check_free_space", lambda *_: True)
-    monkeypatch.setattr(deepvariant, "run_command", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        deepvariant,
+        "run_command",
+        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, "linux/arm64", ""),
+    )
     deepvariant.cmd_deepvariant(_args(alignment, region=region))
     (cmd,) = runs
     reads = Path(cmd[cmd.index("--reads") + 1])
@@ -491,6 +499,9 @@ def test_container_reads_staged_cram_and_preserves_existing_mounts(
     mounts = {cmd[i + 1].split(":")[0] for i, a in enumerate(cmd) if a == "-v"}
     assert str(reads.parent) in mounts
     assert str(alignment.parent) in mounts
+    if arm64:
+        assert f"TMPDIR={reads.parent}" in cmd
+        assert "--pull=never" in cmd
     assert not reads.parent.exists()
 
 

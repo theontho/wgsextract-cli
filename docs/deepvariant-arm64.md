@@ -46,6 +46,10 @@ native from its shell-script architecture. The container entrypoint is explicitl
 overridden to `run_deepvariant`, preventing community auto-configuration scripts
 from silently switching inference precision. Writable home/temporary files stay
 inside the caller's intermediate directory and are removed after the run.
+CRAM 3.1+ compatibility staging also runs for ARM images, with temporary CRAM
+3.0 and its index inside that mounted intermediate directory. The known
+htslib 1.18 / htscodecs 1.5.1 SSE4 rANS decoder bug concerns x86-64 images,
+not the ARM build's NEON decoder; staging is deliberately architecture-independent.
 
 Only the default WGS model is enabled on Linux ARM64. WES (`--wes`),
 PACBIO (`--pacbio`), ONT_R104, HYBRID_PACBIO_ILLUMINA, MASSEQ, RNASEQ,

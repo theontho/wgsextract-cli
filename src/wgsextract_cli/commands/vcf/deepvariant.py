@@ -333,8 +333,9 @@ def _compatible_reads(
             f"at {work} (needs ~{required_bytes / GB:.2f} GiB)."
         )
     logging.info(
-        "Transcoding CRAM %s.%s to temporary CRAM 3.0: DeepVariant's htslib "
-        "1.18 SSE4 rANS decoder can fail on valid CRAM 3.1 blocks.",
+        "Transcoding CRAM %s.%s to temporary CRAM 3.0: DeepVariant's x86-64 "
+        "images (htslib 1.18 / htscodecs 1.5.1) have an SSE4 rANS decoder bug "
+        "that can fail on valid CRAM 3.1 blocks; staging applies to every image.",
         *version,
     )
     compatible = str(Path(work, "reads.cram"))
