@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import filecmp
 import hashlib
 import logging
 import os
@@ -73,7 +74,7 @@ def restore_cached_download(
             logging.warning("Dropping dev download cache item: %s", cached_path)
             drop_cached_download(url, destination, checksum_hint=checksum_hint)
             return None
-        if not _publish(staging, destination, verify):
+        if not _publish(staging, destination):
             return None
         mark_cache_item_used(cached_path)
         logging.info("Using dev download cache: %s", cached_path)
@@ -147,14 +148,12 @@ def _staged_copy(source: Path, destination: Path, *, suffix: str) -> Path:
     return staging
 
 
-def _publish(
-    staging: Path, destination: Path, verify: Callable[[Path], bool] | None
-) -> bool:
+def _publish(staging: Path, destination: Path) -> bool:
     """os.replace, tolerating a Windows sharing violation from a concurrent run.
 
-    Windows refuses to replace a file another process holds open. Every
-    publisher only renames verified bytes into place, so a destination that
-    appears meanwhile and verifies is the same restore finished by another run.
+    Windows refuses to replace a file another process holds open. A destination
+    that appeared meanwhile is accepted only if its bytes equal the staged copy,
+    which is already verified when the caller pinned a checksum.
     """
     for attempt in range(_REPLACE_ATTEMPTS):
         try:
@@ -163,7 +162,7 @@ def _publish(
         except PermissionError:
             if attempt + 1 < _REPLACE_ATTEMPTS:
                 time.sleep(_REPLACE_RETRY_SECONDS * (attempt + 1))
-    if destination.is_file() and (verify is None or verify(destination)):
+    if destination.is_file() and filecmp.cmp(staging, destination, shallow=False):
         logging.info("Another run already restored %s", destination)
         return True
     logging.debug("Could not publish restored cache item to %s", destination)

@@ -280,9 +280,9 @@ def test_concurrent_restores_stage_separately_and_publish_once_verified(
 
 
 @pytest.mark.parametrize(
-    ("published", "restored"), [(b"reference", True), (b"x", False)]
+    ("published", "restored"), [(b"reference", True), (b"referen", False)]
 )
-def test_a_windows_sharing_violation_accepts_only_a_verified_concurrent_publish(
+def test_a_windows_sharing_violation_accepts_only_an_identical_concurrent_publish(
     enabled, tmp_path, monkeypatch, published, restored
 ):
     """Windows cannot replace a file another run holds open for reading."""
@@ -300,11 +300,6 @@ def test_a_windows_sharing_violation_accepts_only_a_verified_concurrent_publish(
     monkeypatch.setattr(cache.os, "replace", replace)
     monkeypatch.setattr(cache.time, "sleep", lambda _: None)
 
-    result = cache.restore_cached_download(
-        URL,
-        destination,
-        checksum_hint="h",
-        verify=lambda path: path.read_bytes() == b"reference",
-    )
+    result = cache.restore_cached_download(URL, destination, checksum_hint="h")
     assert result == (cached if restored else None)
     assert [p.name for p in destination.parent.iterdir()] == [destination.name]
