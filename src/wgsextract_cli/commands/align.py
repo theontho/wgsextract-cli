@@ -878,7 +878,6 @@ def _run_gpu(args: argparse.Namespace, aligner: str) -> None:
         _align_gpu_minimap2(args, "map-pbmm2")
         return
     preset = _minimap2_preset(args)
-    logging.info("Using minimap2 preset %s for %s reads.", preset, args.platform)
     if preset not in _GPU_MINIMAP2_PRESETS:
         raise WGSExtractError(
             f"--gpu has no minimap2 preset for {preset}: it aligns HiFi (map-hifi) "
@@ -1047,6 +1046,7 @@ def align_minimap2(args: argparse.Namespace) -> None:
         )
     )
     preset = _minimap2_preset(args)
+    logging.info("Using minimap2 preset %s for %s reads.", preset, args.platform)
     align_cmd = ["minimap2", "-ax", preset, "-t", setup.threads]
     upstream: list[Sequence[object]] = []
     ont = args.platform in {"ont", "nanopore"}
