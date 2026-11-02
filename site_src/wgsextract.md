@@ -1,7 +1,7 @@
 ---
 output: 'wgsextract.html'
 title: 'WGSExtract and GUI for CLI'
-description: 'How WGSExtract became the first real app developed with GUI for CLI.'
+description: 'WGSExtract v0.6.5 workflows and how the first real app shaped GUI for CLI.'
 eyebrow: 'First real app'
 heading: 'WGSExtract made GUI for CLI prove itself.'
 lede: 'The WGSExtract bundle is the first real application built through GUI for CLI. It pushed the project beyond demo controls into setup, command execution, data state, localization, and packaged releases.'
@@ -37,6 +37,27 @@ Genome commands need terminal output, cancellation, exit code handling, path arg
 WGSExtract exercises data sources, state-dependent actions, persisted settings, localization, icons, and workspace files.
 :::
 :::
+:::
+:::
+
+::: section
+::: wrap
+## What v0.6.5 exposes
+
+The desktop app bundles **WGSExtract CLI v0.6.5**, including the post-v0.6.3 controls added in [GUI #171](https://github.com/theontho/gui-for-cli/pull/171). Existing actions and selected microarray formats are unchanged. New options start unchecked or blank, inheriting CLI/config defaults rather than forcing them off.
+
+- **FASTQ:** aggregate existing FastQC reports into offline MultiQC HTML, with file and directory pickers and explicit report replacement. MultiQC must already be available; this action neither installs it nor runs FastQC.
+- **Extract and Library:** optional Poz Y-BAM regions (GRCh37/38), unmapped FASTQs, and allele-annotated yBrowse Y-SNP calling on matching indexed GRCh38. Install the pinned yBrowse resource explicitly from Library first.
+- **Microarray:** marker-only MyHeritage GSA and Ancestry layouts; AADR 1240K, HO, union, and opt-in v66.p1 2M PLINK/EIGENSTRAT research exports; quality/depth filtering, strand masking, historical rsIDs, no-call/reason reports, and a sequence-defined I/D manifest bound to one selected consumer format.
+- **BAM Info:** streaming per-chromosome depth bins and optional retention of FASTQs extracted during realignment.
+- **VCF:** opt-in Ultima flow-mode GATK scattering. It can change genotypes and annotations and needs 6 GiB RAM per worker; unscattered calling stays the default.
+- **Ancestry and Settings:** optional lineage-tree links, persistent logs, an existing temporary-workload volume, atomic main-output publication, and best-effort keep-awake.
+
+AADR 2M is excluded from `all`: explicitly install its pinned metadata from Library first. It supports GRCh37/38 only; GRCh38 also needs an already-installed forward chain. It does not support CHM13/T2T, and extraction never downloads missing metadata or chains. Use non-identifying AADR sample labels.
+
+CLI setup is native on Windows, without WSL or MSYS2. v0.6.5 fixes fresh Windows installation and warns about invalid configuration values; GUI settings save real TOML booleans and numbers, including `false`. Earlier CLI releases also improved alignment reproducibility, memory preflight, and native Windows full-genome validation. Tool and platform requirements still vary by workflow.
+
+[Download v0.6.5](index.html), read the [full release notes](https://github.com/theontho/gui-for-cli/releases), or see the [workflow details and prerequisites](https://github.com/theontho/gui-for-cli/blob/main/docs/wgsextract-post-v063.md).
 :::
 :::
 

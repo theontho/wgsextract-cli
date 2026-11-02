@@ -56,7 +56,7 @@
 <article class="card">
 <div class="kicker">Backend</div>
 <h3>Local Node server</h3>
-<p>A Node server runs bundle actions and setup scripts, streams terminal output, and serves the Web UI on a loopback port behind a per-launch token.</p>
+<p>A Node server runs bundle actions and platform-specific setup scripts, streams terminal output, and serves the Web UI on a loopback port behind a per-launch token. Packaged apps include Node; users do not need a separate Node installation.</p>
 </article>
 <article class="card">
 <div class="kicker">Desktop</div>
@@ -68,11 +68,26 @@
 </section>
 <section>
 <div class="wrap">
+<h2>From bundle to desktop</h2>
+<ul>
+<li><code>app/shared</code> holds shared rendering, localization, and types; <code>app/web/src/client</code> is the browser UI and <code>app/web/src/server</code> owns loading, setup, actions, and config.</li>
+<li>Every bundle load validates its manifest and pages. <strong>Load Bundle...</strong> opens a <code>manifest.json</code> or a <code>.zip</code>, <code>.tar</code>, <code>.tar.gz</code>/<code>.tgz</code>, or gzipped manifest archive on all three platforms.</li>
+<li>Bundle scripts resolve by host platform, with distro-specific Linux folders and a POSIX fallback. WGSExtract CLI v0.6.5 runs natively on Windows without WSL or MSYS2.</li>
+<li>Configuration and workspaces stay in platform-standard app data directories. WGSExtract settings preserve TOML boolean and numeric types; invalid saved types warn and use defaults without rewriting the file.</li>
+<li><code>app/web/packagers/tauri</code> supplies the Rust desktop shell. Installers take their app name and version from the embedded bundle; the current WGSExtract app and CLI are v0.6.5.</li>
+</ul>
+<p>Tagged releases build on Windows, macOS, and Linux with a signed Tauri updater feed. macOS has separate signed, notarized Apple Silicon and Intel builds, not a universal DMG. Windows and Linux packages are x64; native ARM64 packaging for those platforms is still a follow-up.</p>
+<p><a href="https://github.com/theontho/gui-for-cli/blob/main/docs/distribution.md">Distribution details</a> cover packaging, signing, updates, and uninstall hooks. Earlier SwiftUI, Sparkle, and Electron implementations are not part of the current app.</p>
+</div>
+</section>
+<section>
+<div class="wrap">
 <h2>Running it</h2>
-<pre data-language="bash"><code>make run      # Web UI in a browser
+<pre data-language="bash"><code>make setup    # user-level tools, locked dependencies, hooks, smoke check
+make run      # Web UI in a browser
 make tauri    # desktop app in dev mode
 make package  # installers for this host</code></pre>
-<p>On Windows, use <code>powershell -ExecutionPolicy Bypass -File .\make.ps1 &lt;target&gt;</code> with the same target names.</p>
+<p>On Windows, use <code>powershell -ExecutionPolicy Bypass -File .\make.ps1 &lt;target&gt;</code> with the same target names. Setup never elevates or installs system packages; see <a href="https://github.com/theontho/gui-for-cli/blob/main/docs/developer_setup.md">developer setup</a> for OS prerequisites.</p>
 </div>
 </section>
 <section>

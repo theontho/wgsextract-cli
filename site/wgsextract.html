@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="How WGSExtract became the first real app developed with GUI for CLI." />
+    <meta name="description" content="WGSExtract v0.6.5 workflows and how the first real app shaped GUI for CLI." />
     <title>WGSExtract and GUI for CLI</title>
     <meta property="og:site_name" content="GUI for CLI" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="WGSExtract and GUI for CLI" />
-    <meta property="og:description" content="How WGSExtract became the first real app developed with GUI for CLI." />
+    <meta property="og:description" content="WGSExtract v0.6.5 workflows and how the first real app shaped GUI for CLI." />
     <meta property="og:url" content="https://theontho.github.io/gui-for-cli/wgsextract.html" />
     <meta property="og:image" content="https://theontho.github.io/gui-for-cli/assets/social-preview.webp" />
     <meta property="og:image:secure_url" content="https://theontho.github.io/gui-for-cli/assets/social-preview.webp" />
@@ -68,6 +68,23 @@
 <p>WGSExtract exercises data sources, state-dependent actions, persisted settings, localization, icons, and workspace files.</p>
 </article>
 </div>
+</div>
+</section>
+<section>
+<div class="wrap">
+<h2>What v0.6.5 exposes</h2>
+<p>The desktop app bundles <strong>WGSExtract CLI v0.6.5</strong>, including the post-v0.6.3 controls added in <a href="https://github.com/theontho/gui-for-cli/pull/171">GUI #171</a>. Existing actions and selected microarray formats are unchanged. New options start unchecked or blank, inheriting CLI/config defaults rather than forcing them off.</p>
+<ul>
+<li><strong>FASTQ:</strong> aggregate existing FastQC reports into offline MultiQC HTML, with file and directory pickers and explicit report replacement. MultiQC must already be available; this action neither installs it nor runs FastQC.</li>
+<li><strong>Extract and Library:</strong> optional Poz Y-BAM regions (GRCh37/38), unmapped FASTQs, and allele-annotated yBrowse Y-SNP calling on matching indexed GRCh38. Install the pinned yBrowse resource explicitly from Library first.</li>
+<li><strong>Microarray:</strong> marker-only MyHeritage GSA and Ancestry layouts; AADR 1240K, HO, union, and opt-in v66.p1 2M PLINK/EIGENSTRAT research exports; quality/depth filtering, strand masking, historical rsIDs, no-call/reason reports, and a sequence-defined I/D manifest bound to one selected consumer format.</li>
+<li><strong>BAM Info:</strong> streaming per-chromosome depth bins and optional retention of FASTQs extracted during realignment.</li>
+<li><strong>VCF:</strong> opt-in Ultima flow-mode GATK scattering. It can change genotypes and annotations and needs 6 GiB RAM per worker; unscattered calling stays the default.</li>
+<li><strong>Ancestry and Settings:</strong> optional lineage-tree links, persistent logs, an existing temporary-workload volume, atomic main-output publication, and best-effort keep-awake.</li>
+</ul>
+<p>AADR 2M is excluded from <code>all</code>: explicitly install its pinned metadata from Library first. It supports GRCh37/38 only; GRCh38 also needs an already-installed forward chain. It does not support CHM13/T2T, and extraction never downloads missing metadata or chains. Use non-identifying AADR sample labels.</p>
+<p>CLI setup is native on Windows, without WSL or MSYS2. v0.6.5 fixes fresh Windows installation and warns about invalid configuration values; GUI settings save real TOML booleans and numbers, including <code>false</code>. Earlier CLI releases also improved alignment reproducibility, memory preflight, and native Windows full-genome validation. Tool and platform requirements still vary by workflow.</p>
+<p><a href="index.html">Download v0.6.5</a>, read the <a href="https://github.com/theontho/gui-for-cli/releases">full release notes</a>, or see the <a href="https://github.com/theontho/gui-for-cli/blob/main/docs/wgsextract-post-v063.md">workflow details and prerequisites</a>.</p>
 </div>
 </section>
 <section>

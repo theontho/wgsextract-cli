@@ -41,7 +41,7 @@
         <div class="wrap">
           <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Documentation</p>
           <h1>Where to go next.</h1>
-          <p class="lede">The README stays focused on the product. Distribution flow and schemas live in dedicated documents.</p>
+          <p class="lede">Start with v0.6.5 downloads or one-command developer setup. Workflow details, distribution, and schemas live close to the code.</p>
           <div class="actions"><a class="btn primary" href="https://github.com/theontho/gui-for-cli/blob/main/README.md">Open README</a><a class="btn" href="architecture.html">Architecture</a></div>
         </div>
       </header>
@@ -53,6 +53,27 @@
 <h3>README</h3>
 <p>The top-level README describes the app, setup, common commands, bundles, config, and distribution packaging.</p>
 <a class="inline-link" href="https://github.com/theontho/gui-for-cli/blob/main/README.md">Open README</a>
+</article>
+<article class="card">
+<div class="kicker">Development</div>
+<h3>One-command setup</h3>
+<p>Clone the repo and run <code>make setup</code> on Linux/macOS, or <code>powershell -ExecutionPolicy Bypass -File .\make.ps1 setup</code> in Windows PowerShell 5.1. Without make on Linux/macOS, use <code>sh scripts/dev_setup.sh</code>.</p>
+<p>Setup prepares missing user-level uv, Node, and Rust tools, locked dependencies, hooks, and a real Web UI smoke check. It never elevates or installs system packages; the guide lists manual desktop prerequisites. No sibling WGSExtract CLI checkout or genome download is needed for UI development: start with <code>examples/GitHelper</code>.</p>
+<a class="inline-link" href="https://github.com/theontho/gui-for-cli/blob/main/docs/developer_setup.md">Open developer setup</a>
+</article>
+<article class="card">
+<div class="kicker">Releases</div>
+<h3>Current app and CLI: v0.6.5</h3>
+<p>Download installers and read the complete GUI and bundled CLI release notes. The changelog tracks the move to one Tauri app, native Windows setup, macOS notarization, and bundle improvements.</p>
+<a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases">Open releases</a>
+<a class="inline-link" href="https://github.com/theontho/gui-for-cli/blob/main/docs/CHANGELOG.md">Open changelog</a>
+</article>
+<article class="card">
+<div class="kicker">WGSExtract</div>
+<h3>New workflow controls</h3>
+<p>MultiQC, expanded microarray/AADR exports, targeted Y analysis, and resource requirements. New selections are opt-in and preserve existing command defaults.</p>
+<a class="inline-link" href="wgsextract.html">WGSExtract workflows</a>
+<a class="inline-link" href="https://github.com/theontho/gui-for-cli/blob/main/docs/wgsextract-post-v063.md">Post-v0.6.3 feature details</a>
 </article>
 <article class="card">
 <div class="kicker">Schemas</div>
@@ -79,9 +100,11 @@
 <div class="wrap">
 <h2>Generate this site</h2>
 <p>Edit Markdown in <code>site_src/</code>, then run:</p>
-<pre data-language="bash"><code>make site
+<pre data-language="bash"><code>python3 scripts/validate_site_sources.py
+python3 scripts/build_site.py
 open site/index.html</code></pre>
-<p>The generated HTML is written to <code>site/</code> and can be served by GitHub Pages.</p>
+<p>The dependency-free generator writes HTML to <code>site/</code> for GitHub Pages. Commit regenerated HTML alongside source changes; <code>make site</code> is also available.</p>
+<a class="inline-link" href="https://github.com/theontho/gui-for-cli/blob/main/docs/site_generation.md">Site generation guide</a>
 </div>
 </section>
     </main>
