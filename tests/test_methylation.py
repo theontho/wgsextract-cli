@@ -3,6 +3,7 @@ import gzip
 import logging
 import shutil
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -109,18 +110,40 @@ def write_sam(path: Path, tags: list[str], platform: str = "ONT") -> Path:
     return path
 
 
-@pytest.mark.skipif(shutil.which("samtools") is None, reason="samtools required")
+needs_samtools = pytest.mark.skipif(
+    shutil.which("samtools") is None, reason="samtools required"
+)
+
+
+@needs_samtools
 def test_modification_tags_are_sampled(tmp_path):
-    tagged = "MM:Z:C+m?,0;\tML:B:C,200"
+    simplex = "MM:Z:C+m?,0;\tML:B:C,200"
+    duplex = "MM:Z:C+m?,0;G-m?,0;\tML:B:C,200,10"
+    reads = [simplex, "", "Mm:Z:C+m,0;\tMl:B:C,9", duplex]
     sample = methylation.sample_modification_tags(
-        str(write_sam(tmp_path / "r.sam", [tagged, "", "Mm:Z:C+m,0;\tMl:B:C,9"])),
-        None,
+        str(write_sam(tmp_path / "r.sam", reads)), None
     )
-    assert sample == methylation.TagSample(reads=3, tagged=2)
+    assert sample == methylation.TagSample(reads=4, tagged=3, duplex=1)
     untagged = write_sam(tmp_path / "u.sam", ["", "MM:Z:C+m?,0;"])
     assert methylation.sample_modification_tags(
         str(untagged), None
     ) == methylation.TagSample(2, 0)
+
+
+@needs_samtools
+def test_unreadable_input_is_an_error_not_missing_tags(tmp_path):
+    broken = tmp_path / "broken.bam"
+    broken.write_bytes(b"not a bam")
+    with pytest.raises(WGSExtractError, match="samtools could not read"):
+        methylation.sample_modification_tags(str(broken), None)
+
+
+@needs_samtools
+def test_reference_without_fai_is_indexed(tmp_path):
+    fasta = tmp_path / "ref.fa"
+    fasta.write_text(">chr20\nACGTACGT\n")
+    methylation.index_fasta(str(fasta))
+    assert (tmp_path / "ref.fa.fai").read_text().startswith("chr20\t8\t")
 
 
 @pytest.mark.parametrize(
@@ -142,6 +165,14 @@ def test_partly_tagged_reads_warn(caplog):
         assert not caplog.records
         methylation.check_modification_tags(methylation.TagSample(200, 20), "ont")
     assert "Only 20 of 200" in caplog.text
+
+
+def test_duplex_reads_warn_or_are_refused(caplog):
+    with caplog.at_level(logging.WARNING):
+        methylation.check_modification_tags(methylation.TagSample(200, 200, 30), "ont")
+    assert "30 of 200 sampled reads with MM/ML tags are duplex" in caplog.text
+    with pytest.raises(WGSExtractError, match="All 200 .* are duplex"):
+        methylation.check_modification_tags(methylation.TagSample(200, 200, 200), "ont")
 
 
 @pytest.mark.parametrize("platform", ["ont", "pacbio", None])
@@ -188,14 +219,19 @@ def test_bedmethyl_summary(tmp_path):
         out.write(row("m", 1, 10, "90.00", 9))
         out.write(row("m", 3, 30, "10.00", 3))
         out.write(row("m", 5, 2, "100.00", 2))  # below the coverage floor
+        out.write(row("m", 7, 20, "50.00", 10))
         out.write(row("h", 1, 10, "0.00", 0))
     m, h = methylation.summarize_bedmethyl(str(path))
-    assert (m.modification, m.sites, m.summary_sites) == ("5mC", 3, 2)
-    assert m.weighted_percent == pytest.approx(30.0)  # (9 + 3) / (10 + 30)
+    assert (m.modification, m.sites, m.summary_sites) == ("5mC", 4, 3)
+    assert m.weighted_percent == pytest.approx(36.67, abs=0.01)  # 22 / 60
     assert m.mean_site_percent == pytest.approx(50.0)
-    assert (m.high_sites_percent, m.low_sites_percent, m.median_coverage) == (
-        50.0,
-        50.0,
-        20,
-    )
+    assert m.median_coverage == 20
+    assert m.high_sites_percent == m.low_sites_percent == pytest.approx(100 / 3)
     assert (h.modification, h.weighted_percent) == ("5hmC", 0.0)
+
+
+@pytest.mark.parametrize(
+    ("counts", "median"), [({}, 0), ({5: 1}, 5), ({5: 1, 9: 1}, 7), ({1: 2, 8: 1}, 1)]
+)
+def test_coverage_median_from_counts(counts, median):
+    assert methylation._counter_median(Counter(counts)) == median

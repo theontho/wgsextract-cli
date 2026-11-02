@@ -10,12 +10,12 @@ checked, never installed.
 import argparse
 import gzip
 import logging
-import statistics
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from wgsextract_cli.commands.vcf.basic import plain_reference
@@ -178,6 +178,12 @@ def modkit_command(
 class TagSample:
     reads: int
     tagged: int
+    duplex: int = 0
+
+
+def _is_duplex(mm: str) -> bool:
+    """MM entries such as G-m? record a modification on the opposite strand."""
+    return any(entry[1:2] == "-" for entry in mm[5:].split(";") if entry)
 
 
 def sample_modification_tags(
@@ -186,29 +192,40 @@ def sample_modification_tags(
     regions: Iterable[str] = (),
     limit: int = TAG_SAMPLE_READS,
 ) -> TagSample:
-    """How many of the first primary, mapped reads carry both MM and ML tags."""
+    """How many of the first primary, mapped reads carry MM and ML tags."""
     cram = ["-T", ref] if ref else []
     command = ["samtools", "view", "-F", "0x904", *cram, alignment, *regions]
-    reads = tagged = 0
-    process = popen(
-        command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
-    )
-    assert process.stdout is not None
-    try:
-        for line in process.stdout:
-            tags = line.rstrip("\n").split("\t")[11:]
-            # The SAM spec's old Mm/Ml names are still written by some tools.
-            names = {tag[:2] for tag in tags}
-            reads += 1
-            tagged += bool(names & {"MM", "Mm"} and names & {"ML", "Ml"})
-            if reads >= limit:
-                break
-    finally:
-        process.stdout.close()
-        if process.poll() is None:
-            process.terminate()
-        process.wait()
-    return TagSample(reads, tagged)
+    reads = tagged = duplex = 0
+    stopped = False
+    with tempfile.TemporaryFile("w+") as errors:
+        process = popen(command, stdout=subprocess.PIPE, stderr=errors, text=True)
+        assert process.stdout is not None
+        try:
+            for line in process.stdout:
+                tags = line.rstrip("\n").split("\t")[11:]
+                # The SAM spec's old Mm/Ml names are still written by some tools.
+                names = {tag[:2] for tag in tags}
+                reads += 1
+                if names & {"MM", "Mm"} and names & {"ML", "Ml"}:
+                    tagged += 1
+                    duplex += any(
+                        tag[:2] in ("MM", "Mm") and _is_duplex(tag) for tag in tags
+                    )
+                if reads >= limit:
+                    stopped = True
+                    break
+        finally:
+            process.stdout.close()
+            if stopped and process.poll() is None:
+                process.terminate()
+            returncode = process.wait()
+        if returncode and not stopped:
+            errors.seek(0)
+            raise WGSExtractError(
+                f"samtools could not read {alignment}: "
+                f"{errors.read().strip() or f'exit code {returncode}'}"
+            )
+    return TagSample(reads, tagged, duplex)
 
 
 def require_modification_platform(platform: str | None) -> None:
@@ -258,6 +275,18 @@ def check_modification_tags(sample: TagSample, platform: str | None) -> None:
             f"Only {sample.tagged} of {sample.reads} sampled reads carry MM/ML tags; "
             "methylation will come from those reads alone, at lower coverage."
         )
+    if sample.duplex == sample.tagged:
+        raise WGSExtractError(
+            f"All {sample.tagged} sampled reads with MM/ML tags are duplex (they "
+            "carry opposite-strand entries such as G-m), and modkit pileup skips "
+            "such reads. Use the simplex reads (Dorado writes them alongside duplex "
+            "ones) or run modkit pileup-hemi directly."
+        )
+    if sample.duplex:
+        logging.warning(
+            f"{sample.duplex} of {sample.tagged} sampled reads with MM/ML tags are "
+            "duplex; modkit pileup skips them, so coverage comes from simplex reads."
+        )
 
 
 @dataclass(frozen=True)
@@ -296,53 +325,80 @@ SUMMARY_COLUMNS = [
 ]
 
 
+@dataclass
+class _ModTally:
+    sites: int = 0
+    calls: int = 0
+    modified: int = 0
+    percent_sum: float = 0.0
+    high: int = 0
+    low: int = 0
+    # Coverage -> site count, for an exact median in constant memory.
+    coverages: Counter[int] = field(default_factory=Counter)
+
+    def add(self, coverage: int, modified: int, percent: float) -> None:
+        self.calls += coverage
+        self.modified += modified
+        self.percent_sum += percent
+        self.high += percent >= 80
+        self.low += percent <= 20
+        self.coverages[coverage] += 1
+
+    def summary(self, code: str) -> ModSummary:
+        n = self.coverages.total()
+        return ModSummary(
+            modification=MOD_NAMES.get(code, code),
+            sites=self.sites,
+            summary_sites=n,
+            median_coverage=_counter_median(self.coverages),
+            weighted_percent=100 * self.modified / self.calls if self.calls else 0.0,
+            mean_site_percent=self.percent_sum / n if n else 0.0,
+            high_sites_percent=100 * self.high / n if n else 0.0,
+            low_sites_percent=100 * self.low / n if n else 0.0,
+        )
+
+
+def _counter_median(counts: Counter[int]) -> float:
+    n = counts.total()
+    lower, upper = (n - 1) // 2, n // 2
+    seen = 0
+    low: int | None = None
+    for value in sorted(counts):
+        seen += counts[value]
+        if low is None and seen > lower:
+            low = value
+        if seen > upper:
+            assert low is not None
+            return (low + value) / 2
+    return 0
+
+
 def summarize_bedmethyl(
     path: str, min_coverage: int = SUMMARY_MIN_COVERAGE
 ) -> list[ModSummary]:
     """Per modification: weighted (pooled calls) and per-site methylation levels.
 
+    Streams the table, so whole-genome all-context output fits in memory.
     bedMethyl columns: 4 modification code, 10 valid coverage, 11 percent
     modified, 12 modified calls.
     """
-    sites: dict[str, int] = {}
-    coverages: dict[str, list[int]] = {}
-    modified: dict[str, int] = {}
-    percents: dict[str, list[float]] = {}
+    tallies: dict[str, _ModTally] = {}
     opener = gzip.open if path.endswith((".gz", ".bgz")) else open
     with opener(path, "rt") as handle:
         for line in handle:
             fields = line.split("\t")
             if len(fields) < 12:
                 continue
-            code, coverage = fields[3], int(fields[9])
-            sites[code] = sites.get(code, 0) + 1
-            if coverage < min_coverage:
-                continue
-            coverages.setdefault(code, []).append(coverage)
-            modified[code] = modified.get(code, 0) + int(fields[11])
-            percents.setdefault(code, []).append(float(fields[10]))
-    summaries = []
+            tally = tallies.setdefault(fields[3], _ModTally())
+            tally.sites += 1
+            coverage = int(fields[9])
+            if coverage >= min_coverage:
+                tally.add(coverage, int(fields[11]), float(fields[10]))
     order = list(MOD_NAMES)
-    for code in sorted(
-        sites, key=lambda c: (order.index(c) if c in order else len(order), c)
-    ):
-        covs, pcts = coverages.get(code, []), percents.get(code, [])
-        n = len(pcts)
-        summaries.append(
-            ModSummary(
-                modification=MOD_NAMES.get(code, code),
-                sites=sites[code],
-                summary_sites=n,
-                median_coverage=statistics.median(covs) if covs else 0,
-                weighted_percent=100 * modified.get(code, 0) / sum(covs)
-                if covs
-                else 0.0,
-                mean_site_percent=statistics.fmean(pcts) if pcts else 0.0,
-                high_sites_percent=100 * sum(p >= 80 for p in pcts) / n if n else 0.0,
-                low_sites_percent=100 * sum(p <= 20 for p in pcts) / n if n else 0.0,
-            )
-        )
-    return summaries
+    codes = sorted(
+        tallies, key=lambda c: (order.index(c) if c in order else len(order), c)
+    )
+    return [tallies[code].summary(code) for code in codes]
 
 
 def write_summary(path: str, summaries: list[ModSummary]) -> None:
@@ -350,6 +406,18 @@ def write_summary(path: str, summaries: list[ModSummary]) -> None:
         out.write("\t".join(SUMMARY_COLUMNS) + "\n")
         for summary in summaries:
             out.write("\t".join(summary.row()) + "\n")
+
+
+def index_fasta(fasta: str) -> None:
+    """modkit and --region both need the reference's .fai."""
+    if Path(f"{fasta}.fai").is_file():
+        return
+    try:
+        run_command(["samtools", "faidx", fasta], capture_output=True)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise WGSExtractError(
+            f"Could not index {fasta}: {e}. Run samtools faidx on it first."
+        ) from e
 
 
 def cmd_pileup(args: argparse.Namespace) -> None:
@@ -404,6 +472,7 @@ def cmd_pileup(args: argparse.Namespace) -> None:
         plain_reference(ref, outdir) as use_ref,
         tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_modkit_") as work,
     ):
+        index_fasta(use_ref)
         intervals = bed = None
         if region:
             intervals = region_intervals(region, read_fai_lengths(use_ref))
