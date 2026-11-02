@@ -17,6 +17,10 @@ of reusing potentially untagged paired FASTQs. `--keep-fastq` and GPU ONT
 alignment are refused rather than silently losing modification data; for a
 retained intermediate use `samtools fastq -T MM,ML,MN` separately.
 
+For CRAM realignment, `--input-ref` supplies the original decoding FASTA for
+both platform detection and extraction; `--ref` selects the alignment target.
+The usual realignment disk-space preflight also applies to streamed ONT reads.
+
 Platform detection and tagged CPU alignment/realignment are supported.
 Whole-genome ONT accuracy, variant calling and methylation analysis are not
 qualified by this change; whole-genome validation is tracked in #299.

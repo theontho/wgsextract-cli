@@ -127,7 +127,7 @@ def resolve_platform(args: argparse.Namespace, reads: str | None) -> str:
     """Explicit platform overrides shared read-group/read-name detection."""
     if args.platform:
         return str(args.platform)
-    detected = input_platform(reads)
+    detected = input_platform(reads, getattr(args, "input_ref", None))
     if detected:
         logging.info(
             "Detected %s reads: selecting platform-specific alignment defaults.",

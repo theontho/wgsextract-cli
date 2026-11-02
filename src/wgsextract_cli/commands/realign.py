@@ -297,7 +297,17 @@ def run(args: argparse.Namespace) -> None:
             )
         align_args = argparse.Namespace(**vars(args))
         align_args.r1 = args.input
-        align_args._input_cram_opt = _input_cram_reference(args)
+        ont_cram_opt = _input_cram_reference(args)
+        align_args._input_cram_opt = (
+            ["--reference", ont_cram_opt[1]] if ont_cram_opt else []
+        )
+        if not args.no_preflight:
+            _preflight_disk_space(
+                args.input,
+                outdir,
+                need_extract=False,
+                reads=indexed_read_count(args.input, threads),
+            )
         align_cmd.run(align_args)
         return
 

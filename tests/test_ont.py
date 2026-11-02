@@ -5,7 +5,7 @@ from argparse import Namespace
 import pytest
 
 from tests.htslib_helpers import needs_tools, run_wgsextract, sam_to_bam, write_fasta
-from wgsextract_cli.commands import align
+from wgsextract_cli.commands import align, realign
 from wgsextract_cli.commands.info.metrics import determine_sequencer
 from wgsextract_cli.core import sequencing
 from wgsextract_cli.core.utils import WGSExtractError, run_command
@@ -78,6 +78,55 @@ def test_platform_probe_is_cached_per_input_revision(tmp_path, monkeypatch):
     assert len(headers) == 2
 
 
+def test_realign_platform_probe_uses_input_decoding_reference(monkeypatch):
+    seen = []
+
+    def detect(reads, reference):
+        seen.append((reads, reference))
+        return "ont"
+
+    monkeypatch.setattr(align, "input_platform", detect)
+    args = Namespace(platform=None, input_ref="original.fa")
+    assert align.resolve_platform(args, "reads.cram") == "ont"
+    assert seen == [("reads.cram", "original.fa")]
+
+
+@pytest.mark.parametrize("skip_preflight", [False, True])
+def test_ont_realign_honors_disk_space_preflight(tmp_path, monkeypatch, skip_preflight):
+    bam = tmp_path / "ont.bam"
+    bam.write_bytes(b"synthetic")
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\nACGT\n")
+    monkeypatch.setattr(realign, "resolve_reference", lambda *_args: str(ref))
+    monkeypatch.setattr(realign, "indexed_read_count", lambda *_args: 2)
+    monkeypatch.setattr(realign, "check_free_space", lambda *_args: False)
+    runs = []
+    monkeypatch.setattr(align, "run", lambda args: runs.append(args))
+    args = Namespace(
+        input=str(bam),
+        r1=None,
+        r2=None,
+        platform="ont",
+        long_read=False,
+        aligner="auto",
+        gpu=False,
+        preset=None,
+        ref=str(ref),
+        threads="1",
+        memory="256M",
+        outdir=str(tmp_path / "out"),
+        keep_fastq=False,
+        no_preflight=skip_preflight,
+    )
+    if skip_preflight:
+        realign.run(args)
+        assert len(runs) == 1
+    else:
+        with pytest.raises(WGSExtractError, match="Insufficient free disk"):
+            realign.run(args)
+        assert not runs
+
+
 @needs_tools("samtools")
 def test_bam_without_read_group_uses_read_name(tmp_path):
     bam = sam_to_bam(
@@ -89,8 +138,10 @@ def test_bam_without_read_group_uses_read_name(tmp_path):
 
 @needs_tools("samtools", "minimap2")
 @pytest.mark.parametrize("command", ["align", "realign"])
-@pytest.mark.parametrize("fastq", [False, True])
-def test_ont_modification_tags_survive_alignment_and_sort(tmp_path, command, fastq):
+@pytest.mark.parametrize("source_kind", ["bam", "fastq", "cram"])
+def test_ont_modification_tags_survive_alignment_and_sort(
+    tmp_path, command, source_kind
+):
     rng = random.Random(24)
     genome = "".join(rng.choices("ACGT", k=8000))
     ref = write_fasta(tmp_path / "ref.fa", {"chr1": genome})
@@ -109,7 +160,7 @@ def test_ont_modification_tags_survive_alignment_and_sort(tmp_path, command, fas
     )
     assert sequencing.input_platform(bam) == "ont"
     reads = bam
-    if fastq:
+    if source_kind == "fastq":
         path = tmp_path / "ont.fq"
         path.write_text(
             "".join(
@@ -119,10 +170,33 @@ def test_ont_modification_tags_survive_alignment_and_sort(tmp_path, command, fas
             )
         )
         reads = str(path)
+    elif source_kind == "cram":
+        mapped = []
+        for i, record in enumerate(records):
+            fields = record.split("\t")
+            fields[1:6] = [
+                str(16 if i else 0),
+                "chr1",
+                str(4001 if i else 501),
+                "60",
+                "2000M",
+            ]
+            fields[9] = genome[4000:6000] if i else genome[500:2500]
+            mapped.append("\t".join(fields))
+        mapped_bam = sam_to_bam(
+            ["@SQ\tSN:chr1\tLN:8000", *mapped], tmp_path / "mapped.bam"
+        )
+        cram = tmp_path / "ont.cram"
+        run_command(["samtools", "view", "-C", "-T", ref, "-o", cram, mapped_bam])
+        run_command(["samtools", "index", cram])
+        reads = str(cram)
     out = tmp_path / "result"
-    opts = ["--r1", reads] if command == "align" else ["--input", bam]
-    if command == "realign" and fastq:
+    opts = ["--r1", reads] if command == "align" else ["--input", reads]
+    if command == "realign" and source_kind == "fastq":
+        opts = ["--input", bam]
         opts += ["--r1", reads]
+    if command == "realign" and source_kind == "cram":
+        opts += ["--input-ref", str(ref)]
     run_wgsextract(
         command,
         *opts,
