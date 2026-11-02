@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import filecmp
+import functools
 import hashlib
 import logging
 import os
@@ -140,12 +141,23 @@ def _staged_copy(source: Path, destination: Path, *, suffix: str) -> Path:
     staging = Path(name)
     try:
         shutil.copyfile(source, staging)
+        # mkstemp makes 0600; publish with the mode a fresh download would get.
+        if os.name != "nt":
+            os.chmod(staging, 0o666 & ~_process_umask())
         with staging.open("rb+") as stream:
             os.fsync(stream.fileno())
     except BaseException:
         staging.unlink(missing_ok=True)
         raise
     return staging
+
+
+@functools.cache
+def _process_umask() -> int:
+    # Read once: os.umask can only be read by setting it, which races threads.
+    mask = os.umask(0o022)
+    os.umask(mask)
+    return mask
 
 
 def _publish(staging: Path, destination: Path) -> bool:

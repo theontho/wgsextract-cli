@@ -3,6 +3,7 @@ skip the cache, never fail a download."""
 
 import logging
 import os
+import stat
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -303,3 +304,18 @@ def test_a_windows_sharing_violation_accepts_only_an_identical_concurrent_publis
     result = cache.restore_cached_download(URL, destination, checksum_hint="h")
     assert result == (cached if restored else None)
     assert [p.name for p in destination.parent.iterdir()] == [destination.name]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_restored_and_cached_files_get_the_fresh_download_mode(enabled, tmp_path):
+    fresh = tmp_path / "fresh"
+    fresh.write_bytes(b"x")
+    expected = stat.S_IMODE(fresh.stat().st_mode)
+    cached = cache.store_download_in_dev_cache(URL, enabled)
+    assert cached is not None
+    assert stat.S_IMODE(cached.stat().st_mode) == expected
+    cached.chmod(0o600)  # an entry stored before this fix
+    destination = tmp_path / "out" / "hs38.fa.gz"
+
+    assert cache.restore_cached_download(URL, destination) == cached
+    assert stat.S_IMODE(destination.stat().st_mode) == expected
