@@ -20,7 +20,7 @@ from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 pytestmark = needs_htslib
 
-CONTIGS = ("chr1", "chrX", "chrY", "chrM")
+CONTIGS = ("chr1", "chr7", "chrX", "chrY", "chrM")
 SNP_POS = 300  # every chrY and chrM read carries an ALT base here
 READ_STARTS = [201 + 8 * i for i in range(12)]  # all cover SNP_POS
 
@@ -32,7 +32,8 @@ def _alt(base: str) -> str:
 @pytest.fixture(scope="module")
 def genome(tmp_path_factory):
     """A reference and two BAMs: male (reads on every contig, two unmapped) and
-    female (no chrY or unmapped reads). Reads are named <contig>_<start>."""
+    female (no chrY or unmapped reads; chrX as deep as chr7, so two X copies).
+    Reads are named <contig>_<start>."""
     root = tmp_path_factory.mktemp("extract")
     rng = random.Random(7)
     seqs = {c: "".join(rng.choice("ACGT") for _ in range(1000)) for c in CONTIGS}
@@ -56,7 +57,7 @@ def genome(tmp_path_factory):
         header + [r for c in CONTIGS for r in reads(c)] + unmapped, root / "male.bam"
     )
     female = sam_to_bam(
-        header + [r for c in ("chr1", "chrX", "chrM") for r in reads(c)],
+        header + [r for c in ("chr1", "chr7", "chrX", "chrM") for r in reads(c)],
         root / "female.bam",
     )
     return {"ref": str(ref), "seqs": seqs, "male": male, "female": female}
