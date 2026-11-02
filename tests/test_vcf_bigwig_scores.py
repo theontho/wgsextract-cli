@@ -75,8 +75,14 @@ def test_windowed_scores_match_exact_stats_across_gaps_and_boundaries(
                     f"chr1\t{pos}\t{ref}\t{alt}\t{score:.4g}\n" for alt in alts
                 )
         assert actual == expected
-        assert [args for method, args in calls if method == "stats"] == [("1", 12, 24)]
+        assert [args for method, args in calls if method == "stats"] == [
+            ("1", 12, 20),
+            ("1", 20, 24),
+        ]
         assert len([method for method, _args in calls if method == "values"]) == 4
         window = bigwig_scores._ScoreWindow(source, source.chroms())
         assert window.maximum("1", 0, 1) == -4.0
         assert window.maximum("2", 4, 5) == -7.0
+        assert window.maximum("1", 11, 31) == 3.0
+        assert window.maximum("1", 15, 29) is None
+        assert window.maximum("2", 0, 16) == -7.0

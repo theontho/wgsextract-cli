@@ -33,8 +33,15 @@ class _ScoreWindow:
         # Very long REF alleles must not turn a bounded window into a
         # chromosome-sized allocation.
         if end - start > _WINDOW_SIZE:
-            score = self.bw.stats(chrom, start, end, type="max", exact=True)[0]
-            return float(score) if score is not None else None
+            scores = (
+                self.bw.stats(
+                    chrom, left, min(left + _WINDOW_SIZE, end), type="max", exact=True
+                )[0]
+                for left in range(start, end, _WINDOW_SIZE)
+            )
+            return max(
+                (float(score) for score in scores if score is not None), default=None
+            )
         if chrom != self.chrom or start < self.start or end > self.end:
             self.chrom = chrom
             self.start = start // _WINDOW_SIZE * _WINDOW_SIZE
