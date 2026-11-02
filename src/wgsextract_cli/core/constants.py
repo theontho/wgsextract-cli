@@ -36,7 +36,9 @@ SEQUENCERS = {
     "MGI DNB G400 FAST": r"^([CV]L?100\d{6})(L\d)(C\d{3})(R\d{3})_?(\d{6,8})([/1]?|[/2]?)$",
     "MGI DNB G400 (YSEQ)": r"^(YSEQ1):\d+:[A-Z0-9]{10,12}:\d:\d{5,7}:\d{3}:\d{3}$",
     "PacBio HiFi Revio": r"^(m\d{5}e?)_\d{6}_\d{6}(_s\d+)?/\d{9}/ccs",
-    "Ultima Genomics UG 100": r"^(\d{6,}(?:_\d+)?)-([A-Z]\d{4,})-(\d{10})$",
+    # Ultima's own CRAMs carry the barcode (038266_2-Z0138-3185054028);
+    # MyHeritage's leave it out (608478_2-3317701967).
+    "Ultima Genomics UG 100": r"^(\d{6,}(?:_\d+)?)-(?:([A-Z]\d{4,})-)?(\d{10})$",
     "Oxford Nanopore": r"^([0-9a-f]{8})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{12})$",
     "Unknown": r"^[\S]+$",
 }

@@ -18,8 +18,11 @@ from wgsextract_cli.core.constants import (
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import n_count_paths
+from wgsextract_cli.core.ultima import is_ultima_header
 from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
 from wgsextract_cli.core.variant_files import calculate_bam_md5
+
+ULTIMA_SEQUENCER = "Ultima Genomics UG 100"
 
 
 class IdxStat(TypedDict):
@@ -40,16 +43,17 @@ def is_primary_contig(name: str) -> bool:
     return key.isdigit() or key in {"X", "Y"}
 
 
-def determine_sequencer(qname: str | None) -> str:
-    """Identify sequencer type from QNAME using regex patterns."""
-    if not qname:
-        return "Unknown"
+def determine_sequencer(qname: str | None, header: str = "") -> str:
+    """Identify sequencer type from QNAME using regex patterns, falling back to
+    the read groups' platform (PL:ULTIMA) for names it doesn't know."""
     for name, pattern in SEQUENCERS.items():
-        if re.search(pattern, qname):
+        if name != "Unknown" and qname and re.search(pattern, qname):
             # Special logic for Dante MGI flow plate ID from legacy
             if "6xxx" in name:
                 return name.replace("6xxx", qname[6:10] + " bad")
             return name
+    if header and is_ultima_header(header):
+        return ULTIMA_SEQUENCER
     # If unrecognized, return "Unknown" so we can show the full QNAME in detailed info
     return "Unknown"
 
