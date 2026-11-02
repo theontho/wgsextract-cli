@@ -45,7 +45,7 @@ Run `wgsextract help` for the live tree from your installed version, `wgsextract
 ::: grid three
 ::: card
 ### Info and QC
-`info` (build, integrity, read metrics; `--csv` for machine-readable output), `info calculate-coverage` (exact breadth via samtools coverage, written to `<input>_coverage.tsv`; `--bins` streams depth bands 0 / 1–3 / 4–7 / 8+), `info coverage-sample` (fast estimate), plus `qc fastqc`, `qc fastp`, `qc multiqc` (offline FastQC report aggregation), `qc vcf`, and `qc fake-data`.
+`info` (build, integrity, read metrics; `--csv` for machine-readable output), `info calculate-coverage` (exact breadth via samtools coverage, written to `<input>_coverage.tsv`; `--bins` streams depth bands 0 / 1–3 / 4–7 / 8+), `info coverage-sample` (fast estimate), `info chip` (which vendor chip revision a microarray raw file is, with a confidence score and the matching `--formats` template), plus `qc fastqc`, `qc fastp`, `qc multiqc` (offline FastQC report aggregation), `qc vcf`, and `qc fake-data`.
 :::
 
 ::: card

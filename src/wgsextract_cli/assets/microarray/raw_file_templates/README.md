@@ -163,3 +163,12 @@ This template's positions are NCBI36 (hg18). Its markers are lifted to GRCh37
 with UCSC's `hg18ToHg19.over.chain.gz`, downloaded once into the reference
 library, both for the genome-wide target and to find each marker's call.
 Without the chain, calls are matched by rsID.
+
+## Which revision a template is
+
+Each template is one marker list, so one chip revision. The
+[chip-revision catalogue](../revisions/README.md) fingerprints every template
+and the revisions observed in public exports, and `wgsextract info chip
+--list` shows which template each revision matches, or the closest one with
+the markers it adds and drops. Run `wgsextract info chip --input <raw file>` to
+check which revision a kit is before choosing `--formats`.

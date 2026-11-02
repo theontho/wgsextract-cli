@@ -1,0 +1,237 @@
+{
+ "templates": [
+  "23andMe_V2",
+  "23andMe_V3",
+  "23andMe_V4",
+  "23andMe_V5",
+  "23andMe_V5_2025",
+  "23andMe_V35",
+  "23andMe_SNPs_API",
+  "Ancestry_V1",
+  "Ancestry_V2",
+  "Ancestry_V2_2021",
+  "Ancestry_V2_2024",
+  "FTDNA_V1_Affy",
+  "FTDNA_V2",
+  "FTDNA_V3",
+  "MyHeritage_V1",
+  "MyHeritage_V2",
+  "MyHeritage_GSA_2025",
+  "MyHeritage_GSA_2025_609424",
+  "LDNA_V1",
+  "LDNA_V2",
+  "Nucleus_V1"
+ ],
+ "revisions": [
+  {
+   "id": "23andme_v2",
+   "template": "23andMe_V2",
+   "vendor": "23andMe",
+   "chip": "v2",
+   "revision": "574,518-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v3",
+   "template": "23andMe_V3",
+   "vendor": "23andMe",
+   "chip": "v3",
+   "revision": "WGS Extract reference-library layout",
+   "build": "GRCh37",
+   "kind": "reference-library",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v4",
+   "template": "23andMe_V4",
+   "vendor": "23andMe",
+   "chip": "v4",
+   "revision": "WGS Extract reference-library layout",
+   "build": "GRCh37",
+   "kind": "reference-library",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v5",
+   "template": "23andMe_V5",
+   "vendor": "23andMe",
+   "chip": "v5",
+   "revision": "WGS Extract reference-library layout",
+   "build": "GRCh37",
+   "kind": "reference-library",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v5_2025",
+   "template": "23andMe_V5_2025",
+   "vendor": "23andMe",
+   "chip": "v5",
+   "revision": "643,161-marker export layout, 2025",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v35",
+   "template": "23andMe_V35",
+   "vendor": "23andMe",
+   "chip": "v3+v5",
+   "revision": "union of v3 and v5 markers",
+   "build": "GRCh37",
+   "kind": "composite",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_snps_api",
+   "template": "23andMe_SNPs_API",
+   "vendor": "23andMe",
+   "chip": "API",
+   "revision": "23andMe API marker set",
+   "build": "GRCh37",
+   "kind": "composite",
+   "declares_vendor": true
+  },
+  {
+   "id": "ancestry_v1",
+   "template": "Ancestry_V1",
+   "vendor": "AncestryDNA",
+   "chip": "V1.0",
+   "revision": "WGS Extract reference-library layout",
+   "build": "GRCh37",
+   "kind": "reference-library",
+   "declares_vendor": true
+  },
+  {
+   "id": "ancestry_v2",
+   "template": "Ancestry_V2",
+   "vendor": "AncestryDNA",
+   "chip": "V2.0",
+   "revision": "WGS Extract reference-library layout",
+   "build": "GRCh37",
+   "kind": "reference-library",
+   "declares_vendor": true
+  },
+  {
+   "id": "ancestry_v2_2021",
+   "template": "Ancestry_V2_2021",
+   "vendor": "AncestryDNA",
+   "chip": "V2.0",
+   "revision": "677,864-marker export layout, 2021",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "ancestry_v2_2024",
+   "template": "Ancestry_V2_2024",
+   "vendor": "AncestryDNA",
+   "chip": "V2.0",
+   "revision": "677,436-marker export layout, 2024-2025",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "ftdna_v1_affy",
+   "template": "FTDNA_V1_Affy",
+   "vendor": "FamilyTreeDNA",
+   "chip": "Affymetrix v1",
+   "revision": "WGS Extract reference-library layout",
+   "build": "NCBI36",
+   "kind": "reference-library",
+   "declares_vendor": false
+  },
+  {
+   "id": "ftdna_v2",
+   "template": "FTDNA_V2",
+   "vendor": "FamilyTreeDNA",
+   "chip": "Illumina OmniExpress",
+   "revision": "WGS Extract reference-library layout",
+   "build": "GRCh37",
+   "kind": "reference-library",
+   "declares_vendor": false
+  },
+  {
+   "id": "ftdna_v3",
+   "template": "FTDNA_V3",
+   "vendor": "FamilyTreeDNA",
+   "chip": "Illumina GSA",
+   "revision": "WGS Extract reference-library layout",
+   "build": "GRCh37",
+   "kind": "reference-library",
+   "declares_vendor": false
+  },
+  {
+   "id": "myheritage_v1",
+   "template": "MyHeritage_V1",
+   "vendor": "MyHeritage",
+   "chip": "Illumina OmniExpress",
+   "revision": "WGS Extract reference-library layout",
+   "build": "GRCh37",
+   "kind": "reference-library",
+   "declares_vendor": true
+  },
+  {
+   "id": "myheritage_v2",
+   "template": "MyHeritage_V2",
+   "vendor": "MyHeritage",
+   "chip": "GSA",
+   "revision": "WGS Extract reference-library layout",
+   "build": "GRCh37",
+   "kind": "reference-library",
+   "declares_vendor": true
+  },
+  {
+   "id": "myheritage_gsa_2025",
+   "template": "MyHeritage_GSA_2025",
+   "vendor": "MyHeritage",
+   "chip": "GSA",
+   "revision": "609,346-marker export layout, 2025",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "myheritage_gsa_2025_609424",
+   "template": "MyHeritage_GSA_2025_609424",
+   "vendor": "MyHeritage",
+   "chip": "GSA",
+   "revision": "609,424-marker export layout, 2025",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "ldna_v1",
+   "template": "LDNA_V1",
+   "vendor": "Living DNA",
+   "chip": "v1",
+   "revision": "WGS Extract reference-library layout",
+   "build": "GRCh37",
+   "kind": "reference-library",
+   "declares_vendor": true
+  },
+  {
+   "id": "ldna_v2",
+   "template": "LDNA_V2",
+   "vendor": "Living DNA",
+   "chip": "v2",
+   "revision": "WGS Extract reference-library layout",
+   "build": "GRCh37",
+   "kind": "reference-library",
+   "declares_vendor": true
+  },
+  {
+   "id": "nucleus_v1",
+   "template": "Nucleus_V1",
+   "vendor": "Nucleus",
+   "chip": "v1",
+   "revision": "665,107-marker export layout, 2025",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": false
+  }
+ ]
+}
