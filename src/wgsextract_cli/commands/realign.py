@@ -100,8 +100,8 @@ def register(
     parser.add_argument(
         "--platform",
         choices=align_cmd.PLATFORMS,
-        help="Sequencing platform (default: ultima when the input's read group "
-        "says so, else illumina).",
+        help="Sequencing platform (default: detected from read groups or read "
+        "names, else illumina).",
     )
     parser.add_argument(
         "--preset",
@@ -287,6 +287,19 @@ def run(args: argparse.Namespace) -> None:
     threads, memory = get_resource_defaults(args.threads, args.memory)
     outdir = args.outdir or str(absolute_path(args.input).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
+
+    if args.platform in {"ont", "nanopore"} and not args.r1:
+        if args.keep_fastq:
+            raise WGSExtractError(
+                "ONT realignment streams tagged single-end FASTQ to preserve "
+                "MM/ML; --keep-fastq is not supported. Use samtools fastq "
+                "-T MM,ML,MN to retain tagged FASTQ separately."
+            )
+        align_args = argparse.Namespace(**vars(args))
+        align_args.r1 = args.input
+        align_args._input_cram_opt = _input_cram_reference(args)
+        align_cmd.run(align_args)
+        return
 
     if args.platform == "ultima" and not args.r1:
         # Single-end reads with flow tags: streamed into the aligner, no FASTQs.

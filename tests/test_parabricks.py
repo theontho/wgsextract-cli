@@ -146,7 +146,6 @@ def test_fq2bam_gets_the_reads_read_group_and_alt_file(
     ("overrides", "preset"),
     [
         ({"platform": "hifi", "aligner": "minimap2", "r2": None}, "map-hifi"),
-        ({"platform": "ont", "aligner": "minimap2", "r2": None}, "map-ont"),
         ({"platform": "hifi", "aligner": "pbmm2", "r2": None}, "map-pbmm2"),
     ],
 )
@@ -182,6 +181,10 @@ def test_gpu_long_reads_use_parabricks_minimap2(
         ),
         ({"platform": "clr", "aligner": "pbmm2", "r2": None}, "not CLR"),
         ({"aligner": "minimap2"}, "no minimap2 preset for sr"),
+        (
+            {"platform": "ont", "aligner": "minimap2", "r2": None},
+            "preserve MM/ML",
+        ),
     ],
 )
 def test_gpu_alignment_without_a_parabricks_equivalent_is_refused(

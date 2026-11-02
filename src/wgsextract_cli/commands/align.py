@@ -32,6 +32,7 @@ from wgsextract_cli.core.resource_estimates import (
     preflight_resources,
 )
 from wgsextract_cli.core.samtools_commands import parse_memory
+from wgsextract_cli.core.sequencing import input_platform
 from wgsextract_cli.core.temp_directory import configured_temp_directory
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -98,7 +99,7 @@ def register(
         "--platform",
         choices=PLATFORMS,
         help="Sequencing platform; selects platform-specific alignment tooling "
-        "(default: ultima for a BAM/CRAM whose read group says so, else illumina).",
+        "(default: detected from read groups or read names, else illumina).",
     )
     parser.add_argument(
         "--aligner",
@@ -123,14 +124,16 @@ def register(
 
 
 def resolve_platform(args: argparse.Namespace, reads: str | None) -> str:
-    """--platform, else ultima when the reads are a BAM/CRAM with an Ultima read
-    group (FASTQ names don't say: SRA renumbers them), else illumina."""
+    """Explicit platform overrides shared read-group/read-name detection."""
     if args.platform:
         return str(args.platform)
-    if reads and reads.lower().endswith((".bam", ".cram")) and Path(reads).is_file():
-        if ultima.is_ultima_header(get_bam_header(reads)):
-            logging.info(f"{reads} is from an Ultima sequencer: aligning it as such.")
-            return "ultima"
+    detected = input_platform(reads)
+    if detected:
+        logging.info(
+            "Detected %s reads: selecting platform-specific alignment defaults.",
+            detected,
+        )
+        return detected
     return "illumina"
 
 
@@ -138,6 +141,11 @@ def select_aligner(args: argparse.Namespace) -> str:
     """Resolve --aligner auto and reject nonsensical aligner/platform/preset combos."""
     long_read = args.long_read or args.platform in _LONG_READ_PLATFORMS
     aligner: str = args.aligner
+    if args.platform in {"ont", "nanopore"} and getattr(args, "gpu", False):
+        raise WGSExtractError(
+            "ONT --gpu alignment is not qualified to preserve MM/ML methylation "
+            "tags. Align without --gpu to keep them with samtools/minimap2."
+        )
     if args.platform == "ultima":
         require_native_tool("gatk")
         if aligner not in ("auto", *_BWA_ALIGNERS) or long_read or args.preset:
@@ -191,7 +199,8 @@ def add_gpu_argument(parser: argparse.ArgumentParser) -> None:
         "--gpu",
         action="store_true",
         help="Align on an NVIDIA GPU with Parabricks: BWA-MEM for short reads, "
-        "minimap2 for HiFi/ONT (Linux, Docker; see README).",
+        "minimap2 for HiFi (Linux, Docker; see README). ONT requires CPU "
+        "alignment to retain MM/ML methylation tags.",
     )
 
 
@@ -1037,8 +1046,40 @@ def align_minimap2(args: argparse.Namespace) -> None:
         )
     )
     preset = _minimap2_preset(args)
+    logging.info("Using minimap2 preset %s for %s reads.", preset, args.platform)
     align_cmd = ["minimap2", "-ax", preset, "-t", setup.threads]
-    align_cmd += ["-R", read_group(args, setup.stem), setup.ref, args.r1]
+    upstream: list[Sequence[object]] = []
+    ont = args.platform in {"ont", "nanopore"}
+    reads = args.r1
+    if ont:
+        if args.r2:
+            raise WGSExtractError("ONT reads are single-end: drop --r2.")
+        # Soft clipping keeps SEQ and the modification coordinates consistent.
+        align_cmd += ["-y", "-Y"]
+        if reads.lower().endswith((".bam", ".cram", ".sam")):
+            upstream = [
+                [
+                    "samtools",
+                    "fastq",
+                    "-n",
+                    "-F",
+                    "0x900",
+                    "-T",
+                    "MM,ML,MN",
+                    *getattr(args, "_input_cram_opt", []),
+                    reads,
+                ]
+            ]
+            reads = "-"
+        else:
+            # ONT FASTQ comments can mix runid/ch metadata with SAM tags;
+            # minimap2 -y alone would emit invalid SAM for those comments.
+            upstream = [
+                ["samtools", "import", "-u", "-T", "MM,ML,MN", "-0", reads],
+                ["samtools", "fastq", "-n", "-T", "MM,ML,MN", "-"],
+            ]
+            reads = "-"
+    align_cmd += ["-R", read_group(args, setup.stem), setup.ref, reads]
     try:
         run_streamed_alignment(
             align_cmd + ([args.r2] if args.r2 else []),
@@ -1050,6 +1091,7 @@ def align_minimap2(args: argparse.Namespace) -> None:
             duplicates=(
                 duplicate_marker(paired=bool(args.r2)) if preset == "sr" else None
             ),
+            upstream=upstream or None,
         )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Minimap2 alignment failed: {e}") from e

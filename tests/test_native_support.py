@@ -125,7 +125,10 @@ def test_arm_autodetected_ultima_fails_before_preparation(
 ) -> None:
     bam = tmp_path / "ultima.bam"
     bam.write_bytes(b"header supplied by mock")
-    monkeypatch.setattr(align, "get_bam_header", lambda _: "@RG\tID:u\tPL:ULTIMA\n")
+    monkeypatch.setattr(
+        "wgsextract_cli.core.sequencing.get_bam_header",
+        lambda *_args: "@RG\tID:u\tPL:ULTIMA\n",
+    )
     preparation = Mock(
         side_effect=AssertionError("must not prepare an Ultima alignment")
     )
