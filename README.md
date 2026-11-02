@@ -4,16 +4,23 @@
 [![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-An independent command-line recreation of [WGS Extract](https://github.com/WGSExtract/WGSExtract-Dev/). It wraps samtools, bcftools, bwa/minimap2, GATK, Yleaf, Haplogrep, VEP and other tools so you can inspect BAM/CRAM files, simulate consumer microarray files, extract Y/mtDNA data, call and annotate variants, and manage reference genomes from scripts or the terminal. [Pixi](https://pixi.sh) provides Python and the bioinformatics tools on macOS, Linux, and Windows.
+An independent command-line recreation of [WGS Extract](https://github.com/WGSExtract/WGSExtract-Dev/). It wraps samtools, bcftools, bwa/minimap2, GATK, Haplogrep, VEP and other tools and includes native Yleaf-derived Y-DNA analysis, so you can inspect BAM/CRAM files, simulate consumer microarray files, extract Y/mtDNA data, call and annotate variants, and manage reference genomes from scripts or the terminal. [Pixi](https://pixi.sh) provides Python and the bioinformatics tools on macOS, Linux, and Windows.
 
 Documentation site: <https://theontho.github.io/wgsextract-cli/>. A separate graphical app is available from [gui-for-cli](https://github.com/theontho/gui-for-cli/releases).
+
+Y-DNA prediction credits Yleaf's authors at Erasmus MC: Arwin Ralf, Diego
+Montiel Gonzalez, Kaiyin Zhong, Manfred Kayser and Bram van Wersch.
+Please cite Ralf et al., *Molecular Biology and Evolution* 35(5):1291–1294
+(2018), [doi:10.1093/molbev/msy032](https://doi.org/10.1093/molbev/msy032).
+The modified Yleaf-derived files retain GPL-3.0-or-later licensing;
+see [NOTICE](NOTICE) and the [upstream sync procedure](src/wgsextract_cli/ydna/yleaf_native/README.md).
 
 ## Install
 
 macOS and Linux: open Terminal, paste this command, and press Enter.
 Linux x86_64 and native ARM64 (`linux-aarch64`) use the same installer.
 ARM64 phase 1 supports the default alignment/CRAM/calling/export pipeline, VEP,
-Yleaf and Haplogrep. GATK still fails before execution because its native kernels
+native Yleaf-derived Y-DNA analysis and Haplogrep. GATK still fails before execution because its native kernels
 are not yet qualified. DeepVariant has an explicit
 [native CPU source-build path](docs/deepvariant-arm64.md). There is no silent
 Java or x86-emulation fallback. See [Linux ARM64](docs/linux-arm64.md).
@@ -302,7 +309,7 @@ outputs are unchanged.
   - Native ARM's default TensorFlow `call_variants` batch (1024) needs about 26 GiB maximum-child RSS; this is **not** that amount per `--threads` shard. Profiling identifies FP32 oneDNN/ACL inference, not 64K pages (the tested guests use 4K) or malloc arenas. `--batch-size 256` forwards Google's existing CPU inference flag: a chr20 replay reduced inference RSS from 26,971,300 to 7,981,020 KiB (70.4%), with all 210,390 VCF records and fields identical. Models and precision are unchanged; the default remains upstream's 1024.
   - ARM memory preflight accounts separately for the inference batch and concurrent `make_examples` shards. Lowering only `--threads` does not remove the default inference floor. For lower-memory hosts, combine `--batch-size 256` with fewer shards, e.g. `wgsextract vcf deepvariant -i sample.bam --ref reference.fna --batch-size 256 -t 8 -o results`. The conservative WGS estimate is 33 GiB at the qualified 16-shard default, or 17 GiB for this example; it warns about insufficient reclaimable/cgroup-limited RAM, not a memory allocation or promise for custom models. The smaller batch was validated on chr20, not a new full-genome benchmark.
 - `vcf sv` and `vcf cnv` use Delly 2 (`delly sr` / `delly cnv`), which needs no mappability map; `vcf cnv --map` is accepted but ignored.
-- `lineage y-haplogroup` writes Yleaf output to `<outdir>/yleaf/`, because Yleaf clears its output folder.
+- `lineage y-haplogroup` uses native code derived from [Yleaf v4.1.6](https://github.com/genid/Yleaf), not an external Yleaf installation. It writes predictions, marker/QC tables and version provenance to `<outdir>/yleaf/` without deleting the user's directory. Build-specific tables download lazily, SHA-256 verified, from this repo's `yleaf-data-v4.1.6` release into the configured `reference_library`. CRAM and variant-only VCF inference need a matching `--ref`; use `--no-ref-inference` for targeted VCF panels. Choose `--tree yfull|yfull_v10|ftdna|isogg`; `--min-reads`, `--base-quality`, `--base-majority`, `--min-score`, `--ancient` and `--pos-file` replace external-tool passthrough. Align FASTQ first with `align`. See [native Yleaf documentation](src/wgsextract_cli/ydna/yleaf_native/README.md).
 - `extract unmapped --fastq` also writes `_unmapped_R1.fastq.gz`, `_unmapped_R2.fastq.gz`, `_unmapped_SE.fastq.gz` (unpaired reads) and `_unmapped_singletons.fastq.gz` (mates absent from the extraction). Without the flag, only the BAM is written.
 - `lineage y-haplogroup --tree-links` adds YFull/FTDNA links; `lineage mt-haplogroup --tree-links` adds the YFull mtDNA branch and FTDNA public mtDNA tree (use its branch search). Detailed info omits the uncomputed WES-depth row. Missing-reference errors identify the explicit library install command when the alignment matches a catalog model; references are never downloaded automatically.
 - `pet-align` writes next to the R1 FASTQ unless `--outdir` is given.
@@ -444,12 +451,11 @@ threads = "auto"   # Apple Silicon performance cores, otherwise all cores
 memory = "auto"    # per thread, e.g. "2G"; auto uses 25% of RAM split across threads
 
 # External tool overrides (optional when the tools are on PATH)
-yleaf_path = "/path/to/yleaf"
 haplogrep_path = "/path/to/haplogrep"
 vep_cache = "~/.vep"
 ```
 
-The short keys above are aliases; `wgsextract config` shows the canonical names (`input_path`, `output_directory`, `reference_fasta`, `reference_library`, `cpu_threads`, `memory_limit`, `yleaf_executable`, and so on). Either form works. Command-line options override config values for a single run. Other settings cover annotation data paths (`clinvar_vcf_path`, `gnomad_vcf_path`, `revel_tsv_path`, ...), default trio VCFs (`mother_vcf`, `father_vcf`), and the developer settings listed under [Development](#development).
+The short keys above are aliases; `wgsextract config` shows the canonical names (`input_path`, `output_directory`, `reference_fasta`, `reference_library`, `cpu_threads`, `memory_limit`, and so on). Either form works. Command-line options override config values for a single run. Other settings cover annotation data paths (`clinvar_vcf_path`, `gnomad_vcf_path`, `revel_tsv_path`, ...), default trio VCFs (`mother_vcf`, `father_vcf`), and the developer settings listed under [Development](#development).
 
 ### Keep-awake
 

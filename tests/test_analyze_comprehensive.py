@@ -2,7 +2,7 @@ import os
 import shutil
 import unittest
 
-from tests.smoke_utils import REPO_ROOT, ensure_fake_data, run_cli
+from tests.smoke_utils import REPO_ROOT, ensure_fake_data, run_cli, yleaf_tables_cached
 
 
 class TestAnalyzeComprehensive(unittest.TestCase):
@@ -20,9 +20,9 @@ class TestAnalyzeComprehensive(unittest.TestCase):
 
     def test_analyze_comprehensive_bam_only(self):
         """Test analyze comprehensive with only a BAM file."""
+        if not yleaf_tables_cached("hg38"):
+            self.skipTest("Native Yleaf reference tables are not cached")
         # This will trigger variant calling (snp/indel)
-        # Note: We skip Y-lineage because fake data might not have Y reads or Yleaf might fail
-        # But let's see if it works.
 
         args = [
             "analyze",

@@ -23,7 +23,8 @@ installations and removes an empty destination created for a fresh attempt.
 ## Supported phase-1 commands
 
 The default environment includes native BWA, bwa-mem2, minimap2, samtools,
-HTSlib, bcftools, fastp, samblaster, Yleaf and Haplogrep. This covers `align`,
+HTSlib, bcftools, fastp, samblaster and Haplogrep, alongside native Yleaf-derived
+Y-DNA analysis (reference tables download on demand). This covers `align`,
 `realign`, BAM/CRAM sorting/indexing/conversion, bcftools calling, microarray
 export, `info`/coverage and Y/mtDNA lineage commands. BWA uses NEON KSW;
 bwa-mem2's native ARM build uses sse2neon (an intrinsics translation library,

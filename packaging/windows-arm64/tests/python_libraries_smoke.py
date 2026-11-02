@@ -1,4 +1,4 @@
-"""Exercise installed native numerical extensions and the default Yleaf entry."""
+"""Exercise native numerical extensions and the native Y-DNA library entry."""
 
 import argparse
 import io
@@ -14,8 +14,6 @@ import numpy as np
 import pandas as pd
 import psutil
 import six
-import yleaf
-import yleaf.Yleaf
 
 from wgsextract_cli.core.windows_arm64 import (
     IMAGE_FILE_MACHINE_ARM64,
@@ -23,6 +21,8 @@ from wgsextract_cli.core.windows_arm64 import (
     assert_native_windows_python,
     windows_native_machine,
 )
+from wgsextract_cli.ydna.yleaf_native.data import manifest
+from wgsextract_cli.ydna.yleaf_native.markers import get_frequencies
 
 
 def qualify(output: Path, prefix: Path) -> None:
@@ -40,23 +40,26 @@ def qualify(output: Path, prefix: Path) -> None:
     )
     assert six.__version__ == "1.17.0"
     assert psutil.Process().memory_info().rss > 0
-    markers = Path(yleaf.__file__).parent / "data" / "hg38"
-    assert markers.is_dir() and any(markers.iterdir()), "Missing Yleaf marker tables"
+    tables = manifest()
+    assert get_frequencies("AAgt")["A"] == 2
     result = subprocess.run(
         [
             sys.executable,
-            "-c",
-            "from yleaf.Yleaf import main; main()",
+            "-m",
+            "wgsextract_cli.main",
+            "lineage",
+            "y-haplogroup",
             "--help",
         ],
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
         timeout=60,
     )
+    assert result.returncode == 0, result.stderr
     assert "usage:" in result.stdout.lower(), result.stdout
     output.mkdir(parents=True, exist_ok=True)
-    (output / "yleaf-help.txt").write_text(result.stdout, encoding="utf-8")
+    (output / "lineage-help.txt").write_text(result.stdout, encoding="utf-8")
     (output / "libraries.json").write_text(
         json.dumps(
             {
@@ -68,12 +71,11 @@ def qualify(output: Path, prefix: Path) -> None:
                         "pandas",
                         "psutil",
                         "six",
-                        "Yleaf",
                         "setuptools",
                     )
                 },
                 "linear_solve": solution.tolist(),
-                "marker_directory": str(markers),
+                "yleaf_data_release": tables["release_tag"],
             },
             indent=2,
         )

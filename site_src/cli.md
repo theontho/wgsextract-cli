@@ -127,7 +127,7 @@ Some specialized tools live in dedicated Pixi environments. Install them explici
 ::: grid three
 ::: card
 ### default
-General CLI, samtools/bcftools, bwa/minimap2, fastp/fastqc, Delly where supported, Yleaf, Haplogrep, and common workflows. GATK and FreeBayes are separate.
+General CLI, samtools/bcftools, bwa/minimap2, fastp/fastqc, Delly where supported, native Yleaf-derived analysis, Haplogrep, and common workflows. Yleaf tables are verified on-demand data assets, not an external tool or bundle dependency. GATK and FreeBayes are separate.
 
 ```
 pixi run wgsextract deps check

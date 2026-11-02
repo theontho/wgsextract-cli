@@ -87,11 +87,6 @@ def _use_tools(monkeypatch, tools: dict[str, str | None]) -> list[tuple]:
             'err("Program: bwa (alignment)"); err("Version: 0.7.18-r1243"); sys.exit(1)',
             "Version: 0.7.18-r1243",
         ),
-        (
-            "yleaf",
-            'print("usage: Yleaf [-h]"); print("Yleaf: v3.2.1")',
-            "Yleaf: v3.2.1",
-        ),
         # bwa-mem2 prints its usage for --version; `version` prints the version.
         (
             "bwa-mem2",

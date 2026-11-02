@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/genid/Yleaf",
+  "tag": "v4.1.6",
+  "commit": "c167c4e8951623a53c370e7c300a0cfc7f411b62",
+  "files": [
+    "yleaf/predict_haplogroup.py",
+    "yleaf/tree.py",
+    "yleaf/Yleaf.py",
+    "yleaf/yleaf_constants.py"
+  ]
+}

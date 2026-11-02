@@ -1,5 +1,4 @@
-"""lineage y-haplogroup / mt-haplogroup end to end with real bcftools/samtools
-and stand-in Yleaf/Haplogrep scripts that record what they were handed."""
+"""Native Yleaf and Haplogrep integration using real bcftools/samtools."""
 
 import gzip
 import json
@@ -7,6 +6,7 @@ import logging
 import random
 import textwrap
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,15 +17,12 @@ from tests.htslib_helpers import (
     sam_to_bam,
     write_fasta,
 )
+from tests.yleaf_helpers import native_tables as native_tables
 from wgsextract_cli.commands._lineage_ydna import _yleaf_build
 from wgsextract_cli.core.utils import WGSExtractError
 
 pytestmark = needs_htslib
 
-_PREDICTION = (
-    "Sample_name\tHg\tHg_marker\tTotal_reads\tValid_markers\tQC-score\n"
-    "kit\tR1b1a1b1a1a2c1\tR-FGC5494\t0\t120\t0.98\n"
-)
 _HAPLOGREP = '"SampleID"\t"Range"\t"Haplogroup"\t"Rank"\t"Quality"\n'
 
 
@@ -55,27 +52,6 @@ def _fake_tool(path: Path, body: str) -> str:
         + textwrap.dedent(body)
     )
     return str(path)
-
-
-def _yleaf(tmp_path: Path, help_text="", prediction=_PREDICTION, code=0) -> str:
-    return _fake_tool(
-        tmp_path / "yleaf.py",
-        f"""\
-        if "--help" in argv:
-            print({help_text!r})
-            sys.exit(0)
-        flag = next(a for a in argv if a in ("-vcf", "-bam", "-cram", "-fastq"))
-        given = argv[argv.index(flag) + 1]
-        data = os.environ.get("YLEAF_DATA_DIR")
-        log(records=records(given) if flag == "-vcf" else None,
-            placeholder=bool(data) and Path(data, "hg38", "full_reference.fa").is_file())
-        out = Path(argv[argv.index("-o") + 1])
-        out.mkdir(parents=True, exist_ok=True)
-        if {prediction!r} is not None:
-            (out / "hg_prediction.hg").write_text({prediction!r})
-        sys.exit({code})
-        """,
-    )
 
 
 def _haplogrep(
@@ -126,34 +102,29 @@ _KIT_BODY = (
 
 
 @pytest.mark.parametrize("tree_links", [False, True])
-def test_y_haplogroup_from_vcf_hands_yleaf_only_chry(tmp_path, capsys, tree_links):
-    vcf = _vcf(tmp_path / "kit.vcf.gz", _HG38, _KIT_BODY, "##reference=GRCh38.fa\n")
-    pos = tmp_path / "markers.txt"
-    pos.write_text("chrY\t2781480\n")
+def test_y_haplogroup_from_vcf_uses_native_markers_only_on_chry(
+    tmp_path,
+    capsys,
+    tree_links,
+    native_tables,
+):
+    body = "chr1\t100\t.\tA\tT\t50\tPASS\t.\tGT\t1\n" + "".join(
+        f"chrY\t{pos}\t.\tA\tG\t50\tPASS\t.\tGT\t{gt}\n"
+        for pos, gt in ((100, 1), (110, 1), (120, 1), (130, 1), (140, 0), (150, 0))
+    )
+    vcf = _vcf(tmp_path / "kit.vcf.gz", _HG38, body, "##reference=GRCh38.fa\n")
     run_wgsextract(
         "lineage", "y-haplogroup", "--input", vcf, "--outdir", str(tmp_path / "o"),
-        "--yleaf-path", _yleaf(tmp_path, "--no-update-check"), "--threads", "2",
-        "--pos-file", str(pos), "--extra-args", "-force -dh 5",
+        "--no-ref-inference",
         *(["--tree-links"] if tree_links else []),
     )  # fmt: skip
-    (call,) = _calls(tmp_path)
-    assert call["records"] == [
-        ["chrY", "2781480", "C", "T", "1"],
-        ["chrY", "22739367", "G", "A", "1"],
-    ]
-    argv = call["argv"]
-    assert argv[argv.index("-rg") + 1] == "hg38" and argv.count("-force") == 1
-    assert argv[argv.index("-o") + 1] == str(tmp_path / "o" / "yleaf")
-    assert argv[argv.index("-t") + 1] == "2"
-    assert argv[-5:] == ["--no-update-check", "-pos", str(pos), "-dh", "5"]
-    assert call["placeholder"]  # never the ~3 GB reference download
-    # Yleaf's working copy of the VCF is cleaned up; the user's folder is not.
     assert sorted(p.name for p in (tmp_path / "o").iterdir()) == ["yleaf"]
     output = capsys.readouterr().out
-    assert "R1b1a1b1a1a2c1\tR-FGC5494" in output
-    assert ("https://www.yfull.com/tree/R-FGC5494/" in output) is tree_links
+    assert "R1b1\tM-leaf\tVCF\t6\t1.0\t1.0\t1.0\t1.0" in output
+    assert "Ralf et al." in output
+    assert ("https://www.yfull.com/tree/M-leaf/" in output) is tree_links
     assert (
-        "https://discover.familytreedna.com/y-dna/R-FGC5494/tree" in output
+        "https://discover.familytreedna.com/y-dna/M-leaf/tree" in output
     ) is tree_links
 
 
@@ -170,16 +141,96 @@ def test_mitochondrial_tree_links_are_opt_in(tmp_path, capsys):
     assert "FTDNA mtDNA: https://www.familytreedna.com/public/mt-dna-haplotree" in text
 
 
-def test_y_haplogroup_uses_the_vcf_build(tmp_path):
+def test_y_haplogroup_uses_the_vcf_build(tmp_path, monkeypatch):
+    from wgsextract_cli.ydna.yleaf_native import analysis
+
+    seen = []
+
+    def stop(*args, **kwargs):
+        seen.append(kwargs["build"])
+        raise WGSExtractError("stop")
+
+    monkeypatch.setattr(analysis, "analyze", stop)
     hg19 = {"chr1": 249_250_621, "chrY": 59_373_566}
     body = "chrY\t2655180\t.\tG\tA\t50\tPASS\t.\tGT\t1\n"
     vcf = _vcf(tmp_path / "kit.vcf.gz", hg19, body, "##reference=hg19.fa\n")
-    run_wgsextract(
-        "lineage", "y-haplogroup", "--input", vcf, "--yleaf-path", _yleaf(tmp_path)
+    with pytest.raises(WGSExtractError, match="stop"):
+        run_wgsextract("lineage", "y-haplogroup", "--input", vcf)
+    assert seen == ["hg19"]
+
+
+@pytest.mark.parametrize(
+    ("reference_build", "no_inference", "mismatch"),
+    [("hg19", False, True), ("hg38", False, False), ("hg19", True, False)],
+)
+def test_y_build_override_cannot_infer_against_an_incompatible_fasta(
+    tmp_path, monkeypatch, reference_build, no_inference, mismatch
+):
+    from wgsextract_cli.commands import _lineage_ydna
+    from wgsextract_cli.ydna.yleaf_native import analysis
+
+    reference = write_fasta(tmp_path / f"{reference_build}.fa", {"chrY": "A" * 400})
+    vcf = _vcf(
+        tmp_path / "kit.vcf.gz",
+        {"chrY": 400},
+        "chrY\t130\t.\tA\tG\t50\tPASS\t.\tGT\t1\n",
     )
-    argv = _calls(tmp_path)[0]["argv"]
-    assert argv[argv.index("-rg") + 1] == "hg19"
-    assert "--no-update-check" not in argv  # this Yleaf doesn't offer it
+    monkeypatch.setattr(
+        _lineage_ydna,
+        "ReferenceLibrary",
+        lambda *a, **k: SimpleNamespace(fasta=str(reference), build="hg19"),
+    )
+
+    def stop(*args, **kwargs):
+        assert kwargs["build"] == "hg38"
+        assert kwargs["reference"] == reference
+        raise WGSExtractError("analysis reached")
+
+    monkeypatch.setattr(analysis, "analyze", stop)
+    with pytest.raises(
+        WGSExtractError,
+        match="selected reference FASTA is hg19" if mismatch else "analysis reached",
+    ):
+        run_wgsextract(
+            "lineage", "y-haplogroup", "--input", vcf, "--build", "hg38",
+            *(["--no-ref-inference"] if no_inference else []),
+        )  # fmt: skip
+
+
+@pytest.mark.parametrize("indexed", [True, False])
+def test_native_y_vcf_query_uses_regions_only_when_indexed(
+    tmp_path, monkeypatch, indexed
+):
+    from wgsextract_cli.ydna.yleaf_native import analysis
+
+    vcf = Path(
+        _vcf(
+            tmp_path / "kit.vcf.gz",
+            {"chr1": 1000, "chrY": 1000, "Y": 1000},
+            "chr1\t100\t.\tA\tT\t50\tPASS\t.\tGT\t1\n"
+            "chrY\t130\t.\tA\tG\t50\tPASS\t.\tGT\t1\n"
+            "Y\t140\t.\tA\tT\t50\tPASS\t.\tGT\t1\n",
+        )
+    )
+    if not indexed:
+        plain = vcf.with_suffix("")
+        plain.write_bytes(gzip.decompress(vcf.read_bytes()))
+        vcf = plain
+    commands = []
+    run = analysis.run_command
+
+    def capture(command, **kwargs):
+        commands.append(command)
+        return run(command, **kwargs)
+
+    monkeypatch.setattr(analysis, "run_command", capture)
+    calls, has_ad = analysis._query_vcf(vcf)
+    assert not has_ad
+    assert {pos: call.base for pos, call in calls.items()} == {130: "G", 140: "T"}
+    query = next(command for command in commands if "-f" in command)
+    assert ("-r" in query) is indexed
+    if indexed:
+        assert query[query.index("-r") + 1] == "chrY,Y"
 
 
 @pytest.mark.parametrize(
@@ -196,56 +247,30 @@ def test_yleaf_build_defaults_to_hg38_with_a_warning(caplog):
     assert "not supported by Yleaf" in caplog.text
 
 
-def test_y_haplogroup_vcf_without_chry_fails_before_yleaf(tmp_path):
+def test_y_haplogroup_vcf_without_chry_fails(tmp_path, native_tables):
     body = _KIT_BODY.replace("chrY", "chrX")
     vcf = _vcf(tmp_path / "f.vcf.gz", _HG38, body, "##reference=GRCh38.fa\n")
-    with pytest.raises(WGSExtractError, match="no variants on chromosome (chr)?Y"):
-        run_wgsextract(
-            "lineage", "y-haplogroup", "--input", vcf, "--yleaf-path", _yleaf(tmp_path)
-        )
+    with pytest.raises(WGSExtractError, match="no records on chromosome Y"):
+        run_wgsextract("lineage", "y-haplogroup", "--input", vcf, "--no-ref-inference")
     assert not (tmp_path / "calls.jsonl").exists()
 
 
-@pytest.mark.parametrize(
-    ("kwargs", "message"),
-    [
-        ({"code": 3}, "Yleaf failed"),
-        ({"prediction": None}, "did not write"),
-        ({"prediction": "Sample_name\tHg\nkit\tNA\n"}, "could not predict"),
-    ],
-)
-def test_y_haplogroup_reports_yleaf_failures(tmp_path, kwargs, message):
+def test_y_haplogroup_reports_no_matching_markers(tmp_path, native_tables):
     vcf = _vcf(tmp_path / "kit.vcf.gz", _HG38, _KIT_BODY, "##reference=GRCh38.fa\n")
-    with pytest.raises(WGSExtractError, match=message):
+    with pytest.raises(WGSExtractError, match="could not predict"):
         run_wgsextract(
             "lineage", "y-haplogroup", "--input", vcf,
-            "--yleaf-path", _yleaf(tmp_path, **kwargs),
+            "--no-ref-inference",
         )  # fmt: skip
 
 
-def test_y_haplogroup_never_reports_a_previous_runs_prediction(tmp_path):
-    vcf = _vcf(tmp_path / "kit.vcf.gz", _HG38, _KIT_BODY, "##reference=GRCh38.fa\n")
-    argv = ["lineage", "y-haplogroup", "--input", vcf, "--yleaf-path"]
-    run_wgsextract(*argv, _yleaf(tmp_path))
-    with pytest.raises(WGSExtractError, match="did not write"):
-        run_wgsextract(*argv, _yleaf(tmp_path, prediction=None))
-
-
-def test_y_haplogroup_fastq_is_aligned_by_yleaf_with_our_reference(tmp_path, caplog):
+def test_y_haplogroup_fastq_requires_explicit_alignment(tmp_path):
     ref = write_fasta(tmp_path / "ref.fa", {"chrY": "ACGT" * 100})
     fq = tmp_path / "kit.fastq.gz"
     fq.write_bytes(gzip.compress(b"@r1\nACGT\n+\nIIII\n"))
     argv = ["lineage", "y-haplogroup", "--input", str(fq), "--ref", str(ref)]
-    run_wgsextract(*argv, "--yleaf-path", _yleaf(tmp_path, "--ref-fasta"))
-    call = _calls(tmp_path)[0]
-    assert call["argv"][:2] == ["-fastq", str(fq)]
-    assert call["argv"][call["argv"].index("--ref-fasta") + 1] == str(ref)
-    assert call["env"] is None  # Yleaf needs its real reference to align
-
-    with caplog.at_level(logging.WARNING):
-        run_wgsextract(*argv, "--yleaf-path", _yleaf(tmp_path))
-    assert "--ref-fasta" not in _calls(tmp_path)[1]["argv"]
-    assert "No uncompressed reference FASTA" in caplog.text
+    with pytest.raises(WGSExtractError, match="Align FASTQ"):
+        run_wgsextract(*argv)
 
 
 def _reads(chrom: str, genome: str, n: int, start: int = 0, snp: int | None = None):
@@ -259,18 +284,23 @@ def _reads(chrom: str, genome: str, n: int, start: int = 0, snp: int | None = No
     ]
 
 
-def test_y_haplogroup_from_cram_decodes_with_the_reference(tmp_path):
+def test_y_haplogroup_from_cram_decodes_with_the_reference(tmp_path, native_tables):
     rng = random.Random(7)
     genome = "".join(rng.choice("AG") for _ in range(400))
     ref = write_fasta(tmp_path / "ref.fa", {"chrX": genome, "chrY": genome})
     header = ["@SQ\tSN:chrX\tLN:400", "@SQ\tSN:chrY\tLN:400"]
-    bam = sam_to_bam(header + _reads("chrY", genome, 20), tmp_path / "kit.bam")
+    # A derived marker at position 130 (A>G).
+    genome = "".join(
+        "G" if pos in (100, 110, 120, 130) else "A" for pos in range(1, 401)
+    )
+    ref = write_fasta(tmp_path / "ref.fa", {"chrX": genome, "chrY": genome})
+    bam = sam_to_bam(
+        header + _reads("chrY", genome, 20, start=95), tmp_path / "kit.bam"
+    )
     run_wgsextract(
         "lineage", "y-haplogroup", "--input", bam, "--ref", str(ref),
-        "--yleaf-path", _yleaf(tmp_path),
     )  # fmt: skip
-    argv = _calls(tmp_path)[0]["argv"]
-    assert argv[:2] == ["-bam", bam] and "-cr" not in argv
+    bam_prediction = (tmp_path / "yleaf/hg_prediction.hg").read_text()
 
     from wgsextract_cli.core.utils import run_command
 
@@ -279,20 +309,16 @@ def test_y_haplogroup_from_cram_decodes_with_the_reference(tmp_path):
     run_command(["samtools", "index", cram])
     run_wgsextract(
         "lineage", "y-haplogroup", "--input", cram, "--ref", str(ref),
-        "--yleaf-path", _yleaf(tmp_path),
     )  # fmt: skip
-    argv = _calls(tmp_path)[1]["argv"]
-    assert argv[:2] == ["-cram", cram]
-    assert argv[argv.index("-cr") + 1] == str(ref)
+    assert (tmp_path / "yleaf/hg_prediction.hg").read_text() == bam_prediction
 
 
 def test_y_haplogroup_rejects_unsupported_input(tmp_path):
     sam = tmp_path / "kit.sam"
     sam.write_text("@SQ\tSN:chrY\tLN:10\n")
-    with pytest.raises(WGSExtractError, match="Unsupported Yleaf input type"):
+    with pytest.raises(WGSExtractError, match="Native Yleaf accepts"):
         run_wgsextract(
             "lineage", "y-haplogroup", "--input", str(sam),
-            "--yleaf-path", _yleaf(tmp_path),
         )  # fmt: skip
 
 
@@ -312,7 +338,11 @@ def test_y_haplogroup_rejects_unsupported_input(tmp_path):
     ],
 )
 def test_y_haplogroup_detects_build_from_vcf_contig_lengths(
-    tmp_path, meta, contigs, expected
+    tmp_path,
+    meta,
+    contigs,
+    expected,
+    monkeypatch,
 ):
     y = "chrY" if "chrY" in contigs else "Y"
     vcf = _vcf(
@@ -321,11 +351,18 @@ def test_y_haplogroup_detects_build_from_vcf_contig_lengths(
         f"{y}\t100\t.\tA\tG\t50\tPASS\t.\tGT\t1\n",
         meta,
     )
-    run_wgsextract(
-        "lineage", "y-haplogroup", "--input", vcf, "--yleaf-path", _yleaf(tmp_path)
-    )
-    argv = _calls(tmp_path)[0]["argv"]
-    assert argv[argv.index("-rg") + 1] == expected
+    from wgsextract_cli.ydna.yleaf_native import analysis
+
+    seen = []
+
+    def stop(*args, **kwargs):
+        seen.append(kwargs["build"])
+        raise WGSExtractError("stop")
+
+    monkeypatch.setattr(analysis, "analyze", stop)
+    with pytest.raises(WGSExtractError, match="stop"):
+        run_wgsextract("lineage", "y-haplogroup", "--input", vcf)
+    assert seen == [expected]
 
 
 # --- mt-haplogroup -----------------------------------------------------------

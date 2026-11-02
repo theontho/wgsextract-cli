@@ -36,7 +36,6 @@ DEFAULT_CONFIG = """# WGS Extract Configuration
 
 # --- External Tools ---
 # Paths to specific tool executables or directories
-# yleaf_path = "/path/to/yleaf"
 # haplogrep_path = "/path/to/haplogrep"
 # jar_dir = "/path/to/jars"
 

@@ -152,7 +152,7 @@ def _version_output(stdout: str, stderr: str) -> str:
 
 
 # Tools whose version isn't printed by --version (bwa-mem2 prints its usage).
-VERSION_ARGS = {"yleaf": "--help", "bwa-mem2": "version"}
+VERSION_ARGS = {"bwa-mem2": "version"}
 
 
 def get_tool_version(tool: str) -> str | None:
@@ -203,10 +203,6 @@ def get_tool_version(tool: str) -> str | None:
 
         if res.returncode == 0 and output and not output.startswith("[main]"):
             lines = [line.strip() for line in output.splitlines() if line.strip()]
-            if tool == "yleaf":
-                for line in lines:
-                    if line.startswith("Yleaf:") and " v" in line:
-                        return line
             if lines:
                 return lines[0]
 

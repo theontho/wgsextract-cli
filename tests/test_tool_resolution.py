@@ -264,6 +264,8 @@ class TestLegacyRuntimeSettings(unittest.TestCase):
         'runtime_directory = "C:/wgse/runtime"\n'
         'runtime = "wsl"\n'
         'pacman_bin = "C:/msys64/ucrt64/bin"\n'
+        'yleaf_path = "C:/tools/Yleaf.py"\n'
+        'yleaf_executable = "C:/tools/Yleaf.exe"\n'
     )
 
     def test_legacy_runtime_settings_are_ignored_on_load(self):

@@ -66,7 +66,6 @@ $lines += @(
     "",
     "[pypi-dependencies]",
     "wgsextract-cli = { path = $sourceString, editable = true }",
-    'yleaf = { url = "https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379" }',
     'numpy = { url = "https://files.pythonhosted.org/packages/34/52/01d205e5e8ccb27b2b0b141e801f22b830198c979111b0fa44771438d9a9/numpy-2.5.4-cp313-cp313-win_arm64.whl#sha256=bc39ac66a7a9a3fbd6134fda43136b60ffde99c8f4501e64e0d2b24da137babf" }',
     'pandas = { url = "https://files.pythonhosted.org/packages/45/f7/8cdd350c67bc62865d1e30cd7add43dd631420223487ba42dfcfd0d0e052/pandas-3.1.0-cp313-cp313-win_arm64.whl#sha256=54fed4a50b8321ff8d413b46b7e31a023cecefd06c7210c02aa980a9836428b2" }',
     'psutil = { url = "https://files.pythonhosted.org/packages/8c/c7/7bb2e321574b10df20cbde462a94e2b71d05f9bbda251ef27d104668306a/psutil-7.2.2-cp37-abi3-win_arm64.whl#sha256=8c233660f575a5a89e6d4cb65d9f938126312bca76d8fe087b947b3a1aaac9ee" }',
@@ -103,7 +102,7 @@ $verifiedLines = foreach ($line in $lines) {
         "$name = { path = $localPath }"
     } else { $line }
 }
-if ($verifiedPypi.Count -ne 4) { throw "Missing verified direct-URL PyPI inputs" }
+if ($verifiedPypi.Count -ne 3) { throw "Missing verified direct-URL PyPI inputs" }
 $pathPins = Join-Path $Destination "out\pypi-pins.json"
 $verifiedPypi | ConvertTo-Json | Set-Content $pathPins -Encoding utf8NoBOM
 $verifiedLines | Set-Content $manifestPath -Encoding utf8NoBOM

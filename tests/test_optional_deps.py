@@ -136,29 +136,6 @@ class TestOptionalDependencies(unittest.TestCase):
                 f"/usr/local/bin/pixi run --no-install --manifest-path {MANIFEST} -e default samtools",
             )
 
-    def test_get_tool_path_can_return_uppercase_yleaf_pixi_fallback(self):
-        from wgsextract_cli.core.dependencies import get_tool_path
-
-        completed = MagicMock(returncode=0, stdout="direct-name:Yleaf\n")
-        with (
-            patch(
-                "wgsextract_cli.core.dependencies.shutil.which",
-                side_effect=lambda tool: (
-                    "/usr/local/bin/pixi" if tool == "pixi" else None
-                ),
-            ),
-            patch(
-                "wgsextract_cli.core.pixi_tools.subprocess.run",
-                return_value=completed,
-            ) as mock_run,
-        ):
-            self.assertEqual(
-                get_tool_path("yleaf"),
-                f"/usr/local/bin/pixi run --no-install --manifest-path {MANIFEST} -e default Yleaf",
-            )
-
-        self.assertEqual(mock_run.call_args.args[0][-2:], ["yleaf", "Yleaf"])
-
     @patch("wgsextract_cli.core.dependencies.Path.exists", return_value=True)
     def test_native_windows_tool_path_is_not_shlex_split(self, mock_exists):
         from wgsextract_cli.core.tool_commands import _tool_command_parts

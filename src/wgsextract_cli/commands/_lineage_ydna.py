@@ -2,16 +2,18 @@ import argparse
 import csv
 import io
 import logging
-import os
-import shlex
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 from wgsextract_cli.commands.info.metrics import sample_sex
 from wgsextract_cli.core.alignment_metadata import get_vcf_build
-from wgsextract_cli.core.builds import is_hg37_build, is_hg38_build, is_t2t_build
+from wgsextract_cli.core.builds import (
+    build_from_chr1_length,
+    build_from_path,
+    is_hg37_build,
+    is_hg38_build,
+    is_t2t_build,
+)
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -19,11 +21,10 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
-from wgsextract_cli.core.reference_assets import input_stem
+from wgsextract_cli.core.reference_assets import input_stem, read_fai_lengths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
     WGSExtractError,
-    get_resource_defaults,
     run_command,
 )
 from wgsextract_cli.core.variant_files import (
@@ -35,7 +36,6 @@ from wgsextract_cli.core.variant_files import (
 )
 
 VCF_SUFFIXES = (".vcf", ".vcf.gz")
-_UNCOMPRESSED_FASTA_SUFFIXES = (".fa", ".fasta", ".fna")
 
 
 def resolve_lineage_tool(explicit_path: str | None, tool: str, flag: str) -> str:
@@ -92,49 +92,25 @@ def _yleaf_build(build: str | None) -> str:
     return "hg38"
 
 
-def _yleaf_help(cmd: list[str]) -> str:
-    try:
-        result = run_command(cmd + ["--help"], capture_output=True, check=False)
-    except (OSError, subprocess.SubprocessError) as e:
-        logging.debug("Could not inspect Yleaf --help for supported options: %s", e)
-        return ""
-    return f"{result.stdout}\n{result.stderr}"
-
-
-def _placeholder_yleaf_data_dir(work_dir: str) -> dict[str, str]:
-    """
-    Yleaf checks for (and otherwise downloads, ~3 GB) a full reference genome
-    before every run, but only FASTQ alignment reads it; BAM/CRAM/VCF runs use
-    the bundled marker tables plus -cr for CRAM decoding. Point YLEAF_DATA_DIR
-    at a placeholder so those runs never trigger the download.
-    """
-    data_dir = str(Path(work_dir, "yleaf_data"))
-    for build in ("hg19", "hg38", "t2t"):
-        build_dir = str(Path(data_dir, build))
-        Path(build_dir).mkdir(parents=True, exist_ok=True)
-        with open(
-            str(Path(build_dir, "full_reference.fa")), "w", newline="\n"
-        ) as f_out:
-            f_out.write(">placeholder\n" + "N" * 120 + "\n")
-    return {**os.environ, "YLEAF_DATA_DIR": data_dir}
-
-
 def cmd_ydna(args: argparse.Namespace) -> None:
+    from wgsextract_cli.ydna.yleaf_native.analysis import CREDIT, analyze
+
     if not args.input:
         raise WGSExtractError(LOG_MESSAGES["input_required"])
     verify_paths_exist({"--input": args.input})
 
-    # Check dependencies only after cheap input validation so invalid invocations fail fast.
-    yleaf_path = resolve_lineage_tool(args.yleaf_path, "yleaf", "--yleaf-path")
     input_lower = args.input.lower()
-    is_vcf = input_lower.endswith(VCF_SUFFIXES)
-    if is_vcf:
-        verify_dependencies(["bcftools", "tabix"])
-    log_dependency_info(["yleaf", "bcftools"])
+    is_vcf = input_lower.endswith((*VCF_SUFFIXES, ".bcf"))
+    if not is_vcf and not input_lower.endswith((".bam", ".cram")):
+        raise WGSExtractError(
+            "Native Yleaf accepts BAM, CRAM or single-sample VCF/BCF. "
+            "Align FASTQ with `wgsextract align` first."
+        )
+    tools = ["samtools", "bcftools"] if is_vcf else ["samtools"]
+    verify_dependencies(tools)
+    log_dependency_info(tools)
 
     outdir = str(absolute_path(args.outdir or str(Path(args.input).absolute().parent)))
-    # Yleaf deletes and recreates its -o folder, so never hand it the user's
-    # output directory itself.
     yleaf_outdir = str(Path(outdir, "yleaf"))
     logging.debug(f"Input file: {str(absolute_path(args.input))}")
     logging.debug(f"Output directory: {yleaf_outdir}")
@@ -150,98 +126,48 @@ def cmd_ydna(args: argparse.Namespace) -> None:
             "so there is no Y haplogroup to predict."
         )
 
-    lib = None
-    if not is_vcf:
-        lib = ReferenceLibrary(
-            args.ref, calculate_bam_md5(args.input, None), input_path=args.input
-        )
-    build = get_vcf_build(args.input) if is_vcf else None
+    lib = ReferenceLibrary(
+        args.ref,
+        None if is_vcf else calculate_bam_md5(args.input, None),
+        input_path=args.input,
+    )
+    build = getattr(args, "build", None) or (
+        get_vcf_build(args.input) if is_vcf else None
+    )
     if not build:
-        lib = lib or ReferenceLibrary(args.ref, None)
         build = lib.build
     yleaf_build = _yleaf_build(build)
-
-    cmd = tool_command(yleaf_path)
-    threads, _ = get_resource_defaults(args.threads, None)
-    Path(outdir).mkdir(parents=True, exist_ok=True)
-
-    logging.info(LOG_MESSAGES["running_yleaf"].format(input=args.input))
-    with tempfile.TemporaryDirectory(prefix="yleaf_", dir=outdir) as work_dir:
-        input_file = args.input
-        command_env = None
-        extra: list[str] = []
-        if is_vcf:
-            input_flag = "-vcf"
-            # Yleaf rejects VCFs with several Y-like contigs, so pass chrY only.
-            input_file = str(Path(work_dir, f"{input_stem(args.input)}.vcf.gz"))
-            extract_vcf_chromosome(args.input, "Y", input_file)
-        elif input_lower.endswith(".bam"):
-            input_flag = "-bam"
-        elif input_lower.endswith(".cram"):
-            input_flag = "-cram"
-            cram_ref = (lib.fasta if lib else None) or (
-                args.ref if args.ref and Path(args.ref).is_file() else None
-            )
-            if not cram_ref:
-                raise WGSExtractError(
-                    LOG_MESSAGES["ref_required_for"].format(task="Yleaf on CRAM")
-                )
-            extra += ["-cr", cram_ref]
-        elif input_lower.endswith((".fastq", ".fastq.gz", ".fq", ".fq.gz")):
-            input_flag = "-fastq"
-        else:
+    needs_reference = (
+        is_vcf and not getattr(args, "no_ref_inference", False)
+    ) or input_lower.endswith(".cram")
+    if needs_reference and lib.fasta:
+        reference_build = build_from_chr1_length(
+            read_fai_lengths(lib.fasta)
+        ) or build_from_path(lib.fasta)
+        if reference_build and reference_build != yleaf_build:
             raise WGSExtractError(
-                f"Unsupported Yleaf input type (expected BAM, CRAM, VCF or FASTQ): {args.input}"
+                f"The selected reference FASTA is {reference_build}, but the "
+                f"Yleaf marker build is {yleaf_build}. Pass a matching --ref "
+                "FASTA, or use --no-ref-inference for a targeted VCF panel."
             )
 
-        help_text = _yleaf_help(cmd)
-        # Updates are managed by Pixi; avoid upstream network probes and home caches.
-        if "--no-update-check" in help_text:
-            extra.append("--no-update-check")
-        if input_flag == "-fastq":
-            # FASTQ is aligned by Yleaf itself, which needs the real reference.
-            ref_fasta = lib.fasta if lib else None
-            if (
-                ref_fasta
-                and ref_fasta.endswith(_UNCOMPRESSED_FASTA_SUFFIXES)
-                and "--ref-fasta" in help_text
-            ):
-                extra += ["--ref-fasta", ref_fasta]
-            else:
-                logging.warning(
-                    "No uncompressed reference FASTA usable by this Yleaf; it will "
-                    "use its own configured (or downloaded) reference."
-                )
-        else:
-            command_env = _placeholder_yleaf_data_dir(work_dir)
-
-        if args.pos_file:
-            extra += ["-pos", args.pos_file]
-        if args.extra_args:
-            extra += [a for a in shlex.split(args.extra_args) if a != "-force"]
-
-        final_cmd = cmd + [
-            input_flag,
-            input_file,
-            "-rg",
-            yleaf_build,
-            "-o",
-            yleaf_outdir,
-            "-force",
-            "-t",
-            str(threads),
-            *extra,
-        ]
-        # A previous run's prediction must never stand in for this one's.
-        prediction = str(Path(yleaf_outdir, "hg_prediction.hg"))
-        Path(prediction).unlink(missing_ok=True)
-        try:
-            run_command(final_cmd, env=command_env)
-        except (OSError, subprocess.SubprocessError) as e:
-            raise WGSExtractError(f"Yleaf failed: {e}") from e
+    prediction = analyze(
+        Path(args.input),
+        Path(yleaf_outdir),
+        build=yleaf_build,
+        tree=getattr(args, "tree", "yfull"),
+        reference=Path(lib.fasta) if lib.fasta else None,
+        pos_file=Path(args.pos_file) if args.pos_file else None,
+        min_reads=getattr(args, "min_reads", 10),
+        quality=getattr(args, "base_quality", 20),
+        majority=getattr(args, "base_majority", 90),
+        min_score=getattr(args, "min_score", 0.95),
+        ancient=getattr(args, "ancient", False),
+        no_ref_inference=getattr(args, "no_ref_inference", False),
+    )
 
     try:
-        with open(prediction) as f:
+        with open(prediction, encoding="utf-8") as f:
             content = f.read().strip()
     except OSError as e:
         raise WGSExtractError(f"Yleaf did not write {prediction}: {e}") from e
@@ -253,9 +179,16 @@ def cmd_ydna(args: argparse.Namespace) -> None:
         raise WGSExtractError(
             "Yleaf could not predict a Y haplogroup: no Y-chromosome markers "
             "matched or passed QC. Check that the input has chrY reads and that its reference "
-            f"build is correct; details are in {str(Path(yleaf_outdir, 'run.log'))}."
+            f"build is correct; details are in {yleaf_outdir}."
         )
-    print(f"\n🧬 Yleaf Lineage Result ({input_stem(args.input)}):")
+    from wgsextract_cli.ydna.yleaf_native.data import manifest
+
+    version = manifest()["upstream"]["tag"]
+    print(
+        f"\n🧬 {CREDIT}\nTables {version}; build {yleaf_build}; "
+        f"tree {getattr(args, 'tree', 'yfull')}\n"
+        f"Lineage Result ({input_stem(args.input)}):"
+    )
     print("-" * 30)
     print(content)
     if getattr(args, "tree_links", False):
