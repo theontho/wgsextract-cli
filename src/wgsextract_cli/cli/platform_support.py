@@ -81,7 +81,7 @@ def verify_platform_support(args: argparse.Namespace) -> None:
     if command == "vep":
         tool = "VEP"
     elif command == "vcf":
-        subcommand = getattr(args, "vcf_cmd", None)
+        subcommand = getattr(args, "vcf_cmd", "") or ""
         tool = _WINDOWS_VCF_TOOLS.get(subcommand)
         if subcommand == "phylop" and _phylop_needs_bigwig(args):
             tool = "pyBigWig"
@@ -90,7 +90,7 @@ def verify_platform_support(args: argparse.Namespace) -> None:
                 "pbsv/sniffles" if getattr(args, "pacbio", False) else "delly"
             )
     elif command == "typing":
-        tool = _WINDOWS_TYPING_TOOLS.get(getattr(args, "typing_cmd", None))
+        tool = _WINDOWS_TYPING_TOOLS.get(getattr(args, "typing_cmd", "") or "")
     elif command == "ref" and getattr(args, "ref_cmd", None) in ("phylop", "gerp"):
         tool = "pyBigWig"
     elif command in ("align", "realign") and getattr(args, "aligner", None) == "pbmm2":

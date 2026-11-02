@@ -7,6 +7,7 @@ translation and outputs aren't owned by root.
 """
 
 import os
+import sys
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -57,7 +58,10 @@ def run_container(
     )  # fmt: skip
     cmd = [docker(""), "run", "--rm", *(["--gpus", "all"] if gpus else [])]
     # The user has no home in the image; tools that write settings use /tmp.
-    cmd += ["-u", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp"]
+    # Docker Desktop on Windows maps file ownership itself and has no POSIX ids.
+    if sys.platform != "win32":
+        cmd += ["-u", f"{os.getuid()}:{os.getgid()}"]
+    cmd += ["-e", "HOME=/tmp"]
     for mount in mounts:
         cmd += ["-v", f"{mount}:{mount}"]
     run_command([*cmd, "-w", mounts[0], image, *command])
