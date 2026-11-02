@@ -39,6 +39,8 @@ Checks selected markers chosen by a chip design. It is common for ancestry, but 
 
 WGS Extract can simulate several consumer raw-data formats from WGS data by reading positions that overlap a target SNP chip. The simulated file can be useful for tools that only accept microarray-style input, but it is still derived from sequencing data and should be labeled as such when you share it.
 
+AADR research panels can also be exported as PLINK/EIGENSTRAT files. Their allele and missing-call conventions matter when combining datasets; they do not recreate ancient-DNA pseudo-haploid processing.
+
 {{ tag: cheap }}
 {{ tag: fixed markers }}
 {{ tag: upload-friendly }}
@@ -162,6 +164,8 @@ Many current callers, annotation datasets, and public resources support hg38 wel
 T2T references cover many regions older references represented poorly, but tool and annotation support varies.
 
 T2T can be valuable for difficult regions, but it may not be accepted by consumer tools, older annotation resources, or workflows that assume hg19/hg38 chromosome structures.
+
+WGS Extract's microarray projection supports one exact CHM13v2 analysis reference, not every T2T variant. See [microarray requirements](workflows.html#microarray){.inline-link} before choosing it.
 :::
 :::
 

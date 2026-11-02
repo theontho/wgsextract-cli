@@ -145,6 +145,8 @@ Raw read QC reports, adapter trimming, filtering, and preprocessing. These are m
 ::: card
 ### GATK / DeepVariant
 GATK and DeepVariant are high-accuracy variant calling workflows with different runtime and model tradeoffs. They can be powerful, but they are also sensitive to references, resources, and platform assumptions.
+
+Native Windows x64 GATK now uses a pinned GKL sidecar for AVX/OpenMP PairHMM and AVX2 Smith-Waterman. This does not imply parity on every CPU or dataset; see [native Windows validation](https://github.com/theontho/wgsextract-cli/blob/main/docs/windows.md#gatk-on-native-windows){.inline-link}. DeepVariant needs an explicitly prepared local runner or Docker image, not a Pixi DeepVariant environment.
 :::
 
 ::: card
@@ -222,6 +224,8 @@ Check chromosome naming. Some files use `chrM`, `chrY`, `chr1`; others use `MT`,
 ::: card
 ### Variant caller fails
 Confirm the alignment is coordinate sorted, indexed, readable, and aligned to the same reference passed with `--ref`. Also check memory, temporary disk space, and whether the selected caller supports the sequencing technology.
+
+For DeepVariant CRAM 3.1 decoding errors on v0.6.5, use BAM or convert to indexed CRAM 3.0. Automatic CPU staging is on `main` after v0.6.5; see [calling notes](workflows.html#variants){.inline-link}. Linux ARM64 deliberately gates GATK/DeepVariant rather than silently using Java or x86 emulation.
 :::
 
 ::: card
@@ -236,7 +240,7 @@ Microarray / SNP chip simulations only include requested target markers. Missing
 
 ::: card
 ### Windows tool issues
-On Windows, every tool comes from the Pixi environment that `install_windows.bat` sets up; run `pixi run wgsextract deps check` to see what is installed. A tool reported missing usually means the install didn't finish: rerun `install_windows.bat`. Settings from older WSL or MSYS2 setups (`tool_runtime`, `pacman_ucrt64_bin`) are ignored. The first run of a tool after installing can take several seconds while Windows scans the new files.
+On Windows, run `pixi run wgsextract deps check` from the checkout; reopen PowerShell first if Pixi was newly installed. For missing standard tools or the GATK sidecar, rerun `install_windows.bat`. VEP, DeepVariant, Delly, FreeBayes, bigWig-backed annotation and specialized typing are not supported natively; missing optional tools do not necessarily mean installation failed. Old WSL/MSYS2 settings are ignored. Windows may scan newly installed tools before first use.
 :::
 
 ::: card
