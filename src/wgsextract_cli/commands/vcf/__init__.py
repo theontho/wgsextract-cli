@@ -329,6 +329,13 @@ def register(
         "--checkpoint", help="Path to DeepVariant model checkpoint"
     )
     deepvariant_parser.add_argument(
+        "--batch-size",
+        type=int,
+        help="CPU inference batch size (upstream default: 1024). "
+        "Use 256 to lower TensorFlow peak RAM without changing models or precision; "
+        "--threads controls make_examples shards, not this batch.",
+    )
+    deepvariant_parser.add_argument(
         "--gpu",
         action="store_true",
         help="Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).",

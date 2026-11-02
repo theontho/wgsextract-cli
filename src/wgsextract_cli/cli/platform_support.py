@@ -52,6 +52,8 @@ def verify_platform_support(args: argparse.Namespace) -> None:
         subcommand = getattr(args, "vcf_cmd", None)
         if subcommand in {"gatk", "deepvariant"}:
             require_native_tool("gatk" if subcommand == "gatk" else "run_deepvariant")
+            if getattr(args, "gpu", False):
+                require_native_tool("parabricks")
     if (
         not sys.platform.startswith("linux")
         and getattr(args, "gpu", False)

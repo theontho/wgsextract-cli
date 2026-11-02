@@ -10,11 +10,20 @@ from pathlib import Path
 from typing import Literal
 
 from . import alignment_memory
+from .native_support import is_linux_arm64
 from .reference_assets import read_fai_lengths
 from .samtools_commands import parse_memory
 
 Operation = Literal[
-    "align", "realign", "sort", "to-bam", "to-cram", "snp", "indel", "gatk"
+    "align",
+    "realign",
+    "sort",
+    "to-bam",
+    "to-cram",
+    "snp",
+    "indel",
+    "gatk",
+    "deepvariant",
 ]
 GIB = 1024**3
 GATK_WORKER_BYTES = 6 * GIB
@@ -109,6 +118,7 @@ def estimate_resources(
     parallel: bool = False,
     gatk_workers: int = 1,
     additional_ram_bytes: int = 0,
+    inference_batch_size: int = 1024,
 ) -> PreflightEstimate:
     """Estimate a resolved command without creating files or running tools.
 
@@ -123,9 +133,10 @@ def estimate_resources(
         or gatk_workers < 1
         or (reads is not None and reads < 0)
         or additional_ram_bytes < 0
+        or inference_batch_size < 1
     ):
         raise ValueError(
-            "threads/workers must be positive and reads/additional RAM nonnegative"
+            "threads/workers/batch size must be positive and reads/additional RAM nonnegative"
         )
     amount, unit = parse_memory(memory)
     sort_memory = math.ceil(count * amount * (GIB if unit == "G" else 1024**2) * 1.25)
@@ -248,6 +259,28 @@ def estimate_resources(
             if disk_reads is None
             else disk_reads
             * (CRAM_BYTES_PER_READ if operation == "to-cram" else BAM_BYTES_PER_READ)
+        )
+    elif operation == "deepvariant":
+        arm64 = is_linux_arm64()
+        inference = 2 * GIB + math.ceil(
+            (30 if arm64 else 14) * GIB * inference_batch_size / 1024
+        )
+        sharded = count * (2 if arm64 else 1) * GIB
+        memory_components = {
+            "largest_sequential_stage": max(inference, sharded),
+            "driver_headroom": GIB,
+        }
+        notes.append(
+            "DeepVariant WGS uses sequential stages: allow for the larger of "
+            "TensorFlow inference and concurrent make_examples shards, not their sum. "
+            "Reducing --threads does not remove the default inference memory floor; "
+            "other models/checkpoints may require more RAM."
+        )
+        output = None if size is None else math.ceil(size / 10)
+        temporary = size
+        notes.append(
+            "DeepVariant temporary disk allows one input-sized pileup/intermediate "
+            "working set; actual coverage and candidate density can change it."
         )
     else:
         if operation == "gatk":

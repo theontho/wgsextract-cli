@@ -49,8 +49,11 @@ not evidence that two builds use the same source.
 
 GATK commands fail fast on Linux ARM64, including `--gpu`: the pinned GKL
 PairHMM and Smith-Waterman kernels require x86 AVX. No slow pure-Java fallback
-is silently enabled. DeepVariant also fails before checking input, launching
-Docker or running a local binary, including `--gpu` and custom images.
+is silently enabled. DeepVariant CPU has an explicit
+[native source-build path](deepvariant-arm64.md) for the pinned 1.10.0 release;
+the image must already exist and pass native engine/image checks.
+Only DeepVariant's default WGS model is enabled: other models, `--wes`,
+`--pacbio`, `--checkpoint` and `--gpu` remain unavailable.
 The phase-2 explanation is shown for gated commands, version probes, selected
 `deps check --tool` requests and missing optional tools in `deps check`.
 Unavailable tools are marked missing, without an unusable installation hint.
@@ -105,3 +108,10 @@ See [PR #273](https://github.com/theontho/wgsextract-cli/pull/273) and
 [issue #236](https://github.com/theontho/wgsextract-cli/issues/236) for measured
 hardware, controls and qualification limits. Support here does not imply
 that an untested ARM tool or x86-emulated executable is qualified.
+
+The [native DeepVariant follow-up](deepvariant-arm64.md) separately qualifies
+the original 1.10.0 WGS path: complete chr20 genotypes match, and all 7,709,239
+whole-genome sites and PASS genotypes match. One filtered hom-reference no-call
+and rare confidence/model-routing boundaries are disclosed with actual
+probability evidence. Whole-genome wall time is 7.72% slower than the matched
+16-vCPU x64 guest; this does not qualify other models or close the BWA gate.

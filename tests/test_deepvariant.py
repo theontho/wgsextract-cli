@@ -5,6 +5,7 @@ asked to run.
 """
 
 import gzip
+import os
 import subprocess
 import sys
 from argparse import Namespace
@@ -52,6 +53,8 @@ def _args(bam, **overrides):
 
 def _docker(monkeypatch, *, present=True, info_rc=0, image_rc=0):
     """Fake the docker CLI; returns the `docker run` commands."""
+    monkeypatch.setattr(os, "getuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(os, "getgid", lambda: 1000, raising=False)
     runs = []
 
     def fake(cmd, **_kwargs):
@@ -201,7 +204,8 @@ def test_only_new_cram_is_transcoded_and_indexed(files, monkeypatch, version, ca
     assert bed.read_text() == "chr20\t0\t100\n"
     assert index == ["samtools", "index", result]
     assert caplog.text.count("Transcoding CRAM") == 1
-    assert "htslib 1.18 SSE4 rANS decoder" in caplog.text
+    assert "x86-64 images (htslib 1.18 / htscodecs 1.5.1)" in caplog.text
+    assert "staging applies to every image" in caplog.text
 
 
 def test_transcode_fails_before_writing_when_disk_is_low(files, monkeypatch):
@@ -470,15 +474,22 @@ def test_staged_cram_is_used_and_cleaned_on_all_exit_paths(files, monkeypatch, f
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
+@pytest.mark.parametrize("arm64", [False, True])
 @pytest.mark.parametrize("region", ["chr20", "chr20:1-50 chr20:101-150"])
 def test_container_reads_staged_cram_and_preserves_existing_mounts(
-    files, monkeypatch, region
+    files, monkeypatch, region, arm64
 ):
     _ref, alignment, out = files
     alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
     runs = _docker(monkeypatch)
+    if arm64:
+        _arm_docker(monkeypatch)
     monkeypatch.setattr(deepvariant, "check_free_space", lambda *_: True)
-    monkeypatch.setattr(deepvariant, "run_command", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        deepvariant,
+        "run_command",
+        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, "linux/arm64", ""),
+    )
     deepvariant.cmd_deepvariant(_args(alignment, region=region))
     (cmd,) = runs
     reads = Path(cmd[cmd.index("--reads") + 1])
@@ -488,6 +499,9 @@ def test_container_reads_staged_cram_and_preserves_existing_mounts(
     mounts = {cmd[i + 1].split(":")[0] for i, a in enumerate(cmd) if a == "-v"}
     assert str(reads.parent) in mounts
     assert str(alignment.parent) in mounts
+    if arm64:
+        assert f"TMPDIR={reads.parent}" in cmd
+        assert "--pull=never" in cmd
     assert not reads.parent.exists()
 
 
@@ -564,3 +578,198 @@ def test_real_cram31_roundtrip_has_cram30_header_and_read_parity(
         ["samtools", "view", "-c", "-T", str(ref), converted], capture_output=True
     ).stdout.strip()
     assert converted_count == original_count == expected
+
+
+def _arm_docker(monkeypatch, *, engine="aarch64", image_arch="linux/arm64"):
+    monkeypatch.setattr(native_support.platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(
+        deepvariant, "docker_info", lambda _setup, field=None: engine if field else "27"
+    )
+    monkeypatch.setattr(deepvariant, "require_image", lambda *_args: None)
+    monkeypatch.setattr(deepvariant, "docker", lambda _setup: "docker")
+    monkeypatch.setattr(
+        deepvariant,
+        "run_command",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, image_arch, ""),
+    )
+
+
+@pytest.mark.parametrize(
+    ("engine", "image_arch", "message"),
+    [
+        ("x86_64", "linux/arm64", "native ARM64 Docker engine"),
+        ("aarch64", "linux/amd64", "must be linux/arm64"),
+        ("aarch64", "", "must be linux/arm64"),
+    ],
+)
+def test_arm_rejects_emulation_before_input_work(
+    files, monkeypatch, engine, image_arch, message
+):
+    _ref, bam, _out = files
+    _arm_docker(monkeypatch, engine=engine, image_arch=image_arch)
+    monkeypatch.setattr(
+        deepvariant,
+        "get_base_args",
+        lambda _args: pytest.fail("input preparation must not run"),
+    )
+    with pytest.raises(WGSExtractError, match=message):
+        deepvariant.cmd_deepvariant(_args(bam))
+
+
+def test_arm_image_bypasses_autoconfig_and_unaudited_path_launcher(files, monkeypatch):
+    _ref, bam, out = files
+    _arm_docker(monkeypatch)
+    monkeypatch.setattr(
+        deepvariant,
+        "get_tool_path",
+        lambda _tool: pytest.fail("do not resolve unaudited PATH launchers on ARM"),
+    )
+    calls = []
+
+    def run(image, command, paths, **kwargs):
+        calls.append((image, command, kwargs))
+        Path(command[command.index("--output_vcf") + 1]).write_text("vcf")
+
+    monkeypatch.setattr(deepvariant, "run_container", run)
+    deepvariant.cmd_deepvariant(_args(bam))
+    ((image, command, kwargs),) = calls
+    assert image == deepvariant.DEFAULT_ARM64_IMAGE
+    assert kwargs["entrypoint"] == "/opt/deepvariant/bin/run_deepvariant"
+    assert kwargs["local_only"] is True
+    assert command[0] == "--model_type"
+    assert "--use_onnx" not in command
+    assert (out / "deepvariant.vcf.gz").exists()
+
+
+@pytest.mark.parametrize(
+    "selection",
+    [
+        {"model_type": model}
+        for model in (
+            "ULTIMA",
+            "WES",
+            "PACBIO",
+            "ONT_R104",
+            "HYBRID_PACBIO_ILLUMINA",
+            "MASSEQ",
+            "RNASEQ",
+        )
+    ]
+    + [{"pacbio": True}, {"wes": True}, {"checkpoint": "custom/model.ckpt"}],
+)
+def test_arm_unqualified_models_fail_before_container_or_input_work(
+    files, monkeypatch, selection
+):
+    _ref, bam, _out = files
+    _arm_docker(monkeypatch)
+    monkeypatch.setattr(
+        deepvariant,
+        "docker_info",
+        lambda *_args: pytest.fail("must not inspect Docker"),
+    )
+    monkeypatch.setattr(
+        deepvariant,
+        "get_base_args",
+        lambda *_args: pytest.fail("must not prepare inputs"),
+    )
+    with pytest.raises(WGSExtractError, match="not qualified.*only the default WGS"):
+        deepvariant.cmd_deepvariant(_args(bam, **selection))
+
+
+def test_arm_detected_ultima_is_rejected_after_read_group_detection(files, monkeypatch):
+    _ref, bam, _out = files
+    _arm_docker(monkeypatch)
+    monkeypatch.setattr(
+        deepvariant, "_model_type", lambda _args, ref=None: "ULTIMA" if ref else "WGS"
+    )
+    monkeypatch.setattr(
+        deepvariant,
+        "run_container",
+        lambda *_a, **_kw: pytest.fail("must not run model"),
+    )
+    with pytest.raises(WGSExtractError, match="ULTIMA.*not qualified"):
+        deepvariant.cmd_deepvariant(_args(bam))
+
+
+def test_arm_missing_native_image_gives_manual_build_instructions(files, monkeypatch):
+    _ref, bam, _out = files
+    _arm_docker(monkeypatch)
+
+    def missing(image, instructions):
+        assert image == "localhost/wgsextract-deepvariant:1.10.0-arm64"
+        assert "docker pull" not in instructions
+        raise WGSExtractError(instructions)
+
+    monkeypatch.setattr(deepvariant, "require_image", missing)
+    with pytest.raises(WGSExtractError, match="packaging/deepvariant-arm64/build.sh"):
+        deepvariant.cmd_deepvariant(_args(bam))
+
+
+def test_arm_container_overrides_entrypoint_before_image(files, monkeypatch):
+    _ref, bam, _out = files
+    runs = _docker(monkeypatch)
+    _arm_docker(monkeypatch)
+    monkeypatch.setitem(
+        deepvariant.settings, "deepvariant_image", "local/native@sha256:abc"
+    )
+    deepvariant.cmd_deepvariant(_args(bam))
+    (cmd,) = runs
+    image_at = cmd.index("local/native@sha256:abc")
+    entrypoint_at = cmd.index("--entrypoint")
+    assert entrypoint_at < image_at
+    assert cmd.index("--pull=never") < image_at
+    assert cmd[entrypoint_at + 1] == "/opt/deepvariant/bin/run_deepvariant"
+    assert cmd[image_at + 1] == "--model_type"
+    assert "--platform" not in cmd
+    work = cmd[cmd.index("--intermediate_results_dir") + 1]
+    assert f"HOME={work}" in cmd
+    assert f"TMPDIR={work}" in cmd
+
+
+def test_arm_run_reports_deepvariant_preflight_not_bcftools(files, monkeypatch):
+    ref, bam, out = files
+    _docker(monkeypatch)
+    _arm_docker(monkeypatch)
+    requested = []
+
+    def estimate(operation, **options):
+        requested.append((operation, options))
+
+    monkeypatch.setattr(deepvariant, "estimate_resources", estimate)
+    monkeypatch.setattr(deepvariant, "preflight_resources", lambda factory: factory())
+    deepvariant.cmd_deepvariant(_args(bam))
+    assert requested == [
+        (
+            "deepvariant",
+            {
+                "input_paths": [str(bam)],
+                "output_dir": str(out),
+                "reference": str(ref),
+                "threads": "4",
+                "region": "chr20",
+                "inference_batch_size": 1024,
+            },
+        )
+    ]
+
+
+def test_explicit_batch_size_is_forwarded_without_altering_shards(files, monkeypatch):
+    _ref, bam, _out = files
+    runs = _docker(monkeypatch)
+    deepvariant.cmd_deepvariant(_args(bam, batch_size=256))
+    (cmd,) = runs
+    assert cmd[cmd.index("--call_variants_extra_args") + 1] == "batch_size=256"
+    assert cmd[cmd.index("--num_shards") + 1] == "4"
+
+
+@pytest.mark.parametrize("batch_size", [0, -1])
+def test_invalid_batch_size_is_rejected_before_container_setup(files, batch_size):
+    _ref, bam, _out = files
+    with pytest.raises(WGSExtractError, match="must be positive"):
+        deepvariant.cmd_deepvariant(_args(bam, batch_size=batch_size))
+
+
+def test_batch_size_is_not_silently_ignored_by_gpu(files):
+    _ref, bam, _out = files
+    with pytest.raises(WGSExtractError, match="CPU-only"):
+        deepvariant.cmd_deepvariant(_args(bam, batch_size=256, gpu=True))

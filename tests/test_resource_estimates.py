@@ -18,6 +18,33 @@ GIB = 1024**3
 H2_READS = 679_639_896
 
 
+def test_arm_deepvariant_inference_floor_survives_fewer_shards_and_small_regions(
+    source, tmp_path, monkeypatch, caplog
+):
+    monkeypatch.setattr(resources, "is_linux_arm64", lambda: True)
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 24 * GIB)
+    options = {
+        "input_paths": [str(source)],
+        "output_dir": str(tmp_path),
+        "region": "chr20:1-1000",
+    }
+    one = resources.estimate_resources("deepvariant", threads="1", **options)
+    sixteen = resources.estimate_resources("deepvariant", threads="16", **options)
+    assert one.resources[0].estimated_bytes == sixteen.resources[0].estimated_bytes
+    assert one.resources[0].status == "LOW"
+    with caplog.at_level(logging.INFO):
+        resources.report_resources(one)
+    assert "LOW" in caplog.text
+    assert "inference memory floor" in caplog.text
+    many = resources.estimate_resources("deepvariant", threads="32", **options)
+    assert many.resources[0].estimated_bytes > sixteen.resources[0].estimated_bytes
+    mitigated = resources.estimate_resources(
+        "deepvariant", threads="8", inference_batch_size=256, **options
+    )
+    assert mitigated.resources[0].estimated_bytes < one.resources[0].estimated_bytes
+    assert mitigated.resources[0].status == "OK"
+
+
 def test_realign_staged_fastqs_are_budgeted_on_the_temporary_volume(
     tmp_path, source, monkeypatch
 ):
