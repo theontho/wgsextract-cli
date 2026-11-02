@@ -158,6 +158,7 @@ def _kit(path: Path, hom: int, het: int, no_calls: int = 0) -> Path:
     ("hom", "het", "expected"),
     [
         (780, 220, None),
+        (890, 110, "89.0% of autosomal genotypes are homozygous"),
         (960, 40, "96.0% of autosomal genotypes are homozygous"),
         (500, 500, "Only 50.0% of autosomal genotypes"),
         (95, 5, None),  # too few sites to judge

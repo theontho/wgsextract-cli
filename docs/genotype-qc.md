@@ -47,8 +47,9 @@ check is skipped with an informational message.
 After `microarray` writes its files, the autosomal genotypes are checked:
 
 - **Homozygosity of the CombinedKit's called genotypes.** Directly sequenced
-  genomes give about 70–80%. Above 90% (`qc_max_autosomal_homozygosity`)
-  usually means a low-pass or heavily imputed input; below 60%
+  genomes give about 70–80%; a whole genome downsampled to 3.4x gave 90%.
+  Above 88% (`qc_max_autosomal_homozygosity`) usually means a low-pass or
+  heavily imputed input; below 60%
   (`qc_min_autosomal_homozygosity`) suggests a contaminated or mixed sample.
   The heterozygous/homozygous ratio is logged with it.
 - **No-call (`--`) rate of each vendor file.** Above 10%
@@ -66,7 +67,7 @@ Thresholds are `config.toml` settings:
 qc_min_diploid_depth = 8.0         # 0 disables
 qc_min_haploid_depth = 3.0         # 0 disables
 qc_min_autosomal_homozygosity = 0.6
-qc_max_autosomal_homozygosity = 0.9
+qc_max_autosomal_homozygosity = 0.88
 qc_max_no_call_rate = 0.1
 ```
 

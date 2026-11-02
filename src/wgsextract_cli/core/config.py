@@ -109,7 +109,7 @@ KNOWN_SETTINGS = {
         "Warn when fewer microarray autosomal calls are homozygous (contamination)",
     ),
     "qc_max_autosomal_homozygosity": (
-        0.9,
+        0.88,
         "Warn when more microarray autosomal calls are homozygous (low-pass "
         "or heavily imputed input)",
     ),
