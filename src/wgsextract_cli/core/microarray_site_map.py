@@ -6,16 +6,20 @@ import gzip
 import hashlib
 import io
 import json
+import logging
 import re
 import zlib
 from array import array
 from bisect import bisect_left
 from collections.abc import Iterator, Mapping
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import NamedTuple
 
+from wgsextract_cli.core import microarray_site_map_cache
+from wgsextract_cli.core.file_lock import build_lock
 from wgsextract_cli.core.utils import WGSExtractError
 
 _MAGIC = b"WGSCMAP\x01"
@@ -198,17 +202,22 @@ def _metadata(value: object) -> _Metadata:
 
 class _Reader:
     def __init__(self, stream: gzip.GzipFile, metadata: _Metadata) -> None:
-        self.stream = stream
         self.metadata = metadata
-        self.count = 0
-        self.digest = hashlib.sha256()
+        # Bound decompression before decoding, and hash once rather than once
+        # per varint byte. The manifest's limit is checked before construction.
+        self.data = stream.read(metadata.uncompressed_bytes + 1)
+        if len(self.data) > metadata.uncompressed_bytes:
+            raise ValueError("Decompressed data exceeds the declared length")
+        if len(self.data) != metadata.uncompressed_bytes:
+            raise ValueError("Decompressed length mismatch")
+        if hashlib.sha256(self.data).hexdigest() != metadata.uncompressed_sha256:
+            raise ValueError("Decompressed SHA256 mismatch")
+        self.offset = 0
 
     def read(self, size: int) -> bytes:
-        data = self.stream.read(size)
-        self.count += len(data)
-        if self.count > self.metadata.uncompressed_bytes:
-            raise ValueError("Decompressed data exceeds the declared length")
-        self.digest.update(data)
+        end = self.offset + size
+        data = self.data[self.offset : end]
+        self.offset = end
         return data
 
     def exact(self, size: int) -> bytes:
@@ -220,7 +229,10 @@ class _Reader:
     def varint(self) -> int:
         result = 0
         for shift in range(0, 35, 7):
-            byte = self.exact(1)[0]
+            if self.offset >= len(self.data):
+                raise ValueError("Truncated site map")
+            byte = self.data[self.offset]
+            self.offset += 1
             result |= (byte & 0x7F) << shift
             if not byte & 0x80:
                 if result > _UINT32_MAX or (shift and byte == 0):
@@ -229,12 +241,8 @@ class _Reader:
         raise ValueError("Overlong varint")
 
     def finish(self) -> None:
-        if self.read(1):
+        if self.offset != len(self.data):
             raise ValueError("Trailing site-map records")
-        if self.count != self.metadata.uncompressed_bytes:
-            raise ValueError("Decompressed length mismatch")
-        if self.digest.hexdigest() != self.metadata.uncompressed_sha256:
-            raise ValueError("Decompressed SHA256 mismatch")
 
 
 def _decode(data: bytes, metadata: _Metadata) -> SiteMap:
@@ -318,9 +326,12 @@ def _decode(data: bytes, metadata: _Metadata) -> SiteMap:
 
 
 def load_site_map(
-    manifest_path: Path, *, manifest_data: bytes | None = None
+    manifest_path: Path,
+    *,
+    manifest_data: bytes | None = None,
+    cache_dir: Path | None = None,
 ) -> SiteMap:
-    """Load a verified map without writing caches or modifying packaged assets."""
+    """Verify the asset; optionally reuse decoded columns in the library."""
     try:
         if manifest_data is None:
             with manifest_path.open("rb") as source:
@@ -336,6 +347,26 @@ def load_site_map(
             raise ValueError("Compressed length changed while reading")
         if hashlib.sha256(data).hexdigest() != metadata.compressed_sha256:
             raise ValueError("Compressed SHA256 mismatch")
+        if cache_dir is not None:
+            cached = microarray_site_map_cache.cache_path(cache_dir, manifest_data)
+            mapping = microarray_site_map_cache.read(cached, metadata)
+            if mapping is not None:
+                return mapping
+            with ExitStack() as stack:
+                try:
+                    cache_dir.mkdir(parents=True, exist_ok=True)
+                    stack.enter_context(build_lock(str(cached) + ".lock"))
+                except OSError as error:
+                    logging.warning("CHM13 decoded cache unavailable: %s", error)
+                    return _decode(data, metadata)
+                mapping = microarray_site_map_cache.read(cached, metadata)
+                if mapping is None:
+                    mapping = _decode(data, metadata)
+                    try:
+                        microarray_site_map_cache.write(cached, mapping)
+                    except OSError as error:
+                        logging.warning("Could not save CHM13 decoded cache: %s", error)
+                return mapping
         return _decode(data, metadata)
     except (OSError, EOFError, ValueError, TypeError, zlib.error) as error:
         raise WGSExtractError(f"Invalid CHM13 microarray site map: {error}") from error
