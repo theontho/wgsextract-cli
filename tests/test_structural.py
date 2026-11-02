@@ -5,6 +5,7 @@ import logging
 import random
 import shutil
 import subprocess
+from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -242,6 +243,7 @@ def long_read(tmp_path):
         patch.object(structural, "log_dependency_info"),
         patch("wgsextract_cli.commands.vcf.basic.warn_about_alignment"),
         patch("wgsextract_cli.commands.vcf.basic.calculate_bam_md5", return_value=""),
+        patch.object(structural, "calculate_bam_md5", return_value=""),
         patch.object(structural, "get_tool_path", side_effect=lambda t: t),
     ):
         yield callers, str(bam), str(ref)
@@ -318,3 +320,80 @@ def test_sniffles_whole_genome_and_its_warnings(tmp_path, long_read, caplog):
         _run("sv", bam, ref, out, "--caller", "sniffles", "--region", "chr1:1-100")
     with pytest.raises(WGSExtractError, match="Invalid region"):
         _run("sv", bam, ref, out, "--caller", "sniffles", "--region", "chr1:9-2")
+
+
+def _platform_bam(tmp_path: Path, platform: str) -> str:
+    """A real one-read BAM whose read group names the sequencing platform."""
+    return sam_to_bam(
+        [
+            "@HD\tVN:1.6\tSO:coordinate",
+            "@SQ\tSN:chr1\tLN:60000",
+            f"@RG\tID:1\tSM:S\tPL:{platform}",
+            "r1\t0\tchr1\t100\t60\t4M\t*\t0\t0\tACGT\tIIII\tRG:Z:1",
+        ],
+        tmp_path / f"{platform.lower()}.bam",
+    )
+
+
+@needs_htslib
+@pytest.mark.parametrize("flags", [[], ["--ont"], ["--long-read"]])
+def test_ont_input_runs_sniffles_by_default(tmp_path, long_read, flags):
+    callers, _bam, ref = long_read
+    bam = _platform_bam(tmp_path, "ONT")
+    repeats = tmp_path / "trf.bed"
+    repeats.write_text("chr1\t0\t100\n")
+    out = tmp_path / "out"
+    _run("sv", bam, ref, out, *flags, "--tandem-repeats", str(repeats))
+    (cmd,) = callers.calls
+    assert cmd[0] == "sniffles" and cmd[cmd.index("--input") + 1] == bam
+    assert cmd[cmd.index("--tandem-repeats") + 1] == str(repeats)
+    assert _records(out / "sniffles.vcf.gz") == [("chr1", "30000", "32000")]
+
+
+@needs_htslib
+@pytest.mark.parametrize("flags", [[], ["--ont"], ["--long-read"]])
+def test_pbsv_is_refused_for_ont_reads(tmp_path, long_read, flags):
+    callers, _bam, ref = long_read
+    bam = _platform_bam(tmp_path, "ONT")
+    with pytest.raises(WGSExtractError, match="pbsv is PacBio-only"):
+        _run("sv", bam, ref, tmp_path / "out", *flags, "--caller", "pbsv")
+    assert callers.calls == []
+
+
+@needs_htslib
+def test_pacbio_input_keeps_delly_default_and_pbsv(tmp_path, long_read):
+    callers, _bam, ref = long_read
+    bam = _platform_bam(tmp_path, "PACBIO")
+    args = Namespace(input=bam, ref=ref, caller=None, pacbio=False, ont=False)
+    args.long_read = False
+    assert structural._select_sv_caller(args) == "delly"
+    _run("sv", bam, ref, tmp_path / "out", "--long-read", "--caller", "pbsv")
+    assert [c[:2] for c in callers.calls] == [["pbsv", "discover"], ["pbsv", "call"]]
+    callers.calls.clear()
+    _run("sv", bam, ref, tmp_path / "lr", "--long-read")
+    assert [c[0] for c in callers.calls] == ["sniffles"]
+
+
+@pytest.mark.parametrize(
+    ("flags", "message"),
+    [
+        (["--ont", "--pacbio"], "cannot be combined"),
+        (["--ont", "--caller", "delly"], "--ont selects a long-read"),
+        (["--long-read", "--caller", "delly"], "--long-read selects a long-read"),
+    ],
+)
+def test_contradictory_long_read_flags_are_rejected(tmp_path, flags, message):
+    bam = tmp_path / "reads.bam"
+    bam.write_bytes(b"")
+    with pytest.raises(WGSExtractError, match=message):
+        _run("sv", str(bam), str(tmp_path / "ref.fa"), tmp_path / "out", *flags)
+
+
+@needs_htslib
+def test_explicit_delly_on_ont_warns(tmp_path, long_read, caplog):
+    _callers, _bam, ref = long_read
+    args = Namespace(input=_platform_bam(tmp_path, "ONT"), ref=ref, caller="delly")
+    args.pacbio = args.ont = args.long_read = False
+    with caplog.at_level(logging.WARNING):
+        assert structural._select_sv_caller(args) == "delly"
+    assert "not validated for ONT" in caplog.text

@@ -89,7 +89,11 @@ def verify_platform_support(args: argparse.Namespace) -> None:
             tool = "pyBigWig"
         if subcommand == "sv":
             tool = getattr(args, "caller", None) or (
-                "pbsv/sniffles" if getattr(args, "pacbio", False) else "delly"
+                "pbsv/sniffles"
+                if getattr(args, "pacbio", False)
+                else "sniffles"
+                if getattr(args, "ont", False) or getattr(args, "long_read", False)
+                else "delly"
             )
     elif command == "typing":
         tool = _WINDOWS_TYPING_TOOLS.get(getattr(args, "typing_cmd", "") or "")

@@ -15,12 +15,15 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.output_checks import warn_if_no_variants
+from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.sequencing import input_platform
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     popen,
     run_command,
 )
 from wgsextract_cli.core.variant_files import (
+    calculate_bam_md5,
     ensure_vcf_indexed,
     verify_paths_exist,
 )
@@ -269,6 +272,9 @@ def cmd_sv_sniffles(args: argparse.Namespace) -> None:
 
     out_vcf = str(Path(outdir, "sniffles.vcf.gz"))
     region = getattr(args, "region", None)
+    tandem_repeats = getattr(args, "tandem_repeats", None)
+    if tandem_repeats:
+        verify_paths_exist({"--tandem-repeats": tandem_repeats})
 
     logging.info(LOG_MESSAGES["vcf_calling_sv"].format(output=out_vcf))
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_sniffles_") as work:
@@ -276,6 +282,8 @@ def cmd_sv_sniffles(args: argparse.Namespace) -> None:
         # --reference is needed to decode CRAM and to emit deletion sequences.
         cmd = ["sniffles", "--input", args.input, "--vcf", raw_vcf]
         cmd += ["--reference", ref, "--threads", threads]
+        if tandem_repeats:
+            cmd += ["--tandem-repeats", tandem_repeats]
         if region:
             bed_path = str(Path(work, "region.bed"))
             _write_region_bed(region, ref, bed_path)
@@ -292,17 +300,62 @@ def cmd_sv_sniffles(args: argparse.Namespace) -> None:
         warn_if_no_variants(out_vcf, ref)
 
 
+def _detected_platform(args: argparse.Namespace) -> str | None:
+    """Platform of the input alignment, decoding CRAM with the resolved --ref."""
+    input_file = getattr(args, "input", None)
+    if not input_file or not Path(input_file).is_file():
+        return None
+    lib = ReferenceLibrary(
+        getattr(args, "ref", None),
+        calculate_bam_md5(input_file, None),
+        input_path=input_file,
+    )
+    return input_platform(input_file, lib.fasta)
+
+
 def _select_sv_caller(args: argparse.Namespace) -> str:
-    caller = getattr(args, "caller", None)
-    if not getattr(args, "pacbio", False):
-        return caller or "delly"
-    if caller == "delly":
+    """Explicit flags win; only detected ONT changes the Delly default."""
+    caller: str | None = getattr(args, "caller", None)
+    pacbio = getattr(args, "pacbio", False)
+    ont = getattr(args, "ont", False)
+    long_read = getattr(args, "long_read", False)
+    if pacbio and ont:
+        raise WGSExtractError("--pacbio and --ont cannot be combined.")
+    if (pacbio or ont or long_read) and caller == "delly":
+        flag = "--pacbio" if pacbio else "--ont" if ont else "--long-read"
         raise WGSExtractError(
-            "--pacbio selects a long-read SV caller (pbsv or sniffles) and cannot "
+            f"{flag} selects a long-read SV caller (pbsv or sniffles) and cannot "
             "be combined with --caller delly."
         )
-    args.ccs = True
-    return caller or ("pbsv" if get_tool_path("pbsv") is not None else "sniffles")
+    if pacbio:
+        args.ccs = True
+        return caller or ("pbsv" if get_tool_path("pbsv") is not None else "sniffles")
+    detected = None
+    if not ont and (caller in ("pbsv", "delly") or (not caller and not long_read)):
+        detected = _detected_platform(args)
+    if caller == "pbsv" and (ont or detected == "ont"):
+        raise WGSExtractError(
+            "pbsv is PacBio-only and does not support Nanopore (ONT) reads; "
+            "use --caller sniffles (the ONT default)."
+        )
+    if ont or long_read:
+        return caller or "sniffles"
+    if caller:
+        if caller == "delly" and detected == "ont":
+            logging.warning(
+                "Delly is a short-read SV caller and is not validated for ONT; "
+                "Sniffles is the ONT default."
+            )
+        return caller
+    if detected == "ont":
+        logging.info("Detected ONT reads: calling structural variants with Sniffles.")
+        return "sniffles"
+    if detected == "pacbio":
+        logging.info(
+            "Detected PacBio reads; keeping the Delly default. Pass --pacbio for "
+            "pbsv/Sniffles."
+        )
+    return "delly"
 
 
 def cmd_sv(args: argparse.Namespace) -> None:
