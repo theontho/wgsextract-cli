@@ -46,7 +46,12 @@ class _ScoreWindow:
             self.chrom = chrom
             self.start = start // _WINDOW_SIZE * _WINDOW_SIZE
             self.end = min(max(self.start + _WINDOW_SIZE, end), self.lengths[chrom])
-            self.values = self.bw.values(chrom, self.start, self.end, numpy=self.numpy)
+            # Builds without NumPy reject any keyword argument to values().
+            self.values = (
+                self.bw.values(chrom, self.start, self.end, numpy=True)
+                if self.numpy
+                else self.bw.values(chrom, self.start, self.end)
+            )
         maximum = max(
             (
                 value

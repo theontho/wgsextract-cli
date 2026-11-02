@@ -53,6 +53,9 @@ def test_windowed_scores_match_exact_stats_across_gaps_and_boundaries(
                 return source.stats(*args, **kwargs)
 
             def values(self, *args, **kwargs):
+                # Builds without NumPy accept positional arguments only.
+                if not use_numpy and kwargs:
+                    raise TypeError("values() takes no keyword arguments")
                 calls.append(("values", args))
                 return source.values(*args, **kwargs)
 
