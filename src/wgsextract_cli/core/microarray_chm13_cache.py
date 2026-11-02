@@ -82,7 +82,7 @@ def _verified(path: Path) -> bool:
 def _publish(source: Path, destination: Path) -> None:
     record = {"size": source.stat().st_size, "sha256": _sha256(source)}
     metadata = source.with_suffix(source.suffix + ".json")
-    metadata.write_text(json.dumps(record), encoding="utf-8")
+    metadata.write_text(json.dumps(record), encoding="utf-8", newline="\n")
     os.replace(source, destination)
     os.replace(metadata, destination.with_suffix(destination.suffix + ".json"))
 
