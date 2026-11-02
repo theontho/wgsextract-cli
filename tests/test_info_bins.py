@@ -13,14 +13,62 @@ needs_samtools = needs_tools("samtools")
 
 
 def test_bin_boundaries_and_inferred_uncovered_contigs():
-    depths = [0, 1, 3, 4, 7, 8, 100]
+    depths = [0, 1, 3, 4, 7, 8, 11, 44, 77, 100]
     rows = [f"chrY\t{i + 1}\t{depth}\n" for i, depth in enumerate(depths)]
-    assert count_depth_bins(iter(rows), {"chrY": 10, "chrM": 3}) == {
-        "chrY": [4, 2, 2, 2],
+    assert count_depth_bins(
+        io.BytesIO("".join(rows).encode()), {"chrY": 13, "chrM": 3}
+    ) == {
+        "chrY": [4, 2, 2, 5],
         "chrM": [3, 0, 0, 0],
     }
     with pytest.raises(WGSExtractError, match="Unexpected"):
-        count_depth_bins(["bad\n"], {"chrY": 10})
+        count_depth_bins(io.BytesIO(b"bad\n"), {"chrY": 10})
+
+
+@pytest.mark.parametrize("chunk_bytes", [1, 2, 7, 19, 1000])
+@pytest.mark.parametrize("newline", [b"\n", b"\r\n"])
+def test_binary_chunks_preserve_rows_and_contig_boundaries(chunk_bytes, newline):
+    class ShortReads(io.BytesIO):
+        def read(self, size=-1):
+            return super().read(min(size, chunk_bytes))
+
+    data = newline.join(
+        [
+            b"1\t101\t1",
+            b"1\t102\t10",
+            b"10\t1\t0",
+            b"10\t2\t7",
+            b"chrY\t1\t8",
+            b"1\t103\t3",
+        ]
+    )
+    assert count_depth_bins(ShortReads(data), {"1": 10, "10": 5, "chrY": 3}) == {
+        "1": [7, 2, 0, 1],
+        "10": [4, 0, 1, 0],
+        "chrY": [2, 0, 0, 1],
+    }
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"chrY\t1\t-1\n",
+        b"chrY\t1\tno\n",
+        b"chrY\t1\tchr\n",
+        b"chrY\t1\t\n",
+        b"chrY\t1\t1\textra\n",
+        b"chrY\t1\t\t1\nchrY\t2\n",
+        b"chrY\t1\t1\nunknown\t2\t2\nchrY\t3\t3\n",
+    ],
+)
+def test_chunked_counter_rejects_malformed_rows(data):
+    with pytest.raises(WGSExtractError):
+        count_depth_bins(io.BytesIO(data), {"chrY": 10})
+
+
+def test_chunked_counter_rejects_sites_exceeding_length():
+    with pytest.raises(WGSExtractError, match="exceed"):
+        count_depth_bins(io.BytesIO(b"chrY\t1\t1\nchrY\t2\t8\n"), {"chrY": 1})
 
 
 @needs_samtools

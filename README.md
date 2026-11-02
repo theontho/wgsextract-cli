@@ -132,7 +132,11 @@ Run `wgsextract help` for the full command tree, and `wgsextract <command> --hel
 
 `info calculate-coverage --bins` replaces the normal summary with a TSV of per-contig counts and fractions at depth **0 / 1–3 / 4–7 / 8+**, also saved as `<input>_coverage_bins.tsv`. It makes one streaming `samtools depth` pass, never writes per-base depths, includes contigs with no reads, and supports `--region` (fractions then describe that interval). As in original WGS Extract v4, depth uses samtools' default base/mapping quality thresholds (zero), excludes unmapped/secondary/QC-failed/duplicate reads, excludes deletion bases and counts overlapping mates separately. Fractions use all reference coordinates (including N bases), not an estimated N-adjustment; the original UI's double-subtraction of N counts is not reproduced. Without `--bins`, the existing report and cache behavior are unchanged.
 
-CRAM bin coverage requires an existing reference FASTA from `--ref`, configuration or the reference library. Missing references fail before decoding; htslib is never allowed to download one implicitly.
+Depth rows are counted with bounded 8 MiB binary chunks and byte operations,
+without per-base Python parsing or a NumPy dependency. TSV contents and depth
+filters are unchanged. CRAM bin coverage requires an existing reference FASTA
+from `--ref`, configuration or the reference library. Missing references fail
+before decoding; htslib is never allowed to download one implicitly.
 
 Disk-space preflight counts records in single-reference CRAM 3.0/3.1 files
 directly from container headers, falling back to `samtools idxstats` for other
