@@ -9,6 +9,7 @@ description = "A modern, standalone Command-Line Interface for WGS Extract."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "GPL-3.0-or-later"
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "WGS Extract Contributors" }]
 dependencies = [
     "pyliftover",    # Performs hg38 to hg19 coordinate liftover for microarray simulations

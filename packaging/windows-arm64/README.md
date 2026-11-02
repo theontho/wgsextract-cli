@@ -29,7 +29,7 @@ The source layout also copied an unused x64 `vcruntime140_1.dll`; remove it
 before imports and require strict native audits to pass. Archive build
 provenance must not inherit the surrounding CLI checkout's Git revision.
 
-Yleaf's setuptools 84.2.1 wheel contains six unused x86/x64 launcher templates.
+The previously external Yleaf dependency's setuptools 84.2.1 wheel contains six unused x86/x64 launcher templates.
 The staged native-only recipe preserves the two AA64 launchers, all Python
 code/notices and consistent RECORD metadata. Native package qualification passes.
 Its conda metadata also declares `pkg:pypi/setuptools`: without that standard
@@ -38,8 +38,10 @@ reintroducing six foreign templates. `add_setuptools_purl.py` changes only the
 information archive; the qualified runtime payload remains byte-identical.
 Python-3.13 NumPy/Pandas/psutil wheels are available; all 68 PE files in the
 audited pinned wheels are AA64. `python313-wheels.txt` pins their artifacts and
-checksums. Installed numerical operations, Yleaf imports/help/marker tables and
+checksums. Installed numerical operations, native Yleaf-derived imports/CLI help and
 live loaded-library audits pass natively with source Python 3.13.18.
+Yleaf itself is no longer installed or bundled; its marker/prediction tables
+are separate checksum-pinned on-demand release assets.
 The hosted combined prefix audits 156 PE files; a fresh native-only Pixi
 candidate installation on Windows 11 ARM64 audits 153 before test tools are added.
 These are candidate qualification results, not release approval.
@@ -316,7 +318,7 @@ Before enabling `win-arm64` in `pixi.toml`:
 2. Build/pin the native HTS and compression stack, samtools, bcftools, fastp,
    samblaster, and any promised optional tools. The existing Windows HTS recipe
    disables libcurl/S3/GCS/plugins; do not accidentally promise remote HTS I/O.
-3. Solve all Python/Yleaf transitive dependencies, preserving x64 and Linux
+3. Solve all Python transitive dependencies, preserving x64 and Linux
    defaults and byte-identical pins. The presence of Python alone is insufficient.
 4. Publish arch-specific packages and hashes, perform a fresh documented
    installation, then small-genome and full public 30x decoded-CRAM/VCF exactness

@@ -51,17 +51,6 @@ openjdk = "17.*"
 bcftools = ">=1.18"
 htslib = ">=1.18"
 
-[feature.bio-tools.pypi-dependencies]
-# Bioconda's yleaf 3.2.1 artifact omits yleaf/data/* marker tables, so install
-# upstream's packaged source for a runnable default Yleaf environment. A source
-# archive, not a git checkout: users mustn't need git (a new Windows PC has
-# none). Pin the archive digest explicitly as well as in the lockfile.
-# Pixi does not generate hashes for direct URLs: retain the Yleaf package's
-# explicit sha256 field in pixi.lock when refreshing it (guarded by tests).
-# Upstream master after v4.1.6 plus the fix for VCF input on Windows
-# (genid/Yleaf#60); go back to an upstream tag once a release has it.
-yleaf = { url = "https://github.com/theontho/Yleaf/archive/8890b3abc20616307a172a0185586d9e1fd4d545.tar.gz#sha256=3e3770ef3379ddbeedabb1cb0a11280a1485c4da12995802b52956f14e247379" }
-
 [feature.bio-tools.target.unix.dependencies]
 samtools = ">=1.24,<2"
 bcftools = ">=1.24,<2"
@@ -87,11 +76,6 @@ sambamba = ">=1.0.1,<2"
 [feature.bio-tools.target.linux-aarch64.dependencies]
 # Match the qualified x64 calling version; do not introduce architecture drift.
 bcftools = "==1.24"
-
-[feature.bio-tools.target.linux-aarch64.pypi-dependencies]
-# Ancient boto3 forces six 1.7.3, whose import hook cannot run on Python 3.13.
-boto3 = ">=1.35,<2"
-six = ">=1.17,<2"
 
 [feature.bio-tools.target.win-64.dependencies]
 fastqc = ">=0.13,<0.14"

@@ -82,8 +82,6 @@ COMMANDS: list[tuple[str, list[str]]] = [
             "y-haplogroup",
             "--input",
             "{bam}",
-            "--yleaf-path",
-            "fake.py",
             "--pos-file",
             "fake.txt",
         ],

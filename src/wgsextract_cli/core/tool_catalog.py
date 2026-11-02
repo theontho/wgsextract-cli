@@ -31,7 +31,6 @@ OPTIONAL_TOOLS = [
     "run_deepvariant",
     "curl",
     "java",
-    "yleaf",
     "haplogrep",
     "htsfile",
     "cyrius",
@@ -72,7 +71,6 @@ PIXI_TOOL_ENVS = {
     "fastp": "default",
     "fastqc": "default",
     "multiqc": "multiqc",
-    "yleaf": "default",
     "vep": "vep",
     "haplogrep": "default",
     "gatk": "gatk",
@@ -103,7 +101,6 @@ PIXI_TOOL_ENVS = {
 
 
 TOOL_EXECUTABLE_ALIASES = {
-    "yleaf": ("yleaf", "Yleaf"),
     "pharmcat_python": ("python",),
     "cyrius_python": ("python",),
 }

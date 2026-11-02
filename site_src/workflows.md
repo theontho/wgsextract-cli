@@ -89,7 +89,7 @@ wgsextract --input sample.bam extract ydna-vcf
 wgsextract --input sample.bam lineage y-haplogroup
 ```
 
-Yleaf results go to `<outdir>/yleaf/`. A missing or `NA` haplogroup is reported as an error, not a successful prediction. WGS Extract disables Yleaf's own update check when supported; Pixi manages its version. Use `lineage mt-haplogroup` for the maternal haplogroup with Haplogrep.
+Native Yleaf-derived results go to `<outdir>/yleaf/`: prediction TSV, marker tables and `run.json` record the upstream/data tag, build, tree and QC settings. No external Yleaf installation is needed. Tables download on demand, with pinned SHA-256 verification, into the configured reference library. CRAM and variant-only VCF inference require the matching `--ref`; targeted VCF panels should use `--no-ref-inference`. Choose `--tree yfull|yfull_v10|ftdna|isogg`. A missing or `NA` haplogroup is an error, not a successful prediction. Credits: Yleaf authors at Erasmus MC; Ralf et al., *Mol Biol Evol* (2018), [doi:10.1093/molbev/msy032](https://doi.org/10.1093/molbev/msy032). Use `lineage mt-haplogroup` for the maternal haplogroup with Haplogrep.
 :::
 :::
 :::

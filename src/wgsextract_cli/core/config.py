@@ -52,7 +52,6 @@ KNOWN_SETTINGS = {
         "Opt-in directory for unique persistent DEBUG run logs and provenance",
     ),
     "keep_awake": (False, "Best-effort sleep inhibition while commands run (opt-in)"),
-    "yleaf_executable": (None, "Path to yleaf executable"),
     "haplogrep_executable": (None, "Path to haplogrep executable"),
     "jar_directory": (None, "Directory for JAR tools"),
     "vep_cache_directory": (None, "Path to VEP cache"),
@@ -137,7 +136,6 @@ PATH_SETTINGS = {
     "reference_fasta",
     "reference_library",
     "genome_library",
-    "yleaf_executable",
     "haplogrep_executable",
     "jar_directory",
     "vep_cache_directory",
@@ -188,7 +186,6 @@ CONFIG_ALIASES = {
     "genomes": "genome_library",
     "threads": "cpu_threads",
     "memory": "memory_limit",
-    "yleaf_path": "yleaf_executable",
     "haplogrep_path": "haplogrep_executable",
     "jar_dir": "jar_directory",
     "vep_cache": "vep_cache_directory",
@@ -198,9 +195,8 @@ CONFIG_ALIASES = {
 }
 
 
-# Settings of the removed Windows tool runtimes (WSL, MSYS2/pacman, bundled
-# Cygwin/MSYS2) that older installers wrote. Every platform now runs its tools
-# from the Pixi environment, so these are dropped when the config is read.
+# Removed Windows runtimes and external Yleaf settings from older installers.
+# Tools now run from Pixi; Y-DNA analysis is native. Drop these on config reads.
 LEGACY_SETTINGS = {
     "tool_runtime",
     "runtime",
@@ -208,6 +204,8 @@ LEGACY_SETTINGS = {
     "runtime_dir",
     "pacman_ucrt64_bin",
     "pacman_bin",
+    "yleaf_path",
+    "yleaf_executable",
 }
 
 

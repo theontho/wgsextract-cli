@@ -178,20 +178,37 @@ def register(
     subparsers: "argparse._SubParsersAction[argparse.ArgumentParser]",
     base_parser: argparse.ArgumentParser,
 ) -> None:
-    parser = subparsers.add_parser("lineage", help="Executes Yleaf or Haplogrep.")
+    parser = subparsers.add_parser(
+        "lineage", help="Native Yleaf or Haplogrep analysis."
+    )
     lin_subs = parser.add_subparsers(dest="lin_cmd", required=True)
 
     ydna_parser = lin_subs.add_parser(
         "y-haplogroup", parents=[base_parser], help=CLI_HELP["cmd_lineage-y-haplogroup"]
     )
-    ydna_parser.add_argument(
-        "--yleaf-path",
-        default=settings.get("yleaf_executable"),
-        help="Path to yleaf.py (optional if in PATH)",
-    )
     ydna_parser.add_argument("--pos-file", help="Yleaf position file (optional)")
     ydna_parser.add_argument(
-        "--extra-args", help="Extra arguments to pass to Yleaf (e.g. -force)"
+        "--build",
+        choices=["hg19", "hg38", "t2t"],
+        help="Override the detected reference build for this run.",
+    )
+    ydna_parser.add_argument(
+        "--tree",
+        choices=["yfull", "yfull_v10", "ftdna", "isogg"],
+        default="yfull",
+        help="Yleaf v4.1.6 haplogroup tree (default: yfull).",
+    )
+    ydna_parser.add_argument("--min-reads", type=int, default=10)
+    ydna_parser.add_argument("--base-quality", type=int, default=20)
+    ydna_parser.add_argument("--base-majority", type=int, default=90)
+    ydna_parser.add_argument("--min-score", type=float, default=0.95)
+    ydna_parser.add_argument(
+        "--ancient", action="store_true", help="Use ancient-DNA marker tables."
+    )
+    ydna_parser.add_argument(
+        "--no-ref-inference",
+        action="store_true",
+        help="VCF: use genotyped positions only (targeted panels); otherwise --ref is required.",
     )
     ydna_parser.set_defaults(func=cmd_ydna)
     ydna_parser.add_argument(

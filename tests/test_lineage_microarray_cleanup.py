@@ -73,33 +73,25 @@ def _ydna_args(input_path, outdir=None):
         outdir=outdir,
         ref=None,
         threads=None,
-        yleaf_path=None,
         pos_file=None,
-        extra_args=None,
     )
 
 
-@pytest.mark.parametrize("help_text", ["", "--no-update-check"])
-def test_ydna_without_outdir_never_points_yleaf_at_the_input_directory(
-    tmp_path, help_text
-):
+def test_ydna_without_outdir_keeps_results_in_a_separate_directory(tmp_path):
     bam = tmp_path / "sample.bam"
     bam.touch()
     commands = []
 
-    def fake_yleaf(cmd, **kwargs):
-        commands.append((cmd, kwargs))
-        if "--help" in cmd:
-            return SimpleNamespace(stdout=help_text, stderr="")
-        if "-o" in cmd:
-            outdir = Path(cmd[cmd.index("-o") + 1])
-            outdir.mkdir(parents=True, exist_ok=True)
-            (outdir / "hg_prediction.hg").write_text(
-                "Sample_name\tHg\tHg_marker\nsample\tR1b\tR-M269\n"
-            )
+    def fake_native(input_path, output, **kwargs):
+        commands.append((output, kwargs))
+        output.mkdir(parents=True, exist_ok=True)
+        prediction = output / "hg_prediction.hg"
+        prediction.write_text("Sample_name\tHg\tHg_marker\nsample\tR1b\tR-M269\n")
+        return prediction
 
     with (
-        patch.object(_lineage_ydna, "resolve_lineage_tool", return_value="yleaf"),
+        patch.object(_lineage_ydna, "verify_dependencies"),
+        patch.object(_lineage_ydna, "sample_sex", return_value="Male"),
         patch.object(_lineage_ydna, "log_dependency_info"),
         patch.object(_lineage_ydna, "calculate_bam_md5", return_value=None),
         patch.object(
@@ -107,16 +99,15 @@ def test_ydna_without_outdir_never_points_yleaf_at_the_input_directory(
             "ReferenceLibrary",
             return_value=SimpleNamespace(build="hs38DH", fasta=None),
         ),
-        patch.object(_lineage_ydna, "run_command", side_effect=fake_yleaf),
+        patch(
+            "wgsextract_cli.ydna.yleaf_native.analysis.analyze", side_effect=fake_native
+        ),
     ):
         _lineage_ydna.cmd_ydna(_ydna_args(bam))
 
-    cmd, kwargs = commands[-1]
-    # Yleaf rmtree()s its -o folder (it runs with -force).
-    assert cmd[cmd.index("-o") + 1] == str(tmp_path / "yleaf")
-    assert cmd[cmd.index("-rg") + 1] == "hg38"
-    assert "YLEAF_DATA_DIR" in kwargs["env"]
-    assert ("--no-update-check" in cmd) == bool(help_text)
+    output, kwargs = commands[-1]
+    assert output == tmp_path / "yleaf"
+    assert kwargs["build"] == "hg38"
     assert bam.exists()
 
 
@@ -124,7 +115,8 @@ def test_ydna_cram_requires_reference(tmp_path):
     cram = tmp_path / "sample.cram"
     cram.touch()
     with (
-        patch.object(_lineage_ydna, "resolve_lineage_tool", return_value="yleaf"),
+        patch.object(_lineage_ydna, "verify_dependencies"),
+        patch.object(_lineage_ydna, "sample_sex", return_value="Male"),
         patch.object(_lineage_ydna, "log_dependency_info"),
         patch.object(_lineage_ydna, "calculate_bam_md5", return_value=None),
         patch.object(
@@ -133,7 +125,7 @@ def test_ydna_cram_requires_reference(tmp_path):
             return_value=SimpleNamespace(build="hg38", fasta=None),
         ),
         patch.object(_lineage_ydna, "run_command") as run,
-        pytest.raises(WGSExtractError, match="--ref is required"),
+        pytest.raises(WGSExtractError, match="reference FASTA"),
     ):
         _lineage_ydna.cmd_ydna(_ydna_args(cram, str(tmp_path / "out")))
     run.assert_not_called()
@@ -492,16 +484,15 @@ def test_ydna_empty_prediction_is_an_error(tmp_path, content):
     bam = tmp_path / "sample.bam"
     bam.touch()
 
-    def empty_prediction(cmd, **kwargs):
-        if "--help" in cmd:
-            return SimpleNamespace(stdout="", stderr="")
-        if "-o" in cmd:
-            outdir = Path(cmd[cmd.index("-o") + 1])
-            outdir.mkdir(parents=True, exist_ok=True)
-            (outdir / "hg_prediction.hg").write_text(content)
+    def empty_prediction(input_path, output, **kwargs):
+        output.mkdir(parents=True, exist_ok=True)
+        prediction = output / "hg_prediction.hg"
+        prediction.write_text(content)
+        return prediction
 
     with (
-        patch.object(_lineage_ydna, "resolve_lineage_tool", return_value="yleaf"),
+        patch.object(_lineage_ydna, "verify_dependencies"),
+        patch.object(_lineage_ydna, "sample_sex", return_value="Male"),
         patch.object(_lineage_ydna, "log_dependency_info"),
         patch.object(_lineage_ydna, "calculate_bam_md5", return_value=None),
         patch.object(
@@ -509,7 +500,10 @@ def test_ydna_empty_prediction_is_an_error(tmp_path, content):
             "ReferenceLibrary",
             return_value=SimpleNamespace(build="hs38DH", fasta=None),
         ),
-        patch.object(_lineage_ydna, "run_command", side_effect=empty_prediction),
+        patch(
+            "wgsextract_cli.ydna.yleaf_native.analysis.analyze",
+            side_effect=empty_prediction,
+        ),
         pytest.raises(WGSExtractError, match="could not predict a Y haplogroup"),
     ):
         _lineage_ydna.cmd_ydna(_ydna_args(bam))
@@ -629,7 +623,7 @@ def test_y_haplogroup_refuses_a_female_sample_before_yleaf(tmp_path):
     cram = tmp_path / "sample.cram"
     cram.write_bytes(b"")
     args = SimpleNamespace(
-        input=str(cram), outdir=str(tmp_path), ref=None, threads=None, yleaf_path=None
+        input=str(cram), outdir=str(tmp_path), ref=None, threads=None
     )
     st = cram.stat()  # the cache must be from this very file
     (tmp_path / "sample.cram.wgse_info.json").write_text(
@@ -653,7 +647,6 @@ def test_y_haplogroup_refuses_a_female_sample_before_yleaf(tmp_path):
         assert metrics.sample_sex(args.input, args.outdir) == "Male"
 
     with (
-        patch.object(ydna, "resolve_lineage_tool", return_value="yleaf"),
         patch.object(ydna, "verify_dependencies"),
         patch.object(ydna, "log_dependency_info"),
         patch.object(metrics, "calculate_bam_md5", return_value="sig"),

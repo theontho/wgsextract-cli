@@ -24,6 +24,27 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup("wgsextract", "WGS Extract real-data test inputs")
     group.addoption(
+        "--yleaf-upstream", help="Local tagged Yleaf checkout for optional parity."
+    )
+    group.addoption(
+        "--yleaf-parity-output",
+        help="Existing upstream output directory for QC parity.",
+    )
+    group.addoption(
+        "--yleaf-library", help="Extracted Yleaf data root for optional parity."
+    )
+    group.addoption(
+        "--yleaf-parity-input", help="Original input for optional extraction parity."
+    )
+    group.addoption(
+        "--yleaf-parity-build",
+        choices=("hg19", "hg38", "t2t"),
+        help="Reference build of --yleaf-parity-input.",
+    )
+    group.addoption(
+        "--yleaf-parity-ref", help="Matching FASTA for CRAM/VCF extraction parity."
+    )
+    group.addoption(
         "--fake-data",
         action="store_true",
         help="Run the E2E suites against generated synthetic data even when "

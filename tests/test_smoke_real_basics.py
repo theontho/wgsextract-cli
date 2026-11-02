@@ -12,6 +12,7 @@ from tests.smoke_utils import (
     verify_bam,
     verify_fastq,
     verify_vcf,
+    yleaf_tables_cached,
 )
 
 # --- DEPENDENCY CHECKS ---
@@ -25,7 +26,6 @@ SAMBLASTER_MISSING = not check_tool("samblaster")
 BGZIP_MISSING = not check_tool("bgzip")
 TABIX_MISSING = not check_tool("tabix")
 VEP_MISSING = not check_tool("vep")
-YLEAF_MISSING = not check_tool("yleaf")  # Assuming yleaf is the command name
 
 # Base directory for the CLI project
 CLI_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -654,8 +654,9 @@ class TestLineageSmoke:
         self.outdir = str(tmp_path)
         self.fake_vcf = os.path.join(FAKE_DIR, "fake.vcf.gz")
 
-    @pytest.mark.skipif(YLEAF_MISSING, reason="yleaf not found in PATH")
     def test_lineage_y_haplogroup(self):
+        if not yleaf_tables_cached():
+            pytest.skip("Native Yleaf reference tables are not cached")
         args = [
             "lineage",
             "y-haplogroup",
@@ -663,6 +664,7 @@ class TestLineageSmoke:
             self.fake_vcf,
             "--outdir",
             self.outdir,
+            "--no-ref-inference",
         ]
         rc, stdout, stderr = run_cli(args)
         # Fake data may not contain Yleaf-informative markers; verify execution.

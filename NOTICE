@@ -1,0 +1,32 @@
+Yleaf-derived Y-DNA analysis
+==========================
+
+src/wgsextract_cli/ydna/yleaf_native contains modified code derived from
+Yleaf v4.1.6, https://github.com/genid/Yleaf, commit
+c167c4e8951623a53c370e7c300a0cfc7f411b62.
+
+Yleaf was developed at the Department of Genetic Identification, Erasmus MC
+University Medical Centre Rotterdam, The Netherlands, by Arwin Ralf,
+Diego Montiel Gonzalez, Kaiyin Zhong and Manfred Kayser. The prediction/tree
+implementation credits Bram van Wersch; Yleaf.py credits Diego Montiel
+Gonzalez and extensive modifications by Bram van Wersch.
+
+The original source headers license these files under GNU GPL version 3 or
+later. WGS Extract's modifications and distribution retain that license;
+the complete GPL v3 text is in LICENSE. Per-file headers identify the source
+files and modifications. Yleaf data is distributed separately, unmodified,
+with upstream provenance and SHA-256 checksums in the yleaf-data release
+manifest (release tags: yleaf-data-v<VERSION>).
+
+Please cite:
+Ralf A, Montiel González D, Zhong K, Kayser M. Yleaf: Software for Human
+Y-Chromosomal Haplogroup Inference from Next-Generation Sequencing Data.
+Molecular Biology and Evolution 35(5):1291-1294 (2018).
+https://doi.org/10.1093/molbev/msy032
+
+The native adapter replaces Yleaf's CLI, process globals and pandas tables
+with a typed library interface, existing samtools/bcftools integration,
+verified lazy data downloads, deterministic marker presentation and result
+provenance. Prediction rules and marker/QC filtering derive from upstream.
+These modifications were made by WGS Extract contributors on 2026-11-01.
+This project is independent and is not endorsed by the Yleaf authors.
