@@ -73,7 +73,85 @@ template's); FTDNA's OmniExpress downloads have 13, most lacking 18,000-30,000
 of the template's markers. AncestryDNA V1.0 and V2.0 uploads match their
 templates exactly.
 
-## Rebuild
+## Strand quirks (strand.tsv)
+
+Vendors declare forward-strand GRCh37 calls, but some public exports reported
+certain markers on the reverse strand. `strand.tsv` lists them per revision;
+`microarray --quirks vendor` writes those calls the same way for the
+templates they apply to. Columns:
+
+- `revision`, `id`, `chrom`, `position`: the catalogued revision and its
+  marker, at the GRCh37 position it reports.
+- `reported`, `forward`: the allele pair the exports report, and its
+  complement, which GRCh37's forward strand reads.
+- `fixed_in`: the first later revision of the same vendor (by export period)
+  that reports the same marker at the same position on the forward strand, or
+  `.`. FTDNA exports carry no dates, so their revisions cannot be ordered.
+- `templates`: the `--formats` templates that write this marker reversed in
+  vendor mode, or `.`. A template stands for its `exact`/`same-markers`
+  revision, otherwise for every public revision it is the closest template
+  to; it reproduces the quirk only when it has the marker at that position
+  and each of those revisions that reported the marker on a readable strand
+  reported it reversed and confirmed.
+- `exports`: how many of the revision's exports called the marker.
+- `confirmed_by`: the revisions that report the same site on the forward
+  strand with the complementary pair.
+
+Only evidence derived from the public exports is used, never guesses: an
+entry is a marker that at least 10 of a revision's exports called with
+exactly two alleles, neither of them GRCh37's base but one its complement,
+and that another revision (any vendor) reports at the same site with the
+complementary pair, containing the reference base, at a reference-allele
+frequency within 0.25 of it. Not detectable, so not listed:
+
+- A/T and C/G markers, which read the same on both strands (see
+  `--strand-ambiguous no-call`), and markers reported with one allele, which
+  could be a fixed alternate allele rather than a reversed reference.
+- Reverse-strand reports no other revision confirms, and those in revisions
+  with fewer than 10 calling exports or no GRCh37 exports (NCBI36 revisions;
+  the FTDNA_V1_Affy template already complements calls in regions inverted
+  since NCBI36).
+- Swapped or otherwise wrong probe alleles: aggregate counts can't tell one
+  from a multiallelic or rare-allele site, so none are listed.
+- 23andMe's Yoruba-position MT markers, which no public export contains;
+  `corrections.tsv` relocates them in both modes, and the loader rejects a
+  strand entry for a marker it relocates, so the two cannot both apply.
+
+The 2017-12-08 dump gives 264 entries over 16 revisions (107 sites). Vendor
+mode writes 32 template markers reversed: 23andMe_V2 2, 23andMe_V3 5, Ancestry_V1 16 (10
+of them, on chrX and chrY, fixed in Ancestry_V2), Ancestry_V2 8 and FTDNA_V2
+1. 27 entries fall in regions hg18ToHg19 maps from NCBI36's other strand,
+which may be why. Other revisions' entries are documented but not
+reproduced, since no template stands for them alone.
+
+Sources:
+
+- The openSNP data dump of 2017-12-08 (above): allele counts over up to 100
+  GRCh37 exports per revision whose sites (`sites_sha256`) match it exactly.
+  Only aggregate counts are kept.
+- GRCh37 as the 1000 Genomes Project's hs37d5
+  (ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/phase2_reference_assembly_sequence/hs37d5.fa.gz).
+- The vendors' own file headers, which declare forward-strand GRCh37 calls
+  (23andMe: "oriented with respect to the plus strand on the human reference
+  sequence", build 37; AncestryDNA: "forward (+) strand", build 37).
+- Greshake B. et al. (2014) openSNP: a crowdsourced web resource for personal
+  genomics. PLoS ONE 9(3): e89204, doi:10.1371/journal.pone.0089204.
+
+Rebuild:
+
+```
+python scripts/microarray_strand_quirks.py alleles tmp/strand --corpus tmp/opensnp
+python scripts/microarray_strand_quirks.py build tmp/strand \
+    --reference hs37d5.fa.gz --templates REFLIB \
+    --ncbi36-chain REFLIB/hg18ToHg19.over.chain.gz
+```
+
+`alleles` streams each revision's exports from the dump; `build` compares the
+counts with GRCh37 and writes `strand.tsv`, plus `candidates.tsv.gz` (every
+revision's report at each candidate site) and `build-summary.json` in the
+work directory.
+
+## Rebuild the catalogue
 
 ```
 python scripts/microarray_chip_catalogue.py corpus tmp/opensnp

@@ -484,6 +484,7 @@ def convert_to_vendor_format(
     *,
     identity: MicroarrayIdentity | None = None,
     indel_calls: Mapping[tuple[str, str, str], str] | None = None,
+    quirks: str = "corrected",
 ) -> GenotypeTally:
     """
     Converts a CombinedKit.txt (GRCh37) to a vendor-specific format using
@@ -493,7 +494,14 @@ def convert_to_vendor_format(
     An NCBI36 template (FTDNA's Affymetrix export) finds its calls at its
     markers' GRCh37 positions, lifted with ncbi36_chain (UCSC hg18ToHg19);
     without the chain, by rsID.
+
+    Calls are written on the forward strand (quirks="corrected"); "vendor"
+    writes the markers the vendor reported on the reverse strand that way.
     """
+    from wgsextract_cli.core.microarray_quirks import vendor_strand_flips
+
+    flips = vendor_strand_flips(format_name) if quirks == "vendor" else frozenset()
+    flipped = 0
     fmt_info = get_template_format(format_name)
     if not fmt_info:
         logging.warning(f"Unknown format: {format_name}, using generic fallback.")
@@ -582,6 +590,9 @@ def convert_to_vendor_format(
                         if inverted and result != "--":
                             # GRCh37's forward strand is the NCBI36 reverse strand here.
                             result = sort_alleles(result.translate(_COMPLEMENT))
+                        if result != "--" and key and (t_id, *key) in flips:
+                            result = sort_alleles(result.translate(_COMPLEMENT))
+                            flipped += 1
                     if not excluded and indel_calls is not None:
                         result = indel_calls.get((t_id, t_chrom, t_pos), result)
                     if is_autosome(vendor_chrom(t_chrom)):
@@ -594,6 +605,11 @@ def convert_to_vendor_format(
                         f_out, format_name, t_id, t_chrom, t_pos, result, eol
                     )
         Path(tmp_path).replace(output_path)
+        if quirks == "vendor":
+            logging.info(
+                f"{format_name}: {flipped} calls written on the reverse strand, "
+                f"as the vendor reported {len(flips)} known markers."
+            )
         if check_rsids:
             logging.warning(
                 f"{format_name}: rsID identity checks {dict(identity_counts)}. "

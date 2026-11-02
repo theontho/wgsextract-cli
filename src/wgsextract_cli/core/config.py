@@ -112,6 +112,11 @@ KNOWN_SETTINGS = {
         False,
         "Resolve packaged dbSNP rsID aliases and no-call retired/ambiguous IDs",
     ),
+    "microarray_quirks": (
+        "corrected",
+        "Write microarray calls on the forward strand (corrected) or as the "
+        "vendor reported known reverse-strand markers (vendor)",
+    ),
     "qc_min_diploid_depth": (
         8.0,
         "Warn before microarray/VCF genotypes below this mean autosomal depth "
