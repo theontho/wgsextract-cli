@@ -153,10 +153,66 @@ as pbsv) to improve calls in repeats. Mosaic mode (`--mosaic`) is not used:
 this command calls germline SVs. Install Sniffles (for example via the `pacbio`
 Pixi environment); it is checked, not installed automatically.
 
+## Methylation
+
+`methylation pileup` turns the MM/ML base-modification tags that Dorado writes
+(with a modified-base model such as `5mCG_5hmCG`) into a bedMethyl table with
+ONT's [modkit](https://github.com/nanoporetech/modkit) `pileup`. modkit is
+optional. Install it with `pixi install -e modkit`; the CLI checks for it but
+never installs it. Bioconda builds modkit for Linux and macOS only, so the
+command is refused on native Windows; use WSL2 there.
+
+```sh
+wgsextract methylation pileup -i hg002-ont.bam --ref chr20.fa \
+  --region chr20:10000000-11000000 --threads 2 --outdir ont-methylation
+```
+
+It writes `<input>.cpg.bedmethyl.gz` (BGZF, tabix-indexed) and
+`<input>.cpg.methylation.tsv`, and logs the summary. Per modification, the
+summary lists sites, sites with at least 5 valid calls, median coverage, the
+weighted fraction modified (all calls pooled), the mean per-site level, and the
+shares of sites at 80% or more and at 20% or less.
+
+| Setting | CLI | `config.toml` | Default |
+| --- | --- | --- | --- |
+| Context | `--context cpg\|all` | `methylation_context` | `cpg` |
+| 5hmC as well as 5mC | `--5hmc` / `--no-5hmc` | `methylation_5hmc` | off |
+| Sum both strands of each CpG | `--combine-strands` / `--no-combine-strands` | `methylation_combine_strands` | on |
+
+`--region` takes 1-based, inclusive regions (several separated by commas), and
+`--threads` sets modkit's threads. Strands can only be summed at palindromic
+motifs, so `--context all` turns combining off, and asking for both is an error.
+
+Before modkit runs, the CLI samples 200 primary reads. If none carries MM/ML
+tags it stops and explains why: the basecaller had no modified-base model, or
+the reads were realigned through FASTQ without keeping the tags. `wgsextract
+realign` keeps them. A partly tagged input only warns. Short-read input
+(Illumina, Ultima, DNBSEQ) is refused, because bisulfite and EM-seq data need a
+conversion-aware aligner. PacBio HiFi with MM/ML tags (Jasmine or primrose 5mC)
+is accepted, since modkit supports it; `--5hmc` warns there because PacBio
+calls 5mC only. Input whose platform cannot be told runs with a warning, as
+long as it carries the tags.
+
+On the same HG002 R10.4.1 chr20:10-11 Mb slice (ONT open data `PAO83395`,
+about 37x; 8,108 strand-combined CpGs with at least 5 calls):
+
+| Check | Result |
+| --- | --- |
+| All CpGs | 66.7% methylated |
+| CpGs outside CpG islands and promoters | 72.6% |
+| CpGs in the slice's 5 UCSC CpG islands | 1.4% (each island 0.1-8.5%) |
+| CpGs within 1 kb of RefSeq TSSs | 14.2% |
+| 5hmC (`--5hmc`) | 1.0% |
+| Per-site agreement with ONT's published HG002 60x CpG calls | Pearson 0.98, Spearman 0.94, median difference 2.9 points |
+
+The same reads realigned with `wgsextract realign` gave the same result, so the
+tags survive realignment. This is a regional check, not whole-genome
+qualification (#299).
+
 Platform detection, tagged CPU alignment/realignment, regional x86-64
-DeepVariant ONT_R104 calling, optional Linux x86-64 Clair3 calling, and Sniffles
-SV calling are supported.
-Whole-genome ONT accuracy and methylation analysis are not qualified by this
+DeepVariant ONT_R104 calling, optional Linux x86-64 Clair3 calling, Sniffles
+SV calling, and optional modkit CpG methylation are supported.
+Whole-genome ONT accuracy and methylation are not qualified by this
 change; whole-genome validation is tracked in #299.
 
 ## CLI / GUI contract
@@ -173,4 +229,7 @@ automatic selection, and show its chemistry and architecture restrictions.
 For `vcf clair3`, expose `--model` (leave it unset for config or metadata
 selection) and hide the command on Windows. For `vcf sv`, expose `--ont`/`--long-read`, leave `--caller` unset for
 automatic Sniffles selection, and do not offer pbsv for ONT input.
+For `methylation pileup`, leave `--context`, `--5hmc` and `--combine-strands`
+unset so `config.toml` applies, hide the command on Windows, and show its
+bedMethyl and summary outputs.
 The GUI repository is separate; these CLI changes do not update it.

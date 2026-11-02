@@ -74,7 +74,7 @@ For annotation, `vep run --assembly GRCh37` also accepts the deprecated
 
 ::: card
 ### Analysis and alignment
-`microarray`, `lineage y-haplogroup`, `lineage y-str`, `lineage mt-haplogroup`, `typing cyp2d6`, `typing hla`, `typing str`, `sign create`, `sign verify`, `align`, `realign`, `pet-align`, `analyze comprehensive`, `analyze batch-gen`, `example-genome list/download`, `benchmark`, `deps check`, and `config`.
+`microarray`, `lineage y-haplogroup`, `lineage y-str`, `lineage mt-haplogroup`, `typing cyp2d6`, `typing hla`, `typing str`, `methylation pileup`, `sign create`, `sign verify`, `align`, `realign`, `pet-align`, `analyze comprehensive`, `analyze batch-gen`, `example-genome list/download`, `benchmark`, `deps check`, and `config`.
 :::
 :::
 :::
@@ -160,6 +160,11 @@ GATK (Python 3.10, Java 17) and FreeBayes live in their own environments. Instal
 ::: card
 ### cyrius, t1k, and expansionhunter
 Gene and repeat typing: `typing cyp2d6` (Cyrius), `typing hla` (T1K), and `typing str` (ExpansionHunter). Linux x86_64 and macOS, where packaged; not qualified on Linux ARM64. Install once with `pixi install --locked -e <environment>`; Cyrius is licensed for noncommercial use only.
+:::
+
+::: card
+### modkit
+`methylation pileup` tabulates CpG methylation from Nanopore and PacBio MM/ML tags with ONT's modkit. Linux and macOS only; install it with `pixi install --locked -e modkit`.
 :::
 
 ::: card

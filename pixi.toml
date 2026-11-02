@@ -137,6 +137,15 @@ platforms = ["linux-64"]
 [feature.clair3.dependencies]
 clair3 = ">=2.0.3,<3"
 
+# modkit summarizes Nanopore/PacBio base-modification (MM/ML) tags into
+# bedMethyl (`methylation pileup`). Opt-in environment (`pixi install -e modkit`);
+# Bioconda builds it for Linux and macOS, not Windows.
+[feature.modkit]
+platforms = ["linux-64", "linux-aarch64", "osx-64", "osx-arm64"]
+
+[feature.modkit.dependencies]
+ont-modkit = ">=0.6.4,<0.7"
+
 [feature.vep]
 platforms = ["linux-64", "linux-aarch64", "osx-64", "osx-arm64"]
 
@@ -240,6 +249,7 @@ vep = { features = ["vep"], no-default-feature = true }
 pharmcat = { features = ["pharmcat"], no-default-feature = true }
 cyrius = { features = ["cyrius"], no-default-feature = true }
 clair3 = { features = ["clair3"], no-default-feature = true }
+modkit = { features = ["modkit"], no-default-feature = true }
 
 [pypi-dependencies]
 # pysam is platform-specific (no native Windows build); see feature.pysam.

@@ -2436,6 +2436,33 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/vc14_runtime-14.51.36247-habf1de7_42.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/vcomp14-14.51.36247-habf1de7_42.conda
       - pypi: https://files.pythonhosted.org/packages/dc/98/d52024bb5b0ff68b4f0d276d867f634c84a67319a7e9f6b7708a37742333/tomli-2.5.0-cp313-cp313-win_amd64.whl
+  modkit:
+    channels:
+    - url: https://conda.anaconda.org/conda-forge/
+    - url: https://conda.anaconda.org/bioconda/
+    packages:
+      linux-64:
+      - conda: https://conda.anaconda.org/bioconda/linux-64/ont-modkit-0.6.4-h7f49ad2_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/libgcc-16.2.0-ha9f2e26_7.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/libgomp-16.2.0-he0feb66_7.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/libstdcxx-16.2.0-h934c35e_7.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/libzlib-1.3.2-h25fd6f3_3.conda
+      linux-aarch64:
+      - conda: https://conda.anaconda.org/bioconda/linux-aarch64/ont-modkit-0.6.4-ha2fee11_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/_openmp_mutex-4.5-20_gnu.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/libgcc-16.2.0-h205dda4_7.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/libgomp-16.2.0-h8acb6b2_7.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/libstdcxx-16.2.0-hef695bb_7.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/libzlib-1.3.2-hdc9db2a_3.conda
+      osx-64:
+      - conda: https://conda.anaconda.org/bioconda/osx-64/ont-modkit-0.6.4-h565ea35_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/libcxx-23.1.4-h19cb2f5_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/libzlib-1.3.2-hbb4bfdb_3.conda
+      osx-arm64:
+      - conda: https://conda.anaconda.org/bioconda/osx-arm64/ont-modkit-0.6.4-h2797cb0_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libcxx-23.1.4-h55c6f16_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libzlib-1.3.2-h8088a28_3.conda
   multiqc:
     channels:
     - url: https://conda.anaconda.org/conda-forge/
@@ -5229,6 +5256,23 @@ packages:
     - mustang >=3.2.4,<4.0a0
   size: 114551
   timestamp: 1733354553885
+- conda: https://conda.anaconda.org/bioconda/linux-64/ont-modkit-0.6.4-h7f49ad2_0.conda
+  sha256: ab8190dd67a778619155b079307a1dc1cda939668b3d12d0538632100df2dcbe
+  md5: 8782051660c13b4db76814513c21d463
+  depends:
+  - __glibc >=2.17,<3.0.a0
+  - libgcc >=14
+  - libstdcxx >=14
+  - libzlib >=1.3.2,<2.0a0
+  constrains:
+  - __glibc >=2.17
+  license: Oxford Nanopore Technologies PLC. Public License Version 1.0
+  license_family: PROPRIETARY
+  run_exports:
+    weak:
+    - ont-modkit >=0.6.4,<0.7.0a0
+  size: 6827614
+  timestamp: 1781156604700
 - conda: https://conda.anaconda.org/bioconda/linux-64/paml-4.10.10-h87e0c26_2.conda
   sha256: 98f12411428bd749730b066a9d2041ec888249658311f34da230891c96a3b728
   md5: 126e7be483750ee719c882fb23d471f7
@@ -6387,6 +6431,22 @@ packages:
     - mustang >=3.2.4,<4.0a0
   size: 110500
   timestamp: 1733354360728
+- conda: https://conda.anaconda.org/bioconda/linux-aarch64/ont-modkit-0.6.4-ha2fee11_0.conda
+  sha256: 30ef73c42b28a0f267bd42a2aaa3d82516e325513c1dfd0a0a41b7641f00659f
+  md5: f50cd6fc7fb2901891ef8ef4a72a5a96
+  depends:
+  - libgcc >=14
+  - libstdcxx >=14
+  - libzlib >=1.3.2,<2.0a0
+  constrains:
+  - __glibc >=2.17
+  license: Oxford Nanopore Technologies PLC. Public License Version 1.0
+  license_family: PROPRIETARY
+  run_exports:
+    weak:
+    - ont-modkit >=0.6.4,<0.7.0a0
+  size: 6969308
+  timestamp: 1781156354874
 - conda: https://conda.anaconda.org/bioconda/linux-aarch64/paml-4.10.10-hdba15ac_2.conda
   sha256: ce759121f658ecc2037b8c9bd58323be40f7489d2fd8f591a65f10665ca323d5
   md5: 4ea6f5d8db1053513ba60cba8d9e99dc
@@ -8404,6 +8464,22 @@ packages:
     - mustang >=3.2.4,<4.0a0
   size: 110786
   timestamp: 1733355385610
+- conda: https://conda.anaconda.org/bioconda/osx-64/ont-modkit-0.6.4-h565ea35_0.conda
+  sha256: 21be1392774a3bea97828a87cfbd895555507a5e08545ee98556b7c3993836c5
+  md5: 91949279d7b66969839beaa131211a40
+  depends:
+  - __osx >=10.13
+  - libcxx >=19
+  - libzlib >=1.3.2,<2.0a0
+  constrains:
+  - __osx >=10.13
+  license: Oxford Nanopore Technologies PLC. Public License Version 1.0
+  license_family: PROPRIETARY
+  run_exports:
+    weak:
+    - ont-modkit >=0.6.4,<0.7.0a0
+  size: 6432134
+  timestamp: 1781158240220
 - conda: https://conda.anaconda.org/bioconda/osx-64/paml-4.10.10-h8af04d4_2.conda
   sha256: 3d98ed8ca2da66f97965b6709fc6ba8c33f2deacbee1fbb740ddda97da211a6b
   md5: e62e6cd383dbf07c9a4297450521ddda
@@ -9397,6 +9473,22 @@ packages:
     - mustang >=3.2.4,<4.0a0
   size: 106863
   timestamp: 1733354399445
+- conda: https://conda.anaconda.org/bioconda/osx-arm64/ont-modkit-0.6.4-h2797cb0_0.conda
+  sha256: 8de445bc5375d69582548d31ad6e1e39f3bb4ed57194feccb238859e71bffe68
+  md5: d27dad2519842b3f119b2e35329756c5
+  depends:
+  - __osx >=11.0
+  - libcxx >=19
+  - libzlib >=1.3.2,<2.0a0
+  constrains:
+  - __osx >=11.0
+  license: Oxford Nanopore Technologies PLC. Public License Version 1.0
+  license_family: PROPRIETARY
+  run_exports:
+    weak:
+    - ont-modkit >=0.6.4,<0.7.0a0
+  size: 6417586
+  timestamp: 1781156042995
 - conda: https://conda.anaconda.org/bioconda/osx-arm64/paml-4.10.10-h8316a8f_2.conda
   sha256: 0ca0fabc0ac0253c932cbb91ced018feb1059272d8a51b30679a67285882baa6
   md5: fdbb2bbfaa6ecb0bebb90d6e5b722dd5
@@ -19819,6 +19911,16 @@ packages:
   run_exports: {}
   size: 573303
   timestamp: 1791337833929
+- conda: https://conda.anaconda.org/conda-forge/osx-64/libcxx-23.1.4-h19cb2f5_2.conda
+  sha256: 5d66e121f30c4b3792480de92230ec05d024106df5c031452bba356153df8c65
+  md5: f2a679a70cf584c6886579155fd7ee8f
+  depends:
+  - __osx >=11.0
+  license: Apache-2.0 WITH LLVM-exception
+  license_family: Apache
+  run_exports: {}
+  size: 577045
+  timestamp: 1792749345117
 - conda: https://conda.anaconda.org/conda-forge/osx-64/libdb-6.2.32-he49afe7_0.tar.bz2
   sha256: 9c0042554e332e9b11f1fb6e0466f0096310ace4e3a75c863d27b98c29c03429
   md5: b685b11e8fd0aa0be67e65984c11a15c
@@ -22356,6 +22458,16 @@ packages:
   run_exports: {}
   size: 577501
   timestamp: 1791337239735
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/libcxx-23.1.4-h55c6f16_2.conda
+  sha256: 9c390b4f403db32346754ccef6b84b7e5d9b70cb6d76258fd23b05f2db2ab216
+  md5: 08f01709cd5f8fd7af2c29e4e3ce1846
+  depends:
+  - __osx >=11.0
+  license: Apache-2.0 WITH LLVM-exception
+  license_family: Apache
+  run_exports: {}
+  size: 577255
+  timestamp: 1792748855178
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/libdb-6.2.32-hbdafb3b_0.tar.bz2
   sha256: 3312ddbf6e39730cf047abbfaadc83682f2e6f7db2928f0590a1c19f86be0e54
   md5: d7793672c6d9d8290a36c5f46047e8b2

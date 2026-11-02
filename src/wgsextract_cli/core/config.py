@@ -77,6 +77,18 @@ KNOWN_SETTINGS = {
         "Clair3 ONT model for `vcf clair3`: a model directory or the name of one "
         "Clair3 bundles (default: chosen from the reads' basecaller metadata)",
     ),
+    "methylation_context": (
+        "cpg",
+        "`methylation pileup` context: cpg (CpG sites) or all (every cytosine)",
+    ),
+    "methylation_5hmc": (
+        False,
+        "`methylation pileup`: also report 5hmC (Nanopore 5mCG_5hmCG models)",
+    ),
+    "methylation_combine_strands": (
+        True,
+        "`methylation pileup`: sum both strands of each CpG into one row",
+    ),
     "default_input_vcf": (None, "Default input VCF file"),
     "microarray_min_gq": (0, "Microarray minimum sample GQ (0 disables filtering)"),
     "microarray_min_dp": (0, "Microarray minimum sample DP (0 disables filtering)"),

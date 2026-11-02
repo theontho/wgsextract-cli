@@ -58,6 +58,12 @@ def verify_platform_support(args: argparse.Namespace) -> None:
             from wgsextract_cli.commands.vcf.clair3 import require_supported_platform
 
             require_supported_platform()
+    if command == "methylation":
+        from wgsextract_cli.commands.methylation import (
+            require_supported_platform as require_modkit_platform,
+        )
+
+        require_modkit_platform()
     if (
         not sys.platform.startswith("linux")
         and getattr(args, "gpu", False)
