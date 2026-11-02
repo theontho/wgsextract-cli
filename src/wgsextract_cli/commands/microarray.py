@@ -4,6 +4,7 @@ import logging
 import subprocess
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from wgsextract_cli.core.aadr_resources import require_aadr_2m
@@ -42,6 +43,11 @@ from wgsextract_cli.core.microarray_indels import (
     prepare_indel_vcf,
 )
 from wgsextract_cli.core.microarray_quality import quality_policy
+from wgsextract_cli.core.microarray_quirks import (
+    MODES,
+    load_strand_quirks,
+    quirks_mode,
+)
 from wgsextract_cli.core.microarray_targets import (
     build_genome_wide_target,
     is_genome_wide_target,
@@ -178,11 +184,12 @@ def _convert_microarray_outputs(
     )
 
     identity = identity_policy(args)
-    converter = (
-        functools.partial(convert_to_vendor_format, identity=identity)
-        if identity.resolve_rsids
-        else convert_to_vendor_format
-    )
+    quirks = quirks_mode(args)
+    converter: Callable[..., GenotypeTally] = convert_to_vendor_format
+    if identity.resolve_rsids:
+        converter = functools.partial(converter, identity=identity)
+    if quirks != "corrected":
+        converter = functools.partial(converter, quirks=quirks)
 
     template_search_roots = _template_search_roots(ref_fasta, lib)
     requested_formats = args.formats.split(",")
@@ -304,6 +311,8 @@ def _convert_microarray_outputs(
 
 def run(args: argparse.Namespace) -> None:
     quality_policy(args)
+    if quirks_mode(args) == "vendor":
+        load_strand_quirks()
     identity = identity_policy(args)
     if identity.resolve_rsids:
         load_rsid_map()
@@ -586,6 +595,12 @@ def register(
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Resolve packaged dbSNP aliases and no-call retired/ambiguous marker IDs (default: config or false)",
+    )
+    parser.add_argument(
+        "--quirks",
+        choices=MODES,
+        default=None,
+        help="corrected: forward-strand calls; vendor: reverse-strand calls where a template's vendor revision reported them so (default: config or corrected)",
     )
     parser.add_argument(
         "--min-gq",

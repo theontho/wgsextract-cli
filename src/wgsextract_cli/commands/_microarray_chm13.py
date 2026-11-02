@@ -44,6 +44,7 @@ from wgsextract_cli.core.microarray_chm13_markers import (
 )
 from wgsextract_cli.core.microarray_identity import identity_policy
 from wgsextract_cli.core.microarray_quality import quality_policy
+from wgsextract_cli.core.microarray_quirks import quirks_mode
 from wgsextract_cli.core.microarray_site_map import SiteProjection
 from wgsextract_cli.core.microarray_targets import collect_template_markers
 from wgsextract_cli.core.microarray_utils import (
@@ -480,6 +481,7 @@ def run_chm13(
             roots,
             chain36,
             identity=identity,
+            quirks=quirks_mode(args),
             indel_calls={
                 **vendor_no_calls(real_format, roots, rejected_ids),
                 **indel_calls.get(real_format, {}),

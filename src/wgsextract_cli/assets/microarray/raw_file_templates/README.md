@@ -155,6 +155,9 @@ an otherwise rCRS list, so they missed the kit's calls. Each is corrected only
 when a 2025 23andMe export gives the marker another position and the
 template's position, lifted with hg19ToHg38's chrM chain, is exactly that.
 
+- They apply in both `--quirks` modes: they fix the template, not a vendor
+  report. A [strand quirk](../revisions/README.md#strand-quirks-strandtsv)
+  can't name a marker they relocate.
 - Rebuild: `python scripts/microarray_template_corrections.py <reflib> <23andMe raw file>`.
 
 ## FTDNA_V1_Affy (reference library)
