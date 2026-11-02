@@ -178,11 +178,13 @@ def modkit_command(
 class TagSample:
     reads: int
     tagged: int
+    # Reads with MM entries for the opposite strand (G-h?, T-a., G-m?).
+    opposite_strand: int = 0
+    # Dorado duplex reads (dx:i:1), one cause of opposite-strand entries.
     duplex: int = 0
 
 
-def _is_duplex(mm: str) -> bool:
-    """MM entries such as G-m? record a modification on the opposite strand."""
+def _has_opposite_strand(mm: str) -> bool:
     return any(entry[1:2] == "-" for entry in mm[5:].split(";") if entry)
 
 
@@ -195,7 +197,7 @@ def sample_modification_tags(
     """How many of the first primary, mapped reads carry MM and ML tags."""
     cram = ["-T", ref] if ref else []
     command = ["samtools", "view", "-F", "0x904", *cram, alignment, *regions]
-    reads = tagged = duplex = 0
+    reads = tagged = opposite = duplex = 0
     stopped = False
     with tempfile.TemporaryFile("w+") as errors:
         process = popen(command, stdout=subprocess.PIPE, stderr=errors, text=True)
@@ -208,9 +210,11 @@ def sample_modification_tags(
                 reads += 1
                 if names & {"MM", "Mm"} and names & {"ML", "Ml"}:
                     tagged += 1
-                    duplex += any(
-                        tag[:2] in ("MM", "Mm") and _is_duplex(tag) for tag in tags
+                    opposite += any(
+                        tag[:2] in ("MM", "Mm") and _has_opposite_strand(tag)
+                        for tag in tags
                     )
+                    duplex += "dx:i:1" in tags
                 if reads >= limit:
                     stopped = True
                     break
@@ -225,7 +229,7 @@ def sample_modification_tags(
                 f"samtools could not read {alignment}: "
                 f"{errors.read().strip() or f'exit code {returncode}'}"
             )
-    return TagSample(reads, tagged, duplex)
+    return TagSample(reads, tagged, opposite, duplex)
 
 
 def require_modification_platform(platform: str | None) -> None:
@@ -275,18 +279,33 @@ def check_modification_tags(sample: TagSample, platform: str | None) -> None:
             f"Only {sample.tagged} of {sample.reads} sampled reads carry MM/ML tags; "
             "methylation will come from those reads alone, at lower coverage."
         )
-    if sample.duplex == sample.tagged:
+    if not sample.opposite_strand:
+        return
+    # modkit 0.6's pileup skips any read with an opposite-strand MM entry.
+    if platform == "pacbio":
+        source = (
+            "Jasmine writes them for 5hmC (G-h?) and 6mA (T-a.), which are on by "
+            "default. Re-run Jasmine with only its 5mC model (see jasmine --help); "
+            "older primrose or ccs-kinetics 5mC output (C+m? only) works as is."
+        )
+    elif platform == "ont" or sample.duplex:
+        source = (
+            "Dorado writes them for duplex reads (dx:i:1). Use the simplex reads "
+            "Dorado writes alongside them, or run modkit pileup-hemi directly."
+        )
+    else:
+        source = "Remove those modification calls, or run modkit pileup-hemi directly."
+    if sample.opposite_strand == sample.tagged:
         raise WGSExtractError(
-            f"All {sample.tagged} sampled reads with MM/ML tags are duplex (they "
-            "carry opposite-strand entries such as G-m), and modkit pileup skips "
-            "such reads. Use the simplex reads (Dorado writes them alongside duplex "
-            "ones) or run modkit pileup-hemi directly."
+            f"All {sample.tagged} sampled reads with MM/ML tags carry "
+            "opposite-strand modification calls, and modkit pileup skips such "
+            f"reads entirely. {source}"
         )
-    if sample.duplex:
-        logging.warning(
-            f"{sample.duplex} of {sample.tagged} sampled reads with MM/ML tags are "
-            "duplex; modkit pileup skips them, so coverage comes from simplex reads."
-        )
+    logging.warning(
+        f"{sample.opposite_strand} of {sample.tagged} sampled reads with MM/ML tags "
+        "carry opposite-strand modification calls; modkit pileup skips them, so "
+        f"coverage comes from the other reads. {source}"
+    )
 
 
 @dataclass(frozen=True)
@@ -451,7 +470,9 @@ def cmd_pileup(args: argparse.Namespace) -> None:
     require_modification_platform(platform)
     if platform == "pacbio" and options.hydroxymethyl:
         logging.warning(
-            "PacBio basecallers call 5mC only; --5hmc will report no 5hmC sites."
+            "Jasmine records most PacBio 5hmC calls as opposite-strand (G-h?) "
+            "entries, which modkit cannot use; --5hmc reports only 5hmC on reads "
+            "without them, if any."
         )
     region = getattr(args, "region", None)
     regions = [r.strip() for r in region.split(",") if r.strip()] if region else []

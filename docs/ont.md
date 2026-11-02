@@ -188,10 +188,17 @@ tags it stops and explains why: the basecaller had no modified-base model, or
 the reads were realigned through FASTQ without keeping the tags. `wgsextract
 realign` keeps them. A partly tagged input only warns. Short-read input
 (Illumina, Ultima, DNBSEQ) is refused, because bisulfite and EM-seq data need a
-conversion-aware aligner. PacBio HiFi with MM/ML tags (Jasmine or primrose 5mC)
-is accepted, since modkit supports it; `--5hmc` warns there because PacBio
-calls 5mC only. Input whose platform cannot be told runs with a warning, as
-long as it carries the tags.
+conversion-aware aligner. Input whose platform cannot be told runs with a
+warning, as long as it carries the tags.
+
+modkit 0.6 skips every read whose MM tag has an opposite-strand entry (such as
+`G-h?` or `T-a.`), so the CLI counts them while sampling. When every tagged read
+has one, it refuses with the cause. Otherwise it warns that coverage comes from
+the remaining reads. For Nanopore these are Dorado duplex reads (`dx:i:1`):
+use the simplex reads. PacBio HiFi 5mC with only `C+m?` entries, from primrose or
+ccs-kinetics, is accepted. Current Jasmine also calls 5hmC (`C+h?`/`G-h?`) and
+6mA (`A+a.`/`T-a.`) by default, so its reads are refused until Jasmine is re-run
+with only its 5mC model. For the same reason, `--5hmc` warns on PacBio input.
 
 On the same HG002 R10.4.1 chr20:10-11 Mb slice (ONT open data `PAO83395`,
 about 37x; 8,108 strand-combined CpGs with at least 5 calls):

@@ -118,12 +118,15 @@ needs_samtools = pytest.mark.skipif(
 @needs_samtools
 def test_modification_tags_are_sampled(tmp_path):
     simplex = "MM:Z:C+m?,0;\tML:B:C,200"
-    duplex = "MM:Z:C+m?,0;G-m?,0;\tML:B:C,200,10"
-    reads = [simplex, "", "Mm:Z:C+m,0;\tMl:B:C,9", duplex]
+    duplex = "MM:Z:C+m?,0;G-m?,0;\tML:B:C,200,10\tdx:i:1"
+    jasmine = "MM:Z:C+m?,0;C+h?;G-h?;A+a.;T-a.,0;\tML:B:C,200,250"
+    reads = [simplex, "", "Mm:Z:C+m,0;\tMl:B:C,9", duplex, jasmine]
     sample = methylation.sample_modification_tags(
         str(write_sam(tmp_path / "r.sam", reads)), None
     )
-    assert sample == methylation.TagSample(reads=4, tagged=3, duplex=1)
+    assert sample == methylation.TagSample(
+        reads=5, tagged=4, opposite_strand=2, duplex=1
+    )
     untagged = write_sam(tmp_path / "u.sam", ["", "MM:Z:C+m?,0;"])
     assert methylation.sample_modification_tags(
         str(untagged), None
@@ -167,12 +170,36 @@ def test_partly_tagged_reads_warn(caplog):
     assert "Only 20 of 200" in caplog.text
 
 
-def test_duplex_reads_warn_or_are_refused(caplog):
+@pytest.mark.parametrize(
+    ("platform", "duplex", "source"),
+    [
+        ("pacbio", 0, "Jasmine writes them for 5hmC .* only its 5mC model"),
+        ("ont", 200, "Dorado writes them for duplex reads"),
+        (None, 200, "Dorado writes them for duplex reads"),
+        (None, 0, "Remove those modification calls"),
+    ],
+)
+def test_opposite_strand_reads_are_refused_with_their_source(platform, duplex, source):
+    sample = methylation.TagSample(200, 200, opposite_strand=200, duplex=duplex)
+    with pytest.raises(WGSExtractError, match=f"All 200 .*skips such.*{source}"):
+        methylation.check_modification_tags(sample, platform)
+
+
+def test_some_opposite_strand_reads_warn(caplog):
     with caplog.at_level(logging.WARNING):
-        methylation.check_modification_tags(methylation.TagSample(200, 200, 30), "ont")
-    assert "30 of 200 sampled reads with MM/ML tags are duplex" in caplog.text
-    with pytest.raises(WGSExtractError, match="All 200 .* are duplex"):
-        methylation.check_modification_tags(methylation.TagSample(200, 200, 200), "ont")
+        methylation.check_modification_tags(
+            methylation.TagSample(200, 200, opposite_strand=30, duplex=30), "ont"
+        )
+    assert "30 of 200 sampled reads" in caplog.text
+
+
+@needs_samtools
+def test_pacbio_5mc_only_reads_pass(tmp_path):
+    primrose = "MM:Z:C+m?,0,1;\tML:B:C,200,5"
+    reads = write_sam(tmp_path / "pb.sam", [primrose] * 3, platform="PACBIO")
+    sample = methylation.sample_modification_tags(str(reads), None)
+    assert sample == methylation.TagSample(3, 3)
+    methylation.check_modification_tags(sample, "pacbio")
 
 
 @pytest.mark.parametrize("platform", ["ont", "pacbio", None])
