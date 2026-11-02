@@ -31,9 +31,10 @@ def _alt(base: str) -> str:
 
 @pytest.fixture(scope="module")
 def genome(tmp_path_factory):
-    """A reference and two BAMs: male (reads on every contig, two unmapped) and
-    female (no chrY or unmapped reads; chrX as deep as chr7, so two X copies).
-    Reads are named <contig>_<start>."""
+    """A reference and two BAMs: male (reads on every contig but chr7, two
+    unmapped; sexed by chrY against chrX) and female (no chrY or unmapped
+    reads; chrX as deep as chr7, so two X copies). Reads are named
+    <contig>_<start>."""
     root = tmp_path_factory.mktemp("extract")
     rng = random.Random(7)
     seqs = {c: "".join(rng.choice("ACGT") for _ in range(1000)) for c in CONTIGS}
@@ -54,7 +55,8 @@ def genome(tmp_path_factory):
         f"unmapped_{i}\t4\t*\t0\t0\t*\t*\t0\t0\tACGTACGT\tIIIIIIII" for i in (1, 2)
     ]
     male = sam_to_bam(
-        header + [r for c in CONTIGS for r in reads(c)] + unmapped, root / "male.bam"
+        header + [r for c in CONTIGS if c != "chr7" for r in reads(c)] + unmapped,
+        root / "male.bam",
     )
     female = sam_to_bam(
         header + [r for c in ("chr1", "chr7", "chrX", "chrM") for r in reads(c)],

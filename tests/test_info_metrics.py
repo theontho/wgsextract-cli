@@ -419,7 +419,6 @@ def _stat(name, length, mapped, unmapped=0):
 def test_infer_sex_thresholds():
     assert metrics.infer_sex([_stat("chrX", 1, 100), _stat("chrY", 1, 11)]) == "Male"
     assert metrics.infer_sex([_stat("X", 1, 100), _stat("Y", 1, 10)]) == "Female"
-    assert metrics.infer_sex([_stat("chr1", 1, 100), _stat("chrY", 1, 5)]) == "Unknown"
     # Split contigs (e.g. chrY and chrY_random) of one key add up.
     assert (
         metrics.infer_sex(
@@ -432,19 +431,24 @@ def test_infer_sex_thresholds():
 @pytest.mark.parametrize(
     ("stats", "sex"),
     [
-        # No chrY: chrX against chr7 (two X copies read about like chr7)
+        # chrX against chr7 (two X copies read about like chr7), chrY or not
         ([_stat("chr7", 1, 100), _stat("chrX", 1, 95)], "Female"),
         ([_stat("chr7", 1, 100), _stat("chrX", 1, 50)], "Male"),
+        ([_stat("chr7", 1, 100), _stat("chrX", 1, 40), _stat("chrY", 1, 2)], "Male"),
         # No chrX: chrY against chr19 (about half of chrY is N)
         ([_stat("chr19", 1, 100), _stat("chrY", 1, 20)], "Male"),
         ([_stat("chr19", 1, 100), _stat("chrY", 1, 1)], "Female"),
-        # Autosomes alone, or a sex chromosome without its stand-in
+        # chrY alone, with chrM or other autosomes: a Y extract or a Big Y
+        ([_stat("chrY", 1, 100)], "Male"),
+        ([_stat("chrY", 1, 100), _stat("chrM", 1, 100)], "Male"),
+        ([_stat("chr1", 1, 100), _stat("chrY", 1, 5)], "Male"),
+        # Autosomes alone, or chrX without chr7 or chrY
         ([_stat("chr7", 1, 100), _stat("chr19", 1, 100)], "Unknown"),
         ([_stat("chrX", 1, 100)], "Unknown"),
         ([_stat("chrM", 1, 100)], "Unknown"),
     ],
 )
-def test_infer_sex_falls_back_to_a_similar_sized_autosome(stats, sex):
+def test_infer_sex_by_x_dosage_or_chry(stats, sex):
     assert metrics.infer_sex(stats) == sex
 
 
@@ -453,12 +457,18 @@ def test_infer_sex_falls_back_to_a_similar_sized_autosome(stats, sex):
     [
         # The samples nearest the thresholds among WGSE v4 stats of real
         # BAMs/CRAMs (read segments, or Map Gbases x 1000 where rounded).
-        ({"chrX": 125_000, "chrY": 6_000}, "Female"),  # T2T exome, Y/X 0.048
+        ({"chr7": 938_000, "chrX": 722_000}, "Female"),  # hs38DH exome, X/7 0.77
+        ({"chr7": 1_000, "chrX": 543, "chrY": 174}, "Male"),  # hs38 2%, X/7 0.54
+        # A male exome: X/7 0.38, though its Y/X (0.043) and Y/19 look female
+        ({"chr7": 732_000, "chr19": 779_000, "chrX": 280_000, "chrY": 12_000}, "Male"),
+        ({"chrX": 6_570, "chrY": 160}, "Female"),  # hs38DH WGS, Y/X 0.024
         ({"X": 3_110, "Y": 480}, "Male"),  # hs37d5 WGS, Y/X 0.154
         ({"chr19": 710_000, "chrY": 47_000}, "Female"),  # hs38DH, Y/19 0.066
         ({"19": 2_330, "Y": 480}, "Male"),  # hs37d5, Y/19 0.206
-        ({"chr7": 938_000, "chrX": 722_000}, "Female"),  # hs38DH exome, X/7 0.77
-        ({"chr7": 1_000, "chrX": 536}, "Male"),  # hs37d5 2% low-pass, X/7 0.54
+        # A T2T-realigned Y extract: stray chrX and chr7 reads give X/7 2.86
+        ({"chr7": 4_369, "chrX": 12_476, "chrY": 4_713_038}, "Male"),
+        # A male WGS whose chrX reads high (X/7 0.69), but whose Y/X is 0.153
+        ({"7": 1_000, "X": 690, "Y": 106}, "Male"),
     ],
 )
 def test_infer_sex_on_real_samples_nearest_the_thresholds(counts, sex):

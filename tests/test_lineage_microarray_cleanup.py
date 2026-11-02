@@ -603,7 +603,8 @@ def _idx(x_reads, y_reads):
     [
         (33_392_449, 674_020, "Female"),
         (16_000_000, 6_000_000, "Male"),
-        (0, 50, "Unknown"),
+        (0, 50, "Male"),  # chrY alone: a Y extract
+        (0, 0, "Unknown"),
     ],
 )
 def test_infer_sex_from_x_and_y_reads(x_reads, y_reads, sex):

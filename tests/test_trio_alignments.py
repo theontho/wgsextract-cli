@@ -272,9 +272,9 @@ def test_a_proband_without_variants_has_nothing_to_genotype(tmp_path):
 
 def _sexed_trio(tmp_path: Path, proband_y_reads: int) -> tuple[str, list[str]]:
     """A reference of chr20, chr7, chrX and chrY and the trio's BAMs on it: the
-    child has a de novo C at chr20:1,000; everyone has 20 chr7 and 20 chrX
-    reads (two X copies), and the child proband_y_reads chrY reads, which tell
-    its sex."""
+    child has a de novo C at chr20:1,000; everyone has 20 chr7 reads, and the
+    child proband_y_reads chrY reads, which tell its sex: a boy's single X has
+    10 reads, everyone else's two X copies 20."""
     rng = random.Random(7)
     chr20 = "".join(rng.choice("ACGT") for _ in range(2000))
     chr20 = chr20[:999] + "A" + chr20[1000:]
@@ -296,7 +296,8 @@ def _sexed_trio(tmp_path: Path, proband_y_reads: int) -> tuple[str, list[str]]:
         header[1:1] = [f"@SQ\tSN:chr{c}\tLN:2000" for c in "7XY"]
         reads = [line for line in lines if not line.startswith("@")]
         y_reads = proband_y_reads if name == "child" else 0
-        for contig, count in (("7", 20), ("X", 20), ("Y", y_reads)):
+        x_reads = 10 if y_reads else 20
+        for contig, count in (("7", 20), ("X", x_reads), ("Y", y_reads)):
             reads += [
                 f"{contig}{i}\t0\tchr{contig}\t{101 + i}\t60\t100M\t*\t0\t0\t"
                 f"{sex[contig][100 + i : 200 + i]}\t{'I' * 100}\tRG:Z:1"

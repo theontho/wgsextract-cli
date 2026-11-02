@@ -210,8 +210,9 @@ def load_n_counts(ref_path: str | None) -> dict[str, int]:
 
 
 def infer_sex(idx_stats: list[IdxStat]) -> str:
-    """ "Male", "Female" or "Unknown" from chrX/chrY reads, falling back to a
-    similar-sized autosome (chr7 ~ X, chr19 ~ Y) when one of them is absent."""
+    """ "Male", "Female" or "Unknown" from the X dosage against a similar-sized
+    autosome (chr7), else from chrY reads against chrX or chr19 (~ Y's size).
+    A file of chrY (and chrM) alone is a male's: a Y extract or a Big Y test."""
     mapped: dict[str, int] = {}
     for s in idx_stats:
         if s["name"] != "*":
@@ -219,20 +220,24 @@ def infer_sex(idx_stats: list[IdxStat]) -> str:
             mapped[key] = mapped.get(key, 0) + s["mapped"]
     x_reads, y_reads = mapped.get("X", 0), mapped.get("Y", 0)
     c7_reads, c19_reads = mapped.get("7", 0), mapped.get("19", 0)
-    # Thresholds sit between the sexes as seen in real WGS and WES samples
-    # (hs37, hs38 and T2T): Y/X is up to 0.05 for females (exomes) and from
-    # 0.15 for males; Y/chr19 up to 0.07 and from 0.2; X/chr7 0.93-0.98 and
-    # 0.46-0.54 for WGS, though exomes don't follow X/chr7.
+    # Thresholds sit between the sexes as seen in real WGS, low-pass and exome
+    # samples (hs37, hs38 and T2T). Y/X is 0.15+ for male WGS and at most 0.05
+    # for females, so a male-level chrY settles it, even where chrX reads high
+    # or a realigned Y extract has a few stray chrX reads. A male exome
+    # captures few chrY targets (Y/X 0.04-0.07), so X/chr7 is checked next:
+    # 0.77-1.17 for females and 0.38-0.60 for males, exomes included.
+    if x_reads > 0 and y_reads > x_reads * 0.10:
+        return "Male"
+    if x_reads > 0 and c7_reads > 0:
+        # Two X copies read about like chr7, one X about half of it
+        return "Female" if x_reads > c7_reads * 0.65 else "Male"
     if x_reads > 0 and y_reads > 0:
         # Females still pick up a few mismapped chrY reads
-        return "Male" if y_reads > x_reads * 0.10 else "Female"
-    if x_reads > 0 and c7_reads > 0:
-        # No chrY: two X copies read about like chr7, one X about half of it
-        return "Female" if x_reads > c7_reads * 0.75 else "Male"
+        return "Female"
     if y_reads > 0 and c19_reads > 0:
-        # No chrX: about half of chrY is N, so a male's Y is ~0.2-0.5 of chr19
+        # About half of chrY is N, so a male's Y is ~0.2-0.5 of chr19
         return "Male" if y_reads > c19_reads * 0.12 else "Female"
-    return "Unknown"
+    return "Male" if y_reads > 0 else "Unknown"
 
 
 def sample_sex(input_path: str, outdir: str | None = None) -> str:
