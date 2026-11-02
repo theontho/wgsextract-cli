@@ -54,6 +54,10 @@ def verify_platform_support(args: argparse.Namespace) -> None:
             require_native_tool("gatk" if subcommand == "gatk" else "run_deepvariant")
             if getattr(args, "gpu", False):
                 require_native_tool("parabricks")
+        elif subcommand == "clair3":
+            from wgsextract_cli.commands.vcf.clair3 import require_supported_platform
+
+            require_supported_platform()
     if (
         not sys.platform.startswith("linux")
         and getattr(args, "gpu", False)

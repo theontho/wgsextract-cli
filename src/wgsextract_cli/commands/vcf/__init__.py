@@ -16,6 +16,7 @@ from .callers import (
 from .chain import (
     cmd_chain_annotate,
 )
+from .clair3 import cmd_clair3
 from .clinvar_revel import (
     cmd_clinvar,
     cmd_revel,
@@ -377,6 +378,20 @@ def register(
     )
     add_depth_argument(deepvariant_parser)
     deepvariant_parser.set_defaults(func=cmd_deepvariant)
+
+    clair3_parser = vcf_subs.add_parser(
+        "clair3", parents=[base_parser], help=CLI_HELP["cmd_clair3"]
+    )
+    _add_region(clair3_parser, "Chromosomal region (e.g. chr20:1-1000000)")
+    clair3_parser.add_argument(
+        "--model",
+        metavar="NAME|DIR",
+        help="Clair3 model directory, or the name of a bundled model, matching the "
+        "reads' basecaller (e.g. r1041_e82_400bps_sup_v500). Overrides config "
+        "clair3_model; default: chosen from the basecaller metadata.",
+    )
+    add_depth_argument(clair3_parser)
+    clair3_parser.set_defaults(func=cmd_clair3)
 
     clinvar_parser = vcf_subs.add_parser(
         "clinvar",

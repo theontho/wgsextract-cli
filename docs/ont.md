@@ -56,6 +56,81 @@ mapping is tested, but GPU ONT accuracy has not been hardware-qualified here.
 CPU container temporary files and HOME stay inside the owned output work
 directory and are removed after the run.
 
+### Clair3 (optional)
+
+`vcf clair3` runs [Clair3](https://github.com/HKU-BAL/Clair3) 2.x, an
+ONT-trained small-variant caller. It is optional, and DeepVariant remains the
+default ONT caller. Clair3 is qualified on **Linux x86-64 only**. It is not
+available on Windows (use WSL2), and Bioconda's macOS and ARM builds are
+refused because they have not been validated here. Install it into its own
+Pixi environment with `pixi install -e clair3`. The CLI checks for it but
+never installs it.
+
+```sh
+wgsextract vcf clair3 -i hg002-ont.bam --ref chr20.fa \
+  --region chr20:10000000-11000000 --threads 2 --outdir ont-clair3 \
+  --model r1041_e82_400bps_sup_v500
+```
+
+The model must match the basecaller that produced the reads. It is chosen in
+this order:
+
+1. `--model NAME|DIR`;
+2. `clair3_model` in `config.toml`, for example
+   `clair3_model = "/data/clair3-models/r1041_e82_400bps_sup_v420"`;
+3. the Dorado/Guppy basecaller model named in the `@RG` (`DS:basecall_model=`,
+   ID) or `@PG` header lines. For example, `dna_r10.4.1_e8.2_400bps_sup@v5.0.0`
+   selects `r1041_e82_400bps_sup_v500`, R10.4 E8.1 selects `r104_e81_*_g5015`,
+   and R9.4.1 selects `r941_prom_sup_g5014`.
+
+If the header names no basecaller (common after realignment, or for older
+public data), or names several, the command stops and asks for `--model`. A
+model for another pore, kit or speed than the metadata states is refused. A
+different accuracy (hac/sup) or basecaller version is allowed with a warning.
+HiFi and Illumina models are refused, as are `*_with_mv` models, which need
+Dorado move tables and `--enable_dwell_time`.
+
+A `NAME` is one of the models Bioconda bundles in the environment
+(`.pixi/envs/clair3/bin/models`; the error lists them). Download others
+(for example Dorado v4.2/v4.3 models) from HKU's PyTorch catalogs, keeping
+the directory name:
+
+```sh
+m=r1041_e82_400bps_sup_v420
+mkdir -p clair3-models/$m
+for f in pileup.pt full_alignment.pt; do
+  curl -fL -o clair3-models/$m/$f \
+    https://www.bio8.cs.hku.hk/clair3/clair3_models_rerio_pytorch/$m/$f
+done
+```
+
+Then set `clair3_model` in `config.toml` to that directory, or pass it with
+`--model`.
+
+Bundled models are in `clair3_models_pytorch/`, Rerio-derived models in
+`clair3_models_rerio_pytorch/`. Clair3 1.x TensorFlow models do not work with
+Clair3 2.x. Before calling, the CLI checks both files against the SHA-256
+digests pinned in `src/wgsextract_cli/assets/clair3/models.json`, which
+covers 31 ONT models from both catalogs. A mismatch is an error. A model
+without a pin, such as a custom one, runs with a warning.
+
+On a 1 Mb slice (chr20:10-11 Mb) of public HG002 R10.4.1 sup reads (ONT's
+GIAB 2023.05 release, which records `basecaller_cfg
+dna_r10.4.1_e8.2_400bps_sup@v4.0.0`), realigned with `realign` and scored with
+`rtg vcfeval` against GIAB v4.2.1 inside its confident regions (1,355 SNVs and
+234 indels):
+
+| Caller | SNV F1 | Indel F1 | Overall F1 |
+| --- | --- | --- | --- |
+| `vcf deepvariant` (`ONT_R104`) | 0.999 | 0.875 | 0.982 |
+| `vcf clair3 --model r1041_e82_400bps_sup_v400` (matching model) | 0.997 | 0.862 | 0.979 |
+| `vcf clair3 --model r1041_e82_400bps_sup_v410` (bundled) | 0.998 | 0.891 | 0.984 |
+| `vcf clair3 --model r1041_e82_400bps_sup_v420` | 0.998 | 0.839 | 0.977 |
+
+The callers are within a few indels of each other on this slice, so
+DeepVariant stays the default. This is a regional check, not whole-genome
+qualification (#299).
+
 ## Structural variants
 
 `vcf sv` runs Sniffles2 for detected ONT input; `--ont` requests the same
@@ -79,7 +154,8 @@ this command calls germline SVs. Install Sniffles (for example via the `pacbio`
 Pixi environment); it is checked, not installed automatically.
 
 Platform detection, tagged CPU alignment/realignment, regional x86-64
-DeepVariant ONT_R104 calling and Sniffles SV calling are supported.
+DeepVariant ONT_R104 calling, optional Linux x86-64 Clair3 calling, and Sniffles
+SV calling are supported.
 Whole-genome ONT accuracy and methylation analysis are not qualified by this
 change; whole-genome validation is tracked in #299.
 
@@ -94,6 +170,7 @@ GUI integrations should allow automatic platform selection and surface the
 tag-preservation limitations above.
 Expose `ONT_R104` and `--ont` for DeepVariant, preserve an unset model for
 automatic selection, and show its chemistry and architecture restrictions.
-For `vcf sv`, expose `--ont`/`--long-read`, leave `--caller` unset for
+For `vcf clair3`, expose `--model` (leave it unset for config or metadata
+selection) and hide the command on Windows. For `vcf sv`, expose `--ont`/`--long-read`, leave `--caller` unset for
 automatic Sniffles selection, and do not offer pbsv for ONT input.
 The GUI repository is separate; these CLI changes do not update it.
