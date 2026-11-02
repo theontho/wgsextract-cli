@@ -177,6 +177,29 @@ def test_unseen_layout_scores_exactly_against_installed_templates(tmp_path):
     assert "other_vendor" not in {c.revision.id for c in exact.candidates}
 
 
+def test_estimated_runner_up_keeps_an_exact_best_ambiguous(tmp_path):
+    root = tmp_path / "raw_file_templates"
+    (root / "body").mkdir(parents=True)
+    (root / "body" / "LDNA_V1.txt").write_text(
+        "".join(f"{m}\t{c}\t{p}\n" for m, c, p in REVISED)
+    )
+    catalogue = _catalogue(
+        tmp_path,
+        _entry("revised", REVISED, template="LDNA_V1"),
+        _entry("near", REVISED[20:]),  # no template: only a sketch estimate
+    )
+    export = revisions.parse_raw_export(
+        io.StringIO(_export([*REVISED, ("rs99999", "1", "99")])), "f"
+    )
+    detection = revisions.detect(export, catalogue, [str(root)])
+    best, runner_up = detection.candidates[:2]
+    assert (best.revision.id, best.exact_score) == ("revised", True)
+    assert not runner_up.exact_score
+    # Outside the exact score's margin, inside the estimate's.
+    assert best.score - runner_up.score > revisions._margin(best)
+    assert detection.ambiguous
+
+
 def test_files_without_a_vendor_header_skip_self_declaring_vendors(tmp_path):
     catalogue = _catalogue(
         tmp_path,

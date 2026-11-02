@@ -451,6 +451,7 @@ def detect(
     ambiguous = (
         len(scored) > 1
         and scored[0].match != "exact"
-        and scored[0].score - scored[1].score < _margin(scored[0])
+        and scored[0].score - scored[1].score
+        < max(_margin(scored[0]), _margin(scored[1]))
     )
     return Detection(export, tuple(scored[:limit]), ambiguous)

@@ -66,7 +66,7 @@ out; it may be an edited file rather than a vendor revision.
 
 What the corpus shows: same-named chips were exported with many marker lists.
 23andMe v3 has 15 (960,520 to 1,001,422 markers, two of them with 960,613),
-v4 has 9 (598,897 to 612,647; two with 610,545) and v2 has 7 (one is the
+v4 has 9 (598,897 to 612,647; two with 610,545) and v1/v2 has 7 (one is the
 template's); FTDNA's OmniExpress downloads have 13, most lacking 18,000-30,000
 of the template's markers. AncestryDNA V1.0 and V2.0 uploads match their
 templates exactly.

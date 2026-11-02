@@ -11,7 +11,7 @@
   {
    "id": "23andme_v2",
    "vendor": "23andMe",
-   "chip": "v2",
+   "chip": "v1/v2",
    "revision": "574,518-marker export layout",
    "build": "GRCh37",
    "kind": "export",
@@ -429,7 +429,7 @@
    "revision": "WGS Extract reference-library layout",
    "build": "GRCh37",
    "kind": "reference-library",
-   "declares_vendor": true,
+   "declares_vendor": false,
    "markers": 618640,
    "ids_sha256": "f893f07c8950198ce3425de81795d566e16ce1e6ff48ee7155107a1d92bda58c",
    "sites_sha256": "d7572e58663fc419ce53b34664d18fd568f750de45ddf686d29d0a5fbffcfeba",
@@ -452,7 +452,7 @@
    "revision": "WGS Extract reference-library layout",
    "build": "GRCh37",
    "kind": "reference-library",
-   "declares_vendor": true,
+   "declares_vendor": false,
    "markers": 698655,
    "ids_sha256": "4951faa9fe87127fe53acf4f25e447af221a64f5928c1fa255de1218b0d761d1",
    "sites_sha256": "eafcd1f09309a9f618d19140e2505da773c2ff855689f7bd2d94ac17212e24da",
@@ -885,7 +885,7 @@
   {
    "id": "23andme_v2_574514_52c84090",
    "vendor": "23andMe",
-   "chip": "v2",
+   "chip": "v1/v2",
    "revision": "574,514-marker export layout",
    "build": "GRCh37",
    "kind": "export",
@@ -1161,7 +1161,7 @@
   {
    "id": "23andme_v2_574405_7f09d0cf",
    "vendor": "23andMe",
-   "chip": "v2",
+   "chip": "v1/v2",
    "revision": "574,405-marker export layout",
    "build": "NCBI36",
    "kind": "export",
@@ -1230,7 +1230,7 @@
   {
    "id": "23andme_v2_576516_97c6ae5e",
    "vendor": "23andMe",
-   "chip": "v2",
+   "chip": "v1/v2",
    "revision": "576,516-marker export layout",
    "build": "NCBI36",
    "kind": "export",
@@ -1253,7 +1253,7 @@
   {
    "id": "23andme_v2_578337_759dc898",
    "vendor": "23andMe",
-   "chip": "v2",
+   "chip": "v1/v2",
    "revision": "578,337-marker export layout",
    "build": "NCBI36",
    "kind": "export",
@@ -1322,7 +1322,7 @@
   {
    "id": "23andme_v2_576517_81f0a07d",
    "vendor": "23andMe",
-   "chip": "v2",
+   "chip": "v1/v2",
    "revision": "576,517-marker export layout",
    "build": "NCBI36",
    "kind": "export",
@@ -1414,7 +1414,7 @@
   {
    "id": "23andme_v2_574513_c5d9fbfc",
    "vendor": "23andMe",
-   "chip": "v2",
+   "chip": "v1/v2",
    "revision": "574,513-marker export layout",
    "build": "GRCh37",
    "kind": "export",
