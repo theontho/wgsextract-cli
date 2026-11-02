@@ -17,6 +17,8 @@ The adapter calls only the existing samtools/bcftools tools, not Yleaf.
 No tools or full reference genomes are automatically installed/downloaded.
 CRAM requires the matching reference. Variant-only VCF inference also needs
 the matching reference (`--ref`, or the configured reference library).
+An incompatible detected FASTA/build combination is rejected, including when
+`--build` overrides input metadata; pass a matching `--ref` explicitly.
 It treats missing variants as matching the reference, exactly as upstream;
 this is **not coverage evidence**. For targeted panels, use
 `--no-ref-inference` so absent sites cannot become inferred genotypes.
@@ -27,7 +29,8 @@ Outputs in `<outdir>/yleaf/`:
 
 * `hg_prediction.hg`: upstream-compatible TSV, including QC1/QC2/QC3/counts.
 * `<sample>/<sample>.out`, `.fmf`, `.info`: observed/inferred and filtered markers.
-* `run.json`: upstream code/data tag, commit, build, tree and QC settings.
+* `run.json`: upstream code/data tag, commit, build, tree, ancient-panel/QC settings,
+  and the selected marker panel's identifier and SHA-256 (including custom panels).
 
 Calls and QC values preserve v4.1.6 behavior, including recurrent-site and
 approximate-placement exclusions, 60% node consensus, deepest passing node,

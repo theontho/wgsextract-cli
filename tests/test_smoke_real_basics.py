@@ -655,7 +655,7 @@ class TestLineageSmoke:
         self.fake_vcf = os.path.join(FAKE_DIR, "fake.vcf.gz")
 
     def test_lineage_y_haplogroup(self):
-        if not yleaf_tables_cached():
+        if not yleaf_tables_cached("hg38"):
             pytest.skip("Native Yleaf reference tables are not cached")
         args = [
             "lineage",

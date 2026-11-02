@@ -44,7 +44,7 @@ def vep_cache_dir(ref: str | Path | None) -> Path:
     return Path(_resolve_vep_cache_root(Namespace(ref=ref and str(ref))))
 
 
-def yleaf_tables_cached() -> bool:
+def yleaf_tables_cached(build: str) -> bool:
     """Keep optional real-data smoke tests from downloading large tables."""
     from wgsextract_cli.core.reference_assets import resolve_reference_library
     from wgsextract_cli.ydna.yleaf_native.data import manifest
@@ -53,8 +53,8 @@ def yleaf_tables_cached() -> bool:
     root = Path(resolve_reference_library()) / "yleaf" / metadata["upstream"]["tag"]
     return all(
         (root / name).is_file()
-        for asset in metadata["archives"].values()
-        for name in asset["files"]
+        for key in (build, "hg_prediction_tables")
+        for name in metadata["archives"][key]["files"]
     )
 
 

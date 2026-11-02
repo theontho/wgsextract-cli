@@ -19,6 +19,8 @@ from tests.smoke_utils import (
     verify_vcf,
     yleaf_tables_cached,
 )
+from wgsextract_cli.core.alignment_metadata import get_vcf_build
+from wgsextract_cli.core.builds import canonical_build
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.microarray_utils import _resolve_templates_roots
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
@@ -632,7 +634,14 @@ def test_real_mt_lineage(real_dataset: RealDataset, tmp_path: Path) -> None:
 
 
 def test_real_y_lineage(real_dataset: RealDataset, tmp_path: Path) -> None:
-    if not yleaf_tables_cached():
+    build = (
+        canonical_build(
+            get_vcf_build(str(real_dataset.vcf))
+            or ReferenceLibrary(real_dataset.ref, input_path=real_dataset.vcf).build
+        )
+        or "hg38"
+    )
+    if not yleaf_tables_cached(build):
         pytest.skip("Native Yleaf reference tables are not cached")
     rc, stdout, stderr = run_cli(
         [

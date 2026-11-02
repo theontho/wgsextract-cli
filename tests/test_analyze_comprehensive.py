@@ -20,7 +20,7 @@ class TestAnalyzeComprehensive(unittest.TestCase):
 
     def test_analyze_comprehensive_bam_only(self):
         """Test analyze comprehensive with only a BAM file."""
-        if not yleaf_tables_cached():
+        if not yleaf_tables_cached("hg38"):
             self.skipTest("Native Yleaf reference tables are not cached")
         # This will trigger variant calling (snp/indel)
 

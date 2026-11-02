@@ -2,6 +2,7 @@
 
 import hashlib
 import io
+import json
 import tarfile
 from collections import Counter
 from pathlib import Path
@@ -188,6 +189,77 @@ def test_archive_rejects_unexpected_paths(tmp_path):
     archive.write_bytes(_archive("../escape", b"bad"))
     with pytest.raises(WGSExtractError, match="Unsafe"):
         data._extract(archive, tmp_path / "staging", {})
+
+
+def test_smoke_cache_gate_needs_only_selected_build_and_shared_tables(
+    tmp_path, monkeypatch
+):
+    from tests.smoke_utils import yleaf_tables_cached
+    from wgsextract_cli.core import reference_assets
+
+    root = tmp_path / "yleaf/v4.1.6"
+    monkeypatch.setattr(
+        reference_assets, "resolve_reference_library", lambda: str(tmp_path)
+    )
+    monkeypatch.setattr(
+        data,
+        "manifest",
+        lambda: {
+            "upstream": {"tag": "v4.1.6"},
+            "archives": {
+                key: {"files": {f"{key}/table.txt": {}}}
+                for key in ("hg19", "hg38", "t2t", "hg_prediction_tables")
+            },
+        },
+    )
+    for folder in ("hg38", "hg_prediction_tables"):
+        (root / folder).mkdir(parents=True)
+        (root / folder / "table.txt").touch()
+    assert yleaf_tables_cached("hg38")
+    assert not yleaf_tables_cached("hg19")
+    (root / "hg_prediction_tables/table.txt").unlink()
+    assert not yleaf_tables_cached("hg38")
+
+
+@pytest.mark.parametrize(
+    ("ancient", "custom"), [(False, False), (True, False), (False, True)]
+)
+def test_run_provenance_identifies_the_actual_marker_panel(
+    native_tables, tmp_path, monkeypatch, ancient, custom
+):
+    vcf = tmp_path / "synthetic.vcf"
+    vcf.touch()
+    selected = analysis.position_file(native_tables, "hg38", "yfull", ancient)
+    if custom:
+        panel = tmp_path / "custom-panel.txt"
+        panel.write_text(selected.read_text().replace("M-leaf", "M-custom"))
+        selected = panel
+    monkeypatch.setattr(
+        analysis,
+        "_query_vcf",
+        lambda _: (
+            {pos: Call("G", 1, 100) for pos in (100, 110, 120, 130)},
+            False,
+        ),
+    )
+    output = tmp_path / "results"
+    analysis.analyze(
+        vcf,
+        output,
+        build="hg38",
+        pos_file=selected if custom else None,
+        ancient=ancient,
+        no_ref_inference=True,
+    )
+    metadata = json.loads((output / "run.json").read_text())
+    assert metadata["ancient"] is ancient
+    assert metadata["marker_panel"] == {
+        "source": "custom" if custom else "yleaf-data",
+        "identifier": selected.name
+        if custom
+        else selected.relative_to(native_tables).as_posix(),
+        "sha256": hashlib.sha256(selected.read_bytes()).hexdigest(),
+    }
 
 
 def test_analysis_clears_previous_result_on_failed_run(

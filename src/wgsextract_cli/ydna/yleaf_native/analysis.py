@@ -14,8 +14,9 @@ from collections import Counter
 from pathlib import Path
 
 from wgsextract_cli.core.utils import WGSExtractError, run_command
+from wgsextract_cli.core.variant_files import vcf_index_chromosomes
 
-from .data import ensure_data, manifest
+from .data import ensure_data, file_sha256, manifest
 from .markers import (
     Call,
     ad_call,
@@ -52,10 +53,19 @@ def _query_vcf(path: Path) -> tuple[dict[int, Call], bool]:
     ).stdout
     has_ad = "##FORMAT=<ID=AD," in header
     field = "AD" if has_ad else "GT"
+    region_args: list[str] = []
+    if any(Path(str(path) + suffix).is_file() for suffix in (".tbi", ".csi")):
+        contigs = vcf_index_chromosomes(path)
+        if contigs:
+            regions = [name for name in contigs if name in Y_NAMES]
+            if not regions:
+                raise WGSExtractError("Input VCF has no records on chromosome Y.")
+            region_args = ["-r", ",".join(regions)]
     text = run_command(
         [
             "bcftools",
             "query",
+            *region_args,
             "-i",
             'CHROM="Y" || CHROM="chrY"',
             "-f",
@@ -186,7 +196,8 @@ def analyze(
     version = metadata["upstream"]["tag"]
     logging.info("%s; tables %s; build %s; tree %s", CREDIT, version, build, tree)
     data = ensure_data(build, library)
-    markers = read_markers(pos_file or position_file(data, build, tree, ancient))
+    marker_file = pos_file or position_file(data, build, tree, ancient)
+    markers = read_markers(marker_file)
     predictor = Predictor(data / "hg_prediction_tables", tree)
     sample = input_path.name
     for suffix in (".vcf.gz", ".vcf", ".bcf", ".bam", ".cram"):
@@ -245,6 +256,14 @@ def analyze(
                     "data_release": metadata["release_tag"],
                     "build": build,
                     "tree": tree,
+                    "ancient": ancient,
+                    "marker_panel": {
+                        "source": "custom" if pos_file else "yleaf-data",
+                        "identifier": marker_file.name
+                        if pos_file
+                        else marker_file.relative_to(data).as_posix(),
+                        "sha256": file_sha256(marker_file),
+                    },
                     "citation": CREDIT,
                     "min_reads": min_reads,
                     "base_quality": quality,

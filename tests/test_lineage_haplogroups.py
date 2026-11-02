@@ -6,6 +6,7 @@ import logging
 import random
 import textwrap
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -156,6 +157,80 @@ def test_y_haplogroup_uses_the_vcf_build(tmp_path, monkeypatch):
     with pytest.raises(WGSExtractError, match="stop"):
         run_wgsextract("lineage", "y-haplogroup", "--input", vcf)
     assert seen == ["hg19"]
+
+
+@pytest.mark.parametrize(
+    ("reference_build", "no_inference", "mismatch"),
+    [("hg19", False, True), ("hg38", False, False), ("hg19", True, False)],
+)
+def test_y_build_override_cannot_infer_against_an_incompatible_fasta(
+    tmp_path, monkeypatch, reference_build, no_inference, mismatch
+):
+    from wgsextract_cli.commands import _lineage_ydna
+    from wgsextract_cli.ydna.yleaf_native import analysis
+
+    reference = write_fasta(tmp_path / f"{reference_build}.fa", {"chrY": "A" * 400})
+    vcf = _vcf(
+        tmp_path / "kit.vcf.gz",
+        {"chrY": 400},
+        "chrY\t130\t.\tA\tG\t50\tPASS\t.\tGT\t1\n",
+    )
+    monkeypatch.setattr(
+        _lineage_ydna,
+        "ReferenceLibrary",
+        lambda *a, **k: SimpleNamespace(fasta=str(reference), build="hg19"),
+    )
+
+    def stop(*args, **kwargs):
+        assert kwargs["build"] == "hg38"
+        assert kwargs["reference"] == reference
+        raise WGSExtractError("analysis reached")
+
+    monkeypatch.setattr(analysis, "analyze", stop)
+    with pytest.raises(
+        WGSExtractError,
+        match="selected reference FASTA is hg19" if mismatch else "analysis reached",
+    ):
+        run_wgsextract(
+            "lineage", "y-haplogroup", "--input", vcf, "--build", "hg38",
+            *(["--no-ref-inference"] if no_inference else []),
+        )  # fmt: skip
+
+
+@pytest.mark.parametrize("indexed", [True, False])
+def test_native_y_vcf_query_uses_regions_only_when_indexed(
+    tmp_path, monkeypatch, indexed
+):
+    from wgsextract_cli.ydna.yleaf_native import analysis
+
+    vcf = Path(
+        _vcf(
+            tmp_path / "kit.vcf.gz",
+            {"chr1": 1000, "chrY": 1000, "Y": 1000},
+            "chr1\t100\t.\tA\tT\t50\tPASS\t.\tGT\t1\n"
+            "chrY\t130\t.\tA\tG\t50\tPASS\t.\tGT\t1\n"
+            "Y\t140\t.\tA\tT\t50\tPASS\t.\tGT\t1\n",
+        )
+    )
+    if not indexed:
+        plain = vcf.with_suffix("")
+        plain.write_bytes(gzip.decompress(vcf.read_bytes()))
+        vcf = plain
+    commands = []
+    run = analysis.run_command
+
+    def capture(command, **kwargs):
+        commands.append(command)
+        return run(command, **kwargs)
+
+    monkeypatch.setattr(analysis, "run_command", capture)
+    calls, has_ad = analysis._query_vcf(vcf)
+    assert not has_ad
+    assert {pos: call.base for pos, call in calls.items()} == {130: "G", 140: "T"}
+    query = next(command for command in commands if "-f" in command)
+    assert ("-r" in query) is indexed
+    if indexed:
+        assert query[query.index("-r") + 1] == "chrY,Y"
 
 
 @pytest.mark.parametrize(

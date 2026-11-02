@@ -7,7 +7,13 @@ from pathlib import Path
 
 from wgsextract_cli.commands.info.metrics import sample_sex
 from wgsextract_cli.core.alignment_metadata import get_vcf_build
-from wgsextract_cli.core.builds import is_hg37_build, is_hg38_build, is_t2t_build
+from wgsextract_cli.core.builds import (
+    build_from_chr1_length,
+    build_from_path,
+    is_hg37_build,
+    is_hg38_build,
+    is_t2t_build,
+)
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -15,7 +21,7 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
-from wgsextract_cli.core.reference_assets import input_stem
+from wgsextract_cli.core.reference_assets import input_stem, read_fai_lengths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
     WGSExtractError,
@@ -131,6 +137,19 @@ def cmd_ydna(args: argparse.Namespace) -> None:
     if not build:
         build = lib.build
     yleaf_build = _yleaf_build(build)
+    needs_reference = (
+        is_vcf and not getattr(args, "no_ref_inference", False)
+    ) or input_lower.endswith(".cram")
+    if needs_reference and lib.fasta:
+        reference_build = build_from_chr1_length(
+            read_fai_lengths(lib.fasta)
+        ) or build_from_path(lib.fasta)
+        if reference_build and reference_build != yleaf_build:
+            raise WGSExtractError(
+                f"The selected reference FASTA is {reference_build}, but the "
+                f"Yleaf marker build is {yleaf_build}. Pass a matching --ref "
+                "FASTA, or use --no-ref-inference for a targeted VCF panel."
+            )
 
     prediction = analyze(
         Path(args.input),
