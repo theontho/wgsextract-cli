@@ -202,7 +202,10 @@ def call_multicopy(
         )
 
     alleles = [bp for bp, n in ranked if n >= min_reads and not stutter(bp)]
-    if status == "called" and len(alleles) > len(group):
+    if status == "called" and not alleles:
+        # Every length is weak or stutter-like: no length is a copy's allele.
+        status = "low_support"
+    elif status == "called" and len(alleles) > len(group):
         status = "conflicting"
     table = [{format_count(bp, period): n for bp, n in sorted(pooled.items())}]
     if status != "called":

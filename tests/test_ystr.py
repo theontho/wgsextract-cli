@@ -100,6 +100,14 @@ def test_multicopy_alleles_need_the_requested_reads():
     ]
 
 
+def test_multicopy_reads_too_scattered_for_any_allele_are_a_no_call():
+    copy1 = tracts("hg38")["DYS385"][0]
+    reads = _multicopy_reads({})
+    # The two-read length is one repeat from a longer, stronger-weighted read.
+    reads[key(copy1)].lengths.update({118: 2, 120: 1, 121: 1, 122: 1})
+    assert _dys385(reads) == [("low_support", ""), ("low_support", "")]
+
+
 def test_multicopy_reads_ending_in_a_longer_repeat_show_an_unspanned_copy():
     reads = _multicopy_reads({11: 8})
     copy1 = tracts("hg38")["DYS385"][0]

@@ -98,7 +98,7 @@ bundled; only derived coordinates, motifs and allele numbers are.
 | [NIST STRBase](https://strbase.nist.gov) API and Y-STR fact sheet (Butler, Kline & Decker 2008) | Reference alleles in GenBank BACs, kit membership, FTDNA vs NIST offsets | Public domain (U.S. government work) |
 | GenBank BAC sequences (accessions in `provenance.json`) | Anchoring NIST reference alleles to each build | Public (INSDC) |
 | [Y-LineageTracker](https://github.com/Shuhua-Group/Y-LineageTracker) (Chen et al. 2021) | Windows and motifs | MIT |
-| [Y-STR_Kit](https://github.com/savolab/Y-STR_Kit) | GRCh37 windows and repeat regexes | README says MIT; the repository has no LICENSE file. Only its windows and regexes are used, and nothing from it is bundled. |
+| [Y-STR_Kit](https://github.com/savolab/Y-STR_Kit) | GRCh37 windows and repeat regexes. Its windows place 5 markers. Its regexes give the reference count of 18 unverified markers (the only source for 11 of them) and break ties between sources | README says MIT; the repository has no LICENSE file. Only its windows and regexes are used, and nothing from it is bundled. |
 | 1000 Genomes PowerPlex Y23 typings | DYS448 and DYS481 reference counts (calibration) | Open access, IGSR data policy |
 
 Panel membership and column order follow FamilyTreeDNA's published Y-STR
