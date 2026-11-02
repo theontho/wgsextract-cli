@@ -327,17 +327,21 @@ def _select_sv_caller(args: argparse.Namespace) -> str:
             f"{flag} selects a long-read SV caller (pbsv or sniffles) and cannot "
             "be combined with --caller delly."
         )
+    pbsv_ont_error = WGSExtractError(
+        "pbsv is PacBio-only and does not support Nanopore (ONT) reads; "
+        "use --caller sniffles (the ONT default)."
+    )
     if pacbio:
         args.ccs = True
-        return caller or ("pbsv" if get_tool_path("pbsv") is not None else "sniffles")
+        caller = caller or ("pbsv" if get_tool_path("pbsv") is not None else "sniffles")
+        if caller == "pbsv" and _detected_platform(args) == "ont":
+            raise pbsv_ont_error
+        return caller
     detected = None
     if not ont and (caller in ("pbsv", "delly") or (not caller and not long_read)):
         detected = _detected_platform(args)
     if caller == "pbsv" and (ont or detected == "ont"):
-        raise WGSExtractError(
-            "pbsv is PacBio-only and does not support Nanopore (ONT) reads; "
-            "use --caller sniffles (the ONT default)."
-        )
+        raise pbsv_ont_error
     if ont or long_read:
         return caller or "sniffles"
     if caller:

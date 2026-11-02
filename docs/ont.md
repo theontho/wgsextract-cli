@@ -60,8 +60,8 @@ directory and are removed after the run.
 
 `vcf sv` runs Sniffles2 for detected ONT input; `--ont` requests the same
 explicitly, and the platform-neutral `--long-read` selects Sniffles for any
-long-read data. pbsv is PacBio-only, so `--caller pbsv` is refused for ONT
-(detected or `--ont`). `--ont`/`--long-read` with `--caller delly`, and `--ont`
+long-read data. pbsv is PacBio-only, so it is refused for ONT (detected or
+`--ont`), whether chosen by `--caller pbsv` or by `--pacbio`'s pbsv default. `--ont`/`--long-read` with `--caller delly`, and `--ont`
 with `--pacbio`, are rejected; an explicit `--caller delly` on detected ONT runs
 but warns that Delly is a short-read caller. PacBio behavior is unchanged:
 `--pacbio` still prefers pbsv (falling back to Sniffles) with CCS thresholds,

@@ -351,12 +351,21 @@ def test_ont_input_runs_sniffles_by_default(tmp_path, long_read, flags):
 
 
 @needs_htslib
-@pytest.mark.parametrize("flags", [[], ["--ont"], ["--long-read"]])
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ["--caller", "pbsv"],
+        ["--ont", "--caller", "pbsv"],
+        ["--long-read", "--caller", "pbsv"],
+        ["--pacbio", "--caller", "pbsv"],
+        ["--pacbio"],
+    ],
+)
 def test_pbsv_is_refused_for_ont_reads(tmp_path, long_read, flags):
     callers, _bam, ref = long_read
     bam = _platform_bam(tmp_path, "ONT")
     with pytest.raises(WGSExtractError, match="pbsv is PacBio-only"):
-        _run("sv", bam, ref, tmp_path / "out", *flags, "--caller", "pbsv")
+        _run("sv", bam, ref, tmp_path / "out", *flags)
     assert callers.calls == []
 
 
@@ -372,6 +381,9 @@ def test_pacbio_input_keeps_delly_default_and_pbsv(tmp_path, long_read):
     callers.calls.clear()
     _run("sv", bam, ref, tmp_path / "lr", "--long-read")
     assert [c[0] for c in callers.calls] == ["sniffles"]
+    callers.calls.clear()
+    _run("sv", bam, ref, tmp_path / "pb", "--pacbio")
+    assert [c[0] for c in callers.calls] == ["pbsv", "pbsv"]
 
 
 @pytest.mark.parametrize(
