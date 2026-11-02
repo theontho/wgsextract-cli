@@ -19,6 +19,7 @@ from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
+from wgsextract_cli.core.genotype_qc import CHR_Y, warn_low_depth
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem, read_fai_lengths
@@ -136,6 +137,14 @@ def cmd_ydna(args: argparse.Namespace) -> None:
     )
     if not build:
         build = lib.build
+    if not is_vcf:
+        warn_low_depth(
+            args.input,
+            {CHR_Y},
+            outdir=args.outdir,
+            ref=lib.fasta,
+            min_depth=getattr(args, "qc_min_depth", None),
+        )
     yleaf_build = _yleaf_build(build)
     needs_reference = (
         is_vcf and not getattr(args, "no_ref_inference", False)

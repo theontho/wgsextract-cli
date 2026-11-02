@@ -1,6 +1,7 @@
 import argparse
 
 from wgsextract_cli.core.config import settings
+from wgsextract_cli.core.genotype_qc import add_depth_argument
 from wgsextract_cli.core.messages import CLI_HELP
 
 from .basic import (
@@ -118,6 +119,7 @@ def register(
     _add_ploidy_options(snp_parser)
     _add_region(snp_parser, "Chromosomal region (e.g. chrM, chrY:10000-20000)")
     _add_parallel_contigs(snp_parser)
+    add_depth_argument(snp_parser)
     snp_parser.set_defaults(func=cmd_snp)
 
     indel_parser = vcf_subs.add_parser(
@@ -126,6 +128,7 @@ def register(
     _add_ploidy_options(indel_parser)
     _add_region(indel_parser, "Chromosomal region (e.g. chrM, chrY:10000-20000)")
     _add_parallel_contigs(indel_parser)
+    add_depth_argument(indel_parser)
     indel_parser.set_defaults(func=cmd_indel)
 
     annotate_parser = vcf_subs.add_parser(
@@ -253,6 +256,7 @@ def register(
     cnv_parser.add_argument(
         "--ploidy", type=int, help="Baseline ploidy for delly cnv (default: 2)"
     )
+    add_depth_argument(cnv_parser)
     cnv_parser.set_defaults(func=cmd_cnv)
 
     sv_parser = vcf_subs.add_parser(
@@ -294,12 +298,14 @@ def register(
         help="Optional tandem-repeat BED for pbsv discover or Sniffles "
         "(recommended for long-read SV calling).",
     )
+    add_depth_argument(sv_parser)
     sv_parser.set_defaults(func=cmd_sv)
 
     freebayes_parser = vcf_subs.add_parser(
         "freebayes", parents=[base_parser], help=CLI_HELP["cmd_freebayes"]
     )
     _add_region(freebayes_parser, "Chromosomal region (e.g. chrM, chrY:10000-20000)")
+    add_depth_argument(freebayes_parser)
     freebayes_parser.set_defaults(func=cmd_freebayes)
 
     gatk_parser = vcf_subs.add_parser(
@@ -319,6 +325,7 @@ def register(
         action="store_true",
         help="Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).",
     )
+    add_depth_argument(gatk_parser)
     gatk_parser.set_defaults(func=cmd_gatk)
 
     deepvariant_parser = vcf_subs.add_parser(
@@ -368,6 +375,7 @@ def register(
         action="store_true",
         help="Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).",
     )
+    add_depth_argument(deepvariant_parser)
     deepvariant_parser.set_defaults(func=cmd_deepvariant)
 
     clinvar_parser = vcf_subs.add_parser(

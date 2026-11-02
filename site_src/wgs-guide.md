@@ -95,6 +95,8 @@ Keep the primary file and its sidecars together. A BAM without its `.bai` index 
 Coverage has both depth and breadth. Depth asks how many reads cover positions that were successfully sequenced. Breadth asks how much of a region has enough usable data at all. Two files can both be described as "30x" while one has much better coverage across difficult regions.
 
 Quality also depends on mapping, duplicates, base quality, read length, platform, and reference build. Low-quality reads can create false positives; overly strict filtering can hide real variants. That is why region-limited tests and careful inspection matter before launching whole-genome jobs.
+
+Low-pass consumer genomes (often under 5x) are a special case: most heterozygous sites have too few reads to see both alleles, so providers impute genotypes from population panels. WGS Extract warns before genotyping such files, and when a microarray kit comes out far more homozygous than the 70-80% a directly sequenced genome gives.
 :::
 
 ::: guide-panel
