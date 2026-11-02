@@ -21,8 +21,9 @@ import contextlib
 import logging
 from pathlib import Path
 
-from wgsextract_cli.core import bwa_mem2
+from wgsextract_cli.core import bwa_mem2, ultima
 from wgsextract_cli.core.alignment_memory import check_mapping_memory
+from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -263,7 +264,15 @@ def run(args: argparse.Namespace) -> None:
             "subcommand or via --input."
         )
     verify_paths_exist({"--input": args.input})
-    args.platform = align_cmd.resolve_platform(args, args.r1 or args.input)
+    platform_args = args
+    input_cram_opt = None
+    if not args.platform and not args.r1 and args.input.lower().endswith(".cram"):
+        header = get_bam_header(args.input, getattr(args, "input_ref", None))
+        if not any(group.get("PL") for group in ultima.read_groups(header)):
+            input_cram_opt = _input_cram_reference(args)
+            platform_args = argparse.Namespace(**vars(args))
+            platform_args.input_ref = input_cram_opt[1]
+    args.platform = align_cmd.resolve_platform(platform_args, args.r1 or args.input)
     # Reject bad aligner/platform/preset combinations before hours of extraction.
     selected_aligner = align_cmd.select_aligner(args)
     if (
@@ -297,7 +306,7 @@ def run(args: argparse.Namespace) -> None:
             )
         align_args = argparse.Namespace(**vars(args))
         align_args.r1 = args.input
-        ont_cram_opt = _input_cram_reference(args)
+        ont_cram_opt = input_cram_opt or _input_cram_reference(args)
         align_args._input_cram_opt = (
             ["--reference", ont_cram_opt[1]] if ont_cram_opt else []
         )

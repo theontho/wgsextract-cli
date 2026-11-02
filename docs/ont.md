@@ -5,6 +5,11 @@ BAM/CRAM/FASTQ (including gzipped FASTQ). Read groups take precedence; mixed
 platforms are not assigned one platform. An explicit `--platform` overrides
 detection. Unknown input still defaults to Illumina. SRA-renamed FASTQs without
 platform metadata need `--platform ont`.
+Only ONT gains new automatic alignment defaults. Revio/PacBio-, Ultima- and
+MGI-named FASTQs, and `PL:PACBIO`/`PL:DNBSEQ` BAMs, retain the previous Illumina
+alignment defaults unless `--platform` is explicit. The pre-existing
+BAM/CRAM `PL:ULTIMA` automatic path is unchanged. Other detected platforms
+may be reported, but reporting does not select their alignment workflows.
 
 CPU ONT alignment uses minimap2 `map-ont`, carries `MM`, `ML` and `MN` through
 `samtools fastq -T MM,ML,MN` and `minimap2 -y`, and soft-clips supplementary
@@ -19,6 +24,10 @@ retained intermediate use `samtools fastq -T MM,ML,MN` separately.
 
 For CRAM realignment, `--input-ref` supplies the original decoding FASTA for
 both platform detection and extraction; `--ref` selects the alignment target.
+Without `--input-ref`, a CRAM lacking platform read groups resolves its
+original decoding FASTA from the reference library and sequence-dictionary
+signature **before** its read names are probed. A failed CRAM read-name probe
+is an error, never a silent fallback to paired short-read extraction.
 The usual realignment disk-space preflight also applies to streamed ONT reads.
 
 Platform detection and tagged CPU alignment/realignment are supported.

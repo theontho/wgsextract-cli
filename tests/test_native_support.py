@@ -126,7 +126,7 @@ def test_arm_autodetected_ultima_fails_before_preparation(
     bam = tmp_path / "ultima.bam"
     bam.write_bytes(b"header supplied by mock")
     monkeypatch.setattr(
-        "wgsextract_cli.core.sequencing.get_bam_header",
+        "wgsextract_cli.commands.align.get_bam_header",
         lambda *_args: "@RG\tID:u\tPL:ULTIMA\n",
     )
     preparation = Mock(

@@ -10,7 +10,7 @@ from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.constants import SEQUENCERS
 from wgsextract_cli.core.paths import PathInput
 from wgsextract_cli.core.ultima import read_groups
-from wgsextract_cli.core.utils import run_command
+from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 _PLATFORMS = {
     "ONT": "ont",
@@ -55,9 +55,16 @@ def platform_from_metadata(
 
 
 def input_platform(
-    reads: PathInput | None, reference: PathInput | None = None
+    reads: PathInput | None,
+    reference: PathInput | None = None,
+    *,
+    strict: bool = False,
 ) -> str | None:
-    """Cache per file revision, not just path (outputs can be replaced in place)."""
+    """Cache per file revision, not just path (outputs can be replaced in place).
+
+    With ``strict``, an undecodable CRAM read-name probe is an error rather than
+    "unknown", so alignment never silently falls back to short-read defaults.
+    """
     if reads is None:
         return None
     path = Path(reads)
@@ -71,12 +78,18 @@ def input_platform(
         stat.st_size,
         stat.st_mtime_ns,
         stat.st_ctime_ns,
+        strict,
     )
 
 
 @lru_cache(maxsize=128)
 def _input_platform(
-    path: str, reference: str | None, size: int, mtime: int, ctime: int
+    path: str,
+    reference: str | None,
+    size: int,
+    mtime: int,
+    ctime: int,
+    strict: bool = False,
 ) -> str | None:
     if path.lower().endswith((".bam", ".cram", ".sam")):
         header = get_bam_header(path, reference)
@@ -97,8 +110,19 @@ def _input_platform(
                 capture_output=True,
                 check=False,
             )
+            if result.returncode:
+                raise subprocess.CalledProcessError(
+                    result.returncode, result.args, result.stdout, result.stderr
+                )
             qname = result.stdout.split("\t", 1)[0].strip()
-        except (OSError, subprocess.SubprocessError):
+        except (OSError, subprocess.SubprocessError) as error:
+            if strict and path.lower().endswith(".cram"):
+                raise WGSExtractError(
+                    "Unable to probe CRAM read names for platform detection; "
+                    "ONT cannot be excluded. Supply the original decoding FASTA "
+                    "(--input-ref for realign); refusing to silently choose "
+                    "paired short-read defaults."
+                ) from error
             return None
         return platform_from_metadata(header, qname)
     if path.lower().endswith(

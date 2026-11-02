@@ -124,16 +124,30 @@ def register(
 
 
 def resolve_platform(args: argparse.Namespace, reads: str | None) -> str:
-    """Explicit platform overrides shared read-group/read-name detection."""
+    """Keep existing defaults except ONT and the existing Ultima RG case."""
     if args.platform:
         return str(args.platform)
-    detected = input_platform(reads, getattr(args, "input_ref", None))
-    if detected:
+    if reads and reads.lower().endswith((".bam", ".cram")) and Path(reads).is_file():
+        if ultima.is_ultima_header(
+            get_bam_header(reads, getattr(args, "input_ref", None))
+        ):
+            logging.info(
+                "%s has an Ultima read group: retaining Ultima defaults.", reads
+            )
+            return "ultima"
+    detected = input_platform(reads, getattr(args, "input_ref", None), strict=True)
+    if detected == "ont":
         logging.info(
             "Detected %s reads: selecting platform-specific alignment defaults.",
             detected,
         )
         return detected
+    if detected and detected != "illumina":
+        logging.info(
+            "Detected %s reads; retaining existing Illumina alignment defaults. "
+            "Use --platform to request different defaults explicitly.",
+            detected,
+        )
     return "illumina"
 
 

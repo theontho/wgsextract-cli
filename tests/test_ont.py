@@ -1,6 +1,8 @@
 import gzip
 import random
+import subprocess
 from argparse import Namespace
+from types import SimpleNamespace
 
 import pytest
 
@@ -8,6 +10,7 @@ from tests.htslib_helpers import needs_tools, run_wgsextract, sam_to_bam, write_
 from wgsextract_cli.commands import align, realign
 from wgsextract_cli.commands.info.metrics import determine_sequencer
 from wgsextract_cli.core import sequencing
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 UUID = "a18d071b-8bb9-42fe-b929-1f24cfe1d052"
@@ -60,6 +63,104 @@ def test_ont_gpu_refuses_to_drop_modification_tags():
         )
 
 
+@pytest.mark.parametrize(
+    ("suffix", "qname", "header", "detected"),
+    [
+        (".fq", "m84000_230101_120000_s1/123456789/ccs", "", "pacbio"),
+        (".fq", "608478_2-3317701967", "", "ultima"),
+        (".fq", "E100000001L1C001R001000001", "", "dnbseq"),
+        (".bam", "renamed", "@RG\tID:r\tPL:PACBIO\n", "pacbio"),
+        (".bam", "renamed", "@RG\tID:r\tPL:DNBSEQ\n", "dnbseq"),
+        (".bam", "608478_2-3317701967", "", "ultima"),
+        (".sam", "renamed", "@RG\tID:r\tPL:ULTIMA\n", "ultima"),
+    ],
+)
+def test_other_platforms_keep_main_illumina_command_lines(
+    tmp_path, monkeypatch, suffix, qname, header, detected
+):
+    reads = tmp_path / f"reads{suffix}"
+    reads.write_text(f"@{qname}\nACGT\n+\nIIII\n")
+    for module in (align, sequencing):
+        monkeypatch.setattr(module, "get_bam_header", lambda *_args: header)
+    monkeypatch.setattr(
+        sequencing,
+        "run_command",
+        lambda *_a, **_k: subprocess.CompletedProcess([], 0, f"{qname}\t4\t*\n", ""),
+    )
+    assert sequencing.input_platform(reads) == detected
+    # Having pbmm2 installed must not turn reporting into an automatic switch.
+    monkeypatch.setattr(
+        align, "get_tool_path", lambda tool: tool if tool == "pbmm2" else None
+    )
+    setup = SimpleNamespace(
+        threads="1", memory="256M", ref="ref.fa", outdir=str(tmp_path), stem="reads"
+    )
+    monkeypatch.setattr(align, "_bwa_setup", lambda *_a, **_k: (setup, "bwa"))
+    commands = []
+    monkeypatch.setattr(
+        align,
+        "run_streamed_alignment",
+        lambda command, *_a, **_k: commands.append(command),
+    )
+    for function in ("align_pbmm2", "align_minimap2", "align_ultima"):
+        monkeypatch.setattr(
+            align,
+            function,
+            lambda *_a, **_k: pytest.fail("unexpected non-ONT platform switch"),
+        )
+    args = Namespace(
+        r1=str(reads),
+        r2=None,
+        platform=None,
+        aligner="auto",
+        long_read=False,
+        preset=None,
+        gpu=False,
+        format="BAM",
+    )
+    align.run(args)
+    assert args.platform == "illumina"
+    args.platform = "illumina"
+    align.run(args)
+    expected = [
+        "bwa",
+        "mem",
+        "-K",
+        "100000000",
+        "-t",
+        "1",
+        "-R",
+        "@RG\\tID:reads\\tSM:reads\\tLB:reads\\tPL:ILLUMINA",
+        "ref.fa",
+        str(reads),
+    ]
+    assert commands == [expected, expected]
+
+
+@pytest.mark.parametrize("failure", ["exit", "exception"])
+def test_failed_cram_name_probe_does_not_silently_select_paired_defaults(
+    tmp_path, monkeypatch, failure
+):
+    cram = tmp_path / "reads.cram"
+    cram.write_bytes(b"synthetic")
+    monkeypatch.setattr(sequencing, "get_bam_header", lambda *_args: "")
+
+    def probe(*_args, **_kwargs):
+        if failure == "exception":
+            raise OSError("probe unavailable")
+        return subprocess.CompletedProcess([], 1, "", "reference unavailable")
+
+    monkeypatch.setattr(sequencing, "run_command", probe)
+    # Reporting-only callers (variant calling) keep treating this as unknown.
+    assert sequencing.input_platform(cram, "original.fa") is None
+    with pytest.raises(WGSExtractError, match="CRAM read names.*paired short-read"):
+        sequencing.input_platform(cram, "original.fa", strict=True)
+    args = Namespace(platform=None, input_ref="original.fa")
+    monkeypatch.setattr(align, "get_bam_header", lambda *_args: "")
+    with pytest.raises(WGSExtractError, match="CRAM read names"):
+        align.resolve_platform(args, str(cram))
+
+
 def test_platform_probe_is_cached_per_input_revision(tmp_path, monkeypatch):
     bam = tmp_path / "reads.bam"
     bam.write_bytes(b"synthetic")
@@ -81,14 +182,14 @@ def test_platform_probe_is_cached_per_input_revision(tmp_path, monkeypatch):
 def test_realign_platform_probe_uses_input_decoding_reference(monkeypatch):
     seen = []
 
-    def detect(reads, reference):
-        seen.append((reads, reference))
+    def detect(reads, reference, *, strict=False):
+        seen.append((reads, reference, strict))
         return "ont"
 
     monkeypatch.setattr(align, "input_platform", detect)
     args = Namespace(platform=None, input_ref="original.fa")
     assert align.resolve_platform(args, "reads.cram") == "ont"
-    assert seen == [("reads.cram", "original.fa")]
+    assert seen == [("reads.cram", "original.fa", True)]
 
 
 @pytest.mark.parametrize("skip_preflight", [False, True])
@@ -137,10 +238,17 @@ def test_bam_without_read_group_uses_read_name(tmp_path):
 
 
 @needs_tools("samtools", "minimap2")
-@pytest.mark.parametrize("command", ["align", "realign"])
-@pytest.mark.parametrize("source_kind", ["bam", "fastq", "cram"])
+@pytest.mark.parametrize(
+    ("command", "source_kind"),
+    [
+        (command, kind)
+        for command in ("align", "realign")
+        for kind in ("bam", "fastq", "cram")
+    ]
+    + [("realign", "cram-library")],
+)
 def test_ont_modification_tags_survive_alignment_and_sort(
-    tmp_path, command, source_kind
+    tmp_path, monkeypatch, command, source_kind
 ):
     rng = random.Random(24)
     genome = "".join(rng.choices("ACGT", k=8000))
@@ -170,7 +278,7 @@ def test_ont_modification_tags_survive_alignment_and_sort(
             )
         )
         reads = str(path)
-    elif source_kind == "cram":
+    elif source_kind in {"cram", "cram-library"}:
         mapped = []
         for i, record in enumerate(records):
             fields = record.split("\t")
@@ -187,8 +295,20 @@ def test_ont_modification_tags_survive_alignment_and_sort(
             ["@SQ\tSN:chr1\tLN:8000", *mapped], tmp_path / "mapped.bam"
         )
         cram = tmp_path / "ont.cram"
-        run_command(["samtools", "view", "-C", "-T", ref, "-o", cram, mapped_bam])
+        encoded_with = ref
+        if source_kind == "cram-library":
+            encoded_with = write_fasta(tmp_path / "encoding.fa", {"chr1": genome})
+        run_command(
+            ["samtools", "view", "-C", "-T", encoded_with, "-o", cram, mapped_bam]
+        )
         run_command(["samtools", "index", cram])
+        if source_kind == "cram-library":
+            for path in tmp_path.glob("encoding.fa*"):
+                path.unlink()
+            library = tmp_path / "library"
+            (library / "genomes").mkdir(parents=True)
+            write_fasta(library / "genomes" / "original.fa", {"chr1": genome})
+            monkeypatch.setitem(settings, "reference_library", str(library))
         reads = str(cram)
     out = tmp_path / "result"
     opts = ["--r1", reads] if command == "align" else ["--input", reads]
