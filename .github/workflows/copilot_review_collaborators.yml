@@ -1,0 +1,38 @@
+# The "Copilot review for default branch" ruleset only reviews PRs whose
+# author has Copilot access, so collaborators without a Copilot plan get no
+# automatic review. This requests one on their behalf with the repo owner's
+# token (COPILOT_REVIEW_TOKEN: fine-grained PAT, this repo only, Pull requests
+# read/write); the review's AI credits are billed to the token's owner.
+#
+# pull_request_target runs with secrets, so this job must never check out or
+# execute PR code; it only calls the GitHub API.
+name: Copilot review for collaborators
+
+on:
+  pull_request_target:
+    types: [opened, ready_for_review]
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  request-review:
+    if: >-
+      !github.event.pull_request.draft &&
+      github.event.pull_request.user.type == 'User' &&
+      github.event.pull_request.user.login != github.repository_owner &&
+      contains(fromJSON('["COLLABORATOR", "MEMBER"]'), github.event.pull_request.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Request Copilot review
+        env:
+          GH_TOKEN: ${{ secrets.COPILOT_REVIEW_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::COPILOT_REVIEW_TOKEN is not set; skipping Copilot review request."
+            exit 0
+          fi
+          gh pr edit "$PR" --add-reviewer @copilot
