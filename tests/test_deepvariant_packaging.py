@@ -66,7 +66,9 @@ def test_native_extractor_rejects_changed_upstream_scaffold():
         patch("unknown upstream extractor")
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="native Linux build shell")
+@pytest.mark.skipif(
+    sys.platform != "linux", reason="native Linux build requires GNU host tools"
+)
 def test_native_build_uses_one_loaded_multistage_image(tmp_path, monkeypatch):
     commands = tmp_path / "docker-commands.jsonl"
     tools = tmp_path / "tools"
@@ -104,12 +106,13 @@ def test_native_build_uses_one_loaded_multistage_image(tmp_path, monkeypatch):
     (tools / "python3").symlink_to(sys.executable)
     monkeypatch.setenv("PATH", str(tools) + os.pathsep + os.environ["PATH"])
     work = tmp_path / "build context"
-    subprocess.run(
+    result = subprocess.run(
         ["bash", str(PATCHER.with_name("build.sh")), str(work)],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
     )
+    assert result.returncode == 0, result.stderr
     builds = [
         args
         for line in commands.read_text().splitlines()
