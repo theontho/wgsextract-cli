@@ -341,6 +341,21 @@ def test_file_stats_finds_replaced_extension_crai(tmp_path):
         ("read1", "Unknown"),
         ("A00910:1:ABCDEFGHI:1:1:1:1", "Illumina NS 6000 (Dante)"),
         ("E200006123L1C001R0010012345", "MGI DNB T7 (Dante, 6123 bad)"),
+        # Native names preserved in ENA ERR12952981 and SRR26436635.
+        ("AV233803:AV003:2327436833:1:20802:0822:2245", "Element AVITI"),
+        (
+            "AV100006:aviti0139A:2319586294,810-00002,2307240031,20240724:1:10102:0485:0057/1",
+            "Element AVITI",
+        ),
+        (
+            "lab-1_AVITI:Run_1:FC-run_42:2:20802:0000:0999:ACGT+TGCA",
+            "Element AVITI",
+        ),
+        ("AV23380:AV003:2327436833:1:20802:0822:2245", "Unknown"),
+        ("AV233803:AV003:2327436833:3:20802:0822:2245", "Unknown"),
+        ("AV233803:AV003:2327436833:1:20802:00822:2245", "Unknown"),
+        ("lab-1_VITARI:Run_1:2327436833:1:20802:0822:2245", "Unknown"),
+        ("AV233803:AV003:2327436833:1:20802:0822:2245:extra", "Unknown"),
         # Ultima's own CRAMs (GIAB HG008) carry the barcode; MyHeritage's don't.
         ("038266_2-Z0138-3185054028", "Ultima Genomics UG 100"),
         ("608478_2-3317701967", "Ultima Genomics UG 100"),
