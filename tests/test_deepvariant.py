@@ -156,6 +156,36 @@ def test_run_deepvariant_on_path_is_used_without_docker(files, monkeypatch):
     assert (out / "deepvariant.vcf.gz").exists()
 
 
+def test_detected_ont_runs_the_standard_image_with_owned_temporary_files(
+    files, monkeypatch
+):
+    _ref, bam, _out = files
+    runs = _docker(monkeypatch)
+    monkeypatch.setattr(deepvariant, "input_platform", lambda *_: "ont")
+    monkeypatch.setattr(deepvariant, "get_bam_header", lambda *_: "@RG\tPL:ONT\n")
+    deepvariant.cmd_deepvariant(_args(bam))
+    (cmd,) = runs
+    assert deepvariant.DEFAULT_IMAGE in cmd
+    assert cmd[cmd.index("--model_type") + 1] == "ONT_R104"
+    work = cmd[cmd.index("--intermediate_results_dir") + 1]
+    assert f"HOME={work}" in cmd
+    assert f"TMPDIR={work}" in cmd
+
+
+@pytest.mark.parametrize("selection", [{}, {"ont": True}, {"model_type": "ONT_R104"}])
+def test_apple_arm_refuses_ont_including_automatic_selection(
+    files, monkeypatch, selection
+):
+    _ref, bam, _out = files
+    runs = _docker(monkeypatch)
+    monkeypatch.setattr(native_support.platform, "machine", lambda: "arm64")
+    monkeypatch.setattr(deepvariant.sys, "platform", "darwin")
+    monkeypatch.setattr(deepvariant, "input_platform", lambda *_: "ont")
+    with pytest.raises(WGSExtractError, match="ONT_R104.*not qualified on ARM64"):
+        deepvariant.cmd_deepvariant(_args(bam, **selection))
+    assert not runs
+
+
 @pytest.mark.parametrize(
     ("definition", "expected"),
     [
@@ -655,7 +685,12 @@ def test_arm_image_bypasses_autoconfig_and_unaudited_path_launcher(files, monkey
             "RNASEQ",
         )
     ]
-    + [{"pacbio": True}, {"wes": True}, {"checkpoint": "custom/model.ckpt"}],
+    + [
+        {"pacbio": True},
+        {"wes": True},
+        {"ont": True},
+        {"checkpoint": "custom/model.ckpt"},
+    ],
 )
 def test_arm_unqualified_models_fail_before_container_or_input_work(
     files, monkeypatch, selection
@@ -676,18 +711,21 @@ def test_arm_unqualified_models_fail_before_container_or_input_work(
         deepvariant.cmd_deepvariant(_args(bam, **selection))
 
 
-def test_arm_detected_ultima_is_rejected_after_read_group_detection(files, monkeypatch):
+@pytest.mark.parametrize("model", ["ULTIMA", "ONT_R104"])
+def test_arm_detected_non_wgs_is_rejected_after_read_group_detection(
+    files, monkeypatch, model
+):
     _ref, bam, _out = files
     _arm_docker(monkeypatch)
     monkeypatch.setattr(
-        deepvariant, "_model_type", lambda _args, ref=None: "ULTIMA" if ref else "WGS"
+        deepvariant, "_model_type", lambda _args, ref=None: model if ref else "WGS"
     )
     monkeypatch.setattr(
         deepvariant,
         "run_container",
         lambda *_a, **_kw: pytest.fail("must not run model"),
     )
-    with pytest.raises(WGSExtractError, match="ULTIMA.*not qualified"):
+    with pytest.raises(WGSExtractError, match=f"{model}.*not qualified"):
         deepvariant.cmd_deepvariant(_args(bam))
 
 
