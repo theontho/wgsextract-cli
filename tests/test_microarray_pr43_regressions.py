@@ -320,7 +320,7 @@ def test_liftover_accepts_prefixed_chromosome_names(tmp_path):
             seen_chroms.append(chrom)
             return [(chrom, pos + 10)]
 
-    with patch("wgsextract_cli.core.microarray_utils.LiftOver", FakeLiftOver):
+    with patch("wgsextract_cli.core.microarray_coordinates.LiftOver", FakeLiftOver):
         liftover_hg38_to_hg19(str(input_txt), str(output_txt), str(chain_file))
 
     rows = {

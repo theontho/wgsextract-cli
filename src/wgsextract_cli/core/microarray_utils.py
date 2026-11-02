@@ -240,6 +240,8 @@ def liftover_hg38_to_hg19(
     output_txt: str,
     chain_file: str,
     templates_dir: TemplateSearchInput = None,
+    *,
+    reflib_dir: str | None = None,
 ) -> None:
     """
     Performs liftover from hg38 to hg19 using pyliftover.
@@ -248,15 +250,11 @@ def liftover_hg38_to_hg19(
     if not Path(chain_file).exists():
         raise FileNotFoundError(f"Liftover chain file not found: {chain_file}")
 
-    lo = LiftOver(chain_file)
-    bad_chrom = 0
-    bad_pos = 0
-
-    # Primary 25 sequences as in legacy code
-    valid_chroms = [f"chr{i}" for i in range(1, 23)] + ["chrX", "chrY", "chrM"]
+    from wgsextract_cli.core.microarray_coordinates import project_coordinates
 
     headers: list[str] = []
-    data: list[tuple[int, int, str]] = []
+    records: list[tuple[str, str]] = []
+    coordinates: list[tuple[str, int]] = []
 
     with open(input_txt) as f_source:
         for line in f_source:
@@ -271,38 +269,19 @@ def liftover_hg38_to_hg19(
             snp_id, chrom, pos, result = parts[0], parts[1], parts[2], parts[3]
 
             try:
-                # pyliftover works in 0-based positions.
-                new_coord = lo.convert_coordinate(
-                    _chrom_for_liftover(chrom), int(pos) - 1
-                )
+                position = int(pos)
             except (ValueError, TypeError):
                 continue
+            records.append((snp_id, result))
+            coordinates.append((_chrom_for_liftover(chrom), position))
 
-            if not new_coord:
-                bad_pos += 1
-                continue
-            new_chrom, new_pos = new_coord[0][0], new_coord[0][1] + 1
-            if new_coord[0][2:3] == ("-",):  # an inverted region: the other strand
-                result = sort_alleles(result.translate(_COMPLEMENT))
-            if new_chrom not in valid_chroms:
-                bad_chrom += 1
-                continue
-            # Normalize back to legacy format (no 'chr', M->MT)
-            out_chrom = _chrom_from_liftover(new_chrom)
-            data.append(
-                (
-                    chr_to_int(out_chrom),
-                    int(new_pos),
-                    f"{snp_id}\t{out_chrom}\t{new_pos}\t{result}\n",
-                )
-            )
-
+    projections, bad_chrom, bad_pos = project_coordinates(
+        coordinates, chain_file, reflib_dir
+    )
     if bad_chrom or bad_pos:
         logging.warning(
             f"Liftover partially failed: {bad_chrom} to AltContig, {bad_pos} not in new model"
         )
-
-    data.sort(key=lambda row: (row[0], row[1]))
 
     with open(output_txt, "w", newline="\n") as f:
         # 1. Use preserved headers from source if any
@@ -317,7 +296,12 @@ def liftover_hg38_to_hg19(
                         f.writelines(f_h.readlines())
                     break
 
-        f.writelines(row[2] for row in data)
+        for projection in projections:
+            snp_id, result = records[projection.source_index]
+            if projection.inverted:
+                result = sort_alleles(result.translate(_COMPLEMENT))
+            out_chrom = _chrom_from_liftover(projection.chrom)
+            f.write(f"{snp_id}\t{out_chrom}\t{projection.position}\t{result}\n")
 
 
 def get_template_format(format_name: str) -> TemplateFormat | None:
