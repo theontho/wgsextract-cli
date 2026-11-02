@@ -288,6 +288,8 @@ def write_uncalled_mask(
     else:
         bounds = {name: (0, length) for name, length in lengths.items()}
     cmd = ["bcftools", "query", "-f", "%CHROM\t%POS0\t%END\n"]
+    if region:
+        cmd += ["--regions", region, "--regions-overlap", "1"]
     cmd += (["--include", include] if include else []) + [vcf]
 
     seen: set[str] = set()
