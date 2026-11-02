@@ -31,6 +31,11 @@ W "mt_bam" @("extract", "mt-bam", "--input", $BAM, "--ref", $REF, "--outdir", (J
 W "mito_vcf" @("extract", "mito-vcf", "--input", $BAM, "--ref", $REF, "--outdir", (Join-Path $Out "mito_vcf"))
 W "mt_haplo" @("lineage", "mt-haplogroup", "--input", $BAM, "--ref", $REF, "--outdir", (Join-Path $Out "mt_haplo"))
 W "y_haplo" @("lineage", "y-haplogroup", "--input", $BAM, "--ref", $REF, "--outdir", (Join-Path $Out "y_haplo"))
+# Evidence includes predictions, not the downloaded reference-table cache.
+$YleafCache = Join-Path $Out "reference/yleaf"
+if (Test-Path -LiteralPath $YleafCache) {
+    Remove-Item -LiteralPath $YleafCache -Recurse -Force
+}
 W "snp" @("vcf", "snp", "--input", $BAM, "--ref", $REF, "--region", "20", "--ploidy", "2", "--outdir", (Join-Path $Out "snp"))
 W "microarray" @("microarray", "--input", $BAM, "--ref", $REF, "--ref-vcf-tab", $TARGETS, "--formats", "23andme_v5", "--outdir", (Join-Path $Out "microarray"))
 W "align" @("align", "--r1", $R1, "--r2", $R2, "--ref", $REF, "--outdir", (Join-Path $Out "align"))
