@@ -30,9 +30,36 @@ signature **before** its read names are probed. A failed CRAM read-name probe
 is an error, never a silent fallback to paired short-read extraction.
 The usual realignment disk-space preflight also applies to streamed ONT reads.
 
-Platform detection and tagged CPU alignment/realignment are supported.
-Whole-genome ONT accuracy, variant calling and methylation analysis are not
-qualified by this change; whole-genome validation is tracked in #299.
+## Small variants
+
+`vcf deepvariant` automatically selects `ONT_R104` for detected ONT input.
+`--ont` is an alias for `--model-type ONT_R104`; explicit model selectors
+override detection. Contradictory ONT selectors are rejected.
+
+```sh
+wgsextract vcf deepvariant -i hg002-ont.bam --ref chr20.fa \
+  --region chr20:10000000-10010000 --threads 1 --outdir ont-variants
+```
+
+This model supports **R10.4.1 only**. R9.4.1/R9.4 data is unsupported; the CLI
+warns when `@PG` or `@RG DS` basecaller metadata identifies it. UUID names
+cannot identify chemistry, so absence of a warning does not establish support.
+Use Google's installed `google/deepvariant:1.10.0` image (the default), or an
+installed `run_deepvariant` that provides this model. Dependencies are checked,
+never installed automatically.
+
+`ONT_R104` requires x86-64. Linux ARM64 remains WGS-only, and ONT calling is
+also refused on Apple Silicon rather than assuming emulation is qualified.
+Other models retain their existing platform policy. The pinned Parabricks
+4.8.0-1 supports `deepvariant --mode ont`, selected by `--gpu`; this command
+mapping is tested, but GPU ONT accuracy has not been hardware-qualified here.
+CPU container temporary files and HOME stay inside the owned output work
+directory and are removed after the run.
+
+Platform detection, tagged CPU alignment/realignment and regional x86-64
+DeepVariant ONT_R104 calling are supported. Whole-genome ONT accuracy,
+structural calling and methylation analysis are not qualified by this change;
+whole-genome validation is tracked in #299.
 
 ## CLI / GUI contract
 
@@ -43,3 +70,6 @@ renamed. BAM/CRAM variant callers share the same cached, file-revision-aware
 platform resolver; detection alone does not qualify short-read callers for ONT.
 GUI integrations should allow automatic platform selection and surface the
 tag-preservation limitations above.
+Expose `ONT_R104` and `--ont` for DeepVariant, preserve an unset model for
+automatic selection, and show its chemistry and architecture restrictions.
+The GUI repository is separate; these CLI changes do not update it.

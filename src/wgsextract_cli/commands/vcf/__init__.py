@@ -316,9 +316,23 @@ def register(
     )
     deepvariant_parser.add_argument(
         "--model-type",
-        choices=["WGS", "WES", "PACBIO", "HYBRID_PACBIO_ILLUMINA", "ULTIMA"],
-        help="DeepVariant model type (default: ULTIMA for Ultima reads with their "
-        "flow tags, else WGS). Use PACBIO for PacBio HiFi/CCS alignments.",
+        choices=[
+            "WGS",
+            "WES",
+            "PACBIO",
+            "HYBRID_PACBIO_ILLUMINA",
+            "ULTIMA",
+            "ONT_R104",
+        ],
+        help="DeepVariant model type (default: ONT_R104 for detected ONT, "
+        "ULTIMA for Ultima reads with their flow tags, else WGS). "
+        "ONT_R104 supports R10.4.1 only and requires x86-64; "
+        "Linux ARM64 supports WGS only. Use PACBIO for PacBio HiFi/CCS alignments.",
+    )
+    deepvariant_parser.add_argument(
+        "--ont",
+        action="store_true",
+        help="Alias for --model-type ONT_R104 (R10.4.1 only; x86-64).",
     )
     deepvariant_parser.add_argument(
         "--pacbio",
