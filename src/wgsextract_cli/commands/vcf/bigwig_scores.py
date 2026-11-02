@@ -3,10 +3,11 @@
 import subprocess
 import tempfile
 from collections.abc import Iterator
+from math import isnan
 from pathlib import Path
 from typing import Any
 
-from wgsextract_cli.core.bigwig_resources import open_bigwig
+from wgsextract_cli.core.bigwig_resources import _pybigwig, open_bigwig
 from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
 from wgsextract_cli.core.variant_files import (
     check_vcf_build,
@@ -15,6 +16,39 @@ from wgsextract_cli.core.variant_files import (
 )
 
 from .annotation_helpers import annotate_vcf
+
+_WINDOW_SIZE = 1_000_000
+
+
+class _ScoreWindow:
+    def __init__(self, bw: Any, lengths: dict[str, int]) -> None:
+        self.bw = bw
+        self.lengths = lengths
+        self.chrom = ""
+        self.start = self.end = 0
+        self.values: Any = []
+        self.numpy = bool(_pybigwig().numpy)
+
+    def maximum(self, chrom: str, start: int, end: int) -> float | None:
+        # Very long REF alleles must not turn a bounded window into a
+        # chromosome-sized allocation.
+        if end - start > _WINDOW_SIZE:
+            score = self.bw.stats(chrom, start, end, type="max", exact=True)[0]
+            return float(score) if score is not None else None
+        if chrom != self.chrom or start < self.start or end > self.end:
+            self.chrom = chrom
+            self.start = start // _WINDOW_SIZE * _WINDOW_SIZE
+            self.end = min(max(self.start + _WINDOW_SIZE, end), self.lengths[chrom])
+            self.values = self.bw.values(chrom, self.start, self.end, numpy=self.numpy)
+        maximum = max(
+            (
+                value
+                for value in self.values[start - self.start : end - self.start]
+                if not isnan(value)
+            ),
+            default=None,
+        )
+        return float(maximum) if maximum is not None else None
 
 
 def _score_rows(vcf: str, bw: Any, label: str) -> Iterator[str]:
@@ -29,6 +63,7 @@ def _score_rows(vcf: str, bw: Any, label: str) -> Iterator[str]:
         raise WGSExtractError(
             f"None of the VCF's contigs are in the {label} scores; check its genome build."
         )
+    window = _ScoreWindow(bw, bw_lengths)
     with tempfile.TemporaryFile() as err:
         proc = popen(
             ["bcftools", "query", "-f", r"%CHROM\t%POS\t%REF\t%ALT\n", vcf],
@@ -52,7 +87,7 @@ def _score_rows(vcf: str, bw: Any, label: str) -> Iterator[str]:
                 end = min(start + len(ref), bw_lengths[bw_chrom])
                 if start >= end:
                     continue
-                score = bw.stats(bw_chrom, start, end, type="max", exact=True)[0]
+                score = window.maximum(bw_chrom, start, end)
                 if score is not None:
                     for a in alts:
                         yield f"{chrom}\t{pos}\t{ref}\t{a}\t{score:.4g}\n"
