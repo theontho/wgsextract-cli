@@ -46,16 +46,17 @@ def qualify(output: Path, prefix: Path) -> None:
         [
             sys.executable,
             "-m",
-            "wgsextract_cli",
+            "wgsextract_cli.main",
             "lineage",
             "y-haplogroup",
             "--help",
         ],
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
         timeout=60,
     )
+    assert result.returncode == 0, result.stderr
     assert "usage:" in result.stdout.lower(), result.stdout
     output.mkdir(parents=True, exist_ok=True)
     (output / "lineage-help.txt").write_text(result.stdout, encoding="utf-8")
