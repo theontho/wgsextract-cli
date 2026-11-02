@@ -225,7 +225,7 @@ Check chromosome naming. Some files use `chrM`, `chrY`, `chr1`; others use `MT`,
 ### Variant caller fails
 Confirm the alignment is coordinate sorted, indexed, readable, and aligned to the same reference passed with `--ref`. Also check memory, temporary disk space, and whether the selected caller supports the sequencing technology.
 
-For DeepVariant CRAM 3.1 decoding errors on v0.6.5, use BAM or convert to indexed CRAM 3.0. Automatic CPU staging is on `main` after v0.6.5; see [calling notes](workflows.html#variants){.inline-link}. Linux ARM64 deliberately gates GATK/DeepVariant rather than silently using Java or x86 emulation.
+For DeepVariant CRAM 3.1 decoding errors on v0.6.5, use BAM or convert to indexed CRAM 3.0. Automatic CPU staging is on `main` after v0.6.5; see [calling notes](workflows.html#variants){.inline-link}. Linux ARM64 still gates GATK and Parabricks, but `main` after v0.6.5 supports native CPU DeepVariant WGS with a locally built ARM64 image. Other models and `--checkpoint` are refused; no Java or x86 emulation fallback is silently used.
 :::
 
 ::: card

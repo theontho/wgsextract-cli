@@ -197,7 +197,7 @@ Use the standalone installer. It opens the install folder in Finder and creates 
 
 ::: card
 ### Linux
-Use the standalone installer on x86_64. Native ARM64 support is merged on `main`, but is not in v0.6.5: use the explicit branch command below. Phase 1 covers CPU alignment, BAM/CRAM, bcftools, microarray exports, coverage, Yleaf/Haplogrep and optional VEP. GATK, DeepVariant, Ultima alignment and Parabricks are not qualified on Linux ARM64 and fail early.
+Use the standalone installer on x86_64. Native ARM64 support is merged on `main`, but is not in v0.6.5: use the explicit branch command below. Phase 1 covers CPU alignment, BAM/CRAM, bcftools, microarray exports, coverage, Yleaf/Haplogrep and optional VEP. On `main` after v0.6.5, native CPU DeepVariant also supports WGS only: build `localhost/wgsextract-deepvariant:1.10.0-arm64` locally with `packaging/deepvariant-arm64/build.sh` before calling. Other models and `--checkpoint` are refused. GATK, Ultima alignment and Parabricks remain gated on Linux ARM64.
 
 {{ tag: linux-64 }}
 {{ tag: linux-aarch64 (main) }}
