@@ -30,6 +30,7 @@ OPTIONAL_TOOLS = [
     "gatk",
     "run_deepvariant",
     "run_clair3.sh",
+    "modkit",
     "curl",
     "java",
     "haplogrep",
@@ -55,6 +56,7 @@ PLATFORM_ONLY_TOOLS = {
     "run-t1k": ("linux", "darwin"),
     "ExpansionHunter": ("linux", "darwin"),
     "run_clair3.sh": ("linux",),
+    "modkit": ("linux", "darwin"),
 }
 
 
@@ -97,6 +99,7 @@ PIXI_TOOL_ENVS = {
     "t1k-build.pl": "t1k",
     "ExpansionHunter": "expansionhunter",
     "run_clair3.sh": "clair3",
+    "modkit": "modkit",
     # Only through their own environments (never a `python` on PATH): pixi_env_tool.
     "pharmcat_python": "pharmcat",
     "cyrius_python": "cyrius",
@@ -129,6 +132,7 @@ PIXI_TOOL_PACKAGES = {
     "t1k-build.pl": "t1k",
     "ExpansionHunter": "expansionhunter",
     "run_clair3.sh": "clair3",
+    "modkit": "ont-modkit",
 }
 
 

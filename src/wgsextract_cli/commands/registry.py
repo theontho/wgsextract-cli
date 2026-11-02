@@ -11,6 +11,7 @@ from . import (
     genotyping,
     info,
     lineage,
+    methylation,
     microarray,
     pet,
     qc,
@@ -42,4 +43,5 @@ COMMAND_MODULES: tuple[ModuleType, ...] = (
     analyze,
     sign,
     genotyping,
+    methylation,
 )
