@@ -30,18 +30,11 @@ git restore --source FETCH_HEAD -- deepvariant third_party scripts/run_deepvaria
 git restore --source HEAD -- third_party/htslib.BUILD third_party/libssw.BUILD
 git diff FETCH_HEAD -- deepvariant third_party scripts/run_deepvariant.py \
     > "$work/scientific-source.patch"
+# Preserve the build script's runtime variable, not this shell's environment.
+# shellcheck disable=SC2016
 sed -i 's|git clone https://github.com/tensorflow/tensorflow|git clone --depth 1 --branch "${DV_CPP_TENSORFLOW_TAG}" https://github.com/tensorflow/tensorflow|' \
     scripts/build/build-prereq-arm64.sh
-python3 - <<'PY'
-from pathlib import Path
-p = Path("scripts/build/build_release_binaries_arm64.sh")
-s = p.read_text().replace("/tmp/", "/opt/deepvariant/build-tmp/")
-s = s.replace(
-    "TMPDIR=$(mktemp -d -t tmp.XXXXXXXXXXX)",
-    'TMPDIR="/opt/deepvariant/build-tmp/zip-$(printf %s "$orig_zip_file" | tr / -)"; rm -rf "$TMPDIR"; mkdir -p "$TMPDIR"',
-)
-p.write_text(s)
-PY
+python3 "$recipe/patch_launchers.py"
 printf 'build --jobs=12\nbuild --local_ram_resources=49152\nbuild --cxxopt=-include\nbuild --cxxopt=cstdint\nbuild --host_cxxopt=-include\nbuild --host_cxxopt=cstdint\n' \
     > user.bazelrc
 docker build -f "$recipe/Builder.Dockerfile" \

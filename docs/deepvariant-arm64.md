@@ -63,6 +63,8 @@ packaged but require their own real-data qualification.
   `google/deepvariant:1.10.0@sha256:962e5a83b1d76aae6990625d47102785f791603f2138aa1fa9aa4fb6a2eecbe6`.
   The relocated Python 3.10 virtualenv and Bazel launchers support the invoking
   user's non-root UID; system Python is not used to import its native modules.
+  Runfile extraction uses checked `unzip` argument lists, preserving symlinks
+  and supporting output/TMPDIR paths containing spaces without invoking a shell.
 
 Image metadata alone cannot prove every binary native. Audit the interpreter,
 TensorFlow libraries, and the ELF modules inside all three Bazel ZIPs using

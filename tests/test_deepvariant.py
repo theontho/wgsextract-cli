@@ -5,6 +5,7 @@ asked to run.
 """
 
 import gzip
+import os
 import subprocess
 import sys
 from argparse import Namespace
@@ -52,6 +53,8 @@ def _args(bam, **overrides):
 
 def _docker(monkeypatch, *, present=True, info_rc=0, image_rc=0):
     """Fake the docker CLI; returns the `docker run` commands."""
+    monkeypatch.setattr(os, "getuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(os, "getgid", lambda: 1000, raising=False)
     runs = []
 
     def fake(cmd, **_kwargs):
