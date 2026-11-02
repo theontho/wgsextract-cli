@@ -21,8 +21,9 @@ import contextlib
 import logging
 from pathlib import Path
 
-from wgsextract_cli.core import bwa_mem2
+from wgsextract_cli.core import bwa_mem2, ultima
 from wgsextract_cli.core.alignment_memory import check_mapping_memory
+from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -100,8 +101,8 @@ def register(
     parser.add_argument(
         "--platform",
         choices=align_cmd.PLATFORMS,
-        help="Sequencing platform (default: ultima when the input's read group "
-        "says so, else illumina).",
+        help="Sequencing platform (default: detected from read groups or read "
+        "names, else illumina).",
     )
     parser.add_argument(
         "--preset",
@@ -263,7 +264,15 @@ def run(args: argparse.Namespace) -> None:
             "subcommand or via --input."
         )
     verify_paths_exist({"--input": args.input})
-    args.platform = align_cmd.resolve_platform(args, args.r1 or args.input)
+    platform_args = args
+    input_cram_opt = None
+    if not args.platform and not args.r1 and args.input.lower().endswith(".cram"):
+        header = get_bam_header(args.input, getattr(args, "input_ref", None))
+        if not any(group.get("PL") for group in ultima.read_groups(header)):
+            input_cram_opt = _input_cram_reference(args)
+            platform_args = argparse.Namespace(**vars(args))
+            platform_args.input_ref = input_cram_opt[1]
+    args.platform = align_cmd.resolve_platform(platform_args, args.r1 or args.input)
     # Reject bad aligner/platform/preset combinations before hours of extraction.
     selected_aligner = align_cmd.select_aligner(args)
     if (
@@ -287,6 +296,29 @@ def run(args: argparse.Namespace) -> None:
     threads, memory = get_resource_defaults(args.threads, args.memory)
     outdir = args.outdir or str(absolute_path(args.input).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
+
+    if args.platform in {"ont", "nanopore"} and not args.r1:
+        if args.keep_fastq:
+            raise WGSExtractError(
+                "ONT realignment streams tagged single-end FASTQ to preserve "
+                "MM/ML; --keep-fastq is not supported. Use samtools fastq "
+                "-T MM,ML,MN to retain tagged FASTQ separately."
+            )
+        align_args = argparse.Namespace(**vars(args))
+        align_args.r1 = args.input
+        ont_cram_opt = input_cram_opt or _input_cram_reference(args)
+        align_args._input_cram_opt = (
+            ["--reference", ont_cram_opt[1]] if ont_cram_opt else []
+        )
+        if not args.no_preflight:
+            _preflight_disk_space(
+                args.input,
+                outdir,
+                need_extract=False,
+                reads=indexed_read_count(args.input, threads),
+            )
+        align_cmd.run(align_args)
+        return
 
     if args.platform == "ultima" and not args.r1:
         # Single-end reads with flow tags: streamed into the aligner, no FASTQs.

@@ -25,6 +25,7 @@ from wgsextract_cli.core.resource_estimates import (
     preflight_resources,
 )
 from wgsextract_cli.core.sample_ploidy import sex_samples_args
+from wgsextract_cli.core.sequencing import input_platform
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -90,6 +91,12 @@ def get_base_args(args: argparse.Namespace) -> tuple[str, str, str, ReferenceLib
     if resolved_ref:
         paths_to_check["--ref"] = resolved_ref
     verify_paths_exist(paths_to_check)
+    args.input_platform = input_platform(input_file, resolved_ref)
+    if args.input_platform == "ont":
+        logging.info(
+            "Detected ONT input. Short-read variant callers are not validated "
+            "for ONT; use a platform-specific model/caller where available."
+        )
 
     if not resolved_ref or not Path(resolved_ref).is_file():
         raise WGSExtractError(
