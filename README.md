@@ -363,7 +363,7 @@ With an NVIDIA GPU, `--gpu` runs the slow steps with [NVIDIA Parabricks](https:/
 | Command | With `--gpu` |
 | :--- | :--- |
 | `align`, `realign` (short reads) | BWA-MEM, sorting and duplicate marking (`pbrun fq2bam`), with the same index, `.alt` file and read group as `--aligner bwa` |
-| `align`, `realign` (HiFi, ONT) | minimap2 (`map-hifi`, `map-ont`; `map-pbmm2` for `--aligner pbmm2`). PacBio CLR has no GPU preset |
+| `align`, `realign` (HiFi) | minimap2 (`map-hifi`; `map-pbmm2` for `--aligner pbmm2`). PacBio CLR has no GPU preset; ONT requires CPU alignment until GPU MM/ML tag retention is qualified |
 | `vcf deepvariant` | DeepVariant's WGS, WES and PACBIO models (not `--checkpoint`, the hybrid model or Ultima reads, which `align`/`realign` also refuse with `--gpu`) |
 | `vcf gatk` | HaplotypeCaller |
 

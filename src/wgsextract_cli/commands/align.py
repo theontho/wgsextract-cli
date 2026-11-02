@@ -199,7 +199,8 @@ def add_gpu_argument(parser: argparse.ArgumentParser) -> None:
         "--gpu",
         action="store_true",
         help="Align on an NVIDIA GPU with Parabricks: BWA-MEM for short reads, "
-        "minimap2 for HiFi/ONT (Linux, Docker; see README).",
+        "minimap2 for HiFi (Linux, Docker; see README). ONT requires CPU "
+        "alignment to retain MM/ML methylation tags.",
     )
 
 
