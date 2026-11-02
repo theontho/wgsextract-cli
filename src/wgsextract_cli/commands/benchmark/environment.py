@@ -14,7 +14,6 @@ from wgsextract_cli.core.dependencies import (
 )
 from wgsextract_cli.core.dependency_checks import get_tool_version
 from wgsextract_cli.core.dev_download_cache import (
-    drop_cached_download,
     restore_cached_download,
     store_download_in_dev_cache,
 )
@@ -72,14 +71,14 @@ def _real_dataset_zip_path(args: argparse.Namespace, outdir: Path) -> Path:
     if (
         expected_sha256
         and not zip_path.exists()
-        and restore_cached_download(url, zip_path, checksum_hint=checksum_hint)
+        and restore_cached_download(
+            url,
+            zip_path,
+            checksum_hint=checksum_hint,
+            verify=lambda path: _file_digest(path, "sha256") == expected_sha256,
+        )
     ):
-        try:
-            _verify_digest(zip_path, "sha256", expected_sha256)
-            return zip_path
-        except WGSExtractError:
-            drop_cached_download(url, zip_path, checksum_hint=checksum_hint)
-            zip_path.unlink(missing_ok=True)
+        return zip_path
 
     _download_file(url, zip_path, sha256=getattr(args, "dataset_sha256", None))
     if expected_sha256:
