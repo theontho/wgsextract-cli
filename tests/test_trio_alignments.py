@@ -271,15 +271,17 @@ def test_a_proband_without_variants_has_nothing_to_genotype(tmp_path):
 
 
 def _sexed_trio(tmp_path: Path, proband_y_reads: int) -> tuple[str, list[str]]:
-    """A reference of chr20, chrX and chrY and the trio's BAMs on it: the child
-    has a de novo C at chr20:1,000; everyone has 20 chrX reads, and the child
-    proband_y_reads chrY reads, which tell its sex."""
+    """A reference of chr20, chr7, chrX and chrY and the trio's BAMs on it: the
+    child has a de novo C at chr20:1,000; everyone has 20 chr7 and 20 chrX
+    reads (two X copies), and the child proband_y_reads chrY reads, which tell
+    its sex."""
     rng = random.Random(7)
     chr20 = "".join(rng.choice("ACGT") for _ in range(2000))
     chr20 = chr20[:999] + "A" + chr20[1000:]
-    sex = {n: "".join(rng.choice("ACGT") for _ in range(2000)) for n in "XY"}
+    sex = {n: "".join(rng.choice("ACGT") for _ in range(2000)) for n in "7XY"}
     ref = write_fasta(
-        tmp_path / "ref.fa", {"chr20": chr20, "chrX": sex["X"], "chrY": sex["Y"]}
+        tmp_path / "ref.fa",
+        {"chr20": chr20, "chr7": sex["7"], "chrX": sex["X"], "chrY": sex["Y"]},
     )
     bams = []
     for name in ("child", "mother", "father"):
@@ -291,10 +293,10 @@ def _sexed_trio(tmp_path: Path, proband_y_reads: int) -> tuple[str, list[str]]:
             check=True,
         ).stdout.splitlines()
         header = [line for line in lines if line.startswith("@")]
-        header[1:1] = ["@SQ\tSN:chrX\tLN:2000", "@SQ\tSN:chrY\tLN:2000"]
+        header[1:1] = [f"@SQ\tSN:chr{c}\tLN:2000" for c in "7XY"]
         reads = [line for line in lines if not line.startswith("@")]
         y_reads = proband_y_reads if name == "child" else 0
-        for contig, count in (("X", 20), ("Y", y_reads)):
+        for contig, count in (("7", 20), ("X", 20), ("Y", y_reads)):
             reads += [
                 f"{contig}{i}\t0\tchr{contig}\t{101 + i}\t60\t100M\t*\t0\t0\t"
                 f"{sex[contig][100 + i : 200 + i]}\t{'I' * 100}\tRG:Z:1"
@@ -366,7 +368,7 @@ def test_trio_from_alignments_infers_sex_and_isolates_the_de_novo(
 
 @needs_htslib
 def test_trio_from_alignments_needs_a_sex_and_a_ploidy(tmp_path):
-    # chrX reads but no chrY ones: a girl.
+    # chrX reads as deep as chr7's (two X copies) and no chrY ones: a girl.
     ref, (child, mother, father) = _sexed_trio(tmp_path, proband_y_reads=0)
     out = tmp_path / "out"
     argv = [
