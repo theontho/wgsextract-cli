@@ -15,6 +15,7 @@ from .metrics import IdxStat
 from .render import _cram_reference_opts, _resolve_sample_targets
 
 _DEPTH_CHUNK_BYTES = 8 << 20
+_DEPTH_DIGITS = b"0123456789"
 _DEPTH_BUCKETS = bytes.maketrans(b"123456789", b"111444488")
 
 
@@ -23,6 +24,7 @@ def _count_depth_block(data: bytes, counts: Mapping[bytes, list[int]]) -> None:
         data = data.replace(b"\r\n", b"\n")
     start = 0
     mixed = False
+    rows = data.count(b"\n")
     while start < len(data):
         first_end = data.index(b"\n", start)
         separator = data.find(b"\t", start, first_end)
@@ -34,7 +36,6 @@ def _count_depth_block(data: bytes, counts: Mapping[bytes, list[int]]) -> None:
         prefix = name + b"\t"
         end = len(data)
         if start == 0:
-            rows = data.count(b"\n")
             mixed = data.count(b"\n" + prefix) != rows - 1
         if mixed:
             # Most chunks contain one contig. Only boundary chunks need a
@@ -44,15 +45,15 @@ def _count_depth_block(data: bytes, counts: Mapping[bytes, list[int]]) -> None:
             assert match is not None
             end = match.start()
         block = data[start:end]
-        rows = block.count(b"\n")
-        # Strip names only at line starts (numeric contigs can also occur in
-        # position fields). The remaining separators must alternate tab/newline.
-        block = block[len(prefix) :].replace(b"\n" + prefix, b"\n")
+        if mixed:
+            rows = block.count(b"\n")
         zero = block.count(b"\t0\n")
+        # Removing digits leaves the name's non-digits and two tabs per row.
+        # This validates fields without allocating a name-stripped copy.
+        shape = name.translate(None, _DEPTH_DIGITS) + b"\t\t\n"
         if (
-            block.translate(None, b"0123456789") != b"\t\n" * rows
-            or block.startswith(b"\t")
-            or b"\n\t" in block
+            block.translate(None, _DEPTH_DIGITS) != shape * rows
+            or b"\t\t" in block
             or b"\t\n" in block
             or block.count(b"\t0") != zero
         ):

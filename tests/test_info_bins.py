@@ -54,8 +54,10 @@ def test_binary_chunks_preserve_rows_and_contig_boundaries(chunk_bytes, newline)
     [
         b"chrY\t1\t-1\n",
         b"chrY\t1\tno\n",
+        b"chrY\t1\tchr\n",
         b"chrY\t1\t\n",
         b"chrY\t1\t1\textra\n",
+        b"chrY\t1\t\t1\nchrY\t2\n",
         b"chrY\t1\t1\nunknown\t2\t2\nchrY\t3\t3\n",
     ],
 )
