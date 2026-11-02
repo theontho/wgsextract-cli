@@ -19,8 +19,8 @@ Each revision is a marker list, described only by derived fingerprints:
   the distinct IDs, base64, big-endian), to estimate how similar an unseen list
   is to this revision.
 - `vendor`, `chip`, `revision`, `build`: the label. `chip` follows the vendor's
-  own name; `revision` describes the list (its size and export period). These
-  are not manufacturer revision names, which vendors don't publish.
+  own name; `revision` describes the list (its size). These are not
+  manufacturer revision names, which vendors don't publish.
 - `kind`: `export` (a list exactly as vendors export it), `reference-library`
   (a WGS Extract reference-library template) or `composite` (a union of chips,
   never a real file, so never detected).
@@ -54,7 +54,22 @@ header naming the vendor restricts candidates to that vendor.
   (https://archive.org/details/opensnp_data_dumps, SHA-1
   `c266c3d53049c41817eb95b608e547321bb35feb`): its 23andMe, AncestryDNA and
   FTDNA uploads. A revision is catalogued from it only when at least three
-  exports share its exact marker list.
+  exports share its exact marker list and it has at least 100,000 markers.
+
+The dump has 3,393 such uploads: 3,323 were fingerprinted (147 distinct marker
+lists) and 70 are not readable raw exports (corrupt archives, images,
+spreadsheets, two uploads over 64 MB). FTDNA files name neither vendor nor
+build, so their entries were labelled from their closest template and their
+coordinates. Some FTDNA downloads concatenate the autosomal and X files, so
+their column labels repeat mid-file; they are not counted as markers. A list seen only once or twice is left
+out; it may be an edited file rather than a vendor revision.
+
+What the corpus shows: same-named chips were exported with many marker lists.
+23andMe v3 has 15 (960,520 to 1,001,422 markers, two of them with 960,613),
+v4 has 9 (598,897 to 612,647; two with 610,545) and v2 has 7 (one is the
+template's); FTDNA's OmniExpress downloads have 13, most lacking 18,000-30,000
+of the template's markers. AncestryDNA V1.0 and V2.0 uploads match their
+templates exactly.
 
 ## Rebuild
 

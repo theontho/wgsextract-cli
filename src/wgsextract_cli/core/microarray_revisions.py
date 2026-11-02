@@ -232,7 +232,9 @@ def parse_raw_export(stream: TextIO, name: str) -> RawExport:
     )
     del body
     if fields[0] and fields[0][0].strip().lower() in _COLUMN_LABELS:
-        header.append(delimiter.join(fields.pop(0)))
+        header.append(delimiter.join(fields[0]))
+    # Concatenated exports (FTDNA autosomal + X) repeat the column labels.
+    fields = [r for r in fields if not r or r[0].strip().lower() not in _COLUMN_LABELS]
     if not fields:
         raise WGSExtractError(f"{name} contains no markers.")
     for number, row in enumerate(fields, 1):

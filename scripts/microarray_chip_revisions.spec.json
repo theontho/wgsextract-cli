@@ -232,6 +232,436 @@
    "build": "GRCh37",
    "kind": "export",
    "declares_vendor": false
+  },
+  {
+   "id": "23andme_v4_598897_705f7288",
+   "group": "705f72889bf7adae783a0a284d4aa87f9c075fe33edb9342f759220a4fe646a0",
+   "vendor": "23andMe",
+   "chip": "v4",
+   "revision": "598,897-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v3_960613_a600774c",
+   "group": "a600774c479d2e49e7b5fe7c647d6214c74cf4de35ce02663708f882f0850a83",
+   "vendor": "23andMe",
+   "chip": "v3",
+   "revision": "960,613-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v4_610544_681e6673",
+   "group": "681e6673704d0376415e04b1e9ad0f76c8fdc1221e67ada576d9f22b17d8846a",
+   "vendor": "23andMe",
+   "chip": "v4",
+   "revision": "610,544-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v3_960614_243c3ad1",
+   "group": "243c3ad1764ca1f8826edc619baef2be2b3baa5e3228b15350ae708da0d65c77",
+   "vendor": "23andMe",
+   "chip": "v3",
+   "revision": "960,614-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v4_610526_794be30b",
+   "group": "794be30b5a6ebd2eeb92cfe858631fb6f2798e5ae407cec233454fabc9743c53",
+   "vendor": "23andMe",
+   "chip": "v4",
+   "revision": "610,526-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v4_610545_0d6ffeab",
+   "group": "0d6ffeabc9754c5f86a3fd1e88153c0a5facd7e8a6d83e27ccebca4f53242466",
+   "vendor": "23andMe",
+   "chip": "v4",
+   "revision": "610,545-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v4_602352_135d83d0",
+   "group": "135d83d04a4c8c49a41edb6780042dc46f9ea7fe5d0d4c3bf58a3795607205ba",
+   "vendor": "23andMe",
+   "chip": "v4",
+   "revision": "602,352-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v4_602351_6366baa2",
+   "group": "6366baa29260669fb1564fe6a4c19e277b1d7d15c6ee0e8a0ba1cfc3190b9d4c",
+   "vendor": "23andMe",
+   "chip": "v4",
+   "revision": "602,351-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v4_612647_21e7d7de",
+   "group": "21e7d7de6f75ce8fe27b28a013939651de2b64f2429bf8273896c48e8ccfb92b",
+   "vendor": "23andMe",
+   "chip": "v4",
+   "revision": "612,647-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v3_960545_98e4a0ce",
+   "group": "98e4a0ce3383870c224a6141fb9247ad7a9800bc15317132aa4a3dd6796c4170",
+   "vendor": "23andMe",
+   "chip": "v3",
+   "revision": "960,545-marker export layout",
+   "build": "NCBI36",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v4_610527_5b452ad6",
+   "group": "5b452ad6563ee91334bd0c82bee34e278df7b86ef1133fdecf18c3b1356edc0d",
+   "vendor": "23andMe",
+   "chip": "v4",
+   "revision": "610,527-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v3_966983_e1c5570a",
+   "group": "e1c5570a80a578b0a6858539f75801731e30774dc8170b184df5734373d49257",
+   "vendor": "23andMe",
+   "chip": "v3",
+   "revision": "966,983-marker export layout",
+   "build": "NCBI36",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "ftdna_omniexpress_693719_0fa66e1c",
+   "group": "0fa66e1c16f77936ed7ae63b60b7a6bff99b8f1290e76f2bc7089c50a72a63a3",
+   "vendor": "FamilyTreeDNA",
+   "chip": "Illumina OmniExpress",
+   "revision": "693,719-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": false
+  },
+  {
+   "id": "23andme_v3_960566_b7e6d358",
+   "group": "b7e6d3587dcbe2e1b6f0623da560d60015c6a5a092e61e6fd216b489b73a0c0c",
+   "vendor": "23andMe",
+   "chip": "v3",
+   "revision": "960,566-marker export layout",
+   "build": "NCBI36",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v3_960613_24ed668e",
+   "group": "24ed668ec09ca88057833d0a0e11ca9f120a53d4833dac2965bbda307f32475f",
+   "vendor": "23andMe",
+   "chip": "v3",
+   "revision": "960,613-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "ftdna_omniexpress_708092_84d77e97",
+   "group": "84d77e9757ee1283e6e1e3aa10386260cec303621c34e86708afeb05d3b248b2",
+   "vendor": "FamilyTreeDNA",
+   "chip": "Illumina OmniExpress",
+   "revision": "708,092-marker export layout",
+   "build": "NCBI36",
+   "kind": "export",
+   "declares_vendor": false
+  },
+  {
+   "id": "23andme_v3_960520_5cde110b",
+   "group": "5cde110b8357efe35e099de4b8add180f05395b6ce9cfe42ed5a3a6d9d11cbad",
+   "vendor": "23andMe",
+   "chip": "v3",
+   "revision": "960,520-marker export layout",
+   "build": "NCBI36",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v2_574514_52c84090",
+   "group": "52c840902cad6ffb247287b5522c3b49b66b7e576ce9aece4c236aaf974615e3",
+   "vendor": "23andMe",
+   "chip": "v2",
+   "revision": "574,514-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "ftdna_omniexpress_696752_8ff6179b",
+   "group": "8ff6179b4749e2ec68fe3166148d6aa6608b78160175f653b9610016c7883125",
+   "vendor": "FamilyTreeDNA",
+   "chip": "Illumina OmniExpress",
+   "revision": "696,752-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": false
+  },
+  {
+   "id": "ftdna_omniexpress_702442_61c453a8",
+   "group": "61c453a87014e5c653764657e44f371ee577c1357a85cbbb6ad415f5481473fc",
+   "vendor": "FamilyTreeDNA",
+   "chip": "Illumina OmniExpress",
+   "revision": "702,442-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": false
+  },
+  {
+   "id": "23andme_v3_991786_ed27ae6c",
+   "group": "ed27ae6cef5237198a9a8c81a6e801cdb9212842c9c95a6a515eff624ac301d5",
+   "vendor": "23andMe",
+   "chip": "v3",
+   "revision": "991,786-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "ftdna_omniexpress_707269_3cef7ff0",
+   "group": "3cef7ff04e378555ddcc06eb3940404f2e6595dd3b668d4f540f309c0371f4b9",
+   "vendor": "FamilyTreeDNA",
+   "chip": "Illumina OmniExpress",
+   "revision": "707,269-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": false
+  },
+  {
+   "id": "ftdna_omniexpress_720350_f9934fdb",
+   "group": "f9934fdb3bd81093bc2ac6f5a299bc85b139e7edf7a08c79a6ab53924042bdab",
+   "vendor": "FamilyTreeDNA",
+   "chip": "Illumina OmniExpress",
+   "revision": "720,350-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": false
+  },
+  {
+   "id": "23andme_v3_966977_3b86ca37",
+   "group": "3b86ca370fcb6a51b59c446a6771a63c2da6cac18088e04c06fbf8e0d64a0134",
+   "vendor": "23andMe",
+   "chip": "v3",
+   "revision": "966,977-marker export layout",
+   "build": "NCBI36",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "ftdna_omniexpress_693733_32a38c68",
+   "group": "32a38c6852db1e0656700e047d0a5bab941df2388714e4dd4c04105a7ca53281",
+   "vendor": "FamilyTreeDNA",
+   "chip": "Illumina OmniExpress",
+   "revision": "693,733-marker export layout",
+   "build": "NCBI36",
+   "kind": "export",
+   "declares_vendor": false
+  },
+  {
+   "id": "ftdna_omniexpress_698179_66489de8",
+   "group": "66489de8e182220e8d03bd78e5f3e23746180545b2b0f1bc1714d113dde306a6",
+   "vendor": "FamilyTreeDNA",
+   "chip": "Illumina OmniExpress",
+   "revision": "698,179-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": false
+  },
+  {
+   "id": "ftdna_omniexpress_720378_27c4181e",
+   "group": "27c4181eb72fa506452a0472a01105d2253148ac41c94253abb21cf15cd86e37",
+   "vendor": "FamilyTreeDNA",
+   "chip": "Illumina OmniExpress",
+   "revision": "720,378-marker export layout",
+   "build": "NCBI36",
+   "kind": "export",
+   "declares_vendor": false
+  },
+  {
+   "id": "23andme_v3_991791_caa65ff7",
+   "group": "caa65ff70aebba786027547d48dcb24d2f2ed8077f74866fe8d19c1a21af3a51",
+   "vendor": "23andMe",
+   "chip": "v3",
+   "revision": "991,791-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "ftdna_omniexpress_690701_523e5f8d",
+   "group": "523e5f8db5aaf09fb020852e084ee366d26a9b30b4a4043947f9360ebb9a4585",
+   "vendor": "FamilyTreeDNA",
+   "chip": "Illumina OmniExpress",
+   "revision": "690,701-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": false
+  },
+  {
+   "id": "23andme_v2_574405_7f09d0cf",
+   "group": "7f09d0cf7919f34791533bc32c308dc45cc5ad035c3ff11f41edece78145e33a",
+   "vendor": "23andMe",
+   "chip": "v2",
+   "revision": "574,405-marker export layout",
+   "build": "NCBI36",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v3_991624_787b5a4e",
+   "group": "787b5a4e41e1afd9d66e9a21920345b587f5142b64680f5b83d64e9830ef9f84",
+   "vendor": "23andMe",
+   "chip": "v3",
+   "revision": "991,624-marker export layout",
+   "build": "NCBI36",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v3_996065_a3be04b7",
+   "group": "a3be04b7c042efb8c1212c344990150d991783a32f07f0a4b10100f1dd8d4616",
+   "vendor": "23andMe",
+   "chip": "v3",
+   "revision": "996,065-marker export layout",
+   "build": "NCBI36",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v2_576516_97c6ae5e",
+   "group": "97c6ae5e527c69d1fd9e8706ba6916c93d96072d14633d5334955e1f8cf824e9",
+   "vendor": "23andMe",
+   "chip": "v2",
+   "revision": "576,516-marker export layout",
+   "build": "NCBI36",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v2_578337_759dc898",
+   "group": "759dc89826ddbd929eab657a06d17dc43952dec8987c9dfb4031928b7405fdc3",
+   "vendor": "23andMe",
+   "chip": "v2",
+   "revision": "578,337-marker export layout",
+   "build": "NCBI36",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "ftdna_omniexpress_698193_72b76545",
+   "group": "72b76545228eff27b32ad4089a954f4c319d6dc3549cbad3b3d7be0197c703fa",
+   "vendor": "FamilyTreeDNA",
+   "chip": "Illumina OmniExpress",
+   "revision": "698,193-marker export layout",
+   "build": "NCBI36",
+   "kind": "export",
+   "declares_vendor": false
+  },
+  {
+   "id": "23andme_v4_610545_4c783141",
+   "group": "4c7831419e22b6e8b56e3bfc1ddde7ff82e1fe8b41f2346d291144e54c638937",
+   "vendor": "23andMe",
+   "chip": "v4",
+   "revision": "610,545-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v2_576517_81f0a07d",
+   "group": "81f0a07dbe576bbaf9f61bc0c782868b51d3983b32e025dfb5de6a3ce4944526",
+   "vendor": "23andMe",
+   "chip": "v2",
+   "revision": "576,517-marker export layout",
+   "build": "NCBI36",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v3_991600_f38653dd",
+   "group": "f38653dd1fc2d40ecc9d877bf62fac2e7e22c9a6eb70bc157ffd31ed61bd82a6",
+   "vendor": "23andMe",
+   "chip": "v3",
+   "revision": "991,600-marker export layout",
+   "build": "NCBI36",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v3_991786_842ffe90",
+   "group": "842ffe90f28242e64e43f3dd3252837db254b95e42b7afd18301e9765e006fcd",
+   "vendor": "23andMe",
+   "chip": "v3",
+   "revision": "991,786-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v3_1001422_90e051ae",
+   "group": "90e051ae11457d5ec05e93625700d06c76e88bc590d5edd2232daec4c80176e9",
+   "vendor": "23andMe",
+   "chip": "v3",
+   "revision": "1,001,422-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "23andme_v2_574513_c5d9fbfc",
+   "group": "c5d9fbfcfa69b2d8ba650ad33b1e21875e459a1e9cedfdf9436a6b1e7bd4a406",
+   "vendor": "23andMe",
+   "chip": "v2",
+   "revision": "574,513-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": true
+  },
+  {
+   "id": "ftdna_omniexpress_715978_6887664b",
+   "group": "6887664b18e887d048aaa912311cfd5536d8ab1cc3203d0ee39d617fe0a6270b",
+   "vendor": "FamilyTreeDNA",
+   "chip": "Illumina OmniExpress",
+   "revision": "715,978-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": false
+  },
+  {
+   "id": "ftdna_omniexpress_711397_0aec0c28",
+   "group": "0aec0c28e75ea58f16b923ab35f08452d60ae95acf968d46f2adfd68ed410aca",
+   "vendor": "FamilyTreeDNA",
+   "chip": "Illumina OmniExpress",
+   "revision": "711,397-marker export layout",
+   "build": "GRCh37",
+   "kind": "export",
+   "declares_vendor": false
   }
  ]
 }

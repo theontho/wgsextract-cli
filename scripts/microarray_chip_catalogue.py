@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from wgsextract_cli.core.microarray_revisions import (
+    _COLUMN_LABELS,
     CATALOGUE,
     Fingerprint,
     RawExport,
@@ -59,6 +60,8 @@ DUMP_SOURCE = (
 # openSNP's upload labels; the file's own header decides the vendor.
 DUMP_LABELS = ("23andme", "ancestry", "ftdna-illumina")
 MIN_EXPORTS = 3
+# Chip exports are under 40 MB; larger uploads are imputed or sequencing data.
+MAX_MEMBER_BYTES = 64 << 20
 
 
 class _HttpRange(io.RawIOBase):
@@ -144,8 +147,8 @@ def corpus(workdir: Path) -> None:
     seen = set()
     if done.exists():
         seen = {json.loads(line)["member"] for line in done.open()}
-    pending: queue.Queue[tuple[int, str, bytes] | BaseException | None] = queue.Queue(
-        maxsize=4
+    pending: queue.Queue[tuple[int, str, bytes | None] | BaseException | None] = (
+        queue.Queue(maxsize=4)
     )
 
     def fetch() -> None:
@@ -153,10 +156,12 @@ def corpus(workdir: Path) -> None:
             for index, info in members:
                 if index not in seen:
                     label = info.filename.rsplit(".", 2)[1]
-                    try:
-                        data = archive.read(info)
-                    except (zipfile.BadZipFile, zlib.error, EOFError):
-                        data = b""  # a corrupt member is recorded as an error
+                    data: bytes | None = None
+                    if info.file_size <= MAX_MEMBER_BYTES:
+                        try:
+                            data = archive.read(info)
+                        except (zipfile.BadZipFile, zlib.error, EOFError):
+                            data = b""  # a corrupt member is recorded as an error
                     pending.put((index, label, data))
         except BaseException as error:  # a failed download ends the pass
             pending.put(error)
@@ -169,20 +174,23 @@ def corpus(workdir: Path) -> None:
                 raise SystemExit(f"Download failed ({item}); rerun to resume.")
             index, label, data = item
             record: dict[str, Any] = {"member": index, "label": label}
-            try:
-                export = parse_raw_export(_member_text(data), f"member {index}")
-                record.update(_export_record(export))
-                _save_sites(sites_dir, export.fingerprint, _member_text(data))
-            except (
-                WGSExtractError,
-                UnicodeDecodeError,
-                ValueError,
-                OSError,
-                EOFError,
-                zipfile.BadZipFile,
-                zlib.error,
-            ) as e:
-                record["error"] = str(e).split(":")[0][:80]
+            if data is None:
+                record["error"] = "too large for a chip export"
+            else:
+                try:
+                    export = parse_raw_export(_member_text(data), f"member {index}")
+                    record.update(_export_record(export))
+                    _save_sites(sites_dir, export.fingerprint, _member_text(data))
+                except (
+                    WGSExtractError,
+                    UnicodeDecodeError,
+                    ValueError,
+                    OSError,
+                    EOFError,
+                    zipfile.BadZipFile,
+                    zlib.error,
+                ) as e:
+                    record["error"] = str(e).split(":")[0][:80]
             out.write(json.dumps(record, sort_keys=True) + "\n")
             out.flush()
             print(index, record.get("vendor"), record.get("markers"), flush=True)
@@ -220,7 +228,7 @@ def _rows(lines: TextIO) -> list[tuple[str, str, str]]:
         if not line.strip() or line.startswith("#"):
             continue
         fields = line.replace('"', "").split("\t" if "\t" in line else ",")
-        if fields[0].strip().lower() in {"rsid", "snp", "name"}:
+        if fields[0].strip().lower() in _COLUMN_LABELS:
             continue
         rows.append(tuple(field.strip() for field in fields[:3]))
     return rows  # type: ignore[return-value]
