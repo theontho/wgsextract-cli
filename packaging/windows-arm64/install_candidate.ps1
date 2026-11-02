@@ -102,7 +102,7 @@ $verifiedLines = foreach ($line in $lines) {
         "$name = { path = $localPath }"
     } else { $line }
 }
-if ($verifiedPypi.Count -ne 4) { throw "Missing verified direct-URL PyPI inputs" }
+if ($verifiedPypi.Count -ne 3) { throw "Missing verified direct-URL PyPI inputs" }
 $pathPins = Join-Path $Destination "out\pypi-pins.json"
 $verifiedPypi | ConvertTo-Json | Set-Content $pathPins -Encoding utf8NoBOM
 $verifiedLines | Set-Content $manifestPath -Encoding utf8NoBOM
