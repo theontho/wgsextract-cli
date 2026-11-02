@@ -10,7 +10,6 @@ derived fingerprints are packaged, never genotypes.
 from __future__ import annotations
 
 import base64
-import contextlib
 import csv
 import functools
 import gzip
@@ -22,7 +21,7 @@ import math
 import re
 import zipfile
 import zlib
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
@@ -175,8 +174,14 @@ def _first(cues: Sequence[tuple[str, re.Pattern[str]]], text: str) -> str | None
     return next((name for name, pattern in cues if pattern.search(text)), None)
 
 
-@contextlib.contextmanager
-def _open_text(path: Path) -> Iterator[TextIO]:
+def decode_text(data: bytes) -> str:
+    """Raw-data text: UTF-8 (optionally with BOM) or, as some re-saved files are, UTF-16."""
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return data.decode("utf-16")
+    return data.decode("utf-8-sig")
+
+
+def _read_bytes(path: Path) -> bytes:
     if zipfile.is_zipfile(path):
         with zipfile.ZipFile(path) as archive:
             members = [
@@ -190,26 +195,25 @@ def _open_text(path: Path) -> Iterator[TextIO]:
                 raise WGSExtractError(
                     "A zipped microarray file must contain exactly one data file."
                 )
-            with archive.open(members[0]) as raw:
-                yield io.TextIOWrapper(raw, encoding="utf-8-sig", newline="")
-        return
-    with path.open("rb") as probe:
-        gzipped = probe.read(2) == b"\x1f\x8b"
-    if gzipped:
-        with gzip.open(path, "rt", encoding="utf-8-sig", newline="") as stream:
-            yield stream
-    else:
-        with path.open(encoding="utf-8-sig", newline="") as stream:
-            yield stream
+            return archive.read(members[0])
+    data = path.read_bytes()
+    return gzip.decompress(data) if data[:2] == b"\x1f\x8b" else data
 
 
 def read_raw_export(path: str | Path) -> RawExport:
     """Parse a raw-data export (plain, gzip or single-file ZIP) without genotypes."""
     path = Path(path)
     try:
-        with _open_text(path) as stream:
-            return parse_raw_export(stream, path.name)
-    except (OSError, EOFError, UnicodeDecodeError, csv.Error, zlib.error) as error:
+        text = decode_text(_read_bytes(path))
+        return parse_raw_export(io.StringIO(text), path.name)
+    except (
+        OSError,
+        EOFError,
+        UnicodeDecodeError,
+        csv.Error,
+        zlib.error,
+        zipfile.BadZipFile,
+    ) as error:
         raise WGSExtractError(f"Cannot read microarray file {path}: {error}") from error
 
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import contextlib
 import gzip
 import io
 import json
@@ -23,15 +24,18 @@ import queue
 import re
 import sys
 import threading
+import time
 import urllib.request
 import zipfile
+import zlib
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from wgsextract_cli.core.microarray_revisions import (
     CATALOGUE,
     Fingerprint,
     RawExport,
+    decode_text,
     encode_sketch,
     estimate_jaccard,
     fingerprint,
@@ -59,10 +63,16 @@ MIN_EXPORTS = 3
 
 class _HttpRange(io.RawIOBase):
     def __init__(self, url: str) -> None:
-        with urllib.request.urlopen(urllib.request.Request(url, method="HEAD")) as r:
-            self.url = r.geturl()
-            self.size = int(r.headers["Content-Length"])
+        self.source = url
         self.pos = 0
+        self._resolve()
+
+    def _resolve(self) -> None:
+        # archive.org redirects to a storage node; a failing node is re-resolved.
+        request = urllib.request.Request(self.source, method="HEAD")
+        with urllib.request.urlopen(request, timeout=300) as response:
+            self.url = response.geturl()
+            self.size = int(response.headers["Content-Length"])
 
     def seekable(self) -> bool:
         return True
@@ -82,17 +92,19 @@ class _HttpRange(io.RawIOBase):
         size = min(len(buffer), self.size - self.pos)
         if size <= 0:
             return 0
-        request = urllib.request.Request(
-            self.url, headers={"Range": f"bytes={self.pos}-{self.pos + size - 1}"}
-        )
-        for attempt in range(6):
+        span = {"Range": f"bytes={self.pos}-{self.pos + size - 1}"}
+        for attempt in range(8):
             try:
+                request = urllib.request.Request(self.url, headers=span)
                 with urllib.request.urlopen(request, timeout=300) as response:
                     data = response.read()
                 if len(data) == size:
                     break
             except OSError as error:
                 print(f"retry {attempt + 1}: {error}", file=sys.stderr)
+                time.sleep(min(2**attempt, 120))
+                with contextlib.suppress(OSError):
+                    self._resolve()
         else:
             raise OSError("range request failed")
         buffer[:size] = data
@@ -100,7 +112,7 @@ class _HttpRange(io.RawIOBase):
         return size
 
 
-def _member_text(data: bytes) -> io.TextIOWrapper:
+def _member_text(data: bytes) -> TextIO:
     if data[:2] == b"\x1f\x8b":
         data = gzip.decompress(data)
     elif data[:4] == b"PK\x03\x04":
@@ -115,7 +127,7 @@ def _member_text(data: bytes) -> io.TextIOWrapper:
             if len(names) != 1:
                 raise WGSExtractError("nested ZIP without exactly one file")
             data = inner.read(names[0])
-    return io.TextIOWrapper(io.BytesIO(data), encoding="utf-8-sig", errors="strict")
+    return io.StringIO(decode_text(data))
 
 
 def corpus(workdir: Path) -> None:
@@ -132,25 +144,44 @@ def corpus(workdir: Path) -> None:
     seen = set()
     if done.exists():
         seen = {json.loads(line)["member"] for line in done.open()}
-    pending: queue.Queue[tuple[int, str, bytes] | None] = queue.Queue(maxsize=4)
+    pending: queue.Queue[tuple[int, str, bytes] | BaseException | None] = queue.Queue(
+        maxsize=4
+    )
 
     def fetch() -> None:
-        for index, info in members:
-            if index not in seen:
-                label = info.filename.rsplit(".", 2)[1]
-                pending.put((index, label, archive.read(info)))
+        try:
+            for index, info in members:
+                if index not in seen:
+                    label = info.filename.rsplit(".", 2)[1]
+                    try:
+                        data = archive.read(info)
+                    except (zipfile.BadZipFile, zlib.error, EOFError):
+                        data = b""  # a corrupt member is recorded as an error
+                    pending.put((index, label, data))
+        except BaseException as error:  # a failed download ends the pass
+            pending.put(error)
         pending.put(None)
 
     threading.Thread(target=fetch, daemon=True).start()
     with done.open("a") as out:
         while (item := pending.get()) is not None:
+            if isinstance(item, BaseException):
+                raise SystemExit(f"Download failed ({item}); rerun to resume.")
             index, label, data = item
             record: dict[str, Any] = {"member": index, "label": label}
             try:
                 export = parse_raw_export(_member_text(data), f"member {index}")
                 record.update(_export_record(export))
                 _save_sites(sites_dir, export.fingerprint, _member_text(data))
-            except (WGSExtractError, UnicodeDecodeError, ValueError, OSError) as e:
+            except (
+                WGSExtractError,
+                UnicodeDecodeError,
+                ValueError,
+                OSError,
+                EOFError,
+                zipfile.BadZipFile,
+                zlib.error,
+            ) as e:
                 record["error"] = str(e).split(":")[0][:80]
             out.write(json.dumps(record, sort_keys=True) + "\n")
             out.flush()
@@ -172,7 +203,7 @@ def _export_record(export: RawExport) -> dict[str, Any]:
     }
 
 
-def _save_sites(directory: Path, fp: Fingerprint, lines: io.TextIOWrapper) -> None:
+def _save_sites(directory: Path, fp: Fingerprint, lines: TextIO) -> None:
     path = directory / f"{fp.sites_sha256}.tsv.gz"
     if path.exists():
         return
@@ -183,7 +214,7 @@ def _save_sites(directory: Path, fp: Fingerprint, lines: io.TextIOWrapper) -> No
     tmp.rename(path)
 
 
-def _rows(lines: io.TextIOWrapper) -> list[tuple[str, str, str]]:
+def _rows(lines: TextIO) -> list[tuple[str, str, str]]:
     rows = []
     for line in lines:
         if not line.strip() or line.startswith("#"):

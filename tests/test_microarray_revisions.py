@@ -78,9 +78,10 @@ def test_header_layouts_and_containers(tmp_path):
     with zipfile.ZipFile(tmp_path / "genome.zip", "w") as archive:
         archive.writestr("genome.txt", text)
         archive.writestr("__MACOSX/._genome.txt", "")
+    (tmp_path / "utf16.txt").write_bytes(text.encode("utf-16"))
     results = [
         revisions.read_raw_export(tmp_path / name)
-        for name in ("genome.txt", "genome.txt.gz", "genome.zip")
+        for name in ("genome.txt", "genome.txt.gz", "genome.zip", "utf16.txt")
     ]
     assert len({r.fingerprint.sites_sha256 for r in results}) == 1
     export = results[0]
