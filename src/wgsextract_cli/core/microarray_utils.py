@@ -3,7 +3,7 @@ import gzip
 import logging
 import os
 from collections import Counter
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO, TypedDict
@@ -418,15 +418,50 @@ def _in_x_par(pos: str) -> bool:
     return pos.isdigit() and any(lo <= int(pos) <= hi for lo, hi in _X_PARS_GRCH37)
 
 
+@dataclass
+class GenotypeTally:
+    """Called, heterozygous and no-call ("--") genotype counts."""
+
+    sites: int = 0
+    called: int = 0
+    het: int = 0
+
+    def add(self, genotype: str) -> None:
+        self.sites += 1
+        if genotype and genotype != "--":
+            self.called += 1
+            self.het += genotype[0] != genotype[-1]
+
+    @property
+    def no_call_rate(self) -> float:
+        return 1 - self.called / self.sites if self.sites else 0.0
+
+    @property
+    def homozygosity(self) -> float:
+        return 1 - self.het / self.called if self.called else 0.0
+
+
+def tally_genotypes(genotypes: Iterable[str]) -> GenotypeTally:
+    tally = GenotypeTally()
+    for genotype in genotypes:
+        tally.add(genotype)
+    return tally
+
+
+def is_autosome(chrom: str) -> bool:
+    key = chrom.removeprefix("chr")
+    return key.isdigit() and 1 <= int(key) <= 22
+
+
 def _kit_is_male(calls: dict[tuple[str, str], str]) -> bool:
     """Whether the kit's chrX outside the PARs is (nearly) all homozygous, as a
     man's haploid X is; a woman's has thousands of heterozygous chip markers."""
-    called = het = 0
-    for (chrom, pos), genotype in calls.items():
-        if chrom == "X" and not _in_x_par(pos) and genotype != "--":
-            called += 1
-            het += genotype[0] != genotype[-1]
-    return called >= 100 and het < 0.05 * called
+    x = tally_genotypes(
+        genotype
+        for (chrom, pos), genotype in calls.items()
+        if chrom == "X" and not _in_x_par(pos)
+    )
+    return x.called >= 100 and x.het < 0.05 * x.called
 
 
 def _haploid_letter(genotype: str, chrom: str, pos: str, male: bool) -> str:
@@ -449,10 +484,11 @@ def convert_to_vendor_format(
     *,
     identity: MicroarrayIdentity | None = None,
     indel_calls: Mapping[tuple[str, str, str], str] | None = None,
-) -> None:
+) -> GenotypeTally:
     """
     Converts a CombinedKit.txt (GRCh37) to a vendor-specific format using
-    templates. Ported from legacy program/aconv.py.
+    templates. Ported from legacy program/aconv.py. Returns the tally of the
+    autosomal genotypes written.
 
     An NCBI36 template (FTDNA's Affymetrix export) finds its calls at its
     markers' GRCh37 positions, lifted with ncbi36_chain (UCSC hg18ToHg19);
@@ -517,6 +553,7 @@ def convert_to_vendor_format(
     eol = "\r\n" if head.endswith("\r\n") else "\n"
     # Write to a temp name so a failure never leaves a truncated vendor file.
     tmp_path = output_path + ".tmp"
+    autosomal = GenotypeTally()
     try:
         with open(tmp_path, "w", newline="") as f_out:
             f_out.write(head)
@@ -547,6 +584,8 @@ def convert_to_vendor_format(
                             result = sort_alleles(result.translate(_COMPLEMENT))
                     if not excluded and indel_calls is not None:
                         result = indel_calls.get((t_id, t_chrom, t_pos), result)
+                    if is_autosome(vendor_chrom(t_chrom)):
+                        autosomal.add(result)
                     if single_letter_haploid:
                         result = _haploid_letter(
                             result, vendor_chrom(t_chrom), t_pos, male
@@ -564,3 +603,4 @@ def convert_to_vendor_format(
     finally:
         if Path(tmp_path).exists():
             Path(tmp_path).unlink()
+    return autosomal

@@ -222,9 +222,11 @@ def infer_sex(idx_stats: list[IdxStat]) -> str:
     return "Male" if y_reads > x_reads * 0.05 else "Female"
 
 
-def sample_sex(input_path: str, outdir: str | None = None) -> str:
-    """Sex from `info`'s cached metrics for this file when present (counting
-    chrY reads in a CRAM takes about a minute), else from samtools idxstats."""
+def cached_info(
+    input_path: str, outdir: str | None = None, key: str = "gender"
+) -> dict[str, Any] | None:
+    """`info`'s cached metrics for this very file, if a cache with `key` exists
+    in the output folder, beside the input or in the configured output folder."""
     name = f"{Path(input_path).name}.wgse_info.json"
     signature = calculate_bam_md5(input_path, None)
     for folder in (
@@ -243,11 +245,21 @@ def sample_sex(input_path: str, outdir: str | None = None) -> str:
         st = os.stat(input_path)
         this_file = {"size": st.st_size, "mtime_ns": st.st_mtime_ns}
         if (
-            info.get("md5_signature") == signature
+            isinstance(info, dict)
+            and info.get("md5_signature") == signature
             and info.get("input_signature") == this_file
-            and info.get("gender")
+            and info.get(key)
         ):
-            return str(info["gender"])
+            return info
+    return None
+
+
+def sample_sex(input_path: str, outdir: str | None = None) -> str:
+    """Sex from `info`'s cached metrics for this file when present (counting
+    chrY reads in a CRAM takes about a minute), else from samtools idxstats."""
+    info = cached_info(input_path, outdir)
+    if info:
+        return str(info["gender"])
     logging.info("Checking chrX/chrY coverage to infer the sample's sex...")
     try:
         idx_stats, *_ = parse_idxstats(input_path)

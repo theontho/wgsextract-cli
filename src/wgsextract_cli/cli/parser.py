@@ -48,6 +48,13 @@ DEFAULT_CONFIG = """# WGS Extract Configuration
 # mother_vcf = "/path/to/mother.vcf.gz"
 # father_vcf = "/path/to/father.vcf.gz"
 
+# --- Genotype QC warnings (see docs/genotype-qc.md) ---
+# qc_min_diploid_depth = 8.0  # autosomes; 0 disables
+# qc_min_haploid_depth = 3.0  # chrY, mtDNA, a man's chrX; 0 disables
+# qc_min_autosomal_homozygosity = 0.6
+# qc_max_autosomal_homozygosity = 0.9
+# qc_max_no_call_rate = 0.1
+
 # --- Local Developer Test Data ---
 # Path to a local real genome dataset used by real smoke tests.
 # real_genome_test_path = "~/genomes/sample"

@@ -1,4 +1,4 @@
-"""Exact CRAM record totals without decoding alignment records.
+"""Exact CRAM record and base totals without decoding alignment records.
 
 CRAM 3 container headers store *records*, not mapped reads. In particular,
 placed-unmapped records belong to the same container as mapped records. These
@@ -53,12 +53,28 @@ def _ltf8(stream: BinaryIO) -> int:
     return (value << (8 * size)) | int.from_bytes(_read(stream, size), "big")
 
 
+MULTI_REF = -2
+
+
 def cram_read_counts(path: PathInput) -> dict[int, int] | None:
     """Return exact per-reference record totals, or None to request idxstats.
 
     Only CRAM 3.0/3.1 with single-reference containers and an intact header
     chain/EOF marker is supported. No reference or index is needed. The caller
     must retain idxstats wherever the mapped/unmapped split is required.
+    """
+    totals = cram_container_totals(path)
+    if totals is None or MULTI_REF in totals:
+        return None
+    return {ref: records for ref, (records, _bases) in totals.items()}
+
+
+def cram_container_totals(path: PathInput) -> dict[int, tuple[int, int]] | None:
+    """(records, bases) per reference id from CRAM 3.0/3.1 container headers.
+
+    Multi-reference containers are totalled under MULTI_REF, since only their
+    slices say which references they hold. None for other versions or an
+    invalid header chain/EOF marker.
     """
     try:
         with open(path, "rb", buffering=0) as raw:
@@ -67,7 +83,8 @@ def cram_read_counts(path: PathInput) -> dict[int, int] | None:
             header = _read(stream, 26)
             if header[:4] != b"CRAM" or header[4:6] not in (b"\x03\x00", b"\x03\x01"):
                 return None
-            counts: Counter[int] = Counter()
+            records_by_ref: Counter[int] = Counter()
+            bases_by_ref: Counter[int] = Counter()
             first = True
             while stream.tell() < size:
                 # A container header is bounded (and its CRC checked) before any
@@ -79,11 +96,12 @@ def cram_read_counts(path: PathInput) -> dict[int, int] | None:
                     return None
                 ref, pos, span, records = (_itf8(stream) for _ in range(4))
                 _ltf8(stream)  # record counter
-                _ltf8(stream)  # bases
+                bases = _ltf8(stream)
                 blocks = _itf8(stream)
                 landmarks = _itf8(stream)
                 if (
                     records < 0
+                    or bases < 0
                     or span < 0
                     or blocks < 0
                     or landmarks < 0
@@ -110,11 +128,17 @@ def cram_read_counts(path: PathInput) -> dict[int, int] | None:
                         return None
                     first = False
                 elif ref == -1 and pos == 0x454F46 and records == 0:
-                    return dict(counts) if end == size and length == 15 else None
-                elif ref < -1:
+                    if end != size or length != 15:
+                        return None
+                    return {
+                        ref: (records_by_ref[ref], bases_by_ref[ref])
+                        for ref in records_by_ref
+                    }
+                elif ref < MULTI_REF:
                     return None
                 else:
-                    counts[ref] += records
+                    records_by_ref[ref] += records
+                    bases_by_ref[ref] += bases
                 stream.seek(end)
     except (OSError, ValueError, OverflowError):
         return None

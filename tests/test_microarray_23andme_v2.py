@@ -46,7 +46,11 @@ def test_conversion_reads_the_gzipped_body(tmp_path):
     kit.write_text("rs3094315\t1\t752566\tAG\nrs3934834\t1\t1005806\tCC\n")
     out = tmp_path / "out.txt"
     roots = [str(tmp_path), str(_PACKAGED_ASSETS)]
-    convert_to_vendor_format("23andMe_V2", str(kit), str(out), roots)
+    tally = convert_to_vendor_format("23andMe_V2", str(kit), str(out), roots)
+    # Every template site is tallied: two called (one het), the rest "--".
+    assert tally.called == 2 and tally.het == 1
+    rows = [row.split("\t") for row in out.read_text().splitlines() if row[0] != "#"]
+    assert tally.sites == sum(1 for row in rows if row[1].isdigit())
 
     text = out.read_text()
     head = (TEMPLATES / "head" / "23andMe_V2.txt").read_text()

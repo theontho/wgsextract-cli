@@ -16,6 +16,7 @@ from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
+from wgsextract_cli.core.genotype_qc import region_targets, warn_low_depth
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.output_checks import warn_if_no_variants
 from wgsextract_cli.core.paths import absolute_path
@@ -103,6 +104,13 @@ def get_base_args(args: argparse.Namespace) -> tuple[str, str, str, ReferenceLib
             LOG_MESSAGES["ref_required_for"].format(task="variant calling")
         )
     warn_about_alignment(input_file, resolved_ref)
+    warn_low_depth(
+        input_file,
+        region_targets(getattr(args, "region", None)),
+        outdir=outdir,
+        ref=resolved_ref,
+        min_depth=getattr(args, "qc_min_depth", None),
+    )
     return threads, outdir, resolved_ref, lib
 
 
