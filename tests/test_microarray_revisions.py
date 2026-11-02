@@ -209,3 +209,69 @@ def test_info_chip_cli(tmp_path):
     assert best["revision"]["template"]["formats"] == "ancestry_v2_2024"
     rc, stdout, stderr = run_cli(["info", "chip", "--list"])
     assert rc == 0 and "ancestry_v2_2024" in stdout, stderr
+
+
+def test_catalogue_builder_labels_corpus_groups_against_templates(tmp_path):
+    from scripts.microarray_chip_catalogue import build
+
+    root = tmp_path / "raw_file_templates"
+    (root / "body").mkdir(parents=True)
+    (root / "body" / "Nucleus_V1.txt").write_text(
+        "".join(f"{m}\t{c}\t{p}\n" for m, c, p in BASE)
+    )
+    workdir = tmp_path / "corpus"
+    (workdir / "sites").mkdir(parents=True)
+    fp = revisions.fingerprint(REVISED)
+    with gzip.open(workdir / "sites" / f"{fp.sites_sha256}.tsv.gz", "wt") as out:
+        out.write("".join(f"{m}\t{c}\t{p}\n" for m, c, p in REVISED))
+    record = {
+        "vendor": "FamilyTreeDNA",
+        "build": "GRCh37",
+        "markers": fp.markers,
+        "ids_sha256": fp.ids_sha256,
+        "sites_sha256": fp.sites_sha256,
+        "sketch": revisions.encode_sketch(fp.sketch),
+    }
+    (workdir / "fingerprints.jsonl").write_text(
+        "".join(
+            json.dumps({**record, "member": i, "month": f"2016-0{i + 1}"}) + "\n"
+            for i in range(3)
+        )
+        + json.dumps({"member": 3, "error": "no marker rows"})
+        + "\n"
+    )
+    label = {"chip": "v1", "build": "GRCh37", "declares_vendor": False}
+    spec = tmp_path / "spec.json"
+    spec.write_text(
+        json.dumps(
+            {
+                "templates": ["Nucleus_V1"],
+                "revisions": [
+                    {
+                        **label,
+                        "id": "nucleus_v1",
+                        "template": "Nucleus_V1",
+                        "vendor": "Nucleus",
+                        "revision": "t",
+                        "kind": "export",
+                    },
+                    {
+                        **label,
+                        "id": "ftdna_2016",
+                        "group": fp.ids_sha256,
+                        "vendor": "FamilyTreeDNA",
+                        "revision": "c",
+                        "kind": "export",
+                    },
+                ],
+            }
+        )
+    )
+    output = tmp_path / "catalogue.json"
+    build(workdir, [str(root)], spec, output)
+    revisions.load_catalogue.cache_clear()
+    template, group = revisions.load_catalogue(output)
+    assert (template.template_relation, template.exports) == ("exact", 0)
+    assert (group.exports, group.period, group.markers) == (3, "2016-01/2016-03", 2985)
+    assert (group.template, group.template_relation) == ("Nucleus_V1", "closest")
+    assert (group.template_added, group.template_removed) == (25, 40)
