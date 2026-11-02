@@ -57,7 +57,7 @@ def test_native_vcf_quality_and_unsupported_masks_survive_canonical_aadr_export(
         "",
     )
     ids = {("chr1", position): f"rs{position}" for position in range(10, 15)}
-    monkeypatch.setattr(command, "load_chm13_catalogue", lambda: catalogue)
+    monkeypatch.setattr(command, "load_chm13_catalogue", lambda **_kwargs: catalogue)
     monkeypatch.setattr(
         command, "validate_chm13_reference", lambda *_args: {"chr1": "chr1"}
     )

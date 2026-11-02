@@ -84,6 +84,44 @@ def test_bidirectional_mapping_preserves_inversion_and_missing_status(
     assert list(mapping.native_range("chr1", 2**32, 2**32)) == []
 
 
+def test_decoded_cache_matches_decoder_and_rebuilds_corruption(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from wgsextract_cli.core import microarray_site_map as maps
+
+    manifest = _fixture(tmp_path)
+    expected = load_site_map(manifest)
+    directory = tmp_path / "cache"
+    assert load_site_map(manifest, cache_dir=directory) == expected
+    decoded = next(directory.glob("*.bin"))
+    original = decoded.read_bytes()
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            maps, "_decode", lambda *_args: pytest.fail("warm cache decoded again")
+        )
+        assert load_site_map(manifest, cache_dir=directory) == expected
+    decoded.write_bytes(original[:30])
+    assert load_site_map(manifest, cache_dir=directory) == expected
+    assert decoded.read_bytes() == original
+    # A decoded cache must never bypass verification of the shipped asset.
+    asset = tmp_path / "sites.bin.gz"
+    asset.write_bytes(asset.read_bytes()[:-1] + b"x")
+    with pytest.raises(WGSExtractError, match="Compressed SHA256 mismatch"):
+        load_site_map(manifest, cache_dir=directory)
+
+
+def test_decoded_cache_does_not_survive_manifest_changes(tmp_path: Path) -> None:
+    manifest = _fixture(tmp_path)
+    directory = tmp_path / "cache"
+    load_site_map(manifest, cache_dir=directory)
+    # Keep the source asset valid while changing its coordinate bounds.
+    metadata = json.loads(manifest.read_text())
+    metadata["source_contigs"][0]["length"] = 101
+    manifest.write_text(json.dumps(metadata))
+    load_site_map(manifest, cache_dir=directory)
+    assert len(list(directory.glob("*.bin"))) == 2
+
+
 @pytest.mark.parametrize(
     "payload",
     [

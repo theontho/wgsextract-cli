@@ -44,6 +44,7 @@ class CHM13Catalogue:
     gzi_sha256: str
     non_snv_sites: frozenset[tuple[str, int]] = frozenset()
     non_snv_ids: frozenset[str] = frozenset()
+    cache_key: str = ""
 
 
 def _digest(value: object, size: int) -> str:
@@ -61,7 +62,9 @@ def _coordinate(value: object, *, minimum: int = 0) -> int:
     return value
 
 
-def load_chm13_catalogue(manifest_path: Path | None = None) -> CHM13Catalogue:
+def load_chm13_catalogue(
+    manifest_path: Path | None = None, *, cache_dir: Path | None = None
+) -> CHM13Catalogue:
     if manifest_path is None:
         manifest_path = (
             Path(__file__).resolve().parents[1]
@@ -146,7 +149,7 @@ def load_chm13_catalogue(manifest_path: Path | None = None) -> CHM13Catalogue:
         targets = {row["name"]: row["length"] for row in manifest["target_contigs"]}
         if targets != {name: contig.length for name, contig in contigs.items()}:
             raise ValueError("Reference profile and site-map contigs disagree")
-        mapping = load_site_map(manifest_path, manifest_data=data)
+        mapping = load_site_map(manifest_path, manifest_data=data, cache_dir=cache_dir)
         marker_metadata = manifest["provenance"].get("markers", {})
         if not isinstance(marker_metadata, dict):
             raise ValueError("Invalid source marker metadata")
@@ -189,6 +192,7 @@ def load_chm13_catalogue(manifest_path: Path | None = None) -> CHM13Catalogue:
             _digest(profile["gzi_sha256"], 64),
             non_snv_sites,
             non_snv_ids,
+            expected,
         )
     except (OSError, ValueError, TypeError, KeyError, zlib.error) as error:
         raise WGSExtractError(f"Invalid CHM13 reference profile: {error}") from error
