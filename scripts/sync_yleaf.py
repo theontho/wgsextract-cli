@@ -71,7 +71,7 @@ def sync(
         }
     manifest["archives"] = archives
     content = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
-    (output / "manifest.json").write_text(content, encoding="utf-8")
+    (output / "manifest.json").write_text(content, encoding="utf-8", newline="\n")
     (output / "SHA256SUMS").write_text(
         "".join(
             f"{sha256(path.read_bytes())}  {path.name}\n"
@@ -79,13 +79,16 @@ def sync(
             if path.name.endswith(".tar.gz") or path.name == "manifest.json"
         ),
         encoding="utf-8",
+        newline="\n",
     )
     (output / "LICENSE.txt").write_bytes(git(checkout, "show", f"{commit}:LICENSE.txt"))
     if write_manifest:
-        (PACKAGE / "data_manifest.json").write_text(content, encoding="utf-8")
+        (PACKAGE / "data_manifest.json").write_text(
+            content, encoding="utf-8", newline="\n"
+        )
         base.update(tag=tag, commit=commit)
         (PACKAGE / "provenance.json").write_text(
-            json.dumps(base, indent=2) + "\n", encoding="utf-8"
+            json.dumps(base, indent=2) + "\n", encoding="utf-8", newline="\n"
         )
 
 

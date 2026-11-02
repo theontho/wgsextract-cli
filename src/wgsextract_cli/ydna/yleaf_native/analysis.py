@@ -111,7 +111,9 @@ def _alignment_calls(
     total_reads = str(sum(int(row[2]) for row in rows))
     bed = work / "positions.txt"
     bed.write_text(
-        "".join(f"{name}\t{pos}\n" for pos in sorted(positions)), encoding="utf-8"
+        "".join(f"{name}\t{pos}\n" for pos in sorted(positions)),
+        encoding="utf-8",
+        newline="\n",
     )
     pileup = work / "chrY.pileup"
     command = [
@@ -127,7 +129,7 @@ def _alignment_calls(
     if reference and path.suffix.lower() == ".cram":
         command += ["-f", str(reference)]
     command.append(str(path))
-    with pileup.open("w", encoding="utf-8") as stream:
+    with pileup.open("w", encoding="utf-8", newline="\n") as stream:
         run_command(command, stdout=stream)
     calls = {}
     with pileup.open(encoding="utf-8") as stream:
@@ -229,6 +231,7 @@ def analyze(
             f"Markers without haplogroup information: {len(failed)}\n"
             + "".join(f"{key}: {value}\n" for key, value in counts.items()),
             encoding="utf-8",
+            newline="\n",
         )
         with prediction.open("w", encoding="utf-8", newline="") as stream:
             writer = csv.writer(stream, delimiter="\t", lineterminator="\n")
@@ -253,6 +256,7 @@ def analyze(
             )
             + "\n",
             encoding="utf-8",
+            newline="\n",
         )
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         prediction.unlink(missing_ok=True)
