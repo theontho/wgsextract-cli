@@ -52,9 +52,7 @@ Use a DMG package, then drag the app into Applications when prompted.
 
 {{ link: Open latest macOS GUI release|https://github.com/theontho/gui-for-cli/releases/latest|inline-link }}
 
-Apple Silicon users can also use the aarch64 web-app DMG when that package is the better fit.
-
-{{ link: Open latest Apple Silicon web-app release|https://github.com/theontho/gui-for-cli/releases/latest|inline-link }}
+Choose the `aarch64.dmg` for Apple Silicon or `x64.dmg` for Intel. The current GUI release is v0.6.5; its packages are separate from the CLI release.
 :::
 
 ::: card

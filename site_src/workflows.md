@@ -5,7 +5,7 @@ description: 'Common WGS Extract workflows for ancestry, SNP chip simulation, va
 eyebrow: 'Goal-oriented recipes'
 heading: 'Start with what you want to produce.'
 lede: 'Whole genome workflows are easier when you choose the output first: an uploadable microarray / SNP chip file, a smaller Y/MT extract, a VCF, a storage-friendly CRAM, or a full FASTQ-to-BAM alignment. Examples write plain `wgsextract`; see [Running the CLI](install.html#running) for your launcher.'
-toc: 'Microarray / SNP chip|microarray; Y/MT|ymt; Variants|variants; FASTQ|fastq; Storage|storage; Testing|testing'
+toc: 'Microarray / SNP chip|microarray; Y/MT|ymt; Variants|variants; FASTQ|fastq; Storage|storage; Testing|testing; Benchmark|benchmark'
 footer_title: 'WGS Extract Workflows'
 footer_text: 'Goal-oriented genome recipes.'
 footer_link_text: 'Next: WGS guide'
@@ -23,7 +23,13 @@ A microarray or SNP chip file is not a complete genome. It is a compact table of
 
 Start with one target format and a small region if you are checking plumbing. Every run writes the combined kit (all chips' markers); `--formats all` writes only that, and a comma-separated list adds vendor files. If a target site has too little coverage or ambiguous data, the simulated result may be missing or no-called depending on the format and command behavior.
 
-Microarray formats use hg19 coordinates. hg38 input is lifted over with the chain file from `ref bootstrap`, and the command fails up front if that chain is missing; T2T input is not supported. Haploid calls follow each vendor's files: 23andMe writes chrY, chrM, and a man's chrX outside the pseudoautosomal regions as one letter (`A`); the other formats double them (`AA`). Heterozygous calls are written in alphabetical order. On hg38, the genome-wide target is built once from the chip templates and saved in the reference library. `--parallel` calls variants per chromosome.
+Consumer exports use hg19 coordinates. hg38 input needs the liftover chain from `ref bootstrap`; the command fails early if it is missing. Native CHM13v2 input can also project to GRCh37/rCRS exports, but only with the exact **original chrM, masked-Y** analysis reference and required installed assets. Other CHM13 variants are rejected; ambiguous mappings stay no-calls. See [CHM13 requirements](https://github.com/theontho/wgsextract-cli/blob/main/docs/microarray-chm13.md){.inline-link}.
+
+Haploid calls follow vendor conventions: 23andMe writes chrY, chrM, and male non-PAR chrX as one letter (`A`); the other formats double them (`AA`). Heterozygous calls are alphabetical. Updated MyHeritage GSA and Ancestry layouts are separately selectable without removing older IDs. Optional quality thresholds, `--strand-ambiguous no-call`, `--resolve-rsids` and `--call-reasons` add conservative filtering and diagnostics without changing defaults.
+
+AADR 1240K, HO and 1240K+HO research panels write both PLINK and EIGENSTRAT files. The opt-in `aadr_2m` panel needs an explicit `ref aadr --install --ref LIBRARY` first; it is not included in `all`, requires an installed forward chain for hg38, and does not support CHM13/T2T. See [AADR coordinates and allele conventions](https://github.com/theontho/wgsextract-cli/blob/main/docs/aadr.md){.inline-link}.
+
+Insertion/deletion probes are opt-in with `--indel-manifest FORMAT=PATH`, using an applicable, sequence-defined manufacturer manifest. Unsupported probes or missing evidence stay no-calls; this is not unrestricted indel discovery. See [manifest requirements](https://github.com/theontho/wgsextract-cli/blob/main/docs/microarray-indels.md){.inline-link}.
 :::
 
 ::: code-panel title=microarray-snp-chip.sh subtitle="common formats"
@@ -31,6 +37,7 @@ Microarray formats use hg19 coordinates. hg38 input is lifted over with the chai
 wgsextract --input sample.bam microarray --formats all
 wgsextract --input sample.bam microarray --formats 23andme_v5
 wgsextract --input sample.bam microarray --formats 23andme_v5_2025,ancestry_v2_2024,ftdna_v3
+wgsextract --input sample.bam microarray --formats aadr_1240k,aadr_ho
 ```
 :::
 :::
@@ -99,6 +106,8 @@ Variant calling is where small test regions are especially important. A command 
 
 Annotation is a separate step from calling. A caller says what appears to differ from the reference. Annotation adds context such as gene names, transcript consequences, population frequencies, or clinical database matches. Filtering then narrows the result to records that match a quality threshold, region, gene, consequence, or expression.
 
+SNP/indel calling remains serial by default. `--parallel` opts into per-contig workers, whose bcftools subsampling can change some calls or likelihoods on full genomes; it is not guaranteed byte-identical to serial output.
+
 ::: code-panel title=variants.sh subtitle="small first, then full genome"
 ```
 # Fast region test
@@ -131,6 +140,8 @@ wgsextract vcf pharmcat --vcf-input calls.vcf.gz \
 ::: card
 ### SNP and InDel calls
 SNP and InDel workflows target small sequence changes. They are often the first full-genome variant calls people run, but they still need a matching reference, sorted/indexed alignments, and enough coverage.
+
+DeepVariant uses an already-installed local runner or Docker image (standard x86 image `google/deepvariant:1.10.0`); Docker/images are never installed by calling. On Apple Silicon the x86 image runs under slow emulation; native Windows DeepVariant is unsupported. On `main` after v0.6.5, native Linux ARM64 CPU calling supports **WGS only**, using `localhost/wgsextract-deepvariant:1.10.0-arm64`, built locally with `bash packaging/deepvariant-arm64/build.sh out/deepvariant-arm64-build`. Other models and `--checkpoint` are refused; GATK and Parabricks remain gated on ARM64. See [native ARM64 DeepVariant setup and qualification](https://github.com/theontho/wgsextract-cli/blob/main/docs/deepvariant-arm64.md){.inline-link}.
 :::
 
 ::: card
@@ -140,8 +151,16 @@ SV and CNV workflows look for larger changes. These can be sensitive to sequenci
 
 ::: card
 ### Annotation and filtering
-Annotation tools such as VEP add biological context. Download annotation data with the `ref` commands first; SpliceAI scores need a manual download because they sit behind an Illumina BaseSpace login. Gene filters need gene maps from `ref gene-map` (hg19/hg38 only). Filtering is useful for exploration, but a filtered list is not a diagnosis and should not be used as medical advice. Some genes need the reads rather than a VCF: the `typing` commands call CYP2D6, HLA, and repeat expansions from a whole-genome BAM/CRAM.
+Annotation tools such as VEP add biological context. Download annotation data with the `ref` commands first; `ref spliceai` fetches Ensembl's open hg38 scores, while hg19 needs a manual BaseSpace download. Gene filters need gene maps from `ref gene-map` (hg19/hg38 only). A filtered list is not a diagnosis. Some genes need reads rather than a VCF: `typing` calls CYP2D6, HLA and repeat expansions from a whole-genome BAM/CRAM.
 :::
+:::
+
+::: callout
+{{ text: **DeepVariant and CRAM 3.1:** v0.6.5 still needs BAM or a manual CRAM 3.0 conversion to avoid the container's older htslib decoder bug. On `main` after v0.6.5, [#294](https://github.com/theontho/wgsextract-cli/pull/294){.inline-link} automatically stages CPU DeepVariant CRAM 3.1+ input as indexed CRAM 3.0, honors requested regions, checks disk space and cleans up afterward. The original stays unchanged; allow extra disk and transcode time. BAM, CRAM 3.0 and Parabricks inputs are unchanged. }}
+:::
+
+::: callout
+{{ text: **NVIDIA GPU option:** `align`, `realign`, `vcf gatk` and `vcf deepvariant` accept `--gpu` for Parabricks on Linux x86_64. Prepare Docker, NVIDIA Container Toolkit, a suitable GPU (16 GB+), and the Parabricks image yourself; the CLI only validates them. Native Windows/macOS and Linux ARM64 GPU paths are unsupported; WSL2 is untested. Ultima flow workflows are not supported by this path. See [GPU setup](https://github.com/theontho/wgsextract-cli#nvidia-gpus-parabricks){.inline-link}. }}
 :::
 :::
 :::
@@ -157,7 +176,13 @@ Raw reads are closest to the sequencer output. They preserve information before 
 
 If you plan to compare outputs with third-party services, choose the reference build intentionally. Aligning to hg38 and then trying to use hg19-specific annotations or SNP chip positions can produce confusing results unless you lift over or regenerate the appropriate files.
 
-An explicit `--aligner` is always used as given, and combinations that make no sense (for example `--aligner bwa` with a PacBio platform) are rejected rather than silently changed. minimap2 accepts the PacBio preset names `ccs` and `subread`, mapped to `map-hifi` and `map-pb`. `realign` checks free disk space before starting and reuses previously extracted FASTQs when they exist. Ultima Genomics BAM/CRAMs (`PL:ULTIMA`) are recognized and aligned with BWA-MEM, keeping their flow tags (`tp`, `t0`) attached and correctly oriented, with duplicates marked in GATK's flow mode; the variant callers then use their Ultima models (bcftools `-X ultima`, GATK `--flow-mode`, DeepVariant `ULTIMA`).
+An explicit `--aligner` is always used as given, and combinations that make no sense (for example `--aligner bwa` with a PacBio platform) are rejected rather than silently changed. minimap2 accepts the PacBio preset names `ccs` and `subread`, mapped to `map-hifi` and `map-pb`. `realign` checks free disk space before starting and reuses previously extracted FASTQs when they exist. Ultima Genomics BAM/CRAMs (`PL:ULTIMA`) are recognized and aligned with BWA-MEM, preserving available flow tags (`tp`, `t0`) in the correct orientation. GATK supplies flow-mode duplicate marking; without it, samtools marking is used with a warning. bcftools uses `-X ultima`; GATK flow calling and DeepVariant's `ULTIMA` model additionally require flow metadata and tags.
+
+Ultima data includes MyHeritage and Nebula/DNA360 WGS. Automatic DeepVariant `ULTIMA` selection requires an Ultima read group, its flow order (`FO`), and detected flow tags; prepare the experimental `google/deepvariant:gh1100-ultima` image for that path, which is not enabled on ARM64. MyHeritage CRAMs without flow tags are called as ordinary short reads instead: by default DeepVariant selects `WGS`, using `google/deepvariant:1.10.0` on Linux x86_64/macOS or the locally built ARM64 image on Linux ARM64. The selected image must already be installed for the Docker path. Low-pass MyHeritage WGS (about 2x) is too shallow for reliable genotypes without imputation, which WGS Extract does not provide. MyHeritage Ultima read-name recognition in `info` is merged on `main` after v0.6.5.
+
+`align --platform ont` uses minimap2's `map-ont` preset, but Oxford Nanopore variant calling is **unvalidated**, not a supported end-to-end promise. Track real-data validation and caller/model work in [#301](https://github.com/theontho/wgsextract-cli/issues/301){.inline-link}.
+
+Eligible small paired realignments can stream into BWA/BWA-MEM2 without FASTQ intermediates; full 30x genomes still use the file-based path. Fixed BWA batches and memory/disk preflight help reproducibility and planning, but do not guarantee runtime.
 :::
 
 ::: code-panel title=fastq-to-bam.sh subtitle="raw data path"
@@ -238,6 +263,24 @@ wgsextract qc fake-data --type bam --coverage 1 --outdir out/fake-fast
 wgsextract qc fake-data --type bam,vcf,fastq --coverage 0.1 --outdir out/fake-all
 wgsextract qc fake-data --type bam --coverage 0.1 --full-size --outdir out/fake-full
 wgsextract qc fake-data --type bam --coverage 1 --legacy-bam --outdir out/fake-legacy
+```
+:::
+:::
+:::
+
+::: section id=benchmark
+::: split
+::: block
+## Benchmark a reproducible workflow
+Start with the smoke profile, then choose a larger profile or release-backed dataset with `benchmark --help`. The default is synthetic; `--dataset real` uses the mini-genome, while `real-1x` and `real-30x` use public WGS data. Reports record tool versions, machine details, timings and per-step logs. Compare matched inputs, references and resources; a tiny smoke result is not a full-genome speed claim.
+
+The [microarray benchmarks](https://github.com/theontho/wgsextract-cli/blob/main/docs/microarray-benchmarks.md){.inline-link} document vendor concordance and parallel measurements.
+:::
+
+::: code-panel title=benchmark.sh subtitle="small first"
+```
+wgsextract benchmark --profile smoke --suite core --outdir out/benchmark-smoke
+wgsextract benchmark --help
 ```
 :::
 :::

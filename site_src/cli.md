@@ -17,6 +17,8 @@ footer_link_href: 'workflows.html'
 ::: block
 ## Global options
 {{ lede: Shared options can go before or after the subcommand. `--threads` and `--memory` accept `auto` (the default). Every command exits non-zero on failure, so commands can be chained safely in scripts. Examples write plain `wgsextract`; see [Running the CLI](install.html#running){.inline-link} for the launcher that matches your install. }}
+
+For long jobs, `--log-file out/run.log` records diagnostics and provenance, `--tmp-dir /data/work` selects a writable staging volume, and opt-in `--keep-awake` requests sleep inhibition. `--atomic-output` protects existing results for supported writers. Memory/disk preflight is advisory; it does not replace existing safety guards.
 :::
 
 ::: code-panel title=global-options.sh subtitle="common flags"
@@ -43,7 +45,7 @@ Run `wgsextract help` for the live tree from your installed version, `wgsextract
 ::: grid three
 ::: card
 ### Info and QC
-`info` (build, integrity, read metrics; `--csv` for machine-readable output), `info calculate-coverage` (exact breadth via samtools coverage, written to `<input>_coverage.tsv`), `info coverage-sample` (fast estimate), plus `qc fastqc`, `qc fastp`, `qc vcf`, and `qc fake-data`.
+`info` (build, integrity, read metrics; `--csv` for machine-readable output), `info calculate-coverage` (exact breadth via samtools coverage, written to `<input>_coverage.tsv`; `--bins` streams depth bands 0 / 1–3 / 4–7 / 8+), `info coverage-sample` (fast estimate), plus `qc fastqc`, `qc fastp`, `qc multiqc` (offline FastQC report aggregation), `qc vcf`, and `qc fake-data`.
 :::
 
 ::: card
@@ -53,7 +55,7 @@ Run `wgsextract help` for the live tree from your installed version, `wgsextract
 
 ::: card
 ### Extraction
-`extract mito-fasta`, `extract mito-vcf`, `extract mt-bam`, `extract ydna-bam`, `extract ydna-vcf`, `extract y-mt-extract`, `extract unmapped`, `extract custom`, and `extract bam-subset`. Mito and Y VCFs are called as haploid.
+`extract mito-fasta`, `extract mito-vcf`, `extract mt-bam`, `extract ydna-bam`, `extract ydna-vcf`, `extract y-mt-extract`, `extract unmapped`, `extract custom`, and `extract bam-subset`. Mito and Y VCFs are called as haploid. Optional `ydna-bam --poz` selects licensed GRCh37/38 Y intervals; `ydna-vcf --ybrowse` calls explicitly installed GRCh38 yBrowse sites; `unmapped --fastq` separates pairs, single-end reads and orphan mates.
 :::
 
 ::: card
@@ -63,7 +65,7 @@ Calling: `vcf snp`, `vcf indel`, `vcf freebayes`, `vcf gatk`, `vcf deepvariant`,
 
 ::: card
 ### References and annotation
-`ref bootstrap`, `ref library`, `ref library-list`, `ref status`, `ref download`, `ref index`, `ref verify`, `ref count-ns`, `ref gene-map`, the annotation downloads (`ref clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb`), and `vep download`, `vep run`, `vep verify`.
+`ref bootstrap`, `ref library`, `ref library-list`, `ref status`, `ref download`, `ref index`, `ref verify`, `ref count-ns`, `ref gene-map`, the annotation downloads (`ref clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb`), explicit `ref aadr` and `ref ybrowse` resource setup, and `vep download`, `vep run`, `vep verify`.
 
 `ref library-list` is a deprecated compatibility alias for `ref library --list`.
 For annotation, `vep run --assembly GRCh37` also accepts the deprecated
@@ -119,13 +121,13 @@ wgsextract help
 ::: wrap
 ::: section-head
 ## Pixi environments
-Some specialized tools live in dedicated Pixi environments to keep dependency solving practical and platform-specific. When a tool such as `vep` or `pbsv` is not on `PATH`, WGS Extract runs it through `pixi run -e <environment>` automatically. You can also run a whole command inside an environment, from the installed `app/` folder or a source checkout, as shown below.
+Some specialized tools live in dedicated Pixi environments. Install them explicitly with `pixi install --locked -e <environment>` before use. WGS Extract can route tools such as `vep` or `pbsv` through an existing environment, but validates dependencies rather than installing them during a feature. You can also run a whole command inside an installed environment, from the `app/` folder or a source checkout.
 :::
 
 ::: grid three
 ::: card
 ### default
-General CLI, samtools/bcftools, bwa/minimap2, fastp/fastqc, freebayes, delly, GATK, Yleaf, Haplogrep, and common workflows.
+General CLI, samtools/bcftools, bwa/minimap2, fastp/fastqc, Delly where supported, Yleaf, Haplogrep, and common workflows. GATK and FreeBayes are separate.
 
 ```
 pixi run wgsextract deps check
@@ -152,12 +154,12 @@ pixi run -e vep wgsextract vep run
 
 ::: card
 ### gatk and freebayes
-GATK (Python 3.10, Java 17) and FreeBayes live in their own environments for dependency reasons. `vcf gatk` and `vcf freebayes` use them automatically; the first run downloads the environment.
+GATK (Python 3.10, Java 17) and FreeBayes live in their own environments. Install the locked environment before calling; neither is downloaded on first use. The Windows installer prepares GATK with its native GKL sidecar. FreeBayes is not supported on native Windows; GATK is gated on Linux ARM64.
 :::
 
 ::: card
 ### cyrius, t1k, and expansionhunter
-Gene and repeat typing: `typing cyp2d6` (Cyrius), `typing hla` (T1K), and `typing str` (ExpansionHunter). Linux and macOS. These aren't downloaded on first use: install them once with `pixi install -e <environment>`; Cyrius is licensed for noncommercial use only.
+Gene and repeat typing: `typing cyp2d6` (Cyrius), `typing hla` (T1K), and `typing str` (ExpansionHunter). Linux x86_64 and macOS, where packaged; not qualified on Linux ARM64. Install once with `pixi install --locked -e <environment>`; Cyrius is licensed for noncommercial use only.
 :::
 
 ::: card
