@@ -16,7 +16,6 @@ from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
 
 from wgsextract_cli.core.dev_download_cache import (
-    drop_cached_download,
     restore_cached_download,
     store_download_in_dev_cache,
 )
@@ -174,12 +173,14 @@ def download_file(
     if partial_path.exists() and not segments_path.exists():
         _bind_single_partial(url, partial_path)
     if use_cache and not dest_path.exists() and not partial_path.exists():
-        if restore_cached_download(url, dest_path, checksum_hint=checksum_hint):
-            if verify_download_sha256(dest, expected_sha256):
-                Path(partial_dest + ".source").unlink(missing_ok=True)
-                return True
-            drop_cached_download(url, dest_path, checksum_hint=checksum_hint)
-            dest_path.unlink(missing_ok=True)
+        if restore_cached_download(
+            url,
+            dest_path,
+            checksum_hint=checksum_hint,
+            verify=lambda path: verify_download_sha256(str(path), expected_sha256),
+        ):
+            Path(partial_dest + ".source").unlink(missing_ok=True)
+            return True
 
     # A large file over several connections (servers that cap each one), unless
     # an earlier single-connection attempt left a partial to resume.

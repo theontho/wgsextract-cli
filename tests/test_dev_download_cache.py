@@ -1,3 +1,4 @@
+import hashlib
 import os
 import time
 from argparse import Namespace
@@ -137,3 +138,32 @@ def test_failed_cache_copy_leaves_no_temp_file(tmp_path, monkeypatch):
 
     assert dev_download_cache.restore_cached_download(url, destination) is None
     assert list(destination.parent.iterdir()) == []
+
+
+def test_download_file_verifies_a_cache_restore_before_dest_exists(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setitem(settings, "dev_download_cache", True)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg-cache"))
+    downloads = ref_library.downloads
+    source = tmp_path / "source.fa.gz"
+    source.write_bytes(b"cached reference")
+    sha256 = hashlib.sha256(b"cached reference").hexdigest()
+    url = "https://example.test/source.fa.gz"
+    dev_download_cache.store_download_in_dev_cache(
+        url, source, checksum_hint=f"sha256:{sha256}"
+    )
+    destination = tmp_path / "downloads" / "source.fa.gz"
+    real_verify = downloads.verify_download_sha256
+    visible: list[bool] = []
+
+    def verify(path, expected):
+        visible.append(destination.exists())
+        return real_verify(path, expected)
+
+    monkeypatch.setattr(downloads, "verify_download_sha256", verify)
+    monkeypatch.setattr(downloads, "urlopen", lambda *a, **k: 1 / 0)
+
+    assert downloads.download_file(url, str(destination), expected_sha256=sha256)
+    assert visible == [False]
+    assert destination.read_bytes() == b"cached reference"

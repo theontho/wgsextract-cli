@@ -32,6 +32,7 @@ from wgsextract_cli.commands.benchmark.models import (
     BenchmarkResult,
     BenchmarkThreadPlan,
 )
+from wgsextract_cli.core import dev_download_cache
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.ref_library import downloads
@@ -201,20 +202,26 @@ def test_cached_remote_file_drops_corrupt_dev_cache_copy_and_downloads(
     remote = BenchmarkRemoteFile(
         "bam", url, "sample.cram", hashlib.md5(b"good").hexdigest()
     )
-    dropped = []
-
-    def restore(url, path, checksum_hint):
-        path.write_bytes(b"stale")
-        return path
-
-    monkeypatch.setattr(datasets, "restore_cached_download", restore)
-    monkeypatch.setattr(
-        datasets, "drop_cached_download", lambda *a, **k: dropped.append(a[0])
+    monkeypatch.setitem(settings, "dev_download_cache", True)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
+    stale = tmp_path / "stale.cram"
+    stale.write_bytes(b"stale")
+    hint = f"md5:{remote.md5}"
+    cached = dev_download_cache.store_download_in_dev_cache(
+        url, stale, checksum_hint=hint
     )
+    assert cached is not None
+    cache_root = tmp_path / "datasets"
+
     assert (
-        datasets._cached_remote_dataset_file(remote, tmp_path).read_bytes() == b"good"
+        datasets._cached_remote_dataset_file(remote, cache_root).read_bytes() == b"good"
     )
-    assert dropped == [url] and fetched == [url]
+    assert fetched == [url]
+    assert cached.read_bytes() == b"good"
+    assert sorted(p.name for p in cache_root.iterdir()) == [
+        f".sample.cram.{remote.md5}.verified",
+        "sample.cram",
+    ]
 
 
 def test_real_dataset_cache_dir_precedence(tmp_path, monkeypatch):
