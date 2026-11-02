@@ -44,7 +44,7 @@ from .basic import get_base_args
 
 # Google's image; Bioconda's deepvariant has shipped no DeepVariant since 1.8.
 DEFAULT_IMAGE = "google/deepvariant:1.10.0"
-DEFAULT_ARM64_IMAGE = "wgsextract/deepvariant:1.10.0-arm64"
+DEFAULT_ARM64_IMAGE = "localhost/wgsextract-deepvariant:1.10.0-arm64"
 # Google's experimental image with the ULTIMA model (google/deepvariant#1100),
 # until a release has it.
 DEFAULT_ULTIMA_IMAGE = "google/deepvariant:gh1100-ultima"
@@ -63,19 +63,25 @@ def deepvariant_image(model_type: str = "WGS") -> str:
 
 
 _ARM64_SETUP = (
-    "Build the native CPU DeepVariant 1.10.0 image following "
-    "docs/deepvariant-arm64.md; set deepvariant_image in config.toml if you "
+    "Build the native CPU DeepVariant 1.10.0 image with "
+    "packaging/deepvariant-arm64/build.sh (see docs/deepvariant-arm64.md); "
+    "set deepvariant_image in config.toml if you "
     "use another local tag. Dependencies and images must already be installed. "
     "Google's x86 image, emulation and unaudited PATH launchers are not supported."
 )
 
 
-def _verify_arm64_image(model_type: str = "WGS") -> str:
-    if model_type == "ULTIMA":
+def _require_arm64_wgs(model_type: str, checkpoint: str | None = None) -> None:
+    if model_type != "WGS" or checkpoint:
+        selection = "--checkpoint" if checkpoint else f"model {model_type}"
         raise WGSExtractError(
-            "DeepVariant's experimental ULTIMA image is not qualified on "
-            f"Linux ARM64. {_ARM64_SETUP}"
+            f"DeepVariant {selection} is not qualified on Linux ARM64; "
+            f"only the default WGS model is qualified. {_ARM64_SETUP}"
         )
+
+
+def _verify_arm64_image(model_type: str = "WGS", checkpoint: str | None = None) -> str:
+    _require_arm64_wgs(model_type, checkpoint)
     docker_info(_ARM64_SETUP)
     architecture = docker_info(_ARM64_SETUP, "{{.Architecture}}").strip().lower()
     if architecture not in {"aarch64", "arm64"}:
@@ -387,15 +393,19 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
         require_native_tool("parabricks")
         _deepvariant_gpu(args)
         return
-    arm64_image = _verify_arm64_image(_model_type(args)) if is_linux_arm64() else None
+    arm64_image = (
+        _verify_arm64_image(_model_type(args), getattr(args, "checkpoint", None))
+        if is_linux_arm64()
+        else None
+    )
     run_deepvariant = None if arm64_image else get_tool_path("run_deepvariant")
     if not run_deepvariant and not arm64_image:
         _verify_docker()
     verify_dependencies(["samtools", "tabix"])
     threads, outdir, ref, _lib = get_base_args(args)
     model_type = _model_type(args, ref)
-    if arm64_image and model_type == "ULTIMA":
-        _verify_arm64_image(model_type)
+    if arm64_image:
+        _require_arm64_wgs(model_type, getattr(args, "checkpoint", None))
     if model_type == "ULTIMA" and run_deepvariant:
         # A local run_deepvariant is a release, which has no ULTIMA model yet.
         _verify_docker(model_type)

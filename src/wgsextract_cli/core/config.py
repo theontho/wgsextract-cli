@@ -66,7 +66,7 @@ KNOWN_SETTINGS = {
         None,
         "DeepVariant Docker image for CPU calling (default "
         "google/deepvariant:1.10.0 on x64; local "
-        "wgsextract/deepvariant:1.10.0-arm64 on Linux ARM64)",
+        "localhost/wgsextract-deepvariant:1.10.0-arm64 on Linux ARM64)",
     ),
     "deepvariant_ultima_image": (
         None,

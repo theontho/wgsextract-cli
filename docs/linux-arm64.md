@@ -52,7 +52,8 @@ PairHMM and Smith-Waterman kernels require x86 AVX. No slow pure-Java fallback
 is silently enabled. DeepVariant CPU has an explicit
 [native source-build path](deepvariant-arm64.md) for the pinned 1.10.0 release;
 the image must already exist and pass native engine/image checks.
-DeepVariant `--gpu` and experimental ULTIMA remain unavailable.
+Only DeepVariant's default WGS model is enabled: other models, `--wes`,
+`--pacbio`, `--checkpoint` and `--gpu` remain unavailable.
 The phase-2 explanation is shown for gated commands, version probes, selected
 `deps check --tool` requests and missing optional tools in `deps check`.
 Unavailable tools are marked missing, without an unusable installation hint.

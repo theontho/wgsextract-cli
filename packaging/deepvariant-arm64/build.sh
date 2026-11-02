@@ -37,12 +37,10 @@ sed -i 's|git clone https://github.com/tensorflow/tensorflow|git clone --depth 1
 python3 "$recipe/patch_launchers.py"
 printf 'build --jobs=12\nbuild --local_ram_resources=49152\nbuild --cxxopt=-include\nbuild --cxxopt=cstdint\nbuild --host_cxxopt=-include\nbuild --host_cxxopt=cstdint\n' \
     > user.bazelrc
-docker build -f "$recipe/Builder.Dockerfile" \
-    -t wgsextract/deepvariant-builder:1.10.0-arm64 .
 cp "$recipe/model-sha256.txt" model-sha256.txt
-docker build -f "$recipe/Runtime.Dockerfile" \
-    --build-arg BUILDER_IMAGE=wgsextract/deepvariant-builder:1.10.0-arm64 \
-    -t wgsextract/deepvariant:1.10.0-arm64 .
+image=localhost/wgsextract-deepvariant:1.10.0-arm64
+docker build --load -f "$recipe/Dockerfile" -t "$image" .
 test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' \
-    wgsextract/deepvariant:1.10.0-arm64)" = linux/arm64
-echo "Built wgsextract/deepvariant:1.10.0-arm64; no emulation or quantized model."
+    "$image")" = linux/arm64
+docker image inspect --format '{{.Id}}' "$image" > "$work/image-id.txt"
+echo "Built $image; image ID saved to $work/image-id.txt; no emulation or quantized model."

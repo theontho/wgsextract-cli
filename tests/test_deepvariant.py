@@ -630,22 +630,67 @@ def test_arm_image_bypasses_autoconfig_and_unaudited_path_launcher(files, monkey
     assert (out / "deepvariant.vcf.gz").exists()
 
 
-def test_arm_ultima_does_not_fall_back_to_x86_image(files, monkeypatch):
+@pytest.mark.parametrize(
+    "selection",
+    [
+        {"model_type": model}
+        for model in (
+            "ULTIMA",
+            "WES",
+            "PACBIO",
+            "ONT_R104",
+            "HYBRID_PACBIO_ILLUMINA",
+            "MASSEQ",
+            "RNASEQ",
+        )
+    ]
+    + [{"pacbio": True}, {"wes": True}, {"checkpoint": "custom/model.ckpt"}],
+)
+def test_arm_unqualified_models_fail_before_container_or_input_work(
+    files, monkeypatch, selection
+):
     _ref, bam, _out = files
     _arm_docker(monkeypatch)
+    monkeypatch.setattr(
+        deepvariant,
+        "docker_info",
+        lambda *_args: pytest.fail("must not inspect Docker"),
+    )
+    monkeypatch.setattr(
+        deepvariant,
+        "get_base_args",
+        lambda *_args: pytest.fail("must not prepare inputs"),
+    )
+    with pytest.raises(WGSExtractError, match="not qualified.*only the default WGS"):
+        deepvariant.cmd_deepvariant(_args(bam, **selection))
+
+
+def test_arm_detected_ultima_is_rejected_after_read_group_detection(files, monkeypatch):
+    _ref, bam, _out = files
+    _arm_docker(monkeypatch)
+    monkeypatch.setattr(
+        deepvariant, "_model_type", lambda _args, ref=None: "ULTIMA" if ref else "WGS"
+    )
+    monkeypatch.setattr(
+        deepvariant,
+        "run_container",
+        lambda *_a, **_kw: pytest.fail("must not run model"),
+    )
     with pytest.raises(WGSExtractError, match="ULTIMA.*not qualified"):
-        deepvariant.cmd_deepvariant(_args(bam, model_type="ULTIMA"))
+        deepvariant.cmd_deepvariant(_args(bam))
 
 
 def test_arm_missing_native_image_gives_manual_build_instructions(files, monkeypatch):
     _ref, bam, _out = files
     _arm_docker(monkeypatch)
 
-    def missing(_image, instructions):
+    def missing(image, instructions):
+        assert image == "localhost/wgsextract-deepvariant:1.10.0-arm64"
+        assert "docker pull" not in instructions
         raise WGSExtractError(instructions)
 
     monkeypatch.setattr(deepvariant, "require_image", missing)
-    with pytest.raises(WGSExtractError, match="docs/deepvariant-arm64.md"):
+    with pytest.raises(WGSExtractError, match="packaging/deepvariant-arm64/build.sh"):
         deepvariant.cmd_deepvariant(_args(bam))
 
 

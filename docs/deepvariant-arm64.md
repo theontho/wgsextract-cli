@@ -18,9 +18,16 @@ From a checkout of this repository on that builder:
 bash packaging/deepvariant-arm64/build.sh out/deepvariant-arm64-build
 ```
 
-This creates `wgsextract/deepvariant:1.10.0-arm64`, the Linux ARM64 default.
-There is no published image assumed at this tag. For another installed tag or
-immutable image digest, set the existing configuration option:
+This creates and loads `localhost/wgsextract-deepvariant:1.10.0-arm64`, the
+Linux ARM64 default. The `localhost/` prefix prevents Docker Hub namespace
+resolution; there is no published image to pull. One multi-stage Dockerfile
+uses its internal `builder` stage directly, including with buildx's
+docker-container driver, rather than resolving a builder tag from a registry.
+The build saves the resulting image ID in `out/deepvariant-arm64-build/image-id.txt`.
+Architecture checks are not a provenance signature: build from the audited
+recipe and retain this ID; the CLI does not authenticate arbitrary custom images.
+For another trusted installed tag or immutable image digest, set the existing
+configuration option:
 
 ```toml
 deepvariant_image = "my-local-native-image@sha256:..."
@@ -40,9 +47,13 @@ overridden to `run_deepvariant`, preventing community auto-configuration scripts
 from silently switching inference precision. Writable home/temporary files stay
 inside the caller's intermediate directory and are removed after the run.
 
-The experimental ULTIMA image and Parabricks `--gpu` remain unavailable on
-Linux ARM64. WGS is the qualification target; other upstream release models are
-packaged but require their own real-data qualification.
+Only the default WGS model is enabled on Linux ARM64. WES (`--wes`),
+PACBIO (`--pacbio`), ONT_R104, HYBRID_PACBIO_ILLUMINA, MASSEQ, RNASEQ,
+ULTIMA (including automatic read-group detection) and `--checkpoint` are
+refused, even if a custom image is configured. Other release models are
+packaged for checksum auditing, not enabled: each requires its own real-data
+qualification before a future implementation can permit it. Parabricks
+`--gpu` remains unavailable.
 
 ## Source and numerical provenance
 
