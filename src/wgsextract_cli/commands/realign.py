@@ -22,7 +22,7 @@ import logging
 from pathlib import Path
 
 from wgsextract_cli.core import bwa_mem2, ultima
-from wgsextract_cli.core.alignment_memory import check_mapping_memory
+from wgsextract_cli.core.alignment_memory import available_memory, check_mapping_memory
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -31,7 +31,7 @@ from wgsextract_cli.core.dependency_checks import (
 from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.read_counts import (
-    alignment_read_length,
+    alignment_sample,
     fastq_input_statistics,
 )
 from wgsextract_cli.core.reference_assets import (
@@ -59,10 +59,8 @@ from wgsextract_cli.core.warnings import (
 
 from . import align as align_cmd
 from ._extract_helpers import (
-    STREAM_COLLATE_MEMORY_LIMIT,
     alignments_to_fastq,
     collate_working_memory,
-    collate_working_memory_limit,
     paired_fastq_stream,
 )
 
@@ -193,12 +191,7 @@ def _preflight_disk_space(
             (outdir, retained_fastq + align_final_gb),
             (
                 scratch,
-                staged_fastq
-                + (
-                    extract_temp_gb + align_temp_gb
-                    if streaming
-                    else max(extract_temp_gb, align_temp_gb)
-                ),
+                staged_fastq + max(extract_temp_gb, align_temp_gb),
             ),
         ]
         for directory, gigabytes in requirements:
@@ -213,12 +206,10 @@ def _preflight_disk_space(
                 )
         return
 
-    # Streamed collate deletes buckets as it drains, but overlaps sorter spills.
-    total_gb = (
-        extract_temp_gb + align_temp_gb + align_final_gb
-        if streaming
-        else max(extract_temp_gb, extract_final_gb + align_temp_gb + align_final_gb)
-    )
+    # Collate writes every bucket before it emits a read, then deletes each one as
+    # it drains while the sorter's spills grow. Streaming therefore peaks like
+    # file extraction without the FASTQs between the two stages.
+    total_gb = max(extract_temp_gb, extract_final_gb + align_temp_gb + align_final_gb)
     logging.warning(
         "Realign pre-flight: ~%d GB free space required at %s "
         "(extract %d+%d, align %d+%d).",
@@ -391,11 +382,23 @@ def run(args: argparse.Namespace) -> None:
     additional_ram_bytes = 0
     cram_opt = None
     if streaming:
-        estimated_collate_bytes = collate_working_memory(args.input, threads, memory)
-        fits = estimated_collate_bytes <= collate_working_memory_limit(threads, memory)
-        # Reserve the full overlap allowance, not just the estimated bucket:
-        # ordinary estimation overruns can consume that accounted RAM headroom.
-        additional_ram_bytes = STREAM_COLLATE_MEMORY_LIMIT if fits else 0
+        verify_dependencies(["samtools"])
+        cram_opt = (
+            input_cram_opt
+            if input_cram_opt is not None
+            else _input_cram_reference(args)
+        )
+        sample = alignment_sample(args.input, cram_opt=cram_opt)
+        read_length = sample.read_length
+        # One collate bucket is resident while BWA maps; reserve it alongside.
+        additional_ram_bytes = collate_working_memory(
+            args.input,
+            threads,
+            memory,
+            records=reads,
+            max_record_bytes=sample.max_record_bytes,
+        )
+        fits = additional_ram_bytes <= available_memory()
         if fits and target and Path(target).is_file():
             samblaster = (
                 align_cmd.duplicate_marker(paired=bool(r2_path)) == "samblaster"
@@ -421,9 +424,10 @@ def run(args: argparse.Namespace) -> None:
             )
         if not fits:
             logging.info(
-                "Collation overlap does not fit the 1 GiB streaming budget or "
-                "available alignment RAM; extracting FASTQs without changing "
-                "the aligner."
+                "Holding a collate bucket (~%.1f GiB) beside alignment does not "
+                "fit available RAM; extracting FASTQs without changing the "
+                "aligner.",
+                additional_ram_bytes / 1024**3,
             )
             streaming = False
             additional_ram_bytes = 0
@@ -495,9 +499,6 @@ def run(args: argparse.Namespace) -> None:
             )
 
     if streaming:
-        verify_dependencies(["samtools"])
-        cram_opt = _input_cram_reference(args)
-        read_length = alignment_read_length(args.input, cram_opt=cram_opt)
         logging.info(
             "Streaming paired FASTQ from %s into BWA; no gzipped FASTQ files.",
             args.input,

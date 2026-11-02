@@ -100,7 +100,7 @@ def source(tmp_path):
     return source
 
 
-def test_streamed_collation_spill_is_charged_to_selected_temporary_volume(
+def test_streamed_collation_spill_drains_within_the_temporary_sort_estimate(
     tmp_path, source, monkeypatch
 ):
     output, scratch = str(tmp_path / "output"), str(tmp_path / "scratch")
@@ -118,9 +118,9 @@ def test_streamed_collation_spill_is_charged_to_selected_temporary_volume(
         for row in estimate.resources
         if row.resource == "disk" and row.paths
     }
-    assert "collation_spill" not in disks[output].components
-    assert disks[scratch].components["collation_spill"] > 0
-    assert disks[scratch].components["temporary"] > 0
+    # Collate's buckets are deleted as they drain while the sorter's spills grow.
+    assert set(disks[scratch].components) == {"temporary"}
+    assert "temporary" not in disks[output].components
 
 
 def test_h2_envelope_reuses_memory_model_and_scales_disk_by_input_reads(
@@ -432,7 +432,8 @@ def test_alignment_reports_before_index_building_or_fastq_extraction(
         assert estimate.operation == operation
         if operation == "realign" and platform != "ultima":
             assert "extracted_fastqs" not in estimate.resources[1].components
-            assert estimate.resources[1].components["collation_spill"] > 0
+            assert "collation_spill" not in estimate.resources[1].components
+            assert estimate.resources[1].components["temporary"] > 0
             assert estimate.resources[0].components["collation"] > 0
         if platform == "ultima":
             assert estimate.resources[1].components["temporary"] == 20_000
@@ -466,6 +467,7 @@ def test_alignment_reports_before_index_building_or_fastq_extraction(
         monkeypatch.setattr(align, "streaming_mapping_fits", lambda *_a, **_kw: True)
         monkeypatch.setattr(realign, "resolve_reference", lambda *_: str(ref))
         monkeypatch.setattr(realign, "indexed_read_count", lambda *_: 100)
+        monkeypatch.setattr(realign, "_input_cram_reference", lambda *_: [])
         monkeypatch.setattr(realign, "preflight_resources", reported)
         monkeypatch.setattr(
             realign,

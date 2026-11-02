@@ -12,6 +12,7 @@ from wgsextract_cli.commands import realign
 from wgsextract_cli.core import alignment_memory
 from wgsextract_cli.core.alignment_memory import MappingMemory
 from wgsextract_cli.core.config import settings
+from wgsextract_cli.core.read_counts import AlignmentSample
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 FRAG = 300
@@ -198,8 +199,11 @@ class _Fakes:
         monkeypatch.setattr(realign, "alignments_to_fastq", self.extract)
         monkeypatch.setattr(realign.align_cmd, "run", self.align)
         monkeypatch.setattr(realign.align_cmd, "align_bwa", self.stream)
-        monkeypatch.setattr(realign, "alignment_read_length", lambda *_a, **_k: 100)
+        monkeypatch.setattr(
+            realign, "alignment_sample", lambda *_a, **_k: AlignmentSample(100, 400)
+        )
         monkeypatch.setattr(realign.align_cmd, "available_memory", lambda: 1024**4)
+        monkeypatch.setattr(realign, "available_memory", lambda: 1024**4)
 
     def extract(self, _input, r1, r2, **_kwargs):
         self.extracted.append((r1, r2))
@@ -302,7 +306,7 @@ def test_failed_realign_retains_selected_workspace_fastqs_for_recovery(
     scratch.mkdir()
     fakes = _Fakes(monkeypatch)
     monkeypatch.setattr(
-        realign, "collate_working_memory", lambda *_a, **_kw: 2 * 1024**3
+        realign, "collate_working_memory", lambda *_a, **_kw: 2 * 1024**4
     )
     fakes.align_error = RuntimeError("alignment interrupted")
     with (
@@ -393,11 +397,8 @@ def test_paired_stream_body_matches_files_including_discarded_reads(
     monkeypatch.setattr(
         realign.align_cmd, "streaming_mapping_fits", lambda *_a, **_kw: True
     )
-    monkeypatch.setattr(
-        _extract_helpers,
-        "_collate_buckets",
-        lambda *_a, streaming=False, **_kw: 128 if streaming else 64,
-    )
+    # A bucket count that differs from the default proves both modes share it.
+    monkeypatch.setattr(_extract_helpers, "_collate_buckets", lambda *_a, **_kw: 3)
     genome, ref = genome_and_ref
     source, pairs = _old_alignment(tmp_path, genome)
     records = _view("view", source).splitlines()
@@ -543,31 +544,29 @@ def test_preflight_needs_room_for_the_extraction_only_when_extracting(
     assert fakes.extracted == [] and fakes.aligned == []
 
 
-def test_stream_preflight_reserves_overlapping_collate_and_sort_spills(
+def test_stream_preflight_drops_only_the_fastqs_between_collate_and_sort(
     tmp_path,
     monkeypatch,
     source,
 ):
-    fakes = _Fakes(monkeypatch)
-    estimates = {"Name": (10, 4), "Coord": (3, 2)}
+    estimates = {"Name": (10, 8), "Coord": (3, 2)}  # (temp GB, final GB)
     monkeypatch.setattr(
         realign,
         "get_free_space_needed",
         lambda _size, sort_type, **_k: estimates[sort_type],
     )
-    monkeypatch.setattr(realign, "check_free_space", lambda _path, gb: gb <= 12)
-    realign._preflight_disk_space(str(source), str(tmp_path), True, 100)
-    with pytest.raises(WGSExtractError, match="needs ~15 GB"):
-        realign._preflight_disk_space(
-            str(source),
-            str(tmp_path),
-            False,
-            100,
-            streaming=True,
-        )
-    realign.run(_args(source, no_preflight=False, aligner="bwa"))
-    assert len(fakes.extracted) == 1 and not fakes.streamed
-    assert len(fakes.aligned) == 1
+    asked = []
+    monkeypatch.setattr(
+        realign, "check_free_space", lambda path, gb: asked.append(gb) or False
+    )
+    for streaming in (False, True):
+        with pytest.raises(WGSExtractError):
+            realign._preflight_disk_space(
+                str(source), str(tmp_path), not streaming, 100, streaming=streaming
+            )
+    # Files: max(10, 8 + 3 + 2). Streaming: collate's spills drain as the
+    # sorter's grow, so max(10, 3 + 2).
+    assert asked == [13, 10]
 
 
 @pytest.mark.parametrize("requested", ["bwa", "bwa-mem2", "auto"])
@@ -589,7 +588,7 @@ def test_stream_overlap_without_ram_uses_files_without_changing_aligner(
     monkeypatch.setattr(
         realign.align_cmd,
         "estimate_mapping_memory",
-        lambda *_a, **_kw: MappingMemory(8 * 1024**3 - 512 * 1024**2, 0, 0, 0, 0),
+        lambda *_a, **_kw: MappingMemory(8 * 1024**3 - 32 * 1024**2, 0, 0, 0, 0),
     )
     checked = []
     monkeypatch.setattr(
@@ -614,51 +613,43 @@ def test_stream_overlap_without_ram_uses_files_without_changing_aligner(
     assert all(extra == 0 for extra in checked)
 
 
-def test_small_stream_bucket_still_reserves_full_overlap_for_reporting_and_mapping(
+def test_stream_reserves_the_estimated_collate_bucket_for_reporting_and_mapping(
     tmp_path, monkeypatch, source
 ):
     fakes = _Fakes(monkeypatch)
+    monkeypatch.setattr(realign, "indexed_read_count", lambda *_a: 1_000_000)
     reported = []
     monkeypatch.setattr(
         realign,
         "_report_resource_estimates",
         lambda *_a, **kwargs: reported.append(kwargs["additional_ram_bytes"]),
     )
-    assert realign.collate_working_memory(source, "2", "100M") < 128 * 1024**2
     realign.run(_args(source, aligner="bwa"))
+    expected = realign.collate_working_memory(
+        source, "2", "100M", records=1_000_000, max_record_bytes=400
+    )
     assert not fakes.extracted
-    assert reported == [1024**3]
-    assert fakes.streamed[0]["additional_ram_bytes"] == 1024**3
+    assert reported == [expected]
+    assert fakes.streamed[0]["additional_ram_bytes"] == expected
 
 
-@pytest.mark.parametrize("size_gib,suffix", [(60, ".bam"), (7, ".bam"), (2, ".cram")])
-def test_input_over_calibrated_200_bucket_capacity_uses_file_mode(
-    tmp_path, monkeypatch, source, size_gib, suffix
+@pytest.mark.parametrize("gib", [64, 2])
+def test_whole_genome_input_streams_when_its_collate_bucket_fits_ram(
+    tmp_path, monkeypatch, source, gib
 ):
     fakes = _Fakes(monkeypatch)
-    source = source.rename(source.with_suffix(suffix))
     with source.open("wb") as output:
-        output.truncate(size_gib * 1024**3)
-    monkeypatch.setattr(realign, "indexed_read_count", lambda *_a: 680_000_000)
+        output.truncate(40 * 1024**3)
+    monkeypatch.setattr(realign, "indexed_read_count", lambda *_a: 800_000_000)
     monkeypatch.setattr(realign, "calculate_bam_md5", lambda *_a: None)
     monkeypatch.setattr(realign, "resolve_reference", lambda *_a: None)
-    monkeypatch.setattr(realign, "_input_cram_reference", lambda *_a: None)
+    monkeypatch.setattr(realign.align_cmd, "available_memory", lambda: gib * 1024**3)
+    monkeypatch.setattr(realign, "available_memory", lambda: gib * 1024**3)
     realign.run(_args(source, aligner="bwa", threads="8", memory="2G"))
-    assert len(fakes.extracted) == 1 and not fakes.streamed
-    assert len(fakes.aligned) == 1
-
-
-def test_stream_bucket_capacity_cannot_exceed_configured_collation_budget(
-    tmp_path, monkeypatch, source
-):
-    fakes = _Fakes(monkeypatch)
-    with source.open("wb") as output:
-        output.truncate(2 * 1024**3)
-    monkeypatch.setattr(realign, "indexed_read_count", lambda *_a: 100)
-    monkeypatch.setattr(realign, "calculate_bam_md5", lambda *_a: None)
-    monkeypatch.setattr(realign, "resolve_reference", lambda *_a: None)
-    realign.run(_args(source, aligner="bwa", threads="1", memory="100M"))
-    assert len(fakes.extracted) == 1 and not fakes.streamed
+    if gib == 64:
+        assert fakes.streamed and not fakes.extracted
+    else:
+        assert len(fakes.extracted) == 1 and not fakes.streamed
     assert len(fakes.aligned) == 1
 
 

@@ -198,67 +198,70 @@ def resolve_region_or_gene(
     return str(resolved_region)
 
 
-STREAM_COLLATE_MEMORY_LIMIT = 1024**3
 _COLLATE_HEADROOM = 64 * 1024**2
-# Streaming estimates cover the worst tiny record-allocation projections
-# (13.42x BAM / 64.83x CRAM), add 50%, then round upward to the next ten.
-# Chr20 and nominal30x record/header projections are lower; see resource_estimates.md.
-# These are heuristics, not enforced RSS bounds. Keep file-mode ordering unchanged.
+# Streaming estimates when no read count or record sample is available: the
+# worst tiny record-allocation projections (13.42x BAM / 64.83x CRAM) plus 50%,
+# rounded up. These are heuristics, not enforced RSS bounds.
 _STREAM_BAM_EXPANSION = 30
 _STREAM_CRAM_EXPANSION = 100
+# samtools collate keeps one bam1_t slot per record of the largest bucket. A
+# slot's data buffer only grows, to a power of two, as buckets reuse it; this is
+# its fixed bam1_t, sort-element and allocator overhead (measured, see
+# resource_estimates.md).
+_COLLATE_RECORD_OVERHEAD = 128
 
 
-def _collate_expansion(input_path: PathInput, *, streaming: bool) -> int:
-    if Path(input_path).suffix.lower() == ".cram":
-        return _STREAM_CRAM_EXPANSION if streaming else 70
-    return _STREAM_BAM_EXPANSION if streaming else 20
-
-
-def _collate_budget(threads: str, memory: str, *, streaming: bool) -> int:
-    amount, unit = parse_memory(memory)
-    budget = int(int(threads) * amount * (1024**3 if unit == "G" else 1024**2))
-    return (
-        min(budget, STREAM_COLLATE_MEMORY_LIMIT - _COLLATE_HEADROOM)
-        if streaming
-        else budget
-    )
-
-
-def collate_working_memory_limit(threads: str, memory: str) -> int:
-    return _collate_budget(threads, memory, streaming=True) + _COLLATE_HEADROOM
-
-
-def _collate_buckets(
-    input_path: PathInput, threads: str, memory: str, *, streaming: bool = False
-) -> int:
+def _collate_buckets(input_path: PathInput, threads: str, memory: str) -> int:
     """Temp files for `samtools collate`, which holds one in memory at a time.
 
-    File extraction retains 70x CRAM / 20x BAM and the sort memory budget
-    (threads x per-thread memory). Streaming uses calibrated 100x CRAM / 30x BAM
-    estimates and targets 1 GiB including headroom; if 200 buckets cannot achieve the
-    configured budget, realign uses file extraction. These expansion estimates
-    are not enforced native-process memory limits. At most 200 files stay under
-    macOS's default limit of 256 open files.
+    70x CRAM / 20x BAM file size against the sort memory budget (threads x
+    per-thread memory). Collate's output order depends on this count, so
+    streamed and file extraction use the same one and give identical pairs to
+    the aligner. At most 200 files stay under macOS's default limit of 256
+    open files.
     """
     try:
         size = Path(input_path).stat().st_size
     except OSError:
         size = 0
-    in_memory = size * _collate_expansion(input_path, streaming=streaming)
-    budget = _collate_budget(threads, memory, streaming=streaming)
-    return min(200, max(64, math.ceil(in_memory / budget)))
+    expansion = 70 if Path(input_path).suffix.lower() == ".cram" else 20
+    amount, unit = parse_memory(memory)
+    budget = int(int(threads) * amount * (1024**3 if unit == "G" else 1024**2))
+    return min(200, max(64, math.ceil(size * expansion / budget)))
 
 
-def collate_working_memory(input_path: PathInput, threads: str, memory: str) -> int:
-    """One live collate bucket plus codec/bookkeeping headroom."""
-    size = Path(input_path).stat().st_size
-    in_memory = size * _collate_expansion(input_path, streaming=True)
-    return (
-        math.ceil(
-            in_memory / _collate_buckets(input_path, threads, memory, streaming=True)
-        )
-        + _COLLATE_HEADROOM
+def collate_working_memory(
+    input_path: PathInput,
+    threads: str,
+    memory: str,
+    *,
+    records: int | None = None,
+    max_record_bytes: int | None = None,
+) -> int:
+    """Estimated resident memory of `samtools collate` holding its largest bucket.
+
+    With the input's record count and the largest sampled BAM record, each
+    held record costs that record's power-of-two buffer plus fixed overhead;
+    the largest bucket allows six standard deviations over the mean for mates
+    that share a name hash. Otherwise falls back to calibrated 30x BAM / 100x
+    CRAM file-size expansions.
+    """
+    buckets = _collate_buckets(input_path, threads, memory)
+    if records and max_record_bytes:
+        mean = records / buckets
+        held = math.ceil(mean + 6 * math.sqrt(2 * mean))
+        slot = 1 << (max_record_bytes - 1).bit_length()
+        return held * (slot + _COLLATE_RECORD_OVERHEAD) + _COLLATE_HEADROOM
+    try:
+        size = Path(input_path).stat().st_size
+    except OSError:
+        size = 0
+    expansion = (
+        _STREAM_CRAM_EXPANSION
+        if Path(input_path).suffix.lower() == ".cram"
+        else _STREAM_BAM_EXPANSION
     )
+    return math.ceil(size * expansion / buckets) + _COLLATE_HEADROOM
 
 
 def _fastq_stages(
@@ -273,7 +276,6 @@ def _fastq_stages(
     cram_opt: list[str] | None = None,
     region: str | None = None,
     out_other: PathInput | None = None,
-    streaming: bool = False,
 ) -> list[list[str]]:
     view = ["samtools", "view", "-uh", "--no-PG", "-@", threads]
     view += cram_opt or []
@@ -281,7 +283,7 @@ def _fastq_stages(
     collate = ["samtools", "collate", "-u", "-O", "--no-PG", "-@", threads]
     collate += [
         "-n",
-        str(_collate_buckets(input_path, threads, memory, streaming=streaming)),
+        str(_collate_buckets(input_path, threads, memory)),
         "-T",
         str(Path(temporary, "collate")),
         "-",
@@ -303,7 +305,7 @@ def paired_fastq_stream(
     temp_parent: PathInput,
     cram_opt: list[str] | None = None,
 ) -> Iterator[list[list[str]]]:
-    """Standard collate/filtering with an estimated bucket budget and paired stdout."""
+    """File extraction's collate/filtering with interleaved pairs on stdout."""
     with tempfile.TemporaryDirectory(
         dir=configured_temp_directory() or temp_parent, prefix=".collate_"
     ) as tmp:
@@ -317,7 +319,6 @@ def paired_fastq_stream(
             singletons=devnull,
             out_other=devnull,
             cram_opt=cram_opt,
-            streaming=True,
         )
 
 

@@ -25,52 +25,54 @@ still bypasses realignment's disk refusal, not its memory guard; informational
 estimates are still printed. Realignment reports before FASTQ extraction and
 alignment reports again when the final aligner is selected.
 
-Eligible paired BWA realignment without `--keep-fastq` streams newly extracted reads
-(forced refresh of cached FASTQs at the exact output paths retains file handling):
-there is no retained `extracted_fastqs` demand. The **full 1 GiB overlap allowance**
-is included in mapping's RAM preflight even when its bucket estimate is smaller,
-and `collation_spill` is conservatively added
-alongside sorter spills on the configured temporary volume (or output volume
-when none is configured). Collate removes buckets as they drain, so this disk
-sum is an upper bound, not a prediction of actual peak. If streaming spills
-do not fit but file extraction does, realignment uses files.
-The alignment read-length sample reads at most 4096 input SAM records / 16 MiB
-and applies paired-primary filtering within that prefix; it does not replace
-the indexed input count.
+Eligible paired BWA/bwa-mem2 realignment without `--keep-fastq` streams newly
+extracted reads (forced refresh of cached FASTQs at the exact output paths
+retains file handling): `samtools view | collate | fastq` writes interleaved
+pairs to stdout and the aligner reads them with `-p`, through ordinary process
+pipes on every platform, including native Windows. There is no
+`extracted_fastqs` demand. minimap2, GPU and long-read workflows keep files.
 
-Streaming collation's **30× BAM / 100× CRAM** expansion model is heuristic, not an
-enforced native-process RSS limit. Estimated bucket memory plus 64 MiB bookkeeping must
-fit both the configured collation budget and the 1 GiB overlap ceiling. The
-200-bucket ceiling gives best-case input limits around **6.25 GiB BAM / 1.875 GiB CRAM**;
-smaller budgets or less available RAM reduce eligibility. 30x WGS uses files.
-Mapping must fit with the full overlap allowance before streaming starts; if it
-does not, extraction uses files without changing the baseline aligner. Ordinary
-bucket-estimation overruns consume accounted headroom; no hard RSS guarantee
-is claimed. File extraction retains its original 20×/70× bucket policy.
+Streaming uses file extraction's collate bucket count (20× BAM / 70× CRAM input
+size against threads × per-thread memory, 64–200 buckets). Collate's output
+order depends on that count, so the aligner receives the same pairs in the same
+order either way and the realigned records are identical. A 30x genome streams
+whenever one bucket fits beside alignment in RAM.
 
-Calibration uses the worst observed decoded-SAM/compressed-input expansion or
-projected record allocation below, adds **50% margin**, then rounds upward to
-the next multiple of ten:
+Collate holds one bucket in memory while BWA maps. Its estimate is the largest
+bucket's records (the indexed input count over the buckets, plus six standard
+deviations) times the power-of-two buffer of the largest BAM record in the
+read-length sample, plus 128 bytes of per-record bookkeeping and 64 MiB of
+headroom. Without an indexed count it falls back to 30× BAM / 100× CRAM of the
+input size per bucket. This amount is added to mapping's RAM preflight; if it
+does not fit, realignment extracts files without changing the selected aligner.
+It is an estimate, not an enforced RSS limit:
 
-| Input | Decoded expansion | Record-allocation estimate |
-| --- | ---: | ---: |
-| Actual tiny paired BAM (302 records, 8,642 bytes) | 8.66× | 13.42× |
-| Same tiny CRAM (1,789 bytes) | 44.53× | 64.83× |
-| Chr20 BAM (961,538,643 bytes, 17,651,438 primary reads) | 8.19× | 11.75× |
-| Nominal30x HG00096 CRAM (15,741,370,187 bytes, 768,049,130 primary reads) | 23.17× | 31.23× |
-| Same WGS count projected onto a representative 60 GiB BAM | 5.66× | 7.63× |
+| Input | Records | Buckets | Measured collate RSS per held record | Estimate per record |
+| --- | ---: | ---: | ---: | ---: |
+| HG00096 chr20 BAM (1000 Genomes 30x, 852 MB) | 17,275,064 | 16 / 64 / 133 / 200 | 677 / 690 / 709 / 725 bytes | 1,152 bytes |
+| HG002 chr20 BAM (GIAB NovaSeq 35x, 1.09 GB) | 19,467,155 | 16 / 64 / 133 / 200 | 684 / 716 / 758 / 795 bytes | 1,152 bytes |
 
-These are **not isolated native collate RSS measurements**. Tiny allocation
-estimates use actual QNAME/CIGAR/SEQ/auxiliary shapes, power-of-two payload
-allocation and 128 bytes per record for structure/sort/allocator bookkeeping.
-WGS projections use preserved reference-header/input-count contracts and an
-assumed conservative Illumina shape: 151 bases, 64-byte QNAME, eight CIGAR
-operations, 128 auxiliary bytes, rounded to a 512-byte payload plus the same
-128-byte overhead. The 151-base length and 60 GiB BAM size are assumptions,
-not header measurements. Verified decoded chr20/WGS outputs are shape proxies,
-not independent scans of all input SAM records. Thus the worst ratios,
-13.42×/64.83×, become 30×/100× after margin and rounding; pathological
-compression or name skew can still exceed these estimates.
+Measured per-record figures are samtools 1.24 collate's maximum RSS over the
+largest bucket's records, so fixed process memory inflates them at high bucket
+counts.
+
+Collate writes every bucket to temporary files before it emits a read, then
+deletes each bucket as it drains while the sorter's spills grow. The disk
+guard therefore takes the larger of collation's spill and sort spill plus
+output, the same as file extraction without the FASTQs between them; the
+resource report counts the sort `temporary` estimate once. With a configured
+temporary directory on another volume, that volume needs the larger of the two
+spills and the output volume holds the result. If streaming spills do not fit
+but file extraction does, realignment uses files.
+The alignment sample reads at most 4096 input SAM records / 16 MiB for the mean
+paired-primary read length and the largest record of any kind; it does not
+replace the indexed input count.
+
+On 2 Mb chr20 slices (BWA, 2 threads, 512M, one core) the streamed BAM had the
+same ordered records and header as file extraction except the BWA `@PG`
+command line (`-p … -`); file extraction stayed byte-identical. Streaming wrote
+38% less (HG00096 113 → 75 MiB, HG002 316 → 196 MiB) at the same wall time and
+within 3% of the same peak RSS.
 
 Preflight is advisory: `preflight_resources()` guards estimation and reporting
 against `ValueError`, `OSError` and subprocess failures, warns that the resource

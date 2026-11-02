@@ -37,6 +37,25 @@ def test_alignment_length_samples_only_primary_pairs_and_stops_at_record_limit(
 
 
 @needs_tools("samtools")
+def test_alignment_sample_reports_the_largest_bam_record_of_any_kind(tmp_path):
+    records = ["@HD\tVN:1.6\tSO:unsorted", "@SQ\tSN:c\tLN:100"]
+    records += [
+        f"r{i}\t77\t*\t0\t0\t*\t*\t0\t0\t{'A' * 150}\t{'I' * 150}\tNM:i:0"
+        for i in range(10)
+    ]
+    # A secondary record with a long tag: name 3+1, one CIGAR op, 10 bases
+    # (5 packed + 10 qualities), XA:Z (3 + 500 + NUL), XS:i (3 + 4) and a
+    # three-value B array (8 + 3 values at up to 4 bytes each).
+    records.append(
+        f"big\t256\tc\t1\t0\t10M\t*\t0\t0\tACGTACGTAC\tIIIIIIIIII\tXA:Z:{'x' * 500}"
+        "\tXS:i:7\tZB:B:s,1,2,3"
+    )
+    sample = read_counts.alignment_sample(sam_to_bam(records, tmp_path / "x.bam"))
+    assert sample.read_length == 150
+    assert sample.max_record_bytes == 4 + 4 + 15 + 504 + 7 + 20
+
+
+@needs_tools("samtools")
 def test_alignment_length_sampling_bounds_unpaired_input_scanning(tmp_path):
     records = ["@HD\tVN:1.6\tSO:unsorted"]
     records.extend(f"single{i}\t4\t*\t0\t0\t*\t*\t0\t0\tA\tI" for i in range(4096))
