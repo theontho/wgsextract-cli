@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+import filecmp
+import functools
 import hashlib
 import logging
 import os
 import re
 import shutil
+import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from wgsextract_cli.core.config import settings
 
 CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
+_REPLACE_ATTEMPTS = 5
+_REPLACE_RETRY_SECONDS = 0.1
 
 
 def dev_download_cache_enabled() -> bool:
@@ -43,7 +49,15 @@ def restore_cached_download(
     destination: Path,
     *,
     checksum_hint: str | None = None,
+    verify: Callable[[Path], bool] | None = None,
 ) -> Path | None:
+    """Publish a cached copy at destination only after verify accepts it.
+
+    The copy is staged beside destination (same filesystem), checked with all
+    handles closed and atomically renamed into place, so an interrupted or
+    corrupt restore never leaves bytes at the final path. A rejected item is
+    dropped from the cache.
+    """
     if not dev_download_cache_enabled():
         return None
 
@@ -53,9 +67,16 @@ def restore_cached_download(
     if not cached_path.is_file() or cache_item_is_expired(cached_path):
         return None
 
+    staging: Path | None = None
     try:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_copy(cached_path, destination)
+        staging = _staged_copy(cached_path, destination, suffix=".restore")
+        if verify is not None and not verify(staging):
+            logging.warning("Dropping dev download cache item: %s", cached_path)
+            drop_cached_download(url, destination, checksum_hint=checksum_hint)
+            return None
+        if not _publish(staging, destination):
+            return None
         mark_cache_item_used(cached_path)
         logging.info("Using dev download cache: %s", cached_path)
         return cached_path
@@ -64,6 +85,9 @@ def restore_cached_download(
             "Could not restore dev download cache item %s: %s", cached_path, exc
         )
         return None
+    finally:
+        if staging is not None:
+            staging.unlink(missing_ok=True)
 
 
 def store_download_in_dev_cache(
@@ -101,12 +125,60 @@ def store_download_in_dev_cache(
 
 
 def _atomic_copy(source: Path, destination: Path) -> None:
-    tmp_path = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
+    staging = _staged_copy(source, destination, suffix=".tmp")
     try:
-        shutil.copyfile(source, tmp_path)
-        tmp_path.replace(destination)
+        os.replace(staging, destination)
     finally:
-        tmp_path.unlink(missing_ok=True)
+        staging.unlink(missing_ok=True)
+
+
+def _staged_copy(source: Path, destination: Path, *, suffix: str) -> Path:
+    """Durably copy source to a uniquely named, closed file beside destination."""
+    fd, name = tempfile.mkstemp(
+        prefix=f".{destination.name}.", suffix=suffix, dir=destination.parent
+    )
+    os.close(fd)
+    staging = Path(name)
+    try:
+        shutil.copyfile(source, staging)
+        # mkstemp makes 0600; publish with the mode a fresh download would get.
+        if os.name != "nt":
+            os.chmod(staging, 0o666 & ~_process_umask())
+        with staging.open("rb+") as stream:
+            os.fsync(stream.fileno())
+    except BaseException:
+        staging.unlink(missing_ok=True)
+        raise
+    return staging
+
+
+@functools.cache
+def _process_umask() -> int:
+    # Read once: os.umask can only be read by setting it, which races threads.
+    mask = os.umask(0o022)
+    os.umask(mask)
+    return mask
+
+
+def _publish(staging: Path, destination: Path) -> bool:
+    """os.replace, tolerating a Windows sharing violation from a concurrent run.
+
+    Windows refuses to replace a file another process holds open. A destination
+    that appeared meanwhile is accepted only if its bytes equal the staged copy,
+    which is already verified when the caller pinned a checksum.
+    """
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            os.replace(staging, destination)
+            return True
+        except PermissionError:
+            if attempt + 1 < _REPLACE_ATTEMPTS:
+                time.sleep(_REPLACE_RETRY_SECONDS * (attempt + 1))
+    if destination.is_file() and filecmp.cmp(staging, destination, shallow=False):
+        logging.info("Another run already restored %s", destination)
+        return True
+    logging.debug("Could not publish restored cache item to %s", destination)
+    return False
 
 
 def drop_cached_download(

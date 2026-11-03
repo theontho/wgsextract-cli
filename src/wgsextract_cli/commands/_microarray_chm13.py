@@ -19,6 +19,7 @@ from wgsextract_cli.commands._microarray_combined import _read_evidence
 from wgsextract_cli.core import microarray_chm13_cache
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.config import settings
+from wgsextract_cli.core.genotype_qc import warn_about_genotypes
 from wgsextract_cli.core.microarray_aadr import (
     _chrom_name,
     aadr_markers,
@@ -43,9 +44,11 @@ from wgsextract_cli.core.microarray_chm13_markers import (
 )
 from wgsextract_cli.core.microarray_identity import identity_policy
 from wgsextract_cli.core.microarray_quality import quality_policy
+from wgsextract_cli.core.microarray_quirks import quirks_mode
 from wgsextract_cli.core.microarray_site_map import SiteProjection
 from wgsextract_cli.core.microarray_targets import collect_template_markers
 from wgsextract_cli.core.microarray_utils import (
+    GenotypeTally,
     convert_to_vendor_format,
     get_template_format,
 )
@@ -446,6 +449,7 @@ def run_chm13(
             counts[call.reason] += 1
             ref_counts[call.site.ref_status] += 1
     del calls, markers, reference, evidence
+    tallies: dict[str, GenotypeTally] = {}
     for key in dict.fromkeys(args.formats.split(",")):
         panel = aadr_panel(key)
         if panel:
@@ -470,13 +474,14 @@ def run_chm13(
             ),
             None,
         )
-        convert_to_vendor_format(
+        tallies[real_format] = convert_to_vendor_format(
             real_format,
             str(combined),
             str(Path(outdir, f"{base}_{real_format}{suffix}")),
             roots,
             chain36,
             identity=identity,
+            quirks=quirks_mode(args),
             indel_calls={
                 **vendor_no_calls(real_format, roots, rejected_ids),
                 **indel_calls.get(real_format, {}),
@@ -506,3 +511,4 @@ def run_chm13(
         newline="\n",
     )
     logging.info("CHM13 CombinedKit: %s; diagnostics: %s", combined, report)
+    warn_about_genotypes(combined, tallies, check_no_calls=not regions)

@@ -1,3 +1,4 @@
+import gzip
 import struct
 import zlib
 from pathlib import Path
@@ -7,7 +8,12 @@ import pytest
 
 from tests.htslib_helpers import needs_htslib, sam_to_bam, write_fasta
 from wgsextract_cli.commands.info.metrics import parse_idxstats
-from wgsextract_cli.core.cram_counts import cram_read_counts
+from wgsextract_cli.core.cram_counts import (
+    MULTI_REF,
+    cram_container_totals,
+    cram_read_counts,
+    multi_ref_contigs,
+)
 from wgsextract_cli.core.utils import run_command
 from wgsextract_cli.core.warnings import indexed_read_count
 
@@ -27,10 +33,13 @@ def _itf8(value: int) -> bytes:
     )
 
 
-def _container(ref: int, records: int, pos: int = 1, data: bytes = b"x") -> bytes:
+def _container(
+    ref: int, records: int, pos: int = 1, data: bytes = b"x", bases: int = 0
+) -> bytes:
+    assert 0 <= bases < 128  # a one-byte ltf8
     header = struct.pack("<i", len(data))
     header += b"".join(_itf8(n) for n in (ref, pos, 0, records))
-    header += b"\0\0\1\0"  # counters, blocks, landmarks
+    header += bytes([0, bases, 1, 0])  # counter, bases, blocks, landmarks
     return header + struct.pack("<I", zlib.crc32(header)) + data
 
 
@@ -55,6 +64,30 @@ def test_container_totals_and_nocoord(tmp_path: Path):
     command.assert_not_called()
     path.with_suffix(".cram.crai").unlink()
     assert indexed_read_count(path) is None
+
+
+def test_container_base_totals_keep_multi_ref_apart(tmp_path: Path):
+    path = tmp_path / "reads.cram"
+    containers = (
+        _container(0, 2, bases=30),
+        _container(0, 1, bases=15),
+        _container(MULTI_REF, 4, bases=60),
+    )
+    path.write_bytes(_file(*containers))
+    offsets: set[int] = set()
+    assert cram_container_totals(path, offsets) == {0: (3, 45), MULTI_REF: (4, 60)}
+    multi = len(_file()) - len(_container(-1, 0, 0x454F46, b"\0" * 15))
+    multi += sum(map(len, containers[:2]))
+    assert offsets == {multi}
+    crai = tmp_path / "reads.cram.crai"
+    with gzip.open(crai, "wt") as f:
+        f.write(f"0\t1\t9\t{multi - 1}\t0\t1\n1\t1\t9\t{multi}\t0\t1\n")
+        f.write(f"2\t1\t9\t{multi}\t0\t1\n-1\t0\t0\t{multi}\t0\t1\n")
+    assert multi_ref_contigs(crai, offsets) == {1, 2}
+    crai.write_text("not gzip")
+    assert multi_ref_contigs(crai, offsets) is None
+    # Read counts need every record's reference.
+    assert cram_read_counts(path) is None
 
 
 @pytest.mark.parametrize(
@@ -123,6 +156,9 @@ def test_real_cram_counts_preserve_placed_unmapped_split(
     assert (mapped, unmapped) == ((0, 1) if unmapped_only else (1, 2))
     counts = cram_read_counts(cram)
     assert counts == ({-1: 1} if unmapped_only else {0: 2, -1: 1})
+    assert cram_container_totals(cram) == (
+        {-1: (1, 10)} if unmapped_only else {0: (2, 20), -1: (1, 10)}
+    )
     assert sum(counts.values()) == mapped + unmapped
     assert indexed_read_count(cram) == mapped + unmapped
     assert rows[0]["mapped"] == (0 if unmapped_only else 1)

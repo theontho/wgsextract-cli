@@ -2,6 +2,7 @@ import argparse
 import gzip
 import logging
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -36,6 +37,7 @@ from wgsextract_cli.core.samtools_commands import (
     get_sam_index_cmd,
     get_sam_view_cmd,
 )
+from wgsextract_cli.core.sequencing import input_platform
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 from wgsextract_cli.core.warnings import GB, check_free_space, get_free_space_needed
@@ -108,18 +110,70 @@ def _verify_arm64_image(model_type: str = "WGS", checkpoint: str | None = None) 
 
 
 def _model_type(args: argparse.Namespace, ref: str | None = None) -> str:
-    """--pacbio, --model-type or --wes, else ULTIMA for Ultima reads with
-    their flow tags, else WGS."""
+    """Explicit model selectors take precedence over platform defaults."""
+    model = getattr(args, "model_type", None)
+    ont = getattr(args, "ont", False)
+    if (ont or model == "ONT_R104") and (
+        getattr(args, "pacbio", False)
+        or getattr(args, "wes", False)
+        or (ont and model not in (None, "ONT_R104"))
+    ):
+        raise WGSExtractError(
+            "--ont/--model-type ONT_R104 cannot be combined with "
+            "--pacbio, --wes or a different --model-type."
+        )
+    if ont:
+        return "ONT_R104"
     if getattr(args, "pacbio", False):
         return "PACBIO"
-    if getattr(args, "model_type", None):
-        return str(args.model_type)
+    if model:
+        return str(model)
     if getattr(args, "wes", False):
         return "WES"
+    detected = getattr(args, "input_platform", None)
+    if detected is None and ref:
+        detected = input_platform(args.input, ref)
+    if detected == "ont":
+        logging.info(
+            "ONT reads: calling with DeepVariant's ONT_R104 model (R10.4.1 only)."
+        )
+        return "ONT_R104"
     if ref and ultima.alignment_flow_data(args.input, ref).flow_aware:
         logging.info("Ultima reads: calling with DeepVariant's ULTIMA model.")
         return "ULTIMA"
     return "WGS"
+
+
+def _require_ont_x86(model_type: str) -> None:
+    if model_type == "ONT_R104" and platform.machine().lower() not in {
+        "x86_64",
+        "amd64",
+    }:
+        raise WGSExtractError(
+            "DeepVariant ONT_R104 requires x86-64; it is not qualified on ARM64, "
+            "including Apple Silicon emulation. Use an x86-64 host."
+        )
+
+
+def _warn_ont_chemistry(alignment: str, ref: str) -> None:
+    metadata = []
+    for line in get_bam_header(alignment, ref).splitlines():
+        if line.startswith("@PG\t"):
+            metadata.append(line)
+        elif line.startswith("@RG\t"):
+            metadata.extend(
+                field for field in line.split("\t") if field.startswith("DS:")
+            )
+    if re.search(
+        r"(?<![a-z0-9])r9[._-]4(?:[._-]1)?(?![a-z0-9])",
+        "\n".join(metadata),
+        re.IGNORECASE,
+    ):
+        logging.warning(
+            "R9.4.1/R9.4 basecaller metadata detected: this chemistry is unsupported "
+            "by DeepVariant ONT_R104, which supports R10.4.1 only. "
+            "Do not interpret these calls as validated ONT results."
+        )
 
 
 def _verify_docker(model_type: str = "WGS") -> None:
@@ -355,6 +409,7 @@ _PARABRICKS_MODES = {
     "WGS": [],
     "WES": ["--use-wes-model"],
     "PACBIO": ["--mode", "pacbio"],
+    "ONT_R104": ["--mode", "ont"],
 }
 
 
@@ -362,7 +417,7 @@ def _deepvariant_gpu(args: argparse.Namespace) -> None:
     from wgsextract_cli.core.parabricks import call_variants, verify_parabricks
 
     refusal = WGSExtractError(
-        "--gpu (Parabricks) runs DeepVariant's WGS, WES and PACBIO models; "
+        "--gpu (Parabricks) runs DeepVariant's WGS, WES, PACBIO and ONT_R104 models; "
         "use the CPU version for --checkpoint, ULTIMA or HYBRID_PACBIO_ILLUMINA."
     )
     if _model_type(args) not in _PARABRICKS_MODES or args.checkpoint:
@@ -373,6 +428,9 @@ def _deepvariant_gpu(args: argparse.Namespace) -> None:
     model_type = _model_type(args, ref)
     if model_type not in _PARABRICKS_MODES:
         raise refusal
+    _require_ont_x86(model_type)
+    if model_type == "ONT_R104":
+        _warn_ont_chemistry(args.input, ref)
     out_vcf = str(Path(outdir, "deepvariant.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_deepvariant"].format(output=out_vcf))
     call_variants(
@@ -399,6 +457,8 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
         if is_linux_arm64()
         else None
     )
+    if not arm64_image:
+        _require_ont_x86(_model_type(args))
     run_deepvariant = None if arm64_image else get_tool_path("run_deepvariant")
     if not run_deepvariant and not arm64_image:
         _verify_docker()
@@ -407,6 +467,9 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
     model_type = _model_type(args, ref)
     if arm64_image:
         _require_arm64_wgs(model_type, getattr(args, "checkpoint", None))
+    _require_ont_x86(model_type)
+    if model_type == "ONT_R104":
+        _warn_ont_chemistry(args.input, ref)
     if model_type == "ULTIMA" and run_deepvariant:
         # A local run_deepvariant is a release, which has no ULTIMA model yet.
         _verify_docker(model_type)
@@ -459,7 +522,10 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
                     )  # fmt: skip
                 else:
                     run_container(
-                        image, ["/opt/deepvariant/bin/run_deepvariant", *dv_args], paths
+                        image,
+                        ["/opt/deepvariant/bin/run_deepvariant", *dv_args],
+                        paths,
+                        temporary_directory=work,
                     )
             else:
                 # stdin closed: DeepVariant's GNU parallel would read it otherwise.

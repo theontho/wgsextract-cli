@@ -72,6 +72,23 @@ KNOWN_SETTINGS = {
         "DeepVariant Docker image with the ULTIMA model, for Ultima reads "
         "(default google/deepvariant:gh1100-ultima)",
     ),
+    "clair3_model": (
+        None,
+        "Clair3 ONT model for `vcf clair3`: a model directory or the name of one "
+        "Clair3 bundles (default: chosen from the reads' basecaller metadata)",
+    ),
+    "methylation_context": (
+        "cpg",
+        "`methylation pileup` context: cpg (CpG sites) or all (every cytosine)",
+    ),
+    "methylation_5hmc": (
+        False,
+        "`methylation pileup`: also report 5hmC (Nanopore 5mCG_5hmCG models)",
+    ),
+    "methylation_combine_strands": (
+        True,
+        "`methylation pileup`: sum both strands of each CpG into one row",
+    ),
     "default_input_vcf": (None, "Default input VCF file"),
     "microarray_min_gq": (0, "Microarray minimum sample GQ (0 disables filtering)"),
     "microarray_min_dp": (0, "Microarray minimum sample DP (0 disables filtering)"),
@@ -94,6 +111,33 @@ KNOWN_SETTINGS = {
     "microarray_resolve_rsids": (
         False,
         "Resolve packaged dbSNP rsID aliases and no-call retired/ambiguous IDs",
+    ),
+    "microarray_quirks": (
+        "corrected",
+        "Write microarray calls on the forward strand (corrected) or as the "
+        "vendor reported known reverse-strand markers (vendor)",
+    ),
+    "qc_min_diploid_depth": (
+        8.0,
+        "Warn before microarray/VCF genotypes below this mean autosomal depth "
+        "(0 disables)",
+    ),
+    "qc_min_haploid_depth": (
+        3.0,
+        "Warn before chrY/mtDNA haplogroups below this mean depth (0 disables)",
+    ),
+    "qc_min_autosomal_homozygosity": (
+        0.6,
+        "Warn when fewer microarray autosomal calls are homozygous (contamination)",
+    ),
+    "qc_max_autosomal_homozygosity": (
+        0.88,
+        "Warn when more microarray autosomal calls are homozygous (low-pass "
+        "or heavily imputed input)",
+    ),
+    "qc_max_no_call_rate": (
+        0.1,
+        "Warn when a microarray output has more autosomal no-calls than this",
     ),
     "mother_vcf_path": (None, "Default Mother VCF for trios"),
     "father_vcf_path": (None, "Default Father VCF for trios"),
@@ -127,6 +171,15 @@ KNOWN_SETTINGS = {
         "Dev: Seconds before an unused dev download cache item is pruned",
     ),
 }
+
+# Float settings that are proportions; other float settings are non-negative.
+FRACTION_SETTINGS = frozenset(
+    {
+        "qc_min_autosomal_homozygosity",
+        "qc_max_autosomal_homozygosity",
+        "qc_max_no_call_rate",
+    }
+)
 
 PATH_SETTINGS = {
     "log_dir",
@@ -240,6 +293,16 @@ def _validate_config_types(
         elif type(default) is int:
             expected = "a TOML integer"
             valid = type(value) is int
+        elif type(default) is float:
+            fraction = canonical in FRACTION_SETTINGS
+            expected = (
+                "a TOML number from 0 to 1"
+                if fraction
+                else "a non-negative TOML number"
+            )
+            valid = type(value) in (int, float) and 0 <= value <= (
+                1 if fraction else float("inf")
+            )
         else:
             expected = "a TOML string"
             valid = isinstance(value, str)

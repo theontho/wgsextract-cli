@@ -54,6 +54,16 @@ def verify_platform_support(args: argparse.Namespace) -> None:
             require_native_tool("gatk" if subcommand == "gatk" else "run_deepvariant")
             if getattr(args, "gpu", False):
                 require_native_tool("parabricks")
+        elif subcommand == "clair3":
+            from wgsextract_cli.commands.vcf.clair3 import require_supported_platform
+
+            require_supported_platform()
+    if command == "methylation":
+        from wgsextract_cli.commands.methylation import (
+            require_supported_platform as require_modkit_platform,
+        )
+
+        require_modkit_platform()
     if (
         not sys.platform.startswith("linux")
         and getattr(args, "gpu", False)
@@ -89,7 +99,11 @@ def verify_platform_support(args: argparse.Namespace) -> None:
             tool = "pyBigWig"
         if subcommand == "sv":
             tool = getattr(args, "caller", None) or (
-                "pbsv/sniffles" if getattr(args, "pacbio", False) else "delly"
+                "pbsv/sniffles"
+                if getattr(args, "pacbio", False)
+                else "sniffles"
+                if getattr(args, "ont", False) or getattr(args, "long_read", False)
+                else "delly"
             )
     elif command == "typing":
         tool = _WINDOWS_TYPING_TOOLS.get(getattr(args, "typing_cmd", "") or "")

@@ -25,7 +25,7 @@ Start with one target format and a small region if you are checking plumbing. Ev
 
 Consumer exports use hg19 coordinates. hg38 input needs the liftover chain from `ref bootstrap`; the command fails early if it is missing. Native CHM13v2 input can also project to GRCh37/rCRS exports, but only with the exact **original chrM, masked-Y** analysis reference and required installed assets. Other CHM13 variants are rejected; ambiguous mappings stay no-calls. See [CHM13 requirements](https://github.com/theontho/wgsextract-cli/blob/main/docs/microarray-chm13.md){.inline-link}.
 
-Haploid calls follow vendor conventions: 23andMe writes chrY, chrM, and male non-PAR chrX as one letter (`A`); the other formats double them (`AA`). Heterozygous calls are alphabetical. Updated MyHeritage GSA and Ancestry layouts are separately selectable without removing older IDs. Optional quality thresholds, `--strand-ambiguous no-call`, `--resolve-rsids` and `--call-reasons` add conservative filtering and diagnostics without changing defaults.
+Haploid calls follow vendor conventions: 23andMe writes chrY, chrM, and male non-PAR chrX as one letter (`A`); the other formats double them (`AA`). Heterozygous calls are alphabetical. Updated MyHeritage GSA and Ancestry layouts are separately selectable without removing older IDs. Optional quality thresholds, `--strand-ambiguous no-call`, `--resolve-rsids` and `--call-reasons` add conservative filtering and diagnostics without changing defaults. Calls are written on the GRCh37 forward strand; `--quirks vendor` instead writes the markers a template's vendor revision is publicly known to have reported on the reverse strand that way.
 
 AADR 1240K, HO and 1240K+HO research panels write both PLINK and EIGENSTRAT files. The opt-in `aadr_2m` panel needs an explicit `ref aadr --install --ref LIBRARY` first; it is not included in `all`, requires an installed forward chain for hg38, and does not support CHM13/T2T. See [AADR coordinates and allele conventions](https://github.com/theontho/wgsextract-cli/blob/main/docs/aadr.md){.inline-link}.
 
@@ -87,9 +87,12 @@ Y-DNA extraction can produce smaller alignment or variant files for lineage tool
 wgsextract --input sample.bam extract ydna-bam
 wgsextract --input sample.bam extract ydna-vcf
 wgsextract --input sample.bam lineage y-haplogroup
+wgsextract --input sample.bam lineage y-str --panel Y-37
 ```
 
 Native Yleaf-derived results go to `<outdir>/yleaf/`: prediction TSV, marker tables and `run.json` record the upstream/data tag, build, tree and QC settings. No external Yleaf installation is needed. Tables download on demand, with pinned SHA-256 verification, into the configured reference library. CRAM and variant-only VCF inference require the matching `--ref`; targeted VCF panels should use `--no-ref-inference`. Choose `--tree yfull|yfull_v10|ftdna|isogg`. A missing or `NA` haplogroup is an error, not a successful prediction. Credits: Yleaf authors at Erasmus MC; Ralf et al., *Mol Biol Evol* (2018), [doi:10.1093/molbev/msy032](https://doi.org/10.1093/molbev/msy032). Use `lineage mt-haplogroup` for the maternal haplogroup with Haplogrep.
+
+`lineage y-str` writes FamilyTreeDNA Y-12 to Y-111, PowerPlex Y23 or Yfiler Plus repeat counts to `<outdir>/ystr/`, including an FTDNA-ordered CSV. Markers that short reads cannot span are reported as no-calls rather than guessed. 99.9% of calls on 30x 1000 Genomes samples match their published PowerPlex Y23 typings.
 :::
 :::
 :::

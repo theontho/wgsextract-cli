@@ -1,0 +1,115 @@
+marker	group	ftdna_order	ftdna_panel	kits	period	kind	hg38_value	value_source	note	ftdna_minus_nist
+DYS393	DYS393	1	Y-12	PPY23,YfilerPlus	4	single	12	NIST reference allele (AC006152.4)		0
+DYS390	DYS390	2	Y-12	PPY23,YfilerPlus	4	single	24	NIST reference allele (AC011289.4)		0
+DYS19	DYS19	3	Y-12	PPY23,YfilerPlus	4	single	15	NIST reference allele (AC017019.3)		0
+DYS391	DYS391	4	Y-12	PPY23,YfilerPlus	4	single	11	NIST reference allele (AC011302.3)		0
+DYS385a	DYS385	5	Y-12	PPY23,YfilerPlus	4	multicopy		repeat units in each copy's core	Two copies; values are sorted, as FTDNA and forensic kits report them.	0
+DYS385b	DYS385	6	Y-12	PPY23,YfilerPlus	4	multicopy		repeat units in each copy's core	Two copies; values are sorted, as FTDNA and forensic kits report them.	0
+DYS426	DYS426	7	Y-12		3	single	12	NIST reference allele (AC007034.4)		0
+DYS388	DYS388	8	Y-12		3	single	12	NIST reference allele (AC004810.1)		0
+DYS439	DYS439	9	Y-12	PPY23,YfilerPlus	4	single	12	NIST reference allele (AC002992.1)		0
+DYS389I	DYS389I	10	Y-12	PPY23,YfilerPlus	4	single	12	NIST reference allele (AC004617.3)		0
+DYS392	DYS392	11	Y-12	PPY23,YfilerPlus	3	single	13	NIST reference allele (AC011745.4)		0
+DYS389II	DYS389II	12	Y-12	PPY23,YfilerPlus	4	sum	29	NIST reference allele (AC004617.3)	FTDNA and kits report the total, which includes DYS389I.	0
+DYS458	DYS458	13	Y-25	PPY23,YfilerPlus	4	single	16	NIST reference allele (AC010902.4)		0
+DYS459a	DYS459	14	Y-25		4	multicopy		repeat units in each copy's core	Two copies; values are sorted.	0
+DYS459b	DYS459	15	Y-25		4	multicopy		repeat units in each copy's core	Two copies; values are sorted.	0
+DYS455	DYS455	16	Y-25		4	single	11	NIST reference allele (AC012068.5)		0
+DYS454	DYS454	17	Y-25		4	single	11	NIST reference allele (AC025731.12)		0
+DYS447	DYS447	18	Y-25		5	single	25	NIST reference allele (AC005820.1)		0
+DYS437	DYS437	19	Y-25	PPY23,YfilerPlus	4	single	15	NIST reference allele (AC002992.1)		0
+DYS448	DYS448	20	Y-25	PPY23,YfilerPlus	6	sum	19	1000 Genomes PowerPlex Y23 typings (NIST lists 22 for AC025227)		0
+DYS449	DYS449	21	Y-25	YfilerPlus	4	sum	29	NIST reference allele (AC051663.9)		0
+DYS464a	DYS464a	22	Y-25		4	none			Four or more copies in palindromes; not called.	0
+DYS464b	DYS464b	23	Y-25		4	none			Four or more copies in palindromes; not called.	0
+DYS464c	DYS464c	24	Y-25		4	none			Four or more copies in palindromes; not called.	0
+DYS464d	DYS464d	25	Y-25		4	none			Four or more copies in palindromes; not called.	0
+DYS460	DYS460	26	Y-37	YfilerPlus	4	single	10	NIST reference allele (AC009235.4)		0
+Y-GATA-H4	Y-GATA-H4	27	Y-37	PPY23,YfilerPlus	4	single	11	NIST reference allele (AC011751.2)		-1
+YCAIIa	YCAII	28	Y-37		2	multicopy		repeat units in each copy's core	Two copies; values are sorted.	0
+YCAIIb	YCAII	29	Y-37		2	multicopy		repeat units in each copy's core	Two copies; values are sorted.	0
+DYS456	DYS456	30	Y-37	PPY23,YfilerPlus	4	single	15	NIST reference allele (AC010106.2)		0
+DYS607	DYS607	31	Y-37		4	single	15	unverified: Y-STR_Kit		0
+DYS576	DYS576	32	Y-37	PPY23,YfilerPlus	4	single	17	NIST reference allele (AC010104.3)		0
+DYS570	DYS570	33	Y-37	PPY23,YfilerPlus	4	single	17	NIST reference allele (AC012068.5)		0
+CDYa	CDYa	34	Y-37		4	none			Two copies in palindrome P1, longer than short reads; not called.	0
+CDYb	CDYb	35	Y-37		4	none			Two copies in palindrome P1, longer than short reads; not called.	0
+DYS442	DYS442	36	Y-37		4	single	12	NIST reference allele (AC004810.1)		-5
+DYS438	DYS438	37	Y-37	PPY23,YfilerPlus	5	single	12	NIST reference allele (AC002531.1)		0
+DYS531	DYS531	38	Y-67		4	single	11	unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit		0
+DYS578	DYS578	39	Y-67		4	single	9	unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit		0
+DYF395S1a	DYF395S1	40	Y-67		3	multicopy		repeat units in each copy's core	Two copies; values are sorted.	0
+DYF395S1b	DYF395S1	41	Y-67		3	multicopy		repeat units in each copy's core	Two copies; values are sorted.	0
+DYS590	DYS590	42	Y-67		5	single	8	unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit		0
+DYS537	DYS537	43	Y-67		4	single	10	unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit		0
+DYS641	DYS641	44	Y-67		4	single	10	NIST reference allele (AC018677.3)		0
+DYS472	DYS472	45	Y-67		3	single	8	unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit		0
+DYF406S1	DYF406S1	46	Y-67		4	single	9	unverified: Y-STR_Kit		0
+DYS511	DYS511	47	Y-67		4	single	9	unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit		0
+DYS425	DYS425	48	Y-67		3	single	10	NIST reference allele (AC095380.1)		0
+DYS413a	DYS413	49	Y-67		2	multicopy		repeat units in each copy's core	Two copies; values are sorted.	0
+DYS413b	DYS413	50	Y-67		2	multicopy		repeat units in each copy's core	Two copies; values are sorted.	0
+DYS557	DYS557	51	Y-67		4	single	16	NIST reference allele (AC007876.2)		0
+DYS594	DYS594	52	Y-67		5	single	10	NIST reference allele (AC010137.3)		0
+DYS436	DYS436	53	Y-67		3	single	12	NIST reference allele (AC005820.1)		0
+DYS490	DYS490	54	Y-67		3	single	12	NIST reference allele (AC019058.4)		0
+DYS534	DYS534	55	Y-67		4	single	15	NIST reference allele (AC053516.10)		0
+DYS450	DYS450	56	Y-67		5	single	9	NIST reference allele (AC051663.9)		0
+DYS444	DYS444	57	Y-67		4	single	14	NIST reference allele (AC007043.3)		0
+DYS481	DYS481	58	Y-67	PPY23,YfilerPlus	3	single	22	1000 Genomes PowerPlex Y23 typings		0
+DYS520	DYS520	59	Y-67		4	single	20	NIST reference allele (AC007275.4)		0
+DYS446	DYS446	60	Y-67		5	single	14	NIST reference allele (AC006152.4)		0
+DYS617	DYS617	61	Y-67		3	single	12	unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit		0
+DYS568	DYS568	62	Y-67		4	single	10	unverified: HipSTR-references, Y-LineageTracker		0
+DYS487	DYS487	63	Y-67		3	single	13	unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit		0
+DYS572	DYS572	64	Y-67		4	single	10	unverified: HipSTR-references, Y-LineageTracker		0
+DYS640	DYS640	65	Y-67		4	single	11	unverified: HipSTR-references, Y-STR_Kit		0
+DYS492	DYS492	66	Y-67		3	single	12	unverified: HipSTR-references, Y-STR_Kit		0
+DYS565	DYS565	67	Y-67		4	single	12	NIST reference allele (AC010726.4)		0
+DYS710	DYS710	68	Y-111		4	single	28	unverified: Y-STR_Kit		0
+DYS485	DYS485	69	Y-111		3	single	16	unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit		0
+DYS632	DYS632	70	Y-111		4	single	9	NIST reference allele (AC006371.2)		0
+DYS495	DYS495	71	Y-111		3	single	16	NIST reference allele (AC004474.1)		0
+DYS540	DYS540	72	Y-111		4	single	12	NIST reference allele (AC010135.3)		0
+DYS714	DYS714	73	Y-111		5	single	27	unverified: Y-LineageTracker, Y-STR_Kit		0
+DYS716	DYS716	74	Y-111		5	single	20	unverified: Y-LineageTracker		0
+DYS717	DYS717	75	Y-111		5	single	16	unverified: HipSTR-references, Y-LineageTracker		0
+DYS505	DYS505	76	Y-111		4	single	12	NIST reference allele (AC012078.3)		0
+DYS556	DYS556	77	Y-111		4	single	11	NIST reference allele (AC011745.4)		0
+DYS549	DYS549	78	Y-111	PPY23	4	single	13	NIST reference allele (AC010133.4)		0
+DYS589	DYS589	79	Y-111		5	single	13	unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit		0
+DYS522	DYS522	80	Y-111		4	single	10	NIST reference allele (AC007247.5)		0
+DYS494	DYS494	81	Y-111		3	single	10	unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit		0
+DYS533	DYS533	82	Y-111	PPY23,YfilerPlus	4	single	12	NIST reference allele (AC053516.10)		0
+DYS636	DYS636	83	Y-111		4	single	11	unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit		0
+DYS575	DYS575	84	Y-111		4	single	10	NIST reference allele (AC007247.5)		0
+DYS638	DYS638	85	Y-111		4	single	11	unverified: HipSTR-references, Y-LineageTracker, Y-STR_Kit		0
+DYS462	DYS462	86	Y-111		4	single	11	NIST reference allele (AC007244.2)		0
+DYS452	DYS452	87	Y-111		5	single	31	NIST reference allele (AC010137.3)		0
+DYS445	DYS445	88	Y-111		4	single	12	NIST reference allele (AC009233.3)		0
+Y-GATA-A10	Y-GATA-A10	89	Y-111		4	single	13	NIST reference allele (AC011751.2)		-2
+DYS463	DYS463	90	Y-111		5	single	24	NIST reference allele (AC007275.4)		0
+DYS441	DYS441	91	Y-111		4	single	13	NIST reference allele (AC004474.1)		-1
+Y-GGAAT-1B07	Y-GGAAT-1B07	92	Y-111		5	none			Not called: GRCh37 window not found in GRCh38.	0
+DYS525	DYS525	93	Y-111		4	single	10	NIST reference allele (AC010104.3)		0
+DYS712	DYS712	94	Y-111		4	single	22	unverified: Y-STR_Kit		0
+DYS593	DYS593	95	Y-111		5	single	16	unverified: Y-STR_Kit		0
+DYS650	DYS650	96	Y-111		4	single	17	unverified: Y-STR_Kit		0
+DYS532	DYS532	97	Y-111		4	sum	14	NIST reference allele (AC016991.5)		0
+DYS715	DYS715	98	Y-111		4	single	27	unverified: Y-STR_Kit		0
+DYS504	DYS504	99	Y-111		4	sum	18	NIST reference allele (AC006157.2)		0
+DYS513	DYS513	100	Y-111		4	single	12	unverified: Y-STR_Kit		0
+DYS561	DYS561	101	Y-111		4	single	11	unverified: Y-STR_Kit		0
+DYS552	DYS552	102	Y-111		4	sum	24	unverified: HipSTR-references, Y-STR_Kit		0
+DYS726	DYS726	103	Y-111		4	single	12	unverified: Y-STR_Kit		0
+DYS635	DYS635	104	Y-111	PPY23,YfilerPlus	4	single	23	NIST reference allele (AC004772.3)		0
+DYS587	DYS587	105	Y-111		5	single	17	unverified: HipSTR-references, Y-STR_Kit		0
+DYS643	DYS643	106	Y-111	PPY23	5	single	11	NIST reference allele (AC007007.3)		0
+DYS497	DYS497	107	Y-111		3	single	14	unverified: HipSTR-references, Y-STR_Kit		0
+DYS510	DYS510	108	Y-111		4	sum	17	unverified: Y-STR_Kit		0
+DYS434	DYS434	109	Y-111		4	single	10	NIST reference allele (AC002992.1)		0
+DYS461	DYS461	110	Y-111		4	single	12	NIST reference allele (AC009235.4)		0
+DYS435	DYS435	111	Y-111		4	single	11	NIST reference allele (AC002992.1)		0
+DYS518	DYS518			YfilerPlus	4	sum	43	unverified: HipSTR-references		0
+DYS627	DYS627			YfilerPlus	4	single	28	unverified: HipSTR-references		0
+DYF387S1	DYF387S1			YfilerPlus	4	none			Two copies in palindrome P1, longer than short reads; not called.	0

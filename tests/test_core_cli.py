@@ -116,6 +116,9 @@ def test_boolean_config_settings_require_toml_booleans(temp_config, key, value):
         ("ref", "false", "TOML string"),
         ("output_directory", "[]", "TOML string"),
         ("vcf_input_paths", '["sample.vcf", 1]', "array of TOML strings"),
+        ("qc_min_diploid_depth", '"8"', "non-negative TOML number"),
+        ("qc_min_haploid_depth", "-1", "non-negative TOML number"),
+        ("qc_max_no_call_rate", "1.5", "TOML number from 0 to 1"),
     ],
 )
 def test_other_config_types_are_validated_at_load(temp_config, key, value, expected):
@@ -129,6 +132,7 @@ def test_valid_config_types_preserve_values_and_defaults(temp_config):
         'atomic_outputs = false\nkeep_awake = true\nthreads = 4\nmemory = "512M"\n'
         'ref = "~/reference.fa"\nvcf_input_paths = ["a.vcf", "b.vcf"]\n'
         "microarray_min_dp = 15\ndev_download_cache_ttl_seconds = 0\n"
+        "qc_min_diploid_depth = 4\nqc_max_no_call_rate = 0.25\n"
     )
     loaded = config.load_config()
     assert loaded["atomic_outputs"] is False and loaded["keep_awake"] is True
@@ -137,6 +141,8 @@ def test_valid_config_types_preserve_values_and_defaults(temp_config):
     assert loaded["vcf_input_paths"] == ["a.vcf", "b.vcf"]
     assert loaded["microarray_min_dp"] == 15
     assert loaded["dev_download_cache_ttl_seconds"] == 0
+    assert loaded["qc_min_diploid_depth"] == 4
+    assert loaded["qc_max_no_call_rate"] == 0.25
     assert "quiet_mode" not in loaded
     temp_config.write_text("")
     assert config.load_config() == {}

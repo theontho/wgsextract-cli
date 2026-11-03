@@ -3,7 +3,10 @@ skip the cache, never fail a download."""
 
 import logging
 import os
+import stat
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -179,3 +182,140 @@ def test_an_invalid_ttl_setting_warns_and_uses_the_default(monkeypatch, caplog):
 
     assert cache._cache_ttl_seconds() == cache.CACHE_TTL_SECONDS
     assert "Ignoring invalid dev_download_cache_ttl_seconds='a week'" in caplog.text
+
+
+# --- staged, verified restores (#277) --------------------------------------
+
+
+def _checker(expected: bytes, seen: list[Path], destination: Path):
+    def verify(path: Path) -> bool:
+        assert not destination.exists(), "final path visible before verification"
+        assert path.parent == destination.parent
+        seen.append(path)
+        return path.read_bytes() == expected
+
+    return verify
+
+
+def test_restore_verifies_a_staged_copy_before_publishing(enabled, tmp_path):
+    cached = cache.store_download_in_dev_cache(URL, enabled, checksum_hint="h")
+    destination = tmp_path / "out" / "hs38.fa.gz"
+    seen: list[Path] = []
+
+    assert (
+        cache.restore_cached_download(
+            URL,
+            destination,
+            checksum_hint="h",
+            verify=_checker(b"reference", seen, destination),
+        )
+        == cached
+    )
+    assert destination.read_bytes() == b"reference"
+    assert len(seen) == 1 and seen[0] != destination
+    assert list(destination.parent.iterdir()) == [destination]
+
+
+def test_a_corrupt_restore_is_dropped_and_never_published(enabled, tmp_path):
+    cached = cache.store_download_in_dev_cache(URL, enabled, checksum_hint="h")
+    assert cached is not None
+    destination = tmp_path / "out" / "hs38.fa.gz"
+
+    assert (
+        cache.restore_cached_download(
+            URL,
+            destination,
+            checksum_hint="h",
+            verify=_checker(b"expected bytes", [], destination),
+        )
+        is None
+    )
+    assert not cached.exists()
+    assert list(destination.parent.iterdir()) == []
+
+
+def test_an_interrupted_restore_leaves_no_final_or_staged_file(enabled, tmp_path):
+    cached = cache.store_download_in_dev_cache(URL, enabled, checksum_hint="h")
+    assert cached is not None
+    destination = tmp_path / "out" / "hs38.fa.gz"
+
+    def interrupted(path: Path) -> bool:
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        cache.restore_cached_download(
+            URL, destination, checksum_hint="h", verify=interrupted
+        )
+    assert list(destination.parent.iterdir()) == []
+    assert cached.read_bytes() == b"reference"
+
+
+def test_concurrent_restores_stage_separately_and_publish_once_verified(
+    enabled, tmp_path
+):
+    cached = cache.store_download_in_dev_cache(URL, enabled, checksum_hint="h")
+    destination = tmp_path / "out" / "hs38.fa.gz"
+    both_staged = threading.Barrier(2, timeout=10)
+    seen: list[Path] = []
+    check = _checker(b"reference", seen, destination)
+
+    def verify(path: Path) -> bool:
+        ok = check(path)
+        both_staged.wait()
+        return ok
+
+    with ThreadPoolExecutor(2) as pool:
+        results = list(
+            pool.map(
+                lambda _: cache.restore_cached_download(
+                    URL, destination, checksum_hint="h", verify=verify
+                ),
+                range(2),
+            )
+        )
+
+    assert results == [cached, cached]
+    assert len(set(seen)) == 2
+    assert destination.read_bytes() == b"reference"
+    assert list(destination.parent.iterdir()) == [destination]
+
+
+@pytest.mark.parametrize(
+    ("published", "restored"), [(b"reference", True), (b"referen", False)]
+)
+def test_a_windows_sharing_violation_accepts_only_an_identical_concurrent_publish(
+    enabled, tmp_path, monkeypatch, published, restored
+):
+    """Windows cannot replace a file another run holds open for reading."""
+    cached = cache.store_download_in_dev_cache(URL, enabled, checksum_hint="h")
+    destination = tmp_path / "out" / "hs38.fa.gz"
+    destination.parent.mkdir()
+    real_replace = os.replace
+
+    def replace(src, dst):
+        if Path(dst) == destination:
+            destination.write_bytes(published)
+            raise PermissionError(13, "The process cannot access the file")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(cache.os, "replace", replace)
+    monkeypatch.setattr(cache.time, "sleep", lambda _: None)
+
+    result = cache.restore_cached_download(URL, destination, checksum_hint="h")
+    assert result == (cached if restored else None)
+    assert [p.name for p in destination.parent.iterdir()] == [destination.name]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_restored_and_cached_files_get_the_fresh_download_mode(enabled, tmp_path):
+    fresh = tmp_path / "fresh"
+    fresh.write_bytes(b"x")
+    expected = stat.S_IMODE(fresh.stat().st_mode)
+    cached = cache.store_download_in_dev_cache(URL, enabled)
+    assert cached is not None
+    assert stat.S_IMODE(cached.stat().st_mode) == expected
+    cached.chmod(0o600)  # an entry stored before this fix
+    destination = tmp_path / "out" / "hs38.fa.gz"
+
+    assert cache.restore_cached_download(URL, destination) == cached
+    assert stat.S_IMODE(destination.stat().st_mode) == expected

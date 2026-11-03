@@ -144,15 +144,20 @@ def _cached_remote_dataset_file(remote: BenchmarkRemoteFile, cache_root: Path) -
             store_download_in_dev_cache(remote.url, path, checksum_hint=checksum_hint)
             return path
     if not path.exists():
-        if restore_cached_download(remote.url, path, checksum_hint=checksum_hint):
-            try:
-                if remote.md5:
-                    _verify_digest(path, "md5", remote.md5)
-                    _write_verified_md5_marker(path, verified_path, remote.md5)
-                return path
-            except WGSExtractError:
-                drop_cached_download(remote.url, path, checksum_hint=checksum_hint)
-                path.unlink(missing_ok=True)
+        expected_md5 = remote.md5.lower().strip() if remote.md5 else None
+        if restore_cached_download(
+            remote.url,
+            path,
+            checksum_hint=checksum_hint,
+            verify=(
+                (lambda staged: _file_digest(staged, "md5") == expected_md5)
+                if expected_md5
+                else None
+            ),
+        ):
+            if remote.md5:
+                _write_verified_md5_marker(path, verified_path, remote.md5)
+            return path
         _download_file(
             remote.url,
             path,

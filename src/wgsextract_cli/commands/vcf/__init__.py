@@ -1,6 +1,7 @@
 import argparse
 
 from wgsextract_cli.core.config import settings
+from wgsextract_cli.core.genotype_qc import add_depth_argument
 from wgsextract_cli.core.messages import CLI_HELP
 
 from .basic import (
@@ -15,6 +16,7 @@ from .callers import (
 from .chain import (
     cmd_chain_annotate,
 )
+from .clair3 import cmd_clair3
 from .clinvar_revel import (
     cmd_clinvar,
     cmd_revel,
@@ -118,6 +120,7 @@ def register(
     _add_ploidy_options(snp_parser)
     _add_region(snp_parser, "Chromosomal region (e.g. chrM, chrY:10000-20000)")
     _add_parallel_contigs(snp_parser)
+    add_depth_argument(snp_parser)
     snp_parser.set_defaults(func=cmd_snp)
 
     indel_parser = vcf_subs.add_parser(
@@ -126,6 +129,7 @@ def register(
     _add_ploidy_options(indel_parser)
     _add_region(indel_parser, "Chromosomal region (e.g. chrM, chrY:10000-20000)")
     _add_parallel_contigs(indel_parser)
+    add_depth_argument(indel_parser)
     indel_parser.set_defaults(func=cmd_indel)
 
     annotate_parser = vcf_subs.add_parser(
@@ -253,6 +257,7 @@ def register(
     cnv_parser.add_argument(
         "--ploidy", type=int, help="Baseline ploidy for delly cnv (default: 2)"
     )
+    add_depth_argument(cnv_parser)
     cnv_parser.set_defaults(func=cmd_cnv)
 
     sv_parser = vcf_subs.add_parser(
@@ -262,8 +267,9 @@ def register(
     sv_parser.add_argument(
         "--caller",
         choices=["delly", "pbsv", "sniffles"],
-        help="SV caller to use (default: delly, or pbsv/sniffles with --pacbio). "
-        "Use pbsv or sniffles for PacBio long-read BAMs.",
+        help="SV caller to use (default: sniffles for detected ONT, else delly; "
+        "pbsv/sniffles with --pacbio; sniffles with --ont or --long-read). "
+        "pbsv is PacBio-only and is refused for ONT reads.",
     )
     sv_parser.add_argument(
         "--pacbio",
@@ -272,20 +278,35 @@ def register(
         "with CCS thresholds.",
     )
     sv_parser.add_argument(
+        "--ont",
+        action="store_true",
+        help="Oxford Nanopore data: use Sniffles (detected ONT input selects it "
+        "automatically).",
+    )
+    sv_parser.add_argument(
+        "--long-read",
+        action="store_true",
+        help="Long-read data from any platform: use Sniffles unless --caller "
+        "selects pbsv for PacBio reads.",
+    )
+    sv_parser.add_argument(
         "--ccs",
         action="store_true",
         help="Use pbsv CCS/HiFi thresholds when --caller pbsv is selected.",
     )
     sv_parser.add_argument(
         "--tandem-repeats",
-        help="Optional tandem-repeat BED for pbsv discover.",
+        help="Optional tandem-repeat BED for pbsv discover or Sniffles "
+        "(recommended for long-read SV calling).",
     )
+    add_depth_argument(sv_parser)
     sv_parser.set_defaults(func=cmd_sv)
 
     freebayes_parser = vcf_subs.add_parser(
         "freebayes", parents=[base_parser], help=CLI_HELP["cmd_freebayes"]
     )
     _add_region(freebayes_parser, "Chromosomal region (e.g. chrM, chrY:10000-20000)")
+    add_depth_argument(freebayes_parser)
     freebayes_parser.set_defaults(func=cmd_freebayes)
 
     gatk_parser = vcf_subs.add_parser(
@@ -305,6 +326,7 @@ def register(
         action="store_true",
         help="Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).",
     )
+    add_depth_argument(gatk_parser)
     gatk_parser.set_defaults(func=cmd_gatk)
 
     deepvariant_parser = vcf_subs.add_parser(
@@ -316,9 +338,23 @@ def register(
     )
     deepvariant_parser.add_argument(
         "--model-type",
-        choices=["WGS", "WES", "PACBIO", "HYBRID_PACBIO_ILLUMINA", "ULTIMA"],
-        help="DeepVariant model type (default: ULTIMA for Ultima reads with their "
-        "flow tags, else WGS). Use PACBIO for PacBio HiFi/CCS alignments.",
+        choices=[
+            "WGS",
+            "WES",
+            "PACBIO",
+            "HYBRID_PACBIO_ILLUMINA",
+            "ULTIMA",
+            "ONT_R104",
+        ],
+        help="DeepVariant model type (default: ONT_R104 for detected ONT, "
+        "ULTIMA for Ultima reads with their flow tags, else WGS). "
+        "ONT_R104 supports R10.4.1 only and requires x86-64; "
+        "Linux ARM64 supports WGS only. Use PACBIO for PacBio HiFi/CCS alignments.",
+    )
+    deepvariant_parser.add_argument(
+        "--ont",
+        action="store_true",
+        help="Alias for --model-type ONT_R104 (R10.4.1 only; x86-64).",
     )
     deepvariant_parser.add_argument(
         "--pacbio",
@@ -340,7 +376,22 @@ def register(
         action="store_true",
         help="Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).",
     )
+    add_depth_argument(deepvariant_parser)
     deepvariant_parser.set_defaults(func=cmd_deepvariant)
+
+    clair3_parser = vcf_subs.add_parser(
+        "clair3", parents=[base_parser], help=CLI_HELP["cmd_clair3"]
+    )
+    _add_region(clair3_parser, "Chromosomal region (e.g. chr20:1-1000000)")
+    clair3_parser.add_argument(
+        "--model",
+        metavar="NAME|DIR",
+        help="Clair3 model directory, or the name of a bundled model, matching the "
+        "reads' basecaller (e.g. r1041_e82_400bps_sup_v500). Overrides config "
+        "clair3_model; default: chosen from the basecaller metadata.",
+    )
+    add_depth_argument(clair3_parser)
+    clair3_parser.set_defaults(func=cmd_clair3)
 
     clinvar_parser = vcf_subs.add_parser(
         "clinvar",

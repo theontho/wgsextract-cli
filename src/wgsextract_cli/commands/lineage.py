@@ -11,6 +11,7 @@ from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
+from wgsextract_cli.core.genotype_qc import MTDNA, add_depth_argument, warn_low_depth
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES, SYSTEM_MESSAGES
 from wgsextract_cli.core.paths import absolute_path, java_local_path
 from wgsextract_cli.core.reference_models import MITO_BY_LENGTH, sequence_lengths
@@ -35,6 +36,7 @@ from ._lineage_ydna import (
     resolve_lineage_tool,
     tool_command,
 )
+from ._lineage_ystr import add_ystr_parser
 
 
 def _haplogrep_command(haplogrep_path: str) -> list[str]:
@@ -98,6 +100,13 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
             cram_opt = ["-T", lib.fasta] if input_lower.endswith(".cram") else []
             chr_m = get_chr_name(input_file, "MT", cram_opt)
             _require_rcrs(input_file, chr_m, cram_opt)
+            warn_low_depth(
+                args.input,
+                {MTDNA},
+                outdir=args.outdir,
+                ref=lib.fasta,
+                min_depth=getattr(args, "qc_min_depth", None),
+            )
             run_pipeline(
                 [
                     ["bcftools", "mpileup", "-Ou", "-r", chr_m, "-f", lib.fasta]
@@ -210,10 +219,13 @@ def register(
         action="store_true",
         help="VCF: use genotyped positions only (targeted panels); otherwise --ref is required.",
     )
+    add_depth_argument(ydna_parser)
     ydna_parser.set_defaults(func=cmd_ydna)
     ydna_parser.add_argument(
         "--tree-links", action="store_true", help="Print YFull and FTDNA tree links."
     )
+
+    add_ystr_parser(lin_subs, base_parser, CLI_HELP["cmd_lineage-y-str"])
 
     mtdna_parser = lin_subs.add_parser(
         "mt-haplogroup",
@@ -225,6 +237,7 @@ def register(
         default=settings.get("haplogrep_executable"),
         help="Path to haplogrep executable or JAR (optional if in PATH)",
     )
+    add_depth_argument(mtdna_parser)
     mtdna_parser.set_defaults(func=cmd_mtdna)
     mtdna_parser.add_argument(
         "--tree-links", action="store_true", help="Print a YFull mtDNA tree link."

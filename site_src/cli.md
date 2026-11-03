@@ -45,7 +45,7 @@ Run `wgsextract help` for the live tree from your installed version, `wgsextract
 ::: grid three
 ::: card
 ### Info and QC
-`info` (build, integrity, read metrics; `--csv` for machine-readable output), `info calculate-coverage` (exact breadth via samtools coverage, written to `<input>_coverage.tsv`; `--bins` streams depth bands 0 / 1–3 / 4–7 / 8+), `info coverage-sample` (fast estimate), plus `qc fastqc`, `qc fastp`, `qc multiqc` (offline FastQC report aggregation), `qc vcf`, and `qc fake-data`.
+`info` (build, integrity, read metrics; `--csv` for machine-readable output), `info calculate-coverage` (exact breadth via samtools coverage, written to `<input>_coverage.tsv`; `--bins` streams depth bands 0 / 1–3 / 4–7 / 8+), `info coverage-sample` (fast estimate), `info chip` (which vendor chip revision a microarray raw file is, with a confidence score and the matching `--formats` template), plus `qc fastqc`, `qc fastp`, `qc multiqc` (offline FastQC report aggregation), `qc vcf`, and `qc fake-data`.
 :::
 
 ::: card
@@ -74,7 +74,7 @@ For annotation, `vep run --assembly GRCh37` also accepts the deprecated
 
 ::: card
 ### Analysis and alignment
-`microarray`, `lineage y-haplogroup`, `lineage mt-haplogroup`, `typing cyp2d6`, `typing hla`, `typing str`, `sign create`, `sign verify`, `align`, `realign`, `pet-align`, `analyze comprehensive`, `analyze batch-gen`, `example-genome list/download`, `benchmark`, `deps check`, and `config`.
+`microarray`, `lineage y-haplogroup`, `lineage y-str`, `lineage mt-haplogroup`, `typing cyp2d6`, `typing hla`, `typing str`, `methylation pileup`, `sign create`, `sign verify`, `align`, `realign`, `pet-align`, `analyze comprehensive`, `analyze batch-gen`, `example-genome list/download`, `benchmark`, `deps check`, and `config`.
 :::
 :::
 :::
@@ -160,6 +160,11 @@ GATK (Python 3.10, Java 17) and FreeBayes live in their own environments. Instal
 ::: card
 ### cyrius, t1k, and expansionhunter
 Gene and repeat typing: `typing cyp2d6` (Cyrius), `typing hla` (T1K), and `typing str` (ExpansionHunter). Linux x86_64 and macOS, where packaged; not qualified on Linux ARM64. Install once with `pixi install --locked -e <environment>`; Cyrius is licensed for noncommercial use only.
+:::
+
+::: card
+### modkit
+`methylation pileup` tabulates CpG methylation from Nanopore and PacBio MM/ML tags with ONT's modkit. Linux and macOS only; install it with `pixi install --locked -e modkit`.
 :::
 
 ::: card

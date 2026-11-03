@@ -4,6 +4,7 @@ import logging
 import subprocess
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from wgsextract_cli.core.aadr_resources import require_aadr_2m
@@ -18,6 +19,12 @@ from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
+)
+from wgsextract_cli.core.genotype_qc import (
+    add_depth_argument,
+    region_targets,
+    warn_about_genotypes,
+    warn_low_depth,
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.microarray_aadr import (
@@ -36,11 +43,17 @@ from wgsextract_cli.core.microarray_indels import (
     prepare_indel_vcf,
 )
 from wgsextract_cli.core.microarray_quality import quality_policy
+from wgsextract_cli.core.microarray_quirks import (
+    MODES,
+    load_strand_quirks,
+    quirks_mode,
+)
 from wgsextract_cli.core.microarray_targets import (
     build_genome_wide_target,
     is_genome_wide_target,
     ncbi36_chain,
 )
+from wgsextract_cli.core.microarray_utils import GenotypeTally
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem, resolve_reference_library
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
@@ -162,7 +175,8 @@ def _convert_microarray_outputs(
     aadr_workdir: str | None = None,
     indel_calls: IndelCalls | None = None,
     legacy_combined_kit_txt: str | None = None,
-) -> None:
+) -> dict[str, GenotypeTally]:
+    """Write the requested outputs; return each vendor file's autosomal tally."""
     from wgsextract_cli.core.microarray_utils import (
         convert_to_vendor_format,
         get_template_format,
@@ -170,11 +184,12 @@ def _convert_microarray_outputs(
     )
 
     identity = identity_policy(args)
-    converter = (
-        functools.partial(convert_to_vendor_format, identity=identity)
-        if identity.resolve_rsids
-        else convert_to_vendor_format
-    )
+    quirks = quirks_mode(args)
+    converter: Callable[..., GenotypeTally] = convert_to_vendor_format
+    if identity.resolve_rsids:
+        converter = functools.partial(converter, identity=identity)
+    if quirks != "corrected":
+        converter = functools.partial(converter, quirks=quirks)
 
     template_search_roots = _template_search_roots(ref_fasta, lib)
     requested_formats = args.formats.split(",")
@@ -210,6 +225,7 @@ def _convert_microarray_outputs(
 
     # 4. Convert to vendor formats
     start_fmt = time.time()
+    tallies: dict[str, GenotypeTally] = {}
     aadr_liftover = None
     vcf_nocalls = None
     written_panels: set[str] = set()
@@ -279,7 +295,7 @@ def _convert_microarray_outputs(
                 if indel_calls is not None and real_fmt in indel_calls
                 else converter
             )
-            format_converter(
+            tallies[real_fmt] = format_converter(
                 real_fmt, final_txt, output_file, template_search_roots, chain36
             )
         except (OSError, ValueError, WGSExtractError) as e:
@@ -290,10 +306,13 @@ def _convert_microarray_outputs(
 
     total_duration = time.time() - start_total
     logging.info(f"Total microarray process took {total_duration:.2f}s")
+    return tallies
 
 
 def run(args: argparse.Namespace) -> None:
     quality_policy(args)
+    if quirks_mode(args) == "vendor":
+        load_strand_quirks()
     identity = identity_policy(args)
     if identity.resolve_rsids:
         load_rsid_map()
@@ -357,6 +376,15 @@ def run(args: argparse.Namespace) -> None:
         raise WGSExtractError(
             "Indel manifests require a known GRCh37 or GRCh38 reference, "
             "or supported CHM13 for no-call masking."
+        )
+
+    if not is_vcf:
+        warn_low_depth(
+            args.input,
+            region_targets(args.region),
+            outdir=outdir,
+            ref=ref_fasta,
+            min_depth=getattr(args, "qc_min_depth", None),
         )
 
     if lib.build and is_t2t_build(lib.build):
@@ -522,7 +550,7 @@ def run(args: argparse.Namespace) -> None:
             ref_vcf_tab=legacy_target,
             restrict_reference_fill=True,
         )
-    _convert_microarray_outputs(
+    tallies = _convert_microarray_outputs(
         args=args,
         outdir=outdir,
         base_name=base_name,
@@ -535,6 +563,7 @@ def run(args: argparse.Namespace) -> None:
         indel_calls=indel_calls,
         legacy_combined_kit_txt=legacy_combined_kit_txt,
     )
+    warn_about_genotypes(combined_kit_txt, tallies, check_no_calls=not args.region)
 
 
 def register(
@@ -566,6 +595,12 @@ def register(
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Resolve packaged dbSNP aliases and no-call retired/ambiguous marker IDs (default: config or false)",
+    )
+    parser.add_argument(
+        "--quirks",
+        choices=MODES,
+        default=None,
+        help="corrected: forward-strand calls; vendor: reverse-strand calls where a template's vendor revision reported them so (default: config or corrected)",
     )
     parser.add_argument(
         "--min-gq",
@@ -622,4 +657,5 @@ def register(
         help="File defining ploidy per chromosome (auto-resolved from --ref if possible)",
     )
     parser.add_argument("-r", "--region", help=CLI_HELP["arg_region"])
+    add_depth_argument(parser)
     parser.set_defaults(func=run)

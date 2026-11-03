@@ -211,6 +211,9 @@ def _call_args(tmp_path: Path, **extra) -> Namespace:
         (deepvariant, "cmd_deepvariant", "deepvariant", {}, []),
         (deepvariant, "cmd_deepvariant", "deepvariant", {"wes": True}, ["--use-wes-model"]),
         (deepvariant, "cmd_deepvariant", "deepvariant", {"pacbio": True}, ["--mode", "pacbio"]),
+        (deepvariant, "cmd_deepvariant", "deepvariant", {"ont": True}, ["--mode", "ont"]),
+        (deepvariant, "cmd_deepvariant", "deepvariant", {"model_type": "ONT_R104"}, ["--mode", "ont"]),
+        (deepvariant, "cmd_deepvariant", "deepvariant", {"input_platform": "ont"}, ["--mode", "ont"]),
         (callers, "cmd_gatk", "haplotypecaller", {}, []),
     ],
 )  # fmt: skip
@@ -224,6 +227,8 @@ def test_gpu_calling_runs_the_parabricks_caller(
     )
     monkeypatch.setattr(module, "ensure_vcf_indexed", lambda _v: None)
     monkeypatch.setattr(module, "warn_if_no_variants", lambda *_a: None)
+    if module is deepvariant:
+        monkeypatch.setattr(module, "get_bam_header", lambda *_a: "")
     runs = []
     monkeypatch.setattr(parabricks, "run_pbrun", lambda t, a, p: runs.append((t, a)))
 
