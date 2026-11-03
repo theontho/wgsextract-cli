@@ -281,6 +281,23 @@ def test_sample_sex_ignores_the_cache_of_a_replaced_file(genome, tmp_path):
     assert metrics.sample_sex(str(bam)) == "Female"
 
 
+@needs_htslib
+def test_info_cache_from_an_older_infer_sex_is_recomputed(genome, tmp_path):
+    bam = _sample(genome, tmp_path / "m.bam", MALE)
+    _info(bam, "--detailed")
+    cache = Path(f"{bam}.wgse_info.json")
+    # As written before the version stamp, with a sex call it no longer makes
+    old = json.loads(cache.read_text())
+    del old["sex_inference_version"]
+    old["gender"] = "Female"
+    cache.write_text(json.dumps(old))
+    assert metrics.sample_sex(bam) == "Male"
+    _info(bam, "--detailed")
+    data = json.loads(cache.read_text())
+    assert data["gender"] == "Male"
+    assert data["sex_inference_version"] == metrics.SEX_INFERENCE_VERSION
+
+
 # --- metrics helpers ----------------------------------------------------------
 
 

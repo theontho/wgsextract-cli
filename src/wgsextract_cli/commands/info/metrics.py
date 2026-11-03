@@ -209,6 +209,11 @@ def load_n_counts(ref_path: str | None) -> dict[str, int]:
     return n_counts
 
 
+# Stored with a cached "gender"; bumped whenever infer_sex changes its calls,
+# so caches made by an older release are recomputed rather than trusted.
+SEX_INFERENCE_VERSION = 2
+
+
 def infer_sex(idx_stats: list[IdxStat]) -> str:
     """ "Male", "Female" or "Unknown" from the X dosage against a similar-sized
     autosome (chr7), else from chrY reads against chrX or chr19 (~ Y's size).
@@ -263,6 +268,7 @@ def sample_sex(input_path: str, outdir: str | None = None) -> str:
         if (
             info.get("md5_signature") == signature
             and info.get("input_signature") == this_file
+            and info.get("sex_inference_version") == SEX_INFERENCE_VERSION
             and info.get("gender")
         ):
             return str(info["gender"])

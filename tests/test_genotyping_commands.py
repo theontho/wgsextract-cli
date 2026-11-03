@@ -14,6 +14,7 @@ import pytest
 
 from tests.htslib_helpers import needs_tools, run_wgsextract, sam_to_bam, write_fasta
 from wgsextract_cli.commands.genotyping import common, hla, repeats
+from wgsextract_cli.commands.info.metrics import SEX_INFERENCE_VERSION
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.pixi_tools import _join_command
 from wgsextract_cli.core.utils import WGSExtractError
@@ -830,6 +831,7 @@ def test_str_prefers_info_cached_sex_and_an_explicit_sex(tmp_path, eh):
     (tmp_path / "s.bam.wgse_info.json").write_text(
         json.dumps({
             "md5_signature": calculate_bam_md5(path, None), "gender": "Male",
+            "sex_inference_version": SEX_INFERENCE_VERSION,
             "input_signature": {"size": st.st_size, "mtime_ns": st.st_mtime_ns},
         })
     )  # fmt: skip

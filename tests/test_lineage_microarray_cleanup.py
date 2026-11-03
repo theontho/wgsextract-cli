@@ -630,6 +630,7 @@ def test_y_haplogroup_refuses_a_female_sample_before_yleaf(tmp_path):
     (tmp_path / "sample.cram.wgse_info.json").write_text(
         json.dumps({
             "md5_signature": "sig", "gender": "Female",
+            "sex_inference_version": metrics.SEX_INFERENCE_VERSION,
             "input_signature": {"size": st.st_size, "mtime_ns": st.st_mtime_ns},
         })
     )  # fmt: skip
