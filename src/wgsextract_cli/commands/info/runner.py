@@ -26,6 +26,7 @@ from wgsextract_cli.core.variant_files import (
 )
 
 from .metrics import (
+    SEX_INFERENCE_VERSION,
     contig_key,
     determine_sequencer,
     generate_chrom_table,
@@ -243,6 +244,7 @@ def _detailed_metrics(
 
     return {
         "gender": gender,
+        "sex_inference_version": SEX_INFERENCE_VERSION,
         "refined_ns": bool(n_counts),
         "file_content": ", ".join(k for k, v in content.items() if v),
         "metrics": {
@@ -357,7 +359,13 @@ def run(args: argparse.Namespace) -> None:
             logging.debug("Cache hit for fast metrics.")
             print(render_info(data, detailed=False))
             return
-        if detailed and data.get("chrom_table_csv"):
+        # The chromosome table hides chrY for a Female, so it is redone along
+        # with the sex when the cached call came from an older infer_sex.
+        if (
+            detailed
+            and data.get("chrom_table_csv")
+            and data.get("sex_inference_version") == SEX_INFERENCE_VERSION
+        ):
             logging.debug("Cache hit for detailed metrics.")
             _print_detailed(data, as_csv)
             return

@@ -93,11 +93,16 @@ def _aggregate(
 
 
 def _cached_depths(alignment: str, outdir: str | None) -> dict[str, float] | None:
-    from wgsextract_cli.commands.info.metrics import cached_info
+    from wgsextract_cli.commands.info.metrics import SEX_INFERENCE_VERSION, cached_info
 
     info = cached_info(alignment, outdir, "chrom_table_csv")
     avg_len = float((info or {}).get("avg_read_len") or 0)
-    if not info or not avg_len:
+    # The table hides chrY for a Female, so one from an older infer_sex is stale
+    if (
+        not info
+        or not avg_len
+        or info.get("sex_inference_version") != SEX_INFERENCE_VERSION
+    ):
         return None
     try:
         table = csv.DictReader(io.StringIO(info["chrom_table_csv"]))

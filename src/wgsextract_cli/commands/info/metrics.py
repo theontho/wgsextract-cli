@@ -209,17 +209,40 @@ def load_n_counts(ref_path: str | None) -> dict[str, int]:
     return n_counts
 
 
+# Stored with a cached "gender"; bumped whenever infer_sex changes its calls,
+# so caches made by an older release are recomputed rather than trusted.
+SEX_INFERENCE_VERSION = 2
+
+
 def infer_sex(idx_stats: list[IdxStat]) -> str:
-    """ "Male", "Female" or "Unknown" from chrY reads relative to chrX."""
+    """ "Male", "Female" or "Unknown" from the X dosage against a similar-sized
+    autosome (chr7), else from chrY reads against chrX or chr19 (~ Y's size).
+    A file of chrY (and chrM) alone is a male's: a Y extract or a Big Y test."""
     mapped: dict[str, int] = {}
     for s in idx_stats:
         if s["name"] != "*":
             key = contig_key(s["name"])
             mapped[key] = mapped.get(key, 0) + s["mapped"]
-    y_reads, x_reads = mapped.get("Y", 0), mapped.get("X", 0)
-    if x_reads <= 0:
-        return "Unknown"
-    return "Male" if y_reads > x_reads * 0.05 else "Female"
+    x_reads, y_reads = mapped.get("X", 0), mapped.get("Y", 0)
+    c7_reads, c19_reads = mapped.get("7", 0), mapped.get("19", 0)
+    # Thresholds sit between the sexes as seen in real WGS, low-pass and exome
+    # samples (hs37, hs38 and T2T). Y/X is 0.15+ for male WGS and at most 0.05
+    # for females, so a male-level chrY settles it, even where chrX reads high
+    # or a realigned Y extract has a few stray chrX reads. A male exome
+    # captures few chrY targets (Y/X 0.04-0.07), so X/chr7 is checked next:
+    # 0.77-1.17 for females and 0.38-0.60 for males, exomes included.
+    if x_reads > 0 and y_reads > x_reads * 0.10:
+        return "Male"
+    if x_reads > 0 and c7_reads > 0:
+        # Two X copies read about like chr7, one X about half of it
+        return "Female" if x_reads > c7_reads * 0.65 else "Male"
+    if x_reads > 0 and y_reads > 0:
+        # Females still pick up a few mismapped chrY reads
+        return "Female"
+    if y_reads > 0 and c19_reads > 0:
+        # About half of chrY is N, so a male's Y is ~0.2-0.5 of chr19
+        return "Male" if y_reads > c19_reads * 0.12 else "Female"
+    return "Male" if y_reads > 0 else "Unknown"
 
 
 def cached_info(
@@ -258,7 +281,8 @@ def sample_sex(input_path: str, outdir: str | None = None) -> str:
     """Sex from `info`'s cached metrics for this file when present (counting
     chrY reads in a CRAM takes about a minute), else from samtools idxstats."""
     info = cached_info(input_path, outdir)
-    if info:
+    # A call cached by an older infer_sex is recomputed rather than trusted
+    if info and info.get("sex_inference_version") == SEX_INFERENCE_VERSION:
         return str(info["gender"])
     logging.info("Checking chrX/chrY coverage to infer the sample's sex...")
     try:
