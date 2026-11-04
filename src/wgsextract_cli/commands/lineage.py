@@ -6,12 +6,13 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from wgsextract_cli.core.config import settings
+from wgsextract_cli.api._cli import add_arguments, cli_handler
+from wgsextract_cli.api.lineage import MtHaplogroupParams, YHaplogroupParams
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
-from wgsextract_cli.core.genotype_qc import MTDNA, add_depth_argument, warn_low_depth
+from wgsextract_cli.core.genotype_qc import MTDNA, warn_low_depth
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES, SYSTEM_MESSAGES
 from wgsextract_cli.core.paths import absolute_path, java_local_path
 from wgsextract_cli.core.reference_models import MITO_BY_LENGTH, sequence_lengths
@@ -19,7 +20,6 @@ from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.results import Scalar, current_result, human_output, json_mode
 from wgsextract_cli.core.tool_catalog import JAVA_JAR
 from wgsextract_cli.core.utils import (
-    UsageError,
     WGSExtractError,
     run_command,
     run_pipeline,
@@ -57,16 +57,17 @@ def _haplogrep_command(haplogrep_path: str) -> list[str]:
     return [*JAVA_JAR, java_local_path(jar)]
 
 
-def cmd_mtdna(args: argparse.Namespace) -> None:
-    if not args.input:
-        raise UsageError(LOG_MESSAGES["input_required"])
-    verify_paths_exist({"--input": args.input})
+def run_mt_haplogroup(params: MtHaplogroupParams, *, tree_links: bool = False) -> None:
+    """``lineage mt-haplogroup``; ``tree_links`` prints a tree link (CLI only)."""
+    input_file = str(params.input)
+    outdir_arg = str(params.outdir) if params.outdir else None
+    verify_paths_exist({"--input": input_file})
 
     logging.info("Running mtDNA haplogroup analysis...")
 
     # Check dependencies only after cheap input validation so invalid invocations fail fast.
     haplogrep_path = resolve_lineage_tool(
-        args.haplogrep_path, "haplogrep", "--haplogrep-path"
+        params.haplogrep_path, "haplogrep", "--haplogrep-path"
     )
     verify_dependencies(["bcftools"])
     log_dependency_info(["haplogrep", "bcftools"])
@@ -74,13 +75,12 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
     cmd = _haplogrep_command(haplogrep_path)
     current_result().record_tool_command(["haplogrep"])
 
-    outdir = args.outdir or str(absolute_path(args.input).parent)
+    outdir = outdir_arg or str(absolute_path(input_file).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
-    logging.debug(f"Input file: {str(absolute_path(args.input))}")
+    logging.debug(f"Input file: {str(absolute_path(input_file))}")
     logging.debug(f"Output directory: {str(absolute_path(outdir))}")
     out_file = str(Path(outdir, "haplogrep_results.txt"))
 
-    input_file = args.input
     input_lower = input_file.lower()
     reference = None
 
@@ -91,7 +91,9 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
                 "Input is alignment. Extracting mitochondrial variants first..."
             )
             lib = ReferenceLibrary(
-                args.ref, calculate_bam_md5(input_file, None), input_path=input_file
+                str(params.ref) if params.ref else None,
+                calculate_bam_md5(input_file, None),
+                input_path=input_file,
             )
             if not lib.fasta:
                 raise WGSExtractError(
@@ -105,11 +107,11 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
             chr_m = get_chr_name(input_file, "MT", cram_opt)
             _require_rcrs(input_file, chr_m, cram_opt)
             warn_low_depth(
-                args.input,
+                str(params.input),
                 {MTDNA},
-                outdir=args.outdir,
+                outdir=outdir_arg,
                 ref=lib.fasta,
-                min_depth=getattr(args, "qc_min_depth", None),
+                min_depth=params.qc_min_depth,
             )
             run_pipeline(
                 [
@@ -138,7 +140,10 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
         except (OSError, subprocess.SubprocessError) as e:
             raise WGSExtractError(f"Haplogrep failed: {e}") from e
 
-    _print_haplogrep_result(out_file, reference, getattr(args, "tree_links", False))
+    _print_haplogrep_result(out_file, reference, tree_links)
+
+
+cmd_mtdna = cli_handler(MtHaplogroupParams, run_mt_haplogroup, tree_links="tree_links")
 
 
 def _require_rcrs(path: str, chr_m: str, cram_opt: list[str] | None = None) -> None:
@@ -210,31 +215,7 @@ def register(
     ydna_parser = lin_subs.add_parser(
         "y-haplogroup", parents=[base_parser], help=CLI_HELP["cmd_lineage-y-haplogroup"]
     )
-    ydna_parser.add_argument("--pos-file", help="Yleaf position file (optional)")
-    ydna_parser.add_argument(
-        "--build",
-        choices=["hg19", "hg38", "t2t"],
-        help="Override the detected reference build for this run.",
-    )
-    ydna_parser.add_argument(
-        "--tree",
-        choices=["yfull", "yfull_v10", "ftdna", "isogg"],
-        default="yfull",
-        help="Yleaf v4.1.6 haplogroup tree (default: yfull).",
-    )
-    ydna_parser.add_argument("--min-reads", type=int, default=10)
-    ydna_parser.add_argument("--base-quality", type=int, default=20)
-    ydna_parser.add_argument("--base-majority", type=int, default=90)
-    ydna_parser.add_argument("--min-score", type=float, default=0.95)
-    ydna_parser.add_argument(
-        "--ancient", action="store_true", help="Use ancient-DNA marker tables."
-    )
-    ydna_parser.add_argument(
-        "--no-ref-inference",
-        action="store_true",
-        help="VCF: use genotyped positions only (targeted panels); otherwise --ref is required.",
-    )
-    add_depth_argument(ydna_parser)
+    add_arguments(ydna_parser, YHaplogroupParams)
     ydna_parser.set_defaults(func=cmd_ydna)
     ydna_parser.add_argument(
         "--tree-links", action="store_true", help="Print YFull and FTDNA tree links."
@@ -247,12 +228,7 @@ def register(
         parents=[base_parser],
         help=CLI_HELP["cmd_lineage-mt-haplogroup"],
     )
-    mtdna_parser.add_argument(
-        "--haplogrep-path",
-        default=settings.get("haplogrep_executable"),
-        help="Path to haplogrep executable or JAR (optional if in PATH)",
-    )
-    add_depth_argument(mtdna_parser)
+    add_arguments(mtdna_parser, MtHaplogroupParams)
     mtdna_parser.set_defaults(func=cmd_mtdna)
     mtdna_parser.add_argument(
         "--tree-links", action="store_true", help="Print a YFull mtDNA tree link."

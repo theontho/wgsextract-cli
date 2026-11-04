@@ -1,5 +1,7 @@
 import argparse
 
+from wgsextract_cli.api._cli import add_arguments
+from wgsextract_cli.api.vcf import VcfIndelParams, VcfSnpParams
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.genotype_qc import add_depth_argument
 from wgsextract_cli.core.messages import CLI_HELP
@@ -117,19 +119,13 @@ def register(
     snp_parser = vcf_subs.add_parser(
         "snp", parents=[base_parser], help=CLI_HELP["cmd_snp"]
     )
-    _add_ploidy_options(snp_parser)
-    _add_region(snp_parser, "Chromosomal region (e.g. chrM, chrY:10000-20000)")
-    _add_parallel_contigs(snp_parser)
-    add_depth_argument(snp_parser)
+    add_arguments(snp_parser, VcfSnpParams)
     snp_parser.set_defaults(func=cmd_snp)
 
     indel_parser = vcf_subs.add_parser(
         "indel", parents=[base_parser], help=CLI_HELP["cmd_indel"]
     )
-    _add_ploidy_options(indel_parser)
-    _add_region(indel_parser, "Chromosomal region (e.g. chrM, chrY:10000-20000)")
-    _add_parallel_contigs(indel_parser)
-    add_depth_argument(indel_parser)
+    add_arguments(indel_parser, VcfIndelParams)
     indel_parser.set_defaults(func=cmd_indel)
 
     annotate_parser = vcf_subs.add_parser(

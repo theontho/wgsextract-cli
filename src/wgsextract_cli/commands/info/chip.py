@@ -1,9 +1,10 @@
 """`info chip`: identify the vendor, chip and revision of a microarray raw-data file."""
 
-import argparse
 from pathlib import Path
 from typing import Any
 
+from wgsextract_cli.api._cli import cli_handler
+from wgsextract_cli.api.info import ChipParams
 from wgsextract_cli.core.microarray_revisions import (
     Detection,
     Revision,
@@ -17,7 +18,6 @@ from wgsextract_cli.core.microarray_utils import (
 )
 from wgsextract_cli.core.reference_assets import resolve_reference_library
 from wgsextract_cli.core.results import current_result, human_output
-from wgsextract_cli.core.utils import UsageError
 from wgsextract_cli.core.variant_files import verify_paths_exist
 
 _RELATION = {
@@ -27,8 +27,7 @@ _RELATION = {
 }
 
 
-def _template_roots(args: argparse.Namespace) -> list[str]:
-    ref = getattr(args, "ref", None)
+def _template_roots(ref: str | None) -> list[str]:
     searches = [
         str(Path(ref).parent if Path(ref).is_file() else ref) if ref else None,
         resolve_reference_library(),
@@ -180,19 +179,20 @@ def _render_catalogue(revisions: tuple[Revision, ...]) -> str:
     return "\n".join(lines)
 
 
-def run(args: argparse.Namespace) -> None:
+def run_chip(params: ChipParams) -> None:
     result = current_result()
-    if getattr(args, "list", False):
+    if params.list_revisions:
         revisions = load_catalogue()
         result.set_details({"revisions": [_revision_json(r) for r in revisions]})
         result.add_metrics(revisions=len(revisions))
         human_output(_render_catalogue(revisions))
         return
-    if not args.input:
-        raise UsageError("--input required (a microarray raw-data file).")
-    verify_paths_exist({"--input": args.input})
-    export = read_raw_export(args.input)
-    detection = detect(export, template_roots=_template_roots(args))
+    input_file = str(params.input)
+    verify_paths_exist({"--input": input_file})
+    export = read_raw_export(input_file)
+    detection = detect(
+        export, template_roots=_template_roots(str(params.ref) if params.ref else None)
+    )
     result.set_details(_detection_json(detection))
     best = detection.best
     result.add_metrics(
@@ -208,3 +208,6 @@ def run(args: argparse.Namespace) -> None:
             "The next candidate revision matches this file as closely as the best one.",
         )
     human_output(_render(detection))
+
+
+run = cli_handler(ChipParams, run_chip)

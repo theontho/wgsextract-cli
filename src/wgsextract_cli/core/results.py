@@ -530,6 +530,74 @@ class CommandResult:
         return path
 
 
+def fail_from_exception(
+    result: CommandResult, error: BaseException, *, debug: bool = False
+) -> None:
+    """Log ``error`` and record it on ``result`` with its exit code.
+
+    Exit codes: 2 usage error, 3 missing dependency (also when a wrapper
+    re-raised one), 128+N when stopped by signal N, otherwise 1.
+    """
+    import signal
+
+    from wgsextract_cli.core.utils import (
+        MissingDependencyError,
+        UsageError,
+        WGSExtractError,
+    )
+
+    if isinstance(error, UsageError):
+        logging.error(str(error))
+        result.fail("usage", str(error), EXIT_USAGE)
+    elif isinstance(error, MissingDependencyError):
+        logging.error(str(error))
+        result.fail("missing_dependency", str(error), EXIT_MISSING_DEPENDENCY)
+    elif isinstance(error, WGSExtractError):
+        logging.error(str(error))
+        _fail_unexpected(result, error, str(error))
+    elif isinstance(error, KeyboardInterrupt):
+        logging.error("Interrupted.")
+        result.fail("cancelled", "Interrupted.", 128 + signal.SIGINT)
+    elif isinstance(error, SystemExit):
+        code = (
+            error.code
+            if isinstance(error.code, int)
+            else (0 if error.code is None else 1)
+        )
+        if isinstance(error.code, str):
+            logging.error(error.code)
+        if code > 128:
+            result.fail("cancelled", f"Stopped by signal {code - 128}.", code)
+        elif code:
+            message = (
+                error.code
+                if isinstance(error.code, str)
+                else f"Exited with code {code}."
+            )
+            result.fail("usage" if code == EXIT_USAGE else "failure", message, code)
+    else:
+        if debug:
+            logging.error("An unexpected error occurred:", exc_info=error)
+        else:
+            logging.error(f"An unexpected error occurred: {error}")
+        _fail_unexpected(result, error, f"An unexpected error occurred: {error}")
+
+
+def _fail_unexpected(result: CommandResult, error: BaseException, message: str) -> None:
+    """Fail the run, keeping exit 3 when a wrapper re-raised a dependency error."""
+    from wgsextract_cli.core.utils import MissingDependencyError
+
+    seen: set[int] = set()
+    cause: BaseException | None = error
+    while cause is not None and id(cause) not in seen:
+        if isinstance(cause, MissingDependencyError):
+            result.fail("missing_dependency", message, EXIT_MISSING_DEPENDENCY)
+            return
+        seen.add(id(cause))
+        cause = cause.__cause__
+    result.fail("failure", message, EXIT_FAILURE)
+
+
 def _json_safe_dataclass(value: Any) -> Any:
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return {

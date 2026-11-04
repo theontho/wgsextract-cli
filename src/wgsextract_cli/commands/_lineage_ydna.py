@@ -1,10 +1,11 @@
-import argparse
 import csv
 import io
 import logging
 import sys
 from pathlib import Path
 
+from wgsextract_cli.api._cli import cli_handler
+from wgsextract_cli.api.lineage import YHaplogroupParams
 from wgsextract_cli.commands.info.metrics import sample_sex
 from wgsextract_cli.core.alignment_metadata import get_vcf_build
 from wgsextract_cli.core.builds import (
@@ -20,14 +21,12 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.genotype_qc import CHR_Y, warn_low_depth
-from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem, read_fai_lengths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.results import current_result, json_mode, warn
 from wgsextract_cli.core.utils import (
     MissingDependencyError,
-    UsageError,
     WGSExtractError,
     run_command,
 )
@@ -108,14 +107,15 @@ def _yleaf_build(build: str | None) -> str:
     return "hg38"
 
 
-def cmd_ydna(args: argparse.Namespace) -> None:
+def run_y_haplogroup(params: YHaplogroupParams, *, tree_links: bool = False) -> None:
+    """``lineage y-haplogroup``; ``tree_links`` prints tree links (CLI only)."""
     from wgsextract_cli.ydna.yleaf_native.analysis import CREDIT, analyze
 
-    if not args.input:
-        raise UsageError(LOG_MESSAGES["input_required"])
-    verify_paths_exist({"--input": args.input})
+    input_file = str(params.input)
+    outdir_arg = str(params.outdir) if params.outdir else None
+    verify_paths_exist({"--input": input_file})
 
-    input_lower = args.input.lower()
+    input_lower = input_file.lower()
     is_vcf = input_lower.endswith((*VCF_SUFFIXES, ".bcf"))
     if not is_vcf and not input_lower.endswith((".bam", ".cram")):
         raise WGSExtractError(
@@ -126,44 +126,42 @@ def cmd_ydna(args: argparse.Namespace) -> None:
     verify_dependencies(tools)
     log_dependency_info(tools)
 
-    outdir = str(absolute_path(args.outdir or str(Path(args.input).absolute().parent)))
+    outdir = str(absolute_path(outdir_arg or str(Path(input_file).absolute().parent)))
     yleaf_outdir = str(Path(outdir, "yleaf"))
-    logging.debug(f"Input file: {str(absolute_path(args.input))}")
+    logging.debug(f"Input file: {str(absolute_path(input_file))}")
     logging.debug(f"Output directory: {yleaf_outdir}")
 
     # Yleaf still "predicts" from a female sample's few mismapped chrY reads
     # (BT* with hundreds of exclusions, at full QC score); say there's no Y.
     if (
         input_lower.endswith((".bam", ".cram"))
-        and sample_sex(args.input, args.outdir) == "Female"
+        and sample_sex(input_file, outdir_arg) == "Female"
     ):
         raise WGSExtractError(
-            f"{args.input} has almost no chrY reads (the sample appears female), "
+            f"{input_file} has almost no chrY reads (the sample appears female), "
             "so there is no Y haplogroup to predict."
         )
 
     lib = ReferenceLibrary(
-        args.ref,
-        None if is_vcf else calculate_bam_md5(args.input, None),
-        input_path=args.input,
+        str(params.ref) if params.ref else None,
+        None if is_vcf else calculate_bam_md5(input_file, None),
+        input_path=input_file,
     )
-    build = getattr(args, "build", None) or (
-        get_vcf_build(args.input) if is_vcf else None
-    )
+    build = params.build or (get_vcf_build(input_file) if is_vcf else None)
     if not build:
         build = lib.build
     if not is_vcf:
         warn_low_depth(
-            args.input,
+            input_file,
             {CHR_Y},
-            outdir=args.outdir,
+            outdir=outdir_arg,
             ref=lib.fasta,
-            min_depth=getattr(args, "qc_min_depth", None),
+            min_depth=params.qc_min_depth,
         )
     yleaf_build = _yleaf_build(build)
-    needs_reference = (
-        is_vcf and not getattr(args, "no_ref_inference", False)
-    ) or input_lower.endswith(".cram")
+    needs_reference = (is_vcf and not params.no_ref_inference) or input_lower.endswith(
+        ".cram"
+    )
     if needs_reference and lib.fasta:
         reference_build = build_from_chr1_length(
             read_fai_lengths(lib.fasta)
@@ -176,18 +174,18 @@ def cmd_ydna(args: argparse.Namespace) -> None:
             )
 
     prediction = analyze(
-        Path(args.input),
+        Path(input_file),
         Path(yleaf_outdir),
         build=yleaf_build,
-        tree=getattr(args, "tree", "yfull"),
+        tree=params.tree,
         reference=Path(lib.fasta) if lib.fasta else None,
-        pos_file=Path(args.pos_file) if args.pos_file else None,
-        min_reads=getattr(args, "min_reads", 10),
-        quality=getattr(args, "base_quality", 20),
-        majority=getattr(args, "base_majority", 90),
-        min_score=getattr(args, "min_score", 0.95),
-        ancient=getattr(args, "ancient", False),
-        no_ref_inference=getattr(args, "no_ref_inference", False),
+        pos_file=params.pos_file,
+        min_reads=params.min_reads,
+        quality=params.base_quality,
+        majority=params.base_majority,
+        min_score=params.min_score,
+        ancient=params.ancient,
+        no_ref_inference=params.no_ref_inference,
     )
 
     try:
@@ -214,7 +212,7 @@ def cmd_ydna(args: argparse.Namespace) -> None:
     result.set_details(
         {
             "build": yleaf_build,
-            "tree": getattr(args, "tree", "yfull"),
+            "tree": params.tree,
             "tables": version,
             "predictions": rows,
         }
@@ -231,12 +229,12 @@ def cmd_ydna(args: argparse.Namespace) -> None:
         return
     print(
         f"\n🧬 {CREDIT}\nTables {version}; build {yleaf_build}; "
-        f"tree {getattr(args, 'tree', 'yfull')}\n"
-        f"Lineage Result ({input_stem(args.input)}):"
+        f"tree {params.tree}\n"
+        f"Lineage Result ({input_stem(input_file)}):"
     )
     print("-" * 30)
     print(content)
-    if getattr(args, "tree_links", False):
+    if tree_links:
         from ._lineage_links import print_tree_links
 
         for row in rows:
@@ -244,3 +242,6 @@ def cmd_ydna(args: argparse.Namespace) -> None:
             # branches in the public trees.
             print_tree_links(row.get("Hg_marker") or row.get("Hg") or "")
     print("-" * 30 + "\n")
+
+
+cmd_ydna = cli_handler(YHaplogroupParams, run_y_haplogroup, tree_links="tree_links")

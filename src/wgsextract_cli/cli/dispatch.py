@@ -1,26 +1,18 @@
 import argparse
 import contextlib
 import logging
-import signal
 import sys
 from pathlib import Path
 
 from wgsextract_cli.core.genome_library import apply_genome_selection
 from wgsextract_cli.core.keep_awake import keep_awake
 from wgsextract_cli.core.results import (
-    EXIT_FAILURE,
-    EXIT_MISSING_DEPENDENCY,
-    EXIT_USAGE,
     CommandResult,
     collecting,
+    fail_from_exception,
     params_from_args,
     redact_argv,
     stdout_reserved,
-)
-from wgsextract_cli.core.utils import (
-    MissingDependencyError,
-    UsageError,
-    WGSExtractError,
 )
 
 from .platform_support import verify_platform_support
@@ -113,43 +105,5 @@ def _run(
                 else:
                     with run_temporary_directory(getattr(args, "tmp_dir", None)):
                         args.func(args)
-    except UsageError as e:
-        logging.error(str(e))
-        result.fail("usage", str(e), EXIT_USAGE)
-    except MissingDependencyError as e:
-        logging.error(str(e))
-        result.fail("missing_dependency", str(e), EXIT_MISSING_DEPENDENCY)
-    except WGSExtractError as e:
-        logging.error(str(e))
-        _fail_unexpected(result, e, str(e))
-    except KeyboardInterrupt:
-        logging.error("Interrupted.")
-        result.fail("cancelled", "Interrupted.", 128 + signal.SIGINT)
-    except SystemExit as e:
-        code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
-        if isinstance(e.code, str):
-            logging.error(e.code)
-        if code > 128:
-            result.fail("cancelled", f"Stopped by signal {code - 128}.", code)
-        elif code:
-            message = e.code if isinstance(e.code, str) else f"Exited with code {code}."
-            result.fail("usage" if code == EXIT_USAGE else "failure", message, code)
-    except Exception as e:
-        if getattr(args, "debug", False):
-            logging.exception("An unexpected error occurred:")
-        else:
-            logging.error(f"An unexpected error occurred: {e}")
-        _fail_unexpected(result, e, f"An unexpected error occurred: {e}")
-
-
-def _fail_unexpected(result: CommandResult, error: BaseException, message: str) -> None:
-    """Fail the run, keeping exit 3 when a wrapper re-raised a dependency error."""
-    seen: set[int] = set()
-    cause: BaseException | None = error
-    while cause is not None and id(cause) not in seen:
-        if isinstance(cause, MissingDependencyError):
-            result.fail("missing_dependency", message, EXIT_MISSING_DEPENDENCY)
-            return
-        seen.add(id(cause))
-        cause = cause.__cause__
-    result.fail("failure", message, EXIT_FAILURE)
+    except (Exception, KeyboardInterrupt, SystemExit) as e:
+        fail_from_exception(result, e, debug=bool(getattr(args, "debug", False)))

@@ -8,6 +8,12 @@ import time
 from pathlib import Path
 from typing import Any
 
+from wgsextract_cli.api._cli import cli_handler
+from wgsextract_cli.api.info import (
+    CalculateCoverageParams,
+    CoverageSampleParams,
+    InfoParams,
+)
 from wgsextract_cli.core.alignment_health import alignment_health
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.builds import build_from_chr1_length, build_from_path
@@ -330,44 +336,50 @@ def _detailed_metrics(
     }
 
 
-def run(args: argparse.Namespace) -> None:
+InfoLikeParams = InfoParams | CalculateCoverageParams | CoverageSampleParams
+
+
+def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
+    """``info`` and its coverage subcommands; ``as_csv`` prints the detailed
+    table as CSV (CLI only)."""
     from wgsextract_cli.core.variant_files import resolve_reference
     from wgsextract_cli.core.warnings import print_warning
 
     start_time = time.time()
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
-    if not args.input:
-        raise UsageError("--input required.")
+    input_file = str(params.input)
+    ref = str(params.ref) if params.ref else None
+    outdir_arg = str(params.outdir) if params.outdir else None
 
-    verify_paths_exist({"--input": args.input})
-    logging.debug(f"Input file: {str(absolute_path(args.input))}")
+    verify_paths_exist({"--input": input_file})
+    logging.debug(f"Input file: {str(absolute_path(input_file))}")
 
-    info_cmd = getattr(args, "info_cmd", None)
-    region = getattr(args, "region", None) if info_cmd in COVERAGE_COMMANDS else None
-    detailed = bool(args.detailed or info_cmd in COVERAGE_COMMANDS)
-    as_csv = bool(getattr(args, "csv", False))
+    info_cmd = None if isinstance(params, InfoParams) else params.COMMAND.split()[-1]
+    region = None if isinstance(params, InfoParams) else params.region
+    detailed = not isinstance(params, InfoParams) or params.detailed
+    bins = isinstance(params, CalculateCoverageParams) and params.bins
 
     # If it's a CRAM and we have a ref, resolve it early so samtools can read the header
     initial_ref = None
-    if args.input.lower().endswith(".cram") and args.ref:
-        resolved = resolve_reference(args.ref, None)
+    if input_file.lower().endswith(".cram") and ref:
+        resolved = resolve_reference(ref, None)
         if resolved and Path(resolved).is_file():
             initial_ref = resolved
         else:
             logging.debug("CRAM detected, but reference is not installed or invalid.")
 
     t0 = time.time()
-    header = get_bam_header(args.input, cram_opt=initial_ref)
+    header = get_bam_header(input_file, cram_opt=initial_ref)
     if not header:
         raise WGSExtractError(
-            f"Could not read header from {args.input}. Samtools might be missing, "
+            f"Could not read header from {input_file}. Samtools might be missing, "
             "the file is corrupt, or it requires a reference (--ref)."
         )
     logging.debug(f"Header fetch took {time.time() - t0:.3f}s")
 
-    md5_sig = calculate_bam_md5(args.input, header=header)
-    resolved_ref = resolve_reference(args.ref, md5_sig)
+    md5_sig = calculate_bam_md5(input_file, header=header)
+    resolved_ref = resolve_reference(ref, md5_sig)
     logging.debug(f"MD5 signature: {md5_sig}; resolved reference: {resolved_ref}")
     if resolved_ref and Path(resolved_ref).is_file():
         current_result().set_reference(
@@ -376,36 +388,36 @@ def run(args: argparse.Namespace) -> None:
             or build_from_path(Path(resolved_ref).name),
         )
 
-    if info_cmd == "calculate-coverage" and getattr(args, "bins", False):
+    if bins:
         from .bins import run_depth_bins
 
-        if args.input.lower().endswith(".cram") and (
+        if input_file.lower().endswith(".cram") and (
             not resolved_ref or not Path(resolved_ref).is_file()
         ):
             raise UsageError("--ref required for detailed mode with CRAM.")
         bins_tsv = run_depth_bins(
-            args.input,
+            input_file,
             resolved_ref,
             sequence_lengths(header),
-            args.outdir or str(absolute_path(args.input).parent),
+            outdir_arg or str(absolute_path(input_file).parent),
             region,
         )
         current_result().add_output(bins_tsv, "coverage_bins")
         return
 
-    if detailed and args.input.lower().endswith(".cram") and not resolved_ref:
+    if detailed and input_file.lower().endswith(".cram") and not resolved_ref:
         raise UsageError("--ref required for detailed mode with CRAM.")
 
-    outdir = args.outdir or str(absolute_path(args.input).parent)
-    if args.outdir:
+    outdir = outdir_arg or str(absolute_path(input_file).parent)
+    if outdir_arg:
         Path(outdir).mkdir(parents=True, exist_ok=True)
     logging.debug(f"Output directory: {str(absolute_path(outdir))}")
 
-    user_fasta = args.ref if args.ref and is_fasta_path(args.ref) else None
+    user_fasta = ref if ref and is_fasta_path(ref) else None
     ref_model = _guess_ref_model(md5_sig, header, user_fasta)
 
-    json_cache = str(Path(outdir, f"{Path(args.input).name}.wgse_info.json"))
-    signature = _input_signature(args.input)
+    json_cache = str(Path(outdir, f"{Path(input_file).name}.wgse_info.json"))
+    signature = _input_signature(input_file)
     data = _load_cache(json_cache, signature)
     # Classifying the header is cheap, so it is redone every run. A cache made
     # when it said otherwise (older detection, or a different --ref) is stale,
@@ -425,7 +437,7 @@ def run(args: argparse.Namespace) -> None:
         cram_ref = (
             resolved_ref if resolved_ref and Path(resolved_ref).is_file() else None
         )
-        data["alignment_health"] = alignment_health(args.input, cram_ref)
+        data["alignment_health"] = alignment_health(input_file, cram_ref)
         _save_cache(json_cache, data)
 
     if info_cmd is None:
@@ -446,7 +458,7 @@ def run(args: argparse.Namespace) -> None:
 
     if not data.get("avg_read_len"):
         logging.debug("Generating fast metrics...")
-        data = _fast_metrics(args.input, header, md5_sig, resolved_ref, ref_model)
+        data = _fast_metrics(input_file, header, md5_sig, resolved_ref, ref_model)
     data["input_signature"] = signature
 
     if not detailed:
@@ -456,11 +468,11 @@ def run(args: argparse.Namespace) -> None:
         return
 
     t0 = time.time()
-    idx_stats, _genome_len, _total_mapped, total_unmapped = parse_idxstats(args.input)
+    idx_stats, _genome_len, _total_mapped, total_unmapped = parse_idxstats(input_file)
     logging.debug(f"Idxstats took {time.time() - t0:.3f}s")
 
     coverage_map = _coverage_map(
-        info_cmd, args.input, resolved_ref, idx_stats, outdir, region
+        info_cmd, input_file, resolved_ref, idx_stats, outdir, region
     )
     data.update(
         _detailed_metrics(
@@ -479,3 +491,16 @@ def run(args: argparse.Namespace) -> None:
     if not region and _save_cache(json_cache, data):
         logging.info(LOG_MESSAGES["info_metrics_cached"].format(path=json_cache))
     logging.debug(f"Total info time: {time.time() - start_time:.3f}s")
+
+
+INFO_PARAMS: dict[str | None, type[InfoLikeParams]] = {
+    None: InfoParams,
+    "calculate-coverage": CalculateCoverageParams,
+    "coverage-sample": CoverageSampleParams,
+}
+
+
+def run(args: argparse.Namespace) -> None:
+    """CLI handler of `info` and its coverage subcommands."""
+    cls = INFO_PARAMS[getattr(args, "info_cmd", None)]
+    cli_handler(cls, run_info, as_csv="csv")(args)
