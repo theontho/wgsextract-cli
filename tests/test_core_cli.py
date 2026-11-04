@@ -566,6 +566,7 @@ def test_config_flag_reads_and_saves_only_that_file(tmp_path):
     own = tmp_path / "own.toml"
     own.write_text('output_directory = "/from/own/config"\n')
     user_config = config.get_config_path()
+    user_config.unlink()
     try:
         config.set_config_path(own)
         config.reload_settings()

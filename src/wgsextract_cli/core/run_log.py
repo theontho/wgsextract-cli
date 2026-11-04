@@ -28,6 +28,11 @@ def active_run_log() -> bool:
     return _active is not None
 
 
+def active_log_path() -> Path | None:
+    """The persistent run log being written, if any."""
+    return _active.path if _active else None
+
+
 def is_run_log_path(path: Path) -> bool:
     return bool(
         _active

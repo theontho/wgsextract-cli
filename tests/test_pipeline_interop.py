@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from tests.htslib_helpers import bgzip_index, needs_htslib
+from tests.smoke_utils import state_directory_setting
 from tests.test_microarray_library import _library
 
 pytestmark = needs_htslib
@@ -61,7 +62,9 @@ def library(tmp_path: Path) -> tuple[Path, Path, str]:
     root = tmp_path / "reference"
     fasta, seq = _library(root)
     config = tmp_path / "config.toml"
-    config.write_text(f'reference_library = "{root.as_posix()}"\n')
+    config.write_text(
+        f'reference_library = "{root.as_posix()}"\n' + state_directory_setting(tmp_path)
+    )
     return config, fasta, seq
 
 

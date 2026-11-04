@@ -89,7 +89,12 @@ def test_json_schema_describes_every_field(cls):
     Draft202012Validator.check_schema(schema)
     assert set(schema["properties"]) == {f.name for f in api._params.param_fields(cls)}
     assert all(p.get("description") for p in schema["properties"].values())
-    assert schema["properties"]["input"]["type"] in ("string", ["string", "null"])
+    for item in api._params.param_fields(cls):
+        if item.spec.path:
+            assert schema["properties"][item.name]["type"] in (
+                "string",
+                ["string", "null"],
+            )
 
 
 def test_json_schema_has_choices_and_required():

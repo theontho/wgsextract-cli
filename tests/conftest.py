@@ -1,10 +1,12 @@
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
-from tests.smoke_utils import ensure_fake_data, isolate_home
-from wgsextract_cli.core.config import reload_settings, settings
+from tests.smoke_utils import ensure_fake_data, isolate_home, state_directory_setting
+from wgsextract_cli.core.config import get_config_path, reload_settings, settings
 from wgsextract_cli.core.dependencies import clear_tool_caches
+from wgsextract_cli.core.runtime import repo_root
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -71,9 +73,57 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
+_CHECKOUT_STATE = repo_root() / "state"
+_CHECKOUT_STATE_EXISTED = _CHECKOUT_STATE.exists()
+
+
 def pytest_sessionstart() -> None:
     """Initialize real/session test defaults explicitly, not during config import."""
     reload_settings()
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    """Fail the run if a test recorded a run in the checkout's state/."""
+    if not _CHECKOUT_STATE_EXISTED and _CHECKOUT_STATE.exists():
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+        print(f"\nA test wrote {_CHECKOUT_STATE}; point state_directory at tmp_path.")
+
+
+_REAL_CONFIG = get_config_path()
+
+
+def _isolate(
+    monkeypatch: pytest.MonkeyPatch, home: Path, config_text: str = ""
+) -> None:
+    """Point the home/config dirs at ``home``, with ``config_text`` as its
+    config.toml. Commands record the last run (and report-issue saves reports)
+    in the data folder, which is this checkout; keep them in ``home``, from
+    CLI subprocesses through the config and in-process also when a test
+    replaces the config."""
+    monkeypatch.setattr("wgsextract_cli.core.config._config_path_override", None)
+    isolate_home(monkeypatch, home)
+    config = get_config_path()
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text(config_text + state_directory_setting(home))
+    monkeypatch.setattr(
+        "wgsextract_cli.core.last_run._default_state_directory",
+        lambda: home / "state",
+    )
+    reload_settings()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_session_config(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Iterator[None]:
+    """The same isolation for module and session fixtures, which run before
+    a test's own."""
+    saved = dict(settings)
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        _isolate(monkeypatch, tmp_path_factory.mktemp("session-home"))
+        yield
+    settings.clear()
+    settings.update(saved)
 
 
 @pytest.fixture(autouse=True)
@@ -83,14 +133,19 @@ def _isolate_user_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[None]:
     """Hide the developer's config.toml from tests and the CLI subprocesses they
-    spawn by pointing the home/config dirs at an empty per-test home. Tests
-    marked ``real_config`` intentionally read the real config.
+    spawn by pointing the home/config dirs at a per-test home. Tests marked
+    ``real_config`` get a copy of the real config.
     """
     saved = dict(settings)
-    if request.node.get_closest_marker("real_config") is None:
-        monkeypatch.setattr("wgsextract_cli.core.config._config_path_override", None)
-        isolate_home(monkeypatch, tmp_path_factory.mktemp("home"))
-        reload_settings()
+    real = ""
+    if request.node.get_closest_marker("real_config") is not None:
+        real = _REAL_CONFIG.read_text() if _REAL_CONFIG.is_file() else ""
+        real = "".join(
+            line + "\n"
+            for line in real.splitlines()
+            if not line.lstrip().startswith("state_directory")
+        )
+    _isolate(monkeypatch, tmp_path_factory.mktemp("home"), real)
     try:
         yield
     finally:

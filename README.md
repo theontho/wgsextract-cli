@@ -575,6 +575,20 @@ and checksum verification where a digest is provided. `example-genome download`
 uses the same HTTP downloader; FTP and Aspera retain their specialized transports.
 Keep larger runs last and budget their CPU, memory and working space.
 
+## Reporting a problem
+
+`wgsextract report-issue` builds a bug report about the last command you ran and opens it as a pre-filled [GitHub issue](https://github.com/theontho/wgsextract-cli/issues/new/choose):
+
+```bash
+wgsextract report-issue                 # the last run
+wgsextract report-issue --last-failed   # the last run that failed
+wgsextract report-issue --run out/sample.vcf.gz.manifest.json --print
+```
+
+The report has the command line, exit code, error, warnings and the last 40 log lines, plus the wgsextract version and install type, OS, CPU, RAM, free disk, tool versions and the settings you changed. Before you see it, it is redacted on your computer: your home folder, user and computer names, sample and file names, read names, data lines (genotypes, VCF records, sequences), email addresses, tokens and other secrets are removed, and paths are reduced to placeholders such as `<path>/<file>.cram`. Result details such as sex and haplogroups are never included.
+
+Nothing is uploaded. The command prints the report and its link and saves the full report as `issue-report-<time>.md` in `state/reports` in the data folder, beside `reference` and `genomes` (or the `state_directory` setting, or `--outdir`). It opens the browser only when you answer yes, or with `--open`; `--print` never opens it, and `--json` gives the report to scripts and agents. GitHub links are kept under 8,000 characters (`--max-url-length`): the log tail, then warnings, settings and tool versions are shortened, and the issue says what was left out so you can paste it from the saved file. Read the issue before you submit it. The Python API has the same function: `api.support.build_issue_report(api.ReportIssueParams(...))` (see [docs/api.md](docs/api.md)).
+
 ## Development
 
 ```bash

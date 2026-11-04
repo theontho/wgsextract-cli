@@ -30,8 +30,9 @@ The CLI is built on this layer: each migrated command's options are generated
 from its Params fields, so the API and `--help` cannot drift.
 
 Stability: the names exported here and the group modules (`api.info`,
-`api.vcf`, `api.lineage`, `api.microarray`) follow semantic versioning
-from the 1.0 release; adding fields with defaults is not a breaking change.
+`api.vcf`, `api.lineage`, `api.microarray`, `api.support`) follow
+semantic versioning from the 1.0 release; adding fields with defaults is not a
+breaking change.
 Modules whose names start with `_` are private and may change at any time.
 See docs/api.md.
 
@@ -298,3 +299,78 @@ settings) and then to the documented default.
 | `sample` | `str \| None` | `None` | `--sample` | Sample to use from a multi-sample VCF (e.g. a joint-called nf-core/sarek VCF); required when the VCF has more than one |
 | `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM, chrY:10000-20000) |
 | `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+
+## `api.support`
+
+`report-issue`: a pre-filled, redacted GitHub bug report.
+
+`build_issue_report` collects this installation's versions, OS, CPU, RAM,
+tools and settings and, by default, the last run recorded on this computer
+(command line, exit status, error, warnings, log tail), redacts them, and
+fits them into a GitHub new-issue link:
+
+```python
+report = api.support.build_issue_report(api.ReportIssueParams(last_failed=True))
+print(report.body)                     # review it
+api.support.open_issue(report)         # the user submits it on GitHub
+```
+
+Nothing is uploaded: the link opens GitHub's new-issue form in the browser,
+where the user reviews and submits it. Reports never contain genotypes, reads,
+file contents, sample, user or computer names, full paths or secrets.
+
+### `api.support.build_issue_report(ReportIssueParams)`
+
+CLI: `wgsextract report-issue`.
+
+Collect, redact and fit a report; writes nothing and opens nothing.
+
+`result` reports on that run (e.g. one the API just returned) instead of
+`params.run` or the last recorded run. Raises `UsageError` when
+`params.run` is not a readable manifest, run log or provenance file.
+
+`ReportIssueParams`: Build a redacted GitHub bug report about this installation and a run
+(by default the last one recorded on this computer).
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `run` | `Path \| None` | `None` | `--run` | Report on this run: a result manifest (*.manifest.json), a run log (*.log) or its *.provenance.json (default: the last run). |
+| `last_failed` | `bool` | `False` | `--last-failed` | Report on the last failed run instead of the last run. |
+| `title` | `str \| None` | `None` | `--title` | Issue title (default: the command and its exit code; the error goes in the body). |
+| `description` | `str \| None` | `None` | `--description` | What you did and what went wrong, for the 'What happened?' field. |
+| `log_lines` | `int` | `40` | `--log-lines` | Log lines to include, from the end (default: 40). |
+| `max_url_length` | `int` | `8000` | `--max-url-length` | Longest link to produce; diagnostics are shortened to fit (default: 8000; at least 1000). |
+| `outdir` | `Path \| None` | `None` | `--outdir`, `-o` | Folder to save the full report in (default: 'reports' in the per-user data folder). |
+
+### `api.support.reports_directory() -> Path`
+
+Where reports are saved by default: `reports` in the state directory
+(the `state_directory` setting, else `state` in the data folder).
+
+### `api.support.issue_url(report: IssueReport, *, max_length: int = 8000) -> str`
+
+The new-issue link for `report` after editing its `title`,
+`description` or `link_diagnostics` (`dataclasses.replace`); the
+diagnostics are cut at a line if the link would exceed `max_length`.
+
+### `api.support.save_issue_report(report: IssueReport, directory: Path | None = None) -> Path`
+
+Save the full redacted report (`report.body`) as Markdown in
+`directory` (default: `reports` in the per-user data folder).
+
+### `api.support.open_issue(report: IssueReport) -> bool`
+
+Open `report.url` in the browser; False when no browser could start.
+Only call this after the user has seen the report and agreed.
+
+### `api.support.IssueReport`
+
+A redacted bug report, ready to show the user and open on GitHub.
+
+`diagnostics` is the full redacted text, saved locally by
+`save`; `link_diagnostics` is what fits in `url` (see
+`truncated`). Edit `title`, `description` or `link_diagnostics`
+with `dataclasses.replace` and call `issue_url` for a new link.
+
+- `body`: The whole issue as Markdown, as saved in the diagnostics file.
+- `save`: Write `body` to `directory/file_name` (readable only by the user).

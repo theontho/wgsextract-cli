@@ -28,7 +28,7 @@ from wgsextract_cli.api._params import (  # noqa: E402
 )
 
 OUTPUT = ROOT / "docs" / "api.md"
-GROUPS = (api.info, api.vcf, api.lineage, api.microarray)
+GROUPS = (api.info, api.vcf, api.lineage, api.microarray, api.support)
 RUNTIME = (api.ProgressEvent, api.ProgressCallback, api.CancelToken, api.CommandFailed)
 
 
@@ -107,7 +107,14 @@ def group_section(module: ModuleType) -> Iterator[str]:
     yield docstring(module)
     yield ""
     for function in defined_in(module, inspect.isfunction):
-        cls = typing.get_type_hints(function)["params"]
+        cls = typing.get_type_hints(function).get("params")
+        if cls is None:
+            signature = str(inspect.signature(function)).replace("'", "")
+            yield f"### `api.{short}.{function.__name__}{signature}`"
+            yield ""
+            yield docstring(function)
+            yield ""
+            continue
         yield f"### `api.{short}.{function.__name__}({cls.__name__})`"
         yield ""
         yield f"CLI: `wgsextract {cls.COMMAND}`."
@@ -118,6 +125,14 @@ def group_section(module: ModuleType) -> Iterator[str]:
         yield ""
         yield from field_table(cls)
         yield ""
+    for name in getattr(module, "__all__", ()):
+        obj = getattr(module, name)
+        if inspect.isclass(obj) and getattr(obj, "__module__", None) != module.__name__:
+            yield f"### `api.{short}.{name}`"
+            yield ""
+            yield docstring(obj)
+            yield ""
+            yield from members(obj)
 
 
 def runtime_section() -> Iterator[str]:
@@ -137,17 +152,22 @@ def runtime_section() -> Iterator[str]:
         yield ""
         yield docstring(obj)
         yield ""
-        methods = [
-            (name, member)
-            for name, member in vars(obj).items()
-            if not name.startswith("_")
-            and (inspect.isfunction(member) or isinstance(member, property))
-            and inspect.getdoc(member)
-        ]
-        for name, member in methods:
-            yield f"- `{name}`: {' '.join(docstring(member).split())}"
-        if methods:
-            yield ""
+        yield from members(obj)
+
+
+def members(obj: type) -> Iterator[str]:
+    """A bullet per documented public method or property of ``obj``."""
+    methods = [
+        (name, member)
+        for name, member in vars(obj).items()
+        if not name.startswith("_")
+        and (inspect.isfunction(member) or isinstance(member, property))
+        and inspect.getdoc(member)
+    ]
+    for name, member in methods:
+        yield f"- `{name}`: {' '.join(docstring(member).split())}"
+    if methods:
+        yield ""
 
 
 def render() -> str:

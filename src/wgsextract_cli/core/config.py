@@ -51,6 +51,11 @@ KNOWN_SETTINGS = {
         None,
         "Opt-in directory for unique persistent DEBUG run logs and provenance",
     ),
+    "state_directory": (
+        None,
+        "Folder for the last-run record and saved bug reports (report-issue); "
+        "default: state/ in the data folder",
+    ),
     "keep_awake": (False, "Best-effort sleep inhibition while commands run (opt-in)"),
     "haplogrep_executable": (None, "Path to haplogrep executable"),
     "jar_directory": (None, "Directory for JAR tools"),
@@ -202,6 +207,7 @@ FRACTION_SETTINGS = frozenset(
 
 PATH_SETTINGS = {
     "log_dir",
+    "state_directory",
     "temp_directory",
     "input_path",
     "output_directory",
