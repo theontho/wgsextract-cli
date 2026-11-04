@@ -187,6 +187,43 @@ def test_fastq_extraction_avoids_dev_null_and_system_temp(tmp_path, monkeypatch)
     assert collate_cmd[1] == "collate" and "-f" not in collate_cmd
 
 
+@needs_tools("samtools")
+@pytest.mark.parametrize("mode", ["files", "files-se", "stream"])
+def test_paired_extraction_warns_about_reads_it_leaves_out(tmp_path, caplog, mode):
+    from tests.htslib_helpers import sam_to_bam
+    from wgsextract_cli.commands._extract_helpers import paired_fastq_stream
+    from wgsextract_cli.core.utils import run_pipeline
+
+    read = "\t*\t0\t0\t*\t*\t0\t0\tACGT\tIIII"
+    bam = sam_to_bam(
+        [
+            "@HD\tVN:1.6\tSO:unsorted",
+            f"p\t77{read}",
+            f"p\t141{read}",
+            f"se\t4{read}",
+            f"both\t205{read}",
+        ],  # fmt: skip
+        tmp_path / "x.bam",
+    )
+    se = tmp_path / "se.fq"
+    common = {"threads": "1", "memory": "100M", "temp_parent": tmp_path}
+    if mode == "stream":
+        with (
+            paired_fastq_stream(bam, **common) as stages,
+            (tmp_path / "pairs.fq").open("wb") as pairs,
+        ):
+            run_pipeline(stages, stdout=pairs)
+    else:
+        alignments_to_fastq(
+            bam, tmp_path / "r1.fq", tmp_path / "r2.fq",
+            out_other=se if mode == "files-se" else None, **common,
+        )  # fmt: skip
+    if mode == "files-se":
+        assert se.read_text().count("\n") == 8 and "neither" not in caplog.text
+    else:
+        assert "2 primary reads flagged neither first nor second" in caplog.text
+
+
 def test_collate_buckets_fit_the_memory_budget(tmp_path):
     from wgsextract_cli.commands._extract_helpers import _collate_buckets
 

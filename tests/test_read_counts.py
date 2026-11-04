@@ -1,5 +1,6 @@
 import gzip
 import random
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -62,6 +63,28 @@ def test_alignment_length_sampling_bounds_unpaired_input_scanning(tmp_path):
     records.append("tail\t77\t*\t0\t0\t*\t*\t0\t0\tAAAA\tIIII")
     source = sam_to_bam(records, tmp_path / "unpaired.bam")
     assert read_counts.alignment_read_length(source) is None
+
+
+@needs_tools("samtools")
+@pytest.mark.parametrize("indexed", [False, True])
+def test_unpaired_sample_checks_the_start_and_the_unmapped_tail(tmp_path, indexed):
+    records = ["@HD\tVN:1.6\tSO:coordinate", "@SQ\tSN:c\tLN:1000"]
+    for i in range(5):
+        records += [
+            f"p{i}\t99\tc\t{i + 1}\t60\t4M\t=\t{i + 101}\t104\tACGT\tIIII",
+            f"p{i}\t355\tc\t{i + 1}\t0\t4M\t=\t{i + 101}\t104\tACGT\tIIII",
+        ]
+    records += [f"p{i}\t147\tc\t{i + 101}\t60\t4M\t=\t{i + 1}\t-104\tACGT\tIIII"
+                for i in range(5)]  # fmt: skip
+    records += ["both\t205\t*\t0\t0\t*\t*\t0\t0\tACGT\tIIII",
+                "se\t4\t*\t0\t0\t*\t*\t0\t0\tACGT\tIIII"]  # fmt: skip
+    bam = sam_to_bam(records, tmp_path / "x.bam")
+    if not indexed:
+        Path(f"{bam}.bai").unlink()
+    sample = read_counts.unpaired_sample(bam, limit=4)
+    # The first four primary records are paired; only the indexed tail is seen.
+    assert sample == ((6, 2, "both") if indexed else (4, 0, None))
+    assert read_counts.unpaired_sample(bam, limit=100) == (12, 2, "both")
 
 
 @pytest.mark.parametrize("compressed", [False, True])

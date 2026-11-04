@@ -1,12 +1,14 @@
-"""Bounded FASTQ sampling for alignment resource estimates, not validation."""
+"""Bounded FASTQ and alignment sampling for resource estimates and preflights."""
 
+import contextlib
 import logging
 import math
 import stat
 import subprocess
 import zlib
+from collections.abc import Iterator
 from pathlib import Path
-from typing import NamedTuple, cast
+from typing import IO, NamedTuple, cast
 
 from wgsextract_cli.core.paths import PathInput
 
@@ -55,6 +57,31 @@ def _bam_record_bytes(fields: list[bytes]) -> int:
     return qname + 4 * cigar_ops + (sequence + 1) // 2 + sequence + aux
 
 
+@contextlib.contextmanager
+def _sam_lines(command: list[str]) -> Iterator[IO[bytes]]:
+    """A samtools view's SAM output, stopped once the caller has read enough."""
+    from wgsextract_cli.core.process_registry import proc_registry
+    from wgsextract_cli.core.utils import popen
+
+    process = popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try:
+        assert process.stdout is not None
+        yield process.stdout
+    finally:
+        if process.stdout:
+            process.stdout.close()
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        proc_registry.unregister_process(
+            " ".join(cast(list[str], process.args)), process
+        )
+
+
 def alignment_sample(
     path: PathInput,
     *,
@@ -62,51 +89,70 @@ def alignment_sample(
 ) -> AlignmentSample:
     """Read at most 4096 SAM records / 16 MiB: the mean paired primary read
     length and the largest BAM record data among all sampled records."""
-    from wgsextract_cli.core.process_registry import proc_registry
-    from wgsextract_cli.core.utils import popen
-
-    command = [
-        "samtools",
-        "view",
-        *(cram_opt or []),
-        str(path),
-    ]
-    process = None
+    command = ["samtools", "view", *(cram_opt or []), str(path)]
     try:
-        process = popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        assert process.stdout is not None
-        scanned = records = bases = consumed = largest = 0
-        while scanned < 4096 and consumed < _DECODED_SAMPLE_BYTES:
-            line = process.stdout.readline(_DECODED_SAMPLE_BYTES - consumed)
-            if not line or not line.endswith(b"\n"):
-                break
-            consumed += len(line)
-            scanned += 1
-            fields = line.split(b"\t")
-            if len(fields) < 11:
-                continue
-            largest = max(largest, _bam_record_bytes(fields))
-            if int(fields[1]) & 0x901 == 1 and fields[9] != b"*":
-                bases += len(fields[9])
-                records += 1
+        with _sam_lines(command) as stdout:
+            scanned = records = bases = consumed = largest = 0
+            while scanned < 4096 and consumed < _DECODED_SAMPLE_BYTES:
+                line = stdout.readline(_DECODED_SAMPLE_BYTES - consumed)
+                if not line or not line.endswith(b"\n"):
+                    break
+                consumed += len(line)
+                scanned += 1
+                fields = line.split(b"\t")
+                if len(fields) < 11:
+                    continue
+                largest = max(largest, _bam_record_bytes(fields))
+                if int(fields[1]) & 0x901 == 1 and fields[9] != b"*":
+                    bases += len(fields[9])
+                    records += 1
         return AlignmentSample(bases / records if records else None, largest or None)
     except (OSError, subprocess.SubprocessError, ValueError):
         logging.debug("Could not sample alignment records: %s", path, exc_info=True)
         return AlignmentSample(None, None)
-    finally:
-        if process is not None:
-            if process.stdout:
-                process.stdout.close()
-            if process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait()
-            proc_registry.unregister_process(
-                " ".join(cast(list[str], process.args)), process
-            )
+
+
+class UnpairedSample(NamedTuple):
+    records: int
+    unpaired: int
+    example: str | None
+
+
+def unpaired_sample(
+    path: PathInput,
+    *,
+    cram_opt: list[str] | None = None,
+    limit: int = 10_000,
+) -> UnpairedSample:
+    """Primary records that paired FASTQ extraction would drop, in a sample.
+
+    ``samtools fastq`` sends a primary record to READ1 or READ2 only if exactly
+    one of those flags is set; the rest (READ_OTHER: single-end reads, flag 0
+    or 4) never reach the -1/-2 outputs. Samples the first ``limit`` primary
+    records and, when indexed, the first ``limit`` unplaced unmapped ones (a
+    cheap seek). Coordinate-sorted input mixes read groups from its first
+    records, so this misses only rare READ_OTHER records or ones concatenated
+    after the sampled ones in unsorted input.
+    """
+    from wgsextract_cli.core.samtools_commands import alignment_index
+
+    view = ["samtools", "view", "-F", "0x900", *(cram_opt or []), str(path)]
+    records = unpaired = 0
+    example = None
+    for region in [[], *([["*"]] if alignment_index(path) else [])]:
+        if region and records < limit:
+            break  # the first pass read the whole file
+        try:
+            with _sam_lines(view + region) as stdout:
+                for _, line in zip(range(limit), stdout, strict=False):
+                    name, flag, _rest = line.split(b"\t", 2)
+                    records += 1
+                    if int(flag) & 0xC0 not in (0x40, 0x80):
+                        unpaired += 1
+                        example = example or name.decode(errors="replace")
+        except (OSError, subprocess.SubprocessError, ValueError):
+            logging.debug("Could not sample read pairing: %s", path, exc_info=True)
+    return UnpairedSample(records, unpaired, example)
 
 
 def alignment_read_length(

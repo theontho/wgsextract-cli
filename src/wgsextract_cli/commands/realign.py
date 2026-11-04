@@ -33,6 +33,7 @@ from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.read_counts import (
     alignment_sample,
     fastq_input_statistics,
+    unpaired_sample,
 )
 from wgsextract_cli.core.reference_assets import (
     find_fasta_by_signature,
@@ -248,6 +249,21 @@ def _input_cram_reference(args: argparse.Namespace) -> list[str]:
     return ["-T", fasta]
 
 
+def _refuse_unpaired_reads(path: str, cram_opt: list[str]) -> None:
+    """Paired extraction drops single-end reads; refuse rather than lose them."""
+    sample = unpaired_sample(path, cram_opt=cram_opt)
+    if sample.unpaired:
+        raise WGSExtractError(
+            f"{sample.unpaired:,} of {sample.records:,} sampled primary reads in "
+            f"{path} (e.g. {sample.example}) are single-end: flagged neither first "
+            "nor second of a pair. realign extracts paired reads and would drop "
+            "them. Extract all reads with 'wgsextract bam unalign --r1 R1.fastq.gz "
+            "--r2 R2.fastq.gz --se SE.fastq.gz' and align SE.fastq.gz (and any "
+            "pairs) with 'wgsextract align', or pass --platform for ONT or Ultima "
+            "reads."
+        )
+
+
 def run(args: argparse.Namespace) -> None:
     if not args.input:
         raise WGSExtractError(
@@ -380,14 +396,16 @@ def run(args: argparse.Namespace) -> None:
     )
     read_length = statistics.read_length if statistics is not None else None
     additional_ram_bytes = 0
-    cram_opt = None
-    if streaming:
+    cram_opt: list[str] = []
+    if need_extract:
         verify_dependencies(["samtools"])
         cram_opt = (
             input_cram_opt
             if input_cram_opt is not None
             else _input_cram_reference(args)
         )
+        _refuse_unpaired_reads(args.input, cram_opt)
+    if streaming:
         sample = alignment_sample(args.input, cram_opt=cram_opt)
         read_length = sample.read_length
         # One collate bucket is resident while BWA maps; reserve it alongside.
@@ -563,7 +581,7 @@ def run(args: argparse.Namespace) -> None:
                 threads=threads,
                 memory=memory,
                 temp_parent=outdir,
-                cram_opt=_input_cram_reference(args),
+                cram_opt=cram_opt,
                 heartbeat=True,
                 expected_reads=reads,
             )

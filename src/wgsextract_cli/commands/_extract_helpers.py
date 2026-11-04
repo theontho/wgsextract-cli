@@ -297,6 +297,21 @@ def _fastq_stages(
     return [view, collate, fastq]
 
 
+def _warn_unpaired(other: Path) -> None:
+    """Warn about READ_OTHER records ``samtools fastq`` wrote to ``other``."""
+    import gzip
+
+    if not other.exists():
+        return
+    with gzip.open(other, "rb") as reads:
+        count = sum(1 for _ in reads) // 4
+    if count:
+        logging.warning(
+            f"{count:,} primary reads flagged neither first nor second of a pair "
+            "(single-end) were left out of the paired FASTQ."
+        )
+
+
 @contextlib.contextmanager
 def paired_fastq_stream(
     input_path: PathInput,
@@ -310,6 +325,7 @@ def paired_fastq_stream(
     with tempfile.TemporaryDirectory(
         dir=configured_temp_directory() or temp_parent, prefix=".collate_"
     ) as tmp:
+        other = Path(tmp, "other.fastq.gz")
         yield _fastq_stages(
             input_path,
             "-",
@@ -318,9 +334,10 @@ def paired_fastq_stream(
             memory=memory,
             temporary=tmp,
             singletons=devnull,
-            out_other=devnull,
+            out_other=other,
             cram_opt=cram_opt,
         )
+        _warn_unpaired(other)
 
 
 def alignments_to_fastq(
@@ -346,7 +363,8 @@ def alignments_to_fastq(
     aligners that estimate insert sizes per batch. Temp files go under
     ``temp_parent`` (the output directory) because a whole genome needs far more
     space than the system temp dir usually has. Singletons are discarded unless
-    ``out_singletons`` is given; READ_OTHER reads go to ``out_other`` if given.
+    ``out_singletons`` is given; READ_OTHER reads go to ``out_other`` if given,
+    else are discarded with a warning.
     """
     with (
         cleanup_files(
@@ -386,10 +404,12 @@ def alignments_to_fastq(
                 singletons=staged_singletons or Path(tmp, "singletons.fastq"),
                 cram_opt=cram_opt,
                 region=region,
-                out_other=staged_other,
+                out_other=staged_other or Path(tmp, "other.fastq.gz"),
             ),
             stdout=subprocess.DEVNULL,
             description="FASTQ extraction",
             heartbeat=heartbeat,
             expected_reads=expected_reads,
         )
+        if not staged_other:
+            _warn_unpaired(Path(tmp, "other.fastq.gz"))

@@ -12,7 +12,7 @@ from wgsextract_cli.commands import realign
 from wgsextract_cli.core import alignment_memory
 from wgsextract_cli.core.alignment_memory import MappingMemory
 from wgsextract_cli.core.config import settings
-from wgsextract_cli.core.read_counts import AlignmentSample
+from wgsextract_cli.core.read_counts import AlignmentSample, UnpairedSample
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 FRAG = 300
@@ -201,6 +201,9 @@ class _Fakes:
         monkeypatch.setattr(realign.align_cmd, "align_bwa", self.stream)
         monkeypatch.setattr(
             realign, "alignment_sample", lambda *_a, **_k: AlignmentSample(100, 400)
+        )
+        monkeypatch.setattr(
+            realign, "unpaired_sample", lambda *_a, **_k: UnpairedSample(2, 0, None)
         )
         monkeypatch.setattr(realign.align_cmd, "available_memory", lambda: 1024**4)
         monkeypatch.setattr(realign, "available_memory", lambda: 1024**4)
@@ -407,10 +410,9 @@ def test_paired_stream_body_matches_files_including_discarded_reads(
         fields = records[0].split("\t")
         fields[1] = str(int(fields[1]) | flag)
         extra.append("\t".join(fields))
-    for name, flag in (("singleton", 73), ("other", 0)):
-        extra.append(
-            f"{name}\t{flag}\told1\t1\t60\t100M\t*\t0\t0\t{genome[:100]}\t{'I' * 100}"
-        )
+    extra.append(
+        f"singleton\t73\told1\t1\t60\t100M\t*\t0\t0\t{genome[:100]}\t{'I' * 100}"
+    )
     source = sam_to_bam(
         [*_view("view", "-H", source).splitlines(), *records, *extra],
         tmp_path / "old" / "filtered.bam",
@@ -445,11 +447,36 @@ def test_paired_stream_body_matches_files_including_discarded_reads(
     body = _view("view", stream)
     assert body == _view("view", files)
     assert len(body.splitlines()) == pairs * 2
-    assert not any(name in body for name in ("singleton", "other"))
+    assert "singleton" not in body
     assert "-p " in _view("view", "-H", stream)
     assert ".fastq.gz" in _view("view", "-H", files)
     assert not list((tmp_path / "stream").glob("*.fastq.gz"))
     assert not list((tmp_path / "stream").glob(".collate_*"))
+
+
+@needs_tools("bwa", "samtools")
+@pytest.mark.parametrize("keep_fastq", [False, True], ids=["stream", "files"])
+def test_single_end_reads_are_refused_before_extraction(
+    tmp_path, genome_and_ref, monkeypatch, keep_fastq
+):
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 8 * 1024**3)
+    monkeypatch.setattr(
+        realign.align_cmd, "streaming_mapping_fits", lambda *_a, **_kw: True
+    )
+    genome, ref = genome_and_ref
+    lines = ["@HD\tVN:1.6\tSO:unsorted", f"@SQ\tSN:old1\tLN:{len(genome)}"]
+    for i, flag in enumerate((0, 4, 0)):
+        seq = genome[i * 100 : i * 100 + 100] if flag == 0 else "A" * 100
+        pos = (i * 100 + 1, "100M") if flag == 0 else (0, "*")
+        rname = "old1" if flag == 0 else "*"
+        lines.append(
+            f"se{i}\t{flag}\t{rname}\t{pos[0]}\t60\t{pos[1]}\t*\t0\t0\t{seq}\t{'I' * 100}"
+        )
+    source = sam_to_bam(lines, tmp_path / "old" / "single.bam")
+    outdir = tmp_path / "out"
+    with pytest.raises(WGSExtractError, match=r"3 of 3 sampled .* \(e\.g\. se0\)"):
+        realign.run(_args(source, ref=ref, outdir=str(outdir), keep_fastq=keep_fastq))
+    assert list(outdir.iterdir()) == []
 
 
 @needs_tools("bwa", "samtools")
