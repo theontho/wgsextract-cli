@@ -576,7 +576,7 @@ def test_parallel_microarray_vcf_concat_uses_natural_chromosome_order(tmp_path):
             return self._result
 
     class FakeExecutor:
-        def __init__(self, max_workers):
+        def __init__(self, max_workers, **_pool_options):
             self.max_workers = max_workers
 
         def __enter__(self):

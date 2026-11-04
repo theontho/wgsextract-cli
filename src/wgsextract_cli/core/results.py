@@ -671,7 +671,7 @@ def stdout_reserved() -> Iterator[TextIO]:
     dropped."""
     out, err = sys.stdout, sys.stderr
     if out is None:
-        with open(os.devnull, "w", encoding="utf-8") as sink:
+        with open(os.devnull, "w", encoding="utf-8", newline="\n") as sink:
             yield sink
         return
     out.flush()

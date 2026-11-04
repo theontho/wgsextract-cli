@@ -9,7 +9,7 @@ import logging
 import os
 import types
 import typing
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import MISSING, dataclass
 from pathlib import Path
 from typing import Any, ClassVar, Literal, TypeVar
@@ -199,14 +199,15 @@ def param_fields(cls: type[Params]) -> tuple[ParamField, ...]:
     return result
 
 
-def with_config_defaults(params: P) -> P:
-    """Fill ``None`` fields that have a ``config_key`` from config.toml."""
+def with_config_defaults(params: P, keep: Collection[str] = ()) -> P:
+    """Fill ``None`` fields that have a ``config_key`` from config.toml, except
+    the fields named in ``keep``."""
     from wgsextract_cli.core.config import settings
 
     updates: dict[str, Any] = {}
     for item in param_fields(type(params)):
         key = item.spec.config_key
-        if not key or getattr(params, item.name) is not None:
+        if not key or item.name in keep or getattr(params, item.name) is not None:
             continue
         value = settings.get(key)
         if value is not None and item.spec.cli_type is not None:

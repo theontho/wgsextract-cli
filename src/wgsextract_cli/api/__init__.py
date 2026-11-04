@@ -17,6 +17,9 @@ human-readable text is suppressed and external tools' stdout goes to stderr.
 Stdout itself is left alone, so the caller's own writes (including from a
 progress callback or other threads) still reach it, e.g. a stdio JSON-RPC server.
 
+Unset fields with a config.toml setting take it, as on the CLI. The user's
+config.toml is loaded on the first call; ``use_config(path)`` selects another.
+
 The CLI is built on this layer: each migrated command's options are generated
 from its Params fields, so the API and ``--help`` cannot drift.
 
@@ -48,6 +51,7 @@ from ._runtime import (
     CommandFailed,
     ProgressCallback,
     ProgressEvent,
+    use_config,
 )
 from .info import CalculateCoverageParams, ChipParams, CoverageSampleParams, InfoParams
 from .lineage import MtHaplogroupParams, YHaplogroupParams, YStrParams
@@ -81,5 +85,6 @@ __all__ = [
     "json_schema",
     "lineage",
     "microarray",
+    "use_config",
     "vcf",
 ]

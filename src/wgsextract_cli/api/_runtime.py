@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import threading
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, TypeVar
@@ -124,6 +125,16 @@ _context = _Context()
 _LOCK = threading.RLock()
 
 
+def _reset_in_child() -> None:
+    # A forked worker (a process pool) must not call the caller's progress
+    # callback or cancel a copy of its token; the parent does both.
+    _context.progress = _context.cancel = None
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_in_child)
+
+
 def report(stage: str, message: str = "", fraction: float | None = None) -> None:
     """Send a progress event to the running operation's callback, if any."""
     callback = _context.progress
@@ -145,6 +156,7 @@ def _before_tool(command: Sequence[str]) -> None:
     checkpoint()
     if command:
         report("tool", f"Running {Path(command[0]).name}.")
+        checkpoint()  # the callback may have cancelled
 
 
 def cancel_event() -> CancelToken | None:
@@ -164,9 +176,24 @@ def _context_of(
         _context.progress, _context.cancel = previous
 
 
-def run_inline(params: P, impl: Callable[[P], None]) -> None:
-    """Run ``impl`` inside the caller's active result (the CLI's dispatch)."""
-    impl(with_config_defaults(params))
+def run_inline(
+    params: P, impl: Callable[[P], None], explicit: Collection[str] = ()
+) -> None:
+    """Run ``impl`` inside the caller's active result (the CLI's dispatch).
+
+    ``explicit`` names fields the user set, which config must not override even
+    when their value is None (``--threads auto``)."""
+    impl(with_config_defaults(params, keep=explicit))
+
+
+def use_config(path: str | os.PathLike[str] | None = None) -> None:
+    """Read settings for later calls from ``path``, or from the user's
+    config.toml when None. Raises ``WGSExtractError`` for an invalid file."""
+    from wgsextract_cli.core.config import reload_settings, set_config_path
+
+    with _LOCK:
+        set_config_path(path)
+        reload_settings()
 
 
 def execute(
@@ -186,20 +213,23 @@ def execute(
     operation raises ``CommandFailed`` carrying the result; without it the
     result is returned with ``status`` and ``error`` set. The manifest is
     written next to the outputs as the CLI does, unless ``write_manifest`` is
-    false. ``KeyboardInterrupt`` propagates.
+    false. ``KeyboardInterrupt`` propagates, after the operation's tools are
+    stopped. config.toml is loaded on the first call unless the host already
+    loaded or selected one (see ``use_config``).
     """
     from wgsextract_cli.core.atomic_output import atomic_output_mode
-    from wgsextract_cli.core.config import settings
+    from wgsextract_cli.core.config import ensure_settings_loaded, settings
     from wgsextract_cli.core.process_registry import proc_registry
     from wgsextract_cli.core.run_log import tool_hook
     from wgsextract_cli.core.temp_directory import run_temporary_directory
     from wgsextract_cli.core.utils import child_stdout_to_stderr
 
     with _LOCK:
+        ensure_settings_loaded()
         params = with_config_defaults(params)
         result = CommandResult(command=params.COMMAND)
         result.provenance.params = params.to_dict()
-        unregister = cancel.on_cancel(proc_registry.cleanup) if cancel else None
+        unregister = cancel.on_cancel(proc_registry.cancel) if cancel else None
         error: BaseException | None = None
         with (
             child_stdout_to_stderr(),
@@ -218,6 +248,9 @@ def execute(
                     impl(params)
                 checkpoint()
                 report("finish", params.COMMAND, 1.0)
+            except KeyboardInterrupt:
+                proc_registry.cleanup()
+                raise
             except (Exception, SystemExit) as e:
                 error = e
                 if cancel is not None and cancel.cancelled:
@@ -228,6 +261,7 @@ def execute(
             finally:
                 if unregister is not None:
                     unregister()
+                proc_registry.accept_new()
         result.finalize(probe_tools=True)
         if write_manifest:
             try:

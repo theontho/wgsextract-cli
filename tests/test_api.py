@@ -2,7 +2,9 @@
 
 import argparse
 import json
+import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -14,7 +16,8 @@ from wgsextract_cli import api
 from wgsextract_cli.api._params import from_namespace, to_namespace
 from wgsextract_cli.core import results
 from wgsextract_cli.core.config import settings
-from wgsextract_cli.core.utils import child_stdout_to_stderr, run_command
+from wgsextract_cli.core.process_registry import cancel_on_event, proc_registry
+from wgsextract_cli.core.utils import child_stdout_to_stderr, popen, run_command
 
 CLI_ROOT = Path(__file__).resolve().parents[1]
 FAKE_DIR = CLI_ROOT / "out" / "fake_30x"
@@ -185,6 +188,8 @@ def test_cancel_while_tools_run(fake_data, tmp_path):
         check=False,
     )
     assert (result.status, result.exit_code) == ("cancelled", 130)
+    # Cancelled from the tool's own progress event, so the tool never started.
+    assert not result.provenance.tools
 
 
 def test_progress_output_reaches_stdout_but_tools_do_not(fake_data, tmp_path, capfd):
@@ -216,6 +221,96 @@ def test_runs_without_stdout_or_stderr(fake_data, tmp_path, monkeypatch):
     with results.stdout_reserved() as real:
         print("dropped")
         real.write("dropped too")
+
+
+def test_explicit_auto_threads_beat_config(monkeypatch):
+    """`--threads auto` (None) must not be replaced by config cpu_threads."""
+    from wgsextract_cli.api._cli import cli_handler
+
+    monkeypatch.setitem(settings, "cpu_threads", 4)
+    seen: list[api.VcfSnpParams] = []
+    handler = cli_handler(api.VcfSnpParams, seen.append)
+    for typed, expected in (({"threads"}, None), (set(), 4)):
+        args = argparse.Namespace(input="x.bam", threads=None, _explicit_dests=typed)
+        handler(args)
+        assert seen.pop().threads == expected
+
+
+def test_config_is_loaded_on_first_call(monkeypatch, tmp_path):
+    from wgsextract_cli.core import config
+
+    path = tmp_path / "config.toml"
+    path.write_text("cpu_threads = 3\n")
+    monkeypatch.setattr(config, "_config_path_override", path)
+    monkeypatch.setattr(config, "_settings_loaded", False)
+    saved = dict(settings)
+    settings.clear()
+    try:
+        api.info.chip(api.ChipParams(list_revisions=True))
+        assert settings["cpu_threads"] == 3
+    finally:
+        settings.clear()
+        settings.update(saved)
+
+
+def test_tools_started_after_cancel_are_stopped():
+    proc_registry.cancel()
+    try:
+        process = popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        assert process.wait(timeout=10) != 0
+    finally:
+        proc_registry.accept_new()
+    process = popen([sys.executable, "-c", "pass"])
+    assert process.wait(timeout=10) == 0
+
+
+def test_cancel_on_event_stops_a_pool_workers_tools():
+    import threading
+
+    event = threading.Event()
+    cancel_on_event(event)
+    process = popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        event.set()
+        assert process.wait(timeout=10) != 0
+    finally:
+        proc_registry.accept_new()
+
+
+def _child_context() -> tuple[bool, bool]:
+    from wgsextract_cli.api import _runtime
+
+    return _runtime._context.progress is None, _runtime._context.cancel is None
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="needs fork")
+def test_forked_workers_do_not_inherit_the_callers_context():
+    import multiprocessing
+
+    from wgsextract_cli.api import _runtime
+
+    _runtime._context.progress = lambda event: None
+    _runtime._context.cancel = api.CancelToken()
+    try:
+        with multiprocessing.get_context("fork").Pool(1) as pool:
+            assert pool.apply(_child_context) == (True, True)
+    finally:
+        _runtime._context.progress = _runtime._context.cancel = None
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX sessions")
+def test_interrupted_run_command_stops_its_tool(monkeypatch):
+    started: list[subprocess.Popen[str]] = []
+
+    def interrupted(self, *args, **kwargs):
+        started.append(self)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(subprocess.Popen, "communicate", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        run_command([sys.executable, "-c", "import time; time.sleep(60)"])
+    monkeypatch.undo()
+    assert started[0].wait(timeout=10) != 0
 
 
 def test_vcf_snp_on_chrm(fake_data, tmp_path):

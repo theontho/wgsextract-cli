@@ -17,10 +17,15 @@ class ProcessRegistry:
         # Reentrant: signal handlers run cleanup() on the main thread, possibly
         # while that thread is already inside register/unregister.
         self._lock = threading.RLock()
+        self._refusing = False
 
     def register_process(self, key: str, process: subprocess.Popen[Any]) -> None:
         with self._lock:
             self.processes.setdefault(key, set()).add(process)
+            refusing = self._refusing
+        if refusing:
+            # Started after cancel(): it raced the cleanup, so stop it now.
+            terminate_trees([process])
 
     def unregister_process(self, key: str, process: subprocess.Popen[Any]) -> None:
         with self._lock:
@@ -31,6 +36,18 @@ class ProcessRegistry:
             if not processes:
                 del self.processes[key]
 
+    def cancel(self) -> None:
+        """Terminate every registered process, and any registered until
+        ``accept_new()``."""
+        with self._lock:
+            self._refusing = True
+        self.cleanup()
+
+    def accept_new(self) -> None:
+        """Let processes run again after ``cancel()``."""
+        with self._lock:
+            self._refusing = False
+
     def cleanup(self) -> None:
         """Terminate registered process trees, escalating Unix groups to SIGKILL."""
         with self._lock:
@@ -38,47 +55,52 @@ class ProcessRegistry:
                 proc for processes in self.processes.values() for proc in processes
             ]
             self.processes.clear()
-        if not all_processes:
-            return
+        terminate_trees(all_processes)
 
-        for proc in all_processes:
-            if proc.poll() is None:
-                try:
-                    if sys.platform == "win32":
-                        # CTRL_BREAK can exit the launcher while Java descendants
-                        # keep running, losing the root needed by taskkill /T.
-                        result = subprocess.run(
-                            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                            capture_output=True,
-                            timeout=10,
-                            check=False,
-                        )
-                        if result.returncode:
-                            logging.warning(
-                                "Process tree %s could not be terminated "
-                                "(taskkill exit %s).",
-                                proc.pid,
-                                result.returncode,
-                            )
-                    else:
-                        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                except (OSError, subprocess.TimeoutExpired):
-                    log = logging.warning if sys.platform == "win32" else logging.debug
-                    log("Process %s could not be terminated.", proc.pid, exc_info=True)
 
-        time.sleep(0.5)
+def terminate_trees(processes: list[subprocess.Popen[Any]]) -> None:
+    """Terminate these processes' trees, escalating Unix groups to SIGKILL."""
+    if not processes:
+        return
 
-        for proc in all_processes:
-            if proc.poll() is None:
-                try:
-                    if sys.platform == "win32":
-                        proc.kill()
-                    else:
-                        os.killpg(os.getpgid(proc.pid), getattr(signal, "SIGKILL", 9))
-                except OSError:
-                    logging.debug(
-                        "Process %s could not be killed.", proc.pid, exc_info=True
+    for proc in processes:
+        if proc.poll() is None:
+            try:
+                if sys.platform == "win32":
+                    # CTRL_BREAK can exit the launcher while Java descendants
+                    # keep running, losing the root needed by taskkill /T.
+                    result = subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                        capture_output=True,
+                        timeout=10,
+                        check=False,
                     )
+                    if result.returncode:
+                        logging.warning(
+                            "Process tree %s could not be terminated "
+                            "(taskkill exit %s).",
+                            proc.pid,
+                            result.returncode,
+                        )
+                else:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except (OSError, subprocess.TimeoutExpired):
+                log = logging.warning if sys.platform == "win32" else logging.debug
+                log("Process %s could not be terminated.", proc.pid, exc_info=True)
+
+    time.sleep(0.5)
+
+    for proc in processes:
+        if proc.poll() is None:
+            try:
+                if sys.platform == "win32":
+                    proc.kill()
+                else:
+                    os.killpg(os.getpgid(proc.pid), getattr(signal, "SIGKILL", 9))
+            except OSError:
+                logging.debug(
+                    "Process %s could not be killed.", proc.pid, exc_info=True
+                )
 
 
 proc_registry = ProcessRegistry()
@@ -96,3 +118,14 @@ def process_group_kwargs() -> dict[str, Any]:
     if sys.platform == "win32":
         return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
     return {"start_new_session": True}
+
+
+def cancel_on_event(event: Any) -> None:
+    """Process-pool initializer: when ``event`` (a multiprocessing Event) is
+    set, cancel this worker's tools, so cancelling the parent stops them."""
+
+    def watch() -> None:
+        event.wait()
+        proc_registry.cancel()
+
+    threading.Thread(target=watch, daemon=True).start()

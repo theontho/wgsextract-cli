@@ -64,7 +64,9 @@ def cli_handler(
 
     def handler(args: argparse.Namespace) -> None:
         options = {name: getattr(args, dest, False) for name, dest in render.items()}
-        run_inline(from_namespace(cls, args), lambda p: impl(p, **options))
+        typed: set[str] = getattr(args, "_explicit_dests", set())
+        explicit = {item.name for item in param_fields(cls) if item.dest in typed}
+        run_inline(from_namespace(cls, args), lambda p: impl(p, **options), explicit)
 
     handler.__module__ = impl.__module__
     handler.__name__ = handler.__qualname__ = f"cli_{cls.__name__}"

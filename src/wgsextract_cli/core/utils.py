@@ -23,6 +23,7 @@ from wgsextract_cli.core.process_registry import (
 from wgsextract_cli.core.process_registry import (
     proc_registry,
     process_group_kwargs,
+    terminate_trees,
 )
 from wgsextract_cli.core.progress import Heartbeat
 from wgsextract_cli.core.resource_policy import (
@@ -348,6 +349,9 @@ def run_command(
     except KeyboardInterrupt:
         if sys.platform == "win32":
             cleanup_processes()
+        else:
+            # The tool runs in its own session, so Ctrl-C did not reach it.
+            terminate_trees([process])
         raise
     finally:
         proc_registry.unregister_process(cmd_str, process)
