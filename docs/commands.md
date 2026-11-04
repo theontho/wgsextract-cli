@@ -34,10 +34,10 @@ Commands are grouped by tier. The core tier is the usual path, in order: check a
 | `vcf revel` | Annotate VCF with REVEL pathogenicity scores. | revel_annotated.vcf.gz (+ .tbi) | `wgsextract vcf revel --vcf-input sample.vcf.gz` |
 | `vcf gnomad` | Annotate VCF with gnomAD population frequencies. | gnomad_annotated.vcf.gz (+ .tbi) | `wgsextract vcf gnomad --vcf-input sample.vcf.gz --max-af 0.01` |
 | `vcf pharmgkb` | Annotate VCF with PharmGKB drug metabolism data. | pharmgkb_annotated.vcf.gz (+ .tbi) | `wgsextract vcf pharmgkb --vcf-input sample.vcf.gz` |
-| `vep` | Predict what each variant does to genes, with Ensembl VEP. | Same as 'vep run'. | `wgsextract vep --vcf-input sample.vcf.gz` |
+| `vep` | Predict what each variant does to genes, with Ensembl VEP. | Same as 'vep run'. | `wgsextract vep --input sample.vcf.gz` |
 | `vep download` | Download the VEP cache (standard GRCh37/38) to your local machine for faster, offline annotation. | Into the VEP cache directory (vep_cache, or --vep-cache). | `wgsextract vep download --assembly GRCh38` |
 | `vep verify` | Check your existing VEP cache for missing files or corruption. | Prints what is missing or damaged; writes no files. | `wgsextract vep verify --assembly GRCh38` |
-| `vep run` | Ensembl Variant Effect Predictor. | &lt;input stem>_vep.vcf.gz (or .tsv/.json with --format), with VEP's summary. | `wgsextract vep run --vcf-input sample.vcf.gz` |
+| `vep run` | Ensembl Variant Effect Predictor. | &lt;input stem>_vep.vcf.gz (or .tsv/.json with --format), with VEP's summary. | `wgsextract vep run --input sample.vcf.gz` |
 
 ## Setup
 

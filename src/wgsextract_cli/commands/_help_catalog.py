@@ -232,12 +232,12 @@ COMMAND_HELP: dict[str, CommandHelp] = {
     # vep
     "vep": _h(
         "Same as 'vep run'.",
-        f"wgsextract vep {_VCF_IN}",
+        "wgsextract vep --input sample.vcf.gz",
     ),
     "vep run": _h(
         "<input stem>_vep.vcf.gz (or .tsv/.json with --format), with VEP's summary.",
-        f"wgsextract vep run {_VCF_IN}",
-        f"wgsextract vep run {_VCF_IN} --assembly GRCh37 --format tab",
+        "wgsextract vep run --input sample.vcf.gz",
+        "wgsextract vep run --input sample.vcf.gz --assembly GRCh37 --format tab",
     ),
     "vep download": _h(
         "Into the VEP cache directory (vep_cache, or --vep-cache).",
