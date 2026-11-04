@@ -6,6 +6,8 @@ from argparse import Namespace
 from pathlib import Path
 from urllib.parse import urlparse
 
+import tomli_w
+
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.download_progress import curl_progress_args, redact_urls
 from wgsextract_cli.core.genome_library import GENOME_CONFIG_NAME
@@ -220,7 +222,9 @@ def cmd_download(args: Namespace) -> None:
         hint = (
             ""
             if library and Path(library).expanduser().resolve() == root
-            else f" after setting genome_library = {str(root)!r} in config.toml"
+            else " after setting "
+            + tomli_w.dumps({"genome_library": str(root)}).strip()
+            + " in config.toml"
         )
         logging.info(
             f"Installed {example.label}. Use --genome "

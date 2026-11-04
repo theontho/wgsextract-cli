@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+import tomllib
 
 from wgsextract_cli.cli import bootstrap, parser
 from wgsextract_cli.commands import _deps_status, examples
@@ -504,6 +505,31 @@ def test_example_download_force_discards_existing(tmp_path, monkeypatch):
 
     assert calls == [None] * len(destinations)
     assert [d.read_bytes() for d in destinations] == [b"rest"] * len(destinations)
+
+
+@pytest.mark.parametrize("configured", [False, True])
+def test_example_download_says_how_to_select_it_with_genome(
+    tmp_path, monkeypatch, caplog, configured
+):
+    monkeypatch.setattr(examples.shutil, "which", lambda _name: "/usr/bin/curl")
+    monkeypatch.setattr(examples, "download_file", _fake_http_download([]))
+    root = tmp_path / "it's lib"
+    root.mkdir()
+    config.settings["genome_library"] = str(root) if configured else None
+
+    with caplog.at_level(logging.INFO):
+        examples.cmd_download(_download_args(root, force=False))
+
+    use = "Use --genome test-1000genomes/phase3-chrmt-vcf"
+    message = next(r.getMessage() for r in caplog.records if use in r.getMessage())
+    hint = message.split(use, 1)[1]
+    if configured:
+        assert hint == ""
+    else:
+        assignment = hint.removeprefix(" after setting ").removesuffix(
+            " in config.toml"
+        )
+        assert tomllib.loads(assignment) == {"genome_library": str(root.resolve())}
 
 
 @pytest.mark.parametrize(
