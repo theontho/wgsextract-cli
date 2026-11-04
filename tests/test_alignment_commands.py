@@ -1,3 +1,4 @@
+import math
 import os
 import shutil
 import subprocess
@@ -198,25 +199,56 @@ def test_collate_buckets_fit_the_memory_budget(tmp_path):
     assert _collate_buckets(str(tmp_path / "missing.bam"), "1", "1G") == 64
 
 
-def test_streaming_collate_caps_overlap_independently_of_sort_memory(tmp_path):
+def test_streamed_collate_orders_pairs_like_file_extraction(tmp_path):
     from wgsextract_cli.commands._extract_helpers import (
-        STREAM_COLLATE_MEMORY_LIMIT,
         _collate_buckets,
-        collate_working_memory,
+        _fastq_stages,
         paired_fastq_stream,
     )
 
     bam = tmp_path / "large.bam"
     with bam.open("wb") as output:
         output.truncate(5 * 1024**3)
-    legacy = _collate_buckets(bam, "8", "2G")
-    with paired_fastq_stream(
-        bam, threads="8", memory="2G", temp_parent=tmp_path
-    ) as stages:
-        collate = stages[1]
-        buckets = int(collate[collate.index("-n") + 1])
-    assert legacy < buckets <= 200
-    assert collate_working_memory(bam, "8", "2G") <= STREAM_COLLATE_MEMORY_LIMIT
+    for threads, memory in (("8", "2G"), ("2", "512M"), ("1", "100M")):
+        files = _fastq_stages(
+            bam, "r1", "r2", threads=threads, memory=memory, temporary="t",
+            singletons="s",
+        )  # fmt: skip
+        with paired_fastq_stream(
+            bam, threads=threads, memory=memory, temp_parent=tmp_path
+        ) as stages:
+            stream = stages[1]
+        # Collate's output order depends on its bucket count.
+        assert stream[stream.index("-n") + 1] == files[1][files[1].index("-n") + 1]
+        assert stream[stream.index("-n") + 1] == str(
+            _collate_buckets(bam, threads, memory)
+        )
+
+
+def test_collate_working_memory_holds_the_largest_bucket_of_records(tmp_path):
+    from wgsextract_cli.commands._extract_helpers import collate_working_memory
+
+    bam = tmp_path / "x.bam"
+    with bam.open("wb") as output:
+        output.truncate(64 * 1024**3)  # 200 buckets at 6 x 1G
+    mib = 1024**2
+    whole_genome = collate_working_memory(
+        bam, "6", "1G", records=800_000_000, max_record_bytes=600
+    )
+    # 4M records per bucket, each in a 1 KiB buffer plus its overhead.
+    assert 4_000_000 * 1152 < whole_genome - 64 * mib < 4_020_000 * 1152
+    assert collate_working_memory(
+        bam, "6", "1G", records=800_000_000, max_record_bytes=1025
+    ) > 1.8 * (whole_genome - 64 * mib)
+    assert (
+        collate_working_memory(
+            bam, "6", "1G", records=400_000_000, max_record_bytes=600
+        )
+        < whole_genome
+    )
+    # Without a count or sample: the file-size expansion of one bucket.
+    expected = math.ceil(64 * 1024**3 * 30 / 200) + 64 * mib
+    assert collate_working_memory(bam, "6", "1G") == expected
 
 
 def test_extract_custom_requires_region(tmp_path, monkeypatch):

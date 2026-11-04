@@ -16,7 +16,7 @@ from wgsextract_cli.core.utils import WGSExtractError
 
 @pytest.mark.parametrize(
     "keep, streaming, expected",
-    [(False, False, (6, 9)), (True, False, (10, 5)), (False, True, (6, 8))],
+    [(False, False, (6, 9)), (True, False, (10, 5)), (False, True, (6, 5))],
 )
 def test_realign_preflight_budgets_output_and_staging_volumes_separately(
     tmp_path, monkeypatch, keep, streaming, expected

@@ -332,13 +332,9 @@ def estimate_resources(
         memory_components = dict(zip(mapping._fields, mapping, strict=True))
         if additional_ram_bytes:
             memory_components["collation"] = additional_ram_bytes
-            notes.append("Streamed FASTQ collation overlaps the alignment pipeline.")
-            demands.append(
-                (
-                    temp_dir or output_dir,
-                    "collation_spill",
-                    None if disk_reads is None else disk_reads * SORT_BYTES_PER_READ,
-                )
+            notes.append(
+                "Streamed FASTQ collation overlaps the alignment pipeline; its "
+                "spills drain as the sorter's grow, within the temporary estimate."
             )
         if reads is None:
             notes.append(

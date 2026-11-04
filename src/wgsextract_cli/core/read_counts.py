@@ -20,12 +20,48 @@ class FastqStatistics(NamedTuple):
     read_length: float | None
 
 
-def alignment_read_length(
+class AlignmentSample(NamedTuple):
+    read_length: float | None
+    max_record_bytes: int | None
+
+
+_AUX_FIXED_BYTES = {
+    b"A": 1,
+    b"c": 1,
+    b"C": 1,
+    b"s": 2,
+    b"S": 2,
+    b"i": 4,
+    b"I": 4,
+    b"f": 4,
+}
+
+
+def _bam_record_bytes(fields: list[bytes]) -> int:
+    """Upper bound on a SAM line's BAM variable-length data (htslib l_data)."""
+    sequence = 0 if fields[9] == b"*" else len(fields[9])
+    cigar_ops = sum(fields[5].count(op) for op in b"MIDNSHP=X")
+    aux = 0
+    for tag in fields[11:]:
+        kind, value = tag[3:4], tag[5:].rstrip(b"\r\n")
+        if kind in _AUX_FIXED_BYTES:
+            aux += 3 + _AUX_FIXED_BYTES[kind]
+        elif kind == b"B":
+            aux += 8 + 4 * value.count(b",")
+        else:
+            aux += 4 + len(value)
+    # htslib pads the NUL-terminated name to align the CIGAR on 4 bytes.
+    qname = (len(fields[0]) + 4) & ~3
+    return qname + 4 * cigar_ops + (sequence + 1) // 2 + sequence + aux
+
+
+def alignment_sample(
     path: PathInput,
     *,
     cram_opt: list[str] | None = None,
-) -> float | None:
-    """Read at most 4096 SAM records / 16 MiB, sampling paired primary lengths."""
+) -> AlignmentSample:
+    """Read at most 4096 SAM records / 16 MiB: the mean paired primary read
+    length and the largest BAM record data among all sampled records."""
     from wgsextract_cli.core.process_registry import proc_registry
     from wgsextract_cli.core.utils import popen
 
@@ -39,7 +75,7 @@ def alignment_read_length(
     try:
         process = popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         assert process.stdout is not None
-        scanned = records = bases = consumed = 0
+        scanned = records = bases = consumed = largest = 0
         while scanned < 4096 and consumed < _DECODED_SAMPLE_BYTES:
             line = process.stdout.readline(_DECODED_SAMPLE_BYTES - consumed)
             if not line or not line.endswith(b"\n"):
@@ -47,13 +83,16 @@ def alignment_read_length(
             consumed += len(line)
             scanned += 1
             fields = line.split(b"\t")
-            if len(fields) >= 11 and int(fields[1]) & 0x901 == 1 and fields[9] != b"*":
+            if len(fields) < 11:
+                continue
+            largest = max(largest, _bam_record_bytes(fields))
+            if int(fields[1]) & 0x901 == 1 and fields[9] != b"*":
                 bases += len(fields[9])
                 records += 1
-        return bases / records if records else None
-    except (OSError, subprocess.SubprocessError):
-        logging.debug("Could not sample alignment read length: %s", path, exc_info=True)
-        return None
+        return AlignmentSample(bases / records if records else None, largest or None)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        logging.debug("Could not sample alignment records: %s", path, exc_info=True)
+        return AlignmentSample(None, None)
     finally:
         if process is not None:
             if process.stdout:
@@ -68,6 +107,15 @@ def alignment_read_length(
             proc_registry.unregister_process(
                 " ".join(cast(list[str], process.args)), process
             )
+
+
+def alignment_read_length(
+    path: PathInput,
+    *,
+    cram_opt: list[str] | None = None,
+) -> float | None:
+    """Read at most 4096 SAM records / 16 MiB, sampling paired primary lengths."""
+    return alignment_sample(path, cram_opt=cram_opt).read_length
 
 
 def fastq_statistics(path: PathInput) -> FastqStatistics | None:
