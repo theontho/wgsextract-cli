@@ -268,11 +268,13 @@ def cmd_table(args: argparse.Namespace) -> None:
         header = stream.header
         build = _reference_build(header)
         annotations = ",".join(header.annotations)
+        # A full pass over the VCF, so only when SQLite or Parquet keeps it.
+        keeps_metadata = sqlite_path is not None or args.table_format == "parquet"
         metadata = provenance(
             [input_vcf],
             reference_build=build or "",
             sorted_by="the VCF's record order (chrom, pos)",
-            source_sha256=_sha256(input_vcf) or "",
+            source_sha256=(_sha256(input_vcf) or "") if keeps_metadata else None,
             sample=sample or "",
             region=args.region or "",
             annotations=annotations,

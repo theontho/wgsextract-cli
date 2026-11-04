@@ -415,13 +415,22 @@ def test_vcf_table_region_reads_a_bcf_in_place(annotated_vcf, tmp_path):
 
 
 @needs_htslib
-def test_vcf_table_parquet_holds_the_tsv_rows(annotated_vcf, tmp_path):
+def test_vcf_table_parquet_holds_the_tsv_rows(annotated_vcf, tmp_path, monkeypatch):
     pq = pytest.importorskip("pyarrow.parquet")
+    from wgsextract_cli.commands.vcf import table as table_command
+
+    hashed = []
+    sha256 = table_command._sha256
+    monkeypatch.setattr(
+        table_command, "_sha256", lambda path: hashed.append(path) or sha256(path)
+    )
     for fmt in ("tsv", "parquet"):
         run_wgsextract(
             "vcf", "table", "--vcf-input", annotated_vcf, "--outdir", str(tmp_path),
             "--no-sqlite", "--format", fmt,
         )  # fmt: skip
+        # A TSV alone has nowhere to keep the digest, so the VCF isn't hashed.
+        assert len(hashed) == (fmt == "parquet")
     table = pq.read_table(tmp_path / "sample_variants.parquet")
     assert tuple(table.column_names) == COLUMN_NAMES
     assert table.schema.field("pos").type == "int64"
@@ -433,3 +442,4 @@ def test_vcf_table_parquet_holds_the_tsv_rows(annotated_vcf, tmp_path):
     metadata = table.schema.metadata
     assert metadata[b"input"] == str(Path(annotated_vcf).absolute()).encode()
     assert b"sorted_by" in metadata
+    assert len(metadata[b"source_sha256"]) == 64
