@@ -8,6 +8,7 @@ so, so the command doesn't look like it worked.
 
 import subprocess
 
+from wgsextract_cli.core.cram_counts import cram_read_counts
 from wgsextract_cli.core.paths import PathInput
 from wgsextract_cli.core.results import warn
 from wgsextract_cli.core.samtools_commands import alignment_index
@@ -73,6 +74,36 @@ def bam_has_reads(bam: PathInput) -> bool | None:
     except OSError:
         return None
     return _first_line_or_none(proc)
+
+
+def alignment_record_counts(bam: PathInput) -> dict[str, int]:
+    """Record totals of an indexed BAM/CRAM, read without decoding its reads.
+
+    A BAM's index gives ``mapped_records`` and ``unmapped_records``; a CRAM's
+    container headers give only the ``records`` total (idxstats would decode a
+    whole CRAM). Empty when neither is available.
+    """
+    if not alignment_index(bam):
+        return {}
+    if str(bam).lower().endswith(".cram"):
+        counts = cram_read_counts(bam)
+        return {} if counts is None else {"records": sum(counts.values())}
+    try:
+        res = run_command(
+            ["samtools", "idxstats", str(bam)], capture_output=True, check=False
+        )
+    except OSError:
+        return {}
+    if res.returncode != 0:
+        return {}
+    rows = [line.split("\t") for line in res.stdout.splitlines()]
+    mapped = sum(int(r[2]) for r in rows if len(r) >= 4)
+    unmapped = sum(int(r[3]) for r in rows if len(r) >= 4)
+    return {
+        "records": mapped + unmapped,
+        "mapped_records": mapped,
+        "unmapped_records": unmapped,
+    }
 
 
 def _first_line_or_none(proc: subprocess.Popen[str]) -> bool | None:

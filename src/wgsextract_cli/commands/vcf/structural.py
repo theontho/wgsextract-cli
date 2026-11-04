@@ -14,10 +14,12 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
-from wgsextract_cli.core.output_checks import warn_if_no_variants
+from wgsextract_cli.core.output_checks import vcf_record_count, warn_if_no_variants
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.sequencing import input_platform
 from wgsextract_cli.core.utils import (
+    UsageError,
     WGSExtractError,
     popen,
     run_command,
@@ -28,7 +30,7 @@ from wgsextract_cli.core.variant_files import (
     verify_paths_exist,
 )
 
-from .basic import get_base_args, plain_reference
+from .basic import get_base_args, plain_reference, record_variants
 
 
 def _cram_args(input_path: str, ref: str) -> list[str]:
@@ -170,6 +172,12 @@ def _write_indexed_vcf_from_bcf(out_bcf: str, out_vcf: str) -> None:
             Path(path).unlink()
 
 
+def _record_calls(out_vcf: str, role: str, ref: str, region: str | None) -> None:
+    # A small region can have none; a whole genome can't.
+    count = vcf_record_count(out_vcf) if region else warn_if_no_variants(out_vcf, ref)
+    record_variants(out_vcf, role, count)
+
+
 def cmd_cnv(args: argparse.Namespace) -> None:
     verify_dependencies(["delly", "bcftools", "tabix", "samtools"])
     _threads, outdir, ref, _lib = get_base_args(args)
@@ -195,9 +203,7 @@ def cmd_cnv(args: argparse.Namespace) -> None:
                 f"CNV calling failed with exit code {e.returncode}"
             ) from e
     _write_indexed_vcf_from_bcf(out_bcf, out_vcf)
-    if not args.region:
-        # A small region can have none; a whole genome can't.
-        warn_if_no_variants(out_vcf, ref)
+    _record_calls(out_vcf, "copy_number_variants", ref, args.region)
 
 
 def cmd_sv_pbsv(args: argparse.Namespace) -> None:
@@ -243,8 +249,7 @@ def cmd_sv_pbsv(args: argparse.Namespace) -> None:
             ) from e
         run_command(["bcftools", "view", "-Oz", "-o", out_vcf, raw_vcf])
     ensure_vcf_indexed(out_vcf)
-    if not args.region:
-        warn_if_no_variants(out_vcf, ref)
+    _record_calls(out_vcf, "structural_variants", ref, args.region)
 
 
 def _write_region_bed(region: str, ref: str, bed_path: str) -> None:
@@ -296,8 +301,7 @@ def cmd_sv_sniffles(args: argparse.Namespace) -> None:
             ) from e
         run_command(["bcftools", "view", "-Oz", "-o", out_vcf, raw_vcf])
     ensure_vcf_indexed(out_vcf)
-    if not args.region:
-        warn_if_no_variants(out_vcf, ref)
+    _record_calls(out_vcf, "structural_variants", ref, args.region)
 
 
 def _detected_platform(args: argparse.Namespace) -> str | None:
@@ -320,10 +324,10 @@ def _select_sv_caller(args: argparse.Namespace) -> str:
     ont = getattr(args, "ont", False)
     long_read = getattr(args, "long_read", False)
     if pacbio and ont:
-        raise WGSExtractError("--pacbio and --ont cannot be combined.")
+        raise UsageError("--pacbio and --ont cannot be combined.")
     if (pacbio or ont or long_read) and caller == "delly":
         flag = "--pacbio" if pacbio else "--ont" if ont else "--long-read"
-        raise WGSExtractError(
+        raise UsageError(
             f"{flag} selects a long-read SV caller (pbsv or sniffles) and cannot "
             "be combined with --caller delly."
         )
@@ -364,6 +368,7 @@ def _select_sv_caller(args: argparse.Namespace) -> str:
 
 def cmd_sv(args: argparse.Namespace) -> None:
     args.caller = _select_sv_caller(args)
+    current_result().add_metrics(caller=args.caller)
     if args.caller == "pbsv":
         cmd_sv_pbsv(args)
         return
@@ -390,6 +395,4 @@ def cmd_sv(args: argparse.Namespace) -> None:
                 f"SV calling failed with exit code {e.returncode}"
             ) from e
     _write_indexed_vcf_from_bcf(out_bcf, out_vcf)
-    if not args.region:
-        # A small region can have none; a whole genome can't.
-        warn_if_no_variants(out_vcf, ref)
+    _record_calls(out_vcf, "structural_variants", ref, args.region)

@@ -16,6 +16,7 @@ def register(
         "check", parents=[base_parser], help=CLI_HELP["cmd_check-deps"]
     )
     check_parser.add_argument(
-        "--tool", help="Check for a specific tool and return exit code 1 if missing."
+        "--tool",
+        help="Check for a specific tool; exit code 3 if it is missing.",
     )
     check_parser.set_defaults(func=run)

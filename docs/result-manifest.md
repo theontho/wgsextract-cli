@@ -16,7 +16,8 @@ it instead of parsing log text or guessing output file names.
   `sample_mtDNA.bam.manifest.json`. Multi-output commands such as `microarray`
   name their manifest after the run (`<sample>_microarray.manifest.json`;
   `<vcf>_<sample>_microarray.manifest.json`, with a `sample` metric, for a
-  sample chosen from a multi-sample VCF).
+  sample chosen from a multi-sample VCF). `vcf trio` always writes
+  `trio.manifest.json`, whichever modes ran.
   Report-only commands (`info`, `info chip`, `ref status`) write no file.
   A failed run that registered outputs still writes its manifest, with
   `status: "failed"`. A manifest never replaces this run's `--log-file`; when
@@ -69,13 +70,18 @@ size goes unnoticed. Use `wgsextract sign` for full-file digests.
 | `long_reads` | `info --detailed` | Long-read data; the short-read tools give poor results. |
 | `alt_unaware`, `duplicates_unmarked` | `info`, `vcf snp`/`indel`, `microarray` | The alignment has ALT contigs without ALT-aware mapping, or its duplicates are not marked. |
 | `high_homozygosity`, `low_homozygosity`, `high_no_call_rate` | `microarray` | Genotype statistics outside the expected range. |
-| `no_variants`, `no_reads`, `nothing_annotated` | variant calling, extraction, annotation | An output is empty. |
+| `no_variants`, `no_reads`, `nothing_annotated` | variant calling, alignment, extraction, annotation | An output is empty. |
 | `low_confidence_findings` | `vcf clinvar`, `vcf gnomad --max-af`, `vcf pharmcat`, `analyze` | Some reported calls are low confidence (`count`, `total`, `output`, top `reasons`); see [variant-confidence.md](variant-confidence.md). |
 | `unconfirmed_clinical_findings` | `vcf clinvar`, `analyze` | The sample carries ClinVar pathogenic/likely pathogenic calls (`count`): a technical screen to confirm with an accredited laboratory, not a diagnosis. |
 | `confidence_first_sample_only` | confidence labelling | A multi-sample VCF was judged by its first sample (`sample`). |
 | `sample_female` | Y extraction | Female sample; Y outputs will be empty or noise. |
 | `build_unknown`, `build_unsupported` | microarray, Y haplogroup | The reference build is unknown or unsupported by the tool. |
 | `chip_ambiguous` | `info chip` | Two catalogued revisions match equally well. |
+| `gaps_not_excluded` | `vcf filter --exclude-near-gaps` | The reference or its gap table was not found, so variants near gaps were kept. |
+| `gvcf_reference_missing`, `unconfident_parent_genotypes` | `vcf trio` | A gVCF trio has no `--ref`, so reference blocks count only where they start at a variant; de novo calls rest on a parent's low-quality reference call (`count`, `total`). |
+| `no_indel_scores` | `vcf cadd` | The CADD indel file is missing, so indels are not scored. |
+| `contigs_skipped` | `vcf to-fasta` | VCF contigs absent from the reference were left out (`count`). |
+| `annotation_skipped` | `vcf chain-annotate` | One annotation in the chain was skipped (`annotation`, `reason`). |
 | `ystr_unverified_convention` | `lineage y-str` | Markers use a repeat-count convention the panel has not verified. |
 
 New codes may be added in any release. Consumers should treat unknown codes
@@ -90,6 +96,22 @@ as generic warnings.
 | 2 | Usage error: a missing or invalid option, or an argument-parsing error. |
 | 3 | Missing dependency: a required external tool is absent, will not run, or is too old, including when a command reports it as part of its own failure message. |
 | 128+N | Stopped by signal N (130 for Ctrl-C). |
+
+How refusals are classified:
+
+- **Your option choice is unsupported → 2.** Conflicting flags (`vcf sv
+  --pacbio --ont`, `align --r2` with ONT or pbmm2 reads, `vcf gatk --scatter
+  --gpu`, a `--batch-size` that is not positive), and options this platform
+  cannot honour while the command itself can run: `--gpu` off Linux or without
+  Parabricks, and `--aligner pbmm2` on Windows. Choosing different options
+  fixes the run.
+- **The command or input is unsupported here → 1.** A command with no native
+  build on this platform (for example `vep`, `typing`, `vcf deepvariant` or
+  `vcf sv` on Windows), or an input that needs one (Ultima reads needing
+  GATK). No choice of options would help.
+- **A required tool is missing → 3.** This includes `deps check` when a
+  mandatory tool is missing, and `deps check --tool NAME` when `NAME` is not
+  found. Missing optional tools are reported but keep exit 0.
 
 ## Versioning
 
@@ -109,11 +131,17 @@ is unchanged.
 ## Coverage
 
 These commands record full manifests: `info` (including `--detailed`),
-`info chip`, `info calculate-coverage`, `info coverage-sample`, `ref status`, `vcf snp`, `vcf indel`,
-`vcf annotate`, `vcf freebayes`, `vcf gatk`, `vcf clinvar`, `vcf gnomad`,
-`vcf pharmcat`, every `extract` subcommand,
+`info chip`, `info calculate-coverage`, `info coverage-sample`, `ref status`,
+`align`, `realign`, every `vcf` subcommand, every `extract` subcommand,
 `lineage mt-haplogroup`, `lineage y-haplogroup`, `lineage y-str` and
-`microarray`. Every other command honours `--json` and the exit codes, and
+`microarray`.
+
+`align` and `realign` record the `aligner` and the alignment's `records`; for a
+BAM also `mapped_records` and `unmapped_records` (from the index, without
+decoding reads). CRAM counts come from container headers, which also count
+unmapped reads placed beside their mates, so a CRAM reports `records` only.
+Variant callers and annotators record `variants` per output VCF; filtered
+outputs (`--min-score`, `--max-af`) are separate outputs with their own counts. Every other command honours `--json` and the exit codes, and
 reports its status, inputs and provenance. Its outputs, metrics and warnings
 will be added in later releases ([#345](https://github.com/theontho/wgsextract-cli/issues/345)).
 

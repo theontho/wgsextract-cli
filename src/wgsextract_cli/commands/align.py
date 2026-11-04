@@ -23,6 +23,7 @@ from wgsextract_cli.core.dependency_checks import (
 from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.native_support import require_native_tool
+from wgsextract_cli.core.output_checks import alignment_record_counts
 from wgsextract_cli.core.paths import absolute_path, java_local_path
 from wgsextract_cli.core.read_counts import fastq_input_statistics
 from wgsextract_cli.core.reference_assets import is_fasta_path
@@ -31,6 +32,7 @@ from wgsextract_cli.core.resource_estimates import (
     estimate_resources,
     preflight_resources,
 )
+from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.samtools_commands import parse_memory
 from wgsextract_cli.core.sequencing import input_platform
 from wgsextract_cli.core.temp_directory import configured_temp_directory
@@ -407,6 +409,21 @@ def _prepare_alignment(
     return _AlignSetup(threads, memory, outdir, resolved_ref, stem)
 
 
+def record_alignment(out_path: str, aligner: str, ref: str) -> None:
+    """Register an aligner's BAM/CRAM and its record counts on the result."""
+    counts = alignment_record_counts(out_path)
+    result = current_result()
+    result.set_reference(ref)
+    result.add_output(out_path, "alignment", metrics=dict(counts))
+    result.add_metrics(aligner=aligner, **counts)
+    if counts.get("records") == 0:
+        warn(
+            "no_reads",
+            f"{out_path} has no reads: check that the input reads are not empty.",
+            path=os.path.abspath(out_path),
+        )
+
+
 def ensure_bwa_index(ref: str) -> None:
     from wgsextract_cli.core.bwa_index import ensure_index
 
@@ -705,6 +722,7 @@ def align_bwa(
         )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"{tool} alignment failed: {e}") from e
+    record_alignment(out_bam, tool, setup.ref)
 
 
 # Ultima's duplicate marking (Picard MarkDuplicates in flow mode, as in Ultima's
@@ -795,6 +813,7 @@ def align_ultima(
             )
         except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             raise WGSExtractError(f"{tool} alignment failed: {e}") from e
+    record_alignment(out_path, tool, setup.ref)
 
 
 def _ultima_read_group(args: argparse.Namespace, stem: str, tagged: bool) -> str:
@@ -922,7 +941,7 @@ def _align_gpu_minimap2(args: argparse.Namespace, preset: str) -> None:
     from wgsextract_cli.core.parabricks import host_path, verify_parabricks
 
     if args.r2:
-        raise WGSExtractError("Long-read alignment takes single-end input; drop --r2.")
+        raise UsageError("Long-read alignment takes single-end input; drop --r2.")
     setup = _prepare_alignment(args, ["samtools"], "GPU long-read alignment")
     verify_parabricks()
     reads = host_path(args.r1)
@@ -1034,6 +1053,7 @@ def _gpu_align(
                 Path(path).unlink(missing_ok=True)
     # Parabricks also lists the output's chromosomes beside it.
     Path(pb_out.rsplit(".", 1)[0] + "_chrs.txt").unlink(missing_ok=True)
+    record_alignment(out_path, f"parabricks {tool}", setup.ref)
 
 
 def _minimap2_preset(args: argparse.Namespace) -> str:
@@ -1068,7 +1088,7 @@ def align_minimap2(args: argparse.Namespace) -> None:
     reads = args.r1
     if ont:
         if args.r2:
-            raise WGSExtractError("ONT reads are single-end: drop --r2.")
+            raise UsageError("ONT reads are single-end: drop --r2.")
         # Soft clipping keeps SEQ and the modification coordinates consistent.
         align_cmd += ["-y", "-Y"]
         if reads.lower().endswith((".bam", ".cram", ".sam")):
@@ -1110,6 +1130,7 @@ def align_minimap2(args: argparse.Namespace) -> None:
         )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Minimap2 alignment failed: {e}") from e
+    record_alignment(out_bam, "minimap2", setup.ref)
 
 
 def align_pbmm2(args: argparse.Namespace) -> None:
@@ -1118,11 +1139,11 @@ def align_pbmm2(args: argparse.Namespace) -> None:
             "Native pbmm2's internal sorter does not support --tmp-dir. Use --aligner minimap2 or omit the temporary-directory setting."
         )
     if args.r2:
-        raise WGSExtractError(
+        raise UsageError(
             "PacBio alignment expects single-end BAM/FASTQ input; do not pass --r2."
         )
     if args.format == "CRAM":
-        raise WGSExtractError(
+        raise UsageError(
             "pbmm2 writes sorted BAM. Convert to CRAM with 'bam to-cram' after alignment."
         )
     setup = _prepare_alignment(args, ["pbmm2", "samtools"], "PacBio alignment")
@@ -1156,3 +1177,4 @@ def align_pbmm2(args: argparse.Namespace) -> None:
         _index_output(out_bam, threads=setup.threads)
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"PacBio alignment failed: {e}") from e
+    record_alignment(out_bam, "pbmm2", setup.ref)

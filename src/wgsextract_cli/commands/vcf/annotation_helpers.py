@@ -10,9 +10,13 @@ from pathlib import Path
 from wgsextract_cli.core.bgzf import is_bgzf
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.messages import LOG_MESSAGES
-from wgsextract_cli.core.output_checks import warn_if_nothing_annotated
+from wgsextract_cli.core.output_checks import (
+    vcf_record_count,
+    warn_if_nothing_annotated,
+)
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -27,7 +31,7 @@ from wgsextract_cli.core.variant_files import (
     vcf_index_chromosomes,
 )
 
-from .basic import require_vcf_input
+from .basic import record_variants, require_vcf_input
 
 VCF_SUFFIXES = (".vcf", ".vcf.gz", ".vcf.bgz")
 
@@ -248,6 +252,11 @@ def annotate_vcf(
     warn_if_nothing_annotated(ann_out, columns, label)
 
 
+def record_annotated(ann_out: str) -> None:
+    """Register an annotator's annotated VCF and its record count."""
+    record_variants(ann_out, "annotated_vcf", vcf_record_count(ann_out))
+
+
 def run_filter(ann_out: str, out_vcf: str, expr: str, label: str) -> None:
     try:
         with _staged_output(out_vcf) as tmp:
@@ -269,6 +278,7 @@ def run_min_score_filter(
     label: str,
     log_done_key: str,
 ) -> None:
+    record_annotated(ann_out)
     if min_score is None:
         logging.info(LOG_MESSAGES[log_done_key].format(output=ann_out))
         return
@@ -278,4 +288,7 @@ def run_min_score_filter(
         "Filtering for variants with %s score >= %s to %s", label, min_score, path_out
     )
     run_filter(ann_out, path_out, f"{info_field} >= {min_score}", label)
+    count = vcf_record_count(path_out)
+    current_result().add_output(path_out, "filtered_vcf", metrics={"variants": count})
+    current_result().add_metrics(filtered_variants=count)
     logging.info(LOG_MESSAGES[log_done_key].format(output=path_out))

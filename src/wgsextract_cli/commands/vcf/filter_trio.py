@@ -10,9 +10,11 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.output_checks import vcf_record_count
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import n_count_paths, read_fai_lengths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
@@ -27,7 +29,7 @@ from wgsextract_cli.core.variant_files import (
     verify_paths_exist,
 )
 
-from .basic import _select_vcf_input, require_vcf_input
+from .basic import _select_vcf_input, record_variants, require_vcf_input
 from .trio_alignments import (
     CLUSTER_DISTANCE,
     DEFAULT_MIN_DEPTH,
@@ -111,15 +113,17 @@ def cmd_filter(args: argparse.Namespace) -> None:
         if getattr(args, "exclude_near_gaps", False):
             gaps_bed = str(Path(work, "gaps.bed"))
             if not lib.fasta:
-                logging.warning(
-                    "Gap exclusion requested but reference genome not resolved."
+                warn(
+                    "gaps_not_excluded",
+                    "Gap exclusion requested but reference genome not resolved.",
                 )
             elif write_gaps_bed(lib.fasta, gaps_bed):
                 logging.info(f"Excluding variants in reference N runs ({lib.fasta})")
                 exclude_args = ["-T", f"^{gaps_bed}"]
             else:
-                logging.warning(
-                    "Gap exclusion requested but Count Ns output (_nbin.csv) not found."
+                warn(
+                    "gaps_not_excluded",
+                    "Gap exclusion requested but Count Ns output (_nbin.csv) not found.",
                 )
         try:
             run_command(
@@ -132,6 +136,7 @@ def cmd_filter(args: argparse.Namespace) -> None:
             ensure_vcf_indexed(out_vcf)
         except (OSError, subprocess.SubprocessError, RuntimeError) as e:
             raise WGSExtractError(f"VCF filtering failed: {e}") from e
+    record_variants(out_vcf, "filtered_vcf", vcf_record_count(out_vcf))
 
 
 # bcftools genotype classes: "mis" is a missing genotype (a parent with no record
@@ -167,21 +172,25 @@ def trio_sample_indices(p_vcf: str, m_vcf: str, f_vcf: str) -> tuple[int, int, i
 
 
 def _summarize_trio_output(mode: str, out_vcf: str) -> None:
+    """Log the mode's variant (and HIGH impact) counts and record its output."""
+    metrics: dict[str, int | None] = {"variants": None}
     try:
         total = run_command(["bcftools", "view", "-H", out_vcf], capture_output=True)
-        summary = (
-            f"{mode.upper()} results: {total.stdout.count(chr(10))} total variants"
-        )
+        metrics["variants"] = total.stdout.count(chr(10))
+        summary = f"{mode.upper()} results: {metrics['variants']} total variants"
         header = run_command(["bcftools", "view", "-h", out_vcf], capture_output=True)
         if "ID=CSQ," in header.stdout:
             high = run_command(
                 ["bcftools", "view", "-H", "-i", 'CSQ~"HIGH"', out_vcf],
                 capture_output=True,
             )
-            summary += f", {high.stdout.count(chr(10))} HIGH impact"
+            metrics["high_impact"] = high.stdout.count(chr(10))
+            summary += f", {metrics['high_impact']} HIGH impact"
         logging.info(summary)
     except (OSError, subprocess.SubprocessError) as e:
         logging.debug("Could not summarize trio filter output %s: %s", out_vcf, e)
+    current_result().add_output(out_vcf, f"trio_{mode}", metrics=metrics)
+    current_result().add_metrics(**{f"{mode}_variants": metrics["variants"]})
 
 
 def _is_gvcf(vcf: str) -> bool:
@@ -202,9 +211,10 @@ def _gvcf_merge_args(args: argparse.Namespace, vcfs: list[str]) -> list[str]:
         return []
     ref = ReferenceLibrary(getattr(args, "ref", None), None, input_path=vcfs[0]).fasta
     if not ref:
-        logging.warning(
+        warn(
+            "gvcf_reference_missing",
             "The trio includes gVCFs but no reference was found (--ref); their "
-            "reference blocks only count where they start at a variant."
+            "reference blocks only count where they start at a variant.",
         )
         return []
     return ["--gvcf", ref]
@@ -225,6 +235,7 @@ def cmd_trio(args: argparse.Namespace) -> None:
 
     outdir = args.outdir or str(absolute_path(proband).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
+    current_result().set_manifest_stem(Path(outdir, "trio"))
     modes = [args.mode] if args.mode != "all" else list(_TRIO_FILTERS)
 
     alignments = [is_alignment(p) for p in (proband, mother, father)]
@@ -314,11 +325,14 @@ def _warn_if_parental_refs_unconfident(out_vcf: str, m_idx: int, f_idx: int) -> 
     except (OSError, subprocess.SubprocessError, ValueError):
         return  # no GQ to judge by
     if total >= 100 and weak > total // 2:
-        logging.warning(
+        warn(
+            "unconfident_parent_genotypes",
             f"{weak:,} of these {total:,} de novo calls rest on a parent's reference "
             "call with GQ under 20, which doesn't show the parent lacks the variant. "
             "For real de novo calls, give the three BAM/CRAMs instead (--proband, "
-            "--mother, --father): they're genotyped jointly from the reads."
+            "--mother, --father): they're genotyped jointly from the reads.",
+            count=weak,
+            total=total,
         )
 
 
@@ -401,6 +415,8 @@ def _trio_from_alignments(
         threads,
     )
     logging.info(f"Joint trio genotypes: {joint}")
+    current_result().set_reference(lib.fasta, lib.build)
+    current_result().add_output(joint, "trio_joint")
     min_depth = getattr(args, "min_depth", None) or DEFAULT_MIN_DEPTH
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_trio_") as work:
         split = split_multiallelic(joint, str(Path(work, "split.vcf.gz")))
@@ -426,6 +442,10 @@ def _filter_joint_trio(mode: str, split: str, outdir: str, min_depth: int) -> No
     if mode == "denovo":
         isolated_vcf = str(Path(outdir, "trio_denovo_isolated.vcf.gz"))
         isolated, total = write_isolated_denovo(out_vcf, isolated_vcf)
+        current_result().add_output(
+            isolated_vcf, "trio_denovo_isolated", metrics={"variants": isolated}
+        )
+        current_result().add_metrics(denovo_isolated_variants=isolated)
         logging.info(
             f"{isolated:,} of the {total:,} de novo candidates have no other within "
             f"{CLUSTER_DISTANCE:,} bp (clusters are typically misaligned reads in "

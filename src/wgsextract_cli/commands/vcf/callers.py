@@ -22,7 +22,12 @@ from wgsextract_cli.core.resource_estimates import (
     preflight_resources,
 )
 from wgsextract_cli.core.temp_directory import configured_temp_directory
-from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
+from wgsextract_cli.core.utils import (
+    UsageError,
+    WGSExtractError,
+    run_command,
+    run_pipeline,
+)
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 
 from .basic import get_base_args, plain_reference, record_variants
@@ -190,7 +195,7 @@ def cmd_gatk(args: argparse.Namespace) -> None:
     scatter = getattr(args, "scatter", False)
     if getattr(args, "gpu", False):
         if scatter:
-            raise WGSExtractError("GATK --scatter cannot be combined with --gpu.")
+            raise UsageError("GATK --scatter cannot be combined with --gpu.")
         _gatk_gpu(args)
         return
     verify_dependencies(

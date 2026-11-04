@@ -31,8 +31,8 @@ Commands are grouped by tier. The core tier is the usual path, in order: check a
 | `vcf annotate` | Add external metadata (like population frequencies or disease risk) to your VCF file. | annotated.vcf.gz (+ .tbi). | `wgsextract vcf annotate --vcf-input sample.vcf.gz --ann-vcf dbsnp.vcf.gz --cols ID` |
 | `vcf filter` | Filter your results. | filtered.vcf.gz (+ .tbi). | `wgsextract vcf filter --vcf-input sample.vcf.gz --expr 'QUAL>30'` |
 | `vcf clinvar` | Annotate VCF with ClinVar pathogenicity data. | clinvar_annotated.vcf.gz and clinvar_pathogenic.vcf.gz (+ .tbi). | `wgsextract vcf clinvar --vcf-input sample.vcf.gz` |
-| `vcf revel` | Annotate VCF with REVEL pathogenicity scores. | revel_annotated.vcf.gz (+ .tbi) | `wgsextract vcf revel --vcf-input sample.vcf.gz` |
-| `vcf gnomad` | Annotate VCF with gnomAD population frequencies. | gnomad_annotated.vcf.gz (+ .tbi) | `wgsextract vcf gnomad --vcf-input sample.vcf.gz --max-af 0.01` |
+| `vcf revel` | Annotate VCF with REVEL pathogenicity scores. | revel_annotated.vcf.gz (+ .tbi); with --min-score N, also revel_gt_N.vcf.gz. | `wgsextract vcf revel --vcf-input sample.vcf.gz` |
+| `vcf gnomad` | Annotate VCF with gnomAD population frequencies. | gnomad_annotated.vcf.gz (+ .tbi); with --max-af AF, also gnomad_af_lt_AF.vcf.gz and its .confidence.tsv table. | `wgsextract vcf gnomad --vcf-input sample.vcf.gz --max-af 0.01` |
 | `vcf pharmgkb` | Annotate VCF with PharmGKB drug metabolism data. | pharmgkb_annotated.vcf.gz (+ .tbi) | `wgsextract vcf pharmgkb --vcf-input sample.vcf.gz` |
 | `vep` | Predict what each variant does to genes, with Ensembl VEP. | Same as 'vep run'. | `wgsextract vep --input sample.vcf.gz` |
 | `vep download` | Download the VEP cache (standard GRCh37/38) to your local machine for faster, offline annotation. | Into the VEP cache directory (vep_cache, or --vep-cache). | `wgsextract vep download --assembly GRCh38` |
@@ -75,18 +75,18 @@ Commands are grouped by tier. The core tier is the usual path, in order: check a
 | --- | --- | --- | --- |
 | `extract bam-subset` | Create a smaller version of your BAM file using a random fraction of reads (e.g. 0.1 for 10%). | &lt;input stem>_subset.bam (+ .bai). | `wgsextract extract bam-subset --input sample.cram --fraction 0.1` |
 | `vcf to-fasta` | Build your personal consensus genome: the reference FASTA with your variants applied (heterozygous SNVs as IUPAC codes by default), and N where a gVCF has no call. | &lt;input stem>_consensus.fa.gz (+ .fai); with --chain, a .chain file. | `wgsextract vcf to-fasta --vcf-input sample.vcf.gz --ref hs38.fa` |
-| `vcf trio` | Analyze inheritance patterns. | trio_&lt;mode>.vcf.gz (+ .tbi). | `wgsextract vcf trio --proband child.vcf.gz --mother mother.vcf.gz --father father.vcf.gz --mode denovo` |
+| `vcf trio` | Analyze inheritance patterns. | trio_&lt;mode>.vcf.gz (+ .tbi); from alignments, also trio_joint.vcf.gz (and trio_denovo_isolated.vcf.gz for --mode denovo). The manifest is trio.manifest.json. | `wgsextract vcf trio --proband child.vcf.gz --mother mother.vcf.gz --father father.vcf.gz --mode denovo` |
 | `vcf cnv` | Call Copy Number Variants (CNVs) using Delly. | cnv.vcf.gz (+ .tbi). | `wgsextract vcf cnv --input sample.cram` |
 | `vcf sv` | Call Structural Variants (SVs) using Delly for short reads, Sniffles for Nanopore (ONT, auto-detected) or other long reads, or pbsv/Sniffles for PacBio. | sv.vcf.gz (Delly), pbsv.vcf.gz or sniffles.vcf.gz (+ .tbi). | `wgsextract vcf sv --input sample.cram` |
 | `vcf freebayes` | A Bayesian genetic variant detector. | freebayes.vcf.gz (+ .tbi). | `wgsextract vcf freebayes --input sample.cram --region chr20` |
 | `vcf gatk` | Industry-standard GATK HaplotypeCaller. | gatk.vcf.gz (+ .tbi). | `wgsextract vcf gatk --input sample.cram` |
 | `vcf deepvariant` | Google's Deep Variant variant caller. | deepvariant.vcf.gz (+ .tbi). | `wgsextract vcf deepvariant --input sample.cram` |
 | `vcf clair3` | Clair3 small-variant caller for Oxford Nanopore reads (optional; Linux x86-64 only, install with `pixi install -e clair3`). | clair3.vcf.gz (+ .tbi). | `wgsextract vcf clair3 --input ont.bam` |
-| `vcf phylop` | Annotate VCF with PhyloP conservation scores. | phylop_annotated.vcf.gz (+ .tbi) | `wgsextract vcf phylop --vcf-input sample.vcf.gz` |
-| `vcf cadd` | Annotate VCF with CADD deleteriousness scores (CADD_RAW, CADD_PHRED). | cadd_annotated.vcf.gz (+ .tbi) | `wgsextract vcf cadd --vcf-input sample.vcf.gz --min-score 20` |
-| `vcf gerp` | Annotate VCF with GERP++ conservation scores (GERP). | gerp_annotated.vcf.gz (+ .tbi) | `wgsextract vcf gerp --vcf-input sample.vcf.gz` |
+| `vcf phylop` | Annotate VCF with PhyloP conservation scores. | phylop_annotated.vcf.gz (+ .tbi); with --min-score N, also phylop_gt_N.vcf.gz. | `wgsextract vcf phylop --vcf-input sample.vcf.gz` |
+| `vcf cadd` | Annotate VCF with CADD deleteriousness scores (CADD_RAW, CADD_PHRED). | cadd_annotated.vcf.gz (+ .tbi); with --min-score N, also cadd_gt_N.vcf.gz. | `wgsextract vcf cadd --vcf-input sample.vcf.gz --min-score 20` |
+| `vcf gerp` | Annotate VCF with GERP++ conservation scores (GERP). | gerp_annotated.vcf.gz (+ .tbi); with --min-score N, also gerp_gt_N.vcf.gz. | `wgsextract vcf gerp --vcf-input sample.vcf.gz` |
 | `vcf spliceai` | Annotate VCF with SpliceAI splicing scores. | spliceai_annotated.vcf.gz (+ .tbi) | `wgsextract vcf spliceai --vcf-input sample.vcf.gz` |
-| `vcf alphamissense` | Annotate VCF with AlphaMissense pathogenicity scores. | alphamissense_annotated.vcf.gz (+ .tbi) | `wgsextract vcf alphamissense --vcf-input sample.vcf.gz` |
+| `vcf alphamissense` | Annotate VCF with AlphaMissense pathogenicity scores. | alphamissense_annotated.vcf.gz (+ .tbi); with --min-score N, also alphamissense_gt_N.vcf.gz. | `wgsextract vcf alphamissense --vcf-input sample.vcf.gz` |
 | `vcf pharmcat` | Call star-allele diplotypes and drug-response phenotypes (CYP2C19, CYP2C9, DPYD, ...) with PharmCAT, and write its prescribing report. | &lt;stem>.report.html and &lt;stem>.phenotype.json from PharmCAT. | `wgsextract vcf pharmcat --vcf-input sample.vcf.gz` |
 | `vcf chain-annotate` | Sequentially apply multiple annotations to a single VCF. | chain_annotated.vcf.gz (+ .tbi). | `wgsextract vcf chain-annotate --vcf-input sample.vcf.gz --annotations clinvar,gnomad` |
 | `bam sort` | Sort alignments by genomic coordinates. | &lt;input stem>_sorted.bam or .cram (+ index). | `wgsextract bam sort --input sample.bam` |
