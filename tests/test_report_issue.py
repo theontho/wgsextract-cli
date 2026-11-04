@@ -76,7 +76,8 @@ def test_failed_run_report_names_the_failure_but_nothing_personal(
     details = json.loads(out)["details"]
     fields = _issue_fields(details["url"])
     assert details["source"] == "last run"
-    assert fields["title"].startswith("info: Invalid alignment input <path>/<file>.bam")
+    assert fields["title"] == "info failed (exit code 1)"
+    assert "Invalid alignment input <path>/<file>.bam" in fields["diagnostics"]
     assert "exit code 1" in fields["diagnostics"]
     assert "--input <path>/<file>.bam" in fields["diagnostics"]
     saved = Path(details["file"]).read_text()
@@ -97,7 +98,7 @@ def test_last_failed_reports_the_failure_after_a_later_success(
     assert report.title == "Problem with 'deps check'"
     assert any("--last-failed" in note for note in report.notes)
     assert failed.source == "last failed run"
-    assert failed.title.startswith("info: Invalid alignment input")
+    assert "Invalid alignment input" in failed.diagnostics
 
 
 @pytest.mark.parametrize(
@@ -233,7 +234,108 @@ def test_sample_names_from_the_input_header_are_redacted(tmp_path: Path) -> None
     )
     report = issue_report.build_report(run=run, probe_tools=lambda used: {})
     assert "Ann_Lee" not in report.url and "Ann_Lee" not in report.diagnostics
-    assert "Unexpected read group for <sample>" in report.title
+    assert "Unexpected read group for <sample>" in report.diagnostics
+
+
+def _report_text(report: issue_report.IssueReport) -> str:
+    return "\n".join((report.url, report.title, report.diagnostics))
+
+
+def test_batch_sample_names_stay_out_of_the_report(
+    capfd: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    batch = tmp_path / "people.csv"
+    batch.write_text(
+        "name,input\nRobin_Roe,/data/missing/a.bam\nKim Lee,/data/missing/b.bam\n"
+    )
+    code, _, err = _cli(
+        capfd,
+        "analyze",
+        "comprehensive",
+        "--batch",
+        str(batch),
+        "--outdir",
+        str(tmp_path / "out"),
+    )
+    assert code != 0 and "Robin_Roe" in err  # the run itself names them
+
+    report = api.support.build_issue_report(api.ReportIssueParams())
+
+    assert report.title.startswith("analyze comprehensive failed (exit code")
+    assert "Batch analysis failed for sample(s): <sample>" in report.diagnostics
+    for leak in ("Robin_Roe", "Robin", "Kim Lee"):
+        assert leak not in _report_text(report), leak
+
+
+@pytest.mark.parametrize(
+    "fmt",
+    [
+        "%(levelname)s %(message)s",  # LogTail
+        "%(asctime)s %(levelname)s %(message)s",  # the run log
+        "[%(asctime)s] %(levelname)s: %(message)s",  # the console, with symbols
+    ],
+)
+def test_data_lines_are_removed_behind_a_log_prefix(fmt: str) -> None:
+    import logging
+
+    from wgsextract_cli.cli.bootstrap import EmojiFormatter
+    from wgsextract_cli.core.last_run import LogTail
+
+    tail = LogTail()
+    tail.setFormatter(
+        EmojiFormatter(fmt, datefmt="%H:%M:%S")
+        if fmt.startswith("[")
+        else logging.Formatter(fmt)
+    )
+    logger = logging.getLogger("test-report-data-lines")
+    logger.addHandler(tail)
+    try:
+        logger.warning("rs4680\t22\t19951271\tAG")
+        logger.warning("rs4680 22 19951271 AG")
+        logger.info("ACGT" * 9)
+        logger.warning("Haplogroup: H16a1")
+        logger.warning("Kept: 3 markers")
+    finally:
+        logger.removeHandler(tail)
+    run = issue_report.RunRecord(
+        "last run", {"command": "microarray"}, list(tail.lines)
+    )
+
+    report = issue_report.build_report(run=run, probe_tools=lambda used: {})
+
+    for leak in ("rs4680", "19951271", "ACGTACGT", "H16a1"):
+        assert leak not in _report_text(report), leak
+    assert report.diagnostics.count("<data line removed>") == 3
+    assert "Kept: 3 markers" in report.diagnostics
+
+
+def test_folder_names_with_spaces_are_replaced_whole() -> None:
+    import logging
+
+    from wgsextract_cli.core.last_run import LogTail
+
+    outdir = "/mnt/Genomes/Doe Family/results 2024"
+    tail = LogTail()
+    logger = logging.getLogger("test-report-folders")
+    logger.addHandler(tail)
+    try:
+        logger.warning(r"Using D:\Genomes\Robert Doe\out")
+        logger.warning(f"Writing to {outdir} now")
+        logger.warning("Saved results 2024 for Doe Family")
+    finally:
+        logger.removeHandler(tail)
+    manifest = {
+        "command": "info",
+        "outputs": [{"path": outdir, "kind": "directory"}],
+        "provenance": {"params": {"outdir": outdir}},
+    }
+    run = issue_report.RunRecord("last run", manifest, list(tail.lines))
+
+    report = issue_report.build_report(run=run, probe_tools=lambda used: {})
+
+    for leak in ("Robert", "Doe", "2024"):
+        assert leak not in _report_text(report), leak
+    assert r"WARNING Using <path>/<name>" in report.diagnostics
 
 
 def test_tool_versions_prefer_what_the_run_used() -> None:

@@ -11,7 +11,9 @@ new-issue link that the user reviews and submits in their own browser.
 
 from __future__ import annotations
 
+import csv
 import getpass
+import itertools
 import json
 import logging
 import os
@@ -94,6 +96,11 @@ _PATH_START = r"(?<![\w.~:/\\>-])(?:[A-Za-z]:[\\/]|\\\\|~[\\/]|/(?=[\w.~<-]))"
 _PATH = re.compile(rf"{_PATH_START}{_PATH_CHARS}*")
 # More words of an unquoted file name with spaces ("C:\Data\Jane Doe WGS.bam"):
 # up to four, without separators, the last ending in a data extension.
+# More words of an unquoted folder name with spaces, up to the next separator:
+# "D:\Genomes\Robert Doe\out" is one path.
+_SPACED_DIR_TAIL = re.compile(
+    r"(?: (?:[^\s'\"`<>|;,()\[\]{}/\\]|<sample>)+){1,4}[\\/]" + _PATH_CHARS + "*"
+)
 _SPACED_NAME_TAIL = re.compile(
     r"(?: (?:[^\s'\"`<>|;,()\[\]{}/\\]|<sample>)+?){1,4}?(?:"
     + "|".join(re.escape(e) for e in _DATA_EXTENSIONS)
@@ -146,6 +153,12 @@ _VARIANT_LINE = re.compile(
     r"|^[ACGTN]{30,}$",
     re.IGNORECASE,
 )
+# What a log handler puts before a message: "INFO ", "2026-01-02 03:04:05,678
+# INFO ", "[03:04:05] ERROR: " or a level symbol.
+_LOG_PREFIX = re.compile(
+    r"^\s*(?:\[?\d{4}-\d\d-\d\d[ T][\d:.,]+\]?\s+|\[\d\d:\d\d:\d\d\]\s+)?"
+    r"(?:(?:DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\b:?|[^\s<]{1,3}:)\s+"
+)
 # Lines that state a genetic result: haplogroups, sex, genotypes, repeat
 # calls and their clinical class. Commands log these, even as warnings.
 _RESULT_LINE = re.compile(
@@ -154,13 +167,21 @@ _RESULT_LINE = re.compile(
     r"|(?<![\w/.|])[01.][/|][01.](?![\w/.|])",
     re.IGNORECASE,
 )
-# Sample names inside messages: "SM:Jane", "samples (Jane, John)",
-# "sample name: Jane", "naming the sample Jane".
+# Sample names inside messages: "SM:Jane", "samples (Jane, John)", "sample
+# name: Jane", "sample(s): Jane, John", "naming the sample Jane", "sample Jane".
+_NOT_A_SAMPLE = (
+    "of|is|was|are|were|be|been|the|a|an|and|or|in|on|at|to|from|with|for|has|had"
+    "|have|not|no|per|by|as|that|this|which|sheet|files?|folders?|csv|tsv|sex"
+    "|counts?|size|reads?|data|names?|ids?|columns?|rows?|level|mode|rate"
+)
 _SAMPLE_MENTION = re.compile(
-    r"(?i)(\bSM:)[^\s,;)]+"
-    r"|(\bsamples?\s*\()[^)]*(?=\))"
-    r"|(\bsamples?(?:[ _](?:names?|ids?))?\s*[:=]\s*)[^\s,;)]+(?:,\s*[^\s,;)]+)*"
+    r"(?i)(\bSM:)(?!<sample>(?:[\s,;)]|$))[^\s,;)]+"
+    r"|(\bsamples?\s*\()(?!s\))[^)]*(?=\))"
+    r"|(\bsamples?(?:\(s\))?(?:[ _](?:names?|ids?))?\s*[:=]\s*)"
+    r"(?!(?:<sample>(?:,\s*|(?=[\s;)]|$)))+(?:[\s;)]|$))[^\s,;)]+(?:,\s*[^\s,;)]+)*"
     r"|(\b(?:naming|named|calling) the sample\s+)[^\s,;.)]+"
+    rf"|(\bsamples?(?:[ _](?:names?|ids?))?\s+)(?!(?:{_NOT_A_SAMPLE})\b|<|\d+\b)"
+    r"['\"]?[^\s,;:)'\"]*[^\s,;:)'\".]['\"]?"
 )
 # Public data servers whose URL paths name public files; other URLs keep only
 # a non-identifying file name, and other servers become <server>.
@@ -331,6 +352,8 @@ class Redactor:
                 or lower in _SAFE_PROGRAMS
                 or lower.endswith(_PROGRAM_EXTENSIONS)
             ):
+                while folder := _SPACED_DIR_TAIL.match(text, end):
+                    end = folder.end()
                 tail = _SPACED_NAME_TAIL.match(text, end)
                 end = tail.end() if tail else end
             pieces += [text[last : match.start()], self.path(text[match.start() : end])]
@@ -345,17 +368,21 @@ class Redactor:
         return value
 
     def _line(self, line: str, *, results: bool = True) -> str:
-        if line.count("\t") >= 3 or _VARIANT_LINE.search(line):
+        # Data checks look at the message, after any log prefix ("INFO ").
+        prefix = _LOG_PREFIX.match(line)
+        lead = prefix[0] if prefix else ""
+        message = line[len(lead) :]
+        if message.count("\t") >= 3 or _VARIANT_LINE.search(message):
             self.counts["data line"] += 1
-            return "<data line removed>"
-        if results and _RESULT_LINE.search(line):
+            return lead + "<data line removed>"
+        if results and _RESULT_LINE.search(message):
             self.counts["genetic result"] += 1
-            return "<line with a genetic result removed>"
+            return lead + "<line with a genetic result removed>"
         line = self._sub(_KNOWN_TOKENS, "<secret>", line, "secret")
         line = _SECRET_ASSIGNMENT.sub(self._secret, line)
-        line = _SAMPLE_MENTION.sub(self._sample_mention, line)
         # Known names first, while a name with spaces is still whole.
         line = self._sensitive_names(line)
+        line = _SAMPLE_MENTION.sub(self._sample_mention, line)
         pieces: list[str] = []
         last = 0
         for match in _URL.finditer(line):
@@ -590,7 +617,6 @@ def _from_provenance(document: Mapping[str, Any]) -> dict[str, Any]:
 def catalog_reference_names() -> set[str]:
     """Stems of the reference genomes in the catalog (``hs38DH``, ``chm13v2.0``):
     file names that are safe to show. A user's own reference names are not."""
-    import csv
     from importlib import resources
 
     names: set[str] = set()
@@ -640,15 +666,113 @@ def header_samples(path: str) -> set[str]:
     return {group["SM"] for group in read_groups(output) if group.get("SM")}
 
 
+# Folder names too common to name a person; replacing them everywhere would
+# garble messages.
+_GENERIC_FOLDERS = frozenset(
+    """
+    home users user mnt media volumes tmp temp var opt usr srv data desktop
+    documents downloads genomes genome reference references ref refs out output
+    outputs results result work scratch src library applications private share
+    local roaming appdata program files program files (x86) .config .local .cache
+    cache logs log state reports bam bams cram crams vcf vcfs fastq raw analysis
+    wgse wgsextract wgsextract-cli
+    """.split()
+    + ["program files", "program files (x86)"]
+)
+
+
+def _path_strings(value: object) -> Iterable[str]:
+    """Strings in a manifest that are local paths (also ``--opt=PATH``)."""
+    if isinstance(value, Mapping):
+        for item in value.values():
+            yield from _path_strings(item)
+    elif isinstance(value, list | tuple):
+        for item in value:
+            yield from _path_strings(item)
+    elif isinstance(value, str) and "\n" not in value and "://" not in value:
+        text = value.partition("=")[2] if value.startswith("-") else value
+        if re.match(r"(?:[A-Za-z]:[\\/]|\\\\|~|\.{0,2}[\\/])", text):
+            yield text
+
+
+def _not_personal_folders() -> set[str]:
+    """Folder names of this installation and the home folder's parents."""
+    from wgsextract_cli.core.runtime import repo_root
+
+    names = set(_GENERIC_FOLDERS)
+    for path in (repo_root(), Path(sys.prefix), Path.home().parent):
+        names |= {part.lower() for part in path.parts}
+    return names
+
+
+def path_components(paths: Iterable[str]) -> set[str]:
+    """Folder (and data file stem) names in ``paths`` that may name a person,
+    whole, so a name with spaces ("Robert Doe") is replaced in one piece."""
+    common = _not_personal_folders()
+    names: set[str] = set()
+    for path in paths:
+        for part in re.split(r"[\\/]", path.strip()):
+            part = part.strip()
+            lower = part.lower()
+            if (
+                len(part) < 3
+                or lower in common
+                or lower in _SAFE_PROGRAMS
+                or lower.endswith(_DATA_EXTENSIONS)
+                or lower.endswith(_PROGRAM_EXTENSIONS)
+                or re.fullmatch(r"[\d\W_]+|[A-Za-z]:|~", part)
+            ):
+                continue
+            names.add(part)
+        if path.lower().endswith(_DATA_EXTENSIONS):
+            names |= file_stems(path)
+    return names
+
+
+def batch_names(path: str) -> set[str]:
+    """Sample names and input files listed in an ``analyze --batch`` file;
+    a batch's errors name its samples."""
+    try:
+        with open(Path(path).expanduser(), newline="", errors="replace") as f:
+            head = f.read(1024)
+            f.seek(0)
+            try:
+                dialect: Any = csv.Sniffer().sniff(head)
+            except csv.Error:
+                dialect = csv.excel
+            rows = list(itertools.islice(csv.reader(f, dialect=dialect), 100_000))
+    except OSError:
+        return set()
+    if not rows:
+        return set()
+    header = [c.strip().lower() for c in rows[0]]
+    names: set[str] = set()
+    for row in rows[1:]:
+        for column, cell in zip(header, row, strict=False):
+            values = [v.strip() for v in re.split(r"[,;]", cell) if v.strip()]
+            if column in ("name", "sample", "id"):
+                names |= set(values)
+            elif column in ("input", "bam", "cram") or "vcf" in column:
+                names |= path_components(values)
+    return names
+
+
 def _sensitive_names(manifest: Mapping[str, Any]) -> tuple[set[str], set[str]]:
-    """Stems that may name a person (inputs, outputs, --genome), and catalog
-    reference stems that are safe to show."""
+    """Names that may identify a person (input and output file stems, every
+    folder of a path the run used, --genome, a batch file's samples), and
+    catalog reference stems that are safe to show."""
+    from wgsextract_cli.core.config import PATH_SETTINGS, settings
+
     sensitive: set[str] = set()
     for record in [*(manifest.get("inputs") or []), *(manifest.get("outputs") or [])]:
         if isinstance(record, Mapping) and record.get("kind") != "directory":
             sensitive |= file_stems(str(record.get("path") or ""))
+    configured = [settings.get(key) for key in sorted(PATH_SETTINGS)]
+    sensitive |= path_components(_path_strings([manifest, configured]))
     provenance = manifest.get("provenance") or {}
     params = provenance.get("params") or {}
+    if isinstance(params.get("batch"), str):
+        sensitive |= batch_names(params["batch"])
     for key in ("input", "vcf_input", "r1", "r2", "mother_vcf", "father_vcf"):
         if isinstance(params.get(key), str):
             sensitive |= file_stems(params[key])
@@ -1027,12 +1151,15 @@ def _run_sections(run: RunRecord, redactor: Redactor) -> tuple[list[str], ...]:
 def _default_title(run: RunRecord | None, redactor: Redactor) -> str:
     if run is None:
         return f"Problem with wgsextract {__version__}"
-    error = (run.manifest.get("error") or {}).get("message")
-    if run.failed and error:
-        first = redactor.text(str(error).strip().splitlines()[0])
-        title = f"{run.command}: {first}"
-    elif run.failed:
-        title = f"{run.command} failed (exit code {run.manifest.get('exit_code')})"
+    # Only the command, exit code and kind of error: the public title is the
+    # likeliest part to be copied around, and a message may quote a name the
+    # redactor doesn't know. The body has the redacted message.
+    if run.failed:
+        kind = str((run.manifest.get("error") or {}).get("kind") or "")
+        kind = kind.replace("_", " ") if re.fullmatch(r"[a-z_]{1,30}", kind) else ""
+        code = f"exit code {run.manifest.get('exit_code')}"
+        detail = f"{code}, {kind}" if kind not in ("", "error", "failure") else code
+        title = f"{run.command} failed ({detail})"
     else:
         title = f"Problem with '{run.command}'"
     return title if len(title) <= 100 else title[:97] + "..."
