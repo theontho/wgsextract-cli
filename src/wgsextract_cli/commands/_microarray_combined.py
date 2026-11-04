@@ -1,5 +1,6 @@
 import argparse
 import contextlib
+import glob
 import gzip
 import logging
 import os
@@ -540,7 +541,8 @@ def record_kit(path: str, fmt: str, tally: GenotypeTally) -> None:
 
 def record_aadr(outdir: str, base_name: str, panel: str) -> None:
     """Register the PLINK/EIGENSTRAT files written for one AADR panel."""
-    for path in sorted(Path(outdir).glob(f"{base_name}_AADR_{panel}.*")):
+    prefix = glob.escape(f"{base_name}_AADR_{panel}")
+    for path in sorted(Path(outdir).glob(f"{prefix}.*")):
         if path.is_file() and not path.name.endswith(MANIFEST_SUFFIX):
             current_result().add_output(path, "aadr", metrics={"panel": panel})
 

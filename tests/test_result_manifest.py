@@ -426,3 +426,14 @@ def test_cli_non_executable_haplogrep_exits_3(tmp_path):
     )
     assert rc == 3, stderr
     assert json.loads(stdout)["error"]["kind"] == "missing_dependency"
+
+
+def test_aadr_outputs_are_matched_literally(tmp_path):
+    from wgsextract_cli.commands._microarray_combined import record_aadr
+
+    for name in ("sample[1]_AADR_1240k.geno", "sample1_AADR_1240k.geno"):
+        (tmp_path / name).write_text("9\n")
+    result = results.CommandResult(command="microarray")
+    with results.collecting(result):
+        record_aadr(str(tmp_path), "sample[1]", "1240k")
+    assert [Path(r.path).name for r in result.outputs] == ["sample[1]_AADR_1240k.geno"]
