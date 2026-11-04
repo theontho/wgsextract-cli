@@ -28,7 +28,12 @@ from wgsextract_cli.core.results import (
     redact_argv,
     warn,
 )
-from wgsextract_cli.core.utils import UsageError, WGSExtractError, popen
+from wgsextract_cli.core.utils import (
+    UsageError,
+    WGSExtractError,
+    popen,
+    run_command,
+)
 from wgsextract_cli.core.variant_files import ensure_vcf_prepared, get_vcf_samples
 from wgsextract_cli.core.variant_table import (
     COLUMN_NAMES,
@@ -219,13 +224,26 @@ def _write_tables(
     return count
 
 
+def _indexed_input(path: str) -> str:
+    """``path`` with a current index, for a region query. A BCF is indexed
+    in place with ``bcftools index`` (CSI); text VCFs go through the usual
+    bgzip + tabix preparation."""
+    if not path.lower().endswith(".bcf"):
+        return ensure_vcf_prepared(path)
+    index = Path(path + ".csi")
+    if not index.exists() or index.stat().st_mtime < Path(path).stat().st_mtime:
+        logging.info(f"Indexing {path}...")
+        run_command(["bcftools", "index", "-f", path])
+    return path
+
+
 def cmd_table(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools"])
     input_vcf = require_vcf_input(args)
     if not Path(input_vcf).is_file():
         raise UsageError(f"VCF not found: {input_vcf}")
     if args.region:
-        input_vcf = ensure_vcf_prepared(input_vcf)  # -r needs an index
+        input_vcf = _indexed_input(input_vcf)  # -r needs an index
     outdir = str(absolute_path(args.outdir or str(Path(input_vcf).parent)))
     Path(outdir).mkdir(parents=True, exist_ok=True)
     samples, sample = _select_sample(input_vcf, args.sample)

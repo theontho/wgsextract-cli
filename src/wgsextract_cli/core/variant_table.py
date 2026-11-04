@@ -288,15 +288,28 @@ def _entries(raw: str | None, names: Sequence[str]) -> list[dict[str, str]]:
 def _for_allele(
     entries: list[dict[str, str]],
     allele_key: str,
-    candidates: set[str],
+    candidates: Sequence[str],
     alt_index: int,
     n_alts: int,
 ) -> list[dict[str, str]]:
-    if n_alts == 1:
-        return entries
-    if entries and "ALLELE_NUM" in entries[0]:
+    """The entries describing one ALT. ``candidates`` are its possible
+    spellings, most specific first: the first that matches anything wins, so
+    VEP's trimmed spelling of one insertion can't also pick up another's.
+
+    A record split from a multi-allelic one (``vcf clinvar``/``gnomad`` split
+    them) keeps every allele's entries and their original ALLELE_NUM, so a
+    biallelic record is matched by spelling unless it only describes one."""
+    if not entries:
+        return []
+    if n_alts > 1 and "ALLELE_NUM" in entries[0]:
         return [e for e in entries if e.get("ALLELE_NUM") == str(alt_index)]
-    return [e for e in entries if e.get(allele_key) in candidates]
+    if n_alts == 1 and len({e.get(allele_key) for e in entries}) == 1:
+        return entries
+    for spelling in dict.fromkeys(candidates):
+        matches = [e for e in entries if e.get(allele_key) == spelling]
+        if matches:
+            return matches
+    return []
 
 
 def zygosity(gt: str | None, alt_index: int) -> str | None:
@@ -389,11 +402,13 @@ def variant_rows(
             continue
         info = _info(info_text)
         gt = sample_depth = gq = None
-        if sample_index is not None and len(fields) > 9 + sample_index:
+        sample_column = None if sample_index is None else 9 + sample_index
+        has_sample = sample_column is not None and len(fields) > sample_column
+        if sample_column is not None and has_sample:
             sample = dict(
                 zip(
                     fields[8].split(":"),
-                    fields[9 + sample_index].split(":"),
+                    fields[sample_column].split(":"),
                     strict=False,
                 )
             )
@@ -414,14 +429,16 @@ def variant_rows(
         for alt_index, alt in enumerate(alts, start=1):
             if alt in _NON_VARIANT_ALTS:
                 continue
-            zyg = zygosity(gt, alt_index) if sample_index is not None else None
+            zyg = None
+            if has_sample:
+                zyg = zygosity(gt, alt_index) or "no_call"
             if carried_only and zyg is not None and zyg not in CARRIED:
                 continue
-            candidates = {alt, vep_allele(ref, alts, alt)}
+            candidates = (vep_allele(ref, alts, alt), alt)
             csq = pick_csq(
                 _for_allele(csq_all, "Allele", candidates, alt_index, len(alts))
             )
-            ann_matches = _for_allele(ann_all, "Allele", {alt}, alt_index, len(alts))
+            ann_matches = _for_allele(ann_all, "Allele", (alt,), alt_index, len(alts))
             # SnpEff lists an allele's effects most severe first.
             ann = ann_matches[0] if ann_matches else None
             pgx = _per_allele(info.get("PHARMGKB"), numbers.get("PHARMGKB"), alt_index)

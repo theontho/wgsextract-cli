@@ -7,7 +7,8 @@ import pytest
 
 from tests.htslib_helpers import bgzip_index, needs_htslib, run_wgsextract
 from wgsextract_cli.core.results import CommandResult, collecting
-from wgsextract_cli.core.variant_table import COLUMN_NAMES
+from wgsextract_cli.core.utils import run_command
+from wgsextract_cli.core.variant_table import COLUMN_NAMES, parse_header, variant_rows
 
 CSQ = (
     "Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|BIOTYPE|HGVSc|"
@@ -19,6 +20,7 @@ ANN = (
 )
 HEADER = f"""##fileformat=VCFv4.2
 ##contig=<ID=chr1,length=248956422>
+##FILTER=<ID=LowQual,Description="Low quality">
 ##INFO=<ID=DP,Number=1,Type=Integer,Description="Depth">
 ##INFO=<ID=END,Number=1,Type=Integer,Description="End">
 ##INFO=<ID=CLNSIG,Number=.,Type=String,Description="ClinVar significance">
@@ -282,3 +284,70 @@ def test_vcf_table_all_alleles_keeps_alleles_the_sample_lacks(annotated_vcf, tmp
         ("300", "G"): "not_carried",
     }
     assert not (tmp_path / "sample_variants.sqlite").exists()
+
+
+def _csq(allele: str, hgvsc: str, allele_num: str = "") -> str:
+    return (
+        f"{allele}|inframe_insertion|MODERATE|GENEB|ENSG2|Transcript|ENST3|"
+        f"protein_coding|{hgvsc}||||||{allele_num}"
+    )
+
+
+def _rows(records: list[str], csq: str = CSQ, **kwargs) -> dict:
+    header = parse_header(
+        HEADER.replace(f"Format: {CSQ}", f"Format: {csq}").splitlines()
+    )
+    rows = (
+        dict(zip(COLUMN_NAMES, row, strict=True))
+        for row in variant_rows(records, header, **kwargs)
+    )
+    return {(str(row["pos"]), row["alt"]): row for row in rows}
+
+
+def test_split_records_take_only_their_own_alleles_csq():
+    # `vcf clinvar` splits A>AAA,AA into two records that both keep every
+    # allele's CSQ entries, with the original ALLELE_NUM.
+    entries = ",".join([_csq("AA", "c.5_6dup", "1"), _csq("A", "c.6dup", "2")])
+    records = [
+        _record("chr1", "200", ".", "A", alt, "40", "PASS", f"CSQ={entries}",
+                "GT", "0/1")
+        for alt in ("AAA", "AA")
+    ]  # fmt: skip
+    rows = _rows(records, CSQ + "|ALLELE_NUM")
+    assert rows[("200", "AAA")]["hgvs_c"] == "c.5_6dup"
+    assert rows[("200", "AA")]["hgvs_c"] == "c.6dup"
+
+
+def test_vep_spelling_wins_over_raw_alt_without_allele_num():
+    # VEP names A>AAA,AA "AA" and "A": the raw spelling of the second ALT
+    # ("AA") must not also pick up the first ALT's entry.
+    entries = ",".join([_csq("AA", "c.5_6dup"), _csq("A", "c.6dup")])
+    record = _record("chr1", "200", ".", "A", "AAA,AA", "40", "PASS",
+                     f"CSQ={entries}", "GT", "1/2")  # fmt: skip
+    rows = _rows([record])
+    assert rows[("200", "AAA")]["hgvs_c"] == "c.5_6dup"
+    assert rows[("200", "AA")]["hgvs_c"] == "c.6dup"
+
+
+@pytest.mark.parametrize("fmt, sample", [("GT", "."), ("DP", "12")])
+def test_missing_genotype_is_a_no_call(fmt, sample):
+    record = _record("chr1", "700", ".", "G", "A", "30", "PASS", ".", fmt, sample)
+    assert _rows([record]) == {}
+    row = _rows([record], carried_only=False)[("700", "A")]
+    assert row["zygosity"] == "no_call"
+    sites_only = _rows([record], sample_index=None)[("700", "A")]
+    assert sites_only["zygosity"] is None
+
+
+@needs_htslib
+def test_vcf_table_region_reads_a_bcf_in_place(annotated_vcf, tmp_path):
+    bcf = tmp_path / "sample.bcf"
+    run_command(["bcftools", "view", "-Ob", "-o", str(bcf), annotated_vcf])
+    run_wgsextract(
+        "vcf", "table", "--vcf-input", str(bcf), "--outdir", str(tmp_path / "o"),
+        "--no-sqlite", "--region", "chr1:300-400",
+    )  # fmt: skip
+    rows = _tsv(tmp_path / "o" / "sample_variants.tsv")
+    assert list(rows) == [("300", "T")]
+    assert (tmp_path / "sample.bcf.csi").exists()
+    assert not (tmp_path / "sample.bcf.gz").exists()
