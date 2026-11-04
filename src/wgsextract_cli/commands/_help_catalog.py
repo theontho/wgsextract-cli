@@ -399,7 +399,8 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         "wgsextract qc multiqc --input fastqc_reports/",
     ),
     "qc vcf": _h(
-        "<input stem>.vcfstats.txt.",
+        "<input file name>.vcfstats.txt (e.g. sample.vcf.gz.vcfstats.txt), in "
+        "--outdir, else beside the input.",
         f"wgsextract qc vcf {_VCF_IN}",
     ),
     "qc fake-data": _h(

@@ -9,6 +9,7 @@ NO_COLOR is set (https://no-color.org), so piped output stays plain.
 
 import argparse
 import difflib
+import functools
 import json
 import os
 import re
@@ -35,6 +36,7 @@ TIER_TITLES = {
     SETUP: "Setup",
     ADVANCED: "Advanced",
 }
+_WINDOWS = os.name == "nt"
 _NAME_WIDTH = 16
 INDEX_WIDTH = 100
 _TOP_ORDER = {command.name: index for index, command in enumerate(COMMAND_TIERS)}
@@ -51,14 +53,42 @@ _TERMS = (
 
 
 def use_color(stream: IO[str] | None = None) -> bool:
-    """Colour only for a terminal, and never with NO_COLOR or TERM=dumb."""
+    """Colour only for a terminal, and never with NO_COLOR or TERM=dumb. On
+    Windows, only if the console accepts ANSI codes (legacy conhost would
+    print them raw)."""
     stream = sys.stdout if stream is None else stream
     if os.environ.get("NO_COLOR") or os.environ.get("TERM") == "dumb":
         return False
     try:
-        return stream.isatty()
+        if not stream.isatty():
+            return False
+        return not _WINDOWS or _enable_windows_vt(stream.fileno())
     except (AttributeError, OSError, ValueError):
         return False
+
+
+@functools.cache
+def _enable_windows_vt(fd: int) -> bool:
+    """Turn on ENABLE_VIRTUAL_TERMINAL_PROCESSING for the console behind fd;
+    False if it isn't a console or refuses the mode."""
+    if sys.platform != "win32":
+        return False
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    enable_vt = 0x0004  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    try:
+        handle = msvcrt.get_osfhandle(fd)
+    except OSError:
+        return False
+    mode = wintypes.DWORD()
+    if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+        return False
+    if mode.value & enable_vt:
+        return True
+    return bool(kernel32.SetConsoleMode(handle, mode.value | enable_vt))
 
 
 def _style(text: str, code: str, color: bool) -> str:

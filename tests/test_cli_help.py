@@ -156,16 +156,31 @@ def test_vcf_help_marks_advanced_subcommands(root):
     assert re.search(r"deepvariant\s+\(advanced\) ", text)
 
 
-def test_colour_only_on_a_terminal_without_no_color(monkeypatch):
-    class Tty(io.StringIO):
-        def isatty(self) -> bool:
-            return True
+class _Tty(io.StringIO):
+    def isatty(self) -> bool:
+        return True
 
+    def fileno(self) -> int:
+        return 1
+
+
+def test_colour_only_on_a_terminal_without_no_color(monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm")
-    assert cli_help.use_color(Tty()) and not cli_help.use_color(io.StringIO())
+    monkeypatch.setattr(cli_help, "_WINDOWS", False)
+    assert cli_help.use_color(_Tty()) and not cli_help.use_color(io.StringIO())
     monkeypatch.setenv("NO_COLOR", "1")
-    assert not cli_help.use_color(Tty())
+    assert not cli_help.use_color(_Tty())
+
+
+def test_no_colour_when_a_windows_console_refuses_ansi(monkeypatch):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm")
+    monkeypatch.setattr(cli_help, "_WINDOWS", True)
+    monkeypatch.setattr(cli_help, "_enable_windows_vt", lambda fd: False)
+    assert not cli_help.use_color(_Tty())
+    monkeypatch.setattr(cli_help, "_enable_windows_vt", lambda fd: True)
+    assert cli_help.use_color(_Tty())
 
 
 def test_piped_help_has_no_colour():
