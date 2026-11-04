@@ -24,6 +24,10 @@ from .._extract_helpers import cleanup_files
 from ..align import reads_stem
 from ..vcf.basic import _select_vcf_input
 
+# The MultiQC modules `qc multiqc` runs: FastQC reports, `bcftools stats` from
+# `qc vcf`, and custom content (the WGS Extract metrics).
+MULTIQC_MODULES = ("fastqc", "bcftools", "custom_content")
+
 
 def cmd_fastp(args: argparse.Namespace) -> None:
     if not args.r1:
@@ -132,9 +136,67 @@ def cmd_fastqc(args: argparse.Namespace) -> None:
         raise WGSExtractError(f"FastQC failed: {e}") from e
 
 
+def cmd_multiqc_metrics(args: argparse.Namespace) -> None:
+    """Write MultiQC custom-content files from result manifests (no MultiQC
+    needed)."""
+    from wgsextract_cli.core import multiqc
+    from wgsextract_cli.core.results import current_result, human_output
+
+    if not args.input:
+        raise UsageError(
+            "--input is required: choose result manifests or a directory of them."
+        )
+    source = absolute_path(args.input)
+    if not source.is_file() and not source.is_dir():
+        raise WGSExtractError(
+            f"--input must be an existing file or directory: {source}."
+        )
+    outdir = (
+        absolute_path(args.outdir)
+        if args.outdir
+        else (source if source.is_dir() else source.parent)
+    )
+    found = multiqc.find_documents(source)
+    if not found:
+        raise WGSExtractError(
+            f"No WGS Extract result manifests (*.manifest.json or saved --json "
+            f"output) found in {source}."
+        )
+    files = multiqc.custom_content(document for _path, document in found)
+    if not files:
+        raise WGSExtractError(
+            f"None of the {len(found)} result manifests in {source} has metrics "
+            "MultiQC can show (info, lineage, microarray or variant calling)."
+        )
+    try:
+        written = multiqc.write_custom_content(files, outdir)
+    except OSError as e:
+        raise WGSExtractError(f"Could not write MultiQC metrics: {e}") from e
+
+    result = current_result()
+    result.set_manifest_stem(outdir / "wgsextract_mqc")
+    for path, _document in found:
+        result.add_input(path, "result_manifest")
+    for path in written:
+        result.add_output(path, "multiqc_custom_content")
+    samples = {
+        sample for content in files.values() for sample in content.get("data", {})
+    }
+    result.add_metrics(manifests=len(found), samples=len(samples), files=len(written))
+    for path in written:
+        human_output(path)
+    logging.info(
+        f"Wrote {len(written)} MultiQC custom-content files for {len(samples)} "
+        f"samples from {len(found)} result manifests."
+    )
+
+
 def cmd_multiqc(args: argparse.Namespace) -> None:
     if not args.input:
-        raise UsageError("--input is required: choose existing FastQC reports.")
+        raise UsageError(
+            "--input is required: choose FastQC reports, bcftools stats or result "
+            "manifests."
+        )
 
     source = absolute_path(args.input)
     if not source.is_file() and not source.is_dir():
@@ -157,9 +219,14 @@ def cmd_multiqc(args: argparse.Namespace) -> None:
 
     verify_dependencies(["multiqc"])
     log_dependency_info(["multiqc"])
+    from wgsextract_cli.core import multiqc
+
+    documents = [document for _path, document in multiqc.find_documents(source)]
     try:
         outdir.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=".multiqc_", dir=outdir) as work:
+            metrics = Path(work, "wgsextract_metrics")
+            multiqc.write_custom_content(multiqc.custom_content(documents), metrics)
             # Home-directory MultiQC configuration can otherwise enable AI uploads.
             config = json.dumps(
                 {
@@ -171,9 +238,11 @@ def cmd_multiqc(args: argparse.Namespace) -> None:
             run_command(
                 [
                     "multiqc",
-                    "--module",
-                    "fastqc",
-                    "--require-logs",
+                    *(
+                        arg
+                        for module in MULTIQC_MODULES
+                        for arg in ("--module", module)
+                    ),
                     "--no-data-dir",
                     "--no-megaqc-upload",
                     "--no-version-check",
@@ -185,13 +254,18 @@ def cmd_multiqc(args: argparse.Namespace) -> None:
                     "--outdir",
                     work,
                     str(source),
+                    str(metrics),
                 ],
                 cwd=work,
                 env={**os.environ, "TMPDIR": work},
             )
             staged = Path(work, report.name)
             if not staged.is_file() or staged.stat().st_size == 0:
-                raise WGSExtractError("MultiQC produced no FastQC report.")
+                raise WGSExtractError(
+                    f"MultiQC failed: it produced no report, finding no FastQC "
+                    f"reports, bcftools stats or WGS Extract result manifests in "
+                    f"{source}."
+                )
             if args.force:
                 os.replace(staged, report)
             else:
