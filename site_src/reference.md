@@ -247,6 +247,11 @@ On Windows, run `pixi run wgsextract deps check` from the checkout; reopen Power
 ### Output files are confusing
 Use a separate `--outdir` per sample or workflow. Keep command logs and reference-build notes beside generated files so you can distinguish raw inputs, intermediate files, final outputs, and exploratory experiments.
 :::
+
+::: card
+### Report a problem
+`wgsextract report-issue` turns the last run's error, warnings and log tail, plus versions, OS, CPU, RAM and tools, into a pre-filled GitHub issue. Names, paths, reads, genotypes and secrets are removed first; you see the report before the browser opens, and you submit it yourself. Add `--last-failed` for the last failed run, or `--print` to only print it.
+:::
 :::
 :::
 :::

@@ -9,6 +9,8 @@ runtime/
 reference_bootstrap/
 reference/
 genomes/
+/state/
+/reports/
 .tmp_home/
 *.log
 *.log.txt

@@ -24,8 +24,9 @@ The CLI is built on this layer: each migrated command's options are generated
 from its Params fields, so the API and ``--help`` cannot drift.
 
 Stability: the names exported here and the group modules (``api.info``,
-``api.vcf``, ``api.lineage``, ``api.microarray``) follow semantic versioning
-from the 1.0 release; adding fields with defaults is not a breaking change.
+``api.vcf``, ``api.lineage``, ``api.microarray``, ``api.support``) follow
+semantic versioning from the 1.0 release; adding fields with defaults is not a
+breaking change.
 Modules whose names start with ``_`` are private and may change at any time.
 See docs/api.md.
 """
@@ -43,7 +44,7 @@ from wgsextract_cli.core.utils import (
     WGSExtractError,
 )
 
-from . import info, lineage, microarray, vcf
+from . import info, lineage, microarray, support, vcf
 from ._params import Params, json_schema
 from ._runtime import (
     Cancelled,
@@ -56,6 +57,7 @@ from ._runtime import (
 from .info import CalculateCoverageParams, ChipParams, CoverageSampleParams, InfoParams
 from .lineage import MtHaplogroupParams, YHaplogroupParams, YStrParams
 from .microarray import MicroarrayParams
+from .support import IssueReport, ReportIssueParams
 from .vcf import VcfIndelParams, VcfSnpParams
 
 __all__ = [
@@ -67,10 +69,12 @@ __all__ = [
     "CoverageSampleParams",
     "FileRecord",
     "InfoParams",
+    "IssueReport",
     "MicroarrayParams",
     "MissingDependencyError",
     "MtHaplogroupParams",
     "Params",
+    "ReportIssueParams",
     "ProgressCallback",
     "ProgressEvent",
     "Result",
@@ -85,6 +89,7 @@ __all__ = [
     "json_schema",
     "lineage",
     "microarray",
+    "support",
     "use_config",
     "vcf",
 ]

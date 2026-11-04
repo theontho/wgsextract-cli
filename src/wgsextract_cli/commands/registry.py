@@ -19,6 +19,7 @@ from . import (
     realign,
     ref,
     repair,
+    report_issue,
     sign,
     vcf,
     vep,
@@ -45,6 +46,7 @@ COMMAND_MODULES: tuple[ModuleType, ...] = (
     sign,
     genotyping,
     methylation,
+    report_issue,
 )
 
 CORE = "core"
@@ -116,6 +118,11 @@ COMMAND_TIERS: tuple[CommandTier, ...] = (
         "example-genome", SETUP, "Download public example genomes to practise on."
     ),
     CommandTier("config", SETUP, "Show the settings in use and the config.toml path."),
+    CommandTier(
+        "report-issue",
+        SETUP,
+        "Report a problem: a redacted, pre-filled GitHub bug report.",
+    ),
     CommandTier("help", SETUP, "List every command, or explain one: 'help vcf snp'."),
     CommandTier("bam", ADVANCED, "Sort, index, convert and merge BAM/CRAM files."),
     CommandTier("qc", ADVANCED, "Read and VCF quality reports; fake test data."),

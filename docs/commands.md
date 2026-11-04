@@ -67,6 +67,7 @@ Commands are grouped by tier. The core tier is the usual path, in order: check a
 | `example-genome list` | List curated 1000 Genomes examples. | Prints the curated examples; writes no files. | `wgsextract example-genome list` |
 | `example-genome download` | Download curated 1000 Genomes examples into the genome library. | Into &lt;genome_library>/test-1000genomes/&lt;example id>/, with a genome config file. | `wgsextract example-genome download na12878-lowcov-bam` |
 | `config` | Show the settings in use and the config.toml path. | Prints the settings; in a terminal, offers to create a default config.toml. | `wgsextract config` |
+| `report-issue` | Report a problem: a redacted, pre-filled GitHub bug report. | Prints a redacted bug report and its GitHub link and saves the report as issue-report-&lt;time>.md in the data folder's reports folder; opens the browser only after you agree or with --open. | `wgsextract report-issue` |
 | `help` | List every command, or explain one: 'help vcf snp'. | Prints to stdout; writes no files. | `wgsextract help --all` |
 
 ## Advanced

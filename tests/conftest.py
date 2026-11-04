@@ -99,6 +99,21 @@ def _isolate_user_config(
 
 
 @pytest.fixture(autouse=True)
+def _isolate_run_state(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Commands record the last run, and report-issue saves reports, in the data
+    folder, which is the source checkout here; keep tests out of it."""
+    root = tmp_path_factory.mktemp("data")
+    monkeypatch.setattr(
+        "wgsextract_cli.core.last_run.state_directory", lambda: root / "state"
+    )
+    monkeypatch.setattr(
+        "wgsextract_cli.api.support.reports_directory", lambda: root / "reports"
+    )
+
+
+@pytest.fixture(autouse=True)
 def _no_segmented_size_probe(monkeypatch: pytest.MonkeyPatch) -> None:
     """download_file asks a server for the file's size (HEAD) before a large
     download; keep tests that mock urlopen off the network. Tests of the

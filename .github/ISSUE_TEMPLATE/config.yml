@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/theontho/wgsextract-cli#readme
+    about: Install, quick start and every command's options.
