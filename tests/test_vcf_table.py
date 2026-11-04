@@ -320,6 +320,35 @@ def test_split_records_take_only_their_own_alleles_csq():
     assert rows[("200", "AA")]["hgvs_c"] == "c.6dup"
 
 
+def test_split_record_never_takes_another_alleles_only_entries():
+    # A>C,G split by `vcf clinvar`; VEP had annotated only C, so the G record
+    # must not inherit C's gene just because every entry names one allele.
+    entries = _csq("C", "c.1A>C")
+    records = [
+        _record("chr1", "300", ".", "A", alt, "40", "PASS",
+                f"CSQ={entries};OLD_MULTIALLELIC=chr1|300|A|C,G|{i}", "GT", "0/1")
+        for i, alt in enumerate(("C", "G"), start=1)
+    ]  # fmt: skip
+    rows = _rows(records)
+    assert rows[("300", "C")]["gene"] == "GENEB"
+    assert rows[("300", "G")]["gene"] is None
+    assert rows[("300", "G")]["hgvs_c"] is None
+
+
+def test_split_record_uses_its_original_allele_num():
+    # The G record is the first (only) ALT of its split record but ALT 2 of
+    # the original, which VEP's ALLELE_NUM counts.
+    entries = ",".join([_csq("C", "c.1A>C", "1"), _csq("G", "c.1A>G", "2")])
+    records = [
+        _record("chr1", "400", ".", "A", alt, "40", "PASS",
+                f"CSQ={entries};OLD_MULTIALLELIC=chr1|400|A|C,G|{i}", "GT", "0/1")
+        for i, alt in enumerate(("C", "G"), start=1)
+    ]  # fmt: skip
+    rows = _rows(records, CSQ + "|ALLELE_NUM")
+    assert rows[("400", "C")]["hgvs_c"] == "c.1A>C"
+    assert rows[("400", "G")]["hgvs_c"] == "c.1A>G"
+
+
 def test_vep_spelling_wins_over_raw_alt_without_allele_num():
     # VEP names A>AAA,AA "AA" and "A": the raw spelling of the second ALT
     # ("AA") must not also pick up the first ALT's entry.

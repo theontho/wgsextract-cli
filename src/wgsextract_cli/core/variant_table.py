@@ -22,6 +22,8 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from urllib.parse import unquote
 
+from wgsextract_cli.core.variant_confidence import SPLIT_TAG
+
 TEXT, INTEGER, REAL = "TEXT", "INTEGER", "REAL"
 
 
@@ -297,25 +299,41 @@ def _for_allele(
     candidates: Sequence[str],
     alt_index: int,
     n_alts: int,
+    *,
+    split: bool = False,
 ) -> list[dict[str, str]]:
     """The entries describing one ALT. ``candidates`` are its possible
     spellings, most specific first: the first that matches anything wins, so
     VEP's trimmed spelling of one insertion can't also pick up another's.
 
-    A record split from a multi-allelic one (``vcf clinvar``/``gnomad`` split
-    them) keeps every allele's entries and their original ALLELE_NUM, so a
-    biallelic record is matched by spelling unless it only describes one."""
+    A record split from a multi-allelic one (``split``: ``vcf clinvar``/
+    ``gnomad`` split them) may keep every original allele's entries, so it is
+    matched by its original ALLELE_NUM (``alt_index``) or spelling, never
+    given entries just because they all name one allele."""
     if not entries:
         return []
-    if n_alts > 1 and "ALLELE_NUM" in entries[0]:
+    if "ALLELE_NUM" in entries[0] and (
+        n_alts > 1 or (split and {e.get("ALLELE_NUM") for e in entries} != {"1"})
+    ):
         return [e for e in entries if e.get("ALLELE_NUM") == str(alt_index)]
-    if n_alts == 1 and len({e.get(allele_key) for e in entries}) == 1:
+    if n_alts == 1 and not split and len({e.get(allele_key) for e in entries}) == 1:
         return entries
     for spelling in dict.fromkeys(candidates):
         matches = [e for e in entries if e.get(allele_key) == spelling]
         if matches:
             return matches
     return []
+
+
+def _split_origin(raw: str | None) -> tuple[str, list[str], int] | None:
+    """REF, ALTs and this ALT's 1-based index of the record a biallelic one
+    was split from (bcftools norm ``--old-rec-tag``: CHR|POS|REF|ALT|IDX)."""
+    parts = (raw or "").split("|")
+    if len(parts) != 5 or not parts[4].isdigit():
+        return None
+    alts = parts[3].split(",")
+    index = int(parts[4])
+    return (parts[2], alts, index) if 1 <= index <= len(alts) else None
 
 
 def zygosity(gt: str | None, alt_index: int) -> str | None:
@@ -431,6 +449,7 @@ def variant_rows(
         filter_value = _value(filt)
         csq_all = _entries(info.get("CSQ"), csq_names)
         ann_all = _entries(info.get("ANN"), ann_names)
+        origin = _split_origin(info.get(SPLIT_TAG))
 
         for alt_index, alt in enumerate(alts, start=1):
             if alt in _NON_VARIANT_ALTS:
@@ -440,11 +459,24 @@ def variant_rows(
                 zyg = zygosity(gt, alt_index) or "no_call"
             if carried_only and zyg is not None and zyg not in CARRIED:
                 continue
-            candidates = (vep_allele(ref, alts, alt), alt)
+            csq_spellings: tuple[str, ...] = (vep_allele(ref, alts, alt), alt)
+            ann_spellings: tuple[str, ...] = (alt,)
+            index, n_alts = alt_index, len(alts)
+            split = origin is not None and n_alts == 1
+            if origin is not None and split:
+                o_ref, o_alts, index = origin
+                o_alt = o_alts[index - 1]
+                o_vep = vep_allele(o_ref, o_alts, o_alt)
+                csq_spellings = (o_vep, *csq_spellings, o_alt)
+                ann_spellings = (alt, o_alt)
             csq = pick_csq(
-                _for_allele(csq_all, "Allele", candidates, alt_index, len(alts))
+                _for_allele(
+                    csq_all, "Allele", csq_spellings, index, n_alts, split=split
+                )
             )
-            ann_matches = _for_allele(ann_all, "Allele", (alt,), alt_index, len(alts))
+            ann_matches = _for_allele(
+                ann_all, "Allele", ann_spellings, index, n_alts, split=split
+            )
             # SnpEff lists an allele's effects most severe first.
             ann = ann_matches[0] if ann_matches else None
             pgx = _per_allele(info.get("PHARMGKB"), numbers.get("PHARMGKB"), alt_index)
