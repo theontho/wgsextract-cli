@@ -292,7 +292,7 @@ settings) and then to the documented default.
 | `call_reasons` | `bool \| None` | `None` | `--call-reasons` | Also write CombinedKit_reasons.tsv with explicit reasons (default: config or false) |
 | `aadr_sample_id` | `str` | `'sample'` | `--aadr-sample-id` | Non-identifying sample label for AADR .fam/.ind (default: sample) |
 | `aadr_sex` | `str` | `'U'` | `--aadr-sex` | AADR metadata sex only; does not change genotype calling (default: U) One of: `U`, `M`, `F` |
-| `parallel` | `bool` | `False` | `--parallel` | Enable per-chromosome parallel variant calling |
+| `parallel` | `bool \| None` | `None` | `--parallel` | Call chromosomes in parallel workers (default: on with --threads above 1; calls are identical to one stream) |
 | `ref_vcf_tab` | `Path \| None` | `None` | `--ref-vcf-tab` | Master tabulated list of all consumer microarray SNPs (auto-resolved from --ref if possible) |
 | `ploidy_file` | `Path \| None` | `None` | `--ploidy-file` | File defining ploidy per chromosome (auto-resolved from --ref if possible) |
 | `sample` | `str \| None` | `None` | `--sample` | Sample to use from a multi-sample VCF (e.g. a joint-called nf-core/sarek VCF); required when the VCF has more than one |

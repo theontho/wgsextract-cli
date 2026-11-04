@@ -118,14 +118,3 @@ def process_group_kwargs() -> dict[str, Any]:
     if sys.platform == "win32":
         return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
     return {"start_new_session": True}
-
-
-def cancel_on_event(event: Any) -> None:
-    """Process-pool initializer: when ``event`` (a multiprocessing Event) is
-    set, cancel this worker's tools, so cancelling the parent stops them."""
-
-    def watch() -> None:
-        event.wait()
-        proc_registry.cancel()
-
-    threading.Thread(target=watch, daemon=True).start()

@@ -16,7 +16,7 @@ from wgsextract_cli import api
 from wgsextract_cli.api._params import from_namespace, to_namespace
 from wgsextract_cli.core import results
 from wgsextract_cli.core.config import settings
-from wgsextract_cli.core.process_registry import cancel_on_event, proc_registry
+from wgsextract_cli.core.process_registry import proc_registry
 from wgsextract_cli.core.utils import child_stdout_to_stderr, popen, run_command
 
 CLI_ROOT = Path(__file__).resolve().parents[1]
@@ -262,19 +262,6 @@ def test_tools_started_after_cancel_are_stopped():
         proc_registry.accept_new()
     process = popen([sys.executable, "-c", "pass"])
     assert process.wait(timeout=10) == 0
-
-
-def test_cancel_on_event_stops_a_pool_workers_tools():
-    import threading
-
-    event = threading.Event()
-    cancel_on_event(event)
-    process = popen([sys.executable, "-c", "import time; time.sleep(60)"])
-    try:
-        event.set()
-        assert process.wait(timeout=10) != 0
-    finally:
-        proc_registry.accept_new()
 
 
 def _child_context() -> tuple[bool, bool]:

@@ -165,8 +165,7 @@ def main() -> None:
                 "--outdir",
                 str(absolute_path(run / "kit")),
             ]
-            if mode == "parallel":
-                command.append("--parallel")
+            command.append("--parallel" if mode == "parallel" else "--no-parallel")
             metrics = measure(command, run)
             if mode == "parallel":
                 logs = (run / "stdout.log").read_text() + (
