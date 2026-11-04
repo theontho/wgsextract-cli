@@ -29,8 +29,20 @@ from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem, read_fai_lengths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.sequencing import input_platform
+from wgsextract_cli.core.table_writer import (
+    Column,
+    TableWriter,
+    add_format_argument,
+    arrow_schema,
+    check_format,
+    provenance,
+    require_pyarrow,
+    table_path,
+    write_table,
+)
 from wgsextract_cli.core.utils import (
     UsageError,
     WGSExtractError,
@@ -320,29 +332,69 @@ class ModSummary:
     high_sites_percent: float
     low_sites_percent: float
 
-    def row(self) -> list[str]:
-        return [
+    def row(self) -> tuple[str, int, int, float, float, float, float, float]:
+        return (
             self.modification,
-            str(self.sites),
-            str(self.summary_sites),
-            f"{self.median_coverage:g}",
-            f"{self.weighted_percent:.2f}",
-            f"{self.mean_site_percent:.2f}",
-            f"{self.high_sites_percent:.2f}",
-            f"{self.low_sites_percent:.2f}",
-        ]
+            self.sites,
+            self.summary_sites,
+            self.median_coverage,
+            self.weighted_percent,
+            self.mean_site_percent,
+            self.high_sites_percent,
+            self.low_sites_percent,
+        )
 
 
-SUMMARY_COLUMNS = [
-    "modification",
-    "sites",
-    f"sites_coverage_ge_{SUMMARY_MIN_COVERAGE}",
-    "median_coverage",
-    "weighted_percent_modified",
-    "mean_site_percent_modified",
-    "percent_sites_ge_80",
-    "percent_sites_le_20",
-]
+_PERCENT = {"type": "REAL", "spec": ".2f"}
+SUMMARY_TABLE = (
+    Column("modification", "TEXT", "Modification (5mC, 5hmC, ...)."),
+    Column("sites", "INTEGER", "Sites with at least one valid call."),
+    Column(
+        f"sites_coverage_ge_{SUMMARY_MIN_COVERAGE}",
+        "INTEGER",
+        f"Sites with at least {SUMMARY_MIN_COVERAGE} valid calls, which the "
+        "remaining columns describe.",
+    ),
+    Column("median_coverage", "REAL", "Median valid calls per site.", "g"),
+    Column(
+        "weighted_percent_modified",
+        description="Modified calls as a percentage of all valid calls.",
+        **_PERCENT,
+    ),
+    Column(
+        "mean_site_percent_modified",
+        description="Mean of the sites' percentages modified.",
+        **_PERCENT,
+    ),
+    Column(
+        "percent_sites_ge_80", description="Sites at least 80% modified.", **_PERCENT
+    ),
+    Column(
+        "percent_sites_le_20", description="Sites at most 20% modified.", **_PERCENT
+    ),
+)
+SUMMARY_COLUMNS = [column.name for column in SUMMARY_TABLE]
+
+# modkit's bedMethyl columns, without the display-only 7-9 (thickStart,
+# thickEnd, color), which repeat start, end and a constant.
+BEDMETHYL_TABLE = (
+    Column("chrom", "TEXT", "Contig."),
+    Column("start", "INTEGER", "0-based start of the site."),
+    Column("end", "INTEGER", "0-based, exclusive end of the site."),
+    Column("mod_code", "TEXT", "Modification code (m: 5mC, h: 5hmC, ...)."),
+    Column("score", "INTEGER", "modkit's score: the valid coverage."),
+    Column("strand", "TEXT", "+, - or . (strands combined)."),
+    Column("n_valid_cov", "INTEGER", "Valid calls: modified + canonical + other."),
+    Column("percent_modified", "REAL", "n_mod as a percentage of n_valid_cov."),
+    Column("n_mod", "INTEGER", "Calls of this modification."),
+    Column("n_canonical", "INTEGER", "Unmodified calls."),
+    Column("n_other_mod", "INTEGER", "Calls of another modification."),
+    Column("n_delete", "INTEGER", "Reads with a deletion here."),
+    Column("n_fail", "INTEGER", "Calls below modkit's confidence threshold."),
+    Column("n_diff", "INTEGER", "Reads with another base here."),
+    Column("n_nocall", "INTEGER", "Reads without a modification call here."),
+)
+_BEDMETHYL_FIELDS = (1, 2, 3, 4, 5, 6, 10, 11, 12, 13, 14, 15, 16, 17, 18)
 
 
 @dataclass
@@ -421,11 +473,42 @@ def summarize_bedmethyl(
     return [tallies[code].summary(code) for code in codes]
 
 
-def write_summary(path: str, summaries: list[ModSummary]) -> None:
-    with safe_output(path) as staged, open(staged, "w", newline="\n") as out:
-        out.write("\t".join(SUMMARY_COLUMNS) + "\n")
-        for summary in summaries:
-            out.write("\t".join(summary.row()) + "\n")
+def write_summary(
+    path: str,
+    summaries: list[ModSummary],
+    table_format: str = "tsv",
+    metadata: dict[str, str] | None = None,
+) -> None:
+    rows = (summary.row() for summary in summaries)
+    write_table(path, SUMMARY_TABLE, rows, table_format, metadata=metadata)
+
+
+def bedmethyl_to_parquet(bed: str, path: str, metadata: dict[str, str]) -> int:
+    """Convert modkit's bgzipped bedMethyl to typed Parquet, block by block,
+    so tens of millions of sites never sit in memory at once."""
+    require_pyarrow()
+    import pyarrow.csv as pacsv
+
+    names = [f"f{i}" for i in range(1, 19)]
+    keep = [f"f{i}" for i in _BEDMETHYL_FIELDS]
+    reader = pacsv.open_csv(
+        bed,
+        # Small blocks keep memory low (32 MB blocks peaked near 2 GB on 31M
+        # sites) and are no slower; write_arrow gathers them into row groups.
+        read_options=pacsv.ReadOptions(column_names=names, block_size=4 << 20),
+        parse_options=pacsv.ParseOptions(delimiter="\t", quote_char=False),
+        convert_options=pacsv.ConvertOptions(
+            include_columns=keep,
+            column_types={
+                name: field.type
+                for name, field in zip(keep, arrow_schema(BEDMETHYL_TABLE), strict=True)
+            },
+        ),
+    )
+    with TableWriter(path, BEDMETHYL_TABLE, "parquet", metadata=metadata) as writer:
+        for batch in reader:
+            writer.write_arrow(batch)
+    return writer.rows
 
 
 def index_fasta(fasta: str) -> None:
@@ -449,6 +532,7 @@ def cmd_pileup(args: argparse.Namespace) -> None:
         raise WGSExtractError("--input must be a coordinate-sorted BAM or CRAM.")
     verify_paths_exist({"--input": args.input})
     verify_dependencies([MODKIT, "samtools", "tabix"])
+    check_format(args.table_format)
     log_dependency_info([MODKIT])
     if not alignment_index(args.input):
         raise WGSExtractError(
@@ -458,9 +542,10 @@ def cmd_pileup(args: argparse.Namespace) -> None:
     threads, _memory = get_resource_defaults(args.threads, None)
     outdir = args.outdir or str(absolute_path(args.input).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
-    ref = ReferenceLibrary(
+    lib = ReferenceLibrary(
         args.ref, calculate_bam_md5(args.input, None), input_path=args.input
-    ).fasta
+    )
+    ref = lib.fasta
     if not ref or not Path(ref).is_file():
         raise WGSExtractError(
             "--ref is required: the reference FASTA the reads were aligned to "
@@ -488,7 +573,9 @@ def cmd_pileup(args: argparse.Namespace) -> None:
 
     stem = input_stem(args.input)
     out_bed = str(Path(outdir, f"{stem}.{options.context}.bedmethyl.gz"))
-    out_summary = str(Path(outdir, f"{stem}.{options.context}.methylation.tsv"))
+    out_summary = table_path(
+        Path(outdir, f"{stem}.{options.context}.methylation"), args.table_format
+    )
     logging.info(f"Tabulating base modifications with modkit to {out_bed}")
     with (
         plain_reference(ref, outdir) as use_ref,
@@ -510,9 +597,25 @@ def cmd_pileup(args: argparse.Namespace) -> None:
             except (OSError, subprocess.SubprocessError) as e:
                 raise WGSExtractError(f"modkit pileup failed: {e}") from e
     run_command(["tabix", "-f", "-p", "bed", out_bed])
+    result = current_result()
+    result.set_reference(ref, lib.build)
+    result.add_output(out_bed, "bedmethyl", kind="bed")
 
+    metadata = provenance(
+        [args.input],
+        reference_build=lib.build,
+        sorted_by="modkit's output order (chrom, start)",
+        context=options.context,
+        region=region or "",
+    )
     summaries = summarize_bedmethyl(out_bed)
-    write_summary(out_summary, summaries)
+    write_summary(out_summary, summaries, args.table_format, metadata)
+    result.add_output(out_summary, "methylation_summary")
+    if args.table_format == "parquet":
+        out_table = str(Path(outdir, f"{stem}.{options.context}.bedmethyl.parquet"))
+        logging.info(f"Writing the sites as Parquet to {out_table}")
+        sites = bedmethyl_to_parquet(out_bed, out_table, metadata)
+        result.add_output(out_table, "bedmethyl_table", metrics={"rows": sites})
     if not any(summary.summary_sites for summary in summaries):
         logging.warning(
             f"No site reached {SUMMARY_MIN_COVERAGE} valid calls; the coverage is "
@@ -566,5 +669,10 @@ def register(
         default=None,
         help="Sum both strands of each CpG into one row on its C. Overrides "
         "methylation_combine_strands in config.toml (default: on for CpG).",
+    )
+    add_format_argument(
+        pileup,
+        help="Summary table format: tsv, or parquet (needs pyarrow), which also "
+        "writes the sites as <stem>.<context>.bedmethyl.parquet",
     )
     pileup.set_defaults(func=cmd_pileup)

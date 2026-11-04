@@ -19,6 +19,10 @@ dependencies = [
     "tomli-w",       # TOML writer
 ]
 
+[project.optional-dependencies]
+# `--format parquet` table output; commands check for it when asked for Parquet.
+parquet = ["pyarrow>=14"]
+
 [project.scripts]
 wgsextract = "wgsextract_cli.main:main"
 

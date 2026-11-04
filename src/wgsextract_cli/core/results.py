@@ -84,6 +84,7 @@ _KINDS: tuple[tuple[str, str], ...] = (
     (".pdf", "pdf"),
     (".zip", "zip"),
     (".sqlite", "sqlite"),
+    (".parquet", "parquet"),
     (".gz", "gzip"),
 )
 _INDEX_SUFFIXES = {

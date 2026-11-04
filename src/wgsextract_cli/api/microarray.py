@@ -12,7 +12,14 @@ from wgsextract_cli.core.results import CommandResult
 
 from ._params import Params, param
 from ._runtime import CancelToken, ProgressCallback, execute
-from ._shared import depth_param, input_param, outdir_param, ref_param, threads_param
+from ._shared import (
+    depth_param,
+    input_param,
+    outdir_param,
+    ref_param,
+    table_format_param,
+    threads_param,
+)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -36,6 +43,12 @@ class MicroarrayParams(Params):
         doc="Comma-separated formats to generate, e.g. "
         '"23andme_v5,ancestry_v2" (default: "all", the combined kit only); see '
         "`wgsextract microarray --help` for the list.",
+    )
+    table_format: str | None = table_format_param(
+        "Also save the genotypes as <input>_genotypes.tsv or .parquet (needs "
+        "pyarrow): rsID, chrom, pos (in the input's build) and genotype",
+        hint="--format is the genotype table's format; pick vendor kits with "
+        "--formats.",
     )
     indel_manifest: tuple[str, ...] = param(
         (),
