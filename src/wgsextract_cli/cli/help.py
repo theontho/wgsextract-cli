@@ -19,7 +19,9 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from typing import IO, Any
 
+from wgsextract_cli.commands._advanced_options import ADVANCED_OPTIONS, COMMON_ADVANCED
 from wgsextract_cli.commands._help_catalog import COMMAND_HELP, CommandHelp
+from wgsextract_cli.commands._help_topics import HELP_TOPICS
 from wgsextract_cli.commands.registry import (
     ADVANCED,
     COMMAND_TIERS,
@@ -44,6 +46,9 @@ _TOP_SUMMARY = {command.name: command.summary for command in COMMAND_TIERS}
 _FIRST_RUN = (
     "wgsextract info --input sample.cram",
     "wgsextract microarray --input sample.cram --formats 23andme_v5",
+)
+_TOPICS_HINT = (
+    "Concepts such as references, builds and exit codes: 'wgsextract help topics'."
 )
 _TERMS = (
     "BAM/CRAM = aligned reads; FASTQ = raw reads; VCF = a list of variants; "
@@ -199,6 +204,7 @@ def apply_help_metadata(parser: argparse.ArgumentParser, prefix: str = "") -> No
                 else first_sentence(plain_help(choice.help))
             )
             subparser.command_help = COMMAND_HELP.get(path)
+            subparser.advanced_actions = advanced_actions(subparser, path)
             tiers[choice.dest] = command_tier(path)
             apply_help_metadata(subparser, path)
         if group_tier is not None and group_tier != ADVANCED:
@@ -206,6 +212,25 @@ def apply_help_metadata(parser: argparse.ArgumentParser, prefix: str = "") -> No
                 if tiers[choice.dest] == ADVANCED and choice.help:
                     choice.help = f"(advanced) {choice.help}"
             action._choices_actions.sort(key=lambda c: tiers[c.dest] == ADVANCED)
+
+
+def advanced_actions(
+    parser: argparse.ArgumentParser, path: str
+) -> list[argparse.Action]:
+    """The options of the command at path that only --help-all shows."""
+    flags = COMMON_ADVANCED | set(ADVANCED_OPTIONS.get(path, ()))
+    return [
+        action
+        for action in parser._actions
+        if flags.intersection(action.option_strings)
+        and action.help is not argparse.SUPPRESS
+    ]
+
+
+def advanced_note(prog: str, count: int) -> str:
+    """The line that ends --help when advanced options are left out."""
+    noun = "option" if count == 1 else "options"
+    return f"{count} advanced {noun} not shown; '{prog} --help-all' lists them.\n"
 
 
 def command_map(color: bool) -> str:
@@ -222,7 +247,8 @@ def command_map(color: bool) -> str:
     lines += _wrap(f"{TIER_TITLES[ADVANCED]}: {advanced}", color, TIER_TITLES[ADVANCED])
     lines += _wrap(
         "More: 'wgsextract help --all' lists every command; 'wgsextract help "
-        "vcf snp' (or 'wgsextract vcf snp --help') explains one.",
+        "vcf snp' (or 'wgsextract vcf snp --help') explains one; 'wgsextract "
+        "help topics' lists concepts such as references and exit codes.",
         color,
         "More",
     )
@@ -300,6 +326,16 @@ def unknown_command_message(group: str, value: str, choices: Iterable[Any]) -> s
     return f"{message} See '{see}'."
 
 
+def unknown_option_message(prog: str, option: str, known: Iterable[str]) -> str:
+    """A usage error for an unknown option, with a "did you mean" hint."""
+    name = option.partition("=")[0]
+    message = f"unrecognized option '{name}'."
+    hint = did_you_mean(name, known)
+    if hint:
+        message += f" {hint}"
+    return f"{message} See '{prog} --help'."
+
+
 def format_index(entries: list[CommandEntry], color: bool) -> str:
     """'help --all': one line per command, grouped by tier, each summary cut
     to fit INDEX_WIDTH columns ('help <command>' has the rest)."""
@@ -320,44 +356,233 @@ def format_index(entries: list[CommandEntry], color: bool) -> str:
     return "\n".join(lines) + "\n"
 
 
-def index_json(entries: list[CommandEntry]) -> str:
-    """'help --all --json': the command index as a stable JSON document.
+def index_json(
+    entries: list[CommandEntry], global_options: list[dict[str, Any]] | None = None
+) -> str:
+    """'help --all --json': the command index as a stable JSON document; with
+    global_options (the whole index), also those and the help topics.
 
-    "usage" is argparse's usage line, so the arguments are visible without
-    loading each command's --help."""
+        "usage" is argparse's usage line and "options" each command's own options
+        (the global ones are listed once, under "global_options"). Commands with
+        a typed Params class (wgsextract_cli.api) also carry its JSON Schema as
+        "input_schema", each property naming its flag in "x-cli-flag"."""
+    schemas = input_schemas()
     commands = []
     for entry in entries:
         usage = " ".join(entry.parser.format_usage().split())
-        commands.append(
-            {
-                "path": entry.path,
-                "tier": entry.tier,
-                "summary": entry.summary,
-                "usage": usage.removeprefix("usage: "),
-                "examples": list(entry.help.examples) if entry.help else [],
-                "outputs": entry.help.outputs if entry.help else None,
-            }
-        )
-    return json.dumps({"schema": HELP_SCHEMA, "commands": commands}, indent=2) + "\n"
+        command: dict[str, Any] = {
+            "path": entry.path,
+            "tier": entry.tier,
+            "summary": entry.summary,
+            "usage": usage.removeprefix("usage: "),
+            "options": [
+                option_json(entry.parser, action, advanced)
+                for action, advanced in _command_options(entry.parser)
+            ],
+            "examples": list(entry.help.examples) if entry.help else [],
+            "outputs": entry.help.outputs if entry.help else None,
+        }
+        if entry.path in schemas:
+            command["input_schema"] = schemas[entry.path]
+        commands.append(command)
+    document: dict[str, Any] = {"schema": HELP_SCHEMA}
+    if global_options is not None:
+        document["global_options"] = global_options
+    document["commands"] = commands
+    if global_options is not None:
+        document["topics"] = [
+            {"name": name, "summary": topic.summary}
+            for name, topic in HELP_TOPICS.items()
+        ]
+    return dump_json(document)
+
+
+def dump_json(document: dict[str, Any]) -> str:
+    """Compact JSON with each item of a top-level list on its own line: few
+    tokens for an agent, and still greppable ('grep "path":"vcf snp"')."""
+
+    def compact(value: Any) -> str:
+        return json.dumps(value, separators=(",", ":"))
+
+    fields = []
+    for key, value in document.items():
+        if isinstance(value, list) and value:
+            value_text = "[\n" + ",\n".join(compact(item) for item in value) + "\n]"
+        else:
+            value_text = compact(value)
+        fields.append(f"{compact(key)}:{value_text}")
+    return "{" + ",\n".join(fields) + "}\n"
+
+
+def _command_options(
+    parser: argparse.ArgumentParser,
+) -> Iterator[tuple[argparse.Action, bool]]:
+    """(action, advanced) for each documented option of the command itself."""
+    advanced = getattr(parser, "advanced_actions", [])
+    for action in parser._actions:
+        if (
+            action.help is argparse.SUPPRESS
+            or getattr(action, "is_global", False)
+            or isinstance(action, (argparse._HelpAction, argparse._SubParsersAction))
+        ):
+            continue
+        yield action, action in advanced
+
+
+def global_options_json(parser: argparse.ArgumentParser) -> list[dict[str, Any]]:
+    """The global options, accepted before or after any command."""
+    return [
+        option_json(parser, action, False)
+        for action in parser._actions
+        if getattr(action, "is_global", False)
+    ]
+
+
+def option_json(
+    parser: argparse.ArgumentParser, action: argparse.Action, advanced: bool
+) -> dict[str, Any]:
+    """One option, compactly: keys that would be empty or false are left out."""
+    option: dict[str, Any] = {}
+    if action.option_strings:
+        option["flags"] = list(action.option_strings)
+    else:
+        option["positional"] = True
+        option["metavar"] = action.metavar or action.dest
+    option["dest"] = action.dest
+    option["type"] = _value_type(action)
+    if action.nargs not in (None, 0):
+        option["nargs"] = action.nargs
+    if action.choices:
+        option["choices"] = [str(choice) for choice in action.choices]
+    default = _json_default(parser._defaults.get(action.dest, action.default))
+    if default is not None and option["type"] != "flag":
+        option["default"] = default
+    if action.required:
+        option["required"] = True
+    if advanced:
+        option["advanced"] = True
+    option["help"] = first_sentence(_expanded_help(parser, action))
+    return option
+
+
+def _json_default(value: Any) -> Any:
+    """A default as JSON, or None for one not worth listing (none, empty)."""
+    if value in (None, False, argparse.SUPPRESS) or value in ((), [], ""):
+        return None
+    if isinstance(value, list | tuple):
+        return [str(item) for item in value]
+    return value if isinstance(value, bool | int | float) else str(value)
+
+
+def _value_type(action: argparse.Action) -> str:
+    if action.nargs == 0:
+        return "flag"
+    if action.type is int:
+        return "integer"
+    return "number" if action.type is float else "string"
+
+
+def _expanded_help(parser: argparse.ArgumentParser, action: argparse.Action) -> str:
+    try:
+        return parser._get_formatter()._expand_help(action)
+    except (KeyError, TypeError, ValueError):
+        return plain_help(action.help)
+
+
+@functools.cache
+def _typed_commands() -> dict[str, Any]:
+    from wgsextract_cli import api
+    from wgsextract_cli.api._params import Params
+
+    classes = (getattr(api, name) for name in api.__all__)
+    return {
+        cls.COMMAND: cls
+        for cls in classes
+        if isinstance(cls, type) and issubclass(cls, Params) and cls.COMMAND
+    }
+
+
+def input_schemas() -> dict[str, dict[str, Any]]:
+    """Command path -> the JSON Schema of its typed Params class, with the
+    CLI flag of each property as "x-cli-flag"."""
+    from wgsextract_cli.api._params import json_schema, param_fields
+
+    schemas = {}
+    for path, cls in _typed_commands().items():
+        schema = json_schema(cls)
+        schema.pop("$schema", None)
+        for field in param_fields(cls):
+            flag = max(field.flags, key=len)
+            schema["properties"][field.name]["x-cli-flag"] = flag
+        schemas[path] = schema
+    return schemas
+
+
+def format_topics(color: bool) -> str:
+    """'help topics': the concept pages, one line each."""
+    width = max(len(name) for name in HELP_TOPICS) + 2
+    lines = [_heading("Help topics ('wgsextract help <topic>'):", color)]
+    for name, topic in HELP_TOPICS.items():
+        pad = " " * (width - len(name))
+        lines.append(f"  {_name(name, color)}{pad}{topic.summary}")
+    return "\n".join(lines) + "\n"
+
+
+def topics_json(names: Iterable[str]) -> str:
+    topics = [
+        {
+            "name": name,
+            "summary": HELP_TOPICS[name].summary,
+            "body": HELP_TOPICS[name].body,
+        }
+        for name in names
+    ]
+    return dump_json({"schema": HELP_SCHEMA, "topics": topics})
 
 
 def run_help(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
-    """The 'help' command: the command tree, the index (--all), or one command."""
+    """The 'help' command: the command tree, the index (--all), a topic, or
+    one command."""
     topic = list(getattr(args, "topic", None) or [])
+    as_json = getattr(args, "json", False)
+    color = use_color()
+    if topic == ["topics"] or (len(topic) == 1 and topic[0] in HELP_TOPICS):
+        names = list(HELP_TOPICS) if topic == ["topics"] else topic
+        if as_json:
+            sys.stdout.write(topics_json(names))
+        elif topic == ["topics"]:
+            sys.stdout.write(format_topics(color))
+        else:
+            sys.stdout.write(HELP_TOPICS[topic[0]].body)
+        return
     try:
         target = resolve_command(parser, topic)
     except ValueError as error:
-        help_parser = resolve_command(parser, ["help"])
-        help_parser.error(str(error))
-    color = use_color()
-    if getattr(args, "json", False):
-        sys.stdout.write(index_json(command_index(parser, " ".join(topic))))
+        message = str(error)
+        if len(topic) == 1:
+            hint = did_you_mean(topic[0], ["topics", *HELP_TOPICS, *_top_names(parser)])
+            message = f"unknown command or topic '{topic[0]}'. "
+            message += f"{hint} " if hint else ""
+            message += "See 'wgsextract help --all' or 'wgsextract help topics'."
+        resolve_command(parser, ["help"]).error(message)
+    if as_json:
+        entries = command_index(parser, " ".join(topic))
+        globals_ = None if topic else global_options_json(parser)
+        sys.stdout.write(index_json(entries, globals_))
     elif getattr(args, "all_commands", False):
         sys.stdout.write(format_index(command_index(parser, " ".join(topic)), color))
+        if not topic:
+            sys.stdout.write(
+                "\n" + "\n".join(_wrap(_TOPICS_HINT, color, "Concepts")) + "\n"
+            )
     elif topic:
         target.print_help()
     else:
         print_full_help(parser)
+
+
+def _top_names(parser: argparse.ArgumentParser) -> list[str]:
+    return [name for name, _sub, _help in _subcommands(parser)]
 
 
 def print_full_help(parser: argparse.ArgumentParser) -> None:
@@ -398,7 +623,9 @@ def render_markdown(parser: argparse.ArgumentParser) -> str:
         "the output directory (`--outdir`, the configured `outdir` or the "
         "`--genome` folder) unless noted; a run that registers outputs also "
         "writes a `.manifest.json` beside its main output. Run "
-        "`wgsextract help <command>` for every option.",
+        "`wgsextract help <command>` for its options (`--help-all` adds the "
+        "advanced ones) and `wgsextract help --all --json` for every "
+        "command's options as JSON.",
     ]
     entries = command_index(parser)
     for tier in TIERS:
@@ -416,4 +643,6 @@ def render_markdown(parser: argparse.ArgumentParser) -> str:
                 f"`{example}`",
             ]
             out.append("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
+    out += ["", "## Help topics", "", "`wgsextract help <topic>` explains:", ""]
+    out += [f"- `{name}`: {topic.summary}" for name, topic in HELP_TOPICS.items()]
     return "\n".join(out) + "\n"

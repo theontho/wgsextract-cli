@@ -38,7 +38,7 @@ See docs/api.md.
 
 ## Results, progress and cancellation
 
-`api.Result` is the `CommandResult` model of the [result manifest](result-manifest.md): `status`, `exit_code`, `error`, `inputs`, `outputs`, `metrics`, `warnings`, `details`, `manifest` and `provenance`; `to_dict()` and `to_json()` give the `wgsextract.result/1` document. `api.json_schema(cls)` gives a JSON Schema of a Params class.
+`api.Result` is the `CommandResult` model of the [result manifest](result-manifest.md): `status`, `exit_code`, `error`, `inputs`, `outputs`, `metrics`, `warnings`, `details`, `manifest` and `provenance`; `to_dict()` and `to_json()` give the `wgsextract.result/1` document. `api.json_schema(cls)` gives a JSON Schema of a Params class; `wgsextract help --all --json` includes it as each typed command's `input_schema`, with each property's flag as `x-cli-flag`.
 
 ### `api.ProgressEvent`
 

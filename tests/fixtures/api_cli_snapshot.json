@@ -340,6 +340,22 @@
       ],
       "required": false,
       "subparsers": "info_cmd"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
      }
     ],
     "defaults": {
@@ -669,6 +685,22 @@
       ],
       "required": false,
       "type": "table_format_type.<locals>.table_format"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
      }
     ],
     "defaults": {
@@ -959,6 +991,22 @@
       "nargs": 0,
       "option_strings": [
        "--list"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
       ],
       "required": false,
       "type": null
@@ -1275,6 +1323,22 @@
       ],
       "required": false,
       "type": "table_format_type.<locals>.table_format"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
      }
     ],
     "defaults": {
@@ -1287,7 +1351,7 @@
    }
   },
   "lineage mt-haplogroup": {
-   "help": "usage: wgsextract lineage mt-haplogroup [-h] [--haplogrep-path HAPLOGREP_PATH]\n                                        [--qc-min-depth DEPTH] [--tree-links]\n\noptions:\n  -h, --help            show this help message and exit\n  --haplogrep-path HAPLOGREP_PATH\n                        Path to haplogrep executable or JAR (optional if in PATH)\n  --qc-min-depth DEPTH  Warn below this mean depth for this run; 0 disables (default: config\n                        qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA)\n  --tree-links          Print a YFull mtDNA tree link.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract lineage mt-haplogroup --input sample.cram\n\noutputs (in the output directory unless noted):\n  haplogrep_results.txt; prints the mtDNA haplogroup.\n",
+   "help": "usage: wgsextract lineage mt-haplogroup [-h] [--haplogrep-path HAPLOGREP_PATH] [--tree-links]\n                                        [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --haplogrep-path HAPLOGREP_PATH\n                        Path to haplogrep executable or JAR (optional if in PATH)\n  --tree-links          Print a YFull mtDNA tree link.\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n1 advanced option not shown; 'wgsextract lineage mt-haplogroup --help-all' lists them.\n\nexamples:\n  wgsextract lineage mt-haplogroup --input sample.cram\n\noutputs (in the output directory unless noted):\n  haplogrep_results.txt; prints the mtDNA haplogroup.\n",
    "parser": {
     "actions": [
      {
@@ -1600,6 +1664,22 @@
       ],
       "required": false,
       "type": null
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
      }
     ],
     "defaults": {
@@ -1612,7 +1692,7 @@
    }
   },
   "lineage y-haplogroup": {
-   "help": "usage: wgsextract lineage y-haplogroup [-h] [--pos-file POS_FILE] [--build {hg19,hg38,t2t}]\n                                       [--tree {yfull,yfull_v10,ftdna,isogg}]\n                                       [--min-reads MIN_READS] [--base-quality BASE_QUALITY]\n                                       [--base-majority BASE_MAJORITY] [--min-score MIN_SCORE]\n                                       [--ancient] [--no-ref-inference] [--qc-min-depth DEPTH]\n                                       [--tree-links]\n\noptions:\n  -h, --help            show this help message and exit\n  --pos-file POS_FILE   Yleaf position file (optional)\n  --build {hg19,hg38,t2t}\n                        Override the detected reference build for this run.\n  --tree {yfull,yfull_v10,ftdna,isogg}\n                        Yleaf v4.1.6 haplogroup tree (default: yfull).\n  --min-reads MIN_READS\n  --base-quality BASE_QUALITY\n  --base-majority BASE_MAJORITY\n  --min-score MIN_SCORE\n  --ancient             Use ancient-DNA marker tables.\n  --no-ref-inference    VCF: use genotyped positions only (targeted panels); otherwise --ref is\n                        required.\n  --qc-min-depth DEPTH  Warn below this mean depth for this run; 0 disables (default: config\n                        qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA)\n  --tree-links          Print YFull and FTDNA tree links.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract lineage y-haplogroup --input sample.cram\n\noutputs (in the output directory unless noted):\n  yleaf/: hg_prediction.hg, the per-sample .out/.fmf/.info reports and\n  run.json.\n",
+   "help": "usage: wgsextract lineage y-haplogroup [-h] [--build {hg19,hg38,t2t}]\n                                       [--tree {yfull,yfull_v10,ftdna,isogg}] [--ancient]\n                                       [--tree-links] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --build {hg19,hg38,t2t}\n                        Override the detected reference build for this run.\n  --tree {yfull,yfull_v10,ftdna,isogg}\n                        Yleaf v4.1.6 haplogroup tree (default: yfull).\n  --ancient             Use ancient-DNA marker tables.\n  --tree-links          Print YFull and FTDNA tree links.\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n7 advanced options not shown; 'wgsextract lineage y-haplogroup --help-all' lists them.\n\nexamples:\n  wgsextract lineage y-haplogroup --input sample.cram\n\noutputs (in the output directory unless noted):\n  yleaf/: hg_prediction.hg, the per-sample .out/.fmf/.info reports and\n  run.json.\n",
    "parser": {
     "actions": [
      {
@@ -2062,6 +2142,22 @@
       ],
       "required": false,
       "type": null
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
      }
     ],
     "defaults": {
@@ -2074,7 +2170,7 @@
    }
   },
   "lineage y-str": {
-   "help": "usage: wgsextract lineage y-str [-h] [--panel {Y-12,Y-25,Y-37,Y-67,Y-111,PPY23,YfilerPlus,all}]\n                                [--build {hg19,hg38,t2t}] [--min-reads MIN_READS]\n                                [--min-fraction MIN_FRACTION] [--min-mapq MIN_MAPQ]\n\noptions:\n  -h, --help            show this help message and exit\n  --panel {Y-12,Y-25,Y-37,Y-67,Y-111,PPY23,YfilerPlus,all}\n                        Marker panel: FamilyTreeDNA Y-12 to Y-111, PowerPlex Y23, Yfiler Plus, or\n                        all (default: Y-111).\n  --build {hg19,hg38,t2t}\n                        Override the detected reference build for this run.\n  --min-reads MIN_READS\n                        Spanning reads needed to support a repeat count (default: 2).\n  --min-fraction MIN_FRACTION\n                        Share of spanning reads that must agree (default: 0.6).\n  --min-mapq MIN_MAPQ   Minimum mapping quality for single-copy markers (default: 20).\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract lineage y-str --input sample.cram --panel Y-37\n\noutputs (in the output directory unless noted):\n  ystr/: <sample>.ystr.tsv, <sample>.ftdna.csv (FTDNA marker order) and\n  run.json.\n",
+   "help": "usage: wgsextract lineage y-str [-h] [--panel {Y-12,Y-25,Y-37,Y-67,Y-111,PPY23,YfilerPlus,all}]\n                                [--build {hg19,hg38,t2t}] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --panel {Y-12,Y-25,Y-37,Y-67,Y-111,PPY23,YfilerPlus,all}\n                        Marker panel: FamilyTreeDNA Y-12 to Y-111, PowerPlex Y23, Yfiler Plus, or\n                        all (default: Y-111).\n  --build {hg19,hg38,t2t}\n                        Override the detected reference build for this run.\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n3 advanced options not shown; 'wgsextract lineage y-str --help-all' lists them.\n\nexamples:\n  wgsextract lineage y-str --input sample.cram --panel Y-37\n\noutputs (in the output directory unless noted):\n  ystr/: <sample>.ystr.tsv, <sample>.ftdna.csv (FTDNA marker order) and\n  run.json.\n",
    "parser": {
     "actions": [
      {
@@ -2432,6 +2528,22 @@
       ],
       "required": false,
       "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
      }
     ],
     "defaults": {
@@ -2444,7 +2556,7 @@
    }
   },
   "microarray": {
-   "help": "usage: wgsextract microarray [-h] [--formats FORMATS] [--format {tsv,parquet}]\n                             [--indel-manifest FORMAT=PATH] [--strand-ambiguous {keep,no-call}]\n                             [--resolve-rsids | --no-resolve-rsids] [--quirks {corrected,vendor}]\n                             [--min-gq MIN_GQ] [--min-dp MIN_DP]\n                             [--assume-hom-ref | --no-assume-hom-ref]\n                             [--exclude-filtered | --no-exclude-filtered]\n                             [--call-reasons | --no-call-reasons]\n                             [--aadr-sample-id AADR_SAMPLE_ID] [--aadr-sex {U,M,F}]\n                             [--parallel | --no-parallel] [--ref-vcf-tab REF_VCF_TAB]\n                             [--ploidy-file PLOIDY_FILE] [--sample SAMPLE] [-r REGION]\n                             [--qc-min-depth DEPTH]\n\noptions:\n  -h, --help            show this help message and exit\n  --formats FORMATS     Comma-separated list of formats to generate (default: all).\n                        Available formats:\n                          Combined kit only (always written):\n                            all (every chip's markers in one 23andMe-style file, e.g. for GEDmatch;\n                            writes no vendor files: list the vendor formats to get them)\n                          23andMe:\n                            23andme_v2 (also v1: same markers), 23andme_v3, 23andme_v4, 23andme_v5,\n                            23andme_v5_2025 (v5 chip as exported in 2025), 23andme_v3+v5, 23andme_api\n                          AncestryDNA:\n                            ancestry_v1, ancestry_v2, ancestry_v2_2021 (2021 V2.0 layout),\n                            ancestry_v2_2024 (V2.0 chip as exported in 2024-25)\n                          Family Tree DNA:\n                            ftdna_v1 (Affymetrix, NCBI36 positions), ftdna_v2, ftdna_v3\n                          Living DNA:\n                            ldna_v1, ldna_v2\n                          MyHeritage:\n                            myheritage_v1, myheritage_v2,\n                            myheritage_gsa_2025 (609,346 markers), myheritage_gsa_2025_609424\n                          Nucleus:\n                            nucleus (array export, 2025)\n                          AADR v66.p1 (GRCh37 outputs, PLINK .bed/.bim/.fam AND EIGENSTRAT .geno/.snp/.ind):\n                            aadr_1240k, aadr_ho, aadr_1240k+ho (HO is a subset of 1240K in this release)\n                            aadr_2m (opt-in; first run 'ref aadr --install'; v66.p1 genetic distances\n                              differ from legacy 1240K/HO at 1,200,251 sites; maps are never mixed)\n  --format {tsv,parquet}\n                        Also save the genotypes as <input>_genotypes.tsv or .parquet (needs pyarrow): rsID, chrom, pos (in the input's build) and genotype\n  --indel-manifest FORMAT=PATH\n                        Opt-in sequence-defined I/D probes from a matching GRCh37 Illumina CSV, gzip or ZIP; repeat per selected format\n  --strand-ambiguous {keep,no-call}\n                        Keep/no-call biallelic A/T or C/G input SNPs; unknown probe alleles are not inferred (default: config or keep)\n  --resolve-rsids, --no-resolve-rsids\n                        Resolve packaged dbSNP aliases and no-call retired/ambiguous marker IDs (default: config or false)\n  --quirks {corrected,vendor}\n                        corrected: forward-strand calls; vendor: reverse-strand calls where a template's vendor revision reported them so (default: config or corrected)\n  --min-gq MIN_GQ       Minimum sample GQ; missing GQ becomes a no-call (default: config or 0, disabled)\n  --min-dp MIN_DP       Minimum sample DP; missing DP becomes a no-call (default: config or 0, disabled)\n  --assume-hom-ref, --no-assume-hom-ref\n                        Assume absent VCF markers are reference on represented contigs (default: config or true)\n  --exclude-filtered, --no-exclude-filtered\n                        No-call VCF records failing FILTER (default: config or false)\n  --call-reasons, --no-call-reasons\n                        Also write CombinedKit_reasons.tsv with explicit reasons (default: config or false)\n  --aadr-sample-id AADR_SAMPLE_ID\n                        Non-identifying sample label for AADR .fam/.ind (default: sample)\n  --aadr-sex {U,M,F}    AADR metadata sex only; does not change genotype calling (default: U)\n  --parallel, --no-parallel\n                        Call chromosomes in parallel workers (default: on with --threads above 1; calls are identical to one stream)\n  --ref-vcf-tab REF_VCF_TAB\n                        Master tabulated list of all consumer microarray SNPs (auto-resolved from --ref if possible)\n  --ploidy-file PLOIDY_FILE\n                        File defining ploidy per chromosome (auto-resolved from --ref if possible)\n  --sample SAMPLE       Sample to use from a multi-sample VCF (e.g. a joint-called nf-core/sarek VCF); required when the VCF has more than one\n  -r, --region REGION   Chromosomal region (e.g. chrM, chrY:10000-20000)\n  --qc-min-depth DEPTH  Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA)\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json,\n  --quiet, --debug, --config and the other global options are accepted before\n  or after the command; 'wgsextract --help' lists them all.\n\nexamples:\n  wgsextract microarray --input sample.cram --formats 23andme_v5\n  wgsextract microarray --input sample.cram --formats 23andme_v5,ancestry_v2\n\noutputs (in the output directory unless noted):\n  <input stem>_<format>.txt (or the vendor's extension) per format, and <input\n  stem>_CombinedKit.txt; with --format also <input stem>_genotypes.tsv or\n  .parquet.\n",
+   "help": "usage: wgsextract microarray [-h] [--formats FORMATS] [--format {tsv,parquet}] [--sample SAMPLE]\n                             [-r REGION] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --formats FORMATS     Comma-separated list of formats to generate (default: all).\n                        Available formats:\n                          Combined kit only (always written):\n                            all (every chip's markers in one 23andMe-style file, e.g. for GEDmatch;\n                            writes no vendor files: list the vendor formats to get them)\n                          23andMe:\n                            23andme_v2 (also v1: same markers), 23andme_v3, 23andme_v4, 23andme_v5,\n                            23andme_v5_2025 (v5 chip as exported in 2025), 23andme_v3+v5, 23andme_api\n                          AncestryDNA:\n                            ancestry_v1, ancestry_v2, ancestry_v2_2021 (2021 V2.0 layout),\n                            ancestry_v2_2024 (V2.0 chip as exported in 2024-25)\n                          Family Tree DNA:\n                            ftdna_v1 (Affymetrix, NCBI36 positions), ftdna_v2, ftdna_v3\n                          Living DNA:\n                            ldna_v1, ldna_v2\n                          MyHeritage:\n                            myheritage_v1, myheritage_v2,\n                            myheritage_gsa_2025 (609,346 markers), myheritage_gsa_2025_609424\n                          Nucleus:\n                            nucleus (array export, 2025)\n                          AADR v66.p1 (GRCh37 outputs, PLINK .bed/.bim/.fam AND EIGENSTRAT .geno/.snp/.ind):\n                            aadr_1240k, aadr_ho, aadr_1240k+ho (HO is a subset of 1240K in this release)\n                            aadr_2m (opt-in; first run 'ref aadr --install'; v66.p1 genetic distances\n                              differ from legacy 1240K/HO at 1,200,251 sites; maps are never mixed)\n  --format {tsv,parquet}\n                        Also save the genotypes as <input>_genotypes.tsv or .parquet (needs pyarrow): rsID, chrom, pos (in the input's build) and genotype\n  --sample SAMPLE       Sample to use from a multi-sample VCF (e.g. a joint-called nf-core/sarek VCF); required when the VCF has more than one\n  -r, --region REGION   Chromosomal region (e.g. chrM, chrY:10000-20000)\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json,\n  --quiet, --debug, --config and the other global options are accepted before\n  or after the command; 'wgsextract --help' lists them all.\n\n15 advanced options not shown; 'wgsextract microarray --help-all' lists them.\n\nexamples:\n  wgsextract microarray --input sample.cram --formats 23andme_v5\n  wgsextract microarray --input sample.cram --formats 23andme_v5,ancestry_v2\n\noutputs (in the output directory unless noted):\n  <input stem>_<format>.txt (or the vendor's extension) per format, and <input\n  stem>_CombinedKit.txt; with --format also <input stem>_genotypes.tsv or\n  .parquet.\n",
    "parser": {
     "actions": [
      {
@@ -3032,6 +3144,22 @@
       ],
       "required": false,
       "type": "_non_negative"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
      }
     ],
     "defaults": {
@@ -3044,7 +3172,7 @@
    }
   },
   "vcf indel": {
-   "help": "usage: wgsextract vcf indel [-h] [--ploidy-file PLOIDY_FILE | --ploidy PLOIDY] [-r REGION]\n                            [--parallel] [--qc-min-depth DEPTH]\n\noptions:\n  -h, --help            show this help message and exit\n  --ploidy-file PLOIDY_FILE\n                        File defining ploidy per chromosome (auto-resolved from --ref if possible)\n  --ploidy PLOIDY       Predefined ploidy name or value\n  -r, --region REGION   Chromosomal region (e.g. chrM, chrY:10000-20000)\n  --parallel            Call contigs in parallel with up to --threads workers. Faster, but calls\n                        at sites deeper than 255 reads can differ slightly from the default single\n                        stream, because bcftools subsamples them with one random stream per\n                        process.\n  --qc-min-depth DEPTH  Warn below this mean depth for this run; 0 disables (default: config\n                        qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA)\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract vcf indel --input sample.cram\n\noutputs (in the output directory unless noted):\n  indels.vcf.gz (+ .tbi).\n",
+   "help": "usage: wgsextract vcf indel [-h] [-r REGION] [--parallel] [--help-all]\n\noptions:\n  -h, --help           show this help message and exit\n  -r, --region REGION  Chromosomal region (e.g. chrM, chrY:10000-20000)\n  --parallel           Call contigs in parallel with up to --threads workers. Faster, but calls at\n                       sites deeper than 255 reads can differ slightly from the default single\n                       stream, because bcftools subsamples them with one random stream per\n                       process.\n  --help-all           Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n3 advanced options not shown; 'wgsextract vcf indel --help-all' lists them.\n\nexamples:\n  wgsextract vcf indel --input sample.cram\n\noutputs (in the output directory unless noted):\n  indels.vcf.gz (+ .tbi).\n",
    "parser": {
     "actions": [
      {
@@ -3390,6 +3518,22 @@
       ],
       "required": false,
       "type": "_non_negative"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
      }
     ],
     "defaults": {
@@ -3402,7 +3546,7 @@
    }
   },
   "vcf snp": {
-   "help": "usage: wgsextract vcf snp [-h] [--ploidy-file PLOIDY_FILE | --ploidy PLOIDY] [-r REGION]\n                          [--parallel] [--qc-min-depth DEPTH]\n\noptions:\n  -h, --help            show this help message and exit\n  --ploidy-file PLOIDY_FILE\n                        File defining ploidy per chromosome (auto-resolved from --ref if possible)\n  --ploidy PLOIDY       Predefined ploidy name or value\n  -r, --region REGION   Chromosomal region (e.g. chrM, chrY:10000-20000)\n  --parallel            Call contigs in parallel with up to --threads workers. Faster, but calls\n                        at sites deeper than 255 reads can differ slightly from the default single\n                        stream, because bcftools subsamples them with one random stream per\n                        process.\n  --qc-min-depth DEPTH  Warn below this mean depth for this run; 0 disables (default: config\n                        qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA)\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract vcf snp --input sample.cram\n  wgsextract vcf snp --input sample.cram --region chrM\n\noutputs (in the output directory unless noted):\n  snps.vcf.gz (+ .tbi).\n",
+   "help": "usage: wgsextract vcf snp [-h] [-r REGION] [--parallel] [--help-all]\n\noptions:\n  -h, --help           show this help message and exit\n  -r, --region REGION  Chromosomal region (e.g. chrM, chrY:10000-20000)\n  --parallel           Call contigs in parallel with up to --threads workers. Faster, but calls at\n                       sites deeper than 255 reads can differ slightly from the default single\n                       stream, because bcftools subsamples them with one random stream per\n                       process.\n  --help-all           Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n3 advanced options not shown; 'wgsextract vcf snp --help-all' lists them.\n\nexamples:\n  wgsextract vcf snp --input sample.cram\n  wgsextract vcf snp --input sample.cram --region chrM\n\noutputs (in the output directory unless noted):\n  snps.vcf.gz (+ .tbi).\n",
    "parser": {
     "actions": [
      {
@@ -3748,6 +3892,22 @@
       ],
       "required": false,
       "type": "_non_negative"
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
      }
     ],
     "defaults": {

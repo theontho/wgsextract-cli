@@ -17,6 +17,7 @@ from wgsextract_cli.core.results import (
 )
 from wgsextract_cli.core.run_log import active_log_path
 
+from .hints import print_next_steps
 from .platform_support import verify_platform_support
 
 # Commands that only report: they mustn't create the configured output folder
@@ -39,6 +40,7 @@ def dispatch_command(args: argparse.Namespace, explicit_dests: set[str]) -> None
     Exit codes: 0 ok, 1 failure, 2 usage error, 3 missing dependency (and
     128+N when stopped by signal N). The command's result manifest is written
     next to its outputs; with --json it is also the only thing on stdout.
+    On a terminal, a successful run ends with 'Next:' hints on stderr.
     """
     if not hasattr(args, "func"):
         raise RuntimeError("No command function is registered for parsed arguments.")
@@ -72,6 +74,7 @@ def dispatch_command(args: argparse.Namespace, explicit_dests: set[str]) -> None
             stdout.flush()
     if result.exit_code:
         sys.exit(result.exit_code)
+    print_next_steps(args, result)
 
 
 def _run(

@@ -6,7 +6,7 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from wgsextract_cli import __version__
 from wgsextract_cli.commands.registry import COMMAND_MODULES
@@ -15,12 +15,15 @@ from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.resource_policy import parse_thread_count
 
 from .help import (
+    advanced_note,
     apply_help_metadata,
     command_map,
     contract_text,
     did_you_mean,
+    resolve_command,
     run_help,
     unknown_command_message,
+    unknown_option_message,
     use_color,
 )
 from .help import print_full_help as print_full_help  # re-exported
@@ -90,31 +93,94 @@ GLOBAL_OPTIONS_TITLE = "global options"
 class WgsArgumentParser(argparse.ArgumentParser):
     """An ArgumentParser that rejects a global option given with different
     values before and after a command (``--input a info --input b``),
-    suggests close matches for a mistyped command or choice, and ends a
+    suggests close matches for a mistyped command, option or choice, leaves
+    advanced options out of --help (--help-all shows them), and ends a
     command's help with its examples and outputs."""
 
+    # Set by help.apply_help_metadata; shown only by --help-all.
+    advanced_actions: list[argparse.Action] = []
+    show_advanced = False
+    _parsing_args: list[str] = []
+
     def format_help(self) -> str:
-        text = super().format_help()
+        with self._advanced_hidden():
+            text = super().format_help()
+        if self.advanced_actions and not self.show_advanced:
+            text += "\n" + advanced_note(self.prog, len(self.advanced_actions))
         command_help = getattr(self, "command_help", None)
         if command_help is not None:
             text += "\n" + contract_text(command_help, use_color())
         return text
+
+    def format_usage(self) -> str:
+        with self._advanced_hidden():
+            return super().format_usage()
+
+    @contextmanager
+    def _advanced_hidden(self) -> Iterator[None]:
+        """Suppress the advanced options (unless --help-all), and --help-all
+        itself where there are none."""
+        hide = [] if self.show_advanced else list(self.advanced_actions)
+        if not self.advanced_actions:
+            hide += [a for a in self._actions if isinstance(a, _HelpAllAction)]
+        saved = [(action, action.help) for action in hide]
+        for action in hide:
+            action.help = argparse.SUPPRESS
+        try:
+            yield
+        finally:
+            for action, help_text in saved:
+                action.help = help_text
 
     def _check_value(self, action: argparse.Action, value: Any) -> None:
         try:
             super()._check_value(action, value)
         except argparse.ArgumentError as error:
             if isinstance(action, argparse._SubParsersAction):
-                group = self.prog.partition(" ")[2]
-                raise argparse.ArgumentError(
-                    None, unknown_command_message(group, value, action.choices)
-                ) from None
+                # "info --inptu x": x is only taken for a subcommand because
+                # --inptu is unknown, so report the option.
+                unknown = self._unknown_option_before(str(value))
+                message = (
+                    unknown_option_message(self.prog, unknown, self._long_options())
+                    if unknown
+                    else unknown_command_message(
+                        self.prog.partition(" ")[2], value, action.choices
+                    )
+                )
+                raise argparse.ArgumentError(None, message) from None
             hint = did_you_mean(str(value), action.choices or ())
             if not hint:
                 raise
             raise argparse.ArgumentError(action, f"{error.message}. {hint}") from None
 
+    def _parse_optional(self, arg_string):  # type: ignore[no-untyped-def]
+        # A command without subcommands knows every option it accepts, so an
+        # unknown one is an error now, with a suggestion, rather than an
+        # "unrecognized arguments" error (or a misread value) later.
+        result = super()._parse_optional(arg_string)
+        if not self._has_subcommands() and _is_unknown_option(result):
+            self.error(
+                unknown_option_message(self.prog, arg_string, self._long_options())
+            )
+        return result
+
+    def _has_subcommands(self) -> bool:
+        return any(isinstance(a, argparse._SubParsersAction) for a in self._actions)
+
+    def _long_options(self) -> list[str]:
+        return [o for o in self._option_string_actions if o.startswith("--")]
+
+    def _unknown_option_before(self, value: str) -> str | None:
+        """The first unknown option before value in this parser's arguments."""
+        for token in self._parsing_args:
+            if token in (value, "--"):
+                break
+            if _is_unknown_option(argparse.ArgumentParser._parse_optional(self, token)):
+                return token
+        return None
+
     def parse_known_args(self, args=None, namespace=None):  # type: ignore[no-untyped-def]
+        self._parsing_args = list(sys.argv[1:] if args is None else args)
         if _global_values.get() is not None:  # a subcommand of this parse
             return super().parse_known_args(args, namespace)
         token = _global_values.set({})
@@ -124,6 +190,29 @@ class WgsArgumentParser(argparse.ArgumentParser):
             return result
         finally:
             _global_values.reset(token)
+
+
+def _is_unknown_option(parsed: Any) -> bool:
+    """Whether a _parse_optional result is an option the parser doesn't know
+    (a tuple before Python 3.12, a list of tuples after)."""
+    if not parsed:
+        return False
+    first = parsed[0] if isinstance(parsed, list) else parsed
+    return first[0] is None
+
+
+class _HelpAllAction(argparse._HelpAction):
+    """--help-all: --help with the advanced options included."""
+
+    def __call__(  # type: ignore[no-untyped-def]
+        self, parser, namespace, values, option_string=None
+    ) -> None:
+        parser.show_advanced = True
+        try:
+            parser.print_help()
+        finally:
+            parser.show_advanced = False
+        parser.exit()
 
 
 class RootArgumentParser(WgsArgumentParser):
@@ -148,6 +237,23 @@ class RootArgumentParser(WgsArgumentParser):
                 formatter.add_arguments(actions)
                 formatter.end_section()
         return f"{head}\n{command_map(use_color())}\n{formatter.format_help()}"
+
+    def parse_args(self, args=None, namespace=None):  # type: ignore[no-untyped-def]
+        # An unknown option left over by a command that has subcommands
+        # ("info --inptu") gets a suggestion from that command's options.
+        namespace, extras = self.parse_known_args(args, namespace)  # type: ignore[no-untyped-call]
+        if extras:
+            path = getattr(namespace, "_command", "").split()
+            command = cast(WgsArgumentParser, resolve_command(self, path))
+            for extra in extras:
+                if _is_unknown_option(command._parse_optional(extra)):  # type: ignore[no-untyped-call]
+                    command.error(
+                        unknown_option_message(
+                            command.prog, extra, command._long_options()
+                        )
+                    )
+            self.error(f"unrecognized arguments: {' '.join(extras)}")
+        return namespace
 
 
 # dest -> parser -> (action, option string, value): the last occurrence of
@@ -179,6 +285,8 @@ def _reject_conflicting_globals(seen: _GlobalValues) -> None:
 class _GlobalOption(argparse.Action):
     """Mixin for global options: store as the base action does, and record
     the value per command level for _reject_conflicting_globals."""
+
+    is_global = True  # help.py lists these once, not per command
 
     def __call__(  # type: ignore[no-untyped-def]
         self, parser, namespace, values, option_string=None
@@ -260,6 +368,7 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     )
     parser.add_argument(
         "--full-help",
+        "--help-all",
         action="store_true",
         help=CLI_HELP["arg_full_help"],
     )
@@ -274,16 +383,20 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
 
     help_parser = subparsers.add_parser(
         "help",
-        help="Show the command tree, list every command (--all) or explain one.",
+        help="Show the command tree, list every command (--all), explain one "
+        "command or a topic.",
         description="Without arguments, show the command tree. 'help --all' "
         "lists every command in one line each; 'help vcf snp' shows one "
-        "command's help. --json prints the command index as JSON.",
+        "command's help; 'help topics' lists concept pages such as 'help "
+        "references'. --json prints the command index (with each command's "
+        "options) or the topics as JSON.",
     )
     help_parser.add_argument(
         "topic",
         nargs="*",
-        metavar="COMMAND",
-        help="A command or command path, e.g. 'vcf' or 'vcf snp'.",
+        metavar="COMMAND|TOPIC",
+        help="A command or command path, e.g. 'vcf' or 'vcf snp', or a topic "
+        "from 'help topics'.",
     )
     help_parser.add_argument(
         "--all",
@@ -332,6 +445,12 @@ def _walk_commands(
                         f"'wgsextract {path}' defines an option that clashes "
                         f"with a global option: {e}. Rename the local option."
                     ) from e
+            if "--help-all" not in subparser._option_string_actions:
+                subparser.add_argument(
+                    "--help-all",
+                    action=_HelpAllAction,
+                    help="Show this help with the advanced options too, and exit.",
+                )
             subparser.set_defaults(_command=path)
             _walk_commands(subparser, shared_parser, path)
 
