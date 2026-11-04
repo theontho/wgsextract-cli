@@ -820,6 +820,7 @@ def test_cli_ref_index_lists_only_this_fastas_new_indexes(tmp_path):
     names = {Path(o["path"]).name for o in document["outputs"]}
     assert {"genome.fa.fai", "genome.dict", "genome.fa.bwt"} <= names
     assert "other.fa.fai" not in names and "genome.fa" not in names
+    assert not [name for name in names if name.endswith((".lock", ".guard"))]
 
 
 def test_cli_sign_create_never_lists_its_own_result_manifest(tmp_path):

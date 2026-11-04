@@ -670,7 +670,7 @@ def file_snapshot(
     root: str | os.PathLike[str], *, prefix: str = "", recursive: bool = True
 ) -> FileSnapshot:
     """Size and mtime of every regular file under ``root`` whose name starts with
-    ``prefix`` (manifests and hidden files excepted), for
+    ``prefix`` (manifests, lock files and hidden files excepted), for
     ``record_changed_files``."""
     snapshot: FileSnapshot = {}
     for directory, dirs, files in os.walk(root):
@@ -679,7 +679,7 @@ def file_snapshot(
             if (
                 not name.startswith(prefix)
                 or name.startswith(".")
-                or name.endswith(MANIFEST_SUFFIX)
+                or name.endswith((MANIFEST_SUFFIX, ".lock", ".guard"))
             ):
                 continue
             path = os.path.join(directory, name)
