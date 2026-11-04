@@ -229,6 +229,58 @@ def test_discovery_report_labels_likely_pathogenic_findings(tmp_path):
     assert codes == ["unconfirmed_clinical_findings"]
 
 
+@needs_bcftools
+def test_split_multiallelic_calls_are_not_judged_by_site_level_evidence(tmp_path):
+    # A 1/2 call: annotation splits it into one record per ALT, which trims PL
+    # to REF/that ALT (dropping the called 1/2) and copies DP4, whose alt reads
+    # belong to both ALTs. Neither may make a well-supported call look bad.
+    plain = tmp_path / "s.vcf"
+    plain.write_text(
+        "##fileformat=VCFv4.2\n"
+        f"##contig=<ID=chr1,length={HG38_CHR1}>\n"
+        "##bcftools_callCommand=call -mv\n"
+        '##INFO=<ID=DP,Number=1,Type=Integer,Description="DP">\n'
+        '##INFO=<ID=MQ,Number=1,Type=Float,Description="Average mapping quality">\n'
+        '##INFO=<ID=DP4,Number=4,Type=Integer,Description="DP4">\n'
+        '##FORMAT=<ID=GT,Number=1,Type=String,Description="GT">\n'
+        '##FORMAT=<ID=PL,Number=G,Type=Integer,Description="PL">\n'
+        '##FORMAT=<ID=AD,Number=R,Type=Integer,Description="AD">\n'
+        '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="DP">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n"
+        + "".join(
+            "chr1\t" + "\t".join(row.split()) + "\n"
+            for row in (
+                "100 . A G,T 200 . DP=30;MQ=60;DP4=0,0,15,15 GT:PL 1/2:255,255,255,255,0,255",
+                "200 . A G,T 200 . DP=30;MQ=60;DP4=0,0,15,15 GT:PL:AD:DP "
+                "1/2:255,255,255,255,0,255:0,15,15:30",
+                "300 . A G,T 200 . DP=30;MQ=60;DP4=0,0,28,2 GT:PL:AD:DP "
+                "1/2:255,255,255,255,0,255:0,28,2:30",
+            )
+        )
+    )
+    run_command(["bgzip", "-f", str(plain)])
+    sites = _vcf(
+        tmp_path / "clinvar.vcf.gz",
+        [f"{pos} . A {alt} . . CLNSIG=Pathogenic GT 0/1"
+         for pos in (100, 200, 300) for alt in "GT"],
+    )  # fmt: skip
+    out = tmp_path / "out"
+    _run(tmp_path, "vcf", "clinvar", "--vcf-input", f"{plain}.gz",
+         "--clinvar-file", sites, "--outdir", str(out))  # fmt: skip
+
+    assert _labels(out / "clinvar_pathogenic.vcf.gz") == [
+        # No allele counts or genotype quality apply: unknown, not low.
+        "100:moderate:gq_unknown|allele_balance_unknown",
+        "100:moderate:gq_unknown|allele_balance_unknown",
+        # AD and FORMAT/DP give each ALT's own read fraction.
+        "200:moderate:gq_unknown",
+        "200:moderate:gq_unknown",
+        # ... so a lopsided 1/2 call is still caught.
+        "300:low:allele_imbalance|gq_unknown",
+        "300:low:allele_imbalance|gq_unknown",
+    ]
+
+
 def _label(
     rows: list[str], header: str = "", mq: str = "MQ", **thresholds: float
 ) -> list[str]:

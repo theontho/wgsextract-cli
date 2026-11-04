@@ -18,6 +18,7 @@ from wgsextract_cli.core.utils import (
     get_resource_defaults,
     run_command,
 )
+from wgsextract_cli.core.variant_confidence import SPLIT_TAG
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
     ensure_vcf_indexed,
@@ -217,12 +218,14 @@ def annotate_vcf(
         annotated = str(Path(work, "annotated.vcf.gz"))
         try:
             # Biallelic records, so each ALT matches its own resource record/row
-            # (bcftools transfers only one per multiallelic record).
+            # (bcftools transfers only one per multiallelic record). The tag
+            # marks split records, whose PL/DP4 confidence labels can't judge.
             split = str(Path(work, "split.vcf.gz"))
             run_command(
-                ["bcftools", "norm", "-m", "-any", "-Oz", "-o", split, input_vcf],
+                ["bcftools", "norm", "-m", "-any", "--old-rec-tag", SPLIT_TAG,
+                 "-Oz", "-o", split, input_vcf],
                 capture_output=True,
-            )
+            )  # fmt: skip
             ensure_vcf_indexed(split)
             normalized = normalize_vcf_chromosomes(
                 split, annotation_chromosomes(annotation), work

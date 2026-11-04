@@ -78,7 +78,9 @@ def _pipeline(
     mpileup = ["bcftools", "mpileup", *profile, "-B"]
     if not indels:
         mpileup += ["-I"]
-    mpileup += ["-C", "50", "-f", ref, "-Ou"]
+    # Per-sample read counts (AD is only default from bcftools 1.21) let
+    # confidence labels judge allele balance, also once multiallelics are split.
+    mpileup += ["-a", "FORMAT/AD,FORMAT/DP", "-C", "50", "-f", ref, "-Ou"]
     mpileup += [*region_args, alignment]
     call = [
         "bcftools", "call", *call_args, "-V", "snps" if indels else "indels",

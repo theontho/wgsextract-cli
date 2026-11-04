@@ -71,6 +71,19 @@ reason makes it `moderate`; otherwise it is `high`.
 Haploid calls (a man's chrX and chrY, mtDNA, `GT=1`) use half the depth
 thresholds: there is no second allele to find.
 
+Annotation splits a multiallelic call (such as `1/2`) into one record per
+ALT, marked `INFO/OLD_MULTIALLELIC`, so each ALT meets its own ClinVar or
+gnomAD entry. The split trims each record's PL to REF and that ALT, dropping
+the called genotype, and copies site-wide DP4 and SB, whose alt reads belong to
+every ALT. A split record's genotype quality therefore comes only from
+FORMAT/GQ, and its alt read fraction only from AD with FORMAT/DP (or a per-ALT
+VAF/AF); otherwise they are `gq_unknown` and `allele_balance_unknown`, which
+cap it at `moderate` rather than wrongly making it `low`. On HG002 chr20, the
+641 multiallelic bcftools calls were 98.4% correct; judged on the split
+evidence, 523 of them would have been `low`. `wgsextract vcf snp` and
+`vcf indel` write FORMAT/AD and FORMAT/DP, so their split calls keep their
+allele balance.
+
 Change the depth and genotype-quality thresholds for every run in
 `config.toml`, or for one run on the command line:
 

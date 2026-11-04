@@ -67,6 +67,10 @@ MIN_QD = 2.0
 MAX_FS = {"snv": 60.0, "indel": 200.0}  # INFO/FS above: low (GATK hard filter)
 MAX_SOR = {"snv": 3.0, "indel": 10.0}  # SOR above: low (GATK hard filter)
 SYMBOLIC_REFERENCE_ALTS = {"<*>", "<NON_REF>", "<X>"}
+# INFO tag marking one ALT split from a multiallelic record (bcftools norm -m
+# --old-rec-tag, vt decompose). Its PL is trimmed to REF/this ALT, dropping a
+# called 1/2, and site-level DP4/SB still count every ALT's reads.
+SPLIT_TAG = "OLD_MULTIALLELIC"
 
 LOW_REASONS = {
     "filtered": "the caller's FILTER did not pass",
@@ -83,8 +87,10 @@ MODERATE_REASONS = {
     "moderate_gq": "genotype quality below the high-confidence level",
     "skewed_allele_balance": "alt read fraction somewhat off the expectation",
     "depth_unknown": "the VCF has no read depth for the call",
-    "gq_unknown": "the VCF has no genotype quality or likelihoods for the call",
-    "allele_balance_unknown": "the VCF has no allele counts for the call",
+    "gq_unknown": "the VCF has no genotype quality or likelihoods for the call "
+    "(a split multiallelic record's likelihoods no longer cover it)",
+    "allele_balance_unknown": "the VCF has no allele counts for the call "
+    "(a split multiallelic record's site counts mix every ALT)",
 }
 REASONS = {**LOW_REASONS, **MODERATE_REASONS}
 
@@ -217,9 +223,9 @@ def strand_odds_ratio(ref_fwd: float, ref_rev: float, alt_fwd: float, alt_rev: f
     )
 
 
-def _genotype_quality(fmt: Mapping[str, str]) -> float | None:
+def _genotype_quality(fmt: Mapping[str, str], split: bool) -> float | None:
     gq = _number(fmt.get("GQ"))
-    if gq is not None:
+    if gq is not None or split:
         return gq
     likelihoods = sorted(v for v in _numbers(fmt.get("PL")) if v is not None)
     if len(likelihoods) >= 2:
@@ -227,11 +233,14 @@ def _genotype_quality(fmt: Mapping[str, str]) -> float | None:
     return None
 
 
-def _depth(fmt: Mapping[str, str], info: Mapping[str, str]) -> float | None:
+def _depth(
+    fmt: Mapping[str, str], info: Mapping[str, str], split: bool
+) -> float | None:
     depth = _number(fmt.get("DP"))
     if depth is not None:
         return depth
-    counts = [v for v in _numbers(fmt.get("AD")) if v is not None]
+    # A split record's AD keeps only REF and its own ALT.
+    counts = [] if split else [v for v in _numbers(fmt.get("AD")) if v is not None]
     if counts:
         return math.fsum(counts)
     # INFO/DP is the site's depth over every sample: only one sample is judged.
@@ -239,30 +248,36 @@ def _depth(fmt: Mapping[str, str], info: Mapping[str, str]) -> float | None:
 
 
 def _alt_fraction(
-    alt: int, n_alts: int, fmt: Mapping[str, str], info: Mapping[str, str]
+    alt: int, n_alts: int, fmt: Mapping[str, str], info: Mapping[str, str], split: bool
 ) -> float | None:
     counts = _numbers(fmt.get("AD"))
     alt_count = counts[alt] if len(counts) > alt else None
-    if alt_count is not None:
-        # A split multiallelic record (bcftools norm -m) keeps only REF and this
-        # ALT in AD; FORMAT/DP still counts every read.
-        total = max(math.fsum(v or 0.0 for v in counts), _number(fmt.get("DP")) or 0)
+    format_depth = _number(fmt.get("DP"))
+    # A split record's AD keeps only REF and this ALT: only FORMAT/DP still
+    # counts the reads of the ALTs split off.
+    if alt_count is not None and (format_depth is not None or not split):
+        total = max(math.fsum(v or 0.0 for v in counts), format_depth or 0)
         return alt_count / total if total else None
     for key in ("VAF", "AF"):  # DeepVariant VAF, Clair3 AF: per ALT
         fractions = _numbers(fmt.get(key))
         if len(fractions) >= alt and fractions[alt - 1] is not None:
             return fractions[alt - 1]
     dp4 = [v or 0.0 for v in _numbers(info.get("DP4"))]
-    if n_alts == 1 and len(dp4) == 4 and math.fsum(dp4):
+    if n_alts == 1 and not split and len(dp4) == 4 and math.fsum(dp4):
         return (dp4[2] + dp4[3]) / math.fsum(dp4)
     return None
 
 
 def _strand_counts(
-    fmt: Mapping[str, str], info: Mapping[str, str], n_alts: int
+    fmt: Mapping[str, str], info: Mapping[str, str], n_alts: int, split: bool
 ) -> list[float] | None:
     for counts in (_numbers(fmt.get("SB")), _numbers(info.get("DP4"))):
-        if n_alts == 1 and len(counts) == 4 and all(v is not None for v in counts):
+        if (
+            n_alts == 1
+            and not split
+            and len(counts) == 4
+            and all(v is not None for v in counts)
+        ):
             return [v or 0.0 for v in counts]
     return None
 
@@ -306,8 +321,9 @@ def classify(
     if filters not in {"PASS", "."}:
         low.append("filtered")
 
+    split = SPLIT_TAG in info
     scale = 0.5 if zygosity == "haploid" else 1.0
-    depth = _depth(fmt, info)
+    depth = _depth(fmt, info, split)
     if depth is None:
         moderate.append("depth_unknown")
     elif depth < thresholds.min_depth * scale:
@@ -315,7 +331,7 @@ def classify(
     elif depth < thresholds.high_depth * scale:
         moderate.append("moderate_depth")
 
-    gq = _genotype_quality(fmt)
+    gq = _genotype_quality(fmt, split)
     if gq is None:
         moderate.append("gq_unknown")
     elif gq < thresholds.min_gq:
@@ -323,7 +339,7 @@ def classify(
     elif gq < thresholds.high_gq:
         moderate.append("moderate_gq")
 
-    fraction = _alt_fraction(alt, n_alts, fmt, info)
+    fraction = _alt_fraction(alt, n_alts, fmt, info, split)
     if fraction is None:
         moderate.append("allele_balance_unknown")
     elif zygosity == "het":
@@ -345,7 +361,7 @@ def classify(
 
     fs, sor = _number(info.get("FS")), _number(info.get("SOR"))
     if sor is None and fs is None:
-        counts = _strand_counts(fmt, info, n_alts)
+        counts = _strand_counts(fmt, info, n_alts, split)
         sor = strand_odds_ratio(*counts) if counts else None
     if (fs is not None and fs > MAX_FS[kind]) or (
         sor is not None and sor > MAX_SOR[kind]
