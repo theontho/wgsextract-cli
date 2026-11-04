@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:wgsextract:schema:result:1",
   "title": "wgsextract.result/1",
-  "description": "What one wgsextract command read, wrote and found. Written as <output-stem>.manifest.json next to a command's outputs and printed to stdout by --json. See docs/result-manifest.md.",
+  "description": "What one wgsextract command read, wrote and found. Written as <output>.manifest.json next to a command's outputs and printed to stdout by --json. See docs/result-manifest.md.",
   "type": "object",
   "required": [
     "schema",

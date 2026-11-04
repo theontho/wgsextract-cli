@@ -7,11 +7,14 @@ command read and wrote, what it measured and warned about, and how it ran. Use
 it instead of parsing log text or guessing output file names.
 
 - **Manifest file.** A command that writes outputs also writes
-  `<output-stem>.manifest.json` next to them, atomically. The stem comes from
-  the first output file, minus a compression suffix and one extension.
-  `sample_snps.vcf.gz` gives `sample_snps.manifest.json`, and
-  `sample_mtDNA.bam` gives `sample_mtDNA.manifest.json`. Multi-output
-  commands such as `microarray` choose a stem (`<sample>_microarray.manifest.json`).
+  `<output>.manifest.json` next to them, atomically. The name is the first
+  output file's name with any compression suffix (`.gz`, `.bgz`, `.zst`,
+  `.bz2`, `.xz`) removed. The type extension stays, so outputs that differ only
+  in type keep separate manifests. `sample_MT.vcf.gz` gives
+  `sample_MT.vcf.manifest.json`, `sample_MT.fasta` gives
+  `sample_MT.fasta.manifest.json`, and `sample_mtDNA.bam` gives
+  `sample_mtDNA.bam.manifest.json`. Multi-output commands such as `microarray`
+  name their manifest after the run (`<sample>_microarray.manifest.json`).
   Report-only commands (`info`, `info chip`, `ref status`) write no file.
   A failed run that registered outputs still writes its manifest, with
   `status: "failed"`.
@@ -46,7 +49,9 @@ It is a SHA-256 of the file size plus the whole file when it is at most 3 MiB,
 or of three 1 MiB blocks (head, middle, tail) when it is larger. That costs at
 most 3 MiB of reads, even for a 100 GB BAM. Hashing the whole of such a file
 would take minutes. The mtime is not hashed, so a copied file keeps its
-fingerprint.
+fingerprint. Only regular files are read. A named pipe, `/dev/stdin` or a process
+substitution is recorded with `size_bytes` and `fingerprint` set to `null` and
+is never opened, so the command still gets its whole stream.
 
 A fingerprint identifies a file cheaply ("is this the same BAM as last time?").
 It is not an integrity check: an edit outside the sampled blocks that keeps the

@@ -16,7 +16,7 @@ footer_link_href: 'workflows.html'
 ::: split
 ::: block
 ## Global options
-{{ lede: Shared options can go before or after the subcommand. `--threads` and `--memory` accept `auto` (the default). Every command exits non-zero on failure (1 failure, 2 usage error, 3 missing tool), so commands can be chained safely in scripts. `--json` prints a machine-readable result manifest on stdout instead of human text; commands that write files also save it as `<output-stem>.manifest.json`. Examples write plain `wgsextract`; see [Running the CLI](install.html#running){.inline-link} for the launcher that matches your install. }}
+{{ lede: Shared options can go before or after the subcommand. `--threads` and `--memory` accept `auto` (the default). Every command exits non-zero on failure (1 failure, 2 usage error, 3 missing tool), so commands can be chained safely in scripts. `--json` prints a machine-readable result manifest on stdout instead of human text; commands that write files also save it as `<output>.manifest.json`. Examples write plain `wgsextract`; see [Running the CLI](install.html#running){.inline-link} for the launcher that matches your install. }}
 
 For long jobs, `--log-file out/run.log` records diagnostics and provenance, `--tmp-dir /data/work` selects a writable staging volume, and opt-in `--keep-awake` requests sleep inhibition. `--atomic-output` protects existing results for supported writers. Memory/disk preflight is advisory; it does not replace existing safety guards.
 :::

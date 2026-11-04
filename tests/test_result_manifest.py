@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import textwrap
+import threading
 from pathlib import Path
 
 import pytest
@@ -78,13 +79,64 @@ def test_fingerprint_is_cheap_copy_stable_and_content_sensitive(tmp_path):
 @pytest.mark.parametrize(
     ("output", "manifest"),
     [
-        ("out/sample_snps.vcf.gz", "out/sample_snps.manifest.json"),
-        ("out/sample_mtDNA.bam", "out/sample_mtDNA.manifest.json"),
-        ("out/sample.tsv", "out/sample.manifest.json"),
+        ("out/sample_snps.vcf.gz", "out/sample_snps.vcf.manifest.json"),
+        ("out/sample_mtDNA.bam", "out/sample_mtDNA.bam.manifest.json"),
+        ("out/sample.tsv", "out/sample.tsv.manifest.json"),
+        ("out/sample", "out/sample.manifest.json"),
     ],
 )
 def test_manifest_is_named_after_the_output(output, manifest):
     assert results.manifest_path_for(output) == Path(manifest)
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs named pipes")
+def test_fifo_input_is_recorded_without_being_opened(tmp_path):
+    fifo = tmp_path / "reads.fifo"
+    os.mkfifo(fifo)
+    written = threading.Event()
+
+    def write_once():
+        with open(fifo, "w", encoding="utf-8") as stream:  # blocks for a reader
+            stream.write("payload")
+        written.set()
+
+    writer = threading.Thread(target=write_once, daemon=True)
+    writer.start()
+    received = []
+
+    def command(args):
+        # The writer can only finish if something already read the pipe.
+        assert not written.wait(0.5), "the FIFO was drained before the command"
+        with open(fifo, encoding="utf-8") as stream:
+            received.append(stream.read())
+
+    assert dispatch(command, tmp_path, input=str(fifo)) == 0
+    writer.join(timeout=10)
+    assert received == ["payload"]
+    record = results.FileRecord.describe(fifo, "input")
+    assert record.exists and record.size_bytes is None
+    assert record.fingerprint is None and results.fingerprint(fifo) is None
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [("_MT.fasta", "_MT.vcf.gz"), ("_Y.bam", "_Y.vcf.gz")],
+)
+def test_outputs_differing_only_in_type_get_separate_manifests(tmp_path, first, second):
+    def run(suffix):
+        def command(args):
+            out = tmp_path / f"s{suffix}"
+            out.write_bytes(b"x")
+            results.current_result().add_output(out, suffix)
+
+        assert dispatch(command, tmp_path) == 0
+
+    run(first)
+    run(second)
+    manifests = sorted(tmp_path.glob("*.manifest.json"))
+    assert len(manifests) == 2
+    roles = {json.loads(m.read_text())["outputs"][0]["role"] for m in manifests}
+    assert roles == {first, second}
 
 
 def test_manifest_is_written_atomically_next_to_outputs(tmp_path):
@@ -99,7 +151,7 @@ def test_manifest_is_written_atomically_next_to_outputs(tmp_path):
         print("human text")
 
     assert dispatch(command, tmp_path, token="hunter2") == 0
-    manifest = tmp_path / "s_snps.manifest.json"
+    manifest = tmp_path / "s_snps.vcf.manifest.json"
     document = json.loads(manifest.read_text())
     assert_valid(document)
     assert [p.name for p in tmp_path.iterdir() if ".tmp" in p.name] == []
@@ -215,5 +267,23 @@ def test_cli_extract_writes_a_valid_manifest(tmp_path):
     assert document["inputs"][0]["fingerprint"].startswith("wgse-fp1:")
     assert document["provenance"]["reference"]["path"].endswith("fake_ref.fa")
     assert "samtools" in document["provenance"]["tools"]
-    written = json.loads((tmp_path / "fake_mtDNA.manifest.json").read_text())
+    written = json.loads((tmp_path / "fake_mtDNA.bam.manifest.json").read_text())
     assert written == document
+
+
+@pytest.mark.parametrize("pair", [("mito-fasta", "mito-vcf"), ("ydna-bam", "ydna-vcf")])
+def test_cli_extract_pairs_keep_both_manifests(tmp_path, pair):
+    if not (shutil.which("samtools") and shutil.which("bcftools")):
+        pytest.skip("samtools/bcftools not found in PATH")
+    ensure_fake_data(str(FAKE_DIR))
+    common = ["--input", str(FAKE_DIR / "fake.bam")]
+    common += ["--ref", str(FAKE_DIR / "fake_ref.fa"), "--outdir", str(tmp_path)]
+    for command in pair:
+        rc, _, stderr = run_cli(["extract", command, *common])
+        assert rc == 0, stderr
+    commands = set()
+    for manifest in tmp_path.glob("*.manifest.json"):
+        document = json.loads(manifest.read_text())
+        assert_valid(document)
+        commands.add(document["command"])
+    assert commands == {f"extract {command}" for command in pair}

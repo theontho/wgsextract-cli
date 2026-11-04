@@ -3,7 +3,7 @@
 A command reaches the active ``CommandResult`` through ``current_result()`` and
 records inputs, outputs, metrics, warnings and a ``details`` payload on it.
 ``cli.dispatch`` creates the result, maps exceptions to exit codes, writes
-``<output-stem>.manifest.json`` next to the outputs and, with ``--json``,
+``<output>.manifest.json`` next to the outputs and, with ``--json``,
 prints the same document to stdout. The model is plain dataclasses so library
 callers (the typed API, server mode) can return it directly.
 
@@ -22,6 +22,7 @@ import logging
 import os
 import platform as _platform
 import re
+import stat
 import sys
 import threading
 import time
@@ -120,10 +121,13 @@ def fingerprint(path: str | os.PathLike[str]) -> str | None:
     is at most 3 MiB), so a 100 GB BAM costs three reads, not a full pass. It
     tells files apart and survives copies (mtime isn't hashed), but it isn't an
     integrity check: an edit confined to unread bytes keeps the fingerprint.
-    Use ``wgsextract sign`` for full-content digests. None for non-files or
-    unreadable files.
+    Use ``wgsextract sign`` for full-content digests. None for unreadable
+    files and anything but a regular file: opening a FIFO, ``/dev/stdin`` or a
+    process substitution would block or drain the input the command needs.
     """
     try:
+        if not stat.S_ISREG(os.stat(path).st_mode):
+            return None
         with open(path, "rb") as stream:
             size = os.fstat(stream.fileno()).st_size
             digest = hashlib.sha256(b"wgse-fp1\0" + str(size).encode() + b"\0")
@@ -151,13 +155,14 @@ def _index_of(path: Path, kind: str) -> str | None:
 
 
 def manifest_path_for(output: str | os.PathLike[str]) -> Path:
-    """``<output-stem>.manifest.json``: ``snps.vcf.gz`` -> ``snps.manifest.json``."""
+    """``<output>.manifest.json`` minus a compression suffix:
+    ``s_MT.vcf.gz`` -> ``s_MT.vcf.manifest.json``. The type extension stays, so
+    outputs differing only in type (``s_MT.fasta``) get their own manifest."""
     path = Path(output)
     name = path.name
     if path.suffix.lower() in _COMPRESSION_SUFFIXES:
         name = name[: -len(path.suffix)]
-    stem = Path(name).stem if Path(name).suffix else name
-    return path.with_name(stem + MANIFEST_SUFFIX)
+    return path.with_name(name + MANIFEST_SUFFIX)
 
 
 @dataclass
@@ -194,21 +199,25 @@ class FileRecord:
         return record
 
     def refresh(self) -> None:
-        """Re-read size, mtime, fingerprint and index from disk."""
+        """Re-read size, mtime, fingerprint and index from disk.
+
+        Only regular files are opened; a FIFO or device (``/dev/stdin``, a
+        process substitution) is recorded without size or fingerprint."""
         path = Path(self.path)
         try:
-            stat = path.stat()
+            info = path.stat()
         except OSError:
             self.exists, self.size_bytes, self.mtime = False, None, None
             self.fingerprint = self.index = None
             return
         self.exists = True
-        self.mtime = _utc(stat.st_mtime)
-        if path.is_dir():
+        self.mtime = _utc(info.st_mtime)
+        if stat.S_ISDIR(info.st_mode):
             self.kind = "directory"
+        if not stat.S_ISREG(info.st_mode):
             self.size_bytes = self.fingerprint = self.index = None
             return
-        self.size_bytes = stat.st_size
+        self.size_bytes = info.st_size
         self.fingerprint = fingerprint(path)
         self.index = _index_of(path, self.kind)
 

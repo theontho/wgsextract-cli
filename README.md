@@ -109,7 +109,7 @@ wgsextract --input sample.cram lineage y-str --panel Y-37
 
 Try commands on a small region (`--region chrM`, where supported) before running whole-genome jobs, which can take hours and hundreds of gigabytes of working space. Every command exits non-zero on failure, so they can be chained in scripts: 1 for a failure, 2 for a usage error (such as a missing `--input`), 3 for a missing or too-old external tool.
 
-Commands that write files also write a `<output-stem>.manifest.json` beside them. It lists the inputs and outputs (with cheap fingerprints), headline metrics, structured warnings and provenance (versions, parameters, reference, timing). With `--json`, any command prints that document to stdout instead of its human-readable output, and logs stay on stderr. See [docs/result-manifest.md](docs/result-manifest.md) for the `wgsextract.result/1` schema, warning codes and exit codes.
+Commands that write files also write a `<output>.manifest.json` beside them. It lists the inputs and outputs (with cheap fingerprints), headline metrics, structured warnings and provenance (versions, parameters, reference, timing). With `--json`, any command prints that document to stdout instead of its human-readable output, and logs stay on stderr. See [docs/result-manifest.md](docs/result-manifest.md) for the `wgsextract.result/1` schema, warning codes and exit codes.
 
 Alignment/realignment pipelines and GATK scatter print a stderr heartbeat every
 60 seconds, including processed versus expected reads (when known), or completed
