@@ -309,6 +309,7 @@ def test_invalid_override_is_ignored(seqs, folder, caplog):
 
 
 @needs_htslib
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX folder permissions")
 def test_read_only_folder_never_fails_a_command(seqs, folder):
     bam = _bam(seqs, folder / "s.bam", MALE)
     folder.chmod(0o555)
