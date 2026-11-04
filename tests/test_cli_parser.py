@@ -394,7 +394,8 @@ def test_command_help_lists_global_options_in_one_short_group(capsys):
     assert "--input" not in usage and "--json" not in usage
     globals_help = rest.split("global options:", 1)[1]
     assert "-i/--input" in globals_help and "wgsextract --help" in globals_help
-    assert out.count("--input") == 1
+    options = out.split("\nexamples:", 1)[0]
+    assert options.count("--input") == 1
 
 
 def test_a_command_option_clashing_with_a_global_option_is_rejected(monkeypatch):

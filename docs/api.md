@@ -295,5 +295,6 @@ settings) and then to the documented default.
 | `parallel` | `bool` | `False` | `--parallel` | Enable per-chromosome parallel variant calling |
 | `ref_vcf_tab` | `Path \| None` | `None` | `--ref-vcf-tab` | Master tabulated list of all consumer microarray SNPs (auto-resolved from --ref if possible) |
 | `ploidy_file` | `Path \| None` | `None` | `--ploidy-file` | File defining ploidy per chromosome (auto-resolved from --ref if possible) |
+| `sample` | `str \| None` | `None` | `--sample` | Sample to use from a multi-sample VCF (e.g. a joint-called nf-core/sarek VCF); required when the VCF has more than one |
 | `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM, chrY:10000-20000) |
 | `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA) |

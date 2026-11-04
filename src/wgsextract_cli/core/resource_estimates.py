@@ -12,6 +12,7 @@ from typing import Literal
 from . import alignment_memory
 from .native_support import is_linux_arm64
 from .reference_assets import read_fai_lengths
+from .region_selection import selected_intervals
 from .samtools_commands import parse_memory
 
 Operation = Literal[
@@ -33,6 +34,15 @@ SORT_BYTES_PER_READ = 120
 CRAM_BYTES_PER_READ = 28
 BAM_BYTES_PER_READ = 100
 FASTQ_BYTES_PER_READ = 75
+# DeepVariant postprocess_variants: each partition worker loads and sorts its
+# partition's call_variants records in memory. #173 (HG008 Ultima ~30x, hs38DH,
+# --cpus 5): DeepVariant's five partitions held 1.06-3.30 million records; the
+# densest, chr13-chr20 (700,430,089 bases), held 3,295,319 (4.70 per kb). Three
+# workers were OOM-killed mid-sort at 3.39-6.14 GB anonymous RSS, below their peaks.
+DV_RECORDS_PER_BASE = 4.75e-3
+DV_BYTES_PER_RECORD = 2048
+DV_WORKER_BASE_BYTES = 768 * 1024**2
+DV_MAX_PARTITIONS = 128
 
 
 @dataclass(frozen=True)
@@ -74,6 +84,128 @@ class PreflightEstimate:
             "resources": [resource.to_dict() for resource in self.resources],
             "notes": list(self.notes),
         }
+
+
+@dataclass(frozen=True)
+class PostprocessPlan:
+    """DeepVariant postprocess_variants workers (--cpus) and --num_partitions."""
+
+    cpus: int
+    partitions: int
+    worker_bytes: int
+    fits: bool | None
+
+    @property
+    def peak_bytes(self) -> int:
+        return self.cpus * self.worker_bytes
+
+
+def dv_calling_regions(
+    lengths: dict[str, int], region: str | None
+) -> list[tuple[str, int, int]] | None:
+    """DeepVariant's calling regions in reference order; None without lengths."""
+    if not lengths:
+        return None
+    if not region:
+        return [(contig, 0, length) for contig, length in lengths.items()]
+    selected = selected_intervals(region, lengths)
+    return [(c, start, end) for c in lengths for start, end in selected.get(c, ())]
+
+
+def dv_partition_bases(
+    regions: Sequence[tuple[str, int, int]], partitions: int
+) -> list[int] | None:
+    """Bases per partition from DeepVariant 1.9+'s partition_calling_regions.
+
+    None when DeepVariant itself would fail: fewer bases than partitions, or a
+    single oversized piece left to split.
+    """
+    total = sum(end - start for _, start, end in regions)
+    size = total // partitions
+    if size < 1:
+        return None
+    pieces = [
+        min(end, at + size) - at
+        for _, start, end in regions
+        for at in range(start, end, size)
+    ]
+    prefix = [0]
+    for piece in pieces:
+        prefix.append(prefix[-1] + piece)
+
+    def bases(group: tuple[int, int]) -> int:
+        return prefix[group[1]] - prefix[group[0]]
+
+    # Groups are contiguous [first, last) piece ranges, closed once they exceed size.
+    groups: list[tuple[int, int]] = []
+    first = 0
+    for index in range(len(pieces)):
+        if index > first and prefix[index] - prefix[first] > size:
+            groups.append((first, index))
+            first = index
+    groups.append((first, len(pieces)))
+    while len(groups) < partitions:
+        groups.sort(key=bases)
+        first, last = groups.pop()
+        middle = first + (last - first) // 2
+        if middle == first:
+            return None
+        groups += [(first, middle), (middle, last)]
+    return [bases(group) for group in sorted(groups)]
+
+
+def dv_postprocess_worker_bytes(bases: int) -> int:
+    records = math.ceil(bases * DV_RECORDS_PER_BASE)
+    return DV_WORKER_BASE_BYTES + records * DV_BYTES_PER_RECORD
+
+
+def plan_dv_postprocess(
+    regions: Sequence[tuple[str, int, int]],
+    threads: int,
+    available: int | None,
+    partitions: bool = True,
+) -> PostprocessPlan:
+    """Bound postprocess_variants' in-memory partition sorts by available RAM.
+
+    DeepVariant's default is ``threads`` workers over as many partitions. If
+    that does not fit beside 1 GiB of driver headroom, keep the most workers
+    and add the fewest partitions that make their largest partitions fit.
+    Without known RAM the default is kept (``fits`` None); when one worker
+    cannot fit, the plan is the smallest one-worker plan with ``fits`` False.
+    Without ``partitions`` (DeepVariant before 1.9 has no --num_partitions),
+    only the workers, and so the partitions with them, are reduced.
+    """
+    workers: dict[int, int | None] = {}
+
+    def worker(partitions: int) -> int | None:
+        if partitions not in workers:
+            sizes = dv_partition_bases(regions, partitions)
+            workers[partitions] = (
+                None if sizes is None else dv_postprocess_worker_bytes(max(sizes))
+            )
+        return workers[partitions]
+
+    default = worker(threads)
+    if default is None:
+        # DeepVariant runs (or fails) as it would have; keep its default.
+        total = sum(end - start for _, start, end in regions)
+        return PostprocessPlan(
+            threads, threads, dv_postprocess_worker_bytes(total), None
+        )
+    if available is None:
+        return PostprocessPlan(threads, threads, default, None)
+    budget = available - GIB
+    limit = max(DV_MAX_PARTITIONS, threads)
+    for cpus in range(threads, 0, -1):
+        for count in range(cpus, (limit if partitions else cpus) + 1):
+            need = worker(count)
+            if need is not None and cpus * need <= budget:
+                return PostprocessPlan(cpus, count, need, True)
+    smallest = min(
+        range(1, (limit if partitions else 1) + 1),
+        key=lambda count: worker(count) or math.inf,
+    )
+    return PostprocessPlan(1, smallest, worker(smallest) or default, False)
 
 
 def _disk_space(path: str) -> tuple[object, int | None]:
@@ -119,6 +251,9 @@ def estimate_resources(
     gatk_workers: int = 1,
     additional_ram_bytes: int = 0,
     inference_batch_size: int = 1024,
+    deepvariant_model: str = "WGS",
+    postprocess_plan: PostprocessPlan | None = None,
+    available_ram: int | None = None,
 ) -> PreflightEstimate:
     """Estimate a resolved command without creating files or running tools.
 
@@ -126,6 +261,9 @@ def estimate_resources(
     FASTQ sample/indexed count. Otherwise disk uses a conservative byte-size
     fallback; alignment RAM retains the D3 model's explicit unknown-count budget.
     Regional operations retain whole-input disk bounds, not guessed coverage.
+    Callers that already planned DeepVariant's postprocess_variants pass that
+    ``postprocess_plan`` and the ``available_ram`` it was sized against (for
+    example capped by Docker's VM); otherwise both are derived here.
     """
     count = int(threads)
     if (
@@ -155,6 +293,12 @@ def estimate_resources(
         notes.append(
             "Disk read count inferred from input bytes; compression and read lengths vary."
         )
+    available_memory: int | None = available_ram
+    if available_memory is None:
+        try:
+            available_memory = alignment_memory.available_memory()
+        except OSError:
+            available_memory = None
     demands: list[tuple[str, str, int | None]] = []
     memory_components: dict[str, int]
     output: int | None
@@ -266,16 +410,42 @@ def estimate_resources(
             (30 if arm64 else 14) * GIB * inference_batch_size / 1024
         )
         sharded = count * (2 if arm64 else 1) * GIB
+        # run_deepvariant postprocesses WES in one sequential pass (--cpus 0).
+        regions = (
+            None
+            if deepvariant_model == "WES"
+            else dv_calling_regions(
+                read_fai_lengths(reference) if reference else {}, region
+            )
+        )
+        plan = postprocess_plan or (
+            None
+            if regions is None
+            else plan_dv_postprocess(regions, count, available_memory)
+        )
         memory_components = {
-            "largest_sequential_stage": max(inference, sharded),
+            "largest_sequential_stage": max(
+                inference, sharded, plan.peak_bytes if plan else 0
+            ),
             "driver_headroom": GIB,
         }
         notes.append(
-            "DeepVariant WGS uses sequential stages: allow for the larger of "
-            "TensorFlow inference and concurrent make_examples shards, not their sum. "
+            "DeepVariant WGS uses sequential stages: allow for the largest of "
+            "TensorFlow inference, concurrent make_examples shards and "
+            "postprocess_variants partition sorts, not their sum. "
             "Reducing --threads does not remove the default inference memory floor; "
             "other models/checkpoints may require more RAM."
         )
+        if regions is None and deepvariant_model != "WES":
+            notes.append(
+                "postprocess_variants RAM is unknown without a reference .fai."
+            )
+        elif plan is not None:
+            notes.append(
+                f"postprocess_variants: {plan.cpus} workers over {plan.partitions} "
+                f"partitions, up to {plan.worker_bytes / GIB:.2f} GiB each "
+                "(calibrated on 30x Ultima call density)."
+            )
         output = None if size is None else math.ceil(size / 10)
         temporary = size
         notes.append(
@@ -337,11 +507,6 @@ def estimate_resources(
             else None
         )
         grouped[device] = (free, components, paths, unknown or needed is None)
-    available_memory: int | None
-    try:
-        available_memory = alignment_memory.available_memory()
-    except OSError:
-        available_memory = None
     resources = [
         ResourceEstimate(
             "memory",

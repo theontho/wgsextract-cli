@@ -18,6 +18,7 @@ from .commands import (
     cmd_fastp,
     cmd_fastqc,
     cmd_multiqc,
+    cmd_multiqc_metrics,
     cmd_vcf_qc,
 )
 from .fake_data import (
@@ -107,12 +108,21 @@ def register(
     multiqc_parser = qc_subs.add_parser(
         "multiqc",
         parents=[base_parser],
-        help="Combine existing FastQC reports into one local HTML report.",
+        help="Combine existing FastQC reports, bcftools stats and WGS Extract "
+        "result manifests into one local HTML report.",
     )
     multiqc_parser.add_argument(
         "--force", action="store_true", help="Replace an existing MultiQC report."
     )
     multiqc_parser.set_defaults(func=cmd_multiqc)
+
+    metrics_parser = qc_subs.add_parser(
+        "multiqc-metrics",
+        parents=[base_parser],
+        help="Write MultiQC custom-content files (wgsextract_*_mqc.json) from "
+        "result manifests; MultiQC isn't needed.",
+    )
+    metrics_parser.set_defaults(func=cmd_multiqc_metrics)
 
     vcf_parser = qc_subs.add_parser(
         "vcf", parents=[base_parser], help=CLI_HELP["cmd_vcf-qc"]

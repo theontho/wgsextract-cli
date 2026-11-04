@@ -39,13 +39,13 @@ wgsextract \
 ::: wrap
 ::: section-head
 ## Command groups
-Run `wgsextract help` for the live tree from your installed version, `wgsextract --full-help` for every option, or `wgsextract <command> --help` for one command.
+`wgsextract --help` lists the core commands first, in the order you would usually run them (`info`, `microarray`/`lineage`, `extract`, `realign`/`align`, `vcf`, `vep`), then setup and advanced commands. Run `wgsextract help --all` for one line per command (`--json` for a machine-readable index), `wgsextract help <command>` for one command's options, examples and output files, or `wgsextract help` for the full tree. A mistyped command gets a "Did you mean" hint.
 :::
 
 ::: grid three
 ::: card
 ### Info and QC
-`info` (build, integrity, read metrics; `--csv` for machine-readable output), `info calculate-coverage` (exact breadth via samtools coverage, written to `<input>_coverage.tsv`; `--bins` streams depth bands 0 / 1–3 / 4–7 / 8+), `info coverage-sample` (fast estimate), `info chip` (which vendor chip revision a microarray raw file is, with a confidence score and the matching `--formats` template), plus `qc fastqc`, `qc fastp`, `qc multiqc` (offline FastQC report aggregation), `qc vcf`, and `qc fake-data`.
+`info` (build, integrity, read metrics; `--csv` for machine-readable output), `info calculate-coverage` (exact breadth via samtools coverage, written to `<input>_coverage.tsv`; `--bins` streams depth bands 0 / 1–3 / 4–7 / 8+), `info coverage-sample` (fast estimate), `info chip` (which vendor chip revision a microarray raw file is, with a confidence score and the matching `--formats` template), plus `qc fastqc`, `qc fastp`, `qc multiqc` (one offline report of FastQC, bcftools stats and WGS Extract metrics), `qc multiqc-metrics` (MultiQC custom content for a pipeline's own report; see [pipeline interop](https://github.com/theontho/wgsextract-cli/blob/main/docs/interop.md){.inline-link}), `qc vcf`, and `qc fake-data`.
 :::
 
 ::: card

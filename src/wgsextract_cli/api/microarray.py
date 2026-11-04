@@ -116,6 +116,11 @@ class MicroarrayParams(Params):
         "possible)",
         path="file",
     )
+    sample: str | None = param(
+        None,
+        help="Sample to use from a multi-sample VCF (e.g. a joint-called "
+        "nf-core/sarek VCF); required when the VCF has more than one",
+    )
     region: str | None = param(
         None, help=CLI_HELP["arg_region"], flags=("-r", "--region")
     )

@@ -11,7 +11,8 @@ from .cli.bootstrap import (
     start_parent_monitor,
 )
 from .cli.dispatch import dispatch_command
-from .cli.parser import build_parser, config_path_from_argv, parse_args, print_full_help
+from .cli.help import print_full_help, run_help
+from .cli.parser import build_parser, config_path_from_argv, parse_args
 from .core.config import reload_settings, set_config_path
 from .core.run_log import RunLogError, run_logging
 from .core.utils import WGSExtractError
@@ -40,6 +41,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.full_help:
         print_full_help(parser)
         raise SystemExit(0)
+    if args.command == "help":
+        # Read-only and quiet: no run log, and --json prints the command
+        # index rather than a result manifest.
+        run_help(args, parser)
+        return
 
     configure_logging(debug=args.debug, quiet=args.quiet)
     install_signal_handlers()

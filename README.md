@@ -142,7 +142,21 @@ Output files are named after the full input stem: `HG002.chr20.bam` produces `HG
 
 ## Commands
 
-Run `wgsextract help` for the full command tree, and `wgsextract <command> --help` for options.
+`wgsextract --help` starts with the core commands, in the order you would
+usually run them: `info` → `microarray` / `lineage` → `extract` → `realign` /
+`align` → `vcf` → `vep`. Setup commands (`ref`, `deps`, `example-genome`,
+`config`) follow, and the advanced ones (optional or hard-to-install tools,
+format repair, benchmarks) are listed by name only.
+
+- `wgsextract help --all`: every command on one line, grouped by tier
+  (`help --all vcf` for one group; add `--json` for a machine-readable index).
+- `wgsextract help vcf snp` (or `wgsextract vcf snp --help`): one command's
+  options, examples and the files it writes.
+- `wgsextract help`: the full command tree.
+
+A mistyped command or choice is a usage error (exit 2) with a "Did you mean"
+hint. Help is plain text when piped, and colour is off when `NO_COLOR` is set.
+[docs/commands.md](docs/commands.md) is the generated command reference.
 
 `info` recognizes native Element AVITI read names from
 [Bases2Fastq](https://docs.elembio.io/docs/bases2fastq/outputs/#seq-identifiers-sequencing),
@@ -165,10 +179,30 @@ and unplaced unmapped reads in the total. Detailed `info` and sex inference
 still use idxstats: container totals cannot distinguish mapped reads from
 placed-unmapped reads, so using those totals as mapped counts would be inexact.
 
-### Combining FastQC mate reports
+### MultiQC reports and professional pipelines
 
-`qc multiqc` is opt-in and combines existing FastQC reports without rerunning
-FastQC or changing its default outputs:
+`qc multiqc-metrics` turns result manifests into MultiQC custom-content files
+(`wgsextract_*_mqc.json`) without needing MultiQC. Their sections cover:
+
+- `info` metrics;
+- haplogroups;
+- microarray genotype summaries;
+- variant counts and warnings;
+- General Statistics columns.
+
+A MultiQC run elsewhere, such as nf-core/sarek's, picks the files up beside
+its own. [docs/interop.md](docs/interop.md) covers that, and also:
+
+- handing our BAM/CRAM files to nf-core/sarek, wf-human-variation and GATK;
+- bringing their VCFs back, including gVCFs and multi-sample VCFs via
+  `microarray --sample`.
+
+`qc multiqc` is opt-in and combines existing reports into one HTML file
+without rerunning anything or changing their outputs. It reads:
+
+- FastQC reports;
+- `bcftools stats` output from `qc vcf`;
+- WGS Extract result manifests, converted as above.
 
 ```bash
 wgsextract qc fastqc --input sample_R1.fastq.gz --outdir out/fastqc
@@ -189,7 +223,7 @@ validates dependencies, never installs them. An optional Pixi `multiqc`
 environment is available for explicit user-managed setup (`pixi install -e
 multiqc`); development environments include it for tiny real-tool tests.
 [MultiQC](https://github.com/MultiQC/MultiQC) is an external GPLv3 tool, not a
-bundled dataset. Only its FastQC module runs. Version checks, MegaQC uploads,
+bundled dataset. Only its FastQC, bcftools and custom-content modules run. Version checks, MegaQC uploads,
 AI summaries and AI report controls are disabled; no browser is launched.
 The standard subprocess `TMPDIR` is set to an owned report workspace, not
 exposed as an application configuration setting.
@@ -210,7 +244,7 @@ exposed as an application configuration setting.
 | `align` | Align FASTQ reads with bwa, bwa-mem2, minimap2, or pbmm2, or on an NVIDIA GPU with `--gpu` |
 | `realign` | Re-align an existing BAM/CRAM to another reference, streaming paired reads into BWA or reusing FASTQs |
 | `pet-align` | Align dog or cat FASTQs and call variants |
-| `qc` | `fastp`, `fastqc`, `multiqc` (existing FastQC reports), `vcf` (stats), `fake-data` (synthetic BAM/CRAM/VCF/FASTQ) |
+| `qc` | `fastp`, `fastqc`, `multiqc` (FastQC, bcftools stats and our metrics in one report), `multiqc-metrics` (MultiQC custom content from manifests; [pipeline interop](docs/interop.md)), `vcf` (stats), `fake-data` (synthetic BAM/CRAM/VCF/FASTQ) |
 | `repair` | `ftdna-bam`, `ftdna-vcf` |
 | `analyze` | `comprehensive` (QC, lineage, calling, annotation in one run), `batch-gen` |
 | `ref` | Library: `bootstrap`, `library`, `library-list`, `status`, `download`, `index`, `verify`, `count-ns`, `gene-map`. Annotation data: `clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb`, `ybrowse` (GRCh38 only) |
@@ -287,7 +321,7 @@ outputs are unchanged.
 - `microarray` exports hg19 nuclear coordinates. The existing hg38 vendor route retains its legacy Yoruba-to-hg19 mitochondrial chain shifts and gaps; those positions are not rCRS. CHM13v2 original-MT/masked-Y input has a separate pinned hg19/rCRS projection path; see [reference requirements and limitations](docs/microarray-chm13.md).
 - `microarray` genotypes every chip's markers at once from a genome-wide target list. A library set up with `ref bootstrap` has none, so the first run builds `microarray/All_SNPs_<build>_ref.tab.gz` from the chip templates (for hg38, lifted with UCSC's hg19ToHg38 chain, downloaded into the library) and later runs reuse it. Reads with mapping quality under 10 are ignored, so a marker whose reads could belong elsewhere in the genome is a no-call (`--`) rather than a guessed homozygous call. The kits match their owners' real AncestryDNA and MyHeritage chips at about 99% of markers; a weekly test checks 1000 Genomes sample HG00096's kit against its Omni chip.
 - hg38 vendor exports cache exact hg38-to-hg19 chain projections in the configured library's `microarray/hg19-coordinates/` directory. Cache keys include chain content, ordered source coordinates and the format version; IDs and genotypes are never cached. Changed inputs or damaged files rebuild automatically, and deleting this directory is safe. Without a configured writable library, exports work uncached; an explicit FASTA does not choose the cache location. Existing valid read-only caches remain usable.
-- Microarray quality gates are opt-in: `--min-gq 20 --min-dp 5` requires sample FORMAT/GQ and FORMAT/DP at least those values; a missing required field is a no-call, not a pass. bcftools can omit GQ on reference-only records, which also become no-calls under an enabled GQ threshold. Both defaults are `0` (disabled), and FILTER values remain accepted unless `--exclude-filtered` is selected. Quality/reason options require a single sample; select one from a multi-sample VCF first. With VCF input, absent markers on represented contigs are assumed homozygous reference by default; `--no-assume-hom-ref` instead writes no-calls. An ordinary variant-only VCF cannot establish coverage or reference genotypes at absent sites; reference-block interpretation is not added here. Enabled quality thresholds also prevent unsupported reference imputation without GQ/DP.
+- Microarray quality gates are opt-in: `--min-gq 20 --min-dp 5` requires sample FORMAT/GQ and FORMAT/DP at least those values; a missing required field is a no-call, not a pass. bcftools can omit GQ on reference-only records, which also become no-calls under an enabled GQ threshold. Both defaults are `0` (disabled), and FILTER values remain accepted unless `--exclude-filtered` is selected. A multi-sample VCF (for example a joint-called cohort) needs `--sample` to choose whose kit to write. With VCF input, absent markers on represented contigs are assumed homozygous reference by default; `--no-assume-hom-ref` instead writes no-calls. An ordinary variant-only VCF cannot establish coverage or reference genotypes at absent sites. A gVCF can: markers inside its `0/0` reference blocks are reference calls and markers no record covers are no-calls, unless `--assume-hom-ref` or `microarray_assume_hom_ref` is given (see [docs/interop.md](docs/interop.md#bringing-vcfs-back)). Enabled quality thresholds also prevent unsupported reference imputation without GQ/DP.
 - `microarray --call-reasons` adds `<sample>_CombinedKit_reasons.tsv`, a complete target-level table with the usual four fields plus `CALL_REASON`, in the input build. It distinguishes `no_reads` (no aligned base evidence under standard read-flag filters), `low_mapq` (evidence exists only below MAPQ 10), low/missing GQ or DP, `filtered`, `missing_gt`, unsupported alleles and absent VCF markers/contigs; reference-filled sites are labeled `assumed_hom_ref`. The legacy four-column CombinedKit and vendor schemas stay unchanged. Reason-only mode also preserves legacy unsupported-VCF skips/imputation; unsupported records become explicit no-calls when quality/FILTER gates are selected. BAM/CRAM reporting adds two depth passes per requested interval using indexed traversal with `--region`; without a region, it reads the whole alignment twice. Reporting is disabled by default.
 - These microarray options have matching top-level `config.toml` settings: `microarray_min_gq`, `microarray_min_dp`, `microarray_assume_hom_ref`, `microarray_exclude_filtered` and `microarray_call_reasons`. Explicit CLI values override configuration, including `--min-gq 0`, `--assume-hom-ref`, `--no-exclude-filtered` and `--no-call-reasons`. Per-vendor profiles retain existing haploid, allele-order, quoting and no-call behavior; declaring a vendor's I/D encoding does not enable indel calling.
 - `microarray`, the `vcf` callers and the haplogroup commands warn when a BAM/CRAM's mean depth is too low for the genotypes they make (below 8x on autosomes, 3x on chrY/mtDNA), and `microarray` warns afterwards when its autosomal genotypes look low-pass or imputed (over 88% homozygous) or its vendor files have over 10% no-calls. The depth comes from `info --detailed`'s cache, CRAM container headers or a BAM index, so the check is cheap; outputs are never changed. Thresholds are `qc_*` settings in `config.toml`, and `--qc-min-depth DEPTH` (0 disables) overrides the depth threshold for one run. See [what each warning means](docs/genotype-qc.md).
@@ -319,10 +353,11 @@ outputs are unchanged.
   `vcf deepvariant` selects `ONT_R104` for ONT automatically (`--ont` / `--model-type ONT_R104` explicitly). R10.4.1 only; R9.4.1 is unsupported and identifiable legacy basecaller metadata produces a warning. ONT_R104 requires x86-64, including when using the pinned Parabricks 4.8.0-1 `--gpu` mapping (`--mode ont`); ARM64 ONT calling is not qualified. `vcf clair3` is an optional ONT caller (Linux x86-64, `pixi install -e clair3`) whose model matches the basecaller, chosen by `--model`, `clair3_model` or header metadata, with pinned checksums ([details](docs/ont.md#clair3-optional)). `vcf sv` calls ONT structural variants with Sniffles automatically (pbsv is PacBio-only). `methylation pileup` writes CpG methylation (bedMethyl) from the retained MM/ML tags with modkit (Linux and macOS, `pixi install -e modkit`; [details](docs/ont.md#methylation)). Regional validation is not whole-genome qualification (#299).
 - `ref spliceai` downloads Ensembl's open GRCh38 SpliceAI scores (about 29 GB with its published index): every SNV in MANE Select transcripts, no indels. Illumina's full hg19 and hg38 sets sit behind a BaseSpace login, so hg19 needs a manual download; the command explains where to place it. SpliceAI scores are free for academic and not-for-profit use only.
 - `vcf deepvariant` runs Google's DeepVariant from its Docker image on x64 Linux and macOS (`docker pull google/deepvariant:1.10.0`; set `deepvariant_image` in `config.toml` for another version), or Google's `run_deepvariant` when it's on `PATH`, or Parabricks with `--gpu`. Linux ARM64 uses a [locally built native 1.10.0 CPU image](docs/deepvariant-arm64.md), validates the engine/image architecture and bypasses precision-changing entrypoints; it never falls back to x86 or an unaudited PATH launcher. Docker and images are checked, not installed. Bioconda's `deepvariant` package has contained no DeepVariant since 1.8, so there is no Pixi environment for it. Apple Silicon retains its existing slow x86-64 emulation path.
+  CPU DeepVariant's preflight runs on every platform and includes whole-genome `postprocess_variants`, whose workers each sort a partition of the calls in memory (about 7 GiB each for a 30x genome at `-t 5`). When they don't fit the RAM available, it splits postprocessing into more partitions or runs fewer workers, logging the change, and refuses before starting when even one worker can't fit. An out-of-memory kill in the container stops the run with an error rather than leaving it hung, and complete call_variants outputs are kept in a per-run folder under `deepvariant_intermediates/` on failure ([details](docs/resource_estimates.md#deepvariant-postprocess_variants)).
   CPU DeepVariant stages CRAM 3.1 or newer as indexed CRAM 3.0 with host samtools, working around the htslib 1.18 SSE4 rANS decoder bug in DeepVariant's x86-64 images (including x86-64 emulation on Apple Silicon); staging also runs for other images, such as ARM builds. Staging honors `--region` (including whitespace-separated intervals and BED/BED.gz/BEDPE files, taking their union without duplicate reads), checks free disk space, and removes its temporary files on completion, failure or cancellation. Targeted disk estimates use twice the compressed sizes of overlapping CRAI slices, with a 64 MiB minimum; shared slices count only once. This accounts for reads concentrated in capture regions; missing or unreadable indexes fall back to the conservative whole-input estimate. Unknown contigs in BED rows or explicit intervals are dropped; bare unknown contigs and selections covering no reference bases are rejected. Colon-containing contigs, such as HLA alleles, support whole-contig, range and single-position selections. Allow extra temporary disk and transcode time (about 32 GB / 19 minutes for the observed 30x genome). BAM, CRAM 3.0 and Parabricks inputs are unchanged.
   - ARM enables only the qualified default WGS model; other models, `--wes`, `--pacbio` and `--checkpoint` fail clearly. Its default image is the local-only `localhost/wgsextract-deepvariant:1.10.0-arm64`: build it using `packaging/deepvariant-arm64/build.sh`, never pull a similarly named Docker Hub image. The single multi-stage build does not resolve a builder image from a registry.
   - Native ARM's default TensorFlow `call_variants` batch (1024) needs about 26 GiB maximum-child RSS; this is **not** that amount per `--threads` shard. Profiling identifies FP32 oneDNN/ACL inference, not 64K pages (the tested guests use 4K) or malloc arenas. `--batch-size 256` forwards Google's existing CPU inference flag: a chr20 replay reduced inference RSS from 26,971,300 to 7,981,020 KiB (70.4%), with all 210,390 VCF records and fields identical. Models and precision are unchanged; the default remains upstream's 1024.
-  - ARM memory preflight accounts separately for the inference batch and concurrent `make_examples` shards. Lowering only `--threads` does not remove the default inference floor. For lower-memory hosts, combine `--batch-size 256` with fewer shards, e.g. `wgsextract vcf deepvariant -i sample.bam --ref reference.fna --batch-size 256 -t 8 -o results`. The conservative WGS estimate is 33 GiB at the qualified 16-shard default, or 17 GiB for this example; it warns about insufficient reclaimable/cgroup-limited RAM, not a memory allocation or promise for custom models. The smaller batch was validated on chr20, not a new full-genome benchmark.
+  - ARM memory preflight accounts separately for the inference batch and concurrent `make_examples` shards. Lowering only `--threads` does not remove the default inference floor. For lower-memory hosts, combine `--batch-size 256` with fewer shards, e.g. `wgsextract vcf deepvariant -i sample.bam --ref reference.fna --batch-size 256 -t 8 -o results`. The conservative WGS inference estimate is 33 GiB at the qualified 16-shard default, or 17 GiB for this example; it warns about insufficient reclaimable/cgroup-limited RAM, not a memory allocation or promise for custom models. The smaller batch was validated on chr20, not a new full-genome benchmark.
 - `vcf sv` and `vcf cnv` use Delly 2 (`delly sr` / `delly cnv`), which needs no mappability map; `vcf cnv --map` is accepted but ignored.
 - `lineage y-haplogroup` uses native code derived from [Yleaf v4.1.6](https://github.com/genid/Yleaf), not an external Yleaf installation. It writes predictions, marker/QC tables and version provenance to `<outdir>/yleaf/` without deleting the user's directory. Build-specific tables download lazily, SHA-256 verified, from this repo's `yleaf-data-v4.1.6` release into the configured `reference_library`. CRAM and variant-only VCF inference need a matching `--ref`; use `--no-ref-inference` for targeted VCF panels. Choose `--tree yfull|yfull_v10|ftdna|isogg`; `--min-reads`, `--base-quality`, `--base-majority`, `--min-score`, `--ancient` and `--pos-file` replace external-tool passthrough. Align FASTQ first with `align`. See [native Yleaf documentation](src/wgsextract_cli/ydna/yleaf_native/README.md).
 - `lineage y-str` reports FamilyTreeDNA Y-12 to Y-111, PowerPlex Y23 and Yfiler Plus repeat counts from a hg19, hg38 or T2T BAM/CRAM. It needs only samtools; `typing str` (ExpansionHunter) is for disease expansions. Results go to `<outdir>/ystr/` as a per-marker TSV, an FTDNA-ordered CSV and `run.json`. Reads must span a repeat and both its flanks, so long markers may be no-calls, and DYS464, CDY, DYF387S1 and Y-GGAAT-1B07 are not callable. Against 1000 Genomes PowerPlex Y23 typings, 99.9% of 30x calls match, with 8% no-calls. See the [Y-STR documentation](src/wgsextract_cli/ydna/ystr/README.md) for sources, licences, conventions and accuracy.
@@ -491,6 +526,8 @@ Set `genome_library` to a directory with one subfolder per person or sample. The
   ken mcdonald/
     bam files/sample.bam
 ```
+
+A genome ID can also be a nested path inside the library, using `/`, such as `test-1000genomes/na12878-lowcov-bam`. IDs can't be absolute or contain `.` or `..` parts. A genome folder may be a link to another disk, but the folders leading to it must stay inside the library.
 
 With `--genome <id>`, the CLI finds inputs in that folder (recursively) and writes outputs there unless `--outdir` is given. It creates a `genome-config.toml` in the folder. If several BAM/CRAM files, VCFs, or FASTQ sets match, the command fails instead of guessing; pick the files in `genome-config.toml`:
 

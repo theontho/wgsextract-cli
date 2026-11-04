@@ -17,7 +17,7 @@ from tests.fake_tools import python_tool
 from wgsextract_cli.commands import _deps_status
 from wgsextract_cli.core import dependency_checks, pixi_tools, windows_arm64
 from wgsextract_cli.core.tool_catalog import JAVA_JAR
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import MissingDependencyError, WGSExtractError
 
 
 @pytest.fixture(autouse=True)
@@ -170,21 +170,59 @@ def test_version_probe_reports_a_missing_shared_library_on_linux(tmp_path, monke
     assert version is not None and version.startswith("Error:")
 
 
-def test_version_probe_without_the_tool_or_on_timeout(tmp_path, monkeypatch):
+def test_version_probe_without_the_tool(monkeypatch):
     _use_tools(monkeypatch, {})
     assert dependency_checks.get_tool_version("samtools") is None
 
+
+def test_a_timed_out_probe_is_retried_with_a_longer_limit(tmp_path, monkeypatch):
+    samtools = _tool(tmp_path, "samtools", 'print("samtools 1.21")')
+    _use_tools(monkeypatch, {"samtools": samtools})
+    run = subprocess.run
+    timeouts = []
+
+    def slow_first_start(cmd, **kwargs):
+        timeouts.append(kwargs["timeout"])
+        assert kwargs["stdin"] is subprocess.DEVNULL
+        if len(timeouts) == 1:
+            raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+        return run(cmd, **kwargs)
+
+    monkeypatch.setattr(dependency_checks.subprocess, "run", slow_first_start)
+
+    assert dependency_checks.get_tool_version("samtools") == "samtools 1.21"
+    assert timeouts == [
+        dependency_checks.VERSION_PROBE_TIMEOUT,
+        dependency_checks.VERSION_PROBE_RETRY_TIMEOUT,
+    ]
+    # Cached: a second probe in the same process runs nothing.
+    assert dependency_checks.get_tool_version("samtools") == "samtools 1.21"
+    assert len(timeouts) == 2
+
+
+def test_a_probe_that_times_out_twice_is_slow_to_start(tmp_path, monkeypatch):
     samtools = _tool(tmp_path, "samtools", "")
     _use_tools(monkeypatch, {"samtools": samtools})
+    monkeypatch.setattr(dependency_checks, "check_dependencies", lambda tools: [])
+    calls = []
 
     def hang(cmd, **kwargs):
+        calls.append(cmd)
         raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
 
     monkeypatch.setattr(dependency_checks.subprocess, "run", hang)
-    assert dependency_checks.get_tool_version("samtools") == (
-        f"Error: Command '{[samtools, '--version']}' "
-        f"timed out after {dependency_checks.VERSION_PROBE_TIMEOUT} seconds"
+
+    expected = (
+        f"samtools is slow to start: {subprocess.list2cmdline([samtools, '--version'])}"
+        " did not finish in 60 seconds, nor in 180 on a retry"
     )
+    assert dependency_checks.get_tool_version("samtools") == f"Error: {expected}"
+    assert len(calls) == 2
+    # Not cached: the next probe tries again.
+    with pytest.raises(MissingDependencyError) as error:
+        dependency_checks.verify_dependencies(["samtools"])
+    assert str(error.value) == expected
+    assert len(calls) == 4
 
 
 @pytest.mark.parametrize(

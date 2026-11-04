@@ -22,6 +22,7 @@ from .dependencies import (
     check_dependencies,
     get_tool_path,
     get_tool_runtime,
+    tool_versions,
 )
 from .tool_catalog import (
     OPTIONAL_TOOLS,
@@ -75,6 +76,7 @@ def _pixi_env_installed(pixi_run: list[str], env: str) -> bool:
     try:
         info = subprocess.run(
             [*pixi_run[:run_at], "info", "--json", *manifest],
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             errors="replace",
@@ -134,7 +136,36 @@ _USAGE_RE = re.compile(r"^\s*usage:", re.IGNORECASE | re.MULTILINE)
 # A version probe's time limit. A tool's first start on a freshly installed
 # Windows PC can take far longer than later ones (Python compiles its bytecode,
 # Defender scans every new file): Yleaf's `--help` took 24 s there, then 1 s.
+# A loaded Windows CI runner also stalls a process for a minute or two at times.
+# A probe that times out is retried once with the longer limit.
 VERSION_PROBE_TIMEOUT = 60
+VERSION_PROBE_RETRY_TIMEOUT = 180
+SLOW_TO_START = "is slow to start"
+
+
+class _SlowToStart(Exception):
+    pass
+
+
+def _run_probe(tool: str, cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run a probe command, retrying once with a longer limit on a timeout."""
+    for timeout in (VERSION_PROBE_TIMEOUT, VERSION_PROBE_RETRY_TIMEOUT):
+        try:
+            return subprocess.run(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            logging.debug(f"{cmd} timed out after {timeout} seconds")
+    raise _SlowToStart(
+        f"{tool} {SLOW_TO_START}: {subprocess.list2cmdline(cmd)} did not finish "
+        f"in {VERSION_PROBE_TIMEOUT} seconds, nor in "
+        f"{VERSION_PROBE_RETRY_TIMEOUT} on a retry"
+    )
 
 
 def _version_output(stdout: str, stderr: str) -> str:
@@ -156,7 +187,9 @@ VERSION_ARGS = {"bwa-mem2": "version"}
 
 
 def get_tool_version(tool: str) -> str | None:
-    """Attempt to get the version of a tool by running it."""
+    """Attempt to get the version of a tool by running it.
+
+    Successful probes are cached per process, by command."""
     if reason := (
         unsupported_windows_arm64_tool(tool) or tool_unsupported_reason(tool)
     ):
@@ -185,16 +218,20 @@ def get_tool_version(tool: str) -> str | None:
         if "--no-install" not in full_cmd:
             full_cmd.insert(full_cmd.index("run") + 1, "--no-install")
 
+    key = (tool, *full_cmd)
+    if key not in tool_versions:
+        version = _probe_version(tool, full_cmd)
+        if version.startswith("Error:"):
+            return version
+        tool_versions[key] = version
+    return tool_versions[key]
+
+
+def _probe_version(tool: str, full_cmd: list[str]) -> str:
     try:
         # 1. Try --version first (standard)
         version_arg = VERSION_ARGS.get(tool, "--version")
-        res = subprocess.run(
-            full_cmd + [version_arg],
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=VERSION_PROBE_TIMEOUT,
-        )
+        res = _run_probe(tool, full_cmd + [version_arg])
         if crashed := _crash_description(res.returncode):
             return f"Error: {tool} {crashed}"
         output = _version_output(res.stdout, res.stderr)
@@ -207,13 +244,7 @@ def get_tool_version(tool: str) -> str | None:
                 return lines[0]
 
         # 2. Fallback for tools that use bare command or --help
-        res = subprocess.run(
-            full_cmd,
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=VERSION_PROBE_TIMEOUT,
-        )
+        res = _run_probe(tool, full_cmd)
         if crashed := _crash_description(res.returncode):
             return f"Error: {tool} {crashed}"
         output = _version_output(res.stdout, res.stderr)
@@ -254,6 +285,8 @@ def get_tool_version(tool: str) -> str | None:
                 return line.strip()
 
         return "Available"
+    except _SlowToStart as e:
+        return f"Error: {e}"
     except (OSError, subprocess.SubprocessError, RuntimeError, ValueError) as e:
         return f"Error: {str(e)}"
 
@@ -321,10 +354,12 @@ def verify_dependencies(
             if version_str.startswith("Error:"):
                 # Found but unable to run (a crash, a missing library): as
                 # good as missing, as `deps check` reports it.
+                problem = version_str.removeprefix("Error: ")
+                if SLOW_TO_START in problem:
+                    logging.error(f"{tool} at {get_tool_path(tool)} {SLOW_TO_START}.")
+                    raise MissingDependencyError(problem)
                 logging.error(f"{tool} at {get_tool_path(tool)} does not run.")
-                raise MissingDependencyError(
-                    f"{tool} does not run: {version_str.removeprefix('Error: ')}"
-                )
+                raise MissingDependencyError(f"{tool} does not run: {problem}")
 
             # Handle version strings like "bcftools 1.12" or "Version: 0.1.19"
 

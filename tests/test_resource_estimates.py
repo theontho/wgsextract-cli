@@ -45,6 +45,103 @@ def test_arm_deepvariant_inference_floor_survives_fewer_shards_and_small_regions
     assert mitigated.resources[0].status == "OK"
 
 
+# hs38DH: GRCh38's primary contigs, then 3,341 alt/decoy/HLA contigs (one here).
+HS38_PRIMARY = {
+    "chr1": 248956422, "chr2": 242193529, "chr3": 198295559, "chr4": 190214555,
+    "chr5": 181538259, "chr6": 170805979, "chr7": 159345973, "chr8": 145138636,
+    "chr9": 138394717, "chr10": 133797422, "chr11": 135086622,
+    "chr12": 133275309, "chr13": 114364328, "chr14": 107043718,
+    "chr15": 101991189, "chr16": 90338345, "chr17": 83257441, "chr18": 80373285,
+    "chr19": 58617616, "chr20": 64444167, "chr21": 46709983, "chr22": 50818468,
+    "chrX": 156040895, "chrY": 57227415, "chrM": 16569,
+}  # fmt: skip
+HS38DH = {**HS38_PRIMARY, "decoys": 129060516}
+
+
+def _whole_genome(tmp_path):
+    ref = tmp_path / "hs38DH.fa"
+    ref.write_text(">x\n")
+    Path(f"{ref}.fai").write_text(
+        "".join(f"{name}\t{length}\t0\t60\t61\n" for name, length in HS38DH.items())
+    )
+    return resources.dv_calling_regions(HS38DH, None), ref
+
+
+def test_dv_partitions_reproduce_the_173_whole_genome_run(tmp_path):
+    regions, _ref = _whole_genome(tmp_path)
+    # postprocess_variants' logged partitions: chr1-3, 4-7, 8-12, 13-20, chr21+.
+    assert resources.dv_partition_bases(regions, 5) == [
+        689445510, 701904766, 685692706, 700430089, 439873846
+    ]  # fmt: skip
+    assert resources.dv_partition_bases([("chr1", 0, 3)], 4) is None
+
+
+def test_whole_genome_deepvariant_budgets_postprocess_on_x86(
+    source, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(resources, "is_linux_arm64", lambda: False)
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 64 * GIB)
+    _regions, ref = _whole_genome(tmp_path)
+    options = {
+        "input_paths": [str(source)],
+        "output_dir": str(tmp_path),
+        "reference": str(ref),
+        "threads": "5",
+    }
+    estimate = resources.estimate_resources("deepvariant", **options)
+    stage = estimate.resources[0].components["largest_sequential_stage"]
+    # #173 measured 25-30 GB; workers were killed before their peaks.
+    assert 30 * GIB < stage < 40 * GIB
+    assert any("5 workers over 5 partitions" in note for note in estimate.notes)
+    regional = resources.estimate_resources("deepvariant", region="chr20", **options)
+    assert regional.resources[0].components["largest_sequential_stage"] == 16 * GIB
+    exome = resources.estimate_resources(
+        "deepvariant", deepvariant_model="WES", **options
+    )
+    assert exome.resources[0].components["largest_sequential_stage"] == 16 * GIB
+
+
+@pytest.mark.parametrize(
+    ("threads", "available", "cpus", "partitions"),
+    [
+        (5, None, 5, 5),  # Unknown RAM: DeepVariant's default.
+        (5, 64 * GIB, 5, 5),
+        (5, 16 * GIB, 5, 19),  # More, smaller partitions keep every worker.
+        (16, 12 * GIB, 10, 118),  # Fewer workers once partitions stop shrinking.
+    ],
+)
+def test_postprocess_plan_fits_available_memory(
+    tmp_path, threads, available, cpus, partitions
+):
+    regions, _ref = _whole_genome(tmp_path)
+    plan = resources.plan_dv_postprocess(regions, threads, available)
+    assert (plan.cpus, plan.partitions) == (cpus, partitions)
+    assert plan.fits is (None if available is None else True)
+    if available is not None:
+        assert plan.peak_bytes <= available - GIB
+
+
+def test_postprocess_plan_without_num_partitions_only_lowers_workers(tmp_path):
+    regions, _ref = _whole_genome(tmp_path)
+    # Fewer workers sort bigger partitions, so whole-genome RAM barely drops.
+    plans = [
+        resources.plan_dv_postprocess(regions, 5, gib * GIB, partitions=False)
+        for gib in (16, 32, 40)
+    ]
+    assert [(p.cpus, p.partitions, p.fits) for p in plans] == [
+        (1, 1, False),
+        (1, 1, True),
+        (5, 5, True),
+    ]
+
+
+def test_postprocess_plan_reports_when_one_worker_cannot_fit(tmp_path):
+    regions, _ref = _whole_genome(tmp_path)
+    plan = resources.plan_dv_postprocess(regions, 8, 1 * GIB)
+    assert (plan.cpus, plan.fits) == (1, False)
+    assert plan.worker_bytes > resources.DV_WORKER_BASE_BYTES
+
+
 def test_realign_staged_fastqs_are_budgeted_on_the_temporary_volume(
     tmp_path, source, monkeypatch
 ):
