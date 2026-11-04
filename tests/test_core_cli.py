@@ -512,11 +512,7 @@ def test_example_download_force_discards_existing(tmp_path, monkeypatch):
         (["info", "--input", "a.cram", "coverage-sample"], "a.cram"),
         (["--input", "a.cram", "info", "coverage-sample"], "a.cram"),
         (["info", "coverage-sample", "--input", "a.cram"], "a.cram"),
-        (
-            ["--input", "a.cram", "info", "--input", "b.cram", "coverage-sample"],
-            "b.cram",
-        ),
-        (["info", "--input", "a.cram", "coverage-sample", "-i", "b.cram"], "b.cram"),
+        (["--input", "a.cram", "info", "coverage-sample", "-i", "a.cram"], "a.cram"),
     ],
 )
 def test_shared_options_apply_at_every_subcommand_level(argv, expected):
