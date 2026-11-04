@@ -180,8 +180,10 @@ Other commands' metrics:
   duplication rate; `qc fastqc` the module pass/warn/fail counts and total
   sequences; `qc vcf` the `bcftools stats` totals (records, SNPs, indels,
   ts/tv).
-- `analyze` includes each step's manifest (role `step_manifest`), its outputs
-  and its warnings (with `step`), plus `sex` and `significant_variants`.
+- `analyze` runs each step with `--json` and includes the step's manifest
+  (role `step_manifest`), its outputs with their metrics and its warnings with
+  their details (tagged with `step`), even for steps that write no manifest
+  such as `info --detailed`; plus `sex` and `significant_variants`.
 - `methylation` records sites, median coverage and weighted percent modified
   per modification (and, with `--format parquet`, the `rows` of the
   `bedmethyl_table`); `typing` the called genotypes (`cyp2d6_genotype`, one
