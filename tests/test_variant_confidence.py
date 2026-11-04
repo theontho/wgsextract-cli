@@ -324,7 +324,8 @@ def test_mapping_quality_floor_follows_how_the_caller_averages_it():
         "100 . C T 50 . MQ=30 GT:AD:DP:GQ 0/1:15,15:30:99",
         "200 . C T 50 . MQ=15 GT:AD:DP:GQ 0/1:15,15:30:99",
     ]
-    assert _label(rows, mq="RMS Mapping Quality") == ["low:low_mapq", "low:low_mapq"]
+    for rms in ("RMS Mapping Quality", "Root mean square mapping quality"):
+        assert _label(rows, mq=rms) == ["low:low_mapq", "low:low_mapq"]
     assert _label(rows, mq="Average mapping quality") == ["high:.", "low:low_mapq"]
 
 
@@ -380,3 +381,14 @@ def test_multisample_vcfs_are_judged_by_their_first_sample():
         warnings = [w.code for w in results.current_result().warnings]
     assert summary.counts["high"] == 1
     assert warnings == ["confidence_first_sample_only"]
+
+
+def test_multisample_site_totals_are_not_one_samples_evidence():
+    # INFO/DP and DP4 pool both samples: alone they can't vouch for the first.
+    text = _text(["100 . C T 50 PASS DP=60;DP4=15,15,15,15 GT:GQ 0/1:99"])
+    text = text.replace("\tS\n", "\tS\tT\n").replace(":99\n", ":99\t0/0:99\n")
+    t = Thresholds(min_depth=10, high_depth=20, min_gq=20, high_gq=30)
+    with results.collecting(results.CommandResult(command="test")):
+        (finding,) = list(label_records(text.splitlines(), t))[-1].findings
+    assert finding.confidence.label == "moderate"
+    assert finding.confidence.reasons == ["depth_unknown", "allele_balance_unknown"]

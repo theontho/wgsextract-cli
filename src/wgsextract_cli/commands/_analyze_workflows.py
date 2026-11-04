@@ -64,7 +64,12 @@ DISCOVERY_COLUMNS = (
 SPLICEAI_HIGH_EXPR = 'INFO/SpliceAI ~ "[|]0[.][89]" || INFO/SpliceAI ~ "[|]1[.]0"'
 
 
-def run_discovery_filter(ann_vcf: str, v_type: str, out_vcf: str) -> int:
+def run_discovery_filter(
+    ann_vcf: str,
+    v_type: str,
+    out_vcf: str,
+    thresholds: variant_confidence.Thresholds | None = None,
+) -> int:
     """Dynamically builds filter based on type and headers."""
     try:
         res_h = run_command(
@@ -142,7 +147,7 @@ def run_discovery_filter(ann_vcf: str, v_type: str, out_vcf: str) -> int:
         summary = variant_confidence.label_vcf(
             ann_vcf,
             out_vcf,
-            variant_confidence.thresholds_from(),
+            thresholds or variant_confidence.thresholds_from(),
             include=filter_expr,
             summary_columns=columns,
         )
@@ -270,7 +275,12 @@ def run_vcf_workflow(
 
     # Run Discovery Filter
     discovery_vcf = str(Path(outdir, f"significant_{v_type}_{base_name}.vcf.gz"))
-    count = run_discovery_filter(actual_ann_vcf, v_type, discovery_vcf)
+    count = run_discovery_filter(
+        actual_ann_vcf,
+        v_type,
+        discovery_vcf,
+        variant_confidence.thresholds_from(args),
+    )
 
     return {"type": v_type, "input": vcf_path, "output": discovery_vcf, "count": count}
 

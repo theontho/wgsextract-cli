@@ -16,10 +16,12 @@ laboratory confirms it.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import logging
 import math
 import re
+import signal
 import subprocess
 import threading
 from collections import Counter, deque
@@ -182,7 +184,8 @@ def mapping_quality_kind(header_lines: Iterable[str]) -> str:
     for line in header_lines:
         if line.startswith("##INFO=<ID=MQ,"):
             text = line.lower()
-            if "rms" not in text and ("average" in text or "mean" in text):
+            rms = "rms" in text or "root mean square" in text
+            if not rms and ("average" in text or "mean" in text):
                 return "mean"
     return "rms"
 
@@ -305,6 +308,7 @@ def classify(
     thresholds: Thresholds,
     mq_kind: str = "rms",
     caller: str = "unknown",
+    samples: int = 1,
 ) -> CallConfidence | None:
     """The confidence of ALT number ``alt`` (1-based), or None when the sample
     doesn't carry it."""
@@ -322,8 +326,11 @@ def classify(
         low.append("filtered")
 
     split = SPLIT_TAG in info
+    # INFO/DP and DP4 pool every sample's reads: they are this call's evidence
+    # only in a single-sample VCF.
+    counts_info = info if samples == 1 else {}
     scale = 0.5 if zygosity == "haploid" else 1.0
-    depth = _depth(fmt, info, split)
+    depth = _depth(fmt, counts_info, split)
     if depth is None:
         moderate.append("depth_unknown")
     elif depth < thresholds.min_depth * scale:
@@ -339,7 +346,7 @@ def classify(
     elif gq < thresholds.high_gq:
         moderate.append("moderate_gq")
 
-    fraction = _alt_fraction(alt, n_alts, fmt, info, split)
+    fraction = _alt_fraction(alt, n_alts, fmt, counts_info, split)
     if fraction is None:
         moderate.append("allele_balance_unknown")
     elif zygosity == "het":
@@ -361,7 +368,7 @@ def classify(
 
     fs, sor = _number(info.get("FS")), _number(info.get("SOR"))
     if sor is None and fs is None:
-        counts = _strand_counts(fmt, info, n_alts, split)
+        counts = _strand_counts(fmt, counts_info, n_alts, split)
         sor = strand_odds_ratio(*counts) if counts else None
     if (fs is not None and fs > MAX_FS[kind]) or (
         sor is not None and sor > MAX_SOR[kind]
@@ -576,6 +583,7 @@ def label_records(
                     thresholds=thresholds,
                     mq_kind=mq_kind,
                     caller=summary.caller,
+                    samples=max(len(fields) - 9, 1),
                 )
             )
             if result is None:
@@ -674,45 +682,70 @@ def label_vcf(
         region_names=region_names,
         keep_findings=keep_findings,
     )
+
+    def reader_failed() -> bool:
+        return reader.wait() != 0
+
+    def reader_error() -> WGSExtractError:
+        return _ReaderError(
+            f"bcftools failed reading {source_vcf}: {reader_errors.tail()}"
+        )
+
     try:
         if out_vcf is None:
             summary = _write(labelled, None)
+            if reader_failed():
+                raise reader_error()
         else:
             with atomic_output(out_vcf) as staged, open(staged, "wb") as sink:
-                writer, writer_errors = _start(
-                    ["bgzip", "-c"], stdin=subprocess.PIPE, stdout=sink
-                )
-                assert writer.stdin is not None
-                try:
-                    summary = _write(labelled, writer.stdin)
-                finally:
-                    writer.stdin.close()
-                    if writer.wait() != 0:
-                        raise WGSExtractError(
-                            f"bgzip failed writing {out_vcf}: {writer_errors.tail()}"
-                        )
-                if reader.wait() != 0:
-                    raise WGSExtractError(
-                        f"bcftools failed reading {source_vcf}: {reader_errors.tail()}"
-                    )
-    except WGSExtractError:
-        # Malformed or missing output usually means bcftools itself failed.
-        if reader.wait() != 0:
-            raise WGSExtractError(
-                f"bcftools failed reading {source_vcf}: {reader_errors.tail()}"
-            ) from None
-        raise
-    finally:
-        if reader.poll() is None:
-            reader.kill()
-        reader.wait()
+                summary = _write_bgzipped(labelled, sink, out_vcf)
+                if reader_failed():
+                    raise reader_error()
+    except BaseException as error:
+        # Closing the pipe stops a reader still writing (SIGPIPE), so the wait
+        # can't hang. A reader that failed by itself explains malformed or
+        # missing records better than the parse error does.
         reader.stdout.close()
-    if reader.returncode != 0:
-        raise WGSExtractError(
-            f"bcftools failed reading {source_vcf}: {reader_errors.tail()}"
-        )
+        status = reader.wait()
+        if status not in (0, -_SIGPIPE) and not isinstance(
+            error, (_OutputError, _ReaderError, KeyboardInterrupt)
+        ):
+            raise reader_error() from error
+        raise
+    reader.stdout.close()
     if out_vcf is not None:
         ensure_vcf_indexed(out_vcf)
+    return summary
+
+
+_SIGPIPE = getattr(signal, "SIGPIPE", 13)
+
+
+class _OutputError(WGSExtractError):
+    """bgzip, not the reading bcftools, failed."""
+
+
+class _ReaderError(WGSExtractError):
+    """The reading bcftools failed."""
+
+
+def _write_bgzipped(
+    labelled: Iterable[str | ConfidenceSummary], sink: IO[bytes], out_vcf: PathInput
+) -> ConfidenceSummary:
+    writer, writer_errors = _start(["bgzip", "-c"], stdin=subprocess.PIPE, stdout=sink)
+    assert writer.stdin is not None
+    stopped = False
+    try:
+        summary = _write(labelled, writer.stdin)
+    except OSError:
+        stopped = True  # bgzip stopped reading: its status and stderr say why
+    finally:
+        with contextlib.suppress(OSError):
+            writer.stdin.close()
+        if writer.wait() != 0 or stopped:
+            raise _OutputError(
+                f"bgzip failed writing {out_vcf}: {writer_errors.tail()}"
+            )
     return summary
 
 
