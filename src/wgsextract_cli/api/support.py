@@ -22,6 +22,7 @@ from pathlib import Path
 from wgsextract_cli.core.issue_report import (
     DEFAULT_LOG_LINES,
     MAX_URL_LENGTH,
+    MIN_URL_LENGTH,
     IssueReport,
     build_report,
     load_run,
@@ -85,7 +86,7 @@ class ReportIssueParams(Params):
     max_url_length: int = param(
         MAX_URL_LENGTH,
         help="Longest link to produce; diagnostics are shortened to fit "
-        f"(default: {MAX_URL_LENGTH}).",
+        f"(default: {MAX_URL_LENGTH}; at least {MIN_URL_LENGTH}).",
         flags=("--max-url-length",),
         metavar="N",
     )

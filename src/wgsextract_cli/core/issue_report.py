@@ -40,6 +40,8 @@ DIAGNOSTICS_FIELD = "diagnostics"
 LABELS = ("bug",)
 # Browsers and GitHub accept longer links, but ~8 KB is safe everywhere.
 MAX_URL_LENGTH = 8000
+# Below this, even the title and the form's own fields may not fit.
+MIN_URL_LENGTH = 1000
 DEFAULT_LOG_LINES = 40
 
 # Metrics safe to share: what kind of data it is, never what it says about
@@ -87,24 +89,44 @@ _SAFE_PROGRAMS = frozenset(
         "bin",
     )
 )
-_PATH_CHARS = r"[^\s'\"`<>|;,()\[\]{}]"
-_PATH = re.compile(
-    rf"(?<![\w.~:/\\>-])(?:[A-Za-z]:[\\/]|\\\\|~[\\/]|/(?=[\w.~-])){_PATH_CHARS}*"
+_PATH_CHARS = r"(?:[^\s'\"`<>|;,()\[\]{}]|<sample>)"
+_PATH_START = r"(?<![\w.~:/\\>-])(?:[A-Za-z]:[\\/]|\\\\|~[\\/]|/(?=[\w.~<-]))"
+_PATH = re.compile(rf"{_PATH_START}{_PATH_CHARS}*")
+# More words of an unquoted file name with spaces ("C:\Data\Jane Doe WGS.bam"):
+# up to four, without separators, the last ending in a data extension.
+_SPACED_NAME_TAIL = re.compile(
+    r"(?: (?:[^\s'\"`<>|;,()\[\]{}/\\]|<sample>)+?){1,4}?(?:"
+    + "|".join(re.escape(e) for e in _DATA_EXTENSIONS)
+    + r")(?![\w.-])",
+    re.IGNORECASE,
 )
 _QUOTED_PATH = re.compile(r"""(['"])((?:[A-Za-z]:[\\/]|\\\\|~[\\/]|/)[^'"\r\n]*)\1""")
 _BARE_FILE = re.compile(
-    r"(?<![\w<>/\\.~-])\w[\w.-]*?(?:"
+    r"(?<![\w<>/\\.~-])(?:\w|<sample>)[\w.-]*?(?:"
     + "|".join(re.escape(e) for e in _DATA_EXTENSIONS)
     + r")(?![\w.-])",
     re.IGNORECASE,
 )
 # Relative paths: reduced when they have 2+ separators or end in a data file.
-_RELATIVE_PATH = re.compile(r"(?<![\w<>/\\.~:@-])[\w.-]+(?:[\\/][\w.-]+)+[\\/]?")
+_RELATIVE_PATH = re.compile(
+    r"(?<![\w<>/\\.~:@-])(?:[\w.-]|<sample>)+(?:[\\/](?:[\w.-]|<sample>)+)+[\\/]?"
+)
 _URL = re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s<>'\"`]+")
 _EMAIL = re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")
-_SECRET_WORD = r"[\w-]*(?:token|secret|password|passwd|credential|api[_-]?key)[\w-]*"
+_SECRET_WORD = (
+    r"[\w-]*(?:token|secret|password|passwd|credential|api[_-]?key|authorization)"
+    r"[\w-]*"
+)
+# --token VALUE, token=VALUE, "api_key": "VALUE"; quoted values may hold spaces
+# and escaped quotes, and an auth scheme (Basic, Bearer) goes with its value.
 _SECRET_ASSIGNMENT = re.compile(
-    rf"(?i)(--?{_SECRET_WORD}(?:=|\s+)|\b{_SECRET_WORD}\s*[=:]\s*)(['\"]?)[^\s'\"]+\2"
+    rf"""(?ix)
+    ( --?{_SECRET_WORD}(?:=|\s+)
+    | (?<![\w-])(?P<key_quote>["']?){_SECRET_WORD}(?P=key_quote)\s*[=:]\s*
+    )
+    (?:(?:basic|bearer|digest|token)\s+)?(?!<[a-z])
+    (?P<value>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s'",;}}\]]+)
+    """
 )
 _KNOWN_TOKENS = re.compile(
     r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|hf_[A-Za-z0-9]{20,}"
@@ -123,6 +145,43 @@ _VARIANT_LINE = re.compile(
     r"|^\s*(?:rs|i)\d+\s+\S+\s+\d+\s+[ACGTDI-]{1,2}\s*$"
     r"|^[ACGTN]{30,}$",
     re.IGNORECASE,
+)
+# Lines that state a genetic result: haplogroups, sex, genotypes, repeat
+# calls and their clinical class. Commands log these, even as warnings.
+_RESULT_LINE = re.compile(
+    r"haplogroup|pathogenic|benign|premutation|zygous|genotype|\bcarrier\b"
+    r"|\b(?:fe)?male\b|\b[ACGTN]{2,}\s+\d+/\d+\b"
+    r"|(?<![\w/.|])[01.][/|][01.](?![\w/.|])",
+    re.IGNORECASE,
+)
+# Sample names inside messages: "SM:Jane", "samples (Jane, John)",
+# "sample name: Jane", "naming the sample Jane".
+_SAMPLE_MENTION = re.compile(
+    r"(?i)(\bSM:)[^\s,;)]+"
+    r"|(\bsamples?\s*\()[^)]*(?=\))"
+    r"|(\bsamples?(?:[ _](?:names?|ids?))?\s*[:=]\s*)[^\s,;)]+(?:,\s*[^\s,;)]+)*"
+    r"|(\b(?:naming|named|calling) the sample\s+)[^\s,;.)]+"
+)
+# Public data servers whose URL paths name public files; other URLs keep only
+# a non-identifying file name, and other servers become <server>.
+_PUBLIC_HOSTS = frozenset(
+    """
+    ftp.ebi.ac.uk ftp.sra.ebi.ac.uk ftp.1000genomes.ebi.ac.uk ftp.ncbi.nlm.nih.gov
+    ftp-trace.ncbi.nlm.nih.gov hgdownload.soe.ucsc.edu hgdownload.cse.ucsc.edu
+    ftp.ensembl.org ftp.ccb.jhu.edu genomes.yseq.net ngi-igenomes.s3.amazonaws.com
+    github.com api.github.com raw.githubusercontent.com objects.githubusercontent.com
+    release-assets.githubusercontent.com dataverse.harvard.edu zenodo.org
+    krishna.gs.washington.edu www.bio8.cs.hku.hk www.openbioinformatics.org
+    strchive.org api.clinpgx.org pharmcat.org ybrowse.org www.yfull.com
+    prefix.dev conda.anaconda.org pypi.org files.pythonhosted.org
+    """.split()
+)
+# Shared storage hosts: only these public buckets.
+_PUBLIC_BUCKETS = (
+    "storage.googleapis.com/dm_alphamissense/",
+    "storage.googleapis.com/gcp-public-data--gnomad/",
+    "storage.googleapis.com/gcp-public-data--broad-references/",
+    "s3-us-west-2.amazonaws.com/human-pangenomics/",
 )
 _PLACEHOLDER = re.compile(r"<[a-z][a-z -]*>")
 
@@ -198,9 +257,13 @@ class Redactor:
         self.counts[kind] += n
         return text
 
-    def _names(self, text: str) -> str:
+    def _sensitive_names(self, text: str) -> str:
         for pattern in self._sensitive:
             text = self._sub(pattern, "<sample>", text, "sample or file name")
+        return text
+
+    def _names(self, text: str) -> str:
+        text = self._sensitive_names(text)
         for pattern in self._users:
             text = self._sub(pattern, "<user>", text, "user name")
         for pattern in self._hosts:
@@ -247,9 +310,32 @@ class Redactor:
 
     def _paths(self, text: str) -> str:
         text = _QUOTED_PATH.sub(lambda m: m[1] + self.path(m[2]) + m[1], text)
-        text = _PATH.sub(lambda m: self.path(m[0]), text)
+        text = self._unquoted_paths(text)
         text = _RELATIVE_PATH.sub(self._relative, text)
         return _BARE_FILE.sub(lambda m: self._file_name(m[0]), text)
+
+    def _unquoted_paths(self, text: str) -> str:
+        """Absolute paths; one whose name has spaces is taken whole when the
+        words after it end in a data extension and it is not a program."""
+        pieces: list[str] = []
+        last = 0
+        for match in _PATH.finditer(text):
+            if match.start() < last:
+                continue
+            end = match.end()
+            name = match[0].rstrip("/\\").replace("\\", "/").rsplit("/", 1)[-1]
+            lower = name.lower()
+            if not (
+                match[0].endswith(("/", "\\"))
+                or lower.endswith(_DATA_EXTENSIONS)
+                or lower in _SAFE_PROGRAMS
+                or lower.endswith(_PROGRAM_EXTENSIONS)
+            ):
+                tail = _SPACED_NAME_TAIL.match(text, end)
+                end = tail.end() if tail else end
+            pieces += [text[last : match.start()], self.path(text[match.start() : end])]
+            last = end
+        return "".join(pieces) + text[last:]
 
     def _relative(self, match: re.Match[str]) -> str:
         value = match[0]
@@ -258,12 +344,18 @@ class Redactor:
             return self.path(value)
         return value
 
-    def _line(self, line: str) -> str:
+    def _line(self, line: str, *, results: bool = True) -> str:
         if line.count("\t") >= 3 or _VARIANT_LINE.search(line):
             self.counts["data line"] += 1
             return "<data line removed>"
+        if results and _RESULT_LINE.search(line):
+            self.counts["genetic result"] += 1
+            return "<line with a genetic result removed>"
         line = self._sub(_KNOWN_TOKENS, "<secret>", line, "secret")
         line = _SECRET_ASSIGNMENT.sub(self._secret, line)
+        line = _SAMPLE_MENTION.sub(self._sample_mention, line)
+        # Known names first, while a name with spaces is still whole.
+        line = self._sensitive_names(line)
         pieces: list[str] = []
         last = 0
         for match in _URL.finditer(line):
@@ -283,26 +375,72 @@ class Redactor:
 
     def _secret(self, match: re.Match[str]) -> str:
         self.counts["secret"] += 1
-        return f"{match[1]}{match[2]}<redacted>{match[2]}"
+        value = match["value"]
+        quote = value[0] if value[0] in "\"'" else ""
+        return match[0][: match.start("value") - match.start()] + (
+            f"{quote}<redacted>{quote}"
+        )
+
+    def _sample_mention(self, match: re.Match[str]) -> str:
+        self.counts["sample or file name"] += 1
+        return next(g for g in match.groups() if g is not None) + "<sample>"
 
     def _url(self, url: str) -> str:
+        """A URL without credentials or query; its path only on public servers."""
         from wgsextract_cli.core.download_progress import redact_urls
 
-        clean = redact_urls(url)
-        if clean != url:
+        trimmed = url.rstrip(".,:;)!?")
+        tail = url[len(trimmed) :]
+        clean = redact_urls(trimmed)
+        if clean != trimmed:
             self.counts["URL credentials or query"] += 1
-        return clean
+        try:
+            parts = urllib.parse.urlsplit(clean)
+            host = (parts.hostname or "").lower()
+        except ValueError:
+            self.counts["URL"] += 1
+            return "<url>" + tail
+        path = urllib.parse.unquote(parts.path)
+        public = host in _PUBLIC_HOSTS or f"{host}{path}".startswith(_PUBLIC_BUCKETS)
+        named = any(p.search(path) for p in (*self._sensitive, *self._users))
+        if public and not named:
+            return clean + tail
+        self.counts["URL path"] += 1
+        server = parts.netloc if public else "<server>"
+        name = path.rstrip("/").rsplit("/", 1)[-1]
+        shown = "/<path>/" + self._file_name(name) if name else ""
+        return f"{parts.scheme}://{server}{shown}{tail}"
 
-    def text(self, value: object) -> str:
-        """Any text: a message, a log line, a setting."""
-        return "\n".join(self._line(line) for line in str(value).splitlines())
+    def text(self, value: object, *, results: bool = True) -> str:
+        """Any text: a message, a log line, a setting. ``results=False`` keeps
+        lines that mention genetic results (for what the user typed)."""
+        return "\n".join(
+            self._line(line, results=results) for line in str(value).splitlines()
+        )
 
     def argv(self, argv: Sequence[str]) -> list[str]:
+        """A command line; each value naming a file is reduced as a whole path,
+        so names with spaces are never split."""
         from wgsextract_cli.core.results import redact_argv
 
         cleaned = redact_argv(list(argv))
         self.counts["secret"] += sum(arg.endswith("<redacted>") for arg in cleaned)
-        return [self.text(arg) for arg in cleaned]
+        return [self._arg(arg) for arg in cleaned]
+
+    def _arg(self, arg: str) -> str:
+        prefix, value = "", arg
+        if arg.startswith("-") and "=" in arg:
+            prefix, value = arg.split("=", 1)
+            prefix += "="
+        names_file = re.search(r"[\\/]", value) or value.lower().endswith(
+            _DATA_EXTENSIONS
+        )
+        if not names_file or value.endswith("<redacted>") or _URL.match(value):
+            return self.text(arg)
+        value = self._sensitive_names(value)
+        if not re.search(r"[\\/]", value):
+            return self.text(prefix) + self._file_name(value)
+        return self.text(prefix) + self.path(value)
 
     def summary(self) -> dict[str, int]:
         return {kind: n for kind, n in sorted(self.counts.items()) if n}
@@ -470,6 +608,38 @@ def catalog_reference_names() -> set[str]:
     return names
 
 
+def header_samples(path: str) -> set[str]:
+    """Sample names in a local BAM/CRAM's read groups (SM) or a VCF's columns,
+    which messages may quote even when the file name is neutral."""
+    from wgsextract_cli.core.dependencies import get_tool_path
+    from wgsextract_cli.core.ultima import read_groups
+
+    lower = path.lower()
+    if lower.endswith((".bam", ".cram", ".sam")):
+        tool, args = "samtools", ["view", "-H"]
+    elif lower.endswith((".vcf", ".vcf.gz", ".vcf.bgz", ".bcf")):
+        tool, args = "bcftools", ["query", "-l"]
+    else:
+        return set()
+    executable = get_tool_path(tool) if Path(path).is_file() else None
+    if executable is None:
+        return set()
+    try:
+        output = subprocess.run(
+            [executable, *args, path],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=30,
+            check=False,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    if tool == "bcftools":
+        return set(output.split())
+    return {group["SM"] for group in read_groups(output) if group.get("SM")}
+
+
 def _sensitive_names(manifest: Mapping[str, Any]) -> tuple[set[str], set[str]]:
     """Stems that may name a person (inputs, outputs, --genome), and catalog
     reference stems that are safe to show."""
@@ -485,6 +655,9 @@ def _sensitive_names(manifest: Mapping[str, Any]) -> tuple[set[str], set[str]]:
     for key in ("genome", "sample", "sample_name"):
         if isinstance(params.get(key), str):
             sensitive.add(params[key])
+    for key in ("input", "vcf_input", "mother_vcf", "father_vcf"):
+        if isinstance(params.get(key), str):
+            sensitive |= header_samples(params[key])
     safe = catalog_reference_names()
     return sensitive - safe, safe
 
@@ -626,7 +799,7 @@ def settings_lines(redactor: Redactor) -> list[str]:
         elif isinstance(value, str):
             shown = redactor.text(value)
         else:
-            shown = json.dumps(value)
+            shown = redactor.text(json.dumps(value))
         lines.append(f"- {key} = {shown}")
     exists = get_config_path().is_file()
     head = "config.toml" if exists else "no config.toml (defaults)"
@@ -725,12 +898,17 @@ def issue_url(report: IssueReport, *, max_length: int = MAX_URL_LENGTH) -> str:
             return url
         if lines:
             lines, cut = lines[: len(lines) - max(1, len(lines) // 8)], True
-        elif len(description) > 100:
+        elif len(description) > 40:
             description = description[: len(description) * 3 // 4].rstrip() + " [...]"
-        elif len(title) > 40:
+        elif description:
+            description = ""
+        elif len(title) > 30:
             title = title[: len(title) * 3 // 4].rstrip() + "..."
         else:
-            return url
+            raise UsageError(
+                f"Cannot fit the report in a {max_length}-character link; "
+                "use a larger --max-url-length."
+            )
 
 
 def _url(title: str, description: str, diagnostics: str, labels: Sequence[str]) -> str:
@@ -873,6 +1051,8 @@ def build_report(
     """Collect, redact and fit a report; see ``api.support.build_issue_report``."""
     if log_lines < 0:
         raise UsageError("--log-lines must be 0 or more.")
+    if max_url_length < MIN_URL_LENGTH:
+        raise UsageError(f"--max-url-length must be at least {MIN_URL_LENGTH}.")
     now = now or datetime.now(timezone.utc)
     manifest = run.manifest if run else {}
     sensitive, safe = _sensitive_names(manifest)
@@ -887,8 +1067,11 @@ def build_report(
         log = redactor.text("\n".join(run.log_tail)).splitlines()
     used = (manifest.get("provenance") or {}).get("tools") or {}
     logging.debug("Checking tool versions for the report...")
-    versions = dict((probe_tools or tool_versions)(used))
-    tools = [f"- {name}: {redactor.text(v)}" for name, v in versions.items()]
+    installed = dict((probe_tools or tool_versions)(used))
+    tools = [
+        f"- {name}: {redactor.text(line)}"
+        for name, line in _tool_lines(used, installed).items()
+    ]
     sections = _Sections(
         run=run_lines,
         metrics=metrics,
@@ -898,8 +1081,14 @@ def build_report(
         tools=tools,
         settings=settings_lines(redactor),
     )
-    title = redactor.text(title).strip() if title else _default_title(run, redactor)
-    description = redactor.text(description).strip() if description else ""
+    title = (
+        redactor.text(title, results=False).strip()
+        if title
+        else _default_title(run, redactor)
+    )
+    description = (
+        redactor.text(description, results=False).strip() if description else ""
+    )
     file_name = f"issue-report-{now.strftime('%Y%m%dT%H%M%SZ')}.md"
     diagnostics = sections.render(log_lines=log_lines)
 
@@ -926,6 +1115,23 @@ def build_report(
     )
     report = _fit(report, sections, log_lines, max_url_length)
     return replace(report, redactions=redactor.summary())
+
+
+def _tool_lines(
+    used: Mapping[str, Any], installed: Mapping[str, str]
+) -> dict[str, str]:
+    """Tool versions: what the run recorded first, then what is installed now."""
+    lines: dict[str, str] = {}
+    for name in dict.fromkeys([*used, *installed]):
+        recorded = str(used.get(name) or "").strip()
+        now = installed.get(name)
+        if not recorded:
+            lines[name] = now or "not found"
+        elif now is None or now == recorded:
+            lines[name] = f"{recorded} (used by the run)"
+        else:
+            lines[name] = f"{recorded} (used by the run; installed now: {now})"
+    return lines
 
 
 def _fit(

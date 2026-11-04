@@ -111,13 +111,49 @@ def test_last_failed_reports_the_failure_after_a_later_success(
             "'<path>/<file>.bam'",
         ),
         ("from Jane_Q_Public.bam ok", SAMPLE, "<file>.bam"),
+        ("reading out/x/Jane_Q_Public.bam", SAMPLE, "reading <path>/<file>.bam"),
         ("--outdir out/jane/results/x", "jane", "<path>/<name>"),
         ("logged in as jdoe42 on jdoes-macbook", USER, "<user> on <host>"),
         ("mail jane@example.org", "jane@", "<email>"),
-        (f"token={FAKE_TOKEN}", "ghp_", "token=<redacted>"),
+        (f"token={FAKE_TOKEN}", "ghp_", "token=<secret>"),
         ("--api-key s3cr3t-value done", "s3cr3t", "--api-key <redacted>"),
+        ('password="correct horse battery" next', "horse", 'password="<redacted>"'),
+        ('{"api_key": "s3cr3t-value"}', "s3cr3t", '"api_key": "<redacted>"'),
+        (
+            r"Cannot open C:\Data\Jane Q Public WGS.bam",
+            "Public",
+            "open <path>/<file>.bam",
+        ),
+        (
+            "Cannot open /data/Jane Q Public.cram now",
+            "Public",
+            "<path>/<file>.cram now",
+        ),
+        (
+            "get https://data.example.org/Jane%20Q/Jane%20Q_ref.fa failed",
+            "Jane",
+            "https://<server>/<path>/<file>.fa failed",
+        ),
+        (
+            "get https://ftp.ebi.ac.uk/pub/Jane%5FQ%5FPublic.bam",
+            "Jane",
+            "https://ftp.ebi.ac.uk/<path>/<file>.bam",
+        ),
+        ("several samples (Ann_Lee, Bo_Kim); split", "Ann_Lee", "samples (<sample>)"),
+        ("@RG ID:1 SM:Ann_Lee", "Ann_Lee", "SM:<sample>"),
+        (
+            "  HTT (Huntington disease, AD): CAG 17/45 [CI 16-18/44-46] pathogenic",
+            "17/45",
+            "genetic result removed",
+        ),
+        ("Sample sex: female (from chrX/chrY coverage)", "female", "genetic result"),
+        ("Mitochondrial haplogroup: H16a1", "H16a1", "genetic result removed"),
         ("Authorization: Bearer abc.def.ghi1234", "abc.def", "<secret>"),
-        ("https://u:pw@host.org/f.vcf?sig=xyz ok", "sig=xyz", "https://host.org/f.vcf"),
+        (
+            "https://u:pw@host.org/f.vcf?sig=xyz ok",
+            "sig=xyz",
+            "https://<server>/<path>/<file>.vcf",
+        ),
         ("read A00123:8:H7KJ2DSXY:1:1101:1000:2000 bad", "H7KJ2DSXY", "<read>"),
         ("chr1\t10177\trs367896724\tA\tAC\t100\tPASS\t.", "rs367896724", "<data line"),
         ("rs4477212\t1\t82154\tAA", "rs4477212", "<data line"),
@@ -150,6 +186,78 @@ def test_redactor_keeps_what_diagnoses_a_problem() -> None:
     assert "<site-packages>/wgsextract_cli/core/x.py" in cleaned
     assert "<path>/samtools view -T <path>/hs38DH.fa.gz <file>.bam" in cleaned
     assert "chrM:1-16569, 8 threads" in cleaned
+
+
+def test_command_line_paths_with_spaces_are_reduced_whole() -> None:
+    redactor = Redactor(sensitive=["Jane Q Public"])
+    argv = ["info", "--input", r"C:\Data\Jane Q Public.bam", "--ref=/r/my ref.fa"]
+    assert redactor.argv(argv) == [
+        "info",
+        "--input",
+        "<path>/<file>.bam",
+        "--ref=<path>/<file>.fa",
+    ]
+
+
+def test_public_download_urls_keep_their_path() -> None:
+    url = "https://ftp.ebi.ac.uk/pub/databases/x/GRCh38_full.fa.gz"
+    assert Redactor().text(f"Downloading {url}.") == f"Downloading {url}."
+
+
+def test_settings_lists_are_redacted(monkeypatch: pytest.MonkeyPatch) -> None:
+    from wgsextract_cli.core.config import settings
+
+    private = str(Path.home() / "PrivateOwner" / f"{SAMPLE}.vcf.gz")
+    monkeypatch.setitem(settings, "vcf_input_paths", [private])
+    lines = "\n".join(issue_report.settings_lines(Redactor.for_this_computer()))
+    assert 'vcf_input_paths = ["<path>/<file>.vcf.gz"]' in lines
+    assert "PrivateOwner" not in lines and SAMPLE not in lines
+
+
+def test_sample_names_from_the_input_header_are_redacted(tmp_path: Path) -> None:
+    from wgsextract_cli.core.dependencies import get_tool_path
+
+    if get_tool_path("samtools") is None:
+        pytest.skip("samtools not installed")
+    sam = tmp_path / "cohort.sam"
+    sam.write_text("@HD\tVN:1.6\n@RG\tID:1\tSM:Ann_Lee\n")
+    run = issue_report.RunRecord(
+        "last run",
+        {
+            "command": "vcf clair3",
+            "exit_code": 1,
+            "status": "failed",
+            "error": {"message": "Unexpected read group for Ann_Lee"},
+            "provenance": {"params": {"input": str(sam)}},
+        },
+    )
+    report = issue_report.build_report(run=run, probe_tools=lambda used: {})
+    assert "Ann_Lee" not in report.url and "Ann_Lee" not in report.diagnostics
+    assert "Unexpected read group for <sample>" in report.title
+
+
+def test_tool_versions_prefer_what_the_run_used() -> None:
+    run = issue_report.RunRecord(
+        "last run",
+        {"command": "info", "provenance": {"tools": {"samtools": "1.20", "x": None}}},
+    )
+    report = issue_report.build_report(
+        run=run, probe_tools=lambda used: {"samtools": "1.24", "x": "2.0"}
+    )
+    assert "- samtools: 1.20 (used by the run; installed now: 1.24)" in (
+        report.diagnostics
+    )
+    assert "- x: 2.0" in report.diagnostics
+
+
+def test_link_limit_is_a_bound_or_an_error() -> None:
+    with pytest.raises(api.UsageError, match="at least 1000"):
+        api.support.build_issue_report(api.ReportIssueParams(max_url_length=500))
+    report = api.support.build_issue_report(api.ReportIssueParams())
+    url = api.support.issue_url(report, max_length=1000)
+    assert len(url) <= 1000
+    with pytest.raises(api.UsageError, match="max-url-length"):
+        api.support.issue_url(report, max_length=150)
 
 
 def test_long_report_is_shortened_to_fit_the_link_and_says_so(

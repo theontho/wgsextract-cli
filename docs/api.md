@@ -339,7 +339,7 @@ Collect, redact and fit a report; writes nothing and opens nothing.
 | `title` | `str \| None` | `None` | `--title` | Issue title (default: the command and its error). |
 | `description` | `str \| None` | `None` | `--description` | What you did and what went wrong, for the 'What happened?' field. |
 | `log_lines` | `int` | `40` | `--log-lines` | Log lines to include, from the end (default: 40). |
-| `max_url_length` | `int` | `8000` | `--max-url-length` | Longest link to produce; diagnostics are shortened to fit (default: 8000). |
+| `max_url_length` | `int` | `8000` | `--max-url-length` | Longest link to produce; diagnostics are shortened to fit (default: 8000; at least 1000). |
 | `outdir` | `Path \| None` | `None` | `--outdir`, `-o` | Folder to save the full report in (default: 'reports' in the per-user data folder). |
 
 ### `api.support.reports_directory() -> Path`
