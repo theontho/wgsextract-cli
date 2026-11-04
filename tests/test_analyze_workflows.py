@@ -212,6 +212,7 @@ def test_vcf_inputs_replace_calling_and_get_annotations_for_their_type(
     assert sorted(p.name for p in out.glob("significant_*")) == [
         "significant_cnv_s.cnv.vcf.gz",
         "significant_cnv_s.cnv.vcf.gz.tbi",
+        "significant_snp-indel_s.confidence.tsv",
         "significant_snp-indel_s.vcf.gz",
         "significant_snp-indel_s.vcf.gz.tbi",
         "significant_sv_s_sv.vcf.gz",
@@ -266,6 +267,38 @@ def test_annotation_that_writes_nothing_is_left_out_of_the_report(
     report = capsys.readouterr().out
     assert "[SNP-INDEL]" not in report
     assert "TOTAL SIGNIFICANT VARIANTS FOUND: 0" in report
+
+
+@needs_bcftools
+def test_confidence_thresholds_given_on_the_command_line_judge_discovery(
+    fake: FakeSubcommands, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def annotate(cmd: list[str], args: argparse.Namespace) -> None:
+        fake.calls.append(cmd)
+        outdir = Path(cmd[cmd.index("--outdir") + 1])
+        plain = outdir / "chain_annotated.vcf"
+        plain.write_text(
+            "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=10000>\n"
+            f"{_INFO_HEADERS['CLNSIG']}\n"
+            '##FORMAT=<ID=GT,Number=1,Type=String,Description="g">\n'
+            '##FORMAT=<ID=AD,Number=R,Type=Integer,Description="a">\n'
+            '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="d">\n'
+            '##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="q">\n'
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n"
+            "chr1\t100\tp\tA\tG\t50\tPASS\tCLNSIG=Pathogenic\t"
+            "GT:AD:DP:GQ\t0/1:7,7:14:99\n"
+        )
+        bgzip_index(plain, outdir / "chain_annotated.vcf.gz")
+
+    monkeypatch.setattr(wf, "run_cli_subcommand", annotate)
+    vcf = write_vcf(tmp_path / "s.vcf.gz", [(100, "x", "50", ".")])
+    out = tmp_path / "out"
+    # 14 reads: moderate at the default depth thresholds (10, 20).
+    comprehensive("--vcf-inputs", vcf, "--outdir", str(out),
+                  "--confidence-depth", "5", "10")  # fmt: skip
+    table = (out / "significant_snp-indel_s.confidence.tsv").read_text()
+    row = next(line for line in table.splitlines() if line.startswith("chr1"))
+    assert "\thigh\t" in row
 
 
 @pytest.mark.parametrize("failing", ["info", "lineage mt-haplogroup", "vcf snp"])

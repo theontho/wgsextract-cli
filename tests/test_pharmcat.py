@@ -200,7 +200,19 @@ def test_pharmcat_runs_its_pipeline_on_the_gene_regions_in_its_names(
         f"chr1\t150\t.\t{_base(150)}\tT\t50\tPASS\t.\tGT\t0/1"
     ]
     assert sorted(p.name for p in out.iterdir()) == [
-        "HG002.hard-filtered.phenotype.json", "HG002.hard-filtered.report.html"
+        "HG002.hard-filtered.confidence.tsv", "HG002.hard-filtered.phenotype.json",
+        "HG002.hard-filtered.report.html",
+    ]  # fmt: skip
+    # The calls the diplotypes rest on, in gene regions only, with their support:
+    # 20 reads, but no genotype quality to judge by.
+    table = (out / "HG002.hard-filtered.confidence.tsv").read_text().splitlines()
+    rows = [line.split("\t") for line in table if not line.startswith("#")]
+    columns = rows[0]
+    assert [dict(zip(columns, row, strict=True)) for row in rows[1:]] == [
+        {"chrom": "1", "pos": "150", "ref": _base(150), "alt": "T",
+         "genotype": "0/1", "zygosity": "het", "confidence": "moderate",
+         "reasons": "gq_unknown", "depth": "20", "genotype_quality": "",
+         "alt_fraction": "0.500", "gene": "CYP2C19"}
     ]  # fmt: skip
     assert "CYP2C19   *1/*17" in caplog.text and "Rapid Metabolizer" in caplog.text
     assert f"PharmCAT report: {out / 'HG002.hard-filtered.report.html'}" in caplog.text

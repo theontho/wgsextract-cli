@@ -1,12 +1,16 @@
 import argparse
 import logging
+import subprocess
 from pathlib import Path
 
+from wgsextract_cli.core import variant_confidence
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.results import current_result
+from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.core.variant_files import ensure_vcf_prepared
 
 from .annotation_helpers import (
@@ -15,11 +19,12 @@ from .annotation_helpers import (
     annotation_context,
     prepare_tabix_annotation,
     require_annotation_file,
-    run_filter,
     run_min_score_filter,
 )
 
 CLINVAR_ANNOTATED = "clinvar_annotated.vcf.gz"
+CLINVAR_PATHOGENIC = "clinvar_pathogenic.vcf.gz"
+CLINVAR_COLUMNS = ("CLNSIG", "CLNDN")
 REVEL_ANNOTATED = "revel_annotated.vcf.gz"
 
 
@@ -46,15 +51,32 @@ def cmd_clinvar(args: argparse.Namespace) -> None:
         threads=getattr(args, "threads", None),
     )
 
-    path_out = str(Path(outdir, "clinvar_pathogenic.vcf.gz"))
+    path_out = str(Path(outdir, CLINVAR_PATHOGENIC))
     logging.info(LOG_MESSAGES["vcf_clinvar_filtering"].format(output=path_out))
     # Substring match also covers Pathogenic/Likely_pathogenic combinations.
-    run_filter(
-        ann_out,
-        path_out,
-        'CLNSIG ~ "Pathogenic" || CLNSIG ~ "Likely_pathogenic"',
-        "ClinVar",
+    try:
+        summary = variant_confidence.label_vcf(
+            ann_out,
+            path_out,
+            variant_confidence.thresholds_from(args),
+            include='CLNSIG ~ "Pathogenic" || CLNSIG ~ "Likely_pathogenic"',
+            summary_columns=CLINVAR_COLUMNS,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        raise WGSExtractError(f"ClinVar filtering failed: {e}") from e
+    table = str(Path(outdir, "clinvar_pathogenic.confidence.tsv"))
+    variant_confidence.write_table(
+        table, summary, CLINVAR_COLUMNS, "ClinVar pathogenic/likely pathogenic calls"
     )
+    variant_confidence.record(
+        summary,
+        output=path_out,
+        role="clinvar_pathogenic",
+        what="ClinVar pathogenic/likely pathogenic calls",
+        table=table,
+        clinical=summary.carried,
+    )
+    current_result().add_output(ann_out, "annotated_vcf")
     logging.info(LOG_MESSAGES["vcf_clinvar_done"].format(output=path_out))
 
 

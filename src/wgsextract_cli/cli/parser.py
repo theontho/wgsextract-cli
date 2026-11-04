@@ -68,6 +68,12 @@ DEFAULT_CONFIG = """# WGS Extract Configuration
 # qc_max_autosomal_homozygosity = 0.88
 # qc_max_no_call_rate = 0.1
 
+# --- Confidence labels on rare/clinical variants (docs/variant-confidence.md) ---
+# confidence_min_depth = 10.0  # below: low confidence (halved for haploid calls)
+# confidence_high_depth = 20.0  # below: moderate
+# confidence_min_gq = 20.0  # genotype quality below: low
+# confidence_high_gq = 30.0  # below: moderate
+
 # --- Local Developer Test Data ---
 # Path to a local real genome dataset used by real smoke tests.
 # real_genome_test_path = "~/genomes/sample"

@@ -22,6 +22,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from wgsextract_cli.core import variant_confidence
 from wgsextract_cli.core.builds import build_from_chr1_length, build_from_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.paths import absolute_path
@@ -30,6 +31,7 @@ from wgsextract_cli.core.reference_resolver import (
     ReferenceLibrary,
     header_contig_lengths,
 )
+from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.tool_commands import _tool_command_parts
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import (
@@ -146,6 +148,29 @@ def prepare_input(input_vcf: str, directory: str, reference: str, work: str) -> 
     return prepared
 
 
+def label_pgx_calls(
+    input_vcf: str, work: str, args: argparse.Namespace
+) -> variant_confidence.ConfidenceSummary:
+    """Confidence labels for the input's calls in PharmCAT's gene regions
+    (written by prepare_input to work/regions.bed, in the input's names): a
+    diplotype is no better than the calls it rests on."""
+    regions = str(Path(work, "regions.bed"))
+    named: list[tuple[str, int, int, str]] = []
+    with open(regions) as f:
+        for line in f:
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) >= 3:
+                name = fields[3].rpartition("=")[2] if len(fields) > 3 else ""
+                named.append((fields[0], int(fields[1]), int(fields[2]), name))
+    return variant_confidence.label_vcf(
+        input_vcf,
+        None,
+        variant_confidence.thresholds_from(args),
+        regions_file=regions,
+        region_names=named,
+    )
+
+
 def merge_outside_calls(paths: list[str], merged: str) -> str:
     """One PharmCAT outside-call file from several (e.g. `typing cyp2d6` and
     `typing hla` output); each gene may be called by only one of them."""
@@ -224,6 +249,7 @@ def cmd_pharmcat(args: argparse.Namespace) -> None:
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_pharmcat_") as work:
         logging.info("Preparing the VCF for PharmCAT (its gene regions only)...")
         prepared = prepare_input(input_vcf, directory, reference, work)
+        confidence = label_pgx_calls(input_vcf, work, args)
         command = [
             *python, str(Path(directory, "pharmcat_pipeline")), prepared,
             "-o", outdir, "-bf", stem, "-reporterHtml", "-reporterJson",
@@ -246,6 +272,21 @@ def cmd_pharmcat(args: argparse.Namespace) -> None:
             raise WGSExtractError(f"PharmCAT failed (exit {e.returncode}).") from e
 
     report = str(Path(outdir, f"{stem}.report.html"))
+    for suffix, role in (
+        ("report.html", "pharmcat_report"),
+        ("report.json", "pharmcat_report_json"),
+        ("phenotype.json", "pharmcat_phenotypes"),
+    ):
+        if Path(outdir, f"{stem}.{suffix}").is_file():
+            current_result().add_output(Path(outdir, f"{stem}.{suffix}"), role)
+    table = str(Path(outdir, f"{stem}.confidence.tsv"))
+    variant_confidence.write_table(
+        table, confidence, ("gene",), "Variant calls in PharmCAT gene regions"
+    )
+    variant_confidence.record(
+        confidence, output=None, role="pgx_calls", what="calls in PharmCAT genes",
+        table=table,
+    )  # fmt: skip
     for gene, diplotype, phenotype in summarize(
         str(Path(outdir, f"{stem}.phenotype.json"))
     ):

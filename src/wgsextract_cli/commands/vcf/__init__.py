@@ -3,6 +3,7 @@ import argparse
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.genotype_qc import add_depth_argument
 from wgsextract_cli.core.messages import CLI_HELP
+from wgsextract_cli.core.variant_confidence import add_confidence_arguments
 
 from .basic import (
     cmd_annotate,
@@ -405,6 +406,7 @@ def register(
         "clinvar_vcf_path",
         "Path to ClinVar VCF data file.",
     )
+    add_confidence_arguments(clinvar_parser)
     clinvar_parser.set_defaults(func=cmd_clinvar)
 
     revel_parser = vcf_subs.add_parser(
@@ -491,6 +493,7 @@ def register(
         type=float,
         help="Maximum Allele Frequency to filter for (e.g., 0.01 for 1%%).",
     )
+    add_confidence_arguments(gnomad_parser)
     gnomad_parser.set_defaults(func=cmd_gnomad)
 
     spliceai_parser = vcf_subs.add_parser(
@@ -562,6 +565,7 @@ def register(
         help="PharmCAT outside-call file (gene<TAB>diplotype), e.g. from "
         "`typing cyp2d6` or `typing hla`. Repeatable; one call per gene.",
     )
+    add_confidence_arguments(pharmcat_parser)
     pharmcat_parser.set_defaults(func=cmd_pharmcat)
 
     chain_annotate_parser = vcf_subs.add_parser(

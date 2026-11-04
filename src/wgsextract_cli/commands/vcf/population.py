@@ -1,12 +1,17 @@
 import argparse
 import logging
+import re
+import subprocess
 from pathlib import Path
 
+from wgsextract_cli.core import variant_confidence
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.results import current_result
+from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.core.variant_files import ensure_vcf_prepared
 
 from .annotation_helpers import (
@@ -15,13 +20,13 @@ from .annotation_helpers import (
     annotation_context,
     prepare_tabix_annotation,
     require_annotation_file,
-    run_filter,
     run_min_score_filter,
 )
 from .bigwig_scores import annotate_from_bigwig
 
 PHYLOP_ANNOTATED = "phylop_annotated.vcf.gz"
 GNOMAD_ANNOTATED = "gnomad_annotated.vcf.gz"
+GNOMAD_COLUMNS = ("GNOMAD_AF",)
 
 
 def cmd_phylop(args: argparse.Namespace) -> None:
@@ -126,6 +131,7 @@ def cmd_gnomad(args: argparse.Namespace) -> None:
         threads=getattr(args, "threads", None),
     )
 
+    current_result().add_output(ann_out, "annotated_vcf")
     if args.max_af is None:
         logging.info(LOG_MESSAGES["vcf_gnomad_done"].format(output=ann_out))
         return
@@ -136,7 +142,25 @@ def cmd_gnomad(args: argparse.Namespace) -> None:
         f"to {filter_out}"
     )
     # Rare-variant filtering keeps variants absent from gnomAD too.
-    run_filter(
-        ann_out, filter_out, f"GNOMAD_AF < {args.max_af} || GNOMAD_AF='.'", "gnomAD"
+    try:
+        summary = variant_confidence.label_vcf(
+            ann_out,
+            filter_out,
+            variant_confidence.thresholds_from(args),
+            include=f"GNOMAD_AF < {args.max_af} || GNOMAD_AF='.'",
+            summary_columns=GNOMAD_COLUMNS,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        raise WGSExtractError(f"gnomAD filtering failed: {e}") from e
+    table = re.sub(r"\.vcf\.gz$", ".confidence.tsv", filter_out)
+    variant_confidence.write_table(
+        table, summary, GNOMAD_COLUMNS, f"Calls with gnomAD AF < {args.max_af}"
+    )
+    variant_confidence.record(
+        summary,
+        output=filter_out,
+        role="rare_variants",
+        what=f"calls rarer than gnomAD AF {args.max_af}",
+        table=table,
     )
     logging.info(f"gnomAD filtering complete: {filter_out}")

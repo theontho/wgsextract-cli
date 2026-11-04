@@ -429,6 +429,7 @@ def test_clinvar_normalizes_contigs_and_leaves_no_temporaries(tmp_path):
     assert sorted(os.listdir(outdir)) == [
         "clinvar_annotated.vcf.gz",
         "clinvar_annotated.vcf.gz.tbi",
+        "clinvar_pathogenic.confidence.tsv",
         "clinvar_pathogenic.vcf.gz",
         "clinvar_pathogenic.vcf.gz.tbi",
     ]
