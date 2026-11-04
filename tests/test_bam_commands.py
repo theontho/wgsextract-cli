@@ -174,7 +174,15 @@ def _bam(*argv: str) -> None:
 # --- sort -----------------------------------------------------------------
 
 
-def test_sort_coordinate_sorts_a_name_sorted_bam(genome, tmp_path):
+@pytest.mark.parametrize(
+    "sambamba",
+    [False, pytest.param(True, marks=with_sambamba)],
+    ids=["samtools", "sambamba"],
+)
+def test_sort_coordinate_sorts_a_name_sorted_bam(
+    genome, tmp_path, monkeypatch, sambamba
+):
+    monkeypatch.setattr(samtools_commands, "_use_sambamba", lambda: sambamba)
     unsorted = tmp_path / "n.bam"
     run_command(["samtools", "sort", "-n", "-o", str(unsorted), genome["bam"]])
     before = unsorted.read_bytes()
@@ -185,8 +193,9 @@ def test_sort_coordinate_sorts_a_name_sorted_bam(genome, tmp_path):
     assert "@HD\tVN:1.6\tSO:coordinate" in _header(out)
     assert unsorted.read_bytes() == before
     # No partial output or sort temp directory is left behind.
-    assert sorted(p.name for p in out.parent.iterdir() if p.suffix != ".bai") == [
-        "n_sorted.bam"
+    assert sorted(p.name for p in out.parent.iterdir()) == [
+        "n_sorted.bam",
+        "n_sorted.bam.bai",
     ]
 
 

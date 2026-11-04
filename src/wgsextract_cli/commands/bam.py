@@ -16,6 +16,7 @@ from wgsextract_cli.core.resource_estimates import (
     preflight_resources,
 )
 from wgsextract_cli.core.results import current_result, warn
+from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.temp_directory import configured_temp_directory
 from wgsextract_cli.core.utils import (
     UsageError,
@@ -288,6 +289,8 @@ def cmd_sort(args: argparse.Namespace) -> None:
             out_file, threads, memory, fmt=fmt, reference=resolved_ref, temp_dir=tempdir
         )
         run_pipeline([view_cmd, sort_cmd], description="Coordinate sort")
+        if not alignment_index(out_file):  # samtools sort, unlike sambamba
+            run_command(get_sam_index_cmd(out_file))
     current_result().set_reference(resolved_ref)
     current_result().add_metrics(
         **record_alignment_output(out_file, "sorted_alignment")
