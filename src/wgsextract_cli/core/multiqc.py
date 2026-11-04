@@ -408,11 +408,23 @@ def build_sections(documents: Iterable[Mapping[str, Any]]) -> list[Section]:
         (d for d in documents if d.get("status") == "ok"),
         key=lambda d: str((d.get("provenance") or {}).get("finished") or ""),
     )
+    latest: dict[tuple[str, str], Mapping[str, Any]] = {}
     for document in ordered:
         sample = sample_name(document)
         command = str(document.get("command") or "")
         if not sample or command in _OWN_COMMANDS:
             continue
+        # Warnings accumulate over every run; metrics come from each command's
+        # latest run alone, so a metric it no longer reports doesn't linger.
+        warnings = [
+            str(w["code"])
+            for w in document.get("warnings") or []
+            if isinstance(w, Mapping) and w.get("code")
+        ]
+        counts[sample] = counts.get(sample, 0) + len(warnings)
+        codes.setdefault(sample, set()).update(warnings)
+        latest[sample, command] = document
+    for (sample, command), document in latest.items():
         handled = _extractor(command)
         if handled:
             section_id, extract = handled
@@ -428,13 +440,6 @@ def build_sections(documents: Iterable[Mapping[str, Any]]) -> list[Section]:
                 Column(column_id, title, description, format="{:,.0f}", scale="Blues"),
             )
             sections["variants"].add(sample, {column_id: variants})
-        warnings = [
-            str(w["code"])
-            for w in document.get("warnings") or []
-            if isinstance(w, Mapping) and w.get("code")
-        ]
-        counts[sample] = counts.get(sample, 0) + len(warnings)
-        codes.setdefault(sample, set()).update(warnings)
     sections["variants"].columns = sorted(variant_columns.values(), key=lambda c: c.id)
     for sample, count in counts.items():
         if count:

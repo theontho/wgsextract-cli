@@ -433,6 +433,7 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
                 indel_bindings=indel_bindings,
                 base_name=base_name,
                 sample=vcf_sample,
+                gvcf=gvcf,
             )
         except (OSError, ValueError, subprocess.SubprocessError) as error:
             raise WGSExtractError(f"CHM13 microarray failed: {error}") from error
@@ -628,7 +629,8 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
 def _vcf_input_layout(args: argparse.Namespace) -> tuple[str | None, bool]:
     """The sample to select from the input VCF (None when it has just one) and
     whether it is a gVCF. A gVCF's reference blocks say which sites were called,
-    so unless --assume-hom-ref is given, targets outside them become no-calls."""
+    so unless --assume-hom-ref (or microarray_assume_hom_ref in config.toml) is
+    given, targets outside them become no-calls."""
     from .vcf.consensus import is_gvcf
 
     try:
@@ -655,7 +657,11 @@ def _vcf_input_layout(args: argparse.Namespace) -> tuple[str | None, bool]:
             f"({', '.join(samples)})."
         )
     gvcf = is_gvcf(args.input)
-    if gvcf and getattr(args, "assume_hom_ref", None) is None:
+    if (
+        gvcf
+        and getattr(args, "assume_hom_ref", None) is None
+        and "microarray_assume_hom_ref" not in settings
+    ):
         logging.info(
             "gVCF input: targets in reference blocks are read from the blocks, "
             "and targets no record covers are no-calls."

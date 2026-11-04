@@ -113,10 +113,10 @@ def test_sections_rows_and_general_stats(tmp_path):
 
 
 def test_latest_successful_run_wins_and_failures_are_skipped(tmp_path):
-    for name, finished, status, depth in (
-        ("new", "2025-02-01T00:00:00Z", "ok", 30.0),
-        ("old", "2025-01-01T00:00:00Z", "ok", 10.0),
-        ("failed", "2025-03-01T00:00:00Z", "failed", 1.0),
+    for name, finished, status, metrics, warnings in (
+        ("new", "2025-02-01T00:00:00Z", "ok", {"sex": "Male"}, ()),
+        ("old", "2025-01-01T00:00:00Z", "ok", {"ard_mapped": 10.0}, ("old",)),
+        ("failed", "2025-03-01T00:00:00Z", "failed", {"ard_mapped": 1.0}, ()),
     ):
         _manifest(
             tmp_path / f"{name}.json",
@@ -124,10 +124,14 @@ def test_latest_successful_run_wins_and_failures_are_skipped(tmp_path):
             "s1.bam",
             finished=finished,
             status=status,
-            ard_mapped=depth,
+            warnings=warnings,
+            **metrics,
         )
     files = multiqc.custom_content(d for _p, d in multiqc.find_documents(tmp_path))
-    assert _rows(files, "alignment") == {"s1": {"ard_mapped": 30.0}}
+    # The old run's depth doesn't fill the gap in the newest run's metrics ...
+    assert _rows(files, "alignment") == {"s1": {"sex": "Male"}}
+    # ... but its warnings still count.
+    assert _rows(files, "warnings") == {"s1": {"warnings": 1, "codes": "old"}}
 
 
 @pytest.mark.parametrize(

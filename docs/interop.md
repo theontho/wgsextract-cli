@@ -118,8 +118,10 @@ that GATK's Best Practices preprocessing starts from.
   - A target inside a `0/0` block is a reference call. A target inside a
     `./.` block is a no-call, and so is a target that no record covers. Where
     a block overlaps a variant record, the variant wins.
+  - This applies to GRCh37, GRCh38 and T2T/CHM13 gVCFs alike.
   - In a plain VCF, by contrast, an absent site is assumed to be the reference
-    (`--assume-hom-ref`). Pass `--assume-hom-ref` to force that behaviour on
+    (`--assume-hom-ref`). Pass `--assume-hom-ref` (or set `microarray_assume_hom_ref` in
+    `config.toml`) to force that behaviour on
     a gVCF as well.
 - **Builds.**
   - Microarray kits need the VCF's build in your reference library; pass it

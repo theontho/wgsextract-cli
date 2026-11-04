@@ -228,7 +228,8 @@ def _expand_gvcf_targets(
 ) -> None:
     """Write the gVCF's call at every target it covers. A reference block
     covering targets becomes one record per target (a 0/0 or ./. call with the
-    FASTA's base as REF); other records are kept. Targets no record covers stay
+    FASTA's base as REF); other records overlapping a target are kept, with
+    unobserved alleles such as <NON_REF> trimmed. Targets no record covers stay
     absent, i.e. uncalled. Only target positions are expanded: a whole-genome
     gVCF's blocks span billions of bases."""
     targets = _target_positions(ref_vcf_tab)
@@ -241,7 +242,8 @@ def _expand_gvcf_targets(
         regions = Path(work, "regions.txt")
         run_command(
             ["bcftools", "view", "--targets-file", ref_vcf_tab, "--targets-overlap"]
-            + ["1", *selection, "-Ov", "-o", str(overlapping), gvcf]
+            + ["1", "--trim-alt-alleles", *selection]
+            + ["-Ov", "-o", str(overlapping), gvcf]
         )
         # A variant record overlapping a block (DRAGEN writes some) outranks it.
         called: dict[str, set[int]] = {}
@@ -306,7 +308,7 @@ def _expand_gvcf_targets(
             [
                 ["bcftools", "sort", "-T", work, "-Ou", str(filled)],
                 ["bcftools", "view", "--targets-file", ref_vcf_tab]
-                + ["-Oz", "-o", out_vcf, "-"],
+                + ["--targets-overlap", "1", "-Oz", "-o", out_vcf, "-"],
             ],
             description="gVCF target expansion",
         )

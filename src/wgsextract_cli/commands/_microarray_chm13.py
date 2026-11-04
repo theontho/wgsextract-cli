@@ -64,7 +64,7 @@ from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 from wgsextract_cli.core.variant_files import chromosome_aliases
 
 from ._microarray_combined import _command_lines, _reference_alleles
-from ._microarray_vcf import _prepare_microarray_vcf
+from ._microarray_vcf import _expand_gvcf_targets, _prepare_microarray_vcf
 
 
 def _regions(region: str | None) -> list[tuple[str, int, int]]:
@@ -245,6 +245,7 @@ def run_chm13(
     indel_bindings: dict[str, str] | None = None,
     base_name: str | None = None,
     sample: str | None = None,
+    gvcf: bool = False,
 ) -> None:
     from .microarray import _resolve_microarray_format, _template_search_roots
 
@@ -314,7 +315,19 @@ def run_chm13(
     out_vcf = str(directory / f"{base}_native.vcf.gz")
     indel_calls = {}
     if is_vcf:
-        _extract_vcf(args.input, target, out_vcf, catalogue, names, directory)
+        if gvcf:
+            extracted = str(directory / f"{base}_blocks.vcf.gz")
+            _extract_vcf(args.input, target, extracted, catalogue, names, directory)
+            _expand_gvcf_targets(
+                extracted,
+                out_vcf,
+                ref_vcf_tab=target,
+                ref_fasta=ref_fasta,
+                selection=[],
+                outdir=str(directory),
+            )
+        else:
+            _extract_vcf(args.input, target, out_vcf, catalogue, names, directory)
     else:
         ploidy = write_chm13_ploidy(catalogue, names, directory)
         region_args = (
