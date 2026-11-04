@@ -243,6 +243,8 @@ def run_chm13(
     threads: str,
     *,
     indel_bindings: dict[str, str] | None = None,
+    base_name: str | None = None,
+    sample: str | None = None,
 ) -> None:
     from .microarray import _resolve_microarray_format, _template_search_roots
 
@@ -308,7 +310,7 @@ def run_chm13(
         partial(_target, catalogue, markers, names, regions),
         directory,
     )
-    base = input_stem(args.input)
+    base = base_name or input_stem(args.input)
     out_vcf = str(directory / f"{base}_native.vcf.gz")
     indel_calls = {}
     if is_vcf:
@@ -524,4 +526,5 @@ def run_chm13(
         base,
         str(combined),
         warn_about_genotypes(combined, tallies, check_no_calls=not regions),
+        sample=sample,
     )

@@ -260,7 +260,7 @@ def test_multiqc_non_force_preserves_a_concurrently_created_report(
 
 def test_multiqc_zero_exit_without_report_is_not_success(tmp_path, multiqc_stub):
     multiqc_stub(lambda *_args, **_kwargs: None)
-    with pytest.raises(WGSExtractError, match="produced no FastQC report"):
+    with pytest.raises(WGSExtractError, match="produced no report"):
         run_wgsextract("qc", "multiqc", "--input", str(tmp_path))
     assert list(tmp_path.iterdir()) == []
 

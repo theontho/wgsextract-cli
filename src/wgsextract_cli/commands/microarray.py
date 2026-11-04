@@ -1,6 +1,9 @@
 import argparse
+import contextlib
 import functools
 import logging
+import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -63,6 +66,7 @@ from wgsextract_cli.core.utils import (
     UsageError,
     WGSExtractError,
     get_resource_defaults,
+    run_command,
 )
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
@@ -320,6 +324,11 @@ def _convert_microarray_outputs(
 
 
 def run(args: argparse.Namespace) -> None:
+    with contextlib.ExitStack() as cleanup:
+        _run(args, cleanup)
+
+
+def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
     quality_policy(args)
     if quirks_mode(args) == "vendor":
         load_strand_quirks()
@@ -339,6 +348,12 @@ def run(args: argparse.Namespace) -> None:
 
     verify_dependencies(["bcftools", "tabix", "bgzip", "samtools"])
     log_dependency_info(["bcftools", "tabix", "bgzip", "samtools"])
+    is_vcf = args.input.endswith((".vcf", ".vcf.gz", ".bcf"))
+    if getattr(args, "sample", None) and not is_vcf:
+        raise UsageError(
+            "--sample picks one sample of a multi-sample VCF; BAM/CRAM input "
+            "is called as one sample."
+        )
 
     logging.debug(f"Input file: {str(absolute_path(args.input))}")
 
@@ -356,7 +371,6 @@ def run(args: argparse.Namespace) -> None:
     requested = args.formats.split(",")
     aadr_panels = [panel for key in requested if (panel := aadr_panel(key))]
     legacy_requested = any(aadr_panel(key) is None for key in requested)
-    is_vcf = args.input.endswith((".vcf", ".vcf.gz", ".bcf"))
     lifter = None
     if aadr_panels:
         validate_aadr_sample_id(getattr(args, "aadr_sample_id", "sample"))
@@ -388,6 +402,11 @@ def run(args: argparse.Namespace) -> None:
             "or supported CHM13 for no-call masking."
         )
 
+    vcf_sample, gvcf = _vcf_input_layout(args) if is_vcf else (None, False)
+    base_name = input_stem(args.input)
+    if vcf_sample:
+        base_name += "_" + re.sub(r"[^A-Za-z0-9._-]", "_", vcf_sample)
+
     if not is_vcf:
         warn_low_depth(
             args.input,
@@ -401,8 +420,19 @@ def run(args: argparse.Namespace) -> None:
         from ._microarray_chm13 import run_chm13
 
         try:
+            chm13_args = args
+            if vcf_sample:
+                chm13_args = argparse.Namespace(**vars(args))
+                chm13_args.input = _sample_vcf(args.input, vcf_sample, outdir, cleanup)
             run_chm13(
-                args, lib, ref_fasta, outdir, threads, indel_bindings=indel_bindings
+                chm13_args,
+                lib,
+                ref_fasta,
+                outdir,
+                threads,
+                indel_bindings=indel_bindings,
+                base_name=base_name,
+                sample=vcf_sample,
             )
         except (OSError, ValueError, subprocess.SubprocessError) as error:
             raise WGSExtractError(f"CHM13 microarray failed: {error}") from error
@@ -471,7 +501,6 @@ def run(args: argparse.Namespace) -> None:
     print_warning("ButtonMicroarray", threads=threads)
 
     # 1. Variant Calling or VCF Extraction
-    base_name = input_stem(args.input)
     out_vcf = str(Path(calling_outdir, f"{base_name}_combined.vcf.gz"))
     combined_vcf = out_vcf
     if not is_vcf:
@@ -479,7 +508,12 @@ def run(args: argparse.Namespace) -> None:
     calling_args = args
     if indel_bindings and is_vcf:
         calling_args = argparse.Namespace(**vars(args))
-        calling_args.input = prepare_indel_vcf(args.input, outdir)
+        calling_args.input = prepare_indel_vcf(
+            _sample_vcf(args.input, vcf_sample, outdir, cleanup)
+            if vcf_sample
+            else args.input,
+            outdir,
+        )
 
     region_args = ["-r", args.region] if args.region else []
     input_chroms = None
@@ -528,6 +562,9 @@ def run(args: argparse.Namespace) -> None:
             start_vcf=start_vcf,
             out_vcf=out_vcf,
             input_chroms=input_chroms,
+            # An indel run's calling input is already the selected sample.
+            sample=None if calling_args is not args else vcf_sample,
+            gvcf=gvcf,
         )
         record_kept(combined_vcf, outdir, "combined_vcf")
         if out_vcf != combined_vcf:
@@ -584,7 +621,67 @@ def run(args: argparse.Namespace) -> None:
         base_name,
         combined_kit_txt,
         warn_about_genotypes(combined_kit_txt, tallies, check_no_calls=not args.region),
+        sample=vcf_sample,
     )
+
+
+def _vcf_input_layout(args: argparse.Namespace) -> tuple[str | None, bool]:
+    """The sample to select from the input VCF (None when it has just one) and
+    whether it is a gVCF. A gVCF's reference blocks say which sites were called,
+    so unless --assume-hom-ref is given, targets outside them become no-calls."""
+    from .vcf.consensus import is_gvcf
+
+    try:
+        listed = run_command(
+            ["bcftools", "query", "--list-samples", args.input], capture_output=True
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        raise WGSExtractError(f"Could not read the samples of {args.input}: {e}") from e
+    samples = [name for name in str(listed.stdout).splitlines() if name.strip()]
+    if not samples:
+        raise WGSExtractError(
+            f"{args.input} has no sample genotype columns, so it can't become a "
+            "microarray kit."
+        )
+    requested = getattr(args, "sample", None)
+    if requested and requested not in samples:
+        raise WGSExtractError(
+            f"Sample '{requested}' is not in {args.input} (samples: "
+            f"{', '.join(samples)})."
+        )
+    if not requested and len(samples) > 1:
+        raise UsageError(
+            f"{args.input} has {len(samples)} samples; choose one with --sample "
+            f"({', '.join(samples)})."
+        )
+    gvcf = is_gvcf(args.input)
+    if gvcf and getattr(args, "assume_hom_ref", None) is None:
+        logging.info(
+            "gVCF input: targets in reference blocks are read from the blocks, "
+            "and targets no record covers are no-calls."
+        )
+        args.assume_hom_ref = False
+    return (requested if len(samples) > 1 else None), gvcf
+
+
+def _sample_vcf(
+    vcf: str, sample: str, outdir: str, cleanup: contextlib.ExitStack
+) -> str:
+    """One sample of a multi-sample VCF, as an indexed VCF in a scratch
+    directory under ``outdir`` that ``cleanup`` removes."""
+    Path(outdir).mkdir(parents=True, exist_ok=True)
+    workdir = tempfile.mkdtemp(prefix="Sample_", dir=outdir)
+    cleanup.callback(shutil.rmtree, workdir, ignore_errors=True)
+    subset = str(Path(workdir, "sample.vcf.gz"))
+    try:
+        run_command(
+            ["bcftools", "view", "--samples", sample, "--trim-alt-alleles"]
+            + ["-Oz", "-o", subset, vcf]
+        )
+        run_command(["bcftools", "index", "-t", subset])
+    except (OSError, subprocess.SubprocessError) as e:
+        raise WGSExtractError(f"Could not select sample '{sample}': {e}") from e
+    return subset
 
 
 def register(
@@ -676,6 +773,11 @@ def register(
     parser.add_argument(
         "--ploidy-file",
         help="File defining ploidy per chromosome (auto-resolved from --ref if possible)",
+    )
+    parser.add_argument(
+        "--sample",
+        help="Sample to use from a multi-sample VCF (e.g. a joint-called "
+        "nf-core/sarek VCF); required when the VCF has more than one",
     )
     parser.add_argument("-r", "--region", help=CLI_HELP["arg_region"])
     add_depth_argument(parser)
