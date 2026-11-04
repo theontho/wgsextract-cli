@@ -7,7 +7,7 @@ import logging
 import os
 import platform
 import threading
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +17,7 @@ from wgsextract_cli import __version__
 from wgsextract_cli.core.results import redact_argv
 
 _active: "RunLog | None" = None
+_tool_hook: Callable[[Sequence[str]], None] | None = None
 
 
 class RunLogError(OSError):
@@ -34,9 +35,23 @@ def is_run_log_path(path: Path) -> bool:
     )
 
 
+@contextmanager
+def tool_hook(hook: Callable[[Sequence[str]], None]) -> Iterator[None]:
+    """Call ``hook`` with each external command just before it starts; the
+    hook may raise to stop it starting."""
+    global _tool_hook
+    previous, _tool_hook = _tool_hook, hook
+    try:
+        yield
+    finally:
+        _tool_hook = previous
+
+
 def record_command(command: Sequence[str]) -> None:
     from wgsextract_cli.core.results import record_tool_command
 
+    if _tool_hook is not None:
+        _tool_hook(command)
     record_tool_command(command)
     if _active:
         _active.record(command)

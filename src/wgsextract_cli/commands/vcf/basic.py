@@ -6,8 +6,12 @@ import subprocess
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
+from wgsextract_cli.api._cli import cli_handler
+from wgsextract_cli.api.vcf import VcfIndelParams, VcfSnpParams
 from wgsextract_cli.core import ultima
 from wgsextract_cli.core.alignment_health import warn_about_alignment
 from wgsextract_cli.core.builds import is_hg37_build, is_hg38_build, ploidy_for_build
@@ -72,20 +76,39 @@ def require_vcf_input(args: argparse.Namespace) -> str:
     return input_file
 
 
-def get_base_args(args: argparse.Namespace) -> tuple[str, str, str, ReferenceLibrary]:
-    """Resolve (threads, outdir, reference FASTA, library) for BAM/CRAM callers."""
-    input_file = getattr(args, "input", None)
+@dataclass(frozen=True)
+class CallerSetup:
+    """What a BAM/CRAM variant caller needs, resolved and checked."""
+
+    threads: str
+    outdir: str
+    ref: str
+    lib: ReferenceLibrary
+    platform: str | None
+
+
+def caller_setup(
+    input_file: str | None,
+    *,
+    threads: int | str | None,
+    outdir: str | None,
+    ref: str | None,
+    region: str | None,
+    qc_min_depth: float | None,
+) -> CallerSetup:
+    """Resolve threads, output folder and reference FASTA for a BAM/CRAM caller,
+    and warn about alignment problems and low depth."""
     if not input_file:
         raise UsageError(LOG_MESSAGES["input_required"])
 
     logging.debug(f"Input file: {str(absolute_path(input_file))}")
-    threads, _ = get_resource_defaults(args.threads, None)
-    outdir = args.outdir or str(absolute_path(input_file).parent)
+    thread_count, _ = get_resource_defaults(threads, None)
+    outdir = outdir or str(absolute_path(input_file).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
     logging.debug(f"Output directory: {str(absolute_path(outdir))}")
 
     lib = ReferenceLibrary(
-        args.ref, calculate_bam_md5(input_file, None), input_path=input_file
+        ref, calculate_bam_md5(input_file, None), input_path=input_file
     )
     resolved_ref = lib.fasta
     logging.debug(f"Resolved reference: {resolved_ref}")
@@ -94,8 +117,8 @@ def get_base_args(args: argparse.Namespace) -> tuple[str, str, str, ReferenceLib
     if resolved_ref:
         paths_to_check["--ref"] = resolved_ref
     verify_paths_exist(paths_to_check)
-    args.input_platform = input_platform(input_file, resolved_ref)
-    if args.input_platform == "ont":
+    platform = input_platform(input_file, resolved_ref)
+    if platform == "ont":
         logging.info(
             "Detected ONT input. Short-read variant callers are not validated "
             "for ONT; use a platform-specific model/caller where available."
@@ -109,17 +132,40 @@ def get_base_args(args: argparse.Namespace) -> tuple[str, str, str, ReferenceLib
     warn_about_alignment(input_file, resolved_ref)
     warn_low_depth(
         input_file,
-        region_targets(getattr(args, "region", None)),
+        region_targets(region),
         outdir=outdir,
         ref=resolved_ref,
-        min_depth=getattr(args, "qc_min_depth", None),
+        min_depth=qc_min_depth,
     )
-    return threads, outdir, resolved_ref, lib
+    return CallerSetup(thread_count, outdir, resolved_ref, lib, platform)
+
+
+def get_base_args(args: argparse.Namespace) -> tuple[str, str, str, ReferenceLibrary]:
+    """Resolve (threads, outdir, reference FASTA, library) for BAM/CRAM callers;
+    sets ``args.input_platform``."""
+    setup = caller_setup(
+        getattr(args, "input", None),
+        threads=getattr(args, "threads", None),
+        outdir=getattr(args, "outdir", None),
+        ref=getattr(args, "ref", None),
+        region=getattr(args, "region", None),
+        qc_min_depth=getattr(args, "qc_min_depth", None),
+    )
+    args.input_platform = setup.platform
+    return setup.threads, setup.outdir, setup.ref, setup.lib
 
 
 def _ploidy_args(args: argparse.Namespace, lib: ReferenceLibrary) -> list[str]:
-    ploidy = getattr(args, "ploidy", None)
-    ploidy_file = getattr(args, "ploidy_file", None)
+    return ploidy_args(
+        getattr(args, "ploidy", None), getattr(args, "ploidy_file", None), lib
+    )
+
+
+def ploidy_args(
+    ploidy: str | None, ploidy_file: str | None, lib: ReferenceLibrary
+) -> list[str]:
+    """bcftools call's ploidy options: the explicit choice, else the library's
+    ploidy file, else the built-in table for GRCh37/GRCh38."""
     if not ploidy and not ploidy_file:
         ploidy_file = lib.ploidy_file
     if ploidy_file:
@@ -173,49 +219,69 @@ def plain_reference(ref: str, outdir: str) -> Iterator[str]:
         yield target
 
 
-def cmd_snp(args: argparse.Namespace) -> None:
+def run_small_variants(params: VcfSnpParams | VcfIndelParams) -> None:
+    """``vcf snp`` / ``vcf indel``: bcftools mpileup | call into the output folder."""
+    indels = isinstance(params, VcfIndelParams)
+    task: Literal["snp", "indel"] = "indel" if indels else "snp"
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
-    threads, outdir, ref, lib = get_base_args(args)
+    input_file = str(params.input)
+    setup = caller_setup(
+        input_file,
+        threads=params.threads,
+        outdir=str(params.outdir) if params.outdir else None,
+        ref=str(params.ref) if params.ref else None,
+        region=params.region,
+        qc_min_depth=params.qc_min_depth,
+    )
+    threads, outdir, ref = setup.threads, setup.outdir, setup.ref
     preflight_resources(
         lambda: estimate_resources(
-            "snp",
-            input_paths=[args.input],
+            task,
+            input_paths=[input_file],
             output_dir=outdir,
             reference=ref,
             threads=threads,
-            region=args.region,
-            parallel=getattr(args, "parallel", False),
+            region=params.region,
+            parallel=params.parallel,
         )
     )
-    print_warning("ButtonSNPVCF", threads=threads)
+    print_warning("ButtonInDelVCF" if indels else "ButtonSNPVCF", threads=threads)
 
-    out_vcf = str(Path(outdir, "snps.vcf.gz"))
-    profile, prior = ultima.bcftools_options(args.input)
+    out_vcf = str(Path(outdir, "indels.vcf.gz" if indels else "snps.vcf.gz"))
+    profile, prior = ultima.bcftools_options(input_file)
     prior = ["-P", "0"] if prior is None else prior
-    logging.info(LOG_MESSAGES["vcf_calling_snps"].format(output=out_vcf))
-    ploidy_args = _ploidy_args(args, lib)
+    message = "vcf_calling_indels" if indels else "vcf_calling_snps"
+    logging.info(LOG_MESSAGES[message].format(output=out_vcf))
+    ploidy = ploidy_args(
+        params.ploidy,
+        str(params.ploidy_file) if params.ploidy_file else None,
+        setup.lib,
+    )
 
     from wgsextract_cli.core.atomic_output import safe_output
 
     with (
         safe_output(out_vcf) as staged,
-        sex_samples_args(
-            args.input, outdir, ploidy_args, region=args.region
-        ) as sex_args,
+        sex_samples_args(input_file, outdir, ploidy, region=params.region) as sex_args,
     ):
         call_small_variants(
-            args.input,
+            input_file,
             ref,
             staged,
             threads=threads,
-            region=args.region,
+            region=params.region,
             profile=profile,
-            call_args=[*ploidy_args, *sex_args, *prior],
-            parallel=getattr(args, "parallel", False),
+            call_args=[*ploidy, *sex_args, *prior],
+            parallel=params.parallel,
+            indels=indels,
         )
     ensure_vcf_indexed(out_vcf)
-    record_variants(out_vcf, "snps", warn_if_no_variants(out_vcf, ref, args.region))
+    record_variants(
+        out_vcf,
+        "indels" if indels else "snps",
+        warn_if_no_variants(out_vcf, ref, params.region),
+    )
 
 
 def record_variants(out_vcf: str, role: str, count: int | None) -> None:
@@ -224,50 +290,8 @@ def record_variants(out_vcf: str, role: str, count: int | None) -> None:
     current_result().add_metrics(variants=count)
 
 
-def cmd_indel(args: argparse.Namespace) -> None:
-    verify_dependencies(["bcftools", "tabix"])
-    log_dependency_info(["bcftools", "tabix"])
-    threads, outdir, ref, lib = get_base_args(args)
-    preflight_resources(
-        lambda: estimate_resources(
-            "indel",
-            input_paths=[args.input],
-            output_dir=outdir,
-            reference=ref,
-            threads=threads,
-            region=args.region,
-            parallel=getattr(args, "parallel", False),
-        )
-    )
-    print_warning("ButtonInDelVCF", threads=threads)
-
-    out_vcf = str(Path(outdir, "indels.vcf.gz"))
-    profile, prior = ultima.bcftools_options(args.input)
-    prior = ["-P", "0"] if prior is None else prior
-    logging.info(LOG_MESSAGES["vcf_calling_indels"].format(output=out_vcf))
-    ploidy_args = _ploidy_args(args, lib)
-
-    from wgsextract_cli.core.atomic_output import safe_output
-
-    with (
-        safe_output(out_vcf) as staged,
-        sex_samples_args(
-            args.input, outdir, ploidy_args, region=args.region
-        ) as sex_args,
-    ):
-        call_small_variants(
-            args.input,
-            ref,
-            staged,
-            threads=threads,
-            region=args.region,
-            profile=profile,
-            call_args=[*ploidy_args, *sex_args, *prior],
-            parallel=getattr(args, "parallel", False),
-            indels=True,
-        )
-    ensure_vcf_indexed(out_vcf)
-    record_variants(out_vcf, "indels", warn_if_no_variants(out_vcf, ref, args.region))
+cmd_snp = cli_handler(VcfSnpParams, run_small_variants)
+cmd_indel = cli_handler(VcfIndelParams, run_small_variants)
 
 
 def _annotation_columns(ann_vcf: str) -> str:

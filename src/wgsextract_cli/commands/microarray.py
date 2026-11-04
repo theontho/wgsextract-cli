@@ -10,6 +10,9 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from wgsextract_cli.api._cli import add_arguments, cli_handler
+from wgsextract_cli.api._params import to_namespace
+from wgsextract_cli.api.microarray import MicroarrayParams
 from wgsextract_cli.core.aadr_resources import require_aadr_2m
 from wgsextract_cli.core.alignment_health import warn_about_alignment
 from wgsextract_cli.core.builds import (
@@ -24,7 +27,6 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.genotype_qc import (
-    add_depth_argument,
     region_targets,
     warn_about_genotypes,
     warn_low_depth,
@@ -47,7 +49,6 @@ from wgsextract_cli.core.microarray_indels import (
 )
 from wgsextract_cli.core.microarray_quality import quality_policy
 from wgsextract_cli.core.microarray_quirks import (
-    MODES,
     load_strand_quirks,
     quirks_mode,
 )
@@ -322,9 +323,11 @@ def _convert_microarray_outputs(
     return tallies
 
 
-def run(args: argparse.Namespace) -> None:
+def run_microarray(params: MicroarrayParams) -> None:
+    """``microarray``. The generation helpers still read an argparse-style
+    namespace, so the params are handed to them as one."""
     with contextlib.ExitStack() as cleanup:
-        _run(args, cleanup)
+        _run(to_namespace(params), cleanup)
 
 
 def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
@@ -700,91 +703,8 @@ def register(
         help=CLI_HELP["cmd_microarray"],
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.add_argument("--formats", default="all", help=CLI_HELP["micro_formats_help"])
-    parser.add_argument(
-        "--indel-manifest",
-        action="append",
-        default=[],
-        metavar="FORMAT=PATH",
-        help="Opt-in sequence-defined I/D probes from a matching GRCh37 Illumina CSV, gzip or ZIP; repeat per selected format",
-    )
-    parser.add_argument(
-        "--strand-ambiguous",
-        choices=("keep", "no-call"),
-        default=None,
-        help="Keep/no-call biallelic A/T or C/G input SNPs; unknown probe alleles are not inferred (default: config or keep)",
-    )
-    parser.add_argument(
-        "--resolve-rsids",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Resolve packaged dbSNP aliases and no-call retired/ambiguous marker IDs (default: config or false)",
-    )
-    parser.add_argument(
-        "--quirks",
-        choices=MODES,
-        default=None,
-        help="corrected: forward-strand calls; vendor: reverse-strand calls where a template's vendor revision reported them so (default: config or corrected)",
-    )
-    parser.add_argument(
-        "--min-gq",
-        type=int,
-        default=None,
-        help="Minimum sample GQ; missing GQ becomes a no-call (default: config or 0, disabled)",
-    )
-    parser.add_argument(
-        "--min-dp",
-        type=int,
-        default=None,
-        help="Minimum sample DP; missing DP becomes a no-call (default: config or 0, disabled)",
-    )
-    parser.add_argument(
-        "--assume-hom-ref",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Assume absent VCF markers are reference on represented contigs (default: config or true)",
-    )
-    parser.add_argument(
-        "--exclude-filtered",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="No-call VCF records failing FILTER (default: config or false)",
-    )
-    parser.add_argument(
-        "--call-reasons",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Also write CombinedKit_reasons.tsv with explicit reasons (default: config or false)",
-    )
-    parser.add_argument(
-        "--aadr-sample-id",
-        default="sample",
-        help="Non-identifying sample label for AADR .fam/.ind (default: sample)",
-    )
-    parser.add_argument(
-        "--aadr-sex",
-        choices=("U", "M", "F"),
-        default="U",
-        help="AADR metadata sex only; does not change genotype calling (default: U)",
-    )
-    parser.add_argument(
-        "--parallel",
-        action="store_true",
-        help="Enable per-chromosome parallel variant calling",
-    )
-    parser.add_argument(
-        "--ref-vcf-tab",
-        help="Master tabulated list of all consumer microarray SNPs (auto-resolved from --ref if possible)",
-    )
-    parser.add_argument(
-        "--ploidy-file",
-        help="File defining ploidy per chromosome (auto-resolved from --ref if possible)",
-    )
-    parser.add_argument(
-        "--sample",
-        help="Sample to use from a multi-sample VCF (e.g. a joint-called "
-        "nf-core/sarek VCF); required when the VCF has more than one",
-    )
-    parser.add_argument("-r", "--region", help=CLI_HELP["arg_region"])
-    add_depth_argument(parser)
+    add_arguments(parser, MicroarrayParams)
     parser.set_defaults(func=run)
+
+
+run = cli_handler(MicroarrayParams, run_microarray)

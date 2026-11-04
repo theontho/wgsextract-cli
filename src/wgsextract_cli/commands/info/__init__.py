@@ -1,10 +1,18 @@
 import argparse
 
+from wgsextract_cli.api._cli import add_arguments
+from wgsextract_cli.api.info import (
+    CalculateCoverageParams,
+    ChipParams,
+    CoverageSampleParams,
+    InfoParams,
+)
 from wgsextract_cli.core.messages import CLI_HELP
 
 from . import chip
 from .runner import (
     run,
+    run_info,
 )
 
 
@@ -15,11 +23,7 @@ def register(
     parser = subparsers.add_parser(
         "info", parents=[base_parser], help=CLI_HELP["cmd_info"]
     )
-    parser.add_argument(
-        "--detailed",
-        action="store_true",
-        help=CLI_HELP["arg_detailed"],
-    )
+    add_arguments(parser, InfoParams)
     parser.add_argument(
         "--csv",
         action="store_true",
@@ -32,28 +36,22 @@ def register(
         parents=[base_parser],
         help=CLI_HELP["cmd_calculate-coverage"],
     )
-    calc_cov.add_argument("-r", "--region", help=CLI_HELP["arg_region"])
-    calc_cov.add_argument(
-        "--bins",
-        action="store_true",
-        help="Report exact per-contig depth 0, 1-3, 4-7 and 8+ breadth in one streaming pass.",
-    )
+    add_arguments(calc_cov, CalculateCoverageParams)
     calc_cov.set_defaults(func=run)
 
     samp_cov = info_subs.add_parser(
         "coverage-sample", parents=[base_parser], help=CLI_HELP["cmd_coverage-sample"]
     )
-    samp_cov.add_argument("-r", "--region", help=CLI_HELP["arg_region"])
+    add_arguments(samp_cov, CoverageSampleParams)
     samp_cov.set_defaults(func=run)
 
     chip_parser = info_subs.add_parser(
         "chip", parents=[base_parser], help=CLI_HELP["cmd_info-chip"]
     )
-    chip_parser.add_argument(
-        "--list",
-        action="store_true",
-        help="List the catalogued chip revisions and their matching templates.",
-    )
+    add_arguments(chip_parser, ChipParams)
     chip_parser.set_defaults(func=chip.run)
 
     parser.set_defaults(func=run)
+
+
+__all__ = ["register", "run", "run_info"]

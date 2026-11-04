@@ -37,6 +37,12 @@ def _setting(key: str, override: float | None = None) -> float:
     return float(value) if isinstance(value, int | float) else 0.0
 
 
+DEPTH_HELP = (
+    "Warn below this mean depth for this run; 0 disables (default: config "
+    "qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA)"
+)
+
+
 def _non_negative(text: str) -> float:
     try:
         value = float(text)
@@ -53,8 +59,7 @@ def add_depth_argument(parser: argparse.ArgumentParser) -> None:
         type=_non_negative,
         default=None,
         metavar="DEPTH",
-        help="Warn below this mean depth for this run; 0 disables (default: config "
-        "qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA)",
+        help=DEPTH_HELP,
     )
 
 

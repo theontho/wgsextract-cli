@@ -1,17 +1,18 @@
 import argparse
 from pathlib import Path
 
+from wgsextract_cli.api._cli import add_arguments, cli_handler
+from wgsextract_cli.api.lineage import YStrParams
 from wgsextract_cli.core.builds import build_from_chr1_length, build_from_path
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
-from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import read_fai_lengths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.results import current_result, json_mode, warn
-from wgsextract_cli.core.utils import UsageError, WGSExtractError
+from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.core.variant_files import calculate_bam_md5, verify_paths_exist
 
 from ._lineage_ydna import _yleaf_build
@@ -20,7 +21,8 @@ from ._lineage_ydna import _yleaf_build
 NO_Y_FRACTION = 0.1
 
 
-def cmd_ystr(args: argparse.Namespace) -> None:
+def run_y_str(params: YStrParams) -> None:
+    """``lineage y-str``."""
     from wgsextract_cli.ydna.ystr.analysis import (
         STATUS_TEXT,
         analyze,
@@ -29,11 +31,10 @@ def cmd_ystr(args: argparse.Namespace) -> None:
     )
     from wgsextract_cli.ydna.ystr.panel import select
 
-    if not args.input:
-        raise UsageError(LOG_MESSAGES["input_required"])
-    verify_paths_exist({"--input": args.input})
-    is_cram = args.input.lower().endswith(".cram")
-    if not is_cram and not args.input.lower().endswith(".bam"):
+    input_file = str(params.input)
+    verify_paths_exist({"--input": input_file})
+    is_cram = input_file.lower().endswith(".cram")
+    if not is_cram and not input_file.lower().endswith(".bam"):
         raise WGSExtractError(
             "Y-STR calling needs reads: pass an indexed BAM or CRAM. "
             "Align FASTQ with `wgsextract align` first."
@@ -41,17 +42,17 @@ def cmd_ystr(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
 
-    outdir = absolute_path(args.outdir or str(Path(args.input).absolute().parent))
+    outdir = absolute_path(str(params.outdir or Path(input_file).absolute().parent))
     ystr_outdir = Path(outdir, "ystr")
 
     lib = ReferenceLibrary(
-        args.ref, calculate_bam_md5(args.input, None), input_path=args.input
+        str(params.ref) if params.ref else None,
+        calculate_bam_md5(input_file, None),
+        input_path=input_file,
     )
     # The header's chrY length identifies the build without a reference library.
     build = _yleaf_build(
-        getattr(args, "build", None)
-        or lib.build
-        or header_build(header_lengths(Path(args.input)))
+        params.build or lib.build or header_build(header_lengths(Path(input_file)))
     )
     if is_cram and not lib.fasta:
         raise WGSExtractError(
@@ -68,16 +69,16 @@ def cmd_ystr(args: argparse.Namespace) -> None:
                 "to with --ref, or set --build."
             )
 
-    selected = select(args.panel)
+    selected = select(params.panel)
     calls, table = analyze(
-        Path(args.input),
+        Path(input_file),
         ystr_outdir,
         build=build,
         selected=selected,
         reference=Path(lib.fasta) if lib.fasta else None,
-        min_reads=args.min_reads,
-        min_fraction=args.min_fraction,
-        min_mapq=args.min_mapq,
+        min_reads=params.min_reads,
+        min_fraction=params.min_fraction,
+        min_mapq=params.min_mapq,
     )
 
     called = [c for c in calls if c.status == "called"]
@@ -85,7 +86,7 @@ def cmd_ystr(args: argparse.Namespace) -> None:
     if len(called) < NO_Y_FRACTION * len(calls):
         raise WGSExtractError(
             f"Only {len(called)} of {len(calls)} Y-STRs could be called: "
-            f"{args.input} has too few chrY reads (the sample may be female, or "
+            f"{input_file} has too few chrY reads (the sample may be female, or "
             f"the build may be wrong). Details are in {table}."
         )
     ftdna_csv = table.with_suffix("").with_suffix(".ftdna.csv")
@@ -93,11 +94,11 @@ def cmd_ystr(args: argparse.Namespace) -> None:
     result.set_reference(lib.fasta, build)
     result.add_output(table, "ystr_table")
     result.add_output(ftdna_csv, "ystr_ftdna_csv")
-    result.add_metrics(panel=args.panel, markers=len(calls), called=len(called))
+    result.add_metrics(panel=params.panel, markers=len(calls), called=len(called))
     result.set_details(
         {
             "build": build,
-            "panel": args.panel,
+            "panel": params.panel,
             "calls": [
                 {
                     "marker": c.marker.name,
@@ -122,7 +123,9 @@ def cmd_ystr(args: argparse.Namespace) -> None:
         )
     if json_mode():
         return
-    print(f"\n🧬 Y-STR {args.panel} (build {build}): {len(called)}/{len(calls)} called")
+    print(
+        f"\n🧬 Y-STR {params.panel} (build {build}): {len(called)}/{len(calls)} called"
+    )
     print("-" * 52)
     print(f"{'Marker':<13}{'Value':>8}  {'Reads':>5}  Note")
     for c in calls:
@@ -135,42 +138,14 @@ def cmd_ystr(args: argparse.Namespace) -> None:
     print(f"Results: {table}\nFTDNA-order CSV: {ftdna_csv}\n")
 
 
+cmd_ystr = cli_handler(YStrParams, run_y_str)
+
+
 def add_ystr_parser(
     lin_subs: "argparse._SubParsersAction[argparse.ArgumentParser]",
     base_parser: argparse.ArgumentParser,
     help_text: str,
 ) -> None:
-    from wgsextract_cli.ydna.ystr.panel import PANELS
-
     parser = lin_subs.add_parser("y-str", parents=[base_parser], help=help_text)
-    parser.add_argument(
-        "--panel",
-        choices=PANELS,
-        default="Y-111",
-        help="Marker panel: FamilyTreeDNA Y-12 to Y-111, PowerPlex Y23, "
-        "Yfiler Plus, or all (default: Y-111).",
-    )
-    parser.add_argument(
-        "--build",
-        choices=["hg19", "hg38", "t2t"],
-        help="Override the detected reference build for this run.",
-    )
-    parser.add_argument(
-        "--min-reads",
-        type=int,
-        default=2,
-        help="Spanning reads needed to support a repeat count (default: 2).",
-    )
-    parser.add_argument(
-        "--min-fraction",
-        type=float,
-        default=0.6,
-        help="Share of spanning reads that must agree (default: 0.6).",
-    )
-    parser.add_argument(
-        "--min-mapq",
-        type=int,
-        default=20,
-        help="Minimum mapping quality for single-copy markers (default: 20).",
-    )
+    add_arguments(parser, YStrParams)
     parser.set_defaults(func=cmd_ystr)

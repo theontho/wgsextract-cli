@@ -113,6 +113,8 @@ Try commands on a small region (`--region chrM`, where supported) before running
 
 Commands that write files also write a `<output>.manifest.json` beside them. It lists the inputs and outputs (with cheap fingerprints), headline metrics, structured warnings and provenance (versions, parameters, reference, timing). With `--json`, any command prints that document to stdout instead of its human-readable output, and logs stay on stderr. See [docs/result-manifest.md](docs/result-manifest.md) for the `wgsextract.result/1` schema, warning codes and exit codes.
 
+Commands can also be called from Python through the typed `wgsextract_cli.api` package, which returns that manifest as a `Result` object; see [docs/api.md](docs/api.md). Commands are moving onto it one group at a time: so far `info`, `vcf snp`/`indel`, `lineage` and `microarray`.
+
 Alignment/realignment pipelines and GATK scatter print a stderr heartbeat every
 60 seconds, including processed versus expected reads (when known), or completed
 shards, elapsed time and a rate-based ETA. Sampled FASTQ read counts are estimates;

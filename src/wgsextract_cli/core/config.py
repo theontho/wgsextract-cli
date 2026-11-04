@@ -414,16 +414,26 @@ def load_config() -> dict[str, Any]:
 
 # main selects --config before loading; importers share this stable dictionary.
 settings: dict[str, Any] = {}
+_settings_loaded = False
 
 
 def reload_settings() -> None:
     """Re-load configuration from disk and drop results derived from it."""
+    global _settings_loaded
     from wgsextract_cli.core.dependencies import clear_tool_caches
 
     new_settings = load_config()
     settings.clear()
     settings.update(new_settings)
+    _settings_loaded = True
     clear_tool_caches()
+
+
+def ensure_settings_loaded() -> None:
+    """Load config.toml for library use, unless the host application already
+    loaded settings or filled them itself."""
+    if not _settings_loaded and not settings:
+        reload_settings()
 
 
 def save_config(updates: dict[str, Any]) -> None:

@@ -530,6 +530,74 @@ class CommandResult:
         return path
 
 
+def fail_from_exception(
+    result: CommandResult, error: BaseException, *, debug: bool = False
+) -> None:
+    """Log ``error`` and record it on ``result`` with its exit code.
+
+    Exit codes: 2 usage error, 3 missing dependency (also when a wrapper
+    re-raised one), 128+N when stopped by signal N, otherwise 1.
+    """
+    import signal
+
+    from wgsextract_cli.core.utils import (
+        MissingDependencyError,
+        UsageError,
+        WGSExtractError,
+    )
+
+    if isinstance(error, UsageError):
+        logging.error(str(error))
+        result.fail("usage", str(error), EXIT_USAGE)
+    elif isinstance(error, MissingDependencyError):
+        logging.error(str(error))
+        result.fail("missing_dependency", str(error), EXIT_MISSING_DEPENDENCY)
+    elif isinstance(error, WGSExtractError):
+        logging.error(str(error))
+        _fail_unexpected(result, error, str(error))
+    elif isinstance(error, KeyboardInterrupt):
+        logging.error("Interrupted.")
+        result.fail("cancelled", "Interrupted.", 128 + signal.SIGINT)
+    elif isinstance(error, SystemExit):
+        code = (
+            error.code
+            if isinstance(error.code, int)
+            else (0 if error.code is None else 1)
+        )
+        if isinstance(error.code, str):
+            logging.error(error.code)
+        if code > 128:
+            result.fail("cancelled", f"Stopped by signal {code - 128}.", code)
+        elif code:
+            message = (
+                error.code
+                if isinstance(error.code, str)
+                else f"Exited with code {code}."
+            )
+            result.fail("usage" if code == EXIT_USAGE else "failure", message, code)
+    else:
+        if debug:
+            logging.error("An unexpected error occurred:", exc_info=error)
+        else:
+            logging.error(f"An unexpected error occurred: {error}")
+        _fail_unexpected(result, error, f"An unexpected error occurred: {error}")
+
+
+def _fail_unexpected(result: CommandResult, error: BaseException, message: str) -> None:
+    """Fail the run, keeping exit 3 when a wrapper re-raised a dependency error."""
+    from wgsextract_cli.core.utils import MissingDependencyError
+
+    seen: set[int] = set()
+    cause: BaseException | None = error
+    while cause is not None and id(cause) not in seen:
+        if isinstance(cause, MissingDependencyError):
+            result.fail("missing_dependency", message, EXIT_MISSING_DEPENDENCY)
+            return
+        seen.add(id(cause))
+        cause = cause.__cause__
+    result.fail("failure", message, EXIT_FAILURE)
+
+
 def _json_safe_dataclass(value: Any) -> Any:
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return {
@@ -596,27 +664,44 @@ def human_output(*values: object, sep: str = " ", end: str = "\n") -> None:
 @contextlib.contextmanager
 def stdout_reserved() -> Iterator[TextIO]:
     """Send everything written to stdout, by Python or by child processes, to
-    stderr; yield a stream that still reaches the real stdout."""
-    sys.stdout.flush()
+    stderr; yield a stream that still reaches the real stdout.
+
+    For the CLI's ``--json``, where stdout must carry only the manifest. Either
+    stream may be None (pythonw, a windowed app); output for a missing stream is
+    dropped."""
+    out, err = sys.stdout, sys.stderr
+    if out is None:
+        with open(os.devnull, "w", encoding="utf-8", newline="\n") as sink:
+            yield sink
+        return
+    out.flush()
     try:
-        fd = sys.stdout.fileno()
+        fd: int | None = out.fileno()
     except (AttributeError, OSError, ValueError):
         fd = None
     if fd is None:
-        real = sys.stdout
-        with contextlib.redirect_stdout(sys.stderr):
-            yield real
+        with contextlib.redirect_stdout(err):
+            yield out
         return
-    sys.stderr.flush()
+    if err is not None:
+        err.flush()
     saved = os.dup(fd)
     try:
-        os.dup2(sys.stderr.fileno(), fd)
+        if err is not None:
+            try:
+                os.dup2(err.fileno(), fd)
+            except (AttributeError, OSError, ValueError):
+                err = None
+        if err is None:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, fd)
+            os.close(devnull)
         real = open(saved, "w", encoding="utf-8", newline="\n", closefd=False)  # noqa: SIM115
         try:
             yield real
         finally:
             real.flush()
-            sys.stdout.flush()
+            out.flush()
             os.dup2(saved, fd)
     finally:
         os.close(saved)

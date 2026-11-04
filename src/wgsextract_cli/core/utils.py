@@ -1,4 +1,5 @@
 import codecs
+import contextlib
 import logging
 import os
 import shlex
@@ -9,7 +10,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from os import PathLike
 from pathlib import Path
 from typing import IO, Literal, TypeAlias, overload
@@ -22,6 +23,7 @@ from wgsextract_cli.core.process_registry import (
 from wgsextract_cli.core.process_registry import (
     proc_registry,
     process_group_kwargs,
+    terminate_trees,
 )
 from wgsextract_cli.core.progress import Heartbeat
 from wgsextract_cli.core.resource_policy import (
@@ -44,6 +46,42 @@ from wgsextract_cli.core.samtools_commands import (
 _process_group_kwargs = process_group_kwargs
 
 ProcessStream: TypeAlias = int | IO[bytes] | IO[str] | None
+
+# Set while a library (wgsextract_cli.api) call runs, so tools that would
+# inherit stdout write to stderr instead and the caller's stdout stays clean.
+# A process-wide flag rather than a contextvar because commands start tools
+# from worker threads, which do not inherit context; api calls are serialised.
+_children_stdout_to_stderr = False
+
+
+@contextlib.contextmanager
+def child_stdout_to_stderr() -> Iterator[None]:
+    """Send the stdout of tools started without an explicit stdout to stderr."""
+    global _children_stdout_to_stderr
+    previous = _children_stdout_to_stderr
+    _children_stdout_to_stderr = True
+    try:
+        yield
+    finally:
+        _children_stdout_to_stderr = previous
+
+
+def _child_stdout(stdout: ProcessStream) -> ProcessStream:
+    """The stdout to give a tool: ``stdout`` itself unless it would inherit
+    ours while ``child_stdout_to_stderr`` is active."""
+    if stdout is not None or not _children_stdout_to_stderr:
+        return stdout
+    try:
+        if sys.stderr is not None:
+            sys.stderr.flush()
+            return sys.stderr.fileno()
+    except (AttributeError, OSError, ValueError):
+        pass
+    try:
+        os.fstat(2)
+        return 2
+    except OSError:
+        return subprocess.DEVNULL
 
 
 class WGSExtractError(Exception):
@@ -171,7 +209,7 @@ def _normalize_subprocess_cmd(cmd: PathInput | Sequence[object]) -> list[str]:
 def _tee_stderr(
     fd: int,
     tail: bytearray,
-    target: IO[str],
+    target: IO[str] | None,
     redact_output_urls: bool = False,
     sources: Sequence[str] = (),
 ) -> None:
@@ -182,6 +220,8 @@ def _tee_stderr(
         while chunk := stream.read1(65536):
             tail.extend(chunk)
             del tail[:-65536]
+            if target is None:  # no stderr (a windowed GUI): keep the tail only
+                continue
             if redact_output_urls:
                 pending += decoder.decode(chunk)
                 lines = pending.splitlines(keepends=True)
@@ -199,6 +239,8 @@ def _tee_stderr(
             else:
                 target.write(decoder.decode(chunk))
                 target.flush()
+        if target is None:
+            return
         if redact_output_urls:
             target.write(
                 redact_urls(pending + decoder.decode(b"", final=True), sources=sources)
@@ -228,7 +270,9 @@ def run_command(
     logging.debug(f"Running: {cmd_str}")
 
     proc_stdout = (
-        stdout if stdout is not None else (subprocess.PIPE if capture_output else None)
+        stdout
+        if stdout is not None
+        else (subprocess.PIPE if capture_output else _child_stdout(None))
     )
     stderr_read, stderr_write = (
         os.pipe() if check and not capture_output else (None, None)
@@ -305,6 +349,9 @@ def run_command(
     except KeyboardInterrupt:
         if sys.platform == "win32":
             cleanup_processes()
+        else:
+            # The tool runs in its own session, so Ctrl-C did not reach it.
+            terminate_trees([process])
         raise
     finally:
         proc_registry.unregister_process(cmd_str, process)
@@ -359,7 +406,7 @@ def popen(
     try:
         process = subprocess.Popen(
             cmd_list,
-            stdout=stdout,
+            stdout=_child_stdout(stdout),
             stderr=stderr,
             stdin=stdin,
             text=text,

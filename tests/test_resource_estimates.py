@@ -495,6 +495,9 @@ def test_commands_report_before_work(
             module, "get_base_args", lambda _: ("1", "256M", str(tmp_path), [], None)
         )
         monkeypatch.setattr(module, "resolve_region_or_gene", lambda *_: None)
+    elif module is basic:
+        setup = basic.CallerSetup("1", str(tmp_path), "", None, None)  # type: ignore[arg-type]
+        monkeypatch.setattr(module, "caller_setup", lambda *_a, **_k: setup)
     else:
         monkeypatch.setattr(
             module, "get_base_args", lambda _: ("1", str(tmp_path), "", None)

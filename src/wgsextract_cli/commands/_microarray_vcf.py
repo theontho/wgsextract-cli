@@ -405,7 +405,11 @@ def _prepare_microarray_vcf(
             raise WGSExtractError(f"Microarray VCF extraction failed: {e}") from e
 
     elif args.parallel and not args.region:
+        import multiprocessing
         from concurrent.futures import ProcessPoolExecutor
+
+        from wgsextract_cli.api._runtime import cancel_event
+        from wgsextract_cli.core.process_registry import cancel_on_event
 
         logging.info(
             f"Enabling parallel variant calling across chromosomes using {threads} threads..."
@@ -414,7 +418,17 @@ def _prepare_microarray_vcf(
             prefix="chrom_chunks_", dir=outdir
         ) as chrom_tmp_dir:
             chrom_snps = split_snps_by_chrom(ref_vcf_tab, chrom_tmp_dir)
-            with ProcessPoolExecutor(max_workers=int(threads)) as executor:
+            context = multiprocessing.get_context()
+            # Workers have their own process registries: an API cancel sets
+            # this so each stops its tools, and pending chromosomes are dropped.
+            stop = context.Event()
+            token = cancel_event()
+            with ProcessPoolExecutor(
+                max_workers=int(threads),
+                mp_context=context,
+                initializer=cancel_on_event,
+                initargs=(stop,),
+            ) as executor:
                 futures = [
                     executor.submit(
                         process_chrom,
@@ -430,7 +444,18 @@ def _prepare_microarray_vcf(
                     )
                     for chrom, snp_file in chrom_snps.items()
                 ]
-                vcf_chunks = [future.result() for future in futures]
+
+                def _stop_workers() -> None:
+                    stop.set()
+                    for future in futures:
+                        future.cancel()
+
+                unregister = token.on_cancel(_stop_workers) if token else None
+                try:
+                    vcf_chunks = [future.result() for future in futures]
+                finally:
+                    if unregister is not None:
+                        unregister()
             if not vcf_chunks:
                 raise WGSExtractError("No VCF chunks were generated.")
 
