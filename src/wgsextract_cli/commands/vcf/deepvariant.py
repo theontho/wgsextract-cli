@@ -1,5 +1,6 @@
 import argparse
 import gzip
+import itertools
 import logging
 import os
 import platform
@@ -8,8 +9,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import zlib
 from bisect import bisect_left
+from collections.abc import Callable
 from pathlib import Path
 
 from wgsextract_cli.core import alignment_memory, ultima
@@ -359,10 +362,51 @@ def _available_memory(setup: str | None) -> int | None:
     return available
 
 
+def _supports_num_partitions(
+    image: str | None, run_deepvariant: str | None, setup: str | None
+) -> bool:
+    """Whether postprocess_variants has --num_partitions (DeepVariant 1.9+).
+
+    Pinned defaults and version tags decide without running anything;
+    otherwise ask the image's or launcher's postprocess_variants.
+    """
+    if image in {DEFAULT_IMAGE, DEFAULT_ARM64_IMAGE, DEFAULT_ULTIMA_IMAGE}:
+        return True
+    if image:
+        tag = re.search(r":v?(\d+)\.(\d+)[^/:@]*(?:@|$)", image)
+        if tag:
+            return (int(tag.group(1)), int(tag.group(2))) >= (1, 9)
+        probe = [
+            docker(setup or ""), "run", "--rm", "--pull=never",
+            "--entrypoint", "/opt/deepvariant/bin/postprocess_variants",
+            image, "--helpfull",
+        ]  # fmt: skip
+    elif run_deepvariant:
+        tool = Path(run_deepvariant).with_name("postprocess_variants")
+        if not tool.is_file():
+            return False
+        probe = [str(tool), "--helpfull"]
+    else:
+        return False
+    try:
+        result = run_command(probe, capture_output=True, check=False, env=_dv_env())
+    except OSError:
+        return False
+    return "num_partitions" in (result.stdout or "") + (result.stderr or "")
+
+
 def _postprocess_plan(
-    model_type: str, ref: str, region: str | None, threads: int, setup: str | None
+    model_type: str,
+    ref: str,
+    region: str | None,
+    threads: int,
+    available: int | None,
+    supports_partitions: Callable[[], bool],
 ) -> PostprocessPlan | None:
-    """Bound postprocess_variants by RAM; raise when one worker cannot fit."""
+    """Bound postprocess_variants by RAM; raise when one worker cannot fit.
+
+    ``supports_partitions`` is asked only when more partitions are wanted.
+    """
     if model_type == "WES":
         return None  # run_deepvariant postprocesses WES sequentially.
     lengths = read_fai_lengths(ref)
@@ -375,15 +419,23 @@ def _postprocess_plan(
         _selected_intervals(region, lengths)  # Report bad selections clearly.
     regions = dv_calling_regions(lengths, region)
     assert regions is not None
-    available = _available_memory(setup)
     plan = plan_dv_postprocess(regions, threads, available)
+    upgrade = ""
+    if plan.partitions > plan.cpus and not supports_partitions():
+        upgrade = ", use DeepVariant 1.9+ (which can split this step further)"
+        logging.warning(
+            "This DeepVariant's postprocess_variants has no --num_partitions "
+            "(DeepVariant 1.9+), so only its workers can be reduced to save memory."
+        )
+        plan = plan_dv_postprocess(regions, threads, available, partitions=False)
     if plan.fits is False and available is not None:
         raise WGSExtractError(
             "Not enough memory for DeepVariant's postprocess_variants step: one "
             f"worker sorting {plan.partitions} partitions needs ~"
             f"{plan.worker_bytes / GIB:.1f} GiB plus 1 GiB of headroom, but "
             f"{available / GIB:.1f} GiB is available. Free memory (close other "
-            "jobs), use a machine with more RAM, or call a smaller --region."
+            f"jobs), use a machine with more RAM{upgrade}, or call a smaller "
+            "--region."
         )
     if plan.cpus < threads:
         logging.warning(
@@ -424,6 +476,9 @@ _OOM_ERROR = (
 
 
 def _complete_gzip(path: Path) -> bool:
+    # gzip reads an empty file (created, never written) as empty data.
+    if path.stat().st_size == 0:
+        return False
     try:
         with gzip.open(path, "rb") as source:
             while source.read(1 << 20):
@@ -452,8 +507,15 @@ def _keep_call_variants_outputs(work: str, outdir: str) -> Path | None:
         return None
     if not all(_complete_gzip(path) for path in kept_files):
         return None
-    kept = Path(outdir, "deepvariant_intermediates")
-    kept.mkdir(exist_ok=True)
+    # One directory per failed run keeps earlier runs' shard sets apart.
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    for attempt in itertools.count(1):
+        kept = Path(outdir, "deepvariant_intermediates", f"{stamp}-{attempt}")
+        try:
+            kept.mkdir(parents=True)
+            break
+        except FileExistsError:
+            continue
     for path in kept_files:
         shutil.move(path, kept / path.name)
     return kept
@@ -535,7 +597,11 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
     setup = (
         _ARM64_SETUP if arm64_image else _SETUP.format(image=image) if image else None
     )
-    postprocess = _postprocess_plan(model_type, ref, args.region, int(threads), setup)
+    available = _available_memory(setup)
+    postprocess = _postprocess_plan(
+        model_type, ref, args.region, int(threads), available,
+        lambda: _supports_num_partitions(image, run_deepvariant, setup),
+    )  # fmt: skip
     preflight_resources(
         lambda: estimate_resources(
             "deepvariant",
@@ -546,6 +612,8 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
             region=args.region,
             inference_batch_size=batch_size or 1024,
             deepvariant_model=model_type,
+            postprocess_plan=postprocess,
+            available_ram=available,
         )
     )
     out_vcf = str(Path(outdir, "deepvariant.vcf.gz"))

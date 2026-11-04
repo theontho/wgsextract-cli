@@ -121,6 +121,20 @@ def test_postprocess_plan_fits_available_memory(
         assert plan.peak_bytes <= available - GIB
 
 
+def test_postprocess_plan_without_num_partitions_only_lowers_workers(tmp_path):
+    regions, _ref = _whole_genome(tmp_path)
+    # Fewer workers sort bigger partitions, so whole-genome RAM barely drops.
+    plans = [
+        resources.plan_dv_postprocess(regions, 5, gib * GIB, partitions=False)
+        for gib in (16, 32, 40)
+    ]
+    assert [(p.cpus, p.partitions, p.fits) for p in plans] == [
+        (1, 1, False),
+        (1, 1, True),
+        (5, 5, True),
+    ]
+
+
 def test_postprocess_plan_reports_when_one_worker_cannot_fit(tmp_path):
     regions, _ref = _whole_genome(tmp_path)
     plan = resources.plan_dv_postprocess(regions, 8, 1 * GIB)

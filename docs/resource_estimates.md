@@ -237,6 +237,14 @@ now, capped by `docker info`'s engine memory, such as Docker Desktop's VM:
    cost runtime: each worker rereads all call_variants outputs.
 3. If no partition count up to 128 fits, it also lowers
    `--postprocess_cpus`, with a warning.
+
+`num_partitions` needs DeepVariant 1.9 or later. It is used with the pinned
+default images, image tags of version 1.9 or later, and other images or a
+local `run_deepvariant` whose `postprocess_variants --helpfull` lists it (asked
+only when more partitions are wanted). Otherwise step 2 is skipped: only
+`--postprocess_cpus` is lowered, with a warning. That saves little: fewer
+workers sort bigger partitions, so a whole genome still needs about 30 GiB.
+When even that cannot fit, the refusal suggests DeepVariant 1.9+.
 4. If one worker cannot fit, it refuses before `make_examples` starts and
    gives the memory needed and available.
 
@@ -247,9 +255,9 @@ kills the container and fails with an actionable error instead of letting
 DeepVariant's worker pool wait forever on its lost worker. A local
 `run_deepvariant` on `PATH` has no such watcher. On any failure, complete
 call_variants outputs (and the small model's `make_examples` outputs, if any)
-are moved to `deepvariant_intermediates/` in the output directory instead of
-being deleted with the work directory. Custom images older than DeepVariant 1.9
-reject `num_partitions`.
+are moved to a new `deepvariant_intermediates/<date-time>-<n>/` directory in
+the output directory instead of being deleted with the work directory, so
+outputs of separate failed runs are never mixed.
 
 Compression, read lengths, depth, extra flow-specific stages and tool versions
 can change these costs. Missing reference-index construction has its own

@@ -160,7 +160,10 @@ def dv_postprocess_worker_bytes(bases: int) -> int:
 
 
 def plan_dv_postprocess(
-    regions: Sequence[tuple[str, int, int]], threads: int, available: int | None
+    regions: Sequence[tuple[str, int, int]],
+    threads: int,
+    available: int | None,
+    partitions: bool = True,
 ) -> PostprocessPlan:
     """Bound postprocess_variants' in-memory partition sorts by available RAM.
 
@@ -169,6 +172,8 @@ def plan_dv_postprocess(
     and add the fewest partitions that make their largest partitions fit.
     Without known RAM the default is kept (``fits`` None); when one worker
     cannot fit, the plan is the smallest one-worker plan with ``fits`` False.
+    Without ``partitions`` (DeepVariant before 1.9 has no --num_partitions),
+    only the workers, and so the partitions with them, are reduced.
     """
     workers: dict[int, int | None] = {}
 
@@ -192,11 +197,14 @@ def plan_dv_postprocess(
     budget = available - GIB
     limit = max(DV_MAX_PARTITIONS, threads)
     for cpus in range(threads, 0, -1):
-        for partitions in range(cpus, limit + 1):
-            need = worker(partitions)
+        for count in range(cpus, (limit if partitions else cpus) + 1):
+            need = worker(count)
             if need is not None and cpus * need <= budget:
-                return PostprocessPlan(cpus, partitions, need, True)
-    smallest = min(range(1, limit + 1), key=lambda count: worker(count) or math.inf)
+                return PostprocessPlan(cpus, count, need, True)
+    smallest = min(
+        range(1, (limit if partitions else 1) + 1),
+        key=lambda count: worker(count) or math.inf,
+    )
     return PostprocessPlan(1, smallest, worker(smallest) or default, False)
 
 
@@ -244,6 +252,8 @@ def estimate_resources(
     additional_ram_bytes: int = 0,
     inference_batch_size: int = 1024,
     deepvariant_model: str = "WGS",
+    postprocess_plan: PostprocessPlan | None = None,
+    available_ram: int | None = None,
 ) -> PreflightEstimate:
     """Estimate a resolved command without creating files or running tools.
 
@@ -251,6 +261,9 @@ def estimate_resources(
     FASTQ sample/indexed count. Otherwise disk uses a conservative byte-size
     fallback; alignment RAM retains the D3 model's explicit unknown-count budget.
     Regional operations retain whole-input disk bounds, not guessed coverage.
+    Callers that already planned DeepVariant's postprocess_variants pass that
+    ``postprocess_plan`` and the ``available_ram`` it was sized against (for
+    example capped by Docker's VM); otherwise both are derived here.
     """
     count = int(threads)
     if (
@@ -280,11 +293,12 @@ def estimate_resources(
         notes.append(
             "Disk read count inferred from input bytes; compression and read lengths vary."
         )
-    available_memory: int | None
-    try:
-        available_memory = alignment_memory.available_memory()
-    except OSError:
-        available_memory = None
+    available_memory: int | None = available_ram
+    if available_memory is None:
+        try:
+            available_memory = alignment_memory.available_memory()
+        except OSError:
+            available_memory = None
     demands: list[tuple[str, str, int | None]] = []
     memory_components: dict[str, int]
     output: int | None
@@ -404,7 +418,7 @@ def estimate_resources(
                 read_fai_lengths(reference) if reference else {}, region
             )
         )
-        plan = (
+        plan = postprocess_plan or (
             None
             if regions is None
             else plan_dv_postprocess(regions, count, available_memory)

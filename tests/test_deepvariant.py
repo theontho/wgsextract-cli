@@ -809,6 +809,9 @@ def test_arm_run_reports_deepvariant_preflight_not_bcftools(files, monkeypatch):
     monkeypatch.setattr(deepvariant, "estimate_resources", estimate)
     monkeypatch.setattr(deepvariant, "preflight_resources", lambda factory: factory())
     deepvariant.cmd_deepvariant(_args(bam))
+    ((_operation, options),) = requested
+    assert options.pop("postprocess_plan").cpus == 4
+    assert options.pop("available_ram") is not None
     assert requested == [
         (
             "deepvariant",
@@ -874,6 +877,44 @@ def test_postprocess_is_bounded_by_available_memory(files, monkeypatch, caplog):
     assert len(runs) == 4
 
 
+@pytest.mark.parametrize(
+    ("image", "helpfull", "partitions"),
+    [
+        ("google/deepvariant:1.8.0", None, False),
+        ("google/deepvariant:1.9.0-gpu", None, True),
+        ("local/dv@sha256:abc", "  --num_partitions: ...", True),
+        ("local/dv@sha256:abc", "  --cpus: ...", False),
+    ],
+)
+def test_num_partitions_is_used_only_when_deepvariant_has_it(
+    files, monkeypatch, caplog, image, helpfull, partitions
+):
+    ref, bam, _out = files
+    Path(f"{ref}.fai").write_text("chr1\t3000000000\t0\t60\t61\n")
+    monkeypatch.setitem(deepvariant.settings, "deepvariant_image", image)
+    # Without num_partitions, fewer workers sort bigger partitions: 2 fit here.
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 30 * GIB)
+    runs = _docker(monkeypatch)
+    probes = []
+
+    def probe(cmd, **_kwargs):
+        probes.append(cmd)
+        return _completed(0, helpfull)
+
+    monkeypatch.setattr(deepvariant, "run_command", probe)
+    deepvariant.cmd_deepvariant(_args(bam, region=None))
+    assert [cmd[-2:] for cmd in probes] == ([[image, "--helpfull"]] if helpfull else [])
+    flags = _postprocess_flags(runs[-1])
+    if partitions:
+        assert list(flags) == ["--postprocess_variants_extra_args"]
+    else:
+        assert flags == {"--postprocess_cpus": "2"}
+        assert "has no --num_partitions" in caplog.text
+        monkeypatch.setattr(alignment_memory, "available_memory", lambda: 8 * GIB)
+        with pytest.raises(WGSExtractError, match="use DeepVariant 1.9"):
+            deepvariant.cmd_deepvariant(_args(bam, region=None))
+
+
 def test_missing_region_bed_is_reported_before_docker_runs(files, monkeypatch):
     _ref, bam, out = files
     runs = _docker(monkeypatch)
@@ -912,7 +953,7 @@ def test_container_oom_fails_fast_and_keeps_call_variants_outputs(files, monkeyp
         deepvariant.cmd_deepvariant(_args(bam))
     (cmd,) = runs
     assert runs.killed == [cmd[cmd.index("--name") + 1]]
-    kept = out / "deepvariant_intermediates"
+    (kept,) = (out / "deepvariant_intermediates").iterdir()
     assert sorted(p.name for p in kept.iterdir()) == [
         "call_variants_output-00000-of-00001.tfrecord.gz",
         "make_examples_call_variant_outputs.tfrecord-00000-of-00002.gz",
@@ -921,7 +962,8 @@ def test_container_oom_fails_fast_and_keeps_call_variants_outputs(files, monkeyp
     assert not list(out.glob(".wgse_dv_*"))
 
 
-def test_incomplete_call_variants_outputs_are_not_kept(files, monkeypatch):
+@pytest.mark.parametrize("keep", [-6, 0])  # Truncated, or created but unwritten.
+def test_incomplete_call_variants_outputs_are_not_kept(files, monkeypatch, keep):
     _ref, bam, out = files
     monkeypatch.setattr(containers, "OOM_EVENT_GRACE", 0)
 
@@ -929,7 +971,7 @@ def test_incomplete_call_variants_outputs_are_not_kept(files, monkeypatch):
         _call_variants_outputs(work)
         name = "call_variants_output-00000-of-00001.tfrecord.gz"
         data = (work / name).read_bytes()
-        (work / name).write_bytes(data[:-6])
+        (work / name).write_bytes(data[:keep])
 
     _docker(monkeypatch, run=_failing_run(truncated))
     with pytest.raises(WGSExtractError, match="DeepVariant failed"):
