@@ -407,7 +407,7 @@ def test_capture_cram_disk_estimate_counts_selected_slices_not_genome_fraction(
         b"malformed\n",
         b"0 1 20 100 0 50\nbad trailing row\n",
         b"9 1 20 100 0 50\n",
-        gzip.compress(b"0 1 20 100 0 50\n")[:-4],
+        gzip.compress(b"0 1 20 100 0 50\n", mtime=0)[:-4],
         b"\x1f\x8b\x08\x00" + bytes(6) + b"\x07",
     ],
 )
