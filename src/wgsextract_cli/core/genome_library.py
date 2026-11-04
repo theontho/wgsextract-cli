@@ -2,7 +2,7 @@ import logging
 import re
 import sys
 from argparse import Namespace
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 import tomli_w
@@ -45,7 +45,7 @@ VCF_FILE_COMMANDS = {
 def apply_genome_selection(args: Namespace, explicit_dests: set[str]) -> None:
     """Resolve --genome to configured or discovered inputs and per-genome outputs."""
     genome_id = getattr(args, "genome", None)
-    if not genome_id:
+    if genome_id is None:
         return
 
     root = settings.get("genome_library")
@@ -55,15 +55,12 @@ def apply_genome_selection(args: Namespace, explicit_dests: set[str]) -> None:
         )
 
     root_dir = Path(root).expanduser()
-    genome_dir = root_dir / str(genome_id)
-    # By name, not resolved path: a genome folder may be a link to elsewhere
-    # (a NAS), but the ID mustn't climb out of the library or be the library.
-    if Path(str(genome_id)).name != str(genome_id) or str(genome_id) in (".", ".."):
-        raise WGSExtractError(f"Genome ID cannot escape genome_library: {genome_id}")
+    genome_dir = _genome_folder(root_dir, str(genome_id))
     if not genome_dir.is_dir():
         raise WGSExtractError(
             f"Genome '{genome_id}' not found in genome_library: {genome_dir}"
         )
+    _check_inside_library(root_dir, genome_dir, str(genome_id))
 
     config = _load_or_create_genome_config(genome_dir)
     args.genome_dir = str(genome_dir)
@@ -82,6 +79,45 @@ def apply_genome_selection(args: Namespace, explicit_dests: set[str]) -> None:
         logging.debug(f"Resolved --genome {genome_id} input: {args.input}")
     if getattr(args, "vcf_input", None):
         logging.debug(f"Resolved --genome {genome_id} VCF input: {args.vcf_input}")
+
+
+def _genome_folder(root_dir: Path, genome_id: str) -> Path:
+    """The folder of a genome ID: a relative, '/'-separated path inside the
+    library, such as ``joe`` or ``test-1000genomes/na12878-lowcov-bam``."""
+    if not genome_id.strip():
+        raise WGSExtractError("Genome ID cannot be empty.")
+    if "\0" in genome_id:
+        raise WGSExtractError(f"Genome ID contains a NUL character: {genome_id!r}")
+    if "\\" in genome_id:
+        raise WGSExtractError(
+            f"Genome ID must use '/' to separate folders: {genome_id!r}"
+        )
+    if PurePosixPath(genome_id).is_absolute() or PureWindowsPath(genome_id).anchor:
+        raise WGSExtractError(
+            f"Genome ID must be relative to genome_library, not absolute: {genome_id}"
+        )
+    # A trailing '/' (from shell completion) is fine; '.', '..' and '//' are not.
+    parts = genome_id.rstrip("/").split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        raise WGSExtractError(f"Genome ID cannot escape genome_library: {genome_id}")
+    return root_dir.joinpath(*parts)
+
+
+def _check_inside_library(root_dir: Path, genome_dir: Path, genome_id: str) -> None:
+    """Refuse a genome reached through a link that leaves the library.
+
+    The genome folder itself may link elsewhere (a NAS), but the folders
+    leading to it must resolve inside the library, and the genome can't
+    resolve to the library or one of its parents.
+    """
+    root = root_dir.resolve()
+    parent = genome_dir.parent.resolve()
+    target = genome_dir.resolve()
+    if not parent.is_relative_to(root) or root.is_relative_to(target):
+        raise WGSExtractError(
+            f"Genome ID cannot escape genome_library: {genome_id} "
+            f"(resolves to {target})"
+        )
 
 
 def _load_or_create_genome_config(genome_dir: Path) -> dict[str, Any]:

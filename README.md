@@ -511,6 +511,8 @@ Set `genome_library` to a directory with one subfolder per person or sample. The
     bam files/sample.bam
 ```
 
+A genome ID can also be a nested path inside the library, using `/`, such as `test-1000genomes/na12878-lowcov-bam`. IDs can't be absolute or contain `.` or `..` parts. A genome folder may be a link to another disk, but the folders leading to it must stay inside the library.
+
 With `--genome <id>`, the CLI finds inputs in that folder (recursively) and writes outputs there unless `--outdir` is given. It creates a `genome-config.toml` in the folder. If several BAM/CRAM files, VCFs, or FASTQ sets match, the command fails instead of guessing; pick the files in `genome-config.toml`:
 
 ```toml

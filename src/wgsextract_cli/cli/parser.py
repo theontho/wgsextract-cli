@@ -275,7 +275,10 @@ def add_shared_arguments(
     add("--outdir", "-o", help=CLI_HELP["arg_outdir"])
     add(
         "--genome",
-        help="Genome ID from genome_library. Uses that folder for inputs and outputs.",
+        help=(
+            "Genome ID: a folder in genome_library, such as joe or "
+            "test-1000genomes/<id>. Uses that folder for inputs and outputs."
+        ),
     )
     add("--ref", help=CLI_HELP["arg_ref"])
     add(

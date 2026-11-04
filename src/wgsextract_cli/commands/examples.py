@@ -6,6 +6,7 @@ from argparse import Namespace
 from pathlib import Path
 from urllib.parse import urlparse
 
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.download_progress import curl_progress_args, redact_urls
 from wgsextract_cli.core.genome_library import GENOME_CONFIG_NAME
 from wgsextract_cli.core.ref_library.downloads import download_file
@@ -215,9 +216,15 @@ def cmd_download(args: Namespace) -> None:
                 source, destination, transfer_method, aspera_key, force=args.force
             )
         _write_genome_config(example, example_dir)
+        library = settings.get("genome_library")
+        hint = (
+            ""
+            if library and Path(library).expanduser().resolve() == root
+            else f" after setting genome_library = {str(root)!r} in config.toml"
+        )
         logging.info(
             f"Installed {example.label}. Use --genome "
-            f"{COLLECTION_DIR}/{example.example_id}"
+            f"{COLLECTION_DIR}/{example.example_id}{hint}"
         )
 
 
