@@ -19,6 +19,7 @@ Oxford Nanopore. This page covers three things:
 | CRAM | Decodes only with the exact FASTA it was written against, which is the one in your reference library (`ref library-list`). Pass the same file to every downstream tool. A different "GRCh38" (for example GATK's `Homo_sapiens_assembly38.fasta` against our `hs38DH`) has different extra contigs and cannot decode it. When in doubt, convert with `bam to-bam`. |
 | `vcf snp`/`indel`/`gatk`/`deepvariant`/... | bgzipped, tabix-indexed, single-sample VCF named after the input, with chromosome names as in the reference. |
 | `vcf table` | `<stem>_variants.tsv` and `<stem>_variants.sqlite`: one row per carried ALT allele with fixed, typed columns (position, gene, consequence, HGVS, ClinVar, gnomAD AF, genotype, depth, ...). See [Variant table](variant-table.md). |
+| `--format parquet` | Typed, zstd-compressed Parquet copies of our tables (variant table, methylation, `info`, microarray genotypes) with provenance in the footer, for DuckDB, Polars, Spark or pandas. See [Parquet output](parquet.md). |
 | `*.manifest.json` | The [result manifest](result-manifest.md) of each run: inputs, outputs, metrics, warnings and provenance. |
 
 Run `wgsextract info --detailed` on a BAM/CRAM before handing it off. It

@@ -122,10 +122,11 @@ def test_native_vcf_quality_and_unsupported_masks_survive_canonical_aadr_export(
     )
     result = CommandResult(command="microarray")
     with collecting(result):
-        command.run_chm13(
+        returned = command.run_chm13(
             args, SimpleNamespace(root=str(tmp_path)), str(fasta), str(out), "1"
         )
     combined = next(out.glob("CHM13_*/*_CombinedKit.txt"))
+    assert returned == combined
     roles = {Path(record.path).name: record.role for record in result.outputs}
     assert roles == {
         "sample_CHM13_report.json": "chm13_report",

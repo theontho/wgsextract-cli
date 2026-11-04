@@ -18,7 +18,9 @@ it instead of parsing log text or guessing output file names.
   `<vcf>_<sample>_microarray.manifest.json`, with a `sample` metric, for a
   sample chosen from a multi-sample VCF). `vcf trio` always writes
   `trio.manifest.json`, whichever modes ran.
-  Report-only commands (`info`, `info chip`, `ref status`) write no file.
+  Report-only commands (`info`, `info chip`, `ref status`) write no file,
+  except `info --format`, whose manifest is named after the first table
+  (`<input>_chromosomes.parquet.manifest.json`).
   A failed run that registered outputs still writes its manifest, with
   `status: "failed"`. A manifest never replaces this run's `--log-file`; when
   the two would share a name, the manifest is skipped with a warning.
@@ -141,16 +143,17 @@ is unchanged.
 These commands record full manifests: `info` (including `--detailed`),
 `info chip`, `info calculate-coverage`, `info coverage-sample`, `ref status`,
 `align`, `realign`, every `vcf` subcommand, every `extract` subcommand,
-`lineage mt-haplogroup`, `lineage y-haplogroup`, `lineage y-str` and
-`microarray`.
+`lineage mt-haplogroup`, `lineage y-haplogroup`, `lineage y-str`,
+`methylation pileup` and `microarray`.
 
 `align` and `realign` record the `aligner` and the alignment's `records`; for a
 BAM also `mapped_records` and `unmapped_records` (from the index, without
 decoding reads). CRAM counts come from container headers, which also count
 unmapped reads placed beside their mates, so a CRAM reports `records` only.
 Variant callers and annotators record `variants` per output VCF; filtered
-outputs (`--min-score`, `--max-af`) are separate outputs with their own counts. Every other command honours `--json` and the exit codes, and
-reports its status, inputs and provenance. Its outputs, metrics and warnings
+outputs (`--min-score`, `--max-af`) are separate outputs with their own counts.
+Every other command honours `--json` and the exit codes, and reports its
+status, inputs and provenance. Its outputs, metrics and warnings
 will be added in later releases ([#345](https://github.com/theontho/wgsextract-cli/issues/345)).
 
 ## MultiQC

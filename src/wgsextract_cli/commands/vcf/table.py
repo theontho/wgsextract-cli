@@ -8,15 +8,12 @@ import logging
 import re
 import sqlite3
 import subprocess
-import sys
 import threading
 from collections import deque
 from collections.abc import Iterable, Iterator
 from contextlib import ExitStack
-from datetime import datetime, timezone
 from pathlib import Path
 
-from wgsextract_cli import __version__
 from wgsextract_cli.core.atomic_output import atomic_output
 from wgsextract_cli.core.builds import build_from_chr1_length, build_from_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
@@ -25,8 +22,13 @@ from wgsextract_cli.core.reference_models import sequence_lengths
 from wgsextract_cli.core.results import (
     current_result,
     human_output,
-    redact_argv,
     warn,
+)
+from wgsextract_cli.core.table_writer import (
+    TableWriter,
+    check_format,
+    provenance,
+    table_path,
 )
 from wgsextract_cli.core.utils import (
     UsageError,
@@ -36,7 +38,6 @@ from wgsextract_cli.core.utils import (
 )
 from wgsextract_cli.core.variant_files import ensure_vcf_prepared, get_vcf_samples
 from wgsextract_cli.core.variant_table import (
-    COLUMN_NAMES,
     COLUMNS,
     Row,
     VcfHeader,
@@ -77,10 +78,6 @@ def _reference_build(header: VcfHeader) -> str | None:
         if line.startswith("##reference="):
             return build_from_path(line.partition("=")[2])
     return None
-
-
-def _tsv_value(value: str | int | float | None) -> str:
-    return "" if value is None else str(value)
 
 
 def _create_sqlite(db: sqlite3.Connection) -> None:
@@ -196,25 +193,26 @@ class _VcfStream:
 def _write_tables(
     stream: _VcfStream,
     rows: Iterable[Row],
-    tsv_path: str,
+    table_path: str,
+    table_format: str,
     sqlite_path: str | None,
     metadata: dict[str, str],
 ) -> int:
-    """Stream ``rows`` into the TSV (and SQLite database); return the count.
-    Each file appears under its final name only once complete."""
-    count = 0
+    """Stream ``rows`` into the table file (and SQLite database); return the
+    count. Each file appears under its final name only once complete."""
     with ExitStack() as stack:
-        tsv_stage = stack.enter_context(atomic_output(tsv_path))
-        tsv = stack.enter_context(open(tsv_stage, "w", newline="\n", encoding="utf-8"))
-        tsv.write("\t".join(COLUMN_NAMES) + "\n")
+        table = stack.enter_context(
+            TableWriter(table_path, COLUMNS, table_format, metadata=metadata)
+        )
         db = None
         if sqlite_path:
             db = sqlite3.connect(stack.enter_context(atomic_output(sqlite_path)))
             stack.callback(db.close)
             _create_sqlite(db)
         insert = f"INSERT INTO {TABLE} VALUES ({', '.join('?' * len(COLUMNS))})"
+        count = 0
         for batch in _batches(rows):
-            tsv.writelines("\t".join(map(_tsv_value, row)) + "\n" for row in batch)
+            table.write(batch)
             if db is not None:
                 db.executemany(insert, batch)
             count += len(batch)
@@ -239,6 +237,7 @@ def _indexed_input(path: str) -> str:
 
 def cmd_table(args: argparse.Namespace) -> None:
     verify_dependencies(["bcftools"])
+    check_format(args.table_format)
     input_vcf = require_vcf_input(args)
     if not Path(input_vcf).is_file():
         raise UsageError(f"VCF not found: {input_vcf}")
@@ -253,7 +252,7 @@ def cmd_table(args: argparse.Namespace) -> None:
         result.add_input(args.pharmcat_json, "pharmcat_phenotype")
 
     stem = str(Path(outdir, table_stem(input_vcf)))
-    tsv_path = stem + ".tsv"
+    out_table = table_path(stem, args.table_format)
     sqlite_path = None if args.no_sqlite else stem + ".sqlite"
 
     command = ["bcftools", "view", "--no-version"]
@@ -269,19 +268,18 @@ def cmd_table(args: argparse.Namespace) -> None:
         header = stream.header
         build = _reference_build(header)
         annotations = ",".join(header.annotations)
-        metadata = {
-            "wgsextract_version": __version__,
-            "created": datetime.now(timezone.utc).isoformat(),
-            "source_vcf": str(absolute_path(input_vcf)),
-            "sample": sample or "",
-            "reference_build": build or "",
-            "region": args.region or "",
-            "annotations": annotations,
-            "carried_only": str(not args.all_alleles).lower(),
-            "command_line": " ".join(redact_argv(sys.argv)),
-        }
-        if sqlite_path:
-            metadata["source_sha256"] = _sha256(input_vcf) or ""
+        # A full pass over the VCF, so only when SQLite or Parquet keeps it.
+        keeps_metadata = sqlite_path is not None or args.table_format == "parquet"
+        metadata = provenance(
+            [input_vcf],
+            reference_build=build or "",
+            sorted_by="the VCF's record order (chrom, pos)",
+            source_sha256=(_sha256(input_vcf) or "") if keeps_metadata else None,
+            sample=sample or "",
+            region=args.region or "",
+            annotations=annotations,
+            carried_only=str(not args.all_alleles).lower(),
+        )
         rows = _write_tables(
             stream,
             variant_rows(
@@ -291,14 +289,15 @@ def cmd_table(args: argparse.Namespace) -> None:
                 carried_only=not args.all_alleles,
                 pharmcat=pharmcat,
             ),
-            tsv_path,
+            out_table,
+            args.table_format,
             sqlite_path,
             metadata,
         )
     finally:
         stream.close()
 
-    result.add_output(tsv_path, "variant_table", kind="tsv", metrics={"rows": rows})
+    result.add_output(out_table, "variant_table", metrics={"rows": rows})
     if sqlite_path:
         result.add_output(
             sqlite_path, "variant_database", kind="sqlite", metrics={"rows": rows}
@@ -318,5 +317,5 @@ def cmd_table(args: argparse.Namespace) -> None:
         warn("no_variants", f"No variants to tabulate in {input_vcf}.", path=input_vcf)
     found = f" ({annotations})" if annotations else ""
     human_output(f"{rows:,} variant rows{found}:")
-    for path in filter(None, (tsv_path, sqlite_path)):
+    for path in filter(None, (out_table, sqlite_path)):
         human_output(f"  {path}")

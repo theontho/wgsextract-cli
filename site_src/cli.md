@@ -60,7 +60,7 @@ wgsextract \
 
 ::: card
 ### Variant workflows
-Calling: `vcf snp`, `vcf indel`, `vcf freebayes`, `vcf gatk`, `vcf deepvariant`, `vcf sv`, `vcf cnv`. Annotation: `vcf annotate`, `vcf chain-annotate`, `vcf clinvar`, `vcf gnomad`, `vcf revel`, `vcf phylop`, `vcf cadd`, `vcf gerp`, `vcf spliceai`, `vcf alphamissense`, `vcf pharmgkb`, `vcf pharmcat`. Also `vcf table` (one row per variant as TSV and SQLite, ready for SQL; see [variant table](https://github.com/theontho/wgsextract-cli/blob/main/docs/variant-table.md){.inline-link}), `vcf filter`, `vcf trio`, and `vcf to-fasta` (personal consensus genome).
+Calling: `vcf snp`, `vcf indel`, `vcf freebayes`, `vcf gatk`, `vcf deepvariant`, `vcf sv`, `vcf cnv`. Annotation: `vcf annotate`, `vcf chain-annotate`, `vcf clinvar`, `vcf gnomad`, `vcf revel`, `vcf phylop`, `vcf cadd`, `vcf gerp`, `vcf spliceai`, `vcf alphamissense`, `vcf pharmgkb`, `vcf pharmcat`. Also `vcf table` (one row per variant as TSV or Parquet and SQLite, ready for SQL; see [variant table](https://github.com/theontho/wgsextract-cli/blob/main/docs/variant-table.md){.inline-link}), `vcf filter`, `vcf trio`, and `vcf to-fasta` (personal consensus genome).
 :::
 
 ::: card

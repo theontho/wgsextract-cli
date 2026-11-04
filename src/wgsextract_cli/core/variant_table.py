@@ -22,17 +22,10 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from urllib.parse import unquote
 
+from wgsextract_cli.core.table_writer import Column
 from wgsextract_cli.core.variant_confidence import SPLIT_TAG
 
 TEXT, INTEGER, REAL = "TEXT", "INTEGER", "REAL"
-
-
-@dataclass(frozen=True)
-class Column:
-    name: str
-    type: str  # SQLite storage class: TEXT, INTEGER or REAL
-    description: str
-
 
 # The table's schema, in column order. Add a column by appending it here and
 # filling it in ``variant_rows``; the writers and docs read this list.

@@ -16,6 +16,14 @@ from .runner import (
 )
 
 
+def _inherit_format(parser: argparse.ArgumentParser) -> None:
+    """Without its own --format, a coverage subcommand keeps the one given
+    before it (`info --format parquet calculate-coverage`)."""
+    for action in parser._actions:
+        if action.dest == "table_format":
+            action.default = argparse.SUPPRESS
+
+
 def register(
     subparsers: "argparse._SubParsersAction[argparse.ArgumentParser]",
     base_parser: argparse.ArgumentParser,
@@ -37,12 +45,14 @@ def register(
         help=CLI_HELP["cmd_calculate-coverage"],
     )
     add_arguments(calc_cov, CalculateCoverageParams)
+    _inherit_format(calc_cov)
     calc_cov.set_defaults(func=run)
 
     samp_cov = info_subs.add_parser(
         "coverage-sample", parents=[base_parser], help=CLI_HELP["cmd_coverage-sample"]
     )
     add_arguments(samp_cov, CoverageSampleParams)
+    _inherit_format(samp_cov)
     samp_cov.set_defaults(func=run)
 
     chip_parser = info_subs.add_parser(

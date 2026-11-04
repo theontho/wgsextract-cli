@@ -12,7 +12,9 @@ wgsextract vcf table --vcf-input gnomad_annotated.vcf.gz
 ```
 
 This writes `<input stem>_variants.tsv` and `<input stem>_variants.sqlite`
-(`--no-sqlite` skips the database) and a result manifest naming both. The
+(`--no-sqlite` skips the database) and a result manifest naming both.
+`--format parquet` writes `<input stem>_variants.parquet` instead of the TSV
+(see [Parquet output](parquet.md); it needs the optional `pyarrow`). The
 table uses whatever annotations the VCF has. Columns whose annotation is
 missing stay empty, so annotate first; any subset and order of the commands
 above works.
@@ -124,7 +126,18 @@ duckdb -c "SELECT gene, count(*) FROM read_csv('sample_variants.tsv', delim='\t'
            WHERE impact = 'HIGH' GROUP BY gene ORDER BY 2 DESC"
 ```
 
-and pandas: `pd.read_csv("sample_variants.tsv", sep="\t")`, or
+With `--format parquet`, DuckDB reads the typed columns and the provenance
+straight from the file:
+
+```bash
+duckdb -c "SELECT chrom, pos, gene, hgvs_p FROM 'sample_variants.parquet'
+           WHERE clinvar_significance ILIKE '%pathogenic%' AND zygosity = 'hom_alt'"
+duckdb -c "SELECT decode(key), decode(value)
+           FROM parquet_kv_metadata('sample_variants.parquet')"
+```
+
+and pandas: `pd.read_csv("sample_variants.tsv", sep="\t")`,
+`pd.read_parquet("sample_variants.parquet")`, or
 `pd.read_sql("SELECT * FROM variants WHERE gene = 'BRCA2'", sqlite3.connect(...))`.
 
 ## Asking an agent

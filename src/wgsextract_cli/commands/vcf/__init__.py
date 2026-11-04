@@ -5,6 +5,7 @@ from wgsextract_cli.api.vcf import VcfIndelParams, VcfSnpParams
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.genotype_qc import add_depth_argument
 from wgsextract_cli.core.messages import CLI_HELP
+from wgsextract_cli.core.table_writer import add_format_argument
 from wgsextract_cli.core.variant_confidence import add_confidence_arguments
 
 from .basic import (
@@ -160,8 +161,8 @@ def register(
         "table",
         parents=[base_parser],
         help="Export variants and their annotations (gene, consequence, ClinVar, "
-        "gnomAD, genotype, depth, ...) as one row per variant, in a TSV and an "
-        "SQLite database to query.",
+        "gnomAD, genotype, depth, ...) as one row per variant, in a TSV (or "
+        "Parquet) table and an SQLite database to query.",
     )
     _add_vcf_input(table_parser, CLI_HELP["arg_vcf_input"])
     _add_region(table_parser, "Only export this region (e.g. chr22).")
@@ -181,7 +182,10 @@ def register(
         "diplotype and phenotype to rows in those genes.",
     )
     table_parser.add_argument(
-        "--no-sqlite", action="store_true", help="Write only the TSV."
+        "--no-sqlite", action="store_true", help="Write only the table file."
+    )
+    add_format_argument(
+        table_parser, help="Table file format: tsv, or parquet (needs pyarrow)"
     )
     table_parser.set_defaults(func=cmd_table)
 

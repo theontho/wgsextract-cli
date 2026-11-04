@@ -247,7 +247,9 @@ def run_chm13(
     base_name: str | None = None,
     sample: str | None = None,
     gvcf: bool = False,
-) -> None:
+) -> Path:
+    """Genotype a CHM13 input and project it onto GRCh37 kits; returns the
+    combined kit (GRCh37 coordinates)."""
     from .microarray import _resolve_microarray_format, _template_search_roots
 
     if args.ref_vcf_tab or args.ploidy_file:
@@ -545,3 +547,4 @@ def run_chm13(
     )
     # Kept in its CHM13_* working directory, which record_kept doesn't accept.
     current_result().add_output(combined, "combined_kit")
+    return combined
