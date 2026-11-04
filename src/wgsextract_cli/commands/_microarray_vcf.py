@@ -13,6 +13,7 @@ from typing import TextIO
 from wgsextract_cli.core import ultima
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.microarray_quality import quality_policy
+from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
@@ -86,6 +87,27 @@ def _target_tab_chromosomes(ref_vcf_tab: str) -> list[str]:
         logging.debug(f"Could not list target chromosomes for {ref_vcf_tab}: {e}")
         return []
     return [line.strip() for line in (res.stdout or "").splitlines() if line.strip()]
+
+
+def _parallel_contigs(
+    args: argparse.Namespace,
+    threads: str,
+    ref_vcf_tab: str,
+    input_chroms: list[str] | None,
+) -> list[str]:
+    """Target contigs to call in separate workers, in alignment order, or none
+    for one stream: parallel calling is the default with more than one thread."""
+    parallel = getattr(args, "parallel", None)
+    if parallel is None:
+        parallel = int(threads) > 1
+    if not parallel or args.region or not input_chroms:
+        return []
+    if not alignment_index(args.input):
+        logging.info("Calling serially: per-chromosome calling needs an index.")
+        return []
+    targets = set(_target_tab_chromosomes(ref_vcf_tab))
+    contigs = [chrom for chrom in input_chroms if chrom in targets]
+    return contigs if len(contigs) > 1 else []
 
 
 def _normalize_region_args_for_input(
@@ -175,7 +197,7 @@ def process_chrom(
     input_path: str,
     mpileup_args: list[str],
     call_format_args: list[str] | None = None,
-) -> str:
+) -> tuple[str, int]:
     """Worker function for parallel chromosome processing. Must be at module level for pickling."""
     chrom_vcf = str(Path(chrom_tmp_dir, f"{chrom}.vcf.gz"))
     logging.debug(f"Processing chromosome {chrom}...")
@@ -199,7 +221,94 @@ def process_chrom(
     )
     Path(chrom_vcf).unlink()
     Path(chrom_vcf + ".tbi").unlink()
-    return annotated_chrom_vcf
+    return annotated_chrom_vcf, _last_deep_position(annotated_chrom_vcf)
+
+
+# htslib's errmod_cal randomly subsamples a site with more than 255 bases,
+# drawing from one random stream that bcftools mpileup seeds once per process.
+# Its INFO/DP counts every read before the base-quality filter, so it is never
+# below the number of bases sampled from.
+SUBSAMPLED_DEPTH = 255
+
+
+def _last_deep_position(vcf: str) -> int:
+    """The last site whose likelihoods depend on the random stream, or 0."""
+    result = run_command(
+        ["bcftools", "query", "-i", f"INFO/DP>{SUBSAMPLED_DEPTH}", "-f", "%POS\\n"]
+        + [vcf],
+        capture_output=True,
+    )
+    return max(map(int, (result.stdout or "").split()), default=0)
+
+
+def _vcf_lines(vcf: str) -> tuple[list[str], list[str]]:
+    with gzip.open(vcf, "rt", newline="\n") as source:
+        lines = source.readlines()
+    split = next((i for i, line in enumerate(lines) if line[0] != "#"), len(lines))
+    return lines[:split], lines[split:]
+
+
+def _recall_deep_contigs(
+    deep: dict[str, int],
+    chunks: dict[str, str],
+    work_dir: str,
+    *,
+    ref_fasta: str,
+    ref_vcf_tab: str,
+    ploidy_args: list[str],
+    input_path: str,
+    mpileup_args: list[str],
+    call_format_args: list[str],
+) -> None:
+    """Make per-contig calls identical to one stream.
+
+    A contig worker restarts bcftools' subsampling stream, so its deep sites
+    differ from a serial run once an earlier contig has drawn from that stream.
+    Only deep sites draw from it, so one process over every contig with a deep
+    site, in alignment order and each up to its last deep site, consumes the
+    stream exactly as the serial run does. Every other site is already exact.
+    """
+    logging.info(
+        f"Recalling {len(deep)} contigs with sites deeper than {SUBSAMPLED_DEPTH} "
+        "reads in one stream, matching serial calling."
+    )
+    regions = ",".join(f"{chrom}:1-{last}" for chrom, last in deep.items())
+    recalled = str(Path(work_dir, "deep.vcf.gz"))
+    run_pipeline(
+        [
+            ["bcftools", "mpileup", "-r", regions, *mpileup_args]
+            + ["-f", ref_fasta, "--targets-file", ref_vcf_tab, input_path],
+            ["bcftools", "call", *ploidy_args]
+            + ["-m", "-V", "indels", *call_format_args, "-Oz", "-o", recalled],
+        ],
+        stdout=subprocess.DEVNULL,
+        description="Variant calling for deep sites",
+    )
+    annotated = str(Path(work_dir, "deep_ann.vcf.gz"))
+    run_command(
+        ["bcftools", "annotate", "-a", ref_vcf_tab, "-c", "CHROM,POS,ID"]
+        + ["-Oz", "-o", annotated, recalled]
+    )
+    by_chrom: dict[str, list[str]] = {chrom: [] for chrom in deep}
+    for line in _vcf_lines(annotated)[1]:
+        by_chrom[line.split("\t", 1)[0]].append(line)
+
+    for chrom, last in deep.items():
+        header, records = _vcf_lines(chunks[chrom])
+        tail = next(
+            (i for i, line in enumerate(records) if int(line.split("\t", 2)[1]) > last),
+            len(records),
+        )
+        positions = [line.split("\t", 2)[1] for line in records[:tail]]
+        if positions != [line.split("\t", 2)[1] for line in by_chrom[chrom]]:
+            raise WGSExtractError(
+                f"Recalling deep sites on {chrom} produced different sites."
+            )
+        merged = str(Path(work_dir, f"{chrom}_deep.vcf"))
+        with open(merged, "w", newline="\n") as destination:
+            destination.writelines([*header, *by_chrom[chrom], *records[tail:]])
+        run_command(["bgzip", "-f", merged])
+        Path(merged + ".gz").replace(chunks[chrom])
 
 
 # Reference-block ALTs: GATK, DeepVariant/bcftools, DRAGEN.
@@ -404,15 +513,16 @@ def _prepare_microarray_vcf(
         except (OSError, subprocess.SubprocessError) as e:
             raise WGSExtractError(f"Microarray VCF extraction failed: {e}") from e
 
-    elif args.parallel and not args.region:
+    elif contigs := _parallel_contigs(args, threads, ref_vcf_tab, input_chroms):
         import multiprocessing
         from concurrent.futures import ProcessPoolExecutor
 
         from wgsextract_cli.api._runtime import cancel_event
         from wgsextract_cli.core.process_registry import cancel_on_event
 
+        workers = min(int(threads), len(contigs))
         logging.info(
-            f"Enabling parallel variant calling across chromosomes using {threads} threads..."
+            f"Calling {len(contigs)} chromosomes in parallel with {workers} workers..."
         )
         with tempfile.TemporaryDirectory(
             prefix="chrom_chunks_", dir=outdir
@@ -424,16 +534,16 @@ def _prepare_microarray_vcf(
             stop = context.Event()
             token = cancel_event()
             with ProcessPoolExecutor(
-                max_workers=int(threads),
+                max_workers=workers,
                 mp_context=context,
                 initializer=cancel_on_event,
                 initargs=(stop,),
             ) as executor:
-                futures = [
-                    executor.submit(
+                futures = {
+                    chrom: executor.submit(
                         process_chrom,
                         chrom,
-                        snp_file,
+                        chrom_snps[chrom],
                         chrom_tmp_dir,
                         ref_fasta,
                         ref_vcf_tab,
@@ -442,40 +552,42 @@ def _prepare_microarray_vcf(
                         mpileup_args,
                         call_format_args,
                     )
-                    for chrom, snp_file in chrom_snps.items()
-                ]
+                    for chrom in contigs
+                }
 
                 def _stop_workers() -> None:
                     stop.set()
-                    for future in futures:
+                    for future in futures.values():
                         future.cancel()
 
                 unregister = token.on_cancel(_stop_workers) if token else None
                 try:
-                    vcf_chunks = [future.result() for future in futures]
+                    results = {
+                        chrom: future.result() for chrom, future in futures.items()
+                    }
                 finally:
                     if unregister is not None:
                         unregister()
-            if not vcf_chunks:
-                raise WGSExtractError("No VCF chunks were generated.")
+            vcf_chunks = {chrom: path for chrom, (path, _) in results.items()}
+            deep = {chrom: last for chrom, (_, last) in results.items() if last}
+            # The first contig with a deep site starts the stream as serial does.
+            if len(deep) > 1:
+                _recall_deep_contigs(
+                    deep,
+                    vcf_chunks,
+                    chrom_tmp_dir,
+                    ref_fasta=ref_fasta,
+                    ref_vcf_tab=ref_vcf_tab,
+                    ploidy_args=ploidy_args,
+                    input_path=args.input,
+                    mpileup_args=mpileup_args,
+                    call_format_args=call_format_args,
+                )
 
             logging.info(f"Merging {len(vcf_chunks)} chromosome VCFs...")
-
-            # Natural chromosome order (1..22, X, Y, MT) — bcftools concat preserves
-            # input order, so lexical sort would emit 10, 11, ..., 1, 20, ..., 9.
-            def _chrom_sort_key(path: str) -> tuple[int, str]:
-                chrom = Path(path).name.split("_ann.")[0].removeprefix("chr")
-                order = {"X": 23, "Y": 24, "MT": 25, "M": 25}
-                if chrom in order:
-                    return (order[chrom], chrom)
-                try:
-                    return (int(chrom), chrom)
-                except ValueError:
-                    return (99, chrom)
-
+            # Alignment order, as one stream writes it.
             run_command(
-                ["bcftools", "concat", "-Oz", "-o", out_vcf]
-                + sorted(vcf_chunks, key=_chrom_sort_key)
+                ["bcftools", "concat", "-Oz", "-o", out_vcf, *vcf_chunks.values()]
             )
         ensure_vcf_indexed(out_vcf)
         logging.info(
