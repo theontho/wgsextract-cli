@@ -14,6 +14,17 @@ from wgsextract_cli.core.config import KNOWN_SETTINGS, get_config_path, settings
 from wgsextract_cli.core.messages import CLI_HELP
 from wgsextract_cli.core.resource_policy import parse_thread_count
 
+from .help import (
+    apply_help_metadata,
+    command_map,
+    contract_text,
+    did_you_mean,
+    run_help,
+    unknown_command_message,
+    use_color,
+)
+from .help import print_full_help as print_full_help  # re-exported
+
 DEFAULT_CONFIG = """# WGS Extract Configuration
 
 # --- Path Configuration ---
@@ -72,7 +83,30 @@ GLOBAL_OPTIONS_TITLE = "global options"
 
 class WgsArgumentParser(argparse.ArgumentParser):
     """An ArgumentParser that rejects a global option given with different
-    values before and after a command (``--input a info --input b``)."""
+    values before and after a command (``--input a info --input b``),
+    suggests close matches for a mistyped command or choice, and ends a
+    command's help with its examples and outputs."""
+
+    def format_help(self) -> str:
+        text = super().format_help()
+        command_help = getattr(self, "command_help", None)
+        if command_help is not None:
+            text += "\n" + contract_text(command_help, use_color())
+        return text
+
+    def _check_value(self, action: argparse.Action, value: Any) -> None:
+        try:
+            super()._check_value(action, value)
+        except argparse.ArgumentError as error:
+            if isinstance(action, argparse._SubParsersAction):
+                group = self.prog.partition(" ")[2]
+                raise argparse.ArgumentError(
+                    None, unknown_command_message(group, value, action.choices)
+                ) from None
+            hint = did_you_mean(str(value), action.choices or ())
+            if not hint:
+                raise
+            raise argparse.ArgumentError(action, f"{error.message}. {hint}") from None
 
     def parse_known_args(self, args=None, namespace=None):  # type: ignore[no-untyped-def]
         if _global_values.get() is not None:  # a subcommand of this parse
@@ -84,6 +118,30 @@ class WgsArgumentParser(argparse.ArgumentParser):
             return result
         finally:
             _global_values.reset(token)
+
+
+class RootArgumentParser(WgsArgumentParser):
+    """The top-level parser: its help is the tiered command map, then the
+    global options."""
+
+    def format_help(self) -> str:
+        formatter = self._get_formatter()
+        formatter.add_usage(self.usage, self._actions, self._mutually_exclusive_groups)
+        formatter.add_text(self.description)
+        head = formatter.format_help()
+        formatter = self._get_formatter()
+        for group in self._action_groups:
+            actions = [
+                action
+                for action in group._group_actions
+                if not isinstance(action, argparse._SubParsersAction)
+            ]
+            if actions:
+                formatter.start_section(group.title)
+                formatter.add_text(group.description)
+                formatter.add_arguments(actions)
+                formatter.end_section()
+        return f"{head}\n{command_map(use_color())}\n{formatter.format_help()}"
 
 
 # dest -> parser -> (action, option string, value): the last occurrence of
@@ -162,8 +220,11 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     )
     add_shared_arguments(shared_parser, hidden=True)
 
-    parser = WgsArgumentParser(
-        description=CLI_HELP["description"], parents=[base_parser]
+    parser = RootArgumentParser(
+        prog="wgsextract",
+        usage="wgsextract [global options] <command> ...",
+        description=CLI_HELP["description"],
+        parents=[base_parser],
     )
     try:
         default_threads = parse_thread_count(settings.get("cpu_threads"))
@@ -197,11 +258,34 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
         help=CLI_HELP["arg_full_help"],
     )
     subparsers = parser.add_subparsers(
-        dest="command", required=False, title="subcommands"
+        dest="command",
+        required=False,
+        title="subcommands",
+        metavar="<command>",
+        prog="wgsextract",
+        parser_class=WgsArgumentParser,
     )
 
-    help_parser = subparsers.add_parser("help", help="Show this concise command tree.")
-    help_parser.set_defaults(func=lambda args: print_full_help(parser))
+    help_parser = subparsers.add_parser(
+        "help",
+        help="Show the command tree, list every command (--all) or explain one.",
+        description="Without arguments, show the command tree. 'help --all' "
+        "lists every command in one line each; 'help vcf snp' shows one "
+        "command's help. --json prints the command index as JSON.",
+    )
+    help_parser.add_argument(
+        "topic",
+        nargs="*",
+        metavar="COMMAND",
+        help="A command or command path, e.g. 'vcf' or 'vcf snp'.",
+    )
+    help_parser.add_argument(
+        "--all",
+        dest="all_commands",
+        action="store_true",
+        help="List every command (under COMMAND, if given), one line each.",
+    )
+    help_parser.set_defaults(func=lambda args: run_help(args, parser))
 
     config_parser = subparsers.add_parser(
         "config", help="Show configuration information."
@@ -212,6 +296,7 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
         cmd_module.register(subparsers, shared_parser)
 
     _walk_commands(parser, shared_parser)
+    apply_help_metadata(parser)
     return parser, base_parser
 
 
@@ -361,44 +446,6 @@ def _thread_count_arg(value: str) -> int | None:
         return parse_thread_count(value)
     except ValueError as e:
         raise argparse.ArgumentTypeError(str(e)) from e
-
-
-def _plain_help(text: str | None) -> str:
-    """Help strings are argparse %-format templates; render '%%' outside argparse."""
-    return (text or "").replace("%%", "%")
-
-
-def print_full_help(parser: argparse.ArgumentParser) -> None:
-    """Print a concise tree of all commands and subcommands."""
-    print("\n" + CLI_HELP["description"])
-    print("\nGLOBAL OPTIONS:")
-    for action in parser._actions:
-        if not isinstance(action, argparse._SubParsersAction) and action.dest != "help":
-            opts = ", ".join(action.option_strings)
-            if opts:
-                print(f"  {opts:<25} {_plain_help(action.help)}")
-
-    print("\nCOMMAND TREE:")
-    _print_tree_recursive(parser, 0)
-
-
-def _print_tree_recursive(parser: argparse.ArgumentParser, indent: int) -> None:
-    for action in parser._actions:
-        if isinstance(action, argparse._SubParsersAction):
-            name_to_help = {
-                choice_action.dest: choice_action.help
-                for choice_action in action._choices_actions
-            }
-
-            for name in sorted(action.choices.keys()):
-                subparser = action.choices[name]
-                help_text = name_to_help.get(name, "")
-                if not help_text and subparser.description:
-                    help_text = subparser.description.split("\n")[0]
-
-                indent_str = "  " * indent
-                print(f"{indent_str}- {name:<20} {_plain_help(help_text)}")
-                _print_tree_recursive(subparser, indent + 1)
 
 
 def run_config(args: argparse.Namespace) -> None:

@@ -43,6 +43,16 @@ gh pr create --fill
 
 `just` lists every recipe. Each wraps a `pixi run` task, so `pixi run test` and friends work without `just`.
 
+When you add or rename a command:
+
+- Give a new top-level command a tier (core, setup or advanced) and a short
+  summary in `COMMAND_TIERS` in `src/wgsextract_cli/commands/registry.py`.
+- Give every runnable command an example and an outputs line in
+  `src/wgsextract_cli/commands/_help_catalog.py`.
+- Run `pixi run gen-command-docs` to regenerate `docs/commands.md`.
+
+`tests/test_cli_help.py` fails until all three are done.
+
 ## Make a change with an AI agent
 
 The project is developed with AI coding agents. [AGENTS.md](../AGENTS.md) holds the rules they follow: test and run what they write, run ruff and mypy, keep outputs in `out/` or `tmp/`, keep defaults unchanged.
