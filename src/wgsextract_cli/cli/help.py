@@ -366,7 +366,8 @@ def render_markdown(parser: argparse.ArgumentParser) -> str:
         "order: check a file, make microarray files or find haplogroups, "
         "extract reads, (re)align, call and annotate variants. Outputs go to "
         "the output directory (`--outdir`, the configured `outdir` or the "
-        "`--genome` folder) unless noted, each with a `.manifest.json`. Run "
+        "`--genome` folder) unless noted; a run that registers outputs also "
+        "writes a `.manifest.json` beside its main output. Run "
         "`wgsextract help <command>` for every option.",
     ]
     entries = command_index(parser)

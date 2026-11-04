@@ -6,8 +6,8 @@ every runnable command has an entry and that every example parses.
 
 ``outputs`` names the files a command writes, which go to the output
 directory (--outdir, the configured outdir or the --genome folder) unless the
-text says otherwise. Commands that write files also write a
-``<output>.manifest.json`` beside them; that isn't repeated here.
+text says otherwise. A run that registers outputs also writes one
+``.manifest.json`` beside its main output; that isn't repeated here.
 """
 
 from dataclasses import dataclass
@@ -44,16 +44,18 @@ COMMAND_HELP: dict[str, CommandHelp] = {
     ),
     # info
     "info": _h(
-        "Prints a summary and caches it as <input>.wgse_info.json.",
+        "Prints a summary and caches it as <input file name>.wgse_info.json.",
         "wgsextract info --input sample.cram",
         "wgsextract info --input sample.cram --detailed",
     ),
     "info calculate-coverage": _h(
-        "<input stem>_coverage.tsv (with --bins, also depth-band columns).",
+        "<input file name>_coverage.tsv, or with --bins <input file name>"
+        "_coverage_bins.tsv (depth bands) instead.",
         "wgsextract info calculate-coverage --input sample.cram",
     ),
     "info coverage-sample": _h(
-        "Prints the estimate; writes no files.",
+        "<input file name>_samplecvg.json; a whole-file run also updates the "
+        "info cache.",
         "wgsextract info coverage-sample --input sample.cram",
     ),
     "info chip": _h(
@@ -69,11 +71,13 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         "wgsextract microarray --input sample.cram --formats 23andme_v5,ancestry_v2",
     ),
     "lineage y-haplogroup": _h(
-        "Prints the Y haplogroup and its supporting SNPs; writes no files.",
+        "yleaf/: hg_prediction.hg, the per-sample .out/.fmf/.info reports and "
+        "run.json.",
         "wgsextract lineage y-haplogroup --input sample.cram",
     ),
     "lineage y-str": _h(
-        "Prints the Y-STR marker values; writes no files.",
+        "ystr/: <sample>.ystr.tsv, <sample>.ftdna.csv (FTDNA marker order) and "
+        "run.json.",
         "wgsextract lineage y-str --input sample.cram --panel Y-37",
     ),
     "lineage mt-haplogroup": _h(
@@ -276,7 +280,8 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         "wgsextract ref index --ref hs38.fa --aligner bwa-mem2",
     ),
     "ref verify": _h(
-        "Prints what is missing or damaged; writes no files.",
+        "Prints what is missing or damaged; creates a missing .fai (and .gzi for "
+        "a compressed FASTA) beside the FASTA.",
         "wgsextract ref verify --ref hs38.fa",
     ),
     "ref count-ns": _h(
