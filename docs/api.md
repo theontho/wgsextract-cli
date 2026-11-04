@@ -336,7 +336,7 @@ Collect, redact and fit a report; writes nothing and opens nothing.
 | --- | --- | --- | --- | --- |
 | `run` | `Path \| None` | `None` | `--run` | Report on this run: a result manifest (*.manifest.json), a run log (*.log) or its *.provenance.json (default: the last run). |
 | `last_failed` | `bool` | `False` | `--last-failed` | Report on the last failed run instead of the last run. |
-| `title` | `str \| None` | `None` | `--title` | Issue title (default: the command and its error). |
+| `title` | `str \| None` | `None` | `--title` | Issue title (default: the command and its exit code; the error goes in the body). |
 | `description` | `str \| None` | `None` | `--description` | What you did and what went wrong, for the 'What happened?' field. |
 | `log_lines` | `int` | `40` | `--log-lines` | Log lines to include, from the end (default: 40). |
 | `max_url_length` | `int` | `8000` | `--max-url-length` | Longest link to produce; diagnostics are shortened to fit (default: 8000; at least 1000). |
@@ -344,8 +344,8 @@ Collect, redact and fit a report; writes nothing and opens nothing.
 
 ### `api.support.reports_directory() -> Path`
 
-Where reports are saved by default: `reports` in the data folder, beside
-`reference` and `genomes`, so uninstalling removes them too.
+Where reports are saved by default: `reports` in the state directory
+(the `state_directory` setting, else `state` in the data folder).
 
 ### `api.support.issue_url(report: IssueReport, *, max_length: int = 8000) -> str`
 

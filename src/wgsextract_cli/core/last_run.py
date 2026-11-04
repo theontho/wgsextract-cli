@@ -1,9 +1,9 @@
 """The record of the most recent CLI run, kept for 'wgsextract report-issue'.
 
 Each dispatched command (except help, config and report-issue itself) leaves
-its result manifest and the tail of its log in the data folder, beside
-reference/ and genomes/: ``state/last-run.json``, and also ``state/last-failed-run.json`` when it
-failed. Both stay on this computer, readable only by the user; a report
+its result manifest and the tail of its log in the state directory (the
+``state_directory`` setting, else ``state/`` in the data folder):
+``last-run.json``, and also ``last-failed-run.json`` when it failed. Both stay on this computer, readable only by the user; a report
 redacts what it takes from them.
 """
 
@@ -26,6 +26,16 @@ UNRECORDED_COMMANDS = frozenset({"help", "config", "report-issue"})
 
 
 def state_directory() -> Path:
+    """The ``state_directory`` setting, else ``state`` in the data folder (beside
+    reference/ and genomes/, so uninstalling removes it)."""
+    from wgsextract_cli.core.config import ensure_settings_loaded, settings
+
+    ensure_settings_loaded()
+    configured = settings.get("state_directory")
+    return Path(configured).expanduser() if configured else _default_state_directory()
+
+
+def _default_state_directory() -> Path:
     from wgsextract_cli.core.runtime import repo_root
 
     return repo_root() / "state"

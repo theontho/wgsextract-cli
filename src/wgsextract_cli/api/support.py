@@ -69,7 +69,7 @@ class ReportIssueParams(Params):
     )
     title: str | None = param(
         None,
-        help="Issue title (default: the command and its error).",
+        help="Issue title (default: the command and its exit code; the error goes in the body).",
         flags=("--title",),
     )
     description: str | None = param(
@@ -127,11 +127,11 @@ def build_issue_report(
 
 
 def reports_directory() -> Path:
-    """Where reports are saved by default: ``reports`` in the data folder, beside
-    ``reference`` and ``genomes``, so uninstalling removes them too."""
-    from wgsextract_cli.core.runtime import repo_root
+    """Where reports are saved by default: ``reports`` in the state directory
+    (the ``state_directory`` setting, else ``state`` in the data folder)."""
+    from wgsextract_cli.core.last_run import state_directory
 
-    return repo_root() / "reports"
+    return state_directory() / "reports"
 
 
 def issue_url(report: IssueReport, *, max_length: int = MAX_URL_LENGTH) -> str:
