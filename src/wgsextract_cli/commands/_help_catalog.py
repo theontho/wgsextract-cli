@@ -180,6 +180,12 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         f"wgsextract vcf filter {_VCF_IN} --expr 'QUAL>30'",
         f"wgsextract vcf filter {_VCF_IN} --gene BRCA1",
     ),
+    "vcf table": _h(
+        "<input stem>_variants.tsv and <input stem>_variants.sqlite: one row per "
+        "variant allele, with its annotations.",
+        f"wgsextract vcf table {_VCF_IN}",
+        "wgsextract vcf table --vcf-input clinvar_annotated.vcf.gz --region chr22",
+    ),
     "vcf clinvar": _h(
         "clinvar_annotated.vcf.gz and clinvar_pathogenic.vcf.gz (+ .tbi).",
         f"wgsextract vcf clinvar {_VCF_IN}",

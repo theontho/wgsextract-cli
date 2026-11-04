@@ -236,7 +236,7 @@ exposed as an application configuration setting.
 | `microarray` | Simulate 23andMe, AncestryDNA, FTDNA, Living DNA, MyHeritage, and combined (`all`) raw-data files |
 | `microarray --formats aadr_1240k,aadr_ho,aadr_1240k+ho` | Export pinned AADR research panels as PLINK and EIGENSTRAT ([conventions and validation](docs/aadr.md)) |
 | `lineage` | `y-haplogroup` (Yleaf), `y-str` (genealogy Y-STR panels), `mt-haplogroup` (Haplogrep) |
-| `vcf` | Calling: `snp`, `indel`, `freebayes`, `gatk`, `deepvariant`, `clair3`, `sv`, `cnv`. Annotation: `annotate`, `chain-annotate`, `clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb`, `pharmcat`. Other: `filter`, `trio`, `to-fasta` (personal consensus genome) |
+| `vcf` | Calling: `snp`, `indel`, `freebayes`, `gatk`, `deepvariant`, `clair3`, `sv`, `cnv`. Annotation: `annotate`, `chain-annotate`, `clinvar`, `gnomad`, `revel`, `phylop`, `cadd`, `gerp`, `spliceai`, `alphamissense`, `pharmgkb`, `pharmcat`. Other: `table` (one row per variant as TSV + SQLite, [docs](docs/variant-table.md)), `filter`, `trio`, `to-fasta` (personal consensus genome) |
 | `typing` | From a WGS BAM/CRAM: `cyp2d6` (Cyrius), `hla` (T1K), `str` (ExpansionHunter repeat expansions) |
 | `methylation` | `pileup`: CpG 5mC (optionally 5hmC) bedMethyl and summary from Nanopore/PacBio MM/ML tags (modkit) |
 | `gatk`, `freebayes` | Used by `vcf gatk` / `vcf freebayes` from optional environments; [Windows GATK](docs/windows.md#gatk-on-native-windows) is prepared at setup, not during calling |
