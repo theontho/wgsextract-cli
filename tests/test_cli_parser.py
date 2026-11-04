@@ -1,8 +1,10 @@
 """The command-line parser: config defaults against explicit options, --genome,
 the help and config commands."""
 
+import argparse
 import sys
 from argparse import Namespace
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -269,3 +271,123 @@ def test_tokens_after_double_dash_are_not_options():
 
     assert args.example_ids == ["--debug"]
     assert args.debug is False and "debug" not in explicit
+
+
+# Global options parse the same before the command and after it (#348).
+
+GLOBALS = [
+    "--input", "in.bam", "-o", "out", "--genome", "g", "--ref", "r.fa",
+    "-t", "2", "--memory=3G", "--tmp-dir", "tmp", "--json", "--quiet",
+    "--debug", "--log-file", "run.log", "--keep-awake", "--no-atomic-output",
+    "--config", "c.toml", "--parent-pid", "7",
+]  # fmt: skip
+
+
+def _commands(
+    command: argparse.ArgumentParser, path: tuple[str, ...] = ()
+) -> Iterator[tuple[tuple[str, ...], argparse.ArgumentParser]]:
+    """Every runnable command, once per parser (aliases skipped)."""
+    seen: list[argparse.ArgumentParser] = []
+    groups = [a for a in command._actions if isinstance(a, argparse._SubParsersAction)]
+    if path and not any(group.required for group in groups):
+        yield path, command
+    for group in groups:
+        for name, sub in group.choices.items():
+            if not any(sub is done for done in seen):
+                seen.append(sub)
+                yield from _commands(sub, (*path, name))
+
+
+def _required_args(command: argparse.ArgumentParser) -> list[str]:
+    """Placeholder values for the command's own required arguments."""
+    argv: list[str] = []
+    groups = [g for g in command._mutually_exclusive_groups if g.required]
+    for action in command._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            continue
+        if action.nargs == 0:
+            argv += action.option_strings[:1] if action.required else []
+            continue
+        value = str(action.choices and next(iter(action.choices)) or "1")
+        if not action.option_strings:
+            if action.nargs not in ("?", "*"):
+                argv.append(value)
+        elif action.required or any(g._group_actions[0] is action for g in groups):
+            argv += [action.option_strings[0], value]
+    return argv
+
+
+# The tree's shape doesn't depend on the config, so it can be read at collection.
+COMMAND_PATHS = [path for path, _ in _commands(parser.build_parser()[0])]
+
+
+@pytest.mark.parametrize("path", COMMAND_PATHS, ids=" ".join)
+def test_global_options_parse_the_same_before_or_after_the_command(path):
+    built = parser.build_parser()
+    required = _required_args(dict(_commands(built[0]))[path])
+    before, explicit = parser.parse_args(*built, [*GLOBALS, *path, *required])
+    assert before.input == "in.bam" and before.parent_pid == 7
+    for split in range(1, len(path) + 1):
+        argv = [*path[:split], *GLOBALS, *path[split:], *required]
+        after, after_explicit = parser.parse_args(*built, argv)
+        assert vars(after) == vars(before), argv
+        assert after_explicit == explicit
+
+
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (["-i", "a.bam", "info", "--input", "b.bam"], "'-i a.bam' and '--input b.bam'"),
+        (["vcf", "-t", "auto", "snp", "-t", "4"], "'-t auto' and '-t 4'"),
+        (["--keep-awake", "info", "--no-keep-awake"], "'--keep-awake' and '--no-keep-awake'"),
+        (["--outdir", "a", "--outdir", "b", "info", "-o", "a"], "'--outdir b' and '-o a'"),
+    ],
+)  # fmt: skip
+def test_conflicting_global_options_are_a_usage_error(argv, message, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        _parse(argv)
+
+    assert exit_info.value.code == 2
+    assert message in capsys.readouterr().err
+
+
+def test_a_global_option_repeated_with_the_same_value_is_allowed():
+    args, explicit = _parse(["-i", "a.bam", "--json", "info", "--input", "a.bam", "--json"])  # fmt: skip
+    assert (args.input, args.json, explicit) == ("a.bam", True, {"input", "json"})
+
+
+def test_the_last_global_option_wins_within_one_command_level():
+    args, _ = _parse(["info", "-t", "2", "--input", "a.bam", "-t", "1", "-i", "b.bam"])
+    assert (args.threads, args.input) == (1, "b.bam")
+
+
+def test_config_defaults_do_not_hide_a_global_given_before_the_command():
+    _config('input = "/cfg/in.bam"\nthreads = 6\n')
+
+    args, _ = _parse(["--input", "x.bam", "vcf", "snp", "-t", "3"])
+
+    assert (args.input, args.threads) == ("x.bam", 3)
+
+
+def test_command_help_lists_global_options_in_one_short_group(capsys):
+    with pytest.raises(SystemExit):
+        main(["vcf", "snp", "--help"])
+
+    out = capsys.readouterr().out
+    usage, rest = out.split("\n\n", 1)
+    assert "--input" not in usage and "--json" not in usage
+    globals_help = rest.split("global options:", 1)[1]
+    assert "-i/--input" in globals_help and "wgsextract --help" in globals_help
+    assert out.count("--input") == 1
+
+
+def test_a_command_option_clashing_with_a_global_option_is_rejected(monkeypatch):
+    class Clashing:
+        @staticmethod
+        def register(subparsers, base_parser):
+            subparsers.add_parser("clash").add_argument("--threads")
+
+    monkeypatch.setattr(parser, "COMMAND_MODULES", [Clashing])
+
+    with pytest.raises(RuntimeError, match="'wgsextract clash'.*--threads"):
+        parser.build_parser()

@@ -1,8 +1,10 @@
 import argparse
 import logging
 import sys
+import textwrap
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -65,13 +67,89 @@ DEFAULT_CONFIG = """# WGS Extract Configuration
 """
 
 
+GLOBAL_OPTIONS_TITLE = "global options"
+
+
+class WgsArgumentParser(argparse.ArgumentParser):
+    """An ArgumentParser that rejects a global option given with different
+    values before and after a command (``--input a info --input b``)."""
+
+    def parse_known_args(self, args=None, namespace=None):  # type: ignore[no-untyped-def]
+        if _global_values.get() is not None:  # a subcommand of this parse
+            return super().parse_known_args(args, namespace)
+        token = _global_values.set({})
+        try:
+            return super().parse_known_args(args, namespace)
+        finally:
+            _global_values.reset(token)
+
+
+# dest -> (parser, option string, value) of the global options seen in the
+# current parse.
+_global_values: ContextVar[
+    dict[str, tuple[argparse.ArgumentParser, str, Any]] | None
+] = ContextVar("wgsextract_global_values", default=None)
+
+
+class _GlobalOption(argparse.Action):
+    """Mixin for global options: store as the base action does, but refuse a
+    value that differs from one given at another command level. Within one
+    level the last occurrence wins, as usual for argparse."""
+
+    def __call__(  # type: ignore[no-untyped-def]
+        self, parser, namespace, values, option_string=None
+    ) -> None:
+        probe = argparse.Namespace()
+        super().__call__(parser, probe, values, option_string)
+        value = getattr(probe, self.dest)
+        seen = _global_values.get()
+        if seen is not None:
+            shown = option_string or self.dest
+            if self.nargs != 0:
+                # --threads auto parses to None.
+                shown += f" {'auto' if value is None else value}"
+            previous = seen.get(self.dest)
+            if previous and previous[0] is not parser and previous[2] != value:
+                raise argparse.ArgumentError(
+                    self,
+                    f"conflicting values '{previous[1]}' and '{shown}'; give "
+                    "a global option once, before or after the command",
+                )
+            seen[self.dest] = (parser, shown, value)
+        setattr(namespace, self.dest, value)
+
+
+class _GlobalStore(_GlobalOption, argparse._StoreAction):
+    pass
+
+
+class _GlobalStoreTrue(_GlobalOption, argparse._StoreTrueAction):
+    pass
+
+
+class _GlobalBoolean(_GlobalOption, argparse.BooleanOptionalAction):
+    pass
+
+
 def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
+    """Return the CLI parser and the parent parser that commands inherit
+    global options from.
+
+    Global options are accepted on every parser in the tree, so they work
+    before or after the command at any depth (``wgsextract --input x vcf snp``
+    and ``wgsextract vcf snp --input x`` are the same). Only the top-level
+    help lists them in full; each command's help names them in one line.
+    """
     base_parser = argparse.ArgumentParser(
         add_help=False, argument_default=argparse.SUPPRESS
     )
     add_shared_arguments(base_parser)
+    shared_parser = argparse.ArgumentParser(
+        add_help=False, argument_default=argparse.SUPPRESS
+    )
+    add_shared_arguments(shared_parser, hidden=True)
 
-    parser = argparse.ArgumentParser(
+    parser = WgsArgumentParser(
         description=CLI_HELP["description"], parents=[base_parser]
     )
     try:
@@ -118,15 +196,21 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     config_parser.set_defaults(func=run_config)
 
     for cmd_module in COMMAND_MODULES:
-        cmd_module.register(subparsers, base_parser)
+        cmd_module.register(subparsers, shared_parser)
 
-    _set_command_names(parser)
+    _walk_commands(parser, shared_parser)
     return parser, base_parser
 
 
-def _set_command_names(parser: argparse.ArgumentParser, prefix: str = "") -> None:
-    """Give every subcommand parser a ``_command`` default naming its path
-    ("vcf snp"); a deeper parser's default wins. Aliases keep the canonical name."""
+def _walk_commands(
+    parser: argparse.ArgumentParser,
+    shared_parser: argparse.ArgumentParser,
+    prefix: str = "",
+) -> None:
+    """Give every subcommand parser the global options it lacks (command
+    groups such as ``vcf`` don't inherit them) and a ``_command`` default
+    naming its path ("vcf snp"); a deeper parser's default wins. Aliases keep
+    the canonical name."""
     seen: list[argparse.ArgumentParser] = []
     for action in parser._actions:
         if not isinstance(action, argparse._SubParsersAction):
@@ -136,107 +220,117 @@ def _set_command_names(parser: argparse.ArgumentParser, prefix: str = "") -> Non
                 continue
             seen.append(subparser)
             path = f"{prefix} {name}".strip()
+            if not all(a in subparser._actions for a in shared_parser._actions):
+                try:
+                    subparser._add_container_actions(shared_parser)
+                except argparse.ArgumentError as e:
+                    raise RuntimeError(
+                        f"'wgsextract {path}' defines an option that clashes "
+                        f"with a global option: {e}. Rename the local option."
+                    ) from e
             subparser.set_defaults(_command=path)
-            _set_command_names(subparser, path)
+            _walk_commands(subparser, shared_parser, path)
 
 
-def add_shared_arguments(base_parser: argparse.ArgumentParser) -> None:
-    base_parser.add_argument(
-        "--log-file",
-        metavar="PATH",
-        default=argparse.SUPPRESS,
-        help="Write a DEBUG run log and companion provenance JSON (must be a new file).",
+def add_shared_arguments(
+    base_parser: argparse.ArgumentParser, *, hidden: bool = False
+) -> None:
+    """Add the global options to base_parser, in a "global options" group.
+
+    hidden=True (for subcommands) leaves them out of usage lines and lists
+    them in one line in the group description instead.
+    """
+    group = base_parser.add_argument_group(
+        GLOBAL_OPTIONS_TITLE,
+        "Accepted before or after the command, e.g. 'wgsextract info --input "
+        "x.bam'. Different values before and after the command are an error.",
     )
-    base_parser.add_argument(
-        "--keep-awake",
-        action=argparse.BooleanOptionalAction,
-        default=argparse.SUPPRESS,
-        help="Best-effort idle/sleep inhibition during this command; --no-keep-awake disables it.",
-    )
-    base_parser.add_argument(
-        "--debug",
-        action="store_true",
-        default=argparse.SUPPRESS,
-        help=CLI_HELP["arg_debug"],
-    )
-    base_parser.add_argument(
-        "--quiet",
-        action="store_true",
-        default=argparse.SUPPRESS,
-        help="Suppress all informational logs.",
-    )
-    base_parser.add_argument(
-        "--json",
-        action="store_true",
-        default=argparse.SUPPRESS,
-        help="Print the result manifest (wgsextract.result/1) as JSON on stdout "
-        "instead of human-readable output; logs stay on stderr.",
-    )
-    base_parser.add_argument(
-        "--input",
-        "-i",
-        default=argparse.SUPPRESS,
-        help=CLI_HELP["arg_input"],
-    )
-    base_parser.add_argument(
-        "--outdir",
-        "-o",
-        default=argparse.SUPPRESS,
-        help=CLI_HELP["arg_outdir"],
-    )
-    base_parser.add_argument(
+    actions = {
+        "store": _GlobalStore,
+        "store_true": _GlobalStoreTrue,
+        argparse.BooleanOptionalAction: _GlobalBoolean,
+    }
+
+    def add(*flags: str, **kwargs: Any) -> None:
+        kwargs["action"] = actions[kwargs.get("action", "store")]
+        kwargs.setdefault("default", argparse.SUPPRESS)
+        if hidden:
+            kwargs["help"] = argparse.SUPPRESS
+        group.add_argument(*flags, **kwargs)
+
+    add("--input", "-i", help=CLI_HELP["arg_input"])
+    add("--outdir", "-o", help=CLI_HELP["arg_outdir"])
+    add(
         "--genome",
-        default=argparse.SUPPRESS,
         help="Genome ID from genome_library. Uses that folder for inputs and outputs.",
     )
-    base_parser.add_argument(
-        "--ref",
-        default=argparse.SUPPRESS,
-        help=CLI_HELP["arg_ref"],
-    )
-    base_parser.add_argument(
+    add("--ref", help=CLI_HELP["arg_ref"])
+    add(
         "--threads",
         "-t",
         type=_thread_count_arg,
         metavar="N|auto",
-        default=argparse.SUPPRESS,
         help=CLI_HELP["arg_threads"],
     )
-    base_parser.add_argument(
-        "--memory",
-        "-m",
-        default=argparse.SUPPRESS,
-        help=CLI_HELP["arg_memory"],
-    )
-    base_parser.add_argument(
+    add("--memory", "-m", help=CLI_HELP["arg_memory"])
+    add(
         "--tmp-dir",
-        default=argparse.SUPPRESS,
         metavar="DIRECTORY",
         help="Use an existing writable directory for sort spills, GATK and realign staging (overrides temp_directory).",
     )
-    base_parser.add_argument(
+    add(
+        "--json",
+        action="store_true",
+        help="Print the result manifest (wgsextract.result/1) as JSON on stdout "
+        "instead of human-readable output; logs stay on stderr.",
+    )
+    add("--quiet", action="store_true", help="Suppress all informational logs.")
+    add("--debug", action="store_true", help=CLI_HELP["arg_debug"])
+    add(
+        "--log-file",
+        metavar="PATH",
+        help="Write a DEBUG run log and companion provenance JSON (must be a new file).",
+    )
+    add(
+        "--keep-awake",
+        action=argparse.BooleanOptionalAction,
+        help="Best-effort idle/sleep inhibition during this command; --no-keep-awake disables it.",
+    )
+    add(
         "--atomic-output",
         action=argparse.BooleanOptionalAction,
-        default=argparse.SUPPRESS,
         help="Opt in to atomic main-output publication; staged tool provenance paths may differ.",
     )
-    base_parser.add_argument(
+    add(
         "--config",
         dest="config_path",
         metavar="FILE",
-        default=argparse.SUPPRESS,
         help="Read and save settings in this config.toml instead of the per-user one.",
     )
-    base_parser.add_argument(
+    add(
         "--parent-pid",
         type=int,
         help="Parent Process ID to monitor. If the parent dies, this process will exit.",
     )
+    if hidden:
+        # Hyphenated names (--tmp-dir) are left out: help wrapping would split
+        # them, and raw-text formatters wouldn't wrap a long line at all.
+        flags = [
+            "/".join(sorted(action.option_strings, key=len))
+            for action in group._group_actions
+            if "-" not in max(action.option_strings, key=len)[2:]
+        ]
+        group.description = textwrap.fill(
+            f"{', '.join(flags)} and the other global options are accepted "
+            "before or after the command; 'wgsextract --help' lists them all.",
+            width=76,
+        )
 
 
 def config_path_from_argv(argv: Sequence[str]) -> str | None:
     """The --config value, read before the parser is built (it reads defaults
-    from the config); the last occurrence wins, as for other shared options."""
+    from the config). Conflicting occurrences fail later, in parse_args; the
+    last one is used until then."""
     found = None
     tokens = list(argv)
     for index, token in enumerate(tokens):
@@ -370,10 +464,10 @@ def parse_args(
     args = parser.parse_args(arg_list)
 
     # Parsed again with every default suppressed, the namespace holds only what
-    # the user typed, in any spelling argparse accepts. Shared options are
+    # the user typed, in any spelling argparse accepts. Global options are
     # accepted at every level (`wgsextract --input X info ...`, `wgsextract info
-    # --input X coverage-sample`); there a deeper occurrence wins, and a
-    # subparser's default no longer hides a value given above it.
+    # --input X coverage-sample`), so a subparser's default must not hide a
+    # value given above it; occurrences that disagree are a usage error.
     with _defaults_suppressed(parser) as subcommand_dests:
         typed = vars(parser.parse_args(arg_list))
     explicit_dests = set(typed) - subcommand_dests

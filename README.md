@@ -95,17 +95,19 @@ wgsextract ref library --install hs38
 wgsextract deps check
 
 # Inspect a BAM/CRAM: reference build, file integrity, read metrics
-wgsextract --input sample.cram info --detailed
+wgsextract info --input sample.cram --detailed
 
 # Simulate a 23andMe v5 raw-data file
-wgsextract --input sample.cram microarray --formats 23andme_v5
+wgsextract microarray --input sample.cram --formats 23andme_v5
 
 # Mitochondrial variants and haplogroups
-wgsextract --input sample.cram extract mito-vcf
-wgsextract --input sample.cram lineage mt-haplogroup
-wgsextract --input sample.cram lineage y-haplogroup
-wgsextract --input sample.cram lineage y-str --panel Y-37
+wgsextract extract mito-vcf --input sample.cram
+wgsextract lineage mt-haplogroup --input sample.cram
+wgsextract lineage y-haplogroup --input sample.cram
+wgsextract lineage y-str --input sample.cram --panel Y-37
 ```
+
+Global options (`--input`, `--outdir`, `--genome`, `--ref`, `--threads`, `--memory`, `--json`, `--quiet`, `--debug`, `--log-file` and the others listed by `wgsextract --help`) work before or after the command, at any depth: `wgsextract vcf snp --input x.bam` and `wgsextract --input x.bam vcf snp` are the same. Giving one both before and after the command with different values (`wgsextract --input a.bam info --input b.bam`) is a usage error; repeated in the same position, the last value wins, as usual. A command's own `--help` lists them in one line.
 
 Try commands on a small region (`--region chrM`, where supported) before running whole-genome jobs, which can take hours and hundreds of gigabytes of working space. Every command exits non-zero on failure, so they can be chained in scripts: 1 for a failure, 2 for a usage error (such as a missing `--input`), 3 for a missing or too-old external tool.
 
@@ -120,7 +122,7 @@ alignment/caller arguments and generated genomic files are unchanged.
 Persistent logging is off by default. Use a **new, dedicated** path:
 
 ```sh
-pixi run wgsextract --log-file out/run.log --input sample.bam info
+pixi run wgsextract info --input sample.bam --log-file out/run.log
 ```
 
 Alternatively set `log_dir = "~/wgse_logs"` in `config.toml` to create a unique log
@@ -498,9 +500,9 @@ fastq_r2 = "raw-fastqs/sample_R2.fastq.gz"
 ```
 
 ```bash
-wgsextract --genome joe info
-wgsextract --genome "ken mcdonald" microarray --formats 23andme_v5
-wgsextract --genome joe vcf filter --expr 'QUAL>30'
+wgsextract info --genome joe
+wgsextract microarray --genome "ken mcdonald" --formats 23andme_v5
+wgsextract vcf filter --genome joe --expr 'QUAL>30'
 ```
 
 ### Example genomes
