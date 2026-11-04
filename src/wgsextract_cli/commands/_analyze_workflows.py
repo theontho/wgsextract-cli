@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TypedDict
 
+from wgsextract_cli.core import variant_confidence
 from wgsextract_cli.core.config import config_args
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.utils import (
@@ -56,6 +57,10 @@ def detect_vcf_type(vcf_path: str) -> str:
 
 # bcftools `~` uses POSIX basic regex: "|" and "()" are literals, so match each
 # SpliceAI delta score >= 0.8 (fields are "|0.85|" or "|1.00|") separately.
+# INFO annotations copied into the discovery confidence table, when present.
+DISCOVERY_COLUMNS = (
+    "CLNSIG", "CLNDN", "GNOMAD_AF", "REVEL", "SpliceAI", "am_pathogenicity",
+)  # fmt: skip
 SPLICEAI_HIGH_EXPR = 'INFO/SpliceAI ~ "[|]0[.][89]" || INFO/SpliceAI ~ "[|]1[.]0"'
 
 
@@ -87,7 +92,9 @@ def run_discovery_filter(ann_vcf: str, v_type: str, out_vcf: str) -> int:
 
     # Pathogenic
     if has_info("CLNSIG"):
-        filters.append('INFO/CLNSIG ~ "Pathogenic"')
+        filters.append(
+            'INFO/CLNSIG ~ "Pathogenic" || INFO/CLNSIG ~ "Likely_pathogenic"'
+        )
 
     if v_type == "snp-indel":
         if has_info("REVEL"):
@@ -105,18 +112,61 @@ def run_discovery_filter(ann_vcf: str, v_type: str, out_vcf: str) -> int:
 
     _print(f"Applying Discovery Filter: {filter_expr}")
 
-    try:
-        run_command(
-            ["bcftools", "filter", "-i", filter_expr, "-Oz", "-o", out_vcf, ann_vcf],
-            capture_output=True,
-        )
-        ensure_vcf_indexed(out_vcf)
-        res = run_command(["bcftools", "view", "-H", out_vcf], capture_output=True)
+    if v_type != "snp-indel":
+        # Structural and copy-number calls carry no per-allele read evidence
+        # the confidence rules understand, so they are filtered unlabelled.
+        try:
+            run_command(
+                [
+                    "bcftools",
+                    "filter",
+                    "-i",
+                    filter_expr,
+                    "-Oz",
+                    "-o",
+                    out_vcf,
+                    ann_vcf,
+                ],
+                capture_output=True,
+            )
+            ensure_vcf_indexed(out_vcf)
+            res = run_command(["bcftools", "view", "-H", out_vcf], capture_output=True)
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+            raise WGSExtractError(f"Discovery filter failed for {v_type}: {e}") from e
         count = len(res.stdout.strip().split("\n")) if res.stdout.strip() else 0
         _print(f"Found {count} significant variants.")
         return count
-    except (OSError, subprocess.SubprocessError) as e:
+
+    columns = tuple(tag for tag in DISCOVERY_COLUMNS if has_info(tag))
+    try:
+        summary = variant_confidence.label_vcf(
+            ann_vcf,
+            out_vcf,
+            variant_confidence.thresholds_from(),
+            include=filter_expr,
+            summary_columns=columns,
+        )
+    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Discovery filter failed for {v_type}: {e}") from e
+    count = summary.records
+    _print(f"Found {count} significant variants.")
+    counts = ", ".join(
+        f"{summary.counts[label]} {label}" for label in variant_confidence.LABELS
+    )
+    _print(f"Confidence of the {summary.carried} carried calls: {counts}.")
+    table = re.sub(r"\.vcf\.gz$", ".confidence.tsv", out_vcf)
+    variant_confidence.write_table(
+        table, summary, columns, f"Significant {v_type} variants"
+    )
+    variant_confidence.record(
+        summary,
+        output=out_vcf,
+        role="significant_variants",
+        what=f"significant {v_type} calls",
+        table=table,
+        clinical=variant_confidence.clinical_count(summary),
+    )
+    return count
 
 
 def run_cli_subcommand(cmd_args: list[str], args: argparse.Namespace) -> None:

@@ -212,6 +212,7 @@ def test_vcf_inputs_replace_calling_and_get_annotations_for_their_type(
     assert sorted(p.name for p in out.glob("significant_*")) == [
         "significant_cnv_s.cnv.vcf.gz",
         "significant_cnv_s.cnv.vcf.gz.tbi",
+        "significant_snp-indel_s.confidence.tsv",
         "significant_snp-indel_s.vcf.gz",
         "significant_snp-indel_s.vcf.gz.tbi",
         "significant_sv_s_sv.vcf.gz",

@@ -70,6 +70,9 @@ size goes unnoticed. Use `wgsextract sign` for full-file digests.
 | `alt_unaware`, `duplicates_unmarked` | `info`, `vcf snp`/`indel`, `microarray` | The alignment has ALT contigs without ALT-aware mapping, or its duplicates are not marked. |
 | `high_homozygosity`, `low_homozygosity`, `high_no_call_rate` | `microarray` | Genotype statistics outside the expected range. |
 | `no_variants`, `no_reads`, `nothing_annotated` | variant calling, extraction, annotation | An output is empty. |
+| `low_confidence_findings` | `vcf clinvar`, `vcf gnomad --max-af`, `vcf pharmcat`, `analyze` | Some reported calls are low confidence (`count`, `total`, `output`, top `reasons`); see [variant-confidence.md](variant-confidence.md). |
+| `unconfirmed_clinical_findings` | `vcf clinvar`, `analyze` | The sample carries ClinVar pathogenic/likely pathogenic calls (`count`): a technical screen to confirm with an accredited laboratory, not a diagnosis. |
+| `confidence_first_sample_only` | confidence labelling | A multi-sample VCF was judged by its first sample (`sample`). |
 | `sample_female` | Y extraction | Female sample; Y outputs will be empty or noise. |
 | `build_unknown`, `build_unsupported` | microarray, Y haplogroup | The reference build is unknown or unsupported by the tool. |
 | `chip_ambiguous` | `info chip` | Two catalogued revisions match equally well. |
@@ -107,7 +110,8 @@ is unchanged.
 
 These commands record full manifests: `info` (including `--detailed`),
 `info chip`, `info calculate-coverage`, `info coverage-sample`, `ref status`, `vcf snp`, `vcf indel`,
-`vcf annotate`, `vcf freebayes`, `vcf gatk`, every `extract` subcommand,
+`vcf annotate`, `vcf freebayes`, `vcf gatk`, `vcf clinvar`, `vcf gnomad`,
+`vcf pharmcat`, every `extract` subcommand,
 `lineage mt-haplogroup`, `lineage y-haplogroup`, `lineage y-str` and
 `microarray`. Every other command honours `--json` and the exit codes, and
 reports its status, inputs and provenance. Its outputs, metrics and warnings

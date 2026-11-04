@@ -139,6 +139,25 @@ KNOWN_SETTINGS = {
         0.1,
         "Warn when a microarray output has more autosomal no-calls than this",
     ),
+    "confidence_min_depth": (
+        10.0,
+        "Label rare/clinical variant calls below this read depth low confidence "
+        "(halved for haploid calls)",
+    ),
+    "confidence_high_depth": (
+        20.0,
+        "Label rare/clinical variant calls below this read depth (and at least "
+        "confidence_min_depth) moderate confidence",
+    ),
+    "confidence_min_gq": (
+        20.0,
+        "Label rare/clinical variant calls below this genotype quality low confidence",
+    ),
+    "confidence_high_gq": (
+        30.0,
+        "Label rare/clinical variant calls below this genotype quality (and at "
+        "least confidence_min_gq) moderate confidence",
+    ),
     "mother_vcf_path": (None, "Default Mother VCF for trios"),
     "father_vcf_path": (None, "Default Father VCF for trios"),
     "batch_file_path": (None, "Path to batch processing CSV/TSV"),
