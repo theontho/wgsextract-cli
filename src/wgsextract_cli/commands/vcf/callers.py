@@ -25,7 +25,7 @@ from wgsextract_cli.core.temp_directory import configured_temp_directory
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 
-from .basic import get_base_args, plain_reference
+from .basic import get_base_args, plain_reference, record_variants
 from .gatk_scatter import call_scattered, scatter_intervals
 
 
@@ -165,7 +165,7 @@ def cmd_freebayes(args: argparse.Namespace) -> None:
             stages.append(["bcftools", "view", *keep, "-Oz", "-o", staged])
             run_pipeline(stages, description="FreeBayes variant calling")
     ensure_vcf_indexed(out_vcf)
-    warn_if_no_variants(out_vcf, ref, args.region)
+    record_variants(out_vcf, "variants", warn_if_no_variants(out_vcf, ref, args.region))
 
 
 def _gatk_gpu(args: argparse.Namespace) -> None:
@@ -182,7 +182,7 @@ def _gatk_gpu(args: argparse.Namespace) -> None:
     with safe_output(out_vcf) as staged:
         call_variants("haplotypecaller", args.input, ref, staged, args.region)
     ensure_vcf_indexed(out_vcf)
-    warn_if_no_variants(out_vcf, ref, args.region)
+    record_variants(out_vcf, "variants", warn_if_no_variants(out_vcf, ref, args.region))
 
 
 def cmd_gatk(args: argparse.Namespace) -> None:
@@ -273,7 +273,9 @@ def cmd_gatk(args: argparse.Namespace) -> None:
                         gatk_tmp,
                     )
             ensure_vcf_indexed(out_vcf)
-            warn_if_no_variants(out_vcf, ref, args.region)
+            record_variants(
+                out_vcf, "variants", warn_if_no_variants(out_vcf, ref, args.region)
+            )
             return
         cmd = (
             [
@@ -295,7 +297,9 @@ def cmd_gatk(args: argparse.Namespace) -> None:
             cmd[cmd.index("-O") + 1] = java_local_path(staged)
             run_command(cmd)
         ensure_vcf_indexed(out_vcf)
-        warn_if_no_variants(out_vcf, ref, args.region)
+        record_variants(
+            out_vcf, "variants", warn_if_no_variants(out_vcf, ref, args.region)
+        )
     except subprocess.CalledProcessError as e:
         logging.error(f"GATK failed: {e}")
         if args.input.lower().endswith(".cram"):

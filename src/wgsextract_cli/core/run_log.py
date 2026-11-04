@@ -34,6 +34,9 @@ def is_run_log_path(path: Path) -> bool:
 
 
 def record_command(command: Sequence[str]) -> None:
+    from wgsextract_cli.core.results import record_tool_command
+
+    record_tool_command(command)
     if _active:
         _active.record(command)
 
@@ -98,26 +101,11 @@ class RunLog:
         self, args: argparse.Namespace, argv: Sequence[str], status: str
     ) -> dict[str, object]:
         from wgsextract_cli.core.dependency_checks import get_tool_version
+        from wgsextract_cli.core.results import tools_in_command
 
-        tools = set()
+        tools: set[str] = set()
         for command in self.commands:
-            if command:
-                tools.add(Path(command[0]).stem)
-            tools.update(
-                tool
-                for tool in (
-                    "bwa",
-                    "bwa-mem2",
-                    "samtools",
-                    "bcftools",
-                    "gatk",
-                    "minimap2",
-                    "samblaster",
-                )
-                if tool in command
-            )
-            if "org.broadinstitute.hellbender.Main" in command:
-                tools.add("gatk")
+            tools |= tools_in_command(command)
         versions = {
             tool: platform.python_version()
             if tool.startswith("python")

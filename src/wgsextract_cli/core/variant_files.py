@@ -19,6 +19,8 @@ from .reference_resolver import (
     header_contig_lengths,
 )
 from .utils import (
+    MissingDependencyError,
+    UsageError,
     WGSExtractError,
     run_command,
 )
@@ -79,7 +81,7 @@ def ensure_vcf_indexed(vcf_path: PathInput) -> None:
 
     tabix = get_tool_path("tabix")
     if tabix is None:
-        raise WGSExtractError("tabix dependency is required to index VCF files.")
+        raise MissingDependencyError("tabix dependency is required to index VCF files.")
     logging.info(LOG_MESSAGES["vcf_indexing"].format(path=vcf_path))
     try:
         run_command([tabix, "-f", "-p", "vcf", vcf_path])
@@ -93,7 +95,7 @@ def ensure_vcf_indexed(vcf_path: PathInput) -> None:
 def ensure_vcf_prepared(vcf_path: PathInput | None) -> str:
     """Ensure VCF is bgzipped and indexed, returns path to compressed file."""
     if not vcf_path:
-        raise WGSExtractError("VCF input path is required.")
+        raise UsageError("VCF input path is required.")
     vcf_path = fspath(vcf_path)
 
     # If it's a BAM or CRAM, don't try to prepare it as a VCF
@@ -114,7 +116,9 @@ def ensure_vcf_prepared(vcf_path: PathInput | None) -> str:
 
     bgzip = get_tool_path("bgzip")
     if bgzip is None:
-        raise WGSExtractError("bgzip dependency is required to compress VCF files.")
+        raise MissingDependencyError(
+            "bgzip dependency is required to compress VCF files."
+        )
     logging.info(f"Compressing VCF: {vcf_path}")
     # Write to a temp name so an interrupted run never leaves a truncated .gz
     # that looks newer than the source and gets reused next time.

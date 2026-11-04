@@ -17,7 +17,7 @@ from wgsextract_cli.core.reference_assets import input_stem
 from wgsextract_cli.core.reference_resolver import header_contig_lengths
 from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.tool_commands import _tool_command_parts
-from wgsextract_cli.core.utils import WGSExtractError, get_resource_defaults
+from wgsextract_cli.core.utils import UsageError, WGSExtractError, get_resource_defaults
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
     get_bam_header,
@@ -77,7 +77,7 @@ class Alignment:
 def open_alignment(args: argparse.Namespace) -> Alignment:
     """The BAM/CRAM in --input with its build, contig names and reference."""
     if not args.input:
-        raise WGSExtractError("--input (a BAM or CRAM file) is required.")
+        raise UsageError("--input (a BAM or CRAM file) is required.")
     verify_paths_exist({"--input": args.input})
     if not args.input.lower().endswith((".bam", ".cram")):
         raise WGSExtractError("--input must be a BAM or CRAM file.")

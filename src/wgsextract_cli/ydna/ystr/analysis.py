@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from wgsextract_cli.core.builds import build_from_chr1_length
-from wgsextract_cli.core.utils import WGSExtractError, run_command
+from wgsextract_cli.core.utils import UsageError, WGSExtractError, run_command
 
 from .counter import TractReads, collect
 from .panel import Marker, Tract, markers, provenance, tracts
@@ -444,7 +444,7 @@ def analyze(
     if input_path.suffix.lower() not in (".bam", ".cram"):
         raise WGSExtractError("Y-STR calling needs an indexed BAM or CRAM.")
     if input_path.suffix.lower() == ".cram" and not reference:
-        raise WGSExtractError("A reference FASTA (--ref) is required to decode CRAM.")
+        raise UsageError("A reference FASTA (--ref) is required to decode CRAM.")
     selected = tuple(selected or markers())
     output.mkdir(parents=True, exist_ok=True)
     sample = input_path.name.rsplit(".", 1)[0]

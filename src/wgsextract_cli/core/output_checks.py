@@ -6,10 +6,10 @@ usually means the reference or build doesn't match the input. These checks say
 so, so the command doesn't look like it worked.
 """
 
-import logging
 import subprocess
 
 from wgsextract_cli.core.paths import PathInput
+from wgsextract_cli.core.results import warn
 from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.utils import popen, run_command
 
@@ -89,29 +89,37 @@ def _first_line_or_none(proc: subprocess.Popen[str]) -> bool | None:
 
 def warn_if_no_variants(
     vcf: PathInput, ref: str | None = None, region: str | None = None
-) -> None:
-    """Warn when a variant caller wrote no records."""
-    if vcf_record_count(vcf) != 0:
-        return
+) -> int | None:
+    """Warn when a variant caller wrote no records; return the record count
+    (None when unknown)."""
+    count = vcf_record_count(vcf)
+    if count != 0:
+        return count
     where = f" in {region}" if region else ""
     hint = (
         f"check that the reference ({ref}) is the one the input was aligned to"
         if ref
         else "check the input's reference build"
     )
-    logging.warning(
-        f"No variants were called{where} ({vcf}). If the input has reads there, {hint}."
+    warn(
+        "no_variants",
+        f"No variants were called{where} ({vcf}). If the input has reads there, {hint}.",
+        path=str(vcf),
+        region=region,
     )
+    return 0
 
 
 def warn_if_no_reads(bam: PathInput, what: str, hint: str = "") -> None:
     """Warn when an extraction wrote no reads."""
     if bam_has_reads(bam) is not False:
         return
-    logging.warning(
+    warn(
+        "no_reads",
         f"{bam} has no reads: the input has no {what}"
         + (f" ({hint})" if hint else "")
-        + ", or names that chromosome differently."
+        + ", or names that chromosome differently.",
+        path=str(bam),
     )
 
 
@@ -153,7 +161,11 @@ def warn_if_nothing_annotated(vcf: PathInput, columns: str, label: str) -> None:
         return
     if vcf_has_info(vcf, tags[0]) is not False:
         return
-    logging.warning(
+    warn(
+        "nothing_annotated",
         f"None of the {total:,} variants in {vcf} got a {label} value. Check that "
-        f"the VCF's genome build matches the {label} data."
+        f"the VCF's genome build matches the {label} data.",
+        path=str(vcf),
+        annotation=label,
+        variants=total,
     )

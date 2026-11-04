@@ -18,16 +18,18 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.genotype_qc import region_targets, warn_low_depth
 from wgsextract_cli.core.messages import LOG_MESSAGES
-from wgsextract_cli.core.output_checks import warn_if_no_variants
+from wgsextract_cli.core.output_checks import vcf_record_count, warn_if_no_variants
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.resource_estimates import (
     estimate_resources,
     preflight_resources,
 )
+from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.sample_ploidy import sex_samples_args
 from wgsextract_cli.core.sequencing import input_platform
 from wgsextract_cli.core.utils import (
+    UsageError,
     WGSExtractError,
     get_resource_defaults,
     run_command,
@@ -66,7 +68,7 @@ def _select_vcf_input(args: argparse.Namespace) -> str | None:
 def require_vcf_input(args: argparse.Namespace) -> str:
     input_file = _select_vcf_input(args)
     if not input_file:
-        raise WGSExtractError(LOG_MESSAGES["input_required"])
+        raise UsageError(LOG_MESSAGES["input_required"])
     return input_file
 
 
@@ -74,7 +76,7 @@ def get_base_args(args: argparse.Namespace) -> tuple[str, str, str, ReferenceLib
     """Resolve (threads, outdir, reference FASTA, library) for BAM/CRAM callers."""
     input_file = getattr(args, "input", None)
     if not input_file:
-        raise WGSExtractError(LOG_MESSAGES["input_required"])
+        raise UsageError(LOG_MESSAGES["input_required"])
 
     logging.debug(f"Input file: {str(absolute_path(input_file))}")
     threads, _ = get_resource_defaults(args.threads, None)
@@ -103,6 +105,7 @@ def get_base_args(args: argparse.Namespace) -> tuple[str, str, str, ReferenceLib
         raise WGSExtractError(
             LOG_MESSAGES["ref_required_for"].format(task="variant calling")
         )
+    current_result().set_reference(resolved_ref, lib.build)
     warn_about_alignment(input_file, resolved_ref)
     warn_low_depth(
         input_file,
@@ -212,7 +215,13 @@ def cmd_snp(args: argparse.Namespace) -> None:
             parallel=getattr(args, "parallel", False),
         )
     ensure_vcf_indexed(out_vcf)
-    warn_if_no_variants(out_vcf, ref, args.region)
+    record_variants(out_vcf, "snps", warn_if_no_variants(out_vcf, ref, args.region))
+
+
+def record_variants(out_vcf: str, role: str, count: int | None) -> None:
+    """Register a called VCF and its record count on the result manifest."""
+    current_result().add_output(out_vcf, role, metrics={"variants": count})
+    current_result().add_metrics(variants=count)
 
 
 def cmd_indel(args: argparse.Namespace) -> None:
@@ -258,7 +267,7 @@ def cmd_indel(args: argparse.Namespace) -> None:
             indels=True,
         )
     ensure_vcf_indexed(out_vcf)
-    warn_if_no_variants(out_vcf, ref, args.region)
+    record_variants(out_vcf, "indels", warn_if_no_variants(out_vcf, ref, args.region))
 
 
 def _annotation_columns(ann_vcf: str) -> str:
@@ -353,3 +362,5 @@ def cmd_annotate(args: argparse.Namespace) -> None:
         ensure_vcf_indexed(out_vcf)
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Annotation failed: {e}") from e
+    current_result().add_input(ann_vcf, "annotation")
+    record_variants(out_vcf, "annotated", vcf_record_count(out_vcf))

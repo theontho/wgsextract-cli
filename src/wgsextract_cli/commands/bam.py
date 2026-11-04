@@ -16,6 +16,7 @@ from wgsextract_cli.core.resource_estimates import (
 )
 from wgsextract_cli.core.temp_directory import configured_temp_directory
 from wgsextract_cli.core.utils import (
+    UsageError,
     WGSExtractError,
     get_resource_defaults,
     get_sam_index_cmd,
@@ -175,7 +176,7 @@ def register(
 
 def _require_input(args: argparse.Namespace) -> None:
     if not args.input:
-        raise WGSExtractError(LOG_MESSAGES["input_required"])
+        raise UsageError(LOG_MESSAGES["input_required"])
     verify_paths_exist({"--input": args.input})
 
 

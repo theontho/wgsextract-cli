@@ -14,6 +14,7 @@ from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path, java_local_path
 from wgsextract_cli.core.utils import (
+    UsageError,
     WGSExtractError,
     get_resource_defaults,
     run_command,
@@ -26,7 +27,7 @@ from ..vcf.basic import _select_vcf_input
 
 def cmd_fastp(args: argparse.Namespace) -> None:
     if not args.r1:
-        raise WGSExtractError("--r1 is required unless --genome resolves FASTQ inputs.")
+        raise UsageError("--r1 is required unless --genome resolves FASTQ inputs.")
 
     from wgsextract_cli.core.variant_files import verify_paths_exist
 
@@ -99,7 +100,7 @@ def _fastp_total_reads(report: str) -> int | None:
 
 def cmd_fastqc(args: argparse.Namespace) -> None:
     if not args.input:
-        raise WGSExtractError(LOG_MESSAGES["input_required"])
+        raise UsageError(LOG_MESSAGES["input_required"])
 
     from wgsextract_cli.core.variant_files import verify_paths_exist
 
@@ -133,7 +134,7 @@ def cmd_fastqc(args: argparse.Namespace) -> None:
 
 def cmd_multiqc(args: argparse.Namespace) -> None:
     if not args.input:
-        raise WGSExtractError("--input is required: choose existing FastQC reports.")
+        raise UsageError("--input is required: choose existing FastQC reports.")
 
     source = absolute_path(args.input)
     if not source.is_file() and not source.is_dir():
@@ -208,7 +209,7 @@ def cmd_multiqc(args: argparse.Namespace) -> None:
 def cmd_vcf_qc(args: argparse.Namespace) -> None:
     input_file = _select_vcf_input(args)
     if not input_file:
-        raise WGSExtractError("--input is required.")
+        raise UsageError("--input is required.")
 
     from wgsextract_cli.core.variant_files import verify_paths_exist
 

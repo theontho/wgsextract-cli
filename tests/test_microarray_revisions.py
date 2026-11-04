@@ -269,7 +269,10 @@ def test_info_chip_cli(tmp_path):
     )
     rc, stdout, stderr = run_cli(["info", "chip", "--input", str(export), "--json"])
     assert rc == 0, stderr
-    result = json.loads(stdout)
+    manifest = json.loads(stdout)
+    assert manifest["schema"] == "wgsextract.result/1"
+    assert manifest["metrics"]["match"] == "exact"
+    result = manifest["details"]
     best = result["candidates"][0]
     assert result["confidence"] == 1.0 and best["match"] == "exact"
     assert best["revision"]["template"]["formats"] == "ancestry_v2_2024"

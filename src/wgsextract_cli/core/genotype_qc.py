@@ -16,6 +16,7 @@ from wgsextract_cli.core.config import KNOWN_SETTINGS, settings
 from wgsextract_cli.core.cram_counts import cram_container_totals, multi_ref_contigs
 from wgsextract_cli.core.microarray_utils import GenotypeTally, is_autosome
 from wgsextract_cli.core.paths import PathInput
+from wgsextract_cli.core.results import warn
 from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.utils import WGSExtractError
 
@@ -257,12 +258,16 @@ def warn_low_depth(
             else "heterozygous sites are often called homozygous or missed, so "
             "genotypes are unreliable"
         )
-        logging.warning(
+        warn(
+            "low_coverage",
             f"Low coverage: {Path(alignment).name} has a mean {target} depth of "
             f"about {_format_depth(depth)}, below the {threshold:g}x that "
             f"{'haploid' if is_haploid else 'diploid'} calls need; {consequence}. "
             f"Threshold: {setting} in config.toml, or --qc-min-depth for one run. "
-            f"See {GUIDE}."
+            f"See {GUIDE}.",
+            target=target,
+            depth=round(depth, 3),
+            threshold=threshold,
         )
     return depths
 
@@ -304,20 +309,26 @@ def warn_about_genotypes(
     high = _setting("qc_max_autosomal_homozygosity")
     if tally.called >= MIN_QC_SITES:
         if tally.homozygosity > high:
-            logging.warning(
+            warn(
+                "high_homozygosity",
                 f"{tally.homozygosity:.1%} of autosomal genotypes are homozygous "
                 f"(above qc_max_autosomal_homozygosity {high:.0%}; directly "
                 "sequenced genomes give about 70-80%). The input is probably "
                 "low-coverage or heavily imputed, and many tools reject such "
-                f"files. See {GUIDE}."
+                f"files. See {GUIDE}.",
+                homozygosity=round(tally.homozygosity, 4),
+                threshold=high,
             )
         elif tally.homozygosity < low:
-            logging.warning(
+            warn(
+                "low_homozygosity",
                 f"Only {tally.homozygosity:.1%} of autosomal genotypes are "
                 f"homozygous (below qc_min_autosomal_homozygosity {low:.0%}; "
                 "directly sequenced genomes give about 70-80%). Excess "
                 "heterozygosity suggests a contaminated or mixed sample. "
-                f"See {GUIDE}."
+                f"See {GUIDE}.",
+                homozygosity=round(tally.homozygosity, 4),
+                threshold=low,
             )
     max_no_calls = _setting("qc_max_no_call_rate")
     noisy = {
@@ -327,9 +338,12 @@ def warn_about_genotypes(
     }
     if noisy:
         rates = ", ".join(f"{name} {rate:.1%}" for name, rate in noisy.items())
-        logging.warning(
+        warn(
+            "high_no_call_rate",
             f"High autosomal no-call rates (above qc_max_no_call_rate "
             f"{max_no_calls:.0%}): {rates}. The input lacks reads or calls at "
-            f"many chip positions. See {GUIDE}."
+            f"many chip positions. See {GUIDE}.",
+            threshold=max_no_calls,
+            **{f"{name}_no_call_rate": round(rate, 4) for name, rate in noisy.items()},
         )
     return tally

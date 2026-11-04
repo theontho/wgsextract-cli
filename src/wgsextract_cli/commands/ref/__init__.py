@@ -124,11 +124,6 @@ def register(
         help="Custom annotation VCF path to include in readiness checks.",
     )
     status_parser.add_argument(
-        "--json",
-        action="store_true",
-        help="Emit structured JSON status.",
-    )
-    status_parser.add_argument(
         "--values",
         action="store_true",
         help="Emit a compact values JSON object for GUI data-source consumers.",

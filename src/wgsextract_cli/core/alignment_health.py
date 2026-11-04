@@ -12,6 +12,7 @@ from typing import Any
 
 from wgsextract_cli.core.alt_mapping import alt_unaware, alt_unaware_message
 from wgsextract_cli.core.paths import PathInput
+from wgsextract_cli.core.results import warn
 from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.utils import run_command
 
@@ -86,6 +87,10 @@ def warn_about_alignment(alignment: PathInput, ref: str | None = None) -> None:
     ALT-unaware mapping, or duplicates never marked."""
     health = alignment_health(alignment, ref)
     if health["alt_aware"] is False:
-        logging.warning(alt_unaware_message(alignment))
+        warn("alt_unaware", alt_unaware_message(alignment), path=str(alignment))
     if health["duplicates_marked"] is False:
-        logging.warning(duplicates_unmarked_message(alignment))
+        warn(
+            "duplicates_unmarked",
+            duplicates_unmarked_message(alignment),
+            path=str(alignment),
+        )

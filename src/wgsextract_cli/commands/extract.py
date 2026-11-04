@@ -18,7 +18,9 @@ from wgsextract_cli.core.output_checks import (
 )
 from wgsextract_cli.core.ref_library.catalog import get_available_genomes
 from wgsextract_cli.core.reference_models import identify_reference
+from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.utils import (
+    UsageError,
     WGSExtractError,
     get_sam_index_cmd,
     run_command,
@@ -132,7 +134,13 @@ def register(
 def _setup(args: argparse.Namespace, tools: list[str]) -> BaseArgs:
     verify_dependencies(tools)
     log_dependency_info(tools)
-    return get_base_args(args)
+    base = get_base_args(args)
+    current_result().set_reference(base.ref)
+    return base
+
+
+def _published(path: str, role: str) -> None:
+    current_result().add_output(path, role)
 
 
 def require_reference(
@@ -160,7 +168,7 @@ def require_reference(
                 hint = f" Install the matching reference explicitly: wgsextract ref library --install {genome['code']}"
         if not hint:
             hint = " Select the matching reference with wgsextract ref library, then pass its FASTA with --ref."
-        raise WGSExtractError(LOG_MESSAGES["ref_required_for"].format(task=task) + hint)
+        raise UsageError(LOG_MESSAGES["ref_required_for"].format(task=task) + hint)
     return resolved_ref
 
 
@@ -201,7 +209,7 @@ def _extract_regions(
         warn_if_no_reads(out_bam, contents, empty_hint)
 
 
-def _call_haploid_variants(bam: str, ref: str, out_vcf: str) -> None:
+def _call_haploid_variants(bam: str, ref: str, out_vcf: str) -> int | None:
     """Call variants on a haploid contig (chrM / chrY) into an indexed VCF."""
     from wgsextract_cli.core.atomic_output import atomic_outputs_enabled
 
@@ -220,7 +228,9 @@ def _call_haploid_variants(bam: str, ref: str, out_vcf: str) -> None:
             description="Variant calling",
         )
     ensure_vcf_indexed(out_vcf)
-    warn_if_no_variants(out_vcf, ref)
+    count = warn_if_no_variants(out_vcf, ref)
+    current_result().add_metrics(variants=count)
+    return count
 
 
 def _warn_if_female(input_path: str, outdir: str) -> None:
@@ -229,9 +239,10 @@ def _warn_if_female(input_path: str, outdir: str) -> None:
     from .info.metrics import sample_sex
 
     if sample_sex(input_path, outdir) == "Female":
-        logging.warning(
+        warn(
+            "sample_female",
             f"{input_path} appears female (chrY has under 5% of chrX's reads), so "
-            "its chrY reads are mismapped ones: this output holds no Y-DNA."
+            "its chrY reads are mismapped ones: this output holds no Y-DNA.",
         )
 
 
@@ -270,6 +281,7 @@ def cmd_mito_fasta(args: argparse.Namespace) -> None:
                 )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Mito FASTA extraction failed: {e}") from e
+    _published(out_fasta, "mt_fasta")
 
 
 def cmd_mito_vcf(args: argparse.Namespace) -> None:
@@ -293,6 +305,7 @@ def cmd_mito_vcf(args: argparse.Namespace) -> None:
             _call_haploid_variants(out_bam, ref, out_vcf)
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Mito VCF extraction failed: {e}") from e
+    _published(out_vcf, "mt_vcf")
 
 
 def cmd_mt_bam(args: argparse.Namespace) -> None:
@@ -308,6 +321,7 @@ def cmd_mt_bam(args: argparse.Namespace) -> None:
         )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"mtDNA extraction failed: {e}") from e
+    _published(out_file, "mt_bam")
 
 
 def cmd_bam_subset(args: argparse.Namespace) -> None:
@@ -333,6 +347,7 @@ def cmd_bam_subset(args: argparse.Namespace) -> None:
             )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"BAM subsetting failed: {e}") from e
+    _published(out_file, "subset_bam")
 
 
 def cmd_ydna_bam(args: argparse.Namespace) -> None:
@@ -377,6 +392,7 @@ def cmd_ydna_bam(args: argparse.Namespace) -> None:
             )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Y BAM extraction failed: {e}") from e
+    _published(out_bam, "y_bam")
 
 
 def cmd_ydna_vcf(args: argparse.Namespace) -> None:
@@ -407,6 +423,7 @@ def cmd_ydna_vcf(args: argparse.Namespace) -> None:
             _call_haploid_variants(out_bam, ref, out_vcf)
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Y VCF extraction failed: {e}") from e
+    _published(out_vcf, "y_vcf")
 
 
 def cmd_y_mt_extract(args: argparse.Namespace) -> None:
@@ -430,6 +447,7 @@ def cmd_y_mt_extract(args: argparse.Namespace) -> None:
         )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Y+MT extraction failed: {e}") from e
+    _published(out_bam, "y_mt_bam")
 
 
 def cmd_unmapped(args: argparse.Namespace) -> None:
@@ -458,32 +476,41 @@ def cmd_unmapped(args: argparse.Namespace) -> None:
             )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Unmapped extraction failed: {e}") from e
+    _published(out_bam, "unmapped_bam")
     if bam_has_reads(out_bam) is False:
         # Unlike the other extractions, none can be right: an aligner that
         # dropped its unmapped reads.
         logging.info(f"{args.input} has no unmapped reads.")
     if getattr(args, "fastq", False):
+        fastqs = {
+            role: derive_output_path(args.input, base.outdir, f"_unmapped_{tag}")
+            for role, tag in (
+                ("fastq_r1", "R1.fastq.gz"),
+                ("fastq_r2", "R2.fastq.gz"),
+                ("fastq_other", "SE.fastq.gz"),
+                ("fastq_singletons", "singletons.fastq.gz"),
+            )
+        }
         alignments_to_fastq(
             out_bam,
-            derive_output_path(args.input, base.outdir, "_unmapped_R1.fastq.gz"),
-            derive_output_path(args.input, base.outdir, "_unmapped_R2.fastq.gz"),
+            fastqs["fastq_r1"],
+            fastqs["fastq_r2"],
             threads=base.threads,
             memory=base.memory,
             temp_parent=base.outdir,
-            out_other=derive_output_path(
-                args.input, base.outdir, "_unmapped_SE.fastq.gz"
-            ),
-            out_singletons=derive_output_path(
-                args.input, base.outdir, "_unmapped_singletons.fastq.gz"
-            ),
+            out_other=fastqs["fastq_other"],
+            out_singletons=fastqs["fastq_singletons"],
         )
+        for role, path in fastqs.items():
+            if Path(path).is_file():
+                _published(path, role)
 
 
 def cmd_custom(args: argparse.Namespace) -> None:
     base = _setup(args, _SAMTOOLS)
     region = resolve_region_or_gene(args, base.ref)
     if not region:
-        raise WGSExtractError("--region or --gene is required for custom extraction.")
+        raise UsageError("--region or --gene is required for custom extraction.")
 
     is_bed = Path(region).is_file()
     label = Path(region).name if is_bed else region
@@ -509,3 +536,4 @@ def cmd_custom(args: argparse.Namespace) -> None:
             )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Custom extraction failed: {e}") from e
+    _published(out_bam, "region_bam")

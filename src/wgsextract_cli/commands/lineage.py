@@ -16,8 +16,10 @@ from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES, SYSTEM_MESSAGES
 from wgsextract_cli.core.paths import absolute_path, java_local_path
 from wgsextract_cli.core.reference_models import MITO_BY_LENGTH, sequence_lengths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.results import Scalar, current_result, human_output, json_mode
 from wgsextract_cli.core.tool_catalog import JAVA_JAR
 from wgsextract_cli.core.utils import (
+    UsageError,
     WGSExtractError,
     run_command,
     run_pipeline,
@@ -57,7 +59,7 @@ def _haplogrep_command(haplogrep_path: str) -> list[str]:
 
 def cmd_mtdna(args: argparse.Namespace) -> None:
     if not args.input:
-        raise WGSExtractError(LOG_MESSAGES["input_required"])
+        raise UsageError(LOG_MESSAGES["input_required"])
     verify_paths_exist({"--input": args.input})
 
     logging.info("Running mtDNA haplogroup analysis...")
@@ -70,6 +72,7 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
     log_dependency_info(["haplogrep", "bcftools"])
 
     cmd = _haplogrep_command(haplogrep_path)
+    current_result().record_tool_command(["haplogrep"])
 
     outdir = args.outdir or str(absolute_path(args.input).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
@@ -96,6 +99,7 @@ def cmd_mtdna(args: argparse.Namespace) -> None:
                 )
             logging.debug(f"Resolved reference: {lib.fasta}")
             reference = lib.fasta
+            current_result().set_reference(lib.fasta, lib.build)
 
             cram_opt = ["-T", lib.fasta] if input_lower.endswith(".cram") else []
             chr_m = get_chr_name(input_file, "MT", cram_opt)
@@ -171,16 +175,27 @@ def _print_haplogrep_result(
             f"Haplogrep could not predict an mtDNA haplogroup: it found no "
             f"mtDNA variants. {hint}"
         )
-    print("\n🧬 Haplogrep Lineage Result:")
-    print("-" * 30)
+    result = current_result()
+    result.add_output(out_file, "haplogroup_report")
+    result.set_details({"haplogrep": rows[0]})
+    quality = rows[0].get("Quality")
+    try:
+        quality_value: Scalar = float(quality) if quality else None
+    except ValueError:
+        quality_value = quality
+    result.add_metrics(
+        haplogroup=rows[0]["Haplogroup"].strip(), haplogroup_quality=quality_value
+    )
+    human_output("\n🧬 Haplogrep Lineage Result:")
+    human_output("-" * 30)
     for header, value in rows[0].items():
         if header and value:
-            print(f"{header:<15} : {value}")
-    if tree_links:
+            human_output(f"{header:<15} : {value}")
+    if tree_links and not json_mode():
         from ._lineage_links import print_tree_links
 
         print_tree_links(rows[0]["Haplogroup"], mitochondrial=True)
-    print("-" * 30 + "\n")
+    human_output("-" * 30 + "\n")
 
 
 def register(

@@ -11,6 +11,7 @@ from wgsextract_cli.core.reference_assets import (
     resolve_reference_library,
 )
 from wgsextract_cli.core.reference_models import sequence_lengths
+from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed, get_chr_name
 from wgsextract_cli.core.ybrowse import (
@@ -174,3 +175,4 @@ def call_ybrowse(args: argparse.Namespace, base: BaseArgs) -> None:
                 ]
             )
             ensure_vcf_indexed(output)
+    current_result().add_output(output, "y_vcf")

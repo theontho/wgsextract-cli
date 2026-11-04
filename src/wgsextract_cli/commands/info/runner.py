@@ -14,11 +14,12 @@ from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
-from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.messages import LOG_MESSAGES, SYSTEM_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import is_fasta_path
 from wgsextract_cli.core.reference_models import identify_reference, sequence_lengths
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.results import current_result, human_output
+from wgsextract_cli.core.utils import UsageError, WGSExtractError
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
     is_sorted,
@@ -84,10 +85,68 @@ def _save_cache(path: str, data: dict[str, Any]) -> bool:
 
 
 def _print_detailed(data: dict[str, Any], as_csv: bool) -> None:
+    _record_info(data)
     if as_csv:
-        print(data["chrom_table_csv"], end="")
+        human_output(data["chrom_table_csv"], end="")
     else:
-        print(render_info(data, detailed=True))
+        human_output(render_info(data, detailed=True))
+
+
+def _print_fast(data: dict[str, Any]) -> None:
+    _record_info(data)
+    human_output(render_info(data, detailed=False))
+
+
+# Cache bookkeeping that isn't a result.
+_PRIVATE_KEYS = {"chrom_table_csv", "input_signature", "first_qname"}
+
+
+def _record_info(data: dict[str, Any]) -> None:
+    """Put the metrics `info` reports on the result manifest."""
+    result = current_result()
+    details = {k: v for k, v in data.items() if k not in _PRIVATE_KEYS}
+    if data.get("chrom_table_csv"):
+        details["chromosomes"] = list(
+            csv.DictReader(io.StringIO(data["chrom_table_csv"]))
+        )
+    result.set_details(details)
+    stats = data.get("file_stats") or {}
+    health = data.get("alignment_health") or {}
+    result.add_metrics(
+        reference_model=data.get("ref_model_str"),
+        sequencer=data.get("sequencer"),
+        avg_read_len=data.get("avg_read_len"),
+        is_paired=data.get("is_paired"),
+        avg_insert_size=data.get("avg_insert_size"),
+        size_gb=stats.get("size_gb"),
+        sorted=stats.get("sorted"),
+        indexed=stats.get("indexed"),
+        duplicates_marked=health.get("duplicates_marked"),
+        duplicate_pct=health.get("duplicate_pct"),
+        alt_aware=health.get("alt_aware"),
+    )
+    if "gender" in data:
+        result.add_metrics(sex=data["gender"], **data.get("metrics", {}))
+        if data["gender"] == "Unknown":
+            result.warn(
+                "sex_unknown",
+                "The sample's sex could not be inferred from its chrX/chrY reads.",
+            )
+        if data.get("avg_read_len", 0) > 410:
+            result.warn(
+                "long_reads",
+                SYSTEM_MESSAGES["LongReadSequenceWarning"],
+                avg_read_len=data["avg_read_len"],
+            )
+        ard = data.get("metrics", {}).get("ard_mapped")
+        if ard is not None and ard < 10:
+            result.warn(
+                "low_coverage",
+                SYSTEM_MESSAGES["LowCoverageWarning"],
+                target="genome",
+                depth=round(ard, 3),
+                threshold=10,
+            )
 
 
 def _guess_ref_model(
@@ -164,22 +223,29 @@ def _coverage_map(
     outdir: str,
     region: str | None,
 ) -> dict[str, str]:
+    path = _coverage_path(info_cmd, input_p, outdir, region)
     stem = str(Path(outdir, Path(input_p).name))
-    tag = region_file_tag(region)
     if info_cmd == "calculate-coverage":
         return run_full_coverage(
             input_p,
             resolved_ref,
-            f"{stem}{tag}_coverage.tsv",
+            path,
             region=region,
             # Whole-file results from older releases (samtools depth | awk).
             legacy_p=None if region else f"{stem}_bincvg.csv",
         )
     if info_cmd == "coverage-sample":
-        return run_sampled_coverage(
-            input_p, resolved_ref, idx_stats, f"{stem}{tag}_samplecvg.json", region
-        )
+        return run_sampled_coverage(input_p, resolved_ref, idx_stats, path, region)
     return {}
+
+
+def _coverage_path(
+    info_cmd: str | None, input_p: str, outdir: str, region: str | None
+) -> str:
+    stem = str(Path(outdir, Path(input_p).name)) + region_file_tag(region)
+    if info_cmd == "calculate-coverage":
+        return f"{stem}_coverage.tsv"
+    return f"{stem}_samplecvg.json"
 
 
 def reference_model_name(described: str) -> str:
@@ -271,7 +337,7 @@ def run(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
     if not args.input:
-        raise WGSExtractError("--input required.")
+        raise UsageError("--input required.")
 
     verify_paths_exist({"--input": args.input})
     logging.debug(f"Input file: {str(absolute_path(args.input))}")
@@ -309,18 +375,19 @@ def run(args: argparse.Namespace) -> None:
         if args.input.lower().endswith(".cram") and (
             not resolved_ref or not Path(resolved_ref).is_file()
         ):
-            raise WGSExtractError("--ref required for detailed mode with CRAM.")
-        run_depth_bins(
+            raise UsageError("--ref required for detailed mode with CRAM.")
+        bins_tsv = run_depth_bins(
             args.input,
             resolved_ref,
             sequence_lengths(header),
             args.outdir or str(absolute_path(args.input).parent),
             region,
         )
+        current_result().add_output(bins_tsv, "coverage_bins")
         return
 
     if detailed and args.input.lower().endswith(".cram") and not resolved_ref:
-        raise WGSExtractError("--ref required for detailed mode with CRAM.")
+        raise UsageError("--ref required for detailed mode with CRAM.")
 
     outdir = args.outdir or str(absolute_path(args.input).parent)
     if args.outdir:
@@ -357,7 +424,7 @@ def run(args: argparse.Namespace) -> None:
     if info_cmd is None:
         if not detailed and data.get("avg_read_len"):
             logging.debug("Cache hit for fast metrics.")
-            print(render_info(data, detailed=False))
+            _print_fast(data)
             return
         # The chromosome table hides chrY for a Female, so it is redone along
         # with the sex when the cached call came from an older infer_sex.
@@ -376,7 +443,7 @@ def run(args: argparse.Namespace) -> None:
     data["input_signature"] = signature
 
     if not detailed:
-        print(render_info(data, detailed=False))
+        _print_fast(data)
         _save_cache(json_cache, data)
         logging.debug(f"Total info time: {time.time() - start_time:.3f}s")
         return
@@ -388,6 +455,10 @@ def run(args: argparse.Namespace) -> None:
     coverage_map = _coverage_map(
         info_cmd, args.input, resolved_ref, idx_stats, outdir, region
     )
+    if info_cmd in COVERAGE_COMMANDS:
+        current_result().add_output(
+            _coverage_path(info_cmd, args.input, outdir, region), "coverage"
+        )
     data.update(
         _detailed_metrics(
             data, idx_stats, total_unmapped, coverage_map, load_n_counts(resolved_ref)

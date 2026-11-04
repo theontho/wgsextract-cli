@@ -57,8 +57,10 @@ from wgsextract_cli.core.microarray_utils import GenotypeTally
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem, resolve_reference_library
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.results import MANIFEST_SUFFIX, current_result, warn
 from wgsextract_cli.core.sample_ploidy import sex_samples_args
 from wgsextract_cli.core.utils import (
+    UsageError,
     WGSExtractError,
     get_resource_defaults,
 )
@@ -70,6 +72,9 @@ from wgsextract_cli.core.warnings import print_warning
 
 from ._microarray_combined import (
     _write_microarray_combined_kit,
+    record_kept,
+    record_kit,
+    record_microarray_run,
 )
 from ._microarray_vcf import (
     _alignment_chromosomes,
@@ -221,6 +226,7 @@ def _convert_microarray_outputs(
         except (OSError, ValueError) as e:
             raise WGSExtractError(f"Microarray liftover failed: {e}") from e
         final_txt = hg19_txt
+        record_kept(hg19_txt, outdir, "combined_kit_hg19")
         logging.info(f"Liftover took {time.time() - start_lift:.2f}s")
 
     # 4. Convert to vendor formats
@@ -273,6 +279,9 @@ def _convert_microarray_outputs(
                 WGSExtractError,
             ) as e:
                 raise WGSExtractError(f"Failed to generate AADR {panel}: {e}") from e
+            for path in sorted(Path(outdir).glob(f"{base_name}_AADR_{panel}.*")):
+                if path.is_file() and not path.name.endswith(MANIFEST_SUFFIX):
+                    current_result().add_output(path, "aadr", metrics={"panel": panel})
             written_panels.add(panel)
             continue
         real_fmt = _resolve_microarray_format(fmt_key)
@@ -300,6 +309,7 @@ def _convert_microarray_outputs(
             )
         except (OSError, ValueError, WGSExtractError) as e:
             raise WGSExtractError(f"Failed to generate {real_fmt}: {e}") from e
+        record_kit(output_file, real_fmt, tallies[real_fmt])
         logging.info(f"Generated {output_file}")
     fmt_duration = time.time() - start_fmt
     logging.info(f"Format conversion (all) took {fmt_duration:.2f}s")
@@ -323,7 +333,7 @@ def run(args: argparse.Namespace) -> None:
             "no vendor or mitochondrial strand is inferred."
         )
     if not args.input:
-        raise WGSExtractError(LOG_MESSAGES["input_required"])
+        raise UsageError(LOG_MESSAGES["input_required"])
     verify_paths_exist({"--input": args.input})
     indel_bindings = indel_manifest_bindings(args, _resolve_microarray_format)
 
@@ -463,6 +473,7 @@ def run(args: argparse.Namespace) -> None:
     # 1. Variant Calling or VCF Extraction
     base_name = input_stem(args.input)
     out_vcf = str(Path(calling_outdir, f"{base_name}_combined.vcf.gz"))
+    combined_vcf = out_vcf
     if not is_vcf:
         warn_about_alignment(args.input, ref_fasta)
     calling_args = args
@@ -488,8 +499,10 @@ def run(args: argparse.Namespace) -> None:
     elif lib.build and (is_hg37_build(lib.build) or is_hg38_build(lib.build)):
         ploidy_args = ["--ploidy", ploidy_for_build(lib.build)]
     else:
-        logging.warning(
-            f"Unknown reference build {lib.build!r}; calling all chromosomes diploid."
+        warn(
+            "build_unknown",
+            f"Unknown reference build {lib.build!r}; calling all chromosomes diploid.",
+            build=lib.build,
         )
         ploidy_args = ["--ploidy", "2"]
 
@@ -516,6 +529,9 @@ def run(args: argparse.Namespace) -> None:
             out_vcf=out_vcf,
             input_chroms=input_chroms,
         )
+        record_kept(combined_vcf, outdir, "combined_vcf")
+        if out_vcf != combined_vcf:
+            record_kept(out_vcf, outdir, "annotated_vcf")
         if indel_bindings:
             indel_calls = call_manifest_indels(
                 indel_bindings,
@@ -563,7 +579,12 @@ def run(args: argparse.Namespace) -> None:
         indel_calls=indel_calls,
         legacy_combined_kit_txt=legacy_combined_kit_txt,
     )
-    warn_about_genotypes(combined_kit_txt, tallies, check_no_calls=not args.region)
+    record_microarray_run(
+        outdir,
+        base_name,
+        combined_kit_txt,
+        warn_about_genotypes(combined_kit_txt, tallies, check_no_calls=not args.region),
+    )
 
 
 def register(

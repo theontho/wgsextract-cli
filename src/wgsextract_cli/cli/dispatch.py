@@ -1,11 +1,26 @@
 import argparse
+import contextlib
 import logging
+import signal
 import sys
 from pathlib import Path
 
 from wgsextract_cli.core.genome_library import apply_genome_selection
 from wgsextract_cli.core.keep_awake import keep_awake
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.results import (
+    EXIT_FAILURE,
+    EXIT_MISSING_DEPENDENCY,
+    EXIT_USAGE,
+    CommandResult,
+    collecting,
+    params_from_args,
+    stdout_reserved,
+)
+from wgsextract_cli.core.utils import (
+    MissingDependencyError,
+    UsageError,
+    WGSExtractError,
+)
 
 from .platform_support import verify_platform_support
 
@@ -14,13 +29,59 @@ from .platform_support import verify_platform_support
 READ_ONLY_COMMANDS = frozenset({"help", "config", "deps"})
 
 
+# Arguments that name a command's primary input files, and their manifest role.
+INPUT_ARGS = {
+    "input": "input",
+    "vcf_input": "vcf_input",
+    "r1": "fastq_r1",
+    "r2": "fastq_r2",
+}
+
+
 def dispatch_command(args: argparse.Namespace, explicit_dests: set[str]) -> None:
+    """Run the parsed command and exit with its status code.
+
+    Exit codes: 0 ok, 1 failure, 2 usage error, 3 missing dependency (and
+    128+N when stopped by signal N). The command's result manifest is written
+    next to its outputs; with --json it is also the only thing on stdout.
+    """
     if not hasattr(args, "func"):
         raise RuntimeError("No command function is registered for parsed arguments.")
 
+    as_json = bool(getattr(args, "json", False))
+    result = CommandResult(
+        command=getattr(args, "_command", None)
+        or str(getattr(args, "command", None) or "wgsextract")
+    )
+    result.provenance.argv = list(getattr(args, "_argv", None) or sys.argv[1:])
+    result.provenance.params = params_from_args(args)
+    reserved = stdout_reserved() if as_json else contextlib.nullcontext(sys.stdout)
+    with reserved as stdout, collecting(result, as_json=as_json):
+        _run(args, explicit_dests, result)
+        has_manifest = result.manifest_path() is not None
+        result.finalize(probe_tools=as_json or has_manifest)
+        try:
+            if has_manifest:
+                result.write_manifest()
+        except OSError as e:
+            logging.warning(f"Could not write the result manifest: {e}")
+        if as_json:
+            stdout.write(result.to_json())
+            stdout.flush()
+    if result.exit_code:
+        sys.exit(result.exit_code)
+
+
+def _run(
+    args: argparse.Namespace, explicit_dests: set[str], result: CommandResult
+) -> None:
     try:
         verify_platform_support(args)
         apply_genome_selection(args, set(explicit_dests))
+        for dest, role in INPUT_ARGS.items():
+            value = getattr(args, dest, None)
+            if isinstance(value, str) and value and Path(value).expanduser().exists():
+                result.add_input(value, role)
         input_path = getattr(args, "input", None)
         if (
             input_path
@@ -49,12 +110,30 @@ def dispatch_command(args: argparse.Namespace, explicit_dests: set[str]) -> None
                 else:
                     with run_temporary_directory(getattr(args, "tmp_dir", None)):
                         args.func(args)
+    except UsageError as e:
+        logging.error(str(e))
+        result.fail("usage", str(e), EXIT_USAGE)
+    except MissingDependencyError as e:
+        logging.error(str(e))
+        result.fail("missing_dependency", str(e), EXIT_MISSING_DEPENDENCY)
     except WGSExtractError as e:
         logging.error(str(e))
-        sys.exit(1)
+        result.fail("failure", str(e), EXIT_FAILURE)
+    except KeyboardInterrupt:
+        logging.error("Interrupted.")
+        result.fail("cancelled", "Interrupted.", 128 + signal.SIGINT)
+    except SystemExit as e:
+        code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+        if isinstance(e.code, str):
+            logging.error(e.code)
+        if code > 128:
+            result.fail("cancelled", f"Stopped by signal {code - 128}.", code)
+        elif code:
+            message = e.code if isinstance(e.code, str) else f"Exited with code {code}."
+            result.fail("usage" if code == EXIT_USAGE else "failure", message, code)
     except Exception as e:
-        if args.debug:
+        if getattr(args, "debug", False):
             logging.exception("An unexpected error occurred:")
         else:
             logging.error(f"An unexpected error occurred: {e}")
-        sys.exit(1)
+        result.fail("failure", f"An unexpected error occurred: {e}", EXIT_FAILURE)

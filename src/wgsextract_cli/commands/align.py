@@ -35,6 +35,7 @@ from wgsextract_cli.core.samtools_commands import parse_memory
 from wgsextract_cli.core.sequencing import input_platform
 from wgsextract_cli.core.temp_directory import configured_temp_directory
 from wgsextract_cli.core.utils import (
+    UsageError,
     WGSExtractError,
     get_resource_defaults,
     get_sam_index_cmd,
@@ -375,7 +376,7 @@ def _prepare_alignment(
     threads, memory = get_resource_defaults(args.threads, args.memory)
 
     if not args.r1:
-        raise WGSExtractError("--r1 is required unless --genome resolves read inputs.")
+        raise UsageError("--r1 is required unless --genome resolves read inputs.")
     paths_to_check = (
         {f"read input {index + 1}": path for index, path in enumerate(read_paths)}
         if read_paths is not None
@@ -396,7 +397,7 @@ def _prepare_alignment(
         _require_unambiguous_library(args.ref, task)
     resolved_ref = resolve_reference(args.ref, md5_sig)
     if not resolved_ref or not Path(resolved_ref).is_file():
-        raise WGSExtractError(LOG_MESSAGES["ref_required_for"].format(task=task))
+        raise UsageError(LOG_MESSAGES["ref_required_for"].format(task=task))
     logging.info(f"Aligning to {resolved_ref}")
 
     stem = reads_stem(args.r1)

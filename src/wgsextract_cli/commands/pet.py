@@ -16,6 +16,7 @@ from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.read_counts import fastq_input_reads
 from wgsextract_cli.core.reference_assets import is_fasta_path
 from wgsextract_cli.core.utils import (
+    UsageError,
     WGSExtractError,
     get_resource_defaults,
     run_command,
@@ -65,7 +66,7 @@ def run(args: argparse.Namespace) -> None:
     log_dependency_info(["bwa", "samtools", "bcftools"])
 
     if not args.r1:
-        raise WGSExtractError("--r1 is required unless --genome resolves FASTQ inputs.")
+        raise UsageError("--r1 is required unless --genome resolves FASTQ inputs.")
     paths_to_check = {"--r1": args.r1}
     if args.r2:
         paths_to_check["--r2"] = args.r2
@@ -74,7 +75,7 @@ def run(args: argparse.Namespace) -> None:
     threads, memory = get_resource_defaults(args.threads, args.memory)
 
     if not args.ref:
-        raise WGSExtractError(LOG_MESSAGES["ref_required"])
+        raise UsageError(LOG_MESSAGES["ref_required"])
     # A FASTA path is used as given; anything else is a reference library.
     if is_fasta_path(args.ref):
         ref_file = args.ref

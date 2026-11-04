@@ -36,6 +36,7 @@ from wgsextract_cli.core.reference_assets import (
 from wgsextract_cli.core.reference_ncount import write_n_count_files
 from wgsextract_cli.core.reference_processing import has_ref_ns
 from wgsextract_cli.core.utils import (
+    UsageError,
     WGSExtractError,
     run_command,
 )
@@ -59,7 +60,7 @@ def cmd_index(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools", aligner])
     log_dependency_info(["samtools", aligner])
     if not args.ref:
-        raise WGSExtractError("--ref is required.")
+        raise UsageError("--ref is required.")
 
     verify_paths_exist({"--ref": args.ref})
 
@@ -89,7 +90,7 @@ def cmd_index(args: argparse.Namespace) -> None:
 def cmd_count_ns(args: argparse.Namespace) -> None:
     """Write <ref>_ncnt.csv / <ref>_nbin.csv next to the FASTA, or into --outdir."""
     if not args.ref:
-        raise WGSExtractError("--ref is required.")
+        raise UsageError("--ref is required.")
 
     verify_paths_exist({"--ref": args.ref})
 
@@ -172,7 +173,7 @@ def cmd_ref_verify(args: argparse.Namespace) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
     if not args.ref:
-        raise WGSExtractError("--ref is required.")
+        raise UsageError("--ref is required.")
 
     # Auto-resolve ref if a directory was provided
     resolved_ref = resolve_reference(args.ref, "")

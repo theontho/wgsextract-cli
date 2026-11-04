@@ -32,6 +32,7 @@ from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.sequencing import input_platform
 from wgsextract_cli.core.utils import (
+    UsageError,
     WGSExtractError,
     get_resource_defaults,
     popen,
@@ -443,7 +444,7 @@ def cmd_pileup(args: argparse.Namespace) -> None:
     require_supported_platform()
     options = pileup_options(args)
     if not args.input:
-        raise WGSExtractError("--input (a BAM or CRAM file) is required.")
+        raise UsageError("--input (a BAM or CRAM file) is required.")
     if not args.input.lower().endswith((".bam", ".cram")):
         raise WGSExtractError("--input must be a coordinate-sorted BAM or CRAM.")
     verify_paths_exist({"--input": args.input})
