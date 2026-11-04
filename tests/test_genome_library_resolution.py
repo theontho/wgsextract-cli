@@ -275,6 +275,73 @@ def test_a_symlinked_genome_folder_is_allowed(library, tmp_path):
     assert _select("ken", command="info").input == str(library / "ken" / "ken.bam")
 
 
+def test_a_nested_genome_id_resolves_to_its_own_folder(library):
+    genome = library / "test-1000genomes" / "na12878-lowcov-bam"
+    genome.mkdir(parents=True)
+    (genome / "na12878.bam").write_text("x")
+
+    args, explicit = parse_args(
+        *build_parser(), ["--genome", "test-1000genomes/na12878-lowcov-bam/", "info"]
+    )
+    apply_genome_selection(args, explicit)
+
+    assert (args.input, args.outdir, args.genome_dir) == (
+        str(genome / "na12878.bam"),
+        str(genome),
+        str(genome),
+    )
+    assert (genome / GENOME_CONFIG_NAME).is_file()
+
+
+@pytest.mark.parametrize(
+    "genome_id",
+    [
+        "",
+        " ",
+        ".",
+        "..",
+        "./ken",
+        "../ken",
+        "ken/..",
+        "a/../ken",
+        "a//ken",
+        "/ken",
+        "//server/share/ken",
+        "ken\\x",
+        "..\\ken",
+        "\\\\server\\share",
+        "C:\\ken",
+        "C:ken",
+        "C:/ken",
+    ],
+)
+def test_genome_ids_that_could_escape_the_library_are_refused(library, genome_id):
+    _genome(library, "ken", "ken.bam")
+    with pytest.raises(WGSExtractError, match="Genome ID"):
+        _select(genome_id, command="info")
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="needs symlinks")
+def test_a_link_out_of_the_library_on_the_way_to_a_genome_is_refused(library, tmp_path):
+    outside = tmp_path / "elsewhere"
+    (outside / "ken").mkdir(parents=True)
+    (outside / "ken" / "ken.bam").write_text("x")
+    (library / "people").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(WGSExtractError, match="cannot escape genome_library"):
+        _select("people/ken", command="info")
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="needs symlinks")
+@pytest.mark.parametrize("target", ["library", "parent"])
+def test_a_genome_linked_to_the_library_or_above_is_refused(library, target):
+    destination = library if target == "library" else library.parent
+    (library / "loop").symlink_to(destination, target_is_directory=True)
+
+    with pytest.raises(WGSExtractError, match="cannot escape genome_library"):
+        _select("loop", command="info")
+
+
 @pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs chmod")
 def test_a_read_only_genome_folder_still_resolves(library):
     genome = _genome(library, "ken", "ken.bam")
