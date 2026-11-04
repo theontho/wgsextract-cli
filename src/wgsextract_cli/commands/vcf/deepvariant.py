@@ -126,7 +126,7 @@ def _model_type(args: argparse.Namespace, ref: str | None = None) -> str:
         or getattr(args, "wes", False)
         or (ont and model not in (None, "ONT_R104"))
     ):
-        raise WGSExtractError(
+        raise UsageError(
             "--ont/--model-type ONT_R104 cannot be combined with "
             "--pacbio, --wes or a different --model-type."
         )
@@ -533,18 +533,19 @@ _PARABRICKS_MODES = {
 def _deepvariant_gpu(args: argparse.Namespace) -> None:
     from wgsextract_cli.core.parabricks import call_variants, verify_parabricks
 
-    refusal = WGSExtractError(
+    refusal = (
         "--gpu (Parabricks) runs DeepVariant's WGS, WES, PACBIO and ONT_R104 models; "
         "use the CPU version for --checkpoint, ULTIMA or HYBRID_PACBIO_ILLUMINA."
     )
+    # The options chose an unsupported model (usage); below, the input did.
     if _model_type(args) not in _PARABRICKS_MODES or args.checkpoint:
-        raise refusal
+        raise UsageError(refusal)
     verify_dependencies(["samtools", "tabix"])
     verify_parabricks()
     _threads, outdir, ref, _lib = get_base_args(args)
     model_type = _model_type(args, ref)
     if model_type not in _PARABRICKS_MODES:
-        raise refusal
+        raise WGSExtractError(refusal)
     _require_ont_x86(model_type)
     if model_type == "ONT_R104":
         _warn_ont_chemistry(args.input, ref)

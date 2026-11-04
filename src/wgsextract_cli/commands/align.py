@@ -159,24 +159,24 @@ def select_aligner(args: argparse.Namespace) -> str:
     long_read = args.long_read or args.platform in _LONG_READ_PLATFORMS
     aligner: str = args.aligner
     if args.platform in {"ont", "nanopore"} and getattr(args, "gpu", False):
-        raise WGSExtractError(
+        raise UsageError(
             "ONT --gpu alignment is not qualified to preserve MM/ML methylation "
             "tags. Align without --gpu to keep them with samtools/minimap2."
         )
     if args.platform == "ultima":
         require_native_tool("gatk")
         if aligner not in ("auto", *_BWA_ALIGNERS) or long_read or args.preset:
-            raise WGSExtractError(
+            raise UsageError(
                 "Ultima reads align with BWA-MEM (--aligner auto, bwa or bwa-mem2), "
                 "as Ultima's and Broad's pipelines do."
             )
         if getattr(args, "gpu", False):
-            raise WGSExtractError(
+            raise UsageError(
                 "--gpu (Parabricks) doesn't keep Ultima's flow tags (tp, t0) or "
                 "mark flow-based duplicates; align Ultima reads without --gpu."
             )
         if getattr(args, "r2", None):
-            raise WGSExtractError("Ultima reads are single-end: drop --r2.")
+            raise UsageError("Ultima reads are single-end: drop --r2.")
         return "bwa" if aligner == "auto" else aligner
     if aligner == "auto":
         if args.platform in _PACBIO_PLATFORMS and get_tool_path("pbmm2") is not None:
@@ -188,23 +188,23 @@ def select_aligner(args: argparse.Namespace) -> str:
 
     if aligner in _BWA_ALIGNERS:
         if long_read:
-            raise WGSExtractError(
+            raise UsageError(
                 "BWA-MEM is a short-read aligner; use --aligner minimap2 "
                 "(or pbmm2 for PacBio) for long reads."
             )
         if args.preset:
-            raise WGSExtractError("--preset applies to minimap2 and pbmm2, not BWA.")
+            raise UsageError("--preset applies to minimap2 and pbmm2, not BWA.")
         if aligner == "bwa-mem2" and getattr(args, "gpu", False):
-            raise WGSExtractError(
+            raise UsageError(
                 "--gpu aligns with Parabricks' own BWA-MEM; use --aligner bwa or auto."
             )
     elif aligner == "pbmm2":
         if args.platform in {"ont", "nanopore"}:
-            raise WGSExtractError(
+            raise UsageError(
                 "pbmm2 only aligns PacBio reads; use --aligner minimap2 for ONT."
             )
         if args.preset and args.preset not in _PBMM2_PRESETS:
-            raise WGSExtractError(
+            raise UsageError(
                 "PacBio pbmm2 alignment supports --preset map-hifi, map-pb, ccs, "
                 "or subread."
             )
@@ -360,7 +360,7 @@ def _require_unambiguous_library(ref: str | None, task: str) -> None:
     )
     if len(fastas) > 1:
         listed = "\n  ".join(fastas)
-        raise WGSExtractError(
+        raise UsageError(
             f"{task} needs the genome FASTA to align to: pass --ref <FASTA>. "
             f"The reference library has {len(fastas)}:\n  {listed}"
         )
@@ -906,14 +906,12 @@ def _run_gpu(args: argparse.Namespace, aligner: str) -> None:
             "ccs",
             "map-hifi",
         ):
-            raise WGSExtractError(
-                "--gpu aligns PacBio HiFi/CCS reads, not CLR/subreads."
-            )
+            raise UsageError("--gpu aligns PacBio HiFi/CCS reads, not CLR/subreads.")
         _align_gpu_minimap2(args, "map-pbmm2")
         return
     preset = _minimap2_preset(args)
     if preset not in _GPU_MINIMAP2_PRESETS:
-        raise WGSExtractError(
+        raise UsageError(
             f"--gpu has no minimap2 preset for {preset}: it aligns HiFi (map-hifi) "
             "and ONT (map-ont) long reads, and short reads with --aligner bwa."
         )
@@ -1135,7 +1133,7 @@ def align_minimap2(args: argparse.Namespace) -> None:
 
 def align_pbmm2(args: argparse.Namespace) -> None:
     if configured_temp_directory() and not getattr(args, "gpu", False):
-        raise WGSExtractError(
+        raise UsageError(
             "Native pbmm2's internal sorter does not support --tmp-dir. Use --aligner minimap2 or omit the temporary-directory setting."
         )
     if args.r2:
@@ -1150,7 +1148,7 @@ def align_pbmm2(args: argparse.Namespace) -> None:
 
     preset_arg = args.preset or ("subread" if args.platform == "clr" else "ccs")
     if preset_arg not in _PBMM2_PRESETS:
-        raise WGSExtractError(
+        raise UsageError(
             "PacBio pbmm2 alignment supports --preset map-hifi, map-pb, ccs, or subread."
         )
     preset = _PBMM2_PRESETS[preset_arg]

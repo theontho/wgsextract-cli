@@ -263,9 +263,9 @@ def _write_region_bed(region: str, ref: str, bed_path: str) -> None:
         start = int(start_text) if start_text else 1
         end = int(end_text) if end_text else lengths[chrom]
     except ValueError as e:
-        raise WGSExtractError(f"Invalid region: {region}") from e
+        raise UsageError(f"Invalid region: {region}") from e
     if start < 1 or end < start:
-        raise WGSExtractError(f"Invalid region: {region}")
+        raise UsageError(f"Invalid region: {region}")
     with open(bed_path, "w", newline="\n") as f:
         f.write(f"{chrom}\t{start - 1}\t{end}\n")
 

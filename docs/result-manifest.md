@@ -100,14 +100,22 @@ as generic warnings.
 How refusals are classified:
 
 - **Your option choice is unsupported → 2.** Conflicting flags (`vcf sv
-  --pacbio --ont`, `align --r2` with ONT or pbmm2 reads, `vcf gatk --scatter
-  --gpu`, a `--batch-size` that is not positive), and options this platform
-  cannot honour while the command itself can run: `--gpu` off Linux x86-64,
-  and `--aligner pbmm2` on Windows. Choosing different options fixes the run.
+  --pacbio --ont`, `align --r2` with ONT, Ultima or pbmm2 reads, `vcf gatk
+  --scatter --gpu`, a `--batch-size` that is not positive), aligner, preset
+  and platform combinations that `align` and `realign` refuse (`--preset` with
+  BWA, BWA for long reads, pbmm2 for ONT, `--gpu` with ONT, Ultima,
+  `bwa-mem2`, PacBio CLR/subreads or a minimap2 preset Parabricks lacks, pbmm2
+  with a temporary directory), `vcf deepvariant --gpu` with `--checkpoint` or
+  a model Parabricks lacks, conflicting DeepVariant model selectors, a Clair3
+  `--model` for another platform, a malformed `vcf sv --region`, and options
+  this platform cannot honour while the command itself can run: `--gpu` off
+  Linux x86-64, and `--aligner pbmm2` on Windows. Choosing different options
+  fixes the run.
 - **The command or input is unsupported here → 1.** A command with no native
   build on this platform (for example `vep`, `typing`, `vcf deepvariant` or
   `vcf sv` on Windows), or an input that needs one (Ultima reads needing
-  GATK). No choice of options would help.
+  GATK, or `vcf deepvariant --gpu` on reads it detects as Ultima). No choice
+  of options would help.
 - **A required tool is missing → 3.** This includes `deps check` when a
   mandatory tool is missing, `deps check --tool NAME` when `NAME` is not
   found, and a missing container setup (Docker or its daemon, an image, or for

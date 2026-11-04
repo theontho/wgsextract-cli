@@ -549,6 +549,9 @@ def test_cli_failed_run_reports_failure_with_exit_1(tmp_path):
     [
         ["vcf", "sv", "--pacbio", "--ont"],
         ["vcf", "deepvariant", "--batch-size", "0"],
+        ["vcf", "deepvariant", "--gpu", "--checkpoint", "model.ckpt"],
+        ["vcf", "deepvariant", "--ont", "--pacbio"],
+        ["realign", "--aligner", "bwa", "--preset", "map-ont"],
     ],
 )
 def test_cli_conflicting_options_exit_2_before_any_work(tmp_path, argv):
@@ -562,6 +565,35 @@ def test_cli_conflicting_options_exit_2_before_any_work(tmp_path, argv):
     assert_valid(document)
     assert rc == document["exit_code"] == 2 and document["error"]["kind"] == "usage"
     assert not list(outdir.glob("*.vcf.gz"))
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="these commands are refused on Windows (exit 1)"
+)
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["align", "--platform", "ont", "--gpu"],
+        ["align", "--aligner", "bwa", "--preset", "map-ont"],
+        ["align", "--aligner", "bwa", "--long-read"],
+        ["align", "--aligner", "bwa-mem2", "--gpu"],
+        ["align", "--aligner", "pbmm2", "--platform", "ont"],
+        ["align", "--aligner", "pbmm2", "--platform", "clr", "--gpu"],
+    ],
+)
+def test_cli_conflicting_align_options_exit_2(tmp_path, argv):
+    ensure_fake_data(str(FAKE_DIR))
+    reads = tmp_path / "reads.fastq"
+    reads.write_text("@r1\nACGT\n+\nIIII\n")
+    outdir = tmp_path / "out"
+    rc, stdout, _ = run_cli(
+        [*argv, "--r1", str(reads), "--ref", str(FAKE_DIR / "fake_ref.fa")]
+        + ["--outdir", str(outdir), "--json"]
+    )
+    document = json.loads(stdout)
+    assert_valid(document)
+    assert rc == document["exit_code"] == 2 and document["error"]["kind"] == "usage"
+    assert not list(outdir.glob("*.bam"))
 
 
 def test_cli_deps_check_for_a_missing_tool_exits_3():

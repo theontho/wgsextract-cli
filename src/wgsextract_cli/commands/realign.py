@@ -267,7 +267,7 @@ def _refuse_unpaired_reads(path: str, cram_opt: list[str]) -> None:
 
 def run(args: argparse.Namespace) -> None:
     if not args.input:
-        raise WGSExtractError(
+        raise UsageError(
             "--input <BAM|CRAM> is required for realign. Pass it before the "
             "subcommand or via --input."
         )
@@ -288,7 +288,7 @@ def run(args: argparse.Namespace) -> None:
         and configured_temp_directory()
         and not getattr(args, "gpu", False)
     ):
-        raise WGSExtractError(
+        raise UsageError(
             "Native pbmm2's internal sorter does not support --tmp-dir. Use --aligner minimap2 or omit the temporary-directory setting."
         )
     signature = None
