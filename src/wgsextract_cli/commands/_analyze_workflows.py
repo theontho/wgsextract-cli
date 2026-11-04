@@ -11,7 +11,7 @@ from typing import TypedDict
 from wgsextract_cli.core import variant_confidence
 from wgsextract_cli.core.config import config_args
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
-from wgsextract_cli.core.results import MANIFEST_SUFFIX, current_result, warn
+from wgsextract_cli.core.results import Scalar, current_result, warn
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
@@ -185,6 +185,7 @@ def run_cli_subcommand(cmd_args: list[str], args: argparse.Namespace) -> None:
         "-m",
         "wgsextract_cli.main",
         *config_args(keep_awake=getattr(args, "keep_awake", None)),
+        "--json",
         *cmd_args,
     ]
 
@@ -211,55 +212,53 @@ def run_cli_subcommand(cmd_args: list[str], args: argparse.Namespace) -> None:
     if getattr(args, "force", False):
         cmd.append("--force")
 
-    step_dir = (
-        Path(cmd_args[cmd_args.index("--outdir") + 1])
-        if "--outdir" in cmd_args
-        else None
-    )
-    before = _manifests_in(step_dir)
     try:
-        # Not captured, so the subcommand's progress reaches the terminal live.
-        run_command(cmd)
+        # Only the result document is captured: the step's progress goes to
+        # stderr, which still reaches the terminal live.
+        proc = run_command(cmd, stdout=subprocess.PIPE)
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+        record_step_result(getattr(e, "stdout", None))
         logging.warning(f"Subcommand failed: {' '.join(cmd)}. Error: {e}")
         raise WGSExtractError("Subcommand failed: " + " ".join(cmd)) from e
-    finally:
-        for path, stamp in _manifests_in(step_dir).items():
-            if before.get(path) != stamp:
-                record_step_manifest(path)
+    record_step_result(proc.stdout)
 
 
-def _manifests_in(directory: Path | None) -> dict[Path, int]:
-    """Result manifests directly in a step's output folder, with their mtimes."""
-    if directory is None:
+def _scalars(values: object) -> dict[str, Scalar]:
+    if not isinstance(values, dict):
         return {}
-    try:
-        return {
-            path: path.stat().st_mtime_ns
-            for path in directory.glob(f"*{MANIFEST_SUFFIX}")
-        }
-    except OSError:
-        return {}
+    return {
+        str(key): value
+        for key, value in values.items()
+        if value is None or isinstance(value, str | int | float | bool)
+    }
 
 
-def record_step_manifest(path: Path) -> None:
-    """Carry a step's manifest, outputs and warnings into this run's result."""
+def record_step_result(document: str | bytes | None) -> None:
+    """Carry a step's ``--json`` result into this run's: its manifest, its
+    outputs with their metrics and its warnings with their details."""
     try:
-        step = json.loads(path.read_text(encoding="utf-8"))
+        step = json.loads(document or "")
         command = str(step["command"])
         outputs = list(step.get("outputs") or [])
         warnings = list(step.get("warnings") or [])
-    except (OSError, ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError, AttributeError):
         return
     result = current_result()
-    result.add_output(path, "step_manifest", kind="json")
+    if step.get("manifest"):
+        result.add_output(step["manifest"], "step_manifest", kind="json")
     for output in outputs:
         if isinstance(output, dict) and output.get("path") and output.get("role"):
-            result.add_output(output["path"], output["role"], kind=output.get("kind"))
+            result.add_output(
+                output["path"],
+                output["role"],
+                kind=output.get("kind"),
+                metrics=_scalars(output.get("metrics")),
+            )
     for item in warnings:
         if isinstance(item, dict) and item.get("code"):
             # The step already logged it; record it without logging it twice.
-            result.warn(str(item["code"]), str(item.get("message", "")), step=command)
+            details = {**_scalars(item.get("details")), "step": command}
+            result.warn(str(item["code"]), str(item.get("message", "")), **details)
 
 
 def run_vcf_workflow(

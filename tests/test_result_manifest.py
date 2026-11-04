@@ -877,4 +877,23 @@ def test_analyze_carries_each_steps_manifest_outputs_and_warnings(tmp_path):
     step = json.loads(Path(roles["step_manifest"].path).read_text())
     assert step["command"] == "qc vcf"
     assert {o["path"] for o in step["outputs"]} <= {o.path for o in result.outputs}
-    assert "vcf_stats" in roles
+    (stats,) = (o for o in step["outputs"] if o["role"] == "vcf_stats")
+    assert roles["vcf_stats"].metrics == stats["metrics"] and stats["metrics"]
+
+
+@needs_htslib
+def test_analyze_keeps_warnings_of_steps_that_write_no_manifest(tmp_path):
+    from wgsextract_cli.commands._analyze_workflows import run_cli_subcommand
+
+    bam = _write_small_bam(tmp_path, "a", reads_per_contig=3)
+    args = argparse.Namespace(ref=None, input=None, threads=1, debug=False)
+    result = results.CommandResult("analyze comprehensive")
+    with results.collecting(result):
+        run_cli_subcommand(
+            ["info", "--detailed", "--input", str(bam), "--outdir", str(tmp_path)],
+            args,
+        )
+    assert not list(tmp_path.glob("*.manifest.json"))
+    (low,) = (w for w in result.warnings if w.code == "low_coverage")
+    assert low.details["step"] == "info"
+    assert len(low.details) > 1  # depth and threshold survive, not just the step

@@ -9,6 +9,7 @@ import argparse
 import csv
 import json
 import shutil
+import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -455,7 +456,11 @@ def test_subcommand_forwards_ref_threads_debug_force_and_config(
     flag: str | None,
 ) -> None:
     seen: list[list[str]] = []
-    monkeypatch.setattr(wf, "run_command", lambda cmd: seen.append(cmd))
+    monkeypatch.setattr(
+        wf,
+        "run_command",
+        lambda cmd, **_: seen.append(cmd) or subprocess.CompletedProcess(cmd, 0, b""),
+    )
     own = tmp_path / "own.toml"
     monkeypatch.setattr(config, "_config_path_override", own)
     monkeypatch.setitem(config.settings, "keep_awake", configured)
@@ -467,6 +472,7 @@ def test_subcommand_forwards_ref_threads_debug_force_and_config(
         "--config",
         str(own),
         *([flag] if flag else []),
+        "--json",
         "info",
         "--input",
         "x.bam",
@@ -483,7 +489,11 @@ def test_subcommand_without_ref_uses_the_configured_library(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     seen: list[list[str]] = []
-    monkeypatch.setattr(wf, "run_command", lambda cmd: seen.append(cmd))
+    monkeypatch.setattr(
+        wf,
+        "run_command",
+        lambda cmd, **_: seen.append(cmd) or subprocess.CompletedProcess(cmd, 0, b""),
+    )
     settings["reference_library"] = str(tmp_path)
     wf.run_cli_subcommand(["vcf", "snp"], _args(input="calls.vcf.gz"))
     del settings["reference_library"]
@@ -495,7 +505,7 @@ def test_subcommand_without_ref_uses_the_configured_library(
 def test_subcommand_failure_raises_with_the_command_line(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def boom(cmd: list[str]) -> None:
+    def boom(cmd: list[str], **_: object) -> None:
         raise OSError("exec failed")
 
     monkeypatch.setattr(wf, "run_command", boom)
