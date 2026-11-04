@@ -8,7 +8,12 @@ import pytest
 from tests.htslib_helpers import bgzip_index, needs_htslib, run_wgsextract
 from wgsextract_cli.core.results import CommandResult, collecting
 from wgsextract_cli.core.utils import run_command
-from wgsextract_cli.core.variant_table import COLUMN_NAMES, parse_header, variant_rows
+from wgsextract_cli.core.variant_table import (
+    COLUMN_NAMES,
+    parse_header,
+    variant_rows,
+    vep_allele,
+)
 
 CSQ = (
     "Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|BIOTYPE|HGVSc|"
@@ -347,6 +352,31 @@ def test_split_record_uses_its_original_allele_num():
     rows = _rows(records, CSQ + "|ALLELE_NUM")
     assert rows[("400", "C")]["hgvs_c"] == "c.1A>C"
     assert rows[("400", "G")]["hgvs_c"] == "c.1A>G"
+
+
+@pytest.mark.parametrize(
+    ("ref", "alts", "csq_allele"),
+    [
+        # VEP leaves spanning deletions out of the shared-first-base test.
+        ("GT", "G,*", "-"),
+        # <*> is an ordinary allele to VEP, not a structural variant.
+        ("GT", "G,<*>", "-"),
+        ("A", "AT,<*>", "T"),
+    ],
+)
+def test_star_alleles_dont_stop_vep_trimming(ref, alts, csq_allele):
+    record = _record("chr1", "500", ".", ref, alts, "40", "PASS",
+                     f"CSQ={_csq(csq_allele, 'c.9del')}", "GT", "1/2")  # fmt: skip
+    rows = _rows([record])
+    assert list(rows) == [("500", alts.split(",")[0])]
+    assert rows[("500", alts.split(",")[0])]["hgvs_c"] == "c.9del"
+
+
+def test_vep_allele_follows_vep():
+    assert vep_allele("GT", ["G", "*"], "*") == "*"
+    assert vep_allele("A", ["C", "<*>"], "C") == "C"
+    assert vep_allele("GT", ["*"], "*") == "*"
+    assert vep_allele("A", ["<DEL>", "AT"], "AT") == "AT"
 
 
 def test_vep_spelling_wins_over_raw_alt_without_allele_num():

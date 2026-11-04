@@ -245,17 +245,28 @@ def _per_allele(raw: str | None, number: str | None, alt_index: int) -> str | No
     return _value(raw)
 
 
+# Ensembl VEP's test for a structural-variant ALT (<DEL>, breakends), which it
+# names differently; <*> doesn't match it (Parser/VCF.pm, release 113).
+_SV_ALT = re.compile(r"[<\[\]][^*]+[>\]\[]|^\.\w+|\w+\.$")
+_BASES = re.compile(r"[ACGT]+")
+
+
 def vep_allele(ref: str, alts: Sequence[str], alt: str) -> str:
-    """How VEP names ``alt`` in CSQ: without the first base when REF and every
-    ALT share it (an indel's padding base), and '-' when that leaves nothing."""
-    alleles = [ref, *alts]
-    if (
-        any(len(a) != len(ref) for a in alts)
-        and all(a and not a.startswith("<") for a in alleles)
-        and len({a[0] for a in alleles}) == 1
-    ):
-        return alt[1:] or "-"
-    return alt
+    """How VEP names ``alt`` in CSQ, following its VCF parser: an indel record
+    loses its shared padding base ('-' when nothing is left). A multi-allelic
+    record is trimmed when every allele without a '*' (spanning deletions,
+    ``<*>``) starts with the same base, and those '*' alleles keep theirs."""
+    if not _BASES.fullmatch(ref + "".join(alts)) and _SV_ALT.search(",".join(alts)):
+        return alt
+    if all(len(a) == len(ref) for a in alts):
+        return alt
+    if len(alts) > 1:
+        first_bases = {a[:1] for a in (ref, *alts) if "*" not in a}
+        if len(first_bases) != 1 or "*" in alt:
+            return alt
+    elif ref[:1] != alt[:1]:
+        return alt
+    return alt[1:] or "-"
 
 
 def _severity(consequence: str) -> int:
