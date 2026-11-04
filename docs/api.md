@@ -92,6 +92,7 @@ BAM/CRAM. Metrics are cached next to the outputs as
 | `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
 | `detailed` | `bool` | `False` | `--detailed` | Perform full index and body sample analysis (detailed mode) |
+| `table_format` | `str \| None` | `None` | `--format` | Also save the per-chromosome table and the QC stats as <input>_chromosomes and <input>_qc .tsv or .parquet (needs pyarrow); implies --detailed. None saves no table. One of: `tsv`, `parquet` |
 
 ### `api.info.calculate_coverage(CalculateCoverageParams)`
 
@@ -108,6 +109,7 @@ Exact coverage; outputs the coverage table (or the depth-bins TSV).
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
 | `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM, chrY:10000-20000) |
 | `bins` | `bool` | `False` | `--bins` | Report exact per-contig depth 0, 1-3, 4-7 and 8+ breadth in one streaming pass. |
+| `table_format` | `str \| None` | `None` | `--format` | Also save the per-chromosome table and the QC stats as <input>_chromosomes and <input>_qc .tsv or .parquet (needs pyarrow); implies --detailed; None saves none. With bins, the depth-band table's format instead (None: tsv). One of: `tsv`, `parquet` |
 
 ### `api.info.coverage_sample(CoverageSampleParams)`
 
@@ -123,6 +125,7 @@ Sampled coverage estimate; outputs the coverage table.
 | `ref` | `Path \| None` | `None` (config `reference_fasta`) | `--ref` | Reference FASTA or reference library folder; resolved from the input's header when omitted (default: config reference_fasta). |
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
 | `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM, chrY:10000-20000) |
+| `table_format` | `str \| None` | `None` | `--format` | Also save the per-chromosome table and the QC stats as <input>_chromosomes and <input>_qc .tsv or .parquet (needs pyarrow); implies --detailed. None saves no table. One of: `tsv`, `parquet` |
 
 ### `api.info.chip(ChipParams)`
 
@@ -282,6 +285,7 @@ settings) and then to the documented default.
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
 | `threads` | `int \| None` | `None` (config `cpu_threads`) | `--threads`, `-t` | CPU threads; None picks a count for this machine (default: config cpu_threads, else auto). |
 | `formats` | `str` | `'all'` | `--formats` | Comma-separated formats to generate, e.g. "23andme_v5,ancestry_v2" (default: "all", the combined kit only); see `wgsextract microarray --help` for the list. |
+| `table_format` | `str \| None` | `None` | `--format` | Also save the genotypes as <input>_genotypes.tsv or .parquet (needs pyarrow): rsID, chrom, pos (in the input's build) and genotype. None saves no table. One of: `tsv`, `parquet` |
 | `indel_manifest` | `tuple[str, ...]` | `[]` | `--indel-manifest` | Opt-in sequence-defined I/D probes from a matching GRCh37 Illumina CSV, gzip or ZIP; repeat per selected format |
 | `strand_ambiguous` | `str \| None` | `None` | `--strand-ambiguous` | Keep/no-call biallelic A/T or C/G input SNPs; unknown probe alleles are not inferred (default: config or keep) One of: `keep`, `no-call` |
 | `resolve_rsids` | `bool \| None` | `None` | `--resolve-rsids` | Resolve packaged dbSNP aliases and no-call retired/ambiguous marker IDs (default: config or false) |

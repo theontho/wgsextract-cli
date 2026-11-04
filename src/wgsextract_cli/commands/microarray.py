@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 from wgsextract_cli.api._cli import add_arguments, cli_handler
@@ -63,6 +63,13 @@ from wgsextract_cli.core.reference_assets import input_stem, resolve_reference_l
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.sample_ploidy import sex_samples_args
+from wgsextract_cli.core.table_writer import (
+    Column,
+    check_format,
+    provenance,
+    table_path,
+    write_table,
+)
 from wgsextract_cli.core.utils import (
     UsageError,
     WGSExtractError,
@@ -350,6 +357,8 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
 
     verify_dependencies(["bcftools", "tabix", "bgzip", "samtools"])
     log_dependency_info(["bcftools", "tabix", "bgzip", "samtools"])
+    table_format = getattr(args, "table_format", None)
+    check_format(table_format)
     is_vcf = args.input.endswith((".vcf", ".vcf.gz", ".bcf"))
     if getattr(args, "sample", None) and not is_vcf:
         raise UsageError(
@@ -427,7 +436,7 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
             if vcf_sample:
                 chm13_args = argparse.Namespace(**vars(args))
                 chm13_args.input = _sample_vcf(args.input, vcf_sample, outdir, cleanup)
-            run_chm13(
+            combined = run_chm13(
                 chm13_args,
                 lib,
                 ref_fasta,
@@ -440,6 +449,17 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
             )
         except (OSError, ValueError, subprocess.SubprocessError) as error:
             raise WGSExtractError(f"CHM13 microarray failed: {error}") from error
+        if table_format:
+            _export_genotypes(
+                str(combined),
+                table_path(Path(outdir, f"{base_name}_genotypes"), table_format),
+                table_format,
+                provenance(
+                    [args.input],
+                    reference_build="GRCh37 (projected from CHM13v2.0)",
+                    sorted_by="the CHM13 site map's GRCh37 order",
+                ),
+            )
         return
 
     if (
@@ -620,6 +640,17 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
         indel_calls=indel_calls,
         legacy_combined_kit_txt=legacy_combined_kit_txt,
     )
+    if table_format:
+        _export_genotypes(
+            combined_kit_txt,
+            table_path(Path(outdir, f"{base_name}_genotypes"), table_format),
+            table_format,
+            provenance(
+                [args.input],
+                reference_build=lib.build,
+                sorted_by="the combined target list's order",
+            ),
+        )
     record_microarray_run(
         outdir,
         base_name,
@@ -627,6 +658,37 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
         warn_about_genotypes(combined_kit_txt, tallies, check_no_calls=not args.region),
         sample=vcf_sample,
     )
+
+
+GENOTYPE_TABLE = (
+    Column("rsid", "TEXT", "Target ID: an rsID or a vendor probe ID."),
+    Column("chrom", "TEXT", "Chromosome, as in the input."),
+    Column(
+        "pos",
+        "INTEGER",
+        "1-based position in the input's build (GRCh37 for CHM13 inputs).",
+    ),
+    Column("genotype", "TEXT", "Called alleles, e.g. AG; -- is a no-call."),
+)
+
+
+def _export_genotypes(
+    combined_kit_txt: str, path: str, table_format: str, metadata: dict[str, str]
+) -> None:
+    """Save the combined kit's genotypes (every target, before liftover and
+    vendor formatting) as a typed table."""
+
+    def rows() -> Iterator[tuple[str, str, int, str]]:
+        with open(combined_kit_txt) as kit:
+            for line in kit:
+                if line.startswith("#") or not line.strip():
+                    continue
+                rsid, chrom, pos, genotype = line.rstrip("\n").split("\t")[:4]
+                yield rsid, chrom, int(pos), genotype
+
+    count = write_table(path, GENOTYPE_TABLE, rows(), table_format, metadata=metadata)
+    current_result().add_output(path, "genotype_table", metrics={"rows": count})
+    logging.info(f"Genotype table saved to {path}")
 
 
 def _vcf_input_layout(args: argparse.Namespace) -> tuple[str | None, bool]:

@@ -1,6 +1,5 @@
 """Exact depth-bucket breadth, without materializing per-base depth on disk."""
 
-import csv
 import logging
 import re
 import subprocess
@@ -10,6 +9,13 @@ from pathlib import Path
 from typing import IO
 
 from wgsextract_cli.core.results import human_output
+from wgsextract_cli.core.table_writer import (
+    Column,
+    Value,
+    table_path,
+    tsv_lines,
+    write_table,
+)
 from wgsextract_cli.core.utils import WGSExtractError, popen
 
 from .metrics import IdxStat
@@ -97,12 +103,35 @@ def count_depth_bins(
     return counts
 
 
+_BANDS = ("0", "1-3", "4-7", "8+")
+# The column names are the TSV's since --bins was added.
+BINS_TABLE = (
+    Column("Seq Name", "TEXT", "Contig."),
+    Column("Model Len", "INTEGER", "Contig (or --region) length in bases."),
+    *(
+        Column(f"Depth {band} bases", "INTEGER", f"Bases at depth {band}.")
+        for band in _BANDS
+    ),
+    *(
+        Column(
+            f"Depth {band} fraction",
+            "REAL",
+            f"Fraction of the length at depth {band}.",
+            ".8f",
+        )
+        for band in _BANDS
+    ),
+)
+
+
 def run_depth_bins(
     input_path: str,
     reference: str | None,
     lengths: Mapping[str, int],
     outdir: str,
     region: str | None = None,
+    table_format: str = "tsv",
+    metadata: Mapping[str, str] | None = None,
 ) -> Path:
     """One samtools depth pass, default filters, both overlapping mates counted."""
     Path(outdir).mkdir(parents=True, exist_ok=True)
@@ -140,47 +169,18 @@ def run_depth_bins(
     # No reuse of potentially stale region/reference/filter-specific results.
     from .render import region_file_tag
 
-    output = Path(
-        outdir, Path(input_path).name + region_file_tag(region) + "_coverage_bins.tsv"
-    )
-    temporary: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", newline="", dir=outdir, delete=False
-        ) as f:
-            temporary = Path(f.name)
-            writer = csv.writer(f, delimiter="\t", lineterminator="\n")
-            writer.writerow(
-                [
-                    "Seq Name",
-                    "Model Len",
-                    "Depth 0 bases",
-                    "Depth 1-3 bases",
-                    "Depth 4-7 bases",
-                    "Depth 8+ bases",
-                    "Depth 0 fraction",
-                    "Depth 1-3 fraction",
-                    "Depth 4-7 fraction",
-                    "Depth 8+ fraction",
-                ]
-            )
-            for name, bins in counts.items():
-                length = selected[name]
-                writer.writerow(
-                    [
-                        name,
-                        length,
-                        *bins,
-                        *(
-                            f"{count / length:.8f}" if length else "0.00000000"
-                            for count in bins
-                        ),
-                    ]
-                )
-        temporary.replace(output)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
-    human_output(output.read_text(), end="")
+    stem = Path(input_path).name + region_file_tag(region) + "_coverage_bins"
+    output = Path(table_path(Path(outdir, stem), table_format))
+    rows: list[tuple[Value, ...]] = [
+        (
+            name,
+            selected[name],
+            *bins,
+            *(count / selected[name] if selected[name] else 0.0 for count in bins),
+        )
+        for name, bins in counts.items()
+    ]
+    write_table(output, BINS_TABLE, rows, table_format, metadata=metadata)
+    human_output(tsv_lines(BINS_TABLE, rows), end="")
     logging.info("Depth-bin report saved to %s", output)
     return output

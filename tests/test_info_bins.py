@@ -196,3 +196,23 @@ def test_bins_honor_exact_name_before_mitochondrial_aliases(tmp_path, capsys, re
     assert rows[0]["Seq Name"] == "MT"
     assert rows[0]["Model Len"] == ("10" if region == "MT" else "4")
     assert rows[0]["Depth 1-3 bases"] == "2"
+
+
+@needs_samtools
+def test_bins_parquet_holds_the_printed_table(tmp_path: Path, capsys):
+    pq = pytest.importorskip("pyarrow.parquet")
+    lines = ["@SQ\tSN:chrY\tLN:4", "@SQ\tSN:chrM\tLN:3"]
+    lines += [f"r{i}\t0\tchrY\t{i}\t60\t1M\t*\t0\t0\tA\tI" for i in (1, 2, 2)]
+    bam = sam_to_bam(lines, tmp_path / "tiny.bam")
+    out = tmp_path / "o"
+    run_wgsextract(
+        "info", "calculate-coverage", "--bins", "--format", "parquet",
+        "--input", bam, "--outdir", str(out),
+    )  # fmt: skip
+    printed = list(csv.reader(io.StringIO(capsys.readouterr().out), delimiter="\t"))
+    table = pq.read_table(out / "tiny.bam_coverage_bins.parquet")
+    assert table.column_names == printed[0]
+    assert table.column("Depth 1-3 bases").to_pylist() == [2, 0]
+    assert table.column("Depth 0 fraction").to_pylist() == [0.5, 1.0]
+    assert [r[2:6] for r in printed[1:]] == [["2", "2", "0", "0"], ["3", "0", "0", "0"]]
+    assert not list(out.glob("*.tsv"))

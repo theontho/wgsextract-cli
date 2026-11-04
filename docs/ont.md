@@ -168,7 +168,10 @@ wgsextract methylation pileup -i hg002-ont.bam --ref chr20.fa \
 ```
 
 It writes `<input>.cpg.bedmethyl.gz` (BGZF, tabix-indexed) and
-`<input>.cpg.methylation.tsv`, and logs the summary. Per modification, the
+`<input>.cpg.methylation.tsv`, and logs the summary. With `--format parquet`
+(needs the optional `pyarrow`) the summary is `<input>.cpg.methylation.parquet`
+and every site is also saved, typed, in `<input>.cpg.bedmethyl.parquet`; see
+[Parquet output](parquet.md). Per modification, the
 summary lists sites, sites with at least 5 valid calls, median coverage, the
 weighted fraction modified (all calls pooled), the mean per-site level, and the
 shares of sites at 80% or more and at 20% or less.

@@ -44,14 +44,19 @@ COMMAND_HELP: dict[str, CommandHelp] = {
     ),
     # info
     "info": _h(
-        "Prints a summary and caches it as <input file name>.wgse_info.json.",
+        "Prints a summary and caches it as <input file name>.wgse_info.json; "
+        "with --format also <input file name>_chromosomes and _qc (QC stats) "
+        "as .tsv or .parquet.",
         "wgsextract info --input sample.cram",
         "wgsextract info --input sample.cram --detailed",
+        "wgsextract info --input sample.cram --format parquet",
     ),
     "info calculate-coverage": _h(
         "<input file name>_coverage.tsv, or with --bins <input file name>"
-        "_coverage_bins.tsv (depth bands) instead.",
+        "_coverage_bins.tsv (depth bands, or .parquet with --format parquet) "
+        "instead.",
         "wgsextract info calculate-coverage --input sample.cram",
+        "wgsextract info calculate-coverage --input sample.cram --bins --format parquet",
     ),
     "info coverage-sample": _h(
         "<input file name>_samplecvg.json; a whole-file run also updates the "
@@ -66,7 +71,8 @@ COMMAND_HELP: dict[str, CommandHelp] = {
     # microarray / lineage
     "microarray": _h(
         "<input stem>_<format>.txt (or the vendor's extension) per format, and "
-        "<input stem>_CombinedKit.txt.",
+        "<input stem>_CombinedKit.txt; with --format also <input stem>"
+        "_genotypes.tsv or .parquet.",
         "wgsextract microarray --input sample.cram --formats 23andme_v5",
         "wgsextract microarray --input sample.cram --formats 23andme_v5,ancestry_v2",
     ),
@@ -181,10 +187,12 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         f"wgsextract vcf filter {_VCF_IN} --gene BRCA1",
     ),
     "vcf table": _h(
-        "<input stem>_variants.tsv and <input stem>_variants.sqlite: one row per "
-        "variant allele, with its annotations.",
+        "<input stem>_variants.tsv (or .parquet with --format parquet) and "
+        "<input stem>_variants.sqlite: one row per variant allele, with its "
+        "annotations.",
         f"wgsextract vcf table {_VCF_IN}",
         "wgsextract vcf table --vcf-input clinvar_annotated.vcf.gz --region chr22",
+        "wgsextract vcf table --vcf-input clinvar_annotated.vcf.gz --format parquet",
     ),
     "vcf clinvar": _h(
         "clinvar_annotated.vcf.gz and clinvar_pathogenic.vcf.gz (+ .tbi).",
@@ -461,8 +469,11 @@ COMMAND_HELP: dict[str, CommandHelp] = {
     ),
     "methylation pileup": _h(
         "<input stem>.<context>.bedmethyl.gz (+ .tbi) and "
-        "<input stem>.<context>.methylation.tsv.",
+        "<input stem>.<context>.methylation.tsv; with --format parquet the "
+        "summary is .methylation.parquet and the calls are also in "
+        "<input stem>.<context>.bedmethyl.parquet.",
         "wgsextract methylation pileup --input ont.bam",
+        "wgsextract methylation pileup --input ont.bam --format parquet",
     ),
     "pet-align": _h(
         "<reads stem>_<species>.bam or .cram (+ index) and "

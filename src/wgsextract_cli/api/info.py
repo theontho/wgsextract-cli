@@ -11,9 +11,20 @@ from wgsextract_cli.core.results import CommandResult
 
 from ._params import Params, param
 from ._runtime import CancelToken, ProgressCallback, execute
-from ._shared import input_param, optional_input_param, outdir_param, ref_param
+from ._shared import (
+    input_param,
+    optional_input_param,
+    outdir_param,
+    ref_param,
+    table_format_param,
+)
 
 _ALIGNMENT = "BAM or CRAM to describe."
+_TABLES = (
+    "Also save the per-chromosome table and the QC stats as "
+    "<input>_chromosomes and <input>_qc .tsv or .parquet (needs pyarrow); "
+    "implies --detailed"
+)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -28,6 +39,7 @@ class InfoParams(Params):
     ref: Path | None = ref_param()
     outdir: Path | None = outdir_param()
     detailed: bool = param(False, help=CLI_HELP["arg_detailed"], action="store_true")
+    table_format: str | None = table_format_param(_TABLES)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -48,6 +60,11 @@ class CalculateCoverageParams(Params):
         "streaming pass.",
         action="store_true",
     )
+    table_format: str | None = table_format_param(
+        f"{_TABLES}. With --bins, the depth-band table's format instead",
+        doc=f"{_TABLES}; None saves none. With bins, the depth-band table's "
+        "format instead (None: tsv).",
+    )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -62,6 +79,7 @@ class CoverageSampleParams(Params):
     region: str | None = param(
         None, help=CLI_HELP["arg_region"], flags=("-r", "--region")
     )
+    table_format: str | None = table_format_param(_TABLES)
 
 
 @dataclass(frozen=True, kw_only=True)

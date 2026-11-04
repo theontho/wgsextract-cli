@@ -17,7 +17,9 @@ it instead of parsing log text or guessing output file names.
   name their manifest after the run (`<sample>_microarray.manifest.json`;
   `<vcf>_<sample>_microarray.manifest.json`, with a `sample` metric, for a
   sample chosen from a multi-sample VCF).
-  Report-only commands (`info`, `info chip`, `ref status`) write no file.
+  Report-only commands (`info`, `info chip`, `ref status`) write no file,
+  except `info --format`, whose manifest is named after the first table
+  (`<input>_chromosomes.parquet.manifest.json`).
   A failed run that registered outputs still writes its manifest, with
   `status: "failed"`. A manifest never replaces this run's `--log-file`; when
   the two would share a name, the manifest is skipped with a warning.
@@ -112,9 +114,9 @@ These commands record full manifests: `info` (including `--detailed`),
 `info chip`, `info calculate-coverage`, `info coverage-sample`, `ref status`, `vcf snp`, `vcf indel`,
 `vcf annotate`, `vcf freebayes`, `vcf gatk`, `vcf clinvar`, `vcf gnomad`,
 `vcf pharmcat`, `vcf table`, every `extract` subcommand,
-`lineage mt-haplogroup`, `lineage y-haplogroup`, `lineage y-str` and
-`microarray`. Every other command honours `--json` and the exit codes, and
-reports its status, inputs and provenance. Its outputs, metrics and warnings
+`lineage mt-haplogroup`, `lineage y-haplogroup`, `lineage y-str`,
+`methylation pileup` and `microarray`. Every other command honours `--json`
+and the exit codes, and reports its status, inputs and provenance. Its outputs, metrics and warnings
 will be added in later releases ([#345](https://github.com/theontho/wgsextract-cli/issues/345)).
 
 ## MultiQC
