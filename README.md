@@ -140,7 +140,21 @@ Output files are named after the full input stem: `HG002.chr20.bam` produces `HG
 
 ## Commands
 
-Run `wgsextract help` for the full command tree, and `wgsextract <command> --help` for options.
+`wgsextract --help` starts with the core commands, in the order you would
+usually run them: `info` → `microarray` / `lineage` → `extract` → `realign` /
+`align` → `vcf` → `vep`. Setup commands (`ref`, `deps`, `example-genome`,
+`config`) follow, and the advanced ones (optional or hard-to-install tools,
+format repair, benchmarks) are listed by name only.
+
+- `wgsextract help --all`: every command on one line, grouped by tier
+  (`help --all vcf` for one group; add `--json` for a machine-readable index).
+- `wgsextract help vcf snp` (or `wgsextract vcf snp --help`): one command's
+  options, examples and the files it writes.
+- `wgsextract help`: the full command tree.
+
+A mistyped command or choice is a usage error (exit 2) with a "Did you mean"
+hint. Help is plain text when piped, and colour is off when `NO_COLOR` is set.
+[docs/commands.md](docs/commands.md) is the generated command reference.
 
 `info` recognizes native Element AVITI read names from
 [Bases2Fastq](https://docs.elembio.io/docs/bases2fastq/outputs/#seq-identifiers-sequencing),

@@ -39,7 +39,7 @@ wgsextract \
 ::: wrap
 ::: section-head
 ## Command groups
-Run `wgsextract help` for the live tree from your installed version, `wgsextract --full-help` for every option, or `wgsextract <command> --help` for one command.
+`wgsextract --help` lists the core commands first, in the order you would usually run them (`info`, `microarray`/`lineage`, `extract`, `realign`/`align`, `vcf`, `vep`), then setup and advanced commands. Run `wgsextract help --all` for one line per command (`--json` for a machine-readable index), `wgsextract help <command>` for one command's options, examples and output files, or `wgsextract help` for the full tree. A mistyped command gets a "Did you mean" hint.
 :::
 
 ::: grid three
