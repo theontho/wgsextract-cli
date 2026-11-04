@@ -163,7 +163,7 @@ Annotation tools such as VEP add biological context. Download annotation data wi
 :::
 
 ::: callout
-{{ text: **NVIDIA GPU option:** `align`, `realign`, `vcf gatk` and `vcf deepvariant` accept `--gpu` for Parabricks on Linux x86_64. Prepare Docker, NVIDIA Container Toolkit, a suitable GPU (16 GB+), and the Parabricks image yourself; the CLI only validates them. Native Windows/macOS and Linux ARM64 GPU paths are unsupported; WSL2 is untested. Ultima flow workflows are not supported by this path. See [GPU setup](https://github.com/theontho/wgsextract-cli#nvidia-gpus-parabricks){.inline-link}. }}
+{{ text: **NVIDIA GPU option:** `align`, `realign`, `vcf gatk` and `vcf deepvariant` accept `--gpu` for Parabricks on Linux x86_64. Prepare Docker, NVIDIA Container Toolkit, a suitable GPU (16 GB+), and the Parabricks image yourself; the CLI only validates them. Native Windows/macOS and Linux ARM64 GPU paths are unsupported; WSL2 is untested. Ultima flow workflows are not supported by this path. See [GPU setup](https://github.com/theontho/wgsextract-cli#nvidia-gpus-parabricks){.inline-link} and [hardware and acceleration](https://github.com/theontho/wgsextract-cli/blob/main/docs/hardware.md){.inline-link}. }}
 :::
 :::
 :::

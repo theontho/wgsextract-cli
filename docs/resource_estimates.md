@@ -81,7 +81,8 @@ These are conservative estimates, **not reservations, memory limits or
 guarantees**. When size or free-space measurement is unavailable the row says
 `UNKNOWN`, never a misleading `OK`. Regional disk estimates deliberately retain
 whole-input upper bounds rather than guessing coverage. CPU models do not
-describe GPU/Parabricks or long-read pipelines.
+describe GPU/Parabricks or long-read pipelines; see
+[hardware and acceleration](hardware.md) for GPU alignment.
 
 ## GUI/API integration
 
