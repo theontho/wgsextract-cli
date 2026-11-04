@@ -16,7 +16,8 @@ import pytest
 
 from tests.htslib_helpers import needs_tools, sam_to_bam, write_fasta
 from wgsextract_cli.commands.vcf import deepvariant
-from wgsextract_cli.core import containers, native_support
+from wgsextract_cli.core import alignment_memory, containers, native_support
+from wgsextract_cli.core.resource_estimates import GIB
 from wgsextract_cli.core.utils import WGSExtractError
 
 
@@ -43,6 +44,7 @@ def files(tmp_path, monkeypatch):
     monkeypatch.setattr(deepvariant, "ensure_vcf_indexed", lambda _v: None)
     monkeypatch.setattr(deepvariant, "warn_if_no_variants", lambda *_a: None)
     monkeypatch.setattr(deepvariant.sys, "platform", "linux")
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 64 * GIB)
     return ref, bam, out
 
 
@@ -51,21 +53,51 @@ def _args(bam, **overrides):
     return Namespace(**{**values, **overrides})
 
 
-def _docker(monkeypatch, *, present=True, info_rc=0, image_rc=0):
-    """Fake the docker CLI; returns the `docker run` commands."""
+class _Runs(list):
+    """`docker run` commands, and the containers `docker kill` stopped."""
+
+    killed: list[str]
+
+
+class _Events:
+    """A `docker events` process that reports ``lines``."""
+
+    def __init__(self, lines):
+        self.stdout = iter(lines)
+
+    def terminate(self):
+        pass
+
+    def wait(self, timeout=None):
+        return 0
+
+
+def _docker(monkeypatch, *, present=True, info_rc=0, image_rc=0, run=None, oom=False):
+    """Fake the docker CLI; returns the `docker run` commands. ``run(cmd)``
+    replaces a successful run; ``oom`` reports an OOM kill in the container."""
     monkeypatch.setattr(os, "getuid", lambda: 1000, raising=False)
     monkeypatch.setattr(os, "getgid", lambda: 1000, raising=False)
-    runs = []
+    runs = _Runs()
+    runs.killed = killed = []
 
     def fake(cmd, **_kwargs):
         if cmd[1] == "info":
             return _completed(info_rc, "permission denied")
         if cmd[1] == "image":
             return _completed(image_rc)
+        if cmd[1] == "kill":
+            killed.append(cmd[2])
+            return _completed()
         runs.append(cmd)
+        if run:
+            return run(cmd)
         out_vcf = cmd[cmd.index("--output_vcf") + 1]
         Path(out_vcf).write_text("vcf")
         return _completed()
+
+    def events(cmd, **_kwargs):
+        assert cmd[1] == "events"
+        return _Events(["oom\n"] if oom else [])
 
     def tool_path(tool):
         return "docker" if tool == "docker" and present else None
@@ -73,6 +105,7 @@ def _docker(monkeypatch, *, present=True, info_rc=0, image_rc=0):
     monkeypatch.setattr(containers, "get_tool_path", tool_path)
     monkeypatch.setattr(deepvariant, "get_tool_path", tool_path)
     monkeypatch.setattr(containers, "run_command", fake)
+    monkeypatch.setattr(containers, "popen", events)
     return runs
 
 
@@ -786,6 +819,7 @@ def test_arm_run_reports_deepvariant_preflight_not_bcftools(files, monkeypatch):
                 "threads": "4",
                 "region": "chr20",
                 "inference_batch_size": 1024,
+                "deepvariant_model": "WGS",
             },
         )
     ]
@@ -798,6 +832,109 @@ def test_explicit_batch_size_is_forwarded_without_altering_shards(files, monkeyp
     (cmd,) = runs
     assert cmd[cmd.index("--call_variants_extra_args") + 1] == "batch_size=256"
     assert cmd[cmd.index("--num_shards") + 1] == "4"
+
+
+def _postprocess_flags(cmd):
+    return {
+        flag: cmd[cmd.index(flag) + 1]
+        for flag in ("--postprocess_cpus", "--postprocess_variants_extra_args")
+        if flag in cmd
+    }
+
+
+def test_postprocess_is_bounded_by_available_memory(files, monkeypatch, caplog):
+    ref, bam, _out = files
+    Path(f"{ref}.fai").write_text("chr1\t3000000000\t0\t60\t61\n")
+    runs = _docker(monkeypatch)
+    whole_genome = _args(bam, region=None)
+    deepvariant.cmd_deepvariant(whole_genome)
+    assert _postprocess_flags(runs[-1]) == {}  # 4 workers fit in 64 GiB.
+
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 8 * GIB)
+    with caplog.at_level("INFO"):
+        deepvariant.cmd_deepvariant(whole_genome)
+    flags = _postprocess_flags(runs[-1])
+    assert list(flags) == ["--postprocess_variants_extra_args"]
+    assert int(flags["--postprocess_variants_extra_args"].split("=")[1]) > 4
+    assert "Splitting DeepVariant postprocess_variants" in caplog.text
+
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 3 * GIB)
+    deepvariant.cmd_deepvariant(whole_genome)
+    flags = _postprocess_flags(runs[-1])
+    assert flags["--postprocess_cpus"] == "2"
+    assert "Limiting DeepVariant postprocess_variants to 2 of 4" in caplog.text
+
+    exome = _args(bam, region=None, model_type="WES", pacbio=False, wes=False)
+    deepvariant.cmd_deepvariant(exome)
+    assert _postprocess_flags(runs[-1]) == {}  # run_deepvariant runs WES serially.
+
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: GIB)
+    with pytest.raises(WGSExtractError, match="Not enough memory.*smaller --region"):
+        deepvariant.cmd_deepvariant(whole_genome)
+    assert len(runs) == 4
+
+
+def test_missing_region_bed_is_reported_before_docker_runs(files, monkeypatch):
+    _ref, bam, out = files
+    runs = _docker(monkeypatch)
+    with pytest.raises(WGSExtractError, match="Invalid DeepVariant region selection"):
+        deepvariant.cmd_deepvariant(_args(bam, region=str(out / "missing.bed")))
+    assert runs == []
+
+
+def _write_gzip(path, data=b"record"):
+    with gzip.open(path, "wb") as target:
+        target.write(data)
+
+
+def _failing_run(write_outputs):
+    def run(cmd):
+        write_outputs(Path(cmd[cmd.index("--intermediate_results_dir") + 1]))
+        raise subprocess.CalledProcessError(137, cmd)
+
+    return run
+
+
+def _call_variants_outputs(work):
+    _write_gzip(work / "call_variants_output-00000-of-00001.tfrecord.gz")
+    for shard in range(2):
+        _write_gzip(
+            work
+            / f"make_examples_call_variant_outputs.tfrecord-0000{shard}-of-00002.gz"
+        )
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
+def test_container_oom_fails_fast_and_keeps_call_variants_outputs(files, monkeypatch):
+    _ref, bam, out = files
+    runs = _docker(monkeypatch, oom=True, run=_failing_run(_call_variants_outputs))
+    with pytest.raises(WGSExtractError, match="ran out of memory.*lower --threads"):
+        deepvariant.cmd_deepvariant(_args(bam))
+    (cmd,) = runs
+    assert runs.killed == [cmd[cmd.index("--name") + 1]]
+    kept = out / "deepvariant_intermediates"
+    assert sorted(p.name for p in kept.iterdir()) == [
+        "call_variants_output-00000-of-00001.tfrecord.gz",
+        "make_examples_call_variant_outputs.tfrecord-00000-of-00002.gz",
+        "make_examples_call_variant_outputs.tfrecord-00001-of-00002.gz",
+    ]
+    assert not list(out.glob(".wgse_dv_*"))
+
+
+def test_incomplete_call_variants_outputs_are_not_kept(files, monkeypatch):
+    _ref, bam, out = files
+    monkeypatch.setattr(containers, "OOM_EVENT_GRACE", 0)
+
+    def truncated(work):
+        _call_variants_outputs(work)
+        name = "call_variants_output-00000-of-00001.tfrecord.gz"
+        data = (work / name).read_bytes()
+        (work / name).write_bytes(data[:-6])
+
+    _docker(monkeypatch, run=_failing_run(truncated))
+    with pytest.raises(WGSExtractError, match="DeepVariant failed"):
+        deepvariant.cmd_deepvariant(_args(bam))
+    assert list(out.iterdir()) == []
 
 
 @pytest.mark.parametrize("batch_size", [0, -1])

@@ -206,10 +206,14 @@ or DeepVariant scientific code change. Omit it to retain all existing defaults,
 including byte-identical x64 command construction. `--threads` controls
 `make_examples` shards, not the inference batch.
 
-ARM preflight uses the larger sequential-stage budget, not the sum:
-inference allowance `2 + 30 × batch_size/1024` GiB, or `2 × shards` GiB,
-plus 1 GiB driver/headroom. Defaults at 16 shards estimate 33 GiB; the example
-estimates 17 GiB. These are conservative WGS estimates against reclaimable,
+Preflight uses the largest sequential-stage budget, not the sum:
+inference allowance `2 + 30 × batch_size/1024` GiB, `2 × shards` GiB, or
+whole-genome `postprocess_variants` (see
+[resource estimates](resource_estimates.md#deepvariant-postprocess_variants)),
+plus 1 GiB driver/headroom. Defaults at 16 shards estimate 33 GiB for
+inference; the example estimates 17 GiB. A whole genome's 16 postprocess
+workers would need about 52 GiB, so with less free RAM the command splits
+postprocess into more partitions, or fewer workers, to fit. These are conservative WGS estimates against reclaimable,
 cgroup-aware available memory, not allocations or custom-model guarantees.
 The smaller batch is chr20-qualified; the full-genome results above retain
 the original default batch. The additional replay compute estimate was
