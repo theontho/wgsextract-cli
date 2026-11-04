@@ -12,6 +12,7 @@ from typing import TextIO
 
 from wgsextract_cli.core import ultima
 from wgsextract_cli.core.alignment_metadata import get_bam_header
+from wgsextract_cli.core.download_progress import CancelEvent
 from wgsextract_cli.core.microarray_quality import quality_policy
 from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.utils import (
@@ -197,8 +198,9 @@ def process_chrom(
     input_path: str,
     mpileup_args: list[str],
     call_format_args: list[str] | None = None,
+    cancel_event: CancelEvent | None = None,
 ) -> tuple[str, int]:
-    """Worker function for parallel chromosome processing. Must be at module level for pickling."""
+    """Call one chromosome; returns its annotated VCF and last deep site."""
     chrom_vcf = str(Path(chrom_tmp_dir, f"{chrom}.vcf.gz"))
     logging.debug(f"Processing chromosome {chrom}...")
     run_pipeline(
@@ -210,6 +212,7 @@ def process_chrom(
         ],
         stdout=subprocess.DEVNULL,
         description=f"Variant calling for {chrom}",
+        cancel_event=cancel_event,
     )
     ensure_vcf_indexed(chrom_vcf)
 
@@ -514,11 +517,8 @@ def _prepare_microarray_vcf(
             raise WGSExtractError(f"Microarray VCF extraction failed: {e}") from e
 
     elif contigs := _parallel_contigs(args, threads, ref_vcf_tab, input_chroms):
-        import multiprocessing
-        from concurrent.futures import ProcessPoolExecutor
-
-        from wgsextract_cli.api._runtime import cancel_event
-        from wgsextract_cli.core.process_registry import cancel_on_event
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event
 
         workers = min(int(threads), len(contigs))
         logging.info(
@@ -528,17 +528,11 @@ def _prepare_microarray_vcf(
             prefix="chrom_chunks_", dir=outdir
         ) as chrom_tmp_dir:
             chrom_snps = split_snps_by_chrom(ref_vcf_tab, chrom_tmp_dir)
-            context = multiprocessing.get_context()
-            # Workers have their own process registries: an API cancel sets
-            # this so each stops its tools, and pending chromosomes are dropped.
-            stop = context.Event()
-            token = cancel_event()
-            with ProcessPoolExecutor(
-                max_workers=workers,
-                mp_context=context,
-                initializer=cancel_on_event,
-                initargs=(stop,),
-            ) as executor:
+            # Workers only drive bcftools, so threads suffice and library
+            # callers need no __main__ guard; an API cancel stops their tools
+            # through the shared process registry.
+            stop = Event()
+            with ThreadPoolExecutor(max_workers=workers) as executor:
                 futures = {
                     chrom: executor.submit(
                         process_chrom,
@@ -551,23 +545,19 @@ def _prepare_microarray_vcf(
                         args.input,
                         mpileup_args,
                         call_format_args,
+                        stop,
                     )
                     for chrom in contigs
                 }
-
-                def _stop_workers() -> None:
-                    stop.set()
-                    for future in futures.values():
-                        future.cancel()
-
-                unregister = token.on_cancel(_stop_workers) if token else None
                 try:
                     results = {
                         chrom: future.result() for chrom, future in futures.items()
                     }
-                finally:
-                    if unregister is not None:
-                        unregister()
+                except BaseException:
+                    stop.set()
+                    for future in futures.values():
+                        future.cancel()
+                    raise
             vcf_chunks = {chrom: path for chrom, (path, _) in results.items()}
             deep = {chrom: last for chrom, (_, last) in results.items() if last}
             # The first contig with a deep site starts the stream as serial does.

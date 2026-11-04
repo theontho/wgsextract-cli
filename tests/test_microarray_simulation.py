@@ -8,6 +8,8 @@ is an A in the reference.
 
 import gzip
 import random
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -702,4 +704,33 @@ def test_parallel_default_calls_deep_sites_as_one_stream_does(tmp_path, library)
     for name in ("CombinedKit.txt", "23andMe_V3.txt", "FTDNA_V2.csv"):
         assert (tmp_path / "parallel" / f"deep_{name}").read_bytes() == (
             tmp_path / "serial" / f"deep_{name}"
+        ).read_bytes()
+
+
+def test_library_default_runs_from_an_unguarded_spawn_script(tmp_path, library):
+    """Parallel by default must not need the caller's `__main__` guard, as a
+    process pool would under the spawn start method (Windows, macOS)."""
+    fasta, seqs = library
+    bam = _bam(tmp_path / "male.bam", seqs, MALE)
+    _microarray(bam, fasta, tmp_path / "serial", "--no-parallel")
+    script = tmp_path / "script.py"
+    script.write_text(
+        "import logging, multiprocessing\n"
+        "from wgsextract_cli import api\n"
+        "from wgsextract_cli.core import microarray_targets\n"
+        "logging.getLogger().setLevel(logging.INFO)\n"
+        "multiprocessing.set_start_method('spawn', force=True)\n"
+        "microarray_targets._FORMATS = ['23andMe_V3', 'FTDNA_V2']\n"
+        "api.microarray.generate(api.MicroarrayParams(\n"
+        f"    input={bam!r}, ref={fasta!r}, outdir={str(tmp_path / 'api')!r},\n"
+        "    formats='23andme_v3,ftdna_v2', threads=2))\n"
+    )
+    done = subprocess.run(
+        [sys.executable, str(script)], capture_output=True, text=True, timeout=300
+    )
+    assert done.returncode == 0, done.stderr[-2000:]
+    assert "chromosomes in parallel" in done.stderr
+    for name in ("CombinedKit.txt", "23andMe_V3.txt", "FTDNA_V2.csv"):
+        assert (tmp_path / "api" / f"male_{name}").read_bytes() == (
+            tmp_path / "serial" / f"male_{name}"
         ).read_bytes()
