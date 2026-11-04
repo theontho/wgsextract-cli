@@ -74,8 +74,13 @@ def get_tool_path(tool: str) -> str | None:
     return _resolve_tool_path(tool)
 
 
+# Successful version probes, by the command probed (see get_tool_version).
+tool_versions: dict[tuple[str, ...], str] = {}
+
+
 def clear_tool_caches() -> None:
     _resolve_tool_path.cache_clear()
+    tool_versions.clear()
 
 
 @lru_cache(maxsize=256)
