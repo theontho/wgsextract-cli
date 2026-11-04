@@ -18,8 +18,10 @@ res.outputs, res.metrics, res.warnings
 Operations raise `CommandFailed` (carrying the failed `Result`) unless
 called with `check=False`. They accept a `progress` callback and a
 `CancelToken`. Operations run one at a time per process. They write the same
-output files and manifests as the CLI but print nothing to stdout: while one
-runs, stdout (including external tools' output) is sent to stderr.
+output files and manifests as the CLI but print nothing to stdout: their
+human-readable text is suppressed and external tools' stdout goes to stderr.
+Stdout itself is left alone, so the caller's own writes (including from a
+progress callback or other threads) still reach it, e.g. a stdio JSON-RPC server.
 
 The CLI is built on this layer: each migrated command's options are generated
 from its Params fields, so the API and `--help` cannot drift.

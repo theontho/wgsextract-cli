@@ -3,6 +3,7 @@
 import argparse
 import json
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from wgsextract_cli import api
 from wgsextract_cli.api._params import from_namespace, to_namespace
 from wgsextract_cli.core import results
 from wgsextract_cli.core.config import settings
+from wgsextract_cli.core.utils import child_stdout_to_stderr, run_command
 
 CLI_ROOT = Path(__file__).resolve().parents[1]
 FAKE_DIR = CLI_ROOT / "out" / "fake_30x"
@@ -183,6 +185,37 @@ def test_cancel_while_tools_run(fake_data, tmp_path):
         check=False,
     )
     assert (result.status, result.exit_code) == ("cancelled", 130)
+
+
+def test_progress_output_reaches_stdout_but_tools_do_not(fake_data, tmp_path, capfd):
+    """The caller's own writes during a call stay on stdout (a stdio JSON-RPC
+    server's channel); only the human text and external tools' stdout do not."""
+    bam, ref = fake_data
+    api.info.info(
+        api.InfoParams(input=bam, ref=ref, outdir=tmp_path),
+        progress=lambda event: print(f"progress:{event.stage}", flush=True),
+    )
+    out = capfd.readouterr().out
+    assert out.splitlines()[0] == "progress:start"
+    assert out.splitlines()[-1] == "progress:finish"
+    assert all(line.startswith("progress:") for line in out.splitlines())
+
+    with child_stdout_to_stderr():
+        run_command([sys.executable, "-c", "print('from a tool')"])
+    captured = capfd.readouterr()
+    assert "from a tool" in captured.err and "from a tool" not in captured.out
+
+
+def test_runs_without_stdout_or_stderr(fake_data, tmp_path, monkeypatch):
+    """pythonw and windowed apps have sys.stdout and sys.stderr set to None."""
+    bam, ref = fake_data
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+    result = api.info.info(api.InfoParams(input=bam, ref=ref, outdir=tmp_path))
+    assert result.status == "ok"
+    with results.stdout_reserved() as real:
+        print("dropped")
+        real.write("dropped too")
 
 
 def test_vcf_snp_on_chrm(fake_data, tmp_path):

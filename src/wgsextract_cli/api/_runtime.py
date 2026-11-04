@@ -14,7 +14,6 @@ from wgsextract_cli.core.results import (
     CommandResult,
     collecting,
     fail_from_exception,
-    stdout_reserved,
 )
 
 from ._params import Params, with_config_defaults
@@ -181,9 +180,9 @@ def execute(
 ) -> CommandResult:
     """Run one operation as a library call and return its result.
 
-    Human-readable text is not printed, and while the operation runs anything
-    written to stdout (by external tools or other threads) goes to stderr, so
-    stdout stays free for a caller's own protocol. With ``check`` a failed or cancelled
+    Human-readable text is not printed and external tools' stdout goes to
+    stderr; the process's stdout is not redirected, so the caller's own writes
+    (from a progress callback or other threads) still reach it. With ``check`` a failed or cancelled
     operation raises ``CommandFailed`` carrying the result; without it the
     result is returned with ``status`` and ``error`` set. The manifest is
     written next to the outputs as the CLI does, unless ``write_manifest`` is
@@ -194,6 +193,7 @@ def execute(
     from wgsextract_cli.core.process_registry import proc_registry
     from wgsextract_cli.core.run_log import tool_hook
     from wgsextract_cli.core.temp_directory import run_temporary_directory
+    from wgsextract_cli.core.utils import child_stdout_to_stderr
 
     with _LOCK:
         params = with_config_defaults(params)
@@ -202,7 +202,7 @@ def execute(
         unregister = cancel.on_cancel(proc_registry.cleanup) if cancel else None
         error: BaseException | None = None
         with (
-            stdout_reserved(),
+            child_stdout_to_stderr(),
             collecting(result, as_json=True),
             _context_of(progress, cancel),
             tool_hook(_before_tool),
