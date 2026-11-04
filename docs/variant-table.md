@@ -45,7 +45,8 @@ above works.
 | `gnomad_af` | real | gnomAD allele frequency of this ALT (from `vcf gnomad`; else VEP's `gnomADg_AF`, then `gnomADe_AF`, then `gnomAD_AF`). |
 | `genotype`, `zygosity` | text | The sample's GT (`0/1`, `1\|1`, ...), and its copies of this ALT: `het`, `hom_alt`, `hemizygous`, `not_carried` or `no_call`. |
 | `depth`, `gq`, `qual`, `filter` | integer, integer, real, text | Read depth (FORMAT/DP, else the sum of AD, else INFO/DP), genotype quality, QUAL and FILTER. |
-| `confidence` | text | The depth-aware `high`/`moderate`/`low` label in `INFO/WGSE_CONF`, when the VCF has one. |
+| `confidence` | text | The depth-aware `high`/`moderate`/`low` label in `INFO/WGSE_CONF`, when the VCF has one ([variant-confidence.md](variant-confidence.md)). |
+| `confidence_reasons` | text | The reason codes behind that label, `\|`-separated (`INFO/WGSE_CONF_REASONS`), for example `low_depth\|strand_bias`. |
 | `pharmgkb_level`, `pharmgkb_drugs` | text | Best PharmGKB level of evidence (1A, 1B, 2A, 2B, 3, 4) and the drugs, from `vcf pharmgkb`. |
 | `pharmcat_diplotype`, `pharmcat_phenotype` | text | PharmCAT's call for the row's gene, with `--pharmcat-json <stem>.phenotype.json` from `vcf pharmcat`. |
 
@@ -90,6 +91,11 @@ WHERE (clinvar_significance LIKE 'Pathogenic%'
        OR clinvar_significance LIKE 'Likely_pathogenic%')
   AND depth >= 20
 ORDER BY gene;
+
+-- Clinical findings whose call is not high confidence, and why
+SELECT gene, rsid, clinvar_significance, confidence, confidence_reasons
+FROM variants
+WHERE clinvar_significance IS NOT NULL AND confidence IN ('low', 'moderate');
 
 -- Rare protein-changing variants (absent from gnomAD or below 0.1%)
 SELECT gene, hgvs_p, consequence, gnomad_af, zygosity

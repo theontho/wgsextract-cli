@@ -28,6 +28,7 @@ HEADER = f"""##fileformat=VCFv4.2
 ##INFO=<ID=GNOMAD_AF,Number=A,Type=Float,Description="gnomAD Allele Frequency">
 ##INFO=<ID=PHARMGKB,Number=.,Type=String,Description="ClinPGx (PharmGKB) clinical annotations: rsID|gene|level of evidence|phenotype category|drugs">
 ##INFO=<ID=WGSE_CONF,Number=A,Type=String,Description="Confidence">
+##INFO=<ID=WGSE_CONF_REASONS,Number=A,Type=String,Description="Reasons">
 ##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP. Format: {CSQ}">
 ##INFO=<ID=ANN,Number=.,Type=String,Description="Functional annotations: '{ANN}' ">
 ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
@@ -53,7 +54,7 @@ RECORDS = [
         "50",
         "PASS",
         "DP=30;CLNSIG=Pathogenic;CLNDN=Some_disease;GNOMAD_AF=0.001;"
-        "WGSE_CONF=high;CSQ="
+        "WGSE_CONF=high;WGSE_CONF_REASONS=moderate_depth|moderate_gq;CSQ="
         "G|intron_variant|MODIFIER|GENEA|ENSG1|Transcript|ENST1|protein_coding|"
         "ENST1.1:c.10+5A>G||rs1|YES|||,"
         "G|missense_variant|MODERATE|GENEA|ENSG1|Transcript|ENST2|protein_coding|"
@@ -197,6 +198,7 @@ def test_vcf_table_flattens_annotations_one_row_per_carried_allele(
         "Pathogenic", "Some_disease",
     )  # fmt: skip
     assert (mane["gnomad_af"], mane["confidence"]) == ("0.001", "high")
+    assert mane["confidence_reasons"] == "moderate_depth|moderate_gq"
     assert (mane["genotype"], mane["zygosity"], mane["depth"], mane["gq"]) == (
         "0/1", "het", "28", "99",
     )  # fmt: skip

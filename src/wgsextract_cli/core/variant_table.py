@@ -8,8 +8,8 @@ values. The annotations come from the INFO fields our own commands write:
   and HGVS of one transcript per allele (see ``pick_csq``), and rsIDs,
   ClinVar and gnomAD values when the VCF lacks the dedicated fields below.
 - ``CLNSIG``/``CLNDN`` (`vcf clinvar`), ``GNOMAD_AF`` (`vcf gnomad`),
-  ``PHARMGKB`` (`vcf pharmgkb`) and ``WGSE_CONF`` (depth-aware confidence
-  labels, #337).
+  ``PHARMGKB`` (`vcf pharmgkb`) and ``WGSE_CONF``/``WGSE_CONF_REASONS`` (depth-aware
+  confidence labels, `vcf clinvar`/`vcf gnomad`/`vcf pharmcat`).
 
 An annotation the VCF lacks leaves its column empty. Records are parsed one at
 a time, so a whole genome streams through in constant memory.
@@ -79,6 +79,12 @@ COLUMNS: tuple[Column, ...] = (
         "confidence",
         TEXT,
         "Depth-aware confidence label: high, moderate or low (INFO/WGSE_CONF).",
+    ),
+    Column(
+        "confidence_reasons",
+        TEXT,
+        "Reason codes behind the confidence label, '|'-separated "
+        "(INFO/WGSE_CONF_REASONS).",
     ),
     Column(
         "pharmgkb_level",
@@ -485,6 +491,11 @@ def variant_rows(
                 qual,
                 filter_value,
                 _per_allele(info.get("WGSE_CONF"), numbers.get("WGSE_CONF"), alt_index),
+                _per_allele(
+                    info.get("WGSE_CONF_REASONS"),
+                    numbers.get("WGSE_CONF_REASONS"),
+                    alt_index,
+                ),
                 pgx_level,
                 pgx_drugs,
                 diplotype,
