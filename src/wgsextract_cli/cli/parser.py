@@ -79,22 +79,42 @@ class WgsArgumentParser(argparse.ArgumentParser):
             return super().parse_known_args(args, namespace)
         token = _global_values.set({})
         try:
-            return super().parse_known_args(args, namespace)
+            result = super().parse_known_args(args, namespace)
+            _reject_conflicting_globals(_global_values.get() or {})
+            return result
         finally:
             _global_values.reset(token)
 
 
-# dest -> (parser, option string, value) of the global options seen in the
-# current parse.
-_global_values: ContextVar[
-    dict[str, tuple[argparse.ArgumentParser, str, Any]] | None
-] = ContextVar("wgsextract_global_values", default=None)
+# dest -> parser -> (action, option string, value): the last occurrence of
+# each global option at each command level of the current parse.
+_GlobalValues = dict[
+    str, dict[argparse.ArgumentParser, tuple[argparse.Action, str, Any]]
+]
+_global_values: ContextVar[_GlobalValues | None] = ContextVar(
+    "wgsextract_global_values", default=None
+)
+
+
+def _reject_conflicting_globals(seen: _GlobalValues) -> None:
+    """Exit with a usage error if two command levels end up with different
+    values for a global option. Within one level the last occurrence wins, as
+    usual for argparse, so only each level's final value counts."""
+    for levels in seen.values():
+        (first_action, first_shown, first_value), *_ = levels.values()
+        for parser, (action, shown, value) in levels.items():
+            if value != first_value:
+                error = argparse.ArgumentError(
+                    action,
+                    f"conflicting values '{first_shown}' and '{shown}'; give "
+                    "a global option once, before or after the command",
+                )
+                parser.error(str(error))
 
 
 class _GlobalOption(argparse.Action):
-    """Mixin for global options: store as the base action does, but refuse a
-    value that differs from one given at another command level. Within one
-    level the last occurrence wins, as usual for argparse."""
+    """Mixin for global options: store as the base action does, and record
+    the value per command level for _reject_conflicting_globals."""
 
     def __call__(  # type: ignore[no-untyped-def]
         self, parser, namespace, values, option_string=None
@@ -108,14 +128,7 @@ class _GlobalOption(argparse.Action):
             if self.nargs != 0:
                 # --threads auto parses to None.
                 shown += f" {'auto' if value is None else value}"
-            previous = seen.get(self.dest)
-            if previous and previous[0] is not parser and previous[2] != value:
-                raise argparse.ArgumentError(
-                    self,
-                    f"conflicting values '{previous[1]}' and '{shown}'; give "
-                    "a global option once, before or after the command",
-                )
-            seen[self.dest] = (parser, shown, value)
+            seen.setdefault(self.dest, {})[parser] = (self, shown, value)
         setattr(namespace, self.dest, value)
 
 

@@ -341,6 +341,10 @@ def test_global_options_parse_the_same_before_or_after_the_command(path):
         (["vcf", "-t", "auto", "snp", "-t", "4"], "'-t auto' and '-t 4'"),
         (["--keep-awake", "info", "--no-keep-awake"], "'--keep-awake' and '--no-keep-awake'"),
         (["--outdir", "a", "--outdir", "b", "info", "-o", "a"], "'--outdir b' and '-o a'"),
+        # Only each level's last value counts, whatever the order (#371 review).
+        (["--input", "a", "info", "--input", "a", "--input", "b"], "'--input a' and '--input b'"),
+        (["--keep-awake", "info", "--keep-awake", "--no-keep-awake"], "'--keep-awake' and '--no-keep-awake'"),
+        (["--no-atomic-output", "vcf", "--atomic-output", "snp", "--no-atomic-output"], "'--no-atomic-output' and '--atomic-output'"),
     ],
 )  # fmt: skip
 def test_conflicting_global_options_are_a_usage_error(argv, message, capsys):
@@ -354,6 +358,18 @@ def test_conflicting_global_options_are_a_usage_error(argv, message, capsys):
 def test_a_global_option_repeated_with_the_same_value_is_allowed():
     args, explicit = _parse(["-i", "a.bam", "--json", "info", "--input", "a.bam", "--json"])  # fmt: skip
     assert (args.input, args.json, explicit) == ("a.bam", True, {"input", "json"})
+
+
+@pytest.mark.parametrize(
+    ("argv", "dest", "expected"),
+    [
+        (["-i", "a", "info", "-i", "b", "-i", "a"], "input", "a"),
+        (["--no-keep-awake", "info", "--keep-awake", "--no-keep-awake"], "keep_awake", False),
+    ],
+)  # fmt: skip
+def test_levels_agreeing_on_their_last_value_are_not_a_conflict(argv, dest, expected):
+    args, _ = _parse(argv)
+    assert getattr(args, dest) == expected
 
 
 def test_the_last_global_option_wins_within_one_command_level():
