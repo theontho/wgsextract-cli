@@ -17,6 +17,7 @@ from pathlib import Path
 
 from wgsextract_cli.commands._microarray_combined import (
     _read_evidence,
+    record_aadr,
     record_kit,
     record_microarray_run,
 )
@@ -465,6 +466,7 @@ def run_chm13(
                 sample_id=getattr(args, "aadr_sample_id", "sample"),
                 sex=getattr(args, "aadr_sex", "U"),
             )
+            record_aadr(outdir, base, panel)
             continue
         real_format = _resolve_microarray_format(key)
         if real_format is None:
@@ -525,3 +527,5 @@ def run_chm13(
         str(combined),
         warn_about_genotypes(combined, tallies, check_no_calls=not regions),
     )
+    # Kept in its CHM13_* working directory, which record_kept doesn't accept.
+    current_result().add_output(combined, "combined_kit")

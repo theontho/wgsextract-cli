@@ -11,6 +11,7 @@ from typing import Any
 
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
+from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 from wgsextract_cli.core.variant_files import chromosome_aliases
 
@@ -286,6 +287,7 @@ def run_full_coverage(
                 continue
             if covered:
                 logging.info(f"Using existing coverage results from {cached}")
+                current_result().add_output(cached, "coverage")
                 return _breadth_map(covered, with_total)
 
     logging.info(f"Calculating breadth of coverage... saving to {out_p}")
@@ -301,6 +303,7 @@ def run_full_coverage(
     finally:
         if Path(tmp_p).exists():
             Path(tmp_p).unlink()
+    current_result().add_output(out_p, "coverage")
     return _breadth_map(_parse_samtools_coverage(out_p), with_total)
 
 
@@ -427,4 +430,5 @@ def run_sampled_coverage(
     final_map = _breadth_map(covered, with_total=not region, approx=True)
     with open(out_p, "w", newline="\n") as f:
         json.dump(final_map, f)
+    current_result().add_output(out_p, "coverage")
     return final_map

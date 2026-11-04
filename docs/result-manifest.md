@@ -17,7 +17,8 @@ it instead of parsing log text or guessing output file names.
   name their manifest after the run (`<sample>_microarray.manifest.json`).
   Report-only commands (`info`, `info chip`, `ref status`) write no file.
   A failed run that registered outputs still writes its manifest, with
-  `status: "failed"`.
+  `status: "failed"`. A manifest never replaces this run's `--log-file`; when
+  the two would share a name, the manifest is skipped with a warning.
 - **`--json`.** This global option prints the same document to stdout
   *instead of* the human-readable result, for every command. Logs, progress
   and anything external tools print go to stderr, so stdout holds exactly one
@@ -36,8 +37,8 @@ it instead of parsing log text or guessing output file names.
 | `metrics` | Flat headline numbers and labels, e.g. `variants`, `haplogroup`, `sex`, `avg_depth`. |
 | `warnings` | Structured warnings: `code`, `message` and scalar `details`. |
 | `details` | The command-specific structured result, or `null`. |
-| `manifest` | Absolute path of the manifest file this run wrote, or `null`. |
-| `provenance` | `version` (package), `argv`, `params` (the parsed options; names containing token, secret, password, credential or api key are redacted), `tools` (versions of the external tools the command ran), `reference` (`path`, `build`, `fingerprint`), `platform`, `python`, `started`, `finished` and `elapsed_s`. |
+| `manifest` | Absolute path of the manifest file this run wrote, or `null` (including when writing it failed). |
+| `provenance` | `version` (package), `argv` and `params` (the command line and the parsed options as the command used them, after `--genome` selection; values of options whose names contain token, secret, password, credential or api key are redacted, and URLs there, and in error and warning messages, lose their user name, password, query string and fragment), `tools` (versions of the external tools the command ran), `reference` (`path`, `build`, `fingerprint`), `platform`, `python`, `started`, `finished` and `elapsed_s`. |
 
 Tool versions are probed only when a document is emitted, and only for tools the
 run actually launched.
@@ -82,7 +83,7 @@ as generic warnings.
 | 0 | Success. |
 | 1 | Failure: bad input, a failed tool, an unexpected error. |
 | 2 | Usage error: a missing or invalid option, or an argument-parsing error. |
-| 3 | Missing dependency: a required external tool is absent, will not run, or is too old. |
+| 3 | Missing dependency: a required external tool is absent, will not run, or is too old, including when a command reports it as part of its own failure message. |
 | 128+N | Stopped by signal N (130 for Ctrl-C). |
 
 ## Versioning
