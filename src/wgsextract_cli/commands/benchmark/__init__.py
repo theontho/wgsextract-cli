@@ -5,7 +5,7 @@ from wgsextract_cli.core.builds import (
     BUILD_CHOICES,
 )
 from wgsextract_cli.core.messages import CLI_HELP
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import UsageError, WGSExtractError
 
 from .core import (
     _run_core_benchmark_steps,
@@ -54,9 +54,9 @@ def run(args: argparse.Namespace) -> None:
     )
 
     if coverage <= 0:
-        raise WGSExtractError("--coverage must be greater than zero.")
+        raise UsageError("--coverage must be greater than zero.")
     if target_count <= 0:
-        raise WGSExtractError("--target-count must be greater than zero.")
+        raise UsageError("--target-count must be greater than zero.")
 
     thread_plan = _benchmark_thread_plan(args)
     args._benchmark_thread_plan = thread_plan

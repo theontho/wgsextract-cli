@@ -13,6 +13,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP
+from wgsextract_cli.core.results import current_result
 
 from .commands import (
     cmd_fastp,
@@ -73,6 +74,9 @@ def cmd_fake_data(args: argparse.Namespace) -> None:
     if "all" in types:
         types = ["vcf", "cram", "bam", "fastq"]
 
+    result = current_result()
+    result.set_manifest_stem(Path(outdir, "fake_data"))
+    result.add_metrics(build=args.build, coverage=args.coverage, seed=args.seed)
     generate_fake_genomics_data(
         outdir,
         ref_path,

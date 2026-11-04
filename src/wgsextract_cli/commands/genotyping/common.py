@@ -15,9 +15,15 @@ from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.pixi_tools import pixi_env_tool
 from wgsextract_cli.core.reference_assets import input_stem
 from wgsextract_cli.core.reference_resolver import header_contig_lengths
+from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.tool_commands import _tool_command_parts
-from wgsextract_cli.core.utils import UsageError, WGSExtractError, get_resource_defaults
+from wgsextract_cli.core.utils import (
+    MissingDependencyError,
+    UsageError,
+    WGSExtractError,
+    get_resource_defaults,
+)
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
     get_bam_header,
@@ -125,7 +131,7 @@ def env_tool(tool: str, env: str, note: str = "") -> list[str]:
     """Command running `tool` from its optional Pixi environment."""
     command = pixi_env_tool(tool)
     if not command:
-        raise WGSExtractError(
+        raise MissingDependencyError(
             f"{tool} runs from the optional `{env}` Pixi environment (Linux and "
             f"macOS), which isn't available: pixi install -e {env}{note}"
         )
@@ -147,6 +153,7 @@ def write_outside_calls(path: str, calls: list[tuple[str, str]]) -> str | None:
     # PharmCAT reads outside calls as UTF-8 (CYP2D6 copy numbers use "≥").
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.writelines(f"{gene}\t{diplotype}\n" for gene, diplotype in calls)
+    current_result().add_output(path, "pharmcat_outside_call")
     logging.info(
         f"PharmCAT outside call: {path} (wgsextract vcf pharmcat --outside-call)"
     )

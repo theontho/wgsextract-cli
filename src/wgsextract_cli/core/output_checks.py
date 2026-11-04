@@ -6,11 +6,12 @@ usually means the reference or build doesn't match the input. These checks say
 so, so the command doesn't look like it worked.
 """
 
+import os
 import subprocess
 
 from wgsextract_cli.core.cram_counts import cram_container_totals
 from wgsextract_cli.core.paths import PathInput
-from wgsextract_cli.core.results import warn
+from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.utils import popen, run_command
 
@@ -106,6 +107,22 @@ def alignment_record_counts(bam: PathInput) -> dict[str, int]:
         "mapped_records": mapped,
         "unmapped_records": unmapped,
     }
+
+
+def record_alignment_output(
+    path: PathInput, role: str = "alignment", *, hint: str = ""
+) -> dict[str, int]:
+    """Register a written BAM/CRAM and its record counts on the result, warning
+    when it has no reads; returns the counts."""
+    counts = alignment_record_counts(path)
+    current_result().add_output(path, role, metrics=dict(counts))
+    if counts.get("records") == 0:
+        warn(
+            "no_reads",
+            f"{path} has no reads" + (f": {hint}" if hint else "."),
+            path=os.path.abspath(path),
+        )
+    return counts
 
 
 def _first_line_or_none(proc: subprocess.Popen[str]) -> bool | None:

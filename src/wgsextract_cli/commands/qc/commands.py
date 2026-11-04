@@ -13,6 +13,7 @@ from wgsextract_cli.core.dependency_checks import (
 from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path, java_local_path
+from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.utils import (
     UsageError,
     WGSExtractError,
@@ -80,12 +81,21 @@ def cmd_fastp(args: argparse.Namespace) -> None:
         with cleanup_files(on_failure=outputs):
             run_command(cmd)
             # fastp exits 0 on a file that isn't FASTQ, reporting no reads.
-            if _fastp_total_reads(out_json) == 0:
+            summary = _fastp_summary(out_json)
+            if summary.get("reads_before_filtering") == 0:
                 raise WGSExtractError(
                     f"fastp found no reads in {args.r1}: is it a FASTQ file?"
                 )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"fastp failed: {e}") from e
+    result = current_result()
+    result.add_output(out_r1, "trimmed_fastq_r1")
+    if args.r2:
+        result.add_output(out_r2, "trimmed_fastq_r2")
+    result.add_output(out_json, "fastp_report_json")
+    result.add_output(out_html, "fastp_report_html")
+    result.set_manifest_stem(Path(outdir, f"{base_name}_fastp"))
+    result.add_metrics(**summary)
 
 
 def fastp_stem(r1: str, r2: str | None) -> str:
@@ -94,12 +104,24 @@ def fastp_stem(r1: str, r2: str | None) -> str:
     return pair_stem(reads_stem(r1)) if r2 else reads_stem(r1)
 
 
-def _fastp_total_reads(report: str) -> int | None:
+def _fastp_summary(report: str) -> dict[str, int | float]:
+    """Read counts and rates from a fastp JSON report; empty if unreadable."""
     try:
         with open(report) as f:
-            return int(json.load(f)["summary"]["before_filtering"]["total_reads"])
-    except (OSError, ValueError, KeyError, TypeError):
-        return None
+            document = json.load(f)
+        before = document["summary"]["before_filtering"]
+        after = document["summary"]["after_filtering"]
+        summary: dict[str, int | float] = {
+            "reads_before_filtering": int(before["total_reads"]),
+            "reads_after_filtering": int(after["total_reads"]),
+            "q30_rate_after_filtering": float(after["q30_rate"]),
+        }
+        duplication = document.get("duplication", {}).get("rate")
+        if duplication is not None:
+            summary["duplication_rate"] = float(duplication)
+        return summary
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return {}
 
 
 def cmd_fastqc(args: argparse.Namespace) -> None:
@@ -134,13 +156,52 @@ def cmd_fastqc(args: argparse.Namespace) -> None:
         )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"FastQC failed: {e}") from e
+    stem = Path(outdir, fastqc_stem(args.input))
+    report_html = stem.with_name(stem.name + ".html")
+    report_zip = stem.with_name(stem.name + ".zip")
+    result = current_result()
+    result.add_output(report_html, "fastqc_report_html")
+    result.add_output(report_zip, "fastqc_report_zip")
+    result.add_metrics(**_fastqc_summary(report_zip))
+
+
+def fastqc_stem(path: str) -> str:
+    """FastQC's report name for an input: its name minus the extensions FastQC
+    strips, plus ``_fastqc``."""
+    name = Path(path).name
+    for ext in (".gz", ".bz2", ".txt", ".fastq", ".fq", ".csfastq", ".sam", ".bam"):
+        name = name.removesuffix(ext)
+    return name + "_fastqc"
+
+
+def _fastqc_summary(report_zip: Path) -> dict[str, int]:
+    """Module PASS/WARN/FAIL counts and total sequences from a FastQC zip."""
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(report_zip) as archive:
+            folder = report_zip.stem
+            summary = archive.read(f"{folder}/summary.txt").decode()
+            data = archive.read(f"{folder}/fastqc_data.txt").decode()
+    except (OSError, KeyError, zipfile.BadZipFile):
+        return {}
+    statuses = [line.split("\t", 1)[0] for line in summary.splitlines() if line]
+    metrics = {
+        f"modules_{status.lower()}": statuses.count(status)
+        for status in ("PASS", "WARN", "FAIL")
+    }
+    for line in data.splitlines():
+        if line.startswith("Total Sequences\t"):
+            metrics["total_sequences"] = int(line.split("\t")[1])
+            break
+    return metrics
 
 
 def cmd_multiqc_metrics(args: argparse.Namespace) -> None:
     """Write MultiQC custom-content files from result manifests (no MultiQC
     needed)."""
     from wgsextract_cli.core import multiqc
-    from wgsextract_cli.core.results import current_result, human_output
+    from wgsextract_cli.core.results import human_output
 
     if not args.input:
         raise UsageError(
@@ -277,6 +338,9 @@ def cmd_multiqc(args: argparse.Namespace) -> None:
                     ) from e
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"MultiQC failed: {e}") from e
+    result = current_result()
+    result.add_output(report, "multiqc_report")
+    result.add_metrics(manifests=len(documents))
     logging.info("MultiQC report: %s", report)
 
 
@@ -309,3 +373,31 @@ def cmd_vcf_qc(args: argparse.Namespace) -> None:
             run_command(["bcftools", "stats", input_file], stdout=f)
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"VCF stats failed: {e}") from e
+    stats = bcftools_stats_summary(out_stats)
+    current_result().add_output(out_stats, "vcf_stats", metrics=stats)
+    current_result().add_metrics(**stats)
+
+
+# bcftools stats "SN" keys -> metric names.
+_STATS_KEYS = {
+    "number of samples:": "samples",
+    "number of records:": "records",
+    "number of SNPs:": "snps",
+    "number of MNPs:": "mnps",
+    "number of indels:": "indels",
+    "number of multiallelic sites:": "multiallelic_sites",
+}
+
+
+def bcftools_stats_summary(path: str) -> dict[str, int | float]:
+    """Counts and Ts/Tv for all records (id 0) from a bcftools stats file."""
+    metrics: dict[str, int | float] = {}
+    with open(path) as f:
+        for line in f:
+            fields = line.rstrip("\n").split("\t")
+            if fields[0] == "SN" and len(fields) >= 4 and fields[1] == "0":
+                if key := _STATS_KEYS.get(fields[2]):
+                    metrics[key] = int(fields[3])
+            elif fields[0] == "TSTV" and len(fields) >= 5 and fields[1] == "0":
+                metrics["ts_tv"] = float(fields[4])
+    return metrics

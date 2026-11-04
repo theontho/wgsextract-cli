@@ -14,8 +14,10 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.output_checks import vcf_record_count
 from wgsextract_cli.core.paths import absolute_path, expand_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.results import current_result, human_output
 from wgsextract_cli.core.sample_ploidy import sex_samples_args
 from wgsextract_cli.core.utils import (
     UsageError,
@@ -249,11 +251,12 @@ def _run_vep_on_input(
 
     output_file, final_output = vep_output_paths(current_input, outdir, args.format)
     if Path(final_output).exists() and not args.force:
-        logging.info(
-            LOG_MESSAGES["vep_skipping_exists"].format(
-                input=current_input, output=final_output
-            )
+        message = LOG_MESSAGES["vep_skipping_exists"].format(
+            input=current_input, output=final_output
         )
+        logging.info(message)
+        current_result().warn("output_exists", message, path=final_output)
+        _record_vep_outputs(output_file, final_output, args.format)
         return "SKIPPED", "-"
 
     start_time = time.time()
@@ -317,16 +320,36 @@ def _run_vep_on_input(
             Path(vep_output).replace(final_output)
     except (OSError, subprocess.SubprocessError, WGSExtractError, ValueError) as e:
         logging.error(f"VEP failed for {current_input}: {e}")
+        current_result().warn(
+            "input_failed", f"VEP failed for {current_input}: {e}", path=current_input
+        )
         return "FAILED", "-"
 
     logging.info(LOG_MESSAGES["vep_complete"].format(path=final_output))
+    _record_vep_outputs(output_file, final_output, args.format)
     return "SUCCESS", str(timedelta(seconds=int(time.time() - start_time)))
+
+
+def _record_vep_outputs(output_file: str, final_output: str, fmt: str) -> None:
+    result = current_result()
+    metrics = {"variants": vcf_record_count(final_output)} if fmt == "vcf" else None
+    result.add_output(final_output, "vep_annotated", metrics=metrics)
+    for suffix, role in (
+        ("_summary.html", "vep_summary"),
+        ("_warnings.txt", "vep_warnings"),
+    ):
+        if Path(output_file + suffix).is_file():
+            result.add_output(output_file + suffix, role)
 
 
 def cmd_vep(args: argparse.Namespace) -> None:
     if not args.input:
         raise UsageError(LOG_MESSAGES["input_required"])
     input_files = _vep_input_files(args.input)
+    if Path(args.input).is_dir():
+        current_result().set_manifest_stem(Path(args.outdir or args.input, "vep"))
+        for path in input_files:
+            current_result().add_input(path, "batch_input")
 
     verify_dependencies(["vep", "tabix", "bcftools"])
     log_dependency_info(["vep", "tabix", "bcftools"])
@@ -337,16 +360,23 @@ def cmd_vep(args: argparse.Namespace) -> None:
         for path in input_files
     ]
 
+    statuses = [status for _, status, _ in batch_stats]
+    current_result().add_metrics(
+        inputs=len(input_files),
+        succeeded=statuses.count("SUCCESS"),
+        skipped=statuses.count("SKIPPED"),
+        failed=statuses.count("FAILED"),
+    )
     if len(input_files) > 1:
-        print(f"\n{LOG_MESSAGES['vep_batch_summary']}")
-        print("-" * 60)
+        human_output(f"\n{LOG_MESSAGES['vep_batch_summary']}")
+        human_output("-" * 60)
         for fname, status, dur in batch_stats:
-            print(
+            human_output(
                 LOG_MESSAGES["vep_batch_item"].format(
                     filename=fname, status=status, duration=dur
                 )
             )
-        print("-" * 60)
+        human_output("-" * 60)
 
     if any(status == "FAILED" for _, status, _ in batch_stats):
         raise WGSExtractError("One or more VEP tasks failed.")

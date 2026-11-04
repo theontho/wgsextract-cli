@@ -663,6 +663,52 @@ def human_output(*values: object, sep: str = " ", end: str = "\n") -> None:
         print(*values, sep=sep, end=end)
 
 
+FileSnapshot = dict[str, tuple[int, int]]
+
+
+def file_snapshot(
+    root: str | os.PathLike[str], *, prefix: str = "", recursive: bool = True
+) -> FileSnapshot:
+    """Size and mtime of every regular file under ``root`` whose name starts with
+    ``prefix`` (manifests and hidden files excepted), for
+    ``record_changed_files``."""
+    snapshot: FileSnapshot = {}
+    for directory, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if recursive and not d.startswith(".")]
+        for name in files:
+            if (
+                not name.startswith(prefix)
+                or name.startswith(".")
+                or name.endswith(MANIFEST_SUFFIX)
+            ):
+                continue
+            path = os.path.join(directory, name)
+            try:
+                info = os.stat(path)
+            except OSError:
+                continue
+            if stat.S_ISREG(info.st_mode):
+                snapshot[os.path.abspath(path)] = (info.st_size, info.st_mtime_ns)
+    return snapshot
+
+
+def record_changed_files(
+    root: str | os.PathLike[str],
+    before: FileSnapshot,
+    role: str,
+    *,
+    prefix: str = "",
+    recursive: bool = True,
+) -> list[str]:
+    """Add every file ``file_snapshot`` finds new or changed since ``before`` as
+    an output: for installers that don't report what they wrote."""
+    after = file_snapshot(root, prefix=prefix, recursive=recursive)
+    changed = sorted(path for path, state in after.items() if before.get(path) != state)
+    for path in changed:
+        current_result().add_output(path, role)
+    return changed
+
+
 @contextlib.contextmanager
 def stdout_reserved() -> Iterator[TextIO]:
     """Send everything written to stdout, by Python or by child processes, to

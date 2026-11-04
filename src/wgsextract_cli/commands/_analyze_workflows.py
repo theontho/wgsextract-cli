@@ -11,6 +11,7 @@ from typing import TypedDict
 from wgsextract_cli.core import variant_confidence
 from wgsextract_cli.core.config import config_args
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.results import MANIFEST_SUFFIX, current_result, warn
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
@@ -140,6 +141,9 @@ def run_discovery_filter(
             raise WGSExtractError(f"Discovery filter failed for {v_type}: {e}") from e
         count = len(res.stdout.strip().split("\n")) if res.stdout.strip() else 0
         _print(f"Found {count} significant variants.")
+        current_result().add_output(
+            out_vcf, "significant_variants", metrics={"variants": count}
+        )
         return count
 
     columns = tuple(tag for tag in DISCOVERY_COLUMNS if has_info(tag))
@@ -207,12 +211,55 @@ def run_cli_subcommand(cmd_args: list[str], args: argparse.Namespace) -> None:
     if getattr(args, "force", False):
         cmd.append("--force")
 
+    step_dir = (
+        Path(cmd_args[cmd_args.index("--outdir") + 1])
+        if "--outdir" in cmd_args
+        else None
+    )
+    before = _manifests_in(step_dir)
     try:
         # Not captured, so the subcommand's progress reaches the terminal live.
         run_command(cmd)
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         logging.warning(f"Subcommand failed: {' '.join(cmd)}. Error: {e}")
         raise WGSExtractError("Subcommand failed: " + " ".join(cmd)) from e
+    finally:
+        for path, stamp in _manifests_in(step_dir).items():
+            if before.get(path) != stamp:
+                record_step_manifest(path)
+
+
+def _manifests_in(directory: Path | None) -> dict[Path, int]:
+    """Result manifests directly in a step's output folder, with their mtimes."""
+    if directory is None:
+        return {}
+    try:
+        return {
+            path: path.stat().st_mtime_ns
+            for path in directory.glob(f"*{MANIFEST_SUFFIX}")
+        }
+    except OSError:
+        return {}
+
+
+def record_step_manifest(path: Path) -> None:
+    """Carry a step's manifest, outputs and warnings into this run's result."""
+    try:
+        step = json.loads(path.read_text(encoding="utf-8"))
+        command = str(step["command"])
+        outputs = list(step.get("outputs") or [])
+        warnings = list(step.get("warnings") or [])
+    except (OSError, ValueError, KeyError, TypeError):
+        return
+    result = current_result()
+    result.add_output(path, "step_manifest", kind="json")
+    for output in outputs:
+        if isinstance(output, dict) and output.get("path") and output.get("role"):
+            result.add_output(output["path"], output["role"], kind=output.get("kind"))
+    for item in warnings:
+        if isinstance(item, dict) and item.get("code"):
+            # The step already logged it; record it without logging it twice.
+            result.warn(str(item["code"]), str(item.get("message", "")), step=command)
 
 
 def run_vcf_workflow(
@@ -242,10 +289,14 @@ def run_vcf_workflow(
     available = [a for a in anns.split(",") if not skip_reason(a, lib)]
     if not available:
         # A discovery filter over unannotated variants would report a misleading 0.
-        logging.warning(
+        warn(
+            "annotation_skipped",
             f"Skipping annotation and discovery for {Path(vcf_path).name}: "
             f"no annotation data is installed for {anns}. Download it with "
-            "'wgsextract ref clinvar' (and the other 'ref' annotation commands)."
+            "'wgsextract ref clinvar' (and the other 'ref' annotation commands).",
+            annotation=anns,
+            reason="no annotation data installed",
+            path=str(vcf_path),
         )
         return None
     anns = ",".join(available)
@@ -270,7 +321,11 @@ def run_vcf_workflow(
     # Locate the final annotated file
     actual_ann_vcf = str(Path(work_dir, "chain_annotated.vcf.gz"))
     if not Path(actual_ann_vcf).exists():
-        logging.warning(f"Annotation failed for {vcf_path}")
+        warn(
+            "annotation_failed",
+            f"Annotation failed for {vcf_path}",
+            path=str(vcf_path),
+        )
         return None
 
     # Run Discovery Filter

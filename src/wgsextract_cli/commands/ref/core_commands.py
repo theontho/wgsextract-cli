@@ -27,6 +27,7 @@ from wgsextract_cli.core.ref_library.catalog import (
 )
 from wgsextract_cli.core.ref_library.downloads import download_file
 from wgsextract_cli.core.reference_assets import (
+    fasta_prefix,
     n_count_paths,
     read_fai_lengths,
     reference_dict_path,
@@ -36,6 +37,12 @@ from wgsextract_cli.core.reference_assets import (
 )
 from wgsextract_cli.core.reference_ncount import write_n_count_files
 from wgsextract_cli.core.reference_processing import has_ref_ns
+from wgsextract_cli.core.results import (
+    current_result,
+    file_snapshot,
+    record_changed_files,
+    warn,
+)
 from wgsextract_cli.core.utils import (
     UsageError,
     WGSExtractError,
@@ -55,6 +62,7 @@ def cmd_download(args: argparse.Namespace) -> None:
     logging.info(LOG_MESSAGES["ref_downloading"].format(url=url, path=args.out))
     if not download_file(args.url, args.out):
         raise WGSExtractError(f"Download failed: {url} -> {args.out}")
+    current_result().add_output(args.out, "download")
 
 
 def cmd_index(args: argparse.Namespace) -> None:
@@ -68,6 +76,9 @@ def cmd_index(args: argparse.Namespace) -> None:
 
     logging.debug(f"Resolved reference: {str(absolute_path(args.ref))}")
     logging.info(LOG_MESSAGES["ref_indexing"].format(path=args.ref))
+    # Only this FASTA's sidecars: its directory may hold other genomes.
+    ref_dir, prefix = Path(args.ref).parent, Path(fasta_prefix(args.ref)).name
+    before = file_snapshot(ref_dir, prefix=prefix, recursive=False)
     try:
         logging.info("Indexing FASTA with samtools faidx...")
         run_command(["samtools", "faidx", args.ref])
@@ -87,6 +98,10 @@ def cmd_index(args: argparse.Namespace) -> None:
         logging.info("Indexing complete.")
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Indexing failed: {e}") from e
+    record_changed_files(
+        ref_dir, before, "reference_index", prefix=prefix, recursive=False
+    )
+    current_result().set_reference(args.ref)
 
 
 def cmd_count_ns(args: argparse.Namespace) -> None:
@@ -119,6 +134,17 @@ def cmd_count_ns(args: argparse.Namespace) -> None:
     )
     logging.info(f"Wrote {ncnt_path}")
     logging.info(f"Wrote {nbin_path}")
+    result = current_result()
+    result.add_output(ncnt_path, "n_counts")
+    result.add_output(nbin_path, "n_bins")
+    result.set_reference(args.ref)
+    result.add_metrics(
+        sequences=totals.sequences,
+        length=totals.length,
+        n_count=totals.n_count,
+        large_n_runs=totals.large_runs,
+        small_n_runs=totals.small_runs,
+    )
 
 
 def _check_fasta_index(ref: str) -> dict[str, int]:
@@ -142,6 +168,7 @@ def _check_fasta_index(ref: str) -> dict[str, int]:
             existing = Path(ref + ext)
             if not existing.exists():
                 shutil.copyfile(new, existing)
+                current_result().add_output(existing, "reference_index")
             elif existing.read_bytes() != new.read_bytes():
                 raise WGSExtractError(
                     f"{existing} doesn't match {Path(ref).name}: it was made for "
@@ -211,6 +238,8 @@ def cmd_ref_verify(args: argparse.Namespace) -> None:
         (g.get("md5") for g in get_available_genomes() if g["final"] == filename),
         None,
     )
+    current_result().set_reference(resolved_ref)
+    current_result().add_metrics(contigs=len(lengths), signature=signature)
     if expected:
         logging.info(f"Verifying sequence dictionary signature for {filename}...")
         verify_sequence_signature(filename, lengths, expected)
@@ -219,9 +248,11 @@ def cmd_ref_verify(args: argparse.Namespace) -> None:
         logging.info(f"Sequence dictionary signature: {signature}")
 
     if not Path(reference_dict_path(resolved_ref)).exists():
-        logging.warning(
+        warn(
+            "dict_missing",
             f"No sequence dictionary {reference_dict_path(resolved_ref)}; "
-            "run 'wgsextract ref index' if GATK tools need it."
+            "run 'wgsextract ref index' if GATK tools need it.",
+            path=reference_dict_path(resolved_ref),
         )
 
     logging.info(LOG_MESSAGES["ref_valid"].format(filename=filename))
