@@ -527,7 +527,8 @@ def render(raw: Mapping[str, Any]) -> str:
     order = ("schema", "override", "detected", "outputs")
     ordered = {k: raw[k] for k in order if k in raw}
     ordered.update({k: v for k, v in raw.items() if k not in order})
-    return _HEADER + tomli_w.dumps(ordered)
+    text: str = tomli_w.dumps(ordered)
+    return _HEADER + text
 
 
 def load_schema() -> dict[str, Any]:
