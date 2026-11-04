@@ -93,7 +93,7 @@ _INDEX_SUFFIXES = {
     "fasta": (".fai",),
 }
 _COMPRESSION_SUFFIXES = (".gz", ".bgz", ".zst", ".bz2", ".xz")
-_SECRET_NAME = re.compile(r"token|secret|password|passwd|credential|api_?key", re.I)
+_SECRET_NAME = re.compile(r"token|secret|password|passwd|credential|api[_-]?key", re.I)
 _VERSION = re.compile(r"\d+(?:\.\d+)+[\w.+-]*")
 # Launchers whose own version says nothing about the tool they run.
 _LAUNCHERS = {"pixi", "env", "wsl", "conda", "mamba", "micromamba", "nice", "ionice"}
@@ -271,14 +271,50 @@ def _json_safe(value: Any) -> Any:
     return str(value)
 
 
+def _redact_strings(value: Any) -> Any:
+    """Strip URL credentials and query strings from every string in ``value``."""
+    from wgsextract_cli.core.download_progress import redact_urls
+
+    if isinstance(value, str):
+        return redact_urls(value) if "://" in value else value
+    if isinstance(value, dict):
+        return {k: _redact_strings(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact_strings(v) for v in value]
+    return value
+
+
 def params_from_args(args: argparse.Namespace) -> dict[str, Any]:
     """The effective options of a run, minus internals and secrets."""
     params: dict[str, Any] = {}
     for key, value in sorted(vars(args).items()):
         if key.startswith("_") or key in {"func", "parent_pid"} or callable(value):
             continue
-        params[key] = "<redacted>" if _SECRET_NAME.search(key) else _json_safe(value)
+        params[key] = (
+            "<redacted>"
+            if _SECRET_NAME.search(key)
+            else _redact_strings(_json_safe(value))
+        )
     return params
+
+
+def redact_argv(argv: Sequence[str]) -> list[str]:
+    """A command line safe to record: secret options and URL credentials hidden."""
+    redacted: list[str] = []
+    hide_next = False
+    for arg in argv:
+        if hide_next:
+            redacted.append("<redacted>")
+            hide_next = False
+            continue
+        name, eq, _value = arg.partition("=")
+        secret = name.startswith("-") and bool(_SECRET_NAME.search(name))
+        if secret and eq:
+            redacted.append(f"{name}=<redacted>")
+            continue
+        hide_next = secret
+        redacted.append(_redact_strings(arg))
+    return redacted
 
 
 def tools_in_command(command: Sequence[str]) -> set[str]:
@@ -402,8 +438,9 @@ class CommandResult:
 
     def warn(self, code: str, message: str, **details: Scalar) -> None:
         """Record a structured warning (without logging it; see ``warn``)."""
+        warning = ResultWarning(code, _redact_strings(message), dict(details))
         with self._lock:
-            self.warnings.append(ResultWarning(code, message, dict(details)))
+            self.warnings.append(warning)
 
     def set_details(self, details: Mapping[str, Any] | None) -> None:
         self.details = None if details is None else dict(details)
@@ -434,7 +471,7 @@ class CommandResult:
     def fail(self, kind: ErrorKind, message: str, exit_code: int) -> None:
         self.status = "cancelled" if kind == "cancelled" else "failed"
         self.exit_code = exit_code
-        self.error = ResultError(kind, message)
+        self.error = ResultError(kind, _redact_strings(message))
 
     def manifest_path(self) -> Path | None:
         if self._manifest_stem is not None:
@@ -476,13 +513,20 @@ class CommandResult:
     def write_manifest(self) -> Path | None:
         """Write the manifest atomically next to the outputs; None if it has none."""
         from wgsextract_cli.core.atomic_output import atomic_output
+        from wgsextract_cli.core.run_log import is_run_log_path
 
         path = self.manifest_path()
         if path is None or not path.parent.is_dir():
             return None
-        self.manifest = str(path)
-        with atomic_output(path, retire_indexes=False) as staged:
-            Path(staged).write_text(self.to_json(), encoding="utf-8", newline="\n")
+        if is_run_log_path(path):
+            raise FileExistsError(f"{path} is this run's log file; not replacing it.")
+        previous, self.manifest = self.manifest, str(path)
+        try:
+            with atomic_output(path, retire_indexes=False) as staged:
+                Path(staged).write_text(self.to_json(), encoding="utf-8", newline="\n")
+        except BaseException:
+            self.manifest = previous
+            raise
         return path
 
 

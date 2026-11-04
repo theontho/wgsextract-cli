@@ -17,6 +17,7 @@ from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
 )
+from wgsextract_cli.core.download_progress import redact_urls
 from wgsextract_cli.core.gene_map import are_gene_maps_installed
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
@@ -50,9 +51,10 @@ def cmd_download(args: argparse.Namespace) -> None:
     if Path(args.out).is_dir():
         raise WGSExtractError(f"Output path is a directory: {args.out}")
 
-    logging.info(LOG_MESSAGES["ref_downloading"].format(url=args.url, path=args.out))
+    url = redact_urls(args.url)
+    logging.info(LOG_MESSAGES["ref_downloading"].format(url=url, path=args.out))
     if not download_file(args.url, args.out):
-        raise WGSExtractError(f"Download failed: {args.url} -> {args.out}")
+        raise WGSExtractError(f"Download failed: {url} -> {args.out}")
 
 
 def cmd_index(args: argparse.Namespace) -> None:

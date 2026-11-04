@@ -14,6 +14,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from wgsextract_cli import __version__
+from wgsextract_cli.core.results import redact_argv
 
 _active: "RunLog | None" = None
 
@@ -129,7 +130,7 @@ class RunLog:
                 reference["index_sha256"] = indexes
         return {
             "schema_version": 1,
-            "argv": list(argv),
+            "argv": redact_argv(argv),
             "wgsextract_version": __version__,
             "platform": platform.platform(),
             "status": status,
@@ -170,7 +171,7 @@ def run_logging(args: argparse.Namespace, argv: Sequence[str]) -> Iterator[None]
             session.write_metadata(
                 {
                     "schema_version": 1,
-                    "argv": list(argv),
+                    "argv": redact_argv(argv),
                     "wgsextract_version": __version__,
                     "started_at": session.started_at,
                     "status": "running",

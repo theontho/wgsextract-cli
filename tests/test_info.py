@@ -12,6 +12,7 @@ import pytest
 from tests.htslib_helpers import sam_to_bam
 from wgsextract_cli.commands.info import metrics, render, runner
 from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.results import CommandResult, collecting
 from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.main import main
 
@@ -176,6 +177,22 @@ def test_reference_name_counts_only_for_a_fasta_the_user_named(info_env, monkeyp
     assert "hg38, , 1 SNs" in output
 
 
+def test_json_reports_the_library_resolved_reference(info_env, monkeypatch, capsys):
+    sample, _calls = info_env
+    fasta = sample.parent / "library" / "hs38.fa.gz"
+    fasta.parent.mkdir()
+    fasta.write_bytes(b"")
+    monkeypatch.setattr(
+        "wgsextract_cli.core.variant_files.resolve_reference",
+        lambda _ref, _md5: str(fasta),
+    )
+    argv = ["wgsextract-cli", "info", "--json", "--input", str(sample)]
+    with patch.object(sys, "argv", argv):
+        main()
+    reference = json.loads(capsys.readouterr().out)["provenance"]["reference"]
+    assert reference["path"] == str(fasta) and reference["build"] == "hg38"
+
+
 def test_region_coverage_does_not_poison_whole_genome_cache(info_env, monkeypatch):
     sample, _calls = info_env
     seen = []
@@ -330,10 +347,17 @@ def test_full_coverage_accepts_fresh_legacy_bincvg(tmp_path, monkeypatch):
         render, "run_command", lambda *a, **k: pytest.fail("should reuse legacy")
     )
 
-    result = render.run_full_coverage(
-        str(sample), None, str(tmp_path / "s.bam_coverage.tsv"), legacy_p=str(legacy)
-    )
+    collected = CommandResult(command="info calculate-coverage")
+    with collecting(collected):
+        result = render.run_full_coverage(
+            str(sample),
+            None,
+            str(tmp_path / "s.bam_coverage.tsv"),
+            legacy_p=str(legacy),
+        )
     assert result["1"] == "75 %"
+    # The manifest names the file the numbers came from, not the unwritten TSV.
+    assert [record.path for record in collected.outputs] == [str(legacy)]
 
 
 def test_full_coverage_failure_raises_and_leaves_no_output(tmp_path, monkeypatch):

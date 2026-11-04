@@ -287,3 +287,142 @@ def test_cli_extract_pairs_keep_both_manifests(tmp_path, pair):
         assert_valid(document)
         commands.add(document["command"])
     assert commands == {f"extract {command}" for command in pair}
+
+
+def test_urls_and_secret_options_are_redacted_from_argv_and_params(tmp_path, capsys):
+    url = "https://user:pass@example.org/ref.fa.gz?token=s3cret#frag"
+    argv = ["ref", "download", "--url", url, f"--mirror={url}", "--api-key", "k3y"]
+
+    def command(args):
+        results.warn("slow_mirror", f"Slow mirror {url}")
+        raise WGSExtractError(f"Download failed: {url}")
+
+    code = dispatch(
+        command,
+        tmp_path,
+        as_json=True,
+        _argv=argv,
+        url=url,
+        mirrors=[url],
+        api_key="k3y",
+    )
+    assert code == 1
+    stdout = capsys.readouterr().out
+    for secret in ("user", "pass", "s3cret", "frag", "k3y"):
+        assert secret not in stdout
+    provenance = json.loads(stdout)["provenance"]
+    clean = "https://example.org/ref.fa.gz"
+    assert provenance["argv"] == [
+        "ref",
+        "download",
+        "--url",
+        clean,
+        f"--mirror={clean}",
+        "--api-key",
+        "<redacted>",
+    ]
+    assert provenance["params"]["url"] == clean
+    assert provenance["params"]["mirrors"] == [clean]
+    document = json.loads(stdout)
+    assert document["error"]["message"] == f"Download failed: {clean}"
+    assert document["warnings"][0]["message"] == f"Slow mirror {clean}"
+
+
+def test_params_report_the_genome_selection_actually_used(
+    tmp_path, capsys, monkeypatch
+):
+    from wgsextract_cli.cli import dispatch as dispatch_module
+
+    bam = tmp_path / "genomes" / "s.bam"
+
+    def select(args, _explicit):
+        if args.genome == "bad":
+            raise UsageError("no such genome")
+        args.input, args.outdir = str(bam), str(bam.parent)
+
+    monkeypatch.setattr(dispatch_module, "apply_genome_selection", select)
+    assert dispatch(lambda args: None, tmp_path, as_json=True, genome="s") == 0
+    params = json.loads(capsys.readouterr().out)["provenance"]["params"]
+    assert params["input"] == str(bam) and params["outdir"] == str(bam.parent)
+
+    # A selection that fails still reports the options as given.
+    assert dispatch(lambda args: None, tmp_path, as_json=True, genome="bad") == 2
+    params = json.loads(capsys.readouterr().out)["provenance"]["params"]
+    assert "input" not in params and params["outdir"] == str(tmp_path)
+
+
+def test_manifest_never_replaces_the_run_log(tmp_path):
+    log = tmp_path / "s_mtDNA.bam.manifest.json"
+
+    def command(args):
+        (tmp_path / "s_mtDNA.bam").write_bytes(b"bam")
+        results.current_result().add_output(tmp_path / "s_mtDNA.bam", "mtdna")
+
+    args = argparse.Namespace(
+        func=command,
+        command="test",
+        _command="test",
+        outdir=str(tmp_path),
+        json=False,
+        log_file=str(log),
+    )
+    from wgsextract_cli.core.run_log import run_logging
+
+    with run_logging(args, ["test"]):
+        dispatch_command(args, set())
+    assert not log.read_text().lstrip().startswith("{")
+    assert "is this run's log file" in log.read_text()
+
+
+def test_failed_manifest_write_leaves_manifest_unset(tmp_path, capsys, monkeypatch):
+    import wgsextract_cli.core.atomic_output as atomic
+
+    def broken(*_args, **_kwargs):
+        raise PermissionError("read-only")
+
+    monkeypatch.setattr(atomic, "atomic_output", broken)
+
+    def command(args):
+        (tmp_path / "s.vcf.gz").write_bytes(b"vcf")
+        results.current_result().add_output(tmp_path / "s.vcf.gz", "snps")
+
+    assert dispatch(command, tmp_path, as_json=True) == 0
+    document = json.loads(capsys.readouterr().out)
+    assert_valid(document)
+    assert document["manifest"] is None
+    assert not (tmp_path / "s.vcf.manifest.json").exists()
+
+
+def test_rewrapped_dependency_error_still_exits_3(tmp_path, capsys):
+    from wgsextract_cli.core.utils import ToolLaunchError
+
+    def command(args):
+        try:
+            raise ToolLaunchError("Could not start haplogrep: Permission denied.")
+        except OSError as e:
+            raise WGSExtractError(f"Haplogrep failed: {e}") from e
+
+    assert dispatch(command, tmp_path, as_json=True) == 3
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["kind"] == "missing_dependency"
+    assert error["message"].startswith("Haplogrep failed:")
+
+
+@pytest.mark.skipif(not shutil.which("bcftools"), reason="needs bcftools")
+@pytest.mark.skipif(os.name == "nt", reason="needs POSIX execute permissions")
+def test_cli_non_executable_haplogrep_exits_3(tmp_path):
+    haplogrep = tmp_path / "haplogrep"
+    haplogrep.write_text("#!/bin/sh\n")
+    haplogrep.chmod(0o644)
+    vcf = tmp_path / "s.vcf"
+    vcf.write_text(
+        "##fileformat=VCFv4.2\n##contig=<ID=chrM,length=16569>\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        "chrM\t73\t.\tA\tG\t50\tPASS\t.\n"
+    )
+    rc, stdout, stderr = run_cli(
+        ["lineage", "mt-haplogroup", "--input", str(vcf)]
+        + ["--haplogrep-path", str(haplogrep), "--outdir", str(tmp_path), "--json"]
+    )
+    assert rc == 3, stderr
+    assert json.loads(stdout)["error"]["kind"] == "missing_dependency"

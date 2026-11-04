@@ -13,6 +13,7 @@ from wgsextract_cli.commands import _microarray_chm13 as command
 from wgsextract_cli.core import microarray_aadr as aadr
 from wgsextract_cli.core.microarray_chm13 import CHM13Catalogue, ReferenceContig
 from wgsextract_cli.core.microarray_site_map import SiteProjection, load_site_map
+from wgsextract_cli.core.results import CommandResult, collecting
 
 pytestmark = pytest.mark.skipif(
     not all(shutil.which(tool) for tool in ("bcftools", "samtools", "tabix", "bgzip")),
@@ -113,10 +114,21 @@ def test_native_vcf_quality_and_unsupported_masks_survive_canonical_aadr_export(
         resolve_rsids=False,
         parallel=False,
     )
-    command.run_chm13(
-        args, SimpleNamespace(root=str(tmp_path)), str(fasta), str(out), "1"
-    )
+    result = CommandResult(command="microarray")
+    with collecting(result):
+        command.run_chm13(
+            args, SimpleNamespace(root=str(tmp_path)), str(fasta), str(out), "1"
+        )
     combined = next(out.glob("CHM13_*/*_CombinedKit.txt"))
+    roles = {Path(record.path).name: record.role for record in result.outputs}
+    assert roles == {
+        "sample_CHM13_report.json": "chm13_report",
+        combined.name: "combined_kit",
+        **{
+            f"sample_AADR_1240k.{ext}": "aadr"
+            for ext in ("bed", "bim", "fam", "geno", "ind", "snp")
+        },
+    }
     assert [line.split("\t")[3] for line in combined.read_text().splitlines()[1:]] == [
         "CT",
         "--",

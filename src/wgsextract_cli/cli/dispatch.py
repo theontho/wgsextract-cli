@@ -14,6 +14,7 @@ from wgsextract_cli.core.results import (
     CommandResult,
     collecting,
     params_from_args,
+    redact_argv,
     stdout_reserved,
 )
 from wgsextract_cli.core.utils import (
@@ -53,7 +54,7 @@ def dispatch_command(args: argparse.Namespace, explicit_dests: set[str]) -> None
         command=getattr(args, "_command", None)
         or str(getattr(args, "command", None) or "wgsextract")
     )
-    result.provenance.argv = list(getattr(args, "_argv", None) or sys.argv[1:])
+    result.provenance.argv = redact_argv(getattr(args, "_argv", None) or sys.argv[1:])
     result.provenance.params = params_from_args(args)
     reserved = stdout_reserved() if as_json else contextlib.nullcontext(sys.stdout)
     with reserved as stdout, collecting(result, as_json=as_json):
@@ -78,6 +79,8 @@ def _run(
     try:
         verify_platform_support(args)
         apply_genome_selection(args, set(explicit_dests))
+        # --genome fills in input/outdir; preflight failures keep the snapshot.
+        result.provenance.params = params_from_args(args)
         for dest, role in INPUT_ARGS.items():
             value = getattr(args, dest, None)
             if isinstance(value, str) and value and Path(value).expanduser().exists():
@@ -118,7 +121,7 @@ def _run(
         result.fail("missing_dependency", str(e), EXIT_MISSING_DEPENDENCY)
     except WGSExtractError as e:
         logging.error(str(e))
-        result.fail("failure", str(e), EXIT_FAILURE)
+        _fail_unexpected(result, e, str(e))
     except KeyboardInterrupt:
         logging.error("Interrupted.")
         result.fail("cancelled", "Interrupted.", 128 + signal.SIGINT)
@@ -136,4 +139,17 @@ def _run(
             logging.exception("An unexpected error occurred:")
         else:
             logging.error(f"An unexpected error occurred: {e}")
-        result.fail("failure", f"An unexpected error occurred: {e}", EXIT_FAILURE)
+        _fail_unexpected(result, e, f"An unexpected error occurred: {e}")
+
+
+def _fail_unexpected(result: CommandResult, error: BaseException, message: str) -> None:
+    """Fail the run, keeping exit 3 when a wrapper re-raised a dependency error."""
+    seen: set[int] = set()
+    cause: BaseException | None = error
+    while cause is not None and id(cause) not in seen:
+        if isinstance(cause, MissingDependencyError):
+            result.fail("missing_dependency", message, EXIT_MISSING_DEPENDENCY)
+            return
+        seen.add(id(cause))
+        cause = cause.__cause__
+    result.fail("failure", message, EXIT_FAILURE)

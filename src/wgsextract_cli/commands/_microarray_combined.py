@@ -13,7 +13,7 @@ from typing import TextIO
 from wgsextract_cli.core.microarray_identity import identity_policy
 from wgsextract_cli.core.microarray_quality import MicroarrayQuality, quality_policy
 from wgsextract_cli.core.microarray_utils import GenotypeTally, sort_alleles
-from wgsextract_cli.core.results import current_result
+from wgsextract_cli.core.results import MANIFEST_SUFFIX, current_result
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
@@ -536,6 +536,13 @@ def record_kit(path: str, fmt: str, tally: GenotypeTally) -> None:
             "no_call_rate": round(tally.no_call_rate, 6),
         },
     )
+
+
+def record_aadr(outdir: str, base_name: str, panel: str) -> None:
+    """Register the PLINK/EIGENSTRAT files written for one AADR panel."""
+    for path in sorted(Path(outdir).glob(f"{base_name}_AADR_{panel}.*")):
+        if path.is_file() and not path.name.endswith(MANIFEST_SUFFIX):
+            current_result().add_output(path, "aadr", metrics={"panel": panel})
 
 
 def record_kept(path: str | None, outdir: str, role: str) -> None:

@@ -57,7 +57,7 @@ from wgsextract_cli.core.microarray_utils import GenotypeTally
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem, resolve_reference_library
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
-from wgsextract_cli.core.results import MANIFEST_SUFFIX, current_result, warn
+from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.sample_ploidy import sex_samples_args
 from wgsextract_cli.core.utils import (
     UsageError,
@@ -72,6 +72,7 @@ from wgsextract_cli.core.warnings import print_warning
 
 from ._microarray_combined import (
     _write_microarray_combined_kit,
+    record_aadr,
     record_kept,
     record_kit,
     record_microarray_run,
@@ -279,9 +280,7 @@ def _convert_microarray_outputs(
                 WGSExtractError,
             ) as e:
                 raise WGSExtractError(f"Failed to generate AADR {panel}: {e}") from e
-            for path in sorted(Path(outdir).glob(f"{base_name}_AADR_{panel}.*")):
-                if path.is_file() and not path.name.endswith(MANIFEST_SUFFIX):
-                    current_result().add_output(path, "aadr", metrics={"panel": panel})
+            record_aadr(outdir, base_name, panel)
             written_panels.add(panel)
             continue
         real_fmt = _resolve_microarray_format(fmt_key)
@@ -378,6 +377,7 @@ def run(args: argparse.Namespace) -> None:
     if not ref_fasta or not Path(ref_fasta).is_file():
         message = LOG_MESSAGES["ref_required_for"].format(task="microarray generation")
         raise WGSExtractError(message)
+    current_result().set_reference(ref_fasta, lib.build)
     if indel_bindings and not (
         is_hg37_build(lib.build or "")
         or is_hg38_build(lib.build or "")

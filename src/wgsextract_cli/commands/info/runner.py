@@ -10,6 +10,7 @@ from typing import Any
 
 from wgsextract_cli.core.alignment_health import alignment_health
 from wgsextract_cli.core.alignment_metadata import get_bam_header
+from wgsextract_cli.core.builds import build_from_chr1_length, build_from_path
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -368,6 +369,12 @@ def run(args: argparse.Namespace) -> None:
     md5_sig = calculate_bam_md5(args.input, header=header)
     resolved_ref = resolve_reference(args.ref, md5_sig)
     logging.debug(f"MD5 signature: {md5_sig}; resolved reference: {resolved_ref}")
+    if resolved_ref and Path(resolved_ref).is_file():
+        current_result().set_reference(
+            resolved_ref,
+            build_from_chr1_length(sequence_lengths(header))
+            or build_from_path(Path(resolved_ref).name),
+        )
 
     if info_cmd == "calculate-coverage" and getattr(args, "bins", False):
         from .bins import run_depth_bins
@@ -455,10 +462,6 @@ def run(args: argparse.Namespace) -> None:
     coverage_map = _coverage_map(
         info_cmd, args.input, resolved_ref, idx_stats, outdir, region
     )
-    if info_cmd in COVERAGE_COMMANDS:
-        current_result().add_output(
-            _coverage_path(info_cmd, args.input, outdir, region), "coverage"
-        )
     data.update(
         _detailed_metrics(
             data, idx_stats, total_unmapped, coverage_map, load_n_counts(resolved_ref)
