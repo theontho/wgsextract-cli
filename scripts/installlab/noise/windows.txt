@@ -18,3 +18,8 @@
 # Windows' credential encryption (any interactive user already has them).
 */AppData/Roaming/Microsoft/Crypto*
 */AppData/Roaming/Microsoft/Protect*
+# Windows Error Reporting's staging folder: Windows creates and deletes
+# per-event subfolders by itself (seen removed during a clean run in CI, run
+# 41891304663). Real crash reports land in WER/ReportArchive and ReportQueue,
+# which state.no_crash_reports checks separately.
+*/ProgramData/Microsoft/Windows/WER/Temp/*
