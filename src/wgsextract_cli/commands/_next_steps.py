@@ -7,10 +7,12 @@ filled is skipped):
   {vcf}     the first VCF the run wrote
 
 tests/test_cli_help.py checks that every hint parses to a command.
+
+Only suggest what suits any input: a Y haplogroup needs a male sample, so it
+isn't suggested before the run has shown there is a Y chromosome.
 """
 
 _TO_CHIP = "wgsextract microarray {source} --formats 23andme_v5"
-_Y = "wgsextract lineage y-haplogroup {source}"
 _MT = "wgsextract lineage mt-haplogroup {source}"
 _CHECK_BAM = "wgsextract info --input {bam}"
 _ANNOTATE = (
@@ -19,12 +21,12 @@ _ANNOTATE = (
 )
 
 NEXT_STEPS: dict[str, tuple[str, ...]] = {
-    "info": (_TO_CHIP, _Y),
+    "info": (_TO_CHIP, _MT),
     "info coverage-sample": (_TO_CHIP,),
     "info calculate-coverage": (_TO_CHIP,),
-    "microarray": (_Y, _MT),
+    "microarray": (_MT,),
     "lineage y-haplogroup": (_MT,),
-    "lineage mt-haplogroup": (_Y,),
+    "lineage mt-haplogroup": (_TO_CHIP,),
     "align": (_CHECK_BAM,),
     "realign": (_CHECK_BAM,),
     "vcf snp": _ANNOTATE,
