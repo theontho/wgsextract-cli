@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import subprocess
@@ -167,6 +168,12 @@ def run_cli(
         timeout=timeout,
     )
     return result.returncode, result.stdout, result.stderr
+
+
+def state_directory_setting(root: Path) -> str:
+    """A config.toml line keeping run records and reports under ``root``, not
+    in the checkout (the default data folder)."""
+    return f"state_directory = {json.dumps(str(root / 'state'))}\n"
 
 
 def isolated_home_env(home: Path) -> dict[str, str]:

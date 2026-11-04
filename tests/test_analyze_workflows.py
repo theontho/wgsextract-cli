@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from tests.htslib_helpers import bgzip_index, needs_tools, run_wgsextract
+from tests.smoke_utils import state_directory_setting
 from wgsextract_cli.commands import _analyze_workflows as wf
 from wgsextract_cli.commands import analyze
 from wgsextract_cli.commands.vcf import chain
@@ -531,7 +532,10 @@ def test_vcf_input_end_to_end_with_clinvar(
     lib.mkdir()
     cfg = tmp_path / "config.toml"
     # Literal strings: TOML would read a Windows path's backslashes as escapes.
-    cfg.write_text(f"reference_library = '{lib}'\nclinvar_vcf_path = '{clinvar}'\n")
+    cfg.write_text(
+        f"reference_library = '{lib}'\nclinvar_vcf_path = '{clinvar}'\n"
+        + state_directory_setting(tmp_path)
+    )
     monkeypatch.setattr(config, "_config_path_override", cfg)
     reload_settings()
 

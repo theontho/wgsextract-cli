@@ -181,6 +181,12 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         f"wgsextract vcf filter {_VCF_IN} --expr 'QUAL>30'",
         f"wgsextract vcf filter {_VCF_IN} --gene BRCA1",
     ),
+    "vcf table": _h(
+        "<input stem>_variants.tsv and <input stem>_variants.sqlite: one row per "
+        "variant allele, with its annotations.",
+        f"wgsextract vcf table {_VCF_IN}",
+        "wgsextract vcf table --vcf-input clinvar_annotated.vcf.gz --region chr22",
+    ),
     "vcf clinvar": _h(
         "clinvar_annotated.vcf.gz and clinvar_pathogenic.vcf.gz (+ .tbi).",
         f"wgsextract vcf clinvar {_VCF_IN}",
@@ -334,6 +340,15 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         "Prints each tool's status; writes no files.",
         "wgsextract deps check",
         "wgsextract deps check --tool samtools",
+    ),
+    "report-issue": _h(
+        "Prints a redacted bug report and its GitHub link and saves the "
+        "report as issue-report-<time>.md in state/reports (setting "
+        "state_directory); opens the browser only after you agree or with --open.",
+        "wgsextract report-issue",
+        "wgsextract report-issue --last-failed --print",
+        "wgsextract report-issue --run out/sample.vcf.gz.manifest.json --open",
+        "wgsextract report-issue --title 'vcf snp hangs' --description 'Stops at 40%.'",
     ),
     "example-genome list": _h(
         "Prints the curated examples; writes no files.",

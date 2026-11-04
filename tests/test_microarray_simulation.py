@@ -8,6 +8,8 @@ is an A in the reference.
 
 import gzip
 import random
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -637,7 +639,7 @@ def test_hg38_input_is_lifted_to_the_hg19_templates(tmp_path):
                 read = list(shifted[chrom][start - 1 : start + 99])
                 read[pos - start] = MALE[rsid][i % 2]
                 lines.append(
-                    f"{rsid}{i}\t0\t{chrom}\t{start}\t60\t100M\t*\t0\t0\t"
+                    f"{rsid}{i}\t{16 * (i % 2)}\t{chrom}\t{start}\t60\t100M\t*\t0\t0\t"
                     f"{''.join(read)}\t{'I' * 100}\tRG:Z:s"
                 )
     bam = sam_to_bam(lines, tmp_path / "sample.bam")
@@ -651,3 +653,84 @@ def test_hg38_input_is_lifted_to_the_hg19_templates(tmp_path):
     assert kit["rsHet"] == ["1", "1000", "AC"]
     assert kit["rsAlt"] == ["1", "2000", "CC"]
     assert kit["rsRef"] == ["1", "3000", "--"]
+
+
+def _deep_bam(path: Path, seqs: dict[str, str]) -> str:
+    """Over 255 low-quality reads on both strands, two in five carrying C, at
+    each rsHet/rsX/rsMT."""
+    rng = random.Random(11)
+    lines = [f"@SQ\tSN:{c}\tLN:{LENGTH}" for c in CONTIGS] + ["@RG\tID:s\tSM:s"]
+    for rsid, chrom, pos in MARKERS:
+        if rsid not in ("rsHet", "rsX", "rsMT"):
+            continue
+        for i in range(1200):
+            start = pos - 99 + i % 100
+            read = list(seqs[chrom][start - 1 : start + 99])
+            read[pos - start] = "C" if rng.random() < 0.4 else "A"
+            quals = "".join(chr(33 + rng.randint(13, 30)) for _ in read)
+            lines.append(
+                f"{rsid}{i}\t{16 * (i % 2)}\t{chrom}\t{start}\t60\t100M\t*\t0\t0\t"
+                f"{''.join(read)}\t{quals}\tRG:Z:s"
+            )
+    return sam_to_bam(lines, path)
+
+
+def _records(directory: Path) -> list[str]:
+    """Body of the annotated call set the kits were made from."""
+    (vcf,) = [
+        path
+        for path in directory.glob("*.vcf.gz")
+        if run_command(
+            [get_tool_path("bcftools"), "query", "-f", "%ID\n", str(path)],
+            capture_output=True,
+        ).stdout.startswith("rs")
+    ]
+    out = run_command(
+        [get_tool_path("bcftools"), "view", "-H", str(vcf)], capture_output=True
+    ).stdout
+    return out.splitlines()
+
+
+def test_parallel_default_calls_deep_sites_as_one_stream_does(tmp_path, library):
+    fasta, seqs = library
+    bam = _deep_bam(tmp_path / "deep.bam", seqs)
+
+    _microarray(bam, fasta, tmp_path / "serial", "--no-parallel", "--min-gq", "1")
+    _microarray(bam, fasta, tmp_path / "parallel", "--min-gq", "1")
+
+    serial = _records(tmp_path / "serial")
+    assert [line.split("\t")[2] for line in serial] == ["rsHet", "rsX", "rsMT"]
+    assert _records(tmp_path / "parallel") == serial
+    for name in ("CombinedKit.txt", "23andMe_V3.txt", "FTDNA_V2.csv"):
+        assert (tmp_path / "parallel" / f"deep_{name}").read_bytes() == (
+            tmp_path / "serial" / f"deep_{name}"
+        ).read_bytes()
+
+
+def test_library_default_runs_from_an_unguarded_spawn_script(tmp_path, library):
+    """Parallel by default must not need the caller's `__main__` guard, as a
+    process pool would under the spawn start method (Windows, macOS)."""
+    fasta, seqs = library
+    bam = _bam(tmp_path / "male.bam", seqs, MALE)
+    _microarray(bam, fasta, tmp_path / "serial", "--no-parallel")
+    script = tmp_path / "script.py"
+    script.write_text(
+        "import logging, multiprocessing\n"
+        "from wgsextract_cli import api\n"
+        "from wgsextract_cli.core import microarray_targets\n"
+        "logging.getLogger().setLevel(logging.INFO)\n"
+        "multiprocessing.set_start_method('spawn', force=True)\n"
+        "microarray_targets._FORMATS = ['23andMe_V3', 'FTDNA_V2']\n"
+        "api.microarray.generate(api.MicroarrayParams(\n"
+        f"    input={bam!r}, ref={fasta!r}, outdir={str(tmp_path / 'api')!r},\n"
+        "    formats='23andme_v3,ftdna_v2', threads=2))\n"
+    )
+    done = subprocess.run(
+        [sys.executable, str(script)], capture_output=True, text=True, timeout=300
+    )
+    assert done.returncode == 0, done.stderr[-2000:]
+    assert "chromosomes in parallel" in done.stderr
+    for name in ("CombinedKit.txt", "23andMe_V3.txt", "FTDNA_V2.csv"):
+        assert (tmp_path / "api" / f"male_{name}").read_bytes() == (
+            tmp_path / "serial" / f"male_{name}"
+        ).read_bytes()

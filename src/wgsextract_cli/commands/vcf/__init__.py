@@ -47,6 +47,7 @@ from .structural import (
     cmd_cnv,
     cmd_sv,
 )
+from .table import cmd_table
 
 
 def _add_region(
@@ -154,6 +155,35 @@ def register(
     )
     _add_region(filter_parser)
     filter_parser.set_defaults(func=cmd_filter)
+
+    table_parser = vcf_subs.add_parser(
+        "table",
+        parents=[base_parser],
+        help="Export variants and their annotations (gene, consequence, ClinVar, "
+        "gnomAD, genotype, depth, ...) as one row per variant, in a TSV and an "
+        "SQLite database to query.",
+    )
+    _add_vcf_input(table_parser, CLI_HELP["arg_vcf_input"])
+    _add_region(table_parser, "Only export this region (e.g. chr22).")
+    table_parser.add_argument(
+        "--sample", help="Sample whose genotypes to use (default: the first)."
+    )
+    table_parser.add_argument(
+        "--all-alleles",
+        action="store_true",
+        help="Also export ALT alleles the sample doesn't carry (0/0 calls, "
+        "no-calls, the other ALT of a 0/1 multi-allelic site).",
+    )
+    table_parser.add_argument(
+        "--pharmcat-json",
+        metavar="FILE",
+        help="PharmCAT's <stem>.phenotype.json (from 'vcf pharmcat'), to add its "
+        "diplotype and phenotype to rows in those genes.",
+    )
+    table_parser.add_argument(
+        "--no-sqlite", action="store_true", help="Write only the TSV."
+    )
+    table_parser.set_defaults(func=cmd_table)
 
     to_fasta_parser = vcf_subs.add_parser(
         "to-fasta", parents=[base_parser], help=CLI_HELP["cmd_vcf-to-fasta"]

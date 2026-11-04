@@ -74,8 +74,16 @@ necessary to claim individual concordance.
 
 ## Serial versus parallel
 
-The default remains **serial**. `--parallel --region ...` does not exercise the
-parallel caller, and VCF input does not either. Use a matching BAM/CRAM, FASTA
+With `--threads` above 1, chromosomes are called in parallel workers by default;
+`--no-parallel` calls them in one stream. Parallel calls are exactly those of one
+stream: bcftools subsamples a site with more than 255 bases using a random
+stream seeded once per process, and only such deep sites draw from it. Each
+worker's output records its last site with INFO/DP above 255; when more than one
+chromosome has one, those chromosomes are recalled up to that site in one
+bcftools process, in alignment order, so the stream is consumed exactly as one
+stream consumes it, and the recalled records replace the workers'. All other
+sites never depend on the stream. `--region` and VCF input always use one
+stream, as does an unindexed alignment. Use a matching BAM/CRAM, FASTA
 and indexed target table spanning at least two chromosomes, with no region flag.
 
 ```sh
@@ -135,8 +143,28 @@ These are shared-host two-core measurements, not isolated eight-core scaling
 evidence; other leased correctness/realignment work ran concurrently.
 Full-genome paired wall speedups were 1.45x and 1.60x, with slightly higher average
 CPU and higher sampled tree RSS in parallel. The small speed gain was modest
-and its sampled aggregate RSS increased substantially. These limited measurements
-do not justify changing the default across machines, so **serial remains the default**.
+and its sampled aggregate RSS increased substantially. Those runs had no
+deep-site reconciliation; its final exports happened to match, but per-contig
+workers could change likelihoods at deep sites (see below).
+
+A private 30x GRCh38 (hs38DH) CRAM has 81 sites with INFO/DP above 255 across
+10 chromosomes (62 on chrM). Per-contig workers without reconciliation changed
+QUAL/PL, but no genotype, at two of them; with reconciliation, the parallel VCF
+body equals the serial one and all 23 final exports matched in every pair.
+One pair per row, on an otherwise idle eight-core host; recalling the 10
+chromosomes took 71–96 s:
+
+| Threads | Code | Serial wall / CPU s | Parallel wall / CPU s |
+| --- | --- | --- | --- |
+| 2 | without reconciliation | 789.7 / 783.7 | 561.9 / 836.2 |
+| 2 | with reconciliation | 772.7 / 771.6 | 721.4 / 1007.1 |
+| 6 | without reconciliation | 722.1 / 726.8 | 433.2 / 1101.4 |
+| 6 | with reconciliation | 687.7 / 693.2 | 434.2 / 1064.4 |
+
+The recall runs after the workers, so it costs most at low thread counts. At six
+threads parallel was 1.6x faster than serial and matched the unreconciled code;
+repeated runs on this host varied by up to about 20%. Individual peak RSS stayed
+near 0.9 GiB; sampled tree RSS reached 2.0 GiB in parallel at six threads.
 
 Separately, a complete public GRCh38 HG00096 extraction was scored against
 independently measured chip windows across all 22 autosomes and X. All

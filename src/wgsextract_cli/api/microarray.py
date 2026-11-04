@@ -99,10 +99,11 @@ class MicroarrayParams(Params):
         help="AADR metadata sex only; does not change genotype calling (default: U)",
         choices=("U", "M", "F"),
     )
-    parallel: bool = param(
-        False,
-        help="Enable per-chromosome parallel variant calling",
-        action="store_true",
+    parallel: bool | None = param(
+        None,
+        help="Call chromosomes in parallel workers (default: on with --threads "
+        "above 1; calls are identical to one stream)",
+        action="boolean_optional",
     )
     ref_vcf_tab: Path | None = param(
         None,

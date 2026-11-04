@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from tests.htslib_helpers import bgzip_index, needs_htslib, sam_to_bam, write_fasta
+from tests.smoke_utils import state_directory_setting
 
 pytestmark = needs_htslib
 
@@ -72,7 +73,10 @@ def test_microarray_builds_its_target_and_calls_the_chip_markers(
     fasta, seq = _library(library)
     bam = _sample_bam(tmp_path, seq)
     config = tmp_path / "config.toml"
-    config.write_text(f'reference_library = "{library.as_posix()}"\n')
+    config.write_text(
+        f'reference_library = "{library.as_posix()}"\n'
+        + state_directory_setting(tmp_path)
+    )
     outdir = tmp_path / "out"
 
     subprocess.run(

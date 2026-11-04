@@ -1,0 +1,46 @@
+name: Bug report
+description: Something went wrong. `wgsextract report-issue` fills this in for you.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Run `wgsextract report-issue` (or **Report a problem** in the app) to fill this
+        form with redacted diagnostics. Please don't paste genotypes, reads, file
+        contents, sample names or anything else that could identify a person.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: >-
+        The commands you ran. If you can, reproduce the problem on public or fake
+        data (`wgsextract example-genome list`, `wgsextract qc fake-data`) so the
+        steps can be shared.
+      placeholder: |
+        1. wgsextract ...
+        2. ...
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: >-
+        Filled in by `wgsextract report-issue`: version, OS, tools, the command,
+        its error and log tail, all redacted. Otherwise paste the output of
+        `wgsextract report-issue --print`.
+      render: markdown
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: >-
+            I have read this report and it contains no genetic data, names or other
+            personal information I don't want to make public.
+          required: true

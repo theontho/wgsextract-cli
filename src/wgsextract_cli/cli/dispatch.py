@@ -6,6 +6,7 @@ from pathlib import Path
 
 from wgsextract_cli.core.genome_library import apply_genome_selection
 from wgsextract_cli.core.keep_awake import keep_awake
+from wgsextract_cli.core.last_run import LogTail, record_last_run
 from wgsextract_cli.core.results import (
     CommandResult,
     collecting,
@@ -14,12 +15,13 @@ from wgsextract_cli.core.results import (
     redact_argv,
     stdout_reserved,
 )
+from wgsextract_cli.core.run_log import active_log_path
 
 from .platform_support import verify_platform_support
 
 # Commands that only report: they mustn't create the configured output folder
 # (it may be on a drive that isn't mounted).
-READ_ONLY_COMMANDS = frozenset({"help", "config", "deps"})
+READ_ONLY_COMMANDS = frozenset({"help", "config", "deps", "report-issue"})
 
 
 # Arguments that name a command's primary input files, and their manifest role.
@@ -49,8 +51,14 @@ def dispatch_command(args: argparse.Namespace, explicit_dests: set[str]) -> None
     result.provenance.argv = redact_argv(getattr(args, "_argv", None) or sys.argv[1:])
     result.provenance.params = params_from_args(args)
     reserved = stdout_reserved() if as_json else contextlib.nullcontext(sys.stdout)
+    tail = LogTail()
+    root = logging.getLogger()
+    root.addHandler(tail)
     with reserved as stdout, collecting(result, as_json=as_json):
-        _run(args, explicit_dests, result)
+        try:
+            _run(args, explicit_dests, result)
+        finally:
+            root.removeHandler(tail)
         has_manifest = result.manifest_path() is not None
         result.finalize(probe_tools=as_json or has_manifest)
         try:
@@ -58,6 +66,7 @@ def dispatch_command(args: argparse.Namespace, explicit_dests: set[str]) -> None
                 result.write_manifest()
         except OSError as e:
             logging.warning(f"Could not write the result manifest: {e}")
+        record_last_run(result, log_tail=list(tail.lines), log_file=active_log_path())
         if as_json:
             stdout.write(result.to_json())
             stdout.flush()

@@ -148,6 +148,7 @@ def test_config_command_offers_to_bootstrap_a_default_config(
     monkeypatch, capsys, answer, created, message
 ):
     path = config.get_config_path()
+    path.unlink()
     monkeypatch.setattr("builtins.input", lambda prompt: answer)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
 

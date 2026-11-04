@@ -15,6 +15,7 @@ import pytest
 from pyliftover import LiftOver
 
 from tests.htslib_helpers import needs_tools
+from tests.smoke_utils import state_directory_setting
 from wgsextract_cli.commands.benchmark.chip import (
     CONSUMER_FORMATS,
     read_chip_export,
@@ -127,7 +128,11 @@ def test_kit_from_hg00096_matches_its_omni_chip(tmp_path: Path) -> None:
     _run([samtools, "index", str(bam)], tmp_path)
 
     config = tmp_path / "config.toml"
-    config.write_text(f'reference_library = "{library.as_posix()}"\n', newline="\n")
+    config.write_text(
+        f'reference_library = "{library.as_posix()}"\n'
+        + state_directory_setting(tmp_path),
+        newline="\n",
+    )
     outdir = tmp_path / "kit"
     _run(
         [*cli, "--config", str(config), "microarray", "--formats"]
