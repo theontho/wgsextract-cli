@@ -1,8 +1,8 @@
 # CLI resource preflight and reusable estimates
 
 Native `align` (BWA/BWA-MEM2), `realign`, `bam sort`, `bam to-bam`,
-`bam to-cram`, and `vcf snp`/`indel`/`gatk` report estimates before starting
-their heavy pipelines. For example:
+`bam to-cram`, and `vcf snp`/`indel`/`gatk`/`deepvariant` (CPU, every platform)
+report estimates before starting their heavy pipelines. For example:
 
 ```text
 Preflight align: estimated peak / available (GiB)
@@ -81,7 +81,8 @@ These are conservative estimates, **not reservations, memory limits or
 guarantees**. When size or free-space measurement is unavailable the row says
 `UNKNOWN`, never a misleading `OK`. Regional disk estimates deliberately retain
 whole-input upper bounds rather than guessing coverage. CPU models do not
-describe GPU/Parabricks or long-read pipelines.
+describe GPU/Parabricks or long-read pipelines; see
+[hardware and acceleration](hardware.md) for GPU alignment.
 
 ## GUI/API integration
 
@@ -197,6 +198,67 @@ filesystem for reference-index storage.
   a reservation or hard RSS cap. These non-alignment models
   are conservative heuristics, not measured guarantees for every caller, read
   length or depth.
+
+### DeepVariant postprocess_variants
+
+DeepVariant's stages run one after another, so its RAM estimate is the largest
+of TensorFlow inference (`2 + 14 × batch_size/1024` GiB on x64, 30 on ARM),
+`make_examples` shards (1 GiB each on x64, 2 on ARM) and `postprocess_variants`,
+plus 1 GiB of driver headroom.
+
+`postprocess_variants` splits the calling regions into partitions (DeepVariant
+1.9+ `--num_partitions`, at least `--cpus`) and sorts each partition's
+call_variants records in memory, one partition per worker process. The
+estimator replays DeepVariant's own `partition_calling_regions` on the
+reference `.fai` and the `--region` selection, then charges each worker for its
+partition's bases:
+
+- 768 MiB per worker, plus
+- 4.75 records per kilobase × 2 KiB per record.
+
+Calibration (#173, HG008 Ultima ~30x on hs38DH, `--threads 5`): DeepVariant's
+five partitions held 2.93, 3.01, 3.10, 3.30 and 1.06 million call_variants
+records (13.4 million in total; 4.70 per kb at most, in chr13–chr20). Three
+workers were OOM-killed mid-sort under a 12 GB cap at 3.39, 4.49 and 6.14 GB
+anonymous RSS, which are lower bounds on their peaks. The model gives 7.1 GiB
+per worker, about 36 GiB for the five, so the whole genome at `--threads 5`
+needs 37 GiB rather than the 17 GiB that inference alone suggests. Density
+was measured on one 30x Ultima genome; deeper or noisier inputs and other
+models can produce more candidates. A chr20 replay with 16 shards peaked at
+0.6 GiB per worker, consistent with the base allowance.
+
+Before running, `vcf deepvariant` (CPU, not WES, which DeepVariant
+postprocesses in one sequential pass) bounds this step by the RAM available
+now, capped by `docker info`'s engine memory, such as Docker Desktop's VM:
+
+1. If `--threads` workers fit, the command is unchanged.
+2. Otherwise it keeps every worker and passes
+   `--postprocess_variants_extra_args num_partitions=N` with the fewest
+   partitions that make the largest one fit, logged at INFO. More partitions
+   cost runtime: each worker rereads all call_variants outputs.
+3. If no partition count up to 128 fits, it also lowers
+   `--postprocess_cpus`, with a warning.
+
+`num_partitions` needs DeepVariant 1.9 or later. It is used with the pinned
+default images, image tags of version 1.9 or later, and other images or a
+local `run_deepvariant` whose `postprocess_variants --helpfull` lists it (asked
+only when more partitions are wanted). Otherwise step 2 is skipped: only
+`--postprocess_cpus` is lowered, with a warning. That saves little: fewer
+workers sort bigger partitions, so a whole genome still needs about 30 GiB.
+When even that cannot fit, the refusal suggests DeepVariant 1.9+.
+4. If one worker cannot fit, it refuses before `make_examples` starts and
+   gives the memory needed and available.
+
+The plan uses memory available at the start; other jobs that start later can
+still take it. In a container, an OOM kill of any process (from a Docker memory
+cap or a host out of memory) is reported by `docker events`. The command then
+kills the container and fails with an actionable error instead of letting
+DeepVariant's worker pool wait forever on its lost worker. A local
+`run_deepvariant` on `PATH` has no such watcher. On any failure, complete
+call_variants outputs (and the small model's `make_examples` outputs, if any)
+are moved to a new `deepvariant_intermediates/<date-time>-<n>/` directory in
+the output directory instead of being deleted with the work directory, so
+outputs of separate failed runs are never mixed.
 
 Compression, read lengths, depth, extra flow-specific stages and tool versions
 can change these costs. Missing reference-index construction has its own

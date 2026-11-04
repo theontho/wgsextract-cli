@@ -14,7 +14,9 @@ it instead of parsing log text or guessing output file names.
   `sample_MT.vcf.manifest.json`, `sample_MT.fasta` gives
   `sample_MT.fasta.manifest.json`, and `sample_mtDNA.bam` gives
   `sample_mtDNA.bam.manifest.json`. Multi-output commands such as `microarray`
-  name their manifest after the run (`<sample>_microarray.manifest.json`).
+  name their manifest after the run (`<sample>_microarray.manifest.json`;
+  `<vcf>_<sample>_microarray.manifest.json`, with a `sample` metric, for a
+  sample chosen from a multi-sample VCF).
   Report-only commands (`info`, `info chip`, `ref status`) write no file.
   A failed run that registered outputs still writes its manifest, with
   `status: "failed"`. A manifest never replaces this run's `--log-file`; when
@@ -110,3 +112,9 @@ These commands record full manifests: `info` (including `--detailed`),
 `microarray`. Every other command honours `--json` and the exit codes, and
 reports its status, inputs and provenance. Its outputs, metrics and warnings
 will be added in later releases ([#345](https://github.com/theontho/wgsextract-cli/issues/345)).
+
+## MultiQC
+
+`qc multiqc-metrics` turns a directory of manifests (and saved `--json`
+output) into MultiQC custom-content tables, and `qc multiqc` includes them in
+its report. See [Working with professional pipelines](interop.md#multiqc).

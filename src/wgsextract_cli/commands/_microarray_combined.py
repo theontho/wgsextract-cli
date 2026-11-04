@@ -558,13 +558,20 @@ def record_kept(path: str | None, outdir: str, role: str) -> None:
 
 
 def record_microarray_run(
-    outdir: str, base_name: str, combined_kit: str, autosomal: GenotypeTally
+    outdir: str,
+    base_name: str,
+    combined_kit: str,
+    autosomal: GenotypeTally,
+    *,
+    sample: str | None = None,
 ) -> None:
     """Name the manifest after the sample and record the CombinedKit, when it
     is kept, and its autosomal genotype summary."""
     result = current_result()
     result.set_manifest_stem(Path(outdir, f"{base_name}_microarray"))
     record_kept(combined_kit, outdir, "combined_kit")
+    if sample:
+        result.add_metrics(sample=sample)
     result.add_metrics(
         autosomal_called=autosomal.called,
         autosomal_homozygosity=round(autosomal.homozygosity, 6)

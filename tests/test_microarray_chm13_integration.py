@@ -21,10 +21,8 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-@pytest.mark.parametrize("chrom", ["chr1", "1"])
-def test_native_vcf_quality_and_unsupported_masks_survive_canonical_aadr_export(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, chrom: str
-) -> None:
+def _native_library(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """An all-A chr1 whose sites rs10..rs14 sit at native positions 20..24."""
     fasta = tmp_path / "input.fa"
     fasta.write_text(">chr1\n" + "A" * 100 + "\n")
     subprocess.run(["samtools", "faidx", str(fasta)], check=True)
@@ -79,6 +77,14 @@ def test_native_vcf_quality_and_unsupported_masks_survive_canonical_aadr_export(
             for position in range(10, 15)
         ),
     )
+    return fasta
+
+
+@pytest.mark.parametrize("chrom", ["chr1", "1"])
+def test_native_vcf_quality_and_unsupported_masks_survive_canonical_aadr_export(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, chrom: str
+) -> None:
+    fasta = _native_library(tmp_path, monkeypatch)
     source = tmp_path / "sample.vcf"
     source.write_text(
         "##fileformat=VCFv4.2\n"
@@ -188,3 +194,55 @@ def test_native_vcf_quality_and_unsupported_masks_survive_canonical_aadr_export(
         command.run_chm13(
             args, SimpleNamespace(root=str(tmp_path)), str(fasta), str(out), "1"
         )
+
+
+def test_native_gvcf_reference_blocks_are_calls_and_gaps_are_no_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fasta = _native_library(tmp_path, monkeypatch)
+    source = tmp_path / "sample.g.vcf"
+    source.write_text(
+        "##fileformat=VCFv4.2\n"
+        "##contig=<ID=chr1,length=100>\n"
+        '##INFO=<ID=END,Number=1,Type=Integer,Description="Block end">\n'
+        '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n"
+        "chr1\t1\t.\tA\t<*>\t.\t.\tEND=21\tGT\t0/0\n"
+        "chr1\t22\t.\tA\tG,<*>\t.\tPASS\t.\tGT\t0/1\n"
+        "chr1\t23\t.\tA\t<*>\t.\t.\tEND=23\tGT\t./.\n"
+    )
+    out = tmp_path / "outputs"
+    args = argparse.Namespace(
+        input=str(source),
+        region=None,
+        ref_vcf_tab=None,
+        ploidy_file=None,
+        formats="aadr_1240k",
+        min_dp=0,
+        min_gq=0,
+        assume_hom_ref=False,
+        exclude_filtered=False,
+        call_reasons=True,
+        strand_ambiguous="keep",
+        resolve_rsids=False,
+        parallel=False,
+    )
+    command.run_chm13(
+        args,
+        SimpleNamespace(root=str(tmp_path)),
+        str(fasta),
+        str(out),
+        "1",
+        gvcf=True,
+    )
+    combined = next(out.glob("CHM13_*/*_CombinedKit.txt"))
+    calls = [line.split("\t")[3] for line in combined.read_text().splitlines()[1:]]
+    # rs10's source strand is complemented; native 0/0 A is a homozygous call.
+    assert calls[0][0] == calls[0][1] != "-"
+    assert calls[1:] == ["AA", "AG", "--", "--"]
+    report = json.loads((out / "sample.g_CHM13_report.json").read_text())
+    assert report["call_reasons"] == {
+        "called": 3,
+        "missing_gt": 1,
+        "absent_from_vcf": 1,
+    }

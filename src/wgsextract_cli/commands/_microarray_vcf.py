@@ -5,6 +5,8 @@ import logging
 import subprocess
 import tempfile
 import time
+from array import array
+from bisect import bisect_left, bisect_right
 from pathlib import Path
 from typing import TextIO
 
@@ -22,7 +24,7 @@ from wgsextract_cli.core.variant_files import (
     vcf_index_chromosomes,
 )
 
-from ._microarray_combined import _open_text
+from ._microarray_combined import _command_lines, _fasta_chromosomes, _open_text
 
 # Reads with MAPQ under 10 could belong elsewhere in the genome. With them, a
 # marker where every read has MAPQ 0 (a duplicated region, or ALT-unaware
@@ -200,6 +202,118 @@ def process_chrom(
     return annotated_chrom_vcf
 
 
+# Reference-block ALTs: GATK, DeepVariant/bcftools, DRAGEN.
+_REFERENCE_BLOCK_ALTS = {"<NON_REF>", "<*>", "."}
+_EXPANDED = "WGSE_EXPANDED"
+
+
+def _target_positions(ref_vcf_tab: str) -> dict[str, array[int]]:
+    positions: dict[str, array[int]] = {}
+    with _open_text(ref_vcf_tab) as targets:
+        for line in targets:
+            if line.strip() and not line.startswith("#"):
+                chrom, pos, *_ = line.split("\t", 2)
+                positions.setdefault(chrom, array("l")).append(int(pos))
+    return {chrom: array("l", sorted(p)) for chrom, p in positions.items()}
+
+
+def _expand_gvcf_targets(
+    gvcf: str,
+    out_vcf: str,
+    *,
+    ref_vcf_tab: str,
+    ref_fasta: str,
+    selection: list[str],
+    outdir: str,
+) -> None:
+    """Write the gVCF's call at every target it covers. A reference block
+    covering targets becomes one record per target (a 0/0 or ./. call with the
+    FASTA's base as REF); other records overlapping a target are kept, with
+    unobserved alleles such as <NON_REF> trimmed. Targets no record covers stay
+    absent, i.e. uncalled. Only target positions are expanded: a whole-genome
+    gVCF's blocks span billions of bases."""
+    targets = _target_positions(ref_vcf_tab)
+    fasta_chroms = _fasta_chromosomes(ref_fasta)
+    fasta_names: dict[str, str | None] = {}
+    expanded = 0
+    with tempfile.TemporaryDirectory(prefix="gVCF_", dir=outdir) as work:
+        overlapping = Path(work, "overlapping.vcf")
+        records = Path(work, "records.vcf")
+        regions = Path(work, "regions.txt")
+        run_command(
+            ["bcftools", "view", "--targets-file", ref_vcf_tab, "--targets-overlap"]
+            + ["1", "--trim-alt-alleles", *selection]
+            + ["-Ov", "-o", str(overlapping), gvcf]
+        )
+        # A variant record overlapping a block (DRAGEN writes some) outranks it.
+        called: dict[str, set[int]] = {}
+        with overlapping.open() as source:
+            for line in source:
+                if not line.startswith("#"):
+                    chrom, start, _, _, alt, _, _, info, _ = line.split("\t", 8)
+                    if alt not in _REFERENCE_BLOCK_ALTS or "END=" not in info:
+                        called.setdefault(chrom, set()).add(int(start))
+        # Pass 1: block records per target, REF left for one samtools pass.
+        with (
+            overlapping.open() as source,
+            records.open("w", newline="\n") as out,
+            regions.open("w", newline="\n") as wanted,
+        ):
+            for line in source:
+                fields = line.rstrip("\n").split("\t")
+                end = None
+                if not line.startswith("#") and fields[4] in _REFERENCE_BLOCK_ALTS:
+                    end = next(
+                        (
+                            int(item[4:])
+                            for item in fields[7].split(";")
+                            if item.startswith("END=")
+                        ),
+                        None,
+                    )
+                if end is not None and fields[0] not in fasta_names:
+                    fasta_names[fields[0]] = match_chromosome_name(
+                        fields[0], fasta_chroms
+                    )
+                fasta_chrom = fasta_names.get(fields[0])
+                if end is None or not fasta_chrom:
+                    out.write(line)
+                    continue
+                inside = targets.get(fields[0], array("l"))
+                variants = called.get(fields[0], set())
+                first = bisect_left(inside, int(fields[1]))
+                for pos in inside[first : bisect_right(inside, end)]:
+                    if pos in variants:
+                        continue
+                    fields[1], fields[7] = str(pos), _EXPANDED
+                    out.write("\t".join(fields) + "\n")
+                    wanted.write(f"{fasta_chrom}:{pos}-{pos}\n")
+                    expanded += 1
+        # Pass 2: fill in REF bases (faidx answers in request order).
+        filled = Path(work, "filled.vcf")
+        faidx = ["samtools", "faidx", "--region-file", str(regions), ref_fasta]
+        bases = (
+            line.strip().upper()
+            for line in (_command_lines(faidx, work) if expanded else [])
+            if not line.startswith(">")
+        )
+        with records.open() as source, filled.open("w", newline="\n") as out:
+            for line in source:
+                fields = line.split("\t", 8)
+                if len(fields) > 7 and fields[7] == _EXPANDED:
+                    fields[3], fields[7] = next(bases), "."
+                    line = "\t".join(fields)
+                out.write(line)
+        run_pipeline(
+            [
+                ["bcftools", "sort", "-T", work, "-Ou", str(filled)],
+                ["bcftools", "view", "--targets-file", ref_vcf_tab]
+                + ["--targets-overlap", "1", "-Oz", "-o", out_vcf, "-"],
+            ],
+            description="gVCF target expansion",
+        )
+
+
 def _prepare_microarray_vcf(
     *,
     args: argparse.Namespace,
@@ -214,6 +328,8 @@ def _prepare_microarray_vcf(
     start_vcf: float,
     out_vcf: str,
     input_chroms: list[str] | None = None,
+    sample: str | None = None,
+    gvcf: bool = False,
 ) -> tuple[str, str]:
     original_ref_vcf_tab = ref_vcf_tab
 
@@ -248,12 +364,24 @@ def _prepare_microarray_vcf(
         try:
             # Step 1: Get actual variants from the input VCF that match our targets
             hit_vcf = str(Path(outdir, f"{base_name}_hits.vcf.gz"))
-            # Use long-form --targets-file to avoid version conflicts
-            run_command(
-                ["bcftools", "view", "--targets-file", ref_vcf_tab]
-                + region_args
-                + ["-Oz", "-o", hit_vcf, args.input]
-            )
+            sample_args = ["--samples", sample, "--trim-alt-alleles"] if sample else []
+            if gvcf:
+                _expand_gvcf_targets(
+                    args.input,
+                    hit_vcf,
+                    ref_vcf_tab=ref_vcf_tab,
+                    ref_fasta=ref_fasta,
+                    selection=sample_args + region_args,
+                    outdir=outdir,
+                )
+            else:
+                # Use long-form --targets-file to avoid version conflicts
+                run_command(
+                    ["bcftools", "view", "--targets-file", ref_vcf_tab]
+                    + sample_args
+                    + region_args
+                    + ["-Oz", "-o", hit_vcf, args.input]
+                )
             ensure_vcf_indexed(hit_vcf)
 
             # Step 2: Since we need a complete file for the templates, we'll

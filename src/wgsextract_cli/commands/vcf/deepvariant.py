@@ -1,5 +1,6 @@
 import argparse
 import gzip
+import itertools
 import logging
 import os
 import platform
@@ -8,11 +9,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import zlib
 from bisect import bisect_left
+from collections.abc import Callable
 from pathlib import Path
 
-from wgsextract_cli.core import ultima
+from wgsextract_cli.core import alignment_memory, ultima
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.containers import (
@@ -28,8 +31,13 @@ from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.native_support import is_linux_arm64, require_native_tool
 from wgsextract_cli.core.output_checks import warn_if_no_variants
 from wgsextract_cli.core.reference_assets import read_fai_lengths
+from wgsextract_cli.core.region_selection import Intervals, selected_intervals
 from wgsextract_cli.core.resource_estimates import (
+    GIB,
+    PostprocessPlan,
+    dv_calling_regions,
     estimate_resources,
+    plan_dv_postprocess,
     preflight_resources,
 )
 from wgsextract_cli.core.samtools_commands import (
@@ -214,99 +222,36 @@ def _cram_version(path: str) -> tuple[int, int] | None:
     return definition[4], definition[5]
 
 
-def _literal_region(selection: str, lengths: dict[str, int]) -> tuple[str, int, int]:
-    if selection in lengths:
-        return selection, 0, lengths[selection]
-    match = re.match(r"^(\S+):([0-9,]+)-([0-9,]+)$", selection)
-    if match:
-        chrom, start_text, end_text = match.groups()
-        start, end = int(start_text.replace(",", "")), int(end_text.replace(",", ""))
-    else:
-        match = re.match(r"^(\S+):([0-9,]+)$", selection)
-        if not match:
-            raise ValueError(f"Invalid interval: {selection}")
-        chrom, position = match.groups()
-        start = end = int(position.replace(",", ""))
-    if start < 1 or end < start:
-        raise ValueError(f"Invalid interval: {selection}")
-    return chrom, start - 1, end
-
-
-def _transcode_regions(
-    region: str | None, ref: str, work: str
-) -> tuple[list[str], dict[str, list[tuple[int, int]]]]:
-    if not region:
-        return [], {}
+def _reference_lengths(ref: str) -> dict[str, int]:
     lengths = read_fai_lengths(ref)
     if not lengths:
         run_command(["samtools", "faidx", ref])
         lengths = read_fai_lengths(ref)
-    bed = Path(work, "regions.bed")
-    # DV accepts whitespace-separated literals and BED/BED.gz/BEDPE files.
-    # One BED + the multi-region iterator preserves their union without duplicates.
+    return lengths
+
+
+def _selected_intervals(region: str, lengths: dict[str, int]) -> Intervals:
     try:
-        with bed.open("w", newline="\n") as destination:
-            for selection in region.split():
-                lower = selection.lower()
-                if lower.endswith((".bed", ".bed.gz", ".bedpe")):
-                    opener = gzip.open if lower.endswith(".gz") else open
-                    with opener(selection, "rt") as source:
-                        for line in source:
-                            if not line.strip() or line.startswith(
-                                ("#", "track", "browser")
-                            ):
-                                continue
-                            fields = line.split()
-                            if lower.endswith(".bedpe"):
-                                if fields[0] != fields[3]:
-                                    continue
-                                chrom, start, end = (
-                                    fields[0],
-                                    int(fields[1]),
-                                    int(fields[5]),
-                                )
-                            else:
-                                chrom, start, end = (
-                                    fields[0],
-                                    int(fields[1]),
-                                    int(fields[2]),
-                                )
-                            if start < 0 or end < start:
-                                raise ValueError(f"Invalid interval: {line.strip()}")
-                            if chrom in lengths:
-                                destination.write(f"{chrom}\t{start}\t{end}\n")
-                else:
-                    chrom, start, end = _literal_region(selection, lengths)
-                    if chrom in lengths:
-                        destination.write(f"{chrom}\t{start}\t{end}\n")
-        intervals: dict[str, list[tuple[int, int]]] = {}
-        with bed.open() as source:
-            for line in source:
-                chrom, start_text, end_text = line.split()
-                length = lengths[chrom]
-                start = min(int(start_text), length)
-                end = min(int(end_text), length)
-                if end > start:
-                    intervals.setdefault(chrom, []).append((start, end))
-        merged: dict[str, list[tuple[int, int]]] = {}
-        for chrom, ranges in intervals.items():
-            union: list[tuple[int, int]] = []
-            for start, end in sorted(ranges):
-                if union and start <= union[-1][1]:
-                    union[-1] = (union[-1][0], max(union[-1][1], end))
-                else:
-                    union.append((start, end))
-            merged[chrom] = union
-        if not merged:
-            raise ValueError("Selection covers no reference bases.")
-        with bed.open("w", newline="\n") as destination:
-            for chrom, ranges in merged.items():
-                for start, end in ranges:
-                    destination.write(f"{chrom}\t{start}\t{end}\n")
-    except (ValueError, KeyError, IndexError) as error:
+        return selected_intervals(region, lengths)
+    except (ValueError, OSError) as error:
         raise WGSExtractError(
             f"Invalid DeepVariant region selection: {region}: {error}"
         ) from error
+
+
+def _transcode_regions(
+    region: str | None, ref: str, work: str
+) -> tuple[list[str], Intervals]:
+    if not region:
+        return [], {}
+    # DV accepts whitespace-separated literals and BED/BED.gz/BEDPE files.
+    # One BED + the multi-region iterator preserves their union without duplicates.
+    merged = _selected_intervals(region, _reference_lengths(ref))
+    bed = Path(work, "regions.bed")
+    with bed.open("w", newline="\n") as destination:
+        for chrom, ranges in merged.items():
+            for start, end in ranges:
+                destination.write(f"{chrom}\t{start}\t{end}\n")
     return ["-M", "-L", str(bed)], merged
 
 
@@ -404,6 +349,178 @@ def _compatible_reads(
     return compatible
 
 
+def _available_memory(setup: str | None) -> int | None:
+    """Free host RAM, capped by the Docker engine's (e.g. Docker Desktop's VM)."""
+    try:
+        available = alignment_memory.available_memory()
+    except OSError:
+        return None
+    if setup is not None:
+        engine = docker_info(setup, "{{.MemTotal}}").strip()
+        if engine.isdigit() and int(engine) > 0:
+            available = min(available, int(engine))
+    return available
+
+
+def _supports_num_partitions(
+    image: str | None, run_deepvariant: str | None, setup: str | None
+) -> bool:
+    """Whether postprocess_variants has --num_partitions (DeepVariant 1.9+).
+
+    Pinned defaults and version tags decide without running anything;
+    otherwise ask the image's or launcher's postprocess_variants.
+    """
+    if image in {DEFAULT_IMAGE, DEFAULT_ARM64_IMAGE, DEFAULT_ULTIMA_IMAGE}:
+        return True
+    if image:
+        tag = re.search(r":v?(\d+)\.(\d+)[^/:@]*(?:@|$)", image)
+        if tag:
+            return (int(tag.group(1)), int(tag.group(2))) >= (1, 9)
+        probe = [
+            docker(setup or ""), "run", "--rm", "--pull=never",
+            "--entrypoint", "/opt/deepvariant/bin/postprocess_variants",
+            image, "--helpfull",
+        ]  # fmt: skip
+    elif run_deepvariant:
+        tool = Path(run_deepvariant).with_name("postprocess_variants")
+        if not tool.is_file():
+            return False
+        probe = [str(tool), "--helpfull"]
+    else:
+        return False
+    try:
+        result = run_command(probe, capture_output=True, check=False, env=_dv_env())
+    except OSError:
+        return False
+    return "num_partitions" in (result.stdout or "") + (result.stderr or "")
+
+
+def _postprocess_plan(
+    model_type: str,
+    ref: str,
+    region: str | None,
+    threads: int,
+    available: int | None,
+    supports_partitions: Callable[[], bool],
+) -> PostprocessPlan | None:
+    """Bound postprocess_variants by RAM; raise when one worker cannot fit.
+
+    ``supports_partitions`` is asked only when more partitions are wanted.
+    """
+    if model_type == "WES":
+        return None  # run_deepvariant postprocesses WES sequentially.
+    lengths = read_fai_lengths(ref)
+    if not lengths:
+        logging.warning(
+            f"No {ref}.fai: DeepVariant's postprocess_variants RAM isn't bounded."
+        )
+        return None
+    if region:
+        _selected_intervals(region, lengths)  # Report bad selections clearly.
+    regions = dv_calling_regions(lengths, region)
+    assert regions is not None
+    plan = plan_dv_postprocess(regions, threads, available)
+    upgrade = ""
+    if plan.partitions > plan.cpus and not supports_partitions():
+        upgrade = ", use DeepVariant 1.9+ (which can split this step further)"
+        logging.warning(
+            "This DeepVariant's postprocess_variants has no --num_partitions "
+            "(DeepVariant 1.9+), so only its workers can be reduced to save memory."
+        )
+        plan = plan_dv_postprocess(regions, threads, available, partitions=False)
+    if plan.fits is False and available is not None:
+        raise WGSExtractError(
+            "Not enough memory for DeepVariant's postprocess_variants step: one "
+            f"worker sorting {plan.partitions} partitions needs ~"
+            f"{plan.worker_bytes / GIB:.1f} GiB plus 1 GiB of headroom, but "
+            f"{available / GIB:.1f} GiB is available. Free memory (close other "
+            f"jobs), use a machine with more RAM{upgrade}, or call a smaller "
+            "--region."
+        )
+    if plan.cpus < threads:
+        logging.warning(
+            f"Limiting DeepVariant postprocess_variants to {plan.cpus} of {threads} "
+            f"workers over {plan.partitions} partitions (~"
+            f"{plan.worker_bytes / GIB:.1f} GiB each) to fit "
+            f"{(available or 0) / GIB:.1f} GiB of available memory."
+        )
+    elif plan.partitions > threads:
+        logging.info(
+            f"Splitting DeepVariant postprocess_variants into {plan.partitions} "
+            f"partitions (~{plan.worker_bytes / GIB:.1f} GiB per worker) to fit "
+            f"{(available or 0) / GIB:.1f} GiB of available memory."
+        )
+    return plan
+
+
+def _postprocess_args(plan: PostprocessPlan | None, threads: int) -> list[str]:
+    if plan is None:
+        return []
+    flags = []
+    if plan.cpus != threads:
+        flags += ["--postprocess_cpus", str(plan.cpus)]
+    if plan.partitions > plan.cpus:
+        # postprocess_variants' --num_partitions needs DeepVariant 1.9+.
+        flags += [
+            "--postprocess_variants_extra_args",
+            f"num_partitions={plan.partitions}",
+        ]
+    return flags
+
+
+_OOM_ERROR = (
+    "DeepVariant ran out of memory: a process in its container was OOM-killed, "
+    "so the run was stopped rather than left waiting on the killed worker. "
+    "Free memory (close other jobs) or lower --threads, then rerun."
+)
+
+
+def _complete_gzip(path: Path) -> bool:
+    # gzip reads an empty file (created, never written) as empty data.
+    if path.stat().st_size == 0:
+        return False
+    try:
+        with gzip.open(path, "rb") as source:
+            while source.read(1 << 20):
+                pass
+    except (OSError, EOFError, zlib.error):
+        return False
+    return True
+
+
+def _keep_call_variants_outputs(work: str, outdir: str) -> Path | None:
+    """Move complete call_variants outputs out of the deleted work directory.
+
+    Only some models write the small model's make_examples outputs.
+    """
+    kept_files: list[Path] = []
+    for prefix in ("call_variants_output", "make_examples_call_variant_outputs"):
+        files = sorted(Path(work).glob(f"{prefix}*.gz"))
+        counts = {
+            int(match.group(1)) if (match := re.search(r"-of-(\d+)", f.name)) else 0
+            for f in files
+        }
+        if files and counts != {len(files)}:
+            return None  # An incomplete shard set.
+        kept_files += files
+    if not any(f.name.startswith("call_variants_output") for f in kept_files):
+        return None
+    if not all(_complete_gzip(path) for path in kept_files):
+        return None
+    # One directory per failed run keeps earlier runs' shard sets apart.
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    for attempt in itertools.count(1):
+        kept = Path(outdir, "deepvariant_intermediates", f"{stamp}-{attempt}")
+        try:
+            kept.mkdir(parents=True)
+            break
+        except FileExistsError:
+            continue
+    for path in kept_files:
+        shutil.move(path, kept / path.name)
+    return kept
+
+
 # Parabricks DeepVariant: its --mode per model type (WGS and WES are short reads).
 _PARABRICKS_MODES = {
     "WGS": [],
@@ -477,63 +594,87 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
     image = arm64_image or (
         None if run_deepvariant else _verify_docker_image(model_type)
     )
-    if arm64_image:
-        preflight_resources(
-            lambda: estimate_resources(
-                "deepvariant",
-                input_paths=[args.input],
-                output_dir=outdir,
-                reference=ref,
-                threads=threads,
-                region=args.region,
-                inference_batch_size=batch_size or 1024,
-            )
+    setup = (
+        _ARM64_SETUP if arm64_image else _SETUP.format(image=image) if image else None
+    )
+    available = _available_memory(setup)
+    postprocess = _postprocess_plan(
+        model_type, ref, args.region, int(threads), available,
+        lambda: _supports_num_partitions(image, run_deepvariant, setup),
+    )  # fmt: skip
+    preflight_resources(
+        lambda: estimate_resources(
+            "deepvariant",
+            input_paths=[args.input],
+            output_dir=outdir,
+            reference=ref,
+            threads=threads,
+            region=args.region,
+            inference_batch_size=batch_size or 1024,
+            deepvariant_model=model_type,
+            postprocess_plan=postprocess,
+            available_ram=available,
         )
+    )
     out_vcf = str(Path(outdir, "deepvariant.vcf.gz"))
     logging.info(LOG_MESSAGES["vcf_calling_deepvariant"].format(output=out_vcf))
     region_args = ["--regions", args.region] if args.region else []
 
     try:
         with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_dv_") as work:
-            reads = _compatible_reads(args.input, ref, work, threads, args.region)
-            dv_args = [
-                "--model_type", model_type,
-                "--ref", host_path(ref),
-                "--reads", host_path(reads),
-                "--output_vcf", host_path(out_vcf),
-                "--num_shards", str(threads),
-                "--intermediate_results_dir", host_path(work),
-                *region_args,
-            ]  # fmt: skip
-            if args.checkpoint:
-                dv_args += ["--customized_model", host_path(args.checkpoint)]
-            if batch_size is not None:
-                dv_args += ["--call_variants_extra_args", f"batch_size={batch_size}"]
-            if image:
-                logging.info(f"Running DeepVariant from {image}...")
-                paths = [ref, args.input, out_vcf, work, args.checkpoint]
-                if arm64_image:
-                    # Bypass community entrypoints that auto-select INT8/BF16.
-                    run_container(
-                        image, dv_args, paths,
-                        entrypoint="/opt/deepvariant/bin/run_deepvariant",
-                        temporary_directory=work,
-                        local_only=True,
-                    )  # fmt: skip
+            try:
+                reads = _compatible_reads(args.input, ref, work, threads, args.region)
+                dv_args = [
+                    "--model_type", model_type,
+                    "--ref", host_path(ref),
+                    "--reads", host_path(reads),
+                    "--output_vcf", host_path(out_vcf),
+                    "--num_shards", str(threads),
+                    "--intermediate_results_dir", host_path(work),
+                    *region_args,
+                ]  # fmt: skip
+                if args.checkpoint:
+                    dv_args += ["--customized_model", host_path(args.checkpoint)]
+                if batch_size is not None:
+                    dv_args += [
+                        "--call_variants_extra_args",
+                        f"batch_size={batch_size}",
+                    ]
+                dv_args += _postprocess_args(postprocess, int(threads))
+                if image:
+                    logging.info(f"Running DeepVariant from {image}...")
+                    paths = [ref, args.input, out_vcf, work, args.checkpoint]
+                    if arm64_image:
+                        # Bypass community entrypoints that auto-select INT8/BF16.
+                        run_container(
+                            image, dv_args, paths,
+                            entrypoint="/opt/deepvariant/bin/run_deepvariant",
+                            temporary_directory=work,
+                            local_only=True,
+                            oom_error=_OOM_ERROR,
+                        )  # fmt: skip
+                    else:
+                        run_container(
+                            image,
+                            ["/opt/deepvariant/bin/run_deepvariant", *dv_args],
+                            paths,
+                            temporary_directory=work,
+                            oom_error=_OOM_ERROR,
+                        )
                 else:
-                    run_container(
-                        image,
-                        ["/opt/deepvariant/bin/run_deepvariant", *dv_args],
-                        paths,
-                        temporary_directory=work,
+                    # stdin closed: DeepVariant's GNU parallel would read it otherwise.
+                    run_command(
+                        [str(run_deepvariant), *dv_args],
+                        env=_dv_env(),
+                        stdin=subprocess.DEVNULL,
                     )
-            else:
-                # stdin closed: DeepVariant's GNU parallel would read it otherwise.
-                run_command(
-                    [str(run_deepvariant), *dv_args],
-                    env=_dv_env(),
-                    stdin=subprocess.DEVNULL,
-                )
+            except BaseException:
+                kept = _keep_call_variants_outputs(work, outdir)
+                if kept:
+                    logging.warning(
+                        f"Kept DeepVariant's complete call_variants outputs in {kept}."
+                    )
+                raise
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"DeepVariant failed: {e}") from e
 
