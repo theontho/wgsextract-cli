@@ -395,8 +395,14 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         "wgsextract qc fastp --r1 sample_R1.fastq.gz --r2 sample_R2.fastq.gz",
     ),
     "qc multiqc": _h(
-        "multiqc_report.html (in --outdir, else beside the FastQC reports).",
+        "multiqc_report.html, in --outdir, else in the --input directory (or "
+        "beside an --input file).",
         "wgsextract qc multiqc --input fastqc_reports/",
+    ),
+    "qc multiqc-metrics": _h(
+        "wgsextract_*_mqc.json MultiQC custom-content files, in --outdir, else "
+        "in the --input directory (or beside an --input file).",
+        "wgsextract qc multiqc-metrics --input results/",
     ),
     "qc vcf": _h(
         "<input file name>.vcfstats.txt (e.g. sample.vcf.gz.vcfstats.txt), in "
