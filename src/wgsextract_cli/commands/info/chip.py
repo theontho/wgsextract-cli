@@ -1,7 +1,6 @@
 """`info chip`: identify the vendor, chip and revision of a microarray raw-data file."""
 
 import argparse
-import json
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +16,8 @@ from wgsextract_cli.core.microarray_utils import (
     _resolve_templates_roots,
 )
 from wgsextract_cli.core.reference_assets import resolve_reference_library
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.results import current_result, human_output
+from wgsextract_cli.core.utils import UsageError
 from wgsextract_cli.core.variant_files import verify_paths_exist
 
 _RELATION = {
@@ -181,22 +181,30 @@ def _render_catalogue(revisions: tuple[Revision, ...]) -> str:
 
 
 def run(args: argparse.Namespace) -> None:
-    as_json = bool(getattr(args, "json", False))
+    result = current_result()
     if getattr(args, "list", False):
         revisions = load_catalogue()
-        print(
-            json.dumps([_revision_json(r) for r in revisions], indent=2)
-            if as_json
-            else _render_catalogue(revisions)
-        )
+        result.set_details({"revisions": [_revision_json(r) for r in revisions]})
+        result.add_metrics(revisions=len(revisions))
+        human_output(_render_catalogue(revisions))
         return
     if not args.input:
-        raise WGSExtractError("--input required (a microarray raw-data file).")
+        raise UsageError("--input required (a microarray raw-data file).")
     verify_paths_exist({"--input": args.input})
     export = read_raw_export(args.input)
     detection = detect(export, template_roots=_template_roots(args))
-    print(
-        json.dumps(_detection_json(detection), indent=2)
-        if as_json
-        else _render(detection)
+    result.set_details(_detection_json(detection))
+    best = detection.best
+    result.add_metrics(
+        markers=export.fingerprint.markers,
+        revision=best.revision.id if best else None,
+        match=best.match if best else None,
+        confidence=round(detection.confidence, 6),
+        ambiguous=detection.ambiguous,
     )
+    if detection.ambiguous:
+        result.warn(
+            "chip_ambiguous",
+            "The next candidate revision matches this file as closely as the best one.",
+        )
+    human_output(_render(detection))

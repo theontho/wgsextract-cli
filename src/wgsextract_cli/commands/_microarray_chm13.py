@@ -15,7 +15,11 @@ from collections.abc import Iterator
 from functools import partial
 from pathlib import Path
 
-from wgsextract_cli.commands._microarray_combined import _read_evidence
+from wgsextract_cli.commands._microarray_combined import (
+    _read_evidence,
+    record_kit,
+    record_microarray_run,
+)
 from wgsextract_cli.core import microarray_chm13_cache
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.config import settings
@@ -54,6 +58,7 @@ from wgsextract_cli.core.microarray_utils import (
 )
 from wgsextract_cli.core.reference_assets import input_stem, resolve_reference_library
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.sample_ploidy import sex_samples_args
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 from wgsextract_cli.core.variant_files import chromosome_aliases
@@ -474,10 +479,11 @@ def run_chm13(
             ),
             None,
         )
+        kit = str(Path(outdir, f"{base}_{real_format}{suffix}"))
         tallies[real_format] = convert_to_vendor_format(
             real_format,
             str(combined),
-            str(Path(outdir, f"{base}_{real_format}{suffix}")),
+            kit,
             roots,
             chain36,
             identity=identity,
@@ -487,6 +493,7 @@ def run_chm13(
                 **indel_calls.get(real_format, {}),
             },
         )
+        record_kit(kit, real_format, tallies[real_format])
     report = Path(outdir, f"{base}_CHM13_report.json")
     report.write_text(
         json.dumps(
@@ -511,4 +518,10 @@ def run_chm13(
         newline="\n",
     )
     logging.info("CHM13 CombinedKit: %s; diagnostics: %s", combined, report)
-    warn_about_genotypes(combined, tallies, check_no_calls=not regions)
+    current_result().add_output(report, "chm13_report")
+    record_microarray_run(
+        outdir,
+        base,
+        str(combined),
+        warn_about_genotypes(combined, tallies, check_no_calls=not regions),
+    )

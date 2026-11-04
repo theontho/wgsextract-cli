@@ -24,7 +24,10 @@ from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem, read_fai_lengths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.results import current_result, json_mode, warn
 from wgsextract_cli.core.utils import (
+    MissingDependencyError,
+    UsageError,
     WGSExtractError,
     run_command,
 )
@@ -39,6 +42,13 @@ from wgsextract_cli.core.variant_files import (
 VCF_SUFFIXES = (".vcf", ".vcf.gz")
 
 
+def _number(text: str | None) -> float | None:
+    try:
+        return float(text) if text else None
+    except ValueError:
+        return None
+
+
 def resolve_lineage_tool(explicit_path: str | None, tool: str, flag: str) -> str:
     """Resolve a lineage tool from its CLI flag/setting or the installed tool."""
     if not explicit_path:
@@ -48,7 +58,7 @@ def resolve_lineage_tool(explicit_path: str | None, tool: str, flag: str) -> str
     if path and not Path(path).is_absolute() and Path(path).name == path:
         path = get_tool_path(path) or path
     if not path:
-        raise WGSExtractError(f"{tool} path missing.")
+        raise MissingDependencyError(f"{tool} path missing.")
     # Only a path the user gave can be missing; a resolved tool may be a
     # `pixi run ...` wrapper command (Haplogrep's jar on Windows), not a file.
     if path == explicit_path:
@@ -89,7 +99,12 @@ def _yleaf_build(build: str | None) -> str:
         return "hg19"
     if build and is_t2t_build(build):
         return "t2t"
-    logging.warning(f"Build {build} not supported by Yleaf, defaulting to hg38")
+    warn(
+        "build_unsupported",
+        f"Build {build} not supported by Yleaf, defaulting to hg38",
+        build=build,
+        used="hg38",
+    )
     return "hg38"
 
 
@@ -97,7 +112,7 @@ def cmd_ydna(args: argparse.Namespace) -> None:
     from wgsextract_cli.ydna.yleaf_native.analysis import CREDIT, analyze
 
     if not args.input:
-        raise WGSExtractError(LOG_MESSAGES["input_required"])
+        raise UsageError(LOG_MESSAGES["input_required"])
     verify_paths_exist({"--input": args.input})
 
     input_lower = args.input.lower()
@@ -193,6 +208,27 @@ def cmd_ydna(args: argparse.Namespace) -> None:
     from wgsextract_cli.ydna.yleaf_native.data import manifest
 
     version = manifest()["upstream"]["tag"]
+    result = current_result()
+    result.set_reference(lib.fasta, lib.build)
+    result.add_output(prediction, "haplogroup_report")
+    result.set_details(
+        {
+            "build": yleaf_build,
+            "tree": getattr(args, "tree", "yfull"),
+            "tables": version,
+            "predictions": rows,
+        }
+    )
+    called = next(
+        row for row in rows if (row.get("Hg") or "").strip() not in ("", "NA")
+    )
+    result.add_metrics(
+        haplogroup=called.get("Hg"),
+        haplogroup_marker=called.get("Hg_marker"),
+        qc_score=_number(called.get("QC-score")),
+    )
+    if json_mode():
+        return
     print(
         f"\n🧬 {CREDIT}\nTables {version}; build {yleaf_build}; "
         f"tree {getattr(args, 'tree', 'yfull')}\n"

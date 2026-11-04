@@ -35,6 +35,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     parser, base_parser = build_parser()
     args, explicit_dests = parse_args(parser, base_parser, argv)
+    args._argv = list(sys.argv[1:] if argv is None else argv)
 
     if args.full_help:
         print_full_help(parser)

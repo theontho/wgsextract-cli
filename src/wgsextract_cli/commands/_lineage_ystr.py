@@ -1,5 +1,4 @@
 import argparse
-import logging
 from pathlib import Path
 
 from wgsextract_cli.core.builds import build_from_chr1_length, build_from_path
@@ -11,7 +10,8 @@ from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import read_fai_lengths
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.results import current_result, json_mode, warn
+from wgsextract_cli.core.utils import UsageError, WGSExtractError
 from wgsextract_cli.core.variant_files import calculate_bam_md5, verify_paths_exist
 
 from ._lineage_ydna import _yleaf_build
@@ -30,7 +30,7 @@ def cmd_ystr(args: argparse.Namespace) -> None:
     from wgsextract_cli.ydna.ystr.panel import select
 
     if not args.input:
-        raise WGSExtractError(LOG_MESSAGES["input_required"])
+        raise UsageError(LOG_MESSAGES["input_required"])
     verify_paths_exist({"--input": args.input})
     is_cram = args.input.lower().endswith(".cram")
     if not is_cram and not args.input.lower().endswith(".bam"):
@@ -88,6 +88,40 @@ def cmd_ystr(args: argparse.Namespace) -> None:
             f"{args.input} has too few chrY reads (the sample may be female, or "
             f"the build may be wrong). Details are in {table}."
         )
+    ftdna_csv = table.with_suffix("").with_suffix(".ftdna.csv")
+    result = current_result()
+    result.set_reference(lib.fasta, build)
+    result.add_output(table, "ystr_table")
+    result.add_output(ftdna_csv, "ystr_ftdna_csv")
+    result.add_metrics(panel=args.panel, markers=len(calls), called=len(called))
+    result.set_details(
+        {
+            "build": build,
+            "panel": args.panel,
+            "calls": [
+                {
+                    "marker": c.marker.name,
+                    "value": c.value or None,
+                    "status": c.status,
+                    "support": c.support,
+                    "spanning": c.spanning,
+                    "value_verified": c.marker.value_verified,
+                }
+                for c in calls
+            ],
+        }
+    )
+    unverified = sum(not c.marker.value_verified for c in called)
+    if unverified:
+        warn(
+            "ystr_unverified_convention",
+            f"{unverified} called markers have a reference repeat count that no "
+            "authoritative source confirms; their values may be offset from "
+            "FamilyTreeDNA's convention (see value_convention in the table).",
+            markers=unverified,
+        )
+    if json_mode():
+        return
     print(f"\n🧬 Y-STR {args.panel} (build {build}): {len(called)}/{len(calls)} called")
     print("-" * 52)
     print(f"{'Marker':<13}{'Value':>8}  {'Reads':>5}  Note")
@@ -98,16 +132,7 @@ def cmd_ystr(args: argparse.Namespace) -> None:
         reads = f"{c.support}/{c.spanning}" if c.spanning else ""
         print(f"{c.marker.name:<13}{c.value or '-':>8}  {reads:>5}  {note}")
     print("-" * 52)
-    unverified = sum(not c.marker.value_verified for c in called)
-    if unverified:
-        logging.warning(
-            f"{unverified} called markers have a reference repeat count that no "
-            "authoritative source confirms; their values may be offset from "
-            "FamilyTreeDNA's convention (see value_convention in the table)."
-        )
-    print(
-        f"Results: {table}\nFTDNA-order CSV: {table.with_suffix('').with_suffix('.ftdna.csv')}\n"
-    )
+    print(f"Results: {table}\nFTDNA-order CSV: {ftdna_csv}\n")
 
 
 def add_ystr_parser(

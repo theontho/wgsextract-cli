@@ -12,7 +12,7 @@ from wgsextract_cli.core.native_support import (
     tool_unsupported_reason,
 )
 from wgsextract_cli.core.pixi_tools import pixi_install_command
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import MissingDependencyError, WGSExtractError
 from wgsextract_cli.core.windows_arm64 import (
     assert_native_windows_command,
     unsupported_windows_arm64_tool,
@@ -304,11 +304,13 @@ def verify_dependencies(
                     "Please install the missing tools using your system package manager "
                     "(e.g., brew, apt, conda) or follow the project installation guide."
                 )
-            raise WGSExtractError(message)
+            raise MissingDependencyError(message)
         logging.error(
             "Please ensure all mandatory tools are installed and in your PATH."
         )
-        raise WGSExtractError(f"Missing required core tool(s): {', '.join(missing)}")
+        raise MissingDependencyError(
+            f"Missing required core tool(s): {', '.join(missing)}"
+        )
 
     # Version Validation for critical tools
     for tool in ["bcftools", "samtools"]:
@@ -320,7 +322,7 @@ def verify_dependencies(
                 # Found but unable to run (a crash, a missing library): as
                 # good as missing, as `deps check` reports it.
                 logging.error(f"{tool} at {get_tool_path(tool)} does not run.")
-                raise WGSExtractError(
+                raise MissingDependencyError(
                     f"{tool} does not run: {version_str.removeprefix('Error: ')}"
                 )
 
@@ -335,7 +337,9 @@ def verify_dependencies(
                         f"Your current path for {tool} is: {get_tool_path(tool)}"
                     )
                     logging.info("Please update your conda environment or system path.")
-                    raise WGSExtractError(f"{tool} version {version_str} is too old.")
+                    raise MissingDependencyError(
+                        f"{tool} version {version_str} is too old."
+                    )
 
 
 def _missing_tool_hint(tool: str) -> str | None:

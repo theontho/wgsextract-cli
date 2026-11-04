@@ -95,6 +95,7 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
         log_file=None,
         log_dir=settings.get("log_dir"),
         keep_awake=settings.get("keep_awake", False),
+        json=False,
     )
     parser.add_argument(
         "--version", action="version", version=f"wgsextract {__version__}"
@@ -119,7 +120,24 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     for cmd_module in COMMAND_MODULES:
         cmd_module.register(subparsers, base_parser)
 
+    _set_command_names(parser)
     return parser, base_parser
+
+
+def _set_command_names(parser: argparse.ArgumentParser, prefix: str = "") -> None:
+    """Give every subcommand parser a ``_command`` default naming its path
+    ("vcf snp"); a deeper parser's default wins. Aliases keep the canonical name."""
+    seen: list[argparse.ArgumentParser] = []
+    for action in parser._actions:
+        if not isinstance(action, argparse._SubParsersAction):
+            continue
+        for name, subparser in action.choices.items():
+            if any(subparser is done for done in seen):
+                continue
+            seen.append(subparser)
+            path = f"{prefix} {name}".strip()
+            subparser.set_defaults(_command=path)
+            _set_command_names(subparser, path)
 
 
 def add_shared_arguments(base_parser: argparse.ArgumentParser) -> None:
@@ -146,6 +164,13 @@ def add_shared_arguments(base_parser: argparse.ArgumentParser) -> None:
         action="store_true",
         default=argparse.SUPPRESS,
         help="Suppress all informational logs.",
+    )
+    base_parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Print the result manifest (wgsextract.result/1) as JSON on stdout "
+        "instead of human-readable output; logs stay on stderr.",
     )
     base_parser.add_argument(
         "--input",

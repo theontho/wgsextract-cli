@@ -54,9 +54,6 @@ def register(
         action="store_true",
         help="List the catalogued chip revisions and their matching templates.",
     )
-    chip_parser.add_argument(
-        "--json", action="store_true", help="Print the result as JSON."
-    )
     chip_parser.set_defaults(func=chip.run)
 
     parser.set_defaults(func=run)

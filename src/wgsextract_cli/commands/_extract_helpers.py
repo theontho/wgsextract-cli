@@ -18,6 +18,7 @@ from wgsextract_cli.core.run_log import is_run_log_path
 from wgsextract_cli.core.samtools_commands import parse_memory
 from wgsextract_cli.core.temp_directory import configured_temp_directory
 from wgsextract_cli.core.utils import (
+    UsageError,
     WGSExtractError,
     get_resource_defaults,
     run_command,
@@ -41,7 +42,7 @@ class BaseArgs(NamedTuple):
 def get_base_args(args: argparse.Namespace) -> BaseArgs:
     """Validate --input, create the output directory and resolve the reference."""
     if not args.input:
-        raise WGSExtractError(LOG_MESSAGES["input_required"])
+        raise UsageError(LOG_MESSAGES["input_required"])
     verify_paths_exist({"--input": args.input})
     logging.debug(f"Input file: {str(absolute_path(args.input))}")
 

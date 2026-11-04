@@ -12,7 +12,8 @@ from typing import TextIO
 
 from wgsextract_cli.core.microarray_identity import identity_policy
 from wgsextract_cli.core.microarray_quality import MicroarrayQuality, quality_policy
-from wgsextract_cli.core.microarray_utils import sort_alleles
+from wgsextract_cli.core.microarray_utils import GenotypeTally, sort_alleles
+from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
@@ -521,3 +522,43 @@ def _write_microarray_combined_kit(
 
     logging.info(f"Extraction took {time.time() - start_ext:.2f}s")
     return combined_kit_txt
+
+
+def record_kit(path: str, fmt: str, tally: GenotypeTally) -> None:
+    """Register one vendor-format kit and its genotype counts."""
+    current_result().add_output(
+        path,
+        "vendor_kit",
+        metrics={
+            "format": fmt,
+            "sites": tally.sites,
+            "called": tally.called,
+            "no_call_rate": round(tally.no_call_rate, 6),
+        },
+    )
+
+
+def record_kept(path: str | None, outdir: str, role: str) -> None:
+    """Register a file this run left in ``outdir`` (not a scratch-dir copy)."""
+    if (
+        path
+        and Path(path).is_file()
+        and (Path(path).parent.resolve() == Path(outdir).resolve())
+    ):
+        current_result().add_output(path, role)
+
+
+def record_microarray_run(
+    outdir: str, base_name: str, combined_kit: str, autosomal: GenotypeTally
+) -> None:
+    """Name the manifest after the sample and record the CombinedKit, when it
+    is kept, and its autosomal genotype summary."""
+    result = current_result()
+    result.set_manifest_stem(Path(outdir, f"{base_name}_microarray"))
+    record_kept(combined_kit, outdir, "combined_kit")
+    result.add_metrics(
+        autosomal_called=autosomal.called,
+        autosomal_homozygosity=round(autosomal.homozygosity, 6)
+        if autosomal.called
+        else None,
+    )

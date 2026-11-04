@@ -13,7 +13,7 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import UsageError, WGSExtractError
 from wgsextract_cli.core.variant_files import verify_paths_exist
 
 from ._analyze_workflows import (
@@ -56,7 +56,7 @@ def cmd_comprehensive(args: argparse.Namespace) -> None:
             vcf_inputs = env_vcf.split()
 
     if not input_file and not vcf_inputs:
-        raise WGSExtractError(LOG_MESSAGES["input_required"])
+        raise UsageError(LOG_MESSAGES["input_required"])
 
     # Pre-flight Validation
     paths_to_verify = {}

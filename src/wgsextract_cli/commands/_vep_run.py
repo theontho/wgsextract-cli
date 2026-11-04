@@ -18,6 +18,7 @@ from wgsextract_cli.core.paths import absolute_path, expand_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.sample_ploidy import sex_samples_args
 from wgsextract_cli.core.utils import (
+    UsageError,
     WGSExtractError,
     get_resource_defaults,
     run_command,
@@ -324,7 +325,7 @@ def _run_vep_on_input(
 
 def cmd_vep(args: argparse.Namespace) -> None:
     if not args.input:
-        raise WGSExtractError(LOG_MESSAGES["input_required"])
+        raise UsageError(LOG_MESSAGES["input_required"])
     input_files = _vep_input_files(args.input)
 
     verify_dependencies(["vep", "tabix", "bcftools"])

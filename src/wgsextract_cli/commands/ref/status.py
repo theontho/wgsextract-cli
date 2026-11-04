@@ -21,6 +21,7 @@ from wgsextract_cli.core.reference_assets import (
 )
 from wgsextract_cli.core.reference_processing import bootstrap_has_support_assets
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.results import current_result, json_mode
 
 # Annotation data the ref commands download into <library>/ref, as
 # (key, label, file extensions, builds): <key>_<build><ext>, tabix-indexed
@@ -40,11 +41,11 @@ ANNOTATION_DATA = [
 
 def cmd_ref_status(args: argparse.Namespace) -> None:
     status = build_ref_status(args)
+    current_result().set_details(status)
+    if json_mode():
+        return
     if getattr(args, "values", False):
         print(json.dumps({"values": ref_status_values(status)}, sort_keys=True))
-        return
-    if getattr(args, "json", False):
-        print(json.dumps(status, sort_keys=True))
         return
     print_ref_status(status)
 

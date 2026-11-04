@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import IO
 
+from wgsextract_cli.core.results import human_output
 from wgsextract_cli.core.utils import WGSExtractError, popen
 
 from .metrics import IdxStat
@@ -102,7 +103,7 @@ def run_depth_bins(
     lengths: Mapping[str, int],
     outdir: str,
     region: str | None = None,
-) -> None:
+) -> Path:
     """One samtools depth pass, default filters, both overlapping mates counted."""
     Path(outdir).mkdir(parents=True, exist_ok=True)
     selected = dict(lengths)
@@ -180,5 +181,6 @@ def run_depth_bins(
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
-    print(output.read_text(), end="")
+    human_output(output.read_text(), end="")
     logging.info("Depth-bin report saved to %s", output)
+    return output

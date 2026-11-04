@@ -47,7 +47,15 @@ ProcessStream: TypeAlias = int | IO[bytes] | IO[str] | None
 
 
 class WGSExtractError(Exception):
-    """Base exception for wgsextract-cli errors."""
+    """Base exception for wgsextract-cli errors (exit code 1)."""
+
+
+class UsageError(WGSExtractError):
+    """The command was invoked wrongly, e.g. a required option is missing (exit code 2)."""
+
+
+class MissingDependencyError(WGSExtractError):
+    """A required tool, JAR or environment is missing or doesn't run (exit code 3)."""
 
 
 class ToolExecutionError(WGSExtractError, subprocess.CalledProcessError):
@@ -62,7 +70,7 @@ class ToolExecutionError(WGSExtractError, subprocess.CalledProcessError):
         return f"{tool} failed (exit {self.returncode}): {tail or 'no error output'}"
 
 
-class ToolLaunchError(WGSExtractError, OSError):
+class ToolLaunchError(MissingDependencyError, OSError):
     """A clean dependency error that remains catchable as an OS failure."""
 
 

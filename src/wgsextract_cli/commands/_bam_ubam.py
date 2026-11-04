@@ -16,6 +16,7 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.paths import PathInput, absolute_path
 from wgsextract_cli.core.utils import (
+    UsageError,
     WGSExtractError,
     get_resource_defaults,
     run_command,
@@ -165,7 +166,7 @@ def _bam_stages(
             args.ref, calculate_bam_md5(args.input, header=header), args.input
         )
         if not (ref and Path(ref).is_file()):
-            raise WGSExtractError("--ref is required to read a CRAM file.")
+            raise UsageError("--ref is required to read a CRAM file.")
         ref_opt = ["--reference", ref]
     if ultima.is_ultima_header(header):
         # reset turns reverse-strand reads around but not their flow tags.

@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:wgsextract:schema:result:1",
+  "title": "wgsextract.result/1",
+  "description": "What one wgsextract command read, wrote and found. Written as <output-stem>.manifest.json next to a command's outputs and printed to stdout by --json. See docs/result-manifest.md.",
+  "type": "object",
+  "required": [
+    "schema",
+    "command",
+    "status",
+    "exit_code",
+    "error",
+    "inputs",
+    "outputs",
+    "metrics",
+    "warnings",
+    "details",
+    "manifest",
+    "provenance"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "wgsextract.result/1" },
+    "command": {
+      "description": "The subcommand path, e.g. \"vcf snp\".",
+      "type": "string",
+      "minLength": 1
+    },
+    "status": { "enum": ["ok", "failed", "cancelled"] },
+    "exit_code": {
+      "description": "0 ok, 1 failure, 2 usage error, 3 missing dependency; 128+N after signal N.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "error": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["kind", "message"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": ["failure", "usage", "missing_dependency", "cancelled"]
+            },
+            "message": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "inputs": { "type": "array", "items": { "$ref": "#/$defs/file" } },
+    "outputs": { "type": "array", "items": { "$ref": "#/$defs/file" } },
+    "metrics": { "$ref": "#/$defs/scalars" },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message", "details"],
+        "additionalProperties": false,
+        "properties": {
+          "code": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "message": { "type": "string" },
+          "details": { "$ref": "#/$defs/scalars" }
+        }
+      }
+    },
+    "details": {
+      "description": "Command-specific structured result, or null.",
+      "type": ["object", "null"]
+    },
+    "manifest": {
+      "description": "Absolute path of the manifest file written for this run, or null when none was written.",
+      "type": ["string", "null"]
+    },
+    "provenance": {
+      "type": "object",
+      "required": [
+        "version",
+        "argv",
+        "params",
+        "tools",
+        "reference",
+        "platform",
+        "python",
+        "started",
+        "finished",
+        "elapsed_s"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": { "description": "wgsextract-cli version.", "type": "string" },
+        "argv": { "type": "array", "items": { "type": "string" } },
+        "params": {
+          "description": "Effective option values after config defaults; secrets redacted.",
+          "type": "object"
+        },
+        "tools": {
+          "description": "Version of each external tool the command ran.",
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "reference": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["path", "build", "fingerprint"],
+              "additionalProperties": false,
+              "properties": {
+                "path": { "type": "string" },
+                "build": { "type": ["string", "null"] },
+                "fingerprint": { "$ref": "#/$defs/fingerprint" }
+              }
+            }
+          ]
+        },
+        "platform": { "type": "string" },
+        "python": { "type": "string" },
+        "started": { "type": "string", "format": "date-time" },
+        "finished": { "type": "string", "format": "date-time" },
+        "elapsed_s": { "type": "number", "minimum": 0 }
+      }
+    }
+  },
+  "$defs": {
+    "scalar": { "type": ["string", "number", "boolean", "null"] },
+    "scalars": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/scalar" }
+    },
+    "fingerprint": {
+      "description": "wgse-fp1:<sha256 of the size and the first, middle and last MiB>; see docs/result-manifest.md.",
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "pattern": "^wgse-fp1:[0-9a-f]{64}$" }
+      ]
+    },
+    "file": {
+      "type": "object",
+      "required": [
+        "path",
+        "kind",
+        "role",
+        "exists",
+        "size_bytes",
+        "mtime",
+        "fingerprint",
+        "index",
+        "metrics"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "description": "Absolute path.", "type": "string" },
+        "kind": {
+          "description": "File type from the name: bam, cram, vcf, fasta, fastq, bed, tsv, ..., directory or other.",
+          "type": "string"
+        },
+        "role": {
+          "description": "What the file is to this command, e.g. input, snps, combined_kit.",
+          "type": "string"
+        },
+        "exists": { "type": "boolean" },
+        "size_bytes": { "type": ["integer", "null"], "minimum": 0 },
+        "mtime": { "type": ["string", "null"], "format": "date-time" },
+        "fingerprint": { "$ref": "#/$defs/fingerprint" },
+        "index": {
+          "description": "Absolute path of the file's index (.bai, .crai, .tbi, .csi, .fai), if any.",
+          "type": ["string", "null"]
+        },
+        "metrics": { "$ref": "#/$defs/scalars" }
+      }
+    }
+  }
+}

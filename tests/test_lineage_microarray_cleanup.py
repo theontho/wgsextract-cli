@@ -150,7 +150,7 @@ def _patch_mtdna_alignment_env():
         patch.object(
             lineage,
             "ReferenceLibrary",
-            return_value=SimpleNamespace(fasta="/ref/hg38.fa"),
+            return_value=SimpleNamespace(build="hg38", fasta="/ref/hg38.fa"),
         ),
         patch.object(lineage, "get_chr_name", return_value="chrM"),
     )
