@@ -122,6 +122,19 @@ def test_bedmethyl_parquet_streams_modkit_output(tmp_path):
     assert pq.read_schema(path).metadata[b"k"] == b"v"
 
 
+def test_empty_bedmethyl_gives_an_empty_typed_parquet(tmp_path):
+    pq = pytest.importorskip("pyarrow.parquet")
+    from wgsextract_cli.commands import methylation
+
+    bed = tmp_path / "x.bedmethyl.gz"
+    bed.write_bytes(gzip.compress(b""))
+    path = tmp_path / "x.bedmethyl.parquet"
+    assert methylation.bedmethyl_to_parquet(str(bed), str(path), {}) == 0
+    table = pq.read_table(path)
+    assert table.num_rows == 0
+    assert table.schema.field("start").type == "int64"
+
+
 def test_methylation_summary_tsv_is_unchanged(tmp_path):
     from wgsextract_cli.commands import methylation
 
@@ -147,6 +160,42 @@ def test_microarray_genotype_table(tmp_path):
         "rsid\tchrom\tpos\tgenotype\nrs1\t1\t100\tAG\ni2\tX\t5\t--\n"
     )
     assert result.outputs[0].metrics == {"rows": 2}
+
+
+def test_chm13_microarray_exports_its_grch37_genotype_table(tmp_path, monkeypatch):
+    import argparse
+    from types import SimpleNamespace
+
+    from wgsextract_cli.commands import _microarray_chm13, microarray
+
+    bam = tmp_path / "s.bam"
+    bam.touch()
+    fasta = tmp_path / "chm13.fa"
+    fasta.touch()
+    kit = tmp_path / "CHM13_x" / "s_CombinedKit.txt"
+    kit.parent.mkdir()
+    kit.write_text("# RSID\tCHROM\tPOS\tRESULT\nrs1\t1\t100\tAG\n")
+    for name in ("calculate_bam_md5", "verify_dependencies", "log_dependency_info"):
+        monkeypatch.setattr(microarray, name, lambda *_a, **_k: "")
+    monkeypatch.setattr(microarray, "warn_low_depth", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        microarray,
+        "ReferenceLibrary",
+        lambda *_a, **_k: SimpleNamespace(
+            root=str(tmp_path), build="T2T", fasta=str(fasta), ref_vcf_tab=None,
+            ploidy_file=None, liftover_chain=None,
+        ),
+    )  # fmt: skip
+    monkeypatch.setattr(_microarray_chm13, "run_chm13", lambda *_a, **_k: kit)
+    microarray.run(
+        argparse.Namespace(
+            input=str(bam), ref=str(tmp_path), formats="23andme_v5", threads="1",
+            outdir=str(tmp_path), ref_vcf_tab=None, ploidy_file=None, region=None,
+            table_format="tsv",
+        )
+    )  # fmt: skip
+    table = tmp_path / "s_genotypes.tsv"
+    assert table.read_text() == "rsid\tchrom\tpos\tgenotype\nrs1\t1\t100\tAG\n"
 
 
 def test_microarray_format_names_formats(capsys):

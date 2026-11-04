@@ -131,7 +131,7 @@ straight from the file:
 
 ```bash
 duckdb -c "SELECT chrom, pos, gene, hgvs_p FROM 'sample_variants.parquet'
-           WHERE clinvar_significance ILIKE '%pathogenic%' AND zygosity = 'hom'"
+           WHERE clinvar_significance ILIKE '%pathogenic%' AND zygosity = 'hom_alt'"
 duckdb -c "SELECT decode(key), decode(value)
            FROM parquet_kv_metadata('sample_variants.parquet')"
 ```

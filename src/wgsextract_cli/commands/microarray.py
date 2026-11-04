@@ -436,7 +436,7 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
             if vcf_sample:
                 chm13_args = argparse.Namespace(**vars(args))
                 chm13_args.input = _sample_vcf(args.input, vcf_sample, outdir, cleanup)
-            run_chm13(
+            combined = run_chm13(
                 chm13_args,
                 lib,
                 ref_fasta,
@@ -449,6 +449,17 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
             )
         except (OSError, ValueError, subprocess.SubprocessError) as error:
             raise WGSExtractError(f"CHM13 microarray failed: {error}") from error
+        if table_format:
+            _export_genotypes(
+                str(combined),
+                table_path(Path(outdir, f"{base_name}_genotypes"), table_format),
+                table_format,
+                provenance(
+                    [args.input],
+                    reference_build="GRCh37 (projected from CHM13v2.0)",
+                    sorted_by="the CHM13 site map's GRCh37 order",
+                ),
+            )
         return
 
     if (
@@ -652,7 +663,11 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
 GENOTYPE_TABLE = (
     Column("rsid", "TEXT", "Target ID: an rsID or a vendor probe ID."),
     Column("chrom", "TEXT", "Chromosome, as in the input."),
-    Column("pos", "INTEGER", "1-based position in the input's reference build."),
+    Column(
+        "pos",
+        "INTEGER",
+        "1-based position in the input's build (GRCh37 for CHM13 inputs).",
+    ),
     Column("genotype", "TEXT", "Called alleles, e.g. AG; -- is a no-call."),
 )
 

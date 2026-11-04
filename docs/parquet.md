@@ -12,7 +12,7 @@ same columns, types and provenance in both formats.
 | `info` (with `--format`, which implies `--detailed`), `info calculate-coverage`, `info coverage-sample` | Per-chromosome counts and breadth | Written only with `--format` | `<input>_chromosomes.parquet` |
 | The same | QC stats, one row: the manifest's `info` metrics | Written only with `--format` | `<input>_qc.parquet` |
 | `info calculate-coverage --bins` | Depth bands per contig | `<input>_coverage_bins.tsv` | `<input>_coverage_bins.parquet` |
-| `microarray` | Every target's genotype, before liftover and vendor formatting | Written only with `--format` | `<stem>_genotypes.parquet` |
+| `microarray` | Every target's genotype, before liftover and vendor formatting (CHM13 inputs: projected to GRCh37) | Written only with `--format` | `<stem>_genotypes.parquet` |
 
 The vendor kits, VCF, BAM/CRAM and bedMethyl files keep their own formats,
 because downstream tools need them exactly. `microarray --formats` still picks

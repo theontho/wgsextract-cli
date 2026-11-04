@@ -487,8 +487,15 @@ def bedmethyl_to_parquet(bed: str, path: str, metadata: dict[str, str]) -> int:
     """Convert modkit's bgzipped bedMethyl to typed Parquet, block by block,
     so tens of millions of sites never sit in memory at once."""
     require_pyarrow()
+    import pyarrow as pa
     import pyarrow.csv as pacsv
 
+    with pa.input_stream(bed, compression="detect") as stream:
+        empty = not stream.read(1)
+    if empty:  # Arrow's CSV reader rejects an empty file.
+        with TableWriter(path, BEDMETHYL_TABLE, "parquet", metadata=metadata):
+            pass
+        return 0
     names = [f"f{i}" for i in range(1, 19)]
     keep = [f"f{i}" for i in _BEDMETHYL_FIELDS]
     reader = pacsv.open_csv(
