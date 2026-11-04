@@ -13,8 +13,6 @@ from wgsextract_cli.core.paths import PathInput
 from wgsextract_cli.core.ultima import read_groups
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
-# Bump when platform detection changes its calls, so recorded ones are redone.
-PLATFORM_VERSION = 1
 _READ_GROUPS = "read-group PL tag"
 _READ_NAME = "first read name pattern"
 
@@ -76,7 +74,7 @@ def input_platform(
     """
     if reads is None:
         return None
-    fact = sample_workspace.known("platform", reads, version=PLATFORM_VERSION)
+    fact = sample_workspace.known("platform", reads)
     if fact is not None:
         return str(fact.value)
     path = Path(reads)
@@ -99,7 +97,6 @@ def input_platform(
             platform,
             method=method,
             confidence="high" if method == _READ_GROUPS else "medium",
-            version=PLATFORM_VERSION,
         )
     return platform
 

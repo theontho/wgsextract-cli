@@ -35,8 +35,6 @@ from .alignment_metadata import (
 )
 
 _UNKNOWN_SIGNATURE = "0" * 32
-# Bump when build detection changes its calls, so recorded ones are redone.
-BUILD_VERSION = 1
 
 
 @functools.cache
@@ -223,7 +221,7 @@ class ReferenceLibrary:
         method = "header contig MD5 signature"
         sample = header_target if header_target == self.input_path else None
         if not build and sample:
-            fact = sample_workspace.known("build", sample, version=BUILD_VERSION)
+            fact = sample_workspace.known("build", sample)
             if fact is not None:
                 return str(fact.value)
         if not build and header_target:
@@ -244,7 +242,6 @@ class ReferenceLibrary:
                 canonical_build(build),
                 method=method,
                 confidence="high",
-                version=BUILD_VERSION,
             )
         if not build and self.fasta:
             build = build_from_chr1_length(read_fai_lengths(self.fasta))

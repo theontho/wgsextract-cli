@@ -55,7 +55,7 @@
           }
         },
         "build": { "$ref": "#/$defs/fact", "properties": { "value": { "type": "string" } } },
-        "read_length": { "$ref": "#/$defs/fact", "properties": { "value": { "type": "integer", "minimum": 0 } } },
+        "read_length": { "$ref": "#/$defs/fact", "properties": { "value": { "type": "number", "minimum": 0 } } },
         "mean_coverage": { "$ref": "#/$defs/fact", "properties": { "value": { "type": "number", "minimum": 0 } } },
         "target_depths": {
           "$ref": "#/$defs/fact",

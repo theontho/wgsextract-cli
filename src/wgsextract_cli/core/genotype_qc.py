@@ -26,8 +26,6 @@ TARGETS = (AUTOSOMES, CHR_X, CHR_Y, MTDNA)
 # Fewer called sites than this say too little about a sample's genotype rates.
 MIN_QC_SITES = 1000
 GUIDE = "docs/genotype-qc.md"
-# Bump when the depth estimate changes, so recorded depths are redone.
-DEPTHS_VERSION = 1
 
 
 def _setting(key: str, override: float | None = None) -> float:
@@ -227,11 +225,13 @@ def target_depths(
 ) -> tuple[dict[str, float], str] | None:
     """(mean mapped depth per target, its source), or None when that isn't
     cheaply known. Missing targets are unknown; duplicates are counted, as in
-    `info`."""
-    fact = sample_workspace.known("target_depths", alignment, version=DEPTHS_VERSION)
-    if fact is not None and isinstance(fact.value, dict):
+    `info`. Only a map of every target is recorded and reused: a partial one
+    (e.g. from a CRAM without its index) is estimated again next time."""
+    fact = sample_workspace.known("target_depths", alignment)
+    value = fact.value if fact is not None else None
+    if fact is not None and isinstance(value, dict) and set(TARGETS) <= value.keys():
         origin = "your override" if fact.source == "override" else fact.method
-        return {k: float(v) for k, v in fact.value.items()}, (
+        return {k: float(v) for k, v in value.items()}, (
             f"{sample_workspace.WORKSPACE_FILE} ({origin})"
         )
     try:
@@ -246,14 +246,14 @@ def target_depths(
     except (OSError, ValueError, WGSExtractError) as e:
         logging.debug(f"Could not estimate the depth of {alignment}: {e}")
         return None
-    sample_workspace.record(
-        "target_depths",
-        alignment,
-        {k: round(v, 3) for k, v in depths.items()},
-        method=source,
-        confidence="high",
-        version=DEPTHS_VERSION,
-    )
+    if set(TARGETS) <= set(depths):
+        sample_workspace.record(
+            "target_depths",
+            alignment,
+            {k: round(v, 3) for k, v in depths.items()},
+            method=source,
+            confidence="high",
+        )
     return depths, source
 
 

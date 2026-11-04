@@ -75,11 +75,14 @@ Confidence = Literal["high", "medium", "low"]
 
 @dataclass(frozen=True)
 class FactSpec:
-    """One kind of fact. ``choices`` makes it user-overridable."""
+    """One kind of fact. ``choices`` makes it user-overridable. ``version`` is
+    its detector's: bump it when detection changes so recorded facts are
+    detected again."""
 
     name: str
     description: str
     choices: tuple[str, ...] | None = None
+    version: int = 1
 
     @property
     def overridable(self) -> bool:
@@ -101,7 +104,7 @@ class FactSpec:
 FACTS: dict[str, FactSpec] = {
     spec.name: spec
     for spec in (
-        FactSpec("sex", "Male or Female, from the chrX/chrY read counts.", SEXES),
+        FactSpec("sex", "Male or Female, from the chrX/chrY read counts.", SEXES, 2),
         FactSpec(
             "platform",
             "Sequencing platform, from the read groups or read names.",
@@ -237,6 +240,9 @@ class SampleWorkspace:
             return _Document({}, True, False, f"not valid TOML: {e}")
         schema = raw.get("schema")
         if schema == SCHEMA_ID:
+            malformed = _malformed(raw)
+            if malformed:
+                return _Document({}, True, False, malformed)
             return _Document(raw, True)
         version = None
         if isinstance(schema, str) and schema.startswith(_SCHEMA_PREFIX):
@@ -285,11 +291,10 @@ class SampleWorkspace:
         name: str,
         file: PathInput,
         *,
-        version: int | None = None,
         doc: _Document | None = None,
     ) -> Fact | None:
-        """The fact detected from this very file (same fingerprint), by this
-        detector ``version`` when given."""
+        """The fact detected from this very file (same fingerprint) by the
+        current detector version."""
         doc = doc or self._load()
         key = self.key(file)
         entry = (doc.raw.get("detected") or {}).get(key)
@@ -298,20 +303,19 @@ class SampleWorkspace:
         fact = entry.get(name)
         if not isinstance(fact, dict) or "value" not in fact:
             return None
-        if version is not None and fact.get("version") != version:
+        spec = FACTS.get(name)
+        if spec is None or fact.get("version") != spec.version:
             return None
         current = file_fingerprint(file)
         if current is None or entry.get("fingerprint") != current:
             return None
         return _detected_fact(name, key, entry["fingerprint"], fact)
 
-    def fact(
-        self, name: str, file: PathInput | None, *, version: int | None = None
-    ) -> Fact | None:
+    def fact(self, name: str, file: PathInput | None) -> Fact | None:
         """The fact in effect: the override, else ``file``'s current detection."""
         doc = self._load()
         override = self.overrides(doc).get(name)
-        detected = self.detected(name, file, version=version, doc=doc) if file else None
+        detected = self.detected(name, file, doc=doc) if file else None
         if override is not None:
             if detected is not None and detected.value != override:
                 _warn_once(
@@ -364,7 +368,6 @@ class SampleWorkspace:
         *,
         method: str,
         confidence: Confidence,
-        version: int = 1,
     ) -> bool:
         """Record a detected fact for this revision of ``file``."""
         fingerprint = file_fingerprint(file)
@@ -375,7 +378,7 @@ class SampleWorkspace:
             "value": value,
             "method": method,
             "confidence": confidence,
-            "version": version,
+            "version": FACTS[name].version,
             "by": _by(),
             "at": _now(),
         }
@@ -500,6 +503,19 @@ class SampleWorkspace:
         return data
 
 
+def _malformed(raw: Mapping[str, Any]) -> str | None:
+    """What makes a current-schema document unusable, if anything."""
+    for section in ("override", "detected", "outputs"):
+        table = raw.get(section, {})
+        if not isinstance(table, dict):
+            return f"[{section}] isn't a table"
+        if section != "override" and not all(
+            isinstance(entry, dict) for entry in table.values()
+        ):
+            return f"an entry of [{section}] isn't a table"
+    return None
+
+
 def _detected_fact(
     name: str, key: str, fingerprint: str | None, fact: Mapping[str, Any]
 ) -> Fact:
@@ -598,15 +614,15 @@ _LABELS = {
 _reported: set[tuple[str, str]] = set()
 
 
-def known(name: str, file: PathInput | None, *, version: int = 1) -> Fact | None:
+def known(name: str, file: PathInput | None) -> Fact | None:
     """The fact in effect for ``file``, if its workspace has one: the user's
-    override, else one detected from this revision of the file by this
-    detector ``version``. Logged once per run."""
+    override, else one detected from this revision of the file by the current
+    detector. Logged once per run."""
     workspace = workspace_for(file)
     if workspace is None or file is None:
         return None
     try:
-        fact = workspace.fact(name, file, version=version)
+        fact = workspace.fact(name, file)
     except (OSError, ValueError) as e:
         logging.debug(f"Couldn't read sample facts from {workspace.path}: {e}")
         return None
@@ -623,15 +639,12 @@ def record(
     *,
     method: str,
     confidence: Confidence,
-    version: int = 1,
 ) -> bool:
     """Record a detected fact in ``file``'s workspace, if it has one."""
     workspace = workspace_for(file)
     if workspace is None or file is None:
         return False
-    return workspace.record(
-        name, file, value, method=method, confidence=confidence, version=version
-    )
+    return workspace.record(name, file, value, method=method, confidence=confidence)
 
 
 def override(name: str, file: PathInput | None) -> str | None:

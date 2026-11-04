@@ -30,9 +30,8 @@ from wgsextract_cli.core.messages import LOG_MESSAGES, SYSTEM_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import is_fasta_path
 from wgsextract_cli.core.reference_models import identify_reference, sequence_lengths
-from wgsextract_cli.core.reference_resolver import BUILD_VERSION
 from wgsextract_cli.core.results import current_result, human_output
-from wgsextract_cli.core.sequencing import PLATFORM_VERSION, platform_from_metadata
+from wgsextract_cli.core.sequencing import platform_from_metadata
 from wgsextract_cli.core.table_writer import (
     Column,
     check_format,
@@ -261,7 +260,6 @@ def _record_facts(data: dict[str, Any], input_file: str, header: str) -> None:
             build,
             method="alignment header contigs",
             confidence="high",
-            version=BUILD_VERSION,
         )
     platform = platform_from_metadata(header, data.get("first_qname"))
     if platform:
@@ -272,7 +270,6 @@ def _record_facts(data: dict[str, Any], input_file: str, header: str) -> None:
             platform,
             method="read-group PL tag" if has_pl else "first read name pattern",
             confidence="high" if has_pl else "medium",
-            version=PLATFORM_VERSION,
         )
     if data.get("avg_read_len"):
         sample_workspace.record(

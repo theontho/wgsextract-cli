@@ -21,8 +21,9 @@ from wgsextract_cli.core.sample_workspace import SampleWorkspace, active_workspa
 from .platform_support import verify_platform_support
 
 # Commands that only report: they mustn't create the configured output folder
-# (it may be on a drive that isn't mounted).
-READ_ONLY_COMMANDS = frozenset({"help", "config", "deps", "report-issue"})
+# (it may be on a drive that isn't mounted), check inputs or need a temp dir.
+# `sample` only reads and edits the small workspace file.
+READ_ONLY_COMMANDS = frozenset({"help", "config", "deps", "report-issue", "sample"})
 
 
 # Arguments that name a command's primary input files, and their manifest role.

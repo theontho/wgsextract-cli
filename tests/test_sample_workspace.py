@@ -182,6 +182,42 @@ def test_info_records_what_later_commands_read(seqs, folder):
 
     raw = sample_workspace.tomllib.loads((folder / WORKSPACE_FILE).read_text())
     jsonschema.validate(raw, sample_workspace.load_schema())
+    # A mean of mixed-length reads, as from long or trimmed reads.
+    raw["detected"]["s.bam"]["read_length"]["value"] = 149.5
+    jsonschema.validate(raw, sample_workspace.load_schema())
+
+
+def test_depths_missing_a_target_are_estimated_again(folder):
+    # A CRAM read without its index can't tell which targets some reads are on.
+    reads = folder / "s.cram"
+    reads.write_bytes(b"reads")
+    partial = {"autosomes": 30.0, "chrX": 15.0}
+    with patch.object(
+        genotype_qc, "_counted_depths", return_value=(partial, "CRAM containers")
+    ) as estimate:
+        assert genotype_qc.target_depths(str(reads))[0] == partial
+        assert genotype_qc.target_depths(str(reads))[0] == partial
+    assert estimate.call_count == 2
+
+
+def test_sample_commands_need_neither_the_reads_nor_the_output_folder(folder):
+    reads = folder / "s.bam"
+    reads.write_bytes(b"not a BAM")
+    blocked = folder / "a-file"
+    blocked.write_text("")
+    code, out = _cli(
+        "sample",
+        "set",
+        "--input",
+        str(reads),
+        "--outdir",
+        str(blocked / "out"),
+        "--sex",
+        "female",
+    )
+    assert code == 0, out
+    shown = api.sample.show(api.SampleShowParams(input=reads))
+    assert shown.details["overrides"] == {"sex": "Female"}
 
 
 def test_api_set_show_unset(folder):
@@ -205,8 +241,10 @@ def test_api_set_show_unset(folder):
         "schema = [unterminated\n",
         'schema = "wgsextract.sample/2"\n[override]\nsex = "Male"\n',
         'schema = "something.else/1"\n',
+        'schema = "wgsextract.sample/1"\ndetected = "broken"\n',
+        'schema = "wgsextract.sample/1"\n[outputs]\n"x.manifest.json" = 1\n',
     ],
-    ids=["corrupt", "newer", "foreign"],
+    ids=["corrupt", "newer", "foreign", "detected-not-a-table", "bad-output"],
 )
 @needs_htslib
 def test_unusable_workspace_is_ignored_and_left_alone(seqs, folder, text, caplog):
@@ -239,6 +277,25 @@ def test_older_workspace_keeps_overrides_and_redetects(seqs, folder):
     assert raw["schema"] == sample_workspace.SCHEMA_ID
     assert raw["override"] == {"platform": "ont"}
     assert raw["detected"]["s.bam"]["sex"]["value"] == "Female"
+
+
+@needs_htslib
+def test_a_fact_from_an_older_detector_is_shown_but_not_used(seqs, folder):
+    bam = _bam(seqs, folder / "s.bam", FEMALE)
+    fp = sample_workspace.file_fingerprint(bam)
+    (folder / WORKSPACE_FILE).write_text(
+        f'schema = "{sample_workspace.SCHEMA_ID}"\n'
+        f'[detected."s.bam"]\nfingerprint = "{fp}"\n'
+        '[detected."s.bam".sex]\nvalue = "Male"\nmethod = "old"\n'
+        'confidence = "high"\nversion = 1\nby = "wgsextract 0.1"\n'
+        'at = "2020-01-01T00:00:00+00:00"\n'
+    )
+    details = api.sample.show(api.SampleShowParams(input=Path(bam))).details
+    assert "sex" not in details["effective"]
+    assert details["files"]["s.bam"]["facts"]["sex"]["value"] == "Male"
+    with _idxstats_counter() as idxstats:
+        assert metrics.sample_sex(bam) == "Female"
+    assert idxstats.call_count == 1
 
 
 @needs_htslib

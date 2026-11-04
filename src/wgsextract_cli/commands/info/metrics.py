@@ -211,9 +211,9 @@ def load_n_counts(ref_path: str | None) -> dict[str, int]:
     return n_counts
 
 
-# Stored with a cached "gender"; bumped whenever infer_sex changes its calls,
-# so caches made by an older release are recomputed rather than trusted.
-SEX_INFERENCE_VERSION = 2
+# Stored with a cached "gender" so caches made by an older infer_sex are
+# recomputed rather than trusted; bump it in sample_workspace.FACTS.
+SEX_INFERENCE_VERSION = sample_workspace.FACTS["sex"].version
 
 
 class SexCall(NamedTuple):
@@ -268,12 +268,7 @@ def record_sex(input_path: str, call: SexCall) -> None:
     if call.sex not in sample_workspace.SEXES:
         return
     sample_workspace.record(
-        "sex",
-        input_path,
-        call.sex,
-        method=call.method,
-        confidence=call.confidence,
-        version=SEX_INFERENCE_VERSION,
+        "sex", input_path, call.sex, method=call.method, confidence=call.confidence
     )
     override = sample_workspace.override("sex", input_path)
     if override and override != call.sex:
@@ -326,7 +321,7 @@ def sample_sex(input_path: str, outdir: str | None = None) -> str:
     workspace, else `info`'s cached metrics for this file (counting chrY reads
     in a CRAM takes about a minute), else samtools idxstats. A new call is
     recorded in the workspace."""
-    fact = sample_workspace.known("sex", input_path, version=SEX_INFERENCE_VERSION)
+    fact = sample_workspace.known("sex", input_path)
     if fact is not None:
         return str(fact.value)
     info = cached_info(input_path, outdir)
