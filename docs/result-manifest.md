@@ -111,7 +111,7 @@ is unchanged.
 These commands record full manifests: `info` (including `--detailed`),
 `info chip`, `info calculate-coverage`, `info coverage-sample`, `ref status`, `vcf snp`, `vcf indel`,
 `vcf annotate`, `vcf freebayes`, `vcf gatk`, `vcf clinvar`, `vcf gnomad`,
-`vcf pharmcat`, every `extract` subcommand,
+`vcf pharmcat`, `vcf table`, every `extract` subcommand,
 `lineage mt-haplogroup`, `lineage y-haplogroup`, `lineage y-str` and
 `microarray`. Every other command honours `--json` and the exit codes, and
 reports its status, inputs and provenance. Its outputs, metrics and warnings

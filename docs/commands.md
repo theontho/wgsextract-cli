@@ -30,6 +30,7 @@ Commands are grouped by tier. The core tier is the usual path, in order: check a
 | `vcf indel` | Call Small Insertions and Deletions (InDels) using bcftools. | indels.vcf.gz (+ .tbi). | `wgsextract vcf indel --input sample.cram` |
 | `vcf annotate` | Add external metadata (like population frequencies or disease risk) to your VCF file. | annotated.vcf.gz (+ .tbi). | `wgsextract vcf annotate --vcf-input sample.vcf.gz --ann-vcf dbsnp.vcf.gz --cols ID` |
 | `vcf filter` | Filter your results. | filtered.vcf.gz (+ .tbi). | `wgsextract vcf filter --vcf-input sample.vcf.gz --expr 'QUAL>30'` |
+| `vcf table` | Export variants and their annotations (gene, consequence, ClinVar, gnomAD, genotype, depth, ...) as one row per variant, in a TSV and an SQLite database to query. | &lt;input stem>_variants.tsv and &lt;input stem>_variants.sqlite: one row per variant allele, with its annotations. | `wgsextract vcf table --vcf-input sample.vcf.gz` |
 | `vcf clinvar` | Annotate VCF with ClinVar pathogenicity data. | clinvar_annotated.vcf.gz and clinvar_pathogenic.vcf.gz (+ .tbi). | `wgsextract vcf clinvar --vcf-input sample.vcf.gz` |
 | `vcf revel` | Annotate VCF with REVEL pathogenicity scores. | revel_annotated.vcf.gz (+ .tbi) | `wgsextract vcf revel --vcf-input sample.vcf.gz` |
 | `vcf gnomad` | Annotate VCF with gnomAD population frequencies. | gnomad_annotated.vcf.gz (+ .tbi) | `wgsextract vcf gnomad --vcf-input sample.vcf.gz --max-af 0.01` |
