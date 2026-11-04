@@ -29,7 +29,8 @@ memory rather than falling back.
 | :--- | :--- | :--- |
 | Index in memory, human genome | ~5 GB | ~17 GB |
 | Building the index | far less | ~28 bytes per base, ~90 GB for GRCh38 |
-| Alignment pipeline, 30x at 6 threads (**estimate**, calibrated on a 680-million-read genome) | ~18 GiB | ~29 GiB |
+| Alignment pipeline, 30x at 6 threads with `--memory 256M` (**estimate**, calibrated on a 680-million-read genome) | ~18 GiB | ~29 GiB |
+| The same with default `--memory auto` on a 32 GiB computer (1 GiB per thread) | ~24 GiB | ~29 GiB (sort capped at 256 MiB) |
 | Time | 1× | ~0.74× (**measured**: 192 s against 259 s, 4.2M read pairs, 12 threads) |
 
 Few computers can build the bwa-mem2 index, so
@@ -49,17 +50,23 @@ run time, so newer CPUs gain more.
 x86 SIMD kernels to NEON with [sse2neon](https://github.com/DLTcollab/sse2neon),
 so expect a smaller gain than on AVX-512 x86 (**estimate**). On a 16-core Linux
 ARM64 server, full 30x bwa-mem2 was 19.8% slower than on the x64 control
-(**measured**; see [Linux ARM64](linux-arm64.md#qualification-status)). A Mac
-needs 32 GB of memory or more to use bwa-mem2 at all, and more than that for
-auto to choose it for a full 30x genome; with less it aligns with bwa.
+(**measured**; see [Linux ARM64](linux-arm64.md#qualification-status)).
+
+There is no fixed memory cutoff, on a Mac or anywhere else: auto compares the
+estimate for this input, reference and settings with the RAM available at the
+time. As guidance only, a whole human genome needs a computer with 32 GB or
+more for bwa-mem2; since the 30x estimate at 6 threads is ~29 GiB, auto picks
+bwa whenever less than that is free. Smaller inputs need less.
 
 ### Threads and memory
 
 - `--threads` (or `threads` in `config.toml`) defaults to `auto`: all cores, or
   the performance cores on Apple Silicon.
-- `--memory` is the sort memory per thread. `auto` uses 25% of RAM split across
-  the threads. With bwa-mem2 sorting is capped at 256 MiB per thread to leave
-  room for its index.
+- `--memory` is the sort memory per thread. `auto` uses 25% of RAM (at least
+  2 GB) split across the threads, with at least 1 GiB per thread; for example
+  16 GiB and 12 threads gives 1 GiB each, 12 GiB in total. With bwa-mem2,
+  sorting is capped at 256 MiB per thread to leave room for its index; bwa
+  keeps the full `--memory`.
 - Before a native BWA run, the CLI prints a memory and disk preflight. More
   threads use more memory; when it reports `LOW`, lower `--threads` or
   `--memory`, or use `--aligner bwa`. Threads are never lowered automatically.
