@@ -102,16 +102,16 @@ How refusals are classified:
 - **Your option choice is unsupported → 2.** Conflicting flags (`vcf sv
   --pacbio --ont`, `align --r2` with ONT or pbmm2 reads, `vcf gatk --scatter
   --gpu`, a `--batch-size` that is not positive), and options this platform
-  cannot honour while the command itself can run: `--gpu` off Linux or without
-  Parabricks, and `--aligner pbmm2` on Windows. Choosing different options
-  fixes the run.
+  cannot honour while the command itself can run: `--gpu` off Linux x86-64,
+  and `--aligner pbmm2` on Windows. Choosing different options fixes the run.
 - **The command or input is unsupported here → 1.** A command with no native
   build on this platform (for example `vep`, `typing`, `vcf deepvariant` or
   `vcf sv` on Windows), or an input that needs one (Ultima reads needing
   GATK). No choice of options would help.
 - **A required tool is missing → 3.** This includes `deps check` when a
-  mandatory tool is missing, and `deps check --tool NAME` when `NAME` is not
-  found. Missing optional tools are reported but keep exit 0.
+  mandatory tool is missing, `deps check --tool NAME` when `NAME` is not
+  found, and a missing container setup (Docker or its daemon, an image, or for
+  `--gpu` the NVIDIA driver or container runtime). Missing optional tools are reported but keep exit 0.
 
 ## Versioning
 

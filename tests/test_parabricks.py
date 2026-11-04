@@ -14,7 +14,11 @@ from tests.htslib_helpers import needs_tools, sam_to_bam
 from wgsextract_cli.commands import align
 from wgsextract_cli.commands.vcf import callers, deepvariant
 from wgsextract_cli.core import containers, native_support, parabricks
-from wgsextract_cli.core.utils import WGSExtractError, run_command
+from wgsextract_cli.core.utils import (
+    MissingDependencyError,
+    WGSExtractError,
+    run_command,
+)
 
 
 def _completed(returncode: int = 0, stdout: str = "", stderr: str = ""):
@@ -59,7 +63,8 @@ def _docker_answers(monkeypatch, info: subprocess.CompletedProcess, image_rc: in
 def test_setup_problems_are_named(linux, monkeypatch, tools, info, image_rc, message):
     _tools(monkeypatch, *tools)
     _docker_answers(monkeypatch, info, image_rc)
-    with pytest.raises(WGSExtractError, match=message):
+    # A missing setup piece is a missing dependency: exit 3.
+    with pytest.raises(MissingDependencyError, match=message):
         parabricks.verify_parabricks()
 
 

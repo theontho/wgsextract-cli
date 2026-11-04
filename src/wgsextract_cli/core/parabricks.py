@@ -24,7 +24,11 @@ from wgsextract_cli.core.containers import (
 )
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.native_support import require_native_tool
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import (
+    MissingDependencyError,
+    UsageError,
+    WGSExtractError,
+)
 
 DEFAULT_IMAGE = "nvcr.io/nvidia/clara/clara-parabricks:4.8.0-1"
 _SETUP = (
@@ -38,17 +42,20 @@ def parabricks_image() -> str:
 
 
 def verify_parabricks() -> None:
-    """Raise WGSExtractError naming the first missing piece of a Parabricks setup."""
+    """Name the first missing piece of a Parabricks setup: a usage error off
+    Linux, a missing dependency (exit 3) for Docker, the driver or the image."""
     require_native_tool("parabricks")
     image = parabricks_image()
     setup = _SETUP.format(image=image)
     if not sys.platform.startswith("linux"):
-        raise WGSExtractError(f"Parabricks runs on Linux only. {setup}")
+        raise UsageError(f"Parabricks runs on Linux only. {setup}")
     docker(setup)
     if not get_tool_path("nvidia-smi"):
-        raise WGSExtractError(f"No NVIDIA GPU driver found (nvidia-smi). {setup}")
+        raise MissingDependencyError(
+            f"No NVIDIA GPU driver found (nvidia-smi). {setup}"
+        )
     if "nvidia" not in docker_info(setup, "{{json .Runtimes}}"):
-        raise WGSExtractError(
+        raise MissingDependencyError(
             "Docker has no NVIDIA runtime: install the NVIDIA Container Toolkit, "
             "then run 'sudo nvidia-ctk runtime configure --runtime=docker' and "
             "restart Docker."

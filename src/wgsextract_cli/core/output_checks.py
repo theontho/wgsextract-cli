@@ -8,7 +8,7 @@ so, so the command doesn't look like it worked.
 
 import subprocess
 
-from wgsextract_cli.core.cram_counts import cram_read_counts
+from wgsextract_cli.core.cram_counts import cram_container_totals
 from wgsextract_cli.core.paths import PathInput
 from wgsextract_cli.core.results import warn
 from wgsextract_cli.core.samtools_commands import alignment_index
@@ -86,8 +86,10 @@ def alignment_record_counts(bam: PathInput) -> dict[str, int]:
     if not alignment_index(bam):
         return {}
     if str(bam).lower().endswith(".cram"):
-        counts = cram_read_counts(bam)
-        return {} if counts is None else {"records": sum(counts.values())}
+        totals = cram_container_totals(bam)
+        if totals is None:
+            return {}
+        return {"records": sum(records for records, _bases in totals.values())}
     try:
         res = run_command(
             ["samtools", "idxstats", str(bam)], capture_output=True, check=False

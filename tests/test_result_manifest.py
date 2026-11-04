@@ -516,6 +516,9 @@ def test_cli_trio_manifest_lists_every_mode_output(tmp_path):
     assert document["manifest"] == str(outdir / "trio.manifest.json")
     on_disk = {p.name for p in outdir.glob("trio_*.vcf.gz")}
     assert {Path(o["path"]).name for o in document["outputs"]} == on_disk
+    family = {i["role"]: i for i in document["inputs"]}
+    for role, path in (("proband", child), ("mother", mother), ("father", father)):
+        assert family[role]["fingerprint"] == results.fingerprint(path)
     by_role = {o["role"]: o["metrics"]["variants"] for o in document["outputs"]}
     assert by_role["trio_denovo"] == document["metrics"]["denovo_variants"] == 1
     assert by_role["trio_recessive"] == document["metrics"]["recessive_variants"] == 1
@@ -538,6 +541,9 @@ def test_cli_failed_run_reports_failure_with_exit_1(tmp_path):
     assert document["status"] == "failed" and document["error"]["kind"] == "failure"
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="these commands are refused on Windows (exit 1)"
+)
 @pytest.mark.parametrize(
     "argv",
     [
@@ -564,3 +570,35 @@ def test_cli_deps_check_for_a_missing_tool_exits_3():
     assert_valid(document)
     assert rc == document["exit_code"] == 3
     assert document["error"]["kind"] == "missing_dependency"
+
+
+@needs_htslib
+def test_cram_with_multi_reference_containers_still_reports_records(tmp_path):
+    from wgsextract_cli.core.output_checks import alignment_record_counts
+
+    contigs = {f"c{i}": "ACGTTGCAAC" * 30 for i in range(20)}
+    ref = tmp_path / "ref.fa"
+    ref.write_text("".join(f">{name}\n{seq}\n" for name, seq in contigs.items()))
+    header = "@HD\tVN:1.6\tSO:coordinate\n" + "".join(
+        f"@SQ\tSN:{name}\tLN:300\n" for name in contigs
+    )
+    reads = [
+        f"r{name}_{start}\t0\t{name}\t{start + 1}\t60\t50M\t*\t0\t0\t"
+        f"{seq[start : start + 50]}\t{'I' * 50}\n"
+        for name, seq in contigs.items()
+        for start in (0, 50, 100)
+    ]
+    sam = tmp_path / "in.sam"
+    sam.write_text(header + "".join(reads))
+    cram = tmp_path / "multi.cram"
+    samtools = shutil.which("samtools")
+    assert samtools
+    subprocess.run([samtools, "faidx", str(ref)], check=True)
+    # Many small contigs per slice: the containers span several references.
+    subprocess.run(
+        [samtools, "view", "-T", str(ref), "-O", "cram,multi_seq_per_slice=1"]
+        + ["-o", str(cram), str(sam)],
+        check=True,
+    )
+    subprocess.run([samtools, "index", str(cram)], check=True)
+    assert alignment_record_counts(cram) == {"records": len(reads)}

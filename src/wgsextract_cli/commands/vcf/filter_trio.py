@@ -235,7 +235,10 @@ def cmd_trio(args: argparse.Namespace) -> None:
 
     outdir = args.outdir or str(absolute_path(proband).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
-    current_result().set_manifest_stem(Path(outdir, "trio"))
+    result = current_result()
+    result.set_manifest_stem(Path(outdir, "trio"))
+    for path, role in ((proband, "proband"), (mother, "mother"), (father, "father")):
+        result.add_input(path, role)
     modes = [args.mode] if args.mode != "all" else list(_TRIO_FILTERS)
 
     alignments = [is_alignment(p) for p in (proband, mother, father)]

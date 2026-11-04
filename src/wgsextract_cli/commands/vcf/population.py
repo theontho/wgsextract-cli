@@ -10,6 +10,8 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.output_checks import vcf_record_count
+from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.core.variant_files import ensure_vcf_prepared
 
@@ -163,4 +165,9 @@ def cmd_gnomad(args: argparse.Namespace) -> None:
         what=f"calls rarer than gnomAD AF {args.max_af}",
         table=table,
     )
+    count = vcf_record_count(filter_out)
+    current_result().add_output(
+        filter_out, "rare_variants", metrics={"variants": count}
+    )
+    current_result().add_metrics(filtered_variants=count)
     logging.info(f"gnomAD filtering complete: {filter_out}")
