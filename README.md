@@ -140,6 +140,8 @@ complete reference genomes are not hashed.
 
 Output files are named after the full input stem: `HG002.chr20.bam` produces `HG002.chr20_sorted.bam`, `HG002.chr20_coverage.tsv`, and so on. Outputs go to `--outdir`, the configured `outdir`, or the `--genome` folder.
 
+What commands detect about a sample (sex, sequencing platform, build, depth) is recorded once in its genome folder's `wgsextract.sample.toml`, tied to each input's fingerprint, so later commands don't detect it again. Correct a wrong call with `wgsextract sample set --genome ID --sex Female`; see [docs/sample-workspace.md](docs/sample-workspace.md).
+
 ## Commands
 
 `wgsextract --help` starts with the core commands, in the order you would

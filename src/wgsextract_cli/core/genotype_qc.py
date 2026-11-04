@@ -12,6 +12,7 @@ import logging
 from collections.abc import Collection, Iterable, Mapping
 from pathlib import Path
 
+from wgsextract_cli.core import sample_workspace
 from wgsextract_cli.core.config import KNOWN_SETTINGS, settings
 from wgsextract_cli.core.cram_counts import cram_container_totals, multi_ref_contigs
 from wgsextract_cli.core.microarray_utils import GenotypeTally, is_autosome
@@ -25,6 +26,8 @@ TARGETS = (AUTOSOMES, CHR_X, CHR_Y, MTDNA)
 # Fewer called sites than this say too little about a sample's genotype rates.
 MIN_QC_SITES = 1000
 GUIDE = "docs/genotype-qc.md"
+# Bump when the depth estimate changes, so recorded depths are redone.
+DEPTHS_VERSION = 1
 
 
 def _setting(key: str, override: float | None = None) -> float:
@@ -132,11 +135,9 @@ def _counted_depths(
     `info`'s N adjustment."""
     from wgsextract_cli.commands.info.metrics import (
         IdxStat,
-        cached_info,
         generate_chrom_table,
         load_n_counts,
         parse_idxstats,
-        run_body_sample,
     )
     from wgsextract_cli.core.alignment_metadata import get_bam_header
     from wgsextract_cli.core.builds import build_from_chr1_length
@@ -181,10 +182,7 @@ def _counted_depths(
     elif alignment.lower().endswith(".bam") and alignment_index(alignment):
         stats, *_ = parse_idxstats(alignment)
         lengths = {s["name"]: s["length"] for s in stats if s["name"] != "*"}
-        cached = cached_info(alignment, outdir, "avg_read_len")
-        avg_len = float(cached["avg_read_len"]) if cached else 0.0
-        if not avg_len:
-            avg_len = run_body_sample(alignment, [])[1]
+        avg_len = read_length(alignment, outdir)
         source = "the BAM index"
     else:
         return None
@@ -201,20 +199,62 @@ def _counted_depths(
     return _aggregate(rows, unknown), source
 
 
+def read_length(alignment: str, outdir: str | None = None) -> float:
+    """Mean read length: recorded in the sample workspace, else from `info`'s
+    cache, else from sampled reads (then recorded). 0.0 when unknown."""
+    from wgsextract_cli.commands.info.metrics import cached_info, run_body_sample
+
+    fact = sample_workspace.known("read_length", alignment)
+    if fact is not None:
+        return float(fact.value)
+    cached = cached_info(alignment, outdir, "avg_read_len")
+    avg_len = float(cached["avg_read_len"]) if cached else 0.0
+    if not avg_len:
+        avg_len = float(run_body_sample(alignment, [])[1])
+    if avg_len:
+        sample_workspace.record(
+            "read_length",
+            alignment,
+            round(avg_len, 1),
+            method="mean length of sampled reads",
+            confidence="high",
+        )
+    return avg_len
+
+
 def target_depths(
     alignment: str, outdir: str | None = None, ref: str | None = None
 ) -> tuple[dict[str, float], str] | None:
     """(mean mapped depth per target, its source), or None when that isn't
     cheaply known. Missing targets are unknown; duplicates are counted, as in
     `info`."""
+    fact = sample_workspace.known("target_depths", alignment, version=DEPTHS_VERSION)
+    if fact is not None and isinstance(fact.value, dict):
+        origin = "your override" if fact.source == "override" else fact.method
+        return {k: float(v) for k, v in fact.value.items()}, (
+            f"{sample_workspace.WORKSPACE_FILE} ({origin})"
+        )
     try:
-        cached = _cached_depths(alignment, outdir)
-        if cached is not None:
-            return cached, "cached `info --detailed` metrics"
-        return _counted_depths(alignment, outdir, ref)
+        found = _cached_depths(alignment, outdir)
+        if found is not None:
+            depths, source = found, "cached `info --detailed` metrics"
+        else:
+            counted = _counted_depths(alignment, outdir, ref)
+            if counted is None:
+                return None
+            depths, source = counted
     except (OSError, ValueError, WGSExtractError) as e:
         logging.debug(f"Could not estimate the depth of {alignment}: {e}")
         return None
+    sample_workspace.record(
+        "target_depths",
+        alignment,
+        {k: round(v, 3) for k, v in depths.items()},
+        method=source,
+        confidence="high",
+        version=DEPTHS_VERSION,
+    )
+    return depths, source
 
 
 def _format_depth(depth: float) -> str:

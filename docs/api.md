@@ -30,9 +30,9 @@ The CLI is built on this layer: each migrated command's options are generated
 from its Params fields, so the API and `--help` cannot drift.
 
 Stability: the names exported here and the group modules (`api.info`,
-`api.vcf`, `api.lineage`, `api.microarray`, `api.support`) follow
-semantic versioning from the 1.0 release; adding fields with defaults is not a
-breaking change.
+`api.vcf`, `api.lineage`, `api.microarray`, `api.sample`,
+`api.support`) follow semantic versioning from the 1.0 release; adding fields
+with defaults is not a breaking change.
 Modules whose names start with `_` are private and may change at any time.
 See docs/api.md.
 
@@ -303,6 +303,58 @@ settings) and then to the documented default.
 | `sample` | `str \| None` | `None` | `--sample` | Sample to use from a multi-sample VCF (e.g. a joint-called nf-core/sarek VCF); required when the VCF has more than one |
 | `region` | `str \| None` | `None` | `-r`, `--region` | Chromosomal region (e.g. chrM, chrY:10000-20000) |
 | `qc_min_depth` | `float \| None` | `None` | `--qc-min-depth` | Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA) |
+
+## `api.sample`
+
+`sample`: show and correct what is recorded about a sample in its
+workspace, `wgsextract.sample.toml` (see docs/sample-workspace.md).
+
+### `api.sample.show(SampleShowParams)`
+
+CLI: `wgsextract sample show`.
+
+Read the workspace. `details` holds `overrides`, `files` (each
+recorded file's `status` — current, changed or missing — and `facts`),
+`outputs` and, with an input, `effective`: the facts in effect for it,
+each with its `source` (override or detected).
+
+`SampleShowParams`: Show a sample's overrides, the facts recorded for each of its files and
+the result manifests indexed in its workspace.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | BAM, CRAM or VCF of the sample; its folder is the workspace unless workspace is given, and its facts are shown. |
+| `workspace` | `Path \| None` | `None` | `--workspace` | Sample folder holding wgsextract.sample.toml (default: the --genome folder, else the --input's folder). |
+
+### `api.sample.set_overrides(SampleSetParams)`
+
+CLI: `wgsextract sample set`.
+
+Set overrides; `details` is the workspace afterwards, as `show`.
+
+`SampleSetParams`: Set overrides: facts every command uses instead of detecting them.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | BAM, CRAM or VCF of the sample; its folder is the workspace unless workspace is given, and its facts are shown. |
+| `workspace` | `Path \| None` | `None` | `--workspace` | Sample folder holding wgsextract.sample.toml (default: the --genome folder, else the --input's folder). |
+| `sex` | `str \| None` | `None` | `--sex` | The sample's sex (m and f are accepted too). One of: `Male`, `Female` |
+| `platform` | `str \| None` | `None` | `--platform` | The sequencing platform (nanopore, hifi, mgi and bgi are accepted too). One of: `illumina`, `ont`, `pacbio`, `ultima`, `dnbseq` |
+
+### `api.sample.unset_overrides(SampleUnsetParams)`
+
+CLI: `wgsextract sample unset`.
+
+Remove overrides; `details` is the workspace afterwards, as `show`.
+
+`SampleUnsetParams`: Remove overrides, so commands detect those facts again.
+
+| Field | Type | Default | CLI | Description |
+| --- | --- | --- | --- | --- |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | BAM, CRAM or VCF of the sample; its folder is the workspace unless workspace is given, and its facts are shown. |
+| `workspace` | `Path \| None` | `None` | `--workspace` | Sample folder holding wgsextract.sample.toml (default: the --genome folder, else the --input's folder). |
+| `sex` | `bool` | `False` | `--sex` | Remove the sex override. |
+| `platform` | `bool` | `False` | `--platform` | Remove the platform override. |
 
 ## `api.support`
 

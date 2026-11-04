@@ -14,9 +14,14 @@ from wgsextract_cli.api.info import (
     CoverageSampleParams,
     InfoParams,
 )
+from wgsextract_cli.core import sample_workspace
 from wgsextract_cli.core.alignment_health import alignment_health
 from wgsextract_cli.core.alignment_metadata import get_bam_header
-from wgsextract_cli.core.builds import build_from_chr1_length, build_from_path
+from wgsextract_cli.core.builds import (
+    build_from_chr1_length,
+    build_from_path,
+    canonical_build,
+)
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -25,7 +30,9 @@ from wgsextract_cli.core.messages import LOG_MESSAGES, SYSTEM_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import is_fasta_path
 from wgsextract_cli.core.reference_models import identify_reference, sequence_lengths
+from wgsextract_cli.core.reference_resolver import BUILD_VERSION
 from wgsextract_cli.core.results import current_result, human_output
+from wgsextract_cli.core.sequencing import PLATFORM_VERSION, platform_from_metadata
 from wgsextract_cli.core.table_writer import (
     Column,
     check_format,
@@ -33,6 +40,7 @@ from wgsextract_cli.core.table_writer import (
     table_path,
     write_table,
 )
+from wgsextract_cli.core.ultima import read_groups
 from wgsextract_cli.core.utils import UsageError, WGSExtractError
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
@@ -42,13 +50,15 @@ from wgsextract_cli.core.variant_files import (
 
 from .metrics import (
     SEX_INFERENCE_VERSION,
+    SexCall,
     contig_key,
     determine_sequencer,
     generate_chrom_table,
     get_file_stats,
-    infer_sex,
+    infer_sex_call,
     load_n_counts,
     parse_idxstats,
+    record_sex,
     run_body_sample,
 )
 from .render import (
@@ -98,8 +108,11 @@ def _save_cache(path: str, data: dict[str, Any]) -> bool:
     return True
 
 
-def _print_detailed(data: dict[str, Any], as_csv: bool) -> None:
+def _print_detailed(
+    data: dict[str, Any], as_csv: bool, sample: tuple[str, str]
+) -> None:
     _record_info(data)
+    _record_facts(data, *sample)
     if as_csv:
         human_output(data["chrom_table_csv"], end="")
     else:
@@ -228,13 +241,66 @@ def _export_chromosomes(
     logging.info(f"Chromosome table saved to {path}")
 
 
-def _print_fast(data: dict[str, Any]) -> None:
+def _print_fast(data: dict[str, Any], sample: tuple[str, str]) -> None:
     _record_info(data)
+    _record_facts(data, *sample)
     human_output(render_info(data, detailed=False))
 
 
 # Cache bookkeeping that isn't a result.
-_PRIVATE_KEYS = {"chrom_table_csv", "input_signature", "first_qname"}
+_PRIVATE_KEYS = {"chrom_table_csv", "input_signature", "first_qname", "sex_call"}
+
+
+def _record_facts(data: dict[str, Any], input_file: str, header: str) -> None:
+    """Record what `info` found in the input's sample workspace."""
+    build = canonical_build(build_from_chr1_length(sequence_lengths(header)))
+    if build:
+        sample_workspace.record(
+            "build",
+            input_file,
+            build,
+            method="alignment header contigs",
+            confidence="high",
+            version=BUILD_VERSION,
+        )
+    platform = platform_from_metadata(header, data.get("first_qname"))
+    if platform:
+        has_pl = any(group.get("PL") for group in read_groups(header))
+        sample_workspace.record(
+            "platform",
+            input_file,
+            platform,
+            method="read-group PL tag" if has_pl else "first read name pattern",
+            confidence="high" if has_pl else "medium",
+            version=PLATFORM_VERSION,
+        )
+    if data.get("avg_read_len"):
+        sample_workspace.record(
+            "read_length",
+            input_file,
+            round(float(data["avg_read_len"]), 1),
+            method="mean length of sampled reads",
+            confidence="high",
+        )
+    if (
+        data.get("gender")
+        and data.get("sex_inference_version") == SEX_INFERENCE_VERSION
+    ):
+        call = data.get("sex_call") or (
+            data["gender"],
+            "cached `info --detailed` call",
+            "high",
+        )
+        record_sex(input_file, SexCall(*call))
+    ard = (data.get("metrics") or {}).get("ard_mapped")
+    if ard:
+        sample_workspace.record(
+            "mean_coverage",
+            input_file,
+            round(float(ard), 2),
+            method="mapped reads x mean read length / effective genome length",
+            confidence="high",
+        )
 
 
 def _record_info(data: dict[str, Any]) -> None:
@@ -407,7 +473,8 @@ def _detailed_metrics(
         if s["name"] != "*":
             key = contig_key(s["name"])
             mapped_by_key[key] = mapped_by_key.get(key, 0) + s["mapped"]
-    gender = infer_sex(idx_stats)
+    call = infer_sex_call(idx_stats)
+    gender = call.sex
 
     chrom_table = generate_chrom_table(
         idx_stats, avg_len, gender, ref_model_name, coverage_map, n_counts=n_counts
@@ -446,6 +513,7 @@ def _detailed_metrics(
 
     return {
         "gender": gender,
+        "sex_call": list(call),
         "sex_inference_version": SEX_INFERENCE_VERSION,
         "refined_ns": bool(n_counts),
         "file_content": ", ".join(k for k, v in content.items() if v),
@@ -583,7 +651,7 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
     if info_cmd is None:
         if not detailed and data.get("avg_read_len"):
             logging.debug("Cache hit for fast metrics.")
-            _print_fast(data)
+            _print_fast(data, (input_file, header))
             return
         # The chromosome table hides chrY for a Female, so it is redone along
         # with the sex when the cached call came from an older infer_sex.
@@ -593,7 +661,7 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
             and data.get("sex_inference_version") == SEX_INFERENCE_VERSION
         ):
             logging.debug("Cache hit for detailed metrics.")
-            _print_detailed(data, as_csv)
+            _print_detailed(data, as_csv, (input_file, header))
             if table_format:
                 _export_tables(data, table_stem, table_format, metadata)
             return
@@ -604,7 +672,7 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
     data["input_signature"] = signature
 
     if not detailed:
-        _print_fast(data)
+        _print_fast(data, (input_file, header))
         _save_cache(json_cache, data)
         logging.debug(f"Total info time: {time.time() - start_time:.3f}s")
         return
@@ -627,7 +695,7 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
     if data["metrics"]["ard_mapped"] < 10:
         print_warning("LowCoverageWarning")
 
-    _print_detailed(data, as_csv)
+    _print_detailed(data, as_csv, (input_file, header))
     if table_format:
         _export_tables(data, table_stem, table_format, metadata)
     # A region-limited coverage table describes only part of the file, so it

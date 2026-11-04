@@ -20,6 +20,7 @@ from . import (
     ref,
     repair,
     report_issue,
+    sample,
     sign,
     vcf,
     vep,
@@ -43,6 +44,7 @@ COMMAND_MODULES: tuple[ModuleType, ...] = (
     pet,
     vep,
     analyze,
+    sample,
     sign,
     genotyping,
     methylation,
@@ -116,6 +118,11 @@ COMMAND_TIERS: tuple[CommandTier, ...] = (
     CommandTier("deps", SETUP, "Check that the external tools are installed."),
     CommandTier(
         "example-genome", SETUP, "Download public example genomes to practise on."
+    ),
+    CommandTier(
+        "sample",
+        SETUP,
+        "Show recorded sample facts; correct sex or platform.",
     ),
     CommandTier("config", SETUP, "Show the settings in use and the config.toml path."),
     CommandTier(

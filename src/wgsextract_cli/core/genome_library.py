@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import re
 import sys
@@ -68,7 +69,15 @@ def apply_genome_selection(args: Namespace, explicit_dests: set[str]) -> None:
         args.outdir = str(genome_dir)
 
     command = getattr(args, "command", None)
-    if command == "vcf" or getattr(args, "qc_cmd", None) == "vcf":
+    if command == "sample":
+        # The genome folder is the workspace; its alignment, if there is just
+        # one, is the file whose facts are shown.
+        if "workspace" not in explicit_dests:
+            args.workspace = str(genome_dir)
+        if "input" not in explicit_dests:
+            with contextlib.suppress(WGSExtractError):
+                args.input = str(_resolve_alignment(genome_dir, config))
+    elif command == "vcf" or getattr(args, "qc_cmd", None) == "vcf":
         _set_vcf_input(args, genome_dir, config, explicit_dests)
     elif command in {"align", "pet-align"} or getattr(args, "qc_cmd", None) == "fastp":
         _set_fastq_inputs(args, genome_dir, config, explicit_dests)
