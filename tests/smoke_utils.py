@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from wgsextract_cli.core.file_lock import build_lock
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 _TOOL_CACHE: dict[str, bool] = {}
@@ -208,6 +210,12 @@ def ensure_fake_data(fake_dir: str) -> None:
         return
 
     os.makedirs(fake_dir, exist_ok=True)
+    # Test workers and concurrent sessions share this directory.
+    with build_lock(os.path.normpath(fake_dir) + ".lock"):
+        _generate_fake_data(fake_dir, required_files + required_index_files)
+
+
+def _generate_fake_data(fake_dir: str, required: list[str]) -> None:
 
     def normalize_fake_data_names() -> None:
         ref_candidates = glob(os.path.join(fake_dir, "fake_ref_hg38_*.fa"))
@@ -249,7 +257,7 @@ def ensure_fake_data(fake_dir: str) -> None:
     normalize_fake_data_names()
     repair_fake_data_indexes()
 
-    if not all(os.path.exists(path) for path in required_files + required_index_files):
+    if not all(os.path.exists(path) for path in required):
         rc, stdout, stderr = run_cli(
             [
                 "qc",
