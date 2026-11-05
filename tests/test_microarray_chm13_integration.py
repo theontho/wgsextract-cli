@@ -195,10 +195,14 @@ def test_native_vcf_quality_and_unsupported_masks_survive_canonical_aadr_export(
 
 
 def test_native_gvcf_reference_blocks_are_calls_and_gaps_are_no_calls(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fasta = _native_library(tmp_path, monkeypatch)
-    library = tmp_path / "configured-library"
+    # The marker cache nests two 64-hex names; a shallow library keeps the
+    # path under Windows' MAX_PATH, which htslib cannot exceed.
+    library = tmp_path_factory.mktemp("lib")
     monkeypatch.setitem(settings, "reference_library", str(library))
     source = tmp_path / "sample.g.vcf"
     source.write_text(
@@ -247,8 +251,8 @@ def test_native_gvcf_reference_blocks_are_calls_and_gaps_are_no_calls(
         "absent_from_vcf": 1,
     }
     # The marker cache goes in the configured library, not beside --ref.
-    caches = list(tmp_path.rglob("markers.tsv"))
-    assert [c.is_relative_to(library) for c in caches] == [True]
+    assert len(list(library.rglob("markers.tsv"))) == 1
+    assert not list(tmp_path.rglob("markers.tsv"))
 
 
 def test_templates_must_cover_every_pinned_site(
