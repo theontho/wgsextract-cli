@@ -781,7 +781,7 @@ def _run_args(tmp_path: Path, **overrides) -> Namespace:
 
 
 _STEP_PYTHON = """\
-import os, sys
+import subprocess, sys
 
 argv = sys.argv[1:]
 if argv[:2] == ["-m", "wgsextract_cli.main"]:
@@ -791,7 +791,7 @@ if argv[:2] == ["-m", "wgsextract_cli.main"]:
             sys.exit(f"{{broken}} went wrong")
     if {noop!r}:
         sys.exit(0)
-os.execv(sys.executable, [sys.executable, *argv])
+sys.exit(subprocess.call([sys.executable, *argv]))
 """
 
 

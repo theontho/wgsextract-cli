@@ -94,7 +94,7 @@ from pathlib import Path
 
 if sys.argv[1:3] != ["-m", "wgsextract_cli.main"]:
     # Not a step, such as the keep-awake helper: the real interpreter runs it.
-    os.execv(sys.executable, [sys.executable, *sys.argv[1:]])
+    sys.exit(subprocess.call([sys.executable, *sys.argv[1:]]))
 home = Path({home!r})
 state = json.loads((home / "state.json").read_text())
 argv = sys.argv[3:]  # after `-m wgsextract_cli.main`
