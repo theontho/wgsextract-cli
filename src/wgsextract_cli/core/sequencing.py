@@ -66,7 +66,8 @@ def input_platform(
 ) -> str | None:
     """The platform of a reads file: the user's override or the recorded value
     in its sample workspace, else detected (and recorded) from the read groups
-    or the first read name. Detection is cached per file revision, not just
+    or the first read name. An override is still checked against that cheap
+    detection, since it picks the aligner presets and calling models. Detection is cached per file revision, not just
     path (outputs can be replaced in place).
 
     With ``strict``, an undecodable CRAM read-name probe is an error rather than
@@ -74,14 +75,23 @@ def input_platform(
     """
     if reads is None:
         return None
+    # With an override, an undecodable probe only skips the check of it
     fact = sample_workspace.known("platform", reads)
-    if fact is not None:
-        return str(fact.value)
+    strict = strict and (fact is None or fact.source != "override")
+    platform: str | None = sample_workspace.resolve(
+        "platform", reads, lambda: _detect_platform(reads, reference, strict)
+    )
+    return platform
+
+
+def _detect_platform(
+    reads: PathInput, reference: PathInput | None, strict: bool
+) -> tuple[str | None, str | None]:
     path = Path(reads)
     try:
         stat = path.stat()
     except OSError:
-        return None
+        return None, None
     platform, method = _input_platform(
         str(path.resolve()),
         str(reference) if reference else None,
@@ -98,7 +108,7 @@ def input_platform(
             method=method,
             confidence="high" if method == _READ_GROUPS else "medium",
         )
-    return platform
+    return platform, method
 
 
 @lru_cache(maxsize=128)

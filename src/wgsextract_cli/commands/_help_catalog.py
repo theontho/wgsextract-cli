@@ -80,10 +80,12 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         "--workspace or the input's folder).",
         "wgsextract sample set --genome HG002 --sex Female",
         "wgsextract sample set --input sample.cram --platform ont",
+        "wgsextract sample set --input ~/Downloads/mom.bam --sex Female",
     ),
     "sample unset": _h(
         "wgsextract.sample.toml in the sample folder.",
         "wgsextract sample unset --genome HG002 --sex",
+        "wgsextract sample unset --input sample.cram --platform",
     ),
     # microarray / lineage
     "microarray": _h(

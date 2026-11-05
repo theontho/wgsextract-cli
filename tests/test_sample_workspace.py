@@ -16,6 +16,7 @@ from tests.htslib_helpers import needs_htslib, sam_to_bam, write_fasta
 from wgsextract_cli import api
 from wgsextract_cli.commands.info import metrics
 from wgsextract_cli.core import genotype_qc, sample_workspace
+from wgsextract_cli.core.results import CommandResult, collecting
 from wgsextract_cli.core.sample_ploidy import sex_samples_args
 from wgsextract_cli.core.sample_workspace import (
     WORKSPACE_FILE,
@@ -156,8 +157,11 @@ def test_platform_override(seqs, folder):
     assert input_platform(bam) == "illumina"
     recorded = SampleWorkspace(folder).detected("platform", bam)
     assert recorded.method == "first read name pattern"
-    api.sample.set_overrides(api.SampleSetParams(workspace=folder, platform="nanopore"))
+    api.sample.set_overrides(api.SampleSetParams(input=Path(bam), platform="nanopore"))
     assert input_platform(bam) == "ont"
+    # A platform is a file's: setting one without the file is refused.
+    with pytest.raises(api.CommandFailed, match="--input"):
+        api.sample.set_overrides(api.SampleSetParams(workspace=folder, platform="ont"))
 
 
 @needs_htslib
@@ -221,14 +225,28 @@ def test_sample_commands_need_neither_the_reads_nor_the_output_folder(folder):
 
 
 def test_api_set_show_unset(folder):
+    reads = folder / "s.bam"
+    reads.write_bytes(b"reads")
     res = api.sample.set_overrides(
-        api.SampleSetParams(workspace=folder, sex="f", platform="hifi")
+        api.SampleSetParams(input=reads, sex="f", platform="hifi")
     )
-    assert res.details["overrides"] == {"sex": "Female", "platform": "pacbio"}
-    res = api.sample.unset_overrides(api.SampleUnsetParams(workspace=folder, sex=True))
-    assert api.sample.show(api.SampleShowParams(workspace=folder)).details[
-        "overrides"
-    ] == {"platform": "pacbio"}
+    assert res.details["overrides"] == {"sex": "Female"}
+    assert res.details["files"]["s.bam"]["overrides"]["values"] == {
+        "platform": "pacbio"
+    }
+    assert {k: v["value"] for k, v in res.details["effective"].items()} == {
+        "sex": "Female",
+        "platform": "pacbio",
+    }
+    api.sample.unset_overrides(api.SampleUnsetParams(workspace=folder, sex=True))
+    shown = api.sample.show(api.SampleShowParams(input=reads)).details
+    assert shown["overrides"] == {}
+    assert {k: v["value"] for k, v in shown["effective"].items()} == {
+        "platform": "pacbio"
+    }
+    api.sample.unset_overrides(api.SampleUnsetParams(input=reads, platform=True))
+    raw = sample_workspace.tomllib.loads((folder / WORKSPACE_FILE).read_text())
+    assert "override" not in raw
     with pytest.raises(api.UsageError):
         api.SampleSetParams(workspace=folder, sex="unknown")
     with pytest.raises(api.UsageError):
@@ -328,3 +346,71 @@ def test_inputs_outside_sample_folders_are_not_recorded(seqs, tmp_path):
         metrics.sample_sex(bam)
     assert idxstats.call_count == 2
     assert not (tmp_path / WORKSPACE_FILE).exists()
+
+
+@needs_htslib
+def test_an_override_in_a_shared_folder_is_for_that_file_alone(seqs, tmp_path):
+    # Downloads: two people's BAMs side by side.
+    dad = _bam(seqs, tmp_path / "dad.bam", MALE)
+    mom = _bam(seqs, tmp_path / "mom.bam", FEMALE)
+    code, out = _cli("sample", "set", "--input", mom, "--sex", "f", "--platform", "ont")
+    assert code == 0, out
+    assert (metrics.sample_sex(mom), input_platform(mom)) == ("Female", "ont")
+    assert (metrics.sample_sex(dad), input_platform(dad)) == ("Male", "illumina")
+
+    # A folder-wide sex, written by hand, isn't trusted here either.
+    raw = sample_workspace.tomllib.loads((tmp_path / WORKSPACE_FILE).read_text())
+    assert set(raw["override"]) == {"mom.bam"}
+    jsonschema.validate(raw, sample_workspace.load_schema())
+    raw["override"]["sex"] = "Female"
+    (tmp_path / WORKSPACE_FILE).write_text(sample_workspace.tomli_w.dumps(raw))
+    assert metrics.sample_sex(dad) == "Male"
+
+    # Nor is mom's override, once her file is replaced by other reads.
+    _bam(seqs, tmp_path / "mom.bam", MALE)
+    assert metrics.sample_sex(mom) == "Male"
+    assert input_platform(mom) == "illumina"
+
+
+def test_a_sex_override_outside_a_genome_folder_needs_the_file(tmp_path):
+    with pytest.raises(api.CommandFailed, match="isn't a genome folder"):
+        api.sample.set_overrides(api.SampleSetParams(workspace=tmp_path, sex="m"))
+
+
+@needs_htslib
+def test_an_override_the_reads_contradict_is_warned_about(seqs, folder):
+    bam = _bam(seqs, folder / "s.bam", FEMALE)
+    api.sample.set_overrides(
+        api.SampleSetParams(input=Path(bam), sex="male", platform="ont")
+    )
+    out = folder / "out"
+    code, text = _cli(
+        "--json", "extract", "ydna-bam", "--input", bam, "--outdir", str(out)
+    )
+    assert code == 0, text
+    warnings = {w["code"]: w for w in json.loads(text)["warnings"]}
+    assert warnings["sex_override_differs"]["details"] == {
+        "file": "s.bam",
+        "detected": "Female",
+        "override": "Male",
+    }
+    manifest = json.loads(next(out.glob("*.manifest.json")).read_text())
+    assert "sex_override_differs" in {w["code"] for w in manifest["warnings"]}
+
+    # Once detected, the fact is read back, not detected again, but still
+    # checked (in a later run).
+    later = CommandResult(command="vcf snp")
+    with (
+        _idxstats_counter() as idxstats,
+        patch.object(sample_workspace, "_checked", set()),
+        collecting(later),
+    ):
+        assert metrics.sample_sex(bam) == "Male"
+        assert input_platform(bam) == "ont"
+    assert idxstats.call_count == 0
+    assert {w.code for w in later.warnings} == {
+        "sex_override_differs",
+        "platform_override_differs",
+    }
+    res = api.sample.show(api.SampleShowParams(input=Path(bam)))
+    assert res.details["files"]["s.bam"]["facts"]["sex"]["value"] == "Female"

@@ -2,19 +2,26 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:wgsextract:schema:sample:1",
   "title": "wgsextract.sample/1",
-  "description": "A sample workspace: wgsextract.sample.toml in a genome folder, as parsed from TOML. Records the facts commands detected from each of the sample's files, the user's overrides (which always win) and the result manifests written there. Unknown top-level keys are kept. See docs/sample-workspace.md.",
+  "description": "A sample workspace: wgsextract.sample.toml in a genome folder, as parsed from TOML. Records the facts commands detected from each of the sample's files, the user's overrides and the result manifests written there. Unknown top-level keys are kept. See docs/sample-workspace.md.",
   "type": "object",
   "required": ["schema"],
   "properties": {
     "schema": { "const": "wgsextract.sample/1" },
     "override": {
-      "description": "Facts the user set; commands use them instead of detecting.",
+      "description": "Facts the user set; commands use them instead of what they detect, and warn when the reads disagree. A value here is folder-wide, honoured for sex in a genome folder only; a table holds one file's overrides (path relative to the workspace, or absolute), honoured while its fingerprint matches.",
       "type": "object",
-      "additionalProperties": false,
       "properties": {
-        "sex": { "enum": ["Male", "Female"] },
-        "platform": {
-          "enum": ["illumina", "ont", "pacbio", "ultima", "dnbseq"]
+        "sex": { "$ref": "#/$defs/sex" },
+        "platform": { "$ref": "#/$defs/platform" }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["fingerprint"],
+        "additionalProperties": false,
+        "properties": {
+          "fingerprint": { "type": "string" },
+          "sex": { "$ref": "#/$defs/sex" },
+          "platform": { "$ref": "#/$defs/platform" }
         }
       }
     },
@@ -38,6 +45,8 @@
     }
   },
   "$defs": {
+    "sex": { "enum": ["Male", "Female"] },
+    "platform": { "enum": ["illumina", "ont", "pacbio", "ultima", "dnbseq"] },
     "file": {
       "type": "object",
       "required": ["fingerprint"],

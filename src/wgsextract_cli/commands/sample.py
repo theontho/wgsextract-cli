@@ -35,14 +35,13 @@ def _report(params: SampleShowParams | SampleSetParams | SampleUnsetParams) -> N
     elif not data["exists"]:
         human_output("  Nothing recorded yet.")
     overrides = data["overrides"]
-    human_output(
-        "Overrides: "
-        + (
-            ", ".join(f"{k} = {v}" for k, v in overrides.items())
-            if overrides
-            else "none (set with 'wgsextract sample set --sex Female')"
+    if overrides:
+        human_output(
+            "Overrides for every file: "
+            + ", ".join(f"{k} = {v}" for k, v in overrides.items())
         )
-    )
+    elif not any("overrides" in entry for entry in data["files"].values()):
+        human_output("Overrides: none (set with 'wgsextract sample set --sex Female')")
     if "effective" in data:
         human_output(f"\nIn effect for {data['file']}:")
         effective = data["effective"]
@@ -72,7 +71,17 @@ def _report(params: SampleShowParams | SampleSetParams | SampleUnsetParams) -> N
                 "changed": " (file changed since; re-detected on next use)",
                 "missing": " (file not found)",
             }[entry["status"]]
-            human_output(f"  {key}: {', '.join(entry['facts'])}{note}")
+            line = ", ".join(entry["facts"]) or "no detected facts"
+            own = entry.get("overrides")
+            if own:
+                values = ", ".join(f"{k} = {v}" for k, v in own["values"].items())
+                stale = (
+                    " (file changed since; ignored)"
+                    if own["status"] != "current"
+                    else ""
+                )
+                line += f"; overrides: {values}{stale}"
+            human_output(f"  {key}: {line}{note}")
     if data["outputs"]:
         human_output("\nResults:")
         for key, entry in data["outputs"].items():
@@ -92,14 +101,16 @@ def run_set(params: SampleSetParams) -> None:
             name: value
             for name in ("sex", "platform")
             if (value := getattr(params, name)) is not None
-        }
+        },
+        params.input,
     )
     _report(params)
 
 
 def run_unset(params: SampleUnsetParams) -> None:
     SampleWorkspace(params.folder).set_overrides(
-        {name: None for name in ("sex", "platform") if getattr(params, name)}
+        {name: None for name in ("sex", "platform") if getattr(params, name)},
+        params.input,
     )
     _report(params)
 

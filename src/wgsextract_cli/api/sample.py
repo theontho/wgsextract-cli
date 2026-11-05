@@ -80,20 +80,26 @@ class SampleShowParams(_SampleParams):
 
 @dataclass(frozen=True, kw_only=True)
 class SampleSetParams(_SampleParams):
-    """Set overrides: facts every command uses instead of detecting them."""
+    """Set overrides: facts commands use instead of what they detect. A sex
+    override is folder-wide in a genome folder (one person's files); anything
+    else, and every platform override, is for the ``input`` file alone and
+    lapses when that file changes. Commands still detect an overridden fact
+    cheaply and warn when the reads disagree."""
 
     COMMAND = "sample set"
 
     sex: str | None = param(
         None,
-        help="The sample's sex (m and f are accepted too).",
+        help="The sample's sex (m and f are accepted too); for the whole genome "
+        "folder, else for --input only.",
         choices=SEXES,
         cli_type=_choice("sex"),
         metavar="SEX",
     )
     platform: str | None = param(
         None,
-        help="The sequencing platform (nanopore, hifi, mgi and bgi are accepted too).",
+        help="The sequencing platform of --input (nanopore, hifi, mgi and bgi "
+        "are accepted too).",
         choices=PLATFORMS,
         cli_type=_choice("platform"),
         metavar="PLATFORM",
@@ -107,7 +113,8 @@ class SampleSetParams(_SampleParams):
 
 @dataclass(frozen=True, kw_only=True)
 class SampleUnsetParams(_SampleParams):
-    """Remove overrides, so commands detect those facts again."""
+    """Remove overrides, so commands detect those facts again: the
+    folder-wide one and, with ``input``, that file's own."""
 
     COMMAND = "sample unset"
 
@@ -129,8 +136,10 @@ def show(
     cancel: CancelToken | None = None,
     check: bool = True,
 ) -> CommandResult:
-    """Read the workspace. ``details`` holds ``overrides``, ``files`` (each
-    recorded file's ``status`` — current, changed or missing — and ``facts``),
+    """Read the workspace. ``details`` holds ``genome_folder``, the
+    folder-wide ``overrides``, ``files`` (each recorded file's ``status`` —
+    current, changed or missing — its detected ``facts`` and its own
+    ``overrides`` with their ``status`` and ``values``),
     ``outputs`` and, with an input, ``effective``: the facts in effect for it,
     each with its ``source`` (override or detected)."""
     from wgsextract_cli.commands.sample import run_show

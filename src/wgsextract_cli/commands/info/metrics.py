@@ -263,24 +263,11 @@ def infer_sex_call(idx_stats: list[IdxStat]) -> SexCall:
 
 
 def record_sex(input_path: str, call: SexCall) -> None:
-    """Record a known sex in the sample workspace; warn when it contradicts
-    the user's override."""
-    if call.sex not in sample_workspace.SEXES:
-        return
-    sample_workspace.record(
-        "sex", input_path, call.sex, method=call.method, confidence=call.confidence
-    )
-    override = sample_workspace.override("sex", input_path)
-    if override and override != call.sex:
-        from wgsextract_cli.core.results import warn
-
-        warn(
-            "sex_override_differs",
-            f"The reads look {call.sex} ({call.method}), but your sample "
-            f"workspace override says {override}; other commands use {override}. "
-            "Check it with 'wgsextract sample show'.",
-            detected=call.sex,
-            override=override,
+    """Record a known sex in the sample workspace, which warns when it
+    contradicts the user's override."""
+    if call.sex in sample_workspace.SEXES:
+        sample_workspace.record(
+            "sex", input_path, call.sex, method=call.method, confidence=call.confidence
         )
 
 
@@ -320,25 +307,30 @@ def sample_sex(input_path: str, outdir: str | None = None) -> str:
     """The sample's sex: the user's override or the recorded call in its sample
     workspace, else `info`'s cached metrics for this file (counting chrY reads
     in a CRAM takes about a minute), else samtools idxstats. A new call is
-    recorded in the workspace."""
-    fact = sample_workspace.known("sex", input_path)
-    if fact is not None:
-        return str(fact.value)
+    recorded in the workspace. An override is still checked against the reads,
+    once per file revision, since it changes how chrX and chrY are called."""
+    return str(
+        sample_workspace.resolve(
+            "sex", input_path, lambda: _detect_sex(input_path, outdir)
+        )
+    )
+
+
+def _detect_sex(input_path: str, outdir: str | None) -> tuple[str, str | None]:
     info = cached_info(input_path, outdir)
     # A call cached by an older infer_sex is recomputed rather than trusted
     if info and info.get("sex_inference_version") == SEX_INFERENCE_VERSION:
-        sex = str(info["gender"])
-        record_sex(input_path, SexCall(sex, "cached `info --detailed` call", "high"))
-        return sex
-    logging.info("Checking chrX/chrY coverage to infer the sample's sex...")
-    try:
-        idx_stats, *_ = parse_idxstats(input_path)
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.warning(f"Could not check chrY coverage of {input_path}: {e}")
-        return "Unknown"
-    call = infer_sex_call(idx_stats)
+        call = SexCall(str(info["gender"]), "cached `info --detailed` call", "high")
+    else:
+        logging.info("Checking chrX/chrY coverage to infer the sample's sex...")
+        try:
+            idx_stats, *_ = parse_idxstats(input_path)
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+            logging.warning(f"Could not check chrY coverage of {input_path}: {e}")
+            return "Unknown", None
+        call = infer_sex_call(idx_stats)
     record_sex(input_path, call)
-    return call.sex
+    return call.sex, call.method
 
 
 def parse_idxstats(filepath: str) -> tuple[list[IdxStat], int, int, int]:

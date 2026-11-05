@@ -10,7 +10,8 @@ where it came from, and lets you correct it.
 The workspace is a genome folder: the folder of a `--genome` library entry, or
 any folder holding `wgsextract.sample.toml` or `genome-config.toml`. Inputs in
 other folders are not recorded (`info`'s own `<input>.wgse_info.json` cache
-still applies to them).
+still applies to them), unless you set an override for one of them, which
+creates the workspace there.
 
 ## What it records
 
@@ -19,6 +20,10 @@ schema = "wgsextract.sample/1"
 
 [override]
 sex = "Female"
+
+[override."HG002.ont.bam"]
+fingerprint = "wgse-fp1:41d7…"
+platform = "ont"
 
 [detected."HG002.cram"]
 fingerprint = "wgse-fp1:9b1c…"
@@ -45,11 +50,11 @@ status = "ok"
 at = "2026-11-04T22:31:02+00:00"
 ```
 
-- `[override]`: facts you set. They always win, and commands log that they used
-  your override. `sex` (`Male`, `Female`) and `platform` (`illumina`, `ont`,
-  `pacbio`, `ultima`, `dnbseq`) can be overridden. The build and depths are
-  facts of each file, not of the sample. Use `--ref` or `--build` on a run
-  instead.
+- `[override]`: facts you set, which win over detection (see
+  [Overrides](#overrides)). `sex` (`Male`, `Female`) and `platform`
+  (`illumina`, `ont`, `pacbio`, `ultima`, `dnbseq`) can be overridden. The
+  build and depths are facts of each file, not of the sample. Use `--ref` or
+  `--build` on a run instead.
 - `[detected."<file>"]`: what commands detected from each file. The file is
   named relative to the workspace, or absolute if it lies elsewhere. Each fact
   has its value, the method that found it, a confidence (`high`, `medium`,
@@ -76,18 +81,46 @@ at = "2026-11-04T22:31:02+00:00"
 wgsextract sample show --genome HG002            # overrides, facts, results
 wgsextract sample set --genome HG002 --sex Female
 wgsextract sample unset --genome HG002 --sex
+wgsextract sample set --input ~/Downloads/mom.bam --sex Female --platform ont
 wgsextract sample show --input ~/genomes/HG002/HG002.cram --json
 ```
 
 `--workspace DIR` names the folder directly. Without it, `--genome` or the
 `--input`'s folder is used. `sample show` lists the facts in effect for the
-input, the facts recorded for each file (and whether that file has changed
-since) and the results. `--json` prints the same data as the result's
+input, the facts and overrides recorded for each file (and whether that file
+has changed since) and the results. `--json` prints the same data as the result's
 `details`. The [typed API](api.md) has the same operations: `api.sample.show`,
 `api.sample.set_overrides` and `api.sample.unset_overrides`.
 
-If an override contradicts what the reads show, commands use the override and
-`info --detailed` warns (`sex_override_differs`).
+## Overrides
+
+An override changes how commands work (chrX/chrY ploidy, keeping chrY, aligner
+presets, the DeepVariant model), so it applies only where it is sure to be
+right:
+
+- **Sex, in a genome folder: folder-wide.** A genome folder (the `--genome`
+  folder, a genome-library entry or a folder with `genome-config.toml`) holds
+  one person's files, so `sample set --sex` there applies to all of them
+  (`[override] sex = …`).
+- **Sex elsewhere, and the platform always: one file.** Any other folder, such
+  as Downloads, may hold several people's files, and one person's folder may
+  hold reads from several platforms. These overrides belong to the `--input`
+  file (`[override."<file>"]`) and are refused without one. They record the
+  file's fingerprint and lapse, with a warning, when the file changes: set them
+  again if they still hold. With `--genome`, the input defaults to the genome's
+  alignment.
+- A folder-wide `platform`, or a folder-wide `sex` outside a genome folder (for
+  example written by hand), is ignored with a warning.
+
+`sample unset` removes the folder-wide override and, with `--input`, that
+file's own.
+
+Commands still check an override against the reads: the recorded fact, else a
+cheap detection (the read groups or first read name for the platform; chrX/chrY
+read counts, once per file revision, for sex). When they disagree, the command
+uses the override and warns `sex_override_differs` or
+`platform_override_differs`, with the file, the detected value and the
+override, in its [result manifest](result-manifest.md).
 
 ## Robustness
 

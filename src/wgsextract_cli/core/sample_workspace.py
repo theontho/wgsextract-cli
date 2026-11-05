@@ -5,15 +5,19 @@ entry, or any folder holding ``wgsextract.sample.toml`` or
 ``genome-config.toml``. Its ``wgsextract.sample.toml`` (schema
 ``wgsextract.sample/1``) records
 
-- ``[override]``: facts the user set (``wgsextract sample set``), which always
-  win;
+- ``[override]``: facts the user set (``wgsextract sample set``), which win
+  over detection. A sex override is the person's, so it is folder-wide in a
+  genome folder; elsewhere, and for the platform always, it belongs to one file
+  (``[override."<file>"]``, under that file's fingerprint);
 - ``[detected."<file>"]``: facts commands detected from each input file, with
   the method, confidence, detector version, command and time, under the file's
   fingerprint, so a replaced file's facts are ignored and re-detected;
 - ``[outputs]``: the result manifests that ``--genome`` runs wrote there.
 
 Commands ask ``known(fact, file)`` before detecting (override, else this
-file's current detected fact) and ``record(...)`` what they detect. Recording
+file's current detected fact) and ``record(...)`` what they detect. Where an
+override changes an algorithm, ``resolve`` still detects the fact cheaply and
+warns when the reads disagree with the override. Recording
 is best effort: a read-only folder, a corrupt file or one written by a newer
 release never fails a command, and such a file is never overwritten.
 docs/sample-workspace.md describes the format.
@@ -51,9 +55,9 @@ _LOCK_TIMEOUT = 30
 _HEADER = (
     "# WGS Extract sample workspace (wgsextract.sample/1); "
     "see docs/sample-workspace.md.\n"
-    "# [override] holds your corrections and always wins: edit it here or with\n"
-    "# 'wgsextract sample set'. wgsextract rewrites [detected] and [outputs];\n"
-    "# comments are not kept.\n\n"
+    "# [override] holds your corrections and wins over detection: edit it here\n"
+    "# or with 'wgsextract sample set'. wgsextract rewrites [detected] and\n"
+    "# [outputs]; comments are not kept.\n\n"
 )
 
 SEXES = ("Male", "Female")
@@ -120,6 +124,9 @@ FACTS: dict[str, FactSpec] = {
     )
 }
 OVERRIDABLE = tuple(name for name, spec in FACTS.items() if spec.overridable)
+# Facts of the person rather than of one file: overridden folder-wide in a
+# genome folder, which holds one person's files.
+PERSON_FACTS = ("sex",)
 
 
 @dataclass(frozen=True)
@@ -139,7 +146,8 @@ class Fact:
 
     def describe(self) -> str:
         if self.source == "override":
-            return f"your override in {WORKSPACE_FILE}"
+            scope = f" for {self.file}" if self.file else ""
+            return f"your override{scope} in {WORKSPACE_FILE}"
         detail = ", ".join(x for x in (self.method, self.confidence) if x)
         when = (self.at or "")[:10]
         return (
@@ -269,21 +277,92 @@ class SampleWorkspace:
             )
         return doc
 
-    def overrides(self, doc: _Document | None = None) -> dict[str, str]:
-        """The valid overrides; invalid ones are reported once and ignored."""
+    @property
+    def is_genome_folder(self) -> bool:
+        """Whether the folder holds one person's files: the --genome folder, a
+        genome-library entry, or a folder with genome-config.toml."""
+        from wgsextract_cli.core.config import settings
+        from wgsextract_cli.core.genome_library import GENOME_CONFIG_NAME
+
+        if _active is not None and _active.folder == self.folder:
+            return True
+        if (self.folder / GENOME_CONFIG_NAME).is_file():
+            return True
+        library = settings.get("genome_library")
+        if not library:
+            return False
+        root = absolute_path(str(library))
+        return self.folder != root and self.folder.is_relative_to(root)
+
+    def _valid(self, name: str, value: Any) -> str | None:
+        spec = FACTS.get(name)
+        if spec is None or not spec.overridable:
+            _warn_once(f"{self.path}: ignoring unknown override {name!r}.")
+            return None
+        try:
+            return spec.normalize(value)
+        except ValueError as e:
+            _warn_once(f"{self.path}: ignoring override: {e}.")
+            return None
+
+    def folder_overrides(self, doc: _Document | None = None) -> dict[str, str]:
+        """The folder-wide overrides in effect: person facts, in a genome
+        folder. Others are reported once and ignored."""
         table = (doc or self._load()).raw.get("override")
         if not isinstance(table, dict):
             return {}
         found: dict[str, str] = {}
         for name, value in table.items():
-            spec = FACTS.get(name)
-            if spec is None or not spec.overridable:
-                _warn_once(f"{self.path}: ignoring unknown override {name!r}.")
+            if isinstance(value, dict):
                 continue
-            try:
-                found[name] = spec.normalize(value)
-            except ValueError as e:
-                _warn_once(f"{self.path}: ignoring override: {e}.")
+            valid = self._valid(name, value)
+            if valid is None:
+                continue
+            if name not in PERSON_FACTS:
+                _warn_once(
+                    f"{self.path}: ignoring the folder-wide {name} override; a "
+                    f"{name} belongs to one file: 'wgsextract sample set --input "
+                    f"FILE --{name} {valid}'."
+                )
+            elif not self.is_genome_folder:
+                _warn_once(
+                    f"{self.path}: ignoring the folder-wide {name} override: "
+                    f"{self.folder} isn't a genome folder, so it may hold several "
+                    f"people's files. Set it per file: 'wgsextract sample set "
+                    f"--input FILE --{name} {valid}'."
+                )
+            else:
+                found[name] = valid
+        return found
+
+    def file_overrides(
+        self, file: PathInput, doc: _Document | None = None
+    ) -> dict[str, str]:
+        """``file``'s own overrides, while it is the revision they were set on."""
+        table = (doc or self._load()).raw.get("override")
+        entry = table.get(self.key(file)) if isinstance(table, dict) else None
+        if not isinstance(entry, dict):
+            return {}
+        if entry.get("fingerprint") != file_fingerprint(file):
+            _warn_once(
+                f"{self.path}: ignoring the overrides of {self.key(file)}: the file "
+                "changed since they were set. Set them again if they still hold."
+            )
+            return {}
+        return {
+            name: valid
+            for name, value in entry.items()
+            if name != "fingerprint" and (valid := self._valid(name, value))
+        }
+
+    def overrides(
+        self, file: PathInput | None = None, doc: _Document | None = None
+    ) -> dict[str, str]:
+        """The overrides in effect for ``file`` (folder-wide ones without it)."""
+        doc = doc or self._load()
+        found = self.folder_overrides(doc)
+        if file is not None:
+            found.update(self.file_overrides(file, doc))
         return found
 
     def detected(
@@ -314,16 +393,14 @@ class SampleWorkspace:
     def fact(self, name: str, file: PathInput | None) -> Fact | None:
         """The fact in effect: the override, else ``file``'s current detection."""
         doc = self._load()
-        override = self.overrides(doc).get(name)
-        detected = self.detected(name, file, doc=doc) if file else None
-        if override is not None:
-            if detected is not None and detected.value != override:
-                _warn_once(
-                    f"Using your {name} override {override!r} from {self.path}; "
-                    f"the reads look {detected.value!r} ({detected.method})."
-                )
-            return Fact(name, override, "override")
-        return detected
+        if file is not None:
+            own = self.file_overrides(file, doc).get(name)
+            if own is not None:
+                return Fact(name, own, "override", file=self.key(file))
+        shared = self.folder_overrides(doc).get(name)
+        if shared is not None:
+            return Fact(name, shared, "override")
+        return self.detected(name, file, doc=doc) if file else None
 
     # --- writing ---------------------------------------------------------------
 
@@ -403,9 +480,13 @@ class SampleWorkspace:
 
         return self._update(mutate)
 
-    def set_overrides(self, values: Mapping[str, str | None]) -> dict[str, str]:
-        """Set (or, for None, remove) overrides; returns the overrides now in
-        effect. Raises on an invalid name or value, or an unwritable file."""
+    def set_overrides(
+        self, values: Mapping[str, str | None], file: PathInput | None = None
+    ) -> dict[str, str]:
+        """Set (or, for None, remove) overrides: a person fact folder-wide in a
+        genome folder, anything else for ``file`` alone. Returns the overrides
+        now in effect for ``file``. Raises on an invalid name or value, a
+        missing file, or an unwritable workspace."""
         from wgsextract_cli.core.utils import UsageError
 
         changes: dict[str, str | None] = {}
@@ -420,23 +501,63 @@ class SampleWorkspace:
                 changes[name] = None if value is None else spec.normalize(value)
             except ValueError as e:
                 raise UsageError(f"{e}.") from None
+        shared = {
+            name
+            for name, value in changes.items()
+            if value is not None and name in PERSON_FACTS and self.is_genome_folder
+        }
+        per_file = {n for n, v in changes.items() if v is not None} - shared
+        fingerprint = file_fingerprint(file) if file is not None else None
+        if per_file and fingerprint is None:
+            name = sorted(per_file)[0]
+            why = (
+                f"a {name} override belongs to one file"
+                if name not in PERSON_FACTS
+                else f"{self.folder} isn't a genome folder, so a {name} override "
+                "belongs to one file"
+            )
+            raise UsageError(
+                f"Give the file with --input: {why}."
+                if file is None
+                else f"Can't read {file} to tie the override to it."
+            )
+        key = self.key(file) if file is not None else None
 
         def mutate(raw: dict[str, Any]) -> bool:
             table = raw.get("override")
             if not isinstance(table, dict):
                 table = raw["override"] = {}
-            before = dict(table)
+            before = {
+                k: dict(v) if isinstance(v, dict) else v for k, v in table.items()
+            }
+            entry = table.get(key) if key else None
+            if (
+                key
+                and per_file
+                and (
+                    not isinstance(entry, dict)
+                    or entry.get("fingerprint") != fingerprint
+                )
+            ):
+                entry = table[key] = {"fingerprint": fingerprint}
             for name, value in changes.items():
-                if value is None:
-                    table.pop(name, None)
-                else:
+                if name in shared:
                     table[name] = value
+                elif name in per_file:
+                    assert isinstance(entry, dict)
+                    entry[name] = value
+                else:
+                    table.pop(name, None)
+                    if isinstance(entry, dict):
+                        entry.pop(name, None)
+            if isinstance(entry, dict) and set(entry) <= {"fingerprint"}:
+                table.pop(key, None)
             if not table:
                 raw.pop("override")
             return table != before or not self.path.exists()
 
         self._update(mutate, strict=True)
-        return self.overrides()
+        return self.overrides(file)
 
     def record_output(self, manifest: PathInput, command: str, status: str) -> bool:
         """Index a result manifest written in this workspace."""
@@ -456,6 +577,13 @@ class SampleWorkspace:
 
     # --- reporting -------------------------------------------------------------
 
+    def _status(self, key: str, entry: Mapping[str, Any]) -> str:
+        """Whether the file ``entry`` describes is unchanged, changed or gone."""
+        current = file_fingerprint(self.file_path(key))
+        if current is None:
+            return "missing"
+        return "current" if current == entry.get("fingerprint") else "changed"
+
     def describe(self, file: PathInput | None = None) -> dict[str, Any]:
         """The workspace as JSON-ready data, for ``sample show`` and the API."""
         doc = self._load()
@@ -463,17 +591,8 @@ class SampleWorkspace:
         for key, entry in (doc.raw.get("detected") or {}).items():
             if not isinstance(entry, dict):
                 continue
-            path = self.file_path(key)
-            current = file_fingerprint(path)
-            status = (
-                "missing"
-                if current is None
-                else "current"
-                if current == entry.get("fingerprint")
-                else "changed"
-            )
             files[key] = {
-                "status": status,
+                "status": self._status(key, entry),
                 "fingerprint": entry.get("fingerprint"),
                 "facts": {
                     name: _detected_fact(
@@ -483,13 +602,24 @@ class SampleWorkspace:
                     if isinstance(fact, dict) and "value" in fact
                 },
             }
+        for key, entry in (doc.raw.get("override") or {}).items():
+            if not isinstance(entry, dict):
+                continue
+            listed = files.setdefault(key, {"facts": {}})
+            listed["overrides"] = {
+                "status": self._status(key, entry),
+                "fingerprint": entry.get("fingerprint"),
+                "values": {k: v for k, v in entry.items() if k != "fingerprint"},
+            }
+            listed.setdefault("status", listed["overrides"]["status"])
         data: dict[str, Any] = {
             "schema": SCHEMA_ID,
             "workspace": str(self.folder),
             "path": str(self.path),
             "exists": doc.exists,
             "problem": doc.problem,
-            "overrides": self.overrides(doc),
+            "genome_folder": self.is_genome_folder,
+            "overrides": self.folder_overrides(doc),
             "files": files,
             "outputs": doc.raw.get("outputs") or {},
         }
@@ -509,6 +639,11 @@ def _malformed(raw: Mapping[str, Any]) -> str | None:
         table = raw.get(section, {})
         if not isinstance(table, dict):
             return f"[{section}] isn't a table"
+        if section == "override" and not all(
+            isinstance(v, str) or (isinstance(v, dict) and "fingerprint" in v)
+            for v in table.values()
+        ):
+            return "an entry of [override] is neither a value nor a file's table"
         if section != "override" and not all(
             isinstance(entry, dict) for entry in table.values()
         ):
@@ -640,14 +775,64 @@ def record(
     method: str,
     confidence: Confidence,
 ) -> bool:
-    """Record a detected fact in ``file``'s workspace, if it has one."""
+    """Record a detected fact in ``file``'s workspace, if it has one, and warn
+    if it contradicts the user's override."""
     workspace = workspace_for(file)
     if workspace is None or file is None:
         return False
-    return workspace.record(name, file, value, method=method, confidence=confidence)
+    recorded = workspace.record(name, file, value, method=method, confidence=confidence)
+    check_override(name, file, value, method)
+    return recorded
 
 
-def override(name: str, file: PathInput | None) -> str | None:
-    """The user's override of ``name`` in ``file``'s workspace, if any."""
+_checked: set[tuple[str, str]] = set()
+
+
+def check_override(
+    name: str, file: PathInput | None, detected: Any, method: str | None
+) -> None:
+    """Warn, into the result manifest, when the reads contradict the override
+    in effect for ``file``: it changes the algorithm, so a wrong one must not
+    go unnoticed. Once per fact and file per run."""
     workspace = workspace_for(file)
-    return workspace.overrides().get(name) if workspace else None
+    if workspace is None or file is None or detected in (None, "Unknown", "unknown"):
+        return
+    try:
+        override = workspace.overrides(file).get(name)
+    except (OSError, ValueError):
+        return
+    key = (name, str(absolute_path(file)))
+    if override is None or override == detected or key in _checked:
+        return
+    _checked.add(key)
+    from wgsextract_cli.core.results import warn
+
+    how = f" ({method})" if method else ""
+    warn(
+        f"{name}_override_differs",
+        f"Using your {name} override {override} for {Path(file).name}, but its "
+        f"reads look {detected}{how}. If the override is wrong, remove it with "
+        f"'wgsextract sample unset --{name}'.",
+        file=workspace.key(file),
+        detected=str(detected),
+        override=override,
+    )
+
+
+def resolve(
+    name: str, file: PathInput | None, detect: Callable[[], tuple[Any, str | None]]
+) -> Any:
+    """The value of a fact that changes an algorithm: the recorded or
+    detected one, or the user's override. With an override the fact is still
+    detected (``detect`` returns (value, method) and records it) or read from
+    the record, so a contradicting override is warned about."""
+    fact = known(name, file)
+    if fact is not None and fact.source == "detected":
+        return fact.value
+    workspace = workspace_for(file) if fact is not None else None
+    recorded = workspace.detected(name, file) if workspace and file else None
+    value, method = (recorded.value, recorded.method) if recorded else detect()
+    if fact is None:
+        return value
+    check_override(name, file, value, method)
+    return fact.value

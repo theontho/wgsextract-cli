@@ -313,8 +313,10 @@ workspace, `wgsextract.sample.toml` (see docs/sample-workspace.md).
 
 CLI: `wgsextract sample show`.
 
-Read the workspace. `details` holds `overrides`, `files` (each
-recorded file's `status` — current, changed or missing — and `facts`),
+Read the workspace. `details` holds `genome_folder`, the
+folder-wide `overrides`, `files` (each recorded file's `status` —
+current, changed or missing — its detected `facts` and its own
+`overrides` with their `status` and `values`),
 `outputs` and, with an input, `effective`: the facts in effect for it,
 each with its `source` (override or detected).
 
@@ -332,14 +334,18 @@ CLI: `wgsextract sample set`.
 
 Set overrides; `details` is the workspace afterwards, as `show`.
 
-`SampleSetParams`: Set overrides: facts every command uses instead of detecting them.
+`SampleSetParams`: Set overrides: facts commands use instead of what they detect. A sex
+override is folder-wide in a genome folder (one person's files); anything
+else, and every platform override, is for the `input` file alone and
+lapses when that file changes. Commands still detect an overridden fact
+cheaply and warn when the reads disagree.
 
 | Field | Type | Default | CLI | Description |
 | --- | --- | --- | --- | --- |
 | `input` | `Path \| None` | `None` | `--input`, `-i` | BAM, CRAM or VCF of the sample; its folder is the workspace unless workspace is given, and its facts are shown. |
 | `workspace` | `Path \| None` | `None` | `--workspace` | Sample folder holding wgsextract.sample.toml (default: the --genome folder, else the --input's folder). |
-| `sex` | `str \| None` | `None` | `--sex` | The sample's sex (m and f are accepted too). One of: `Male`, `Female` |
-| `platform` | `str \| None` | `None` | `--platform` | The sequencing platform (nanopore, hifi, mgi and bgi are accepted too). One of: `illumina`, `ont`, `pacbio`, `ultima`, `dnbseq` |
+| `sex` | `str \| None` | `None` | `--sex` | The sample's sex (m and f are accepted too); for the whole genome folder, else for --input only. One of: `Male`, `Female` |
+| `platform` | `str \| None` | `None` | `--platform` | The sequencing platform of --input (nanopore, hifi, mgi and bgi are accepted too). One of: `illumina`, `ont`, `pacbio`, `ultima`, `dnbseq` |
 
 ### `api.sample.unset_overrides(SampleUnsetParams)`
 
@@ -347,7 +353,8 @@ CLI: `wgsextract sample unset`.
 
 Remove overrides; `details` is the workspace afterwards, as `show`.
 
-`SampleUnsetParams`: Remove overrides, so commands detect those facts again.
+`SampleUnsetParams`: Remove overrides, so commands detect those facts again: the
+folder-wide one and, with `input`, that file's own.
 
 | Field | Type | Default | CLI | Description |
 | --- | --- | --- | --- | --- |
