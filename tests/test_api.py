@@ -1,8 +1,10 @@
 """The typed Python API (wgsextract_cli.api, #346), called directly."""
 
 import argparse
+import dataclasses
 import json
 import os
+import random
 import shutil
 import subprocess
 import sys
@@ -11,6 +13,7 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
+from tests.htslib_helpers import needs_tools, write_fasta, write_read_pairs
 from tests.smoke_utils import ensure_fake_data, run_cli
 from wgsextract_cli import api
 from wgsextract_cli.api._params import from_namespace, to_namespace
@@ -388,6 +391,64 @@ def test_qc_vcf_reports_bcftools_stats(fake_data, tmp_path):
     assert stats.read_text().startswith("# This file was produced by bcftools stats")
     with pytest.raises(api.UsageError, match="--input is required"):
         api.QcVcfParams()
+
+
+@needs_tools("bwa", "samblaster", "samtools")
+def test_align_then_realign_to_renamed_contigs(tmp_path):
+    rng = random.Random(7)
+    genome = "".join(rng.choice("ACGT") for _ in range(6_000))
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    ref = write_fasta(tmp_path / "a" / "ref.fa", {"one": genome})
+    new_ref = write_fasta(tmp_path / "b" / "ref.fa", {"chr1": genome})
+    r1, r2 = tmp_path / "s_R1.fastq", tmp_path / "s_R2.fastq"
+    write_read_pairs(genome, r1, r2, rng.sample(range(len(genome) - 300), 100))
+
+    aligned = api.align.align(
+        api.AlignParams(
+            r1=r1, r2=r2, ref=ref, aligner="bwa", sample="Ann", outdir=tmp_path / "a"
+        )
+    )
+    assert_valid(aligned)
+    assert [(Path(i.path).name, i.role) for i in aligned.inputs] == [
+        ("s_R1.fastq", "fastq_r1"),
+        ("s_R2.fastq", "fastq_r2"),
+    ]
+    bam = _output(aligned, "alignment")
+    assert bam == tmp_path / "a" / "s_aligned.bam"
+    assert "\tSM:Ann" in "".join(_samtools_view("-H", str(bam)))
+    assert len(_samtools_view(str(bam))) == 200
+
+    params = api.RealignParams(
+        input=bam, ref=new_ref, aligner="bwa", outdir=tmp_path / "b", no_preflight=True
+    )
+    realigned = api.align.realign(params)
+    assert_valid(realigned)
+    out = _output(realigned, "alignment")
+    assert out == tmp_path / "b" / "s_aligned_aligned.bam"
+    records = [line.split("\t") for line in _samtools_view(str(out))]
+    assert len(records) == 200 and {r[2] for r in records} == {"chr1"}
+    assert _output(realigned, "step_journal").is_file()
+
+    # A dry run of a finished realign changes nothing.
+    before = out.stat().st_mtime_ns
+    dry = api.align.realign(dataclasses.replace(params, dry_run=True))
+    assert dry.status == "ok" and out.stat().st_mtime_ns == before
+
+
+def _output(result: api.Result, role: str) -> Path:
+    return Path(next(o.path for o in result.outputs if o.role == role))
+
+
+def test_each_force_step_is_checked():
+    with pytest.raises(api.UsageError, match="--force-step must be one of .*'sort'"):
+        api.RealignParams(input=Path("x.bam"), force_steps=("align", "sort"))
+
+
+def test_align_without_reads_is_refused_before_it_runs():
+    # PR #445 review: a server job without r1 was accepted and then failed late.
+    with pytest.raises(api.UsageError, match="--r1 is required"):
+        api.AlignParams(ref=Path("ref.fa"))
 
 
 def assert_valid(result: api.Result) -> None:

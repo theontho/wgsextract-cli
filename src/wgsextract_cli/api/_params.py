@@ -43,7 +43,8 @@ class ParamSpec:
     uses that value. ``may_name_file`` text fields (a region) may instead
     name a file; the server path-checks values written like a path.
     A ``positional`` field is a positional CLI argument named by ``metavar``;
-    a tuple one takes one or more values.
+    a tuple one takes one or more values. ``group`` (title, description) puts
+    the option in that section of the command's help.
     """
 
     help: str | None = None
@@ -64,6 +65,7 @@ class ParamSpec:
     safe_value: Any = UNSET
     may_name_file: bool = False
     positional: bool = False
+    group: tuple[str, str | None] | None = None
 
     @property
     def description(self) -> str:
@@ -92,6 +94,7 @@ def param(
     safe_value: Any = UNSET,
     may_name_file: bool = False,
     positional: bool = False,
+    group: tuple[str, str | None] | None = None,
 ) -> Any:
     """Declare a Params field; omit ``default`` for a required one.
 
@@ -117,6 +120,7 @@ def param(
         safe_value=safe_value,
         may_name_file=may_name_file,
         positional=positional,
+        group=group,
     )
     return dataclasses.field(default=default, metadata={_SPEC: spec})
 
@@ -184,15 +188,14 @@ class Params:
                 raise UsageError(
                     item.spec.required_message or f"{item.flags[0]} required."
                 )
-            if (
-                item.spec.choices is not None
-                and value is not None
-                and value not in item.spec.choices
-            ):
-                allowed = ", ".join(map(str, item.spec.choices))
-                raise UsageError(
-                    f"{item.flags[0]} must be one of {allowed}, not {value!r}."
-                )
+            if item.spec.choices is not None and value is not None:
+                values = value if isinstance(value, tuple) else (value,)
+                for one in values:
+                    if one not in item.spec.choices:
+                        allowed = ", ".join(map(str, item.spec.choices))
+                        raise UsageError(
+                            f"{item.flags[0]} must be one of {allowed}, not {one!r}."
+                        )
 
     def to_dict(self) -> dict[str, Any]:
         """The parameters as JSON-ready values (paths as strings)."""
@@ -336,7 +339,8 @@ def _type_schema(tp: Any, spec: ParamSpec) -> dict[str, Any]:
     else:
         schema = {"type": "string"}
     if spec.choices is not None:
-        schema["enum"] = list(spec.choices)
+        target = schema["items"] if schema["type"] == "array" else schema
+        target["enum"] = list(spec.choices)
     if nullable:
         schema["type"] = [schema["type"], "null"]
         if "enum" in schema:

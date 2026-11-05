@@ -69,19 +69,31 @@ class ResumePolicy:
         return None
 
 
+RESUME_GROUP = (
+    "resuming",
+    "Completed steps are recorded in <output>.steps.json and skipped when "
+    "a rerun's inputs, settings and tools are unchanged.",
+)
+RESTART_HELP = "Rerun every step, ignoring the steps an earlier run completed."
+DRY_RUN_HELP = "Print which steps would run or be skipped, and why, then exit."
+
+
+def force_step_help(steps: Sequence[str]) -> str:
+    return (
+        "Rerun STEP and the steps that use its outputs (repeatable). "
+        f"Steps: {', '.join(steps)}."
+    )
+
+
 def add_resume_arguments(parser: argparse.ArgumentParser, steps: Sequence[str]) -> None:
     """The --force, --force-step and --dry-run options of a step workflow."""
-    group = parser.add_argument_group(
-        "resuming",
-        "Completed steps are recorded in <output>.steps.json and skipped when "
-        "a rerun's inputs, settings and tools are unchanged.",
-    )
+    group = parser.add_argument_group(*RESUME_GROUP)
     group.add_argument(
         "--force",
         "--no-resume",
         dest="restart",
         action="store_true",
-        help="Rerun every step, ignoring the steps an earlier run completed.",
+        help=RESTART_HELP,
     )
     group.add_argument(
         "--force-step",
@@ -89,14 +101,9 @@ def add_resume_arguments(parser: argparse.ArgumentParser, steps: Sequence[str]) 
         action="append",
         choices=list(steps),
         metavar="STEP",
-        help="Rerun STEP and the steps that use its outputs (repeatable). "
-        f"Steps: {', '.join(steps)}.",
+        help=force_step_help(steps),
     )
-    group.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Print which steps would run or be skipped, and why, then exit.",
-    )
+    group.add_argument("--dry-run", action="store_true", help=DRY_RUN_HELP)
 
 
 def resume_policy(args: argparse.Namespace) -> ResumePolicy:

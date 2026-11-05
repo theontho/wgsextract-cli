@@ -7,6 +7,11 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import NamedTuple
 
+from wgsextract_cli.api._cli import add_arguments, cli_handler
+from wgsextract_cli.api._params import to_namespace
+from wgsextract_cli.api.align import ALIGNERS as ALIGNERS
+from wgsextract_cli.api.align import PLATFORMS as PLATFORMS
+from wgsextract_cli.api.align import AlignParams
 from wgsextract_cli.core import bwa_mem2, ultima
 from wgsextract_cli.core.alignment_memory import (
     available_memory,
@@ -58,7 +63,6 @@ from wgsextract_cli.core.warnings import (
 
 from ._extract_helpers import cleanup_files
 
-PLATFORMS = ["illumina", "dnbseq", "ultima", "pacbio", "hifi", "clr", "ont", "nanopore"]
 _PACBIO_PLATFORMS = {"pacbio", "hifi", "clr"}
 _LONG_READ_PLATFORMS = _PACBIO_PLATFORMS | {"ont", "nanopore"}
 # pbmm2-style preset names accepted by minimap2 under their minimap2 names.
@@ -69,7 +73,6 @@ _PBMM2_PRESETS = {
     "map-pb": "SUBREAD",
     "subread": "SUBREAD",
 }
-ALIGNERS = ["auto", "bwa", "bwa-mem2", "minimap2", "pbmm2"]
 _BWA_ALIGNERS = {"bwa", "bwa-mem2"}
 # BWA's default batch size depends on threads and changes pairing statistics.
 BWA_BATCH_BASES = "100000000"
@@ -91,39 +94,22 @@ def register(
     parser = subparsers.add_parser(
         "align", parents=[base_parser], help=CLI_HELP["cmd_align"]
     )
-    parser.add_argument("--r1", help=CLI_HELP["arg_r1"])
-    parser.add_argument("--r2", help=CLI_HELP["arg_r2"])
-    parser.add_argument(
-        "--preset",
-        choices=["sr", "map-pb", "map-hifi", "map-ont", "ccs", "subread"],
-        help="minimap2 preset for non-BWA alignment. Defaults to map-hifi for PacBio and map-ont for ONT.",
-    )
-    parser.add_argument(
-        "--platform",
-        choices=PLATFORMS,
-        help="Sequencing platform; selects platform-specific alignment tooling "
-        "(default: detected from read groups or read names, else illumina).",
-    )
-    parser.add_argument(
-        "--aligner",
-        choices=ALIGNERS,
-        default="auto",
-        help="Aligner to use. Auto uses bwa-mem2 for short reads when the reference "
-        "has its index (see `ref index`), else bwa; for long reads pbmm2 for PacBio "
-        "when installed, otherwise minimap2.",
-    )
-    add_gpu_argument(parser)
-    parser.add_argument(
-        "--sample",
-        help="Sample name for the read group (default: the reads' file name).",
-    )
-    parser.add_argument(
-        "--long-read", action="store_true", help=CLI_HELP["arg_long_read"]
-    )
-    parser.add_argument(
-        "--format", choices=["BAM", "CRAM"], default="BAM", help="Output format"
-    )
-    parser.set_defaults(func=run)
+    add_arguments(parser, AlignParams)
+    parser.set_defaults(func=cli_handler(AlignParams, run_align))
+
+
+def run_align(params: AlignParams) -> None:
+    """The ``align`` operation (``api.align.align``)."""
+    add_read_inputs(params.r1, params.r2)
+    run(to_namespace(params))
+
+
+def add_read_inputs(r1: Path | None, r2: Path | None) -> None:
+    """Record the reads that exist, as dispatch does for CLI arguments."""
+    result = current_result()
+    for path, role in ((r1, "fastq_r1"), (r2, "fastq_r2")):
+        if path and path.expanduser().exists():
+            result.add_input(path, role)
 
 
 def resolve_platform(args: argparse.Namespace, reads: str | None) -> str:
@@ -209,16 +195,6 @@ def select_aligner(args: argparse.Namespace) -> str:
                 "or subread."
             )
     return aligner
-
-
-def add_gpu_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--gpu",
-        action="store_true",
-        help="Align on an NVIDIA GPU with Parabricks: BWA-MEM for short reads, "
-        "minimap2 for HiFi (Linux, Docker; see README). ONT requires CPU "
-        "alignment to retain MM/ML methylation tags.",
-    )
 
 
 # Parabricks minimap2 presets for this command's long-read presets.

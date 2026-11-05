@@ -33,6 +33,7 @@ GROUPS = (
     api.extract,
     api.bam,
     api.qc,
+    api.align,
     api.vcf,
     api.lineage,
     api.microarray,

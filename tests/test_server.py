@@ -427,6 +427,33 @@ def test_path_guard_refuses_drive_relative_output_names(op, body):
     guard.check(params_from_json(find(op), {**bare, "outdir": r"C:\data"}))
 
 
+_ALIGN_REQUESTS = {
+    "align": {"r1": r"C:\data\r1.fq", "ref": r"C:\data\ref.fa"},
+    "realign": {"input": r"C:\data\a.bam", "ref": r"C:\data\ref.fa"},
+}
+
+
+@pytest.mark.parametrize(
+    ("op", "field"),
+    [
+        *(("align", f) for f in ("r1", "r2", "input", "ref", "outdir")),
+        *(("realign", f) for f in ("input", "r1", "r2", "input_ref", "ref", "outdir")),
+    ],
+)
+@pytest.mark.parametrize(
+    "value", ["D:evil.fq", r"D:\evil.fq", r"\\host\share\evil.fq", "evil.fq"]
+)
+def test_path_guard_covers_every_alignment_path(op, field, value):
+    # PR #445: align and realign became server jobs; each file they read or
+    # write must be inside an allowed folder, drive-relative names included.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {**_ALIGN_REQUESTS[op], "outdir": r"C:\data"}
+    guard.check(params_from_json(find(op), allowed))
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(find(op), {**allowed, field: value}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
 def test_read_only_mcp_info_saves_nothing(tmp_path, fake_data):
     # Security review of PR #422: read-only `info` created the folders named
     # by outdir, and saved its metrics cache next to the input.
