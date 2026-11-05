@@ -28,7 +28,10 @@ from wgsextract_cli.core.microarray_utils import (
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 LENGTH = 400
-GENOME = "".join(random.Random(43).choice("ACGT") for _ in range(LENGTH))
+_rng = random.Random(43)
+# Positions 100 and 101 are pinned so reference-fill tests can tell them apart.
+GENOME = "".join(_rng.choice("ACGT") for _ in range(99)) + "AC"
+GENOME += "".join(_rng.choice("ACGT") for _ in range(LENGTH - 101))
 
 
 @pytest.mark.parametrize(

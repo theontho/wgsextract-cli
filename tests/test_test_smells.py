@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "test_smells.py"
 
 OLD = """from unittest.mock import patch
@@ -40,12 +42,12 @@ def _git(root: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
 
 
-def _smells(root: Path) -> subprocess.CompletedProcess[str]:
+def _smells(root: Path, encoding: str = "utf-8") -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, SCRIPT, "--base", "HEAD", "--root", root],
         capture_output=True,
-        encoding="utf-8",
-        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        encoding=encoding,
+        env={**os.environ, "PYTHONIOENCODING": encoding},
     )
 
 
@@ -111,3 +113,21 @@ def test_non_ascii_test_paths_keep_their_own_findings(tmp_path: Path) -> None:
     assert "tests/test_é.py:15: TS001" in result.stdout
     assert "tests/test_ü_new.py:7: TS001" in result.stdout
     assert "tests/test_x.py" not in result.stdout
+
+    # A console that can't show the name still gets the finding.
+    result = _smells(tmp_path, encoding="ascii")
+    assert result.returncode == 0
+    assert "tests/test_\\xe9.py:15: TS001" in result.stdout
+
+
+@pytest.mark.skipif(
+    sys.platform != "linux", reason="needs a filesystem that allows non-UTF-8 names"
+)
+def test_a_non_utf8_test_path_is_still_checked(tmp_path: Path) -> None:
+    tests = _repo(tmp_path)
+    (tests / os.fsdecode(b"test_\xff.py")).write_text(OLD)
+
+    result = _smells(tmp_path)
+
+    assert result.returncode == 0
+    assert "tests/test_\\udcff.py:7: TS001" in result.stdout

@@ -28,39 +28,40 @@ def _native_library(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     fasta = tmp_path / "input.fa"
     fasta.write_text(">chr1\n" + "A" * 100 + "\n")
     subprocess.run(["samtools", "faidx", str(fasta)], check=True)
-    mapping = load_site_map(
-        write_site_map(
-            [
-                SiteProjection(
-                    "chr1",
-                    position,
-                    "chr1",
-                    position + 10,
-                    position == 10,
-                    "mapped",
-                    "ref_different" if position == 10 else "ref_equal",
-                )
-                for position in range(10, 15)
-            ],
-            {"chr1": 100},
-            {"chr1": 100},
-            tmp_path / "map",
-            {},
-        )
-    )
-    catalogue = CHM13Catalogue(
-        mapping,
-        {"chr1": ReferenceContig(100, hashlib.md5(b"A" * 100).hexdigest())},
+    manifest = write_site_map(
+        [
+            SiteProjection(
+                "chr1",
+                position,
+                "chr1",
+                position + 10,
+                position == 10,
+                "mapped",
+                "ref_different" if position == 10 else "ref_equal",
+            )
+            for position in range(10, 15)
+        ],
         {"chr1": 100},
-        (),
-        "",
-        "",
-        "",
-        cache_key="toy",
+        {"chr1": 100},
+        tmp_path / "map",
+        {},
     )
+
+    def catalogue(*, cache_dir: Path | None) -> CHM13Catalogue:
+        return CHM13Catalogue(
+            load_site_map(manifest, cache_dir=cache_dir),
+            {"chr1": ReferenceContig(100, hashlib.md5(b"A" * 100).hexdigest())},
+            {"chr1": 100},
+            (),
+            "",
+            "",
+            "",
+            cache_key="toy",
+        )
+
     # The pinned CHM13 site map, the installed vendor templates and the AADR
     # panel are multi-GB downloads; stand in for them with this toy chr1.
-    monkeypatch.setattr(command, "load_chm13_catalogue", lambda **_kwargs: catalogue)
+    monkeypatch.setattr(command, "load_chm13_catalogue", catalogue)
     monkeypatch.setattr(
         command, "validate_chm13_reference", lambda *_args: {"chr1": "chr1"}
     )
@@ -141,6 +142,8 @@ def test_native_vcf_quality_and_unsupported_masks_survive_canonical_aadr_export(
         "--",
     ]
     assert (out / "sample_AADR_1240k.geno").read_text().splitlines() == list("19999")
+    # Without a configured library nothing is cached, least of all beside --ref.
+    assert not list(tmp_path.rglob("sites-v1-*.bin"))
     report = json.loads((out / "sample_CHM13_report.json").read_text())
     assert report["call_reasons"] == {
         "called": 1,
@@ -250,8 +253,12 @@ def test_native_gvcf_reference_blocks_are_calls_and_gaps_are_no_calls(
         "missing_gt": 1,
         "absent_from_vcf": 1,
     }
-    # The marker cache goes in the configured library, not beside --ref.
-    assert len(list(library.rglob("markers.tsv"))) == 1
+    # The decoded site map and the marker cache go in the configured library,
+    # not beside --ref.
+    chm13 = library / "microarray" / "chm13"
+    assert len(list(chm13.glob("sites-v1-*.bin"))) == 1
+    assert len(list(chm13.rglob("markers.tsv"))) == 1
+    assert not list(tmp_path.rglob("sites-v1-*.bin"))
     assert not list(tmp_path.rglob("markers.tsv"))
 
 

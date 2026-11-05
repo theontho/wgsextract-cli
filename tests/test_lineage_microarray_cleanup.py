@@ -299,11 +299,13 @@ def test_y_haplogroup_refuses_a_female_sample_before_yleaf(tmp_path):
     assert not (tmp_path / "yleaf").exists()
 
 
-def _info_cache(bam: str, call: str, size_delta: int = 0) -> None:
+def _info_cache(
+    bam: str, call: str, size_delta: int = 0, md5: str | None = None
+) -> None:
     st = Path(bam).stat()
     Path(f"{bam}.wgse_info.json").write_text(
         json.dumps({
-            "md5_signature": calculate_bam_md5(bam, None), "gender": call,
+            "md5_signature": md5 or calculate_bam_md5(bam, None), "gender": call,
             "sex_inference_version": metrics.SEX_INFERENCE_VERSION,
             "input_signature": {
                 "size": st.st_size + size_delta, "mtime_ns": st.st_mtime_ns
@@ -321,4 +323,8 @@ def test_sample_sex_trusts_only_this_files_info_cache(tmp_path):
     # A cache for another file of the same name is ignored.
     other_file = _xy_bam(tmp_path / "b.bam", x_reads=30, y_reads=10)
     _info_cache(other_file, "Female", size_delta=1)
+    assert metrics.sample_sex(other_file) == "Male"
+
+    # So is one whose size and mtime match but whose header signature doesn't.
+    _info_cache(other_file, "Female", md5="0" * 32)
     assert metrics.sample_sex(other_file) == "Male"

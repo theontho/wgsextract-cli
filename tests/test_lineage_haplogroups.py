@@ -340,6 +340,33 @@ def test_y_haplogroup_from_cram_decodes_with_the_reference(tmp_path, native_tabl
     assert (tmp_path / "yleaf/hg_prediction.hg").read_text() == bam_prediction
 
 
+def test_y_haplogroup_from_cram_without_a_reference_fails(
+    tmp_path, monkeypatch, native_tables
+):
+    genome = "".join(random.Random(7).choices("ACGT", k=400))
+    encoder = tmp_path / "encoder"
+    encoder.mkdir()
+    ref = write_fasta(encoder / "ref.fa", {"chrX": genome, "chrY": genome})
+    header = ["@SQ\tSN:chrX\tLN:400", "@SQ\tSN:chrY\tLN:400"]
+    bam = sam_to_bam(header + _reads("chrY", genome, 20, start=95), encoder / "k.bam")
+    cram = str(tmp_path / "kit.cram")
+
+    from wgsextract_cli.core.utils import run_command
+
+    run_command(["samtools", "view", "-C", "-T", str(ref), "-o", cram, bam])
+    run_command(["samtools", "index", cram])
+    # Nothing can find the encoding reference: not beside the CRAM, not in a
+    # library, and not from htslib's MD5 lookup (which defaults to the network).
+    for path in encoder.iterdir():
+        path.unlink()
+    monkeypatch.setenv("REF_PATH", str(tmp_path / "no-ref-cache"))
+    monkeypatch.delenv("REF_CACHE", raising=False)
+
+    with pytest.raises(WGSExtractError, match="reference FASTA.*CRAM"):
+        run_wgsextract("lineage", "y-haplogroup", "--input", cram)
+    assert not list(tmp_path.rglob("hg_prediction.hg"))
+
+
 def test_y_haplogroup_rejects_unsupported_input(tmp_path):
     sam = tmp_path / "kit.sam"
     sam.write_text("@SQ\tSN:chrY\tLN:10\n")

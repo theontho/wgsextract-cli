@@ -179,7 +179,7 @@ def _plain_vcf(path: Path) -> Path:
     return path
 
 
-@needs_tools("samtools")
+@needs_tools("bcftools", "bgzip", "tabix", "samtools")
 def test_mixed_2m_vendor_preflights_chain_before_consumer_target_build(
     tmp_path, installed_2m, monkeypatch
 ):
@@ -260,7 +260,7 @@ def test_sparse_vcf_2m_only_hit_does_not_reference_fill_legacy_panels(
     assert projected["new_probe_x"] == "1"
 
 
-@needs_tools("samtools")
+@needs_tools("bcftools", "bgzip", "tabix", "samtools")
 @pytest.mark.parametrize("genome", ["chm13v2.0.fa", "custom.fa"])
 def test_unsupported_2m_build_fails_before_data_fetch_or_calling(tmp_path, genome):
     fasta = _fasta(tmp_path / "library" / "genomes" / genome)
