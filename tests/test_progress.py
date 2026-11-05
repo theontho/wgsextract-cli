@@ -42,10 +42,14 @@ def test_pipeline_heartbeat_preserves_binary_data_and_counts_stderr(
 def test_heartbeat_reports_while_no_shards_complete_and_stops(caplog):
     caplog.set_level(logging.INFO)
     with Heartbeat("GATK scatter", 2, "shards", interval=0.01) as progress:
-        time.sleep(0.04)
+        # One report on entry, then the timer's: wait for it, however late
+        # a loaded machine runs the thread.
+        deadline = time.monotonic() + 10
+        while caplog.text.count("0/2 shards") < 2:
+            assert time.monotonic() < deadline, "no heartbeat while nothing done"
+            time.sleep(0.01)
         progress.advance()
         progress.report()
-    assert caplog.text.count("0/2 shards") >= 2
     assert "1/2 shards" in caplog.text
     assert not progress._thread.is_alive()
 
