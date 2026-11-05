@@ -10,7 +10,7 @@ from pathlib import Path
 import psutil
 import pytest
 
-from tests.fake_tools import python_tool
+from tests.fake_tools import python_tool, require_bare_name_fakes
 from tests.htslib_helpers import needs_htslib, run_wgsextract, sam_to_bam, write_fasta
 from wgsextract_cli.commands.vcf import contig_calling
 from wgsextract_cli.core.dependencies import clear_tool_caches
@@ -363,7 +363,7 @@ def test_iupac_indels_are_valid_without_changing_other_contigs(
 
 
 _FAULTY_BCFTOOLS = """\
-import os, subprocess, sys, time
+import os, sys, time
 
 args = sys.argv[1:]
 contigs = []
@@ -381,7 +381,9 @@ for target, action in {rules!r}.items():
     if "-o" in args:
         open(args[args.index("-o") + 1], "wb").write(b"partial output")
     sys.exit(f"bcftools {{target}} failed")
-sys.exit(subprocess.run([{real!r}, *args]).returncode)
+# Become bcftools, so that killing this process stops the real one rather than
+# leaving it writing into a work directory being removed.
+os.execv({real!r}, [{real!r}, *args])
 """
 
 
@@ -391,6 +393,7 @@ def _faulty_bcftools(
     """bcftools that, for a subcommand or a contig of its -R regions, fails
     (writing "partial output" to its -o) or hangs, after writing its PID to
     the returned file; once something hangs, failures wait for it to start."""
+    require_bare_name_fakes()
     real = shutil.which("bcftools")
     assert real
     pids = tmp_path / "bin" / "hanging.pid"

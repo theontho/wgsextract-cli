@@ -4,6 +4,17 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
+
+def require_bare_name_fakes() -> None:
+    """Skip on Windows, where a tool the CLI starts by bare name (`gatk`,
+    `bcftools`) can't be faked: CreateProcess finds only .exe files, not
+    python_tool's .cmd launcher, and killing a launcher leaves its Python
+    child running."""
+    if sys.platform == "win32":
+        pytest.skip("a .cmd fake can't stand in for a tool started by bare name")
+
 
 def python_tool(bindir: Path, name: str, source: str) -> Path:
     """An executable `name` in bindir that runs the Python ``source``.

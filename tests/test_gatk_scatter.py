@@ -15,7 +15,7 @@ import psutil
 import pytest
 
 from tests.disk_volumes import GIB, Volumes
-from tests.fake_tools import FakeGatk
+from tests.fake_tools import FakeGatk, require_bare_name_fakes
 from tests.htslib_helpers import (
     require_runnable,
     run_wgsextract,
@@ -88,6 +88,7 @@ def ultima(tmp_path_factory) -> Namespace:
     """Flow-aware Ultima reads (FO, tp, t0) over chr2 and chr1, in that
     reference order, each with a homozygous SNP at 1,000; and the same reads
     as an Illumina BAM."""
+    require_runnable("samtools")
     work = tmp_path_factory.mktemp("ultima")
     rng = random.Random(3)
     seqs = {
@@ -124,6 +125,7 @@ def ultima(tmp_path_factory) -> Namespace:
 @pytest.fixture
 def gatk(tmp_path, monkeypatch) -> FakeGatk:
     """GATK at its process boundary (see FakeGatk), with RAM for 4 workers."""
+    require_bare_name_fakes()
     require_runnable("samtools", "bcftools", "tabix")
     bcftools = shutil.which("bcftools") or pytest.skip("bcftools is not on PATH")
     bindir = tmp_path / "bin"

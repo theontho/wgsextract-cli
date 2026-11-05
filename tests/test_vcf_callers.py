@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.fake_tools import FakeGatk
+from tests.fake_tools import FakeGatk, require_bare_name_fakes
 from tests.htslib_helpers import (
     needs_tools,
     require_runnable,
@@ -28,23 +28,27 @@ from wgsextract_cli.core.utils import run_command
 from wgsextract_cli.main import main
 
 SNP = 1000  # 1-based position of the sample's homozygous SNP
+SNP2 = 1550  # and of a second one, so two regions each hold a call
 
 
 @pytest.fixture(scope="module")
 def genome(tmp_path_factory) -> Namespace:
-    """A 3 kb chr1, and a sample homozygous for one SNP at SNP, as a BAM and a
-    CRAM with 20x single-end coverage over 500-2500."""
+    """A 3 kb chr1, and a sample homozygous for SNPs at SNP and SNP2, as a BAM
+    and a CRAM with 20x single-end coverage over 500-2500."""
+    require_runnable("samtools")
     work = tmp_path_factory.mktemp("callers")
     rng = random.Random(7)
     ref = "".join(rng.choice("ACGT") for _ in range(3000))
-    alt = {"A": "C", "C": "G", "G": "T", "T": "A"}[ref[SNP - 1]]
-    sample = ref[: SNP - 1] + alt + ref[SNP:]
+    sample, calls = list(ref), []
+    for pos in (SNP, SNP2):
+        sample[pos - 1] = {"A": "C", "C": "G", "G": "T", "T": "A"}[ref[pos - 1]]
+        calls.append(("chr1", str(pos), ref[pos - 1], sample[pos - 1], "1/1"))
     fasta = write_fasta(work / "ref.fa", {"chr1": ref})
     lines = ["@HD\tVN:1.6\tSO:unsorted", "@SQ\tSN:chr1\tLN:3000", "@RG\tID:rg\tSM:S"]
     for i, start in enumerate(range(500, 2400, 5)):
         lines.append(
             f"r{i}\t{16 if i % 2 else 0}\tchr1\t{start}\t60\t100M\t*\t0\t0\t"
-            f"{sample[start - 1 : start + 99]}\t{'I' * 100}\tRG:Z:rg"
+            f"{''.join(sample[start - 1 : start + 99])}\t{'I' * 100}\tRG:Z:rg"
         )
     bam = sam_to_bam(lines, work / "s.bam")
     cram = str(work / "s.cram")
@@ -54,7 +58,8 @@ def genome(tmp_path_factory) -> Namespace:
         ref=str(fasta),
         bam=bam,
         cram=cram,
-        call=("chr1", str(SNP), ref[SNP - 1], alt, "1/1"),
+        call=calls[0],
+        calls=calls,
     )
 
 
@@ -74,12 +79,12 @@ needs_freebayes = needs_tools("freebayes", "samtools", "bcftools", "tabix")
 
 @needs_freebayes
 def test_freebayes_calls_the_snp_from_a_bam(genome, tmp_path):
-    assert _call("freebayes", genome, genome.bam, tmp_path) == [genome.call]
+    assert _call("freebayes", genome, genome.bam, tmp_path) == genome.calls
 
 
 @needs_freebayes
 def test_freebayes_streams_a_cram_through_samtools(genome, tmp_path):
-    assert _call("freebayes", genome, genome.cram, tmp_path) == [genome.call]
+    assert _call("freebayes", genome, genome.cram, tmp_path) == genome.calls
 
 
 @needs_freebayes
@@ -93,7 +98,7 @@ def test_freebayes_decompresses_a_gzipped_reference_and_removes_it(genome, tmp_p
     outdir = tmp_path / "out"
     run_wgsextract("vcf", "freebayes", "--input", genome.bam, "--ref", str(gz),
                    "--outdir", str(outdir))  # fmt: skip
-    assert vcf_calls(outdir / "freebayes.vcf.gz") == [genome.call]
+    assert vcf_calls(outdir / "freebayes.vcf.gz") == genome.calls
     assert not list(outdir.glob(".wgse_ref_*"))
     assert not (gz.parent / "ref.fa").exists()
 
@@ -155,6 +160,7 @@ def test_gatk_calls_the_snp_from_a_regional_cram(genome, tmp_path):
 
 @pytest.fixture
 def gatk(tmp_path, monkeypatch) -> FakeGatk:
+    require_bare_name_fakes()
     require_runnable("samtools", "bcftools", "tabix")
     bcftools = shutil.which("bcftools") or pytest.skip("bcftools is not on PATH")
     bindir = tmp_path / "bin"
@@ -207,10 +213,10 @@ def test_gatk_cuts_a_regional_cram_to_a_bam_it_can_read(genome, gatk, tmp_path, 
     ref = _reference_copy(genome, tmp_path / "ref")
     outdir = tmp_path / "out"
     result, log = _gatk(capsys, genome, genome.cram, ref, outdir, None,
-                   "-r", f"chr1:1500-1600, chr1:{SNP - 100}-{SNP + 100}")  # fmt: skip
+                   "-r", f"chr1:{SNP2 - 50}-{SNP2 + 50}, chr1:{SNP - 100}-{SNP + 100}")  # fmt: skip
 
     assert result["status"] == "ok", result["error"]
-    assert vcf_calls(outdir / "gatk.vcf.gz") == [genome.call]
+    assert vcf_calls(outdir / "gatk.vcf.gz") == genome.calls
     assert (tmp_path / "ref" / "ref.dict").read_text().startswith("@HD")
     assert sorted(p.name for p in outdir.iterdir()) == [
         "gatk.vcf.gz",
