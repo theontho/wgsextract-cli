@@ -130,7 +130,9 @@ def test_bwa_mem2_aligns_when_the_reference_has_its_index(
     pet.run(_args(reads, ref, memory=memory))
 
     programs = _programs(tmp_path / "rex_R1_dog.bam")
-    assert any("CL:bwa-mem2 mem -K 100000000 " in line for line in programs)
+    # The Windows launcher re-executes a CPU-specific build, which names CL.
+    (aligner,) = [line for line in programs if "\tPN:bwa-mem2\t" in line]
+    assert " mem -K 100000000 " in aligner
     # bwa-mem2 holds more memory, so its sort gets less, down to a floor.
     sort = next(line for line in programs if "CL:samtools sort" in line)
     assert f" -m {sort_memory} " in sort
