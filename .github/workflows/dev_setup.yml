@@ -85,7 +85,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: |
-          $nodeRoot = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "gui-for-cli\node"
+          $nodeRoot = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".local\share\gui-for-cli\node"
           $oldUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
           try {
             # A changed user PATH followed by a simulated uv run failure; no machine changes.
@@ -109,7 +109,7 @@ jobs:
         shell: powershell
         run: |
           $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
-          $nodeRoot = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "gui-for-cli\node"
+          $nodeRoot = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".local\share\gui-for-cli\node"
           $winner = Get-Command node.exe
           $needsWarning = ([version]((& $winner.Source --version).TrimStart("v"))) -lt ([version]((& "$nodeRoot\node.exe" --version).TrimStart("v")))
           powershell -NoProfile -ExecutionPolicy Bypass -File .\make.ps1 setup -SkipSmoke > tmp\dev-setup\new-shell-rerun.log

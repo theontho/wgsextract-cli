@@ -1,12 +1,15 @@
 # CI entry point runs as a real new PowerShell 5.1 process, without -Command quoting.
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path $PSScriptRoot -Parent)
-$nodeRoot = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "gui-for-cli\node"
+$nodeRoot = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".local\share\gui-for-cli\node"
 $node = Get-Command node
 if (-not $node.Source.StartsWith("$nodeRoot\", [StringComparison]::OrdinalIgnoreCase)) {
     throw "Hosted Node shadowed setup Node: $($node.Source)"
 }
 Write-Host "New-shell Node: $($node.Source)"
+if (-not [Environment]::GetEnvironmentVariable("UV_PYTHON_INSTALL_DIR", "User")) {
+    throw "Setup did not persist UV_PYTHON_INSTALL_DIR."
+}
 $homeDirectory = [Environment]::GetFolderPath("UserProfile")
 $toolDirectories = @{ "uv" = ".local\bin"; "cargo" = ".cargo\bin" }
 foreach ($tool in @("uv", "cargo")) {

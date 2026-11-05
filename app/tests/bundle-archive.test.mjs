@@ -193,7 +193,8 @@ test("bundle source resolver extracts an archive made by the system tar", async 
     await writeFile(path.join(directory, "src", "my-bundle", "manifest.json"), MANIFEST);
     await writeFile(path.join(directory, "src", "my-bundle", "scripts", "run.sh"), SCRIPT);
     const archive = path.join(directory, "my-bundle.tgz");
-    execFileSync("tar", ["-czf", archive, "-C", path.join(directory, "src"), "my-bundle"]);
+    // Relative paths: MSYS tar, first on PATH in Git hook shells, reads C:\... as a remote host.
+    execFileSync("tar", ["-czf", path.basename(archive), "-C", "src", "my-bundle"], { cwd: directory });
 
     const root = await resolveBundleSourceRoot(archive);
 

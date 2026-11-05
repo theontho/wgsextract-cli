@@ -124,12 +124,15 @@ def select_identity(identities: list[Identity], choice: int | None) -> Identity:
     )
     if choice is not None:
         selected_choice = choice
-    elif sys.stdin.isatty():
+    elif len(identities) > 1 and sys.stdin.isatty():
         prompt = (
             f"Choose an identity to register in .dev_id "
             f"(1-{len(identities)}) [{default_choice}]: "
         )
-        raw = input(prompt).strip()
+        try:
+            raw = input(prompt).strip()
+        except EOFError:
+            raw = ""
         try:
             selected_choice = int(raw) if raw else default_choice
         except ValueError:

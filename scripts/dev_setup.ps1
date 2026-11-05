@@ -13,7 +13,12 @@ $env:TMP = $env:TEMP
 $Script:ToolsChanged = $false
 $userBin = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".local\bin"
 $cargoBin = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".cargo\bin"
-$nodeRoot = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "gui-for-cli\node"
+# Not under AppData: MSIX-packaged hosts redirect those writes to a private copy,
+# which other shells cannot see and which breaks the junctions uv creates there.
+$nodeRoot = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".local\share\gui-for-cli\node"
+if (-not $env:UV_PYTHON_INSTALL_DIR) {
+    $env:UV_PYTHON_INSTALL_DIR = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".local\share\uv\python"
+}
 $originalPath = $env:Path
 $env:Path = "$userBin;$cargoBin;$nodeRoot;$env:Path"
 
@@ -74,6 +79,10 @@ foreach ($directory in @($userBin, $cargoBin, $nodeRoot)) {
 }
 if ($userPath -ne $originalUserPath) {
     [Environment]::SetEnvironmentVariable("Path", $userPath, "User")
+    $Script:ToolsChanged = $true
+}
+if (-not [Environment]::GetEnvironmentVariable("UV_PYTHON_INSTALL_DIR", "User")) {
+    [Environment]::SetEnvironmentVariable("UV_PYTHON_INSTALL_DIR", $env:UV_PYTHON_INSTALL_DIR, "User")
     $Script:ToolsChanged = $true
 }
 Invoke-Checked "uv" @("sync", "--locked")

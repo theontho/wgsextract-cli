@@ -182,6 +182,24 @@ class DesktopPrerequisiteTests(unittest.TestCase):
             "name=Developer\nemail=dev@example.com\n"
         )
 
+    def test_select_identity_uses_default_without_a_usable_prompt(self) -> None:
+        identities = [
+            register.Identity("Git", "One", "one@example.com", None, False),
+            register.Identity("GitHub", "Two", "two@example.com", "two", True),
+        ]
+        with (
+            patch.object(register.sys, "stdin") as stdin,
+            patch("builtins.input", side_effect=EOFError) as prompt,
+        ):
+            stdin.isatty.return_value = True
+            self.assertIs(register.select_identity(identities, None), identities[1])
+            prompt.assert_called_once()
+            prompt.reset_mock()
+            self.assertIs(
+                register.select_identity(identities[:1], None), identities[0]
+            )
+            prompt.assert_not_called()
+
     def test_linux_missing_webkit_prints_admin_commands(self) -> None:
         with (
             patch.object(setup.sys, "platform", "linux"),

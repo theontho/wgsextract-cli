@@ -34,8 +34,9 @@ Usage: powershell -ExecutionPolicy Bypass -File .\make.ps1 <target> [NAME=value 
 function Invoke-PythonTool {
     param([string[]]$Arguments)
     $homeDirectory = [Environment]::GetFolderPath("UserProfile")
-    $nodeRoot = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "gui-for-cli\node"
+    $nodeRoot = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".local\share\gui-for-cli\node"
     $env:Path = "$homeDirectory\.local\bin;$homeDirectory\.cargo\bin;$nodeRoot;$env:Path"
+    if (-not $env:UV_PYTHON_INSTALL_DIR) { $env:UV_PYTHON_INSTALL_DIR = "$homeDirectory\.local\share\uv\python" }
     if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
         throw "Run powershell -ExecutionPolicy Bypass -File .\make.ps1 setup first (uv is missing)."
     }
