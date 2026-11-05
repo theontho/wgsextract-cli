@@ -115,6 +115,8 @@ Commands that write files also write a `<output>.manifest.json` beside them. It 
 
 Commands can also be called from Python through the typed `wgsextract_cli.api` package, which returns that manifest as a `Result` object; see [docs/api.md](docs/api.md). Commands are moving onto it one group at a time: so far `info`, `vcf snp`/`indel`, `lineage` and `microarray`.
 
+The same operations are available to other programs on this computer through `wgsextract serve`: a local HTTP/JSON API (127.0.0.1 only, with a per-launch token, background jobs, progress, cancelling and an OpenAPI document) or an MCP server for AI agents (`--mcp`). Requests may only use files in the folders you allow. See [docs/server.md](docs/server.md).
+
 Alignment/realignment pipelines and GATK scatter print a stderr heartbeat every
 60 seconds, including processed versus expected reads (when known), or completed
 shards, elapsed time and a rate-based ETA. Sampled FASTQ read counts are estimates;
@@ -488,7 +490,7 @@ Threads require a positive integer (for example `threads = 4`) or `"auto"`;
 previously supported numeric thread strings such as `"4"` remain accepted.
 Integer thresholds and cache TTLs require TOML integers, not quoted numbers or
 booleans. Memory limits (for example `memory = "2G"`), paths,
-and image names are strings. `vcf_input_paths` also accepts an array of strings.
+and image names are strings. `vcf_input_paths` and `server_allowed_paths` also accept an array of strings.
 Errors name the setting and expected type; canonical keys and aliases follow
 the same rules. `--config` selects its file before validation, so an invalid
 unused default file does not block a valid alternate configuration. Valid

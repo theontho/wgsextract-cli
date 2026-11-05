@@ -26,7 +26,9 @@ from .platform_support import verify_platform_support
 # Commands that only report: they mustn't create the configured output folder
 # (it may be on a drive that isn't mounted), check inputs or need a temp dir.
 # `sample` only reads and edits the small workspace file.
-READ_ONLY_COMMANDS = frozenset({"help", "config", "deps", "report-issue", "sample"})
+READ_ONLY_COMMANDS = frozenset(
+    {"help", "config", "deps", "report-issue", "sample", "serve"}
+)
 _NO_ALIGNMENT_PREFLIGHT = {*READ_ONLY_COMMANDS, "ref", "benchmark", "sign", "report"}
 
 

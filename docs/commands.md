@@ -123,6 +123,7 @@ Commands are grouped by tier. The core tier is the usual path, in order: check a
 | `sign create` | Hash files or directories into a sha256sum-compatible SHA256SUMS manifest, signed with ssh-keygen when a key is given. | SHA256SUMS in the inputs' folder (or --output); SHA256SUMS.sig with --key. | no external tools; depending on options and inputs, also: ssh-keygen; minutes for genome-sized files | `wgsextract sign create results/` |
 | `sign verify` | Check a SHA256SUMS manifest's OpenSSH signature against a trusted key, then re-hash every listed file. | Prints the verification result; writes no files. | no external tools; depending on options and inputs, also: ssh-keygen; minutes for genome-sized files | `wgsextract sign verify results/SHA256SUMS --public-key key.pub` |
 | `benchmark` | Time the main workflows on test data. | runs/&lt;timestamp>/ under --outdir (default out/benchmark): benchmark_report.md and benchmark_results.json (timings, tool versions) and per-step logs. | no external tools; depending on options and inputs, also: bcftools, bgzip, curl, samtools, tabix; hours for the full suite | `wgsextract benchmark --profile smoke` |
+| `serve` | Local HTTP/JSON and MCP server for apps and AI agents. | Prints the server's address and token, also saved to state/server/server.json (setting state_directory) for you only; jobs and their logs go in state/server/jobs. Each operation writes its usual outputs and result manifest. | no external tools; seconds to start; runs until stopped | `wgsextract serve --allow ~/wgs` |
 
 ## Help topics
 

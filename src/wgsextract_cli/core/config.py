@@ -58,6 +58,20 @@ KNOWN_SETTINGS = {
         "Folder for the last-run record and saved bug reports (report-issue); "
         "default: state/ in the data folder",
     ),
+    "server_port": (
+        0,
+        "Port `wgsextract serve` listens on at 127.0.0.1 (0: any free port)",
+    ),
+    "server_allowed_paths": (
+        None,
+        "Folders (a string or an array) `wgsextract serve` requests may read "
+        "and write, besides genome_library, reference_library and "
+        "output_directory",
+    ),
+    "server_max_jobs": (
+        1,
+        "Long `wgsextract serve` jobs that run at once; more wait in a queue",
+    ),
     "keep_awake": (False, "Best-effort sleep inhibition while commands run (opt-in)"),
     "haplogrep_executable": (None, "Path to haplogrep executable"),
     "jar_directory": (None, "Directory for JAR tools"),
@@ -225,6 +239,7 @@ PATH_SETTINGS = {
     "father_vcf_path",
     "batch_file_path",
     "vcf_input_paths",
+    "server_allowed_paths",
     "clinvar_vcf_path",
     "revel_tsv_path",
     "phylop_tsv_path",
@@ -309,7 +324,7 @@ def _validate_config_types(
                     parse_thread_count(value)
                 except ValueError:
                     valid = False
-        elif canonical == "vcf_input_paths":
+        elif canonical in ("vcf_input_paths", "server_allowed_paths"):
             expected = "a TOML string or an array of TOML strings"
             valid = isinstance(value, str) or (
                 isinstance(value, list) and all(isinstance(path, str) for path in value)

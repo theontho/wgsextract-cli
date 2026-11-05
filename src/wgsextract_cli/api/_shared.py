@@ -45,6 +45,7 @@ def outdir_param(default_text: str = "the input's folder") -> Any:
         path="directory",
         shared=True,
         config_key="output_directory",
+        writes=True,
     )
 
 
@@ -77,4 +78,5 @@ def table_format_param(help: str, *, hint: str = "", doc: str | None = None) -> 
         flags=("--format",),
         choices=FORMATS,
         cli_type=table_format_type(hint),
+        writes=True,
     )
