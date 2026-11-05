@@ -1,30 +1,79 @@
 name: Release
 
-# Pushing a version tag (vX.Y.Z) creates a draft GitHub release once the tag
-# matches the version in pyproject.toml, pixi.toml and the package and the
-# checks pass. Edit the generated notes and publish it: install.sh installs the
-# latest published release.
+# A release starts in either of two ways:
+# - Merging a release PR into main. When the version in pyproject.toml
+#   changes, this workflow creates the vX.Y.Z tag itself, so nobody needs to
+#   push a tag (agent sessions often can't).
+# - Pushing a vX.Y.Z tag by hand, or running this workflow on main (which
+#   retries a release whose checks failed).
+# Either way the tag must match the version in pyproject.toml, pixi.toml and
+# the package, and the checks must pass. If the release PR added
+# docs/release-notes/vX.Y.Z.md, the release is published as the latest with
+# those notes (install.sh installs the latest published release); otherwise
+# it's left as a draft with generated notes to edit and publish.
 
 on:
   push:
+    branches: [ main ]
+    paths: [ "pyproject.toml" ]
     tags: [ "v*" ]
+  # Retries a release from main after a fix, e.g. if its checks failed.
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref_name }}
+  group: release-${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
   cancel-in-progress: false
 
 jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      create_tag: ${{ steps.tag.outputs.create_tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Work out the tag to release
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$REF_TYPE" = tag ]; then
+            echo "tag=$REF_NAME" >> "$GITHUB_OUTPUT"
+            echo "create_tag=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$REF_NAME" != main ]; then
+            echo "::error::Releases come from main, not $REF_NAME."
+            exit 1
+          fi
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          tag="v$version"
+          # pyproject.toml changes for other reasons too; only a new version
+          # is a release.
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --silent 2>/dev/null; then
+            echo "$tag already exists; nothing to release."
+            exit 0
+          fi
+          echo "Releasing $tag from $GITHUB_SHA"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "create_tag=true" >> "$GITHUB_OUTPUT"
+
   verify:
+    needs: resolve
+    if: needs.resolve.outputs.tag != ''
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Tag matches the package version
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.resolve.outputs.tag }}
         run: |
           python3 - "$TAG" <<'EOF'
           import re, sys, tomllib
@@ -59,17 +108,34 @@ jobs:
       - name: Build and smoke test the package
         run: pixi run package-smoke
 
-  draft:
-    needs: verify
+  release:
+    needs: [ resolve, verify ]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
     steps:
-      - name: Create a draft release
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Create the tag
+        if: needs.resolve.outputs.create_tag == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        # A tag created with the workflow token doesn't start another run.
         run: >-
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag
-          --draft --generate-notes --title "wgsextract-cli $TAG"
+          gh api "repos/$GITHUB_REPOSITORY/git/refs"
+          -f ref="refs/tags/$TAG" -f sha="$GITHUB_SHA"
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          notes="docs/release-notes/$TAG.md"
+          if [ -f "$notes" ]; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --title "wgsextract-cli $TAG" --notes-file "$notes" --latest
+          else
+            echo "::notice::No $notes, so $TAG is a draft with generated notes; edit and publish it."
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --draft --generate-notes --title "wgsextract-cli $TAG"
+          fi
