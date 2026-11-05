@@ -27,6 +27,15 @@ from .platform_support import verify_platform_support
 # (it may be on a drive that isn't mounted), check inputs or need a temp dir.
 # `sample` only reads and edits the small workspace file.
 READ_ONLY_COMMANDS = frozenset({"help", "config", "deps", "report-issue", "sample"})
+_NO_ALIGNMENT_PREFLIGHT = {*READ_ONLY_COMMANDS, "ref", "benchmark", "sign"}
+
+
+def checks_alignment_input(path: str) -> bool:
+    """Whether the command at ``path`` (e.g. 'vcf snp') runs ``samtools
+    quickcheck`` on a BAM/CRAM ``--input`` before its handler starts."""
+    words = path.split()
+    exempt = not words or words[0] in _NO_ALIGNMENT_PREFLIGHT
+    return not exempt and words != ["qc", "fake-data"]
 
 
 # Arguments that name a command's primary input files, and their manifest role.
@@ -141,12 +150,11 @@ def _run_command(
         if isinstance(value, str) and value and Path(value).expanduser().exists():
             result.add_input(value, role)
     input_path = getattr(args, "input", None)
+    command = getattr(args, "command", None) or ""
     if (
         input_path
         and "input" in explicit_dests
-        and getattr(args, "command", None)
-        not in {*READ_ONLY_COMMANDS, "ref", "benchmark", "sign"}
-        and getattr(args, "qc_cmd", None) != "fake-data"
+        and checks_alignment_input(f"{command} {getattr(args, 'qc_cmd', '') or ''}")
         and Path(input_path).suffix.lower() in {".bam", ".cram"}
     ):
         from wgsextract_cli.core.alignment_input import validate_alignment_input

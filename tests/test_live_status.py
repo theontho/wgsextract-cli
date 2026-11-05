@@ -5,13 +5,17 @@ import argparse
 import contextlib
 import io
 import logging
+import os
 import sys
+import threading
 import time
 from collections.abc import Iterator
 
+import pytest
+
 from wgsextract_cli.cli import dispatch
 from wgsextract_cli.core import live_status
-from wgsextract_cli.core.utils import run_command
+from wgsextract_cli.core.utils import popen, run_command
 
 
 class _Tty(io.StringIO):
@@ -79,6 +83,50 @@ def test_the_line_names_the_running_tool():
         with live_status.LiveStatus("vcf snp", tty, delay=0, interval=0.01):
             run_command([sys.executable, "-c", "import time; time.sleep(0.3)"])
     assert "vcf snp: python" in tty.getvalue()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a pseudo-terminal")
+def test_tools_writing_to_the_terminal_do_not_overwrite_the_line():
+    """A tool's own stdout and stderr, inherited or given the terminal, go
+    through the line-clearing streams too."""
+    import pty
+
+    main, side = pty.openpty()
+    received = bytearray()
+    reader = threading.Thread(
+        target=lambda: [received.extend(c) for c in iter(lambda: _read(main), b"")]
+    )
+    reader.start()
+    terminal = open(side, "w", buffering=1, closefd=False)  # noqa: SIM115
+    saved = [os.dup(fd) for fd in (1, 2)]
+    saved_streams = sys.stdout, sys.stderr
+    write = "import sys; sys.stdout.write('out\\n'); sys.stderr.write('err\\n')"
+    try:
+        for fd in (1, 2):
+            os.dup2(side, fd)
+        sys.stdout = sys.stderr = terminal
+        with live_status.LiveStatus("vcf snp", terminal, delay=0, interval=0.01):
+            _wait_for(lambda: b"vcf snp" in received)
+            run_command([sys.executable, "-c", write], check=False)
+            popen([sys.executable, "-c", write], stdout=side, stderr=side).wait()
+            _wait_for(lambda: received.count(b"err") == 2)
+    finally:
+        sys.stdout, sys.stderr = saved_streams
+        for fd, copy in zip((1, 2), saved, strict=True):
+            os.dup2(copy, fd)
+            os.close(copy)
+        terminal.close()
+        os.close(side)
+        reader.join(timeout=5)
+        os.close(main)
+    assert sorted(_screen(received.decode())) == ["err", "err", "out", "out"]
+
+
+def _read(fd: int) -> bytes:
+    try:
+        return os.read(fd, 4096)
+    except OSError:  # the other side closed
+        return b""
 
 
 def _namespace(**values) -> argparse.Namespace:

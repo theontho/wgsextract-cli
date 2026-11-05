@@ -14,7 +14,9 @@ newline.
 
 Code that runs a step (run_command, run_pipeline) names it with ``step()``;
 progress counts (core/progress.Heartbeat) go in ``detail()``. Both do nothing
-when no display is active.
+when no display is active. A tool writing to the terminal itself would
+overwrite the line, so run_command and popen relay the output of tools that
+would (``terminal_bound()``) through Python's streams instead.
 """
 
 import contextlib
@@ -168,11 +170,22 @@ def _same_terminal(stream: Any, terminal: IO[str]) -> bool:
     if stream is terminal:
         return True
     try:
-        return bool(stream.isatty()) and os.path.samestat(
-            os.fstat(stream.fileno()), os.fstat(terminal.fileno())
+        fd = stream if isinstance(stream, int) else stream.fileno()
+        return os.isatty(fd) and os.path.samestat(
+            os.fstat(fd), os.fstat(terminal.fileno())
         )
     except (AttributeError, OSError, ValueError):
         return False
+
+
+def terminal_bound(stream: Any, inherited_fd: int) -> bool:
+    """Whether a child process given ``stream`` (as passed to subprocess.Popen;
+    None inherits ``inherited_fd``) would write straight to the terminal the
+    display is on, where its output would overwrite the line."""
+    status = _active
+    if status is None or (isinstance(stream, int) and stream < 0):
+        return False  # PIPE, DEVNULL and STDOUT
+    return _same_terminal(inherited_fd if stream is None else stream, status.stream)
 
 
 @contextlib.contextmanager

@@ -1,18 +1,21 @@
 """The per-command tools and runtime classes that help publishes stay true to the code."""
 
 import json
+import re
 
 import pytest
 
 from tests.dependency_scan import scan, tool_vocabulary
 from wgsextract_cli.cli import help as cli_help
 from wgsextract_cli.cli import parser
+from wgsextract_cli.cli.dispatch import checks_alignment_input
 from wgsextract_cli.commands._command_needs import (
     COMMAND_NEEDS,
     HOURS,
     RUNTIME_LIMITS,
     RUNTIMES,
 )
+from wgsextract_cli.commands._help_catalog import COMMAND_HELP
 from wgsextract_cli.core.warnings import EXPECTED_TIME
 from wgsextract_cli.main import main
 
@@ -39,23 +42,37 @@ def test_every_runnable_command_declares_its_needs(entries):
         assert not set(needs.tools) & set(needs.optional), path
 
 
-def test_declared_tools_are_those_the_command_checks(scans):
-    """Every tool a handler checks for is declared, and nothing else.
+def _preflight(path: str) -> set[str]:
+    """samtools, when the documented examples give the BAM/CRAM ``--input``
+    that the CLI checks with ``samtools quickcheck`` before the handler runs."""
+    examples = " ".join(COMMAND_HELP[path].examples)
+    alignment = re.search(r"(--input|-i) \S+\.(bam|cram)\b", examples)
+    return {"samtools"} if alignment and checks_alignment_input(path) else set()
 
-    Tools only probed for (used when installed) may be declared optional.
+
+def test_declared_tools_are_those_the_command_uses(scans):
+    """The published tools match what the command's code reaches.
+
+    ``tools`` are those every documented run checks for; ``optional`` are those
+    only some options or inputs check, probe for or run. Every tool the code
+    checks, probes or runs is declared one way or the other, and a declared
+    optional tool must at least be named in the code (an option's choices).
     """
     wrong = {}
     for path, found in scans.items():
         needs = COMMAND_NEEDS[path]
-        declared = set(needs.tools) | set(needs.optional)
-        if (set(needs.tools) | (declared & found.checked)) != found.checked or not (
-            declared <= found.checked | found.probed
+        tools, declared = set(needs.tools), {*needs.tools, *needs.optional}
+        preflight = _preflight(path)
+        reached = found.checked | found.optional | preflight
+        if not (
+            preflight <= tools <= found.checked | preflight
+            and reached <= declared <= reached | found.mentioned
         ):
             wrong[path] = {
                 "declared": sorted(needs.tools),
                 "optional": sorted(needs.optional),
-                "checked": sorted(found.checked),
-                "probed": sorted(found.probed),
+                "checked": sorted(found.checked | preflight),
+                "reached": sorted(reached),
             }
     assert wrong == {}
 

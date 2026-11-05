@@ -19,7 +19,11 @@ from typing import Any
 from wgsextract_cli.core import tool_catalog
 
 CHECKS = {"verify_dependencies", "env_tool", "pixi_env_tool", "require_native_tool"}
-PROBES = {"get_tool_path"}
+PROBES = {"get_tool_path", "which"}
+# Calls that start a program: a tool named in their argv is one the command runs.
+RUNNERS = {"run_command", "run_pipeline", "popen", "Popen", "run", "check_output"}
+# Tools the code looks up itself rather than through the tool catalog.
+EXTRA_TOOLS = ("docker", "ssh-keygen")
 
 
 def tool_vocabulary() -> dict[str, str]:
@@ -32,7 +36,7 @@ def tool_vocabulary() -> dict[str, str]:
         *tool_catalog.MANDATORY_TOOLS,
         *tool_catalog.OPTIONAL_TOOLS,
         *tool_catalog.PIXI_TOOL_ENVS,
-        "docker",
+        *EXTRA_TOOLS,
     ]
     vocab = {name: name for name in names}
     for name, env in tool_catalog.PIXI_TOOL_ENVS.items():
@@ -43,8 +47,17 @@ def tool_vocabulary() -> dict[str, str]:
 
 @dataclass
 class Scan:
+    """Tools a handler can reach, by how it reaches them.
+
+    ``checked``: required by a dependency check on every run. ``optional``:
+    checked only as an option's default (``args.aligner or "bwa"``), probed
+    for, or run without a check. ``mentioned``: any tool name in the reachable
+    code, such as the alternatives an option compares against.
+    """
+
     checked: set[str] = field(default_factory=set)
-    probed: set[str] = field(default_factory=set)
+    optional: set[str] = field(default_factory=set)
+    mentioned: set[str] = field(default_factory=set)
     warning_keys: set[str] = field(default_factory=set)
 
 
@@ -78,10 +91,33 @@ def _definition(func: Callable[..., Any]) -> ast.AST | None:
     return None
 
 
-def _strings(expr: ast.AST, func: types.FunctionType, body: ast.AST, depth=0):
-    """String values an expression can take: literals, globals, local assignments."""
+def _defaults(expr: ast.AST) -> set[str]:
+    """Literals that are only a fallback: the ``"bwa"`` of ``args.aligner or "bwa"``."""
+    return {
+        value.value
+        for node in ast.walk(expr)
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or)
+        for value in node.values[1:]
+        if isinstance(value, ast.Constant) and isinstance(value.value, str)
+        and not isinstance(node.values[0], ast.Constant)
+    }  # fmt: skip
+
+
+def _strings(
+    expr: ast.AST,
+    func: types.FunctionType,
+    body: ast.AST,
+    depth: int = 0,
+    defaults: set[str] | None = None,
+) -> set[str]:
+    """String values an expression can take: literals, globals, local assignments.
+
+    Fallback literals (see ``_defaults``) are added to ``defaults`` too.
+    """
     found: set[str] = set()
     scope = func.__globals__
+    if defaults is not None:
+        defaults |= _defaults(expr)
     for node in ast.walk(expr):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             found.add(node.value)
@@ -97,7 +133,7 @@ def _strings(expr: ast.AST, func: types.FunctionType, body: ast.AST, depth=0):
                         isinstance(t, ast.Name) and t.id == node.id
                         for t in assign.targets
                     ):
-                        found |= _strings(assign.value, func, body, depth + 1)
+                        found |= _strings(assign.value, func, body, depth + 1, defaults)
     return found
 
 
@@ -115,14 +151,18 @@ def _forwarded_param(func: types.FunctionType) -> int | None:
         return None
     params = _params(definition)
     for node in ast.walk(definition):
-        if (
+        if not (
             isinstance(node, ast.Call)
             and _call_name(node) == "verify_dependencies"
             and node.args
-            and isinstance(node.args[0], ast.Name)
-            and node.args[0].id in params
         ):
-            return params.index(node.args[0].id)
+            continue
+        # verify_dependencies(tools) or verify_dependencies([tool])
+        arg = node.args[0]
+        names = arg.elts if isinstance(arg, (ast.List, ast.Tuple)) else [arg]
+        for name in names:
+            if isinstance(name, ast.Name) and name.id in params:
+                return params.index(name.id)
     return None
 
 
@@ -135,9 +175,16 @@ def _argument(node: ast.Call, target: types.FunctionType, index: int):
 
 
 def scan(handler: Callable[..., Any]) -> Scan:
-    """Tools ``handler`` checks for (or probes), in user-facing names."""
+    """Tools ``handler`` can use, in user-facing names (see ``Scan``)."""
     result = Scan()
     raw = Scan()
+
+    def check(expr: ast.AST, func: types.FunctionType, body: ast.AST) -> None:
+        defaults: set[str] = set()
+        found = _strings(expr, func, body, 0, defaults)
+        raw.checked |= found - defaults
+        raw.optional |= defaults
+
     seen: set[types.FunctionType] = set()
     queue: list[Any] = [handler]
     while queue:
@@ -160,14 +207,16 @@ def scan(handler: Callable[..., Any]) -> Scan:
             continue
         scope = func.__globals__
         for node in ast.walk(body):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                raw.mentioned.add(node.value)
             if not isinstance(node, ast.Call):
                 continue
             name = _call_name(node)
             if node.args:
                 if name in CHECKS:
-                    raw.checked |= _strings(node.args[0], func, body)
-                elif name in PROBES:
-                    raw.probed |= _strings(node.args[0], func, body)
+                    check(node.args[0], func, body)
+                elif name in PROBES | RUNNERS:
+                    raw.optional |= _strings(node.args[0], func, body)
                 elif name == "print_warning":
                     raw.warning_keys |= _strings(node.args[0], func, body)
             target = _resolve(node.func, scope)
@@ -177,13 +226,18 @@ def scan(handler: Callable[..., Any]) -> Scan:
                 if index is not None:
                     expr = _argument(node, target, index)
                     if expr is not None:
-                        raw.checked |= _strings(expr, func, body)
+                        check(expr, func, body)
             for arg in node.args:
                 callback = _resolve(arg, scope)
                 if isinstance(callback, types.FunctionType):
                     queue.append(callback)
     vocab = tool_vocabulary()
-    result.checked = {vocab[t] for t in raw.checked if t in vocab}
-    result.probed = {vocab[t] for t in raw.probed if t in vocab} - result.checked
+
+    def names(raw_names: set[str]) -> set[str]:
+        return {vocab[t] for t in raw_names if t in vocab}
+
+    result.checked = names(raw.checked)
+    result.optional = names(raw.optional) - result.checked
+    result.mentioned = names(raw.mentioned)
     result.warning_keys = raw.warning_keys
     return result

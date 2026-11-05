@@ -18,6 +18,7 @@ from pathlib import Path
 from tests.htslib_helpers import needs_htslib
 from tests.smoke_utils import state_directory_setting
 from tests.test_microarray_library import MARKERS, _library, _sample_bam
+from wgsextract_cli.core.dependencies import get_tool_path
 
 pytestmark = needs_htslib
 
@@ -68,7 +69,7 @@ def test_an_agent_gets_from_top_level_help_to_a_23andme_file(tmp_path: Path):
         c for c in index["commands"] if "23andme" in (c["outputs"] or "").lower()
     )
     assert command["runtime"] in {"seconds", "minutes"}
-    assert all(shutil.which(tool) for tool in command["tools"])
+    assert all(get_tool_path(tool) for tool in command["tools"])
 
     # 3. Its own help gives an example to adapt.
     detail = json.loads(_cli("help", *command["path"].split(), "--json").stdout)
