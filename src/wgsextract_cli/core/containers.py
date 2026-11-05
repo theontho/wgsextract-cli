@@ -69,14 +69,16 @@ def run_container(
     temporary_directory: str | None = None,
     local_only: bool = False,
     oom_error: str | None = None,
-) -> None:
+    capture_output: bool = False,
+) -> subprocess.CompletedProcess[str]:
     """Run ``command`` in ``image``. ``paths`` are the files and directories it
     reads or writes, and ``command`` names them by host_path; their directories
     are mounted at the same paths in the container.
 
     With ``oom_error``, an out-of-memory kill of any process in the container
     stops it and raises that message, for tools such as DeepVariant whose
-    worker pools wait forever on a killed worker."""
+    worker pools wait forever on a killed worker. ``capture_output`` returns
+    its output instead of showing it."""
     mounts = sorted(
         {host_path(p) if Path(p).is_dir() else str(Path(host_path(p)).parent)
          for p in paths if p}
@@ -97,12 +99,16 @@ def run_container(
     for mount in mounts:
         cmd += ["-v", f"{mount}:{mount}"]
     if oom_error is None:
-        run_command([*cmd, "-w", mounts[0], image, *command])
-        return
+        return run_command(
+            [*cmd, "-w", mounts[0], image, *command], capture_output=capture_output
+        )
     name = f"wgsextract-{uuid.uuid4().hex[:12]}"
     with _oom_watch(cmd[0], name) as oom_killed:
         try:
-            run_command([*cmd, "--name", name, "-w", mounts[0], image, *command])
+            return run_command(
+                [*cmd, "--name", name, "-w", mounts[0], image, *command],
+                capture_output=capture_output,
+            )
         except subprocess.CalledProcessError as error:
             if oom_killed.wait(OOM_EVENT_GRACE):
                 raise WGSExtractError(oom_error) from error

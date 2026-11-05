@@ -56,7 +56,8 @@ class ResumePolicy:
     def forced(self, step: str) -> str | None:
         if self.restart:
             return "--force reruns every step"
-        if step in self.force_steps:
+        # A step repeated per file ("annotate:sample") is forced by its family.
+        if step in self.force_steps or step.split(":", 1)[0] in self.force_steps:
             return "--force-step"
         return None
 
@@ -314,7 +315,8 @@ class StepJournal:
         except ValueError:
             return str(resolved)
 
-    def _resolve(self, stored: str) -> Path:
+    def resolve(self, stored: str) -> Path:
+        """The absolute path of a recorded input or output's ``path``."""
         path = Path(stored)
         return path if path.is_absolute() else self.path.parent / path
 
@@ -324,7 +326,7 @@ class StepJournal:
             if record.get("status") != "complete":
                 continue
             for output in record.get("outputs") or []:
-                if self._resolve(output["path"]) == path:
+                if self.resolve(output["path"]) == path:
                     return name
         return None
 
@@ -447,13 +449,15 @@ class StepJournal:
             if role in inputs or old.get("declared", True):
                 continue
             path = Path(old["path"])
+            if old.get("kind") == "directory" and path.is_dir():
+                continue
             if not path.is_file() or _fingerprint(path) != old.get("fingerprint"):
                 return f"its {role} {path} changed"
         return None
 
     def _stale_output(self, step: Step, record: Mapping[str, Any]) -> str | None:
         outputs = {
-            str(self._resolve(item["path"])): item
+            str(self.resolve(item["path"])): item
             for item in record.get("outputs") or []
         }
         for path in step.outputs:
@@ -539,14 +543,16 @@ class StepJournal:
 
     def _complete(self, decision: Decision, handle: StepRun, seconds: float) -> None:
         step = decision.step
-        outputs: list[dict[str, Any]] = []
+        extras: dict[Path, dict[str, Any]] = {}
         for path, extra in [(p, {}) for p in step.outputs] + handle.outputs:
-            resolved = absolute_path(path)
+            extras.setdefault(absolute_path(path), {}).update(extra)
+        outputs: list[dict[str, Any]] = []
+        for resolved, extra in extras.items():
             if not resolved.exists():
                 raise WGSExtractError(
                     f"Step {step.name} finished without writing {resolved}."
                 )
-            item: dict[str, Any] = {"path": self._stored_path(resolved), **extra}
+            item: dict[str, Any] = {**extra, "path": self._stored_path(resolved)}
             if resolved.is_dir():
                 item["kind"] = "directory"
             else:
@@ -578,15 +584,16 @@ class StepJournal:
         self._save()
         logging.info(f"Step {step.name} complete in {seconds:.0f} s.")
 
-    def retire(self, step: str, paths: Sequence[PathInput]) -> None:
-        """Note that ``step``'s outputs ``paths`` were deleted on purpose
-        after use, so later steps can still vouch for what they read."""
+    def retire(self, step: str, paths: Sequence[PathInput] | None = None) -> None:
+        """Note that ``step``'s outputs ``paths`` (default: all of them) were
+        deleted on purpose after use, so later steps can still vouch for what
+        they read."""
         record = self._steps.get(step)
         if not record or self.dry_run:
             return
-        wanted = {str(absolute_path(p)) for p in paths}
+        wanted = None if paths is None else {str(absolute_path(p)) for p in paths}
         for output in record.get("outputs") or []:
-            if str(self._resolve(output["path"])) in wanted:
+            if wanted is None or str(self.resolve(output["path"])) in wanted:
                 output["retired"] = True
         self._save()
 

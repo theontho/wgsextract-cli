@@ -5,6 +5,7 @@ from wgsextract_cli.api.vcf import VcfIndelParams, VcfSnpParams
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.genotype_qc import add_depth_argument
 from wgsextract_cli.core.messages import CLI_HELP
+from wgsextract_cli.core.steps import add_resume_arguments
 from wgsextract_cli.core.table_writer import add_format_argument
 from wgsextract_cli.core.variant_confidence import add_confidence_arguments
 
@@ -26,6 +27,9 @@ from .clinvar_revel import (
     cmd_revel,
 )
 from .consensus import HAPLOTYPE_OPTIONS, cmd_to_fasta
+from .deepvariant import (
+    STEPS as DEEPVARIANT_STEPS,
+)
 from .deepvariant import (
     cmd_deepvariant,
 )
@@ -408,6 +412,7 @@ def register(
         help="Call on an NVIDIA GPU with Parabricks (Linux, Docker; see README).",
     )
     add_depth_argument(deepvariant_parser)
+    add_resume_arguments(deepvariant_parser, DEEPVARIANT_STEPS)
     deepvariant_parser.set_defaults(func=cmd_deepvariant)
 
     clair3_parser = vcf_subs.add_parser(
