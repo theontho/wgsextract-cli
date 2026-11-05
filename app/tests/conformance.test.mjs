@@ -176,7 +176,7 @@ test("WGSExtract exposes genome library controls in TypeScript", async () => {
 
   const installStep = bundle.manifest.setup.steps.find((step) => step.id === "install-wgsextract");
   assert.equal(installStep.toolName, "WGS Extract CLI");
-  assert.equal(installStep.toolVersion, "v0.6.5");
+  assert.equal(installStep.toolVersion, "v0.6.6");
   assert.equal(installStep.toolVersionFile, "scripts/wgsextract-release-tag.txt");
   assert.equal(bundle.manifest.setup.initialInstallSizeGB, 6);
 

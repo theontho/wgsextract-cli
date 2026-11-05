@@ -1,7 +1,7 @@
 {
   "id": "wgs-extract",
   // Keep this bundle version in sync with scripts/wgsextract-release-tag.txt so installer names match the bundled WGSExtract CLI release.
-  "version": "0.6.5",
+  "version": "0.6.6",
   "displayName": "bundle.displayName",
   "summary": "bundle.summary",
   "iconName": "fasta",
