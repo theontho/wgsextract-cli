@@ -1,5 +1,483 @@
 {
  "commands": {
+  "align": {
+   "help": "usage: wgsextract align [-h] [--r1 R1] [--r2 R2]\n                        [--platform {illumina,dnbseq,ultima,pacbio,hifi,clr,ont,nanopore}]\n                        [--aligner {auto,bwa,bwa-mem2,minimap2,pbmm2}] [--sample SAMPLE]\n                        [--format {BAM,CRAM}] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --r1 R1               Read 1 FASTQ file\n  --r2 R2               Read 2 FASTQ file (optional)\n  --platform {illumina,dnbseq,ultima,pacbio,hifi,clr,ont,nanopore}\n                        Sequencing platform; selects platform-specific alignment tooling (default:\n                        detected from read groups or read names, else illumina).\n  --aligner {auto,bwa,bwa-mem2,minimap2,pbmm2}\n                        Aligner to use. Auto uses bwa-mem2 for short reads when the reference has\n                        its index (see `ref index`), else bwa; for long reads pbmm2 for PacBio\n                        when installed, otherwise minimap2.\n  --sample SAMPLE       Sample name for the read group (default: the reads' file name).\n  --format {BAM,CRAM}   Output format\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n3 advanced options not shown; 'wgsextract align --help-all' lists them.\n\nexamples:\n  wgsextract align --r1 sample_R1.fastq.gz --r2 sample_R2.fastq.gz --ref hs38.fa\n  wgsextract align --r1 hifi_reads.fastq.gz --preset map-hifi --ref hs38.fa\n\noutputs (in the output directory unless noted):\n  <reads stem>_aligned.bam or .cram (+ index).\n\nneeds:\n  samtools; depending on options and inputs, also: bcftools, bwa, bwa-mem2,\n  curl, gatk, minimap2, pbmm2, sambamba, samblaster; hours on a 30x genome.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "r1",
+      "exclusive_group": null,
+      "help": "Read 1 FASTQ file",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--r1"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "r2",
+      "exclusive_group": null,
+      "help": "Read 2 FASTQ file (optional)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--r2"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "sr",
+       "map-pb",
+       "map-hifi",
+       "map-ont",
+       "ccs",
+       "subread"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "preset",
+      "exclusive_group": null,
+      "help": "minimap2 preset for non-BWA alignment. Defaults to map-hifi for PacBio and map-ont for ONT.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--preset"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "illumina",
+       "dnbseq",
+       "ultima",
+       "pacbio",
+       "hifi",
+       "clr",
+       "ont",
+       "nanopore"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "platform",
+      "exclusive_group": null,
+      "help": "Sequencing platform; selects platform-specific alignment tooling (default: detected from read groups or read names, else illumina).",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--platform"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "auto",
+       "bwa",
+       "bwa-mem2",
+       "minimap2",
+       "pbmm2"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": "auto",
+      "dest": "aligner",
+      "exclusive_group": null,
+      "help": "Aligner to use. Auto uses bwa-mem2 for short reads when the reference has its index (see `ref index`), else bwa; for long reads pbmm2 for PacBio when installed, otherwise minimap2.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--aligner"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "gpu",
+      "exclusive_group": null,
+      "help": "Align on an NVIDIA GPU with Parabricks: BWA-MEM for short reads, minimap2 for HiFi (Linux, Docker; see README). ONT requires CPU alignment to retain MM/ML methylation tags.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--gpu"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "sample",
+      "exclusive_group": null,
+      "help": "Sample name for the read group (default: the reads' file name).",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--sample"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "long_read",
+      "exclusive_group": null,
+      "help": "Use minimap2 for long-read alignment",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--long-read"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "BAM",
+       "CRAM"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": "BAM",
+      "dest": "format",
+      "exclusive_group": null,
+      "help": "Output format",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--format"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "align",
+     "func": "run"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract align"
+   }
+  },
   "bam": {
    "help": "usage: wgsextract bam [-h] <command> ...\n\npositional arguments:\n  <command>\n    sort      Sort alignments by genomic coordinates. Required by almost all downstream tools\n              (like variant callers) to function correctly.\n    index     Create a random-access index (.bai/.crai) for your file. This allows tools to jump\n              to specific regions instantly without reading the whole file.\n    unindex   Remove the index file associated with your BAM/CRAM. Use this to force a re-indexing\n              or to clean up workspace.\n    unsort    Mark the file as 'unsorted' in the header. Rarely needed, but useful if a tool\n              requires a specific header state for processing.\n    to-cram   Convert BAM to the modern CRAM format. Highly recommended for long-term storage as\n              it is ~30-50% smaller than BAM without losing data.\n    to-bam    Convert a CRAM file back to the traditional BAM format. Useful if you need to use an\n              older tool that doesn't support CRAM.\n    unalign   Extract raw reads from a BAM/CRAM back into FASTQ format. Use this if you want to\n              re-align your data to a different reference genome.\n    identify  Analyze your BAM header to determine exactly which reference genome was used for the\n              original alignment.\n    merge     Merge several coordinate-sorted BAM/CRAM files (e.g. per-lane files) aligned to the\n              same reference into one indexed file.\n    to-ubam   Convert an aligned BAM/CRAM or FASTQ reads into a queryname-sorted unaligned BAM\n              (uBAM) for GATK pipelines.\n\noptions:\n  -h, --help  show this help message and exit\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n",
    "parser": {
@@ -12837,6 +13315,601 @@
     "prog": "wgsextract qc vcf"
    }
   },
+  "realign": {
+   "help": "usage: wgsextract realign [-h] [--r1 R1] [--r2 R2] [--aligner {auto,bwa,bwa-mem2,minimap2,pbmm2}]\n                          [--platform {illumina,dnbseq,ultima,pacbio,hifi,clr,ont,nanopore}]\n                          [--sample SAMPLE] [--format {BAM,CRAM}] [--force] [--force-step STEP]\n                          [--dry-run] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --r1 R1               Read 1 FASTQ file\n  --r2 R2               Read 2 FASTQ file (optional)\n  --aligner {auto,bwa,bwa-mem2,minimap2,pbmm2}\n                        Aligner to use (matches the 'align' command).\n  --platform {illumina,dnbseq,ultima,pacbio,hifi,clr,ont,nanopore}\n                        Sequencing platform (default: detected from read groups or read names,\n                        else illumina).\n  --sample SAMPLE       Sample name to embed in read-group metadata.\n  --format {BAM,CRAM}   Output format.\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nresuming:\n  Completed steps are recorded in <output>.steps.json and skipped when a rerun's inputs,\n  settings and tools are unchanged.\n\n  --force, --no-resume  Rerun every step, ignoring the steps an earlier run completed.\n  --force-step STEP     Rerun STEP and the steps that use its outputs (repeatable). Steps:\n                        extract, align, index.\n  --dry-run             Print which steps would run or be skipped, and why, then exit.\n\n7 advanced options not shown; 'wgsextract realign --help-all' lists them.\n\nexamples:\n  wgsextract realign --input sample_hg19.bam --ref hs38.fa\n  wgsextract realign --input sample_hg19.bam --ref hs38.fa --dry-run\n\noutputs (in the output directory unless noted):\n  <input stem>_aligned.bam or .cram (+ index); with --keep-fastq, also <input\n  stem>_R1/_R2.fastq.gz. Completed steps are recorded in <output>.steps.json,\n  so a rerun resumes after a crash.\n\nneeds:\n  samtools; depending on options and inputs, also: bcftools, bwa, bwa-mem2,\n  curl, gatk, minimap2, pbmm2, sambamba, samblaster; hours on a 30x genome.\n",
+   "parser": {
+    "actions": [
+     {
+      "choices": null,
+      "class": "_HelpAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help",
+      "exclusive_group": null,
+      "help": "show this help message and exit",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "-h",
+       "--help"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "input",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input",
+       "-i"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "outdir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--outdir",
+       "-o"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "genome",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--genome"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "ref",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "threads",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "N|auto",
+      "nargs": null,
+      "option_strings": [
+       "--threads",
+       "-t"
+      ],
+      "required": false,
+      "type": "_thread_count_arg"
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "memory",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--memory",
+       "-m"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "tmp_dir",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "DIRECTORY",
+      "nargs": null,
+      "option_strings": [
+       "--tmp-dir"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "json",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--json"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "quiet",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--quiet"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStoreTrue",
+      "const": true,
+      "default": "==SUPPRESS==",
+      "dest": "debug",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--debug"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "log_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--log-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "keep_awake",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-awake",
+       "--no-keep-awake"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalBoolean",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "atomic_output",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--atomic-output",
+       "--no-atomic-output"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "config_path",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "FILE",
+      "nargs": null,
+      "option_strings": [
+       "--config"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "_result_file",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": "PATH",
+      "nargs": null,
+      "option_strings": [
+       "--result-file"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_GlobalStore",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "parent_pid",
+      "exclusive_group": null,
+      "help": "==SUPPRESS==",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--parent-pid"
+      ],
+      "required": false,
+      "type": "int"
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "r1",
+      "exclusive_group": null,
+      "help": "Read 1 FASTQ file",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--r1"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "r2",
+      "exclusive_group": null,
+      "help": "Read 2 FASTQ file (optional)",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--r2"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "auto",
+       "bwa",
+       "bwa-mem2",
+       "minimap2",
+       "pbmm2"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": "auto",
+      "dest": "aligner",
+      "exclusive_group": null,
+      "help": "Aligner to use (matches the 'align' command).",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--aligner"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "gpu",
+      "exclusive_group": null,
+      "help": "Align on an NVIDIA GPU with Parabricks: BWA-MEM for short reads, minimap2 for HiFi (Linux, Docker; see README). ONT requires CPU alignment to retain MM/ML methylation tags.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--gpu"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "illumina",
+       "dnbseq",
+       "ultima",
+       "pacbio",
+       "hifi",
+       "clr",
+       "ont",
+       "nanopore"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "platform",
+      "exclusive_group": null,
+      "help": "Sequencing platform (default: detected from read groups or read names, else illumina).",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--platform"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "sr",
+       "map-pb",
+       "map-hifi",
+       "map-ont",
+       "ccs",
+       "subread"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "preset",
+      "exclusive_group": null,
+      "help": "minimap2/pbmm2 preset.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--preset"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "input_ref",
+      "exclusive_group": null,
+      "help": "Reference FASTA the input CRAM was encoded with (default: --ref when its sequence names, lengths and MD5s match the CRAM, else the FASTA in the reference library whose sequence dictionary matches). --ref is the reference to realign to.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--input-ref"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreAction",
+      "const": null,
+      "default": null,
+      "dest": "sample",
+      "exclusive_group": null,
+      "help": "Sample name to embed in read-group metadata.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--sample"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "long_read",
+      "exclusive_group": null,
+      "help": "Treat input as long-read data (PacBio/ONT).",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--long-read"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "BAM",
+       "CRAM"
+      ],
+      "class": "_StoreAction",
+      "const": null,
+      "default": "BAM",
+      "dest": "format",
+      "exclusive_group": null,
+      "help": "Output format.",
+      "metavar": null,
+      "nargs": null,
+      "option_strings": [
+       "--format"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "keep_fastq",
+      "exclusive_group": null,
+      "help": "Keep the FASTQs extracted from --input after alignment (default: delete them). FASTQs passed with --r1/--r2 or reused from an earlier extraction are never deleted.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--keep-fastq"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "force_extract",
+      "exclusive_group": null,
+      "help": "Re-extract FASTQs even if a matching pair already exists next to the BAM.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--force-extract"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "no_preflight",
+      "exclusive_group": null,
+      "help": "Skip the up-front disk space check (not recommended).",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--no-preflight"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "restart",
+      "exclusive_group": null,
+      "help": "Rerun every step, ignoring the steps an earlier run completed.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--force",
+       "--no-resume"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": [
+       "extract",
+       "align",
+       "index"
+      ],
+      "class": "_AppendAction",
+      "const": null,
+      "default": null,
+      "dest": "force_steps",
+      "exclusive_group": null,
+      "help": "Rerun STEP and the steps that use its outputs (repeatable). Steps: extract, align, index.",
+      "metavar": "STEP",
+      "nargs": null,
+      "option_strings": [
+       "--force-step"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_StoreTrueAction",
+      "const": true,
+      "default": false,
+      "dest": "dry_run",
+      "exclusive_group": null,
+      "help": "Print which steps would run or be skipped, and why, then exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--dry-run"
+      ],
+      "required": false,
+      "type": null
+     },
+     {
+      "choices": null,
+      "class": "_HelpAllAction",
+      "const": null,
+      "default": "==SUPPRESS==",
+      "dest": "help_all",
+      "exclusive_group": null,
+      "help": "Show this help with the advanced options too, and exit.",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--help-all"
+      ],
+      "required": false,
+      "type": null
+     }
+    ],
+    "defaults": {
+     "_command": "realign",
+     "func": "run"
+    },
+    "description": null,
+    "formatter_class": "HelpFormatter",
+    "prog": "wgsextract realign"
+   }
+  },
   "report": {
    "help": "usage: wgsextract report [-h] [--workspace DIR] [--results DIR] [--format {tsv,parquet}]\n\nSummarise a sample's results (overview, QC, lineage, pharmacogenomics, ClinVar pathogenic calls in\nACMG SF genes, microarray files) as a local HTML, Markdown and JSON report with confidence-\nlabelled findings. Reads earlier runs' result manifests; runs no analysis and makes no network\ncalls. Technical results, not diagnosis.\n\noptions:\n  -h, --help            show this help message and exit\n  --workspace DIR       Sample folder whose results are reported (default: the --genome folder,\n                        else the --input's folder).\n  --results DIR         Also read result manifests from this folder (repeatable); only runs on\n                        this sample's files are used. The --outdir is always read.\n  --format {tsv,parquet}\n                        Format of the findings table, <sample>_personal_report_findings.tsv or\n                        .parquet (needs pyarrow) (default: tsv)\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract report --genome HG002\n  wgsextract report --input sample.cram\n  wgsextract report --workspace HG002 --results ~/wgs-out/HG002 --format parquet\n\noutputs (in the output directory unless noted):\n  <sample>_personal_report.html, .md and .json and\n  <sample>_personal_report_findings.tsv (or .parquet with --format parquet) in\n  the sample folder (or --outdir); evidence links are relative to the sample\n  folder.\n\nneeds:\n  no external tools; seconds from existing results.\n",
    "parser": {
@@ -14011,6 +15084,114 @@
    "threads": 4,
    "tmp_dir": null,
    "vcf_cmd": "snp"
+  },
+  "align --r1 a.fq --aligner bwa-mem2 --gpu --format CRAM": {
+   "_command": "align",
+   "_explicit_dests": [
+    "aligner",
+    "format",
+    "gpu",
+    "r1"
+   ],
+   "aligner": "bwa-mem2",
+   "atomic_output": false,
+   "command": "align",
+   "debug": false,
+   "format": "CRAM",
+   "full_help": false,
+   "func": "run",
+   "genome": null,
+   "gpu": true,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "long_read": false,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "platform": null,
+   "preset": null,
+   "quiet": false,
+   "r1": "a.fq",
+   "r2": null,
+   "ref": null,
+   "sample": null,
+   "threads": null,
+   "tmp_dir": null
+  },
+  "align --r1 a.fq --platform ont --preset map-ont --long-read": {
+   "_command": "align",
+   "_explicit_dests": [
+    "long_read",
+    "platform",
+    "preset",
+    "r1"
+   ],
+   "aligner": "auto",
+   "atomic_output": false,
+   "command": "align",
+   "debug": false,
+   "format": "BAM",
+   "full_help": false,
+   "func": "run",
+   "genome": null,
+   "gpu": false,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "long_read": true,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "platform": "ont",
+   "preset": "map-ont",
+   "quiet": false,
+   "r1": "a.fq",
+   "r2": null,
+   "ref": null,
+   "sample": null,
+   "threads": null,
+   "tmp_dir": null
+  },
+  "align --r1 a.fq --r2 b.fq --ref r.fa --sample S": {
+   "_command": "align",
+   "_explicit_dests": [
+    "r1",
+    "r2",
+    "ref",
+    "sample"
+   ],
+   "aligner": "auto",
+   "atomic_output": false,
+   "command": "align",
+   "debug": false,
+   "format": "BAM",
+   "full_help": false,
+   "func": "run",
+   "genome": null,
+   "gpu": false,
+   "input": null,
+   "json": false,
+   "keep_awake": false,
+   "log_dir": null,
+   "log_file": null,
+   "long_read": false,
+   "memory": null,
+   "outdir": null,
+   "parent_pid": null,
+   "platform": null,
+   "preset": null,
+   "quiet": false,
+   "r1": "a.fq",
+   "r2": "b.fq",
+   "ref": "r.fa",
+   "sample": "S",
+   "threads": null,
+   "tmp_dir": null
   },
   "bam identify -i x.cram --ref r.fa": {
    "_command": "bam identify",
@@ -15422,6 +16603,230 @@
    "threads": null,
    "tmp_dir": null,
    "vcf_input": null
+  },
+  "realign -i x.bam --force --force-step align --dry-run": {
+   "_command": "realign",
+   "_explicit_dests": [
+    "dry_run",
+    "force_steps",
+    "input",
+    "restart"
+   ],
+   "aligner": "auto",
+   "atomic_output": false,
+   "command": "realign",
+   "debug": false,
+   "dry_run": true,
+   "force_extract": false,
+   "force_steps": [
+    "align"
+   ],
+   "format": "BAM",
+   "full_help": false,
+   "func": "run",
+   "genome": null,
+   "gpu": false,
+   "input": "x.bam",
+   "input_ref": null,
+   "json": false,
+   "keep_awake": false,
+   "keep_fastq": false,
+   "log_dir": null,
+   "log_file": null,
+   "long_read": false,
+   "memory": null,
+   "no_preflight": false,
+   "outdir": null,
+   "parent_pid": null,
+   "platform": null,
+   "preset": null,
+   "quiet": false,
+   "r1": null,
+   "r2": null,
+   "ref": null,
+   "restart": true,
+   "sample": null,
+   "threads": null,
+   "tmp_dir": null
+  },
+  "realign -i x.bam --no-resume --force-step extract --force-step index --no-preflight --gpu --format CRAM --preset sr --long-read": {
+   "_command": "realign",
+   "_explicit_dests": [
+    "force_steps",
+    "format",
+    "gpu",
+    "input",
+    "long_read",
+    "no_preflight",
+    "preset",
+    "restart"
+   ],
+   "aligner": "auto",
+   "atomic_output": false,
+   "command": "realign",
+   "debug": false,
+   "dry_run": false,
+   "force_extract": false,
+   "force_steps": [
+    "extract",
+    "index"
+   ],
+   "format": "CRAM",
+   "full_help": false,
+   "func": "run",
+   "genome": null,
+   "gpu": true,
+   "input": "x.bam",
+   "input_ref": null,
+   "json": false,
+   "keep_awake": false,
+   "keep_fastq": false,
+   "log_dir": null,
+   "log_file": null,
+   "long_read": true,
+   "memory": null,
+   "no_preflight": true,
+   "outdir": null,
+   "parent_pid": null,
+   "platform": null,
+   "preset": "sr",
+   "quiet": false,
+   "r1": null,
+   "r2": null,
+   "ref": null,
+   "restart": true,
+   "sample": null,
+   "threads": null,
+   "tmp_dir": null
+  },
+  "realign -i x.bam --platform ultima --force-extract --sample S": {
+   "_command": "realign",
+   "_explicit_dests": [
+    "force_extract",
+    "input",
+    "platform",
+    "sample"
+   ],
+   "aligner": "auto",
+   "atomic_output": false,
+   "command": "realign",
+   "debug": false,
+   "dry_run": false,
+   "force_extract": true,
+   "force_steps": null,
+   "format": "BAM",
+   "full_help": false,
+   "func": "run",
+   "genome": null,
+   "gpu": false,
+   "input": "x.bam",
+   "input_ref": null,
+   "json": false,
+   "keep_awake": false,
+   "keep_fastq": false,
+   "log_dir": null,
+   "log_file": null,
+   "long_read": false,
+   "memory": null,
+   "no_preflight": false,
+   "outdir": null,
+   "parent_pid": null,
+   "platform": "ultima",
+   "preset": null,
+   "quiet": false,
+   "r1": null,
+   "r2": null,
+   "ref": null,
+   "restart": false,
+   "sample": "S",
+   "threads": null,
+   "tmp_dir": null
+  },
+  "realign -i x.bam --r1 a.fq --r2 b.fq --aligner minimap2": {
+   "_command": "realign",
+   "_explicit_dests": [
+    "aligner",
+    "input",
+    "r1",
+    "r2"
+   ],
+   "aligner": "minimap2",
+   "atomic_output": false,
+   "command": "realign",
+   "debug": false,
+   "dry_run": false,
+   "force_extract": false,
+   "force_steps": null,
+   "format": "BAM",
+   "full_help": false,
+   "func": "run",
+   "genome": null,
+   "gpu": false,
+   "input": "x.bam",
+   "input_ref": null,
+   "json": false,
+   "keep_awake": false,
+   "keep_fastq": false,
+   "log_dir": null,
+   "log_file": null,
+   "long_read": false,
+   "memory": null,
+   "no_preflight": false,
+   "outdir": null,
+   "parent_pid": null,
+   "platform": null,
+   "preset": null,
+   "quiet": false,
+   "r1": "a.fq",
+   "r2": "b.fq",
+   "ref": null,
+   "restart": false,
+   "sample": null,
+   "threads": null,
+   "tmp_dir": null
+  },
+  "realign -i x.cram --input-ref o.fa --ref r.fa --keep-fastq": {
+   "_command": "realign",
+   "_explicit_dests": [
+    "input",
+    "input_ref",
+    "keep_fastq",
+    "ref"
+   ],
+   "aligner": "auto",
+   "atomic_output": false,
+   "command": "realign",
+   "debug": false,
+   "dry_run": false,
+   "force_extract": false,
+   "force_steps": null,
+   "format": "BAM",
+   "full_help": false,
+   "func": "run",
+   "genome": null,
+   "gpu": false,
+   "input": "x.cram",
+   "input_ref": "o.fa",
+   "json": false,
+   "keep_awake": false,
+   "keep_fastq": true,
+   "log_dir": null,
+   "log_file": null,
+   "long_read": false,
+   "memory": null,
+   "no_preflight": false,
+   "outdir": null,
+   "parent_pid": null,
+   "platform": null,
+   "preset": null,
+   "quiet": false,
+   "r1": null,
+   "r2": null,
+   "ref": "r.fa",
+   "restart": false,
+   "sample": null,
+   "threads": null,
+   "tmp_dir": null
   },
   "report --workspace s --results a --results b": {
    "_command": "report",
