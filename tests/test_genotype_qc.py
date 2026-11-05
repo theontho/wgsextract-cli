@@ -1,6 +1,7 @@
 """Low-coverage and imputation warnings: depth from the info cache, CRAM
 container headers or a BAM index, and genotype rates from written kits."""
 
+import json
 import logging
 import random
 import sys
@@ -40,7 +41,7 @@ def sample(tmp_path_factory):
     reads = []
     for contig, n in READS.items():
         for i in range(n):
-            pos = 1 + (i * 13) % (LENGTHS[contig] - 50)
+            pos = 1 + (i * 37) % (LENGTHS[contig] - 50)
             seq = seqs[contig][pos - 1 : pos + 49]
             reads.append(
                 f"r{contig}{i}\t0\t{contig}\t{pos}\t60\t50M\t*\t0\t0\t{seq}\t{'I' * 50}"
@@ -215,3 +216,53 @@ def test_chrY_only_cram_keeps_the_assembly_n_adjustment(tmp_path):
     assert depths == pytest.approx(
         {AUTOSOMES: 0.0, CHR_X: 0.0, CHR_Y: 10.0, MTDNA: 0.0}
     )
+
+
+@pytest.fixture(scope="module")
+def slice_bam(tmp_path_factory):
+    """A 2 Mb chr20 whose reads (20x of 100 bp) cover only 20 kb from 1.2 Mb,
+    as `extract` or a region-limited realign writes."""
+    root = tmp_path_factory.mktemp("slice")
+    rng = random.Random(5)
+    seq = "".join(rng.choice("ACGT") for _ in range(2_000_000))
+    ref = write_fasta(root / "ref.fa", {"chr20": seq})
+    reads = [
+        f"r{i}\t0\tchr20\t{pos}\t60\t100M\t*\t0\t0\t{seq[pos - 1 : pos + 99]}\t"
+        + "I" * 100
+        for i, pos in enumerate(range(1_200_001, 1_219_902, 5))
+    ]
+    bam = sam_to_bam(["@SQ\tSN:chr20\tLN:2000000", *reads], root / "slice.bam")
+    return {"root": root, "ref": str(ref), "bam": bam}
+
+
+@needs_htslib
+def test_issue_430_slice_isnt_called_low_coverage_over_the_whole_contig(
+    slice_bam, caplog
+):
+    # #430: a 20x slice warned "mean autosomes depth of about 0.2x".
+    depths = warn_low_depth(slice_bam["bam"], {AUTOSOMES}, ref=slice_bam["ref"])
+    assert depths is not None and depths[AUTOSOMES] == pytest.approx(20, rel=0.05)
+    assert not _warnings(caplog)
+    assert warn_low_depth(slice_bam["bam"], {AUTOSOMES}, min_depth=25)
+    assert "about 20.0x, below the 25x" in _warnings(caplog)[0]
+
+
+@needs_htslib
+@pytest.mark.parametrize(
+    ("region", "warned"),
+    [("chr20:1200001-1220000", False), ("chr20:1500000-1600000", True)],
+)
+def test_issue_430_vcf_region_is_judged_by_its_own_depth(
+    slice_bam, tmp_path, region, warned
+):
+    # #430: `vcf ... --region` warned about the whole genome's depth.
+    outdir = tmp_path / "out"
+    argv = ["vcf", "snp", "--input", slice_bam["bam"], "--ref", slice_bam["ref"]]
+    argv += ["--region", region, "--ploidy", "2", "--outdir", str(outdir)]
+    main([*argv, "--config", str(tmp_path / "config.toml")])
+    (manifest,) = outdir.glob("*.manifest.json")
+    warnings = json.loads(manifest.read_text())["warnings"]
+    low = [w for w in warnings if w["code"] == "low_coverage"]
+    assert bool(low) is warned
+    if warned:
+        assert low[0]["details"]["depth"] == 0
