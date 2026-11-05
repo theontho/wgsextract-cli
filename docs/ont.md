@@ -24,9 +24,10 @@ retained intermediate use `samtools fastq -T MM,ML,MN` separately.
 
 For CRAM realignment, `--input-ref` supplies the original decoding FASTA for
 both platform detection and extraction; `--ref` selects the alignment target.
-Without `--input-ref`, a CRAM lacking platform read groups resolves its
-original decoding FASTA from the reference library and sequence-dictionary
-signature **before** its read names are probed. A failed CRAM read-name probe
+Without `--input-ref`, a CRAM lacking platform read groups is decoded with
+`--ref` when its sequence dictionary matches the CRAM's (realigning to the build
+it was encoded with), and otherwise with the reference-library FASTA whose
+signature matches, **before** its read names are probed. A failed CRAM read-name probe
 is an error, never a silent fallback to paired short-read extraction.
 The usual realignment disk-space preflight also applies to streamed ONT reads.
 

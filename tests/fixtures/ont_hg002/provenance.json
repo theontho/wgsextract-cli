@@ -1,0 +1,22 @@
+{
+  "sample": "HG002 (GIAB NA24385)",
+  "reads": {
+    "url": "https://ont-open-data.s3.amazonaws.com/giab_2023.05/analysis/hg002/sup/PAO83395.pass.cram",
+    "license": "CC BY 4.0 (Oxford Nanopore Technologies open data)",
+    "basecaller": "dna_r10.4.1_e8.2_400bps_sup@v4.0.0",
+    "selection": "primary alignments overlapping the window, trimmed to their aligned span inside it, reads whose SHA-256 of the name is odd dropped, pieces under 500 bp dropped; MM/ML rewritten for the trimmed sequence, in the sequencing orientation"
+  },
+  "reference": "GRCh38 no-alt analysis set (hs38), chr20:14542001-14554000 as contig chr20",
+  "coordinate_offset": 14542000,
+  "truth": {
+    "small": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/NISTv4.2.1/GRCh38/HG002_GRCh38_1_22_v4.2.1_benchmark.vcf.gz",
+    "sv": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/v5.0q/HG002_GRCh38_v5.0q_stvar.vcf.gz"
+  },
+  "builder": "scripts/ont_hg002_data.py fixture",
+  "sha256": {
+    "reads.fastq.gz": "ac7251ce651c2052d1c4ab6f9264b2d93ef3144989fd64b9f56d7ece6f7aaa7b",
+    "ref.fa": "c0ba81158627a92f14363323c75261e16f9a422df0a82902a044860c24cb40df",
+    "truth_small.vcf": "11df5ba0ac6d8552454ab3b420bbcd44e8d224ec635887ad7eb5d442fe81686c",
+    "truth_sv.vcf": "2ebe33b5d593aeaef18cc18940ac288a3ad331379f5bea6f3b8bf67454fdd3be"
+  }
+}

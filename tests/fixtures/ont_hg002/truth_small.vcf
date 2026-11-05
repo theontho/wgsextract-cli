@@ -1,0 +1,24 @@
+##fileformat=VCFv4.2
+##contig=<ID=chr20,length=12000>
+##INFO=<ID=SVTYPE,Number=1,Type=String,Description="SV type">
+##INFO=<ID=SVLEN,Number=.,Type=Integer,Description="SV length">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	HG002
+chr20	248	.	G	A	.	PASS	.	GT	1/1
+chr20	946	.	AATT	A	.	PASS	.	GT	1/1
+chr20	1323	.	A	G	.	PASS	.	GT	1/1
+chr20	1758	.	G	A	.	PASS	.	GT	1/1
+chr20	1902	.	A	G	.	PASS	.	GT	1/1
+chr20	2095	.	A	C	.	PASS	.	GT	1/1
+chr20	2255	.	G	A	.	PASS	.	GT	1/1
+chr20	2820	.	G	A	.	PASS	.	GT	1/1
+chr20	3418	.	A	C	.	PASS	.	GT	1/1
+chr20	3518	.	A	G	.	PASS	.	GT	1/1
+chr20	5535	.	A	G	.	PASS	.	GT	1/1
+chr20	5597	.	G	C	.	PASS	.	GT	1/1
+chr20	7574	.	C	A	.	PASS	.	GT	1/1
+chr20	8407	.	T	C	.	PASS	.	GT	1/1
+chr20	8880	.	GTT	G	.	PASS	.	GT	1/1
+chr20	9441	.	T	A	.	PASS	.	GT	1/1
+chr20	10811	.	A	G	.	PASS	.	GT	1/1
+chr20	11678	.	T	G	.	PASS	.	GT	1/1

@@ -239,7 +239,7 @@ def test_bam_without_read_group_uses_read_name(tmp_path):
         for command in ("align", "realign")
         for kind in ("bam", "fastq", "cram")
     ]
-    + [("realign", "cram-library")],
+    + [("realign", "cram-library"), ("realign", "cram-target")],
 )
 def test_ont_modification_tags_survive_alignment_and_sort(
     tmp_path, monkeypatch, command, source_kind
@@ -272,7 +272,7 @@ def test_ont_modification_tags_survive_alignment_and_sort(
             )
         )
         reads = str(path)
-    elif source_kind in {"cram", "cram-library"}:
+    elif source_kind in {"cram", "cram-library", "cram-target"}:
         mapped = []
         for i, record in enumerate(records):
             fields = record.split("\t")
@@ -303,6 +303,12 @@ def test_ont_modification_tags_survive_alignment_and_sort(
             (library / "genomes").mkdir(parents=True)
             write_fasta(library / "genomes" / "original.fa", {"chr1": genome})
             monkeypatch.setitem(settings, "reference_library", str(library))
+        elif source_kind == "cram-target":
+            # #299: re-mapping to the encoding build needs no --input-ref.
+            (tmp_path / "empty-library").mkdir()
+            monkeypatch.setitem(
+                settings, "reference_library", str(tmp_path / "empty-library")
+            )
         reads = str(cram)
     out = tmp_path / "result"
     opts = ["--r1", reads] if command == "align" else ["--input", reads]

@@ -217,7 +217,7 @@ def cmd_sv_pbsv(args: argparse.Namespace) -> None:
     if tandem_repeats:
         verify_paths_exist({"--tandem-repeats": tandem_repeats})
 
-    logging.info(LOG_MESSAGES["vcf_calling_sv"].format(output=out_vcf))
+    logging.info(LOG_MESSAGES["vcf_calling_sv"].format(caller="pbsv", output=out_vcf))
     with (
         tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_pbsv_") as work,
         # pbsv call does not accept .fa.gz input.
@@ -281,7 +281,9 @@ def cmd_sv_sniffles(args: argparse.Namespace) -> None:
     if tandem_repeats:
         verify_paths_exist({"--tandem-repeats": tandem_repeats})
 
-    logging.info(LOG_MESSAGES["vcf_calling_sv"].format(output=out_vcf))
+    logging.info(
+        LOG_MESSAGES["vcf_calling_sv"].format(caller="sniffles", output=out_vcf)
+    )
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_sniffles_") as work:
         raw_vcf = str(Path(work, "sniffles.vcf"))
         # --reference is needed to decode CRAM and to emit deletion sequences.
@@ -381,7 +383,7 @@ def cmd_sv(args: argparse.Namespace) -> None:
 
     out_bcf = str(Path(outdir, "sv.bcf"))
     out_vcf = str(Path(outdir, "sv.vcf.gz"))
-    logging.info(LOG_MESSAGES["vcf_calling_sv"].format(output=out_vcf))
+    logging.info(LOG_MESSAGES["vcf_calling_sv"].format(caller="delly", output=out_vcf))
 
     with _region_input_bam(args, outdir, ref, "SV") as input_file:
         try:

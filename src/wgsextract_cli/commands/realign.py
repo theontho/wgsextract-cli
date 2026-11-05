@@ -41,6 +41,7 @@ from wgsextract_cli.core.read_counts import (
     unpaired_sample,
 )
 from wgsextract_cli.core.reference_assets import (
+    fasta_signature,
     find_fasta_by_signature,
     input_stem,
     resolve_reference_library,
@@ -123,9 +124,9 @@ def register(
     )
     parser.add_argument(
         "--input-ref",
-        help="Reference FASTA the input CRAM was encoded with (default: the FASTA "
-        "in the reference library whose sequence dictionary matches the CRAM). "
-        "--ref is the reference to realign to.",
+        help="Reference FASTA the input CRAM was encoded with (default: --ref "
+        "when its sequence dictionary matches the CRAM, else the matching FASTA "
+        "in the reference library). --ref is the reference to realign to.",
     )
     parser.add_argument("--sample", help="Sample name to embed in read-group metadata.")
     parser.add_argument(
@@ -252,12 +253,19 @@ def _input_cram_reference(args: argparse.Namespace) -> list[str]:
         return ["-T", args.input_ref]
     reflib = resolve_reference_library()
     signature = calculate_bam_md5(args.input)
-    fasta = find_fasta_by_signature([reflib, str(Path(reflib, "genomes"))], signature)
+    target = getattr(args, "ref", None)
+    # Re-mapping to the same build (e.g. with a newer aligner) decodes with --ref.
+    if target and Path(target).is_file() and fasta_signature(target) == signature:
+        fasta: str | None = target
+    else:
+        fasta = find_fasta_by_signature(
+            [reflib, str(Path(reflib, "genomes"))], signature
+        )
     if not fasta:
         raise WGSExtractError(
-            f"No FASTA in the reference library ({reflib}) matches the sequence "
-            "dictionary of the input CRAM. Pass the reference it was encoded with "
-            "via --input-ref."
+            f"Neither --ref nor any FASTA in the reference library ({reflib}) "
+            "matches the sequence dictionary of the input CRAM. Pass the "
+            "reference it was encoded with via --input-ref."
         )
     logging.info("Decoding input CRAM with %s", fasta)
     return ["-T", fasta]

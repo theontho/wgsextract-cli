@@ -209,7 +209,7 @@ LOG_MESSAGES = {
     "vcf_stats": "Running bcftools stats on {input} to {output}",
     "vcf_indexing": "Indexing VCF: {path}",
     "vcf_calling_cnv": "Calling CNVs using delly to {output}",
-    "vcf_calling_sv": "Calling SVs using delly to {output}",
+    "vcf_calling_sv": "Calling SVs using {caller} to {output}",
     "vcf_calling_freebayes": "Calling variants using freebayes to {output}",
     "vcf_generating_dict": "GATK .dict file not found. Generating...",
     "vcf_calling_gatk": "Calling variants using GATK HaplotypeCaller to {output}",
