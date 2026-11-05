@@ -9,6 +9,7 @@ import csv
 import io
 import json
 import logging
+import os
 import random
 import sys
 from contextlib import redirect_stdout
@@ -107,6 +108,50 @@ def test_depth_unsampled_without_an_index_is_measured_once_indexed(
     run_command(["samtools", "index", str(bam)])
     table = _info_table(str(bam), long_reads["ref"], tmp_path)
     assert float(table["chrY"]["Map ARD"]) == pytest.approx(2, abs=0.5)
+
+
+def _cache_reused(alignment: str, ref: str, outdir) -> bool:
+    """Whether `info --detailed` reused the cache an earlier run saved,
+    rather than reading the alignment again."""
+    cache = outdir / f"{os.path.basename(alignment)}.wgse_info.json"
+    os.utime(cache, ns=(1, 1))
+    _info_table(alignment, ref, outdir)
+    return cache.stat().st_mtime_ns == 1
+
+
+@needs_htslib
+def test_unaligned_long_reads_detailed_info_is_reused(tmp_path):
+    # #440 review: a basecaller's unaligned BAM has no contigs to sample, so
+    # its depth was never cached and every `info --detailed` reread the file.
+    rng = random.Random(1)
+    qual = "5" * READ
+    records = [
+        f"r{i}\t4\t*\t0\t0\t*\t*\t0\t0\t"
+        f"{''.join(rng.choice('ACGT') for _ in range(READ))}\t{qual}\tRG:Z:ont"
+        for i in range(50)
+    ]
+    sam = tmp_path / "unaligned.sam"
+    sam.write_text("\n".join(["@HD\tVN:1.6", "@RG\tID:ont\tSM:HG002\tPL:ONT"]
+                             + records) + "\n")  # fmt: skip
+    bam = str(tmp_path / "unaligned.bam")
+    run_command(["samtools", "view", "-b", "-o", bam, str(sam)])
+    ref = write_fasta(tmp_path / "ref.fa", {"chr1": "ACGT" * 1000})
+    _info_table(bam, str(ref), tmp_path)
+    assert _cache_reused(bam, str(ref), tmp_path)
+
+
+@needs_htslib
+def test_unindexed_long_reads_detailed_info_is_reused_until_indexed(
+    long_reads, tmp_path
+):
+    # #440 review: without an index the depth can't be sampled, so it was never
+    # cached and every `info --detailed` reread the whole file for idxstats.
+    bam = tmp_path / "noindex.bam"
+    bam.write_bytes(open(long_reads["bam"], "rb").read())
+    _info_table(str(bam), long_reads["ref"], tmp_path)
+    assert _cache_reused(str(bam), long_reads["ref"], tmp_path)
+    run_command(["samtools", "index", str(bam)])
+    assert not _cache_reused(str(bam), long_reads["ref"], tmp_path)
 
 
 @needs_htslib

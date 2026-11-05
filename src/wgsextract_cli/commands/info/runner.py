@@ -31,6 +31,7 @@ from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import is_fasta_path
 from wgsextract_cli.core.reference_models import identify_reference, sequence_lengths
 from wgsextract_cli.core.results import current_result, human_output
+from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.sequencing import platform_from_metadata
 from wgsextract_cli.core.table_writer import (
     Column,
@@ -255,6 +256,7 @@ def _print_fast(data: dict[str, Any], sample: tuple[str, str]) -> None:
 _PRIVATE_KEYS = {
     "chrom_table_csv",
     "contig_bases",
+    "depth_needs_index",
     "input_signature",
     "first_qname",
     "sex_call",
@@ -303,7 +305,7 @@ def _record_facts(data: dict[str, Any], input_file: str, header: str) -> None:
     ard = (data.get("metrics") or {}).get("ard_mapped")
     # Only depths from current bookkeeping: not a cache from before #427, nor
     # long reads whose depth couldn't be sampled.
-    if ard and data.get("contig_bases"):
+    if ard and isinstance(data.get("contig_bases"), dict):
         sample_workspace.record(
             "mean_coverage",
             input_file,
@@ -505,7 +507,7 @@ def _detailed_metrics(
     # to them, rather than every record counted at the mean read length.
     raw_bases = (
         total_bases + total_unmapped * avg_len
-        if mapped_bases
+        if mapped_bases is not None
         else total_reads * avg_len
     )
 
@@ -543,11 +545,11 @@ def _detailed_metrics(
         "sex_inference_version": SEX_INFERENCE_VERSION,
         "refined_ns": bool(n_counts),
         "file_content": ", ".join(k for k, v in content.items() if v),
-        "depth_method": DEPTH_SAMPLED if mapped_bases else DEPTH_COUNTED,
+        "depth_method": DEPTH_SAMPLED if mapped_bases is not None else DEPTH_COUNTED,
         # Marks the depths current; left out when long reads couldn't be
         # sampled, so the next run (or genotype QC) tries again.
         "contig_bases": {row[1]: round(row[8]) for row in chrom_table}
-        if mapped_bases or avg_len <= LONG_READ_MIN_LEN
+        if mapped_bases is not None or avg_len <= LONG_READ_MIN_LEN
         else None,
         "metrics": {
             "ard_mapped": total_row[8] / eff_len,
@@ -563,6 +565,14 @@ def _detailed_metrics(
         },
         "chrom_table_csv": si.getvalue(),
     }
+
+
+def _warn_depth_needs_index(input_file: str) -> None:
+    logging.warning(
+        f"{Path(input_file).name} has no index, so long reads' depth is "
+        "estimated from their records and overstated; index it "
+        "(samtools index) to measure it."
+    )
 
 
 InfoLikeParams = InfoParams | CalculateCoverageParams | CoverageSampleParams
@@ -691,13 +701,24 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
         # The chromosome table hides chrY for a Female, so it is redone along
         # with the sex when the cached call came from an older infer_sex.
         # Likewise a table from before long reads' depth was measured.
+        # Long reads' depth that couldn't be sampled for want of an index is
+        # redone only once the index exists: without one, idxstats reads the
+        # whole file again for the same answer.
         if (
             detailed
             and data.get("chrom_table_csv")
-            and data.get("contig_bases")
+            and (
+                isinstance(data.get("contig_bases"), dict)
+                or (
+                    data.get("depth_needs_index")
+                    and alignment_index(input_file) is None
+                )
+            )
             and data.get("sex_inference_version") == SEX_INFERENCE_VERSION
         ):
             logging.debug("Cache hit for detailed metrics.")
+            if data.get("depth_needs_index"):
+                _warn_depth_needs_index(input_file)
             _print_detailed(data, as_csv, (input_file, header))
             if table_format:
                 _export_tables(data, table_stem, table_format, metadata)
@@ -723,7 +744,17 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
         info_cmd, input_file, resolved_ref, idx_stats, outdir, region
     )
     mapped_bases = None
-    if data.get("avg_read_len", 0) > LONG_READ_MIN_LEN:
+    long_reads = data.get("avg_read_len", 0) > LONG_READ_MIN_LEN
+    # Sampling fetches windows through the index. Unaligned reads need none:
+    # no contig has any, so their depth is measured as zero.
+    data["depth_needs_index"] = (
+        long_reads
+        and alignment_index(input_file) is None
+        and any(s["mapped"] for s in idx_stats)
+    )
+    if data["depth_needs_index"]:
+        _warn_depth_needs_index(input_file)
+    elif long_reads:
         try:
             mapped_bases = sampled_mapped_bases(
                 input_file,
