@@ -225,6 +225,8 @@ if not os.path.isfile(stem.rsplit(".", 1)[0] + ".dict"):
     sys.exit(f"A USER ERROR has occurred: Fasta dict file for {{ref}} does not exist")
 if not os.path.isdir(tmp):
     sys.exit(f"A USER ERROR has occurred: --tmp-dir {{tmp}} does not exist")
+if " " in tmp:
+    sys.exit("htsjdk.tribble.TribbleException: Unable to automatically instantiate codec")
 if alignment.endswith(".cram") and not state["reads_cram"]:
     sys.exit("htsjdk.samtools.cram.CRAMException: CRAM version 3.1 is not supported")
 intervals = open(local("-L")).read().split() if "-L" in opts else []
@@ -260,8 +262,8 @@ sys.exit(mpileup.wait() or call.returncode)
 class FakeGatk:
     """A `gatk` (HaplotypeCaller) in ``bindir`` that calls with bcftools.
 
-    Like GATK it needs the reference's .dict, its --tmp-dir and, when
-    ``windows``, native paths; ``reads_cram=False`` is a GATK that can't read
+    Like GATK 4.6 it needs the reference's .dict, a --tmp-dir without a space
+    and, when ``windows``, native paths; ``reads_cram=False`` is a GATK that can't read
     CRAM 3.1. It calls the -L intervals (or the whole file). ``fail`` makes it
     fail with that message, and ``on_contig`` maps contigs in its intervals to
     "fail", "slow" (1 s) or "hang" (with a child "java" process; both PIDs go
@@ -293,3 +295,516 @@ class FakeGatk:
         if not self.log.exists():
             return []
         return [json.loads(line) for line in self.log.read_text().splitlines()]
+
+
+_FAKE_CLAIR3 = """\
+import json, os, select, subprocess, sys
+
+if sys.argv[1:] in ([], ["--version"], ["-h"], ["--help"]):
+    print("Clair3 v2.0.0")
+    sys.exit(0)
+opts = dict(arg[2:].split("=", 1) for arg in sys.argv[1:])
+# Clair3's GNU parallel reads stdin: it must be closed, or the run waits on it.
+ready, _, _ = select.select([0], [], [], 0.5)
+record = {{
+    "opts": opts,
+    "bed": open(opts["bed_fn"]).read() if "bed_fn" in opts else None,
+    "stdin_closed": bool(ready) and os.read(0, 1) == b"",
+    "pythonpath": os.environ.get("PYTHONPATH"),
+}}
+with open({log!r}, "a") as log:
+    log.write(json.dumps(record) + "\\n")
+if not record["stdin_closed"]:
+    sys.exit("parallel: stdin is still open")
+if record["pythonpath"]:
+    sys.exit("ImportError: Clair3's Python loaded modules from PYTHONPATH")
+for name in ("pileup.pt", "full_alignment.pt"):
+    if not os.path.isfile(os.path.join(opts["model_path"], name)):
+        sys.exit(f"[ERROR] {{name}} not found in {{opts['model_path']}}")
+out = opts["output"]
+os.makedirs(out)
+regions = ["-R", opts["bed_fn"]] if "bed_fn" in opts else []
+calls = os.path.join(out, "calls.vcf.gz")
+mpileup = subprocess.Popen(
+    [{bcftools!r}, "mpileup", "-f", opts["ref_fn"], *regions, "-Ou", opts["bam_fn"]],
+    stdout=subprocess.PIPE,
+)
+subprocess.run([{bcftools!r}, "call", "-mv", "-Oz", "-o", calls], stdin=mpileup.stdout, check=True)
+with open(os.path.join(out, "sample.txt"), "w") as names:
+    names.write(opts["sample_name"] + "\\n")
+subprocess.run(
+    [{bcftools!r}, "reheader", "-s", names.name, "-o",
+     os.path.join(out, "merge_output.vcf.gz"), calls],
+    check=True,
+)
+"""
+
+
+class FakeClair3:
+    """A `run_clair3.sh` in ``bindir`` that calls with bcftools, with its
+    bundled ``models`` folder beside it, as Bioconda installs it.
+
+    Like Clair3 it needs the model's weights, runs its own Python (it fails
+    if PYTHONPATH leaks in) and waits on an open stdin (it fails instead).
+    Each run's options, region BED, stdin state and PYTHONPATH go to ``runs``.
+    """
+
+    def __init__(self, bindir: Path, bcftools: str) -> None:
+        self.log = bindir / "clair3-runs.jsonl"
+        self.models = bindir / "models"
+        self.models.mkdir(parents=True)
+        python_tool(bindir, "run_clair3.sh", _FAKE_CLAIR3.format(
+            log=str(self.log), bcftools=bcftools
+        ))  # fmt: skip
+
+    def runs(self) -> list[dict]:
+        if not self.log.exists():
+            return []
+        return [json.loads(line) for line in self.log.read_text().splitlines()]
+
+
+# What DeepVariant's tools share: the fake's state and log, its options, and
+# the failures a test asks for.
+_DV_COMMON = r"""
+import json, os, re, select, signal, subprocess, sys, time
+
+
+def state():
+    with open(os.path.join(ROOT, "state.json")) as source:
+        return json.load(source)
+
+
+def log(record):
+    with open(os.path.join(ROOT, "runs.jsonl"), "a") as out:
+        out.write(json.dumps(record) + "\n")
+
+
+def options(argv):
+    opts, i = {}, 0
+    while i < len(argv):
+        name, eq, value = argv[i][2:].partition("=")
+        if eq:
+            opts[name], i = value, i + 1
+        else:
+            opts[name], i = argv[i + 1], i + 2
+    return opts
+
+
+def own_python():
+    # DeepVariant runs its own Python, which our PYTHONPATH would break.
+    if os.environ.get("PYTHONPATH"):
+        sys.exit("ImportError: DeepVariant's Python loaded modules from PYTHONPATH")
+
+
+def shard_names(examples):
+    stem, shards, suffix = re.fullmatch(r"(.*)@(\d+)(\..*)", examples).groups()
+    return [f"{stem}-{i:05d}-of-{int(shards):05d}{suffix}" for i in range(int(shards))]
+
+
+def fail_here(stage, task=None, write=lambda: None):
+    failure = state()["fail"]
+    if not failure or failure["stage"] != stage:
+        return
+    if failure.get("task") is not None and failure["task"] != task:
+        return
+    if failure["write"]:
+        write()
+    if failure["oom"]:
+        open(os.path.join(os.environ["FAKE_OOM_DIR"], os.environ["FAKE_CONTAINER"]), "w").close()
+    if failure["interrupt"]:
+        os.kill(failure["interrupt"], signal.SIGINT)
+        time.sleep(30)
+    sys.exit(137)
+"""
+
+_DV_RUN_DEEPVARIANT = r"""
+opts = options([a for a in sys.argv[1:] if a != "--dry_run=true"])
+ready, _, _ = select.select([0], [], [], 0.5)
+stdin_closed = bool(ready) and os.read(0, 1) == b""
+log({"tool": "run_deepvariant", "opts": opts, "stdin_closed": stdin_closed,
+     "env": {k: os.environ.get(k) for k in ("HOME", "TMPDIR")}})
+own_python()
+# Its GNU parallel reads stdin: an open one would make the run wait.
+if not stdin_closed:
+    sys.exit("parallel: stdin is still open")
+if "--dry_run=true" not in sys.argv:
+    sys.exit("this fake only plans: give --dry_run=true")
+image = os.environ.get("FAKE_DV_IN_IMAGE")
+bindir = "/opt/deepvariant/bin" if image else os.path.dirname(os.path.abspath(sys.argv[0]))
+work, shards = opts["intermediate_results_dir"], int(opts["num_shards"])
+examples = f"{work}/make_examples.tfrecord@{shards}.gz"
+outputs = f"{work}/call_variants_output.tfrecord.gz"
+regions = f' --regions "{opts["regions"]}"' if "regions" in opts else ""
+model = opts.get("customized_model", f"/opt/models/{opts['model_type'].lower()}")
+extra = {}
+for flag in ("call_variants_extra_args", "postprocess_variants_extra_args"):
+    if flag in opts:
+        extra[flag] = "".join(
+            f' --{k} "{v}"' for k, v in (kv.split("=") for kv in opts[flag].split(","))
+        )
+commands = [
+    f"time seq 0 {shards - 1} | parallel -q --halt 2 --line-buffer {bindir}/make_examples "
+    f'--mode calling --ref "{opts["ref"]}" --reads "{opts["reads"]}" '
+    f'--examples "{examples}"{regions} --task {{}}',
+    f'time {bindir}/call_variants --outfile "{outputs}" --examples "{examples}" '
+    f'--checkpoint "{model}"{extra.get("call_variants_extra_args", "")}',
+    f'time {bindir}/postprocess_variants --ref "{opts["ref"]}" --infile "{outputs}" '
+    f'--outfile "{opts["output_vcf"]}" --cpus "{opts.get("postprocess_cpus", shards)}"'
+    f'{extra.get("postprocess_variants_extra_args", "")}',
+]
+print("".join(f"\n***** Running the command:*****\n{c}\n\n" for c in commands))
+"""
+
+_DV_PARALLEL = r"""
+args, jobs, joblog, resume = sys.argv[1:], None, None, False
+while args[0].startswith("-"):
+    arg = args.pop(0)
+    if arg == "--jobs":
+        jobs = args.pop(0)
+    elif arg == "--joblog":
+        joblog = args.pop(0)
+    elif arg == "--resume-failed":
+        resume = True
+    elif arg == "--halt":
+        args.pop(0)
+done = set()
+if joblog and resume and os.path.exists(joblog):
+    for line in open(joblog).read().splitlines()[1:]:
+        fields = line.split("\t")
+        if fields[6] == "0":
+            done.add(fields[0])
+elif joblog:
+    with open(joblog, "w") as out:
+        out.write("Seq\tHost\tStarttime\tJobRuntime\tSend\tReceive\tExitval\tSignal\tCommand\n")
+ran, code = [], 0
+for task in sys.stdin.read().split():
+    if task in done:
+        continue
+    ran.append(task)
+    command = [task if a == "{}" else a for a in args]
+    code = subprocess.run(command, stdin=subprocess.DEVNULL).returncode
+    if joblog:
+        with open(joblog, "a") as out:
+            out.write(f"{task}\t:\t0\t0\t0\t0\t{code}\t0\t{' '.join(command)}\n")
+    if code:
+        break  # --halt 2: stop at the first failure
+log({"tool": "parallel", "jobs": jobs, "joblog": joblog, "resume_failed": resume, "tasks": ran})
+sys.exit(code)
+"""
+
+_DV_MAKE_EXAMPLES = r"""
+opts = options(sys.argv[1:])
+own_python()
+task, reads, ref = int(opts["task"]), opts["reads"], opts["ref"]
+with open(reads, "rb") as source:
+    head = source.read(6)
+version = list(head[4:6]) if head[:4] == b"CRAM" else None
+if version and version >= [3, 1]:
+    # The images' htslib 1.18 can't decode some valid CRAM 3.1 blocks.
+    sys.exit("[E::rans_uncompress_O1_4x16] Failed to decode a CRAM 3.1 block")
+if not any(os.path.exists(reads + s) for s in (".bai", ".crai", ".csi")):
+    sys.exit(f"[E::idx_find_and_load] Could not retrieve index file for '{reads}'")
+for selection in (opts.get("regions") or "").split():
+    if selection.endswith((".bed", ".bed.gz", ".bedpe")) and not os.path.isfile(selection):
+        sys.exit(f"ValueError: Not found: Could not open {selection}")
+if task == 0:
+    view = subprocess.run([SAMTOOLS, "view", "-T", ref, reads], capture_output=True, text=True, check=True)
+    log({"tool": "make_examples", "reads": reads, "cram_version": version,
+         "names": sorted(line.split("\t")[0] for line in view.stdout.splitlines()),
+         "regions": opts.get("regions"), "tmpdir": os.environ.get("TMPDIR")})
+shard = shard_names(opts["examples"])[task]
+
+
+def write():
+    with open(shard, "w") as out:
+        json.dump({"ref": ref, "reads": reads}, out)
+
+
+fail_here("make_examples", task, write)
+write()
+"""
+
+_DV_CALL_VARIANTS = r"""
+opts = options(sys.argv[1:])
+own_python()
+shards = shard_names(opts["examples"])
+if not all(os.path.exists(s) for s in shards):
+    sys.exit(f"ValueError: Cannot find matching files with the pattern {opts['examples']}")
+log({"tool": "call_variants", "opts": opts})
+
+
+def write():
+    with open(shards[0]) as source, open(opts["outfile"], "w") as out:
+        out.write(source.read())
+
+
+fail_here("call_variants", None, write)
+write()
+"""
+
+_DV_POSTPROCESS_VARIANTS = r"""
+if sys.argv[1:] == ["--helpfull"]:
+    print(state()["helpfull"])
+    sys.exit(0)
+opts = options(sys.argv[1:])
+own_python()
+log({"tool": "postprocess_variants", "opts": opts})
+with open(opts["infile"]) as source:
+    called = json.load(source)
+
+
+def write():
+    mpileup = subprocess.Popen(
+        [BCFTOOLS, "mpileup", "-f", called["ref"], "-Ou", called["reads"]], stdout=subprocess.PIPE
+    )
+    subprocess.run([BCFTOOLS, "call", "-mv", "-Oz", "-o", opts["outfile"]], stdin=mpileup.stdout, check=True)
+    subprocess.run([BCFTOOLS, "index", "-t", opts["outfile"]], check=True)
+
+
+fail_here("postprocess_variants", None, write)
+write()
+"""
+
+
+class FakeDeepVariant:
+    """DeepVariant's run_deepvariant and stage tools in ``root/bin``, as a
+    local install has them and its image runs them (see FakeDocker).
+
+    run_deepvariant --dry_run=true prints its stage commands; make_examples
+    runs under a GNU parallel that keeps a job log, and like the images'
+    htslib 1.18 can't read CRAM 3.1; postprocess_variants calls the reads
+    with bcftools. Each tool fails if our PYTHONPATH leaks into it, and
+    run_deepvariant if stdin is open. ``fail`` makes a stage die; ``runs``
+    are what each tool was asked to do.
+    """
+
+    def __init__(self, root: Path, samtools: str, bcftools: str) -> None:
+        self.root, self.bin = root, root / "bin"
+        self.bin.mkdir(parents=True)
+        self._state: dict = {"fail": None, "helpfull": "  --num_partitions: ..."}
+        self._save()
+        header = (
+            f"ROOT = {str(root)!r}\nSAMTOOLS = {samtools!r}\nBCFTOOLS = {bcftools!r}\n"
+            + _DV_COMMON
+        )
+        for name, body in (
+            ("run_deepvariant", _DV_RUN_DEEPVARIANT),
+            ("parallel", _DV_PARALLEL),
+            ("make_examples", _DV_MAKE_EXAMPLES),
+            ("call_variants", _DV_CALL_VARIANTS),
+            ("postprocess_variants", _DV_POSTPROCESS_VARIANTS),
+        ):
+            python_tool(self.bin, name, header + body)
+
+    def _save(self) -> None:
+        (self.root / "state.json").write_text(json.dumps(self._state))
+
+    def fail(
+        self,
+        stage: str | None,
+        *,
+        task: int | None = None,
+        write: bool = True,
+        oom: bool = False,
+        interrupt: int | None = None,
+    ) -> None:
+        """Make ``stage`` (shard ``task`` of make_examples) exit 137, after
+        writing its output if ``write``; ``oom`` as an OOM kill in its
+        container, ``interrupt`` after sending SIGINT to that PID (Ctrl-C).
+        None stops failing."""
+        self._state["fail"] = stage and {
+            "stage": stage, "task": task, "write": write, "oom": oom,
+            "interrupt": interrupt,
+        }  # fmt: skip
+        self._save()
+
+    def set_helpfull(self, text: str) -> None:
+        """What postprocess_variants --helpfull prints."""
+        self._state["helpfull"] = text
+        self._save()
+
+    def runs(self, tool: str | None = None) -> list[dict]:
+        log = self.root / "runs.jsonl"
+        records = (
+            [json.loads(line) for line in log.read_text().splitlines()]
+            if log.exists()
+            else []
+        )
+        return [r for r in records if tool in (None, r["tool"])]
+
+    def stages(self) -> list[str]:
+        """The stages that started, in order (make_examples once per run)."""
+        stage = {"parallel": "make_examples", "call_variants": "call_variants",
+                 "postprocess_variants": "postprocess_variants"}  # fmt: skip
+        return [stage[r["tool"]] for r in self.runs() if r["tool"] in stage]
+
+    def clear(self) -> None:
+        """Forget the runs so far."""
+        (self.root / "runs.jsonl").unlink(missing_ok=True)
+
+
+_FAKE_DOCKER = r"""
+import json, os, re, signal, subprocess, sys, time
+
+
+def state():
+    with open(os.path.join(ROOT, "state.json")) as source:
+        return json.load(source)
+
+
+def log(record):
+    with open(os.path.join(ROOT, "docker.jsonl"), "a") as out:
+        out.write(json.dumps(record) + "\n")
+
+
+def flag(args, name):
+    return args[args.index(name) + 1]
+
+
+args, st = sys.argv[1:], state()
+running = os.path.join(ROOT, "running")
+if args[0] != "run":
+    log({"cmd": args[0], "args": args})
+if args[0] == "info":
+    if st["info_error"]:
+        sys.exit(st["info_error"])
+    print({"{{json .ServerVersion}}": '"27.3.1"', "{{.Architecture}}": st["arch"],
+           "{{.MemTotal}}": str(st["mem_total"])}[flag(args, "--format")])
+elif args[:2] == ["image", "inspect"]:
+    image = st["images"].get(args[-1])
+    if image is None:
+        sys.exit(f"Error: No such image: {args[-1]}")
+    if "--format" in args:
+        print(image["id"] if flag(args, "--format") == "{{.Id}}" else image["platform"])
+elif args[0] == "ps":
+    if st["ps_error"]:
+        sys.exit(st["ps_error"])
+    label = flag(args, "--filter").removeprefix("label=")
+    for name in sorted(os.listdir(running)):
+        if json.load(open(os.path.join(running, name)))["label"] == label:
+            print(name)
+elif args[0] == "kill":
+    # The daemon kills the container and, as it ran with --rm, removes it.
+    record = os.path.join(running, args[1])
+    try:
+        pid = json.load(open(record))["pid"]
+        os.unlink(record)
+        if pid > 0:
+            os.kill(pid, signal.SIGKILL)
+    except (OSError, ValueError):
+        pass
+elif args[0] == "events":
+    name = next(f.split("=", 1)[1] for f in args if f.startswith("container="))
+    while not os.path.exists(os.path.join(ROOT, "oom", name)):
+        time.sleep(0.05)
+    print("oom", flush=True)
+    time.sleep(60)
+elif args[0] == "run":
+    opts, i = {"-e": [], "-v": []}, 1
+    while args[i].startswith("-"):
+        if args[i] == "--rm" or args[i].startswith("--pull="):
+            opts[args[i].split("=")[0]], i = args[i], i + 1
+        elif args[i] in ("-e", "-v"):
+            opts[args[i]].append(args[i + 1])
+            i += 2
+        else:
+            opts[args[i]], i = args[i + 1], i + 2
+    image, command = args[i], args[i + 1:]
+    env = dict(e.split("=", 1) for e in opts["-e"])
+    mounts = [v.split(":")[0] for v in opts["-v"]]
+    name = opts.get("--name", "anonymous")
+    log({"cmd": "run", "image": image, "name": name, "label": opts.get("--label"),
+         "entrypoint": opts.get("--entrypoint"), "pull": opts.get("--pull"),
+         "env": env, "mounts": mounts, "command": command})
+    if image not in st["images"]:
+        sys.exit(f"docker: Error response from daemon: No such image: {image}")
+    if "--gpus" in opts:
+        sys.exit("docker: Error response from daemon: could not select device driver with capabilities: [[gpu]]")
+    if opts.get("--entrypoint"):
+        command = [opts["--entrypoint"], *command]
+    # The container sees only the folders mounted into it.
+    paths = [p for arg in command for p in re.findall(r"/[^\s\"']+", arg)]
+    paths += [env.get("HOME"), env.get("TMPDIR"), opts.get("-w")]
+    for path in paths:
+        if path and not path.startswith(("/opt/", "/bin/", "/usr/")) and not any(
+            os.path.commonpath([path, m]) == m for m in mounts
+        ):
+            sys.exit(f"{path}: No such file or directory (not mounted in the container)")
+    if command[0].startswith("/opt/deepvariant/bin/"):
+        command[0] = os.path.join(DV_BIN, os.path.basename(command[0]))
+    elif command[:2] == ["/bin/bash", "-c"]:
+        command[2] = command[2].replace("/opt/deepvariant/bin/", DV_BIN + "/")
+    container = {"PATH": f"{DV_BIN}:/usr/bin:/bin", **env, "FAKE_DV_IN_IMAGE": "1",
+                 "FAKE_CONTAINER": name, "FAKE_OOM_DIR": os.path.join(ROOT, "oom")}
+    record = os.path.join(running, name)
+    process = subprocess.Popen(command, env=container, stdin=subprocess.DEVNULL, cwd=opts.get("-w"))
+    with open(record, "w") as out:
+        json.dump({"label": opts.get("--label"), "pid": process.pid}, out)
+    try:
+        code = process.wait()
+    finally:
+        os.unlink(record)
+    sys.exit(code)
+else:
+    sys.exit(f"fake docker: unknown command {args}")
+"""
+
+
+class FakeDocker:
+    """A `docker` in ``bindir`` whose images run FakeDeepVariant's tools from
+    ``dv_bin`` as /opt/deepvariant/bin.
+
+    A container sees only the folders mounted into it (paths outside them
+    fail), its ``-e`` environment and no stdin; ``docker events`` reports an
+    OOM kill a stage recorded. ``set`` changes the engine's answers: an
+    ``info_error``, its ``arch`` and ``mem_total``, or a ``ps_error``.
+    ``runs`` are the commands it was given.
+    """
+
+    def __init__(self, bindir: Path, dv_bin: Path) -> None:
+        self.root = bindir.parent / "docker-state"
+        for folder in ("running", "oom"):
+            (self.root / folder).mkdir(parents=True)
+        self._state: dict = {
+            "info_error": None, "arch": "x86_64", "mem_total": 0,
+            "ps_error": None, "images": {},
+        }  # fmt: skip
+        self._save()
+        header = f"ROOT = {str(self.root)!r}\nDV_BIN = {str(dv_bin)!r}\n"
+        python_tool(bindir, "docker", header + _FAKE_DOCKER)
+
+    def _save(self) -> None:
+        (self.root / "state.json").write_text(json.dumps(self._state))
+
+    def set(self, **answers: object) -> None:
+        self._state.update(answers)
+        self._save()
+
+    def add_image(
+        self, image: str, *, image_id: str = "sha256:1", platform: str = "linux/amd64"
+    ) -> None:
+        self._state["images"][image] = {"id": image_id, "platform": platform}
+        self._save()
+
+    def keep_running(self, name: str, label: str | None) -> None:
+        """List container ``name`` as running, as if its wgsextract was killed."""
+        (self.root / "running" / name).write_text(
+            json.dumps({"label": label, "pid": 0})
+        )
+
+    def stop(self, name: str) -> None:
+        (self.root / "running" / name).unlink()
+
+    def runs(self, cmd: str | None = "run") -> list[dict]:
+        """Its ``cmd`` (run, kill, info, ...) commands, or all of them."""
+        log = self.root / "docker.jsonl"
+        records = (
+            [json.loads(line) for line in log.read_text().splitlines()]
+            if log.exists()
+            else []
+        )
+        return [r for r in records if cmd in (None, r["cmd"])]
+
+    def clear(self) -> None:
+        """Forget the commands so far."""
+        (self.root / "docker.jsonl").unlink(missing_ok=True)

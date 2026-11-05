@@ -1,15 +1,15 @@
-import os
-import sys
-import tempfile
-import unittest
-from unittest.mock import patch
+"""Time and disk-space warnings: what the user reads in the log, and the
+read counts and space estimates behind them."""
 
-# Ensure src is in sys.path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
+import logging
+import re
 
+import pytest
+
+from tests.disk_volumes import Volumes
+from tests.htslib_helpers import needs_tools, sam_to_bam, write_fasta
+from wgsextract_cli.core.utils import run_command
 from wgsextract_cli.core.warnings import (
-    EXPECTED_TIME,
-    MESSAGES,
     check_free_space,
     format_time,
     get_free_space_needed,
@@ -17,141 +17,124 @@ from wgsextract_cli.core.warnings import (
     print_warning,
 )
 
-
-class TestWarnings(unittest.TestCase):
-    """
-    Verification of user communication and safety utilities.
-
-    Goal: Ensure the correctness of time-estimation logic for long tasks, accurate
-    formatting of wait times, and precise calculation of disk space requirements
-    to prevent process failure due to insufficient storage.
-    """
-
-    def test_format_time(self):
-        self.assertEqual(format_time(30), "30 seconds")
-        self.assertEqual(format_time(120), "2 minutes")
-        self.assertEqual(format_time(3600), "1.0 hours")
-        self.assertEqual(format_time(7200), "2.0 hours")
-
-    @patch("logging.warning")
-    def test_print_warning_expected_time(self, mock_warning):
-        # Test a standard action
-        print_warning("GenBAMIndex")
-        wait_time = EXPECTED_TIME["GenBAMIndex"]
-        time_str = format_time(wait_time)
-        expected_msg = (
-            f"!!! WARNING: {MESSAGES['ExpectedWait'].format(time=time_str)} !!!"
-        )
-        mock_warning.assert_any_call(expected_msg)
-
-    @patch("logging.warning")
-    def test_print_warning_with_threads(self, mock_warning):
-        # Test parallelizable action
-        action = "ButtonAlignBAM"
-        original_time = EXPECTED_TIME[action]
-
-        # 1 thread
-        print_warning(action, threads=1)
-        time_str_1 = format_time(original_time)
-        mock_warning.assert_any_call(
-            f"!!! WARNING: {MESSAGES['ExpectedWait'].format(time=time_str_1)} !!!"
-        )
-
-        # 8 threads
-        mock_warning.reset_mock()
-        print_warning(action, threads=8)
-        # 8 ** 0.7 = 4.28
-        adjusted_time = int(original_time / (8**0.7))
-        time_str_8 = format_time(adjusted_time)
-        mock_warning.assert_any_call(
-            f"!!! WARNING: {MESSAGES['ExpectedWait'].format(time=time_str_8)} !!!"
-        )
-
-    @patch("logging.warning")
-    def test_print_warning_free_space(self, mock_warning):
-        # Manual values
-        print_warning("infoFreeSpace", app_name="Sort", size_gb=100, final_gb=50)
-        expected_msg = f"!!! {MESSAGES['infoFreeSpace'].format(app='Sort', size=100, final=50)} !!!"
-        mock_warning.assert_any_call(expected_msg)
-
-        # Dynamic calculation (60GB file)
-        mock_warning.reset_mock()
-        file_size = 60 * 1024**3
-        temp_needed, final_needed = get_free_space_needed(file_size, "Coord", False)
-        # isize_gb = 60; temp_needed = 60*1 + 60 = 120; final_needed = 60
-        self.assertEqual(temp_needed, 120)
-        self.assertEqual(final_needed, 60)
-
-        print_warning(
-            "infoFreeSpace", app_name="Coord Sort", file_size=file_size, is_cram=False
-        )
-        expected_msg_dynamic = f"!!! {MESSAGES['infoFreeSpace'].format(app='Coord Sort', size=120, final=60)} !!!"
-        mock_warning.assert_any_call(expected_msg_dynamic)
-
-    def test_read_count_raises_the_estimate_for_compact_crams(self):
-        # The 30x MGI CRAM the per-read constants were measured on: 7.9 GB,
-        # 680M reads, which needed ~50 GB of temp files and ~46 GB of FASTQ.
-        size, reads = 7_859_324_055, 681_927_272
-        self.assertEqual(get_free_space_needed(size, "Name", True), (34, 14))
-        self.assertEqual(get_free_space_needed(size, "Name", True, reads), (50, 47))
-        self.assertEqual(get_free_space_needed(size, "Coord", True, reads), (50, 14))
-        # A BAM whose size already exceeds the per-read figures keeps its estimate.
-        self.assertEqual(
-            get_free_space_needed(60 * 1024**3, "Coord", False, 10_000_000), (120, 60)
-        )
-
-    @patch("wgsextract_cli.core.warnings.run_command")
-    def test_indexed_read_count(self, mock_run):
-        mock_run.return_value.returncode = 0
-        mock_run.return_value.stdout = "chr1\t248956422\t100\t2\n*\t0\t0\t5\n"
-        with tempfile.TemporaryDirectory() as d:
-            cram = os.path.join(d, "x.cram")
-            open(cram + ".crai", "w").close()
-            self.assertEqual(indexed_read_count(cram, 4), 107)
-            # Without an index idxstats would decode the whole file, so skip it.
-            mock_run.reset_mock()
-            self.assertIsNone(indexed_read_count(os.path.join(d, "unindexed.bam")))
-            mock_run.assert_not_called()
-
-    @patch("logging.warning")
-    def test_print_warning_realign(self, mock_warning):
-        print_warning("RealignBAMTimeWarnMesg", threads=4)
-        cpus = 4
-        estimated_hours = 5 + 160 / cpus
-        expected_msg = f"!!! {MESSAGES['RealignBAMTimeWarnMesg'].format(time=f'{estimated_hours:.1f}')} !!!"
-        mock_warning.assert_any_call(expected_msg)
-        self.assertNotRegex(expected_msg, r"\(\d+(?:-\d+)? hours\)")
-
-    @patch("logging.warning")
-    def test_new_warnings(self, mock_warning):
-        # Yoruba
-        print_warning("YorubaWarning")
-        mock_warning.assert_any_call(f"!!! {MESSAGES['YorubaWarning']} !!!")
-
-        # Low Coverage
-        mock_warning.reset_mock()
-        print_warning("LowCoverageWarning")
-        mock_warning.assert_any_call(f"!!! {MESSAGES['LowCoverageWarning']} !!!")
-
-        # Long Read
-        mock_warning.reset_mock()
-        print_warning("LongReadSequenceWarning")
-        mock_warning.assert_any_call(f"!!! {MESSAGES['LongReadSequenceWarning']} !!!")
-
-    @patch("shutil.disk_usage")
-    @patch("logging.warning")
-    def test_check_free_space(self, mock_warning, mock_disk_usage):
-        # Mock 10GB free
-        mock_disk_usage.return_value = (100 * 1024**3, 90 * 1024**3, 10 * 1024**3)
-
-        # Enough space
-        self.assertTrue(check_free_space(".", 5))
-        mock_warning.assert_not_called()
-
-        # Not enough space
-        self.assertFalse(check_free_space(".", 20))
-        mock_warning.assert_called()
+GIB = 1024**3
 
 
-if __name__ == "__main__":
-    unittest.main()
+def _warnings(caplog) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+
+
+def test_format_time():
+    assert format_time(30) == "30 seconds"
+    assert format_time(120) == "2 minutes"
+    assert format_time(3600) == "1.0 hours"
+    assert format_time(7200) == "2.0 hours"
+
+
+@pytest.mark.parametrize(
+    ("action", "threads", "wait"),
+    [
+        ("ButtonAlignBAM", None, "9.0 hours"),
+        ("ButtonAlignBAM", "1", "9.0 hours"),
+        # 8 threads: 9 hours / 8 ** 0.7.
+        ("ButtonAlignBAM", "8", "2.1 hours"),
+        # Indexing doesn't run in parallel, so threads don't shorten it.
+        ("GenBAMIndex", "8", "30 minutes"),
+    ],
+)
+def test_expected_wait_shrinks_with_threads_only_for_parallel_actions(
+    caplog, action, threads, wait
+):
+    print_warning(action, threads=threads)
+    (message,) = _warnings(caplog)
+    assert message.endswith(f"Expected Wait is {wait} !!!")
+
+
+def test_free_space_warning_gives_temporary_and_final_space(caplog):
+    print_warning("infoFreeSpace", app_name="Sort", size_gb=100, final_gb=50)
+    # A 60 GiB BAM: the sort needs its size again in temp files, plus the output.
+    print_warning(
+        "infoFreeSpace", app_name="Coord Sort", file_size=60 * GIB, is_cram=False
+    )
+    sort, coord = _warnings(caplog)
+    assert "Sort needs 100 GB" in sort and "50 GB" in sort
+    assert "Coord Sort needs 120 GB" in coord and "60 GB" in coord
+
+
+def test_space_estimates_for_bam_and_compact_cram():
+    assert get_free_space_needed(60 * GIB, "Coord", False) == (120, 60)
+    # The 30x MGI CRAM the per-read constants were measured on: 7.9 GB,
+    # 680M reads, which needed ~50 GB of temp files and ~46 GB of FASTQ.
+    size, reads = 7_859_324_055, 681_927_272
+    assert get_free_space_needed(size, "Name", True) == (34, 14)
+    assert get_free_space_needed(size, "Name", True, reads) == (50, 47)
+    assert get_free_space_needed(size, "Coord", True, reads) == (50, 14)
+    # A BAM whose size already exceeds the per-read figures keeps its estimate.
+    assert get_free_space_needed(60 * GIB, "Coord", False, 10_000_000) == (120, 60)
+
+
+def test_realign_estimate_scales_with_cpus(caplog):
+    print_warning("RealignBAMTimeWarnMesg", threads=4)
+    (message,) = _warnings(caplog)
+    assert "45.0" in message  # 5 hours + 160 / 4 CPUs
+    # No fixed range of hours contradicts the estimate.
+    assert not re.search(r"\(\d+(?:-\d+)? hours\)", message)
+
+
+@pytest.mark.parametrize(
+    ("key", "fact"),
+    [
+        ("YorubaWarning", "Yoruba"),
+        ("LowCoverageWarning", "low mapped average read depth"),
+        ("LongReadSequenceWarning", "long-read sequencer"),
+    ],
+)
+def test_message_warnings_are_logged(caplog, key, fact):
+    print_warning(key)
+    (message,) = _warnings(caplog)
+    assert fact in message
+
+
+@needs_tools("samtools")
+@pytest.mark.parametrize("fmt", ["bam", "cram"])
+def test_indexed_read_count_counts_mapped_and_unmapped_reads(tmp_path, fmt):
+    ref = write_fasta(tmp_path / "ref.fa", {"chr1": "ACGT" * 50})
+    read = "ACGTACGTAC\tIIIIIIIIII"
+    bam = sam_to_bam(
+        [
+            "@HD\tVN:1.6\tSO:coordinate",
+            "@SQ\tSN:chr1\tLN:200",
+            *(
+                f"m{i}\t0\tchr1\t{1 + 4 * i}\t60\t10M\t*\t0\t0\t{read}"
+                for i in range(3)
+            ),
+            *(f"u{i}\t4\t*\t0\t0\t*\t*\t0\t0\t{read}" for i in range(2)),
+        ],
+        tmp_path / "reads.bam",
+    )
+    path = bam
+    if fmt == "cram":
+        path = str(tmp_path / "reads.cram")
+        run_command(["samtools", "view", "-C", "-T", str(ref), "-o", path, bam])
+        run_command(["samtools", "index", path])
+
+    assert indexed_read_count(path, 4) == 5
+
+
+def test_unindexed_alignment_has_no_quick_read_count(tmp_path):
+    # Without an index samtools would decode the whole file.
+    alignment = tmp_path / "unindexed.bam"
+    alignment.write_bytes(b"not decoded")
+    assert indexed_read_count(alignment) is None
+
+
+def test_check_free_space_warns_with_the_shortfall(tmp_path, monkeypatch, caplog):
+    Volumes(monkeypatch).free[tmp_path] = 10
+
+    assert check_free_space(tmp_path, 5)
+    assert _warnings(caplog) == []
+    assert not check_free_space(tmp_path, 20)
+    text = "\n".join(_warnings(caplog))
+    assert "Insufficient Disk Space" in text
+    assert f"10.0 GB available on {tmp_path}" in text
+    assert "20 GB needed" in text

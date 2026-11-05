@@ -1012,57 +1012,6 @@ class TestCLILogic(unittest.TestCase):
             with self.assertRaises(WGSExtractError):
                 vcf.cmd_filter(args)
 
-    def test_deepvariant_pacbio_model_type(self):
-        from wgsextract_cli.commands.vcf import deepvariant as vcf
-
-        bam_path = os.path.join(self.test_dir, "sample.bam")
-        ref_path = os.path.join(self.test_dir, "ref.fa")
-        for path in (bam_path, ref_path):
-            with open(path, "w") as f:
-                f.write("data")
-
-        args = Namespace(
-            input=bam_path,
-            outdir=self.test_dir,
-            ref=ref_path,
-            region=None,
-            wes=False,
-            pacbio=True,
-            model_type=None,
-            checkpoint=None,
-        )
-        commands = []
-
-        from tests.test_deepvariant import _deepvariant
-
-        def fake_run_command(cmd, *_args, **kwargs):
-            commands.append(cmd)
-            return _deepvariant(cmd)
-
-        class DummyReferenceLibrary:
-            fasta = ref_path
-            ploidy_file = None
-
-            def __init__(self, *_args, **_kwargs):
-                pass
-
-        with (
-            patch.object(vcf, "get_tool_path", return_value="run_deepvariant"),
-            patch.object(vcf, "verify_dependencies"),
-            patch.object(vcf, "require_native_tool"),
-            patch.object(vcf, "is_linux_arm64", return_value=False),
-            patch.object(
-                vcf,
-                "get_base_args",
-                return_value=("2", self.test_dir, ref_path, DummyReferenceLibrary()),
-            ),
-            patch.object(vcf, "run_command", side_effect=fake_run_command),
-            patch.object(vcf, "ensure_vcf_indexed"),
-        ):
-            vcf.cmd_deepvariant(args)
-
-        self.assertIn("PACBIO", commands[0])
-
     def test_pbsv_sv_builds_discover_and_call_commands(self):
         from wgsextract_cli.commands.vcf import structural as vcf
 

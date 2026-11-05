@@ -1,79 +1,90 @@
+"""Regressions found in code review: annotation resources and build names."""
+
 import os
+from pathlib import Path
+
+import pytest
+
+from tests.htslib_helpers import needs_tools
+from wgsextract_cli.cli.parser import build_parser
+from wgsextract_cli.commands.vcf.annotation_helpers import prepare_tabix_annotation
+from wgsextract_cli.core.config import settings
+from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.utils import run_command
 
 
-def test_tabix_annotation_preparation_indexes_tsv_with_coordinate_columns(
-    monkeypatch, tmp_path
-):
-    from wgsextract_cli.commands.vcf import annotation_helpers as helpers
+def _bgzip_tsv(path: Path, rows: list[str]) -> str:
+    plain = path.with_suffix("")
+    plain.write_text("".join(f"{row}\n" for row in rows))
+    with open(path, "wb") as out:
+        run_command(["bgzip", "-c", str(plain)], stdout=out)
+    plain.unlink()
+    return str(path)
 
-    resource = tmp_path / "alphamissense_hg38.tsv.gz"
-    resource.touch()
-    commands = []
 
-    monkeypatch.setattr(helpers, "get_tool_path", lambda tool: tool)
-    monkeypatch.setattr(helpers, "is_bgzf", lambda _path: True)
-    monkeypatch.setattr(
-        helpers, "run_command", lambda cmd, **_kwargs: commands.append(cmd)
+def _rows_at(resource: str, region: str) -> list[str]:
+    return run_command(
+        ["tabix", resource, region], capture_output=True
+    ).stdout.splitlines()
+
+
+@needs_tools("bgzip", "tabix")
+def test_tabix_annotation_is_indexed_by_its_coordinate_columns(tmp_path):
+    """A per-position TSV (chrom, pos, ...) answers region queries once indexed."""
+    resource = _bgzip_tsv(
+        tmp_path / "alphamissense_hg38.tsv.gz",
+        ["chr1\t100\tA\tG\t0.1", "chr1\t200\tC\tT\t0.9", "chr2\t150\tG\tA\t0.5"],
     )
 
-    assert helpers.prepare_tabix_annotation(str(resource), "AlphaMissense") == str(
-        resource
-    )
-    assert commands == [["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", str(resource)]]
+    assert prepare_tabix_annotation(resource, "AlphaMissense") == resource
+    assert _rows_at(resource, "chr1:200-200") == ["chr1\t200\tC\tT\t0.9"]
+    assert _rows_at(resource, "chr2:1-1000") == ["chr2\t150\tG\tA\t0.5"]
 
 
-def test_tabix_annotation_preparation_rebuilds_stale_index(monkeypatch, tmp_path):
-    from wgsextract_cli.commands.vcf import annotation_helpers as helpers
-
+@needs_tools("bgzip", "tabix")
+def test_tabix_annotation_rebuilds_an_index_older_than_its_resource(tmp_path):
+    """A resource replaced after indexing (a newer download) gets a new index;
+    the old one would point into the old file."""
     resource = tmp_path / "phylop_hg38.tsv.gz"
-    index = tmp_path / "phylop_hg38.tsv.gz.tbi"
-    resource.touch()
-    index.touch()
-    commands = []
-
-    monkeypatch.setattr(helpers, "get_tool_path", lambda tool: tool)
-    monkeypatch.setattr(helpers, "is_bgzf", lambda _path: True)
-    monkeypatch.setattr(
-        helpers, "run_command", lambda cmd, **_kwargs: commands.append(cmd)
-    )
+    _bgzip_tsv(resource, [f"chr1\t{pos}\t0.5" for pos in range(1, 5000, 7)])
+    run_command(["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", str(resource)])
+    _bgzip_tsv(resource, ["chr1\t10\t2.0", "chr3\t20\t1.0"])
     os.utime(resource, (20, 20))
-    os.utime(index, (10, 10))
+    os.utime(f"{resource}.tbi", (10, 10))
 
-    assert helpers.prepare_tabix_annotation(str(resource), "PhyloP") == str(resource)
-    assert commands == [["tabix", "-f", "-s", "1", "-b", "2", "-e", "2", str(resource)]]
-
-
-def test_build_choices_include_lowercase_aliases():
-    from wgsextract_cli.core.builds import (
-        BUILD_CHOICES,
-        HG37_BUILD_ALIASES,
-        HG38_BUILD_ALIASES,
-        T2T_BUILD_ALIASES,
-    )
-
-    choices = set(BUILD_CHOICES)
-    assert HG37_BUILD_ALIASES <= choices
-    assert HG38_BUILD_ALIASES <= choices
-    assert T2T_BUILD_ALIASES <= choices
+    prepare_tabix_annotation(str(resource), "PhyloP")
+    assert _rows_at(str(resource), "chr1:10-10") == ["chr1\t10\t2.0"]
+    assert _rows_at(str(resource), "chr3:20-20") == ["chr3\t20\t1.0"]
 
 
-def test_annotation_resolver_accepts_mixed_case_build_suffix(tmp_path):
-    from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+@pytest.mark.parametrize("build", ["hg19", "grch37", "hs38dh", "grch38", "chm13v2.0"])
+def test_lowercase_build_names_are_accepted(build):
+    args = build_parser()[0].parse_args(["qc", "fake-data", "--build", build])
+    assert args.build == build
 
-    resource = tmp_path / "revel_GRCh38.tsv.gz"
-    resource.touch()
-    lib = ReferenceLibrary.__new__(ReferenceLibrary)
-    lib.build = "hg38"
 
-    resolved = lib._resolve_annotation_file(None, "revel", [".tsv.gz"], [str(tmp_path)])
-    assert resolved is not None
-    assert resolved.lower() == str(resource).lower()
+def _library(root: Path) -> ReferenceLibrary:
+    """The hg38 library at ``root``, found from its genome FASTA."""
+    fasta = root / "genomes" / "hg38.fa"
+    fasta.parent.mkdir(parents=True)
+    fasta.write_text(">chr1\nACGT\n")
+    return ReferenceLibrary(str(fasta))
+
+
+def test_annotation_resources_are_found_under_any_build_spelling(tmp_path):
+    revel = tmp_path / "revel_GRCh38.tsv.gz"
+    clinvar = tmp_path / "ref" / "clinvar_hs38.vcf.gz"
+    clinvar.parent.mkdir()
+    revel.touch()
+    clinvar.touch()
+
+    lib = _library(tmp_path)
+    assert lib.revel_file == str(revel)
+    assert lib.clinvar_vcf == str(clinvar)
 
 
 def test_empty_resource_settings_discover_installed_library_data(monkeypatch, tmp_path):
-    from wgsextract_cli.core.config import settings
-    from wgsextract_cli.core.reference_resolver import ReferenceLibrary
-
+    """Settings left empty in config.toml don't hide the library's own data."""
     ref = tmp_path / "ref"
     ref.mkdir()
     clinvar = ref / "clinvar_hg38.vcf.gz"
@@ -85,124 +96,7 @@ def test_empty_resource_settings_discover_installed_library_data(monkeypatch, tm
     for name in ("clinvar_vcf_path", "pharmgkb_vcf_path", "vep_cache_directory"):
         monkeypatch.setitem(settings, name, "")
 
-    lib = ReferenceLibrary.__new__(ReferenceLibrary)
-    lib.root = str(tmp_path)
-    lib.build = "hg38"
-    lib._resolve_annotation_files()
-    lib._resolve_vep_cache(settings["vep_cache_directory"])
-
+    lib = _library(tmp_path)
     assert lib.clinvar_vcf == str(clinvar)
     assert lib.pharmgkb_vcf == str(pharmgkb)
     assert lib.vep_cache == str(cache)
-
-
-def test_gatk_prepares_regional_cram_as_temporary_bam(monkeypatch, tmp_path):
-    from types import SimpleNamespace
-
-    from wgsextract_cli.commands.vcf import callers as _vcf_callers
-
-    cram = tmp_path / "sample.cram"
-    cram.touch()
-    commands = []
-
-    monkeypatch.setattr(_vcf_callers, "get_tool_path", lambda tool: tool)
-    monkeypatch.setattr(
-        _vcf_callers, "run_command", lambda cmd, **_kwargs: commands.append(cmd)
-    )
-
-    args = SimpleNamespace(input=str(cram), region="chrM")
-    gatk_input, temp_input = _vcf_callers._prepare_gatk_input(
-        args, str(tmp_path / "ref.fa"), str(tmp_path)
-    )
-
-    assert gatk_input == temp_input
-    assert gatk_input.endswith(".bam")
-    assert commands == [
-        [
-            "samtools",
-            "view",
-            "-bh",
-            "-T",
-            str(tmp_path / "ref.fa"),
-            "-o",
-            gatk_input,
-            str(cram),
-            "chrM",
-        ],
-        ["samtools", "index", gatk_input],
-    ]
-
-
-def test_gatk_does_not_convert_whole_cram_without_region(tmp_path):
-    from types import SimpleNamespace
-
-    from wgsextract_cli.commands.vcf import callers as _vcf_callers
-
-    args = SimpleNamespace(input=str(tmp_path / "sample.cram"), region=None)
-
-    assert _vcf_callers._prepare_gatk_input(args, "ref.fa", str(tmp_path)) == (
-        str(tmp_path / "sample.cram"),
-        None,
-    )
-
-
-def test_structural_reference_header_keeps_reference_sq_order():
-    from io import StringIO
-
-    from wgsextract_cli.commands.vcf import structural as _vcf_structural
-
-    sink = StringIO()
-
-    _vcf_structural._write_reference_header(
-        sink,
-        [
-            "@HD\tVN:1.6\tSO:coordinate\n",
-            "@RG\tID:sample\n",
-            "@PG\tID:samtools\n",
-        ],
-        ["@SQ\tSN:chr1\tLN:248956422\n", "@SQ\tSN:chrM\tLN:16569\n"],
-    )
-
-    assert sink.getvalue().splitlines() == [
-        "@HD\tVN:1.6\tSO:coordinate",
-        "@SQ\tSN:chr1\tLN:248956422",
-        "@SQ\tSN:chrM\tLN:16569",
-        "@RG\tID:sample",
-        "@PG\tID:samtools",
-    ]
-
-
-def test_gatk_region_goes_through_an_intervals_file(tmp_path):
-    """GATK on Windows parses `-L 20:1-200000` as a path (illegal ':'), so the
-    region is passed as an interval list."""
-    from wgsextract_cli.commands.vcf import callers as _vcf_callers
-
-    args, path = _vcf_callers._gatk_region_args("20:1-200000", str(tmp_path))
-    assert args == ["-L", path] and path.endswith(".intervals")
-    assert (tmp_path / "gatk_region.intervals").read_text() == "20:1-200000\n"
-    assert _vcf_callers._gatk_region_args(None, str(tmp_path)) == ([], None)
-
-
-def test_gatk_temp_dir_avoids_spaces_on_windows(monkeypatch, tmp_path):
-    """GATK can't load its codecs from a temp dir with a space, which every
-    Windows user with a space in their name has; the 8.3 short path has none."""
-    from wgsextract_cli.commands.vcf import callers as _vcf_callers
-
-    spaced = tmp_path / "lab user" / "wgse-gatk-x"
-    spaced.mkdir(parents=True)
-    monkeypatch.setattr(_vcf_callers.tempfile, "mkdtemp", lambda **_: str(spaced))
-    monkeypatch.setattr(_vcf_callers.sys, "platform", "win32")
-
-    class Kernel32:
-        @staticmethod
-        def GetShortPathNameW(path, buffer, size):
-            buffer.value = path.replace("lab user", "LABUSE~1")
-            return len(buffer.value)
-
-    monkeypatch.setattr(
-        _vcf_callers.ctypes,
-        "windll",
-        type("windll", (), {"kernel32": Kernel32})(),
-        raising=False,
-    )
-    assert " " not in _vcf_callers._gatk_tmp_dir()

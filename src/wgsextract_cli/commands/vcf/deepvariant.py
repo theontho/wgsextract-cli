@@ -243,6 +243,11 @@ def _selected_intervals(region: str, lengths: dict[str, int]) -> Intervals:
         ) from error
 
 
+def _container_regions(region: str) -> str:
+    """``region`` with its BED files at the paths mounted in the container."""
+    return " ".join(host_path(p) if Path(p).is_file() else p for p in region.split())
+
+
 def _transcode_regions(
     region: str | None, ref: str, work: str
 ) -> tuple[list[str], Intervals]:
@@ -571,14 +576,14 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
     work = absolute_path(Path(outdir, WORK_DIRECTORY))
     staged_reads = _needs_staging(args.input)
     reads = str(work / "reads" / "reads.cram") if staged_reads else args.input
+    region_files = [p for p in (args.region or "").split() if Path(p).is_file()]
     launcher = _Launcher(
         run_deepvariant,
         arm64_image or image,
         bool(arm64_image),
-        [ref, args.input, out_vcf, str(work), args.checkpoint],
+        [ref, args.input, out_vcf, str(work), args.checkpoint, *region_files],
         work,
     )
-    region_files = [p for p in (args.region or "").split() if Path(p).is_file()]
     inputs: dict[str, str | None] = {
         "alignment": args.input,
         "reference": ref,
@@ -596,7 +601,7 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
             "--output_vcf", host_path(str(work / Path(out_vcf).name)),
             "--num_shards", str(shards),
             "--intermediate_results_dir", host_path(str(work)),
-            *(["--regions", args.region] if args.region else []),
+            *(["--regions", _container_regions(args.region)] if args.region else []),
         ]  # fmt: skip
         if args.checkpoint:
             dv_args += ["--customized_model", host_path(args.checkpoint)]

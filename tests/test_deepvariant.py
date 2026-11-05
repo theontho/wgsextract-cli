@@ -1,110 +1,112 @@
 """CPU DeepVariant: Google's image through Docker, or run_deepvariant on PATH.
 
-The image is too big for CI; these check the setup checks and what Docker is
-asked to run.
+The image is too big for CI, so a fake Docker runs fake DeepVariant tools
+(tests/fake_tools.py) that plan, stage and call like the real ones, on real
+reads with real samtools and bcftools.
 """
 
 import gzip
 import json
 import os
 import re
-import subprocess
+import shutil
 import sys
-from argparse import Namespace
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from tests.htslib_helpers import needs_tools, sam_to_bam, write_fasta
+from tests.disk_volumes import GIB, Volumes
+from tests.fake_tools import FakeDeepVariant, FakeDocker, require_bare_name_fakes
+from tests.htslib_helpers import (
+    require_runnable,
+    run_wgsextract,
+    sam_to_bam,
+    snp_sample,
+    vcf_calls,
+    write_fasta,
+)
 from wgsextract_cli.commands.vcf import deepvariant
-from wgsextract_cli.core import alignment_memory, containers, native_support
-from wgsextract_cli.core.resource_estimates import GIB
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core import alignment_memory, containers
+from wgsextract_cli.core.dependencies import clear_tool_caches, get_tool_path
+from wgsextract_cli.core.utils import WGSExtractError, run_command
 
-
-def _completed(returncode: int = 0, stderr: str = ""):
-    return subprocess.CompletedProcess([], returncode, "", stderr)
+# Found before a test replaces PATH.
+CORE_TOOLS = {tool: shutil.which(tool) for tool in ("samtools", "bcftools", "tabix")}
+STAGES = ["make_examples", "call_variants", "postprocess_variants"]
+ONT = "@RG\tID:rg\tSM:S\tPL:ONT\tDS:basecall_model=dna_r10.4.1_e8.2_400bps_sup@v5.0.0"
+ULTIMA = (
+    "@RG\tID:rg\tSM:S\tPL:ULTIMA\tFO:TGCA",
+    f"\ttp:B:c{',0' * 100}\tt0:Z:{'I' * 100}",
+)
 
 
 @pytest.fixture
-def files(tmp_path, monkeypatch):
-    """A reference, a BAM and an output directory in separate folders."""
-    monkeypatch.setattr(native_support.platform, "machine", lambda: "x86_64")
-    for d in ("ref", "bam", "out"):
-        (tmp_path / d).mkdir()
-    ref = tmp_path / "ref" / "hs38DH.fa.gz"
-    bam = tmp_path / "bam" / "s.bam"
-    ref.write_text("x")
-    Path(str(ref) + ".fai").write_text("chr20\t1000\t0\t1000\t1001\n")
-    bam.write_text("x")
-    out = tmp_path / "out"
-    monkeypatch.setattr(
-        deepvariant, "get_base_args", lambda _a: ("4", str(out), str(ref), None)
+def linux_x86(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(deepvariant.platform, "machine", lambda: "x86_64")
+
+
+@pytest.fixture
+def dv(tmp_path, monkeypatch, linux_x86):
+    """Reads, Google's image in a fake Docker, 64 GiB of free RAM, and no
+    run_deepvariant on PATH."""
+    require_bare_name_fakes()
+    require_runnable("samtools", "bcftools", "tabix")
+    (tmp_path / "reads").mkdir()
+    fake = FakeDeepVariant(
+        tmp_path / "deepvariant", CORE_TOOLS["samtools"], CORE_TOOLS["bcftools"]
     )
-    monkeypatch.setattr(deepvariant, "verify_dependencies", lambda _t: None)
-    monkeypatch.setattr(deepvariant, "ensure_vcf_indexed", lambda _v: None)
-    monkeypatch.setattr(deepvariant, "warn_if_no_variants", lambda *_a: None)
-    monkeypatch.setattr(deepvariant.sys, "platform", "linux")
+    docker = FakeDocker(tmp_path / "docker" / "bin", fake.bin)
+    docker.add_image(deepvariant.DEFAULT_IMAGE)
+    monkeypatch.setenv(
+        "PATH", f"{docker.root.parent / 'bin'}{os.pathsep}{os.environ['PATH']}"
+    )
     monkeypatch.setattr(alignment_memory, "available_memory", lambda: 64 * GIB)
-    return ref, bam, out
+    # A failed container's OOM event comes at once here.
+    monkeypatch.setattr(containers, "OOM_EVENT_GRACE", 0.5)
+    clear_tool_caches()
+    return SimpleNamespace(
+        sample=snp_sample(tmp_path / "reads"),
+        deepvariant=fake,
+        docker=docker,
+        out=tmp_path / "out",
+        tmp=tmp_path,
+    )
 
 
-def _args(bam, **overrides):
-    values = {"input": str(bam), "region": "chr20", "checkpoint": None, "gpu": False}
-    return Namespace(**{**values, **overrides})
+@pytest.fixture
+def arm64(dv, monkeypatch):
+    """Linux ARM64, with a native engine and the native image built."""
+    monkeypatch.setattr(deepvariant.platform, "machine", lambda: "aarch64")
+    dv.docker.set(arch="aarch64")
+    dv.docker.add_image(deepvariant.DEFAULT_ARM64_IMAGE, platform="linux/arm64")
+    return dv
 
 
-def _flag(cmd, name):
-    return cmd[cmd.index(name) + 1]
+def call(dv, *options, reads=None, out=None, threads="4"):
+    run_wgsextract(
+        "vcf", "deepvariant", "--input", str(reads or dv.sample.bam),
+        "--ref", dv.sample.ref, "--outdir", str(out or dv.out), "--threads", threads,
+        *options,
+    )  # fmt: skip
 
 
-def _plan(cmd):
-    """What run_deepvariant --dry_run=true prints for the flags in ``cmd``."""
-    work = _flag(cmd, "--intermediate_results_dir")
-    shards = int(_flag(cmd, "--num_shards"))
-    examples = f"{work}/make_examples.tfrecord@{shards}.gz"
-    outputs = f"{work}/call_variants_output.tfrecord.gz"
-    commands = [
-        f"time seq 0 {shards - 1} | parallel -q --halt 2 --line-buffer "
-        f'/opt/deepvariant/bin/make_examples --mode calling --ref "{_flag(cmd, "--ref")}" '
-        f'--reads "{_flag(cmd, "--reads")}" --examples "{examples}" --task {{}}',
-        f'time /opt/deepvariant/bin/call_variants --outfile "{outputs}" '
-        f'--examples "{examples}" --checkpoint "/opt/models/wgs"',
-        f'time /opt/deepvariant/bin/postprocess_variants --infile "{outputs}" '
-        f'--outfile "{_flag(cmd, "--output_vcf")}" --cpus "{shards}"',
-    ]
-    return "".join(f"\n***** Running the command:*****\n{c}\n\n" for c in commands)
+def rerun(dv, *options, **kwargs):
+    """Forget earlier runs, stop failing and call again."""
+    dv.deepvariant.fail(None)
+    dv.deepvariant.clear()
+    dv.docker.clear()
+    call(dv, *options, **kwargs)
 
 
-def _stage(command):
-    """Write what a stage command printed by ``_plan`` writes."""
-    paths = dict(re.findall(r'--(examples|outfile) "([^"]+)"', command))
-    if "/make_examples " in command:
-        shards = int(re.search(r"@(\d+)", paths["examples"]).group(1))
-        for shard in range(shards):
-            name = paths["examples"].replace(
-                f"@{shards}", f"-{shard:05d}-of-{shards:05d}"
-            )
-            Path(name).write_text(f"examples {shard}")
-    else:
-        Path(paths["outfile"]).write_text(command.split()[1])
+def other_sample(dv, *args, **kwargs):
+    work = dv.tmp / "other"
+    work.mkdir()
+    return snp_sample(work, *args, **kwargs)
 
 
-def _deepvariant(cmd):
-    """Run a fake run_deepvariant or stage command; ``cmd`` may be in Docker."""
-    if "--dry_run=true" in cmd:
-        return subprocess.CompletedProcess(cmd, 0, _plan(cmd), "")
-    assert cmd[-2] == "-c", cmd
-    _stage(cmd[-1])
-    return subprocess.CompletedProcess(cmd, 0, "", "")
-
-
-def _is_stage(cmd):
-    return len(cmd) > 2 and cmd[-2] == "-c"
-
-
-def _visible(out):
+def visible(out):
     """What a run left in ``out`` for the user, beside its step journal."""
     return sorted(
         p.name
@@ -113,370 +115,337 @@ def _visible(out):
     )
 
 
-class _Runs(list):
-    """The run_deepvariant `docker run` commands, the stage commands and the
-    containers `docker kill` stopped."""
-
-    killed: list[str]
-    stages: list[list[str]]
+def dv_flags(dv):
+    """The options run_deepvariant was last planned with."""
+    return dv.deepvariant.runs("run_deepvariant")[-1]["opts"]
 
 
-class _Events:
-    """A `docker events` process that reports ``lines``."""
-
-    def __init__(self, lines):
-        self.stdout = iter(lines)
-
-    def terminate(self):
-        pass
-
-    def wait(self, timeout=None):
-        return 0
+def stage_runs(dv):
+    return [r for r in dv.docker.runs() if r["command"][:1] == ["/bin/bash"]]
 
 
-def _docker(monkeypatch, *, present=True, info_rc=0, image_rc=0, run=None, oom=False):
-    """Fake the docker CLI; returns the `docker run` commands. ``run(cmd)``
-    replaces a successful stage; ``oom`` reports an OOM kill in the container."""
-    monkeypatch.setattr(os, "getuid", lambda: 1000, raising=False)
-    monkeypatch.setattr(os, "getgid", lambda: 1000, raising=False)
-    runs = _Runs()
-    runs.killed = killed = []
-    runs.stages = []
+def as_cram(sample, version, name=None):
+    """``sample``'s reads as an indexed CRAM ``version``."""
+    cram = str(Path(sample.bam).with_name(name or f"v{version}.cram"))
+    run_command(
+        ["samtools", "view", "-C", "--output-fmt-option", f"version={version}",
+         "-T", sample.ref, "-o", cram, sample.bam]
+    )  # fmt: skip
+    run_command(["samtools", "index", "--csi" if name else "-c", cram])
+    return cram
 
-    def fake(cmd, **_kwargs):
-        if cmd[1] == "info":
-            return _completed(info_rc, "permission denied")
-        if cmd[1] == "image":
-            return _completed(image_rc)
-        if cmd[1] == "kill":
-            killed.append(cmd[2])
-            return _completed()
-        if not _is_stage(cmd):
-            runs.append(cmd)
-            return _deepvariant(cmd)
-        runs.stages.append(cmd)
-        if run:
-            return run(cmd)
-        return _deepvariant(cmd)
 
-    def events(cmd, **_kwargs):
-        assert cmd[1] == "events"
-        return _Events(["oom\n"] if oom else [])
+def read_names(alignment, ref, *regions):
+    view = [
+        "samtools",
+        "view",
+        *(["-M"] if regions else []),
+        "-T",
+        ref,
+        alignment,
+        *regions,
+    ]
+    out = run_command(view, capture_output=True).stdout
+    return sorted({line.split("\t")[0] for line in out.splitlines()})
 
-    def tool_path(tool):
-        return "docker" if tool == "docker" and present else None
 
-    monkeypatch.setattr(containers, "get_tool_path", tool_path)
-    monkeypatch.setattr(deepvariant, "get_tool_path", tool_path)
-    monkeypatch.setattr(containers, "run_command", fake)
-    monkeypatch.setattr(containers, "popen", events)
-    if not oom:
-        monkeypatch.setattr(containers, "OOM_EVENT_GRACE", 0)
-    return runs
+# Docker setup -------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
     ("setup", "message"),
     [
-        ({"present": False}, "Docker not found.*docker pull google/deepvariant"),
-        ({"info_rc": 1}, "docker group"),
-        ({"image_rc": 1}, "image isn't downloaded: docker pull google/deepvariant"),
+        ("no docker", "Docker not found.*docker pull google/deepvariant"),
+        ("no daemon", "permission denied.*docker group"),
+        ("no image", "image isn't downloaded: docker pull google/deepvariant"),
     ],
 )
-def test_missing_docker_setup_is_named(files, monkeypatch, setup, message):
-    _ref, bam, _out = files
-    _docker(monkeypatch, **setup)
+def test_missing_docker_setup_is_named(dv, monkeypatch, setup, message):
+    if setup == "no docker":
+        tools = {str(Path(path).parent) for path in CORE_TOOLS.values()}
+        monkeypatch.setenv("PATH", os.pathsep.join(tools))
+    elif setup == "no daemon":
+        dv.docker.set(info_error="permission denied while trying to connect")
+    else:
+        dv.docker.set(images={})
     with pytest.raises(WGSExtractError, match=message):
-        deepvariant.cmd_deepvariant(_args(bam))
+        call(dv)
+    assert dv.docker.runs() == []
 
 
-def test_windows_is_refused(files, monkeypatch):
-    _ref, bam, _out = files
-    _docker(monkeypatch)
-    monkeypatch.setattr(deepvariant.sys, "platform", "win32")
+def test_windows_is_refused(dv, monkeypatch):
+    get_tool_path("run_deepvariant")  # Looked up as on Linux: not found.
+    monkeypatch.setattr(sys, "platform", "win32")
     with pytest.raises(WGSExtractError, match="Windows"):
-        deepvariant.cmd_deepvariant(_args(bam))
+        call(dv)
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
-def test_the_image_runs_run_deepvariant_on_mounted_paths(files, monkeypatch, tmp_path):
-    ref, bam, out = files
-    runs = _docker(monkeypatch)
-    model = tmp_path / "model" / "model.ckpt"
+def test_the_image_calls_reads_from_folders_it_mounts(dv):
+    """The reference, reads, checkpoint and output are in separate folders,
+    each mounted into the container (the fake fails on any other path)."""
+    reads = dv.tmp / "bam" / "s.bam"
+    reads.parent.mkdir()
+    for suffix in ("", ".bai"):
+        shutil.copy(dv.sample.bam + suffix, f"{reads}{suffix}")
+    model = dv.tmp / "model" / "model.ckpt"
     model.parent.mkdir()
+    Path(f"{model}.index").write_text("weights")
 
-    deepvariant.cmd_deepvariant(
-        _args(bam, checkpoint=str(model), model_type="WES", pacbio=False, wes=False)
+    call(
+        dv, "--model-type", "WES", "--checkpoint", str(model), "-r", "chr1", reads=reads
     )
 
-    (cmd,) = runs
-    image_at = cmd.index(deepvariant.DEFAULT_IMAGE)
-    dv = cmd[image_at + 1 :]
-    assert dv[0] == "/opt/deepvariant/bin/run_deepvariant"
-    flag = {dv[i]: dv[i + 1] for i in range(1, len(dv) - 1, 2)}
-    assert flag["--model_type"] == "WES"
-    assert flag["--ref"] == str(ref)
-    assert flag["--reads"] == str(bam)
-    work = Path(flag["--intermediate_results_dir"])
-    assert flag["--output_vcf"] == str(work / "deepvariant.vcf.gz")
-    assert flag["--num_shards"] == "4"
-    assert flag["--regions"] == "chr20"
-    assert flag["--customized_model"] == str(model)
-    assert dv[-1] == "--dry_run=true"
-    # Then each stage runs its printed command in the image.
-    assert [
-        stage[stage.index(deepvariant.DEFAULT_IMAGE) + 1 :][:2] for stage in runs.stages
-    ] == [["/bin/bash", "-c"]] * 3
-    for run in [cmd, *runs.stages]:
-        mounts = {run[i + 1].split(":")[0] for i, a in enumerate(run) if a == "-v"}
-        assert mounts == {
-            str(p) for p in (ref.parent, bam.parent, out, work, model.parent)
-        }
-        assert "--gpus" not in run
-    # Only the VCF is left; the intermediate directory is removed.
-    assert _visible(out) == ["deepvariant.vcf.gz"]
-    assert not work.exists()
+    assert vcf_calls(dv.out / "deepvariant.vcf.gz") == dv.sample.calls
+    assert visible(dv.out) == ["deepvariant.vcf.gz", "deepvariant.vcf.gz.tbi"]
+    assert not (dv.out / deepvariant.WORK_DIRECTORY).exists()
+    flags = dv_flags(dv)
+    # contract: the chosen model, checkpoint, region and one shard per thread.
+    assert (flags["model_type"], flags["customized_model"]) == ("WES", str(model))
+    assert (flags["regions"], flags["num_shards"]) == ("chr1", "4")
+    assert [r["command"][:2] for r in stage_runs(dv)] == [["/bin/bash", "-c"]] * 3
 
 
-def test_run_deepvariant_on_path_is_used_without_docker(files, monkeypatch):
-    _ref, bam, out = files
-    monkeypatch.setattr(
-        deepvariant,
-        "get_tool_path",
-        lambda tool: "/opt/dv/run_deepvariant" if tool == "run_deepvariant" else None,
-    )
-    monkeypatch.setenv("PYTHONPATH", "/ours")
-    calls = []
-
-    def fake(cmd, **kwargs):
-        calls.append((cmd, kwargs))
-        return _deepvariant(cmd)
-
-    monkeypatch.setattr(deepvariant, "run_command", fake)
-    deepvariant.cmd_deepvariant(_args(bam, region=None))
-
-    (cmd, _kwargs), *stages = calls
-    assert cmd[0] == "/opt/dv/run_deepvariant"
-    assert "--regions" not in cmd
-    assert cmd[cmd.index("--model_type") + 1] == "WGS"
-    assert [stage[:2] for stage, _ in stages] == [["/bin/bash", "-c"]] * 3
-    for _cmd, kwargs in calls:
-        assert "PYTHONPATH" not in kwargs["env"]
-        assert kwargs["stdin"] == subprocess.DEVNULL
-    assert _visible(out) == ["deepvariant.vcf.gz"]
-
-
-def test_detected_ont_runs_the_standard_image_with_owned_temporary_files(
-    files, monkeypatch
+def test_local_run_deepvariant_runs_without_docker_our_python_or_stdin(
+    dv, monkeypatch, open_stdin
 ):
-    _ref, bam, _out = files
-    runs = _docker(monkeypatch)
-    monkeypatch.setattr(deepvariant, "input_platform", lambda *_: "ont")
-    monkeypatch.setattr(deepvariant, "get_bam_header", lambda *_: "@RG\tPL:ONT\n")
-    deepvariant.cmd_deepvariant(_args(bam))
-    (cmd,) = runs
-    assert deepvariant.DEFAULT_IMAGE in cmd
-    assert cmd[cmd.index("--model_type") + 1] == "ONT_R104"
-    work = cmd[cmd.index("--intermediate_results_dir") + 1]
-    for stage in runs.stages:
-        assert f"HOME={Path(work, '.tmp')}" in stage
-        assert f"TMPDIR={Path(work, '.tmp')}" in stage
+    monkeypatch.setenv("PATH", f"{dv.deepvariant.bin}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("PYTHONPATH", str(dv.tmp / "our-site-packages"))
+    clear_tool_caches()
+    call(dv)
+    assert vcf_calls(dv.out / "deepvariant.vcf.gz") == dv.sample.calls
+    assert dv.docker.runs() == []
+    assert dv.deepvariant.stages() == STAGES
+    assert "regions" not in dv_flags(dv)
+    assert dv_flags(dv)["model_type"] == "WGS"
+
+
+def test_detected_ont_runs_the_ont_model_with_its_own_temporary_files(dv):
+    reads = other_sample(dv, ONT)
+    call(dv, reads=reads.bam)
+    # contract: ONT reads get DeepVariant's ONT model.
+    assert dv_flags(dv)["model_type"] == "ONT_R104"
+    plan, *stages = dv.docker.runs()
+    assert {r["image"] for r in [plan, *stages]} == {deepvariant.DEFAULT_IMAGE}
+    work = dv.out / deepvariant.WORK_DIRECTORY
+    for stage in stages:
+        assert stage["env"]["TMPDIR"] == stage["env"]["HOME"] == str(work / ".tmp")
     # Planning, which a --dry-run does beside a running stage, has its own.
-    assert f"TMPDIR={Path(work, '.tmp')}" not in cmd
+    assert Path(plan["env"]["TMPDIR"]).parent == work
+    assert plan["env"]["TMPDIR"] != str(work / ".tmp")
 
 
-@pytest.mark.parametrize("selection", [{}, {"ont": True}, {"model_type": "ONT_R104"}])
+@pytest.mark.parametrize(
+    ("selection", "model"),
+    [
+        (["--pacbio"], "PACBIO"),
+        (["--wes"], "WES"),
+        (["--model-type", "HYBRID_PACBIO_ILLUMINA"], "HYBRID_PACBIO_ILLUMINA"),
+        (["--wes", "--model-type", "PACBIO"], "PACBIO"),
+        (["--pacbio", "--model-type", "WES"], "PACBIO"),
+    ],
+)
+def test_model_options_choose_the_model(dv, selection, model):
+    call(dv, *selection)
+    # contract: the model DeepVariant calls with.
+    assert dv_flags(dv)["model_type"] == model
+
+
+def test_detected_ultima_reads_run_the_ultima_image(dv):
+    dv.docker.add_image(deepvariant.DEFAULT_ULTIMA_IMAGE)
+    sample = other_sample(dv, ULTIMA[0], tags=ULTIMA[1])
+    call(dv, reads=sample.bam)
+    # contract: Ultima reads get the Ultima model, in its own image.
+    assert dv_flags(dv)["model_type"] == "ULTIMA"
+    assert {r["image"] for r in dv.docker.runs()} == {deepvariant.DEFAULT_ULTIMA_IMAGE}
+
+
+def test_ont_conflicts_with_other_model_options(dv):
+    with pytest.raises(WGSExtractError, match="cannot be combined"):
+        call(dv, "--ont", "--wes")
+    assert dv.docker.runs() == []
+
+
+@pytest.mark.parametrize("selection", [[], ["--ont"], ["--model-type", "ONT_R104"]])
 def test_apple_arm_refuses_ont_including_automatic_selection(
-    files, monkeypatch, selection
+    dv, monkeypatch, selection
 ):
-    _ref, bam, _out = files
-    runs = _docker(monkeypatch)
-    monkeypatch.setattr(native_support.platform, "machine", lambda: "arm64")
-    monkeypatch.setattr(deepvariant.sys, "platform", "darwin")
-    monkeypatch.setattr(deepvariant, "input_platform", lambda *_: "ont")
+    reads = other_sample(dv, ONT)
+    monkeypatch.setattr(deepvariant.platform, "machine", lambda: "arm64")
+    monkeypatch.setattr(sys, "platform", "darwin")
     with pytest.raises(WGSExtractError, match="ONT_R104.*not qualified on ARM64"):
-        deepvariant.cmd_deepvariant(_args(bam, **selection))
-    assert not runs
+        call(dv, *selection, reads=reads.bam)
+    assert dv.docker.runs() == []
 
 
-@pytest.mark.parametrize(
-    ("definition", "expected"),
-    [
-        (b"CRAM\x03\x00" + bytes(20), (3, 0)),
-        (b"CRAM\x03\x01" + bytes(20), (3, 1)),
-        (b"CRAM\x04\x00" + bytes(20), (4, 0)),
-        (b"BAM\x01" + bytes(20), None),
-        (b"\x1f\x8b" + bytes(20), None),
-        (b"CRAM\x03", None),
-        (b"", None),
-        (b"garbage", None),
-    ],
-)
-def test_cram_version_sniffs_definition_not_extension(tmp_path, definition, expected):
-    alignment = tmp_path / "reads.bam"
-    alignment.write_bytes(definition)
-    assert deepvariant._cram_version(str(alignment)) == expected
+# CRAM 3.1 staging -----------------------------------------------------------
 
 
-@pytest.mark.parametrize("version", [None, (3, 0), (3, 1), (4, 0)])
-def test_only_new_cram_is_transcoded_and_indexed(files, monkeypatch, version, caplog):
-    ref, alignment, work = files
-    if version:
-        alignment.write_bytes(b"CRAM" + bytes(version) + bytes(20))
-    calls = []
-    monkeypatch.setattr(deepvariant, "run_command", lambda cmd: calls.append(cmd))
-    monkeypatch.setattr(deepvariant, "check_free_space", lambda *_: True)
+@pytest.mark.parametrize("reads", ["bam", "3.0", "3.1", "3.1 named .bam"])
+def test_only_cram_31_is_staged_as_indexed_cram_30(dv, caplog, reads):
+    """The images' htslib can't decode CRAM 3.1 (the fake fails on it), so
+    those reads, whatever their name, are copied to CRAM 3.0 first."""
+    sample = dv.sample
+    if reads == "bam":
+        alignment = sample.bam
+    else:
+        name = "reads.bam" if reads.endswith(".bam") else None
+        alignment = as_cram(sample, reads.split()[0], name)
+    before = Path(alignment).read_bytes()
     with caplog.at_level("INFO"):
-        result = deepvariant._compatible_reads(
-            str(alignment), str(ref), str(work), "4", "chr20:1-100"
-        )
-    if version is None or version < (3, 1):
-        assert result == str(alignment)
-        assert calls == []
-        assert "Transcoding CRAM" not in caplog.text
-        return
-    assert result == str(work / "reads.cram")
-    view, index = calls
-    assert view[:2] == ["samtools", "view"]
-    assert view[view.index("-@") + 1] == "4"
-    assert view[view.index("-T") + 1] == str(ref)
-    assert view[view.index("--output-fmt-option") + 1] == "version=3.0"
-    assert view[-1] == str(alignment)
-    assert "-M" in view
-    bed = Path(view[view.index("-L") + 1])
-    assert bed.read_text() == "chr20\t0\t100\n"
-    assert index == ["samtools", "index", result]
-    assert caplog.text.count("Transcoding CRAM") == 1
-    assert "x86-64 images (htslib 1.18 / htscodecs 1.5.1)" in caplog.text
-    assert "staging applies to every image" in caplog.text
+        call(dv, reads=alignment)
 
-
-def test_transcode_fails_before_writing_when_disk_is_low(files, monkeypatch):
-    ref, alignment, work = files
-    alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
-    monkeypatch.setattr(deepvariant, "check_free_space", lambda *_: False)
-    monkeypatch.setattr(
-        deepvariant, "run_command", lambda *_: pytest.fail("must check disk first")
-    )
-    with pytest.raises(WGSExtractError, match="Insufficient free disk"):
-        deepvariant._compatible_reads(str(alignment), str(ref), str(work), "1", None)
-    assert not (work / "reads.cram").exists()
-
-
-@pytest.mark.parametrize("selection", ["chrM", "chr1:1-1000000", "bed"])
-def test_targeted_transcode_uses_indexed_sizes_and_keeps_a_small_minimum(
-    files, monkeypatch, selection
-):
-    ref, alignment, work = files
-    alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
-    Path(str(ref) + ".fai").write_text(
-        "chr1\t2000000\t0\t1000\t1001\nchrM\t1000\t0\t1000\t1001\n"
-    )
-    if selection == "bed":
-        bed = work / "targets.bed"
-        bed.write_text("chr1\t0\t750000\nchr1\t500000\t1000000\n")
-        selection = str(bed)
-    calls = []
-    free = [20 * deepvariant.GB]
-    monkeypatch.setattr(
-        deepvariant,
-        "shutil",
-        SimpleNamespace(disk_usage=lambda _: SimpleNamespace(free=free[0])),
-    )
-    # A 16 GiB input has a whole-input staging estimate of about 32 GiB.
-    monkeypatch.setattr(deepvariant, "get_free_space_needed", lambda *a, **kw: (0, 31))
-    monkeypatch.setattr(deepvariant, "check_free_space", lambda *a: False)
-    monkeypatch.setattr(deepvariant, "run_command", lambda cmd: calls.append(cmd))
-    monkeypatch.setattr(
-        deepvariant,
-        "get_bam_header",
-        lambda *a: "@SQ\tSN:chrM\tLN:1000\n@SQ\tSN:chr1\tLN:2000000\n",
-    )
-    Path(str(alignment) + ".crai").write_text(
-        f"0\t1\t1000\t100\t0\t{16 * 1024**2}\n"
-        f"1\t1\t1000000\t1000\t0\t{8 * deepvariant.GB}\n"
-    )
-    with pytest.raises(WGSExtractError, match="Insufficient free disk"):
-        deepvariant._compatible_reads(str(alignment), str(ref), str(work), "1", None)
-    deepvariant._compatible_reads(str(alignment), str(ref), str(work), "1", selection)
-    assert len(calls) == 2
-    free[0] = 63 * 1024**2 if selection == "chrM" else 15 * deepvariant.GB
-    with pytest.raises(WGSExtractError, match="Insufficient free disk"):
-        deepvariant._compatible_reads(
-            str(alignment), str(ref), str(work), "1", selection
-        )
-    assert len(calls) == 2
+    (examples,) = dv.deepvariant.runs("make_examples")
+    staged = reads.startswith("3.1")
+    assert examples["cram_version"] == (None if reads == "bam" else [3, 0])
+    assert (Path(examples["reads"]).name == "reads.cram") == staged
+    assert examples["names"] == read_names(sample.bam, sample.ref)
+    assert caplog.text.count("Transcoding CRAM") == staged
+    assert vcf_calls(dv.out / "deepvariant.vcf.gz") == sample.calls
+    assert not (dv.out / deepvariant.WORK_DIRECTORY).exists()
+    assert Path(alignment).read_bytes() == before
 
 
 @pytest.mark.parametrize(
-    ("selection", "expected"),
+    ("region", "expected"),
     [
-        ("HLA-A*01:01:01:01", (0, 5000)),
-        ("HLA-A*01:01:01:01:1,001-2,000", (1000, 2000)),
-        ("HLA-A*01:01:01:01:1,001", (1000, 1001)),
+        (None, []),
+        ("chr1:900-1000", ["chr1:900-1000"]),
+        ("chr1", []),
+        ("chr1:600-700 chr1:2000-2100", ["chr1:600-700", "chr1:2000-2100"]),
+        ("chr1:900-1000 chr1:900-950", ["chr1:900-1000"]),
+        ("bed", ["chr1:900-1000"]),
+        ("bed.gz", ["chr1:900-1000"]),
+        ("bed-mixed", ["chr1:900-1000", "chr1:2000-2100"]),
+        ("bedpe", ["chr1:600-2100"]),  # One span from both ends.
     ],
 )
-def test_colon_contigs_use_nucleus_whole_range_and_position_semantics(
-    tmp_path, selection, expected
-):
-    ref = tmp_path / "ref.fa"
-    chrom = "HLA-A*01:01:01:01"
-    Path(str(ref) + ".fai").write_text(f"{chrom}\t5000\t0\t5000\t5001\n")
-    options, intervals = deepvariant._transcode_regions(
-        selection, str(ref), str(tmp_path)
-    )
-    bed = Path(options[options.index("-L") + 1])
-    assert bed.read_text() == f"{chrom}\t{expected[0]}\t{expected[1]}\n"
-    assert intervals == {chrom: [expected]}
+def test_staging_keeps_the_reads_of_the_selected_regions(dv, region, expected):
+    cram = as_cram(dv.sample, "3.1")
+    if region and region.startswith("bed"):
+        selection = dv.tmp / ("selection." + region.split("-")[0])
+        rows = (
+            "chr1\t599\t700\tchr1\t1999\t2100\n"
+            if region == "bedpe"
+            else "chr1\t899\t1000\nchr1\t899\t950\n"
+        )
+        if region == "bed.gz":
+            with gzip.open(selection, "wt") as stream:
+                stream.write(rows)
+        else:
+            selection.write_text(rows)
+        region = str(selection) + (" chr1:2000-2100" if region == "bed-mixed" else "")
+    call(dv, *(["-r", region] if region else []), reads=cram)
+    (examples,) = dv.deepvariant.runs("make_examples")
+    assert examples["cram_version"] == [3, 0]
+    assert examples["names"] == read_names(cram, dv.sample.ref, *expected)
 
 
-def test_region_selection_drops_unknown_rows_and_rejects_empty_or_bare_unknown(files):
-    ref, _alignment, work = files
-    bed = work / "capture.bed"
-    bed.write_text("chrUn_stray\t0\t50\nchr20\t10\t30\nchr20\t20\t40\n")
-    options, intervals = deepvariant._transcode_regions(
-        f"{bed} chrUn_stray:1-10", str(ref), str(work)
+@pytest.mark.parametrize(
+    ("selection", "reads"),
+    [
+        ("HLA-A*01:01:01:01", range(49)),
+        ("HLA-A*01:01:01:01:1,001-2,000", range(10, 20)),
+        ("HLA-A*01:01:01:01:1,001", [10]),
+    ],
+)
+def test_colon_contigs_select_like_deepvariant_does(dv, selection, reads):
+    """A contig name with colons is a whole contig; a range after it is
+    read like DeepVariant (Nucleus) reads it."""
+    contig = "HLA-A*01:01:01:01"
+    (dv.tmp / "hla").mkdir()
+    ref = write_fasta(dv.tmp / "hla" / "hla.fa", {contig: "ACGT" * 1250})
+    lines = ["@HD\tVN:1.6\tSO:unsorted", f"@SQ\tSN:{contig}\tLN:5000"]
+    for i in range(49):  # r{i} covers 100i+1 to 100i+50.
+        lines.append(
+            f"r{i}\t0\t{contig}\t{100 * i + 1}\t60\t50M\t*\t0\t0\t"
+            f"{'ACGT' * 12}AC\t{'I' * 50}"
+        )
+    hla = SimpleNamespace(
+        ref=str(ref), bam=sam_to_bam(lines, dv.tmp / "hla" / "hla.bam")
     )
-    assert intervals == {"chr20": [(10, 40)]}
-    assert Path(options[-1]).read_text() == "chr20\t10\t40\n"
+    cram = as_cram(hla, "3.1")
+    run_wgsextract(
+        "vcf", "deepvariant", "--input", cram, "--ref", str(ref),
+        "--outdir", str(dv.out), "-r", selection,
+    )  # fmt: skip
+    (examples,) = dv.deepvariant.runs("make_examples")
+    assert examples["names"] == sorted(f"r{i}" for i in reads)
+
+
+def test_unknown_contigs_are_dropped_from_a_selection_but_not_alone(dv):
+    cram = as_cram(dv.sample, "3.1")
+    bed = dv.tmp / "capture.bed"
+    bed.write_text("chrUn_stray\t0\t50\nchr1\t899\t1000\nchr1\t949\t1100\n")
+    call(dv, "-r", f"{bed} chrUn_stray:1-10", reads=cram)
+    (examples,) = dv.deepvariant.runs("make_examples")
+    assert examples["names"] == read_names(cram, dv.sample.ref, "chr1:900-1100")
+
     bed.write_text("chrUn_stray\t0\t50\n")
-    with pytest.raises(WGSExtractError, match="covers no reference bases"):
-        deepvariant._transcode_regions(str(bed), str(ref), str(work))
-    with pytest.raises(WGSExtractError, match="covers no reference bases"):
-        deepvariant._transcode_regions("chrUn_stray:1-10", str(ref), str(work))
-    with pytest.raises(WGSExtractError, match="Invalid interval"):
-        deepvariant._transcode_regions("chr20 chrUn_stray", str(ref), str(work))
+    dv.docker.clear()
+    for region, message in [
+        (str(bed), "covers no reference bases"),
+        ("chrUn_stray:1-10", "covers no reference bases"),
+        ("chr1 chrUn_stray", "Invalid interval"),
+    ]:
+        with pytest.raises(WGSExtractError, match=message):
+            call(dv, "-r", region, reads=cram, out=dv.tmp / "refused")
+    assert dv.docker.runs() == []
+
+
+def test_a_relative_region_bed_in_its_own_folder_reaches_the_image(dv, monkeypatch):
+    """Regression: a BED beside neither the reads, the reference nor the
+    output wasn't mounted, so DeepVariant's image couldn't open it."""
+    (dv.tmp / "targets").mkdir()
+    (dv.tmp / "targets" / "panel.bed").write_text("chr1\t899\t1100\n")
+    monkeypatch.chdir(dv.tmp / "targets")
+    call(dv, "-r", "panel.bed")
+    assert vcf_calls(dv.out / "deepvariant.vcf.gz") == dv.sample.calls
+    assert dv_flags(dv)["regions"] == str(dv.tmp / "targets" / "panel.bed")
+
+
+def test_missing_region_bed_is_reported_before_docker_runs(dv):
+    with pytest.raises(WGSExtractError, match="Invalid DeepVariant region selection"):
+        call(dv, "-r", str(dv.tmp / "missing.bed"))
+    assert dv.docker.runs() == []
+
+
+@pytest.fixture
+def big_cram(dv, monkeypatch):
+    """A CRAM 3.1 that looks 1 GiB big (staging the whole of it needs ~2
+    GiB) beside an output folder with 20 GiB free."""
+    cram = as_cram(dv.sample, "3.1")
+    dv.out.mkdir()
+    volumes = Volumes(monkeypatch)
+    volumes.sizes[Path(cram)] = GIB
+    volumes.free[dv.out] = 20
+    return SimpleNamespace(path=cram, volumes=volumes)
+
+
+def test_staging_needs_disk_for_the_whole_input_or_the_selected_slices(dv, big_cram):
+    big_cram.volumes.sizes[Path(big_cram.path)] = 16 * GIB
+    with pytest.raises(WGSExtractError, match=r"Insufficient free disk.*~32\.00 GiB"):
+        call(dv, reads=big_cram.path)
+    assert not list(dv.out.rglob("reads.cram"))
+    assert dv.deepvariant.runs("make_examples") == []
+
+    # A region needs only its CRAM slices, and at least 64 MiB.
+    call(dv, "-r", "chr1:900-1000", reads=big_cram.path)
+    assert dv.deepvariant.runs("make_examples")
+    big_cram.volumes.free[dv.out] = 63 / 1024
+    with pytest.raises(WGSExtractError, match=r"~0\.06 GiB"):
+        call(dv, "-r", "chr1:900-1100", reads=big_cram.path, out=dv.out / "again")
 
 
 @pytest.mark.parametrize("compressed", [False, True])
-def test_capture_cram_disk_estimate_counts_selected_slices_not_genome_fraction(
-    files, monkeypatch, compressed
+def test_capture_staging_counts_the_selected_slices_not_the_genome_fraction(
+    dv, big_cram, compressed
 ):
-    ref, alignment, work = files
-    alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
-    bed = work / "capture.bed"
-    bed.write_text("chr20\t10\t20\n")
-    monkeypatch.setattr(
-        deepvariant, "get_bam_header", lambda *a: "@SQ\tSN:chr20\tLN:1000\n"
+    data = f"0\t1\t100\t100\t0\t{16 * GIB}\n".encode()
+    Path(f"{big_cram.path}.crai").write_bytes(
+        gzip.compress(data) if compressed else data
     )
-    index = Path(str(alignment) + ".crai")
-    data = f"0\t1\t100\t100\t0\t{16 * deepvariant.GB}\n".encode()
-    index.write_bytes(gzip.compress(data) if compressed else data)
-    monkeypatch.setattr(deepvariant, "get_free_space_needed", lambda *a, **kw: (0, 31))
-    monkeypatch.setattr(
-        deepvariant,
-        "shutil",
-        SimpleNamespace(disk_usage=lambda _: SimpleNamespace(free=20 * deepvariant.GB)),
-    )
-    monkeypatch.setattr(
-        deepvariant,
-        "run_command",
-        lambda *a: pytest.fail("must reject before transcode"),
-    )
-    with pytest.raises(WGSExtractError, match="needs ~32.00 GiB"):
-        deepvariant._compatible_reads(
-            str(alignment), str(ref), str(work), "1", str(bed)
-        )
+    with pytest.raises(WGSExtractError, match=r"~32\.00 GiB"):
+        call(dv, "-r", "chr1:10-20", reads=big_cram.path)
 
 
 @pytest.mark.parametrize(
@@ -491,492 +460,237 @@ def test_capture_cram_disk_estimate_counts_selected_slices_not_genome_fraction(
         b"\x1f\x8b\x08\x00" + bytes(6) + b"\x07",
     ],
 )
-def test_missing_or_unparseable_crai_uses_whole_input_disk_bound(
-    files, monkeypatch, index_data
-):
-    ref, alignment, work = files
-    alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
+def test_an_unreadable_crai_bounds_staging_by_the_whole_input(dv, big_cram, index_data):
+    """Each of these CRAIs would say 50 bytes (so 64 MiB) were selected."""
+    index = Path(f"{big_cram.path}.crai")
+    index.unlink()
     if index_data is not None:
-        Path(str(alignment) + ".crai").write_bytes(index_data)
-    monkeypatch.setattr(
-        deepvariant, "get_bam_header", lambda *a: "@SQ\tSN:chr20\tLN:1000\n"
-    )
-    monkeypatch.setattr(deepvariant, "get_free_space_needed", lambda *a, **kw: (0, 31))
-    monkeypatch.setattr(
-        deepvariant,
-        "shutil",
-        SimpleNamespace(disk_usage=lambda _: SimpleNamespace(free=20 * deepvariant.GB)),
-    )
-    monkeypatch.setattr(
-        deepvariant,
-        "run_command",
-        lambda *a: pytest.fail("must reject before transcode"),
-    )
-    with pytest.raises(WGSExtractError, match="needs ~32.00 GiB"):
-        deepvariant._compatible_reads(
-            str(alignment), str(ref), str(work), "1", "chr20:1"
-        )
+        index.write_bytes(index_data)
+    big_cram.volumes.free[dv.out] = 1.5
+    with pytest.raises(WGSExtractError, match=r"~2\.00 GiB"):
+        call(dv, "-r", "chr1:10", reads=big_cram.path)
 
 
-def test_crai_mapping_uses_header_order_and_counts_shared_slices_once(
-    files, monkeypatch
-):
-    ref, alignment, _work = files
-    monkeypatch.setattr(
-        deepvariant,
-        "get_bam_header",
-        lambda *a: "@SQ\tSN:chrM\tLN:1000\n@SQ\tSN:chr20\tLN:1000\n",
-    )
-    Path(str(alignment) + ".crai").write_text(
-        "0\t1\t100\t100\t10\t200\n"
-        "1\t1\t100\t100\t10\t200\n"
-        "1\t101\t20\t500\t10\t300\n"
-        "1\t121\t20\t900\t10\t400\n"
-    )
-    assert (
-        deepvariant._indexed_slice_bytes(
-            str(alignment), str(ref), {"chr20": [(10, 20)], "chrM": [(10, 20)]}
-        )
-        == 200
-    )
-    assert (
-        deepvariant._indexed_slice_bytes(
-            str(alignment), str(ref), {"chr20": [(100, 120)]}
-        )
-        == 300
-    )
-
-
-@pytest.mark.parametrize("header", ["", "@SQ\tLN:1000\n", "@SQ\tSN:\tLN:1000\n"])
-def test_crai_without_usable_header_order_requires_conservative_fallback(
-    files, monkeypatch, header
-):
-    ref, alignment, _work = files
-    monkeypatch.setattr(deepvariant, "get_bam_header", lambda *a: header)
-    Path(str(alignment) + ".crai").write_text("0\t1\t20\t100\t0\t50\n")
-    assert (
-        deepvariant._indexed_slice_bytes(
-            str(alignment), str(ref), {"chr20": [(10, 20)]}
-        )
-        is None
-    )
-
-
-@pytest.mark.parametrize(
-    "failure",
-    [None, "view", "index", "caller", "cancel", "cancel-view", "cancel-index"],
-)
-def test_staged_cram_is_kept_for_a_rerun_and_removed_after_success(
-    files, monkeypatch, failure
-):
-    _ref, alignment, out = files
-    alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
-    monkeypatch.setattr(
-        deepvariant,
-        "get_tool_path",
-        lambda tool: "/opt/dv/run_deepvariant" if tool == "run_deepvariant" else None,
-    )
-    monkeypatch.setattr(deepvariant, "check_free_space", lambda *_: True)
-    staged = []
-    failing = [failure]
-
-    def fake(cmd, **kwargs):
-        fail = failing[0]
-        if cmd[0] == "samtools":
-            if cmd[1] == "view":
-                path = Path(cmd[cmd.index("-o") + 1])
-                staged.append(path)
-                path.write_bytes(b"partial")
-                assert cmd[-1] == str(alignment)  # Whole input, without a region.
-            else:
-                Path(cmd[-1] + ".crai").touch()
-            if cmd[1] == fail:
-                raise subprocess.CalledProcessError(1, cmd)
-            if fail == f"cancel-{cmd[1]}":
-                raise KeyboardInterrupt
-            return _completed()
-        if reads := re.search(r'--reads "([^"]+)"', cmd[-1]):
-            assert Path(reads[1]) == staged[-1]
-            assert staged[-1].is_file()
-            assert Path(f"{reads[1]}.crai").exists()
-            if fail == "caller":
-                raise subprocess.CalledProcessError(1, cmd)
-            if fail == "cancel":
-                raise KeyboardInterrupt
-        return _deepvariant(cmd)
-
-    monkeypatch.setattr(deepvariant, "run_command", fake)
-    if failure:
-        error = KeyboardInterrupt if failure.startswith("cancel") else WGSExtractError
-        with pytest.raises(error):
-            deepvariant.cmd_deepvariant(_args(alignment, region=None))
-        assert _visible(out) == []
-        assert staged[0].parent.is_dir()  # Kept for the rerun.
-        failing[0] = None
-    deepvariant.cmd_deepvariant(_args(alignment, region=None))
-    # A rerun stages the reads again only if staging didn't finish.
-    finished = failure in {None, "caller", "cancel"}
-    assert len(staged) == (1 if finished else 2)
-    assert not staged[0].parent.parent.exists()
-    assert alignment.read_bytes() == b"CRAM\x03\x01" + bytes(20)
-    assert _visible(out) == ["deepvariant.vcf.gz"]
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
-@pytest.mark.parametrize("arm64", [False, True])
-@pytest.mark.parametrize("region", ["chr20", "chr20:1-50 chr20:101-150"])
-def test_container_reads_staged_cram_and_preserves_existing_mounts(
-    files, monkeypatch, region, arm64
-):
-    _ref, alignment, out = files
-    alignment.write_bytes(b"CRAM\x03\x01" + bytes(20))
-    runs = _docker(monkeypatch)
-    if arm64:
-        _arm_docker(monkeypatch)
-    monkeypatch.setattr(deepvariant, "check_free_space", lambda *_: True)
-
-    def host(cmd, **_kwargs):
-        if cmd[:2] == ["samtools", "view"]:
-            Path(cmd[cmd.index("-o") + 1]).write_bytes(b"CRAM\x03\x00")
-        elif cmd[:2] == ["samtools", "index"]:
-            Path(cmd[-1] + ".crai").touch()
-        return subprocess.CompletedProcess(cmd, 0, "linux/arm64", "")
-
-    monkeypatch.setattr(deepvariant, "run_command", host)
-    deepvariant.cmd_deepvariant(_args(alignment, region=region))
-    (cmd,) = runs
-    reads = Path(cmd[cmd.index("--reads") + 1])
-    work = reads.parent.parent
-    assert reads.name == "reads.cram"
-    assert cmd[cmd.index("--regions") + 1] == region
-    assert work.parent == out
-    for run in [cmd, *runs.stages]:
-        mounts = {run[i + 1].split(":")[0] for i, a in enumerate(run) if a == "-v"}
-        assert str(work) in mounts
-        assert str(alignment.parent) in mounts
-    if arm64:
-        assert all(f"TMPDIR={work}/.tmp" in stage for stage in runs.stages)
-        assert "--pull=never" in cmd
-    assert not work.exists()
-
-
-@needs_tools("samtools")
-@pytest.mark.parametrize(
-    ("region", "expected", "source_region"),
-    [
-        (None, "2", None),
-        ("chr20:1-50", "1", "chr20:1-50"),
-        ("chr20", "2", None),
-        ("chr20:1-50 chr20:101-150", "2", None),
-        ("chr20:1-50 chr20:1-30", "1", "chr20:1-50"),
-        ("bed", "1", "chr20:1-50"),
-        ("bed.gz", "1", "chr20:1-50"),
-        ("bed-mixed", "2", None),
-        ("bedpe", "2", None),
-    ],
-)
-def test_real_cram31_roundtrip_has_cram30_header_and_read_parity(
-    tmp_path, region, expected, source_region
-):
-    from wgsextract_cli.core.utils import run_command
-
-    ref = write_fasta(tmp_path / "ref.fa", {"chr20": "ACGT" * 100})
-    bam = sam_to_bam(
-        [
-            "@HD\tVN:1.6\tSO:coordinate",
-            "@SQ\tSN:chr20\tLN:400",
-            "r1\t0\tchr20\t1\t60\t20M\t*\t0\t0\tACGTACGTACGTACGTACGT\tIIIIIIIIIIIIIIIIIIII",
-            "r2\t0\tchr20\t101\t60\t20M\t*\t0\t0\tACGTACGTACGTACGTACGT\tIIIIIIIIIIIIIIIIIIII",
-        ],
-        tmp_path / "reads.bam",
-    )
-    cram = tmp_path / "source.cram"
-    run_command(
-        [
-            "samtools", "view", "-C", "--output-fmt-option", "version=3.1",
-            "-T", str(ref), "-o", str(cram), bam,
-        ]
-    )  # fmt: skip
-    run_command(["samtools", "index", str(cram)])
-    assert deepvariant._cram_version(str(cram)) == (3, 1)
-    work = tmp_path / "dv"
+def test_crai_slices_follow_the_header_order_and_shared_slices_count_once(dv):
+    """Slices of 1 GiB units: chrM and chr20 share the first one."""
+    work = dv.tmp / "two"
     work.mkdir()
-    if region and region.startswith("bed"):
-        suffix = ".bed" if region == "bed-mixed" else "." + region
-        regions_file = tmp_path / ("selection" + suffix)
-        if region == "bedpe":
-            regions_file.write_text("chr20\t0\t20\tchr20\t100\t120\n")
-        elif region == "bed.gz":
-            with gzip.open(regions_file, "wt") as stream:
-                stream.write("chr20\t0\t50\nchr20\t0\t30\n")
-        else:
-            regions_file.write_text("chr20\t0\t50\nchr20\t0\t30\n")
-        region = str(regions_file) + (" chr20:101-150" if region == "bed-mixed" else "")
-    converted = deepvariant._compatible_reads(
-        str(cram), str(ref), str(work), "1", region
+    seqs = {"chrM": "ACGT" * 250, "chr20": "TGCA" * 250}
+    ref = write_fasta(work / "ref.fa", seqs)
+    lines = ["@HD\tVN:1.6\tSO:coordinate", "@SQ\tSN:chrM\tLN:1000"]
+    lines += ["@SQ\tSN:chr20\tLN:1000", "r1\t0\tchrM\t1\t60\t4M\t*\t0\t0\tACGT\tIIII"]
+    sample = SimpleNamespace(ref=str(ref), bam=sam_to_bam(lines, work / "two.bam"))
+    cram = as_cram(sample, "3.1")
+    Path(f"{cram}.crai").write_text(
+        f"0\t1\t100\t100\t10\t{200 * GIB}\n"
+        f"1\t1\t100\t100\t10\t{200 * GIB}\n"
+        f"1\t101\t20\t500\t10\t{300 * GIB}\n"
+        f"1\t121\t20\t900\t10\t{400 * GIB}\n"
     )
-    assert deepvariant._cram_version(converted) == (3, 0)
-    assert Path(converted + ".crai").is_file()
-    original_count = run_command(
-        [
-            "samtools",
-            "view",
-            "-c",
-            "-T",
-            str(ref),
-            str(cram),
-            *([source_region] if source_region else []),
-        ],
-        capture_output=True,
-    ).stdout.strip()
-    converted_count = run_command(
-        ["samtools", "view", "-c", "-T", str(ref), converted], capture_output=True
-    ).stdout.strip()
-    assert converted_count == original_count == expected
+    for region, needs in [
+        ("chr20:11-20 chrM:11-20", "400.00"),
+        ("chr20:101-120", "600.00"),
+    ]:
+        with pytest.raises(WGSExtractError, match=rf"needs ~{needs} GiB"):
+            run_wgsextract(
+                "vcf", "deepvariant", "--input", cram, "--ref", str(ref),
+                "--outdir", str(dv.out), "-r", region,
+            )  # fmt: skip
 
 
-def _arm_docker(monkeypatch, *, engine="aarch64", image_arch="linux/arm64"):
-    monkeypatch.setattr(native_support.platform, "machine", lambda: "aarch64")
-    monkeypatch.setattr(
-        deepvariant, "docker_info", lambda _setup, field=None: engine if field else "27"
-    )
-    monkeypatch.setattr(deepvariant, "require_image", lambda *_args: None)
-    monkeypatch.setattr(deepvariant, "docker", lambda _setup: "docker")
-    monkeypatch.setattr(deepvariant, "image_identity", lambda image: image)
-    monkeypatch.setattr(
-        deepvariant,
-        "run_command",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, image_arch, ""),
-    )
+@pytest.mark.parametrize("failure", [None, "view", "index", "caller", "cancel"])
+def test_staged_reads_are_kept_for_a_rerun_and_removed_after_success(
+    dv, caplog, failure
+):
+    cram = as_cram(dv.sample, "3.1")
+    before = Path(cram).read_bytes()
+    staged = dv.out / deepvariant.WORK_DIRECTORY / "reads" / "reads.cram"
+    if failure in ("view", "index"):
+        # A folder where samtools writes makes it fail.
+        blocker = staged if failure == "view" else Path(f"{staged}.crai")
+        blocker.mkdir(parents=True)
+    elif failure == "caller":
+        dv.deepvariant.fail("make_examples")
+    elif failure == "cancel":
+        dv.deepvariant.fail("call_variants", interrupt=os.getpid())
+    if failure:
+        with pytest.raises(
+            KeyboardInterrupt if failure == "cancel" else WGSExtractError
+        ):
+            call(dv, reads=cram)
+        assert visible(dv.out) == []
+        assert staged.parent.is_dir()  # Kept for the rerun.
+        if failure in ("view", "index"):
+            blocker.rmdir()
+    caplog.clear()
+    with caplog.at_level("INFO"):
+        rerun(dv, reads=cram)
+    # A rerun stages the reads again only if staging didn't finish.
+    assert ("Transcoding CRAM" in caplog.text) == (failure in (None, "view", "index"))
+    if failure == "cancel":
+        assert dv.deepvariant.stages() == ["call_variants", "postprocess_variants"]
+    else:
+        (examples,) = dv.deepvariant.runs("make_examples")
+        assert examples["reads"] == str(staged)
+    assert not staged.parent.parent.exists()
+    assert Path(cram).read_bytes() == before
+    assert visible(dv.out) == ["deepvariant.vcf.gz", "deepvariant.vcf.gz.tbi"]
+
+
+# Linux ARM64 ------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ("engine", "image_arch", "message"),
+    ("engine", "image", "message"),
     [
         ("x86_64", "linux/arm64", "native ARM64 Docker engine"),
         ("aarch64", "linux/amd64", "must be linux/arm64"),
         ("aarch64", "", "must be linux/arm64"),
     ],
 )
-def test_arm_rejects_emulation_before_input_work(
-    files, monkeypatch, engine, image_arch, message
-):
-    _ref, bam, _out = files
-    _arm_docker(monkeypatch, engine=engine, image_arch=image_arch)
-    monkeypatch.setattr(
-        deepvariant,
-        "get_base_args",
-        lambda _args: pytest.fail("input preparation must not run"),
-    )
+def test_arm_refuses_emulation_before_reading_input(arm64, engine, image, message):
+    arm64.docker.set(arch=engine)
+    arm64.docker.add_image(deepvariant.DEFAULT_ARM64_IMAGE, platform=image)
     with pytest.raises(WGSExtractError, match=message):
-        deepvariant.cmd_deepvariant(_args(bam))
+        call(arm64, reads=arm64.tmp / "missing.bam")
+    assert arm64.docker.runs() == []
 
 
-def test_arm_image_bypasses_autoconfig_and_unaudited_path_launcher(files, monkeypatch):
-    _ref, bam, out = files
-    _arm_docker(monkeypatch)
-    monkeypatch.setattr(
-        deepvariant,
-        "get_tool_path",
-        lambda _tool: pytest.fail("do not resolve unaudited PATH launchers on ARM"),
+def test_arm_runs_the_native_image_past_its_entrypoint_and_local_launchers(
+    arm64, monkeypatch
+):
+    """Community ARM images' entrypoints auto-select INT8/BF16 models, and a
+    run_deepvariant on PATH isn't audited: each stage runs its own binary in
+    the local image, staged reads included."""
+    monkeypatch.setenv(
+        "PATH", f"{arm64.deepvariant.bin}{os.pathsep}{os.environ['PATH']}"
     )
-    calls = []
+    monkeypatch.setitem(
+        deepvariant.settings, "deepvariant_image", "local/native@sha256:abc"
+    )
+    arm64.docker.add_image("local/native@sha256:abc", platform="linux/arm64")
+    clear_tool_caches()
+    call(arm64, "-r", "chr1:600-700 chr1:2000-2100", reads=as_cram(arm64.sample, "3.1"))
 
-    def run(image, command, paths, **kwargs):
-        calls.append((image, command, kwargs))
-        return _deepvariant(command)
-
-    monkeypatch.setattr(deepvariant, "run_container", run)
-    deepvariant.cmd_deepvariant(_args(bam))
-    (image, command, kwargs), *stages = calls
-    assert image == deepvariant.DEFAULT_ARM64_IMAGE
-    assert kwargs["entrypoint"] == "/opt/deepvariant/bin/run_deepvariant"
-    assert kwargs["local_only"] is True
-    assert command[0] == "--model_type"
-    assert "--use_onnx" not in command
-    for stage_image, stage, options in stages:
-        assert stage_image == image
-        assert options["entrypoint"] == "/bin/bash"
-        assert options["local_only"] is True
-        assert stage[0] == "-c"
-    assert len(stages) == 3
-    assert _visible(out) == ["deepvariant.vcf.gz"]
+    plan, *stages = arm64.docker.runs()
+    assert {r["image"] for r in [plan, *stages]} == {"local/native@sha256:abc"}
+    # contract: never pull, and bypass the image's entrypoint.
+    assert {r["pull"] for r in [plan, *stages]} == {"--pull=never"}
+    assert plan["entrypoint"] == "/opt/deepvariant/bin/run_deepvariant"
+    assert [s["entrypoint"] for s in stages] == ["/bin/bash"] * 3
+    (examples,) = arm64.deepvariant.runs("make_examples")
+    assert Path(examples["reads"]).name == "reads.cram"
+    assert examples["tmpdir"] == str(arm64.out / deepvariant.WORK_DIRECTORY / ".tmp")
+    assert visible(arm64.out) == ["deepvariant.vcf.gz", "deepvariant.vcf.gz.tbi"]
 
 
 @pytest.mark.parametrize(
     "selection",
     [
-        {"model_type": model}
-        for model in (
-            "ULTIMA",
-            "WES",
-            "PACBIO",
-            "ONT_R104",
-            "HYBRID_PACBIO_ILLUMINA",
-            "MASSEQ",
-            "RNASEQ",
-        )
-    ]
-    + [
-        {"pacbio": True},
-        {"wes": True},
-        {"ont": True},
-        {"checkpoint": "custom/model.ckpt"},
+        *(["--model-type", m] for m in
+          ("ULTIMA", "WES", "PACBIO", "ONT_R104", "HYBRID_PACBIO_ILLUMINA")),
+        ["--pacbio"],
+        ["--wes"],
+        ["--ont"],
+        ["--checkpoint", "custom/model.ckpt"],
     ],
-)
-def test_arm_unqualified_models_fail_before_container_or_input_work(
-    files, monkeypatch, selection
-):
-    _ref, bam, _out = files
-    _arm_docker(monkeypatch)
-    monkeypatch.setattr(
-        deepvariant,
-        "docker_info",
-        lambda *_args: pytest.fail("must not inspect Docker"),
-    )
-    monkeypatch.setattr(
-        deepvariant,
-        "get_base_args",
-        lambda *_args: pytest.fail("must not prepare inputs"),
-    )
+)  # fmt: skip
+def test_arm_unqualified_models_fail_before_docker_or_input_work(arm64, selection):
     with pytest.raises(WGSExtractError, match="not qualified.*only the default WGS"):
-        deepvariant.cmd_deepvariant(_args(bam, **selection))
+        call(arm64, *selection, reads=arm64.tmp / "missing.bam")
+    assert arm64.docker.runs(None) == []
 
 
-@pytest.mark.parametrize("model", ["ULTIMA", "ONT_R104"])
-def test_arm_detected_non_wgs_is_rejected_after_read_group_detection(
-    files, monkeypatch, model
-):
-    _ref, bam, _out = files
-    _arm_docker(monkeypatch)
-    monkeypatch.setattr(
-        deepvariant, "_model_type", lambda _args, ref=None: model if ref else "WGS"
-    )
-    monkeypatch.setattr(
-        deepvariant,
-        "run_container",
-        lambda *_a, **_kw: pytest.fail("must not run model"),
-    )
+@pytest.mark.parametrize(("model", "reads"), [("ONT_R104", (ONT,)), ("ULTIMA", ULTIMA)])
+def test_arm_detected_non_wgs_reads_are_refused(arm64, model, reads):
+    sample = other_sample(arm64, *reads[:1], tags="".join(reads[1:]))
     with pytest.raises(WGSExtractError, match=f"{model}.*not qualified"):
-        deepvariant.cmd_deepvariant(_args(bam))
+        call(arm64, reads=sample.bam)
+    assert arm64.docker.runs() == []
 
 
-def test_arm_missing_native_image_gives_manual_build_instructions(files, monkeypatch):
-    _ref, bam, _out = files
-    _arm_docker(monkeypatch)
-
-    def missing(image, instructions):
-        assert image == "localhost/wgsextract-deepvariant:1.10.0-arm64"
-        assert "docker pull" not in instructions
-        raise WGSExtractError(instructions)
-
-    monkeypatch.setattr(deepvariant, "require_image", missing)
-    with pytest.raises(WGSExtractError, match="packaging/deepvariant-arm64/build.sh"):
-        deepvariant.cmd_deepvariant(_args(bam))
+def test_arm_missing_native_image_gives_build_instructions(arm64):
+    arm64.docker.set(images={})
+    with pytest.raises(
+        WGSExtractError, match="packaging/deepvariant-arm64/build.sh"
+    ) as error:
+        call(arm64)
+    assert "docker pull" not in str(error.value)
 
 
-def test_arm_container_overrides_entrypoint_before_image(files, monkeypatch):
-    _ref, bam, _out = files
-    runs = _docker(monkeypatch)
-    _arm_docker(monkeypatch)
-    monkeypatch.setitem(
-        deepvariant.settings, "deepvariant_image", "local/native@sha256:abc"
-    )
-    deepvariant.cmd_deepvariant(_args(bam))
-    (cmd,) = runs
-    image_at = cmd.index("local/native@sha256:abc")
-    entrypoint_at = cmd.index("--entrypoint")
-    assert entrypoint_at < image_at
-    assert cmd.index("--pull=never") < image_at
-    assert cmd[entrypoint_at + 1] == "/opt/deepvariant/bin/run_deepvariant"
-    assert cmd[image_at + 1] == "--model_type"
-    assert "--platform" not in cmd
-    work = cmd[cmd.index("--intermediate_results_dir") + 1]
-    for stage in runs.stages:
-        assert f"HOME={Path(work, '.tmp')}" in stage
-        assert f"TMPDIR={Path(work, '.tmp')}" in stage
-    # Planning, which a --dry-run does beside a running stage, has its own.
-    assert f"TMPDIR={Path(work, '.tmp')}" not in cmd
-
-
-def test_arm_run_reports_deepvariant_preflight_not_bcftools(files, monkeypatch):
-    ref, bam, out = files
-    _docker(monkeypatch)
-    _arm_docker(monkeypatch)
-    requested = []
-
-    def estimate(operation, **options):
-        requested.append((operation, options))
-
-    monkeypatch.setattr(deepvariant, "estimate_resources", estimate)
-    monkeypatch.setattr(deepvariant, "preflight_resources", lambda factory: factory())
-    deepvariant.cmd_deepvariant(_args(bam))
-    ((_operation, options),) = requested
-    assert options.pop("postprocess_plan").cpus == 4
-    assert options.pop("available_ram") is not None
-    assert requested == [
-        (
-            "deepvariant",
-            {
-                "input_paths": [str(bam)],
-                "output_dir": str(out),
-                "reference": str(ref),
-                "threads": "4",
-                "region": "chr20",
-                "inference_batch_size": 1024,
-                "deepvariant_model": "WGS",
-            },
-        )
-    ]
-
-
-def test_explicit_batch_size_is_forwarded_without_altering_shards(files, monkeypatch):
-    _ref, bam, _out = files
-    runs = _docker(monkeypatch)
-    deepvariant.cmd_deepvariant(_args(bam, batch_size=256))
-    (cmd,) = runs
-    assert cmd[cmd.index("--call_variants_extra_args") + 1] == "batch_size=256"
-    assert cmd[cmd.index("--num_shards") + 1] == "4"
-
-
-def _postprocess_flags(cmd):
-    return {
-        flag: cmd[cmd.index(flag) + 1]
-        for flag in ("--postprocess_cpus", "--postprocess_variants_extra_args")
-        if flag in cmd
-    }
-
-
-def test_postprocess_is_bounded_by_available_memory(files, monkeypatch, caplog):
-    ref, bam, _out = files
-    Path(f"{ref}.fai").write_text("chr1\t3000000000\t0\t60\t61\n")
-    runs = _docker(monkeypatch)
-    whole_genome = _args(bam, region=None)
-    deepvariant.cmd_deepvariant(whole_genome)
-    assert _postprocess_flags(runs[-1]) == {}  # 4 workers fit in 64 GiB.
-
-    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 8 * GIB)
+def test_arm_run_reports_the_deepvariant_preflight(arm64, caplog):
     with caplog.at_level("INFO"):
-        deepvariant.cmd_deepvariant(whole_genome)
-    flags = _postprocess_flags(runs[-1])
-    assert list(flags) == ["--postprocess_variants_extra_args"]
-    assert int(flags["--postprocess_variants_extra_args"].split("=")[1]) > 4
+        call(arm64)
+    assert "Preflight deepvariant" in caplog.text
+    assert "DeepVariant WGS uses sequential stages" in caplog.text
+    assert "postprocess_variants: 4 workers" in caplog.text
+
+
+# Resources ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("batch_size", ["0", "-1"])
+def test_invalid_batch_size_is_refused(batch_size):
+    with pytest.raises(WGSExtractError, match="must be positive"):
+        run_wgsextract("vcf", "deepvariant", "-i", "s.bam", "--batch-size", batch_size)
+
+
+def test_batch_size_is_not_silently_ignored_by_gpu():
+    with pytest.raises(WGSExtractError, match="CPU-only"):
+        run_wgsextract(
+            "vcf", "deepvariant", "-i", "s.bam", "--batch-size", "256", "--gpu"
+        )
+
+
+def test_batch_size_reaches_call_variants_without_changing_shards(dv):
+    call(dv, "--batch-size", "256")
+    (inference,) = dv.deepvariant.runs("call_variants")
+    assert inference["opts"]["batch_size"] == "256"
+    (examples,) = dv.deepvariant.runs("parallel")
+    assert examples["tasks"] == ["0", "1", "2", "3"]
+
+
+@pytest.fixture
+def genome_fai(dv):
+    """The reference's index says chr1 is 3 Gbp: a whole genome's worth of
+    postprocess_variants partitions."""
+    fai = Path(f"{dv.sample.ref}.fai")
+    fai.write_text(fai.read_text().replace("\t3000\t", "\t3000000000\t", 1))
+
+
+def postprocess(dv):
+    """postprocess_variants' last --cpus and --num_partitions."""
+    opts = dv.deepvariant.runs("postprocess_variants")[-1]["opts"]
+    return opts["cpus"], opts.get("num_partitions")
+
+
+def test_postprocess_is_bounded_by_available_memory(
+    dv, genome_fai, monkeypatch, caplog
+):
+    def call_with(gib, *options):
+        monkeypatch.setattr(alignment_memory, "available_memory", lambda: gib * GIB)
+        call(dv, *options, out=dv.tmp / f"{gib}{''.join(options)}")
+
+    caplog.set_level("INFO")
+    call_with(64)
+    assert postprocess(dv) == ("4", None)  # 4 workers fit in 64 GiB.
+
+    call_with(8)
+    cpus, partitions = postprocess(dv)
+    assert cpus == "4" and int(partitions) > 4
     assert "Splitting DeepVariant postprocess_variants" in caplog.text
 
-    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 3 * GIB)
-    deepvariant.cmd_deepvariant(whole_genome)
-    flags = _postprocess_flags(runs[-1])
-    assert flags["--postprocess_cpus"] == "2"
+    call_with(3)
+    assert postprocess(dv)[0] == "2"
     assert "Limiting DeepVariant postprocess_variants to 2 of 4" in caplog.text
 
-    exome = _args(bam, region=None, model_type="WES", pacbio=False, wes=False)
-    deepvariant.cmd_deepvariant(exome)
-    assert _postprocess_flags(runs[-1]) == {}  # run_deepvariant runs WES serially.
+    call_with(3, "--wes")
+    assert postprocess(dv) == ("4", None)  # run_deepvariant runs WES serially.
 
-    monkeypatch.setattr(alignment_memory, "available_memory", lambda: GIB)
+    dv.docker.clear()
     with pytest.raises(WGSExtractError, match="Not enough memory.*smaller --region"):
-        deepvariant.cmd_deepvariant(whole_genome)
-    assert len(runs) == 4
+        call_with(1)
+    assert dv.docker.runs() == []
 
 
 @pytest.mark.parametrize(
@@ -989,308 +703,194 @@ def test_postprocess_is_bounded_by_available_memory(files, monkeypatch, caplog):
     ],
 )
 def test_num_partitions_is_used_only_when_deepvariant_has_it(
-    files, monkeypatch, caplog, image, helpfull, partitions
+    dv, genome_fai, monkeypatch, caplog, image, helpfull, partitions
 ):
-    ref, bam, _out = files
-    Path(f"{ref}.fai").write_text("chr1\t3000000000\t0\t60\t61\n")
     monkeypatch.setitem(deepvariant.settings, "deepvariant_image", image)
+    dv.docker.add_image(image)
+    dv.deepvariant.set_helpfull(helpfull or "")
     # Without num_partitions, fewer workers sort bigger partitions: 2 fit here.
     monkeypatch.setattr(alignment_memory, "available_memory", lambda: 30 * GIB)
-    runs = _docker(monkeypatch)
-    probes = []
-
-    def probe(cmd, **_kwargs):
-        probes.append(cmd)
-        return _completed(0, helpfull)
-
-    monkeypatch.setattr(deepvariant, "run_command", probe)
-    deepvariant.cmd_deepvariant(_args(bam, region=None))
-    assert [cmd[-2:] for cmd in probes] == ([[image, "--helpfull"]] if helpfull else [])
-    flags = _postprocess_flags(runs[-1])
+    call(dv)
+    probes = [r for r in dv.docker.runs() if r["command"] == ["--helpfull"]]
+    assert len(probes) == (helpfull is not None)
     if partitions:
-        assert list(flags) == ["--postprocess_variants_extra_args"]
-    else:
-        assert flags == {"--postprocess_cpus": "2"}
-        assert "has no --num_partitions" in caplog.text
-        monkeypatch.setattr(alignment_memory, "available_memory", lambda: 8 * GIB)
-        with pytest.raises(WGSExtractError, match="use DeepVariant 1.9"):
-            deepvariant.cmd_deepvariant(_args(bam, region=None))
+        assert postprocess(dv)[1] is not None
+        return
+    assert postprocess(dv) == ("2", None)
+    assert "has no --num_partitions" in caplog.text
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 8 * GIB)
+    with pytest.raises(WGSExtractError, match="use DeepVariant 1.9"):
+        call(dv, out=dv.tmp / "small")
 
 
-def test_missing_region_bed_is_reported_before_docker_runs(files, monkeypatch):
-    _ref, bam, out = files
-    runs = _docker(monkeypatch)
-    with pytest.raises(WGSExtractError, match="Invalid DeepVariant region selection"):
-        deepvariant.cmd_deepvariant(_args(bam, region=str(out / "missing.bed")))
-    assert runs == []
+# Resuming -------------------------------------------------------------------
 
 
-def _stages(runs):
-    """The DeepVariant stages ``runs`` ran, in order."""
-    return [
-        re.search(r"/(make_examples|call_variants|postprocess_variants) ", cmd[-1])[1]
-        for cmd in runs.stages
-    ]
-
-
-def _dies_in(stage, *, write=True):
-    """A stage runner whose ``stage`` writes part of its output and dies."""
-
-    def run(cmd):
-        if f"/{stage} " not in cmd[-1]:
-            return _deepvariant(cmd)
-        if write:
-            _stage(cmd[-1])
-        raise subprocess.CalledProcessError(137, cmd)
-
-    return run
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
-def test_oom_in_call_variants_fails_fast_and_a_rerun_resumes_there(files, monkeypatch):
-    _ref, bam, out = files
-    runs = _docker(monkeypatch, oom=True, run=_dies_in("call_variants"))
+def test_oom_in_call_variants_fails_fast_and_a_rerun_resumes_there(dv):
+    dv.deepvariant.fail("call_variants", oom=True)
     with pytest.raises(WGSExtractError, match="ran out of memory.*lower --threads"):
-        deepvariant.cmd_deepvariant(_args(bam))
-    assert _stages(runs) == ["make_examples", "call_variants"]
-    # Every fake stage reports an OOM, so each stage's watcher kills its own
-    # container, in whatever order their threads run.
-    assert runs.stages[-1][runs.stages[-1].index("--name") + 1] in runs.killed
-    assert _visible(out) == []
+        call(dv)
+    assert dv.deepvariant.stages() == ["make_examples", "call_variants"]
+    killed = [r["args"][1] for r in dv.docker.runs("kill")]
+    assert killed == [stage_runs(dv)[-1]["name"]]
+    assert visible(dv.out) == []
 
-    runs = _docker(monkeypatch)
-    deepvariant.cmd_deepvariant(_args(bam))
-    assert _stages(runs) == ["call_variants", "postprocess_variants"]
-    assert _visible(out) == ["deepvariant.vcf.gz"]
-    assert not (out / deepvariant.WORK_DIRECTORY).exists()
+    rerun(dv)
+    assert dv.deepvariant.stages() == ["call_variants", "postprocess_variants"]
+    assert visible(dv.out) == ["deepvariant.vcf.gz", "deepvariant.vcf.gz.tbi"]
+    assert not (dv.out / deepvariant.WORK_DIRECTORY).exists()
 
     # A finished run is kept; only resource settings changed.
-    runs = _docker(monkeypatch)
-    deepvariant.cmd_deepvariant(_args(bam, batch_size=256))
-    assert _stages(runs) == []
+    rerun(dv, "--batch-size", "256")
+    assert dv.deepvariant.stages() == []
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
 def test_a_relative_outdir_keeps_the_examples_of_a_skipped_make_examples(
-    files, monkeypatch, tmp_path
+    dv, monkeypatch
 ):
-    _ref, bam, out = files
-    (tmp_path / "bam" / "sub").mkdir()
-    monkeypatch.chdir(tmp_path / "bam")
-    base = deepvariant.get_base_args(None)
-    monkeypatch.setattr(
-        deepvariant, "get_base_args", lambda _a: (base[0], "sub/../../out", *base[2:])
-    )
-    _docker(monkeypatch, run=_dies_in("call_variants"))
+    (dv.tmp / "cwd" / "sub").mkdir(parents=True)
+    monkeypatch.chdir(dv.tmp / "cwd")
+    dv.deepvariant.fail("call_variants")
     with pytest.raises(WGSExtractError):
-        deepvariant.cmd_deepvariant(_args(bam))
-
-    def needs_examples(cmd):
-        if "/call_variants " in cmd[-1]:
-            assert list((out / deepvariant.WORK_DIRECTORY).glob("make_examples*"))
-        return _deepvariant(cmd)
-
-    runs = _docker(monkeypatch, run=needs_examples)
-    deepvariant.cmd_deepvariant(_args(bam))
-    assert _stages(runs) == ["call_variants", "postprocess_variants"]
-    assert _visible(out) == ["deepvariant.vcf.gz"]
-    steps = json.loads((out / "deepvariant.vcf.gz.steps.json").read_text())["steps"]
+        call(dv, out="sub/../../out")
+    # call_variants fails if make_examples' shards are gone.
+    rerun(dv, out="sub/../../out")
+    assert dv.deepvariant.stages() == ["call_variants", "postprocess_variants"]
+    assert visible(dv.out) == ["deepvariant.vcf.gz", "deepvariant.vcf.gz.tbi"]
+    steps = json.loads((dv.out / "deepvariant.vcf.gz.steps.json").read_text())["steps"]
     called = [Path(o["path"]).name for o in steps["call_variants"]["outputs"]]
     assert called and not [name for name in called if "make_examples" in name]
 
 
-class _Engine:
-    """The engine calls run_container and the orphan check make directly:
-    `ps` lists ``running`` (container name -> label) unless ``ps_rc``."""
-
-    def __init__(self, monkeypatch, running=None, ps_rc=0):
-        self.running, self.ps_rc, self.calls = running or {}, ps_rc, []
-        monkeypatch.setattr(containers, "engine_call", self)
-
-    def __call__(self, cmd):
-        self.calls.append(cmd[1:])
-        if cmd[1] != "ps" or self.ps_rc:
-            return subprocess.CompletedProcess(cmd, self.ps_rc, "", "no daemon")
-        label = _flag(cmd, "--filter").removeprefix("label=")
-        names = "".join(f"{n}\n" for n, at in self.running.items() if at == label)
-        return subprocess.CompletedProcess(cmd, 0, names, "")
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
-def test_a_rerun_waits_for_a_killed_runs_container(files, monkeypatch):
-    _ref, bam, out = files
-    killed = _docker(monkeypatch, run=_dies_in("make_examples"))
+def test_a_rerun_waits_for_a_killed_runs_container(dv):
+    dv.deepvariant.fail("make_examples")
     with pytest.raises(WGSExtractError):
-        deepvariant.cmd_deepvariant(_args(bam))
-    stage = killed.stages[-1]
+        call(dv)
     # As if wgsextract had been SIGKILLed while its container ran on.
-    _Engine(monkeypatch, {_flag(stage, "--name"): _flag(stage, "--label")})
-    runs = _docker(monkeypatch)
-    with pytest.raises(WGSExtractError, match=f"container {_flag(stage, '--name')}"):
-        deepvariant.cmd_deepvariant(_args(bam))
-    assert runs.stages == []
+    stage = stage_runs(dv)[-1]
+    dv.docker.keep_running(stage["name"], stage["label"])
+    with pytest.raises(WGSExtractError, match=f"container {stage['name']}"):
+        rerun(dv)
+    assert dv.deepvariant.stages() == []
 
-    # Once it's gone, or when no engine answers, the rerun resumes.
-    _Engine(monkeypatch, ps_rc=1)
-    runs = _docker(monkeypatch)
-    deepvariant.cmd_deepvariant(_args(bam))
-    assert _stages(runs) == ["make_examples", "call_variants", "postprocess_variants"]
-    assert _visible(out) == ["deepvariant.vcf.gz"]
+    # When no engine answers, the rerun resumes.
+    dv.docker.set(ps_error="Cannot connect to the Docker daemon")
+    rerun(dv)
+    assert dv.deepvariant.stages() == STAGES
+    assert visible(dv.out) == ["deepvariant.vcf.gz", "deepvariant.vcf.gz.tbi"]
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
-def test_interrupting_a_stage_stops_its_container(files, monkeypatch):
-    _ref, bam, _out = files
-
-    def interrupted(cmd):
-        if "/call_variants " in cmd[-1]:
-            raise KeyboardInterrupt
-        return _deepvariant(cmd)
-
-    runs = _docker(monkeypatch, run=interrupted)
-    engine = _Engine(monkeypatch)
+def test_interrupting_a_stage_stops_its_container(dv):
+    dv.deepvariant.fail("call_variants", interrupt=os.getpid())
     with pytest.raises(KeyboardInterrupt):
-        deepvariant.cmd_deepvariant(_args(bam))
-    assert engine.calls == [["kill", _flag(runs.stages[-1], "--name")]]
+        call(dv)
+    killed = [r["args"][1] for r in dv.docker.runs("kill")]
+    assert killed == [stage_runs(dv)[-1]["name"]]
 
 
-def test_killed_make_examples_keeps_finished_shards_only_for_the_same_run(
-    files, monkeypatch
-):
-    _ref, bam, out = files
-    _docker(monkeypatch, run=_dies_in("make_examples"))
+def test_killed_make_examples_keeps_finished_shards_only_for_the_same_run(dv):
+    work = dv.out / deepvariant.WORK_DIRECTORY
+    dv.deepvariant.fail("make_examples", task=2, write=False)
     with pytest.raises(WGSExtractError, match="rerun the same command to resume"):
-        deepvariant.cmd_deepvariant(_args(bam))
-    shards = sorted((out / deepvariant.WORK_DIRECTORY).glob("make_examples*"))
-    assert len(shards) == 4
+        call(dv)
+    assert len(list(work.glob("make_examples*"))) == 2
 
-    runs = _docker(monkeypatch)
-    deepvariant.cmd_deepvariant(_args(bam))
-    make_examples = runs.stages[0][-1]
-    assert "--joblog" in make_examples
-    assert "--resume-failed" in make_examples
+    rerun(dv)
+    (examples,) = dv.deepvariant.runs("parallel")
+    assert examples["tasks"] == ["2", "3"]
+    assert vcf_calls(dv.out / "deepvariant.vcf.gz") == dv.sample.calls
 
     # Different settings start make_examples afresh, without the old shards.
-    _docker(monkeypatch, run=_dies_in("make_examples"))
+    dv.deepvariant.fail("make_examples", task=2, write=False)
     with pytest.raises(WGSExtractError):
-        deepvariant.cmd_deepvariant(_args(bam, restart=True))
-    wes = {"model_type": "WES", "pacbio": False, "wes": False}
-    runs = _docker(monkeypatch, run=_dies_in("make_examples", write=False))
+        call(dv, "--force")
+    dv.deepvariant.clear()
+    dv.deepvariant.fail("make_examples", task=0, write=False)
     with pytest.raises(WGSExtractError):
-        deepvariant.cmd_deepvariant(_args(bam, **wes))
-    assert "--resume-failed" not in runs.stages[0][-1]
-    assert not list((out / deepvariant.WORK_DIRECTORY).glob("make_examples*"))
+        call(dv, "--wes")
+    (examples,) = dv.deepvariant.runs("parallel")
+    assert examples["tasks"] == ["0"]
+    assert not list(work.glob("make_examples*"))
 
 
-def test_truncated_or_changed_stage_outputs_and_inputs_are_redone(files, monkeypatch):
-    _ref, bam, out = files
-    _docker(monkeypatch, run=_dies_in("postprocess_variants", write=False))
+def test_truncated_or_changed_stage_outputs_and_inputs_are_redone(dv):
+    dv.deepvariant.fail("postprocess_variants", write=False)
     with pytest.raises(WGSExtractError):
-        deepvariant.cmd_deepvariant(_args(bam))
-    work = out / deepvariant.WORK_DIRECTORY
-    outputs = work / "call_variants_output.tfrecord.gz"
+        call(dv)
+    outputs = dv.out / deepvariant.WORK_DIRECTORY / "call_variants_output.tfrecord.gz"
     outputs.write_text(outputs.read_text()[:-2])  # Truncated.
-    runs = _docker(monkeypatch, run=_dies_in("postprocess_variants", write=False))
+    dv.deepvariant.clear()
     with pytest.raises(WGSExtractError):
-        deepvariant.cmd_deepvariant(_args(bam))
-    assert _stages(runs) == ["call_variants", "postprocess_variants"]
+        call(dv)
+    assert dv.deepvariant.stages() == ["call_variants", "postprocess_variants"]
 
-    bam.write_text("changed reads")
-    runs = _docker(monkeypatch)
-    deepvariant.cmd_deepvariant(_args(bam))
-    assert _stages(runs) == ["make_examples", "call_variants", "postprocess_variants"]
-
-    (out / "deepvariant.vcf.gz").write_text("edited")
-    runs = _docker(monkeypatch)
-    deepvariant.cmd_deepvariant(_args(bam))
-    # The intermediates were removed after use, so every stage reruns.
-    assert _stages(runs) == ["make_examples", "call_variants", "postprocess_variants"]
-
-
-def test_a_resume_keeps_shards_and_reruns_for_changed_regions_or_images(
-    files, monkeypatch
-):
-    ref, bam, out = files
-    bed = out.parent / "targets.bed"
-    bed.write_text("chr20\t0\t500\n")
-    _docker(monkeypatch, run=_dies_in("call_variants"))
-    with pytest.raises(WGSExtractError):
-        deepvariant.cmd_deepvariant(_args(bam, region=str(bed)))
-
-    # Fewer --threads: the 4 finished shards are kept and run 2 at a time.
-    monkeypatch.setattr(
-        deepvariant, "get_base_args", lambda _a: ("2", str(out), str(ref), None)
+    # The same reads, written again.
+    run_command(
+        ["samtools", "view", "-b", "-l", "1", "-o", f"{dv.tmp}/r.bam", dv.sample.bam]
     )
-    runs = _docker(monkeypatch, run=_dies_in("call_variants"))
-    with pytest.raises(WGSExtractError):
-        deepvariant.cmd_deepvariant(_args(bam, region=str(bed)))
-    assert _stages(runs) == ["call_variants"]
-    assert _flag(runs[0], "--num_shards") == "4"
+    os.replace(f"{dv.tmp}/r.bam", dv.sample.bam)
+    run_command(["samtools", "index", dv.sample.bam])
+    rerun(dv)
+    assert dv.deepvariant.stages() == STAGES
 
-    bed.write_text("chr20\t0\t600\n")
-    runs = _docker(monkeypatch, run=_dies_in("call_variants"))
+    (dv.out / "deepvariant.vcf.gz").write_text("edited")
+    rerun(dv)
+    # The intermediates were removed after use, so every stage reruns.
+    assert dv.deepvariant.stages() == STAGES
+
+
+def test_a_resume_keeps_shards_and_reruns_for_changed_regions_or_images(dv):
+    bed = dv.tmp / "targets.bed"
+    bed.write_text("chr1\t0\t2000\n")
+    dv.deepvariant.fail("call_variants")
     with pytest.raises(WGSExtractError):
-        deepvariant.cmd_deepvariant(_args(bam, region=str(bed)))
-    assert _stages(runs) == ["make_examples", "call_variants"]
+        call(dv, "-r", str(bed))
+
+    # Fewer --threads: the 4 finished shards are kept.
+    dv.deepvariant.clear()
+    with pytest.raises(WGSExtractError):
+        call(dv, "-r", str(bed), threads="2")
+    assert dv.deepvariant.stages() == ["call_variants"]
+    assert dv_flags(dv)["num_shards"] == "4"
+
+    bed.write_text("chr1\t0\t2500\n")
+    dv.deepvariant.clear()
+    with pytest.raises(WGSExtractError):
+        call(dv, "-r", str(bed))
+    assert dv.deepvariant.stages() == ["make_examples", "call_variants"]
 
     # The same tag now names another build.
-    runs = _docker(monkeypatch)
-    real = containers.run_command
-    rebuilt = subprocess.CompletedProcess([], 0, "sha256:rebuilt\n", "")
-    monkeypatch.setattr(
-        containers,
-        "run_command",
-        lambda cmd, **kw: (
-            rebuilt if cmd[1:3] == ["image", "inspect"] else real(cmd, **kw)
-        ),
-    )
-    deepvariant.cmd_deepvariant(_args(bam, region=str(bed)))
-    assert _stages(runs) == ["make_examples", "call_variants", "postprocess_variants"]
+    dv.docker.add_image(deepvariant.DEFAULT_IMAGE, image_id="sha256:rebuilt")
+    rerun(dv, "-r", str(bed))
+    assert dv.deepvariant.stages() == STAGES
 
 
-def test_dry_run_leaves_an_interrupted_runs_files_alone(files, monkeypatch):
-    _ref, bam, out = files
-    _docker(monkeypatch, run=_dies_in("call_variants"))
+def test_dry_run_leaves_an_interrupted_runs_files_alone(dv):
+    dv.deepvariant.fail("call_variants")
     with pytest.raises(WGSExtractError):
-        deepvariant.cmd_deepvariant(_args(bam))
-    work = out / deepvariant.WORK_DIRECTORY
+        call(dv)
+    work = dv.out / deepvariant.WORK_DIRECTORY
     before = sorted(p.relative_to(work) for p in work.rglob("*"))
-    _docker(monkeypatch)
-    deepvariant.cmd_deepvariant(_args(bam, dry_run=True))
+    rerun(dv, "--dry-run")
     assert sorted(p.relative_to(work) for p in work.rglob("*")) == before
+    assert dv.deepvariant.stages() == []
 
 
-def test_dry_run_and_forced_steps(files, monkeypatch, capsys):
-    _ref, bam, out = files
-    _docker(monkeypatch, run=_dies_in("postprocess_variants"))
+def test_dry_run_and_forced_steps(dv, capsys):
+    dv.deepvariant.fail("postprocess_variants")
     with pytest.raises(WGSExtractError):
-        deepvariant.cmd_deepvariant(_args(bam))
+        call(dv)
+    capsys.readouterr()
 
-    runs = _docker(monkeypatch)
-    deepvariant.cmd_deepvariant(_args(bam, dry_run=True))
-    assert runs.stages == []
+    rerun(dv, "--dry-run")
+    assert dv.deepvariant.stages() == []
     plan = capsys.readouterr().out
     assert re.search(r"make_examples +skip +complete", plan)
     assert re.search(r"postprocess_variants +run +an earlier run was interrupted", plan)
-    assert _visible(out) == []
+    assert visible(dv.out) == []
 
-    runs = _docker(monkeypatch)
-    deepvariant.cmd_deepvariant(_args(bam, force_steps=["call_variants"]))
-    assert _stages(runs) == ["call_variants", "postprocess_variants"]
+    rerun(dv, "--force-step", "call_variants")
+    assert dv.deepvariant.stages() == ["call_variants", "postprocess_variants"]
 
-    runs = _docker(monkeypatch)
-    deepvariant.cmd_deepvariant(_args(bam, restart=True))
-    assert _stages(runs) == ["make_examples", "call_variants", "postprocess_variants"]
-
-
-@pytest.mark.parametrize("batch_size", [0, -1])
-def test_invalid_batch_size_is_rejected_before_container_setup(files, batch_size):
-    _ref, bam, _out = files
-    with pytest.raises(WGSExtractError, match="must be positive"):
-        deepvariant.cmd_deepvariant(_args(bam, batch_size=batch_size))
-
-
-def test_batch_size_is_not_silently_ignored_by_gpu(files):
-    _ref, bam, _out = files
-    with pytest.raises(WGSExtractError, match="CPU-only"):
-        deepvariant.cmd_deepvariant(_args(bam, batch_size=256, gpu=True))
+    rerun(dv, "--force")
+    assert dv.deepvariant.stages() == STAGES

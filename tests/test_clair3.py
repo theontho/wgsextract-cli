@@ -1,17 +1,33 @@
 import argparse
 import hashlib
+import os
 import platform
+import shutil
 import sys
 from pathlib import Path
 
 import pytest
 
+from tests.fake_tools import FakeClair3, require_bare_name_fakes
+from tests.htslib_helpers import (
+    needs_tools,
+    require_runnable,
+    run_wgsextract,
+    snp_sample,
+    vcf_calls,
+)
 from wgsextract_cli.cli.parser import build_parser
 from wgsextract_cli.cli.platform_support import verify_platform_support
 from wgsextract_cli.commands.vcf import clair3
-from wgsextract_cli.core import dependency_checks, pixi_tools
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.dependencies import clear_tool_caches
+from wgsextract_cli.core.utils import (
+    MissingDependencyError,
+    WGSExtractError,
+    run_command,
+)
 
+# Found before fake_pixi replaces PATH.
+CORE_TOOLS = {tool: shutil.which(tool) for tool in ("samtools", "bcftools", "tabix")}
 DORADO_V500 = "@RG\tID:run_dna_r10.4.1_e8.2_400bps_sup@v5.0.0\tDS:basecall_model=dna_r10.4.1_e8.2_400bps_sup@v5.0.0\n"
 
 
@@ -24,9 +40,23 @@ def make_model(root: Path, name: str, content: bytes = b"weights") -> Path:
 
 
 @pytest.fixture
-def no_bundled(monkeypatch):
-    monkeypatch.setattr(clair3, "bundled_models_dir", lambda: None)
+def linux_x86(monkeypatch):
+    """Clair3 is qualified on Linux x86-64 only."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+
+
+@pytest.fixture
+def fake_clair3(tmp_path, monkeypatch) -> FakeClair3:
+    """Clair3 on PATH with an empty bundled models folder, and no clair3_model
+    in config.toml."""
+    require_bare_name_fakes()
+    bindir = tmp_path / "clair3" / "bin"
+    fake = FakeClair3(bindir, shutil.which("bcftools") or "bcftools")
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.delitem(clair3.settings, "clair3_model", raising=False)
+    clear_tool_caches()
+    return fake
 
 
 @pytest.mark.parametrize(
@@ -59,21 +89,24 @@ def test_only_read_group_and_program_lines_are_metadata():
     assert clair3.basecaller_chemistries(header) == set()
 
 
-def test_model_precedence_cli_then_config_then_metadata(tmp_path, monkeypatch):
-    for name in ("cli", "config", "r1041_e82_400bps_sup_v500"):
+def test_model_precedence_cli_then_config_then_metadata(
+    tmp_path, monkeypatch, fake_clair3
+):
+    for name in ("cli", "config"):
         make_model(tmp_path, name)
-    monkeypatch.setattr(clair3, "bundled_models_dir", lambda: tmp_path)
-    monkeypatch.setattr(clair3, "verify_model", lambda model: None)
-    monkeypatch.setitem(clair3.settings, "clair3_model", str(tmp_path / "config"))
+    make_model(fake_clair3.models, "r1041_e82_400bps_sup_v500", b"corrupt")
 
     pick = clair3.select_model
+    monkeypatch.setitem(clair3.settings, "clair3_model", str(tmp_path / "config"))
     args = argparse.Namespace(model=str(tmp_path / "cli"))
     assert pick(args, DORADO_V500) == tmp_path / "cli"
     assert pick(argparse.Namespace(model=None), DORADO_V500) == tmp_path / "config"
     monkeypatch.delitem(clair3.settings, "clair3_model")
-    assert pick(argparse.Namespace(model=None), DORADO_V500) == (
-        tmp_path / "r1041_e82_400bps_sup_v500"
-    )
+    # The metadata picks the bundled model, whose weights are then checked.
+    with pytest.raises(
+        WGSExtractError, match=r"models.r1041_e82_400bps_sup_v500.\w+\.pt doesn't match"
+    ):
+        pick(argparse.Namespace(model=None), DORADO_V500)
 
 
 @pytest.mark.parametrize(
@@ -86,21 +119,19 @@ def test_model_precedence_cli_then_config_then_metadata(tmp_path, monkeypatch):
         ),
     ],
 )
-def test_unknown_or_mixed_basecaller_requires_model(no_bundled, header, reason):
+def test_unknown_or_mixed_basecaller_requires_model(fake_clair3, header, reason):
     with pytest.raises(WGSExtractError, match=f"{reason}.*--model"):
         clair3.select_model(argparse.Namespace(model=None), header)
 
 
-def test_refusal_lists_only_bundled_ont_models(tmp_path, monkeypatch):
+def test_refusal_lists_only_bundled_ont_models(fake_clair3):
     for name in ("hifi_revio", "r1041_e82_400bps_sup_v520_with_mv", "ont"):
-        make_model(tmp_path, name)
-    monkeypatch.setattr(clair3, "bundled_models_dir", lambda: tmp_path)
-    monkeypatch.delitem(clair3.settings, "clair3_model", raising=False)
+        make_model(fake_clair3.models, name)
     with pytest.raises(WGSExtractError, match=r"Bundled ONT models: ont\.$"):
         clair3.select_model(argparse.Namespace(model=None), "")
 
 
-def test_missing_pinned_model_names_its_download(no_bundled):
+def test_missing_pinned_model_names_its_download(fake_clair3):
     with pytest.raises(
         WGSExtractError, match="clair3_models_rerio_pytorch/r1041_e82_400bps_sup_v420"
     ):
@@ -169,7 +200,7 @@ def test_pinned_manifest_covers_bundled_ont_defaults():
         assert set(pins[name]["files"]) == set(clair3.MODEL_FILES)
 
 
-def test_v1_tensorflow_model_directory_is_refused(tmp_path, no_bundled):
+def test_v1_tensorflow_model_directory_is_refused(tmp_path):
     model = tmp_path / "r941_prom_sup_g5014"
     model.mkdir()
     (model / "pileup.index").write_text("")
@@ -177,77 +208,48 @@ def test_v1_tensorflow_model_directory_is_refused(tmp_path, no_bundled):
         clair3.resolve_model(str(model), None)
 
 
-def test_command_construction(tmp_path, monkeypatch):
-    ref = tmp_path / "ref.fa"
-    ref.write_text(">chr20\nACGT\n")
-    (tmp_path / "ref.fa.fai").write_text("chr20\t2000000\t7\t4\t5\n")
-    model = make_model(tmp_path, "r1041_e82_400bps_sup_v500")
-    calls = []
+DORADO_RG = (
+    "@RG\tID:rg\tSM:HG002\tPL:ONT\tDS:basecall_model=dna_r10.4.1_e8.2_400bps_sup@v5.0.0"
+)
 
-    def fake_run(cmd, **kwargs):
-        calls.append((cmd, kwargs))
-        if cmd[0] == clair3.CLAIR3:
-            output = Path(cmd[-2].split("=", 1)[1])
-            output.mkdir(parents=True)
-            (output / "merge_output.vcf.gz").write_bytes(b"vcf")
-            bed = Path(cmd[-1].split("=", 1)[1])
-            calls.append(bed.read_text())
-        else:
-            Path(cmd[cmd.index("-o") + 1]).write_bytes(b"vcf")
 
-    monkeypatch.setattr(clair3, "require_supported_platform", lambda: None)
-    monkeypatch.setattr(clair3, "verify_dependencies", lambda tools: None)
-    monkeypatch.setattr(clair3, "log_dependency_info", lambda tools: None)
-    monkeypatch.setattr(
-        clair3, "get_base_args", lambda args: ("2", str(tmp_path), str(ref), None)
-    )
-    monkeypatch.setattr(
-        clair3, "get_bam_header", lambda *_: DORADO_V500.replace("\n", "\tSM:HG002\n")
-    )
-    monkeypatch.setattr(clair3, "select_model", lambda args, header: model)
-    monkeypatch.setattr(clair3, "run_command", fake_run)
-    monkeypatch.setattr(clair3, "ensure_vcf_indexed", lambda vcf: None)
-    monkeypatch.setattr(clair3, "warn_if_no_variants", lambda *args: None)
-    monkeypatch.setenv("PYTHONPATH", "/ours")
+@needs_tools("samtools", "bcftools", "tabix")
+def test_clair3_calls_the_region_for_the_reads_sample(
+    tmp_path, monkeypatch, linux_x86, fake_clair3, open_stdin
+):
+    """Clair3 gets the region as a BED, the sample name, a closed stdin and no
+    PYTHONPATH of ours; its merged VCF is published and its work folder removed."""
+    require_runnable("samtools", "bcftools", "tabix")
+    reads = snp_sample(tmp_path, DORADO_RG)
+    model = make_model(tmp_path, "my_r1041_model")
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path / "our-site-packages"))
+    outdir = tmp_path / "out"
+    run_wgsextract(
+        "vcf", "clair3", "--input", reads.bam, "--ref", reads.ref,
+        "--outdir", str(outdir), "--model", str(model), "-r", "chr1:900-1100",
+    )  # fmt: skip
 
-    args = build_parser()[0].parse_args(
-        ["vcf", "clair3", "--input", "reads.bam", "--region", "chr20:1001-2000"]
-    )
-    args.input_platform = "ont"
-    clair3.cmd_clair3(args)
-
-    (command, kwargs), bed, (publish, _) = calls
-    assert command[:7] == [
-        "run_clair3.sh",
-        "--bam_fn=reads.bam",
-        f"--ref_fn={ref}",
-        "--threads=2",
-        "--platform=ont",
-        f"--model_path={model}",
-        "--sample_name=HG002",
+    vcf = outdir / "clair3.vcf.gz"
+    assert vcf_calls(vcf) == reads.calls[:1]
+    samples = run_command(["bcftools", "query", "-l", str(vcf)], capture_output=True)
+    assert samples.stdout.split() == ["HG002"]
+    assert sorted(p.name for p in outdir.iterdir()) == [
+        "clair3.vcf.gz",
+        "clair3.vcf.gz.tbi",
     ]
-    output = Path(command[7].removeprefix("--output="))
-    assert output.parent.parent == tmp_path
-    assert output.parent.name.startswith(".wgse_clair3_")
-    assert command[8].endswith("regions.bed")
-    assert bed == "chr20\t1000\t2000\n"
-    assert kwargs["stdin"] == clair3.subprocess.DEVNULL
-    assert "PYTHONPATH" not in kwargs["env"]
-    assert publish[:3] == ["bcftools", "view", "-Oz"]
-    assert (tmp_path / "clair3.vcf.gz").is_file()
-    assert not list(tmp_path.glob(".wgse_clair3_*"))
+    (run,) = fake_clair3.runs()
+    assert run["bed"] == "chr1\t899\t1100\n"
+    # contract: Nanopore reads called with the chosen model.
+    assert (run["opts"]["platform"], run["opts"]["model_path"]) == ("ont", str(model))
 
 
-def test_non_ont_input_is_refused(tmp_path, monkeypatch):
-    monkeypatch.setattr(clair3, "require_supported_platform", lambda: None)
-    monkeypatch.setattr(clair3, "verify_dependencies", lambda tools: None)
-    monkeypatch.setattr(clair3, "log_dependency_info", lambda tools: None)
-    monkeypatch.setattr(
-        clair3, "get_base_args", lambda args: ("1", str(tmp_path), "r.fa", None)
-    )
-    args = argparse.Namespace(input="reads.bam", input_platform="pacbio", model=None)
+@needs_tools("samtools")
+def test_non_ont_input_is_refused(tmp_path, linux_x86, fake_clair3):
+    require_runnable("samtools", "bcftools", "tabix")
+    reads = snp_sample(tmp_path, "@RG\tID:rg\tSM:HG002\tPL:PACBIO")
     with pytest.raises(WGSExtractError, match="looks like pacbio"):
-        clair3.cmd_clair3(args)
+        run_wgsextract("vcf", "clair3", "--input", reads.bam, "--ref", reads.ref)
+    assert fake_clair3.runs() == []
 
 
 @pytest.mark.parametrize(
@@ -272,16 +274,22 @@ def test_mixed_platform_read_groups_are_refused():
         clair3.require_ont_read_groups("@RG\tID:a\tPL:ONT\n@RG\tID:b\tPL:ILLUMINA\n")
 
 
-def test_missing_clair3_names_its_pixi_environment(monkeypatch):
-    monkeypatch.setattr(clair3, "require_supported_platform", lambda: None)
-    monkeypatch.setattr(dependency_checks, "require_native_tool", lambda tool: None)
-    # The clair3 environment is locked for linux-64 only; CI also runs on ARM.
-    monkeypatch.setattr(pixi_tools, "_locked_package_available", lambda *args: True)
-    monkeypatch.setattr(
-        dependency_checks, "check_dependencies", lambda tools: [clair3.CLAIR3]
-    )
-    with pytest.raises(WGSExtractError, match=r"run_clair3\.sh.*-e clair3"):
-        clair3.cmd_clair3(argparse.Namespace(input="reads.bam"))
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="a batch file can't take a multi-line argument"
+)
+def test_missing_clair3_names_its_pixi_environment(fake_pixi, monkeypatch, linux_x86):
+    # The host has the core tools, and the lockfile has clair3 for this platform.
+    for tool, found in CORE_TOOLS.items():
+        if not found:
+            pytest.skip(f"{tool} is not on PATH")
+        (fake_pixi.host_bin / tool).symlink_to(found)
+    monkeypatch.setattr(sys, "prefix", str(fake_pixi.env("default")))
+    monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", "default")
+    fake_pixi.env("clair3", locked=("clair3",), installed=False)
+    clear_tool_caches()
+
+    with pytest.raises(MissingDependencyError, match=r"run_clair3\.sh.*-e clair3"):
+        run_wgsextract("vcf", "clair3", "--input", "reads.bam")
 
 
 def test_windows_is_refused_before_inputs_are_resolved(monkeypatch):
