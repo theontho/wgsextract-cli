@@ -5,6 +5,7 @@ asked to run.
 """
 
 import gzip
+import json
 import os
 import re
 import subprocess
@@ -1067,6 +1068,90 @@ def test_oom_in_call_variants_fails_fast_and_a_rerun_resumes_there(files, monkey
     runs = _docker(monkeypatch)
     deepvariant.cmd_deepvariant(_args(bam, batch_size=256))
     assert _stages(runs) == []
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
+def test_a_relative_outdir_keeps_the_examples_of_a_skipped_make_examples(
+    files, monkeypatch, tmp_path
+):
+    _ref, bam, out = files
+    (tmp_path / "bam" / "sub").mkdir()
+    monkeypatch.chdir(tmp_path / "bam")
+    base = deepvariant.get_base_args(None)
+    monkeypatch.setattr(
+        deepvariant, "get_base_args", lambda _a: (base[0], "sub/../../out", *base[2:])
+    )
+    _docker(monkeypatch, run=_dies_in("call_variants"))
+    with pytest.raises(WGSExtractError):
+        deepvariant.cmd_deepvariant(_args(bam))
+
+    def needs_examples(cmd):
+        if "/call_variants " in cmd[-1]:
+            assert list((out / deepvariant.WORK_DIRECTORY).glob("make_examples*"))
+        return _deepvariant(cmd)
+
+    runs = _docker(monkeypatch, run=needs_examples)
+    deepvariant.cmd_deepvariant(_args(bam))
+    assert _stages(runs) == ["call_variants", "postprocess_variants"]
+    assert _visible(out) == ["deepvariant.vcf.gz"]
+    steps = json.loads((out / "deepvariant.vcf.gz.steps.json").read_text())["steps"]
+    called = [Path(o["path"]).name for o in steps["call_variants"]["outputs"]]
+    assert called and not [name for name in called if "make_examples" in name]
+
+
+class _Engine:
+    """The engine calls run_container and the orphan check make directly:
+    `ps` lists ``running`` (container name -> label) unless ``ps_rc``."""
+
+    def __init__(self, monkeypatch, running=None, ps_rc=0):
+        self.running, self.ps_rc, self.calls = running or {}, ps_rc, []
+        monkeypatch.setattr(containers, "_engine", self)
+
+    def __call__(self, cmd):
+        self.calls.append(cmd[1:])
+        if cmd[1] != "ps" or self.ps_rc:
+            return subprocess.CompletedProcess(cmd, self.ps_rc, "", "no daemon")
+        label = _flag(cmd, "--filter").removeprefix("label=")
+        names = "".join(f"{n}\n" for n, at in self.running.items() if at == label)
+        return subprocess.CompletedProcess(cmd, 0, names, "")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
+def test_a_rerun_waits_for_a_killed_runs_container(files, monkeypatch):
+    _ref, bam, out = files
+    killed = _docker(monkeypatch, run=_dies_in("make_examples"))
+    with pytest.raises(WGSExtractError):
+        deepvariant.cmd_deepvariant(_args(bam))
+    stage = killed.stages[-1]
+    # As if wgsextract had been SIGKILLed while its container ran on.
+    _Engine(monkeypatch, {_flag(stage, "--name"): _flag(stage, "--label")})
+    runs = _docker(monkeypatch)
+    with pytest.raises(WGSExtractError, match=f"container {_flag(stage, '--name')}"):
+        deepvariant.cmd_deepvariant(_args(bam))
+    assert runs.stages == []
+
+    # Once it's gone, or when no engine answers, the rerun resumes.
+    _Engine(monkeypatch, ps_rc=1)
+    runs = _docker(monkeypatch)
+    deepvariant.cmd_deepvariant(_args(bam))
+    assert _stages(runs) == ["make_examples", "call_variants", "postprocess_variants"]
+    assert _visible(out) == ["deepvariant.vcf.gz"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
+def test_interrupting_a_stage_stops_its_container(files, monkeypatch):
+    _ref, bam, _out = files
+
+    def interrupted(cmd):
+        if "/call_variants " in cmd[-1]:
+            raise KeyboardInterrupt
+        return _deepvariant(cmd)
+
+    runs = _docker(monkeypatch, run=interrupted)
+    engine = _Engine(monkeypatch)
+    with pytest.raises(KeyboardInterrupt):
+        deepvariant.cmd_deepvariant(_args(bam))
+    assert engine.calls == [["kill", _flag(runs.stages[-1], "--name")]]
 
 
 def test_killed_make_examples_keeps_finished_shards_only_for_the_same_run(

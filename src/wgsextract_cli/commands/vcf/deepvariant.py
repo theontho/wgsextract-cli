@@ -32,6 +32,7 @@ from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.native_support import is_linux_arm64, require_native_tool
 from wgsextract_cli.core.output_checks import warn_if_no_variants
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import read_fai_lengths
 from wgsextract_cli.core.region_selection import Intervals, selected_intervals
 from wgsextract_cli.core.resource_estimates import (
@@ -566,7 +567,8 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
         lambda: _supports_num_partitions(image, run_deepvariant, setup),
     )  # fmt: skip
     out_vcf = str(Path(outdir, "deepvariant.vcf.gz"))
-    work = Path(outdir, WORK_DIRECTORY)
+    # Absolute, like the journal's paths, so stage files match their records.
+    work = absolute_path(Path(outdir, WORK_DIRECTORY))
     staged_reads = _needs_staging(args.input)
     reads = str(work / "reads" / "reads.cram") if staged_reads else args.input
     launcher = _Launcher(
@@ -859,7 +861,7 @@ def _run_stages(
         if journal.dry_run:
             continue
         if not decision.run:
-            claimed |= {journal.path.parent / item["path"] for item in decision.outputs}
+            claimed |= {journal.resolve(item["path"]) for item in decision.outputs}
             continue
         # A make_examples killed with the same inputs and settings keeps the
         # shards it finished (GNU parallel's job log); anything else restarts.

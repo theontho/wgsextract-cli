@@ -13,10 +13,11 @@ import sys
 import threading
 import uuid
 from collections.abc import Iterable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.steps import RUN_TAG
 from wgsextract_cli.core.utils import (
     MissingDependencyError,
     WGSExtractError,
@@ -26,6 +27,8 @@ from wgsextract_cli.core.utils import (
 
 # Seconds a failed container's OOM event may trail its exit.
 OOM_EVENT_GRACE = 5.0
+# Labels each container with the step run (RUN_TAG) that started it.
+STEP_LABEL = "wgsextract.step"
 
 
 def docker(setup: str) -> str:
@@ -113,21 +116,57 @@ def run_container(
         cmd += ["-e", f"TMPDIR={home}"]
     for mount in mounts:
         cmd += ["-v", f"{mount}:{mount}"]
-    if oom_error is None:
-        return run_command(
-            [*cmd, "-w", mounts[0], image, *command], capture_output=capture_output
-        )
     name = f"wgsextract-{uuid.uuid4().hex[:12]}"
-    with _oom_watch(cmd[0], name) as oom_killed:
+    cmd += ["--name", name]
+    if tag := os.environ.get(RUN_TAG):
+        # A rerun finds the container of a step whose wgsextract was killed.
+        cmd += ["--label", f"{STEP_LABEL}={tag}"]
+    cmd += ["-w", mounts[0], image, *command]
+    try:
+        if oom_error is None:
+            return run_command(cmd, capture_output=capture_output)
+        with _oom_watch(cmd[0], name) as oom_killed:
+            try:
+                return run_command(cmd, capture_output=capture_output)
+            except subprocess.CalledProcessError as error:
+                if oom_killed.wait(OOM_EVENT_GRACE):
+                    raise WGSExtractError(oom_error) from error
+                raise
+    except (KeyboardInterrupt, SystemExit):
+        # Stopping `docker run` leaves its container running, and a shell as
+        # the container's PID 1 ignores the signals it forwards. _engine works
+        # where the process registry, once cancelled, refuses new processes.
+        with suppress(OSError, subprocess.SubprocessError):
+            _engine([cmd[0], "kill", name])
+        raise
+
+
+def _engine(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """A quick engine query or command, bounded in case the daemon hangs."""
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
+
+
+def tagged_containers(tags: Iterable[str]) -> list[str]:
+    """Running containers that step runs tagged with one of ``tags`` started.
+    Empty when there is no container engine, or it doesn't answer."""
+    docker_path = get_tool_path("docker")
+    if not docker_path:
+        return []
+    found: list[str] = []
+    for tag in sorted(tags):
         try:
-            return run_command(
-                [*cmd, "--name", name, "-w", mounts[0], image, *command],
-                capture_output=capture_output,
-            )
-        except subprocess.CalledProcessError as error:
-            if oom_killed.wait(OOM_EVENT_GRACE):
-                raise WGSExtractError(oom_error) from error
-            raise
+            listed = _engine(
+                [docker_path, "ps", "--filter", f"label={STEP_LABEL}={tag}",
+                 "--format", "{{.Names}}"]
+            )  # fmt: skip
+        except (OSError, subprocess.SubprocessError) as error:
+            logging.debug(f"Couldn't list containers: {error}")
+            return found
+        if listed.returncode != 0:
+            logging.debug(f"Couldn't list containers: {listed.stderr.strip()}")
+            return found
+        found += [f"container {name}" for name in listed.stdout.split()]
+    return found
 
 
 @contextmanager

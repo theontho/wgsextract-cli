@@ -99,15 +99,16 @@ from SIGKILL.
 Tools run in their own process groups, so a SIGKILL or OOM kill of
 `wgsextract` alone can leave them running, still writing the step's files.
 Each step tags the processes it starts (`WGSEXTRACT_STEP_RUN` in their
-environment, a marker, not a setting). A rerun lists the killed run's tools
-that are still alive, then stops before running anything:
+environment, a marker, not a setting) and its containers (a `wgsextract.step`
+label). A rerun lists the killed run's tools and containers that are still
+alive, then stops before running anything:
 
 ```console
 $ wgsextract analyze comprehensive --input sample.bam --outdir out
 A killed analyze comprehensive run's tools are still writing out: bcftools (pid 4242), ...
 ```
 
-Wait for them to exit, or stop them with `kill PID`, then rerun.
+Wait for them to exit, or stop them (`kill PID`, `docker stop NAME`), then rerun.
 
 ## Limits
 
@@ -119,9 +120,10 @@ Wait for them to exit, or stop them with `kill PID`, then rerun.
   When they are temporary, they are deleted after the alignment, and the
   journal notes that. A later `--force-step align` therefore extracts them
   again.
-- When `wgsextract` itself is SIGKILLed during a DeepVariant stage in Docker,
-  the container may keep running, because `docker run` doesn't forward
-  SIGKILL. Stop it with `docker ps` and `docker stop` before rerunning. A
-  Ctrl-C (SIGINT) or SIGTERM stops it.
+- A container of a DeepVariant stage in Docker outlives a SIGKILL of
+  `wgsextract` (a Ctrl-C or SIGTERM stops it with `docker kill`). The rerun
+  finds it by its `wgsextract.step` label and stops, as for other tools; stop
+  it with `docker stop NAME`. If the engine doesn't answer `docker ps`, the
+  rerun can't check, and goes ahead.
 - The GPU (`--gpu`) DeepVariant path runs as one step, so it doesn't take
   `--dry-run` or `--force-step`.

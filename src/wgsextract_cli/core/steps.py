@@ -22,8 +22,9 @@ can't write one output at once.
 
 Tools run in their own process groups, so killing only wgsextract leaves
 them running. Each running step therefore tags the processes it starts
-(``WGSEXTRACT_STEP_RUN`` in their environment, a marker and not a setting),
-and a rerun refuses to start while a killed run's tagged tools are alive.
+(``WGSEXTRACT_STEP_RUN`` in their environment, a marker and not a setting)
+and the containers (a ``wgsextract.step`` label). A rerun refuses to start
+while a killed run's tagged tools or containers are alive.
 """
 
 from __future__ import annotations
@@ -282,12 +283,17 @@ class StepJournal:
             for record in self._steps.values()
             if record.get("status") == "running" and record.get("token")
         }
-        if tags and (live := tagged_processes(tags)):
+        if not tags:
+            return
+        from wgsextract_cli.core.containers import tagged_containers
+
+        live = tagged_processes(tags) + tagged_containers(tags)
+        if live:
             shown = ", ".join(live[:5]) + (", ..." if len(live) > 5 else "")
             raise WGSExtractError(
                 f"A killed {self.workflow} run's tools are still writing "
                 f"{self.path.parent}: {shown}. Wait for them to exit or stop "
-                "them, then rerun."
+                "them (kill PID; docker stop NAME), then rerun."
             )
 
     def _tag_processes(self, token: str | None) -> None:
