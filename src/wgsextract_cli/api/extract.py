@@ -132,7 +132,9 @@ class UnmappedParams(_ExtractParams):
 @dataclass(frozen=True, kw_only=True)
 class CustomParams(_ExtractParams):
     """The reads in a region, a comma-separated list of regions, a BED file or a
-    gene as ``<input>_<region>.bam``. ``region`` or ``gene`` is required."""
+    gene as ``<input>_<region>.bam``. ``region`` or ``gene`` is required.
+    Regions may come in any order and overlap: the BAM is coordinate-sorted
+    and holds each read once."""
 
     COMMAND = "extract custom"
 
