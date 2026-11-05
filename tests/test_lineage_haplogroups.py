@@ -478,22 +478,6 @@ def test_mt_haplogroup_refuses_or_warns_on_yoruba_mtdna(tmp_path, caplog):
     assert "Yoruba" in caplog.text
 
 
-def test_mt_haplogroup_finds_the_reference_beside_the_alignment(tmp_path, monkeypatch):
-    # Without --ref, as the GUI's ancestry page calls it with a library set up
-    # that doesn't hold this sample's reference.
-    from wgsextract_cli.core.config import settings
-
-    (tmp_path / "library").mkdir()
-    monkeypatch.setitem(settings, "reference_library", str(tmp_path / "library"))
-    bam, _ref = _mito_bam(tmp_path, 16_569)
-    run_wgsextract(
-        "lineage", "mt-haplogroup", "--input", bam,
-        "--haplogrep-path", _haplogrep(tmp_path),
-    )  # fmt: skip
-    (call,) = _calls(tmp_path)
-    assert [r[:2] for r in call["records"]] == [["chrM", "150"]]
-
-
 @pytest.mark.parametrize(
     "result",
     [
@@ -501,15 +485,25 @@ def test_mt_haplogroup_finds_the_reference_beside_the_alignment(tmp_path, monkey
         '"SampleID"\t"Haplogroup"\n"kit"\t""\n',
     ],
 )
-def test_mt_haplogroup_without_a_haplogroup_names_the_reference(tmp_path, result):
+def test_mt_haplogroup_without_a_haplogroup_names_the_reference(
+    tmp_path, monkeypatch, result
+):
     # Haplogrep writes a header alone when it gets no mtDNA variants, as when
     # the alignment was called against a reference of another build.
-    bam, ref = _mito_bam(tmp_path, 16_569)
+    # Without --ref, as the GUI's ancestry page calls it with a library set up
+    # that doesn't hold this sample's reference: the FASTA beside the BAM is used.
+    from wgsextract_cli.core.config import settings
+
+    (tmp_path / "library").mkdir()
+    monkeypatch.setitem(settings, "reference_library", str(tmp_path / "library"))
+    bam, _ref = _mito_bam(tmp_path, 16_569)
     with pytest.raises(WGSExtractError, match=r"no mtDNA variants.*ref\.fa"):
         run_wgsextract(
-            "lineage", "mt-haplogroup", "--input", bam, "--ref", str(ref),
+            "lineage", "mt-haplogroup", "--input", bam,
             "--haplogrep-path", _haplogrep(tmp_path, result),
         )  # fmt: skip
+    (call,) = _calls(tmp_path)
+    assert [r[:2] for r in call["records"]] == [["chrM", "150"]]
 
 
 def test_mt_haplogroup_calling_failure_stops_before_haplogrep(tmp_path):

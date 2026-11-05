@@ -11,9 +11,11 @@ import pytest
 from scripts.build_microarray_chm13_map import write_site_map
 from wgsextract_cli.commands import _microarray_chm13 as command
 from wgsextract_cli.core import microarray_aadr as aadr
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.microarray_chm13 import CHM13Catalogue, ReferenceContig
 from wgsextract_cli.core.microarray_site_map import SiteProjection, load_site_map
 from wgsextract_cli.core.results import CommandResult, collecting
+from wgsextract_cli.core.utils import WGSExtractError
 
 pytestmark = pytest.mark.skipif(
     not all(shutil.which(tool) for tool in ("bcftools", "samtools", "tabix", "bgzip")),
@@ -54,29 +56,24 @@ def _native_library(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "",
         "",
         "",
+        cache_key="toy",
     )
-    ids = {("chr1", position): f"rs{position}" for position in range(10, 15)}
+    # The pinned CHM13 site map, the installed vendor templates and the AADR
+    # panel are multi-GB downloads; stand in for them with this toy chr1.
     monkeypatch.setattr(command, "load_chm13_catalogue", lambda **_kwargs: catalogue)
     monkeypatch.setattr(
         command, "validate_chm13_reference", lambda *_args: {"chr1": "chr1"}
     )
-    monkeypatch.setattr(command, "_marker_ids", lambda *_args: ids)
-    monkeypatch.setattr(
-        aadr,
-        "aadr_markers",
-        lambda _panel: iter(
-            aadr.AADRMarker(
-                f"rs{position}",
-                "1",
-                "0",
-                position,
-                "C" if position == 10 else "A",
-                "T" if position == 10 else "G",
-                True,
-            )
-            for position in range(10, 15)
-        ),
-    )
+    (tmp_path / "hg18ToHg19.over.chain.gz").touch()
+    monkeypatch.setattr(command, "collect_template_markers", lambda *_args: {})
+
+    def markers(_panel, _reflib_dir=None):
+        for position in range(10, 15):
+            ref, alt = ("C", "T") if position == 10 else ("A", "G")
+            yield aadr.AADRMarker(f"rs{position}", "1", "0", position, ref, alt, True)
+
+    monkeypatch.setattr(aadr, "aadr_markers", markers)
+    monkeypatch.setattr(command, "aadr_markers", markers)
     return fasta
 
 
@@ -201,6 +198,8 @@ def test_native_gvcf_reference_blocks_are_calls_and_gaps_are_no_calls(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fasta = _native_library(tmp_path, monkeypatch)
+    library = tmp_path / "configured-library"
+    monkeypatch.setitem(settings, "reference_library", str(library))
     source = tmp_path / "sample.g.vcf"
     source.write_text(
         "##fileformat=VCFv4.2\n"
@@ -247,3 +246,20 @@ def test_native_gvcf_reference_blocks_are_calls_and_gaps_are_no_calls(
         "missing_gt": 1,
         "absent_from_vcf": 1,
     }
+    # The marker cache goes in the configured library, not beside --ref.
+    caches = list(tmp_path.rglob("markers.tsv"))
+    assert [c.is_relative_to(library) for c in caches] == [True]
+
+
+def test_templates_must_cover_every_pinned_site(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fasta = _native_library(tmp_path, monkeypatch)
+    covered = list(aadr.aadr_markers("1240k"))[:-1]
+    monkeypatch.setattr(command, "aadr_markers", lambda *_args: iter(covered))
+    args = argparse.Namespace(input=str(tmp_path / "s.vcf"), region=None)
+    args.ref_vcf_tab = args.ploidy_file = None
+    with pytest.raises(WGSExtractError, match="do not cover the pinned CHM13 map"):
+        command.run_chm13(
+            args, SimpleNamespace(root=str(tmp_path)), str(fasta), str(tmp_path), "1"
+        )

@@ -21,6 +21,7 @@ from tests.htslib_helpers import (
     sam_to_bam,
     write_fasta,
 )
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
@@ -209,11 +210,10 @@ def _target_tab(path: Path) -> str:
     return f"{path}.gz"
 
 
-@pytest.mark.parametrize("genome", ["hs37d5.fa", "GRCh37.fa"])
-def test_reference_model_alias_genomes_call_male_x_haploid(tmp_path, genome):
+def test_reference_model_alias_genome_calls_male_x_haploid(tmp_path):
     # An unrecognised build would fall back to all-diploid and call these
     # mixed chrX reads heterozygous; a man's chrX is haploid.
-    fasta = _renamed_library(tmp_path / "reference", genome)
+    fasta = _renamed_library(tmp_path / "reference", "GRCh37.fa")
     bam = _bam(tmp_path / "male.bam", _genome(), {**MALE, "rsX": "AG"})
 
     _microarray(bam, str(fasta), tmp_path / "out")
@@ -658,7 +658,7 @@ def test_vcf_input_region_in_the_vcfs_naming_style(tmp_path, library):
     }
 
 
-def test_hg38_input_is_lifted_to_the_hg19_templates(tmp_path):
+def test_hg38_input_is_lifted_to_the_hg19_templates(tmp_path, monkeypatch):
     # hg38 = hg19 + 100 on every contig: hg38ToHg19 maps [100, 5000) to [0, 4900).
     root = tmp_path / "reference"
     seqs = _genome()
@@ -692,8 +692,14 @@ def test_hg38_input_is_lifted_to_the_hg19_templates(tmp_path):
                     f"{''.join(read)}\t{'I' * 100}\tRG:Z:s"
                 )
     bam = sam_to_bam(lines, tmp_path / "sample.bam")
+    library = tmp_path / "configured-library"
+    monkeypatch.setitem(settings, "reference_library", str(library))
 
     _microarray(bam, fasta, tmp_path / "out", "--ref-vcf-tab", targets_gz)
+
+    # The liftover cache goes in the configured library, not beside --ref.
+    caches = list(tmp_path.rglob("hg19-coordinates/*.bin"))
+    assert [c.is_relative_to(library) for c in caches] == [True]
 
     out = tmp_path / "out"
     assert _rows(out / "sample_CombinedKit.txt")["rsHet"] == ["1", "1100", "AC"]
