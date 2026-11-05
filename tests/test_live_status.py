@@ -6,6 +6,7 @@ import contextlib
 import io
 import logging
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -136,25 +137,45 @@ def test_tools_writing_to_the_terminal_do_not_overwrite_the_line():
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="needs a pseudo-terminal")
+def _slow_relays(monkeypatch, seconds: float) -> None:
+    """Relays that start late, as on a loaded machine."""
+    relay = utils._tee_stderr
+
+    def slow_relay(*args):
+        time.sleep(seconds)
+        relay(*args)
+
+    monkeypatch.setattr(utils, "_tee_stderr", slow_relay)
+
+
 @pytest.mark.parametrize("finish", [lambda p: p.wait(), wait_with_cancel])
 def test_a_started_tool_has_written_everything_once_it_has_finished(
     finish, monkeypatch
 ):
     """Once wait() or poll() says a popen'd tool is done, its relayed output
     is on the terminal, ahead of whatever is written next."""
-    relay = utils._tee_stderr
-
-    def slow_relay(*args):  # as on a loaded machine
-        time.sleep(0.3)
-        relay(*args)
-
-    monkeypatch.setattr(utils, "_tee_stderr", slow_relay)
+    _slow_relays(monkeypatch, 0.3)
     with _pty_terminal() as (terminal, _side, received):
         with live_status.LiveStatus("vcf snp", terminal, delay=0, interval=0.01):
             finish(popen([sys.executable, "-c", "print('done')"]))
             sys.stdout.write("next\n")
         _wait_for(lambda: b"next" in received and b"done" in received)
     assert _screen(received.decode()) == ["done", "next"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a pseudo-terminal")
+def test_a_timed_wait_counts_relaying_against_its_timeout(monkeypatch):
+    """The tool exits within the timeout, its relay only after it: the
+    timeout covers both, not each in turn."""
+    _slow_relays(monkeypatch, 1.4)
+    tool = [sys.executable, "-c", "import time; time.sleep(0.6); print('done')"]
+    with _pty_terminal() as (terminal, _side, _received):
+        with live_status.LiveStatus("vcf snp", terminal, delay=0, interval=0.01):
+            process = popen(tool)
+            with pytest.raises(subprocess.TimeoutExpired):
+                process.wait(timeout=1.0)
+            assert process.poll() is None
+            assert process.wait(timeout=5) == 0
 
 
 def _read(fd: int) -> bytes:

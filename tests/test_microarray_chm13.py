@@ -195,7 +195,7 @@ def test_reference_rejects_same_length_wrong_mitochondrial_sequence(
     )
 
     def command(args: list[str], **_kwargs: object) -> object:
-        assert args[:2] == ["samtools", "faidx"]
+        assert args[0] == "resolved-samtools"
         chrom = args[-1]
         process = MagicMock()
         process.__enter__.return_value = process
@@ -206,7 +206,11 @@ def test_reference_rejects_same_length_wrong_mitochondrial_sequence(
         return process
 
     with (
-        patch("wgsextract_cli.core.microarray_chm13.popen", command),
+        patch(
+            "wgsextract_cli.core.utils._normalize_subprocess_cmd",
+            side_effect=lambda command: ["resolved-samtools", *command[1:]],
+        ),
+        patch("wgsextract_cli.core.microarray_chm13.subprocess.Popen", command),
         pytest.raises(WGSExtractError, match="chrM"),
     ):
         validate_chm13_reference(fasta, catalogue)

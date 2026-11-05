@@ -465,13 +465,14 @@ class _RelayedPopen(subprocess.Popen[Any]):
         return returncode
 
     def wait(self, timeout: float | None = None) -> int:
-        returncode = super().wait(timeout)
         if timeout is None:
+            returncode = super().wait()
             for relay in self.relays:
                 while relay.is_alive():
                     relay.join(0.5)  # an endless join defers Ctrl-C on Windows
             return returncode
         deadline = time.monotonic() + timeout
+        returncode = super().wait(timeout)
         for relay in self.relays:
             relay.join(max(0.0, deadline - time.monotonic()))
             if relay.is_alive():
@@ -524,11 +525,14 @@ def popen(
     logging.debug(f"Popen: {cmd_str}")
 
     relays: list[_Relay] = []
+    child_stdout = _relay_if_terminal(_child_stdout(stdout), 1, "stdout", relays)
+    child_stderr = _relay_if_terminal(stderr, 2, "stderr", relays)
+    launch = _RelayedPopen if relays else subprocess.Popen
     try:
-        process = _RelayedPopen(
+        process = launch(
             cmd_list,
-            stdout=_relay_if_terminal(_child_stdout(stdout), 1, "stdout", relays),
-            stderr=_relay_if_terminal(stderr, 2, "stderr", relays),
+            stdout=child_stdout,
+            stderr=child_stderr,
             stdin=stdin,
             text=text,
             errors="replace" if text else None,
@@ -542,7 +546,8 @@ def popen(
             f"Could not start {Path(cmd_list[0]).name}: {error.strerror or error}. "
             "Run 'wgsextract deps check' to validate installed tools."
         ) from error
-    process.relays = _start_relays(relays, launched=True)
+    if isinstance(process, _RelayedPopen):
+        process.relays = _start_relays(relays, launched=True)
     proc_registry.register_process(cmd_str, process)
 
     def _unregister_finished_process() -> None:
