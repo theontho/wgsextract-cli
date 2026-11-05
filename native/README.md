@@ -13,6 +13,24 @@ they are qualified on full genomes (#364).
 Both write the same alignments as their upstream release; only the `@PG`
 version gains a `-wgse-<version>` suffix.
 
+## Installing
+
+Each release lists SHA-256 hashes for its archives. Downloading with `gh` or
+`curl` avoids the browser quarantine flag that Gatekeeper applies to these
+ad-hoc-signed executables:
+
+```bash
+gh release download macos-aligners-1 -R WGSExtract/wgsextract-cli
+shasum -a 256 *.tar.gz   # compare with the release notes
+for archive in *.tar.gz; do tar -xzf "$archive"; done
+wgse-bwa-0.1.0-macos-arm64/bin/wgse-bwa
+wgse-bwa-mem2-0.1.0-macos-arm64/bin/wgse-bwa-mem2 capabilities --json
+```
+
+macOS kills a quarantined executable as soon as it starts. If an archive was
+downloaded in a browser, clear the flag before running, for example
+`xattr -dr com.apple.quarantine wgse-bwa-0.1.0-macos-arm64`.
+
 ## Usage
 
 ```bash
