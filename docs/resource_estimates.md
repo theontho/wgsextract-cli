@@ -256,11 +256,11 @@ still take it. In a container, an OOM kill of any process (from a Docker memory
 cap or a host out of memory) is reported by `docker events`. The command then
 kills the container and fails with an actionable error instead of letting
 DeepVariant's worker pool wait forever on its lost worker. A local
-`run_deepvariant` on `PATH` has no such watcher. On any failure, complete
-call_variants outputs (and the small model's `make_examples` outputs, if any)
-are moved to a new `deepvariant_intermediates/<date-time>-<n>/` directory in
-the output directory instead of being deleted with the work directory, so
-outputs of separate failed runs are never mixed.
+`run_deepvariant` on `PATH` has no such watcher. On any failure, the stages'
+work stays in `.deepvariant.work` in the output directory. A rerun with the
+same settings skips the completed stages and finished `make_examples` shards,
+so after freeing memory it restarts at postprocessing (see
+[resuming long workflows](step-resume.md)).
 
 Compression, read lengths, depth, extra flow-specific stages and tool versions
 can change these costs. Missing reference-index construction has its own

@@ -30,8 +30,10 @@ class ProgressEvent:
     """One progress report: a stage name, a message and, when known, how far
     through the operation is (0.0 to 1.0).
 
-    Stages so far: ``start`` and ``finish`` (the command name, 0.0 and 1.0)
-    and ``tool`` (an external tool is starting). More stages may be added."""
+    Stages so far: ``start`` and ``finish`` (the command name, 0.0 and
+    1.0), ``tool`` (an external tool is starting) and ``step`` (a resumable
+    workflow runs or skips one of its steps, and why). More stages may be
+    added."""
 
     stage: str
     message: str = ""
