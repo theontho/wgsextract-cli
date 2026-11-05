@@ -15,6 +15,7 @@ from wgsextract_cli.core.reference_assets import input_stem
 from wgsextract_cli.core.reference_resolver import (
     ReferenceLibrary,
 )
+from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     get_resource_defaults,
@@ -158,10 +159,12 @@ def _prepare_vcf(
             raise WGSExtractError("None of the VCF's contigs are in the reference.")
         if len(shared) < len(vcf_contigs):
             skipped = sorted(set(vcf_contigs) - set(shared))
-            logging.warning(
-                "Skipping %d VCF contig(s) not in the reference: %s",
-                len(skipped),
-                ", ".join(skipped[:10]) + (" ..." if len(skipped) > 10 else ""),
+            warn(
+                "contigs_skipped",
+                f"Skipping {len(skipped)} VCF contig(s) not in the reference: "
+                + ", ".join(skipped[:10])
+                + (" ..." if len(skipped) > 10 else ""),
+                count=len(skipped),
             )
             # A file, as names like HLA-A*01:01:01:01 break comma region lists.
             regions_file = str(Path(workdir, "contigs.tsv"))
@@ -427,5 +430,12 @@ def cmd_to_fasta(args: argparse.Namespace) -> None:
         raise WGSExtractError(f"Consensus generation failed: {e}") from e
 
     logging.info(f"Consensus FASTA written to {out_fasta}")
+    result = current_result()
+    result.set_reference(ref)
+    result.add_output(out_fasta, "consensus_fasta")
+    # No --sample means the VCF's only sample was used.
+    used = sample or next(iter(get_vcf_samples(input_vcf)), None)
+    result.add_metrics(sample=used, haplotype=args.haplotype, uncalled=uncalled)
     if out_chain:
         logging.info(f"Liftover chain (reference -> consensus) written to {out_chain}")
+        result.add_output(out_chain, "liftover_chain", kind="chain")

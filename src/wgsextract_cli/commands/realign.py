@@ -45,8 +45,9 @@ from wgsextract_cli.core.resource_estimates import (
     estimate_resources,
     preflight_resources,
 )
+from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.temp_directory import configured_temp_directory
-from wgsextract_cli.core.utils import WGSExtractError, get_resource_defaults
+from wgsextract_cli.core.utils import UsageError, WGSExtractError, get_resource_defaults
 from wgsextract_cli.core.variant_files import (
     calculate_bam_md5,
     resolve_reference,
@@ -266,7 +267,7 @@ def _refuse_unpaired_reads(path: str, cram_opt: list[str]) -> None:
 
 def run(args: argparse.Namespace) -> None:
     if not args.input:
-        raise WGSExtractError(
+        raise UsageError(
             "--input <BAM|CRAM> is required for realign. Pass it before the "
             "subcommand or via --input."
         )
@@ -287,7 +288,7 @@ def run(args: argparse.Namespace) -> None:
         and configured_temp_directory()
         and not getattr(args, "gpu", False)
     ):
-        raise WGSExtractError(
+        raise UsageError(
             "Native pbmm2's internal sorter does not support --tmp-dir. Use --aligner minimap2 or omit the temporary-directory setting."
         )
     signature = None
@@ -306,7 +307,7 @@ def run(args: argparse.Namespace) -> None:
 
     if args.platform in {"ont", "nanopore"} and not args.r1:
         if args.keep_fastq:
-            raise WGSExtractError(
+            raise UsageError(
                 "ONT realignment streams tagged single-end FASTQ to preserve "
                 "MM/ML; --keep-fastq is not supported. Use samtools fastq "
                 "-T MM,ML,MN to retain tagged FASTQ separately."
@@ -367,6 +368,8 @@ def run(args: argparse.Namespace) -> None:
         r1_path, r2_path = existing
         need_extract = False
         logging.info("Reusing existing FASTQs:\n  R1: %s\n  R2: %s", r1_path, r2_path)
+        current_result().add_input(r1_path, "fastq_r1")
+        current_result().add_input(r2_path, "fastq_r2")
     else:
         base = input_stem(args.input)
         staging = outdir if args.keep_fastq else configured_temp_directory() or outdir
@@ -627,6 +630,9 @@ def run(args: argparse.Namespace) -> None:
                 Path(path).unlink()
             except OSError as exc:
                 logging.warning("Could not remove %s: %s", path, exc)
+    elif need_extract:
+        current_result().add_output(r1_path, "fastq_r1")
+        current_result().add_output(r2_path, "fastq_r2")
 
 
 def _report_resource_estimates(

@@ -9,7 +9,6 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
-from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.core.variant_files import ensure_vcf_prepared
 
@@ -18,6 +17,7 @@ from .annotation_helpers import (
     annotate_vcf,
     annotation_context,
     prepare_tabix_annotation,
+    record_annotated,
     require_annotation_file,
     run_min_score_filter,
 )
@@ -76,7 +76,7 @@ def cmd_clinvar(args: argparse.Namespace) -> None:
         table=table,
         clinical=summary.carried,
     )
-    current_result().add_output(ann_out, "annotated_vcf")
+    record_annotated(ann_out)
     logging.info(LOG_MESSAGES["vcf_clinvar_done"].format(output=path_out))
 
 

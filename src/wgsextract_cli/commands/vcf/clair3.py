@@ -28,10 +28,10 @@ from wgsextract_cli.core.paths import expand_path
 from wgsextract_cli.core.pixi_tools import pixi_env_prefix
 from wgsextract_cli.core.reference_assets import read_fai_lengths
 from wgsextract_cli.core.ultima import read_groups
-from wgsextract_cli.core.utils import WGSExtractError, run_command
+from wgsextract_cli.core.utils import UsageError, WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 
-from .basic import get_base_args, plain_reference
+from .basic import get_base_args, plain_reference, record_variants
 from .callers import write_region_bed
 
 CLAIR3 = "run_clair3.sh"
@@ -244,12 +244,12 @@ def verify_model(model: Path) -> None:
 def check_model_matches(model_name: str, detected: set[Chemistry]) -> None:
     """Refuse a model for another chemistry; warn on another basecaller."""
     if model_name.startswith(("hifi", "ilmn")):
-        raise WGSExtractError(
+        raise UsageError(
             f"Clair3 model {model_name} is not an ONT model; `vcf clair3` calls "
             "Nanopore reads."
         )
     if "with_mv" in model_name:
-        raise WGSExtractError(
+        raise UsageError(
             f"Clair3 model {model_name} needs Dorado move tables (mv tags) and "
             "--enable_dwell_time, which this command does not use; choose the "
             "matching model without _with_mv."
@@ -419,4 +419,4 @@ def cmd_clair3(args: argparse.Namespace) -> None:
         with safe_output(out_vcf) as staged:
             run_command(["bcftools", "view", "-Oz", "-o", staged, str(merged)])
     ensure_vcf_indexed(out_vcf)
-    warn_if_no_variants(out_vcf, ref, args.region)
+    record_variants(out_vcf, "variants", warn_if_no_variants(out_vcf, ref, args.region))

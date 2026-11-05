@@ -8,6 +8,7 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import LOG_MESSAGES
+from wgsextract_cli.core.results import warn
 from wgsextract_cli.core.variant_files import (
     ensure_vcf_prepared,
 )
@@ -46,7 +47,7 @@ def cmd_cadd(args: argparse.Namespace) -> None:
     if indel_file:
         logging.info(LOG_MESSAGES["vcf_cadd_resolve"].format(path=indel_file))
     else:
-        logging.warning(LOG_MESSAGES["vcf_cadd_no_indels"])
+        warn("no_indel_scores", LOG_MESSAGES["vcf_cadd_no_indels"])
 
     ann_out = str(Path(outdir, CADD_ANNOTATED))
     snv_tsv = prepare_tabix_annotation(snv_file, "CADD")

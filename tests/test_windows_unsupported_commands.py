@@ -54,7 +54,8 @@ def test_unsupported_windows_command_fails_before_work(
     monkeypatch.setattr(sys, "platform", "win32")
     with caplog.at_level(logging.ERROR), pytest.raises(SystemExit) as exc:
         dispatch.dispatch_command(args, explicit)
-    assert exc.value.code == 1
+    # Only an option choice (--aligner pbmm2) is a usage error; whole commands fail.
+    assert exc.value.code == (2 if "--aligner" in command else 1)
     assert f"{tool} is not supported on Windows" in caplog.text
     assert "unexpected error" not in caplog.text.lower()
     assert not outdir.exists()
@@ -86,7 +87,7 @@ def test_gpu_modes_fail_before_work_on_non_linux(
     monkeypatch.setattr(sys, "platform", platform)
     with caplog.at_level(logging.ERROR), pytest.raises(SystemExit) as exc:
         dispatch.dispatch_command(args, explicit)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert "Parabricks --gpu is not supported" in caplog.text
     selection.assert_not_called()
     args.func.assert_not_called()

@@ -8,13 +8,15 @@ from pathlib import Path
 from wgsextract_cli.core.config import config_args
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
+from wgsextract_cli.core.output_checks import vcf_record_count
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
+from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import calculate_bam_md5, ensure_vcf_prepared
 
 from .._vep_run import vep_output_paths
-from .basic import require_vcf_input
+from .basic import record_variants, require_vcf_input
 from .clinvar_revel import CLINVAR_ANNOTATED, REVEL_ANNOTATED
 from .deleteriousness import CADD_ANNOTATED, GERP_ANNOTATED
 from .population import GNOMAD_ANNOTATED, PHYLOP_ANNOTATED
@@ -86,6 +88,8 @@ def cmd_chain_annotate(args: argparse.Namespace) -> None:
 
     current_input = prepared_input = ensure_vcf_prepared(input_file)
     step_dirs: list[str] = []
+    applied: list[str] = []
+    skipped: list[str] = []
     finalized = False
 
     try:
@@ -93,7 +97,13 @@ def cmd_chain_annotate(args: argparse.Namespace) -> None:
             step = f"[{i + 1}/{len(annotations)}]"
             reason = skip_reason(ann, lib)
             if reason:
-                logging.warning(f"{step} Skipping '{ann}': {reason}")
+                warn(
+                    "annotation_skipped",
+                    f"{step} Skipping '{ann}': {reason}",
+                    annotation=ann,
+                    reason=reason,
+                )
+                skipped.append(ann)
                 continue
 
             step_outdir = str(Path(outdir, f"chain_step_{i + 1}_{ann}"))
@@ -127,6 +137,7 @@ def cmd_chain_annotate(args: argparse.Namespace) -> None:
                 raise WGSExtractError(f"{step} '{ann}' did not produce {step_out}.")
 
             current_input = step_out
+            applied.append(ann)
             logging.info(f"{step} '{ann}' completed: {step_out}")
 
         if current_input == prepared_input:
@@ -140,6 +151,10 @@ def cmd_chain_annotate(args: argparse.Namespace) -> None:
                 shutil.copy2(current_input + ext, final_out + ext)
         finalized = True
         logging.info(f"Chain annotation complete: {final_out}")
+        record_variants(final_out, "annotated_vcf", vcf_record_count(final_out))
+        current_result().add_metrics(
+            annotations_applied=",".join(applied), annotations_skipped=len(skipped)
+        )
     finally:
         if not getattr(args, "keep_intermediates", False):
             if finalized:

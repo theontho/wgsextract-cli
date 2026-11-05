@@ -23,6 +23,7 @@ from wgsextract_cli.core.dependency_checks import (
 from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.native_support import require_native_tool
+from wgsextract_cli.core.output_checks import alignment_record_counts
 from wgsextract_cli.core.paths import absolute_path, java_local_path
 from wgsextract_cli.core.read_counts import fastq_input_statistics
 from wgsextract_cli.core.reference_assets import is_fasta_path
@@ -31,6 +32,7 @@ from wgsextract_cli.core.resource_estimates import (
     estimate_resources,
     preflight_resources,
 )
+from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.samtools_commands import parse_memory
 from wgsextract_cli.core.sequencing import input_platform
 from wgsextract_cli.core.temp_directory import configured_temp_directory
@@ -157,24 +159,24 @@ def select_aligner(args: argparse.Namespace) -> str:
     long_read = args.long_read or args.platform in _LONG_READ_PLATFORMS
     aligner: str = args.aligner
     if args.platform in {"ont", "nanopore"} and getattr(args, "gpu", False):
-        raise WGSExtractError(
+        raise UsageError(
             "ONT --gpu alignment is not qualified to preserve MM/ML methylation "
             "tags. Align without --gpu to keep them with samtools/minimap2."
         )
     if args.platform == "ultima":
         require_native_tool("gatk")
         if aligner not in ("auto", *_BWA_ALIGNERS) or long_read or args.preset:
-            raise WGSExtractError(
+            raise UsageError(
                 "Ultima reads align with BWA-MEM (--aligner auto, bwa or bwa-mem2), "
                 "as Ultima's and Broad's pipelines do."
             )
         if getattr(args, "gpu", False):
-            raise WGSExtractError(
+            raise UsageError(
                 "--gpu (Parabricks) doesn't keep Ultima's flow tags (tp, t0) or "
                 "mark flow-based duplicates; align Ultima reads without --gpu."
             )
         if getattr(args, "r2", None):
-            raise WGSExtractError("Ultima reads are single-end: drop --r2.")
+            raise UsageError("Ultima reads are single-end: drop --r2.")
         return "bwa" if aligner == "auto" else aligner
     if aligner == "auto":
         if args.platform in _PACBIO_PLATFORMS and get_tool_path("pbmm2") is not None:
@@ -186,23 +188,23 @@ def select_aligner(args: argparse.Namespace) -> str:
 
     if aligner in _BWA_ALIGNERS:
         if long_read:
-            raise WGSExtractError(
+            raise UsageError(
                 "BWA-MEM is a short-read aligner; use --aligner minimap2 "
                 "(or pbmm2 for PacBio) for long reads."
             )
         if args.preset:
-            raise WGSExtractError("--preset applies to minimap2 and pbmm2, not BWA.")
+            raise UsageError("--preset applies to minimap2 and pbmm2, not BWA.")
         if aligner == "bwa-mem2" and getattr(args, "gpu", False):
-            raise WGSExtractError(
+            raise UsageError(
                 "--gpu aligns with Parabricks' own BWA-MEM; use --aligner bwa or auto."
             )
     elif aligner == "pbmm2":
         if args.platform in {"ont", "nanopore"}:
-            raise WGSExtractError(
+            raise UsageError(
                 "pbmm2 only aligns PacBio reads; use --aligner minimap2 for ONT."
             )
         if args.preset and args.preset not in _PBMM2_PRESETS:
-            raise WGSExtractError(
+            raise UsageError(
                 "PacBio pbmm2 alignment supports --preset map-hifi, map-pb, ccs, "
                 "or subread."
             )
@@ -358,7 +360,7 @@ def _require_unambiguous_library(ref: str | None, task: str) -> None:
     )
     if len(fastas) > 1:
         listed = "\n  ".join(fastas)
-        raise WGSExtractError(
+        raise UsageError(
             f"{task} needs the genome FASTA to align to: pass --ref <FASTA>. "
             f"The reference library has {len(fastas)}:\n  {listed}"
         )
@@ -405,6 +407,21 @@ def _prepare_alignment(
         # Both mates go into one output, so it shouldn't be named after R1.
         stem = pair_stem(stem)
     return _AlignSetup(threads, memory, outdir, resolved_ref, stem)
+
+
+def record_alignment(out_path: str, aligner: str, ref: str) -> None:
+    """Register an aligner's BAM/CRAM and its record counts on the result."""
+    counts = alignment_record_counts(out_path)
+    result = current_result()
+    result.set_reference(ref)
+    result.add_output(out_path, "alignment", metrics=dict(counts))
+    result.add_metrics(aligner=aligner, **counts)
+    if counts.get("records") == 0:
+        warn(
+            "no_reads",
+            f"{out_path} has no reads: check that the input reads are not empty.",
+            path=os.path.abspath(out_path),
+        )
 
 
 def ensure_bwa_index(ref: str) -> None:
@@ -705,6 +722,7 @@ def align_bwa(
         )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"{tool} alignment failed: {e}") from e
+    record_alignment(out_bam, tool, setup.ref)
 
 
 # Ultima's duplicate marking (Picard MarkDuplicates in flow mode, as in Ultima's
@@ -795,6 +813,7 @@ def align_ultima(
             )
         except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
             raise WGSExtractError(f"{tool} alignment failed: {e}") from e
+    record_alignment(out_path, tool, setup.ref)
 
 
 def _ultima_read_group(args: argparse.Namespace, stem: str, tagged: bool) -> str:
@@ -887,14 +906,12 @@ def _run_gpu(args: argparse.Namespace, aligner: str) -> None:
             "ccs",
             "map-hifi",
         ):
-            raise WGSExtractError(
-                "--gpu aligns PacBio HiFi/CCS reads, not CLR/subreads."
-            )
+            raise UsageError("--gpu aligns PacBio HiFi/CCS reads, not CLR/subreads.")
         _align_gpu_minimap2(args, "map-pbmm2")
         return
     preset = _minimap2_preset(args)
     if preset not in _GPU_MINIMAP2_PRESETS:
-        raise WGSExtractError(
+        raise UsageError(
             f"--gpu has no minimap2 preset for {preset}: it aligns HiFi (map-hifi) "
             "and ONT (map-ont) long reads, and short reads with --aligner bwa."
         )
@@ -922,7 +939,7 @@ def _align_gpu_minimap2(args: argparse.Namespace, preset: str) -> None:
     from wgsextract_cli.core.parabricks import host_path, verify_parabricks
 
     if args.r2:
-        raise WGSExtractError("Long-read alignment takes single-end input; drop --r2.")
+        raise UsageError("Long-read alignment takes single-end input; drop --r2.")
     setup = _prepare_alignment(args, ["samtools"], "GPU long-read alignment")
     verify_parabricks()
     reads = host_path(args.r1)
@@ -1034,6 +1051,7 @@ def _gpu_align(
                 Path(path).unlink(missing_ok=True)
     # Parabricks also lists the output's chromosomes beside it.
     Path(pb_out.rsplit(".", 1)[0] + "_chrs.txt").unlink(missing_ok=True)
+    record_alignment(out_path, f"parabricks {tool}", setup.ref)
 
 
 def _minimap2_preset(args: argparse.Namespace) -> str:
@@ -1068,7 +1086,7 @@ def align_minimap2(args: argparse.Namespace) -> None:
     reads = args.r1
     if ont:
         if args.r2:
-            raise WGSExtractError("ONT reads are single-end: drop --r2.")
+            raise UsageError("ONT reads are single-end: drop --r2.")
         # Soft clipping keeps SEQ and the modification coordinates consistent.
         align_cmd += ["-y", "-Y"]
         if reads.lower().endswith((".bam", ".cram", ".sam")):
@@ -1110,26 +1128,27 @@ def align_minimap2(args: argparse.Namespace) -> None:
         )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Minimap2 alignment failed: {e}") from e
+    record_alignment(out_bam, "minimap2", setup.ref)
 
 
 def align_pbmm2(args: argparse.Namespace) -> None:
     if configured_temp_directory() and not getattr(args, "gpu", False):
-        raise WGSExtractError(
+        raise UsageError(
             "Native pbmm2's internal sorter does not support --tmp-dir. Use --aligner minimap2 or omit the temporary-directory setting."
         )
     if args.r2:
-        raise WGSExtractError(
+        raise UsageError(
             "PacBio alignment expects single-end BAM/FASTQ input; do not pass --r2."
         )
     if args.format == "CRAM":
-        raise WGSExtractError(
+        raise UsageError(
             "pbmm2 writes sorted BAM. Convert to CRAM with 'bam to-cram' after alignment."
         )
     setup = _prepare_alignment(args, ["pbmm2", "samtools"], "PacBio alignment")
 
     preset_arg = args.preset or ("subread" if args.platform == "clr" else "ccs")
     if preset_arg not in _PBMM2_PRESETS:
-        raise WGSExtractError(
+        raise UsageError(
             "PacBio pbmm2 alignment supports --preset map-hifi, map-pb, ccs, or subread."
         )
     preset = _PBMM2_PRESETS[preset_arg]
@@ -1156,3 +1175,4 @@ def align_pbmm2(args: argparse.Namespace) -> None:
         _index_output(out_bam, threads=setup.threads)
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"PacBio alignment failed: {e}") from e
+    record_alignment(out_bam, "pbmm2", setup.ref)

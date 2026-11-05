@@ -6,7 +6,7 @@ from typing import Any
 from wgsextract_cli.core.dependency_checks import check_all_dependencies
 from wgsextract_cli.core.native_support import require_native_tool
 from wgsextract_cli.core.pixi_tools import pixi_install_command
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import MissingDependencyError
 
 
 def _stdout_can_encode(*values: str) -> bool:
@@ -58,7 +58,7 @@ def run(args: argparse.Namespace) -> None:
         else:
             command = pixi_install_command(args.tool)
             hint = f". Run: {command}" if command else ""
-            raise WGSExtractError(f"Tool not found: {args.tool}{hint}")
+            raise MissingDependencyError(f"Tool not found: {args.tool}{hint}")
 
     logging.info("Verifying bioinformatics tool installations...")
     results = check_all_dependencies()
@@ -84,7 +84,7 @@ def run(args: argparse.Namespace) -> None:
     print("\n" + "=" * 60)
     missing = [tool["name"] for tool in results["mandatory"] if not tool["path"]]
     if missing:
-        raise WGSExtractError(
+        raise MissingDependencyError(
             "Missing mandatory tool(s): "
             + ", ".join(missing)
             + ". Install them to ensure full functionality."

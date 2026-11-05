@@ -5,7 +5,7 @@ import sys
 
 from wgsextract_cli.core.native_support import require_native_tool
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
-from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.core.utils import UsageError, WGSExtractError
 from wgsextract_cli.core.windows_arm64 import (
     assert_native_windows_python,
     unsupported_windows_arm64_tool,
@@ -40,10 +40,22 @@ def _phylop_needs_bigwig(args: argparse.Namespace) -> bool:
     return not resource or str(resource).lower().endswith((".bw", ".bigwig"))
 
 
+def _require_for_option(tool: str) -> None:
+    """A tool only an option (such as --gpu) asked for: refusing it is a usage
+    error (exit 2), since the command runs without that option."""
+    try:
+        require_native_tool(tool)
+    except WGSExtractError as error:
+        raise UsageError(str(error)) from error
+
+
 def verify_platform_support(args: argparse.Namespace) -> None:
+    """Refuse what this platform can't run: a usage error (exit 2) when only
+    the chosen options are unsupported, a failure (exit 1) when the command or
+    the input itself is."""
     command = getattr(args, "command", None)
     if command in {"align", "realign"} and getattr(args, "gpu", False):
-        require_native_tool("parabricks")
+        _require_for_option("parabricks")
     if command in {"align", "realign"} and getattr(args, "platform", None) == "ultima":
         require_native_tool("gatk")
     if command == "deps" and getattr(args, "tool", None):
@@ -53,7 +65,7 @@ def verify_platform_support(args: argparse.Namespace) -> None:
         if subcommand in {"gatk", "deepvariant"}:
             require_native_tool("gatk" if subcommand == "gatk" else "run_deepvariant")
             if getattr(args, "gpu", False):
-                require_native_tool("parabricks")
+                _require_for_option("parabricks")
         elif subcommand == "clair3":
             from wgsextract_cli.commands.vcf.clair3 import require_supported_platform
 
@@ -75,7 +87,7 @@ def verify_platform_support(args: argparse.Namespace) -> None:
             )
         )
     ):
-        raise WGSExtractError(
+        raise UsageError(
             "Parabricks --gpu is not supported on this platform; "
             "use Linux with an NVIDIA GPU."
         )
@@ -90,6 +102,8 @@ def verify_platform_support(args: argparse.Namespace) -> None:
     except ValueError as error:
         raise WGSExtractError(str(error)) from error
     tool = None
+    # The tool is unsupported only because an option chose it.
+    chosen_by_option = False
     if command == "vep":
         tool = "VEP"
     elif command == "vcf":
@@ -111,7 +125,9 @@ def verify_platform_support(args: argparse.Namespace) -> None:
         tool = "pyBigWig"
     elif command in ("align", "realign") and getattr(args, "aligner", None) == "pbmm2":
         tool = "pbmm2"
+        chosen_by_option = True
     if tool:
-        raise WGSExtractError(
+        error = UsageError if chosen_by_option else WGSExtractError
+        raise error(
             f"{tool} is not supported on Windows; use this feature on Linux or macOS."
         )

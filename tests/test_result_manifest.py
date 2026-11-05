@@ -13,7 +13,9 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
+from tests.htslib_helpers import needs_htslib
 from tests.smoke_utils import ensure_fake_data, run_cli
+from tests.test_trio_vcfs import _trio
 from wgsextract_cli.cli.dispatch import dispatch_command
 from wgsextract_cli.cli.parser import build_parser
 from wgsextract_cli.core import results
@@ -437,3 +439,198 @@ def test_aadr_outputs_are_matched_literally(tmp_path):
     with results.collecting(result):
         record_aadr(str(tmp_path), "sample[1]", "1240k")
     assert [Path(r.path).name for r in result.outputs] == ["sample[1]_AADR_1240k.geno"]
+
+
+def assert_outputs_match_disk(document: dict) -> None:
+    assert document["outputs"], "the run registered no outputs"
+    for output in document["outputs"]:
+        path = Path(output["path"])
+        assert path.is_file(), path
+        assert output["size_bytes"] == path.stat().st_size, path
+        assert output["fingerprint"] == results.fingerprint(path), path
+    assert json.loads(Path(document["manifest"]).read_text()) == document
+
+
+def _write_paired_reads(directory: Path, pairs: int) -> tuple[Path, Path, Path]:
+    import gzip
+    import random
+
+    rng = random.Random(7)
+    seq = "".join(rng.choice("ACGT") for _ in range(20000))
+    ref = directory / "ref.fa"
+    lines = [seq[i : i + 60] for i in range(0, len(seq), 60)]
+    ref.write_text(">chr1\n" + "\n".join(lines) + "\n")
+    complement = str.maketrans("ACGT", "TGCA")
+    r1, r2 = directory / "reads_R1.fastq.gz", directory / "reads_R2.fastq.gz"
+    with gzip.open(r1, "wt") as one, gzip.open(r2, "wt") as two:
+        for i in range(pairs):
+            pos = rng.randrange(0, len(seq) - 400)
+            mate = seq[pos + 200 : pos + 300].translate(complement)[::-1]
+            one.write(f"@r{i}/1\n{seq[pos : pos + 100]}\n+\n{'I' * 100}\n")
+            two.write(f"@r{i}/2\n{mate}\n+\n{'I' * 100}\n")
+    return ref, r1, r2
+
+
+def test_cli_align_manifest_lists_the_alignment_and_its_read_counts(tmp_path):
+    if not all(shutil.which(tool) for tool in ("bwa", "samtools")):
+        pytest.skip("bwa/samtools not found in PATH")
+    ref, r1, r2 = _write_paired_reads(tmp_path, pairs=150)
+    rc, stdout, stderr = run_cli(
+        ["align", "--r1", str(r1), "--r2", str(r2), "--ref", str(ref)]
+        + ["--outdir", str(tmp_path / "out"), "--json"]
+    )
+    assert rc == 0, stderr
+    document = json.loads(stdout)
+    assert_valid(document)
+    assert_outputs_match_disk(document)
+    (alignment,) = [o for o in document["outputs"] if o["role"] == "alignment"]
+    counted = subprocess.run(
+        ["samtools", "view", "-c", alignment["path"]],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert alignment["metrics"]["records"] == int(counted) == 300
+    assert document["metrics"]["aligner"] == "bwa"
+    assert document["provenance"]["reference"]["path"] == str(ref)
+    assert not document["warnings"]
+
+
+@needs_htslib
+def test_cli_trio_manifest_lists_every_mode_output(tmp_path):
+    child, mother, father = _trio(
+        tmp_path,
+        child=["100 denovo A G 0/1:99", "300 recessive A G 1/1:99"],
+        mother=["100 . A . 0/0:99", "300 . A G 0/1:99"],
+        father=["100 . A . 0/0:99", "300 . A G 0/1:99"],
+    )
+    outdir = tmp_path / "out"
+    rc, stdout, stderr = run_cli(
+        ["vcf", "trio", "--proband", child, "--mother", mother, "--father", father]
+        + ["--mode", "all", "--outdir", str(outdir), "--json"]
+    )
+    assert rc == 0, stderr
+    document = json.loads(stdout)
+    assert_valid(document)
+    assert_outputs_match_disk(document)
+    assert document["manifest"] == str(outdir / "trio.manifest.json")
+    on_disk = {p.name for p in outdir.glob("trio_*.vcf.gz")}
+    assert {Path(o["path"]).name for o in document["outputs"]} == on_disk
+    family = {i["role"]: i for i in document["inputs"]}
+    for role, path in (("proband", child), ("mother", mother), ("father", father)):
+        assert family[role]["fingerprint"] == results.fingerprint(path)
+    by_role = {o["role"]: o["metrics"]["variants"] for o in document["outputs"]}
+    assert by_role["trio_denovo"] == document["metrics"]["denovo_variants"] == 1
+    assert by_role["trio_recessive"] == document["metrics"]["recessive_variants"] == 1
+
+
+def test_cli_failed_run_reports_failure_with_exit_1(tmp_path):
+    if not shutil.which("tabix"):
+        pytest.skip("tabix not found in PATH")
+    import gzip
+
+    broken = tmp_path / "broken.vcf.gz"
+    broken.write_bytes(gzip.compress(b"not a vcf\n"))  # gzip, not BGZF
+    rc, stdout, _ = run_cli(
+        ["vcf", "filter", "--vcf-input", str(broken), "--expr", "QUAL>30"]
+        + ["--outdir", str(tmp_path / "out"), "--json"]
+    )
+    document = json.loads(stdout)
+    assert_valid(document)
+    assert rc == document["exit_code"] == 1
+    assert document["status"] == "failed" and document["error"]["kind"] == "failure"
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="these commands are refused on Windows (exit 1)"
+)
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["vcf", "sv", "--pacbio", "--ont"],
+        ["vcf", "deepvariant", "--batch-size", "0"],
+        ["vcf", "deepvariant", "--gpu", "--checkpoint", "model.ckpt"],
+        ["vcf", "deepvariant", "--ont", "--pacbio"],
+        ["realign", "--aligner", "bwa", "--preset", "map-ont"],
+    ],
+)
+def test_cli_conflicting_options_exit_2_before_any_work(tmp_path, argv):
+    ensure_fake_data(str(FAKE_DIR))
+    outdir = tmp_path / "out"
+    rc, stdout, _ = run_cli(
+        [*argv, "--input", str(FAKE_DIR / "fake.bam")]
+        + ["--ref", str(FAKE_DIR / "fake_ref.fa"), "--outdir", str(outdir), "--json"]
+    )
+    document = json.loads(stdout)
+    assert_valid(document)
+    assert rc == document["exit_code"] == 2 and document["error"]["kind"] == "usage"
+    assert not list(outdir.glob("*.vcf.gz"))
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="these commands are refused on Windows (exit 1)"
+)
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["align", "--platform", "ont", "--gpu"],
+        ["align", "--aligner", "bwa", "--preset", "map-ont"],
+        ["align", "--aligner", "bwa", "--long-read"],
+        ["align", "--aligner", "bwa-mem2", "--gpu"],
+        ["align", "--aligner", "pbmm2", "--platform", "ont"],
+        ["align", "--aligner", "pbmm2", "--platform", "clr", "--gpu"],
+    ],
+)
+def test_cli_conflicting_align_options_exit_2(tmp_path, argv):
+    ensure_fake_data(str(FAKE_DIR))
+    reads = tmp_path / "reads.fastq"
+    reads.write_text("@r1\nACGT\n+\nIIII\n")
+    outdir = tmp_path / "out"
+    rc, stdout, _ = run_cli(
+        [*argv, "--r1", str(reads), "--ref", str(FAKE_DIR / "fake_ref.fa")]
+        + ["--outdir", str(outdir), "--json"]
+    )
+    document = json.loads(stdout)
+    assert_valid(document)
+    assert rc == document["exit_code"] == 2 and document["error"]["kind"] == "usage"
+    assert not list(outdir.glob("*.bam"))
+
+
+def test_cli_deps_check_for_a_missing_tool_exits_3():
+    rc, stdout, _ = run_cli(["deps", "check", "--tool", "wgse-no-such-tool", "--json"])
+    document = json.loads(stdout)
+    assert_valid(document)
+    assert rc == document["exit_code"] == 3
+    assert document["error"]["kind"] == "missing_dependency"
+
+
+@needs_htslib
+def test_cram_with_multi_reference_containers_still_reports_records(tmp_path):
+    from wgsextract_cli.core.output_checks import alignment_record_counts
+
+    contigs = {f"c{i}": "ACGTTGCAAC" * 30 for i in range(20)}
+    ref = tmp_path / "ref.fa"
+    ref.write_text("".join(f">{name}\n{seq}\n" for name, seq in contigs.items()))
+    header = "@HD\tVN:1.6\tSO:coordinate\n" + "".join(
+        f"@SQ\tSN:{name}\tLN:300\n" for name in contigs
+    )
+    reads = [
+        f"r{name}_{start}\t0\t{name}\t{start + 1}\t60\t50M\t*\t0\t0\t"
+        f"{seq[start : start + 50]}\t{'I' * 50}\n"
+        for name, seq in contigs.items()
+        for start in (0, 50, 100)
+    ]
+    sam = tmp_path / "in.sam"
+    sam.write_text(header + "".join(reads))
+    cram = tmp_path / "multi.cram"
+    samtools = shutil.which("samtools")
+    assert samtools
+    subprocess.run([samtools, "faidx", str(ref)], check=True)
+    # Many small contigs per slice: the containers span several references.
+    subprocess.run(
+        [samtools, "view", "-T", str(ref), "-O", "cram,multi_seq_per_slice=1"]
+        + ["-o", str(cram), str(sam)],
+        check=True,
+    )
+    subprocess.run([samtools, "index", str(cram)], check=True)
+    assert alignment_record_counts(cram) == {"records": len(reads)}
