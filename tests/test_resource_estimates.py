@@ -497,13 +497,9 @@ def test_commands_report_before_work(
     monkeypatch.setattr(module, "log_dependency_info", lambda *_: None, raising=False)
     if module is bam:
         source, _ref = _tiny_bam(tmp_path)
-    elif module is basic:
-        setup = basic.CallerSetup("1", str(tmp_path), "", None, None)  # type: ignore[arg-type]
-        monkeypatch.setattr(module, "caller_setup", lambda *_a, **_k: setup)
     else:
-        monkeypatch.setattr(
-            module, "get_base_args", lambda _: ("1", str(tmp_path), "", None)
-        )
+        setup = basic.CallerSetup("1", str(tmp_path), "", None, None)  # type: ignore[arg-type]
+        monkeypatch.setattr(module, "setup_caller", lambda _params: setup)
 
     def reported(build):
         estimate = build()

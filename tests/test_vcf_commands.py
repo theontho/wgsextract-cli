@@ -12,6 +12,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from tests.htslib_helpers import bgzip_index, needs_tools
+from wgsextract_cli.api import VcfFreebayesParams
+from wgsextract_cli.commands.vcf.basic import CallerSetup
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.utils import WGSExtractError
 
@@ -749,19 +751,18 @@ def test_freebayes_cram_region_is_positional(tmp_path):
 
     cram = tmp_path / "s.cram"
     ref = tmp_path / "ref.fa"
-    args = argparse.Namespace(input=str(cram), region="chr20:1-1000")
+    params = VcfFreebayesParams(input=cram, region="chr20:1-1000")
+    setup = CallerSetup("2", str(tmp_path), str(ref), None, None)  # type: ignore[arg-type]
     stages = []
     with (
         patch.object(callers, "verify_dependencies"),
-        patch.object(
-            callers, "get_base_args", return_value=("2", str(tmp_path), str(ref), None)
-        ),
+        patch.object(callers, "setup_caller", return_value=setup),
         patch.object(
             callers, "run_pipeline", side_effect=lambda s, **_k: stages.extend(s)
         ),
         patch.object(callers, "ensure_vcf_indexed"),
     ):
-        callers.cmd_freebayes(args)
+        callers.run_freebayes(params)
 
     view = stages[0]
     assert view[:2] == ["samtools", "view"]

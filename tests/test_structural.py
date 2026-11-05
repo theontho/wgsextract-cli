@@ -5,7 +5,6 @@ import logging
 import random
 import shutil
 import subprocess
-from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,6 +17,8 @@ from tests.htslib_helpers import (
     sam_to_bam,
     write_fasta,
 )
+from wgsextract_cli import api
+from wgsextract_cli.api import VcfSvParams
 from wgsextract_cli.commands.vcf import structural
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.utils import WGSExtractError, run_command
@@ -131,11 +132,29 @@ def test_no_svs_warn_only_for_a_whole_genome(tmp_path, caplog):
 
 
 @needs_delly
+def test_api_sv_and_cnv_report_their_calls(tmp_path):
+    # #346: the callers run through the typed API; the Result names the
+    # output's role and the SV caller chosen.
+    bam, ref = _sample(tmp_path)
+    common = {"input": Path(bam), "ref": Path(ref), "threads": 1}
+    sv = api.vcf.sv(api.VcfSvParams(**common, outdir=tmp_path / "sv"))
+    (out,) = [o for o in sv.outputs if o.role == "structural_variants"]
+    assert _near_deletion(_records(Path(out.path)))
+    assert sv.metrics["caller"] == "delly"
+    cnv = api.vcf.cnv(
+        api.VcfCnvParams(**common, outdir=tmp_path / "cnv", region="chr1")
+    )
+    (out,) = [o for o in cnv.outputs if o.role == "copy_number_variants"]
+    assert Path(out.path).name == "cnv.vcf.gz" and Path(out.path).is_file()
+
+
+@needs_delly
 def test_region_bam_takes_the_reference_contigs(tmp_path):
     bam, ref = _sample(tmp_path)
     region_bam = str(tmp_path / "region.bam")
-    args = structural.argparse.Namespace(input=bam, region="chr1:4000-6000")
-    structural._extract_region_bam_with_reference_header(args, ref, region_bam)
+    structural._extract_region_bam_with_reference_header(
+        bam, "chr1:4000-6000", ref, region_bam
+    )
     samtools = get_tool_path("samtools")
     header = run_command([samtools, "view", "-H", region_bam], capture_output=True)
     assert [line for line in header.stdout.splitlines() if "@SQ" in line] == [
@@ -377,9 +396,8 @@ def test_pbsv_is_refused_for_ont_reads(tmp_path, long_read, flags):
 def test_pacbio_input_keeps_delly_default_and_pbsv(tmp_path, long_read):
     callers, _bam, ref = long_read
     bam = _platform_bam(tmp_path, "PACBIO")
-    args = Namespace(input=bam, ref=ref, caller=None, pacbio=False, ont=False)
-    args.long_read = False
-    assert structural._select_sv_caller(args) == "delly"
+    params = VcfSvParams(input=Path(bam), ref=Path(ref))
+    assert structural._select_sv_caller(params).caller == "delly"
     _run("sv", bam, ref, tmp_path / "out", "--long-read", "--caller", "pbsv")
     assert [c[:2] for c in callers.calls] == [["pbsv", "discover"], ["pbsv", "call"]]
     callers.calls.clear()
@@ -408,8 +426,9 @@ def test_contradictory_long_read_flags_are_rejected(tmp_path, flags, message):
 @needs_htslib
 def test_explicit_delly_on_ont_warns(tmp_path, long_read, caplog):
     _callers, _bam, ref = long_read
-    args = Namespace(input=_platform_bam(tmp_path, "ONT"), ref=ref, caller="delly")
-    args.pacbio = args.ont = args.long_read = False
+    params = VcfSvParams(
+        input=Path(_platform_bam(tmp_path, "ONT")), ref=Path(ref), caller="delly"
+    )
     with caplog.at_level(logging.WARNING):
-        assert structural._select_sv_caller(args) == "delly"
+        assert structural._select_sv_caller(params).caller == "delly"
     assert "not validated for ONT" in caplog.text

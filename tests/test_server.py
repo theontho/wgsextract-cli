@@ -528,6 +528,54 @@ def test_path_guard_refuses_file_operands_in_expressions():
         assert refused.value.code == "path_not_allowed"
 
 
+_CALLER_OPS = ("cnv", "sv", "freebayes", "gatk", "deepvariant", "clair3")
+_CALLER_PATHS = [
+    (f"vcf/{name}", item)
+    for name in _CALLER_OPS
+    for item in find(f"vcf/{name}").fields()
+    if item.spec.path or item.spec.may_name_file
+]
+
+
+@pytest.mark.parametrize(
+    ("op", "field"),
+    [(op, item.name) for op, item in _CALLER_PATHS],
+    ids=[f"{op}-{item.name}" for op, item in _CALLER_PATHS],
+)
+@pytest.mark.parametrize(
+    "value", ["D:evil.bed", r"D:\evil.bed", r"\\host\share\evil.bed", r"sub\evil.bed"]
+)
+def test_path_guard_covers_every_caller_path(op, field, value):
+    # #346: the BAM/CRAM variant callers became server operations; each file
+    # they read or write (a DeepVariant region BED, a Clair3 model folder
+    # included) must be inside an allowed folder, drive-relative included.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {"input": r"C:\data\a.bam", "outdir": r"C:\data"}
+    guard.check(params_from_json(find(op), allowed))
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(find(op), {**allowed, field: value}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+def test_caller_paths_cover_every_file():
+    guarded = {(op, item.name) for op, item in _CALLER_PATHS}
+    assert {("vcf/deepvariant", "checkpoint"), ("vcf/deepvariant", "region"),
+            ("vcf/clair3", "model"), ("vcf/sv", "tandem_repeats"),
+            *((f"vcf/{name}", f) for name in _CALLER_OPS
+              for f in ("input", "ref", "outdir"))} <= guarded  # fmt: skip
+    # Region text and a bundled model's name aren't files, so they pass.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {"input": r"C:\data\a.bam", "outdir": r"C:\data"}
+    guard.check(
+        params_from_json(find("vcf/deepvariant"), {**allowed, "region": "chr20:1-9"})
+    )
+    guard.check(
+        params_from_json(
+            find("vcf/clair3"), {**allowed, "model": "r1041_e82_400bps_sup_v500"}
+        )
+    )
+
+
 def test_read_only_mcp_info_saves_nothing(tmp_path, fake_data):
     # Security review of PR #422: read-only `info` created the folders named
     # by outdir, and saved its metrics cache next to the input.
