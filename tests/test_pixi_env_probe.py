@@ -160,6 +160,8 @@ def test_interpreter_alias_in_its_own_environment_is_this_python(
     tmp_path, monkeypatch, tool
 ):
     _broken_pixi(tmp_path, monkeypatch)
+    python_tool(tmp_path / "bin", "python", "")
+    monkeypatch.setenv("PATH", str(tmp_path / "bin"))
     env = tool.removesuffix("_python")
     _in_environment(monkeypatch, env, tmp_path, windows=sys.platform == "win32")
 
@@ -268,19 +270,13 @@ def test_without_another_pixi_the_users_own_is_used(tmp_path, monkeypatch):
     assert command is not None and shlex.split(command)[0] == str(own.exe)
 
 
-@posix_pixi
-@pytest.mark.parametrize("checkout", [True, False])
-def test_the_repair_command_installs_from_any_directory(
-    tmp_path, monkeypatch, checkout
-):
-    """It names the app's manifest, when the app runs from a checkout (an
-    installed wheel has none)."""
+def test_the_repair_command_installs_from_any_directory(tmp_path, monkeypatch):
+    """It names the app's manifest when the app runs from a checkout."""
     app = tmp_path / "app"
     app.mkdir()
-    if checkout:
-        (app / "pixi.toml").write_text("")
+    (app / "pixi.toml").write_text("")
     monkeypatch.setattr(runtime, "source_checkout_root", lambda: app)
-    pixi = FakePixi(tmp_path / "pixi", app / "pixi.toml" if checkout else None)
+    pixi = FakePixi(tmp_path / "pixi", app / "pixi.toml")
     pixi.env("gatk", locked=("gatk4",), installed=False)
     monkeypatch.setenv("PIXI_EXE", str(pixi.exe))
 
@@ -288,7 +284,28 @@ def test_the_repair_command_installs_from_any_directory(
     assert command is not None
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
-    subprocess.run(shlex.split(command), cwd=elsewhere, check=True)
+    subprocess.run(_tool_command_parts(command), cwd=elsewhere, check=True)
+
+    assert pixi.installed("gatk")
+
+
+def test_without_a_checkout_the_repair_command_installs_into_this_workspace(
+    tmp_path, monkeypatch
+):
+    """An installed wheel has no manifest of its own, so pixi finds the
+    workspace from the current directory, as it does for the CLI itself."""
+    workspace = tmp_path / "workspace"
+    (workspace / "sub").mkdir(parents=True)
+    (workspace / "pixi.toml").write_text("")
+    monkeypatch.setattr(runtime, "source_checkout_root", lambda: tmp_path / "app")
+    pixi = FakePixi(tmp_path / "pixi", workspace / "pixi.toml")
+    pixi.env("gatk", locked=("gatk4",), installed=False)
+    monkeypatch.setenv("PIXI_EXE", str(pixi.exe))
+    monkeypatch.chdir(workspace)
+
+    command = pixi_tools.pixi_install_command("gatk")
+    assert command is not None
+    subprocess.run(_tool_command_parts(command), cwd=workspace / "sub", check=True)
 
     assert pixi.installed("gatk")
 

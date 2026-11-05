@@ -13,7 +13,7 @@ import pytest
 
 from tests.fake_tools import python_tool
 from wgsextract_cli.commands import _deps_status
-from wgsextract_cli.core import dependency_checks
+from wgsextract_cli.core import dependency_checks, windows_arm64
 from wgsextract_cli.core.dependencies import clear_tool_caches
 from wgsextract_cli.core.dependency_checks import (
     check_all_dependencies,
@@ -28,6 +28,12 @@ from wgsextract_cli.core.utils import MissingDependencyError
 posix_pixi = pytest.mark.skipif(
     sys.platform == "win32", reason="a batch file can't take a multi-line argument"
 )
+
+
+@pytest.fixture(autouse=True)
+def _x64_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Windows ARM64 hosts accept only qualified native tools, not batch files.
+    monkeypatch.setattr(windows_arm64, "windows_native_machine", lambda: 0x8664)
 
 
 @pytest.fixture

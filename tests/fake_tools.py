@@ -47,10 +47,23 @@ while i < len(rest):
 
 
 def norm(path):
-    return path and os.path.normcase(os.path.abspath(path))
+    return os.path.normcase(os.path.abspath(path))
 
 
-if norm(manifest) != norm(state["manifest"]):
+def discover():
+    here = os.getcwd()
+    while True:
+        if os.path.isfile(os.path.join(here, "pixi.toml")):
+            return os.path.join(here, "pixi.toml")
+        if os.path.dirname(here) == here:
+            return None
+        here = os.path.dirname(here)
+
+
+manifest = manifest or discover()
+if manifest is None or (
+    state["manifest"] is not None and norm(manifest) != norm(state["manifest"])
+):
     sys.exit("Error: could not find a pixi workspace")
 if sub == "info":
     if state["info_stdout"] is not None:
@@ -111,8 +124,9 @@ class FakePixi:
 
     Like pixi, ``run``, ``list`` and ``install`` install a missing environment
     (marked by ``conda-meta/pixi``) unless given ``--no-install``, and
-    ``run --no-install`` of a missing one runs the host's programs. It knows
-    only the workspace at ``manifest``; ``None`` is the current directory's.
+    ``run --no-install`` of a missing one runs the host's programs. Without
+    ``--manifest-path`` it finds the workspace in the current directory or a
+    parent. It knows only the workspace at ``manifest``; ``None`` is any.
     """
 
     def __init__(

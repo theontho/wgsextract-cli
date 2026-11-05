@@ -236,14 +236,11 @@ def test_not_found_in_help_text_is_no_error(host):
 
 def test_a_timed_out_probe_is_retried_with_a_longer_limit(host, tmp_path, monkeypatch):
     """A tool's first start on a fresh Windows PC can take far longer than
-    later ones; this one takes longer than the first limit."""
+    later ones; this one takes longer than the first limit, but not the
+    second, every time."""
     log = tmp_path / "runs.log"
     _tool(
-        host,
-        "samtools",
-        _logging_runs(log)
-        + f"if len(open({str(log)!r}).readlines()) == 1: time.sleep(6)\n"
-        + 'print("samtools 1.21")',
+        host, "samtools", _logging_runs(log) + 'time.sleep(4); print("samtools 1.21")'
     )
     # The clock: the real limits are a minute, then three.
     monkeypatch.setattr(dependency_checks, "VERSION_PROBE_TIMEOUT", 2)
@@ -266,6 +263,9 @@ def test_a_probe_that_times_out_twice_is_slow_to_start(host, monkeypatch):
 
     assert str(error.value).startswith("samtools is slow to start: ")
     assert str(error.value).endswith("did not finish in 1 seconds, nor in 2 on a retry")
+    # Not cached: once the tool starts promptly, the same process finds it.
+    _tool(host, "samtools", 'print("samtools 1.21")')
+    assert get_tool_version("samtools") == "samtools 1.21"
 
 
 @posix_only
@@ -402,9 +402,13 @@ def test_deps_check_tool_prints_its_path(host, capsys):
     assert str(error.value).startswith("Tool not found: bwa. Run: ")
 
 
+# The report lists these, but a user can run most commands without them.
+OPTIONAL_TOOLS = ("fastqc", "fastp", "curl")
+
+
 def _mandatory_tools(host: Path, *, without: tuple[str, ...] = ()) -> None:
     for tool in required_dependency_tools():
-        if tool not in without:
+        if tool not in without + OPTIONAL_TOOLS:
             _tool(host, tool, f'print("{tool} 1.21")')
 
 
