@@ -15,6 +15,7 @@ from typing import NamedTuple
 from pyliftover import LiftOver
 
 from wgsextract_cli.core.file_lock import build_lock
+from wgsextract_cli.core.library_cache import microarray_cache_root, short_key
 
 # Codes double as the output sort order, matching legacy chr_to_int(): MT before X/Y.
 _CHROMS = (*(f"chr{i}" for i in range(1, 23)), "chrM", "chrX", "chrY")
@@ -104,7 +105,8 @@ def project_coordinates(
     chain: str,
     library: str | None = None,
 ) -> tuple[Iterator[Projection], int, int]:
-    if not library:
+    root = microarray_cache_root(library)
+    if root is None:
         rows, bad_chrom, bad_pos = _project(coordinates, chain)
         return iter(rows), bad_chrom, bad_pos
     chain_digest = hashlib.sha256()
@@ -114,8 +116,8 @@ def project_coordinates(
     digest = hashlib.sha256(_MAGIC + chain_digest.digest())
     for chrom, position in coordinates:
         digest.update(f"{chrom}\t{position}\n".encode())
-    directory = Path(library, "microarray", "hg19-coordinates")
-    path = directory / f"{digest.hexdigest()}.bin"
+    directory = root / "hg19-coordinates"
+    path = directory / f"{short_key(digest)}.bin"
     cached = _read(path, len(coordinates))
     if cached is not None:
         return cached

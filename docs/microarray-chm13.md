@@ -167,3 +167,10 @@ reference library, setup remains uncached. An explicit `--ref` FASTA never
 chooses the cache location. Unwritable caches also fall back to uncached setup
 and targets in the output directory; existing valid read-only caches remain
 usable.
+
+Cache names use 20-hex-digit (80-bit) key prefixes, so no cached file lies more
+than 84 characters below the library. Windows tools such as htslib cannot open
+paths of 260 characters or more, whatever the `LongPathsEnabled` setting says,
+so on Windows a reference library deeper than 175 characters runs uncached with
+a `cache_path_too_long` warning. Caches named by full 64-digit SHA-256 keys,
+from earlier releases, are never read and are deleted on the next run.

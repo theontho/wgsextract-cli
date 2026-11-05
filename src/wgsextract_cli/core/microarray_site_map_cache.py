@@ -12,6 +12,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
+from wgsextract_cli.core.library_cache import short_key
+
 if TYPE_CHECKING:
     from wgsextract_cli.core.microarray_site_map import SiteMap, _Metadata
 
@@ -28,7 +30,7 @@ _COLUMNS = (
 
 
 def cache_path(directory: Path, manifest: bytes) -> Path:
-    key = hashlib.sha256(manifest).hexdigest()
+    key = short_key(hashlib.sha256(manifest))
     return directory / f"sites-v1-{sys.byteorder}-{key}.bin"
 
 

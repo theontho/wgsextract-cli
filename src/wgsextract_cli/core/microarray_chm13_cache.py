@@ -13,6 +13,7 @@ from contextlib import ExitStack
 from pathlib import Path
 
 from wgsextract_cli.core.file_lock import build_lock
+from wgsextract_cli.core.library_cache import short_key
 from wgsextract_cli.core.microarray_aadr import _MARKERS
 from wgsextract_cli.core.microarray_chm13 import CHM13Catalogue
 from wgsextract_cli.core.microarray_targets import TARGET_VERSION, _template_paths
@@ -26,15 +27,19 @@ MarkerIDs = dict[tuple[str, int], str]
 
 
 def _key(value: object) -> str:
-    return hashlib.sha256(
-        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    return short_key(
+        hashlib.sha256(
+            json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+        )
+    )
 
 
 def cache_directory(
-    library: str | None, catalogue: CHM13Catalogue, roots: list[str]
+    root: Path | None, catalogue: CHM13Catalogue, roots: list[str]
 ) -> Path | None:
-    if not library or not catalogue.cache_key:
+    """The cache for this catalogue and template set under ``root``, the
+    library's microarray cache root (see library_cache.microarray_cache_root)."""
+    if root is None or not catalogue.cache_key:
         return None
     files = [
         Path(path)
@@ -57,7 +62,7 @@ def cache_directory(
         stat = path.stat()
         fingerprints.append((str(path.resolve()), stat.st_size, stat.st_mtime_ns))
     key = _key((_VERSION, TARGET_VERSION, catalogue.cache_key, fingerprints))
-    return Path(library, "microarray", "chm13", key)
+    return root / "chm13" / key
 
 
 def _sha256(path: Path) -> str:
@@ -180,7 +185,7 @@ def target(
                 with tempfile.TemporaryDirectory(
                     dir=directory, prefix="target-"
                 ) as stage:
-                    staged = Path(stage, path.name)
+                    staged = Path(stage, "t.tab.gz")
                     shutil.copyfile(built, staged)
                     shutil.copyfile(str(built) + ".tbi", str(staged) + ".tbi")
                     _publish_target(staged, path)

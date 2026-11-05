@@ -147,7 +147,7 @@ def test_cache_key_tracks_templates_chain_catalogue_and_library(
     template.write_text("rs1\t1\t10\n")
     chain = tmp_path / "hg18ToHg19.over.chain.gz"
     chain.write_bytes(b"chain")
-    args = (str(tmp_path / "library"), catalogue, [str(tmp_path)])
+    args = (tmp_path / "library", catalogue, [str(tmp_path)])
     original = cache.cache_directory(*args)
     template.write_text("rs1\t1\t100\n")
     changed = cache.cache_directory(*args)
@@ -158,6 +158,6 @@ def test_cache_key_tracks_templates_chain_catalogue_and_library(
         args[0], replace(catalogue, cache_key="changed"), args[2]
     ) != cache.cache_directory(*args)
     assert cache.cache_directory(
-        str(tmp_path / "other"), catalogue, args[2]
+        tmp_path / "other", catalogue, args[2]
     ) != cache.cache_directory(*args)
     assert cache.cache_directory(None, catalogue, args[2]) is None
