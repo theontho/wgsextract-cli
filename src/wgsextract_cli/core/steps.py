@@ -506,8 +506,14 @@ class StepJournal:
     def running(
         self, decision: Decision, *, keep_partial: bool = False
     ) -> Iterator[StepRun]:
-        """Mark the step running, yield, then record it complete. Stale
-        staged outputs of an interrupted attempt are removed first."""
+        """``start`` the step, yield, then ``finish`` it unless that raised."""
+        handle = self.start(decision, keep_partial=keep_partial)
+        yield handle
+        self.finish(handle)
+
+    def start(self, decision: Decision, *, keep_partial: bool = False) -> StepRun:
+        """Mark the step running. Stale staged outputs of an interrupted
+        attempt are removed first, unless the step resumes its own work."""
         if self.dry_run:
             raise WGSExtractError(f"Step {decision.step.name} can't run in --dry-run.")
         step = decision.step
@@ -525,10 +531,11 @@ class StepJournal:
             ],
         }
         self._save()
-        handle = StepRun()
-        clock = time.monotonic()
-        yield handle
-        self._complete(decision, handle, time.monotonic() - clock)
+        return StepRun(decision, time.monotonic())
+
+    def finish(self, handle: StepRun) -> None:
+        """Record the step complete, once its outputs are all written."""
+        self._complete(handle.decision, handle, time.monotonic() - handle.clock)
 
     def _complete(self, decision: Decision, handle: StepRun, seconds: float) -> None:
         step = decision.step
@@ -586,8 +593,10 @@ class StepJournal:
 
 @dataclass
 class StepRun:
-    """What a running step reports beyond its declared outputs."""
+    """A started step, and what it reports beyond its declared outputs."""
 
+    decision: Decision
+    clock: float
     outputs: list[tuple[PathInput, dict[str, Any]]] = field(default_factory=list)
     inputs: list[tuple[str, PathInput]] = field(default_factory=list)
     metrics: dict[str, Any] = field(default_factory=dict)

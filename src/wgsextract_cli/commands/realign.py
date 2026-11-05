@@ -157,7 +157,7 @@ def register(
         action="store_true",
         help="Skip the up-front disk space check (not recommended).",
     )
-    add_resume_arguments(parser, ["extract", "align"])
+    add_resume_arguments(parser, ["extract", "align", "index"])
     parser.set_defaults(func=run)
 
 
@@ -363,11 +363,10 @@ def _align_step(
     out_path: str,
     reads: dict[str, str | None],
 ) -> Step:
-    """The alignment step: map, mark duplicates, sort and index into out_path.
+    """The alignment step: map, mark duplicates and sort into out_path.
     Its reads are the input BAM/CRAM, also when they reach the aligner through
     extracted FASTQs (_run_steps reruns it whenever extraction reruns)."""
     reference = target if target and Path(target).is_file() else None
-    index = out_path + (".crai" if out_path.endswith(".cram") else ".bai")
     return Step(
         "align",
         inputs={
@@ -375,7 +374,7 @@ def _align_step(
             "reference": reference,
             "input_reference": getattr(args, "input_ref", None),
         },
-        outputs=[out_path, index],
+        outputs=[out_path],
         params={
             "aligner": aligner,
             "platform": args.platform,
@@ -390,16 +389,74 @@ def _align_step(
     )
 
 
-def _replay_alignment(decision: Decision, out_path: str, target: str | None) -> None:
-    """Report a completed earlier alignment as this run's output."""
+def _index_path(out_path: str) -> str:
+    return out_path + (".crai" if out_path.endswith(".cram") else ".bai")
+
+
+def _index_step(out_path: str) -> Step:
+    return Step(
+        "index",
+        inputs={"alignment": out_path},
+        outputs=[_index_path(out_path)],
+        tools=["samtools"],
+    )
+
+
+def _align(
+    journal: StepJournal,
+    decision: Decision,
+    align_args: argparse.Namespace,
+    run: Callable[[], None],
+) -> None:
+    """Run the align step. Aligners that report when their sorted output is
+    complete (bwa, minimap2) index it as a separate step, so a run killed
+    while indexing resumes without realigning; the others index within it."""
+    out_path = str(decision.step.outputs[0])
+    aligning = journal.start(decision)
+    indexing = None
+
+    def written(tool: str) -> None:
+        nonlocal indexing
+        aligning.metrics["aligner"] = tool
+        journal.finish(aligning)
+        indexing = journal.start(journal.decide(_index_step(out_path)))
+
+    align_args._on_written = written
+    run()
+    if indexing is not None:
+        journal.finish(indexing)
+    else:
+        aligning.add_output(_index_path(out_path))
+        aligning.metrics["aligner"] = current_result().metrics.get("aligner")
+        journal.finish(aligning)
+
+
+def _resume_alignment(
+    journal: StepJournal,
+    decision: Decision,
+    out_path: str,
+    target: str | None,
+    threads: str,
+) -> None:
+    """Finish from a completed align step: index the output unless that was
+    done, then report the alignment as this run's output."""
+    index = _index_path(out_path)
+    indexed = any(
+        Path(journal.path.parent, item["path"]) == Path(index)
+        for item in decision.outputs
+    )
+    if not indexed:
+        indexing = journal.decide(_index_step(out_path))
+        if journal.dry_run:
+            return
+        if indexing.run:
+            with journal.running(indexing):
+                logging.info("Indexing %s ...", out_path)
+                align_cmd._index_output(out_path, threads=threads)
+    if journal.dry_run:
+        return
     aligner = str(decision.metrics.get("aligner") or "aligner")
     align_cmd.record_alignment(out_path, aligner, target or "")
-
-
-def _align(journal: StepJournal, decision: Decision, run: Callable[[], None]) -> None:
-    with journal.running(decision) as step:
-        run()
-        step.metrics["aligner"] = current_result().metrics.get("aligner")
 
 
 def _run_steps(
@@ -430,9 +487,10 @@ def _run_steps(
         )
         decision = journal.decide(step)
         if not decision.run:
-            _replay_alignment(decision, out_path, target)
+            _resume_alignment(journal, decision, out_path, target, threads)
             return
         if journal.dry_run:
+            journal.decide(_index_step(out_path))
             return
         align_args = argparse.Namespace(**vars(args))
         align_args.r1 = args.input
@@ -447,7 +505,7 @@ def _run_steps(
                 need_extract=False,
                 reads=indexed_read_count(args.input, threads),
             )
-        _align(journal, decision, lambda: align_cmd.run(align_args))
+        _align(journal, decision, align_args, lambda: align_cmd.run(align_args))
         return
 
     if args.platform == "ultima" and not args.r1:
@@ -459,9 +517,10 @@ def _run_steps(
         )
         decision = journal.decide(step)
         if not decision.run:
-            _replay_alignment(decision, out_path, target)
+            _resume_alignment(journal, decision, out_path, target, threads)
             return
         if journal.dry_run:
+            journal.decide(_index_step(out_path))
             return
         # Single-end reads with flow tags: streamed into the aligner, no FASTQs.
         reads = indexed_read_count(args.input, threads)
@@ -490,6 +549,7 @@ def _run_steps(
         _align(
             journal,
             decision,
+            align_args,
             lambda: align_cmd.align_ultima(align_args, args.input, cram_reference),
         )
         return
@@ -531,7 +591,9 @@ def _run_steps(
         and not journal.check(align_step).run
     ):
         # An earlier run finished: nothing before the alignment is needed.
-        _replay_alignment(journal.decide(align_step), out_path, target)
+        _resume_alignment(
+            journal, journal.decide(align_step), out_path, target, threads
+        )
         return
 
     extract_decision: Decision | None = None
@@ -591,9 +653,10 @@ def _run_steps(
             align_step, after=[extract_decision] if extract_decision else []
         )
         if not align_decision.run:
-            _replay_alignment(align_decision, out_path, target)
+            _resume_alignment(journal, align_decision, out_path, target, threads)
             return
         if journal.dry_run:
+            journal.decide(_index_step(out_path))
             return
     statistics = None if need_extract else fastq_input_statistics(r1_path, r2_path)
     reads = (
@@ -747,6 +810,7 @@ def _run_steps(
                 _align(
                     journal,
                     align_decision,
+                    align_args,
                     lambda: align_cmd.align_bwa(
                         align_args,
                         upstream=stages,
@@ -820,7 +884,7 @@ def _run_steps(
             align_step, after=[extract_decision] if extract_decision else []
         )
     try:
-        _align(journal, align_decision, lambda: align_cmd.run(align_args))
+        _align(journal, align_decision, align_args, lambda: align_cmd.run(align_args))
     except BaseException:
         if need_extract and not args.keep_fastq:
             from wgsextract_cli.core.temp_directory import retain_temporary_directory
