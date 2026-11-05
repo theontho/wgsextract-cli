@@ -103,11 +103,12 @@ class McpServer:
     # Transport -------------------------------------------------------------
 
     def serve(self, stdin: TextIO) -> None:
-        """Answer messages from ``stdin`` until it closes, then finish the
-        tool calls in progress."""
+        """Answer messages from ``stdin`` until it closes; then stop the jobs
+        (the client has gone) and let the tool calls in progress end."""
         for line in stdin:
             if line.strip():
                 self.handle_line(line)
+        self.manager.shutdown()
         for thread in self._threads:
             thread.join()
 
@@ -143,9 +144,15 @@ class McpServer:
         method: str = message["method"]
         params = message.get("params") or {}
         if "id" not in message:
-            self._notification(method, params)
+            if isinstance(params, dict):
+                self._notification(method, params)
             return
         request_id = message["id"]
+        if not isinstance(params, dict) or not isinstance(
+            params.get("_meta", {}), dict
+        ):
+            self._error(request_id, INVALID_PARAMS, "params must be an object.")
+            return
         if method == "tools/call":
             # Tools can take minutes, so each runs on its own thread.
             thread = threading.Thread(
@@ -175,6 +182,8 @@ class McpServer:
 
     def _notification(self, method: str, params: dict[str, Any]) -> None:
         if method == "notifications/cancelled":
+            if not isinstance(params.get("requestId"), (str, int)):
+                return
             with self._calls_lock:
                 job_id = self._calls.get(params.get("requestId"))
                 if job_id:
@@ -198,6 +207,7 @@ class McpServer:
         return op.kind == "query" or self.allow_jobs
 
     def tools(self) -> list[dict[str, Any]]:
+        read_only = not self.allow_jobs
         tools = [
             _tool(
                 op.tool_name,
@@ -207,8 +217,8 @@ class McpServer:
                     if op.kind == "query"
                     else "; starts a background job, follow it with job_status)"
                 ),
-                op.schema(),
-                read_only=op.kind == "query",
+                op.schema(read_only=read_only),
+                read_only=read_only,
             )
             for op in operations().values()
             if self._offered(op)
@@ -311,7 +321,7 @@ class McpServer:
     ) -> tuple[dict[str, Any], bool]:
         op = find_tool(name)
         if op is not None and self._offered(op):
-            params = params_from_json(op, arguments)
+            params = params_from_json(op, arguments, read_only=not self.allow_jobs)
             self.guard.check(params)
             job = self.manager.submit(op, arguments)
             if op.kind != "query":

@@ -1,6 +1,7 @@
 """`wgsextract serve` (#351): the typed API over local HTTP/JSON and MCP."""
 
 import contextlib
+import http.client
 import json
 import os
 import shutil
@@ -24,6 +25,7 @@ from tests.fake_tools import python_tool
 from tests.smoke_utils import ensure_fake_data, get_cli_command
 from wgsextract_cli.core import results
 from wgsextract_cli.core.config import get_config_path
+from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.server.http_api import Server
 from wgsextract_cli.server.jobs import JobManager
 from wgsextract_cli.server.operations import PathGuard
@@ -98,9 +100,9 @@ def work(tmp_path: Path) -> Path:
 
 
 @contextlib.contextmanager
-def _serve(tmp_path: Path, roots: list[Path]) -> Iterator[Client]:
+def _serve(tmp_path: Path, roots: list[Path], max_jobs: int = 1) -> Iterator[Client]:
     manager = JobManager(
-        tmp_path / "state" / "jobs", config_path=get_config_path(), max_jobs=1
+        tmp_path / "state" / "jobs", config_path=get_config_path(), max_jobs=max_jobs
     )
     server = Server(0, TOKEN, manager, PathGuard(roots))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -130,6 +132,47 @@ def test_requests_need_the_token_and_a_local_host(client):
         "GET", "/ops", headers={"Origin": "https://evil.example"}
     )
     assert (status, body["error"]["code"]) == (403, "bad_origin")
+
+
+def test_bad_lengths_are_refused_and_errors_close_the_connection(client):
+    # PR #422 review: a negative Content-Length read the body to EOF, and an
+    # error left an unread body to be parsed as the next request.
+    host, port = client.url.removeprefix("http://").removesuffix("/v1").split(":")
+    connection = http.client.HTTPConnection(host, int(port), timeout=30)
+    connection.putrequest("POST", "/v1/ops/info")
+    connection.putheader("Authorization", "Bearer " + TOKEN)
+    connection.putheader("Content-Type", "application/json")
+    connection.putheader("Content-Length", "-1")
+    connection.endheaders()
+    response = connection.getresponse()
+    assert response.status == 400
+    assert json.loads(response.read())["error"]["code"] == "bad_length"
+    assert response.headers["Connection"] == "close"
+    connection.close()
+
+
+def test_jobs_writing_to_one_folder_run_one_at_a_time(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # PR #422 review: with --max-jobs 2, two jobs saving the same fixed file
+    # names in one folder ran at once and overwrote each other's outputs.
+    bam, ref = fake_data
+    other = tmp_path / "other"
+    other.mkdir()
+    params = {"input": str(bam), "ref": str(ref), "outdir": str(work)}
+    with _serve(tmp_path, [work, other, FAKE_DIR], max_jobs=2) as client:
+        first = client.request("POST", "/ops/info/calculate-coverage", params)[1]
+        same = client.request("POST", "/ops/info/calculate-coverage", params)[1]
+        apart = client.request(
+            "POST", "/ops/info/calculate-coverage", {**params, "outdir": str(other)}
+        )[1]
+        assert (first["status"], same["status"], apart["status"]) == (
+            "running",
+            "queued",
+            "running",
+        )
+        with pytest.raises(WGSExtractError, match="Another wgsextract server"):
+            JobManager(tmp_path / "state" / "jobs", config_path=None)
 
 
 def test_operations_and_openapi_follow_the_typed_api(client):
@@ -220,6 +263,15 @@ def test_info_query_waits_and_reports_failures_as_failed_jobs(client, work, fake
             "usage",
         ),
         ("nope", {}, 404, "unknown_op"),
+        # PR #422 review: these were 500 "internal" errors, or jobs with
+        # values the schema forbids.
+        ("vcf/snp", {}, 400, "usage"),
+        (
+            "lineage/y-haplogroup",
+            {"input": "{work}/a.bam", "min_reads": None},
+            400,
+            "usage",
+        ),
     ],
 )
 def test_requests_are_validated_and_confined_to_allowed_folders(
@@ -265,15 +317,23 @@ def slow_coverage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_data) ->
     return pids
 
 
-def _wait_for(predicate: Any, timeout: float = 120) -> None:
+def _job_logs(tmp_path: Path) -> str:
+    """The workers' logs, to show why a job got stuck."""
+    return "\n".join(
+        f"== {log.name}\n{log.read_text(errors='replace')}"
+        for log in sorted((tmp_path / "state" / "jobs").glob("*.log"))
+    )
+
+
+def _wait_for(predicate: Any, tmp_path: Path, timeout: float = 120) -> None:
     deadline = time.monotonic() + timeout
     while not predicate():
-        assert time.monotonic() < deadline, "timed out"
+        assert time.monotonic() < deadline, f"timed out\n{_job_logs(tmp_path)}"
         time.sleep(0.2)
 
 
 def test_cancel_stops_running_jobs_and_drops_queued_ones(
-    client, work, fake_data, slow_coverage
+    tmp_path, client, work, fake_data, slow_coverage
 ):
     bam, ref = fake_data
     params = {"input": str(bam), "ref": str(ref), "outdir": str(work)}
@@ -282,9 +342,13 @@ def test_cancel_stops_running_jobs_and_drops_queued_ones(
     assert queued["status"] == "queued"
 
     status, cancelled = client.request("DELETE", f"/jobs/{queued['id']}")
-    assert (status, cancelled["status"]) == (200, "cancelled")
+    assert (status, cancelled["status"], cancelled["exit_code"]) == (
+        200,
+        "cancelled",
+        130,
+    )
 
-    _wait_for(lambda: any(slow_coverage.iterdir()))
+    _wait_for(lambda: any(slow_coverage.iterdir()), tmp_path)
     tool_pid = int(next(slow_coverage.iterdir()).name)
     status, job = client.request("DELETE", f"/jobs/{running['id']}")
     assert status == 202 and job["cancel_requested"]
@@ -306,10 +370,11 @@ def test_jobs_outlive_the_server_and_can_be_rerun(
     params = {"input": str(bam), "ref": str(ref), "outdir": str(work)}
     with _serve(tmp_path, [work, FAKE_DIR]) as client:
         _, done = client.request(
-            "POST", "/ops/info?wait=120", {"input": str(bam), "outdir": str(work)}
+            "POST", "/ops/info?wait=100", {"input": str(bam), "outdir": str(work)}
         )
+        assert done["status"] == "succeeded", _job_logs(tmp_path)
         _, running = client.request("POST", "/ops/info/calculate-coverage", params)
-        _wait_for(lambda: any(slow_coverage.iterdir()))
+        _wait_for(lambda: any(slow_coverage.iterdir()), tmp_path)
     # The server stopped, as on Ctrl-C, with the coverage job still running.
 
     with _serve(tmp_path, [work, FAKE_DIR]) as client:
@@ -386,7 +451,7 @@ class Mcp:
         self.proc.stdin.write(json.dumps({"jsonrpc": "2.0", **message}) + "\n")
         self.proc.stdin.flush()
 
-    def request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+    def request(self, method: str, params: Any) -> dict[str, Any]:
         self.next_id += 1
         self.send({"id": self.next_id, "method": method, "params": params})
         while True:
@@ -426,6 +491,16 @@ def test_mcp_offers_read_only_queries_by_default(work, fake_data):
     assert result["isError"] is True
     assert result["structuredContent"]["error"]["code"] == "path_not_allowed"
     assert mcp.call("vcf_snp", input=str(bam))["error"]["code"] == -32602
+
+    # PR #422 review: info's table_format saves files, yet read-only MCP
+    # offered it; malformed params killed the call or the server.
+    assert "table_format" not in tools["info"]["inputSchema"]["properties"]
+    result = mcp.call("info", input=str(bam), outdir=str(work), table_format="tsv")
+    assert result["structuredContent"]["error"]["code"] == "read_only"
+    assert not list(work.glob("*.tsv"))
+    assert mcp.request("tools/call", [])["error"]["code"] == -32602
+    mcp.send({"method": "notifications/cancelled", "params": {"requestId": {}}})
+    assert mcp.request("ping", {})["result"] == {}
     assert mcp.close() == 0
 
 

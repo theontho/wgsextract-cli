@@ -77,4 +77,5 @@ def table_format_param(help: str, *, hint: str = "", doc: str | None = None) -> 
         flags=("--format",),
         choices=FORMATS,
         cli_type=table_format_type(hint),
+        writes=True,
     )

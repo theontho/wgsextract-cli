@@ -7,7 +7,9 @@ import argparse
 import logging
 import os
 import secrets
+import shutil
 import sys
+import tempfile
 from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -76,18 +78,25 @@ def register(
 
 
 def allowed_roots(extra: Iterable[str]) -> list[Path]:
-    """The folders requests may use: ``extra``, server_allowed_paths and the
-    configured data folders."""
+    """The folders requests may use: ``extra`` and server_allowed_paths, which
+    must exist, and the configured data folders that do (one not created or
+    mounted yet doesn't stop the server)."""
     configured = settings.get("server_allowed_paths") or []
     if isinstance(configured, str):
         configured = [configured]
-    roots = [*extra, *configured]
-    roots += [
-        str(settings[key])
-        for key in ("genome_library", "reference_library", "output_directory")
-        if settings.get(key)
-    ]
-    return [Path(os.path.expanduser(root)) for root in roots]
+    roots = [Path(os.path.expanduser(root)) for root in (*extra, *configured)]
+    for root in roots:
+        if not root.is_dir():
+            raise UsageError(f"Allowed folder {root} doesn't exist.")
+    for key in ("genome_library", "reference_library", "output_directory"):
+        if not settings.get(key):
+            continue
+        root = Path(os.path.expanduser(str(settings[key])))
+        if root.is_dir():
+            roots.append(root)
+        else:
+            logging.warning(f"Not allowing {key} {root}: it doesn't exist.")
+    return roots
 
 
 def _setting_int(
@@ -120,22 +129,27 @@ def run(args: argparse.Namespace) -> None:
 
     from wgsextract_cli.server.operations import PathGuard
 
-    roots = allowed_roots(args.allow)
-    for root in roots:
-        if not root.is_dir():
-            raise UsageError(f"Allowed folder {root} doesn't exist.")
-    guard = PathGuard(roots)
+    guard = PathGuard(allowed_roots(args.allow))
     if not guard.roots:
         logging.warning(
             "No folders are allowed, so requests can't name any file. Pass "
             "--allow DIR or set server_allowed_paths in config.toml."
         )
     state = state_directory() / "server"
+    # The HTTP server keeps its jobs across restarts. Each MCP session (one per
+    # agent conversation, several may run at once) has its own, removed when
+    # it ends: the outputs and their manifests stay where the jobs saved them.
+    jobs = (
+        Path(tempfile.mkdtemp(prefix="mcp-", dir=_made(state)))
+        if args.mcp
+        else state / "jobs"
+    )
     manager = JobManager(
-        state / "jobs",
+        jobs,
         config_path=get_config_path(),
         max_jobs=max_jobs,
         debug=bool(getattr(args, "debug", False)),
+        default_outdir=settings.get("output_directory"),
     )
     try:
         if args.mcp:
@@ -144,6 +158,13 @@ def run(args: argparse.Namespace) -> None:
             _serve_http(manager, guard, port, state / "server.json")
     finally:
         manager.shutdown()
+        if args.mcp:
+            shutil.rmtree(jobs, ignore_errors=True)
+
+
+def _made(folder: Path) -> Path:
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
 
 
 def _serve_mcp(manager: JobManager, guard: PathGuard, *, allow_jobs: bool) -> None:

@@ -35,7 +35,9 @@ class ParamSpec:
     required value is missing on the command line. ``local_only`` fields are
     set only on the command line, in config.toml or by a Python caller, never
     by a server request: their value names a program to run, or a file the
-    server's path checks can't see.
+    server's path checks can't see. ``writes`` fields make a command that
+    otherwise only reads save files when set, so a read-only server leaves
+    them out.
     """
 
     help: str | None = None
@@ -52,6 +54,7 @@ class ParamSpec:
     required_message: str | None = None
     doc: str | None = None
     local_only: bool = False
+    writes: bool = False
 
     @property
     def description(self) -> str:
@@ -76,6 +79,7 @@ def param(
     required_message: str | None = None,
     doc: str | None = None,
     local_only: bool = False,
+    writes: bool = False,
 ) -> Any:
     """Declare a Params field; omit ``default`` for a required one.
 
@@ -97,6 +101,7 @@ def param(
         required_message=required_message,
         doc=doc,
         local_only=local_only,
+        writes=writes,
     )
     return dataclasses.field(default=default, metadata={_SPEC: spec})
 

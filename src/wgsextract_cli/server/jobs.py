@@ -25,6 +25,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
+from wgsextract_cli.core.file_lock import exclusive_lock
+from wgsextract_cli.core.utils import WGSExtractError
+
 from .operations import Operation, RequestError
 
 Status = Literal["queued", "running", "succeeded", "failed", "cancelled", "interrupted"]
@@ -34,18 +37,14 @@ RECORD_SCHEMA = "wgsextract.job/1"
 # How long a cancelled worker may take to stop its tools and write its
 # manifest before it is killed.
 CANCEL_GRACE_SECONDS = 30.0
+# A cancelled job's exit code, however it stopped: as for Ctrl-C on the CLI.
+CANCELLED_EXIT_CODE = 130
 # Result fields left out of compact job views: the manifest has them.
 _VERBOSE_RESULT_FIELDS = ("provenance", "schema")
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-def _pid_alive(pid: int) -> bool:
-    import psutil
-
-    return pid > 0 and psutil.pid_exists(pid)
 
 
 @dataclass
@@ -95,7 +94,9 @@ class JobManager:
     """Starts, tracks and cancels jobs. Thread-safe.
 
     Queries start at once; at most ``max_jobs`` other jobs run at a time and
-    the rest wait in order.
+    the rest wait in order. Jobs writing to the same folder run one at a time,
+    since commands save fixed file names there. One manager owns a job folder
+    at a time (an exclusive lock), so no two servers share their jobs.
     """
 
     def __init__(
@@ -105,9 +106,11 @@ class JobManager:
         config_path: Path | None,
         max_jobs: int = 1,
         debug: bool = False,
+        default_outdir: str | None = None,
         worker_command: list[str] | None = None,
     ) -> None:
         self.directory = directory
+        self.default_outdir = default_outdir
         self.config_path = config_path
         self.max_jobs = max(1, max_jobs)
         self.debug = debug
@@ -123,6 +126,16 @@ class JobManager:
         self._cancelling: set[str] = set()
         self._stopping = False
         directory.mkdir(parents=True, exist_ok=True)
+        # Job records and logs hold results and paths: this user's only.
+        if sys.platform != "win32":
+            directory.chmod(0o700)
+        self._owner = contextlib.ExitStack()
+        try:
+            self._owner.enter_context(exclusive_lock(directory / "owner", timeout=0))
+        except WGSExtractError:
+            raise WGSExtractError(
+                f"Another wgsextract server is using {directory}; stop it first."
+            ) from None
         self._load()
 
     # Records ---------------------------------------------------------------
@@ -137,9 +150,9 @@ class JobManager:
             except (OSError, ValueError, TypeError) as e:
                 logging.warning(f"Ignoring unreadable job record {path}: {e}")
                 continue
-            if not job.done and not (
-                job.server_pid != os.getpid() and _pid_alive(job.server_pid)
-            ):
+            # This manager holds the folder's lock, so no other server is
+            # running these jobs any more.
+            if not job.done:
                 job.status = "interrupted"
                 job.finished = job.finished or _now()
                 job.error = {
@@ -264,6 +277,7 @@ class JobManager:
         with self._lock:
             # Let the followers record each job's final status.
             self._lock.wait_for(lambda: not self._workers, timeout=10)
+        self._owner.close()
 
     # Internals (called with the lock held unless noted) --------------------
 
@@ -273,14 +287,33 @@ class JobManager:
         self._lock.notify_all()
 
     def _pump(self) -> None:
-        running = sum(
-            1 for job_id in self._workers if self._jobs[job_id].kind != "query"
-        )
-        while self._queue and running < self.max_jobs and not self._stopping:
-            self._start(self._jobs[self._queue.pop(0)])
-            running += 1
+        active = [self._jobs[i] for i in self._workers if self._jobs[i].kind != "query"]
+        busy = {self._output_folder(job) for job in active}
+        for job_id in list(self._queue):
+            if len(active) >= self.max_jobs or self._stopping:
+                break
+            job = self._jobs[job_id]
+            if self._output_folder(job) in busy:
+                continue
+            self._queue.remove(job_id)
+            if self._start(job):
+                active.append(job)
+                busy.add(self._output_folder(job))
 
-    def _start(self, job: Job) -> None:
+    def _output_folder(self, job: Job) -> str:
+        """Where a job saves its files: its outdir, else the configured output
+        folder, else its input's folder."""
+        folder = job.params.get("outdir") or self.default_outdir
+        if not folder and isinstance(job.params.get("input"), str):
+            folder = os.path.dirname(job.params["input"])
+        return (
+            os.path.normcase(os.path.realpath(os.path.expanduser(folder)))
+            if folder
+            else ""
+        )
+
+    def _start(self, job: Job) -> bool:
+        """Start a job's worker; False if it could not start (job failed)."""
         request = {
             "op": job.op,
             "params": job.params,
@@ -302,7 +335,7 @@ class JobManager:
         except OSError as e:
             log.close()
             self._finish(job, "failed", error=f"Could not start a worker: {e}")
-            return
+            return False
         assert worker.stdin is not None
         worker.stdin.write(json.dumps(request) + "\n")
         worker.stdin.flush()
@@ -314,6 +347,7 @@ class JobManager:
         threading.Thread(
             target=self._follow, args=(job, worker, log), daemon=True
         ).start()
+        return True
 
     def _follow(self, job: Job, worker: subprocess.Popen[str], log: Any) -> None:
         """Read a worker's events until it exits (runs without the lock)."""
@@ -404,6 +438,8 @@ class JobManager:
     ) -> None:
         job.status = status
         job.finished = _now()
+        if status == "cancelled":
+            job.exit_code = CANCELLED_EXIT_CODE
         if error_record:
             job.error = dict(error_record)
         elif error:

@@ -9,6 +9,7 @@ stdin closing (the server went away), cancels the operation.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 from typing import Any, TextIO
@@ -23,14 +24,30 @@ def _watch(stdin: TextIO, token: api.CancelToken) -> None:
     token.cancel()
 
 
+def _private_pipes() -> tuple[TextIO, TextIO]:
+    """Move the server's pipes off stdin and stdout, so the tools a job starts
+    don't inherit them: stray tool output would corrupt the protocol, and on
+    Windows a child that touches a pipe this process is reading blocks. Tools
+    get the null device as stdin and the job log as stdout."""
+    control_in = os.fdopen(os.dup(0), encoding="utf-8")
+    control_out = os.fdopen(os.dup(1), "w", encoding="utf-8", newline="\n")
+    null = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(null, 0)
+    os.close(null)
+    os.dup2(2, 1)
+    return control_in, control_out
+
+
 def main() -> int:
     from wgsextract_cli.cli.bootstrap import configure_logging
+    from wgsextract_cli.core.config import settings
+    from wgsextract_cli.core.keep_awake import keep_awake
 
     from .operations import find, params_from_json
 
-    request = json.loads(sys.stdin.readline())
+    control_in, out = _private_pipes()
+    request = json.loads(control_in.readline())
     configure_logging(debug=bool(request.get("debug")))
-    out = sys.stdout
     lock = threading.Lock()
 
     def emit(message: dict[str, Any]) -> None:
@@ -49,11 +66,12 @@ def main() -> int:
         )
 
     token = api.CancelToken()
-    threading.Thread(target=_watch, args=(sys.stdin, token), daemon=True).start()
+    threading.Thread(target=_watch, args=(control_in, token), daemon=True).start()
     api.use_config(request.get("config"))
     op = find(request["op"])
     params = params_from_json(op, request["params"])
-    result = op.run(params, progress=progress, cancel=token, check=False)
+    with keep_awake(bool(settings.get("keep_awake"))):
+        result = op.run(params, progress=progress, cancel=token, check=False)
     emit({"event": "result", "result": result.to_dict()})
     return 0
 

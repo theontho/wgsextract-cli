@@ -41,15 +41,21 @@ you start yourself:
   symlinks and `..` are resolved, it must lie inside an allowed folder. The
   allowed folders are those given with `--allow`, the `server_allowed_paths`
   setting, and the `genome_library`, `reference_library` and
-  `output_directory` settings. A symlink inside an allowed folder that points
-  outside it is refused.
+  `output_directory` settings. Of the settings, only the folders that exist
+  are allowed; a missing `--allow` folder stops the server. A symlink inside
+  an allowed folder that points outside it is refused.
+  The guard limits what a client can name. It is not a sandbox against other
+  programs running as you, which can change the allowed folders (for example
+  retarget a symlink) whatever the server does.
 - Parameters that name programs to run, such as `haplogrep_path`, or that
   hide paths inside other text, such as `indel_manifest`, can't be set by a
   request. They come from config.toml as usual.
 - Request bodies are limited to 1 MB and must be `application/json`. Unknown
   parameters are rejected rather than ignored.
 - Over MCP, only read-only queries are offered unless you pass
-  `--allow-jobs`.
+  `--allow-jobs`, and without it their parameters that save files, such as
+  `table_format`, are refused.
+- Job records and logs (`<state>/server/jobs/`) are readable by you only.
 
 ## HTTP API
 
@@ -58,7 +64,7 @@ All responses are compact JSON. Errors are
 
 | Status | Meaning |
 | --- | --- |
-| 400 | Bad parameters: `usage` or `bad_json` |
+| 400 | Bad parameters: `usage`, `bad_json` or `bad_length` |
 | 401 | Missing or wrong token |
 | 403 | A path outside the allowed folders (`path_not_allowed`), or a bad Host or Origin |
 | 404 | Unknown operation or job |
@@ -105,7 +111,9 @@ only with `full=1`, to keep responses short.
 
 - **Queries and jobs.** Quick queries (`info`, `info/chip`, `sample/show`)
   start at once. Other operations queue: `--max-jobs` (setting
-  `server_max_jobs`, default 1) of them run at a time.
+  `server_max_jobs`, default 1) of them run at a time. Jobs that save to
+  the same folder run one after another, since commands use fixed file
+  names there.
 - **Isolation.** Each job runs the API function in its own worker process.
   A crash or a cancel affects only that job. Its log, at the CLI's log level
   (`--debug` for more), is `<state>/server/jobs/<id>.log`.
@@ -119,7 +127,8 @@ only with `full=1`, to keep responses short.
   that were queued or running when a server stopped are marked
   `interrupted`. Start them again with `rerun`; commands with step-level
   resume ([step-resume.md](step-resume.md)) continue from their last finished
-  step.
+  step. One HTTP server uses a state folder at a time; a second one refuses
+  to start.
 
 ## MCP
 
@@ -150,7 +159,10 @@ Params' JSON Schema. Three tools are always offered:
 - `job_status`: a job's status and result. `wait_seconds` waits for the job
   to finish.
 
-With `--allow-jobs`, `cancel_job` is offered too.
+With `--allow-jobs`, `cancel_job` is offered too. Each MCP session has its
+own jobs, so several agents can run servers at once. When the client
+disconnects, its running jobs are cancelled and the session's job records
+are removed; outputs and their manifests stay where the jobs saved them.
 
 - **Query tools** wait for the result. They send `notifications/progress`
   when the client gives a `progressToken`, and are cancelled by

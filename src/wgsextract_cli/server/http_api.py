@@ -92,7 +92,11 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _send_error(self, error: RequestError) -> None:
-        headers = {"WWW_Authenticate": "Bearer"} if error.status == 401 else {}
+        # The request's body may be unread: don't parse it as the next request.
+        self.close_connection = True
+        headers = {"Connection": "close"}
+        if error.status == 401:
+            headers["WWW_Authenticate"] = "Bearer"
         self._send_json(error.status, error.to_dict(), **headers)
 
     def _check_request(self, path: str) -> None:
@@ -115,7 +119,12 @@ class Handler(BaseHTTPRequestHandler):
             )
 
     def _body(self) -> object:
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if length < 0:
+            raise RequestError(400, "bad_length", "Invalid Content-Length.")
         if length > MAX_BODY_BYTES:
             raise RequestError(413, "too_large", "The request body is too large.")
         raw = self.rfile.read(length) if length else b""

@@ -63,15 +63,20 @@ class Operation:
         doc = inspect.getdoc(self.params) or ""
         return " ".join(doc.split("\n\n")[0].split()).replace("``", "`")
 
-    def fields(self) -> tuple[ParamField, ...]:
-        """The fields a request may set."""
-        return tuple(f for f in param_fields(self.params) if not f.spec.local_only)
+    def fields(self, *, read_only: bool = False) -> tuple[ParamField, ...]:
+        """The fields a request may set; ``read_only`` leaves out those that
+        make the operation save files."""
+        return tuple(
+            f
+            for f in param_fields(self.params)
+            if not f.spec.local_only and not (read_only and f.spec.writes)
+        )
 
-    def schema(self) -> dict[str, Any]:
+    def schema(self, *, read_only: bool = False) -> dict[str, Any]:
         """The JSON Schema of a request's parameters."""
         schema = json_schema(self.params)
         schema.pop("$schema", None)
-        allowed = {f.name for f in self.fields()}
+        allowed = {f.name for f in self.fields(read_only=read_only)}
         schema["properties"] = {
             k: v for k, v in schema["properties"].items() if k in allowed
         }
@@ -127,12 +132,18 @@ def find_tool(tool_name: str) -> Operation | None:
     return next((o for o in operations().values() if o.tool_name == tool_name), None)
 
 
-def params_from_json(op: Operation, data: object) -> Params:
+def params_from_json(op: Operation, data: object, *, read_only: bool = False) -> Params:
     """Build ``op``'s Params from a JSON object, checking names and types as
-    the JSON Schema says. Raises ``RequestError`` (400) for a bad request."""
+    the JSON Schema says. Raises ``RequestError`` for a bad request (400) or,
+    when ``read_only``, one that would save files (403)."""
     if not isinstance(data, Mapping):
         raise RequestError(400, "usage", "The parameters must be a JSON object.")
     fields = {f.name: f for f in param_fields(op.params)}
+    missing = [f.name for f in op.fields() if f.required and f.name not in data]
+    if missing:
+        raise RequestError(
+            400, "usage", f"Missing required parameter(s): {', '.join(missing)}."
+        )
     values: dict[str, Any] = {}
     for key, value in data.items():
         item = fields.get(key)
@@ -148,6 +159,13 @@ def params_from_json(op: Operation, data: object) -> Params:
                 f"{key!r} can't be set by a server request; set it in config.toml "
                 "or on the command line.",
             )
+        if read_only and item.spec.writes and value is not None:
+            raise RequestError(
+                403,
+                "read_only",
+                f"{key!r} saves files, which this read-only server doesn't do "
+                "(serve --mcp --allow-jobs allows it).",
+            )
         values[key] = _coerce(item, value)
     try:
         return op.params(**values)
@@ -157,6 +175,8 @@ def params_from_json(op: Operation, data: object) -> Params:
 
 def _coerce(item: ParamField, value: object) -> object:
     if value is None:
+        if type(None) not in typing.get_args(item.type):
+            raise _type_error(item, "set (it can't be null)")
         return None
     base = item.base_type
     if typing.get_origin(base) is tuple:
