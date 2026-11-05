@@ -1,5 +1,6 @@
 """scripts/build_yfull_tree.py turns a YTree release into a Yleaf tree pack (#359)."""
 
+import gzip
 import hashlib
 import json
 import shutil
@@ -7,6 +8,7 @@ import subprocess
 import sys
 import tarfile
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -147,6 +149,24 @@ def test_pack_holds_tree_and_build_marker_tables_reproducibly(tmp_path: Path) ->
         "no_ybrowse_site": 1,
     }
     assert info["builds"]["hg19"]["reference_mismatch"] == 1
+    assert (
+        info["references"]["hg38"]["md5"]
+        == hashlib.md5(
+            "".join(
+                {10: "A", 30: "C", 50: "G"}.get(i, "N") for i in range(1, SIZE + 1)
+            ).encode()
+        ).hexdigest()
+    )
+    # The YBrowse snapshot is released verbatim so the pack can be rebuilt.
+    snapshot = tmp_path / "a/ybrowse-snps_hg38-2026-11-05.csv.gz"
+    assert (
+        gzip.decompress(snapshot.read_bytes())
+        == (tmp_path / "snps_hg38.csv").read_bytes()
+    )
+    assert info["positions"]["archive"]["sha256"] == (
+        hashlib.sha256(snapshot.read_bytes()).hexdigest()
+    )
+    assert b"CC-BY-SA Thomas Krahn YSEQ" in files["NOTICE-YBrowse.md"]
 
     first = (tmp_path / "a/yfull-1.0.0.tar.gz").read_bytes()
     _build(args, tmp_path / "b")
@@ -161,17 +181,55 @@ def test_pack_holds_tree_and_build_marker_tables_reproducibly(tmp_path: Path) ->
         "yfull-1.0.0.tar.gz",
         "build_info.json",
         "LICENSE-YTree.md",
+        "NOTICE-YBrowse.md",
+        "ybrowse-snps_hg38-2026-11-05.csv.gz",
     ]
 
 
+def _untracked_tree(tmp_path: Path) -> None:
+    ytree = tmp_path / "YTree"
+    subprocess.run(["git", "-C", ytree, "rm", "-q", "--cached", "ytree/tree_1.0.0.zip"])
+    subprocess.run(
+        ["git", "-C", ytree, "-c", "user.name=t", "-c", "user.email=t@t",
+         "commit", "-q", "-m", "drop"],
+        check=True,
+    )  # fmt: skip
+
+
 @pytest.mark.skipif(not shutil.which("samtools"), reason="samtools required")
-def test_tree_missing_a_yleaf_backbone_group_is_rejected(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("breakage", "message"),
+    [
+        # A tree without one of Yleaf's QC1 backbone groups.
+        (
+            lambda t: (t / "major_tables/Intermediates.txt").write_text("R\nQ\n"),
+            "['Q']",
+        ),
+        # PR #451 review: an empty --major-tables used to pass the check.
+        (lambda t: (t / "major_tables/Intermediates.txt").unlink(), "missing or empty"),
+        # PR #451 review: an uncommitted tree has no provenance to record.
+        (_untracked_tree, "is not committed"),
+    ],
+)
+def test_unverifiable_inputs_are_rejected(
+    tmp_path: Path, breakage: Callable[[Path], object], message: str
+) -> None:
     args = _inputs(tmp_path)
-    (tmp_path / "major_tables/Intermediates.txt").write_text("R\nQ\n")
+    breakage(tmp_path)
     result = subprocess.run(
         [sys.executable, ROOT / "scripts/build_yfull_tree.py", *args,
          "--output", tmp_path / "out"],
         capture_output=True, text=True,
     )  # fmt: skip
-    assert result.returncode != 0 and "['Q']" in result.stderr
+    assert result.returncode != 0 and message in result.stderr
     assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.skipif(not shutil.which("samtools"), reason="samtools required")
+def test_tree_is_read_as_committed_not_from_the_working_copy(tmp_path: Path) -> None:
+    # PR #451 review: an edited working-copy ZIP must not ship under the commit's URL.
+    args = _inputs(tmp_path)
+    committed = _build(args, tmp_path / "a")["tree.json"]
+    with zipfile.ZipFile(tmp_path / "YTree/ytree/tree_1.0.0.zip", "w") as archive:
+        archive.writestr("tree_1.0.0.json", json.dumps({"id": "", "children": []}))
+    assert _build(args, tmp_path / "b")["tree.json"] == committed

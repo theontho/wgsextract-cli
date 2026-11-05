@@ -27,6 +27,8 @@ from .data import ensure_data, extract_archive, verified
 from .markers import position_file
 from .predict import TREE_FILES
 
+BUILDS = ("hg19", "hg38", "t2t")
+
 MANIFEST: dict[str, Any] = json.loads(
     Path(__file__).with_name("trees.json").read_text(encoding="utf-8")
 )
@@ -135,6 +137,8 @@ def ensure_pack(tree_id: str, library: Path | None = None) -> Path:
 def ensure_tree(tree_id: str, build: str, library: Path | None = None) -> YleafTree:
     """The tree and the ``build`` marker tables it needs, downloaded if missing."""
     meta = tree_metadata(tree_id)
+    if build not in BUILDS:
+        raise WGSExtractError(f"Unsupported Yleaf build: {build}")
     pack = "url" in meta
     # A pack has its own marker tables; Yleaf's archive supplies QC1's tables.
     data = ensure_data(None if pack else build, library)

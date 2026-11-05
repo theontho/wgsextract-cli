@@ -315,7 +315,9 @@ Data attribution/copyright: **CC-BY-SA Thomas Krahn YSEQ (2022).**
 The exact statement and source attribution are retained in the local manifest
 and output VCF header. The upstream grant does not specify a CC-BY-SA version:
 clarify it before redistributing adapted data. These commands perform local
-processing, not a licensed-data mirror.
+processing, not a licensed-data mirror. (The YFull tree pack for
+`lineage y-haplogroup` does redistribute YBrowse-derived positions, with this
+attribution and a share-alike notice; see the Yleaf module README.)
 
 Calling never downloads or refreshes resources. It validates installed
 samtools/bcftools/bgzip/tabix, checks an indexed matching GRCh38 FASTA and rejects

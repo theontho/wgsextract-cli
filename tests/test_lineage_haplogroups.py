@@ -132,7 +132,10 @@ def test_y_haplogroup_from_vcf_uses_native_markers_only_on_chry(
     assert "Ralf et al." in output
     # Issue #359: the result names the tree release it was called against.
     yfull = MANIFEST["trees"]["yfull"]
-    assert f"tree YFull YTree {yfull['version']} ({yfull['date']}, CC-BY-4.0)" in output
+    assert (
+        f"tree YFull YTree {yfull['version']} ({yfull['date']}, {yfull['license']})"
+        in output
+    )
     assert ("https://www.yfull.com/tree/M-leaf/" in output) is tree_links
     assert (
         "https://discover.familytreedna.com/y-dna/M-leaf/tree" in output

@@ -48,7 +48,7 @@ results carry them in `details["tree"]`.
 
 | `--tree` | Tree | Version | Markers from |
 |---|---|---|---|
-| `yfull` (default) | YFull YTree, CC-BY-4.0 | see `trees.json` | tree pack built by `scripts/build_yfull_tree.py` |
+| `yfull` (default) | YFull YTree, CC-BY-4.0; YBrowse positions, CC-BY-SA | see `trees.json` | tree pack built by `scripts/build_yfull_tree.py` |
 | `yfull_v10` | YFull YTree | 10.01.0 (2022-02-25) | Yleaf v4.1.6 data |
 | `ftdna` | FamilyTreeDNA Y-DNA tree | 2026-03-26 | Yleaf v4.1.6 data |
 | `isogg` | ISOGG Y-DNA tree | 2020-07 SNP table, 2023-08 index | Yleaf v4.1.6 data |
@@ -67,6 +67,14 @@ hg19 and T2T positions are lifted with Yleaf's UCSC chains (alleles are
 complemented on reverse-strand blocks) and kept only when the lift is unique
 and the target reference base is the ancestral or derived allele. The ancient
 tables drop C>T and G>A markers, as upstream does.
+
+`build_info.json` records the exact inputs: the YTree commit and ZIP read from
+it (an uncommitted ZIP is refused), the YBrowse snapshot's SHA-256 and its
+archived copy on the release, the chains, and each reference's chrY name,
+length, MD5 and SHA-256. The YBrowse-derived positions are attributed
+"CC-BY-SA Thomas Krahn YSEQ (2022)." and shared under the same terms
+(`NOTICE-YBrowse.md` in the pack). That grant names no CC-BY-SA version; the
+version question in the top-level README's yBrowse section still applies.
 
 ### Refreshing the YFull tree
 
@@ -90,8 +98,9 @@ tables drop C>T and G>A markers, as upstream does.
 3. Benchmark the pack against the previous tree on male WGS with known
    haplogroups (for example 1000 Genomes, Poznik et al. 2016).
 4. Create a draft, non-latest release `yleaf-tree-yfull-v<version>` with the
-   tarball, `build_info.json`, `LICENSE-YTree.md` and `SHA256SUMS`, check the
-   assets, then publish it with
+   files listed in the output's `SHA256SUMS` (the tarball, `build_info.json`,
+   `LICENSE-YTree.md`, `NOTICE-YBrowse.md` and the YBrowse snapshot
+   `ybrowse-snps_hg38-<date>.csv.gz`) and `SHA256SUMS` itself, check the assets, then publish it with
    `--draft=false --latest=false`.
 5. Rerun with `--write-manifest`, which updates `trees.json`, and commit.
 

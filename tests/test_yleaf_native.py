@@ -237,6 +237,19 @@ def test_tree_pack_downloads_once_verifies_and_repairs_corruption(
         trees.ensure_pack("yfull", tmp_path)
 
 
+@pytest.mark.parametrize("tree", ["yfull", "isogg"])
+def test_unsupported_build_is_reported_before_any_download(tmp_path, monkeypatch, tree):
+    # PR #451 review: the yfull pack skipped ensure_data's build check and failed
+    # later with FileNotFoundError on the missing marker table.
+    def download(*args, **kwargs):
+        raise AssertionError("nothing should be downloaded")
+
+    monkeypatch.setattr(trees, "download_file", download)
+    monkeypatch.setattr(data, "download_file", download)
+    with pytest.raises(WGSExtractError, match="Unsupported Yleaf build: hg37"):
+        trees.ensure_tree(tree, "hg37", tmp_path)
+
+
 def test_archive_rejects_unexpected_paths(tmp_path):
     archive = tmp_path / "bad.tar.gz"
     archive.write_bytes(_archive("../escape", b"bad"))

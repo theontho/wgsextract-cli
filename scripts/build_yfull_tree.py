@@ -13,9 +13,11 @@ Usage (from the repository root):
         --output out/yfull-tree/14.06.0 [--write-manifest]
 
 --ytree is a clone of https://github.com/YFullTeam/YTree (CC BY 4.0); the
-tree is read from its committed ``ytree/tree_<version>.zip``. Marker positions
-come from a YBrowse ``snps_hg38.csv`` snapshot (http://ybrowse.org/gbrowse2/gff/),
-which changes daily, so its SHA-256 and retrieval date are recorded.
+tree is read from ``ytree/tree_<version>.zip`` as committed, never from the
+working copy. Marker positions come from a YBrowse ``snps_hg38.csv`` snapshot
+(http://ybrowse.org/gbrowse2/gff/, CC-BY-SA Thomas Krahn YSEQ), which changes
+daily, so the snapshot itself is released with the pack. build_info.json
+records every input's digest, including each reference's chrY sequence.
 
 For every YTree branch (``*`` paragroups are not branches) each SNP of the
 branch, given as aliases ``A/B/C``, becomes one marker row when its aliases name
@@ -29,9 +31,10 @@ exactly one GRCh38 chrY single-base substitution in YBrowse. Rows are
 - also written to ``new_positions_ancient.txt`` unless the mutation is C->T or
   G->A (post-mortem deamination; Yleaf v4.1.6's ancient-DNA rule).
 
-The pack is a reproducible tar.gz; it, build_info.json, LICENSE-YTree.md and
-their SHA256SUMS are the assets of the GitHub release
-``yleaf-tree-yfull-v<version>``. --write-manifest pins the pack in trees.json.
+The pack is a reproducible tar.gz. It, build_info.json, the YTree license,
+the YBrowse notice, the gzipped YBrowse snapshot and their SHA256SUMS are the
+assets of the GitHub release ``yleaf-tree-yfull-v<version>``.
+--write-manifest pins the pack in trees.json.
 """
 
 from __future__ import annotations
@@ -57,6 +60,9 @@ ROOT = Path(__file__).resolve().parents[1]
 TREES_JSON = ROOT / "src/wgsextract_cli/ydna/yleaf_native/trees.json"
 YTREE_REPO = "https://github.com/YFullTeam/YTree"
 YBROWSE_URL = "http://ybrowse.org/gbrowse2/gff/snps_hg38.csv"
+# YBrowse's grant, as in the header of its snps_hg38.vcf.gz; it names no version.
+YBROWSE_COPYRIGHT = "CC-BY-SA Thomas Krahn YSEQ (2022)."
+LICENSE = "CC-BY-4.0 tree; CC-BY-SA YBrowse positions"
 RELEASE_URL = "https://github.com/WGSExtract/wgsextract-cli/releases/download"
 ROOT_KEY = 'ROOT (Y-Chromosome "Adam")'
 BASES = frozenset("ACGT")
@@ -81,23 +87,27 @@ def git(checkout: Path, *args: str) -> str:
 
 
 def read_ytree(checkout: Path, version: str) -> tuple[dict[str, Any], dict[str, str]]:
-    """The YTree JSON of ``version`` and where it came from."""
+    """The YTree JSON of ``version`` as last committed, and where it came from."""
     member = f"ytree/tree_{version}.zip"
-    zipped = checkout / member
-    if not zipped.is_file():
-        raise SystemExit(f"{zipped} not found; is --ytree a YTree clone?")
-    commit = git(checkout, "log", "-1", "--format=%H", "--", member)
-    date = git(checkout, "log", "-1", "--format=%cs", "--", member)
-    with zipfile.ZipFile(zipped) as archive:
+    if not git(checkout, "ls-tree", "HEAD", "--", member):
+        raise SystemExit(
+            f"{member} is not committed in {checkout}; is it a YTree clone?"
+        )
+    commit = git(checkout, "log", "-1", "--format=%H", "HEAD", "--", member)
+    date = git(checkout, "log", "-1", "--format=%cs", "HEAD", "--", member)
+    data = subprocess.check_output(
+        ["git", "-C", str(checkout), "show", f"{commit}:{member}"]
+    )
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
         names = [n for n in archive.namelist() if n.endswith(".json")]
         if len(names) != 1:
-            raise SystemExit(f"{zipped} should hold one JSON tree, has {names}")
+            raise SystemExit(f"{member} should hold one JSON tree, has {names}")
         tree: dict[str, Any] = json.loads(archive.read(names[0]))
     source = {
         "repository": YTREE_REPO,
         "commit": commit,
         "file": member,
-        "sha256": sha256_file(zipped),
+        "sha256": hashlib.sha256(data).hexdigest(),
         "committed": date,
     }
     return tree, source
@@ -186,8 +196,8 @@ def lift(markers: list[Marker], chain: Path) -> tuple[list[Marker], Counter[str]
     return lifted, stats
 
 
-def chr_y(reference: Path) -> str:
-    """The reference's chrY sequence, upper-case (needs a samtools faidx index)."""
+def chr_y(reference: Path) -> tuple[str, str]:
+    """The reference's chrY name and upper-case sequence (needs a faidx index)."""
     fai = Path(f"{reference}.fai")
     contigs = {line.split("\t")[0] for line in fai.read_text().splitlines()}
     contig = next((c for c in ("chrY", "Y") if c in contigs), None)
@@ -196,7 +206,27 @@ def chr_y(reference: Path) -> str:
     text = subprocess.check_output(
         ["samtools", "faidx", str(reference), contig], text=True
     )
-    return "".join(text.splitlines()[1:]).upper()
+    return contig, "".join(text.splitlines()[1:]).upper()
+
+
+def sequence_identity(reference: Path, contig: str, sequence: str) -> dict[str, Any]:
+    """Which chrY a build was checked against; md5 is the SAM/.dict ``M5``."""
+    data = sequence.encode()
+    return {
+        "file": reference.name,
+        "contig": contig,
+        "length": len(sequence),
+        "md5": hashlib.md5(data).hexdigest(),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+
+
+def gzip_snapshot(source: Path, target: Path) -> None:
+    """A byte-reproducible gzip copy of the YBrowse snapshot."""
+    with source.open("rb") as stream, target.open("wb") as out:
+        with gzip.GzipFile(filename="", fileobj=out, mode="wb", mtime=0) as gz:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                gz.write(chunk)
 
 
 def reference_checked(
@@ -224,6 +254,12 @@ def position_rows(markers: list[Marker], *, ancient: bool) -> Iterator[str]:
 
 def check_backbone(children: dict[str, list[str]], major_tables: Path) -> list[str]:
     """Yleaf's QC1 backbone groups the new tree lacks (should be none)."""
+    intermediates = major_tables / "Intermediates.txt"
+    if (
+        not intermediates.is_file()
+        or not intermediates.read_text(encoding="utf-8").strip()
+    ):
+        raise SystemExit(f"{intermediates} is missing or empty; check --major-tables")
     nodes = set(children) | {kid for kids in children.values() for kid in kids}
     wanted = set()
     for table in major_tables.glob("*.txt"):
@@ -295,8 +331,11 @@ def main() -> None:
         by_build[build], build_stats[build] = lift(hg38, chain)
     build_stats["hg38"] = Counter()
     references = {"hg38": args.ref_hg38, "hg19": args.ref_hg19, "t2t": args.ref_t2t}
+    identities: dict[str, dict[str, Any]] = {}
     for build, reference in references.items():
-        by_build[build], checked = reference_checked(by_build[build], chr_y(reference))
+        contig, sequence = chr_y(reference)
+        identities[build] = sequence_identity(reference, contig, sequence)
+        by_build[build], checked = reference_checked(by_build[build], sequence)
         build_stats[build] = dict(Counter(build_stats[build]) + checked)
         build_stats[build]["markers"] = len(by_build[build])
         print(f"{build}: {build_stats[build]}")
@@ -318,6 +357,20 @@ def main() -> None:
         .date()
         .isoformat()
     )
+    tag = f"yleaf-tree-yfull-v{args.version}"
+    name = f"yfull-{args.version}.tar.gz"
+    snapshot = f"ybrowse-snps_hg38-{ybrowse_date}.csv.gz"
+    args.output.mkdir(parents=True, exist_ok=True)
+    gzip_snapshot(args.ybrowse, args.output / snapshot)
+    files["NOTICE-YBrowse.md"] = (
+        "# YBrowse attribution\n\n"
+        "The marker positions and alleles in `hg19/`, `hg38/` and `t2t/` are adapted\n"
+        f"from YBrowse's `snps_hg38.csv` (<{YBROWSE_URL}>), retrieved {ybrowse_date}\n"
+        f"and released unchanged as `{snapshot}`. YBrowse data: {YBROWSE_COPYRIGHT}\n"
+        "They are shared under the same CC-BY-SA terms. The changes: SNP names were\n"
+        "matched to YFull YTree branches, lifted to GRCh37 and T2T-CHM13, and\n"
+        "filtered as described in build_info.json and scripts/build_yfull_tree.py.\n"
+    ).encode()
     build_info = {
         "tree": {"version": args.version, **source, "branches": len(children) - 1},
         "positions": {
@@ -325,8 +378,14 @@ def main() -> None:
             "url": YBROWSE_URL,
             "retrieved": ybrowse_date,
             "sha256": sha256_file(args.ybrowse),
+            "copyright": YBROWSE_COPYRIGHT,
+            "archive": {
+                "url": f"{RELEASE_URL}/{tag}/{snapshot}",
+                "sha256": sha256_file(args.output / snapshot),
+            },
             "snp_groups": dict(stats),
         },
+        "references": identities,
         "liftover": {
             build: {"chain": chain.name, "sha256": sha256_file(chain)}
             for build, chain in (("hg19", args.chain_hg19), ("t2t", args.chain_t2t))
@@ -336,14 +395,12 @@ def main() -> None:
     }
     files["build_info.json"] = (json.dumps(build_info, indent=2) + "\n").encode()
 
-    args.output.mkdir(parents=True, exist_ok=True)
-    tag = f"yleaf-tree-yfull-v{args.version}"
-    name = f"yfull-{args.version}.tar.gz"
     archive = args.output / name
     listing = write_pack(files, archive)
-    released = [name, "build_info.json", "LICENSE-YTree.md"]
+    released = [name, "build_info.json", "LICENSE-YTree.md", "NOTICE-YBrowse.md"]
     for extra in released[1:]:
         (args.output / extra).write_bytes(files[extra])
+    released.append(snapshot)
     (args.output / "SHA256SUMS").write_text(
         "".join(f"{sha256_file(args.output / n)}  {n}\n" for n in released),
         encoding="utf-8",
@@ -353,9 +410,11 @@ def main() -> None:
         "name": "YFull YTree",
         "version": args.version,
         "date": source["committed"],
-        "license": "CC-BY-4.0",
+        "license": LICENSE,
         "source": f"{YTREE_REPO}/blob/{source['commit']}/{source['file']}",
-        "positions": f"YBrowse snps_hg38.csv retrieved {ybrowse_date}",
+        "positions": (
+            f"YBrowse snps_hg38.csv retrieved {ybrowse_date}, {YBROWSE_COPYRIGHT}"
+        ),
         "url": f"{RELEASE_URL}/{tag}/{name}",
         "sha256": sha256_file(archive),
         "size": archive.stat().st_size,
