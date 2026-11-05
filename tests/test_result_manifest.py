@@ -69,8 +69,11 @@ def test_fingerprint_is_cheap_copy_stable_and_content_sensitive(tmp_path):
     assert results.fingerprint(large) == results.fingerprint(copy)
     assert results.fingerprint(small) != results.fingerprint(large)
     with copy.open("r+b") as handle:  # a change in a sampled block is seen
+        # Flip the first byte: writing a fixed one left a random byte that
+        # already had that value unchanged (#437).
+        first = handle.read(1)[0]
         handle.seek(0)
-        handle.write(b"X")
+        handle.write(bytes([first ^ 0xFF]))
     assert results.fingerprint(large) != results.fingerprint(copy)
     assert results.fingerprint(tmp_path / "missing") is None
     assert VALIDATOR.evolve(schema=SCHEMA["$defs"]["fingerprint"]).is_valid(
