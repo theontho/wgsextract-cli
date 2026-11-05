@@ -35,6 +35,13 @@ from wgsextract_cli.core.reference_processing import (
     download_and_process_genome,
     download_gnomad,
 )
+from wgsextract_cli.core.results import (
+    MANIFEST_SUFFIX,
+    current_result,
+    file_snapshot,
+    manifest_path_for,
+    record_changed_files,
+)
 from wgsextract_cli.core.utils import WGSExtractError
 
 from .core_commands import (
@@ -57,6 +64,7 @@ _MENU_DOWNLOADS: dict[str, tuple[str, Callable[[str], bool]]] = {
 
 def cmd_aadr(args: argparse.Namespace) -> None:
     installed = install_aadr_2m(resolve_reference_library(args.ref))
+    current_result().add_output(installed, "reference_resource")
     logging.info("Installed CC0 AADR v66.p1 2M SNP metadata: %s", installed)
 
 
@@ -66,7 +74,28 @@ def cmd_ybrowse(args: argparse.Namespace) -> None:
     verify_dependencies(["bgzip", "tabix"])
     library = Path(resolve_reference_library(args.ref))
     installed = install_snapshot(library, args.snapshot)
+    _record_installed(installed)
     logging.info("Installed sites-only GRCh38 yBrowse resource: %s", installed)
+
+
+def _record_installed(path: Path) -> None:
+    """Record an installed file, or every file of an installed directory."""
+    if not path.is_dir():
+        current_result().add_output(path, "reference_resource")
+        return
+    record_changed_files(path, {}, "reference_resource")
+    current_result().set_manifest_stem(path)
+
+
+def _record_genome(final_path: str, before: dict[str, tuple[int, int]]) -> None:
+    """The installed FASTA and the indexes and sidecars written beside it."""
+    record_changed_files(Path(final_path).parent, before, "reference_sidecar")
+    result = current_result()
+    result.add_output(final_path, "reference")
+    result.set_reference(final_path)
+    result.set_manifest_stem(
+        str(manifest_path_for(final_path)).removesuffix(MANIFEST_SUFFIX)
+    )
 
 
 def cmd_library(args: argparse.Namespace) -> None:
@@ -167,7 +196,9 @@ def _install_from_mirrors(
                 f"Trying the next mirror: {genome.get('description', genome['url'])}"
             )
         Path(reflib_dir).mkdir(parents=True, exist_ok=True)
+        before = file_snapshot(Path(reflib_dir, "genomes"))
         if download_and_process_genome(genome, reflib_dir, restart=i > 0):
+            _record_genome(str(Path(reflib_dir, "genomes", genome["final"])), before)
             return
     tried = f" from any of its {len(mirrors)} mirrors" if len(mirrors) > 1 else ""
     raise WGSExtractError(f"Failed to install genome {mirrors[0]['final']}{tried}.")
@@ -177,8 +208,10 @@ def _install_genome(
     genome: Mapping[str, str], reflib_dir: str, restart: bool = False
 ) -> None:
     Path(reflib_dir).mkdir(parents=True, exist_ok=True)
+    before = file_snapshot(Path(reflib_dir, "genomes"))
     if not download_and_process_genome(genome, reflib_dir, restart=restart):
         raise WGSExtractError(f"Failed to install genome {genome['final']}.")
+    _record_genome(str(Path(reflib_dir, "genomes", genome["final"])), before)
 
 
 def cmd_gene_map(args: argparse.Namespace) -> None:
@@ -190,8 +223,10 @@ def cmd_gene_map(args: argparse.Namespace) -> None:
 
 
 def _download_gene_maps(reflib: str) -> None:
+    before = file_snapshot(reflib)
     if not download_gene_maps(reflib):
         raise WGSExtractError(LOG_MESSAGES["dl_genemap_failed"])
+    record_changed_files(reflib, before, "reference_resource")
     print(LOG_MESSAGES["dl_genemap_success"])
 
 
@@ -210,8 +245,10 @@ def _run_downloader(
     if not Path(reflib).is_dir():
         logging.info("Creating a new reference library at %s.", reflib)
     logging.info("Starting %s %s...", resource_name, action)
+    before = file_snapshot(reflib)
     if not downloader(reflib):
         raise WGSExtractError(f"{resource_name} setup failed.")
+    record_changed_files(reflib, before, "reference_resource")
     logging.info("%s setup complete.", resource_name)
 
 
@@ -294,8 +331,11 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
     reflib = resolve_reference_library(args.ref)
 
     logging.info("Starting reference library bootstrap...")
+    before = file_snapshot(reflib)
     if not download_bootstrap(reflib):
         raise WGSExtractError("Reference library bootstrap failed.")
+    record_changed_files(reflib, before, "reference_resource")
+    current_result().set_manifest_stem(Path(reflib, "bootstrap"))
     if should_save_reflib:
         save_config({"reference_library": reflib})
         logging.info(f"Saved reference library path to config.toml: {reflib}")

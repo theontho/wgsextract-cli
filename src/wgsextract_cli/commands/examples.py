@@ -12,7 +12,10 @@ from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.download_progress import curl_progress_args, redact_urls
 from wgsextract_cli.core.genome_library import GENOME_CONFIG_NAME
 from wgsextract_cli.core.ref_library.downloads import download_file
+from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.utils import (
+    MissingDependencyError,
+    UsageError,
     WGSExtractError,
     run_command,
 )
@@ -36,18 +39,18 @@ from ._examples_catalog import (
 def _resolve_method(method: str, aspera_key: str | None = None) -> str:
     if method in {"auto", "https"}:
         if shutil.which("curl") is None:
-            raise WGSExtractError(
+            raise MissingDependencyError(
                 "HTTPS downloads require 'curl' to be installed. Install curl "
                 "or use --method aspera."
             )
         return "https"
     if method == "aspera":
         if shutil.which("ascp") is None:
-            raise WGSExtractError(
+            raise MissingDependencyError(
                 "Aspera requested but 'ascp' is not installed. Use --method https."
             )
         if not _resolve_aspera_key(aspera_key):
-            raise WGSExtractError(
+            raise UsageError(
                 "Aspera requested but no private key was found. Pass --aspera-key "
                 "or use --method https."
             )
@@ -201,7 +204,7 @@ def cmd_download(args: Namespace) -> None:
             continue
 
         example_dir.mkdir(parents=True, exist_ok=True)
-        for source, destination, _role, transfer_method in planned:
+        for source, destination, role, transfer_method in planned:
             if args.force:
                 destination.unlink(missing_ok=True)
                 _partial_path(destination).unlink(missing_ok=True)
@@ -213,11 +216,14 @@ def cmd_download(args: Namespace) -> None:
                 )
             elif destination.exists():
                 logging.info(f"Skipping existing {destination}")
+                current_result().add_output(destination, role)
                 continue
             _download_file(
                 source, destination, transfer_method, aspera_key, force=args.force
             )
+            current_result().add_output(destination, role)
         _write_genome_config(example, example_dir)
+        current_result().add_output(example_dir / GENOME_CONFIG_NAME, "genome_config")
         library = settings.get("genome_library")
         hint = (
             ""

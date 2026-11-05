@@ -153,10 +153,13 @@ def test_sorting_cram_writes_cram_with_temp_files_in_outdir(tmp_path, monkeypatc
     monkeypatch.setattr(
         bam, "run_pipeline", lambda stages, **_k: pipelines.append(stages)
     )
+    commands = []
+    monkeypatch.setattr(bam, "run_command", lambda cmd, **_k: commands.append(cmd))
 
     bam.cmd_sort(_bam_args(source, outdir=str(outdir)))
 
     (view_cmd, sort_cmd) = pipelines[0]
+    assert commands[-1][-1] == str(outdir / "HG002.chr20_sorted.cram")  # indexed
     assert sort_cmd[sort_cmd.index("-o") + 1] == str(outdir / "HG002.chr20_sorted.cram")
     assert sort_cmd[sort_cmd.index("-O") + 1] == "CRAM"
     assert sort_cmd[sort_cmd.index("-T") + 1].startswith(str(outdir))

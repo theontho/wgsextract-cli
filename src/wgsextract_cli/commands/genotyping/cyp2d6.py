@@ -26,6 +26,7 @@ from pathlib import Path
 
 from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.paths import absolute_path
+from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.utils import WGSExtractError, run_command, run_pipeline
 
 from .common import Alignment, env_tool, open_alignment, write_bed, write_outside_calls
@@ -225,24 +226,42 @@ def cmd_cyp2d6(args: argparse.Namespace) -> None:
 
     call = parse_cyrius(str(Path(aln.outdir, f"{prefix}.json")))
     depth = f"{call.median_depth}x" if call.median_depth is not None else "unknown"
+    result = current_result()
+    result.set_reference(aln.reference)
+    result.add_output(Path(aln.outdir, prefix + ".tsv"), "cyp2d6_calls")
+    result.add_output(Path(aln.outdir, prefix + ".json"), "cyrius_report")
+    result.add_metrics(
+        cyp2d6_genotype=call.genotype,
+        cyp2d6_filter=call.filter,
+        cyp2d6_copy_number=call.total_cn,
+        median_depth=call.median_depth,
+    )
     logging.info(
         f"CYP2D6: {call.genotype or 'no call'} (filter {call.filter}, "
         f"{call.total_cn if call.total_cn is not None else '?'} copies; raw "
         f"{call.total_cn_raw}; median depth {depth})"
     )
     if call.genotype and not call.outside_call:
-        logging.warning(
+        warn(
+            "genotype_ambiguous",
             f"Cyrius couldn't settle on one genotype ({call.filter}); no PharmCAT "
-            "outside call was written."
+            "outside call was written.",
+            gene="CYP2D6",
+            filter=call.filter,
         )
     elif call.filter == "LowQ_high_CN":
-        logging.warning(
-            "The call has 4 or more copies of CYP2D6; it's lower confidence."
+        warn(
+            "high_copy_number",
+            "The call has 4 or more copies of CYP2D6; it's lower confidence.",
+            gene="CYP2D6",
+            copies=call.total_cn,
         )
     elif not call.genotype:
-        logging.warning(
+        warn(
+            "no_call",
             "Cyrius made no call. It needs about 30x whole-genome data; check the "
-            f"median depth ({depth}) and that the input is WGS, not exome."
+            f"median depth ({depth}) and that the input is WGS, not exome.",
+            gene="CYP2D6",
         )
     write_outside_calls(
         str(Path(aln.outdir, f"{aln.stem}.cyp2d6.pharmcat.tsv")),

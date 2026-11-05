@@ -67,8 +67,8 @@ size goes unnoticed. Use `wgsextract sign` for full-file digests.
 
 | Code | Raised by | Meaning |
 | --- | --- | --- |
-| `low_coverage` | `info --detailed`, variant calling, lineage, `microarray` | Depth is below a threshold (`depth`, `threshold`). |
-| `sex_unknown` | `info --detailed` | The sex could not be inferred from X/Y coverage. |
+| `low_coverage` | `info --detailed`, variant calling, lineage, `microarray`, `methylation` | Depth is below a threshold (`depth`, `threshold`). |
+| `sex_unknown` | `info --detailed`, `typing repeats` | The sex could not be inferred from X/Y coverage. |
 | `long_reads` | `info --detailed` | Long-read data; the short-read tools give poor results. |
 | `alt_unaware`, `duplicates_unmarked` | `info`, `vcf snp`/`indel`, `microarray` | The alignment has ALT contigs without ALT-aware mapping, or its duplicates are not marked. |
 | `high_homozygosity`, `low_homozygosity`, `high_no_call_rate` | `microarray` | Genotype statistics outside the expected range. |
@@ -83,7 +83,16 @@ size goes unnoticed. Use `wgsextract sign` for full-file digests.
 | `gvcf_reference_missing`, `unconfident_parent_genotypes` | `vcf trio` | A gVCF trio has no `--ref`, so reference blocks count only where they start at a variant; de novo calls rest on a parent's low-quality reference call (`count`, `total`). |
 | `no_indel_scores` | `vcf cadd` | The CADD indel file is missing, so indels are not scored. |
 | `contigs_skipped` | `vcf to-fasta` | VCF contigs absent from the reference were left out (`count`). |
-| `annotation_skipped` | `vcf chain-annotate` | One annotation in the chain was skipped (`annotation`, `reason`). |
+| `annotation_skipped`, `annotation_failed` | `vcf chain-annotate`, `analyze` | One annotation was skipped (`annotation`, `reason`) or failed. |
+| `read_groups_mixed`, `read_group_conflict` | `bam unalign`, `bam merge` | Read groups differ in a way that loses or merges information. |
+| `few_modification_tags`, `opposite_strand_modifications`, `pacbio_5hmc_limited`, `unknown_platform` | `methylation` | The input's MM/ML modification tags are sparse, strand-mixed, or from a platform with limited calls. |
+| `genotype_ambiguous`, `high_copy_number`, `no_call` | `typing` | A star-allele or HLA call is ambiguous, has extra copies, or failed (`gene`). |
+| `repeat_outside_normal_range` | `typing repeats` | A repeat length is outside its normal range (`locus`). |
+| `output_exists`, `input_failed` | `vep` | An input was skipped because its output exists (`path`), or failed while the batch went on. |
+| `vep_info_missing`, `chromosomes_missing` | `vep verify` | The VEP cache lacks its `info.txt` or chromosome directories (`chromosomes`). |
+| `dict_missing` | `ref verify` | The reference has no sequence dictionary. |
+| `step_failed` | `benchmark` | A benchmark step failed (`step`, `log`). |
+| `unsigned` | `sign verify` | The checksum manifest has no signature; only hashes were checked. |
 | `ystr_unverified_convention` | `lineage y-str` | Markers use a repeat-count convention the panel has not verified. |
 
 New codes may be added in any release. Consumers should treat unknown codes
@@ -109,7 +118,13 @@ How refusals are classified:
   `bwa-mem2`, PacBio CLR/subreads or a minimap2 preset Parabricks lacks, pbmm2
   with a temporary directory), `vcf deepvariant --gpu` with `--checkpoint` or
   a model Parabricks lacks, conflicting DeepVariant model selectors, a Clair3
-  `--model` for another platform, a malformed `vcf sv --region`, and options
+  `--model` for another platform, a malformed `vcf sv --region`, `bam merge`
+  with fewer than two distinct inputs or an `--output` extension that
+  contradicts `--cram`, `bam to-ubam` without exactly one of `--input` and
+  `--r1`, `methylation --combine-strands` with a non-CpG context, `sign verify
+  --allowed-signers` without `--identity`, a non-positive `benchmark
+  --coverage` or `--target-count`, `qc fake-data --legacy-bam --full-size`,
+  `example-genome download --method aspera` without a key, and options
   this platform cannot honour while the command itself can run: `--gpu` off
   Linux x86-64, and `--aligner pbmm2` on Windows. Choosing different options
   fixes the run.
@@ -121,7 +136,8 @@ How refusals are classified:
 - **A required tool is missing → 3.** This includes `deps check` when a
   mandatory tool is missing, `deps check --tool NAME` when `NAME` is not
   found, and a missing container setup (Docker or its daemon, an image, or for
-  `--gpu` the NVIDIA driver or container runtime). Missing optional tools are reported but keep exit 0.
+  `--gpu` the NVIDIA driver or container runtime, or `curl`/`ascp` for
+  `example-genome download`). Missing optional tools are reported but keep exit 0.
 
 ## Versioning
 
@@ -144,7 +160,9 @@ These commands record full manifests: `info` (including `--detailed`),
 `info chip`, `info calculate-coverage`, `info coverage-sample`, `ref status`,
 `align`, `realign`, every `vcf` subcommand, every `extract` subcommand,
 `lineage mt-haplogroup`, `lineage y-haplogroup`, `lineage y-str`,
-`methylation pileup` and `microarray`.
+`microarray`, every `bam`, `qc`, `ref`, `vep` and `typing` subcommand,
+`analyze`, `pet`, `methylation`, `repair`, `benchmark`, `example-genome
+download` and `sign`.
 
 `align` and `realign` record the `aligner` and the alignment's `records`; for a
 BAM also `mapped_records` and `unmapped_records` (from the index, without
@@ -152,9 +170,37 @@ decoding reads). CRAM counts come from container headers, which also count
 unmapped reads placed beside their mates, so a CRAM reports `records` only.
 Variant callers and annotators record `variants` per output VCF; filtered
 outputs (`--min-score`, `--max-af`) are separate outputs with their own counts.
-Every other command honours `--json` and the exit codes, and reports its
-status, inputs and provenance. Its outputs, metrics and warnings
-will be added in later releases ([#345](https://github.com/theontho/wgsextract-cli/issues/345)).
+
+Other commands' metrics:
+
+- `bam` subcommands that write a BAM/CRAM record its `records` as `align` does
+  (an unsorted or unaligned BAM has no index to count from, so it has none);
+  `bam merge` adds `merged_inputs`, `bam unalign` its `read_groups`.
+- `qc fastp` records read counts before and after filtering, the Q30 rate and
+  duplication rate; `qc fastqc` the module pass/warn/fail counts and total
+  sequences; `qc vcf` the `bcftools stats` totals (records, SNPs, indels,
+  ts/tv).
+- `analyze` reads each step's result document (the steps still print their
+  tables and results) and includes the step's manifest (role
+  `step_manifest`), its outputs with their metrics and its warnings with their
+  details (tagged with `step`), even for steps that write no manifest such as
+  `info --detailed`; plus `sex` and `significant_variants`.
+- `methylation` records sites, median coverage and weighted percent modified
+  per modification (and, with `--format parquet`, the `rows` of the
+  `bedmethyl_table`); `typing` the called genotypes (`cyp2d6_genotype`, one
+  diplotype per HLA gene, flagged repeats); `repair` the records read and
+  repaired.
+- `vep` records `inputs`, `succeeded`, `skipped` and `failed`, and `variants`
+  per annotated VCF; a directory of inputs writes `vep.manifest.json`.
+- Reference installers (`ref library --install`, `ref bootstrap`, the
+  annotation downloads, `ref gene-map`) record every file they add or change in
+  the library; `ref index` its new index files; `ref count-ns` the N totals.
+- `benchmark` records its report files and step counts in
+  `benchmark.manifest.json` in the run directory.
+
+`repair` in pipe mode (no `--input`) streams to stdout, so `--json` is a usage
+error there. Commands that only print (`deps`, `info` listings, `ref library
+--list`, `config`) record no outputs.
 
 ## MultiQC
 

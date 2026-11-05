@@ -414,6 +414,9 @@ def add_shared_arguments(
         metavar="FILE",
         help="Read and save settings in this config.toml instead of the per-user one.",
     )
+    # Internal: write the result document to PATH without --json's silencing
+    # of human output (analyze reads its steps' results this way).
+    add("--result-file", dest="_result_file", metavar="PATH", help=argparse.SUPPRESS)
     add(
         "--parent-pid",
         type=int,

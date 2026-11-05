@@ -7,6 +7,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from wgsextract_cli.core.results import current_result
+
 from .machine import (
     MACHINE_STAT_FIELDS,
     _machine_stat_display_value,
@@ -217,3 +219,29 @@ def _write_report(
 
     _write_github_step_summary(metadata, results, report_md)
     print(stdout_report)
+    _record_report(run_dir, report_md, report_json, results)
+
+
+def _record_report(
+    run_dir: Path, report_md: Path, report_json: Path, results: list[BenchmarkResult]
+) -> None:
+    result = current_result()
+    result.set_manifest_stem(run_dir / "benchmark")
+    result.add_output(report_md, "benchmark_report")
+    result.add_output(report_json, "benchmark_results")
+    statuses = [step.status for step in results]
+    result.add_metrics(
+        steps=len(results),
+        passed=statuses.count("PASS"),
+        failed=statuses.count("FAIL"),
+        skipped=statuses.count("SKIP"),
+        seconds=round(sum(step.seconds for step in results), 2),
+    )
+    for step in results:
+        if step.status == "FAIL":
+            result.warn(
+                "step_failed",
+                f"Benchmark step failed: {step.name}",
+                step=step.slug,
+                log=step.stderr_log,
+            )

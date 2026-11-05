@@ -455,13 +455,18 @@ def test_subcommand_forwards_ref_threads_debug_force_and_config(
     flag: str | None,
 ) -> None:
     seen: list[list[str]] = []
-    monkeypatch.setattr(wf, "run_command", lambda cmd: seen.append(cmd))
+    monkeypatch.setattr(
+        wf,
+        "run_command",
+        lambda cmd, **_: seen.append(cmd),
+    )
     own = tmp_path / "own.toml"
     monkeypatch.setattr(config, "_config_path_override", own)
     monkeypatch.setitem(config.settings, "keep_awake", configured)
     args = _args(ref="/refs", threads=2, debug=True, force=True, keep_awake=keep_awake)
     wf.run_cli_subcommand(["info", "--input", "x.bam"], args)
-    assert seen[0][1:] == [
+    assert seen[0][-2] == "--result-file"
+    assert seen[0][1:-2] == [
         "-m",
         "wgsextract_cli.main",
         "--config",
@@ -483,19 +488,23 @@ def test_subcommand_without_ref_uses_the_configured_library(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     seen: list[list[str]] = []
-    monkeypatch.setattr(wf, "run_command", lambda cmd: seen.append(cmd))
+    monkeypatch.setattr(
+        wf,
+        "run_command",
+        lambda cmd, **_: seen.append(cmd),
+    )
     settings["reference_library"] = str(tmp_path)
     wf.run_cli_subcommand(["vcf", "snp"], _args(input="calls.vcf.gz"))
     del settings["reference_library"]
     wf.run_cli_subcommand(["vcf", "snp"], _args(input="calls.vcf.gz"))
-    assert seen[0][-2:] == ["--ref", str(tmp_path)]
+    assert seen[0][-4:-2] == ["--ref", str(tmp_path)]
     assert "--ref" not in seen[1]
 
 
 def test_subcommand_failure_raises_with_the_command_line(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def boom(cmd: list[str]) -> None:
+    def boom(cmd: list[str], **_: object) -> None:
         raise OSError("exec failed")
 
     monkeypatch.setattr(wf, "run_command", boom)

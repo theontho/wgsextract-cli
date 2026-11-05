@@ -17,6 +17,7 @@ from pathlib import Path
 
 from wgsextract_cli.commands.info.metrics import sample_sex
 from wgsextract_cli.core.pixi_tools import pixi_env_prefix
+from wgsextract_cli.core.results import current_result, warn
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 from .common import Alignment, env_tool, open_alignment
@@ -174,9 +175,10 @@ def _sex(aln: Alignment, sex: str | None) -> str:
     if inferred in ("male", "female"):
         logging.info(f"Sample sex: {inferred} (from chrX/chrY coverage)")
         return inferred
-    logging.warning(
+    warn(
+        "sex_unknown",
         "Couldn't infer the sample's sex; treating it as female (two X "
-        "alleles). Pass --sex if that's wrong."
+        "alleles). Pass --sex if that's wrong.",
     )
     return "female"
 
@@ -265,8 +267,17 @@ def cmd_str(args: argparse.Namespace) -> None:
         f"{classified - len(flagged)} of {classified} disease repeats are in the "
         "normal range."
     )
-    for _locus, line in flagged:
+    result = current_result()
+    result.set_reference(reference)
+    result.add_output(summary, "repeat_summary")
+    result.add_output(f"{prefix}.vcf", "repeat_calls")
+    result.add_output(f"{prefix}.json", "expansionhunter_report")
+    result.add_metrics(
+        sex=sex, disease_repeats=classified, flagged_repeats=len(flagged)
+    )
+    for locus, line in flagged:
         logging.warning(f"  {line}")
+        result.warn("repeat_outside_normal_range", line, locus=locus)
     if flagged:
         logging.warning(
             "Short-read sizing is approximate and isn't a diagnosis; confirm "

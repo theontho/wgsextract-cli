@@ -9,11 +9,14 @@ from wgsextract_cli.core.dependency_checks import (
     verify_dependencies,
 )
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
+from wgsextract_cli.core.output_checks import record_alignment_output
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.resource_estimates import (
     estimate_resources,
     preflight_resources,
 )
+from wgsextract_cli.core.results import current_result, warn
+from wgsextract_cli.core.samtools_commands import alignment_index
 from wgsextract_cli.core.temp_directory import configured_temp_directory
 from wgsextract_cli.core.utils import (
     UsageError,
@@ -240,6 +243,7 @@ def cmd_identify(args: argparse.Namespace) -> None:
     logging.debug(f"Resolved reference: {resolved_ref}")
 
     md5_sig = calculate_bam_md5(args.input, resolved_ref)
+    current_result().add_metrics(reference_md5_signature=md5_sig)
     logging.info(
         LOG_MESSAGES["ref_md5_signature"].format(input=args.input, sig=md5_sig)
     )
@@ -273,8 +277,12 @@ def cmd_sort(args: argparse.Namespace) -> None:
     view_cmd += [region] if region else []
 
     logging.info(LOG_MESSAGES["sorting_file"].format(input=args.input, output=out_file))
-    # sambamba writes the index beside the BAM as it sorts.
-    partial = [out_file, *(out_file + ext for ext in _INDEX_SUFFIXES)]
+    # An index left by an earlier run would describe the old file: drop it, so
+    # the one used below is the one sambamba writes as it sorts, or ours.
+    indexes = _index_files(out_file)
+    for index in indexes:
+        index.unlink(missing_ok=True)
+    partial = [out_file, *map(str, indexes)]
     with (
         cleanup_files(on_failure=partial),
         tempfile.TemporaryDirectory(
@@ -285,6 +293,12 @@ def cmd_sort(args: argparse.Namespace) -> None:
             out_file, threads, memory, fmt=fmt, reference=resolved_ref, temp_dir=tempdir
         )
         run_pipeline([view_cmd, sort_cmd], description="Coordinate sort")
+        if not alignment_index(out_file):  # samtools sort, unlike sambamba
+            run_command(get_sam_index_cmd(out_file))
+    current_result().set_reference(resolved_ref)
+    current_result().add_metrics(
+        **record_alignment_output(out_file, "sorted_alignment")
+    )
 
 
 _INDEX_SUFFIXES = (".bai", ".crai", ".csi")
@@ -319,6 +333,9 @@ def cmd_index(args: argparse.Namespace) -> None:
             if path.exists() and before.get(path) != path.stat().st_mtime_ns:
                 path.unlink()
         raise WGSExtractError(f"Indexing failed: {e}") from e
+    for path in _index_files(args.input):
+        if path.is_file() and before.get(path) != path.stat().st_mtime_ns:
+            current_result().add_output(path, "alignment_index")
 
 
 def cmd_unindex(args: argparse.Namespace) -> None:
@@ -326,12 +343,15 @@ def cmd_unindex(args: argparse.Namespace) -> None:
     if not Path(args.input).is_file():
         raise WGSExtractError(f"Input is not a valid file: {args.input}")
 
+    removed = 0
     for index_path in _index_files(args.input):
         if index_path.exists():
             index_path.unlink()
+            removed += 1
             logging.info(
                 LOG_MESSAGES["delete_success"].format(filename=index_path.name)
             )
+    current_result().add_metrics(removed_indexes=removed)
 
 
 def cmd_unsort(args: argparse.Namespace) -> None:
@@ -359,6 +379,9 @@ def cmd_unsort(args: argparse.Namespace) -> None:
                     )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Failed to unsort {args.input}: {e}") from e
+    current_result().add_metrics(
+        **record_alignment_output(out_file, "unsorted_alignment")
+    )
 
 
 def cmd_tocram(args: argparse.Namespace) -> None:
@@ -404,6 +427,8 @@ def cmd_tocram(args: argparse.Namespace) -> None:
             run_command(get_sam_index_cmd(out_file))
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Conversion to CRAM failed: {e}") from e
+    current_result().set_reference(resolved_ref)
+    current_result().add_metrics(**record_alignment_output(out_file, "alignment"))
 
 
 def cmd_tobam(args: argparse.Namespace) -> None:
@@ -437,6 +462,8 @@ def cmd_tobam(args: argparse.Namespace) -> None:
             run_command(get_sam_index_cmd(out_file))
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Conversion to BAM failed: {e}") from e
+    current_result().set_reference(resolved_ref)
+    current_result().add_metrics(**record_alignment_output(out_file, "alignment"))
 
 
 def _fastq_output_path(path: str, outdir: str) -> str:
@@ -457,24 +484,35 @@ def cmd_unalign(args: argparse.Namespace) -> None:
     read_groups = _read_groups(get_bam_header(args.input) or "")
     if len(read_groups) > 1:
         # FASTQ has nowhere to keep them; aligning the FASTQs makes one group.
-        logging.warning(
+        warn(
+            "read_groups_mixed",
             f"{args.input} has {len(read_groups)} read groups "
             f"({', '.join(read_groups)}); the FASTQs mix them. Use "
-            "'wgsextract bam to-ubam' to keep each read's group."
+            "'wgsextract bam to-ubam' to keep each read's group.",
+            read_groups=len(read_groups),
         )
 
     logging.info(LOG_MESSAGES["unaligning_reads"])
+    fastqs = {
+        "fastq_r1": _fastq_output_path(args.r1, outdir),
+        "fastq_r2": _fastq_output_path(args.r2, outdir),
+    }
+    if args.se:
+        fastqs["fastq_single"] = _fastq_output_path(args.se, outdir)
     alignments_to_fastq(
         args.input,
-        _fastq_output_path(args.r1, outdir),
-        _fastq_output_path(args.r2, outdir),
+        fastqs["fastq_r1"],
+        fastqs["fastq_r2"],
         threads=threads,
         memory=memory,
         temp_parent=outdir,
         cram_opt=cram_opt,
         region=region,
-        out_other=_fastq_output_path(args.se, outdir) if args.se else None,
+        out_other=fastqs.get("fastq_single"),
     )
+    for role, path in fastqs.items():
+        current_result().add_output(path, role)
+    current_result().add_metrics(read_groups=len(read_groups))
 
 
 def _merge_output_path(args: argparse.Namespace, outdir: str) -> str:
@@ -483,7 +521,7 @@ def _merge_output_path(args: argparse.Namespace, outdir: str) -> str:
     if not name.lower().endswith((".bam", ".cram")):
         name += ext
     elif name.lower().endswith(".cram") != args.cram:
-        raise WGSExtractError(
+        raise UsageError(
             f"--output {name} does not match the output format "
             f"({'CRAM' if args.cram else 'BAM'}); add or drop --cram."
         )
@@ -520,10 +558,12 @@ def cmd_merge(args: argparse.Namespace) -> None:
     log_dependency_info(["samtools"])
     inputs: list[str] = args.inputs
     if len(inputs) < 2:
-        raise WGSExtractError("bam merge needs at least two input files.")
+        raise UsageError("bam merge needs at least two input files.")
     verify_paths_exist({f"input {i}": path for i, path in enumerate(inputs, 1)})
+    for path in inputs:
+        current_result().add_input(path)
     if len({str(Path(p).resolve()) for p in inputs}) != len(inputs):
-        raise WGSExtractError("The same file is listed more than once.")
+        raise UsageError("The same file is listed more than once.")
 
     first_header = ""
     first_dict: tuple[tuple[str, str], ...] = ()
@@ -588,9 +628,11 @@ def cmd_merge(args: argparse.Namespace) -> None:
         cmd.append("-r")
     conflicting = sorted(i for i, lines in read_groups.items() if len(lines) > 1)
     if conflicting:
-        logging.warning(
+        warn(
+            "read_group_conflict",
             f"Read group ID(s) {', '.join(conflicting)} are defined differently in "
-            "different inputs; samtools will give them distinct IDs."
+            "different inputs; samtools will give them distinct IDs.",
+            read_groups=", ".join(conflicting),
         )
     else:
         # Identical @RG lines are the same read group split across files.
@@ -604,6 +646,9 @@ def cmd_merge(args: argparse.Namespace) -> None:
         raise WGSExtractError(
             f"Merging failed: {e}" + (f"\n{stderr.strip()}" if stderr else "")
         ) from e
+    current_result().set_reference(ref)
+    counts = record_alignment_output(out_file, "merged_alignment")
+    current_result().add_metrics(merged_inputs=len(inputs), **counts)
     logging.info(f"Merged file written to {out_file}")
     logging.info(
         "If the inputs are lanes of one library, mark duplicates again on the "

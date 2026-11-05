@@ -9,7 +9,9 @@ from wgsextract_cli.core.builds import (
     is_hg37_build,
     is_t2t_build,
 )
+from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.utils import (
+    UsageError,
     WGSExtractError,
     get_resource_defaults,
     get_sam_index_cmd,
@@ -107,7 +109,7 @@ def generate_fake_genomics_data(
     rng = random.Random(seed)
 
     if legacy_bam and full_size:
-        raise WGSExtractError("--legacy-bam is only supported for scaled fake data.")
+        raise UsageError("--legacy-bam is only supported for scaled fake data.")
 
     mode = "Full size" if full_size else "Scaled"
     logging.info(
@@ -288,10 +290,13 @@ def generate_fake_genomics_data(
     ref_exists = Path(str(ref_path)).exists()
     if ref_exists:
         logging.info(f"Using reference: {ref_path}")
+        current_result().set_reference(ref_path)
     elif should_create_reference:
         logging.info(f"Creating fake reference at {ref_path}...")
         _write_fake_reference(str(ref_path), chroms, get_noise_seq)
         run_command(["samtools", "faidx", ref_path])
+        current_result().add_output(ref_path, "reference")
+        current_result().set_reference(ref_path)
     else:
         logging.info(
             "Skipping full-size fake reference creation because the requested outputs "
@@ -397,6 +402,8 @@ def generate_fake_genomics_data(
         run_command(get_sam_index_cmd(bam_path))
         if Path(sam_path).exists():
             Path(sam_path).unlink()
+        if "bam" in types:
+            current_result().add_output(bam_path, "alignment")
         logging.info(f"Created {bam_path} ({len(chroms)} chromosomes)")
 
     # 3. Create fake CRAM
@@ -407,6 +414,7 @@ def generate_fake_genomics_data(
             + [bam_path, "-o", cram_path]
         )
         run_command(get_sam_index_cmd(cram_path))
+        current_result().add_output(cram_path, "alignment")
         logging.info(f"Created {cram_path}")
 
     # 4. Create fake VCF with variants on all chroms
@@ -452,6 +460,7 @@ def generate_fake_genomics_data(
             run_command(["bgzip", "-c", vcf_path], stdout=f_gz)
         run_command(["tabix", "-p", "vcf", vcf_gz])
         Path(vcf_path).unlink()
+        current_result().add_output(vcf_gz, "variants")
         logging.info(f"Created {vcf_gz}")
 
     # 5. Create fake FASTQ (R1 and R2)
@@ -488,6 +497,8 @@ def generate_fake_genomics_data(
             stdout=subprocess.DEVNULL,
         )
         Path(collated_path).unlink()
+        current_result().add_output(r1_path, "fastq_r1")
+        current_result().add_output(r2_path, "fastq_r2")
         logging.info(f"Created {r1_path}")
         logging.info(f"Created {r2_path}")
 

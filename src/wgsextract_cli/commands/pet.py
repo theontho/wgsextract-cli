@@ -12,9 +12,11 @@ from wgsextract_cli.core.dependency_checks import (
 )
 from wgsextract_cli.core.genome_library import pair_stem
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
+from wgsextract_cli.core.output_checks import warn_if_no_variants
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.read_counts import fastq_input_reads
 from wgsextract_cli.core.reference_assets import is_fasta_path
+from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.utils import (
     UsageError,
     WGSExtractError,
@@ -32,6 +34,7 @@ from .align import (
     ensure_bwa_index,
     read_group,
     reads_stem,
+    record_alignment,
     run_streamed_alignment,
     short_read_aligner,
     short_read_sort_memory,
@@ -142,6 +145,7 @@ def run(args: argparse.Namespace) -> None:
         )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Alignment error: {e}") from e
+    record_alignment(out_bam, aligner, ref_file)
 
     logging.info(LOG_MESSAGES["pet_calling"])
     try:
@@ -159,6 +163,9 @@ def run(args: argparse.Namespace) -> None:
             run_command(["bcftools", "index", "-f", out_vcf])
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"Variant calling error: {e}") from e
+    count = warn_if_no_variants(out_vcf, ref_file)
+    current_result().add_output(out_vcf, "variants", metrics={"variants": count})
+    current_result().add_metrics(species=args.species, variants=count)
 
     logging.info(LOG_MESSAGES["pet_complete"])
     logging.info(LOG_MESSAGES["pet_results"].format(bam=out_bam, vcf=out_vcf))

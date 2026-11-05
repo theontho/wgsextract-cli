@@ -596,6 +596,30 @@ def test_cli_conflicting_align_options_exit_2(tmp_path, argv):
     assert not list(outdir.glob("*.bam"))
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["bam", "merge", "{bam}"],
+        ["bam", "merge", "{bam}", "{bam}"],
+        ["bam", "to-ubam", "--r2", "{bam}"],
+        ["benchmark", "--coverage", "0"],
+        ["qc", "fake-data", "--legacy-bam", "--full-size"],
+    ],
+    ids=["merge-one", "merge-duplicate", "ubam-r2-alone", "coverage-0", "legacy"],
+)
+def test_cli_option_conflicts_in_other_commands_exit_2(tmp_path, argv):
+    bam = tmp_path / "in.bam"
+    bam.write_bytes(b"")
+    outdir = tmp_path / "out"
+    rc, stdout, _ = run_cli(
+        [arg.format(bam=bam) for arg in argv] + ["--outdir", str(outdir), "--json"]
+    )
+    document = json.loads(stdout)
+    assert_valid(document)
+    assert rc == document["exit_code"] == 2 and document["error"]["kind"] == "usage"
+    assert not document["outputs"]
+
+
 def test_cli_deps_check_for_a_missing_tool_exits_3():
     rc, stdout, _ = run_cli(["deps", "check", "--tool", "wgse-no-such-tool", "--json"])
     document = json.loads(stdout)
@@ -634,3 +658,256 @@ def test_cram_with_multi_reference_containers_still_reports_records(tmp_path):
     )
     subprocess.run([samtools, "index", str(cram)], check=True)
     assert alignment_record_counts(cram) == {"records": len(reads)}
+
+
+def _write_small_bam(directory: Path, name: str, reads_per_contig: int = 3) -> Path:
+    """A coordinate-sorted, indexed BAM (and its reference) from a tiny SAM."""
+    samtools = shutil.which("samtools")
+    assert samtools
+    contigs = {f"c{i}": "ACGTTGCAAC" * 30 for i in range(3)}
+    ref = directory / "ref.fa"
+    if not ref.exists():
+        ref.write_text("".join(f">{c}\n{seq}\n" for c, seq in contigs.items()))
+        subprocess.run([samtools, "faidx", str(ref)], check=True)
+    header = "@HD\tVN:1.6\tSO:coordinate\n" + "".join(
+        f"@SQ\tSN:{c}\tLN:300\n" for c in contigs
+    )
+    header += f"@RG\tID:{name}\tSM:S1\tPL:ILLUMINA\n"
+    reads = [
+        f"{name}_{c}_{start}\t0\t{c}\t{start + 1}\t60\t50M\t*\t0\t0\t"
+        f"{seq[start : start + 50]}\t{'I' * 50}\tRG:Z:{name}\n"
+        for c, seq in contigs.items()
+        for start in range(0, 50 * reads_per_contig, 50)
+    ]
+    sam = directory / f"{name}.sam"
+    sam.write_text(header + "".join(reads))
+    bam = directory / f"{name}.bam"
+    subprocess.run([samtools, "view", "-b", "-o", str(bam), str(sam)], check=True)
+    subprocess.run([samtools, "index", str(bam)], check=True)
+    return bam
+
+
+def _record_count(path: str, ref: Path) -> int:
+    counted = subprocess.run(
+        ["samtools", "view", "-c", "-T", str(ref), path],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return int(counted)
+
+
+@needs_htslib
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["bam", "sort", "--input", "{a}"],
+        ["bam", "to-cram", "--input", "{a}"],
+        ["bam", "unsort", "--input", "{a}"],
+        ["bam", "merge", "{a}", "{b}", "--output", "merged.bam"],
+    ],
+    ids=["sort", "to-cram", "unsort", "merge"],
+)
+def test_cli_bam_manifests_list_alignments_with_true_record_counts(tmp_path, argv):
+    a = _write_small_bam(tmp_path, "a", reads_per_contig=3)
+    b = _write_small_bam(tmp_path, "b", reads_per_contig=2)
+    ref = tmp_path / "ref.fa"
+    argv = [arg.format(a=a, b=b) for arg in argv]
+    rc, stdout, stderr = run_cli(
+        [*argv, "--ref", str(ref), "--outdir", str(tmp_path / "out"), "--json"]
+    )
+    assert rc == 0, stderr
+    document = json.loads(stdout)
+    assert_valid(document)
+    assert_outputs_match_disk(document)
+    alignments = [o for o in document["outputs"] if o["kind"] in ("bam", "cram")]
+    assert len(alignments) == 1
+    (alignment,) = alignments
+    assert _record_count(alignment["path"], ref) == (15 if argv[1] == "merge" else 9)
+    if argv[1] != "unsort":  # an unsorted BAM has no index to count from
+        assert alignment["metrics"]["records"] == _record_count(alignment["path"], ref)
+    if argv[1] == "merge":
+        assert {i["path"] for i in document["inputs"]} >= {str(a), str(b)}
+        assert document["metrics"]["merged_inputs"] == 2
+
+
+@needs_htslib
+def test_cli_qc_vcf_metrics_match_bcftools(tmp_path):
+    ensure_fake_data(str(FAKE_DIR))
+    vcf = FAKE_DIR / "fake.vcf.gz"
+    rc, stdout, stderr = run_cli(
+        ["qc", "vcf", "--vcf-input", str(vcf), "--outdir", str(tmp_path), "--json"]
+    )
+    assert rc == 0, stderr
+    document = json.loads(stdout)
+    assert_valid(document)
+    assert_outputs_match_disk(document)
+    records = subprocess.run(
+        ["bcftools", "view", "-H", str(vcf)], capture_output=True, text=True, check=True
+    ).stdout.count("\n")
+    assert document["metrics"]["records"] == records > 0
+    assert (
+        document["metrics"]["snps"] + document["metrics"]["indels"]
+        <= document["metrics"]["records"]
+    )
+
+
+def test_cli_repair_vcf_counts_only_changed_records(tmp_path):
+    vcf = tmp_path / "ftdna.vcf"
+    vcf.write_text(
+        "##fileformat=VCFv4.2\n"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        "1\t100\t.\tA\tG\t50\tPASS\t.\n"
+        "1\t200\t.\tC\tT\t50\tLow Qual!\t.\n"
+        "1\t300\t.\tG\tA\t50\tq10\t.\n"
+    )
+    rc, stdout, stderr = run_cli(
+        ["repair", "ftdna-vcf", "--input", str(vcf), "--outdir", str(tmp_path / "o")]
+        + ["--json"]
+    )
+    assert rc == 0, stderr
+    document = json.loads(stdout)
+    assert_valid(document)
+    assert_outputs_match_disk(document)
+    assert document["metrics"]["records"] == 3
+    assert document["metrics"]["repaired_records"] == 1
+
+
+def test_cli_repair_pipe_mode_refuses_json():
+    rc, stdout, _ = run_cli(["repair", "ftdna-vcf", "--json"])
+    document = json.loads(stdout)
+    assert_valid(document)
+    assert rc == document["exit_code"] == 2 and document["error"]["kind"] == "usage"
+
+
+def test_missing_optional_typing_environment_is_a_missing_dependency(monkeypatch):
+    from wgsextract_cli.commands.genotyping import common
+
+    monkeypatch.setattr(common, "pixi_env_tool", lambda tool: None)
+    with pytest.raises(MissingDependencyError):
+        common.env_tool("T1K", "typing")
+
+
+def test_installers_record_only_the_files_they_add_or_change(tmp_path):
+    library = tmp_path / "reflib"
+    (library / "ref").mkdir(parents=True)
+    kept = library / "ref" / "kept.vcf.gz"
+    kept.write_text("old")
+    (library / ".partial").mkdir()
+    before = results.file_snapshot(library)
+    (library / "ref" / "new.vcf.gz").write_text("new")
+    (library / ".partial" / "chunk").write_text("work")
+    result = results.CommandResult("ref clinvar")
+    with results.collecting(result):
+        changed = results.record_changed_files(library, before, "reference_resource")
+    assert [Path(p).name for p in changed] == ["new.vcf.gz"]
+    assert [Path(o.path).name for o in result.outputs] == ["new.vcf.gz"]
+
+
+@needs_htslib
+def test_cli_ref_index_lists_only_this_fastas_new_indexes(tmp_path):
+    if not shutil.which("bwa"):
+        pytest.skip("bwa not found in PATH")
+    ref = tmp_path / "genome.fa"
+    ref.write_text(">c1\n" + "ACGT" * 200 + "\n")
+    other = tmp_path / "other.fa.fai"
+    other.write_text("c1\t800\t4\t800\t801\n")
+    rc, stdout, stderr = run_cli(["ref", "index", "--ref", str(ref), "--json"])
+    assert rc == 0, stderr
+    document = json.loads(stdout)
+    assert_valid(document)
+    assert_outputs_match_disk(document)
+    names = {Path(o["path"]).name for o in document["outputs"]}
+    assert {"genome.fa.fai", "genome.dict", "genome.fa.bwt"} <= names
+    assert "other.fa.fai" not in names and "genome.fa" not in names
+    assert not [name for name in names if name.endswith((".lock", ".guard"))]
+
+
+def test_cli_sign_create_never_lists_its_own_result_manifest(tmp_path):
+    data = tmp_path / "results"
+    data.mkdir()
+    (data / "a.txt").write_text("a")
+    for _ in range(2):
+        rc, stdout, stderr = run_cli(["sign", "create", str(data), "--json"])
+        assert rc == 0, stderr
+        document = json.loads(stdout)
+        assert_valid(document)
+        assert_outputs_match_disk(document)
+        assert document["metrics"]["files"] == 1
+    rc, stdout, stderr = run_cli(["sign", "verify", str(data / "SHA256SUMS"), "--json"])
+    assert rc == 0, stderr
+    document = json.loads(stdout)
+    assert document["metrics"]["changed_files"] == 0
+    assert [w["code"] for w in document["warnings"]] == ["unsigned"]
+
+
+def test_vep_records_an_existing_output_it_skips(tmp_path):
+    from wgsextract_cli.commands import _vep_run
+
+    vcf = tmp_path / "s.vcf.gz"
+    vcf.write_bytes(b"")
+    _, final = _vep_run.vep_output_paths(str(vcf), str(tmp_path), "tab")
+    Path(final).write_text("annotated\n")
+    args = argparse.Namespace(outdir=str(tmp_path), format="tab", force=False)
+    result = results.CommandResult("vep run")
+    with results.collecting(result):
+        status, _ = _vep_run._run_vep_on_input(args, str(vcf), "1")
+    assert status == "SKIPPED"
+    assert [(o.path, o.role) for o in result.outputs] == [(final, "vep_annotated")]
+    assert [w.code for w in result.warnings] == ["output_exists"]
+
+
+@needs_htslib
+def test_analyze_carries_each_steps_manifest_outputs_and_warnings(tmp_path):
+    from wgsextract_cli.commands._analyze_workflows import run_cli_subcommand
+
+    ensure_fake_data(str(FAKE_DIR))
+    step_dir = tmp_path / "qc"
+    args = argparse.Namespace(
+        ref=str(FAKE_DIR / "fake_ref.fa"), input=None, threads=1, debug=False
+    )
+    result = results.CommandResult("analyze comprehensive")
+    with results.collecting(result):
+        run_cli_subcommand(
+            ["qc", "vcf", "--vcf-input", str(FAKE_DIR / "fake.vcf.gz")]
+            + ["--outdir", str(step_dir)],
+            args,
+        )
+    roles = {o.role: o for o in result.outputs}
+    step = json.loads(Path(roles["step_manifest"].path).read_text())
+    assert step["command"] == "qc vcf"
+    assert {o["path"] for o in step["outputs"]} <= {o.path for o in result.outputs}
+    (stats,) = (o for o in step["outputs"] if o["role"] == "vcf_stats")
+    assert roles["vcf_stats"].metrics == stats["metrics"] and stats["metrics"]
+
+
+@needs_htslib
+def test_analyze_steps_show_their_output_and_keep_their_results(tmp_path, capfd):
+    from tests.test_lineage_haplogroups import _HG38, _KIT_BODY, _haplogrep, _vcf
+    from wgsextract_cli.commands._analyze_workflows import run_cli_subcommand
+
+    bam = _write_small_bam(tmp_path, "a", reads_per_contig=3)
+    kit = _vcf(tmp_path / "kit.vcf.gz", _HG38, _KIT_BODY)
+    out = tmp_path / "out"
+    args = argparse.Namespace(ref=None, input=None, threads=1, debug=False)
+    result = results.CommandResult("analyze comprehensive")
+    with results.collecting(result):
+        run_cli_subcommand(
+            ["info", "--detailed", "--input", str(bam), "--outdir", str(out)], args
+        )
+        run_cli_subcommand(
+            ["lineage", "mt-haplogroup", "--input", kit, "--outdir", str(out),
+             "--haplogrep-path", _haplogrep(tmp_path)],
+            args,
+        )  # fmt: skip
+    shown = capfd.readouterr().out
+    assert "By Reference Sequence Name" in shown  # info's chromosome table
+    assert "Haplogroup      : H1c" in shown
+    # info writes no manifest, yet its warnings, with their details, survive.
+    assert not list(out.glob("info*.manifest.json"))
+    (low,) = (w for w in result.warnings if w.code == "low_coverage")
+    assert low.details["step"] == "info"
+    assert len(low.details) > 1  # depth and threshold survive, not just the step
+    roles = {o.role: o for o in result.outputs}
+    assert roles["haplogroup_report"].path == str(out / "haplogrep_results.txt")
+    assert not [p for p in out.iterdir() if p.name.startswith(".wgse-step-")]
