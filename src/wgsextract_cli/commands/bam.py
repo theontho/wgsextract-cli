@@ -2,8 +2,23 @@ import argparse
 import logging
 import subprocess
 import tempfile
+from os import fspath
 from pathlib import Path
 
+from wgsextract_cli.api._cli import add_arguments, cli_handler
+from wgsextract_cli.api.bam import (
+    BamIdentifyParams,
+    BamIndexParams,
+    BamMergeParams,
+    BamSortParams,
+    BamToBamParams,
+    BamToCramParams,
+    BamToUbamParams,
+    BamUnalignParams,
+    BamUnindexParams,
+    BamUnsortParams,
+    _InputParams,
+)
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -41,13 +56,14 @@ from wgsextract_cli.core.warnings import (
     print_warning,
 )
 
-from ._bam_ubam import UBAM_PLATFORMS, cmd_to_ubam
+from ._bam_ubam import cmd_to_ubam
 from ._extract_helpers import (
+    BaseArgs,
     alignments_to_fastq,
+    base_args,
     cleanup_files,
     derive_output_path,
-    get_base_args,
-    resolve_region_or_gene,
+    region_or_gene,
 )
 
 
@@ -57,130 +73,27 @@ def register(
 ) -> None:
     parser = subparsers.add_parser("bam", help=CLI_HELP["cmd_bam_mgmt"])
     bam_subs = parser.add_subparsers(dest="bam_cmd", required=True)
-
-    sort_parser = bam_subs.add_parser(
-        "sort", parents=[base_parser], help=CLI_HELP["cmd_sort"]
-    )
-    sort_parser.add_argument("-r", "--region", help=CLI_HELP["arg_region"])
-    sort_parser.add_argument("--gene", help="Filter by Gene Name (e.g. BRCA1, KCNQ2)")
-    sort_parser.set_defaults(func=cmd_sort)
-
-    index_parser = bam_subs.add_parser(
-        "index", parents=[base_parser], help=CLI_HELP["cmd_index"]
-    )
-    index_parser.set_defaults(func=cmd_index)
-
-    unindex_parser = bam_subs.add_parser(
-        "unindex", parents=[base_parser], help=CLI_HELP["cmd_unindex"]
-    )
-    unindex_parser.set_defaults(func=cmd_unindex)
-
-    unsort_parser = bam_subs.add_parser(
-        "unsort", parents=[base_parser], help=CLI_HELP["cmd_unsort"]
-    )
-    unsort_parser.set_defaults(func=cmd_unsort)
-
-    tocram_parser = bam_subs.add_parser(
-        "to-cram", parents=[base_parser], help=CLI_HELP["cmd_to-cram"]
-    )
-    tocram_parser.add_argument("-r", "--region", help=CLI_HELP["arg_region"])
-    tocram_parser.add_argument("--gene", help="Filter by Gene Name (e.g. BRCA1, KCNQ2)")
-    tocram_parser.add_argument(
-        "--cram-version",
-        choices=["2.1", "3.0", "3.1"],
-        default="3.0",
-        help="CRAM version to output (default: 3.0 for better compatibility)",
-    )
-    tocram_parser.set_defaults(func=cmd_tocram)
-
-    tobam_parser = bam_subs.add_parser(
-        "to-bam", parents=[base_parser], help=CLI_HELP["cmd_to-bam"]
-    )
-    tobam_parser.add_argument("-r", "--region", help=CLI_HELP["arg_region"])
-    tobam_parser.add_argument("--gene", help="Filter by Gene Name (e.g. BRCA1, KCNQ2)")
-    tobam_parser.set_defaults(func=cmd_tobam)
-
-    unalign_parser = bam_subs.add_parser(
-        "unalign", parents=[base_parser], help=CLI_HELP["cmd_unalign"]
-    )
-    # Output FASTQs: a bare file name goes in --outdir.
-    unalign_parser.add_argument(
-        "--r1",
-        required=True,
-        help="Read 1 FASTQ to write (a bare name goes in --outdir)",
-    )
-    unalign_parser.add_argument(
-        "--r2",
-        required=True,
-        help="Read 2 FASTQ to write (a bare name goes in --outdir)",
-    )
-    unalign_parser.add_argument(
-        "--se", help="FASTQ for reads without a mate (a bare name goes in --outdir)"
-    )
-    unalign_parser.add_argument("-r", "--region", help=CLI_HELP["arg_region"])
-    unalign_parser.add_argument(
-        "--gene", help="Filter by Gene Name (e.g. BRCA1, KCNQ2)"
-    )
-    unalign_parser.set_defaults(func=cmd_unalign)
-
-    identify_parser = bam_subs.add_parser(
-        "identify", parents=[base_parser], help=CLI_HELP["cmd_bam-identify"]
-    )
-    identify_parser.set_defaults(func=cmd_identify)
-
-    merge_parser = bam_subs.add_parser(
-        "merge", parents=[base_parser], help=CLI_HELP["cmd_bam-merge"]
-    )
-    merge_parser.add_argument(
-        "inputs",
-        nargs="+",
-        metavar="FILE",
-        help="Coordinate-sorted BAM/CRAM files aligned to the same reference.",
-    )
-    merge_parser.add_argument(
-        "--output",
-        help="Output file name or path (a bare name goes in --outdir; "
-        "default: merged.bam, or merged.cram with --cram).",
-    )
-    merge_parser.add_argument(
-        "--cram", action="store_true", help="Write CRAM instead of BAM."
-    )
-    merge_parser.add_argument(
-        "--attach-rg",
-        action="store_true",
-        help="Tag each read with a read group named after its input file, for "
-        "inputs without @RG lines (so reads stay traceable to their lane).",
-    )
-    merge_parser.set_defaults(func=cmd_merge)
-
-    ubam_parser = bam_subs.add_parser(
-        "to-ubam", parents=[base_parser], help=CLI_HELP["cmd_bam-to-ubam"]
-    )
-    ubam_parser.add_argument(
-        "--r1", help="Read 1 FASTQ (instead of an aligned --input BAM/CRAM)."
-    )
-    ubam_parser.add_argument("--r2", help="Read 2 FASTQ for paired-end --r1.")
-    ubam_parser.add_argument(
-        "--sample",
-        help="Sample name (SM) for FASTQ input, or for a BAM/CRAM without @RG "
-        "lines (default: the input file name).",
-    )
-    ubam_parser.add_argument(
-        "--library", default="lib1", help="Library name (LB) for a new read group."
-    )
-    ubam_parser.add_argument(
-        "--platform",
-        choices=list(UBAM_PLATFORMS),
-        help="Sequencing platform (PL) for a new read group (default: detected "
-        "from the read names).",
-    )
-    ubam_parser.set_defaults(func=cmd_to_ubam)
+    for name, cls, func, help_key in (
+        ("sort", BamSortParams, cmd_sort, "cmd_sort"),
+        ("index", BamIndexParams, cmd_index, "cmd_index"),
+        ("unindex", BamUnindexParams, cmd_unindex, "cmd_unindex"),
+        ("unsort", BamUnsortParams, cmd_unsort, "cmd_unsort"),
+        ("to-cram", BamToCramParams, cmd_tocram, "cmd_to-cram"),
+        ("to-bam", BamToBamParams, cmd_tobam, "cmd_to-bam"),
+        ("unalign", BamUnalignParams, cmd_unalign, "cmd_unalign"),
+        ("identify", BamIdentifyParams, cmd_identify, "cmd_bam-identify"),
+        ("merge", BamMergeParams, cmd_merge, "cmd_bam-merge"),
+        ("to-ubam", BamToUbamParams, cmd_to_ubam, "cmd_bam-to-ubam"),
+    ):
+        sub = bam_subs.add_parser(name, parents=[base_parser], help=CLI_HELP[help_key])
+        add_arguments(sub, cls)
+        sub.set_defaults(func=func)
 
 
-def _require_input(args: argparse.Namespace) -> None:
-    if not args.input:
-        raise UsageError(LOG_MESSAGES["input_required"])
-    verify_paths_exist({"--input": args.input})
+def _require_input(params: _InputParams) -> str:
+    input_path = fspath(params.input)
+    verify_paths_exist({"--input": input_path})
+    return input_path
 
 
 def _alignment_format(path: str) -> tuple[str, str]:
@@ -232,34 +145,51 @@ def _preflight_sort_space(
     print_warning(action_key, threads=threads)
 
 
-def cmd_identify(args: argparse.Namespace) -> None:
+def _setup(
+    params: BamSortParams | BamToCramParams | BamToBamParams | BamUnalignParams,
+) -> tuple[str, BaseArgs, str | None]:
+    """The input, its resources and reference, and the region or gene's
+    coordinates."""
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
-    _require_input(args)
-    logging.debug(f"Input file: {str(absolute_path(args.input))}")
+    base = base_args(
+        params.input,
+        ref=params.ref,
+        outdir=params.outdir,
+        threads=params.threads,
+        memory=getattr(params, "memory", None),
+        region=params.region,
+    )
+    region = region_or_gene(params.region, params.gene, params.input, base.ref)
+    return fspath(params.input), base, region
+
+
+def run_identify(params: BamIdentifyParams) -> None:
+    verify_dependencies(["samtools"])
+    log_dependency_info(["samtools"])
+    input_path = _require_input(params)
+    logging.debug(f"Input file: {str(absolute_path(input_path))}")
 
     # Auto-resolve ref if a directory was provided
-    resolved_ref = resolve_reference(args.ref, "")
+    resolved_ref = resolve_reference(fspath(params.ref) if params.ref else None, "")
     logging.debug(f"Resolved reference: {resolved_ref}")
 
-    md5_sig = calculate_bam_md5(args.input, resolved_ref)
+    md5_sig = calculate_bam_md5(input_path, resolved_ref)
     current_result().add_metrics(reference_md5_signature=md5_sig)
     logging.info(
-        LOG_MESSAGES["ref_md5_signature"].format(input=args.input, sig=md5_sig)
+        LOG_MESSAGES["ref_md5_signature"].format(input=input_path, sig=md5_sig)
     )
 
 
-def cmd_sort(args: argparse.Namespace) -> None:
-    verify_dependencies(["samtools"])
-    log_dependency_info(["samtools"])
-    threads, memory, outdir, cram_opt, resolved_ref = get_base_args(args)
-    region = resolve_region_or_gene(args, resolved_ref)
+def run_sort(params: BamSortParams) -> None:
+    input_path, base, region = _setup(params)
+    threads, memory, outdir, cram_opt, resolved_ref = base
 
-    fmt, ext = _alignment_format(args.input)
+    fmt, ext = _alignment_format(input_path)
     preflight_resources(
         lambda: estimate_resources(
             "sort",
-            input_paths=[args.input],
+            input_paths=[input_path],
             output_dir=outdir,
             temp_dir=configured_temp_directory(),
             threads=threads,
@@ -269,14 +199,14 @@ def cmd_sort(args: argparse.Namespace) -> None:
         )
     )
     _preflight_sort_space(
-        args.input, outdir, "Coord", "Coord Sort", region, "GenSortedBAM", threads
+        input_path, outdir, "Coord", "Coord Sort", region, "GenSortedBAM", threads
     )
 
-    out_file = derive_output_path(args.input, outdir, f"_sorted{ext}")
-    view_cmd = ["samtools", "view", "-uh", "--no-PG", *cram_opt, args.input]
+    out_file = derive_output_path(input_path, outdir, f"_sorted{ext}")
+    view_cmd = ["samtools", "view", "-uh", "--no-PG", *cram_opt, input_path]
     view_cmd += [region] if region else []
 
-    logging.info(LOG_MESSAGES["sorting_file"].format(input=args.input, output=out_file))
+    logging.info(LOG_MESSAGES["sorting_file"].format(input=input_path, output=out_file))
     # An index left by an earlier run would describe the old file: drop it, so
     # the one used below is the one sambamba writes as it sorts, or ours.
     indexes = _index_files(out_file)
@@ -315,36 +245,36 @@ def _index_files(alignment: str) -> list[Path]:
     ]
 
 
-def cmd_index(args: argparse.Namespace) -> None:
+def run_index(params: BamIndexParams) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
-    _require_input(args)
+    input_path = _require_input(params)
 
     print_warning("GenBAMIndex")
 
-    logging.info(LOG_MESSAGES["indexing_file"].format(path=args.input))
-    before = {p: p.stat().st_mtime_ns for p in _index_files(args.input) if p.exists()}
+    logging.info(LOG_MESSAGES["indexing_file"].format(path=input_path))
+    before = {p: p.stat().st_mtime_ns for p in _index_files(input_path) if p.exists()}
     try:
-        run_command(get_sam_index_cmd(args.input))
+        run_command(get_sam_index_cmd(input_path))
     except (OSError, subprocess.SubprocessError) as e:
         # sambamba writes a .bai before it finds the BAM unsorted; a corrupt
         # index would read as "Indexed" afterwards.
-        for path in _index_files(args.input):
+        for path in _index_files(input_path):
             if path.exists() and before.get(path) != path.stat().st_mtime_ns:
                 path.unlink()
         raise WGSExtractError(f"Indexing failed: {e}") from e
-    for path in _index_files(args.input):
+    for path in _index_files(input_path):
         if path.is_file() and before.get(path) != path.stat().st_mtime_ns:
             current_result().add_output(path, "alignment_index")
 
 
-def cmd_unindex(args: argparse.Namespace) -> None:
-    _require_input(args)
-    if not Path(args.input).is_file():
-        raise WGSExtractError(f"Input is not a valid file: {args.input}")
+def run_unindex(params: BamUnindexParams) -> None:
+    input_path = _require_input(params)
+    if not Path(input_path).is_file():
+        raise WGSExtractError(f"Input is not a valid file: {input_path}")
 
     removed = 0
-    for index_path in _index_files(args.input):
+    for index_path in _index_files(input_path):
         if index_path.exists():
             index_path.unlink()
             removed += 1
@@ -354,20 +284,23 @@ def cmd_unindex(args: argparse.Namespace) -> None:
     current_result().add_metrics(removed_indexes=removed)
 
 
-def cmd_unsort(args: argparse.Namespace) -> None:
+def run_unsort(params: BamUnsortParams) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
-    _, _, outdir, cram_opt, _ = get_base_args(args)
+    input_path = fspath(params.input)
+    _, _, outdir, cram_opt, _ = base_args(
+        input_path, ref=params.ref, outdir=params.outdir, threads=None, memory=None
+    )
 
-    _, ext = _alignment_format(args.input)
-    out_file = derive_output_path(args.input, outdir, f"_unsorted{ext}")
+    _, ext = _alignment_format(input_path)
+    out_file = derive_output_path(input_path, outdir, f"_unsorted{ext}")
     logging.info(
-        LOG_MESSAGES["converting_file"].format(input=args.input, output=out_file)
+        LOG_MESSAGES["converting_file"].format(input=input_path, output=out_file)
     )
     try:
         with cleanup_files(on_failure=[out_file]):
             header = run_command(
-                ["samtools", "view", "-H", *cram_opt, args.input], capture_output=True
+                ["samtools", "view", "-H", *cram_opt, input_path], capture_output=True
             ).stdout
             with tempfile.TemporaryDirectory() as tempdir:
                 newhead = str(Path(tempdir, "newhead.sam"))
@@ -375,25 +308,23 @@ def cmd_unsort(args: argparse.Namespace) -> None:
                     f.write(header.replace("SO:coordinate", "SO:unsorted"))
                 with open(out_file, "wb") as f_out:
                     run_command(
-                        ["samtools", "reheader", newhead, args.input], stdout=f_out
+                        ["samtools", "reheader", newhead, input_path], stdout=f_out
                     )
     except (OSError, subprocess.SubprocessError) as e:
-        raise WGSExtractError(f"Failed to unsort {args.input}: {e}") from e
+        raise WGSExtractError(f"Failed to unsort {input_path}: {e}") from e
     current_result().add_metrics(
         **record_alignment_output(out_file, "unsorted_alignment")
     )
 
 
-def cmd_tocram(args: argparse.Namespace) -> None:
-    verify_dependencies(["samtools"])
-    log_dependency_info(["samtools"])
-    threads, _, outdir, cram_opt, resolved_ref = get_base_args(args)
-    region = resolve_region_or_gene(args, resolved_ref)
+def run_to_cram(params: BamToCramParams) -> None:
+    input_path, base, region = _setup(params)
+    threads, _, outdir, cram_opt, resolved_ref = base
 
     preflight_resources(
         lambda: estimate_resources(
             "to-cram",
-            input_paths=[args.input],
+            input_paths=[input_path],
             output_dir=outdir,
             threads=threads,
             output_format="CRAM",
@@ -402,9 +333,9 @@ def cmd_tocram(args: argparse.Namespace) -> None:
     )
     print_warning("BAMtoCRAM", threads=threads)
 
-    out_file = derive_output_path(args.input, outdir, ".cram")
+    out_file = derive_output_path(input_path, outdir, ".cram")
     logging.info(
-        LOG_MESSAGES["converting_file"].format(input=args.input, output=out_file)
+        LOG_MESSAGES["converting_file"].format(input=input_path, output=out_file)
     )
     try:
         with cleanup_files(on_failure=[out_file]):
@@ -414,13 +345,13 @@ def cmd_tocram(args: argparse.Namespace) -> None:
                     "view",
                     "-Ch",
                     "--output-fmt-option",
-                    f"version={args.cram_version}",
+                    f"version={params.cram_version}",
                     *cram_opt,
                     "-@",
                     threads,
                     "-o",
                     out_file,
-                    args.input,
+                    input_path,
                     *([region] if region else []),
                 ]
             )
@@ -431,16 +362,14 @@ def cmd_tocram(args: argparse.Namespace) -> None:
     current_result().add_metrics(**record_alignment_output(out_file, "alignment"))
 
 
-def cmd_tobam(args: argparse.Namespace) -> None:
-    verify_dependencies(["samtools"])
-    log_dependency_info(["samtools"])
-    threads, _, outdir, cram_opt, resolved_ref = get_base_args(args)
-    region = resolve_region_or_gene(args, resolved_ref)
+def run_to_bam(params: BamToBamParams) -> None:
+    input_path, base, region = _setup(params)
+    threads, _, outdir, cram_opt, resolved_ref = base
 
     preflight_resources(
         lambda: estimate_resources(
             "to-bam",
-            input_paths=[args.input],
+            input_paths=[input_path],
             output_dir=outdir,
             threads=threads,
             output_format="BAM",
@@ -449,15 +378,15 @@ def cmd_tobam(args: argparse.Namespace) -> None:
     )
     print_warning("CRAMtoBAM", threads=threads)
 
-    out_file = derive_output_path(args.input, outdir, ".bam")
+    out_file = derive_output_path(input_path, outdir, ".bam")
     logging.info(
-        LOG_MESSAGES["converting_file"].format(input=args.input, output=out_file)
+        LOG_MESSAGES["converting_file"].format(input=input_path, output=out_file)
     )
     try:
         with cleanup_files(on_failure=[out_file]):
             run_command(
                 ["samtools", "view", "-bh", *cram_opt, "-@", threads, "-o", out_file]
-                + [args.input, *([region] if region else [])]
+                + [input_path, *([region] if region else [])]
             )
             run_command(get_sam_index_cmd(out_file))
     except (OSError, subprocess.SubprocessError) as e:
@@ -471,22 +400,20 @@ def _fastq_output_path(path: str, outdir: str) -> str:
     return str(Path(outdir, path)) if Path(path).name == path else path
 
 
-def cmd_unalign(args: argparse.Namespace) -> None:
-    verify_dependencies(["samtools"])
-    log_dependency_info(["samtools"])
-    threads, memory, outdir, cram_opt, resolved_ref = get_base_args(args)
-    region = resolve_region_or_gene(args, resolved_ref)
+def run_unalign(params: BamUnalignParams) -> None:
+    input_path, base, region = _setup(params)
+    threads, memory, outdir, cram_opt, resolved_ref = base
 
     _preflight_sort_space(
-        args.input, outdir, "Name", "Name Sort", region, "ButtonUnalignBAM", threads
+        input_path, outdir, "Name", "Name Sort", region, "ButtonUnalignBAM", threads
     )
 
-    read_groups = _read_groups(get_bam_header(args.input) or "")
+    read_groups = _read_groups(get_bam_header(input_path) or "")
     if len(read_groups) > 1:
         # FASTQ has nowhere to keep them; aligning the FASTQs makes one group.
         warn(
             "read_groups_mixed",
-            f"{args.input} has {len(read_groups)} read groups "
+            f"{input_path} has {len(read_groups)} read groups "
             f"({', '.join(read_groups)}); the FASTQs mix them. Use "
             "'wgsextract bam to-ubam' to keep each read's group.",
             read_groups=len(read_groups),
@@ -494,13 +421,13 @@ def cmd_unalign(args: argparse.Namespace) -> None:
 
     logging.info(LOG_MESSAGES["unaligning_reads"])
     fastqs = {
-        "fastq_r1": _fastq_output_path(args.r1, outdir),
-        "fastq_r2": _fastq_output_path(args.r2, outdir),
+        "fastq_r1": _fastq_output_path(params.r1, outdir),
+        "fastq_r2": _fastq_output_path(params.r2, outdir),
     }
-    if args.se:
-        fastqs["fastq_single"] = _fastq_output_path(args.se, outdir)
+    if params.se:
+        fastqs["fastq_single"] = _fastq_output_path(params.se, outdir)
     alignments_to_fastq(
-        args.input,
+        input_path,
         fastqs["fastq_r1"],
         fastqs["fastq_r2"],
         threads=threads,
@@ -515,15 +442,15 @@ def cmd_unalign(args: argparse.Namespace) -> None:
     current_result().add_metrics(read_groups=len(read_groups))
 
 
-def _merge_output_path(args: argparse.Namespace, outdir: str) -> str:
-    ext = ".cram" if args.cram else ".bam"
-    name = args.output or f"merged{ext}"
+def _merge_output_path(params: BamMergeParams, outdir: str) -> str:
+    ext = ".cram" if params.cram else ".bam"
+    name = params.output or f"merged{ext}"
     if not name.lower().endswith((".bam", ".cram")):
         name += ext
-    elif name.lower().endswith(".cram") != args.cram:
+    elif name.lower().endswith(".cram") != params.cram:
         raise UsageError(
             f"--output {name} does not match the output format "
-            f"({'CRAM' if args.cram else 'BAM'}); add or drop --cram."
+            f"({'CRAM' if params.cram else 'BAM'}); add or drop --cram."
         )
     return _fastq_output_path(name, outdir)
 
@@ -553,10 +480,10 @@ def _is_cram(path: str) -> bool:
     return path.lower().endswith(".cram")
 
 
-def cmd_merge(args: argparse.Namespace) -> None:
+def run_merge(params: BamMergeParams) -> None:
     verify_dependencies(["samtools"])
     log_dependency_info(["samtools"])
-    inputs: list[str] = args.inputs
+    inputs = [fspath(p) for p in params.inputs]
     if len(inputs) < 2:
         raise UsageError("bam merge needs at least two input files.")
     verify_paths_exist({f"input {i}": path for i, path in enumerate(inputs, 1)})
@@ -587,17 +514,19 @@ def cmd_merge(args: argparse.Namespace) -> None:
                 f"{inputs[0]}; merge only files aligned to the same reference."
             )
 
-    threads, _ = get_resource_defaults(args.threads, None)
-    outdir = args.outdir or str(absolute_path(inputs[0]).parent)
+    threads, _ = get_resource_defaults(params.threads, None)
+    outdir = fspath(params.outdir or absolute_path(inputs[0]).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
-    out_file = _merge_output_path(args, outdir)
+    out_file = _merge_output_path(params, outdir)
     if any(Path(out_file).resolve() == Path(p).resolve() for p in inputs):
         raise WGSExtractError(f"Output {out_file} would overwrite an input file.")
 
     ref = None
-    if args.cram or any(_is_cram(p) for p in inputs):
+    if params.cram or any(_is_cram(p) for p in inputs):
         ref = resolve_reference(
-            args.ref, calculate_bam_md5(inputs[0], header=first_header), inputs[0]
+            fspath(params.ref) if params.ref else None,
+            calculate_bam_md5(inputs[0], header=first_header),
+            inputs[0],
         )
         if not (ref and Path(ref).is_file()):
             raise WGSExtractError(
@@ -607,7 +536,7 @@ def cmd_merge(args: argparse.Namespace) -> None:
     # Output is about the size of the inputs; CRAM is roughly half of BAM.
     out_bytes = 0.0
     for path in inputs:
-        ratio = 1.0 if _is_cram(path) == args.cram else (0.5 if args.cram else 2.0)
+        ratio = 1.0 if _is_cram(path) == params.cram else (0.5 if params.cram else 2.0)
         out_bytes += Path(path).stat().st_size * ratio
     needed_gb = int(out_bytes / 1024**3) + 1
     if not check_free_space(outdir, needed_gb):
@@ -617,14 +546,14 @@ def cmd_merge(args: argparse.Namespace) -> None:
 
     # Name the index explicitly: samtools would otherwise write .csi for BAM,
     # which GATK/htsjdk tools cannot read.
-    index = out_file + (".crai" if args.cram else ".bai")
+    index = out_file + (".crai" if params.cram else ".bai")
     # -f: replace an earlier result like the other commands do. (samtools'
     # exists check doesn't see through ##idx##, but don't rely on that.)
     cmd = ["samtools", "merge", "-f", "-@", threads, "--write-index"]
-    cmd += ["-O", "CRAM" if args.cram else "BAM", "-o", f"{out_file}##idx##{index}"]
+    cmd += ["-O", "CRAM" if params.cram else "BAM", "-o", f"{out_file}##idx##{index}"]
     if ref:
         cmd += ["--reference", ref]
-    if args.attach_rg:
+    if params.attach_rg:
         cmd.append("-r")
     conflicting = sorted(i for i, lines in read_groups.items() if len(lines) > 1)
     if conflicting:
@@ -654,3 +583,14 @@ def cmd_merge(args: argparse.Namespace) -> None:
         "If the inputs are lanes of one library, mark duplicates again on the "
         "merged file before variant calling."
     )
+
+
+cmd_sort = cli_handler(BamSortParams, run_sort)
+cmd_index = cli_handler(BamIndexParams, run_index)
+cmd_unindex = cli_handler(BamUnindexParams, run_unindex)
+cmd_unsort = cli_handler(BamUnsortParams, run_unsort)
+cmd_tocram = cli_handler(BamToCramParams, run_to_cram)
+cmd_tobam = cli_handler(BamToBamParams, run_to_bam)
+cmd_unalign = cli_handler(BamUnalignParams, run_unalign)
+cmd_identify = cli_handler(BamIdentifyParams, run_identify)
+cmd_merge = cli_handler(BamMergeParams, run_merge)

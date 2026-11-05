@@ -8,7 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.htslib_helpers import run_wgsextract
+from tests.htslib_helpers import needs_tools, run_wgsextract, sam_to_bam, write_fasta
+from wgsextract_cli import api
 from wgsextract_cli.commands import align, bam, realign
 from wgsextract_cli.commands.vcf import basic, callers
 from wgsextract_cli.core import alignment_memory
@@ -188,6 +189,16 @@ def test_regional_gatk_and_scatter_artifacts_are_budgeted_on_the_selected_volume
     expected = {"regional_bam", "scatter_parts", "scatter_indexes"}
     assert expected <= disks["scratch"].components.keys()
     assert not expected & disks["output"].components.keys()
+
+
+def _tiny_bam(tmp_path: Path) -> tuple[Path, Path]:
+    """A one-read BAM on a 100 bp chr1, and its reference."""
+    seq = "ACGT" * 25
+    ref = write_fasta(tmp_path / "ref.fa", {"chr1": seq})
+    read = f"r1\t0\tchr1\t1\t60\t20M\t*\t0\t0\t{seq[:20]}\t{'I' * 20}"
+    bam_path = tmp_path / "tiny.bam"
+    sam_to_bam(["@HD\tVN:1.6\tSO:coordinate", "@SQ\tSN:chr1\tLN:100", read], bam_path)
+    return bam_path, ref
 
 
 @pytest.fixture
@@ -385,6 +396,7 @@ def test_gui_estimator_remains_strict(tmp_path, source, options):
         )
 
 
+@needs_tools("samtools")
 @pytest.mark.parametrize(
     "error",
     [
@@ -396,25 +408,18 @@ def test_gui_estimator_remains_strict(tmp_path, source, options):
 def test_command_proceeds_when_advisory_estimation_fails(
     tmp_path, monkeypatch, caplog, error
 ):
-    source = tmp_path / "source.bam"
-    source.write_bytes(b"bam")
-    commands = []
+    source, ref = _tiny_bam(tmp_path)
 
     def failed(*_a, **_k):
         raise error
 
     monkeypatch.setattr(bam, "estimate_resources", failed)
-    monkeypatch.setattr(bam, "verify_dependencies", lambda *_: None)
-    monkeypatch.setattr(bam, "log_dependency_info", lambda *_: None)
-    monkeypatch.setattr(bam, "print_warning", lambda *_a, **_k: None)
-    monkeypatch.setattr(
-        bam, "get_base_args", lambda _: ("1", "256M", str(tmp_path), [], None)
+    outdir = tmp_path / "out"
+    result = api.bam.to_cram(
+        api.BamToCramParams(input=source, ref=ref, outdir=outdir, cram_version="3.1")
     )
-    monkeypatch.setattr(bam, "resolve_region_or_gene", lambda *_: None)
-    monkeypatch.setattr(bam, "run_command", lambda cmd: commands.append(cmd))
-    bam.cmd_tocram(argparse.Namespace(input=str(source), cram_version="3.1"))
-    assert len(commands) == 2
-    assert commands[0][:3] == ["samtools", "view", "-Ch"]
+    assert result.status == "ok"
+    assert (outdir / "tiny.cram").stat().st_size > 0
     assert "resource estimate unavailable:" in caplog.text
 
 
@@ -491,10 +496,7 @@ def test_commands_report_before_work(
         monkeypatch.setattr(module, "require_native_tool", lambda _tool: None)
     monkeypatch.setattr(module, "log_dependency_info", lambda *_: None, raising=False)
     if module is bam:
-        monkeypatch.setattr(
-            module, "get_base_args", lambda _: ("1", "256M", str(tmp_path), [], None)
-        )
-        monkeypatch.setattr(module, "resolve_region_or_gene", lambda *_: None)
+        source, _ref = _tiny_bam(tmp_path)
     elif module is basic:
         setup = basic.CallerSetup("1", str(tmp_path), "", None, None)  # type: ignore[arg-type]
         monkeypatch.setattr(module, "caller_setup", lambda *_a, **_k: setup)
@@ -509,7 +511,11 @@ def test_commands_report_before_work(
         raise Reported
 
     monkeypatch.setattr(module, "preflight_resources", reported)
-    args = argparse.Namespace(input=str(source), region=None, gpu=False)
+    outdir = tmp_path / "out"
+    outdir.mkdir()
+    args = argparse.Namespace(
+        input=str(source), region=None, gpu=False, outdir=str(outdir)
+    )
     with pytest.raises(Reported):
         command(args)
 

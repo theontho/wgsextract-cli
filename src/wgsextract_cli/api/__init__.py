@@ -24,9 +24,10 @@ The CLI is built on this layer: each migrated command's options are generated
 from its Params fields, so the API and ``--help`` cannot drift.
 
 Stability: the names exported here and the group modules (``api.extract``,
-``api.info``, ``api.vcf``, ``api.lineage``, ``api.microarray``, ``api.report``,
-``api.sample``, ``api.support``) follow semantic versioning from the 1.0
-release; adding fields with defaults is not a breaking change.
+``api.info``, ``api.bam``, ``api.qc``, ``api.vcf``, ``api.lineage``,
+``api.microarray``, ``api.report``, ``api.sample``, ``api.support``) follow
+semantic versioning from the 1.0 release; adding fields with defaults is not
+a breaking change.
 Modules whose names start with ``_`` are private and may change at any time.
 See docs/api.md.
 """
@@ -44,7 +45,18 @@ from wgsextract_cli.core.utils import (
     WGSExtractError,
 )
 
-from . import extract, info, lineage, microarray, report, sample, support, vcf
+from . import (
+    bam,
+    extract,
+    info,
+    lineage,
+    microarray,
+    qc,
+    report,
+    sample,
+    support,
+    vcf,
+)
 from ._params import Params, json_schema
 from ._runtime import (
     Cancelled,
@@ -53,6 +65,18 @@ from ._runtime import (
     ProgressCallback,
     ProgressEvent,
     use_config,
+)
+from .bam import (
+    BamIdentifyParams,
+    BamIndexParams,
+    BamMergeParams,
+    BamSortParams,
+    BamToBamParams,
+    BamToCramParams,
+    BamToUbamParams,
+    BamUnalignParams,
+    BamUnindexParams,
+    BamUnsortParams,
 )
 from .extract import (
     BamSubsetParams,
@@ -68,13 +92,31 @@ from .extract import (
 from .info import CalculateCoverageParams, ChipParams, CoverageSampleParams, InfoParams
 from .lineage import MtHaplogroupParams, YHaplogroupParams, YStrParams
 from .microarray import MicroarrayParams
+from .qc import (
+    FakeDataParams,
+    FastpParams,
+    FastqcParams,
+    MultiqcMetricsParams,
+    MultiqcParams,
+    QcVcfParams,
+)
 from .report import ReportParams
 from .sample import SampleSetParams, SampleShowParams, SampleUnsetParams
 from .support import IssueReport, ReportIssueParams
 from .vcf import VcfIndelParams, VcfSnpParams
 
 __all__ = [
+    "BamIdentifyParams",
+    "BamIndexParams",
+    "BamMergeParams",
+    "BamSortParams",
     "BamSubsetParams",
+    "BamToBamParams",
+    "BamToCramParams",
+    "BamToUbamParams",
+    "BamUnalignParams",
+    "BamUnindexParams",
+    "BamUnsortParams",
     "CalculateCoverageParams",
     "CancelToken",
     "Cancelled",
@@ -82,6 +124,9 @@ __all__ = [
     "CommandFailed",
     "CoverageSampleParams",
     "CustomParams",
+    "FakeDataParams",
+    "FastpParams",
+    "FastqcParams",
     "FileRecord",
     "InfoParams",
     "IssueReport",
@@ -91,9 +136,12 @@ __all__ = [
     "MitoVcfParams",
     "MtBamParams",
     "MtHaplogroupParams",
+    "MultiqcMetricsParams",
+    "MultiqcParams",
     "Params",
     "ProgressCallback",
     "ProgressEvent",
+    "QcVcfParams",
     "ReportIssueParams",
     "ReportParams",
     "Result",
@@ -111,11 +159,13 @@ __all__ = [
     "YStrParams",
     "YdnaBamParams",
     "YdnaVcfParams",
+    "bam",
     "extract",
     "info",
     "json_schema",
     "lineage",
     "microarray",
+    "qc",
     "report",
     "sample",
     "support",

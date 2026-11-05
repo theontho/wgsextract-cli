@@ -378,7 +378,8 @@ def index_json(
         "usage" is argparse's usage line and "options" each command's own options
         (the global ones are listed once, under "global_options"). Commands with
         a typed Params class (wgsextract_cli.api) also carry its JSON Schema as
-        "input_schema", each property naming its flag in "x-cli-flag". "tools"
+        "input_schema", each property naming its flag in "x-cli-flag" (or, for a
+        positional argument, its metavar in "x-cli-positional"). "tools"
         are the external tools a run checks for, "optional_tools" those only
         some options use, and "runtime" one of instant, seconds, minutes, hours
         or download, for a 30x genome unless "runtime_text" says otherwise."""
@@ -534,7 +535,8 @@ def _typed_commands() -> dict[str, Any]:
 
 def input_schemas() -> dict[str, dict[str, Any]]:
     """Command path -> the JSON Schema of its typed Params class, with the
-    CLI flag of each property as "x-cli-flag"."""
+    CLI flag of each property as "x-cli-flag", or the metavar of a positional
+    argument as "x-cli-positional"."""
     from wgsextract_cli.api._params import json_schema, param_fields
 
     schemas = {}
@@ -542,8 +544,8 @@ def input_schemas() -> dict[str, dict[str, Any]]:
         schema = json_schema(cls)
         schema.pop("$schema", None)
         for field in param_fields(cls):
-            flag = max(field.flags, key=len)
-            schema["properties"][field.name]["x-cli-flag"] = flag
+            key = "x-cli-positional" if field.spec.positional else "x-cli-flag"
+            schema["properties"][field.name][key] = max(field.flags, key=len)
         schemas[path] = schema
     return schemas
 

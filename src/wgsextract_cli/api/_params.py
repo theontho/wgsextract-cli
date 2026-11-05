@@ -42,6 +42,8 @@ class ParamSpec:
     (default: the field's default); a read-only server leaves them out and
     uses that value. ``may_name_file`` text fields (a region) may instead
     name a file; the server path-checks values written like a path.
+    A ``positional`` field is a positional CLI argument named by ``metavar``;
+    a tuple one takes one or more values.
     """
 
     help: str | None = None
@@ -61,6 +63,7 @@ class ParamSpec:
     writes: bool = False
     safe_value: Any = UNSET
     may_name_file: bool = False
+    positional: bool = False
 
     @property
     def description(self) -> str:
@@ -88,6 +91,7 @@ def param(
     writes: bool = False,
     safe_value: Any = UNSET,
     may_name_file: bool = False,
+    positional: bool = False,
 ) -> Any:
     """Declare a Params field; omit ``default`` for a required one.
 
@@ -112,6 +116,7 @@ def param(
         writes=writes or safe_value is not UNSET,
         safe_value=safe_value,
         may_name_file=may_name_file,
+        positional=positional,
     )
     return dataclasses.field(default=default, metadata={_SPEC: spec})
 
@@ -137,6 +142,8 @@ class ParamField:
 
     @property
     def flags(self) -> tuple[str, ...]:
+        if self.spec.positional:
+            return (self.spec.metavar or self.name.upper(),)
         return self.spec.flags or ("--" + self.name.replace("_", "-"),)
 
     @property
@@ -170,6 +177,9 @@ class Params:
             if item.spec.path and isinstance(value, (str, os.PathLike)):
                 value = Path(value) if os.fspath(value) else None
                 object.__setattr__(self, item.name, value)
+            elif item.spec.path and isinstance(value, (tuple, list)):
+                value = tuple(Path(v) for v in value)
+                object.__setattr__(self, item.name, value)
             if item.required and value is None:
                 raise UsageError(
                     item.spec.required_message or f"{item.flags[0]} required."
@@ -188,13 +198,17 @@ class Params:
         """The parameters as JSON-ready values (paths as strings)."""
         out: dict[str, Any] = {}
         for item in param_fields(type(self)):
-            value = getattr(self, item.name)
-            if isinstance(value, os.PathLike):
-                value = os.fspath(value)
-            elif isinstance(value, tuple):
-                value = list(value)
-            out[item.name] = value
+            out[item.name] = _plain(getattr(self, item.name))
         return out
+
+
+def _plain(value: Any) -> Any:
+    """Paths as strings and tuples as lists, for JSON and argparse."""
+    if isinstance(value, os.PathLike):
+        return os.fspath(value)
+    if isinstance(value, tuple):
+        return [_plain(v) for v in value]
+    return value
 
 
 _FIELD_CACHE: dict[type[Params], tuple[ParamField, ...]] = {}
@@ -263,7 +277,7 @@ def from_namespace(cls: type[P], args: argparse.Namespace | Any) -> P:
                     item.spec.required_message or f"{item.flags[0]} required."
                 )
             continue
-        if item.spec.action == "append":
+        if isinstance(value, list):
             value = tuple(value)
         values[item.name] = value
     return cls(**values)
@@ -271,14 +285,10 @@ def from_namespace(cls: type[P], args: argparse.Namespace | Any) -> P:
 
 def to_namespace(params: Params) -> argparse.Namespace:
     """A Namespace view (string paths, list appends) for code not yet typed."""
-    values: dict[str, Any] = {}
-    for item in param_fields(type(params)):
-        value = getattr(params, item.name)
-        if isinstance(value, os.PathLike):
-            value = os.fspath(value)
-        elif isinstance(value, tuple):
-            value = list(value)
-        values[item.dest] = value
+    values = {
+        item.dest: _plain(getattr(params, item.name))
+        for item in param_fields(type(params))
+    }
     return argparse.Namespace(**values)
 
 
@@ -312,7 +322,10 @@ def _type_schema(tp: Any, spec: ParamSpec) -> dict[str, Any]:
     nullable = type(None) in args
     base = next((a for a in args if a is not type(None)), str)
     schema: dict[str, Any]
-    if spec.path or base is Path:
+    if typing.get_origin(base) is tuple:
+        item = {"type": "string", "format": "path"} if spec.path else {"type": "string"}
+        schema = {"type": "array", "items": item}
+    elif spec.path or base is Path:
         schema = {"type": "string", "format": "path"}
     elif base is bool:
         schema = {"type": "boolean"}
@@ -320,8 +333,6 @@ def _type_schema(tp: Any, spec: ParamSpec) -> dict[str, Any]:
         schema = {"type": "integer"}
     elif base is float:
         schema = {"type": "number"}
-    elif typing.get_origin(base) is tuple:
-        schema = {"type": "array", "items": {"type": "string"}}
     else:
         schema = {"type": "string"}
     if spec.choices is not None:
