@@ -1,0 +1,6 @@
+#pragma once
+
+static constexpr const char *wgse_seeding_source = R"WGSE_METAL(
+@seeding_types@
+@seeding_source@
+)WGSE_METAL";

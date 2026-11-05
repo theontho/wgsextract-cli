@@ -1,7 +1,7 @@
 name: macOS Aligners
 
 # Builds the optional Apple Silicon rebuilds of BWA (wgse-bwa) and BWA-MEM2
-# (wgse-bwa-mem2, with an experimental --metal flag) from native/ on every change
+# (wgse-bwa-mem2), each with an experimental --metal flag, from native/ on every change
 # to them, and publishes them to a prerelease when asked:
 # Actions > macOS Aligners > Run workflow, with a new tag such as macos-aligners-1.
 # The wgsextract CLI does not use these builds yet.
@@ -40,16 +40,17 @@ jobs:
           cmake -S native -B out/build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DFETCHCONTENT_BASE_DIR="$PWD/out/deps"
           cmake --build out/build -j "$(sysctl -n hw.ncpu)"
           cmake --install out/build --prefix out/prefix
-          version=$(sed -n 's/^CMAKE_PROJECT_VERSION:STATIC=//p' out/build/CMakeCache.txt)
           mkdir -p out/packages
           for tool in wgse-bwa wgse-bwa-mem2; do
+            # Each package has its own version: "wgse-bwa 0.2.0; BWA 0.7.19".
+            version=$("out/prefix/bin/$tool" --version | sed -n 's/^[^ ]* \([^;]*\);.*/\1/p')
+            test -n "$version"
             otool -L "out/prefix/bin/$tool"
             if otool -L "out/prefix/bin/$tool" | tail -n +2 | grep -Ev '^\s+(/usr/lib/|/System/Library/)'; then
               echo "$tool links a non-system library" >&2
               exit 1
             fi
-            native/tests/smoke.sh "$PWD/out/prefix/bin/$tool" "$PWD/out/smoke-$tool" \
-              "$([ "$tool" = wgse-bwa-mem2 ] && echo metal || echo cpu)"
+            native/tests/smoke.sh "$PWD/out/prefix/bin/$tool" "$PWD/out/smoke-$tool" metal
             package="$tool-$version-macos-arm64"
             mkdir -p "out/stage/$package/bin" "out/stage/$package/share/licenses"
             cp "out/prefix/bin/$tool" "out/stage/$package/bin/"
@@ -82,7 +83,7 @@ jobs:
           case "$TAG" in macos-aligners-*) ;; *) echo "Tag must start with macos-aligners-" >&2; exit 1 ;; esac
           {
             echo "Optional Apple Silicon (macOS 13+, arm64) rebuilds of BWA 0.7.19 and BWA-MEM2 2.3. Not used by the wgsextract CLI yet."
-            echo "wgse-bwa-mem2 aligns on the CPU by default; its EXPERIMENTAL --metal flag offloads seed extension to the GPU."
+            echo "Both align on the CPU by default. Their EXPERIMENTAL --metal flags offload seeding (wgse-bwa) or seed extension (wgse-bwa-mem2) to the GPU."
             echo "Built from native/ at ${GITHUB_SHA} by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
             echo "See native/README.md for usage, benchmarks and licences."
             echo

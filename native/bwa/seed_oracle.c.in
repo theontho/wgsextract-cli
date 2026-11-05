@@ -1,0 +1,16 @@
+// Appended to the generated copy of upstream bwamem.c, so that the seeding
+// parity tests can call its otherwise-static mem_collect_intv unchanged.
+void *wgse_seed_scratch_create(void) {
+    return smem_aux_init();
+}
+
+void wgse_seed_scratch_destroy(void *scratch) {
+    smem_aux_destroy(scratch);
+}
+
+const bwtintv_v *wgse_seed_collect(const mem_opt_t *options, const bwt_t *bwt,
+    int length, const uint8_t *sequence, void *scratch) {
+    smem_aux_t *aux = scratch;
+    mem_collect_intv(options, bwt, length, sequence, aux);
+    return &aux->mem;
+}

@@ -7,13 +7,19 @@ they are qualified on full genomes (#364).
 
 | Executable | Upstream | Notes |
 | --- | --- | --- |
-| `wgse-bwa` | BWA 0.7.19 | Unmodified source, native arm64 build. Low memory: about 5 GB for a human index plus a little per thread. |
+| `wgse-bwa` | BWA 0.7.19 | Native arm64 build. CPU by default (unmodified upstream code); `--metal` is **experimental**. Low memory: about 6 GB for a human index. |
 | `wgse-bwa-mem2` | BWA-MEM2 2.3 | arm64 build through sse2neon. CPU by default; `--metal` is **experimental**. Needs much more memory than BWA (see below). |
 
-Both write the same alignments as their upstream release; only the `@PG`
-version gains a `-wgse-<version>` suffix.
+Both write the same alignments as their upstream release, with or without
+`--metal`; only the `@PG` version gains a `-wgse-<version>` suffix (and its
+command line records any backend option). Each package has its own version,
+printed by `--version`.
 
 ## Installing
+
+The `macos-aligners-2` prerelease has `wgse-bwa` 0.2.0 and `wgse-bwa-mem2`
+0.1.0. `wgse-bwa --metal` and `wgse-bwa capabilities` need `wgse-bwa` 0.2.0 or
+later; `macos-aligners-1` has `wgse-bwa` 0.1.0, which aligns on the CPU only.
 
 Download into an empty directory with `gh` (or `curl`), which avoids the
 browser quarantine flag that Gatekeeper applies to these ad-hoc-signed
@@ -22,8 +28,8 @@ publishes for each release asset:
 
 ```bash
 mkdir wgse-aligners && cd wgse-aligners
-gh release download macos-aligners-1 -R WGSExtract/wgsextract-cli
-gh release view macos-aligners-1 -R WGSExtract/wgsextract-cli --json assets \
+gh release download macos-aligners-2 -R WGSExtract/wgsextract-cli
+gh release view macos-aligners-2 -R WGSExtract/wgsextract-cli --json assets \
   --jq '.assets[] | "\(.digest | ltrimstr("sha256:"))  \(.name)"' |
   shasum -a 256 -c
 ```
@@ -33,21 +39,25 @@ Continue only if every archive reports `OK`. Then extract them and put both
 keep it):
 
 ```bash
-tar -xzf wgse-bwa-0.1.0-macos-arm64.tar.gz
-tar -xzf wgse-bwa-mem2-0.1.0-macos-arm64.tar.gz
-export PATH="$PWD/wgse-bwa-0.1.0-macos-arm64/bin:$PWD/wgse-bwa-mem2-0.1.0-macos-arm64/bin:$PATH"
+for archive in wgse-bwa-*-macos-arm64.tar.gz; do tar -xzf "$archive"; done
+for dir in wgse-bwa-*-macos-arm64; do PATH="$PWD/$dir/bin:$PATH"; done
+export PATH
+wgse-bwa capabilities --json
 wgse-bwa-mem2 capabilities --json
 ```
 
 macOS kills a quarantined executable as soon as it starts. If an archive was
 downloaded in a browser, clear the flag before running, for example
-`xattr -dr com.apple.quarantine wgse-bwa-0.1.0-macos-arm64`.
+`xattr -dr com.apple.quarantine wgse-bwa-0.2.0-macos-arm64` (and
+`wgse-bwa-mem2-0.1.0-macos-arm64`).
 
 ## Usage
 
 ```bash
 wgse-bwa index hs38.fa
-wgse-bwa mem -t 8 hs38.fa R1.fastq.gz R2.fastq.gz > out.sam
+wgse-bwa mem -t 9 hs38.fa R1.fastq.gz R2.fastq.gz > out.sam
+wgse-bwa --metal mem -t 9 hs38.fa R1.fastq.gz R2.fastq.gz > out.sam
+wgse-bwa capabilities --json
 
 wgse-bwa-mem2 index hs38.fa
 wgse-bwa-mem2 mem -t 9 hs38.fa R1.fastq.gz R2.fastq.gz > out.sam
@@ -55,36 +65,57 @@ wgse-bwa-mem2 --metal mem -t 9 hs38.fa R1.fastq.gz R2.fastq.gz > out.sam
 wgse-bwa-mem2 capabilities --json
 ```
 
-Options before the command select the BWA-MEM2 backend:
+Options before the command select the backend of `mem` (other commands ignore
+them):
 
-- default (`--backend cpu`): BWA-MEM2's own SIMD code;
-- `--metal` (`--backend metal`): batches seed extension across worker threads
-  onto the GPU, keeping small batches on the CPU. Fails if Metal is unusable,
-  and exits 1 if a GPU batch fails (the CPU still completes the alignments);
-- `--backend auto`: like `--metal`, but falls back to the CPU in both cases.
+- default (`--backend cpu`): the upstream CPU code, unchanged;
+- `--metal` (`--backend metal`): fails if Metal is unusable, and exits 1 if a
+  GPU batch fails (the CPU still completes the alignments, so the output is
+  complete and correct);
+- `--backend auto`: like `--metal`, but falls back to the CPU in both cases
+  with only a note on stderr.
 
-With `--metal` the backend prints GPU and CPU batch counts to stderr.
+What runs on the GPU:
+
+- `wgse-bwa`: exact SMEM seeding (BWA's three-pass FM-index interval
+  collection). Each chunk of reads (`-K`) is split: the GPU seeds 80% of the
+  pairs while the CPU threads map the other 20%, then the CPU extends the
+  GPU-seeded pairs from their cached intervals. Reads the GPU cannot seed
+  exactly (over 512 bp, too many intervals, or seeding options wider than 32
+  bits) are seeded by upstream's CPU code; on HG002 this is 0.3% of reads.
+- `wgse-bwa-mem2`: batches seed extension across worker threads, keeping small
+  batches on the CPU.
+
+With a Metal backend both print GPU and CPU work counts to stderr.
 
 ## Memory
 
 BWA-MEM2 trades memory for speed. Building its human index needs roughly
 60–90 GB of RAM, and aligning needs the 15–20 GB index in memory. BWA fits
 ordinary desktops. On hs38 with 150 bp HG002 pairs, `wgse-bwa` built the index
-with a 6.2 GB peak in 100 minutes, and aligning peaked at 5.3 GB with 1 thread
-and 5.9 GB with 9 threads (default `-K`), or about 75 MB per extra thread.
-`--metal` adds under 100 MB of GPU buffers.
+with a 6.2 GiB peak in 100 minutes, and aligning peaked at 5.3 GiB with 1 thread
+and 5.9 GiB with 9 threads (default `-K`), or about 75 MiB per extra thread.
+`wgse-bwa --metal` adds about 0.4 GiB, mostly the GPU's seed output buffer.
+`wgse-bwa-mem2 --metal` adds under 100 MB of GPU buffers.
 
 ## Performance
 
 Measured on an M1 Pro (8P+2E cores, 32 GB). All runs in each group produced
 identical alignments.
 
-Full genome (hs38, first 5M HG002 30x NovaSeq pairs, `-K 10000000`):
+Full genome (hs38, first 5M HG002 30x NovaSeq pairs, `-K 10000000`). Each row
+is the mean of its runs. The 0.2.0 rows are two interleaved runs each on AC power:
 
-| Aligner | Threads | Time | Peak RSS |
-| --- | --- | --- | --- |
-| Bioconda bwa 0.7.19 | 9 | 528.5 s | 5.4 GB |
-| `wgse-bwa` | 9 | 527.4 s | 5.4 GB |
+| Aligner | Threads | Time | Peak RSS | vs CPU |
+| --- | --- | --- | --- | --- |
+| Bioconda bwa 0.7.19 | 9 | 528.5 s | 5.4 GiB | — |
+| `wgse-bwa` 0.1.0 | 9 | 527.4 s | 5.4 GiB | — |
+| `wgse-bwa` 0.2.0 | 9 | 481.2 s | 5.4 GiB | — |
+| `wgse-bwa --metal` 0.2.0 | 9 | 425.4 s | 5.8 GiB | −11.6% |
+
+An earlier interleaved session on battery gave 501.8 s (CPU) and 436.9 s
+(Metal). On 200k of those pairs `--metal` saved 10% with 9 threads, 11% with 4
+and 14% with 1.
 
 The BWA-MEM2 human index cannot be built on this machine, so BWA-MEM2 was
 measured with 10.6M read pairs against a small reference (chr20 fragment, Y,
@@ -98,11 +129,16 @@ MT) whose whole index fits in cache. Full-genome gains will be smaller:
 | `wgse-bwa-mem2` | 9 | 35.0 s | −23.5% |
 | `wgse-bwa-mem2 --metal` | 9 | 31.0 s | −32.2% |
 
-`wgse-bwa` matches the packaged build at full-genome scale; its value is a
-self-contained, dependency-free macOS build. On hs38 its time splits roughly
-into SMEM collection (19%), suffix-array locate (23%) and extension with mate
-rescue (45%). An exact GPU seeding prototype cut full-genome wall time by only
-9%, so `wgse-bwa` has no Metal backend.
+On the CPU `wgse-bwa` matches the packaged build; its value is a
+self-contained, dependency-free macOS build. Compiler tuning does not help:
+Apple clang already targets `apple-m1`, and ThinLTO, full LTO, profile-guided
+optimization and mimalloc each changed the 200k-pair time by about 1% or less,
+and mimalloc changed the full-genome time by 0.4%.
+
+On hs38 BWA's time splits roughly into SMEM collection (19%), suffix-array
+locate (23%) and extension with mate rescue (45%). `--metal` moves only SMEM
+collection to the GPU, for most pairs, so it can save at most about a fifth of
+the run.
 
 ## Building
 
@@ -123,7 +159,9 @@ both executables, and publishes them when run with a `macos-aligners-N` tag.
 
 ## Licences
 
-`wgse-bwa` is GPL-3.0 (BWA, plus this repository's build glue).
+`wgse-bwa` combines BWA (GPL-3.0) with the code in `bwa/` and `metal-common/`
+(GPL-3.0-or-later); its Metal seeding kernel is adapted from BWA's MIT-licensed
+`bwt.c` and `bwamem.c` (`METAL-SEEDING-LICENSE`).
 `wgse-bwa-mem2` combines BWA-MEM2 (MIT), sse2neon
 (MIT) and safestringlib (MIT) with the code in `bwa-mem2/` (GPL-3.0-or-later,
 like this repository). Each package ships its licences, including this

@@ -73,8 +73,9 @@ else
         # shellcheck disable=SC2086
         "$binary" --metal $gpu_options mem -t 4 reference.fa reads_1.fq reads_2.fq \
             > metal.sam 2> metal.log
-        grep -v '^@' cpu.sam > cpu.records
-        grep -v '^@' metal.sam > metal.records
+        # Only the @PG command line may differ (it records the backend option).
+        grep -v '^@PG' cpu.sam > cpu.records
+        grep -v '^@PG' metal.sam > metal.records
         cmp cpu.records metal.records
         grep 'gpu_batches=' metal.log
         if grep -q 'gpu_batches=0 ' metal.log; then
