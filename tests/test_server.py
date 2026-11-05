@@ -308,6 +308,11 @@ sys.exit(subprocess.run([{real!r}, *sys.argv[1:]]).returncode)
 def slow_coverage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_data) -> Path:
     """`samtools coverage` hangs (a very slow tool); other subcommands are real.
     Returns the folder where each hanging call records its pid."""
+    if sys.platform == "win32":
+        pytest.skip(
+            "Windows starts a bare 'samtools' with CreateProcess, which finds "
+            "only .exe files, so a scripted fake can't replace it"
+        )
     pids = tmp_path / "pids"
     pids.mkdir()
     real = shutil.which("samtools")
