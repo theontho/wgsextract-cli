@@ -565,6 +565,9 @@ def run_streamed_alignment(
             )
         if on_written:
             on_written()
+    # A committed alignment survives a failed index, so a rerun only reindexes.
+    indexes = partial[1:] if on_written else partial
+    with cleanup_files(on_failure=indexes, preserve_outputs=atomic_outputs_enabled()):
         logging.info(LOG_MESSAGES["indexing_output"])
         _index_output(out_path, threads=threads)
 

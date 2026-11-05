@@ -410,7 +410,8 @@ def _align(
 ) -> None:
     """Run the align step. Aligners that report when their sorted output is
     complete (bwa, minimap2) index it as a separate step, so a run killed
-    while indexing resumes without realigning; the others index within it."""
+    while indexing resumes without realigning. The others index within it,
+    and that index is then recorded as the index step."""
     out_path = str(decision.step.outputs[0])
     aligning = journal.start(decision)
     indexing = None
@@ -426,9 +427,10 @@ def _align(
     if indexing is not None:
         journal.finish(indexing)
     else:
-        aligning.add_output(_index_path(out_path))
         aligning.metrics["aligner"] = current_result().metrics.get("aligner")
         journal.finish(aligning)
+        # The aligner indexed its output itself; record that as the index step.
+        journal.finish(journal.start(journal.check(_index_step(out_path))))
 
 
 def _resume_alignment(
@@ -438,23 +440,15 @@ def _resume_alignment(
     target: str | None,
     threads: str,
 ) -> None:
-    """Finish from a completed align step: index the output unless that was
-    done, then report the alignment as this run's output."""
-    index = _index_path(out_path)
-    indexed = any(
-        Path(journal.path.parent, item["path"]) == Path(index)
-        for item in decision.outputs
-    )
-    if not indexed:
-        indexing = journal.decide(_index_step(out_path))
-        if journal.dry_run:
-            return
-        if indexing.run:
-            with journal.running(indexing):
-                logging.info("Indexing %s ...", out_path)
-                align_cmd._index_output(out_path, threads=threads)
+    """Finish from a completed align step: index the output unless the index
+    step is complete, then report the alignment as this run's output."""
+    indexing = journal.decide(_index_step(out_path))
     if journal.dry_run:
         return
+    if indexing.run:
+        with journal.running(indexing):
+            logging.info("Indexing %s ...", out_path)
+            align_cmd._index_output(out_path, threads=threads)
     aligner = str(decision.metrics.get("aligner") or "aligner")
     align_cmd.record_alignment(out_path, aligner, target or "")
 

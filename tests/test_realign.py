@@ -815,6 +815,34 @@ def test_ultima_realign_counts_index_once_and_passes_through_unknown_counts(
     assert calls == expected
 
 
+def test_force_step_index_reindexes_an_alignment_its_aligner_indexed(
+    tmp_path, monkeypatch, source
+):
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(realign, "indexed_read_count", lambda *_args: 2)
+    calls = []
+
+    def align_ultima(*_args):
+        calls.append("align")
+        Path(tmp_path, "x_aligned.bam").write_text("aligned")
+        Path(tmp_path, "x_aligned.bam.bai").write_text("index")
+
+    def index(path, **_kwargs):
+        calls.append("index")
+        Path(path + ".bai").write_text("reindexed")
+
+    monkeypatch.setattr(realign.align_cmd, "align_ultima", align_ultima)
+    monkeypatch.setattr(realign.align_cmd, "_index_output", index)
+    args = {"platform": "ultima", "aligner": "bwa", "force_steps": None}
+    realign.run(_args(source, **args))
+    realign.run(_args(source, **args))
+    assert calls == ["align"]
+
+    realign.run(_args(source, **{**args, "force_steps": ["index"]}))
+    assert calls == ["align", "index"]
+    assert Path(tmp_path, "x_aligned.bam.bai").read_text() == "reindexed"
+
+
 # --- resuming after a crash ---------------------------------------------------
 
 
@@ -822,7 +850,8 @@ def _dying_tools(tmp_path, log):
     """PATH shims for the aligner, samtools and sambamba that log each call's
     subcommand and, when it matches the pattern in ``tmp_path/die``, SIGKILL
     the wgsextract run's process group and their own mid-call, as an OOM kill
-    or power cut would."""
+    or power cut would (or send it ``tmp_path/signal``, such as INT for a
+    Ctrl-C)."""
     import shutil
     import stat
 
@@ -841,7 +870,8 @@ def _dying_tools(tmp_path, log):
             f'  rm -f "{tmp_path}/die"\n'
             # Half an output stream, then the crash.
             f'  "{real}" "$@" | head -c 4096\n'
-            f'  kill -9 -- "-$(cat "{tmp_path}/run.pid")"\n'
+            f'  sig="$(cat "{tmp_path}/signal" 2>/dev/null || echo 9)"\n'
+            f'  kill -"$sig" -- "-$(cat "{tmp_path}/run.pid")"\n'
             "  kill -9 0\n"
             "fi\n"
             f'exec "{real}" "$@"\n'
@@ -850,13 +880,14 @@ def _dying_tools(tmp_path, log):
     return shims
 
 
-def _realign_cli(argv, shims, die=None):
+def _realign_cli(argv, shims, die=None, signal="9"):
     import os
     import subprocess
     import sys
 
     if die:
         (shims.parent / "die").write_text(die + "\n")
+        (shims.parent / "signal").write_text(signal + "\n")
     env = {**os.environ, "PATH": f"{shims}{os.pathsep}{os.environ['PATH']}"}
     with subprocess.Popen(
         [sys.executable, "-m", "wgsextract_cli.main", "realign", *argv],
@@ -878,9 +909,13 @@ def _records(bam):
 
 @pytest.mark.skipif(platform.system() == "Windows", reason="bash PATH shims")
 @needs_tools("bwa", "samtools")
-@pytest.mark.parametrize("die", ["bwa mem", "(samtools|sambamba) index"])
+@pytest.mark.parametrize(
+    "die, signal",
+    [("bwa mem", "9"), ("(samtools|sambamba) index", "9"),
+     ("(samtools|sambamba) index", "INT")],
+)  # fmt: skip
 def test_a_run_killed_mid_step_resumes_there_with_identical_output(
-    tmp_path, genome_and_ref, die
+    tmp_path, genome_and_ref, die, signal
 ):
     genome, ref = genome_and_ref
     source, _ = _old_alignment(tmp_path, genome)
@@ -891,7 +926,7 @@ def test_a_run_killed_mid_step_resumes_there_with_identical_output(
         log.write_text("")
         argv = ["--input", str(source), "--ref", ref, "--outdir", str(outdir),
                 "--threads", "2", "--keep-fastq", "--sample", "Ann"]  # fmt: skip
-        done = _realign_cli(argv, shims, die)
+        done = _realign_cli(argv, shims, die, signal)
         calls = [c for c in log.read_text().splitlines() if c != "samtools --version"]
         return done, calls
 
@@ -900,7 +935,7 @@ def test_a_run_killed_mid_step_resumes_there_with_identical_output(
 
     out = tmp_path / "out"
     killed, calls = realign_to(out, die=die)
-    assert killed.returncode == -9
+    assert killed.returncode != 0
     assert any(re.fullmatch(die, call) for call in calls)
     bam = out / "x_aligned.bam"
     journal = json.loads((out / "x_aligned.bam.steps.json").read_text())
