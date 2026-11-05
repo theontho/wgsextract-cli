@@ -46,7 +46,7 @@ Use `info` and region-limited commands first. Whole-genome jobs can take hours a
 # 1. Open Terminal.
 # 2. Paste this line and press Enter.
 # 3. The installer creates ./wgsextract-cli.
-curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/WGSExtract/wgsextract-cli/main/install.sh | sh
 
 # Put the launcher on PATH for this shell (see "Running the CLI")
 export PATH="$PWD/wgsextract-cli:$PATH"
@@ -110,7 +110,7 @@ Open PowerShell on Windows, then move into the WGS Extract CLI folder you cloned
 ```
 # Open PowerShell in the downloaded wgsextract-cli folder.
 # If you have not downloaded the project yet:
-git clone https://github.com/theontho/wgsextract-cli.git
+git clone https://github.com/WGSExtract/wgsextract-cli.git
 cd wgsextract-cli
 
 # Recommended Windows install path: run the BAT installer.
@@ -131,7 +131,7 @@ pixi run wgsextract deps check
 
 ::: wrap
 ::: callout
-{{ text: **Windows prerequisites:** Download the repository or clone it with Git, then run the BAT installer; it downloads Pixi when missing. Reopen your shell after a first Pixi installation. Older installs used MSYS2, which is no longer needed. See the [Windows guide](https://github.com/theontho/wgsextract-cli/blob/main/docs/windows.md){.inline-link} for details. }}
+{{ text: **Windows prerequisites:** Download the repository or clone it with Git, then run the BAT installer; it downloads Pixi when missing. Reopen your shell after a first Pixi installation. Older installs used MSYS2, which is no longer needed. See the [Windows guide](https://github.com/WGSExtract/wgsextract-cli/blob/main/docs/windows.md){.inline-link} for details. }}
 :::
 :::
 :::
@@ -160,7 +160,7 @@ The standalone installer still uses Pixi underneath. Developer setup adds contri
 ::: code-panel title=developer-pixi.sh subtitle="technical users"
 ```
 # macOS/Linux
-git clone https://github.com/theontho/wgsextract-cli.git
+git clone https://github.com/WGSExtract/wgsextract-cli.git
 cd wgsextract-cli
 ./scripts/dev_setup.sh
 
@@ -174,7 +174,7 @@ just check
 :::
 
 ::: callout
-{{ text: **Contributor tooling** (pytest, ruff, mypy) lives in the `dev` Pixi environment. Tasks such as `pixi run test`, `pixi run lint`, and `pixi run typecheck` select it automatically. Rerun setup safely, or use `just setup` once `just` is available. See [Developer setup](https://github.com/theontho/wgsextract-cli/blob/main/docs/developer_setup.md){.inline-link} for skip-test options and the contribution workflow. }}
+{{ text: **Contributor tooling** (pytest, ruff, mypy) lives in the `dev` Pixi environment. Tasks such as `pixi run test`, `pixi run lint`, and `pixi run typecheck` select it automatically. Rerun setup safely, or use `just setup` once `just` is available. See [Developer setup](https://github.com/WGSExtract/wgsextract-cli/blob/main/docs/developer_setup.md){.inline-link} for skip-test options and the contribution workflow. }}
 :::
 :::
 :::
@@ -202,7 +202,7 @@ Use the standalone installer on x86_64 and on native ARM64 (v0.6.6 and later). A
 {{ tag: linux-64 }}
 {{ tag: linux-aarch64 }}
 
-{{ link: Linux ARM64 scope and validation|https://github.com/theontho/wgsextract-cli/blob/main/docs/linux-arm64.md|inline-link }}
+{{ link: Linux ARM64 scope and validation|https://github.com/WGSExtract/wgsextract-cli/blob/main/docs/linux-arm64.md|inline-link }}
 :::
 
 ::: card
@@ -213,7 +213,7 @@ Windows x64 is the published installation path. Windows ARM64 remains an opt-in 
 
 {{ tag: win-64 }}
 
-{{ link: Windows guide|https://github.com/theontho/wgsextract-cli/blob/main/docs/windows.md|inline-link }}
+{{ link: Windows guide|https://github.com/WGSExtract/wgsextract-cli/blob/main/docs/windows.md|inline-link }}
 :::
 :::
 

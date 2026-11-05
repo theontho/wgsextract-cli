@@ -38,7 +38,7 @@ PROGRESS_STEP_WIDTH = 68
 
 
 DEFAULT_REAL_DATASET_URL = (
-    "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/"
+    "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/"
     "wgsextract-benchmark-hg19-mini.zip"
 )
 

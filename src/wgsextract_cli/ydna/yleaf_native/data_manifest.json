@@ -77,7 +77,7 @@
       },
       "sha256": "befcb73251130dafa9d43fbd892c3d1a7c909865544156bb3a3b4562276439fe",
       "size": 46656153,
-      "url": "https://github.com/theontho/wgsextract-cli/releases/download/yleaf-data-v4.1.6/yleaf-v4.1.6-hg19.tar.gz"
+      "url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/yleaf-data-v4.1.6/yleaf-v4.1.6-hg19.tar.gz"
     },
     "hg38": {
       "files": {
@@ -152,7 +152,7 @@
       },
       "sha256": "dec47fc71e19fb5c14a865a01823e80dbc904cdb860c38e78837c05c524ad928",
       "size": 46548011,
-      "url": "https://github.com/theontho/wgsextract-cli/releases/download/yleaf-data-v4.1.6/yleaf-v4.1.6-hg38.tar.gz"
+      "url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/yleaf-data-v4.1.6/yleaf-v4.1.6-hg38.tar.gz"
     },
     "hg_prediction_tables": {
       "files": {
@@ -995,7 +995,7 @@
       },
       "sha256": "9ed14219c95bd8fccf89890657d2bca5a1fdc4dba8cc45e0b1f804835e19889f",
       "size": 2779791,
-      "url": "https://github.com/theontho/wgsextract-cli/releases/download/yleaf-data-v4.1.6/yleaf-v4.1.6-hg_prediction_tables.tar.gz"
+      "url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/yleaf-data-v4.1.6/yleaf-v4.1.6-hg_prediction_tables.tar.gz"
     },
     "t2t": {
       "files": {
@@ -1078,7 +1078,7 @@
       },
       "sha256": "298d7c582a0d817810a6727dba62e1d4e2b0212e5fcd0979d24dfce766fc9285",
       "size": 46070593,
-      "url": "https://github.com/theontho/wgsextract-cli/releases/download/yleaf-data-v4.1.6/yleaf-v4.1.6-t2t.tar.gz"
+      "url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/yleaf-data-v4.1.6/yleaf-v4.1.6-t2t.tar.gz"
     }
   },
   "release_tag": "yleaf-data-v4.1.6",

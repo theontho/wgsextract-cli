@@ -21,6 +21,7 @@ from tests.htslib_helpers import (
     sam_to_bam,
     write_fasta,
 )
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
@@ -191,6 +192,54 @@ def test_male_y_markers_are_called(tmp_path, library):
     _microarray(bam, fasta, tmp_path / "out")
 
     assert _genotypes(tmp_path / "out" / "male_23andMe_V3.txt")["rsY"] == "T"
+
+
+def _renamed_library(root: Path, genome: str) -> Path:
+    """The library with its genome renamed, which names the build."""
+    _library(root)
+    fasta = root / "genomes" / genome
+    for suffix in ("", ".fai"):
+        (root / "genomes" / f"hg19.fa{suffix}").rename(f"{fasta}{suffix}")
+    return fasta
+
+
+def _target_tab(path: Path) -> str:
+    path.write_text("".join(f"{c}\t{p}\t{r}\n" for r, c, p in MARKERS))
+    run_command([get_tool_path("bgzip"), "-f", str(path)])
+    run_command([get_tool_path("tabix"), "-s1", "-b2", "-e2", f"{path}.gz"])
+    return f"{path}.gz"
+
+
+def test_reference_model_alias_genome_calls_male_x_haploid(tmp_path):
+    # An unrecognised build would fall back to all-diploid and call these
+    # mixed chrX reads heterozygous; a man's chrX is haploid.
+    fasta = _renamed_library(tmp_path / "reference", "GRCh37.fa")
+    bam = _bam(tmp_path / "male.bam", _genome(), {**MALE, "rsX": "AG"})
+
+    _microarray(bam, str(fasta), tmp_path / "out")
+
+    assert _genotypes(tmp_path / "out" / "male_23andMe_V3.txt")["rsX"] in ("AA", "GG")
+
+
+def test_unknown_build_calls_every_chromosome_diploid(tmp_path):
+    fasta = _renamed_library(tmp_path / "reference", "custom.fa")
+    bam = _bam(tmp_path / "male.bam", _genome(), {**MALE, "rsX": "AG"})
+    targets = _target_tab(tmp_path / "targets.tab")
+
+    _microarray(bam, str(fasta), tmp_path / "out", "--ref-vcf-tab", targets)
+
+    kit = _genotypes(tmp_path / "out" / "male_CombinedKit.txt")
+    assert (kit["rsHet"], kit["rsX"], kit["rsY"]) == ("AC", "AG", "TT")
+
+
+def test_hg38_without_a_liftover_chain_fails_before_calling(tmp_path):
+    fasta = _renamed_library(tmp_path / "reference", "hg38.fa")
+    bam = _bam(tmp_path / "male.bam", _genome(), MALE)
+    targets = _target_tab(tmp_path / "targets.tab")
+
+    with pytest.raises(WGSExtractError, match="liftover chain"):
+        _microarray(bam, str(fasta), tmp_path / "out", "--ref-vcf-tab", targets)
+    assert not list(tmp_path.glob("out/*.vcf.gz"))
 
 
 def test_female_x_is_diploid_and_y_is_a_no_call(tmp_path, library):
@@ -609,7 +658,7 @@ def test_vcf_input_region_in_the_vcfs_naming_style(tmp_path, library):
     }
 
 
-def test_hg38_input_is_lifted_to_the_hg19_templates(tmp_path):
+def test_hg38_input_is_lifted_to_the_hg19_templates(tmp_path, monkeypatch):
     # hg38 = hg19 + 100 on every contig: hg38ToHg19 maps [100, 5000) to [0, 4900).
     root = tmp_path / "reference"
     seqs = _genome()
@@ -643,8 +692,14 @@ def test_hg38_input_is_lifted_to_the_hg19_templates(tmp_path):
                     f"{''.join(read)}\t{'I' * 100}\tRG:Z:s"
                 )
     bam = sam_to_bam(lines, tmp_path / "sample.bam")
+    library = tmp_path / "configured-library"
+    monkeypatch.setitem(settings, "reference_library", str(library))
 
     _microarray(bam, fasta, tmp_path / "out", "--ref-vcf-tab", targets_gz)
+
+    # The liftover cache goes in the configured library, not beside --ref.
+    caches = list(tmp_path.rglob("hg19-coordinates/*.bin"))
+    assert [c.is_relative_to(library) for c in caches] == [True]
 
     out = tmp_path / "out"
     assert _rows(out / "sample_CombinedKit.txt")["rsHet"] == ["1", "1100", "AC"]

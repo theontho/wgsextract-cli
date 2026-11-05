@@ -23,7 +23,7 @@ RUN chmod +x scripts/build/*.sh && \
     bash scripts/build/build_release_binaries_arm64.sh
 
 FROM builder AS runtime
-LABEL org.opencontainers.image.source="https://github.com/theontho/wgsextract-cli" \
+LABEL org.opencontainers.image.source="https://github.com/WGSExtract/wgsextract-cli" \
       org.opencontainers.image.version="1.10.0-arm64" \
       org.opencontainers.image.description="Native CPU build of Google's unchanged DeepVariant 1.10.0 scientific source"
 RUN set -e; apt-get update -qq && apt-get install -y -qq parallel samtools bcftools file time libjemalloc2 && \

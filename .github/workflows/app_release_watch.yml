@@ -21,7 +21,7 @@ jobs:
       - name: Run the Install Lab for the latest app release if it hasn't had one
         env:
           GH_TOKEN: ${{ github.token }}
-          GUI_REPO: theontho/gui-for-cli
+          GUI_REPO: WGSExtract/gui-for-cli
         run: |
           tag=$(gh release view -R "$GUI_REPO" --json tagName -q .tagName)
           # install_lab.yml names a run dispatched with app_release after it.

@@ -1,0 +1,16 @@
+cmake_minimum_required(VERSION 3.24)
+set(CMAKE_OSX_DEPLOYMENT_TARGET 13.0 CACHE STRING "Minimum macOS version")
+project(wgse_native_aligners VERSION 0.1.0 LANGUAGES C CXX OBJCXX)
+
+if(NOT APPLE OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+    message(FATAL_ERROR "The wgse native aligners require Apple Silicon macOS")
+endif()
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_OBJCXX_STANDARD 17)
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+include(FetchContent)
+include(CTest)
+
+add_subdirectory(bwa-mem2)
+add_subdirectory(bwa)

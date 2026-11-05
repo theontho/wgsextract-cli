@@ -76,12 +76,12 @@ def test_resolve_github_release_asset_sha256_tagged_url(monkeypatch):
     monkeypatch.setattr(ref_library.downloads, "urlopen", fake_urlopen)
 
     resolved = ref_library.downloads.resolve_github_release_asset_sha256(
-        "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz"
+        "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz"
     )
 
     assert resolved == digest
     assert seen_urls == [
-        "https://api.github.com/repos/theontho/wgsextract-cli/releases/tags/v0.1.0"
+        "https://api.github.com/repos/WGSExtract/wgsextract-cli/releases/tags/v0.1.0"
     ]
 
 
@@ -98,12 +98,12 @@ def test_resolve_github_release_asset_sha256_latest_url(monkeypatch):
     monkeypatch.setattr(ref_library.downloads, "urlopen", fake_urlopen)
 
     resolved = ref_library.downloads.resolve_github_release_asset_sha256(
-        "https://github.com/theontho/wgsextract-cli/releases/latest/download/wgsextract-reference-bootstrap.tar.gz"
+        "https://github.com/WGSExtract/wgsextract-cli/releases/latest/download/wgsextract-reference-bootstrap.tar.gz"
     )
 
     assert resolved == digest
     assert seen_urls == [
-        "https://api.github.com/repos/theontho/wgsextract-cli/releases/latest"
+        "https://api.github.com/repos/WGSExtract/wgsextract-cli/releases/latest"
     ]
 
 
@@ -125,7 +125,7 @@ def test_download_file_verifies_github_release_asset_digest(tmp_path, monkeypatc
     monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
 
     assert ref_library.downloads.download_file(
-        "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
+        "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
         str(dest),
     )
     assert dest.read_bytes() == payload
@@ -136,7 +136,7 @@ def test_download_file_resume_keeps_curl_output_argument_order(tmp_path, monkeyp
     dest = tmp_path / "hs38.fa.gz"
     Path(f"{dest}.partial").write_bytes(b"partial")
     url = (
-        "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz"
+        "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz"
     )
     Path(f"{dest}.partial.source").write_text(
         hashlib.sha256(url.encode()).hexdigest() + "\n", encoding="ascii", newline="\n"
@@ -201,7 +201,7 @@ def test_download_file_uses_logged_progress_when_stderr_is_not_tty(
     caplog.set_level(logging.INFO)
 
     assert ref_library.downloads.download_file(
-        "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs37.fa.gz",
+        "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/hs37.fa.gz",
         str(dest),
     )
     assert dest.read_bytes() == payload
@@ -231,7 +231,7 @@ def test_download_file_rejects_github_release_asset_digest_mismatch(
     monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
 
     assert not ref_library.downloads.download_file(
-        "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
+        "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
         str(dest),
     )
     assert not dest.exists()
@@ -258,7 +258,7 @@ def test_download_file_warns_and_continues_when_github_digest_lookup_fails(
     monkeypatch.setattr(download_progress.sys.stderr, "isatty", lambda: True)
 
     assert ref_library.downloads.download_file(
-        "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
+        "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
         str(dest),
     )
     assert dest.read_bytes() == payload
@@ -284,7 +284,7 @@ def test_download_file_rejects_invalid_github_digest_metadata(tmp_path, monkeypa
     )
 
     assert not ref_library.downloads.download_file(
-        "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
+        "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/hs38.fa.gz",
         str(dest),
     )
     assert not dest.exists()
@@ -294,8 +294,8 @@ def test_download_file_rejects_invalid_github_digest_metadata(tmp_path, monkeypa
     "url",
     [
         "https://example.org/theontho/x/releases/download/v1/a.tar.gz",
-        "https://github.com/theontho/wgsextract-cli/archive/refs/tags/v1.tar.gz",
-        "https://github.com/theontho/wgsextract-cli/releases/tag/v1",
+        "https://github.com/WGSExtract/wgsextract-cli/archive/refs/tags/v1.tar.gz",
+        "https://github.com/WGSExtract/wgsextract-cli/releases/tag/v1",
     ],
 )
 def test_only_github_release_assets_have_a_digest_lookup(url, monkeypatch):

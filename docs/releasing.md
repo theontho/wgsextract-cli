@@ -55,7 +55,7 @@ if the tagged commit has one.
    `cli-vX.Y.Z` branch. GitHub Actions isn't allowed to open PRs there, so the
    job then fails once with a link to open the PR: that failure email is the
    notification. To start it by hand instead:
-   `gh workflow run wgsextract-cli-release-watch.yml -R theontho/gui-for-cli`.
+   `gh workflow run wgsextract-cli-release-watch.yml -R WGSExtract/gui-for-cli`.
 
    Open the PR, replace its CHANGELOG entry's link with a line on what users
    get, and merge once CI is green. CI runs normally, since a person opened the
@@ -86,3 +86,15 @@ collect evidence; **windows-judge** checks it (and the negative controls), so
 the evidence the release works is the pinned jobs and windows-judge passing. See [install_testing.md](install_testing.md)
 for what the lab checks, and for trying an app fix before releasing it
 (`gh workflow run install_lab.yml -f app_run=<Distribution run id>`).
+
+## Optional tool releases
+
+Native tool builds are released separately from the CLI, as prereleases that
+never become the latest release:
+
+- **Windows tools** (`windows-tools-N`): Actions > Windows Tools > Run
+  workflow. See [windows.md](windows.md).
+- **macOS aligners** (`macos-aligners-N`): Actions > macOS Aligners > Run
+  workflow. It publishes the Apple Silicon `wgse-bwa` and `wgse-bwa-mem2`
+  tarballs built from `native/` (see [native/README.md](../native/README.md)).
+  The CLI does not use them yet.

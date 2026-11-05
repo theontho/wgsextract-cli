@@ -5,7 +5,7 @@
 macOS or Linux:
 
 ```bash
-git clone https://github.com/theontho/wgsextract-cli.git
+git clone https://github.com/WGSExtract/wgsextract-cli.git
 cd wgsextract-cli
 ./scripts/dev_setup.sh
 ```
@@ -13,7 +13,7 @@ cd wgsextract-cli
 Windows (PowerShell; no WSL or MSYS2 needed):
 
 ```powershell
-git clone https://github.com/theontho/wgsextract-cli.git
+git clone https://github.com/WGSExtract/wgsextract-cli.git
 cd wgsextract-cli
 powershell -ExecutionPolicy Bypass -File scripts\dev_setup.ps1
 ```
@@ -77,7 +77,7 @@ A good test fails when the behaviour a user relies on breaks, and survives a ref
 The project is developed with AI coding agents. [AGENTS.md](../AGENTS.md) holds the rules they follow: test and run what they write, run ruff and mypy, keep outputs in `out/` or `tmp/`, keep defaults unchanged.
 
 1. Install an agent, for example GitHub Copilot CLI (`npm install -g @github/copilot`), and start it in the repository: `copilot`.
-2. Pick an issue from the [good first issue](https://github.com/theontho/wgsextract-cli/labels/good%20first%20issue) list and tell the agent the outcome, how to check it, and where to stop. For example:
+2. Pick an issue from the [good first issue](https://github.com/WGSExtract/wgsextract-cli/labels/good%20first%20issue) list and tell the agent the outcome, how to check it, and where to stop. For example:
 
    > Fix issue #N. Add tests that fail without the change, run `just check`, then open a pull request that closes the issue.
 

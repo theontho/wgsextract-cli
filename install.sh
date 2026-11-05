@@ -4,7 +4,7 @@
 # SC2016: launcher templates use literal $install_dir for runtime expansion.
 set -eu
 
-REPO_URL="${WGSEXTRACT_REPO_URL:-https://github.com/theontho/wgsextract-cli}"
+REPO_URL="${WGSEXTRACT_REPO_URL:-https://github.com/WGSExtract/wgsextract-cli}"
 REQUESTED_REF="${WGSEXTRACT_REF:-${WGSEXTRACT_RELEASE_TAG:-latest}}"
 
 log() {

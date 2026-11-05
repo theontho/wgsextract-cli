@@ -63,7 +63,7 @@ def sync(
                         files[relative] = {"sha256": sha256(data), "size": len(data)}
         asset = output / name
         archives[folder] = {
-            "url": "https://github.com/theontho/wgsextract-cli/releases/download/"
+            "url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/"
             f"yleaf-data-{tag}/{name}",
             "sha256": sha256(asset.read_bytes()),
             "size": asset.stat().st_size,

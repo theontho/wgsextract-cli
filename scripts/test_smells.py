@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import io
 import re
 import subprocess
 import sys
@@ -49,8 +50,15 @@ ARGV_ASSERTS = {
 
 
 def _git(*args: str, cwd: Path) -> str:
+    # quotePath=false keeps non-ASCII paths unquoted in diff headers and ls-files;
+    # surrogateescape round-trips POSIX names that are not valid UTF-8.
     return subprocess.run(
-        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+        ["git", "-c", "core.quotePath=false", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+        errors="surrogateescape",
     ).stdout
 
 
@@ -189,6 +197,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--root", type=Path, default=ROOT, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    # A path the console can't encode must not crash an advisory check.
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(errors="backslashreplace")
     try:
         changed = added_lines(args.base, args.root)
     except subprocess.CalledProcessError as exc:

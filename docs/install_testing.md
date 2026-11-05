@@ -152,7 +152,7 @@ need v0.4.4 or later; an older runner rejects them.
 
 ```bash
 mkdir -p out/installlab/releases/v0.4.4
-gh release download v0.4.4 --repo theontho/gui-for-cli \
+gh release download v0.4.4 --repo WGSExtract/gui-for-cli \
   --pattern WGSExtract-0.4.4.dmg --dir out/installlab/releases/v0.4.4
 pixi run -e dev python scripts/installlab/lab.py run macos \
   --gui-repo ../gui-for-cli \

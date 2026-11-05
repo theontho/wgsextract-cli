@@ -154,7 +154,7 @@ exit /b 0
 
 :bootstrap_source
 set "WGSE_REPO_URL=%WGSEXTRACT_REPO_URL%"
-if not defined WGSE_REPO_URL set "WGSE_REPO_URL=https://github.com/theontho/wgsextract-cli"
+if not defined WGSE_REPO_URL set "WGSE_REPO_URL=https://github.com/WGSExtract/wgsextract-cli"
 set "WGSE_REQUESTED_REF=%WGSEXTRACT_REF%"
 if not defined WGSE_REQUESTED_REF set "WGSE_REQUESTED_REF=%WGSEXTRACT_RELEASE_TAG%"
 if not defined WGSE_REQUESTED_REF set "WGSE_REQUESTED_REF=latest"

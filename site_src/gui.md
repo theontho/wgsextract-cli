@@ -4,26 +4,26 @@ title: 'GUI Downloads | WGS Extract CLI'
 description: 'Download the separate gui-for-cli graphical interface for WGS Extract, or install the CLI-only wgsextract command-line app.'
 eyebrow: 'Graphical interface'
 heading: 'Use gui-for-cli when you want WGS Extract with windows, buttons, and forms.'
-lede: 'The command-line app and graphical app are separate projects. Install `wgsextract-cli` when you want terminal commands and automation; install gui-for-cli from [gui-for-cli Releases](https://github.com/theontho/gui-for-cli/releases){.inline-link} when you want a graphical interface for WGS Extract workflows.'
+lede: 'The command-line app and graphical app are separate projects. Install `wgsextract-cli` when you want terminal commands and automation; install gui-for-cli from [gui-for-cli Releases](https://github.com/WGSExtract/gui-for-cli/releases){.inline-link} when you want a graphical interface for WGS Extract workflows.'
 toc: 'GUI releases|releases; Choose a download|downloads; CLI option|cli-option; How they fit|fit'
 footer_title: 'WGS Extract GUI'
 footer_text: 'Graphical releases are maintained in the gui-for-cli repository.'
 footer_link_text: 'Open all GUI releases'
-footer_link_href: 'https://github.com/theontho/gui-for-cli/releases'
+footer_link_href: 'https://github.com/WGSExtract/gui-for-cli/releases'
 ---
 
 ::: section id=releases
 ::: split
 ::: block
 ## GUI releases live in gui-for-cli
-Download the WGS Extract graphical interface from the [gui-for-cli Releases page](https://github.com/theontho/gui-for-cli/releases){.inline-link}. Use [the latest gui-for-cli release](https://github.com/theontho/gui-for-cli/releases/latest){.inline-link} for current installers, release notes, signatures, and metadata.
+Download the WGS Extract graphical interface from the [gui-for-cli Releases page](https://github.com/WGSExtract/gui-for-cli/releases){.inline-link}. Use [the latest gui-for-cli release](https://github.com/WGSExtract/gui-for-cli/releases/latest){.inline-link} for current installers, release notes, signatures, and metadata.
 
 Use the release page when you want the newest platform packages, signatures, release notes, or older versions. The package names below describe what to choose on the latest release.
 :::
 
 ::: actions
-{{ button: Open latest GUI release|https://github.com/theontho/gui-for-cli/releases/latest|primary }}
-{{ button: Browse all GUI releases|https://github.com/theontho/gui-for-cli/releases }}
+{{ button: Open latest GUI release|https://github.com/WGSExtract/gui-for-cli/releases/latest|primary }}
+{{ button: Browse all GUI releases|https://github.com/WGSExtract/gui-for-cli/releases }}
 {{ button: Install CLI instead|install.html }}
 :::
 :::
@@ -33,7 +33,7 @@ Use the release page when you want the newest platform packages, signatures, rel
 ::: wrap
 ::: section-head
 ## Choose a GUI download
-Pick the package that matches your operating system. If you are unsure, open the [latest gui-for-cli release](https://github.com/theontho/gui-for-cli/releases/latest){.inline-link} and choose the asset recommended for your platform.
+Pick the package that matches your operating system. If you are unsure, open the [latest gui-for-cli release](https://github.com/WGSExtract/gui-for-cli/releases/latest){.inline-link} and choose the asset recommended for your platform.
 :::
 
 ::: grid three
@@ -41,7 +41,7 @@ Pick the package that matches your operating system. If you are unsure, open the
 ### Windows
 Use the x64 setup executable for a normal graphical install.
 
-{{ link: Open latest Windows GUI release|https://github.com/theontho/gui-for-cli/releases/latest|inline-link }}
+{{ link: Open latest Windows GUI release|https://github.com/WGSExtract/gui-for-cli/releases/latest|inline-link }}
 
 The release also includes a quick uninstall PowerShell helper and signature assets.
 :::
@@ -50,7 +50,7 @@ The release also includes a quick uninstall PowerShell helper and signature asse
 ### macOS
 Use a DMG package, then drag the app into Applications when prompted.
 
-{{ link: Open latest macOS GUI release|https://github.com/theontho/gui-for-cli/releases/latest|inline-link }}
+{{ link: Open latest macOS GUI release|https://github.com/WGSExtract/gui-for-cli/releases/latest|inline-link }}
 
 Choose the `aarch64.dmg` for Apple Silicon or `x64.dmg` for Intel. The current GUI release is v0.6.6; its packages are separate from the CLI release.
 :::
@@ -59,12 +59,12 @@ Choose the `aarch64.dmg` for Apple Silicon or `x64.dmg` for Intel. The current G
 ### Linux
 Use the package format native to your distribution, or use the AppImage for a portable desktop app.
 
-{{ link: Open latest Linux GUI release|https://github.com/theontho/gui-for-cli/releases/latest|inline-link }}
+{{ link: Open latest Linux GUI release|https://github.com/WGSExtract/gui-for-cli/releases/latest|inline-link }}
 :::
 :::
 
 ::: callout
-{{ text: **Checksums and signatures:** gui-for-cli release assets include signature, appcast, and metadata files where the GUI build publishes them. Use the [gui-for-cli releases page](https://github.com/theontho/gui-for-cli/releases){.inline-link} when you need to verify a package before installing. }}
+{{ text: **Checksums and signatures:** gui-for-cli release assets include signature, appcast, and metadata files where the GUI build publishes them. Use the [gui-for-cli releases page](https://github.com/WGSExtract/gui-for-cli/releases){.inline-link} when you need to verify a package before installing. }}
 :::
 :::
 :::

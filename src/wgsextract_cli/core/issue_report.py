@@ -34,7 +34,7 @@ from wgsextract_cli import __version__
 from wgsextract_cli.core.tool_catalog import MANDATORY_TOOLS, OPTIONAL_TOOLS
 from wgsextract_cli.core.utils import UsageError
 
-ISSUES_URL = "https://github.com/theontho/wgsextract-cli/issues/new"
+ISSUES_URL = "https://github.com/WGSExtract/wgsextract-cli/issues/new"
 # .github/ISSUE_TEMPLATE/bug_report.yml; its field ids are the query keys below.
 TEMPLATE = "bug_report.yml"
 DESCRIPTION_FIELD = "what-happened"

@@ -91,7 +91,7 @@ message, Java Smith-Waterman, or `LOGLESS_CACHING` fallback means the accelerate
 path is not in use. Check CPU support and the preceding GKL load diagnostics;
 fallback results can differ numerically from Linux.
 
-The [matched-ISA public HG00096 chr20 validation](https://github.com/theontho/wgsextract-cli/pull/228)
+The [matched-ISA public HG00096 chr20 validation](https://github.com/WGSExtract/wgsextract-cli/pull/228)
 produced **127,210 records byte-identical across all eight calls**, including
 every numeric, depth, genotype and FILTER field. With one warmup and three
 measured repetitions on matched 4-vCPU/16-GiB AMD EPYC 7763 VMs, medians were
@@ -133,7 +133,7 @@ pixi run wgsextract ref index --aligner bwa-mem2 --ref C:\path\to\reference.fa
 
 Native full-human index construction is supported with the pinned
 `windows-tools-8` bwa-mem2 `2.3-wgse_2` package. It fixes the large-transfer
-and 64-bit-offset corruption tracked in [#264](https://github.com/theontho/wgsextract-cli/issues/264).
+and 64-bit-offset corruption tracked in [#264](https://github.com/WGSExtract/wgsextract-cli/issues/264).
 All five index files for the 3,217,346,917-base GRCh38 reference were verified
 byte-identical to a Linux-built index. Building it needs roughly 80 GB of RAM;
 the CLI checks its build-memory estimate before starting. Existing indexes and
