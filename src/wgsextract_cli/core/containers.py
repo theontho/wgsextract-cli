@@ -54,11 +54,14 @@ def require_image(image: str, missing: str) -> None:
         raise MissingDependencyError(missing)
 
 
-def image_identity(image: str, setup: str) -> str:
+def image_identity(image: str) -> str:
     """``image`` and the ID of the build it names, so results can tell when a
-    mutable tag such as 1.10.0 was replaced."""
+    mutable tag such as 1.10.0 was replaced; just ``image`` when it's unknown."""
+    docker_path = get_tool_path("docker")
+    if not docker_path:
+        return image
     inspected = run_command(
-        [docker(setup), "image", "inspect", "--format", "{{.Id}}", image],
+        [docker_path, "image", "inspect", "--format", "{{.Id}}", image],
         capture_output=True,
         check=False,
     )

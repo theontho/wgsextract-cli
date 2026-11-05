@@ -623,7 +623,7 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
                 inputs=inputs,
                 params={
                     "image": (
-                        image_identity(launcher.image, setup or "")
+                        image_identity(launcher.image)
                         if launcher.image else run_deepvariant
                     ),
                     "model_type": model_type,

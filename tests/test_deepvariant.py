@@ -741,6 +741,7 @@ def _arm_docker(monkeypatch, *, engine="aarch64", image_arch="linux/arm64"):
     )
     monkeypatch.setattr(deepvariant, "require_image", lambda *_args: None)
     monkeypatch.setattr(deepvariant, "docker", lambda _setup: "docker")
+    monkeypatch.setattr(deepvariant, "image_identity", lambda image: image)
     monkeypatch.setattr(
         deepvariant,
         "run_command",
