@@ -23,7 +23,7 @@
 set -u
 
 R="${LAB_RESULTS:?}"
-HERE="$(CDPATH= cd "$(dirname "$0")" && pwd)"
+HERE="$(CDPATH='' cd "$(dirname "$0")" && pwd)"
 EVIDENCE="$R/evidence"
 mkdir -p "$EVIDENCE"
 printf '%s\n' "${LAB_NONCE:?}" > "$R/nonce"
@@ -169,6 +169,9 @@ fi
 step update_kept_data cat "$INSTALL_DIR/app/reference/lab-marker"
 step post_update_mt "$WGSE" lineage mt-haplogroup --input "$DATA/HG00096.hg19-mini.bam" \
     --ref "$DATA/hg19-mini.fa.gz" --outdir "$R/post_update_mt"
+# The workload's library is configured; drop the tree it downloaded into the
+# evidence again (a cache, with this user's private lock), as workload.sh does.
+rm -rf "$R/workload/reference/haplogrep3"
 
 if [ "$SABOTAGE" != "skip-uninstall" ]; then
     step uninstall "$INSTALL_DIR/uninstall.sh" --yes --remove-config --remove-pixi
