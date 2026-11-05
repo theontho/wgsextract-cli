@@ -22,6 +22,7 @@ CLI_HELP = {
     "cmd_calculate-coverage": "Generate a full breadth-of-coverage report. Uses samtools coverage to calculate exactly how much of each chromosome was sequenced.",
     "cmd_coverage-sample": "Quickly estimate per-chromosome breadth of coverage by sampling ~1,000 evenly spaced, length-weighted 1 kb windows. An estimate; use calculate-coverage for exact numbers.",
     "cmd_info-chip": "Identify the vendor, chip and revision of a consumer microarray raw-data file (23andMe, AncestryDNA, MyHeritage, FTDNA, ...) from its header and marker set, with a confidence score and the matching --formats template.",
+    "cmd_report": "Summarise a sample's results (overview, QC, lineage, pharmacogenomics, ClinVar pathogenic calls in ACMG SF genes, microarray files) as a local HTML, Markdown and JSON report with confidence-labelled findings. Reads earlier runs' result manifests; runs no analysis and makes no network calls. Technical results, not diagnosis.",
     "cmd_sample": "Show or correct what is known about a sample (sex, sequencing platform, build, depth), recorded once in its folder's wgsextract.sample.toml.",
     "cmd_sample-show": "Show the sample's overrides, the facts commands detected from each of its files (with method, confidence and date) and its recorded results.",
     "cmd_sample-set": "Set an override (--sex, --platform) that commands use instead of what they detect: a sex for the whole genome folder, else for --input alone. Commands warn when the reads disagree.",

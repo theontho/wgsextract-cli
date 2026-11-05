@@ -33,6 +33,7 @@ MIGRATED = (
     ("lineage", "y-haplogroup"),
     ("lineage", "y-str"),
     ("microarray",),
+    ("report",),
 )
 
 # Command lines whose parsed namespaces must not change.
@@ -73,6 +74,8 @@ ARGVS = (
     ],
     ["lineage", "y-str", "-i", "x.bam", "--panel", "Y-37", "--min-fraction", "0.7"],
     ["microarray", "-i", "x.bam"],
+    ["report", "--workspace", "s", "--results", "a", "--results", "b"],
+    ["report", "-i", "x.cram", "--format", "parquet", "-o", "out"],
     [
         "microarray",
         "-i",
