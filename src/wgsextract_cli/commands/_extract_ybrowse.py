@@ -1,4 +1,3 @@
-import argparse
 import contextlib
 import gzip
 import json
@@ -24,12 +23,12 @@ from wgsextract_cli.core.ybrowse import (
 from ._extract_helpers import BaseArgs, cleanup_files, derive_output_path
 
 
-def call_ybrowse(args: argparse.Namespace, base: BaseArgs) -> None:
+def call_ybrowse(input_path: str, base: BaseArgs) -> None:
     from .extract import _extract_regions, _warn_if_female, require_reference
 
-    ref = require_reference(base.ref, "yBrowse Y calling", args.input)
-    contigs = sequence_lengths(get_bam_header(args.input, base.cram_opt))
-    chr_y = get_chr_name(args.input, "Y", base.cram_opt)
+    ref = require_reference(base.ref, "yBrowse Y calling", input_path)
+    contigs = sequence_lengths(get_bam_header(input_path, base.cram_opt))
+    chr_y = get_chr_name(input_path, "Y", base.cram_opt)
     lengths = read_fai_lengths(ref)
     if (
         contigs.get(chr_y) != Y_LENGTH
@@ -46,8 +45,8 @@ def call_ybrowse(args: argparse.Namespace, base: BaseArgs) -> None:
             f"length {Y_LENGTH}. GRCh37 and T2T are unsupported."
         )
     directory, manifest = installed_snapshot(Path(resolve_reference_library()))
-    _warn_if_female(args.input, base.outdir)
-    output = derive_output_path(args.input, base.outdir, "_Y_ybrowse.vcf.gz")
+    _warn_if_female(input_path, base.outdir)
+    output = derive_output_path(input_path, base.outdir, "_Y_ybrowse.vcf.gz")
     with tempfile.TemporaryDirectory(prefix=".ybrowse_", dir=base.outdir) as temporary:
         work = Path(temporary)
         normalized = work / "sites.vcf.gz"
@@ -107,7 +106,7 @@ def call_ybrowse(args: argparse.Namespace, base: BaseArgs) -> None:
         )
         bam = str(work / "Y.bam")
         called = str(work / "called.vcf.gz")
-        _extract_regions(base, args.input, bam, [chr_y], bed=str(bed))
+        _extract_regions(base, input_path, bam, [chr_y], bed=str(bed))
         with cleanup_files(on_failure=[output, output + ".tbi", output + ".csi"]):
             for index in (output + ".tbi", output + ".csi"):
                 with contextlib.suppress(FileNotFoundError):

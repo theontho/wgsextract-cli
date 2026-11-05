@@ -299,3 +299,22 @@ class PathGuard:
             for path in value if isinstance(value, tuple) else (value,):
                 if isinstance(path, Path):
                     self.check_path(item.name, path)
+                elif isinstance(path, str) and item.spec.may_name_file:
+                    self._check_text(item.name, path)
+
+    def _check_text(self, name: str, text: str) -> None:
+        """A text value that names a file when one exists there (a BED file
+        given as a region): written like a path, it must be an allowed one;
+        a bare name must not be a file in the server's working folder."""
+        pathmod = self.pathmod
+        if (
+            "/" in text
+            or "\\" in text
+            or pathmod.isabs(pathmod.expanduser(text))
+            or is_network_path(text)
+        ):
+            self.check_path(name, text)
+        elif pathmod.exists(text):
+            raise RequestError(
+                400, "usage", f"{name!r}: name a file by its absolute path."
+            )

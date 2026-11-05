@@ -40,7 +40,8 @@ class ParamSpec:
     server's path checks can't see. ``writes`` fields make a command that
     otherwise only reads save files, unless they hold their ``safe_value``
     (default: the field's default); a read-only server leaves them out and
-    uses that value.
+    uses that value. ``may_name_file`` text fields (a region) may instead
+    name a file; the server path-checks values written like a path.
     """
 
     help: str | None = None
@@ -59,6 +60,7 @@ class ParamSpec:
     local_only: bool = False
     writes: bool = False
     safe_value: Any = UNSET
+    may_name_file: bool = False
 
     @property
     def description(self) -> str:
@@ -85,6 +87,7 @@ def param(
     local_only: bool = False,
     writes: bool = False,
     safe_value: Any = UNSET,
+    may_name_file: bool = False,
 ) -> Any:
     """Declare a Params field; omit ``default`` for a required one.
 
@@ -108,6 +111,7 @@ def param(
         local_only=local_only,
         writes=writes or safe_value is not UNSET,
         safe_value=safe_value,
+        may_name_file=may_name_file,
     )
     return dataclasses.field(default=default, metadata={_SPEC: spec})
 

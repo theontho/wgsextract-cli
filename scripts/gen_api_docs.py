@@ -30,6 +30,7 @@ from wgsextract_cli.api._params import (  # noqa: E402
 OUTPUT = ROOT / "docs" / "api.md"
 GROUPS = (
     api.info,
+    api.extract,
     api.vcf,
     api.lineage,
     api.microarray,

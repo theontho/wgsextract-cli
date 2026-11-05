@@ -266,6 +266,19 @@ def test_info_query_waits_and_reports_failures_as_failed_jobs(client, work, fake
             400,
             "usage",
         ),
+        # PR #426 review: a region may name a BED file the guard didn't see.
+        (
+            "extract/custom",
+            {"input": "{work}/a.bam", "region": "{outside}/t.bed"},
+            403,
+            "path_not_allowed",
+        ),
+        (
+            "extract/bam-subset",
+            {"input": "{work}/a.bam", "fraction": 0.5, "region": "beds/t.bed"},
+            400,
+            "usage",
+        ),
         ("nope", {}, 404, "unknown_op"),
         # PR #422 review: these were 500 "internal" errors, or jobs with
         # values the schema forbids.

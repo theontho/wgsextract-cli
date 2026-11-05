@@ -15,6 +15,7 @@ from tests.htslib_helpers import (
     vcf_calls,
     write_fasta,
 )
+from wgsextract_cli import api
 from wgsextract_cli.core import dependency_checks
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
@@ -272,4 +273,33 @@ def test_extraction_checks_its_tools_before_starting(
     )
     with pytest.raises(WGSExtractError, match=f"Missing required core tool.*{tool}"):
         _extract(cmd, genome["male"], tmp_path, "--ref", genome["ref"])
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_api_extracts_without_the_cli_and_reports_its_outputs(genome, tmp_path):
+    events: list[api.ProgressEvent] = []
+    result = api.extract.y_mt_extract(
+        api.YMtExtractParams(input=genome["male"], outdir=tmp_path),
+        progress=events.append,
+    )
+    assert (result.status, result.exit_code) == ("ok", 0)
+    [output] = result.outputs
+    assert (output.role, Path(output.path)) == ("y_mt_bam", tmp_path / "male_Y_MT.bam")
+    assert _names(output.path) == _on("chrY", "chrM")
+    assert events[0].stage == "start" and events[-1].stage == "finish"
+
+
+def test_api_unmapped_fastq_reports_each_fastq_role(genome, tmp_path):
+    result = api.extract.unmapped(
+        api.UnmappedParams(input=genome["male"], outdir=tmp_path, fastq=True)
+    )
+    roles = {o.role: Path(o.path).name for o in result.outputs}
+    assert roles["unmapped_bam"] == "male_unmapped.bam"
+    assert roles["fastq_other"] == "male_unmapped_SE.fastq.gz"
+    assert all((tmp_path / name).is_file() for name in roles.values())
+
+
+def test_api_custom_without_a_region_is_a_usage_error(genome, tmp_path):
+    with pytest.raises(api.UsageError, match="--region or --gene"):
+        api.CustomParams(input=genome["male"], outdir=tmp_path)
     assert list(tmp_path.iterdir()) == []

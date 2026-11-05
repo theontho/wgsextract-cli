@@ -13,8 +13,9 @@ terminal clears the line first, and it comes back once that output ends in a
 newline.
 
 Code that runs a step (run_command, run_pipeline) names it with ``step()``;
-progress counts (core/progress.Heartbeat) go in ``detail()``. Both do nothing
-when no display is active. A tool writing to the terminal itself would
+progress counts go in ``detail()``. Both do nothing when no display is
+active. Dispatch subscribes ``show_progress`` to the run's API progress
+events, so a Heartbeat's counts reach the line as they reach an API caller. A tool writing to the terminal itself would
 overwrite the line, so run_command and popen relay the output of tools that
 would (``terminal_bound()``) through Python's streams instead.
 """
@@ -27,7 +28,10 @@ import sys
 import threading
 import time
 from collections.abc import Iterator
-from typing import IO, Any
+from typing import IO, TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from wgsextract_cli.api._runtime import ProgressEvent
 
 _SPINNER = "-\\|/"
 _active: "LiveStatus | None" = None
@@ -210,3 +214,9 @@ def detail(text: str) -> None:
     """Show text (a progress count) after the elapsed time."""
     if _active is not None:
         _active.detail = text
+
+
+def show_progress(event: "ProgressEvent") -> None:
+    """Render an API progress event: a heartbeat's count becomes the detail."""
+    if event.stage == "heartbeat":
+        detail(event.message)

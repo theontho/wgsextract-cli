@@ -8,6 +8,7 @@ from argparse import Namespace
 import pytest
 
 from tests.htslib_helpers import needs_tools
+from wgsextract_cli.api.extract import MitoVcfParams
 from wgsextract_cli.commands import align, bam, extract, realign, repair
 from wgsextract_cli.commands._extract_helpers import (
     BaseArgs,
@@ -291,19 +292,12 @@ def test_collate_working_memory_holds_the_largest_bucket_of_records(tmp_path):
     assert collate_working_memory(bam, "6", "1G") == expected
 
 
-def test_extract_custom_requires_region(tmp_path, monkeypatch):
-    _no_deps(monkeypatch, extract)
-    monkeypatch.setattr(extract, "get_base_args", lambda _a: _fake_base(tmp_path))
-    with pytest.raises(WGSExtractError, match="--region"):
-        extract.cmd_custom(_bam_args(tmp_path / "x.bam"))
-
-
 def test_mito_vcf_calls_haploid_and_cleans_temp_bam_on_failure(tmp_path, monkeypatch):
     _no_deps(monkeypatch, extract)
     monkeypatch.setattr(extract, "print_warning", lambda *_a, **_k: None)
     monkeypatch.setattr(extract, "get_chr_name", lambda *_a: "chrM")
     monkeypatch.setattr(
-        extract, "get_base_args", lambda _a: _fake_base(tmp_path, "ref.fa")
+        extract, "base_args", lambda *_a, **_k: _fake_base(tmp_path, "ref.fa")
     )
 
     def fake_run_command(cmd, **_kwargs):
@@ -320,7 +314,7 @@ def test_mito_vcf_calls_haploid_and_cleans_temp_bam_on_failure(tmp_path, monkeyp
     monkeypatch.setattr(extract, "run_pipeline", failing_pipeline)
 
     with pytest.raises(WGSExtractError, match="mpileup"):
-        extract.cmd_mito_vcf(_bam_args(tmp_path / "x.cram"))
+        extract.run_mito_vcf(MitoVcfParams(input=tmp_path / "x.cram"))
 
     call_cmd = pipelines[0][1]
     assert call_cmd[call_cmd.index("--ploidy") + 1] == "1"

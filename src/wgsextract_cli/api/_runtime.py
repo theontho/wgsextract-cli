@@ -31,8 +31,10 @@ class ProgressEvent:
     through the operation is (0.0 to 1.0).
 
     Stages so far: ``start`` and ``finish`` (the command name, 0.0 and
-    1.0), ``tool`` (an external tool is starting) and ``step`` (a resumable
-    workflow runs or skips one of its steps, and why). More stages may be
+    1.0), ``tool`` (an external tool is starting), ``step`` (a resumable
+    workflow runs or skips one of its steps, and why) and ``heartbeat`` (a
+    periodic count from a long tool run, such as ``"1,200/5,000 reads"``, with
+    the fraction of that run done when the total is known). More stages may be
     added."""
 
     stage: str
