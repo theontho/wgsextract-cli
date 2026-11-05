@@ -310,6 +310,13 @@ class PathGuard:
                     self.check_path(item.name, path)
                 elif isinstance(path, str) and item.spec.may_name_file:
                     self._check_text(item.name, path)
+                elif isinstance(path, str) and item.spec.expression and "@" in path:
+                    raise RequestError(
+                        403,
+                        "path_not_allowed",
+                        f"{item.name!r}: a server request can't read a file "
+                        "with an @FILE operand.",
+                    )
 
     def _check_text(self, name: str, text: str) -> None:
         """A text value that names a file when one exists there (a BED file

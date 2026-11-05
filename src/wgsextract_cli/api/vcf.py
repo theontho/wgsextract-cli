@@ -185,9 +185,12 @@ class _AnnotatorParams(_VcfFileParams):
 
 
 def _check_confidence(params: Any) -> None:
+    from wgsextract_cli.core.variant_confidence import thresholds_from
+
     for name in ("confidence_depth", "confidence_gq"):
         if any(not v >= 0 for v in getattr(params, name) or ()):
             raise UsageError(f"{name} must be non-negative numbers.")
+    thresholds_from(params)  # LOW <= HIGH, before any work
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -220,7 +223,9 @@ class VcfFilterParams(_VcfFileParams):
 
     vcf_input: Path | None = _vcf_input_param(CLI_HELP["arg_vcf_input"])
     ref: Path | None = ref_param()
-    expr: str | None = param(None, help="bcftools filter expression (e.g. 'QUAL>30')")
+    expr: str | None = param(
+        None, help="bcftools filter expression (e.g. 'QUAL>30')", expression=True
+    )
     gene: str | None = param(None, help="Filter by Gene Name (e.g. BRCA1, KCNQ2)")
     exclude_near_gaps: bool = param(
         False,
@@ -506,7 +511,8 @@ class VcfPharmcatParams(_VcfFileParams):
 
     COMMAND = "vcf pharmcat"
 
-    ref: Path | None = ref_param()
+    # Local only: <ref>/pharmcat holds the pipeline it runs.
+    ref: Path | None = ref_param(local_only=True)
     pharmcat_dir: Path | None = param(
         None,
         help="Extracted PharmCAT pipeline release (default: <reference "
@@ -642,6 +648,9 @@ def trio(
     ``trio_denovo_isolated`` from BAM/CRAMs)."""
     from wgsextract_cli.commands.vcf.filter_trio import run_trio
 
+    if params.proband is not None:
+        # The proband overrides the other inputs: only it is read and recorded.
+        params = dataclasses.replace(params, input=params.proband, vcf_input=None)
     return _run_on_vcf(params, run_trio, progress, cancel, check)
 
 

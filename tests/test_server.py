@@ -214,6 +214,21 @@ def test_a_job_writing_into_a_busy_folder_waits(
         assert (first["status"], second["status"]) == ("running", "queued")
 
 
+def test_a_trio_saving_beside_its_proband_waits_for_that_folder(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # PR #452 review: the scheduler ignored `proband`, so a trio saving beside
+    # its child ran alongside a job writing the same folder.
+    bam, ref = fake_data
+    with _serve(tmp_path, [work, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(work)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        family = {r: str(work / f"{r}.vcf.gz") for r in ("proband", "mother", "father")}
+        status, trio = client.request("POST", "/ops/vcf/trio", family)
+        assert status == 202, trio
+        assert (first["status"], trio["status"]) == ("running", "queued")
+
+
 def test_operations_and_openapi_follow_the_typed_api(client):
     status, body = client.request("GET", "/ops")
     ops = {op["op"]: op["kind"] for op in body["ops"]}
@@ -496,8 +511,21 @@ def test_vcf_paths_cover_every_resource():
     assert {"clinvar_file", "cadd_indel_file", "am_file", "mother", "father",
             "proband", "mask", "pharmcat_json", "outside_call",
             "ann_vcf"} <= guarded  # fmt: skip
-    with pytest.raises(RequestError, match="can't be set by a server request"):
-        params_from_json(find("vcf/pharmcat"), {"pharmcat_dir": r"C:\data\pc"})
+    # PR #452 review: <ref>/pharmcat is the pipeline's default folder.
+    for field in ("pharmcat_dir", "ref"):
+        with pytest.raises(RequestError, match="can't be set by a server request"):
+            params_from_json(find("vcf/pharmcat"), {field: r"C:\data\pc"})
+
+
+def test_path_guard_refuses_file_operands_in_expressions():
+    # PR #452 review: bcftools reads `@FILE` in an expression, past the guard.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {"vcf_input": r"C:\data\in.vcf.gz", "expr": "QUAL>30"}
+    guard.check(params_from_json(find("vcf/filter"), allowed))
+    for expr in ("ID=@/outside/ids.txt", r"ID!=@\\host\share\ids"):
+        with pytest.raises(RequestError, match="@FILE") as refused:
+            guard.check(params_from_json(find("vcf/filter"), {**allowed, "expr": expr}))
+        assert refused.value.code == "path_not_allowed"
 
 
 def test_read_only_mcp_info_saves_nothing(tmp_path, fake_data):

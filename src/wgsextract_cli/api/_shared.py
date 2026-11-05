@@ -30,7 +30,7 @@ def optional_input_param(doc: str) -> Any:
     return param(None, doc=doc, flags=("--input", "-i"), path="file", shared=True)
 
 
-def ref_param() -> Any:
+def ref_param(*, local_only: bool = False) -> Any:
     return param(
         None,
         doc="Reference FASTA or reference library folder; resolved from the "
@@ -39,6 +39,7 @@ def ref_param() -> Any:
         path="file_or_directory",
         shared=True,
         config_key="reference_fasta",
+        local_only=local_only,
     )
 
 

@@ -42,6 +42,8 @@ class ParamSpec:
     (default: the field's default); a read-only server leaves them out and
     uses that value. ``may_name_file`` text fields (a region) may instead
     name a file; the server path-checks values written like a path.
+    ``expression`` text fields are bcftools expressions, which read the file
+    an ``@FILE`` operand names; the server refuses those.
     A ``positional`` field is a positional CLI argument named by ``metavar``;
     a tuple one takes one or more values. ``group`` (title, description) puts
     the option in that section of the command's help.
@@ -64,6 +66,7 @@ class ParamSpec:
     writes: bool = False
     safe_value: Any = UNSET
     may_name_file: bool = False
+    expression: bool = False
     positional: bool = False
     group: tuple[str, str | None] | None = None
 
@@ -93,6 +96,7 @@ def param(
     writes: bool = False,
     safe_value: Any = UNSET,
     may_name_file: bool = False,
+    expression: bool = False,
     positional: bool = False,
     group: tuple[str, str | None] | None = None,
 ) -> Any:
@@ -119,6 +123,7 @@ def param(
         writes=writes or safe_value is not UNSET,
         safe_value=safe_value,
         may_name_file=may_name_file,
+        expression=expression,
         positional=positional,
         group=group,
     )
