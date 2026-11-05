@@ -193,6 +193,30 @@ def test_custom_regions_out_of_order_or_overlapping_give_a_sorted_bam(genome, tm
     assert names == ["chr1_201", "chr1_209", "chrM_281", "chrM_289"]
 
 
+def test_y_mt_extract_with_chrm_before_chry_gives_a_sorted_bam(tmp_path):
+    # Issue #434: on an hg19-style header (chrM first) the chrY reads came
+    # first, so the BAM was unsorted and failed to index.
+    header = [f"@SQ\tSN:{c}\tLN:1000" for c in ("chrM", "chr1", "chrY")]
+    reads = [
+        f"{c}_{s}\t0\t{c}\t{s}\t60\t8M\t*\t0\t0\tACGTACGT\tIIIIIIII"
+        for c in ("chrM", "chr1", "chrY")
+        for s in (101, 201)
+    ]
+    bam = sam_to_bam(header + reads, tmp_path / "hg19.bam")
+    out = tmp_path / "out"
+    _extract("y-mt-extract", bam, out)
+    assert (out / "hg19_Y_MT.bam.bai").is_file()
+    reads_out = run_command(
+        ["samtools", "view", str(out / "hg19_Y_MT.bam")], capture_output=True
+    ).stdout
+    assert [line.split("\t")[0] for line in reads_out.splitlines()] == [
+        "chrM_101",
+        "chrM_201",
+        "chrY_101",
+        "chrY_201",
+    ]
+
+
 def test_custom_extracts_bed_regions(genome, tmp_path):
     bed = tmp_path / "targets.bed"
     bed.write_text("chrX\t200\t260\n")
