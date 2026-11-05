@@ -7,8 +7,9 @@ import re
 import subprocess
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, NamedTuple, TypedDict
 
+from wgsextract_cli.core import sample_workspace
 from wgsextract_cli.core.builds import build_from_chr1_length, build_from_path
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.constants import (
@@ -18,6 +19,7 @@ from wgsextract_cli.core.constants import (
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import n_count_paths
+from wgsextract_cli.core.sample_workspace import Confidence
 from wgsextract_cli.core.sequencing import platform_from_metadata
 from wgsextract_cli.core.ultima import is_ultima_header
 from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
@@ -209,15 +211,26 @@ def load_n_counts(ref_path: str | None) -> dict[str, int]:
     return n_counts
 
 
-# Stored with a cached "gender"; bumped whenever infer_sex changes its calls,
-# so caches made by an older release are recomputed rather than trusted.
-SEX_INFERENCE_VERSION = 2
+# Stored with a cached "gender" so caches made by an older infer_sex are
+# recomputed rather than trusted; bump it in sample_workspace.FACTS.
+SEX_INFERENCE_VERSION = sample_workspace.FACTS["sex"].version
+
+
+class SexCall(NamedTuple):
+    sex: str
+    method: str
+    confidence: Confidence
 
 
 def infer_sex(idx_stats: list[IdxStat]) -> str:
     """ "Male", "Female" or "Unknown" from the X dosage against a similar-sized
     autosome (chr7), else from chrY reads against chrX or chr19 (~ Y's size).
     A file of chrY (and chrM) alone is a male's: a Y extract or a Big Y test."""
+    return infer_sex_call(idx_stats).sex
+
+
+def infer_sex_call(idx_stats: list[IdxStat]) -> SexCall:
+    """`infer_sex` with the rule that decided it and how sure that rule is."""
     mapped: dict[str, int] = {}
     for s in idx_stats:
         if s["name"] != "*":
@@ -232,17 +245,30 @@ def infer_sex(idx_stats: list[IdxStat]) -> str:
     # captures few chrY targets (Y/X 0.04-0.07), so X/chr7 is checked next:
     # 0.77-1.17 for females and 0.38-0.60 for males, exomes included.
     if x_reads > 0 and y_reads > x_reads * 0.10:
-        return "Male"
+        return SexCall("Male", "chrY/chrX mapped-read ratio", "high")
     if x_reads > 0 and c7_reads > 0:
         # Two X copies read about like chr7, one X about half of it
-        return "Female" if x_reads > c7_reads * 0.65 else "Male"
+        sex = "Female" if x_reads > c7_reads * 0.65 else "Male"
+        return SexCall(sex, "chrX/chr7 mapped-read ratio", "high")
     if x_reads > 0 and y_reads > 0:
         # Females still pick up a few mismapped chrY reads
-        return "Female"
+        return SexCall("Female", "few chrY reads against chrX", "low")
     if y_reads > 0 and c19_reads > 0:
         # About half of chrY is N, so a male's Y is ~0.2-0.5 of chr19
-        return "Male" if y_reads > c19_reads * 0.12 else "Female"
-    return "Male" if y_reads > 0 else "Unknown"
+        sex = "Male" if y_reads > c19_reads * 0.12 else "Female"
+        return SexCall(sex, "chrY/chr19 mapped-read ratio", "medium")
+    if y_reads > 0:
+        return SexCall("Male", "chrY reads without chrX", "medium")
+    return SexCall("Unknown", "no chrX or chrY reads", "low")
+
+
+def record_sex(input_path: str, call: SexCall) -> None:
+    """Record a known sex in the sample workspace, which warns when it
+    contradicts the user's override."""
+    if call.sex in sample_workspace.SEXES:
+        sample_workspace.record(
+            "sex", input_path, call.sex, method=call.method, confidence=call.confidence
+        )
 
 
 def cached_info(
@@ -278,19 +304,33 @@ def cached_info(
 
 
 def sample_sex(input_path: str, outdir: str | None = None) -> str:
-    """Sex from `info`'s cached metrics for this file when present (counting
-    chrY reads in a CRAM takes about a minute), else from samtools idxstats."""
+    """The sample's sex: the user's override or the recorded call in its sample
+    workspace, else `info`'s cached metrics for this file (counting chrY reads
+    in a CRAM takes about a minute), else samtools idxstats. A new call is
+    recorded in the workspace. An override is still checked against the reads,
+    once per file revision, since it changes how chrX and chrY are called."""
+    return str(
+        sample_workspace.resolve(
+            "sex", input_path, lambda: _detect_sex(input_path, outdir)
+        )
+    )
+
+
+def _detect_sex(input_path: str, outdir: str | None) -> tuple[str, str | None]:
     info = cached_info(input_path, outdir)
     # A call cached by an older infer_sex is recomputed rather than trusted
     if info and info.get("sex_inference_version") == SEX_INFERENCE_VERSION:
-        return str(info["gender"])
-    logging.info("Checking chrX/chrY coverage to infer the sample's sex...")
-    try:
-        idx_stats, *_ = parse_idxstats(input_path)
-    except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
-        logging.warning(f"Could not check chrY coverage of {input_path}: {e}")
-        return "Unknown"
-    return infer_sex(idx_stats)
+        call = SexCall(str(info["gender"]), "cached `info --detailed` call", "high")
+    else:
+        logging.info("Checking chrX/chrY coverage to infer the sample's sex...")
+        try:
+            idx_stats, *_ = parse_idxstats(input_path)
+        except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
+            logging.warning(f"Could not check chrY coverage of {input_path}: {e}")
+            return "Unknown", None
+        call = infer_sex_call(idx_stats)
+    record_sex(input_path, call)
+    return call.sex, call.method
 
 
 def parse_idxstats(filepath: str) -> tuple[list[IdxStat], int, int, int]:

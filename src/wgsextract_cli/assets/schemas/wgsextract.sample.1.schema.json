@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:wgsextract:schema:sample:1",
+  "title": "wgsextract.sample/1",
+  "description": "A sample workspace: wgsextract.sample.toml in a genome folder, as parsed from TOML. Records the facts commands detected from each of the sample's files, the user's overrides and the result manifests written there. Unknown top-level keys are kept. See docs/sample-workspace.md.",
+  "type": "object",
+  "required": ["schema"],
+  "properties": {
+    "schema": { "const": "wgsextract.sample/1" },
+    "override": {
+      "description": "Facts the user set; commands use them instead of what they detect, and warn when the reads disagree. A value here is folder-wide, honoured for sex in a genome folder only; a table holds one file's overrides (path relative to the workspace, or absolute), honoured while its fingerprint matches.",
+      "type": "object",
+      "properties": {
+        "sex": { "$ref": "#/$defs/sex" },
+        "platform": { "$ref": "#/$defs/platform" }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["fingerprint"],
+        "additionalProperties": false,
+        "properties": {
+          "fingerprint": { "type": "string" },
+          "sex": { "$ref": "#/$defs/sex" },
+          "platform": { "$ref": "#/$defs/platform" }
+        }
+      }
+    },
+    "detected": {
+      "description": "Per file (path relative to the workspace, or absolute), the facts detected from it. They hold only while the file's fingerprint matches.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/file" }
+    },
+    "outputs": {
+      "description": "Result manifests (<output>.manifest.json) written in the workspace by --genome runs.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["command", "status", "at"],
+        "properties": {
+          "command": { "type": "string" },
+          "status": { "enum": ["ok", "failed", "cancelled"] },
+          "at": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sex": { "enum": ["Male", "Female"] },
+    "platform": { "enum": ["illumina", "ont", "pacbio", "ultima", "dnbseq"] },
+    "file": {
+      "type": "object",
+      "required": ["fingerprint"],
+      "properties": {
+        "fingerprint": {
+          "description": "The file's wgse-fp1 content fingerprint when the facts were detected (see the result manifest).",
+          "type": "string",
+          "pattern": "^wgse-fp1:[0-9a-f]{64}$"
+        },
+        "sex": { "$ref": "#/$defs/fact", "properties": { "value": { "enum": ["Male", "Female"] } } },
+        "platform": {
+          "$ref": "#/$defs/fact",
+          "properties": {
+            "value": { "enum": ["illumina", "ont", "pacbio", "ultima", "dnbseq"] }
+          }
+        },
+        "build": { "$ref": "#/$defs/fact", "properties": { "value": { "type": "string" } } },
+        "read_length": { "$ref": "#/$defs/fact", "properties": { "value": { "type": "number", "minimum": 0 } } },
+        "mean_coverage": { "$ref": "#/$defs/fact", "properties": { "value": { "type": "number", "minimum": 0 } } },
+        "target_depths": {
+          "$ref": "#/$defs/fact",
+          "properties": {
+            "value": {
+              "type": "object",
+              "additionalProperties": { "type": "number", "minimum": 0 }
+            }
+          }
+        }
+      },
+      "additionalProperties": { "$ref": "#/$defs/fact" }
+    },
+    "fact": {
+      "type": "object",
+      "required": ["value", "method", "confidence", "version", "by", "at"],
+      "properties": {
+        "value": {},
+        "method": { "description": "How it was detected.", "type": "string" },
+        "confidence": { "enum": ["high", "medium", "low"] },
+        "version": {
+          "description": "Detector version; a fact from another version is detected again.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "by": { "description": "\"wgsextract <version> <command>\".", "type": "string" },
+        "at": { "description": "UTC time it was detected.", "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

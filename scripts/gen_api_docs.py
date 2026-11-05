@@ -28,7 +28,14 @@ from wgsextract_cli.api._params import (  # noqa: E402
 )
 
 OUTPUT = ROOT / "docs" / "api.md"
-GROUPS = (api.info, api.vcf, api.lineage, api.microarray, api.support)
+GROUPS = (
+    api.info,
+    api.vcf,
+    api.lineage,
+    api.microarray,
+    api.sample,
+    api.support,
+)
 RUNTIME = (api.ProgressEvent, api.ProgressCallback, api.CancelToken, api.CommandFailed)
 
 
