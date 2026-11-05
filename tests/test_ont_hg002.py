@@ -101,6 +101,8 @@ def test_sv_on_ont_runs_sniffles_and_finds_the_truth_deletion(aligned, tmp_path)
         and abs(abs(int(c[2])) - length) <= length // 10
         and c[3] == "1/1"
     ], calls
+    # #299: Sniffles named the sample "SAMPLE" instead of the reads' SM.
+    assert {c[0] for c in _query(out / "sniffles.vcf.gz", "[%SAMPLE]\n")} == {"HG002"}
 
 
 @pytest.fixture

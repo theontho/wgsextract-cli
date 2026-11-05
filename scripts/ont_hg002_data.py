@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """GIAB HG002 ONT R10.4.1 validation data (#299).
 
-``fetch`` downloads the release-hosted slices listed in
-``docs/data/ont_hg002_manifest.json`` and verifies their SHA-256.
+``fetch`` downloads the release-hosted ONT slices and the GIAB truth files
+listed in ``docs/data/ont_hg002_manifest.json`` and verifies their SHA-256.
 
 ``fixture`` rebuilds the committed CI fixture in ``tests/fixtures/ont_hg002``:
 reads from ONT's public HG002 alignment, trimmed to a 12 kb window of chr20
@@ -51,7 +51,7 @@ def fetch(outdir: Path, names: list[str]) -> None:
 
     manifest = json.loads(MANIFEST.read_text())
     outdir.mkdir(parents=True, exist_ok=True)
-    for asset in manifest["assets"]:
+    for asset in manifest["assets"] + manifest["truth"]:
         if names and asset["name"] not in names:
             continue
         dest = outdir / asset["name"]
@@ -198,7 +198,7 @@ def fixture(cram: str, ref: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
-    get = sub.add_parser("fetch", help="Download and verify the release slices.")
+    get = sub.add_parser("fetch", help="Download and verify the slices and truth.")
     get.add_argument("--outdir", type=Path, default=ROOT / "out" / "ont_hg002")
     get.add_argument("names", nargs="*", help="Assets to fetch (default: all).")
     build = sub.add_parser("fixture", help="Rebuild tests/fixtures/ont_hg002.")
