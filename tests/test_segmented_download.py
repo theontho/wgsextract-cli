@@ -67,11 +67,6 @@ class _Server:
         self.url = f"http://127.0.0.1:{self.httpd.server_port}/big.bin"
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
 
-    @property
-    def requested(self) -> int:
-        """Bytes asked for so far."""
-        return sum(end - start for start, end in self.requests)
-
 
 @pytest.fixture
 def server(monkeypatch):
@@ -95,7 +90,7 @@ def test_large_file_comes_in_pieces(server, tmp_path):
     assert downloads.download_file(server.url, str(dest))
 
     assert dest.read_bytes() == DATA
-    assert server.requested == len(DATA)
+    assert sorted(server.requests) == [(s, s + 1000) for s in range(0, len(DATA), 1000)]
     assert not (tmp_path / "big.bin.partial.segments").exists()
 
 
