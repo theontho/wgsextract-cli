@@ -24,9 +24,10 @@ retained intermediate use `samtools fastq -T MM,ML,MN` separately.
 
 For CRAM realignment, `--input-ref` supplies the original decoding FASTA for
 both platform detection and extraction; `--ref` selects the alignment target.
-Without `--input-ref`, a CRAM lacking platform read groups resolves its
-original decoding FASTA from the reference library and sequence-dictionary
-signature **before** its read names are probed. A failed CRAM read-name probe
+Without `--input-ref`, a CRAM lacking platform read groups is decoded with
+`--ref` when its sequence names, lengths and MD5 checksums match the CRAM's
+(realigning to the build it was encoded with), and otherwise with the reference-library FASTA whose
+signature matches, **before** its read names are probed. A failed CRAM read-name probe
 is an error, never a silent fallback to paired short-read extraction.
 The usual realignment disk-space preflight also applies to streamed ONT reads.
 
@@ -128,8 +129,8 @@ dna_r10.4.1_e8.2_400bps_sup@v4.0.0`), realigned with `realign` and scored with
 | `vcf clair3 --model r1041_e82_400bps_sup_v420` | 0.998 | 0.839 | 0.977 |
 
 The callers are within a few indels of each other on this slice, so
-DeepVariant stays the default. This is a regional check, not whole-genome
-qualification (#299).
+DeepVariant stays the default. Results on all of chr20 are under
+[Validation on GIAB HG002](#validation-on-giab-hg002).
 
 ## Structural variants
 
@@ -147,11 +148,19 @@ wgsextract vcf sv -i hg002-ont.bam --ref chr20.fa \
   --region chr20:10000000-11000000 --threads 1 --outdir ont-svs
 ```
 
-Sniffles2 runs with its defaults, which are tuned for both ONT and HiFi. Pass
-a tandem-repeat BED with `--tandem-repeats` (now forwarded to Sniffles as well
-as pbsv) to improve calls in repeats. Mosaic mode (`--mosaic`) is not used:
-this command calls germline SVs. Install Sniffles (for example via the `pacbio`
-Pixi environment); it is checked, not installed automatically.
+Sniffles2 runs with its defaults, which are tuned for both ONT and HiFi.
+`--tandem-repeats BED` is forwarded to Sniffles (as well as pbsv). On HG002
+chr20, though, Sniffles' own GRCh38 TRF annotation *lowered* agreement with the
+GIAB v5.0q benchmark (F1 0.861 without it, 0.797 with it; see
+[validation](#validation-on-giab-hg002)), so it is not passed by default.
+Mosaic mode (`--mosaic`) is not used: this command calls germline SVs. The VCF
+sample is the reads' `@RG SM` when they name one sample (Sniffles itself would
+write `SAMPLE`).
+
+Without `--region`, Sniffles skips contigs shorter than 1 Mb (chrM, unplaced and
+decoy contigs), so they get no SV calls. A `--region` on such a contig is
+called. Install Sniffles (for example via the `pacbio` Pixi environment); it is
+checked, not installed automatically.
 
 ## Methylation
 
@@ -204,7 +213,7 @@ ccs-kinetics, is accepted. Current Jasmine also calls 5hmC (`C+h?`/`G-h?`) and
 with only its 5mC model. For the same reason, `--5hmc` warns on PacBio input.
 
 On the same HG002 R10.4.1 chr20:10-11 Mb slice (ONT open data `PAO83395`,
-about 37x; 8,108 strand-combined CpGs with at least 5 calls):
+about 54x; 8,108 strand-combined CpGs with at least 5 calls):
 
 | Check | Result |
 | --- | --- |
@@ -216,14 +225,116 @@ about 37x; 8,108 strand-combined CpGs with at least 5 calls):
 | Per-site agreement with ONT's published HG002 60x CpG calls | Pearson 0.98, Spearman 0.94, median difference 2.9 points |
 
 The same reads realigned with `wgsextract realign` gave the same result, so the
-tags survive realignment. This is a regional check, not whole-genome
-qualification (#299).
+tags survive realignment.
 
-Platform detection, tagged CPU alignment/realignment, regional x86-64
-DeepVariant ONT_R104 calling, optional Linux x86-64 Clair3 calling, Sniffles
-SV calling, and optional modkit CpG methylation are supported.
-Whole-genome ONT accuracy and methylation are not qualified by this
-change; whole-genome validation is tracked in #299.
+Platform detection, tagged CPU alignment/realignment, x86-64 DeepVariant
+ONT_R104 calling, optional Linux x86-64 Clair3 calling, Sniffles SV calling,
+and optional modkit CpG methylation are supported.
+
+## Validation on GIAB HG002
+
+ONT's public HG002 R10.4.1 run (`PAO83395`, giab_2023.05, sup v4.0.0 with
+5mCG/5hmCG, about 51x by `samtools coverage`, CC BY 4.0) was put through the CLI. The steps were:
+
+- `extract` a region from ONT's alignment;
+- `realign` it to hs38 with the ONT preset;
+- call variants with `vcf deepvariant`, `vcf clair3` and `vcf sv`;
+- score the calls against GIAB.
+
+Small variants were scored with hap.py (vcfeval engine) against v4.2.1 inside
+its benchmark regions. SVs were scored with `truvari bench --pick ac --refine`
+against v5.0q stvar inside its benchmark regions (the whole-genome run
+was refined with `truvari refine -a mafft`, because POA alignment of 48 kb
+regions exceeded 16 GB). The machine was a shared
+8-core x86-64 Linux host, and each step ran with 4 threads.
+
+| Region | Caller | SNV recall / precision / F1 | Indel recall / precision / F1 |
+| --- | --- | --- | --- |
+| chr20:10-15 Mb | `vcf deepvariant` | 0.9995 / 0.9996 / 0.9995 | 0.895 / 0.884 / 0.889 |
+| chr20:10-15 Mb | `vcf clair3` (v410) | 0.9960 / 0.9991 / 0.9975 | 0.861 / 0.935 / 0.896 |
+| chr20 (64 Mb) | `vcf deepvariant` | 0.9991 / 0.9994 / 0.9992 | 0.868 / 0.850 / 0.859 |
+| chr20 (64 Mb) | `vcf clair3` (v410) | 0.9981 / 0.9991 / 0.9986 | 0.818 / 0.926 / 0.868 |
+
+The 5 Mb slice has 6,037 truth SNVs and 1,018 truth indels; all of chr20 has
+71,333 SNVs and 11,256 indels. Indel accuracy is limited by ONT homopolymer
+errors, as is expected for R10.4.1 sup v4.0.0 at this depth.
+
+| Region | `vcf sv` (Sniffles 2.8.1) | Truth SVs | Recall | Precision | F1 |
+| --- | --- | --- | --- | --- | --- |
+| chr20:10-15 Mb | defaults | 27 | 0.704 | 1.000 | 0.826 |
+| chr20 | defaults | 802 | 0.783 | 0.956 | 0.861 |
+| chr20 | `--tandem-repeats` (Sniffles TRF BED) | 802 | 0.708 | 0.912 | 0.797 |
+| chr1-22, X, Y | defaults | 28,123 | 0.758 | 0.939 | 0.839 |
+
+Before refinement, 193 of the 202 SVs missed on chr20 lay in tandem repeats.
+190 were heterozygous, and 143 were insertions. The v5.0q benchmark includes
+such repeat SVs; older benchmarks largely excluded them.
+
+Time and peak memory on chr20 (278,216 reads), 4 threads:
+
+| Step | Wall time | Peak RSS |
+| --- | --- | --- |
+| `extract --region chr20`, streamed over HTTPS from ONT's 100 GB CRAM | 3.7 min | 1.7 GB |
+| `realign` to full hs38 (`--memory 512M`) | 40 min | 14.8 GB |
+| `vcf deepvariant` (CPU container) | 31 min | 9.8 GB |
+| `vcf clair3` | 10.5 min | 4.7 GB |
+| `vcf sv` | 70 s | 0.7 GB |
+
+`realign`'s peak is mostly minimap2's hs38 `map-ont` index. With the default
+sort memory (about 1 GB per thread on a 30 GB machine) it exceeded a 14 GB
+limit and was killed, so plan for at least 16 GB of RAM for ONT alignment.
+Scaled from chr20 (2.1% of the genome), a 51x whole genome on 4 threads would
+take about 32 h to realign, 25 h for DeepVariant and 8 h for Clair3. Whole-genome
+small-variant accuracy was therefore measured on chr20 only.
+The read-only features were run on ONT's whole-genome CRAM (PAO83395, 104 GB,
+about 51x, GRCh38 analysis set), without realigning it:
+
+| Command | Result on HG002 | Wall time | Peak RSS |
+| --- | --- | --- | --- |
+| `info --detailed` | Oxford Nanopore, male, hg38, 18,778 bp mean read length | 95 s | 0.5 GB |
+| `lineage y-haplogroup` | J-ZS2721, inside J1-M267 and two levels below YFull's J-ZS2729 for HG002 | 3.5 min | 0.8 GB |
+| `lineage mt-haplogroup` | H5a7 (Haplogrep quality 0.95) | 12 s | 0.2 GB |
+| `microarray --formats 23andme_v5`, 2 threads | 638,466 markers, 0.17% no-calls; 99.82% genotype concordance with v4.2.1 at 2.26 M benchmark sites (99.53% where the truth has a variant) | 31 min | 1.7 GB |
+| `vcf sv`, 4 threads | 25,672 SVs; recall 0.758, precision 0.939 against 28,123 v5.0q SVs (table above) | 24 min | 5.6 GB |
+| `methylation --region chr20` | 65.5% of 746,117 CpGs methylated (>= 5 calls) | 43 s | 1.7 GB |
+
+`info --detailed` overstates long-read depth: it reported 73x overall and 82x
+for chr20, while `samtools coverage` gives 55x on that CRAM's chr20. The
+estimate multiplies index record counts, which include secondary and
+supplementary alignments, by the mean read length
+([#427](https://github.com/WGSExtract/wgsextract-cli/issues/427)). On the
+realigned chr20 BAM it gave 80x, where `samtools coverage` gives 51x. `qc vcf`
+ran on the chr20 DeepVariant VCF (106,665 PASS SNVs, Ts/Tv 1.74).
+
+Small-variant calling on the whole genome was not run: 32 h of realignment
+plus 25 h of DeepVariant on 4 shared cores would not show anything that chr20
+does not, since the callers work per region. The whole-genome run instead
+covers what chr20 cannot: sex and haplogroup inference, the genome-wide
+microarray export and SV calling across all chromosomes; a whole-genome
+small-variant run is tracked in
+[#431](https://github.com/WGSExtract/wgsextract-cli/issues/431).
+
+### Data and CI fixture
+
+- `tests/fixtures/ont_hg002/` (about 270 KB) holds 44 HG002 reads with their
+  MM/ML tags, covering chr20:14,542,001-14,554,000 at about 27x, with that
+  reference window and the truth calls in it: 18 small variants and one
+  313 bp deletion. `tests/test_ont_hg002.py` aligns the reads with `align`,
+  then checks:
+  - platform detection, read groups and tag retention;
+  - Sniffles finding the deletion;
+  - DeepVariant choosing `ONT_R104`;
+  - Clair3 calling exactly the truth variants, when Clair3 is installed.
+
+  CI runs it in the `ont-hg002` job. `provenance.json` records the sources;
+  `python scripts/ont_hg002_data.py fixture` rebuilds the fixture.
+- The 5 Mb slice and whole chr20 (in two parts under GitHub's 2 GiB limit;
+  `samtools cat` joins them) are assets of the
+  [`ont-hg002-data-v1`](https://github.com/WGSExtract/wgsextract-cli/releases/tag/ont-hg002-data-v1)
+  release. [`docs/data/ont_hg002_manifest.json`](data/ont_hg002_manifest.json)
+  lists them, and the GIAB truth files, with SHA-256 sums.
+  `python scripts/ont_hg002_data.py fetch [NAME ...]` downloads and verifies
+  them.
 
 ## CLI / GUI contract
 

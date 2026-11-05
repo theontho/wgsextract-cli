@@ -1,0 +1,112 @@
+{
+  "description": "GIAB HG002 Oxford Nanopore R10.4.1 validation data for wgsextract (#299). Fetch and verify with scripts/ont_hg002_data.py fetch; results are in docs/ont.md.",
+  "sample": "HG002 (GIAB NA24385)",
+  "source": {
+    "name": "PAO83395.pass.cram",
+    "url": "https://ont-open-data.s3.amazonaws.com/giab_2023.05/analysis/hg002/sup/PAO83395.pass.cram",
+    "index": "https://ont-open-data.s3.amazonaws.com/giab_2023.05/analysis/hg002/sup/PAO83395.pass.cram.crai",
+    "size": 103693962633,
+    "sha256": "2edd59ec7ba55c469688fe98142b9aff6310ec11edb420afb7137a5f73bd2358",
+    "license": "CC BY 4.0, Oxford Nanopore Technologies open data (giab_2023.05)",
+    "basecaller": "dna_r10.4.1_e8.2_400bps_sup@v4.0.0 (5mCG_5hmCG); not recorded in the CRAM header",
+    "reference": "GCA_000001405.15_GRCh38_no_alt_analysis_set (hs38), minimap2 2.24"
+  },
+  "release_tag": "ont-hg002-data-v1",
+  "assets": [
+    {
+      "name": "hg002_ont_r1041_chr20_10-15Mb.cram",
+      "url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/ont-hg002-data-v1/hg002_ont_r1041_chr20_10-15Mb.cram",
+      "sha256": "1552a1c7daf5d8e3a022ee2f1b2ebe334de57fef4b78bfcbad3f8aed3ffd90c1",
+      "size": 175892155,
+      "description": "chr20:10,000,000-15,000,000 of ONT's HG002 alignment (about 54x)"
+    },
+    {
+      "name": "hg002_ont_r1041_chr20_10-15Mb.cram.crai",
+      "url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/ont-hg002-data-v1/hg002_ont_r1041_chr20_10-15Mb.cram.crai",
+      "sha256": "23d5badfeabe6500f1934712e159130341bd2947ceafd7b61837b0ab6b47cc61",
+      "size": 1454
+    },
+    {
+      "name": "hg002_ont_r1041_chr20_part1.cram",
+      "url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/ont-hg002-data-v1/hg002_ont_r1041_chr20_part1.cram",
+      "sha256": "edbc19c5e35ea62deb42db90dd23778e46ba6b7c35bfd9f11b7a6ba32fdc4334",
+      "size": 1232229639,
+      "description": "chr20 reads starting at or before 32,000,000"
+    },
+    {
+      "name": "hg002_ont_r1041_chr20_part1.cram.crai",
+      "url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/ont-hg002-data-v1/hg002_ont_r1041_chr20_part1.cram.crai",
+      "sha256": "61384e88abadb88680eb3d83593656e264fda2abd13928b49cb9ec712ee30782",
+      "size": 15401
+    },
+    {
+      "name": "hg002_ont_r1041_chr20_part2.cram",
+      "url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/ont-hg002-data-v1/hg002_ont_r1041_chr20_part2.cram",
+      "sha256": "893323c575cb1dc4da65669f0560e4766b9e271a877bd8f2f67db7c14153f32f",
+      "size": 1036527480,
+      "description": "chr20 reads starting after 32,000,000"
+    },
+    {
+      "name": "hg002_ont_r1041_chr20_part2.cram.crai",
+      "url": "https://github.com/WGSExtract/wgsextract-cli/releases/download/ont-hg002-data-v1/hg002_ont_r1041_chr20_part2.cram.crai",
+      "sha256": "d6328b8a88f3d4b3d99e4fa52836289b78bc95830075fdead134885da4f6461b",
+      "size": 8917
+    }
+  ],
+  "truth": [
+    {
+      "name": "HG002_GRCh38_1_22_v4.2.1_benchmark.vcf.gz",
+      "url": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/NISTv4.2.1/GRCh38/HG002_GRCh38_1_22_v4.2.1_benchmark.vcf.gz",
+      "sha256": "adb4d4a50048aa13353a06b84fcfcbca09a5d17525efaa4cea44f8822e81175c",
+      "size": 156252944
+    },
+    {
+      "name": "HG002_GRCh38_1_22_v4.2.1_benchmark.vcf.gz.tbi",
+      "url": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/NISTv4.2.1/GRCh38/HG002_GRCh38_1_22_v4.2.1_benchmark.vcf.gz.tbi",
+      "sha256": "23162712553413b10f88916c28bd1238deb703a7237be2910440773beea71894",
+      "size": 1657747
+    },
+    {
+      "name": "HG002_GRCh38_1_22_v4.2.1_benchmark_noinconsistent.bed",
+      "url": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/NISTv4.2.1/GRCh38/HG002_GRCh38_1_22_v4.2.1_benchmark_noinconsistent.bed",
+      "sha256": "fba9a57c36ec88e5d14ea3e259c8866c7935f4998d3ec0fa2d6c3962da5b5575",
+      "size": 11494021
+    },
+    {
+      "name": "HG002_GRCh38_v5.0q_stvar.vcf.gz",
+      "url": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/v5.0q/HG002_GRCh38_v5.0q_stvar.vcf.gz",
+      "sha256": "d66b2d2496ff5418763813d3195599007dbff950514d10e5bc27b6c8b76e34b8",
+      "size": 48040012
+    },
+    {
+      "name": "HG002_GRCh38_v5.0q_stvar.vcf.gz.tbi",
+      "url": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/v5.0q/HG002_GRCh38_v5.0q_stvar.vcf.gz.tbi",
+      "sha256": "57898d17e44ecd5c286aeb863f27e613244396a3ad4b04ca79c8add647b8a81d",
+      "size": 1554436
+    },
+    {
+      "name": "HG002_GRCh38_v5.0q_stvar.benchmark.bed",
+      "url": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/v5.0q/HG002_GRCh38_v5.0q_stvar.benchmark.bed",
+      "sha256": "2f75ce942e1dd9e1a443e4e04fac640104aae5e23fba24d7d3f2c1f1f9985b00",
+      "size": 230609
+    },
+    {
+      "name": "HG002_GRCh38_v5.0q_smvar.vcf.gz",
+      "url": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/v5.0q/HG002_GRCh38_v5.0q_smvar.vcf.gz",
+      "sha256": "c7f9d7a4781f1f0a8a42ec54b051d6b95db1935c5e12318bae219740f9c50dc8",
+      "size": 42067644
+    },
+    {
+      "name": "HG002_GRCh38_v5.0q_smvar.vcf.gz.tbi",
+      "url": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/v5.0q/HG002_GRCh38_v5.0q_smvar.vcf.gz.tbi",
+      "sha256": "4d77f6eb74eebf676572c70d13a0b353e3e8c81468f250739c91ad1343102eb2",
+      "size": 1547524
+    },
+    {
+      "name": "HG002_GRCh38_v5.0q_smvar.benchmark.bed",
+      "url": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/v5.0q/HG002_GRCh38_v5.0q_smvar.benchmark.bed",
+      "sha256": "ef7d898dd421ea357bb9db915894ab3e5c6c1689e36ccf619befda4bbf1cef5b",
+      "size": 685544
+    }
+  ]
+}

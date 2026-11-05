@@ -239,7 +239,15 @@ def test_bam_without_read_group_uses_read_name(tmp_path):
         for command in ("align", "realign")
         for kind in ("bam", "fastq", "cram")
     ]
-    + [("realign", "cram-library")],
+    + [
+        ("realign", kind)
+        for kind in (
+            "cram-library",
+            "cram-target",
+            "cram-target-unindexed",
+            "cram-masked-target",
+        )
+    ],
 )
 def test_ont_modification_tags_survive_alignment_and_sort(
     tmp_path, monkeypatch, command, source_kind
@@ -272,7 +280,7 @@ def test_ont_modification_tags_survive_alignment_and_sort(
             )
         )
         reads = str(path)
-    elif source_kind in {"cram", "cram-library"}:
+    elif source_kind.startswith("cram"):
         mapped = []
         for i, record in enumerate(records):
             fields = record.split("\t")
@@ -290,19 +298,34 @@ def test_ont_modification_tags_survive_alignment_and_sort(
         )
         cram = tmp_path / "ont.cram"
         encoded_with = ref
-        if source_kind == "cram-library":
+        if source_kind in {"cram-library", "cram-masked-target"}:
             encoded_with = write_fasta(tmp_path / "encoding.fa", {"chr1": genome})
         run_command(
             ["samtools", "view", "-C", "-T", encoded_with, "-o", cram, mapped_bam]
         )
         run_command(["samtools", "index", cram])
-        if source_kind == "cram-library":
+        if source_kind in {"cram-library", "cram-masked-target"}:
             for path in tmp_path.glob("encoding.fa*"):
                 path.unlink()
             library = tmp_path / "library"
             (library / "genomes").mkdir(parents=True)
             write_fasta(library / "genomes" / "original.fa", {"chr1": genome})
             monkeypatch.setitem(settings, "reference_library", str(library))
+        else:
+            # #299: re-mapping to the encoding build needs no --input-ref.
+            (tmp_path / "empty-library").mkdir()
+            monkeypatch.setitem(
+                settings, "reference_library", str(tmp_path / "empty-library")
+            )
+        if source_kind == "cram-target-unindexed":
+            Path(f"{ref}.fai").unlink()
+        if source_kind == "cram-masked-target":
+            # Same names and lengths as the encoding FASTA, different bases:
+            # the CRAM must still decode with the library copy.
+            ref = write_fasta(
+                tmp_path / "masked.fa",
+                {"chr1": genome[:1000] + "N" * 200 + genome[1200:]},
+            )
         reads = str(cram)
     out = tmp_path / "result"
     opts = ["--r1", reads] if command == "align" else ["--input", reads]
@@ -333,6 +356,7 @@ def test_ont_modification_tags_survive_alignment_and_sort(
     ]
     assert len(primary) == 2
     assert {int(record[1]) & 16 for record in primary} == {0, 16}
+    assert {record[9] for record in primary} == {genome[500:2500], genome[4000:6000]}
     for record in primary:
         assert "MM:Z:C+m,0,1;" in record[11:]
         assert "ML:B:C,255,128" in record[11:]

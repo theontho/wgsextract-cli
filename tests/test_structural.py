@@ -337,8 +337,9 @@ def _platform_bam(tmp_path: Path, platform: str) -> str:
 
 @needs_htslib
 @pytest.mark.parametrize("flags", [[], ["--ont"], ["--long-read"]])
-def test_ont_input_runs_sniffles_by_default(tmp_path, long_read, flags):
+def test_ont_input_runs_sniffles_by_default(tmp_path, long_read, flags, caplog):
     callers, _bam, ref = long_read
+    caplog.set_level(logging.INFO)
     bam = _platform_bam(tmp_path, "ONT")
     repeats = tmp_path / "trf.bed"
     repeats.write_text("chr1\t0\t100\n")
@@ -348,6 +349,9 @@ def test_ont_input_runs_sniffles_by_default(tmp_path, long_read, flags):
     assert cmd[0] == "sniffles" and cmd[cmd.index("--input") + 1] == bam
     assert cmd[cmd.index("--tandem-repeats") + 1] == str(repeats)
     assert _records(out / "sniffles.vcf.gz") == [("chr1", "30000", "32000")]
+    # #299: the log named Delly while Sniffles ran.
+    assert "Calling SVs using sniffles" in caplog.text
+    assert "delly" not in caplog.text.lower()
 
 
 @needs_htslib

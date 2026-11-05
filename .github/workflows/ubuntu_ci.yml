@@ -91,3 +91,26 @@ jobs:
       # and whole-genome data; about 30 s, no downloads.
       - name: Run end-to-end tests on generated data
         run: pixi run test-e2e-fake
+
+  # ONT end to end on real GIAB HG002 R10.4.1 reads (tests/fixtures/ont_hg002):
+  # align with minimap2, then Sniffles from the opt-in pacbio environment.
+  ont-hg002:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Pixi
+        uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
+        with:
+          pixi-version: v0.82.0
+          locked: true
+          environments: >-
+            dev
+            pacbio
+      # Clair3's environment is too large for CI; the rest must run, not skip.
+      - name: Run ONT HG002 fixture tests
+        shell: bash
+        run: |
+          mkdir -p out
+          pixi run -e dev pytest tests/test_ont_hg002.py -k "not clair3" -rs | tee out/ont-hg002.txt
+          ! grep -q skipped out/ont-hg002.txt

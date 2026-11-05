@@ -53,6 +53,34 @@ def reference_dict_path(fasta: PathInput) -> str:
     return fasta_prefix(fasta) + ".dict"
 
 
+def header_sequences(header: str) -> list[dict[str, str]]:
+    """The tags (SN, LN, M5, ...) of each @SQ line in a SAM header or .dict."""
+    return [
+        dict(f.split(":", 1) for f in line.split("\t")[1:] if ":" in f)
+        for line in header.splitlines()
+        if line.startswith("@SQ")
+    ]
+
+
+def sequence_dictionary(fasta: PathInput) -> list[dict[str, str]] | None:
+    """A FASTA's @SQ tags from its .dict, else from samtools dict (which reads
+    the whole FASTA to compute each sequence's M5); None if neither works."""
+    import subprocess
+
+    from wgsextract_cli.core.utils import run_command
+
+    dict_path = Path(reference_dict_path(fasta))
+    try:
+        if dict_path.is_file():
+            text = dict_path.read_text()
+        else:
+            cmd = ["samtools", "dict", fspath(fasta)]
+            text = run_command(cmd, capture_output=True).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return header_sequences(text) or None
+
+
 def n_count_paths(fasta: PathInput, outdir: PathInput | None = None) -> tuple[str, str]:
     """Return the (_ncnt.csv, _nbin.csv) sidecar paths for a FASTA."""
     prefix = fasta_prefix(fasta)

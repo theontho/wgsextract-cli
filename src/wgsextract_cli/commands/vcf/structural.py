@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import IO
 
+from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -18,6 +19,7 @@ from wgsextract_cli.core.output_checks import vcf_record_count, warn_if_no_varia
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.results import current_result
 from wgsextract_cli.core.sequencing import input_platform
+from wgsextract_cli.core.ultima import read_groups
 from wgsextract_cli.core.utils import (
     UsageError,
     WGSExtractError,
@@ -217,7 +219,7 @@ def cmd_sv_pbsv(args: argparse.Namespace) -> None:
     if tandem_repeats:
         verify_paths_exist({"--tandem-repeats": tandem_repeats})
 
-    logging.info(LOG_MESSAGES["vcf_calling_sv"].format(output=out_vcf))
+    logging.info(LOG_MESSAGES["vcf_calling_sv"].format(caller="pbsv", output=out_vcf))
     with (
         tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_pbsv_") as work,
         # pbsv call does not accept .fa.gz input.
@@ -281,7 +283,9 @@ def cmd_sv_sniffles(args: argparse.Namespace) -> None:
     if tandem_repeats:
         verify_paths_exist({"--tandem-repeats": tandem_repeats})
 
-    logging.info(LOG_MESSAGES["vcf_calling_sv"].format(output=out_vcf))
+    logging.info(
+        LOG_MESSAGES["vcf_calling_sv"].format(caller="sniffles", output=out_vcf)
+    )
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_sniffles_") as work:
         raw_vcf = str(Path(work, "sniffles.vcf"))
         # --reference is needed to decode CRAM and to emit deletion sequences.
@@ -289,6 +293,11 @@ def cmd_sv_sniffles(args: argparse.Namespace) -> None:
         cmd += ["--reference", ref, "--threads", threads]
         if tandem_repeats:
             cmd += ["--tandem-repeats", tandem_repeats]
+        # Sniffles names the sample "SAMPLE" unless told; match the other callers.
+        header = get_bam_header(args.input, ref)
+        samples = {g["SM"] for g in read_groups(header) if g.get("SM")}
+        if len(samples) == 1:
+            cmd += ["--sample-id", samples.pop()]
         if region:
             bed_path = str(Path(work, "region.bed"))
             _write_region_bed(region, ref, bed_path)
@@ -381,7 +390,7 @@ def cmd_sv(args: argparse.Namespace) -> None:
 
     out_bcf = str(Path(outdir, "sv.bcf"))
     out_vcf = str(Path(outdir, "sv.vcf.gz"))
-    logging.info(LOG_MESSAGES["vcf_calling_sv"].format(output=out_vcf))
+    logging.info(LOG_MESSAGES["vcf_calling_sv"].format(caller="delly", output=out_vcf))
 
     with _region_input_bam(args, outdir, ref, "SV") as input_file:
         try:

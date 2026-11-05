@@ -27,7 +27,7 @@ from wgsextract_cli.core.ref_library.downloads import (
     download_file,
     verify_download_sha256,
 )
-from wgsextract_cli.core.reference_assets import reference_dict_path
+from wgsextract_cli.core.reference_assets import sequence_dictionary
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 INDEX_SUFFIXES = (".0123", ".amb", ".ann", ".bwt.2bit.64", ".pac")
@@ -155,24 +155,12 @@ def _gb(n: int) -> str:
 def contig_fingerprint(ref: str) -> str | None:
     """SHA-256 of the reference's contig names, lengths and sequence MD5s, in
     order, from its sequence dictionary (made with samtools dict if missing)."""
-    dict_path = Path(reference_dict_path(ref))
-    try:
-        if dict_path.is_file():
-            text = dict_path.read_text()
-        else:
-            text = run_command(["samtools", "dict", ref], capture_output=True).stdout
-    except (OSError, subprocess.SubprocessError) as e:
-        logging.debug(f"No sequence dictionary for {ref}: {e}")
+    sequences = sequence_dictionary(ref)
+    if not sequences or any("M5" not in tags for tags in sequences):
+        logging.debug(f"No sequence dictionary with MD5s for {ref}")
         return None
-    rows = []
-    for line in text.splitlines():
-        if not line.startswith("@SQ"):
-            continue
-        tags = dict(f.split(":", 1) for f in line.split("\t")[1:] if ":" in f)
-        if "M5" not in tags:
-            return None
-        rows.append(f"{tags.get('SN')}\t{tags.get('LN')}\t{tags['M5']}\n")
-    return hashlib.sha256("".join(rows).encode()).hexdigest() if rows else None
+    rows = "".join(f"{t.get('SN')}\t{t.get('LN')}\t{t['M5']}\n" for t in sequences)
+    return hashlib.sha256(rows.encode()).hexdigest()
 
 
 def prebuilt_index(ref: str) -> PrebuiltIndex | None:
