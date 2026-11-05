@@ -1,17 +1,21 @@
 import gzip
+import os
 import random
-import subprocess
+import re
+import shutil
 from argparse import Namespace
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
+from tests.disk_volumes import GIB, Volumes
+from tests.fake_tools import python_tool
 from tests.htslib_helpers import needs_tools, run_wgsextract, sam_to_bam, write_fasta
-from wgsextract_cli.commands import align, realign
+from wgsextract_cli.commands import align
 from wgsextract_cli.commands.info.metrics import determine_sequencer
 from wgsextract_cli.core import sequencing
 from wgsextract_cli.core.config import settings
+from wgsextract_cli.core.dependencies import clear_tool_caches
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 
 UUID = "a18d071b-8bb9-42fe-b929-1f24cfe1d052"
@@ -64,175 +68,158 @@ def test_ont_gpu_refuses_to_drop_modification_tags():
         )
 
 
+@pytest.fixture
+def genome_ref(tmp_path):
+    genome = "".join(random.Random(3).choices("ACGT", k=3000))
+    return genome, write_fasta(tmp_path / "ref.fa", {"chr1": genome})
+
+
+def _onto(genome: str, qname: str) -> str:
+    """An unmapped SAM record of a 100 bp read from genome[1000:1100]."""
+    return f"{qname}\t4\t*\t0\t0\t*\t*\t0\t0\t{genome[1000:1100]}\t{'I' * 100}"
+
+
+@needs_tools("bwa", "samtools")
 @pytest.mark.parametrize(
     ("suffix", "qname", "header", "detected"),
     [
         (".fq", "m84000_230101_120000_s1/123456789/ccs", "", "pacbio"),
         (".fq", "608478_2-3317701967", "", "ultima"),
         (".fq", "E100000001L1C001R001000001", "", "dnbseq"),
-        (".bam", "renamed", "@RG\tID:r\tPL:PACBIO\n", "pacbio"),
-        (".bam", "renamed", "@RG\tID:r\tPL:DNBSEQ\n", "dnbseq"),
+        (".bam", "renamed", "@RG\tID:r\tPL:PACBIO", "pacbio"),
+        (".bam", "renamed", "@RG\tID:r\tPL:DNBSEQ", "dnbseq"),
         (".bam", "608478_2-3317701967", "", "ultima"),
-        (".sam", "renamed", "@RG\tID:r\tPL:ULTIMA\n", "ultima"),
+        (".sam", "renamed", "@RG\tID:r\tPL:ULTIMA", "ultima"),
     ],
 )
-def test_other_platforms_keep_main_illumina_command_lines(
-    tmp_path, monkeypatch, suffix, qname, header, detected
+def test_other_platforms_keep_illumina_alignment_defaults(
+    tmp_path, monkeypatch, genome_ref, suffix, qname, header, detected
 ):
+    """Only ONT (and an Ultima read group on a BAM/CRAM) changes the defaults;
+    other detected platforms are reported, and align as before, with BWA."""
+    genome, ref = genome_ref
     reads = tmp_path / f"reads{suffix}"
-    reads.write_text(f"@{qname}\nACGT\n+\nIIII\n")
-    for module in (align, sequencing):
-        monkeypatch.setattr(module, "get_bam_header", lambda *_args: header)
-    monkeypatch.setattr(
-        sequencing,
-        "run_command",
-        lambda *_a, **_k: subprocess.CompletedProcess([], 0, f"{qname}\t4\t*\n", ""),
-    )
-    assert sequencing.input_platform(reads) == detected
-    # Having pbmm2 installed must not turn reporting into an automatic switch.
-    monkeypatch.setattr(
-        align, "get_tool_path", lambda tool: tool if tool == "pbmm2" else None
-    )
-    setup = SimpleNamespace(
-        threads="1", memory="256M", ref="ref.fa", outdir=str(tmp_path), stem="reads"
-    )
-    monkeypatch.setattr(align, "_bwa_setup", lambda *_a, **_k: (setup, "bwa"))
-    commands = []
-    monkeypatch.setattr(
-        align,
-        "run_streamed_alignment",
-        lambda command, *_a, **_k: commands.append(command),
-    )
-    for function in ("align_pbmm2", "align_minimap2", "align_ultima"):
-        monkeypatch.setattr(
-            align,
-            function,
-            lambda *_a, **_k: pytest.fail("unexpected non-ONT platform switch"),
-        )
-    args = Namespace(
-        r1=str(reads),
-        r2=None,
-        platform=None,
-        aligner="auto",
-        long_read=False,
-        preset=None,
-        gpu=False,
-        format="BAM",
-    )
-    align.run(args)
-    assert args.platform == "illumina"
-    args.platform = "illumina"
-    align.run(args)
-    expected = [
-        "bwa",
-        "mem",
-        "-K",
-        "100000000",
-        "-t",
-        "1",
-        "-R",
-        "@RG\\tID:reads\\tSM:reads\\tLB:reads\\tPL:ILLUMINA",
-        "ref.fa",
-        str(reads),
-    ]
-    assert commands == [expected, expected]
-
-
-@pytest.mark.parametrize("failure", ["exit", "exception"])
-def test_failed_cram_name_probe_does_not_silently_select_paired_defaults(
-    tmp_path, monkeypatch, failure
-):
-    cram = tmp_path / "reads.cram"
-    cram.write_bytes(b"synthetic")
-    monkeypatch.setattr(sequencing, "get_bam_header", lambda *_args: "")
-
-    def probe(*_args, **_kwargs):
-        if failure == "exception":
-            raise OSError("probe unavailable")
-        return subprocess.CompletedProcess([], 1, "", "reference unavailable")
-
-    monkeypatch.setattr(sequencing, "run_command", probe)
-    # Reporting-only callers (variant calling) keep treating this as unknown.
-    assert sequencing.input_platform(cram, "original.fa") is None
-    with pytest.raises(WGSExtractError, match="CRAM read names.*paired short-read"):
-        sequencing.input_platform(cram, "original.fa", strict=True)
-    args = Namespace(platform=None, input_ref="original.fa")
-    monkeypatch.setattr(align, "get_bam_header", lambda *_args: "")
-    with pytest.raises(WGSExtractError, match="CRAM read names"):
-        align.resolve_platform(args, str(cram))
-
-
-def test_platform_probe_is_cached_per_input_revision(tmp_path, monkeypatch):
-    bam = tmp_path / "reads.bam"
-    bam.write_bytes(b"synthetic")
-    headers = []
-
-    def header(*_args):
-        headers.append(True)
-        return "@RG\tID:r\tPL:ONT\n"
-
-    monkeypatch.setattr(sequencing, "get_bam_header", header)
-    assert sequencing.input_platform(bam) == "ont"
-    assert sequencing.input_platform(bam) == "ont"
-    assert len(headers) == 1
-    bam.write_bytes(b"replaced")
-    assert sequencing.input_platform(bam) == "ont"
-    assert len(headers) == 2
-
-
-def test_realign_platform_probe_uses_input_decoding_reference(monkeypatch):
-    seen = []
-
-    def detect(reads, reference, *, strict=False):
-        seen.append((reads, reference, strict))
-        return "ont"
-
-    monkeypatch.setattr(align, "input_platform", detect)
-    args = Namespace(platform=None, input_ref="original.fa")
-    assert align.resolve_platform(args, "reads.cram") == "ont"
-    assert seen == [("reads.cram", "original.fa", True)]
-
-
-@pytest.mark.parametrize("skip_preflight", [False, True])
-def test_ont_realign_honors_disk_space_preflight(tmp_path, monkeypatch, skip_preflight):
-    bam = tmp_path / "ont.bam"
-    bam.write_bytes(b"synthetic")
-    ref = tmp_path / "ref.fa"
-    ref.write_text(">chr1\nACGT\n")
-    monkeypatch.setattr(realign, "resolve_reference", lambda *_args: str(ref))
-    monkeypatch.setattr(realign, "indexed_read_count", lambda *_args: 2)
-    monkeypatch.setattr(realign, "check_free_space", lambda *_args: False)
-    runs = []
-
-    def fake_align(args):
-        runs.append(args)
-        for name in ("ont_aligned.bam", "ont_aligned.bam.bai"):
-            Path(args.outdir, name).write_bytes(b"aligned")
-
-    monkeypatch.setattr(align, "run", fake_align)
-    args = Namespace(
-        input=str(bam),
-        r1=None,
-        r2=None,
-        platform="ont",
-        long_read=False,
-        aligner="auto",
-        gpu=False,
-        preset=None,
-        ref=str(ref),
-        threads="1",
-        memory="256M",
-        outdir=str(tmp_path / "out"),
-        keep_fastq=False,
-        no_preflight=skip_preflight,
-    )
-    if skip_preflight:
-        realign.run(args)
-        assert len(runs) == 1
+    mate = genome[1200:1300].translate(str.maketrans("ACGT", "TGCA"))[::-1]
+    if suffix == ".fq":
+        reads.write_text(f"@{qname}\n{genome[1000:1100]}\n+\n{'I' * 100}\n")
+        expected = [["chr1", "1001"]]
     else:
-        with pytest.raises(WGSExtractError, match="Insufficient free disk"):
-            realign.run(args)
-        assert not runs
+        lines = [*([header] if header else []), _onto(genome, qname)]
+        if suffix == ".bam":
+            first = lines[-1].split("\t")
+            first[1] = "77"
+            second = [qname, "141", *first[2:9], mate, "I" * 100]
+            sam_to_bam([*lines[:-1], "\t".join(first), "\t".join(second)], reads)
+            expected = [["chr1", "1001"], ["chr1", "1201"]]
+        else:
+            reads.write_text("".join(f"{line}\n" for line in lines))
+    assert sequencing.input_platform(reads) == detected
+    assert align.resolve_platform(Namespace(platform=None), str(reads)) == "illumina"
+    if suffix == ".sam":
+        return  # align --r1 takes FASTQ and realign --input a BAM or CRAM
+    # Having pbmm2 installed must not turn reporting into an automatic switch.
+    bindir = tmp_path / "bin"
+    python_tool(bindir, "pbmm2", "import sys; sys.exit('pbmm2 ran')")
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+    clear_tool_caches()
+
+    run_wgsextract(
+        *(["align", "--r1"] if suffix == ".fq" else ["realign", "--input"]),
+        str(reads), "--ref", str(ref), "--outdir", str(tmp_path / "out"),
+        "--threads", "1", "--memory", "256M",
+    )  # fmt: skip
+
+    aligned = tmp_path / "out" / "reads_aligned.bam"
+    head = run_command(["samtools", "view", "-H", aligned], capture_output=True)
+    groups = [line for line in head.stdout.splitlines() if line.startswith("@RG")]
+    assert len(groups) == 1 and "\tPL:ILLUMINA" in groups[0]
+    assert "\tID:bwa\t" in head.stdout
+    body = run_command(["samtools", "view", aligned], capture_output=True).stdout
+    assert [line.split("\t")[2:4] for line in body.splitlines()] == expected
+
+
+@needs_tools("samtools")
+def test_undecodable_cram_never_falls_back_to_short_read_defaults(
+    tmp_path, monkeypatch, genome_ref
+):
+    """A CRAM whose read groups don't name the platform needs its decoding
+    FASTA to read the first name; without it, ONT can't be ruled out."""
+    genome, _ = genome_ref
+    monkeypatch.setenv("REF_PATH", str(tmp_path / "no-ref-cache"))
+    monkeypatch.setenv("REF_CACHE", str(tmp_path / "no-ref-cache"))
+    (tmp_path / "enc").mkdir()
+    encoded_with = write_fasta(tmp_path / "enc" / "original.fa", {"chr1": genome})
+    mapped = _onto(genome, UUID).split("\t")
+    mapped[1:6] = ["0", "chr1", "1001", "60", "100M"]
+    bam = sam_to_bam(
+        ["@SQ\tSN:chr1\tLN:3000", "\t".join(mapped)], tmp_path / "mapped.bam"
+    )
+    cram = tmp_path / "reads.cram"
+    run_command(["samtools", "view", "-C", "-T", encoded_with, "-o", cram, bam])
+    moved = tmp_path / "moved"
+    shutil.move(encoded_with.parent, moved)
+    missing = str(encoded_with)
+
+    # Reporting-only callers (variant calling) keep treating this as unknown.
+    assert sequencing.input_platform(cram, missing) is None
+    with pytest.raises(WGSExtractError, match="CRAM read names.*paired short-read"):
+        align.resolve_platform(Namespace(platform=None, input_ref=missing), str(cram))
+    # realign's --input-ref decodes it.
+    args = Namespace(platform=None, input_ref=str(moved / "original.fa"))
+    assert align.resolve_platform(args, str(cram)) == "ont"
+
+
+@needs_tools("samtools")
+def test_platform_follows_an_input_replaced_in_place(tmp_path):
+    def write(platform: str) -> None:
+        sam_to_bam(
+            [
+                f"@RG\tID:r\tPL:{platform}",
+                "renamed\t4\t*\t0\t0\t*\t*\t0\t0\tACGT\tIIII",
+            ],
+            tmp_path / "reads.bam",
+        )
+
+    write("ONT")
+    bam = tmp_path / "reads.bam"
+    assert sequencing.input_platform(bam) == "ont"
+    assert sequencing.input_platform(bam) == "ont"
+    write("ILLUMINA")
+    assert sequencing.input_platform(bam) == "illumina"
+
+
+@needs_tools("samtools", "minimap2")
+@pytest.mark.parametrize("skip_preflight", [False, True])
+def test_ont_realign_honors_disk_space_preflight(
+    tmp_path, monkeypatch, genome_ref, skip_preflight
+):
+    genome, ref = genome_ref
+    seq = genome[500:2500]
+    bam = sam_to_bam(
+        [
+            "@RG\tID:r\tPL:ONT\tSM:s",
+            f"{UUID}\t4\t*\t0\t0\t*\t*\t0\t0\t{seq}\t{'I' * len(seq)}",
+        ],
+        tmp_path / "ont.bam",
+    )
+    out = tmp_path / "out"
+    out.mkdir()
+    volumes = Volumes(monkeypatch)
+    volumes.free[out] = 1
+    volumes.sizes[Path(bam).absolute()] = 4 * GIB
+    argv = ["realign", "--input", bam, "--ref", str(ref), "--outdir", str(out),
+            "--threads", "1", "--memory", "256M"]  # fmt: skip
+
+    if skip_preflight:
+        run_wgsextract(*argv, "--no-preflight")
+        assert (out / "ont_aligned.bam").is_file()
+    else:
+        with pytest.raises(
+            WGSExtractError,
+            match=f"Insufficient free disk space at {re.escape(str(out))}",
+        ):
+            run_wgsextract(*argv)
+        assert not (out / "ont_aligned.bam").exists()
 
 
 @needs_tools("samtools")

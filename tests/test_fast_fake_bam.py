@@ -5,10 +5,13 @@ from io import StringIO
 
 import pytest
 
+from tests.htslib_helpers import needs_tools, write_fasta
 from wgsextract_cli.commands import qc as _qc_entry
 from wgsextract_cli.commands.qc import bam_writer as _qc_bam_writer
 from wgsextract_cli.commands.qc import commands as _qc_commands
 from wgsextract_cli.commands.qc import fake_data as _qc_fake_data
+from wgsextract_cli.commands.qc.fake_data import generate_fake_genomics_data
+from wgsextract_cli.core.utils import run_command
 
 
 class _ModuleGroup:
@@ -140,130 +143,118 @@ def test_fast_bam_snps_are_exactly_the_reads_mismatches():
     assert mismatches == planted
 
 
-def test_reference_backed_sequence_provider_fetches_indexed_reference(
-    monkeypatch, tmp_path
+def _fasta(path):
+    seqs: dict[str, list[str]] = {}
+    for line in path.read_text().splitlines():
+        if line.startswith(">"):
+            name = seqs.setdefault(line[1:].split()[0], [])
+        else:
+            name.append(line.strip())
+    return {contig: "".join(parts) for contig, parts in seqs.items()}
+
+
+def _bam(path):
+    """(@SQ names and lengths, @HD line, reads as (contig, pos, flag, seq, NM))."""
+    header = run_command(["samtools", "view", "-H", str(path)], capture_output=True)
+    lines = header.stdout.splitlines()
+    contigs = [
+        tuple(field.split(":", 1)[1] for field in line.split("\t")[1:3])
+        for line in lines
+        if line.startswith("@SQ")
+    ]
+    body = run_command(["samtools", "view", str(path)], capture_output=True)
+    reads = []
+    for line in body.stdout.splitlines():
+        fields = line.split("\t")
+        nm = next(int(tag[5:]) for tag in fields[11:] if tag.startswith("NM:i:"))
+        reads.append((fields[2], int(fields[3]), int(fields[1]), fields[9], nm))
+    return [(name, int(length)) for name, length in contigs], lines[0], reads
+
+
+def _mismatches(read, genome):
+    contig, pos, _flag, seq, _nm = read
+    ref = genome[contig][pos - 1 : pos - 1 + len(seq)]
+    return sum(a != b for a, b in zip(seq, ref, strict=True))
+
+
+@needs_tools("samtools")
+@pytest.mark.parametrize(
+    "build, contigs",
+    [
+        ("hg38", [*(f"chr{n}" for n in (*range(1, 23), "X", "Y", "M")), "chrExtra"]),
+        ("GRCh37", [*(str(n) for n in (*range(1, 23), "X", "Y", "MT")), "Extra"]),
+    ],
+)
+def test_fake_bam_is_sorted_paired_reads_of_the_reference_it_writes(
+    tmp_path, build, contigs
 ):
-    ref = tmp_path / "ref.fa"
-    ref.write_text(">chr1\nAACCGGTTAACCGGTT\n", encoding="utf-8")
-    ref.with_suffix(".fa.fai").write_text("chr1\t16\t6\t16\t17\n", encoding="utf-8")
-    calls = []
-
-    def fake_run_command(cmd, capture_output=False, check=True):
-        calls.append(cmd)
-        region = cmd[-1]
-        assert region == "chr1:1-16"
-
-        class Result:
-            returncode = 0
-            stdout = ">chr1:1-16\nAACCGGTTAACCGGTT\n"
-
-        return Result()
-
-    monkeypatch.setattr(qc, "run_command", fake_run_command)
-    provider = qc._reference_backed_sequence_provider(
-        str(ref), {"chr1": 16}, lambda _chrom_idx, _pos, length: "N" * length
+    generate_fake_genomics_data(
+        str(tmp_path), coverage=0.02, seed=1, build=build, types=["bam"]
     )
 
-    assert provider(0, 2, 4) == "CCGG"
-    assert calls == [["samtools", "faidx", str(ref), "chr1:1-16"]]
+    sq, hd, reads = _bam(tmp_path / "fake.bam")
+    genome = _fasta(next(tmp_path.glob("fake_ref_*.fa")))
+    assert [name for name, _ in sq] == contigs == list(genome)
+    assert all(len(genome[name]) == length for name, length in sq)
+    assert "SO:coordinate" in hd
+    assert (tmp_path / "fake.bam.bai").exists()
+    assert {read[2] for read in reads} == {99, 147}
+    assert {read[0] for read in reads} == set(contigs)
+    order = [(contigs.index(read[0]), read[1]) for read in reads]
+    assert order == sorted(order)
+    # Reads match the reference apart from the planted SNPs, which NM counts.
+    assert all(_mismatches(read, genome) == read[4] <= 1 for read in reads)
+    assert any(read[4] for read in reads)
 
 
-def test_generate_fake_genomics_data_uses_streaming_bam_by_default(
-    monkeypatch, tmp_path
+@needs_tools("samtools")
+def test_fake_bam_reads_follow_a_supplied_reference(tmp_path):
+    rng = random.Random(5)
+    mine = {"chr1": "".join(rng.choice("ACGT") for _ in range(501_000))}
+    ref = write_fasta(tmp_path / "mine.fa", mine)
+    before = ref.read_bytes()
+    outdir = tmp_path / "out"
+    outdir.mkdir()
+
+    generate_fake_genomics_data(
+        str(outdir), ref_path=str(ref), coverage=0.05, seed=1, types=["bam"]
+    )
+
+    _, _, reads = _bam(outdir / "fake.bam")
+    on_mine = [read for read in reads if read[0] == "chr1"]
+    assert on_mine
+    assert all(_mismatches(read, mine) == read[4] <= 1 for read in on_mine)
+    # Contigs the reference lacks still get (synthetic) reads.
+    assert {read[0] for read in reads} > {"chr1", "chr2"}
+    assert ref.read_bytes() == before
+    assert not list(outdir.glob("*.fa"))
+
+
+@needs_tools("samtools")
+@pytest.mark.parametrize(
+    "build, first, length", [("hg38", "chr1", 248956422), ("GRCh37", "1", 249250621)]
+)
+def test_full_size_fake_bam_has_human_contig_lengths_without_a_reference(
+    tmp_path, build, first, length
 ):
-    calls = []
-
-    def fake_create_fast_fake_bam(
-        bam_path,
-        chroms,
-        coverage,
-        seed,
-        target_md5,
-        get_noise_seq,
-        threads,
-    ):
-        calls.append(
-            {
-                "bam_path": bam_path,
-                "chroms": chroms,
-                "coverage": coverage,
-                "seed": seed,
-                "target_md5": target_md5,
-                "sample": get_noise_seq(0, 0, 4),
-                "threads": threads,
-            }
-        )
-
-    monkeypatch.setattr(qc, "_create_fast_fake_bam", fake_create_fast_fake_bam)
-    monkeypatch.setattr(
-        qc,
-        "_reference_backed_sequence_provider",
-        lambda _ref_path, _chroms, fallback: fallback,
-    )
-    monkeypatch.setattr(
-        qc, "get_resource_defaults", lambda _threads, _memory: ("2", None)
-    )
-    monkeypatch.setattr(qc, "run_command", lambda *args, **kwargs: None)
-
-    qc.generate_fake_genomics_data(
+    generate_fake_genomics_data(
         str(tmp_path),
-        ref_path=None,
-        coverage=1.0,
+        coverage=0.00001,
         seed=1,
-        build="hg38",
-        full_size=False,
+        build=build,
+        full_size=True,
         types=["bam"],
     )
 
-    assert len(calls) == 1
-    assert calls[0]["bam_path"] == str(tmp_path / "fake.bam")
-    assert calls[0]["coverage"] == 1.0
-    assert "chr1" in calls[0]["chroms"]
-
-
-def test_generate_fake_genomics_data_uses_hg37_style_for_grch37_alias(
-    monkeypatch, tmp_path
-):
-    calls = []
-
-    def fake_create_fast_fake_bam(
-        bam_path,
-        chroms,
-        coverage,
-        seed,
-        target_md5,
-        get_noise_seq,
-        threads,
-    ):
-        del bam_path, coverage, seed, target_md5, get_noise_seq, threads
-        calls.append(chroms)
-
-    monkeypatch.setattr(qc, "_create_fast_fake_bam", fake_create_fast_fake_bam)
-    monkeypatch.setattr(
-        qc,
-        "_reference_backed_sequence_provider",
-        lambda _ref_path, _chroms, fallback: fallback,
-    )
-    monkeypatch.setattr(
-        qc, "get_resource_defaults", lambda _threads, _memory: ("2", None)
-    )
-    monkeypatch.setattr(qc, "run_command", lambda *args, **kwargs: None)
-
-    qc.generate_fake_genomics_data(
-        str(tmp_path),
-        ref_path=None,
-        coverage=1.0,
-        seed=1,
-        build="GRCh37",
-        full_size=False,
-        types=["bam"],
-    )
-
-    assert len(calls) == 1
-    assert "1" in calls[0]
-    assert "MT" in calls[0]
-    assert "chr1" not in calls[0]
-    assert "chrM" not in calls[0]
+    sq, _, reads = _bam(tmp_path / "fake.bam")
+    assert sq[0] == (first, length)
+    assert len(sq) == 26
+    assert {read[0] for read in reads} >= {name for name, _ in sq[:24]}
+    # A BAM alone doesn't need the 3 GB FASTA.
+    assert sorted(path.name for path in tmp_path.iterdir()) == [
+        "fake.bam",
+        "fake.bam.bai",
+    ]
 
 
 def test_qc_fake_data_accepts_build_aliases() -> None:
@@ -299,114 +290,6 @@ def test_cmd_fake_data_rejects_legacy_bam_with_full_size(monkeypatch, tmp_path):
         assert "--legacy-bam" in str(exc)
     else:
         raise AssertionError("Expected --legacy-bam with --full-size to fail")
-
-
-def test_full_size_bam_creates_explicit_reference_path(monkeypatch, tmp_path):
-    calls = []
-    ref_path = tmp_path / "benchmark_ref.fa"
-
-    def fake_write_reference(path, chroms, get_noise_seq):
-        calls.append({"path": path, "chroms": chroms, "sample": get_noise_seq(0, 0, 4)})
-        ref_path.write_text(">chr1\nACGT\n", encoding="utf-8")
-
-    monkeypatch.setattr(qc, "_write_fake_reference", fake_write_reference)
-    monkeypatch.setattr(qc, "run_command", lambda *args, **kwargs: None)
-    monkeypatch.setattr(qc, "_create_fast_fake_bam", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        qc,
-        "_reference_backed_sequence_provider",
-        lambda _ref_path, _chroms, fallback: fallback,
-    )
-    monkeypatch.setattr(
-        qc, "get_resource_defaults", lambda _threads, _memory: ("2", None)
-    )
-
-    qc.generate_fake_genomics_data(
-        str(tmp_path),
-        ref_path=str(ref_path),
-        coverage=0.01,
-        seed=1,
-        build="hg38",
-        full_size=True,
-        types=["bam"],
-    )
-
-    assert len(calls) == 1
-    assert calls[0]["path"] == str(ref_path)
-    assert calls[0]["chroms"]["chr1"] == 248956422
-
-
-def test_create_fast_fake_bam_streams_sam_to_samtools(monkeypatch, tmp_path):
-    captured = {}
-
-    class FakeStdin:
-        def __init__(self):
-            self.data = bytearray()
-            self.closed = False
-
-        def write(self, data: bytes):
-            self.data.extend(data)
-
-        def close(self):
-            self.closed = True
-
-    class FakeProcess:
-        def __init__(self):
-            self.stdin = FakeStdin()
-            self._running = True
-
-        def wait(self) -> int:
-            self._running = False
-            return 0
-
-        def poll(self) -> int | None:
-            return None if self._running else 0
-
-        def kill(self):
-            raise AssertionError("kill should not be called on success")
-
-    def fake_popen(cmd, stdin):
-        process = FakeProcess()
-        captured["cmd"] = cmd
-        captured["stdin_arg"] = stdin
-        captured["process"] = process
-        return process
-
-    def noise(_chrom_idx: int, pos: int, length: int) -> str:
-        source = "ACGT" * ((pos + length + 4) // 4)
-        return source[pos % 4 : pos % 4 + length]
-
-    monkeypatch.setattr(qc, "popen", fake_popen)
-    monkeypatch.setattr(qc, "get_tool_path", lambda _tool: "samtools")
-
-    qc._create_fast_fake_bam(
-        str(tmp_path / "fake.bam"),
-        {"chr1": 800},
-        coverage=1.0,
-        seed=7,
-        target_md5=None,
-        get_noise_seq=noise,
-        threads="2",
-    )
-
-    assert captured["cmd"] == [
-        "samtools",
-        "view",
-        "-@",
-        "2",
-        "-1",
-        "-b",
-        "-o",
-        str(tmp_path / "fake.bam"),
-        "-",
-    ]
-    process = captured["process"]
-    assert process.stdin.closed
-    sam_text = process.stdin.data.decode()
-    assert sam_text.startswith("@HD\tVN:1.6\tSO:coordinate\n")
-    assert "\n@SQ\tSN:chr1\tLN:800\n" in sam_text
-    assert "\t99\tchr1\t" in sam_text
-    assert "\t147\tchr1\t" in sam_text
 
 
 def test_create_fast_fake_bam_kills_samtools_on_unexpected_stream_error(
