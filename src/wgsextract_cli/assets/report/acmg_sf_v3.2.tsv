@@ -1,7 +1,14 @@
-# ACMG SF v3.2: the 81 genes the American College of Medical Genetics and
-# Genomics recommends reporting secondary findings in (Miller DT et al. ACMG SF
-# v3.2 list for reporting of secondary findings in clinical exome and genome
-# sequencing. Genet Med 2023;25(8):100866. doi:10.1016/j.gim.2023.100866).
+# ACMG SF v3.2 (version 3.2, 81 genes): the genes the American College of
+# Medical Genetics and Genomics recommends reporting secondary findings in.
+# Source: Miller DT et al. ACMG SF v3.2 list for reporting of secondary findings
+# in clinical exome and genome sequencing: a policy statement of the ACMG.
+# Genet Med 2023;25(8):100866. doi:10.1016/j.gim.2023.100866, PMID 37347242,
+# Table 1: https://pmc.ncbi.nlm.nih.gov/articles/PMC10524344/
+# Genes, categories and notes were checked gene by gene against that Table 1
+# (NCBI E-utilities efetch db=pmc id=10524344) on 2026-11-05. Notes paraphrase
+# its inheritance column and footnotes: genes of autosomal recessive phenotypes
+# need two P/LP variants, X-linked ones any hemizygous, heterozygous or
+# homozygous P/LP variant.
 # Gene spans (1-based, inclusive; all RefSeq transcripts merged) are from UCSC
 # refGene for hg19 and hg38, as `wgsextract ref gene-map` downloads them.
 # `wgsextract report` lists ClinVar pathogenic/likely-pathogenic calls inside
@@ -22,7 +29,7 @@ CACNA1S	miscellaneous	chr1	201008639	201081554	chr1	201039511	201112426
 CALM1	cardiovascular	chr14	90862845	90874619	chr14	90396501	90408275
 CALM2	cardiovascular	chr2	47387220	47404075	chr2	47160081	47176936
 CALM3	cardiovascular	chr19	47104330	47114039	chr19	46601073	46610782
-CASQ2	cardiovascular	chr1	116242641	116311335	chr1	115700020	115768714
+CASQ2	cardiovascular	chr1	116242641	116311335	chr1	115700020	115768714	two P/LP variants (biallelic) are reportable
 COL3A1	cardiovascular	chr2	189839098	189877472	chr2	188974372	189012746
 DES	cardiovascular	chr2	220283098	220291456	chr2	219418376	219426734
 DSC2	cardiovascular	chr18	28638808	28682384	chr18	31058840	31102421
@@ -32,13 +39,13 @@ ENG	miscellaneous	chr9	130577290	130617052	chr9	127815011	127854773
 FBN1	cardiovascular	chr15	48700509	48937906	chr15	48408312	48645709
 FLNC	cardiovascular	chr7	128470459	128499326	chr7	128830405	128859272
 GAA	metabolism	chr17	78075379	78093680	chr17	80101580	80119881	two P/LP variants (biallelic) are reportable
-GLA	metabolism	chrX	100652790	100662913	chrX	101397802	101407925
+GLA	metabolism	chrX	100652790	100662913	chrX	101397802	101407925	hemizygous, heterozygous or homozygous P/LP variants are reportable
 HFE	miscellaneous	chr6	26087656	26098570	chr6	26087428	26098342	only p.C282Y homozygotes are reportable
 HNF1A	miscellaneous	chr12	121416345	121440314	chr12	120978542	121002511
 KCNH2	cardiovascular	chr7	150642043	150675409	chr7	150944955	150978321
 KCNQ1	cardiovascular	chr11	2466237	2870340	chr11	2445007	2849110
 LDLR	cardiovascular	chr19	11200138	11244496	chr19	11089462	11133820
-LMNA	cardiovascular	chr1	156052363	156109872	chr1	156082572	156140081
+LMNA	cardiovascular	chr1	156052363	156109872	chr1	156082572	156140081	P/LP missense variants never associated with cardiac disease are not reportable
 MAX	cancer	chr14	65472818	65569413	chr14	65006100	65102695
 MEN1	cancer	chr11	64570985	64578766	chr11	64803513	64811294
 MLH1	cancer	chr3	37034840	37092337	chr3	36993349	37050846
@@ -51,7 +58,7 @@ MYH7	cardiovascular	chr14	23881948	23904869	chr14	23412739	23435660
 MYL2	cardiovascular	chr12	111348648	111358383	chr12	110910844	110920579
 MYL3	cardiovascular	chr3	46899361	46904934	chr3	46857871	46863444
 NF2	cancer	chr22	29999544	30094589	chr22	29603555	29698600
-OTC	metabolism	chrX	38211856	38280699	chrX	38352603	38421446
+OTC	metabolism	chrX	38211856	38280699	chrX	38352603	38421446	hemizygous, heterozygous or homozygous P/LP variants are reportable
 PALB2	cancer	chr16	23614485	23652631	chr16	23603164	23641310
 PCSK9	cardiovascular	chr1	55505220	55530526	chr1	55039547	55064853
 PKP2	cardiovascular	chr12	32943690	33049711	chr12	32790755	32896777
@@ -62,7 +69,7 @@ RB1	cancer	chr13	48877886	49056026	chr13	48303750	48481890
 RBM20	cardiovascular	chr10	112404093	112599226	chr10	110644335	110839468
 RET	cancer	chr10	43572474	43625797	chr10	43077026	43130349
 RPE65	miscellaneous	chr1	68894504	68915637	chr1	68428821	68449954	two P/LP variants (biallelic) are reportable
-RYR1	miscellaneous	chr19	38924330	39078204	chr19	38433690	38587564
+RYR1	miscellaneous	chr19	38924330	39078204	chr19	38433690	38587564	only P/LP variants associated with malignant hyperthermia are reportable
 RYR2	cardiovascular	chr1	237205483	237997288	chr1	237042183	237833988
 SCN5A	cardiovascular	chr3	38589552	38691178	chr3	38548061	38649687
 SDHAF2	cancer	chr11	61197595	61214204	chr11	61430123	61446732
@@ -84,7 +91,7 @@ TPM1	cardiovascular	chr15	63334945	63364113	chr15	63042746	63071914
 TRDN	cardiovascular	chr6	123537483	123958238	chr6	123216338	123637093	two P/LP variants (biallelic) are reportable
 TSC1	cancer	chr9	135766735	135820003	chr9	132891348	132944616
 TSC2	cancer	chr16	2097895	2139491	chr16	2047894	2089490
-TTN	cardiovascular	chr2	179390716	179672150	chr2	178525990	178807423
+TTN	cardiovascular	chr2	179390716	179672150	chr2	178525990	178807423	only frameshift, nonsense and high-PSI exon splicing P/LP variants are reportable
 TTR	miscellaneous	chr18	29171839	29178784	chr18	31591876	31598821
 VHL	cancer	chr3	10183461	10195350	chr3	10141777	10153666
 WT1	cancer	chr11	32409320	32457085	chr11	32387775	32435539

@@ -247,6 +247,29 @@ def test_clinvar_lists_gene_list_hits_with_their_call_confidence(sample):
     assert clinvar["all_calls"] == "clinvar_pathogenic.confidence.tsv"
 
 
+# Genes per category in each ACMG SF version's Table 1 (v3.2: Miller et al.
+# 2023, PMID 37347242, https://pmc.ncbi.nlm.nih.gov/articles/PMC10524344/).
+ACMG_SF_TABLE_1 = {
+    "3.2": {"cancer": 28, "cardiovascular": 40, "metabolism": 4, "miscellaneous": 9}
+}
+
+
+def test_gene_list_matches_the_cited_acmg_sf_version():
+    version = pr.GENE_LIST["version"]
+    genes = pr.gene_list()
+    assert len({g.symbol for g in genes}) == len(genes) == 81
+    by_category: dict[str, int] = {}
+    for gene in genes:
+        by_category[gene.category] = by_category.get(gene.category, 0) + 1
+    assert by_category == ACMG_SF_TABLE_1[version]
+    header = Path(pr.__file__).parent.parent.joinpath(pr.GENE_LIST_RESOURCE).read_text()
+    assert f"ACMG SF v{version} (version {version}, {len(genes)} genes)" in header
+    assert pr.GENE_LIST["url"] in header and "PMID 37347242" in header
+    # Table 1 lists these for autosomal recessive phenotypes: two P/LP variants
+    recessive = {"MUTYH", "CASQ2", "TRDN", "BTD", "GAA", "ATP7B", "RPE65"}
+    assert {g.symbol for g in genes if "biallelic" in g.note} == recessive
+
+
 def test_pgx_and_lineage_labels_come_from_the_callers_evidence(sample):
     sections = pr.build_report(sample)["sections"]
     (cyp2d6,) = sections["pharmacogenomics"]["findings"]

@@ -59,11 +59,12 @@
           "properties": {
             "gene_list": {
               "type": "object",
-              "required": ["name", "version", "citation", "genes"],
+              "required": ["name", "version", "citation", "url", "genes"],
               "properties": {
                 "name": {"type": "string"},
                 "version": {"type": "string"},
                 "citation": {"type": "string"},
+                "url": {"type": "string", "description": "The published gene table the list was checked against."},
                 "genes": {"type": "integer", "minimum": 1}
               }
             },

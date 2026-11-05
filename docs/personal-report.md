@@ -51,17 +51,21 @@ shown with their section.
 ### ClinVar gene list
 
 ClinVar hits are listed only for the 81 genes of the ACMG secondary-findings
-list, version 3.2 (Miller DT et al., *Genet Med* 2023;25(8):100866). The genes
-and their hg19/hg38 spans are in
+list, version 3.2 (Miller DT et al., *Genet Med* 2023;25(8):100866, PMID
+37347242). The genes, categories and notes were checked against the paper's
+[Table 1](https://pmc.ncbi.nlm.nih.gov/articles/PMC10524344/). The genes and
+their hg19/hg38 spans are in
 `src/wgsextract_cli/assets/report/acmg_sf_v3.2.tsv`. A call is placed in a
 gene by position, in the build of the VCF `vcf clinvar` read. The section
 also counts the P/LP calls outside the list and links the full table of every
 carried call (`clinvar_pathogenic.confidence.tsv`).
 
-ACMG reports some genes only in particular cases. For MUTYH, TRDN, BTD, GAA,
-ATP7B and RPE65 only two P/LP variants (biallelic) count, and for HFE only
-p.C282Y homozygotes. Those findings carry this as a note. The report does not
-work out phase or which HFE variant a call is.
+ACMG reports some genes only in particular cases. For MUTYH, CASQ2, TRDN, BTD,
+GAA, ATP7B and RPE65 only two P/LP variants (biallelic) count, and for HFE only
+p.C282Y homozygotes. TTN counts only truncating and high-PSI splicing variants,
+RYR1 only malignant-hyperthermia variants, and LMNA not missense variants never
+seen with cardiac disease. Those findings carry this as a note. The report does
+not work out phase, variant consequence or which HFE variant a call is.
 
 ## Confidence labels
 
@@ -143,7 +147,7 @@ same document is the `details` of the report's result manifest
       "sources": [{"command": "vcf clinvar", "status": "ok",
                    "finished": "2025-06-01T11:00:00+00:00",
                    "manifest": "clinvar_pathogenic.vcf.manifest.json"}],
-      "gene_list": {"name": "ACMG SF v3.2", "version": "3.2", "citation": "...", "genes": 81},
+      "gene_list": {"name": "ACMG SF v3.2", "version": "3.2", "citation": "...", "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10524344/", "genes": 81},
       "build": "hg38",
       "counts": {"carried": 4, "in_gene_list": 1, "outside_gene_list": 3,
                  "high": 1, "moderate": 0, "low": 0},

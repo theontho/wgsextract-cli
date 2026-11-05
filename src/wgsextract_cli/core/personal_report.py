@@ -53,7 +53,8 @@ GENE_LIST = {
     "version": "3.2",
     "citation": "Miller DT et al. ACMG SF v3.2 list for reporting of secondary "
     "findings in clinical exome and genome sequencing. Genet Med "
-    "2023;25(8):100866. doi:10.1016/j.gim.2023.100866",
+    "2023;25(8):100866. doi:10.1016/j.gim.2023.100866. PMID 37347242",
+    "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10524344/",
 }
 GUIDE = "docs/personal-report.md"
 NOT_DIAGNOSIS = "Technical result, not diagnosis."
@@ -1173,7 +1174,7 @@ def _html_section_body(name: str, section: Mapping[str, Any], base: str) -> list
         gl = section["gene_list"]
         out.append(
             f'<p class="muted">Gene list: {_h(gl["name"])} ({gl["genes"]} genes; '
-            f"{_h(gl['citation'])}).</p>"
+            f"{_h(gl['citation'])}, {_link('Table 1', gl['url'])}).</p>"
         )
         if section.get("all_calls"):
             out.append(
@@ -1276,7 +1277,8 @@ def render_markdown(report: Mapping[str, Any], base: str = ".") -> str:
             gl = section["gene_list"]
             out += [
                 "",
-                f"Gene list: {gl['name']} ({gl['genes']} genes; {gl['citation']}).",
+                f"Gene list: {gl['name']} ({gl['genes']} genes; {gl['citation']}, "
+                f"[Table 1](<{gl['url']}>)).",
             ]
             if section.get("all_calls"):
                 href = _href(section["all_calls"], base)
