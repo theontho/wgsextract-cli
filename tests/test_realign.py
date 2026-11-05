@@ -1,4 +1,5 @@
 import gzip
+import json
 import logging
 import platform
 import random
@@ -812,3 +813,172 @@ def test_ultima_realign_counts_index_once_and_passes_through_unknown_counts(
         expected.append(("disk", reads))
     expected.append(("align", reads))
     assert calls == expected
+
+
+# --- resuming after a crash ---------------------------------------------------
+
+
+def _dying_tools(tmp_path, log):
+    """PATH shims for the aligner, samtools and sambamba that log each call's
+    subcommand and, when it matches the pattern in ``tmp_path/die``, SIGKILL
+    the wgsextract run's process group and their own mid-call, as an OOM kill
+    or power cut would."""
+    import shutil
+    import stat
+
+    shims = tmp_path / "shims"
+    shims.mkdir()
+    for tool in ("bwa", "samtools", "sambamba"):
+        real = shutil.which(tool)
+        if real is None:
+            continue
+        script = shims / tool
+        script.write_text(
+            "#!/usr/bin/env bash\n"
+            f'echo "{tool} $1" >> "{log}"\n'
+            f'die="$(cat "{tmp_path}/die" 2>/dev/null)"\n'
+            f'if [ -n "$die" ] && [[ "{tool} $1" =~ ^($die)$ ]]; then\n'
+            f'  rm -f "{tmp_path}/die"\n'
+            # Half an output stream, then the crash.
+            f'  "{real}" "$@" | head -c 4096\n'
+            f'  kill -9 -- "-$(cat "{tmp_path}/run.pid")"\n'
+            "  kill -9 0\n"
+            "fi\n"
+            f'exec "{real}" "$@"\n'
+        )
+        script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    return shims
+
+
+def _realign_cli(argv, shims, die=None):
+    import os
+    import subprocess
+    import sys
+
+    if die:
+        (shims.parent / "die").write_text(die + "\n")
+    env = {**os.environ, "PATH": f"{shims}{os.pathsep}{os.environ['PATH']}"}
+    with subprocess.Popen(
+        [sys.executable, "-m", "wgsextract_cli.main", "realign", *argv],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,  # its own process group, for the shim to kill
+    ) as run:
+        (shims.parent / "run.pid").write_text(str(run.pid))
+        stdout, stderr = run.communicate()
+    return subprocess.CompletedProcess(run.args, run.returncode, stdout, stderr)
+
+
+def _records(bam):
+    header = [h for h in _view("view", "-H", str(bam)).splitlines() if h[:3] != "@PG"]
+    return header, _view("view", str(bam))
+
+
+@pytest.mark.skipif(platform.system() == "Windows", reason="bash PATH shims")
+@needs_tools("bwa", "samtools")
+@pytest.mark.parametrize("die", ["bwa mem", "(samtools|sambamba) index"])
+def test_a_run_killed_mid_step_resumes_there_with_identical_output(
+    tmp_path, genome_and_ref, die
+):
+    genome, ref = genome_and_ref
+    source, _ = _old_alignment(tmp_path, genome)
+    log = tmp_path / "calls.log"
+    shims = _dying_tools(tmp_path, log)
+
+    def realign_to(outdir, die=None):
+        log.write_text("")
+        argv = ["--input", str(source), "--ref", ref, "--outdir", str(outdir),
+                "--threads", "2", "--keep-fastq", "--sample", "Ann"]  # fmt: skip
+        done = _realign_cli(argv, shims, die)
+        calls = [c for c in log.read_text().splitlines() if c != "samtools --version"]
+        return done, calls
+
+    clean, _ = realign_to(tmp_path / "clean")
+    assert clean.returncode == 0, clean.stderr
+
+    out = tmp_path / "out"
+    killed, calls = realign_to(out, die=die)
+    assert killed.returncode == -9
+    assert any(re.fullmatch(die, call) for call in calls)
+    bam = out / "x_aligned.bam"
+    journal = json.loads((out / "x_aligned.bam.steps.json").read_text())
+    assert journal["steps"]["extract"]["status"] == "complete"
+
+    resumed, calls = realign_to(out)
+    assert resumed.returncode == 0, resumed.stderr
+    assert "Running step extract" not in resumed.stderr
+    # Nothing before the step it was killed in runs again.
+    assert not {"samtools collate", "samtools fastq"} & set(calls)
+    if die == "bwa mem":
+        assert "Skipping step extract: complete" in resumed.stderr
+        assert "Running step align: an earlier run was interrupted" in resumed.stderr
+    else:
+        assert "Skipping step align: complete" in resumed.stderr
+        assert "bwa mem" not in calls
+    assert any(re.fullmatch(die, call) for call in calls)
+    assert _records(bam) == _records(tmp_path / "clean" / "x_aligned.bam")
+    assert Path(str(bam) + ".bai").is_file()
+
+    again, calls = realign_to(out)
+    assert again.returncode == 0 and "bwa mem" not in calls
+    assert not any(call.endswith(" index") for call in calls)
+
+
+@pytest.mark.skipif(platform.system() == "Windows", reason="bash PATH shims")
+@needs_tools("bwa", "samtools")
+def test_truncated_outputs_and_changed_settings_redo_their_steps(
+    tmp_path, genome_and_ref
+):
+    genome, ref = genome_and_ref
+    source, _ = _old_alignment(tmp_path, genome)
+    log = tmp_path / "calls.log"
+    shims = _dying_tools(tmp_path, log)
+    out = tmp_path / "out"
+    bam = out / "x_aligned.bam"
+
+    def realign_again(*extra):
+        log.write_text("")
+        argv = ["--input", str(source), "--ref", ref, "--outdir", str(out),
+                "--threads", "2", "--keep-fastq", *extra]  # fmt: skip
+        done = _realign_cli(argv, shims)
+        assert done.returncode == 0, done.stderr
+        return done.stderr, log.read_text().splitlines()
+
+    realign_again()
+    first = _records(bam)
+
+    bam.write_bytes(bam.read_bytes()[:-100])
+    stderr, calls = realign_again()
+    assert "truncated or rewritten" in stderr
+    assert "bwa mem" in calls and "samtools collate" not in calls
+    assert _records(bam) == first
+
+    stderr, calls = realign_again("--sample", "Bea")
+    assert "settings changed: sample None -> 'Bea'" in stderr
+    assert "bwa mem" in calls and "samtools collate" not in calls
+
+    # A damaged FASTQ doesn't matter while the alignment made from it is
+    # sound, but it is extracted again before it is aligned again.
+    fastq = out / "x_R1.fastq.gz"
+    fastq.write_bytes(fastq.read_bytes()[:-10])
+    stderr, calls = realign_again("--sample", "Bea")
+    assert "bwa mem" not in calls
+    stderr, calls = realign_again("--sample", "Bea", "--force-step", "align")
+    assert "Running step extract: x_R1.fastq.gz changed size" in stderr
+    assert {"samtools collate", "bwa mem"} <= set(calls)
+
+
+@needs_tools("bwa", "samtools")
+def test_a_second_run_into_the_same_output_is_refused(tmp_path, genome_and_ref):
+    from wgsextract_cli.core.steps import ResumePolicy, StepJournal
+
+    genome, ref = genome_and_ref
+    source, _ = _old_alignment(tmp_path, genome)
+    out = tmp_path / "out"
+    journal = out / "x_aligned.bam.steps.json"
+    with StepJournal(journal, "realign", ResumePolicy()):
+        with pytest.raises(WGSExtractError, match="Another wgsextract run"):
+            realign.run(_args(source, ref=ref, outdir=str(out)))
+    assert not (out / "x_aligned.bam").exists()
