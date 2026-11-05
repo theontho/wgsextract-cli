@@ -23,7 +23,7 @@ The script needs only git (and the Xcode Command Line Tools on macOS). It:
 1. Installs [Pixi](https://pixi.sh) for your user if it's missing. Pixi provides Python and every bioinformatics tool.
 2. Installs the `default` and `dev` Pixi environments exactly as locked in `pixi.lock`. The first run downloads a few GB.
 3. Installs [just](https://just.systems) with `pixi global install just` if it's missing.
-4. Installs the pre-commit hooks (ruff, shellcheck, whitespace).
+4. Installs the pre-commit hooks (ruff, shellcheck, gitleaks, whitespace).
 5. Runs `wgsextract --version`, `wgsextract deps check` and the quick smoke tests.
 6. Lists anything else worth having: a git identity, the GitHub CLI (`gh`), and an AI coding agent.
 
