@@ -41,10 +41,11 @@ from wgsextract_cli.core.read_counts import (
     unpaired_sample,
 )
 from wgsextract_cli.core.reference_assets import (
-    fasta_signature,
     find_fasta_by_signature,
+    header_sequences,
     input_stem,
     resolve_reference_library,
+    sequence_dictionary,
 )
 from wgsextract_cli.core.resource_estimates import (
     PreflightEstimate,
@@ -125,8 +126,9 @@ def register(
     parser.add_argument(
         "--input-ref",
         help="Reference FASTA the input CRAM was encoded with (default: --ref "
-        "when its sequence dictionary matches the CRAM, else the matching FASTA "
-        "in the reference library). --ref is the reference to realign to.",
+        "when its sequence names, lengths and MD5s match the CRAM, else the "
+        "FASTA in the reference library whose sequence dictionary matches). "
+        "--ref is the reference to realign to.",
     )
     parser.add_argument("--sample", help="Sample name to embed in read-group metadata.")
     parser.add_argument(
@@ -244,6 +246,21 @@ def _preflight_disk_space(
         )
 
 
+def _encodes(fasta: str, cram: str) -> bool:
+    """Whether a CRAM's @SQ names, lengths and (where recorded) M5 sequence
+    checksums all match a FASTA, so samtools can decode the CRAM with it."""
+    reads = header_sequences(get_bam_header(cram))
+    ref = sequence_dictionary(fasta)
+    if not reads or not ref or len(reads) != len(ref):
+        return False
+    return all(
+        r.get("SN") == f.get("SN")
+        and r.get("LN") == f.get("LN")
+        and (not r.get("M5") or r["M5"].lower() == f.get("M5", "").lower())
+        for r, f in zip(reads, ref, strict=True)
+    )
+
+
 def _input_cram_reference(args: argparse.Namespace) -> list[str]:
     """samtools -T option for decoding a CRAM input; empty for BAM."""
     if not args.input.lower().endswith(".cram"):
@@ -255,7 +272,7 @@ def _input_cram_reference(args: argparse.Namespace) -> list[str]:
     signature = calculate_bam_md5(args.input)
     target = getattr(args, "ref", None)
     # Re-mapping to the same build (e.g. with a newer aligner) decodes with --ref.
-    if target and Path(target).is_file() and fasta_signature(target) == signature:
+    if target and Path(target).is_file() and _encodes(target, args.input):
         fasta: str | None = target
     else:
         fasta = find_fasta_by_signature(
