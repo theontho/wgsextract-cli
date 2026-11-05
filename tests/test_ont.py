@@ -13,7 +13,7 @@ from tests.fake_tools import python_tool
 from tests.htslib_helpers import needs_tools, run_wgsextract, sam_to_bam, write_fasta
 from wgsextract_cli.commands import align
 from wgsextract_cli.commands.info.metrics import determine_sequencer
-from wgsextract_cli.core import sequencing
+from wgsextract_cli.core import alignment_memory, results, sequencing
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.dependencies import clear_tool_caches
 from wgsextract_cli.core.utils import WGSExtractError, run_command
@@ -220,6 +220,36 @@ def test_ont_realign_honors_disk_space_preflight(
         ):
             run_wgsextract(*argv)
         assert not (out / "ont_aligned.bam").exists()
+
+
+@needs_tools("samtools", "minimap2")
+def test_ont_realign_warns_before_minimap2_outgrows_memory(
+    tmp_path, monkeypatch, genome_ref
+):
+    """#428: minimap2 realignments were OOM-killed with no warning; now the
+    preflight names settings that fit, and the run continues."""
+    genome, ref = genome_ref
+    seq = genome[500:2500]
+    bam = sam_to_bam(
+        [f"{UUID}\t4\t*\t0\t0\t*\t*\t0\t0\t{seq}\t{'I' * len(seq)}"],
+        tmp_path / "ont.bam",
+    )
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 3 * GIB // 2)
+    out = tmp_path / "out"
+    result = results.CommandResult("realign")
+    with results.collecting(result):
+        run_wgsextract(
+            "realign", "--input", bam, "--ref", str(ref), "--outdir", str(out),
+            "--threads", "2", "--memory", "1G",
+        )  # fmt: skip
+    [warning] = [w for w in result.warnings if w.code == "alignment_memory"]
+    assert warning.details["aligner"] == "minimap2"
+    assert (
+        warning.details["suggested_threads"],
+        warning.details["suggested_memory"],
+    ) == (1, "256M")
+    assert "--threads 1 --memory 256M" in warning.message
+    assert (out / "ont_aligned.bam").is_file()
 
 
 @needs_tools("samtools")

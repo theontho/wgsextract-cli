@@ -236,6 +236,7 @@ def estimate_resources(
     threads: str = "1",
     memory: str = "512M",
     aligner: str = "bwa",
+    preset: str | None = None,
     reads: int | None = None,
     platform: str | None = None,
     read_length: float | None = None,
@@ -317,7 +318,14 @@ def estimate_resources(
             reads=reads,
             platform=platform,
             read_length=read_length,
+            preset=preset,
+            input_bytes=size if aligner == "minimap2" else None,
         )
+        if aligner == "minimap2":
+            notes.append(
+                f"minimap2 builds its {preset or 'largest (sr)'} index in memory each "
+                "run; working memory is its build peak or its mapping batches."
+            )
         if aligner == "bwa":
             length = (
                 read_length
@@ -336,7 +344,7 @@ def estimate_resources(
                 "Streamed FASTQ collation overlaps the alignment pipeline; its "
                 "spills drain as the sorter's grow, within the temporary estimate."
             )
-        if reads is None:
+        if reads is None and (aligner != "minimap2" or samblaster):
             notes.append(
                 "Alignment RAM uses the D3 680-million-read unknown-count fallback."
             )
@@ -366,7 +374,7 @@ def estimate_resources(
                     None if disk_reads is None else disk_reads * FASTQ_BYTES_PER_READ,
                 )
             )
-        if reference:
+        if reference and aligner in {"bwa", "bwa-mem2"}:
             suffixes = (
                 (".bwt", ".sa", ".pac", ".ann", ".amb")
                 if aligner == "bwa"

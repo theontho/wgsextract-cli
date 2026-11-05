@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from wgsextract_cli.core import alignment_memory
+from wgsextract_cli.core import alignment_memory, results
 from wgsextract_cli.core import resource_estimates as resources
 from wgsextract_cli.core.utils import WGSExtractError
 
@@ -81,7 +81,7 @@ def test_ultima_preflight_covers_measured_hg008_memory(
         samblaster=False,
     )
     if status == "LOW":
-        assert "requested threads are unchanged" in caplog.text
+        assert "requested settings are unchanged" in caplog.text
         assert "--threads 3" in caplog.text
         assert "--threads 3 --memory 256M" in caplog.text
         assert "Continuing with bwa" in caplog.text
@@ -209,3 +209,65 @@ def test_namespaced_cgroup_root_and_unavailable_limits(tmp_path):
         alignment_memory._cgroup_available_memory(tmp_path / "missing", tmp_path)
         is None
     )
+
+
+def _hs38(tmp_path: Path) -> str:
+    ref = tmp_path / "hs38.fa"
+    ref.write_text(">chr1\nA\n")
+    Path(str(ref) + ".fai").write_text("chr1\t3099922541\t0\t1\t2\n")
+    return str(ref)
+
+
+@pytest.mark.parametrize(
+    ("preset", "build_peak"),
+    [("map-ont", 11.17), ("map-hifi", 11.11), ("lr:hq", 11.11), ("map-pb", 8.62),
+     ("sr", 11.31), (None, 11.31)],
+)  # fmt: skip
+def test_minimap2_estimate_covers_measured_hs38_peaks(tmp_path, preset, build_peak):
+    """#428: minimap2 2.31 builds the hs38 index in memory on every run."""
+    estimate = alignment_memory.estimate_mapping_memory(
+        _hs38(tmp_path), "minimap2", threads="4", memory="512M",
+        samblaster=False, preset=preset,
+    )  # fmt: skip
+    assert estimate.index_resident + estimate.working >= build_peak * GIB
+    if preset == "map-ont":
+        # 40k HG002 ONT reads mapped at -t 4 peaked at 10.93 GiB; the #299
+        # chr20 realign at --threads 4 --memory 512M at 14.8 GB.
+        assert estimate.index_resident + estimate.working >= 10.93 * GIB
+        assert estimate.total >= 14.8e9
+
+
+def test_minimap2_preflight_suggests_settings_that_fit_a_14g_cgroup(
+    tmp_path, monkeypatch
+):
+    """#428: the #299 ONT realign at --threads 4 and default --memory was
+    OOM-killed in a 14 GiB cgroup with no warning beforehand."""
+    ref = _hs38(tmp_path)
+    options = {"samblaster": False, "preset": "map-ont"}
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 14 * GIB)
+    result = results.CommandResult("align")
+    with results.collecting(result):
+        alignment_memory.check_mapping_memory(
+            ref, "minimap2", threads="4", memory="1G", **options
+        )
+    [warning] = result.warnings
+    assert warning.code == "alignment_memory"
+    assert warning.details["available_gib"] == 14
+    assert warning.details["estimated_gib"] > 14
+    threads = warning.details["suggested_threads"]
+    memory = warning.details["suggested_memory"]
+    assert f"--threads {threads} --memory {memory}" in warning.message
+    fitted = alignment_memory.estimate_mapping_memory(
+        ref, "minimap2", threads=str(threads), memory=str(memory), **options
+    )
+    assert fitted.total <= 14 * GIB
+
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 10 * GIB)
+    result = results.CommandResult("align")
+    with results.collecting(result):
+        alignment_memory.check_mapping_memory(
+            ref, "minimap2", threads="4", memory="1G", **options
+        )
+    [warning] = result.warnings
+    assert warning.details["suggested_threads"] is None
+    assert "Even one thread exceeds" in warning.message

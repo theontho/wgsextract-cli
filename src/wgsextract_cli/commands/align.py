@@ -1101,6 +1101,38 @@ def align_minimap2(args: argparse.Namespace) -> None:
     )
     preset = _minimap2_preset(args)
     logging.info("Using minimap2 preset %s for %s reads.", preset, args.platform)
+    duplicates = duplicate_marker(paired=bool(args.r2)) if preset == "sr" else None
+    read_files = [path for path in (args.r1, args.r2) if path]
+    try:
+        input_bytes: int | None = sum(os.path.getsize(path) for path in read_files)
+    except OSError:
+        input_bytes = None
+    preflight_resources(
+        lambda: estimate_resources(
+            "align",
+            input_paths=read_files,
+            output_dir=setup.outdir,
+            temp_dir=configured_temp_directory(),
+            reference=setup.ref,
+            threads=setup.threads,
+            memory=setup.memory,
+            aligner="minimap2",
+            preset=preset,
+            samblaster=duplicates == "samblaster",
+            platform=args.platform,
+            output_format=args.format,
+        )
+    )
+    check_mapping_memory(
+        setup.ref,
+        "minimap2",
+        threads=setup.threads,
+        memory=setup.memory,
+        samblaster=duplicates == "samblaster",
+        platform=args.platform,
+        preset=preset,
+        input_bytes=input_bytes,
+    )
     align_cmd = ["minimap2", "-ax", preset, "-t", setup.threads]
     upstream: list[Sequence[object]] = []
     ont = args.platform in {"ont", "nanopore"}
@@ -1142,9 +1174,7 @@ def align_minimap2(args: argparse.Namespace) -> None:
             memory=setup.memory,
             fmt=args.format,
             ref=setup.ref,
-            duplicates=(
-                duplicate_marker(paired=bool(args.r2)) if preset == "sr" else None
-            ),
+            duplicates=duplicates,
             upstream=upstream or None,
             on_written=_written_hook(args, "minimap2"),
         )
