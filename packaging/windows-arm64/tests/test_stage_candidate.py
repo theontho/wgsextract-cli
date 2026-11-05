@@ -34,7 +34,7 @@ def test_staging_retains_pins_and_excludes_obsolete_python(tmp_path: Path) -> No
     output = tmp_path / "candidate"
     candidate.stage_candidate([source], output, ["qualified-run"])
     manifest = json.loads((output / "manifest.json").read_text())
-    assert len(manifest["packages"]) == 14
+    assert len(manifest["packages"]) == len(candidate.EXPECTED)
     for package in manifest["packages"]:
         assert (
             hashlib.sha256((output / package["file"]).read_bytes()).hexdigest()
