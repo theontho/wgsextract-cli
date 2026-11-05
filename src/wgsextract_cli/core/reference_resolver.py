@@ -4,6 +4,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from wgsextract_cli.core import sample_workspace
 from wgsextract_cli.core.builds import (
     HG37_BUILD_ALIASES,
     HG38_BUILD_ALIASES,
@@ -217,15 +218,31 @@ class ReferenceLibrary:
         self, header_target: str | None, root_path: str | None
     ) -> str | None:
         build = self._build_from_signature()
+        method = "header contig MD5 signature"
+        sample = header_target if header_target == self.input_path else None
+        if not build and sample:
+            fact = sample_workspace.known("build", sample)
+            if fact is not None:
+                return str(fact.value)
         if not build and header_target:
             if header_target.lower().endswith((".vcf", ".vcf.gz", ".bcf")):
                 build = get_vcf_build(header_target)
+                method = "VCF header contigs"
                 if build:
                     logging.debug(
                         f"ReferenceLibrary: Identified build as {build} from VCF header"
                     )
             if not build:
                 build = self._build_from_header(header_target)
+                method = "alignment header contigs"
+        if sample and canonical_build(build):
+            sample_workspace.record(
+                "build",
+                sample,
+                canonical_build(build),
+                method=method,
+                confidence="high",
+            )
         if not build and self.fasta:
             build = build_from_chr1_length(read_fai_lengths(self.fasta))
             build = build or build_from_path(self.fasta)

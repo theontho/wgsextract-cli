@@ -21,6 +21,7 @@ Oxford Nanopore. This page covers three things:
 | `vcf table` | `<stem>_variants.tsv` and `<stem>_variants.sqlite`: one row per carried ALT allele with fixed, typed columns (position, gene, consequence, HGVS, ClinVar, gnomAD AF, genotype, depth, ...). See [Variant table](variant-table.md). |
 | `--format parquet` | Typed, zstd-compressed Parquet copies of our tables (variant table, methylation, `info`, microarray genotypes) with provenance in the footer, for DuckDB, Polars, Spark or pandas. See [Parquet output](parquet.md). |
 | `*.manifest.json` | The [result manifest](result-manifest.md) of each run: inputs, outputs, metrics, warnings and provenance. |
+| `wgsextract.sample.toml` | The [sample workspace](sample-workspace.md) of a genome folder: detected sex, platform, build and depth per input, and your overrides. |
 
 Run `wgsextract info --detailed` on a BAM/CRAM before handing it off. It
 reports the reference build and model, read length, insert size, duplicate

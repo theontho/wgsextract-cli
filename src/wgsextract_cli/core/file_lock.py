@@ -38,7 +38,7 @@ def _reclaim_guard(path: Path, deadline: float) -> Iterator[None]:
                     raise
                 if time.monotonic() >= deadline:
                     raise WGSExtractError(
-                        f"Timed out waiting for index builder lock: {path}"
+                        f"Timed out waiting for lock: {path}.guard"
                     ) from None
                 time.sleep(min(0.05, max(0, deadline - time.monotonic())))
         try:
@@ -50,6 +50,14 @@ def _reclaim_guard(path: Path, deadline: float) -> Iterator[None]:
                 fcntl.flock(fd, fcntl.LOCK_UN)
     finally:
         os.close(fd)
+
+
+@contextlib.contextmanager
+def exclusive_lock(path: Path, timeout: float = 30) -> Iterator[None]:
+    """Hold an advisory lock on ``<path>.guard`` (kept between runs) for a short
+    read-modify-write; waits up to ``timeout`` seconds for another holder."""
+    with _reclaim_guard(path, time.monotonic() + timeout):
+        yield
 
 
 def _abandoned(path: Path, timeout: float) -> bool:
