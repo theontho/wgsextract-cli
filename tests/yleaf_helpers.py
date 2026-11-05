@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from wgsextract_cli.ydna.yleaf_native import analysis
+from wgsextract_cli.ydna.yleaf_native import analysis, trees
 
 MARKERS = (
     "Y\tM-R\tR\t100\tA>G\tA\tG\n"
@@ -34,6 +34,8 @@ def make_data(root: Path) -> Path:
     }
     folder = root / "hg_prediction_tables"
     folder.mkdir(parents=True)
+    # The yfull tree pack's layout: tree.json beside <build>/new_positions*.txt.
+    (root / "tree.json").write_text(json.dumps(tree))
     for name in ("tree", "yfull_v10_tree", "ftdna_tree", "isogg_tree"):
         (folder / f"{name}.json").write_text(json.dumps(tree))
     for name in (
@@ -65,7 +67,8 @@ def make_data(root: Path) -> Path:
 @pytest.fixture
 def native_tables(tmp_path, monkeypatch):
     root = make_data(tmp_path / "tables")
-    monkeypatch.setattr(analysis, "ensure_data", lambda *a, **k: root)
+    monkeypatch.setattr(trees, "ensure_data", lambda *a, **k: root)
+    monkeypatch.setattr(trees, "ensure_pack", lambda *a, **k: root)
     monkeypatch.setattr(
         analysis,
         "manifest",

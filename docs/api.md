@@ -786,7 +786,9 @@ haplocheck also checks the mtDNA for a mixture of two haplogroups and writes
 CLI: `wgsextract lineage y-haplogroup`.
 
 Y haplogroup; `metrics` holds `haplogroup`, `haplogroup_marker` and
-`qc_score`, `details["predictions"]` every Yleaf prediction row.
+`qc_score`, `details["predictions"]` every Yleaf prediction row and
+`details["tree"]` the tree's `id`, `name`, `version`, `date` and
+`license`.
 
 `YHaplogroupParams`: Predict the Y haplogroup with the bundled native Yleaf from a BAM, CRAM
 or single-sample VCF/BCF. Outputs go to `yleaf/` in the output folder.
@@ -798,7 +800,7 @@ or single-sample VCF/BCF. Outputs go to `yleaf/` in the output folder.
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
 | `pos_file` | `Path \| None` | `None` | `--pos-file` | Yleaf position file (optional) |
 | `build` | `str \| None` | `None` | `--build` | Override the detected reference build for this run. One of: `hg19`, `hg38`, `t2t` |
-| `tree` | `str` | `'yfull'` | `--tree` | Yleaf v4.1.6 haplogroup tree (default: yfull). One of: `yfull`, `yfull_v10`, `ftdna`, `isogg` |
+| `tree` | `str` | `'yfull'` | `--tree` | Haplogroup tree: yfull (the pinned YFull YTree release), yfull_v10 (YFull 10.01), ftdna or isogg (default: yfull). One of: `yfull`, `yfull_v10`, `ftdna`, `isogg` |
 | `min_reads` | `int` | `10` | `--min-reads` | Reads needed at a marker position for it to be used. |
 | `base_quality` | `int` | `20` | `--base-quality` | Minimum base quality of a read at a marker position. |
 | `base_majority` | `int` | `90` | `--base-majority` | Percentage of reads at a marker that must agree on the base. |

@@ -5000,7 +5000,7 @@
     ],
     "defaults": {
      "_command": "extract bam-subset",
-     "func": "cmd_bam_subset"
+     "func": "cli_BamSubsetParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -5342,7 +5342,7 @@
     ],
     "defaults": {
      "_command": "extract custom",
-     "func": "cmd_custom"
+     "func": "cli_CustomParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -5651,7 +5651,7 @@
     ],
     "defaults": {
      "_command": "extract mito-fasta",
-     "func": "cmd_mito_fasta"
+     "func": "cli_MitoFastaParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -5960,7 +5960,7 @@
     ],
     "defaults": {
      "_command": "extract mito-vcf",
-     "func": "cmd_mito_vcf"
+     "func": "cli_MitoVcfParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -6269,7 +6269,7 @@
     ],
     "defaults": {
      "_command": "extract mt-bam",
-     "func": "cmd_mt_bam"
+     "func": "cli_MtBamParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -6594,7 +6594,7 @@
     ],
     "defaults": {
      "_command": "extract unmapped",
-     "func": "cmd_unmapped"
+     "func": "cli_UnmappedParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -6903,7 +6903,7 @@
     ],
     "defaults": {
      "_command": "extract y-mt-extract",
-     "func": "cmd_y_mt_extract"
+     "func": "cli_YMtExtractParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -7228,7 +7228,7 @@
     ],
     "defaults": {
      "_command": "extract ydna-bam",
-     "func": "cmd_ydna_bam"
+     "func": "cli_YdnaBamParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -7553,7 +7553,7 @@
     ],
     "defaults": {
      "_command": "extract ydna-vcf",
-     "func": "cmd_ydna_vcf"
+     "func": "cli_YdnaVcfParams"
     },
     "description": null,
     "formatter_class": "HelpFormatter",
@@ -9401,7 +9401,7 @@
    }
   },
   "lineage y-haplogroup": {
-   "help": "usage: wgsextract lineage y-haplogroup [-h] [--build {hg19,hg38,t2t}]\n                                       [--tree {yfull,yfull_v10,ftdna,isogg}] [--ancient]\n                                       [--tree-links] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --build {hg19,hg38,t2t}\n                        Override the detected reference build for this run.\n  --tree {yfull,yfull_v10,ftdna,isogg}\n                        Yleaf v4.1.6 haplogroup tree (default: yfull).\n  --ancient             Use ancient-DNA marker tables.\n  --tree-links          Print YFull and FTDNA tree links.\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n7 advanced options not shown; 'wgsextract lineage y-haplogroup --help-all' lists them.\n\nexamples:\n  wgsextract lineage y-haplogroup --input sample.cram\n\noutputs (in the output directory unless noted):\n  yleaf/: hg_prediction.hg, the per-sample .out/.fmf/.info reports and\n  run.json.\n\nneeds:\n  bcftools, samtools; minutes on a 30x genome.\n",
+   "help": "usage: wgsextract lineage y-haplogroup [-h] [--build {hg19,hg38,t2t}]\n                                       [--tree {yfull,yfull_v10,ftdna,isogg}] [--ancient]\n                                       [--tree-links] [--help-all]\n\noptions:\n  -h, --help            show this help message and exit\n  --build {hg19,hg38,t2t}\n                        Override the detected reference build for this run.\n  --tree {yfull,yfull_v10,ftdna,isogg}\n                        Haplogroup tree: yfull (the pinned YFull YTree release), yfull_v10 (YFull\n                        10.01), ftdna or isogg (default: yfull).\n  --ancient             Use ancient-DNA marker tables.\n  --tree-links          Print YFull and FTDNA tree links.\n  --help-all            Show this help with the advanced options too, and exit.\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\n7 advanced options not shown; 'wgsextract lineage y-haplogroup --help-all' lists them.\n\nexamples:\n  wgsextract lineage y-haplogroup --input sample.cram\n\noutputs (in the output directory unless noted):\n  yleaf/: hg_prediction.hg, the per-sample .out/.fmf/.info reports and\n  run.json; prints the haplogroup and the tree's name and version.\n\nneeds:\n  bcftools, samtools; minutes on a 30x genome.\n",
    "parser": {
     "actions": [
      {
@@ -9731,7 +9731,7 @@
       "default": "yfull",
       "dest": "tree",
       "exclusive_group": null,
-      "help": "Yleaf v4.1.6 haplogroup tree (default: yfull).",
+      "help": "Haplogroup tree: yfull (the pinned YFull YTree release), yfull_v10 (YFull 10.01), ftdna or isogg (default: yfull).",
       "metavar": null,
       "nargs": null,
       "option_strings": [
@@ -15653,7 +15653,7 @@
    "ext_cmd": "bam-subset",
    "fraction": 0.5,
    "full_help": false,
-   "func": "cmd_bam_subset",
+   "func": "cli_BamSubsetParams",
    "gene": "BRCA1",
    "genome": null,
    "input": "x.bam",
@@ -15683,7 +15683,7 @@
    "ext_cmd": "bam-subset",
    "fraction": 0.25,
    "full_help": false,
-   "func": "cmd_bam_subset",
+   "func": "cli_BamSubsetParams",
    "gene": null,
    "genome": null,
    "input": "x.bam",
@@ -15712,7 +15712,7 @@
    "debug": false,
    "ext_cmd": "custom",
    "full_help": false,
-   "func": "cmd_custom",
+   "func": "cli_CustomParams",
    "gene": "KCNQ2",
    "genome": null,
    "input": "x.bam",
@@ -15740,7 +15740,7 @@
    "debug": false,
    "ext_cmd": "custom",
    "full_help": false,
-   "func": "cmd_custom",
+   "func": "cli_CustomParams",
    "gene": null,
    "genome": null,
    "input": "x.bam",
@@ -15769,7 +15769,7 @@
    "debug": false,
    "ext_cmd": "mito-fasta",
    "full_help": false,
-   "func": "cmd_mito_fasta",
+   "func": "cli_MitoFastaParams",
    "genome": null,
    "input": "x.bam",
    "json": false,
@@ -15796,7 +15796,7 @@
    "debug": false,
    "ext_cmd": "mito-vcf",
    "full_help": false,
-   "func": "cmd_mito_vcf",
+   "func": "cli_MitoVcfParams",
    "genome": null,
    "input": "x.cram",
    "json": false,
@@ -15821,7 +15821,7 @@
    "debug": false,
    "ext_cmd": "mt-bam",
    "full_help": false,
-   "func": "cmd_mt_bam",
+   "func": "cli_MtBamParams",
    "genome": null,
    "input": "x.bam",
    "json": false,
@@ -15848,7 +15848,7 @@
    "ext_cmd": "unmapped",
    "fastq": true,
    "full_help": false,
-   "func": "cmd_unmapped",
+   "func": "cli_UnmappedParams",
    "genome": null,
    "input": "x.bam",
    "json": false,
@@ -15874,7 +15874,7 @@
    "debug": false,
    "ext_cmd": "y-mt-extract",
    "full_help": false,
-   "func": "cmd_y_mt_extract",
+   "func": "cli_YMtExtractParams",
    "genome": null,
    "input": "x.bam",
    "json": true,
@@ -15900,7 +15900,7 @@
    "debug": false,
    "ext_cmd": "ydna-bam",
    "full_help": false,
-   "func": "cmd_ydna_bam",
+   "func": "cli_YdnaBamParams",
    "genome": null,
    "input": "x.bam",
    "json": false,
@@ -15927,7 +15927,7 @@
    "debug": false,
    "ext_cmd": "ydna-vcf",
    "full_help": false,
-   "func": "cmd_ydna_vcf",
+   "func": "cli_YdnaVcfParams",
    "genome": null,
    "input": "x.bam",
    "json": false,

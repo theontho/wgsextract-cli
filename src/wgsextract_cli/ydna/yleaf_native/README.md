@@ -29,8 +29,9 @@ Outputs in `<outdir>/yleaf/`:
 
 * `hg_prediction.hg`: upstream-compatible TSV, including QC1/QC2/QC3/counts.
 * `<sample>/<sample>.out`, `.fmf`, `.info`: observed/inferred and filtered markers.
-* `run.json`: upstream code/data tag, commit, build, tree, ancient-panel/QC settings,
-  and the selected marker panel's identifier and SHA-256 (including custom panels).
+* `run.json`: upstream code/data tag, commit, build, the tree's id, name,
+  version, date, license and source, ancient-panel/QC settings, and the selected
+  marker panel's identifier and SHA-256 (including custom panels).
 
 Calls and QC values preserve v4.1.6 behavior, including recurrent-site and
 approximate-placement exclusions, 60% node consensus, deepest passing node,
@@ -38,6 +39,60 @@ FTDNA's missing-ancestor policy and v10's use of the v14 QC1 expectation tables.
 Marker names in the final display are sorted (upstream uses unordered sets);
 marker-row and filtered-row ordering/number formatting may differ. No user
 directory is recursively deleted. Only the current prediction file is replaced.
+
+## Trees
+
+`trees.json` records every `--tree`: name, version, release date, license and
+source. The CLI prints the tree's name and version with each result; JSON
+results carry them in `details["tree"]`.
+
+| `--tree` | Tree | Version | Markers from |
+|---|---|---|---|
+| `yfull` (default) | YFull YTree, CC-BY-4.0 | see `trees.json` | tree pack built by `scripts/build_yfull_tree.py` |
+| `yfull_v10` | YFull YTree | 10.01.0 (2022-02-25) | Yleaf v4.1.6 data |
+| `ftdna` | FamilyTreeDNA Y-DNA tree | 2026-03-26 | Yleaf v4.1.6 data |
+| `isogg` | ISOGG Y-DNA tree | 2020-07 SNP table, 2023-08 index | Yleaf v4.1.6 data |
+
+The `yfull` tree is a *tree pack*: Yleaf's `tree.json` plus hg19, hg38 and T2T
+marker tables (`new_positions.txt`, `new_positions_ancient.txt`), built
+reproducibly from a YFull [YTree](https://github.com/YFullTeam/YTree) release
+and a [YBrowse](https://ybrowse.org) SNP snapshot. It is pinned by SHA-256 in
+`trees.json`, hosted on the `yleaf-tree-yfull-v<version>` release and verified
+into `<reference_library>/yleaf/trees/yfull/<version>/` on first use. The other
+trees and Yleaf's QC1 backbone tables still come from the Yleaf data cache.
+
+Each SNP group on a branch (`/`-separated aliases) becomes one marker when its
+aliases name exactly one GRCh38 chrY single-base substitution in YBrowse.
+hg19 and T2T positions are lifted with Yleaf's UCSC chains (alleles are
+complemented on reverse-strand blocks) and kept only when the lift is unique
+and the target reference base is the ancestral or derived allele. The ancient
+tables drop C>T and G>A markers, as upstream does.
+
+### Refreshing the YFull tree
+
+1. Clone [YFullTeam/YTree](https://github.com/YFullTeam/YTree) and download
+   YBrowse's `snps_hg38.csv` into `scratch/`. Have indexed hg38, hg19 and T2T
+   (CHM13v2.0) FASTAs, Yleaf's liftover chains (in an upstream Yleaf checkout's
+   `yleaf/data`) and the Yleaf v4.1.6 data cache at hand.
+2. Build the pack and review `build_info.json`'s counts (capture under `out/`).
+   The tarball is byte-reproducible from the same inputs:
+
+   ```sh
+   pixi run python scripts/build_yfull_tree.py --ytree scratch/YTree \
+     --version 14.06.0 --ybrowse scratch/ybrowse/snps_hg38.csv --ybrowse-date 2026-11-05 \
+     --chain-hg19 scratch/Yleaf/yleaf/data/hg19/hg38ToHg19.over.chain.gz \
+     --chain-t2t scratch/Yleaf/yleaf/data/t2t/hg38ToHs1.over.chain.gz \
+     --ref-hg38 hs38DH.fa.gz --ref-hg19 hg19.fa.gz --ref-t2t chm13v2.0.fa.gz \
+     --major-tables <reference_library>/yleaf/v4.1.6/hg_prediction_tables/major_tables \
+     --output out/yleaf-tree/14.06.0
+   ```
+
+3. Benchmark the pack against the previous tree on male WGS with known
+   haplogroups (for example 1000 Genomes, Poznik et al. 2016).
+4. Create a draft, non-latest release `yleaf-tree-yfull-v<version>` with the
+   tarball and `SHA256SUMS`, check the assets, then publish it with
+   `--draft=false --latest=false`.
+5. Rerun with `--write-manifest`, which updates `trees.json`, and commit.
 
 ## Data cache
 

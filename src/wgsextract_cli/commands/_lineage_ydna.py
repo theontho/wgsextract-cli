@@ -204,15 +204,20 @@ def run_y_haplogroup(params: YHaplogroupParams, *, tree_links: bool = False) -> 
             f"build is correct; details are in {yleaf_outdir}."
         )
     from wgsextract_cli.ydna.yleaf_native.data import manifest
+    from wgsextract_cli.ydna.yleaf_native.trees import tree_label, tree_metadata
 
     version = manifest()["upstream"]["tag"]
+    tree = tree_metadata(params.tree)
     result = current_result()
     result.set_reference(lib.fasta, lib.build)
     result.add_output(prediction, "haplogroup_report")
     result.set_details(
         {
             "build": yleaf_build,
-            "tree": params.tree,
+            "tree": {
+                "id": params.tree,
+                **{key: tree[key] for key in ("name", "version", "date", "license")},
+            },
             "tables": version,
             "predictions": rows,
         }
@@ -229,7 +234,7 @@ def run_y_haplogroup(params: YHaplogroupParams, *, tree_links: bool = False) -> 
         return
     print(
         f"\n🧬 {CREDIT}\nTables {version}; build {yleaf_build}; "
-        f"tree {params.tree}\n"
+        f"tree {tree_label(tree)}\n"
         f"Lineage Result ({input_stem(input_file)}):"
     )
     print("-" * 30)

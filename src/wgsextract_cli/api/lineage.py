@@ -95,7 +95,8 @@ class YHaplogroupParams(Params):
     build: str | None = _build_param()
     tree: str = param(
         "yfull",
-        help="Yleaf v4.1.6 haplogroup tree (default: yfull).",
+        help="Haplogroup tree: yfull (the pinned YFull YTree release), yfull_v10 "
+        "(YFull 10.01), ftdna or isogg (default: yfull).",
         choices=TREES,
     )
     min_reads: int = param(
@@ -177,7 +178,9 @@ def y_haplogroup(
     check: bool = True,
 ) -> CommandResult:
     """Y haplogroup; ``metrics`` holds ``haplogroup``, ``haplogroup_marker`` and
-    ``qc_score``, ``details["predictions"]`` every Yleaf prediction row."""
+    ``qc_score``, ``details["predictions"]`` every Yleaf prediction row and
+    ``details["tree"]`` the tree's ``id``, ``name``, ``version``, ``date`` and
+    ``license``."""
     from wgsextract_cli.commands._lineage_ydna import run_y_haplogroup
 
     return execute(

@@ -11,7 +11,7 @@ import pytest
 
 from tests.yleaf_helpers import native_tables as native_tables
 from wgsextract_cli.core.utils import WGSExtractError
-from wgsextract_cli.ydna.yleaf_native import analysis, data
+from wgsextract_cli.ydna.yleaf_native import analysis, data, trees
 from wgsextract_cli.ydna.yleaf_native.markers import (
     Call,
     Marker,
@@ -24,6 +24,7 @@ from wgsextract_cli.ydna.yleaf_native.markers import (
     write_marker_tables,
 )
 from wgsextract_cli.ydna.yleaf_native.predict import (
+    TREE_FILES,
     Predictor,
     link_markers,
     prediction_row,
@@ -184,11 +185,63 @@ def test_lazy_cache_downloads_selected_build_verifies_and_repairs_corruption(
         data.ensure_data("t2t", tmp_path)
 
 
+def test_tree_pack_downloads_once_verifies_and_repairs_corruption(
+    tmp_path, monkeypatch
+):
+    files = {"tree.json": b"{}", "hg38/new_positions.txt": b"chrY\tM\tR\t1\n"}
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as stream:
+        for name, payload in files.items():
+            entry = tarfile.TarInfo(name)
+            entry.size = len(payload)
+            stream.addfile(entry, io.BytesIO(payload))
+    blob = buffer.getvalue()
+    monkeypatch.setitem(
+        trees.MANIFEST["trees"],
+        "yfull",
+        {
+            **trees.MANIFEST["trees"]["yfull"],
+            "version": "1.0",
+            "url": "https://example.invalid/yfull-1.0.tar.gz",
+            "sha256": hashlib.sha256(blob).hexdigest(),
+            "files": {
+                name: {
+                    "size": len(payload),
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                }
+                for name, payload in files.items()
+            },
+        },
+    )
+    downloads = []
+
+    def download(url, dest, **kwargs):
+        assert kwargs["expected_sha256"] == hashlib.sha256(blob).hexdigest()
+        downloads.append(url)
+        Path(dest).write_bytes(blob)
+        return True
+
+    monkeypatch.setattr(trees, "download_file", download)
+    root = trees.ensure_pack("yfull", tmp_path)
+    assert root == tmp_path / "yleaf/trees/yfull/1.0"
+    assert (root / "tree.json").read_bytes() == b"{}"
+    assert trees.ensure_pack("yfull", tmp_path) == root and len(downloads) == 1
+    (root / "tree.json").write_text("bad!")
+    trees.ensure_pack("yfull", tmp_path)
+    assert len(downloads) == 2 and (root / "tree.json").read_bytes() == b"{}"
+    leftovers = [p.name for p in root.parent.iterdir()]
+    assert not [n for n in leftovers if n.startswith("unpack-") or ".tar" in n]
+    monkeypatch.setattr(trees, "download_file", lambda *a, **k: False)
+    (root / "tree.json").unlink()
+    with pytest.raises(WGSExtractError, match="offline"):
+        trees.ensure_pack("yfull", tmp_path)
+
+
 def test_archive_rejects_unexpected_paths(tmp_path):
     archive = tmp_path / "bad.tar.gz"
     archive.write_bytes(_archive("../escape", b"bad"))
     with pytest.raises(WGSExtractError, match="Unsafe"):
-        data._extract(archive, tmp_path / "staging", {})
+        data.extract_archive(archive, tmp_path / "staging", {})
 
 
 def test_smoke_cache_gate_needs_only_selected_build_and_shared_tables(
@@ -215,10 +268,18 @@ def test_smoke_cache_gate_needs_only_selected_build_and_shared_tables(
     for folder in ("hg38", "hg_prediction_tables"):
         (root / folder).mkdir(parents=True)
         (root / folder / "table.txt").touch()
-    assert yleaf_tables_cached("hg38")
+    assert yleaf_tables_cached("hg38", "isogg")
+    assert not yleaf_tables_cached("hg19", "isogg")
+    # The yfull tree pack replaces the build tables but must itself be cached.
     assert not yleaf_tables_cached("hg19")
+    yfull = trees.MANIFEST["trees"]["yfull"]
+    pack = tmp_path / "yleaf/trees/yfull" / yfull["version"]
+    for name in yfull["files"]:
+        (pack / name).parent.mkdir(parents=True, exist_ok=True)
+        (pack / name).touch()
+    assert yleaf_tables_cached("hg19")
     (root / "hg_prediction_tables/table.txt").unlink()
-    assert not yleaf_tables_cached("hg38")
+    assert not yleaf_tables_cached("hg38", "isogg")
 
 
 @pytest.mark.parametrize(
@@ -229,7 +290,7 @@ def test_run_provenance_identifies_the_actual_marker_panel(
 ):
     vcf = tmp_path / "synthetic.vcf"
     vcf.touch()
-    selected = analysis.position_file(native_tables, "hg38", "yfull", ancient)
+    selected = trees.ensure_tree("yfull", "hg38").positions("hg38", ancient)
     if custom:
         panel = tmp_path / "custom-panel.txt"
         panel.write_text(selected.read_text().replace("M-leaf", "M-custom"))
@@ -254,12 +315,13 @@ def test_run_provenance_identifies_the_actual_marker_panel(
     metadata = json.loads((output / "run.json").read_text())
     assert metadata["ancient"] is ancient
     assert metadata["marker_panel"] == {
-        "source": "custom" if custom else "yleaf-data",
+        "source": "custom" if custom else "tree-pack",
         "identifier": selected.name
         if custom
         else selected.relative_to(native_tables).as_posix(),
         "sha256": hashlib.sha256(selected.read_bytes()).hexdigest(),
     }
+    assert metadata["tree"]["version"] == trees.MANIFEST["trees"]["yfull"]["version"]
 
 
 def test_analysis_clears_previous_result_on_failed_run(
@@ -295,7 +357,7 @@ def test_upstream_v416_prediction_parity(native_tables, request, monkeypatch, tr
     monkeypatch.setattr(
         yleaf_constants, "HG_PREDICTION_FOLDER", native_tables / "hg_prediction_tables"
     )
-    tree_path = native_tables / "hg_prediction_tables" / analysis.TREE_FILES[tree]
+    tree_path = native_tables / "hg_prediction_tables" / TREE_FILES[tree]
     monkeypatch.setattr(upstream, "QC1_SCORE_CACHE", {})
     upstream.read_backbone_groups(tree_path)
     rows = [
@@ -356,7 +418,23 @@ def test_saved_marker_table_prediction_parity(request, tmp_path, monkeypatch):
     if not build:
         pytest.fail("--yleaf-parity-build is required with --yleaf-parity-input")
     reference = request.config.getoption("--yleaf-parity-ref")
-    monkeypatch.setattr(analysis, "ensure_data", lambda *a, **k: Path(library))
+    tables = Path(library) / "hg_prediction_tables"
+    monkeypatch.setattr(
+        analysis,
+        "ensure_tree",
+        lambda tree, *a, **k: trees.YleafTree(
+            id=tree,
+            name="Yleaf v4.1.6",
+            version="v4.1.6",
+            date="",
+            license="",
+            source=library,
+            tree_file=tables / TREE_FILES[tree],
+            tables=tables,
+            positions_root=Path(library),
+            pack=False,
+        ),
+    )
     result = analysis.analyze(
         Path(input_path),
         tmp_path / "native",

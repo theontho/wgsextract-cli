@@ -47,18 +47,26 @@ def vep_cache_dir(ref: str | Path | None) -> Path:
     return Path(_resolve_vep_cache_root(Namespace(ref=ref and str(ref))))
 
 
-def yleaf_tables_cached(build: str) -> bool:
+def yleaf_tables_cached(build: str, tree: str = "yfull") -> bool:
     """Keep optional real-data smoke tests from downloading large tables."""
     from wgsextract_cli.core.reference_assets import resolve_reference_library
     from wgsextract_cli.ydna.yleaf_native.data import manifest
+    from wgsextract_cli.ydna.yleaf_native.trees import tree_metadata
 
     metadata = manifest()
-    root = Path(resolve_reference_library()) / "yleaf" / metadata["upstream"]["tag"]
-    return all(
-        (root / name).is_file()
-        for key in (build, "hg_prediction_tables")
-        for name in metadata["archives"][key]["files"]
+    library = Path(resolve_reference_library()) / "yleaf"
+    root = library / metadata["upstream"]["tag"]
+    tree_meta = tree_metadata(tree)
+    # A tree pack carries its own marker tables; built-in trees use Yleaf's.
+    pack = library / "trees" / tree / tree_meta["version"]
+    needed = [
+        root / name for name in metadata["archives"]["hg_prediction_tables"]["files"]
+    ] + (
+        [pack / name for name in tree_meta["files"]]
+        if "url" in tree_meta
+        else [root / name for name in metadata["archives"][build]["files"]]
     )
+    return all(path.is_file() for path in needed)
 
 
 def verify_bam(file_path: str, allow_empty: bool = False) -> bool:
