@@ -328,7 +328,7 @@ def run(args: argparse.Namespace) -> None:
         logical_r1 = f"{base}_R1.fastq.gz"
         logical_r2 = f"{base}_R2.fastq.gz"
     journal_output = align_cmd.aligned_output_path(
-        outdir, logical_r1, logical_r2, args.format, selected_aligner
+        outdir, logical_r1, logical_r2, getattr(args, "format", "BAM"), selected_aligner
     )
     with StepJournal.for_output(journal_output, "realign", policy) as journal:
         _run_steps(
@@ -380,8 +380,8 @@ def _align_step(
             "platform": args.platform,
             "preset": args.preset,
             "long_read": bool(args.long_read),
-            "format": args.format,
-            "sample": args.sample,
+            "format": getattr(args, "format", "BAM"),
+            "sample": getattr(args, "sample", None),
             "gpu": bool(getattr(args, "gpu", False)),
             "ref": None if reference else args.ref,
         },
@@ -480,7 +480,7 @@ def _run_steps(
                 "-T MM,ML,MN to retain tagged FASTQ separately."
             )
         out_path = align_cmd.aligned_output_path(
-            outdir, args.input, None, args.format, selected_aligner
+            outdir, args.input, None, getattr(args, "format", "BAM"), selected_aligner
         )
         step = _align_step(
             args, selected_aligner, target, out_path, {"alignment": args.input}
@@ -510,7 +510,7 @@ def _run_steps(
 
     if args.platform == "ultima" and not args.r1:
         out_path = align_cmd.aligned_output_path(
-            outdir, args.input, None, args.format, selected_aligner
+            outdir, args.input, None, getattr(args, "format", "BAM"), selected_aligner
         )
         step = _align_step(
             args, selected_aligner, target, out_path, {"alignment": args.input}
@@ -580,7 +580,7 @@ def _run_steps(
         outdir,
         args.r1 or staged[0],
         args.r2 if args.r1 else staged[1],
-        args.format,
+        getattr(args, "format", "BAM"),
         selected_aligner,
     )
     align_step = _align_step(args, selected_aligner, target, out_path, reads_inputs)
@@ -620,7 +620,7 @@ def _run_steps(
         current_result().add_input(r1_path, "fastq_r1")
         current_result().add_input(r2_path, "fastq_r2")
         out_path = align_cmd.aligned_output_path(
-            outdir, r1_path, r2_path, args.format, selected_aligner
+            outdir, r1_path, r2_path, getattr(args, "format", "BAM"), selected_aligner
         )
         align_step = _align_step(
             args,
