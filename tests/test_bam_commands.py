@@ -596,10 +596,10 @@ def test_a_drive_relative_output_name_is_refused(genome, tmp_path, command):
     args = (
         ["unalign", "--input", genome["bam"], "--r1", name, "--r2", "r2.fq"]
         if command == "unalign"
-        else ["merge", genome["bam"], genome["bam"], "--output", f"{name}.bam"]
+        else ["merge", *_split(genome, tmp_path), "--output", f"{name}.bam"]
     )
     with pytest.raises(WGSExtractError, match="full path"):
-        _bam(*args, "--outdir", str(tmp_path))
+        _bam(*args, "--outdir", str(tmp_path / "out"))
     assert not list(Path.cwd().glob("wgse_drive_relative_*"))
 
 
