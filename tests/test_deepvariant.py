@@ -1052,7 +1052,9 @@ def test_oom_in_call_variants_fails_fast_and_a_rerun_resumes_there(files, monkey
     with pytest.raises(WGSExtractError, match="ran out of memory.*lower --threads"):
         deepvariant.cmd_deepvariant(_args(bam))
     assert _stages(runs) == ["make_examples", "call_variants"]
-    assert runs.killed[-1] == runs.stages[-1][runs.stages[-1].index("--name") + 1]
+    # Every fake stage reports an OOM, so each stage's watcher kills its own
+    # container, in whatever order their threads run.
+    assert runs.stages[-1][runs.stages[-1].index("--name") + 1] in runs.killed
     assert _visible(out) == []
 
     runs = _docker(monkeypatch)
