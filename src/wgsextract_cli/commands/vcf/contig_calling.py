@@ -7,25 +7,28 @@ per-contig worker starts that stream afresh, so ``--parallel`` SNP calling
 replays the deep stretches of the genome in one process to match one stream:
 
 1. Each worker also lists the columns at least ``_DENSE_DEPTH`` deep, read
-   from mpileup's output before ``call -v`` hides the non-variant ones. For one
-   sample, gVCF bands (``mpileup -g``) keep that listing cheap; ``call -v``
-   skips their reference-only records unseen, so they change no call.
+   from mpileup's output before ``call -v`` hides the non-variant ones. gVCF
+   bands (``mpileup -g``) keep that listing cheap; ``call -v`` skips their
+   reference-only records unseen, so they change no call.
 2. If more than one contig draws (has a column at least ``_DRAW_DEPTH`` deep),
    one process calls every stretch of dense columns that draws, in alignment
    order, after ``_LEAD_IN`` bases of shallower pileup that reproduce the reads
    mpileup's ``-d`` read cap keeps. No column outside these windows draws, so
    the replay draws the same numbers as one stream.
-3. The replay's records replace the workers' inside the windows. Records that
-   do not draw must agree; if any differ, the contigs that draw are replayed
-   whole instead, which matches one stream by construction.
+3. The replay's records replace the workers' inside the windows. Its listing
+   of dense columns and its records that do not draw must match the workers';
+   if any differ, the contigs that draw are replayed whole instead, which
+   matches one stream by construction.
 
-Indel calling never draws: bcftools computes indel likelihoods only below 250
-reads (``--max-idepth``), and ``call -V snps`` drops the SNP sites that do
-draw. Its per-contig workers therefore already match one stream.
+Indel calling never draws for one sample: bcftools computes indel likelihoods
+only below 250 reads (``--max-idepth``), and ``call -V snps`` drops the SNP
+sites that do draw. Its per-contig workers therefore already match one stream.
+Inputs with several samples (where both assumptions fail) are called serially.
 """
 
 import bisect
 import gzip
+import hashlib
 import logging
 import os
 import tempfile
@@ -146,8 +149,10 @@ def _pipeline(
 
 
 def _single_sample(alignment: str) -> bool:
-    """Whether mpileup sees at most one sample, so gVCF bands, which group
-    columns by their shallowest sample, list every deep column."""
+    """Whether mpileup sees at most one sample. Indel calling then never
+    subsamples (``--max-idepth`` caps all samples' reads at 250), and gVCF
+    bands, which group columns by their shallowest sample, list every deep
+    column."""
     samples = set()
     for line in get_bam_header(alignment).splitlines():
         if line.startswith("@RG\t"):
@@ -166,50 +171,55 @@ def _dense_listing(output: str) -> list[str]:
 
 
 @dataclass(frozen=True)
-class _Dense:
-    """A listed column, or a band of them, at least ``_DENSE_DEPTH`` deep."""
+class _Stretch:
+    """Dense columns (or bands of them), each within ``2 * _LEAD_IN`` bases of
+    the last, that include at least one column that draws."""
 
-    line: str
+    contig: str
     start: int
-    end: int
-    draws: bool
+    end: int  # The last drawing column.
+    draws: tuple[tuple[int, int], ...]
+    # The listing rows from ``start`` to ``end``, so a replay that keeps
+    # different reads, and so different depths or alleles, does not match.
+    digest: bytes
+
+    @property
+    def window(self) -> Window:
+        return (self.contig, max(1, self.start - _LEAD_IN), self.end)
 
 
-def _read_dense(path: str) -> dict[str, list[_Dense]]:
-    dense: dict[str, list[_Dense]] = {}
+def _read_stretches(path: str) -> list[_Stretch]:
+    """Stream a dense listing into its stretches; memory stays proportional to
+    the drawing columns, not to every dense column."""
+    stretches: list[_Stretch] = []
+    contig, start, end = "", 0, 0
+    draws: list[tuple[int, int]] = []
+    rows = hashlib.sha256()
+    digest = b""
+
+    def close() -> None:
+        if draws:
+            stretches.append(
+                _Stretch(contig, start, draws[-1][1], tuple(draws), digest)
+            )
+
     with open(path, encoding="utf-8") as listing:
         for line in listing:
-            fields = line.rstrip("\n").split("\t")
-            depth = max(int(dp) if dp.isdigit() else 0 for dp in fields[5::2])
-            dense.setdefault(fields[0], []).append(
-                _Dense(line, int(fields[1]), int(fields[2]), depth >= _DRAW_DEPTH)
-            )
-    return dense
-
-
-def _drawing(dense: dict[str, list[_Dense]]) -> list[str]:
-    return [row.line for rows in dense.values() for row in rows if row.draws]
-
-
-def _windows(dense: dict[str, list[_Dense]]) -> list[Window]:
-    """Each stretch of dense columns that draws, from ``_LEAD_IN`` bases before
-    it to its last drawing column. Stretches closer than two lead-ins merge, so
-    a lead-in never contains a dense column."""
-    windows = []
-    for contig, rows in dense.items():
-        clusters: list[list[_Dense]] = []
-        for row in rows:
-            if clusters and row.start - clusters[-1][-1].end <= 2 * _LEAD_IN:
-                clusters[-1].append(row)
-            else:
-                clusters.append([row])
-        for cluster in clusters:
-            draws = [row.end for row in cluster if row.draws]
-            if draws:
-                windows.append(
-                    (contig, max(1, cluster[0].start - _LEAD_IN), max(draws))
-                )
-    return windows
+            fields = line.split("\t")
+            row_start, row_end = int(fields[1]), int(fields[2])
+            if fields[0] != contig or row_start - end > 2 * _LEAD_IN:
+                close()
+                contig, start, draws, rows = fields[0], row_start, [], hashlib.sha256()
+            end = row_end
+            rows.update(line.encode())
+            if (
+                max(int(dp) if dp.isdigit() else 0 for dp in fields[5::2])
+                >= _DRAW_DEPTH
+            ):
+                draws.append((row_start, row_end))
+                digest = rows.digest()
+    close()
+    return stretches
 
 
 def _pump(
@@ -290,12 +300,12 @@ class _Splice:
         self,
         windows: list[Window],
         replay: list[bytes],
-        dense: list[_Dense],
+        draws: list[tuple[int, int]],
         verify: bool,
     ) -> None:
         self.windows = [(start, end) for _, start, end in windows]
         self.replay = replay
-        self.draws = [(row.start, row.end) for row in dense if row.draws]
+        self.draws = draws
         self.verify = verify
         self.agrees = True
 
@@ -397,25 +407,21 @@ class _ContigCaller:
         work: str,
     ) -> list[str]:
         """``parts``, with the columns that draw called as one stream would."""
-        dense: dict[str, list[_Dense]] = {}
-        for listing in listings:
-            dense.update(_read_dense(listing))
-        drawing = [name for name, rows in dense.items() if any(r.draws for r in rows)]
+        stretches = [item for listing in listings for item in _read_stretches(listing)]
+        drawing = list(dict.fromkeys(item.contig for item in stretches))
         # A worker's stream is one stream's until a second contig draws.
         if len(drawing) < 2:
             return parts
-        spliced = self._replay(
-            list(contigs), parts, dense, _windows(dense), Path(work, "windows")
-        )
+        spliced = self._replay(list(contigs), parts, stretches, Path(work, "windows"))
         if spliced is None:
             logging.warning(
                 "Deep-site replay windows disagreed with the per-contig calls; "
                 f"replaying the {len(drawing)} contigs with deep sites whole."
             )
-            whole = [(name, 1, contigs[name]) for name in drawing]
             spliced = self._replay(
-                list(contigs), parts, dense, whole, Path(work, "contigs"), verify=False
-            )
+                list(contigs), parts, stretches, Path(work, "contigs"),
+                whole={name: contigs[name] for name in drawing},
+            )  # fmt: skip
         assert spliced is not None
         return spliced
 
@@ -423,14 +429,20 @@ class _ContigCaller:
         self,
         names: list[str],
         parts: list[str],
-        dense: dict[str, list[_Dense]],
-        windows: list[Window],
+        stretches: list[_Stretch],
         work: Path,
         *,
-        verify: bool = True,
+        whole: dict[str, int] | None = None,
     ) -> list[str] | None:
-        """Call ``windows`` in one process and splice them into ``parts``, or
-        None if a deep column's depth or a record that does not draw differs."""
+        """Call the stretches' windows (or ``whole`` contigs, unverified) in one
+        process and splice them into ``parts``, or None if the replay's dense
+        columns or a record that does not draw differ from the workers'."""
+        verify = whole is None
+        windows = (
+            [item.window for item in stretches]
+            if whole is None
+            else [(name, 1, length) for name, length in whole.items()]
+        )
         work.mkdir()
         request = work / "regions.tsv"
         request.write_text(
@@ -444,7 +456,7 @@ class _ContigCaller:
         )
         calls, listing = str(work / "calls.vcf.gz"), str(work / "dense.tsv")
         self.call(calls, ["-R", str(request)], "deep sites", "0", listing)
-        if verify and _drawing(_read_dense(listing)) != _drawing(dense):
+        if verify and _read_stretches(listing) != stretches:
             return None
         records: dict[str, list[bytes]] = {}
         with gzip.open(calls, "rb") as replay:
@@ -461,7 +473,15 @@ class _ContigCaller:
         for index, name in enumerate(names):
             if name in by_contig:
                 splices[index] = _Splice(
-                    by_contig[name], records.get(name, []), dense.get(name, []), verify
+                    by_contig[name],
+                    records.get(name, []),
+                    [
+                        span
+                        for item in stretches
+                        if item.contig == name
+                        for span in item.draws
+                    ],
+                    verify,
                 )
                 spliced[index] = str(work / f"{index:06d}.bcf")
 
@@ -507,13 +527,18 @@ def call_small_variants(
     parallel: bool = False,
 ) -> None:
     contigs = _parallel_contigs(alignment, ref, threads, region) if parallel else {}
+    if contigs and not _single_sample(alignment):
+        logging.info(
+            "Calling serially: with several samples, bcftools subsamples deep "
+            "SNP and indel sites in ways per-contig workers cannot reproduce."
+        )
+        contigs = {}
     caller = _ContigCaller(alignment, ref, profile, call_args, indels)
     if not contigs:
         caller.call(output, ["-r", region] if region else [], region, threads)
         return
 
-    replays = not indels
-    caller.bands = replays and _single_sample(alignment)
+    replays = caller.bands = not indels
     caller.workers = min(int(threads), len(contigs))
     caller.cancelled = Event()
     logging.info(f"Calling {len(contigs)} contigs with {caller.workers} workers.")

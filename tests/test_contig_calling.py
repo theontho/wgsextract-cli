@@ -2,6 +2,7 @@ import gzip
 import random
 from pathlib import Path
 from threading import Event
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -161,7 +162,8 @@ def test_parallel_deep_calls_match_one_stream(
 
 @pytest.fixture(scope="module")
 def deep_patches_sample(tmp_path_factory: pytest.TempPathFactory) -> tuple[str, str]:
-    """Shallow contigs with het SNPs, two of which hold 300-read deep patches."""
+    """Shallow contigs with het SNPs and a het deletion, two of which hold
+    300-read deep patches."""
     root = tmp_path_factory.mktemp("deep patches")
     rng = random.Random(5)
     length = 30_000
@@ -183,33 +185,35 @@ def deep_patches_sample(tmp_path_factory: pytest.TempPathFactory) -> tuple[str, 
         ]
         for name, (start, size) in enumerate(sorted(reads)):
             bases = list(seq[start - 1 : start - 1 + size])
+            cigar = f"{size}M"
             for snp in snps:
                 if start <= snp < start + size and rng.random() < 0.5:
                     bases[snp - start] = "ACGT"[("ACGT".index(seq[snp - 1]) + 1) % 4]
+            if size == 100 and 11_910 < start < 11_990 and rng.random() < 0.5:
+                # Deletes the two bases after 12,000.
+                left = 12_000 - start + 1
+                bases = list(seq[start - 1 : 12_000] + seq[12_002 : start + 101])
+                cigar = f"{left}M2D{100 - left}M"
             quals = "".join(chr(33 + rng.randint(15, 40)) for _ in bases)
             lines.append(
-                f"r{chrom}{name}\t0\t{chrom}\t{start}\t60\t{size}M\t*\t0\t0"
+                f"r{chrom}{name}\t0\t{chrom}\t{start}\t60\t{cigar}\t*\t0\t0"
                 f"\t{''.join(bases)}\t{quals}\tRG:Z:reads"
             )
     return sam_to_bam(lines, root / "sample.bam"), str(ref)
 
 
 @needs_htslib
-@pytest.mark.parametrize("bands", [True, False])
 def test_parallel_replays_only_deep_windows(
     deep_patches_sample: tuple[str, str],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    bands: bool,
 ) -> None:
-    # Multi-sample input lists dense columns without gVCF bands.
-    monkeypatch.setattr(contig_calling, "_single_sample", Mock(return_value=bands))
     replay = contig_calling._ContigCaller._replay
     replayed: list[list[contig_calling.Window]] = []
 
-    def spy(self: contig_calling._ContigCaller, *args: object, **kwargs: object):
-        replayed.append(list(args[3]))  # type: ignore[call-overload]
-        return replay(self, *args, **kwargs)  # type: ignore[arg-type]
+    def spy(self: contig_calling._ContigCaller, *args: Any, **kwargs: Any) -> Any:
+        replayed.append([item.window for item in args[2]])
+        return replay(self, *args, **kwargs)
 
     monkeypatch.setattr(contig_calling._ContigCaller, "_replay", spy)
     serial, parallel = _bodies(deep_patches_sample, tmp_path)
@@ -227,28 +231,51 @@ def test_disagreeing_windows_fall_back_to_whole_contigs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     replay = contig_calling._ContigCaller._replay
-    verified: list[bool] = []
+    wholes: list[object] = []
 
     def disagree(
-        self: contig_calling._ContigCaller, *args: object, verify: bool = True
-    ):
-        verified.append(verify)
-        result = replay(self, *args, verify=verify)  # type: ignore[arg-type]
-        return None if verify else result
+        self: contig_calling._ContigCaller, *args: Any, whole: Any = None
+    ) -> Any:
+        wholes.append(whole)
+        result = replay(self, *args, whole=whole)
+        return None if whole is None else result
 
     monkeypatch.setattr(contig_calling._ContigCaller, "_replay", disagree)
     serial, parallel = _bodies(deep_patches_sample, tmp_path)
     assert serial == parallel
-    assert verified == [True, False]
+    assert wholes == [None, {"chrA": 30_000, "chrC": 30_000}]
+
+
+@needs_htslib
+def test_several_samples_are_called_serially(
+    deep_patches_sample: tuple[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    header = "@RG\tID:a\tSM:one\n@RG\tID:b\tSM:two\n"
+    monkeypatch.setattr(contig_calling, "get_bam_header", Mock(return_value=header))
+    assert not contig_calling._single_sample("input.bam")
+    monkeypatch.setattr(contig_calling, "_single_sample", Mock(return_value=False))
+    monkeypatch.setattr(
+        contig_calling,
+        "_parallel_contigs",
+        Mock(return_value={"chrA": 30_000, "chrB": 30_000, "chrC": 30_000}),
+    )
+    monkeypatch.setattr(
+        contig_calling._ContigCaller, "run_all", Mock(side_effect=AssertionError)
+    )
+    serial, parallel = _bodies(deep_patches_sample, tmp_path, indels=True)
+    assert serial == parallel
 
 
 @needs_htslib
 def test_parallel_deep_indel_calls_match_one_stream(
     deep_patches_sample: tuple[str, str], tmp_path: Path
 ) -> None:
-    # Indel likelihoods never subsample, so no replay is needed.
+    # One sample's indel likelihoods never subsample, so no replay is needed.
     serial, parallel = _bodies(deep_patches_sample, tmp_path, indels=True)
     assert serial == parallel
+    assert {line.split("\t")[0] for line in serial.splitlines()} >= {"chrA", "chrC"}
 
 
 @needs_htslib
