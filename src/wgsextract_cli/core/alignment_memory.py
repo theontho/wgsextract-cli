@@ -1,4 +1,5 @@
-"""Memory budgets for the concurrent native BWA/MEM2 alignment pipeline.
+"""Memory budgets for the concurrent native BWA/MEM2 and minimap2 alignment
+pipelines.
 
 Full 30x H2 measured a 17–17.5 GiB BWA working set including paged-out memory,
 not just its capped resident peak. Budget index files, aligner working
@@ -13,6 +14,7 @@ or a hard limit.
 import logging
 import math
 import re
+from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
@@ -20,6 +22,7 @@ import psutil
 
 from wgsextract_cli.core.paths import append_suffix
 from wgsextract_cli.core.reference_assets import read_fai_lengths
+from wgsextract_cli.core.results import warn
 from wgsextract_cli.core.samtools_commands import parse_memory
 from wgsextract_cli.core.utils import WGSExtractError
 
@@ -37,6 +40,31 @@ _PIPELINE_OVERHEAD_BYTES = _GIB // 2
 # Full H2 RSS/anonymous+swap observations require headroom beyond steady stages.
 _H2_TRANSIENT_BYTES = 5 * _GIB // 2
 _BWA_BATCH_BASES = 100_000_000
+# minimap2 2.31 builds its index from the FASTA on every run. On hs38 (3.10
+# Gbases) the build peaked at 11.1-11.3 GiB with every preset but map-pb's
+# homopolymer-compressed 8.6 GiB. The built index (as a saved .mmi) is smaller:
+# the build's scratch is freed before mapping starts.
+_MINIMAP2_BUILD_BYTES_PER_BASE = {"map-pb": 3.05}
+_MINIMAP2_BUILD_DEFAULT = 3.95
+_MINIMAP2_INDEX_BYTES_PER_BASE = {
+    "map-ont": 2.35,
+    "map-hifi": 1.86,
+    "lr:hq": 1.86,
+    "map-pb": 1.82,
+    "sr": 2.80,
+}
+# Mapping holds batches of -K 500M bases (read, mapped, written) beside the
+# index, plus each thread's alignment buffers, which grow with read length:
+# 40k HG002 ONT reads (20 kb mean) at -t 4 peaked 4.2 GiB above the index.
+_MINIMAP2_BATCH_BYTES = 5 * _GIB // 2
+# That is about 5.4 bytes per batched base. Even reference-compressed CRAM with
+# binned qualities holds fewer than 16 bases per byte, so read files smaller
+# than about 30 MB fill one smaller batch. The same bound caps samtools sort's
+# buffers and the threads' work, which only grow as reads arrive.
+_DECODED_BYTES_PER_INPUT_BYTE = 96
+# gzip/BGZF stores a FASTA's bases in at least 0.2 bytes each.
+_FASTA_GZ_BASES_PER_BYTE = 5
+_MINIMAP2_THREAD_BYTES = _GIB // 2
 
 
 class MappingMemory(NamedTuple):
@@ -165,6 +193,45 @@ def _working_memory(
     return math.ceil(max(_ALIGNER_WORKING_BYTES, working))
 
 
+def _minimap2_memory(
+    bases: int, preset: str | None, threads: int, input_bytes: int | None
+) -> tuple[int, int]:
+    """(resident index, working memory beyond it) for minimap2. An unknown
+    preset gets the largest index. The build's scratch counts as working
+    memory while it exceeds mapping's."""
+    if threads < 1:
+        raise ValueError("threads must be positive")
+    index = math.ceil(
+        bases
+        * _MINIMAP2_INDEX_BYTES_PER_BASE.get(
+            preset or "", max(_MINIMAP2_INDEX_BYTES_PER_BASE.values())
+        )
+    )
+    build = math.ceil(
+        bases
+        * _MINIMAP2_BUILD_BYTES_PER_BASE.get(preset or "", _MINIMAP2_BUILD_DEFAULT)
+    )
+    batch = _MINIMAP2_BATCH_BYTES
+    thread_work = threads * _MINIMAP2_THREAD_BYTES
+    if input_bytes is not None:
+        decoded = max(0, input_bytes) * _DECODED_BYTES_PER_INPUT_BYTE
+        batch = min(batch, decoded)
+        # One long read can still need a whole thread's alignment buffers.
+        thread_work = min(thread_work, max(_MINIMAP2_THREAD_BYTES, decoded))
+    mapping = batch + thread_work
+    return index, max(build - index, mapping)
+
+
+def _fasta_bases_bound(ref: str | None) -> int:
+    """At most how many bases a FASTA without a .fai holds, from its size."""
+    try:
+        size = Path(ref).stat().st_size if ref else 0
+    except OSError:
+        return 0
+    gz = str(ref).lower().endswith((".gz", ".bgz", ".bgzf"))
+    return size * _FASTA_GZ_BASES_PER_BYTE if gz else size
+
+
 def reference_bases(ref: str | None) -> int:
     if not ref:
         return 0
@@ -189,8 +256,36 @@ def estimate_mapping_memory(
     reads: int | None = None,
     platform: str | None = None,
     read_length: float | None = None,
+    preset: str | None = None,
+    input_bytes: int | None = None,
 ) -> MappingMemory:
-    bases = reference_bases(ref) or _HUMAN_REFERENCE_BASES
+    """Peak memory of the alignment pipeline. ``preset`` is minimap2's, and
+    ``input_bytes`` (the read files' size) bounds its batches."""
+    bases = (
+        reference_bases(ref)
+        or (_fasta_bases_bound(ref) if aligner == "minimap2" else 0)
+        or _HUMAN_REFERENCE_BASES
+    )
+    amount, unit = parse_memory(memory)
+    per_thread = amount * (1024**3 if unit == "G" else 1024**2)
+    sort = int(int(threads) * per_thread * 1.25)
+    input_reads = max(0, reads) if reads is not None else _H2_INPUT_READS
+    if aligner == "minimap2":
+        index, working = _minimap2_memory(bases, preset, int(threads), input_bytes)
+        if input_bytes is not None:
+            # samtools sort fills its buffers only with the reads it receives.
+            sort = min(sort, max(0, input_bytes) * _DECODED_BYTES_PER_INPUT_BYTE)
+        if reads is None and input_bytes is not None:
+            # A compressed short read takes at least 8 bytes.
+            input_reads = min(input_reads, max(0, input_bytes) // 8)
+        return MappingMemory(
+            index,
+            working,
+            # Only short reads (preset sr) have their duplicates marked.
+            (input_reads * _SAMBLASTER_BYTES_PER_PAIR + 1) // 2 if samblaster else 0,
+            sort,
+            _PIPELINE_OVERHEAD_BYTES,
+        )
     suffixes, bytes_per_base = _INDEX_PARTS[aligner]
     # A missing/unknown index may be built later; don't omit it from the preflight.
     index = int(bases * bytes_per_base)
@@ -201,14 +296,11 @@ def estimate_mapping_memory(
             )
         except OSError:
             pass
-    amount, unit = parse_memory(memory)
-    per_thread = amount * (1024**3 if unit == "G" else 1024**2)
-    input_reads = max(0, reads) if reads is not None else _H2_INPUT_READS
     return MappingMemory(
         index,
         _working_memory(aligner, int(threads), reads, platform, read_length),
         (input_reads * _SAMBLASTER_BYTES_PER_PAIR + 1) // 2 if samblaster else 0,
-        int(int(threads) * per_thread * 1.25),
+        sort,
         _PIPELINE_OVERHEAD_BYTES + input_reads * _H2_TRANSIENT_BYTES // _H2_INPUT_READS,
     )
 
@@ -224,30 +316,52 @@ def check_mapping_memory(
     platform: str | None = None,
     read_length: float | None = None,
     additional_ram_bytes: int = 0,
+    preset: str | None = None,
+    input_bytes: int | None = None,
 ) -> None:
-    estimate = estimate_mapping_memory(
-        ref,
-        aligner,
-        threads=threads,
-        memory=memory,
-        samblaster=samblaster,
-        reads=reads,
-        platform=platform,
-        read_length=read_length,
-    )
+    """Log the alignment's memory estimate, and warn (or for bwa-mem2, raise)
+    with settings that fit when it exceeds the available memory."""
+
+    def estimate(threads: str, memory: str) -> MappingMemory:
+        return estimate_mapping_memory(
+            ref,
+            aligner,
+            threads=threads,
+            memory=memory,
+            samblaster=samblaster,
+            reads=reads,
+            platform=platform,
+            read_length=read_length,
+            preset=preset,
+            input_bytes=input_bytes,
+        )
+
+    requested = estimate(threads, memory)
     available = available_memory()
     components = ", ".join(
         f"{name.replace('_', ' ')} {value / _GIB:.1f}"
-        for name, value in zip(estimate._fields, estimate, strict=True)
+        for name, value in zip(requested._fields, requested, strict=True)
     )
     if additional_ram_bytes:
         components += f", collation {additional_ram_bytes / _GIB:.1f}"
-    total = estimate.total + additional_ram_bytes
+    total = requested.total + additional_ram_bytes
+    # minimap2's estimate depends on the input's size only for samblaster.
+    counted = aligner != "minimap2" or samblaster
     logging.info(
-        "%s alignment memory estimate: %.2f GiB for %s input reads (%s GiB).",
+        "%s alignment memory estimate: %.2f GiB%s (%s GiB).",
         aligner,
         total / _GIB,
-        f"{reads:,}" if reads is not None else "unknown; 680-million-read fallback",
+        (
+            " for "
+            + (
+                f"{reads:,}"
+                if reads is not None
+                else "unknown; 680-million-read fallback"
+            )
+            + " input reads"
+        )
+        if counted
+        else "",
         components,
     )
     if total <= available:
@@ -258,35 +372,74 @@ def check_mapping_memory(
         f"({components} GiB). Lower --memory (per sort thread) or --threads, "
         "or free memory."
     )
-    if reads is None:
+    if reads is None and counted:
         message += (
             " No reliable input read count was available; using a 680-million-read "
             "fallback. Larger inputs may need more."
         )
     if aligner == "bwa-mem2":
         raise WGSExtractError(message + " Use --aligner bwa for its smaller index.")
-    low, high = 0, int(threads) - 1
-    while low < high:
-        candidate = (low + high + 1) // 2
-        reduced = estimate_mapping_memory(
-            ref,
-            aligner,
-            threads=str(candidate),
-            memory=memory,
-            samblaster=samblaster,
-            reads=reads,
-            platform=platform,
-            read_length=read_length,
-        )
-        if reduced.total + additional_ram_bytes <= available:
-            low = candidate
-        else:
-            high = candidate - 1
-    if low:
+    if aligner == "minimap2":
         message += (
-            f" This estimate fits with --threads {low} --memory {memory}; "
-            "requested threads are unchanged."
+            f" minimap2 builds a {requested.index_resident / _GIB:.1f} GiB index of "
+            "the reference however few threads it has."
+        )
+    fit = _fitting_settings(
+        lambda t, m: estimate(t, m).total + additional_ram_bytes <= available,
+        int(threads),
+        memory,
+        # BWA's advice keeps the per-sort-thread memory.
+        lower_memory=aligner == "minimap2",
+    )
+    if fit:
+        message += (
+            f" This estimate fits with --threads {fit[0]} --memory {fit[1]}; "
+            "requested settings are unchanged."
         )
     else:
-        message += " Even one thread exceeds the available-memory estimate."
-    logging.warning("%s Continuing with bwa.", message)
+        least = estimate(
+            "1", _SMALLEST_SORT_MEMORY if aligner == "minimap2" else memory
+        )
+        message += (
+            " Even one thread exceeds the available-memory estimate: it needs "
+            f"{(least.total + additional_ram_bytes) / _GIB:.1f} GiB."
+        )
+    message += f" Continuing with {aligner}."
+    if aligner != "minimap2":
+        # Without a read count BWA's estimate assumes a 680-million-read
+        # genome, even for tiny inputs, so it stays a log line.
+        logging.warning(message)
+        return
+    warn(
+        "alignment_memory",
+        message,
+        aligner=aligner,
+        estimated_gib=round(total / _GIB, 2),
+        available_gib=round(available / _GIB, 2),
+        suggested_threads=fit[0] if fit else None,
+        suggested_memory=fit[1] if fit else None,
+    )
+
+
+_SMALLEST_SORT_MEMORY = "256M"
+
+
+def _fitting_settings(
+    fits: Callable[[str, str], bool], threads: int, memory: str, *, lower_memory: bool
+) -> tuple[int, str] | None:
+    """The most threads, then the most per-thread sort memory (no more than
+    requested, down to 256M when ``lower_memory``), that ``fits``."""
+    amount, unit = parse_memory(memory)
+    requested = amount * (1024 if unit == "G" else 1)
+    memories = [memory]
+    if lower_memory:
+        memories += [
+            f"{mib // 1024}G" if mib >= 1024 else f"{mib}M"
+            for mib in (4096, 2048, 1024, 768, 512, 256)
+            if mib < requested
+        ]
+    for candidate in range(threads, 0, -1):
+        for option in memories:
+            if fits(str(candidate), option):
+                return candidate, option
+    return None

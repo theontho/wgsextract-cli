@@ -1,9 +1,11 @@
+import random
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from wgsextract_cli.core import alignment_memory
+from tests.htslib_helpers import needs_tools, run_wgsextract, write_fasta
+from wgsextract_cli.core import alignment_memory, results
 from wgsextract_cli.core import resource_estimates as resources
 from wgsextract_cli.core.utils import WGSExtractError
 
@@ -81,7 +83,7 @@ def test_ultima_preflight_covers_measured_hg008_memory(
         samblaster=False,
     )
     if status == "LOW":
-        assert "requested threads are unchanged" in caplog.text
+        assert "requested settings are unchanged" in caplog.text
         assert "--threads 3" in caplog.text
         assert "--threads 3 --memory 256M" in caplog.text
         assert "Continuing with bwa" in caplog.text
@@ -209,3 +211,124 @@ def test_namespaced_cgroup_root_and_unavailable_limits(tmp_path):
         alignment_memory._cgroup_available_memory(tmp_path / "missing", tmp_path)
         is None
     )
+
+
+def _hs38(tmp_path: Path) -> str:
+    ref = tmp_path / "hs38.fa"
+    ref.write_text(">chr1\nA\n")
+    Path(str(ref) + ".fai").write_text("chr1\t3099922541\t0\t1\t2\n")
+    return str(ref)
+
+
+@pytest.mark.parametrize(
+    ("preset", "build_peak"),
+    [("map-ont", 11.17), ("map-hifi", 11.11), ("lr:hq", 11.11), ("map-pb", 8.62),
+     ("sr", 11.31), (None, 11.31)],
+)  # fmt: skip
+def test_minimap2_estimate_covers_measured_hs38_peaks(tmp_path, preset, build_peak):
+    """#428: minimap2 2.31 builds the hs38 index in memory on every run."""
+    estimate = alignment_memory.estimate_mapping_memory(
+        _hs38(tmp_path), "minimap2", threads="4", memory="512M",
+        samblaster=False, preset=preset,
+    )  # fmt: skip
+    assert estimate.index_resident + estimate.working >= build_peak * GIB
+    if preset == "map-ont":
+        # 40k HG002 ONT reads mapped at -t 4 peaked at 10.93 GiB; the #299
+        # chr20 realign at --threads 4 --memory 512M at 14.8 GB.
+        assert estimate.index_resident + estimate.working >= 10.93 * GIB
+        assert estimate.total >= 14.8e9
+
+
+def test_minimap2_preflight_suggests_settings_that_fit_a_14g_cgroup(
+    tmp_path, monkeypatch
+):
+    """#428: the #299 ONT realign at --threads 4 and default --memory was
+    OOM-killed in a 14 GiB cgroup with no warning beforehand."""
+    ref = _hs38(tmp_path)
+    options = {"samblaster": False, "preset": "map-ont"}
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 14 * GIB)
+    result = results.CommandResult("align")
+    with results.collecting(result):
+        alignment_memory.check_mapping_memory(
+            ref, "minimap2", threads="4", memory="1G", **options
+        )
+    [warning] = result.warnings
+    assert warning.code == "alignment_memory"
+    assert warning.details["available_gib"] == 14
+    assert warning.details["estimated_gib"] > 14
+    threads = warning.details["suggested_threads"]
+    memory = warning.details["suggested_memory"]
+    assert f"--threads {threads} --memory {memory}" in warning.message
+    fitted = alignment_memory.estimate_mapping_memory(
+        ref, "minimap2", threads=str(threads), memory=str(memory), **options
+    )
+    assert fitted.total <= 14 * GIB
+
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 10 * GIB)
+    result = results.CommandResult("align")
+    with results.collecting(result):
+        alignment_memory.check_mapping_memory(
+            ref, "minimap2", threads="4", memory="1G", **options
+        )
+    [warning] = result.warnings
+    assert warning.details["suggested_threads"] is None
+    assert "Even one thread exceeds" in warning.message
+
+
+def test_minimap2_small_short_read_input_does_not_get_the_genome_fallback():
+    """A few-MB FASTQ pair aligned with minimap2 sr and samblaster must not be
+    budgeted (and warned about) as the 680-million-read genome fallback."""
+    options = {"threads": "2", "memory": "256M", "samblaster": True, "preset": "sr"}
+    small = alignment_memory.estimate_mapping_memory(
+        None, "minimap2", input_bytes=5_000_000, **options
+    )
+    unknown = alignment_memory.estimate_mapping_memory(None, "minimap2", **options)
+    assert small.samblaster < 10 * 1024**2 < GIB < unknown.samblaster
+
+
+@pytest.mark.parametrize("name", ["ref.fa", "ref.fa.gz"])
+def test_minimap2_tiny_reference_without_fai_is_not_budgeted_as_human(tmp_path, name):
+    """minimap2 needs no .fai, so a small FASTA without one is bounded by its
+    size rather than given the 3.2-gigabase human fallback."""
+    ref = tmp_path / name
+    ref.write_bytes(b">chr1\n" + b"ACGT" * 25_000 + b"\n")
+    estimate = alignment_memory.estimate_mapping_memory(
+        str(ref), "minimap2", threads="1", memory="256M", samblaster=False
+    )
+    assert estimate.index_resident < 10 * 1024**2
+
+
+@needs_tools("minimap2", "samtools")
+def test_tiny_minimap2_alignment_with_many_threads_does_not_warn(tmp_path, monkeypatch):
+    """#450 review: aligning a few-KB FASTQ at many threads with the default
+    --memory (1G+ per thread) on a small CI runner warned of ~6-15 GiB and
+    suggested --threads 1 --memory 256M; samtools sort only buffers the reads it
+    receives."""
+    genome = "".join(random.Random(450).choice("ACGT") for _ in range(20_000))
+    ref = write_fasta(tmp_path / "ref.fa", {"chr1": genome})
+    reads = tmp_path / "reads.fastq"
+    reads.write_text(
+        "".join(
+            f"@r{i}\n{genome[i * 90 : i * 90 + 2000]}\n+\n{'I' * 2000}\n"
+            for i in range(50)
+        )
+    )
+    monkeypatch.setattr(alignment_memory, "available_memory", lambda: 4 * GIB)
+    result = results.CommandResult("align")
+    with results.collecting(result):
+        run_wgsextract(
+            "align", "--r1", str(reads), "--ref", str(ref), "--platform", "hifi",
+            "--aligner", "minimap2", "--threads", "8", "--memory", "2G",
+            "--outdir", str(tmp_path / "out"),
+        )  # fmt: skip
+    assert Path(tmp_path, "out", "reads_aligned.bam").is_file()
+    assert "alignment_memory" not in {warning.code for warning in result.warnings}
+
+    # A whole genome's reads at the same settings still don't fit.
+    result = results.CommandResult("align")
+    with results.collecting(result):
+        alignment_memory.check_mapping_memory(
+            str(ref), "minimap2", threads="8", memory="2G", samblaster=False,
+            preset="map-hifi", input_bytes=100 * 10**9,
+        )  # fmt: skip
+    assert [warning.code for warning in result.warnings] == ["alignment_memory"]

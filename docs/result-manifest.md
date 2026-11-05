@@ -72,6 +72,7 @@ size goes unnoticed. Use `wgsextract sign` for full-file digests.
 | `long_reads` | `info --detailed` | Long-read data; the short-read tools give poor results. |
 | `alt_unaware`, `duplicates_unmarked` | `info`, `vcf snp`/`indel`, `microarray` | The alignment has ALT contigs without ALT-aware mapping, or its duplicates are not marked. |
 | `high_homozygosity`, `low_homozygosity`, `high_no_call_rate` | `microarray` | Genotype statistics outside the expected range. |
+| `alignment_memory` | `align`, `realign` | minimap2 is estimated to need more RAM than is available (`aligner`, `estimated_gib`, `available_gib`, and `suggested_threads`/`suggested_memory` that fit, or `null`). The run continues. |
 | `no_variants`, `no_reads`, `nothing_annotated` | variant calling, alignment, extraction, annotation | An output is empty. |
 | `low_confidence_findings` | `vcf clinvar`, `vcf gnomad --max-af`, `vcf pharmcat`, `analyze` | Some reported calls are low confidence (`count`, `total`, `output`, top `reasons`); see [variant-confidence.md](variant-confidence.md). |
 | `unconfirmed_clinical_findings` | `vcf clinvar`, `analyze` | The sample carries ClinVar pathogenic/likely pathogenic calls (`count`): a technical screen to confirm with an accredited laboratory, not a diagnosis. |

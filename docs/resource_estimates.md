@@ -1,6 +1,6 @@
 # CLI resource preflight and reusable estimates
 
-Native `align` (BWA/BWA-MEM2), `realign`, `bam sort`, `bam to-bam`,
+Native `align` (BWA/BWA-MEM2 and minimap2), `realign`, `bam sort`, `bam to-bam`,
 `bam to-cram`, and `vcf snp`/`indel`/`gatk`/`deepvariant` (CPU, every platform)
 report estimates before starting their heavy pipelines. For example:
 
@@ -74,6 +74,35 @@ command line (`-p … -`); file extraction stayed byte-identical. Streaming wrot
 38% less (HG00096 113 → 75 MiB, HG002 316 → 196 MiB) at the same wall time and
 within 3% of the same peak RSS.
 
+## minimap2 (long reads)
+
+minimap2 builds its index from the reference FASTA in memory on every run;
+WGSExtract keeps no `.mmi` file. Its preflight therefore counts the index for
+the selected preset, plus the larger of the build's scratch and mapping's
+batches and per-thread buffers, plus the sort and a fixed overhead (and
+samblaster for paired `sr` reads). Only samblaster depends on the read count.
+The batches, the threads' buffers and the sort's buffers fill only as reads
+arrive, so each is capped at 96 bytes per byte of read file (at least one
+thread's buffers stay): a read file smaller than about 30 MB fills one smaller
+batch, and a few-MB FASTQ at many threads is not budgeted gigabytes of sort
+memory. It was calibrated with minimap2 2.31 on hs38 (3.10 Gbases),
+4 threads:
+
+| Measurement | Measured peak | Estimate |
+| --- | ---: | ---: |
+| Index build, `map-ont` / `map-hifi` and `lr:hq` / `map-pb` / `sr` | 11.17 / 11.11 / 8.62 / 11.31 GiB | 11.40 / 11.40 / 9.75 / 12.58 GiB |
+| Mapping 40k HG002 ONT reads (20 kb mean) from the `map-ont` index | 10.93 GiB | 11.40 GiB |
+| ONT chr20 `realign`, `--memory 512M` (#299, whole pipeline) | 14.8 GB | 14.40 GiB (15.5 GB) |
+
+When the estimate exceeds the available memory (the cgroup limit included),
+`align` and `realign` log a structured `alignment_memory` warning before
+minimap2 starts. It suggests the most threads, then the largest per-thread
+`--memory` (down to 256M), that fit, or says that even one thread does not. The
+run then continues as requested. minimap2's index takes the same memory however
+few threads it has, so on hs38 no setting fits in less than about 12 GiB.
+WGSExtract does not offer minimap2's `-I` (split index): a split index of hs38
+needs `--split-prefix` and a merge pass, and maps more slowly.
+
 Preflight is advisory: `preflight_resources()` guards estimation and reporting
 against `ValueError`, `OSError` and subprocess failures, warns that the resource
 estimate is unavailable, and lets the command continue. Existing dependency,
@@ -83,7 +112,7 @@ These are conservative estimates, **not reservations, memory limits or
 guarantees**. When size or free-space measurement is unavailable the row says
 `UNKNOWN`, never a misleading `OK`. Regional disk estimates deliberately retain
 whole-input upper bounds rather than guessing coverage. CPU models do not
-describe GPU/Parabricks or long-read pipelines; see
+describe GPU/Parabricks or pbmm2 pipelines; see
 [hardware and acceleration](hardware.md) for GPU alignment.
 
 ## GUI/API integration

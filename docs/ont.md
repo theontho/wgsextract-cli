@@ -283,6 +283,9 @@ Time and peak memory on chr20 (278,216 reads), 4 threads:
 `realign`'s peak is mostly minimap2's hs38 `map-ont` index. With the default
 sort memory (about 1 GB per thread on a 30 GB machine) it exceeded a 14 GB
 limit and was killed, so plan for at least 16 GB of RAM for ONT alignment.
+`align` and `realign` now warn before minimap2 starts when its estimate does
+not fit, and suggest `--threads` and `--memory` that do; see
+[resource estimates](resource_estimates.md#minimap2-long-reads).
 Scaled from chr20 (2.1% of the genome), a 51x whole genome on 4 threads would
 take about 32 h to realign, 25 h for DeepVariant and 8 h for Clair3. Whole-genome
 small-variant accuracy was therefore measured on chr20 only.
