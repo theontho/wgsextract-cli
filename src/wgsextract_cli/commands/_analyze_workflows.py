@@ -351,6 +351,10 @@ def record_step_result(document: Path) -> None:
         outputs = list(step.get("outputs") or [])
         warnings = list(step.get("warnings") or [])
         inputs = list(step.get("inputs") or [])
+        # Callers record their resolved FASTA as provenance, not as an input.
+        reference = (step.get("provenance") or {}).get("reference") or {}
+        if isinstance(reference, dict) and reference.get("path"):
+            inputs.append({"role": "reference", "path": reference["path"]})
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return
     if running := _RUNNING.get():
@@ -406,7 +410,7 @@ def run_vcf_workflow(
         anns = "clinvar,gnomad"
 
     # Imported here: vcf.chain -> _vep_run imports detect_vcf_type from this module.
-    from wgsextract_cli.commands.vcf.chain import skip_reason
+    from wgsextract_cli.commands.vcf.chain import dataset, skip_reason
 
     lib = ReferenceLibrary(args.ref, None, input_path=vcf_path)
     available = [a for a in anns.split(",") if not skip_reason(a, lib)]
@@ -435,12 +439,24 @@ def run_vcf_workflow(
         if Path(actual_ann_vcf).exists():
             handle.add_output(actual_ann_vcf)
 
+    # Updated annotation data (a new ClinVar release) must redo the step.
+    inputs = {"vcf": vcf_path}
+    caches: dict[str, list[str]] = {}
+    for ann in available:
+        path = dataset(ann, lib)
+        if path and Path(path).is_dir():
+            # VEP's cache: a release is a species/version directory.
+            caches[ann] = sorted(
+                p.relative_to(path).as_posix() for p in Path(path).glob("*/*")
+            )
+        elif path:
+            inputs[f"dataset:{ann}"] = path
     tag = f"{v_type}_{base_name}"
     annotate_step = Step(
         f"annotate:{tag}",
-        inputs={"vcf": vcf_path},
-        params=_step_params(args, command),
-        tools=["bcftools"],
+        inputs=inputs,
+        params={**_step_params(args, command), "caches": caches},
+        tools=["bcftools", *(["vep"] if "vep" in available else [])],
     )
     annotated, _ = run_step(
         journal, annotate_step, annotate, after=after, clean=[work_dir]
@@ -546,9 +562,12 @@ def run_bam_chain(
             logging.info("Skipping Y-lineage analysis for female genome.")
             continue
         command = [*command, "--input", input_file, "--outdir", outdir]
+        tools = ["samtools", "bcftools"]
+        if name == "mt-haplogroup":
+            tools.append("haplogrep")
         run_step(
             journal,
-            subcommand_step(name, command, tools=["samtools", "bcftools"]),
+            subcommand_step(name, command, tools=tools),
             subcommand_action(command, args),
         )
 

@@ -40,6 +40,13 @@ Running step align: x_aligned.bam changed size (1048576 -> 1048476 bytes; trunca
 Settings that don't change a step's output, such as threads and memory, are
 left out of its key. You can therefore resume with a different `--threads`.
 
+A step's inputs include the data it reads, not just the sample: the
+reference FASTA, region BED files, DeepVariant checkpoint files and
+installed annotation data (a new ClinVar or gnomAD release reruns
+`annotate`). Tool versions include Haplogrep for `mt-haplogroup` and, for
+DeepVariant in Docker, the image's ID, so replacing an image under the same
+tag reruns every stage.
+
 ## Partial outputs
 
 A step is marked `running` in the journal before it starts. It is marked
@@ -53,8 +60,10 @@ final, its stages work in `.deepvariant.work` in the output folder. A
 `make_examples` run that was interrupted keeps its finished shards: GNU
 parallel's `--joblog` and `--resume-failed` rerun only the shards that hadn't
 finished. Those shards are kept only when the rerun has the same key and
-inputs. Otherwise the folder is cleared. Once the VCF is written, the work
-folder is deleted.
+inputs. Otherwise the folder is cleared. A resume with a different
+`--threads` keeps the earlier run's shard count, and `--threads` sets only
+how many shards run at once. Once the VCF is written, the work folder is
+deleted.
 
 ## Options
 

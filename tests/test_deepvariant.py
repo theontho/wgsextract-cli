@@ -277,8 +277,11 @@ def test_detected_ont_runs_the_standard_image_with_owned_temporary_files(
     assert deepvariant.DEFAULT_IMAGE in cmd
     assert cmd[cmd.index("--model_type") + 1] == "ONT_R104"
     work = cmd[cmd.index("--intermediate_results_dir") + 1]
-    assert f"HOME={work}/.tmp" in cmd
-    assert f"TMPDIR={work}/.tmp" in cmd
+    for stage in runs.stages:
+        assert f"HOME={work}/.tmp" in stage
+        assert f"TMPDIR={work}/.tmp" in stage
+    # Planning, which a --dry-run does beside a running stage, has its own.
+    assert f"TMPDIR={work}/.tmp" not in cmd
 
 
 @pytest.mark.parametrize("selection", [{}, {"ont": True}, {"model_type": "ONT_R104"}])
@@ -651,7 +654,7 @@ def test_container_reads_staged_cram_and_preserves_existing_mounts(
         assert str(work) in mounts
         assert str(alignment.parent) in mounts
     if arm64:
-        assert f"TMPDIR={work}/.tmp" in cmd
+        assert all(f"TMPDIR={work}/.tmp" in stage for stage in runs.stages)
         assert "--pull=never" in cmd
     assert not work.exists()
 
@@ -887,8 +890,11 @@ def test_arm_container_overrides_entrypoint_before_image(files, monkeypatch):
     assert cmd[image_at + 1] == "--model_type"
     assert "--platform" not in cmd
     work = cmd[cmd.index("--intermediate_results_dir") + 1]
-    assert f"HOME={work}/.tmp" in cmd
-    assert f"TMPDIR={work}/.tmp" in cmd
+    for stage in runs.stages:
+        assert f"HOME={work}/.tmp" in stage
+        assert f"TMPDIR={work}/.tmp" in stage
+    # Planning, which a --dry-run does beside a running stage, has its own.
+    assert f"TMPDIR={work}/.tmp" not in cmd
 
 
 def test_arm_run_reports_deepvariant_preflight_not_bcftools(files, monkeypatch):
@@ -1111,6 +1117,59 @@ def test_truncated_or_changed_stage_outputs_and_inputs_are_redone(files, monkeyp
     deepvariant.cmd_deepvariant(_args(bam))
     # The intermediates were removed after use, so every stage reruns.
     assert _stages(runs) == ["make_examples", "call_variants", "postprocess_variants"]
+
+
+def test_a_resume_keeps_shards_and_reruns_for_changed_regions_or_images(
+    files, monkeypatch
+):
+    ref, bam, out = files
+    bed = out.parent / "targets.bed"
+    bed.write_text("chr20\t0\t500\n")
+    _docker(monkeypatch, run=_dies_in("call_variants"))
+    with pytest.raises(WGSExtractError):
+        deepvariant.cmd_deepvariant(_args(bam, region=str(bed)))
+
+    # Fewer --threads: the 4 finished shards are kept and run 2 at a time.
+    monkeypatch.setattr(
+        deepvariant, "get_base_args", lambda _a: ("2", str(out), str(ref), None)
+    )
+    runs = _docker(monkeypatch, run=_dies_in("call_variants"))
+    with pytest.raises(WGSExtractError):
+        deepvariant.cmd_deepvariant(_args(bam, region=str(bed)))
+    assert _stages(runs) == ["call_variants"]
+    assert _flag(runs[0], "--num_shards") == "4"
+
+    bed.write_text("chr20\t0\t600\n")
+    runs = _docker(monkeypatch, run=_dies_in("call_variants"))
+    with pytest.raises(WGSExtractError):
+        deepvariant.cmd_deepvariant(_args(bam, region=str(bed)))
+    assert _stages(runs) == ["make_examples", "call_variants"]
+
+    # The same tag now names another build.
+    runs = _docker(monkeypatch)
+    real = containers.run_command
+    rebuilt = subprocess.CompletedProcess([], 0, "sha256:rebuilt\n", "")
+    monkeypatch.setattr(
+        containers,
+        "run_command",
+        lambda cmd, **kw: (
+            rebuilt if cmd[1:3] == ["image", "inspect"] else real(cmd, **kw)
+        ),
+    )
+    deepvariant.cmd_deepvariant(_args(bam, region=str(bed)))
+    assert _stages(runs) == ["make_examples", "call_variants", "postprocess_variants"]
+
+
+def test_dry_run_leaves_an_interrupted_runs_files_alone(files, monkeypatch):
+    _ref, bam, out = files
+    _docker(monkeypatch, run=_dies_in("call_variants"))
+    with pytest.raises(WGSExtractError):
+        deepvariant.cmd_deepvariant(_args(bam))
+    work = out / deepvariant.WORK_DIRECTORY
+    before = sorted(p.relative_to(work) for p in work.rglob("*"))
+    _docker(monkeypatch)
+    deepvariant.cmd_deepvariant(_args(bam, dry_run=True))
+    assert sorted(p.relative_to(work) for p in work.rglob("*")) == before
 
 
 def test_dry_run_and_forced_steps(files, monkeypatch, capsys):

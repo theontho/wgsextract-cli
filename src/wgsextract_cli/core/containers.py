@@ -54,6 +54,18 @@ def require_image(image: str, missing: str) -> None:
         raise MissingDependencyError(missing)
 
 
+def image_identity(image: str, setup: str) -> str:
+    """``image`` and the ID of the build it names, so results can tell when a
+    mutable tag such as 1.10.0 was replaced."""
+    inspected = run_command(
+        [docker(setup), "image", "inspect", "--format", "{{.Id}}", image],
+        capture_output=True,
+        check=False,
+    )
+    identity = (inspected.stdout or "").strip() if inspected.returncode == 0 else ""
+    return f"{image}@{identity}" if identity else image
+
+
 def host_path(path: str) -> str:
     """The absolute path a file has both outside and inside the container."""
     return os.path.abspath(path)

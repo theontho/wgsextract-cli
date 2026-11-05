@@ -48,14 +48,20 @@ def _step_output(ann: str, step_input: str, step_outdir: str) -> str:
     return str(Path(step_outdir, _VCF_STEPS[ann][1]))
 
 
+def dataset(ann: str, lib: ReferenceLibrary) -> str | None:
+    """The reference data an annotation step reads: a file, or VEP's cache
+    directory; None when it isn't installed."""
+    # chain-annotate is meant to run offline, so VEP also needs its cache.
+    attr = "vep_cache" if ann == "vep" else _VCF_STEPS[ann][0]
+    return getattr(lib, attr, None) or None
+
+
 def skip_reason(ann: str, lib: ReferenceLibrary) -> str | None:
     """Why an annotation step can't run here, or None if it can."""
     tool = "vep" if ann == "vep" else "bcftools"
     if not get_tool_path(tool):
         return f"{tool} is not installed."
-    # chain-annotate is meant to run offline, so VEP also needs its cache.
-    attr = "vep_cache" if ann == "vep" else _VCF_STEPS[ann][0]
-    if not getattr(lib, attr, None):
+    if not dataset(ann, lib):
         return (
             "required reference data not found. "
             f"Run 'wgsextract ref {ann}' to download."

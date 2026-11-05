@@ -223,6 +223,10 @@ class StepJournal:
         """Whether any run, finished or not, has recorded ``step``."""
         return step in self._steps
 
+    def recorded_params(self, step: str) -> dict[str, Any]:
+        """The settings the last run of ``step``, finished or not, used."""
+        return dict(self._steps.get(step, {}).get("params") or {})
+
     # --- lifecycle -------------------------------------------------------
 
     def __enter__(self) -> StepJournal:
@@ -527,6 +531,7 @@ class StepJournal:
         self._steps[step.name] = {
             "status": "running",
             "key": decision.key,
+            "params": _json_value(step.params),
             "started": _now(),
             "inputs": [
                 {**self._input(role, path), "declared": True}

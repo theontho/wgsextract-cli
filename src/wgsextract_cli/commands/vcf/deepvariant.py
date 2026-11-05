@@ -1,5 +1,6 @@
 import argparse
 import contextlib
+import glob
 import gzip
 import logging
 import os
@@ -8,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import zlib
 from bisect import bisect_left
 from collections.abc import Callable
@@ -21,6 +23,7 @@ from wgsextract_cli.core.containers import (
     docker,
     docker_info,
     host_path,
+    image_identity,
     require_image,
     run_container,
 )
@@ -566,20 +569,6 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
     work = Path(outdir, WORK_DIRECTORY)
     staged_reads = _needs_staging(args.input)
     reads = str(work / "reads" / "reads.cram") if staged_reads else args.input
-    dv_args = [
-        "--model_type", model_type,
-        "--ref", host_path(ref),
-        "--reads", host_path(reads),
-        "--output_vcf", host_path(str(work / Path(out_vcf).name)),
-        "--num_shards", str(threads),
-        "--intermediate_results_dir", host_path(str(work)),
-        *(["--regions", args.region] if args.region else []),
-    ]  # fmt: skip
-    if args.checkpoint:
-        dv_args += ["--customized_model", host_path(args.checkpoint)]
-    if batch_size is not None:
-        dv_args += ["--call_variants_extra_args", f"batch_size={batch_size}"]
-    dv_args += _postprocess_args(postprocess, int(threads))
     launcher = _Launcher(
         run_deepvariant,
         arm64_image or image,
@@ -587,8 +576,31 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
         [ref, args.input, out_vcf, str(work), args.checkpoint],
         work,
     )
+    region_files = [p for p in (args.region or "").split() if Path(p).is_file()]
+    inputs: dict[str, str | None] = {
+        "alignment": args.input,
+        "reference": ref,
+        "launcher": run_deepvariant if launcher.image is None else None,
+        **{f"regions:{i}": path for i, path in enumerate(region_files)},
+        **_checkpoint_files(args.checkpoint),
+    }
 
     with StepJournal.for_output(out_vcf, "deepvariant", resume_policy(args)) as journal:
+        shards = _shard_count(journal, int(threads))
+        dv_args = [
+            "--model_type", model_type,
+            "--ref", host_path(ref),
+            "--reads", host_path(reads),
+            "--output_vcf", host_path(str(work / Path(out_vcf).name)),
+            "--num_shards", str(shards),
+            "--intermediate_results_dir", host_path(str(work)),
+            *(["--regions", args.region] if args.region else []),
+        ]  # fmt: skip
+        if args.checkpoint:
+            dv_args += ["--customized_model", host_path(args.checkpoint)]
+        if batch_size is not None:
+            dv_args += ["--call_variants_extra_args", f"batch_size={batch_size}"]
+        dv_args += _postprocess_args(postprocess, int(threads))
         if not journal.dry_run and not any(journal.recorded(s) for s in STEPS):
             preflight_resources(
                 lambda: estimate_resources(
@@ -608,11 +620,17 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
         try:
             done = _run_stages(
                 journal, launcher, dv_args,
-                inputs={"alignment": args.input, "reference": ref},
+                inputs=inputs,
                 params={
-                    "image": launcher.image or run_deepvariant,
+                    "image": (
+                        image_identity(launcher.image, setup or "")
+                        if launcher.image else run_deepvariant
+                    ),
                     "model_type": model_type,
+                    "shards": shards,
                 },
+                region=args.region,
+                jobs=int(threads),
                 staging=(
                     (lambda: _compatible_reads(
                         args.input, ref, str(work / "reads"), threads, args.region
@@ -642,6 +660,39 @@ _JOBLOG = ".make_examples.joblog"
 _DV_BIN = "/opt/deepvariant/bin"
 
 
+def _shard_count(journal: StepJournal, threads: int) -> int:
+    """make_examples' shard count: an earlier run's, so a rerun with other
+    --threads keeps its finished shards and stages (--threads then sets only
+    how many run at once), unless steps are forced to rerun."""
+    shards = journal.recorded_params("make_examples").get("shards")
+    if not isinstance(shards, int) or any(journal.policy.forced(s) for s in STEPS):
+        return threads
+    if shards != threads:
+        logging.info(
+            f"Keeping the {shards} make_examples shards of the earlier run; "
+            f"{threads} run at once."
+        )
+    return shards
+
+
+def _checkpoint_files(checkpoint: str | None) -> dict[str, str]:
+    """The files of a --checkpoint (a model directory, or a checkpoint prefix
+    and the files beside it), by input role."""
+    if not checkpoint:
+        return {}
+    path = Path(checkpoint)
+    if path.is_dir():
+        files = [p for p in path.rglob("*") if p.is_file()]
+    else:
+        files = list(path.parent.glob(glob.escape(path.name) + "*"))
+        files.append(path.parent / "example_info.json")
+    return {
+        f"checkpoint:{p.relative_to(path if path.is_dir() else path.parent)}": str(p)
+        for p in sorted(set(files))
+        if p.is_file()
+    }
+
+
 def _needs_staging(alignment: str) -> bool:
     version = _cram_version(alignment)
     return version is not None and version >= (3, 1)
@@ -669,28 +720,40 @@ class _Launcher:
         return str(self.local) if not self.image else f"{_DV_BIN}/run_deepvariant"
 
     def __call__(self, argv: list[str], *, capture: bool = False) -> str:
-        if self.image:
-            # Its temporary files stay out of the stage outputs beside them.
-            tmp = self.work / ".tmp"
-            tmp.mkdir(parents=True, exist_ok=True)
-            options: dict[str, Any] = {
-                "temporary_directory": str(tmp),
-                "oom_error": None if capture else _OOM_ERROR,
-                "capture_output": capture,
-            }
-            if self.arm64:
-                # Bypass community entrypoints that auto-select INT8/BF16.
-                result = run_container(
-                    self.image, argv[1:], self.paths,
-                    entrypoint=argv[0], local_only=True, **options,
-                )  # fmt: skip
-            else:
-                result = run_container(self.image, argv, self.paths, **options)
-        else:
+        if not self.image:
             # stdin closed: DeepVariant's GNU parallel would read it otherwise.
             result = run_command(
                 argv, env=_dv_env(), stdin=subprocess.DEVNULL, capture_output=capture
             )
+            return (result.stdout or "") if capture else ""
+        if not capture:
+            # Its temporary files stay out of the stage outputs beside them.
+            return self._in_image(argv, self.work / ".tmp", capture)
+        # Planning (also in --dry-run, which takes no lock) gets its own
+        # temporary folder, away from a running stage's.
+        self.work.mkdir(parents=True, exist_ok=True)
+        tmp = Path(tempfile.mkdtemp(prefix=".plan-", dir=self.work))
+        try:
+            return self._in_image(argv, tmp, capture)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def _in_image(self, argv: list[str], tmp: Path, capture: bool) -> str:
+        assert self.image is not None
+        tmp.mkdir(parents=True, exist_ok=True)
+        options: dict[str, Any] = {
+            "temporary_directory": str(tmp),
+            "oom_error": None if capture else _OOM_ERROR,
+            "capture_output": capture,
+        }
+        if self.arm64:
+            # Bypass community entrypoints that auto-select INT8/BF16.
+            result = run_container(
+                self.image, argv[1:], self.paths,
+                entrypoint=argv[0], local_only=True, **options,
+            )  # fmt: skip
+        else:
+            result = run_container(self.image, argv, self.paths, **options)
         return (result.stdout or "") if capture else ""
 
 
@@ -733,12 +796,15 @@ def _run_stages(
     *,
     inputs: dict[str, str | None],
     params: dict[str, Any],
+    region: str | None,
+    jobs: int,
     staging: Callable[[], str] | None,
     out_vcf: str,
 ) -> bool:
     """Run DeepVariant stage by stage, skipping the ones an earlier run
-    finished. A killed make_examples keeps its finished shards. Returns
-    whether the VCF was made or kept (not in --dry-run)."""
+    finished. A killed make_examples keeps its finished shards, and runs
+    ``jobs`` of them at once. Returns whether the VCF was made or kept (not
+    in --dry-run)."""
     work = run.work
     work.mkdir(parents=True, exist_ok=True)
     try:
@@ -746,13 +812,16 @@ def _run_stages(
     finally:
         if journal.dry_run:
             with contextlib.suppress(OSError):
-                shutil.rmtree(work / ".tmp", ignore_errors=True)
                 work.rmdir()
     commands = _stage_commands(plan)
     staged_vcf = work / Path(out_vcf).name
 
     def step(name: str) -> Step:
-        text = "\n".join(commands[name])
+        # A stage's key holds its own and every earlier stage's commands, so
+        # even the final VCF, kept after the others are deleted, is redone
+        # when an earlier stage's settings (such as the model) change.
+        upto = STEPS[1 : STEPS.index(name) + 1]
+        text = "\n".join(c for stage in upto for c in commands[stage])
         return Step(
             name,
             inputs=inputs,
@@ -762,8 +831,13 @@ def _run_stages(
 
     staging_step = Step(
         "stage_reads",
-        inputs=inputs,
+        inputs={
+            role: path
+            for role, path in inputs.items()
+            if role in ("alignment", "reference") or role.startswith("regions:")
+        },
         outputs=[work / "reads" / "reads.cram", work / "reads" / "reads.cram.crai"],
+        params={"region": region},
         tools=["samtools"],
     )
     final = step("postprocess_variants")
@@ -805,7 +879,9 @@ def _run_stages(
                 if name == "make_examples":
                     # GNU parallel logs each finished shard; --resume-failed
                     # then runs only the shards a killed run didn't finish.
-                    joblog = f'--joblog "{host_path(str(work / _JOBLOG))}"'
+                    joblog = (
+                        f'--jobs {jobs} --joblog "{host_path(str(work / _JOBLOG))}"'
+                    )
                     if resume:
                         logging.info(
                             "Resuming make_examples: keeping the shards an "

@@ -77,6 +77,7 @@ class FakeSubcommands:
         self.calls: list[list[str]] = []
         self.gender = gender
         self.fail = set(fail)
+        self.reference: Path | None = None
 
     @staticmethod
     def name(cmd: list[str]) -> str:
@@ -94,6 +95,13 @@ class FakeSubcommands:
             cache.write_text(json.dumps({"gender": self.gender}))
         elif name == "vcf snp":
             write_vcf(outdir / "snps.vcf.gz", [(100, "s", "50", ".")])
+            if self.reference:
+                # Callers name the FASTA they used only in their provenance.
+                document = outdir / "snp.result.json"
+                provenance = {"reference": {"path": str(self.reference)}}
+                document.write_text(json.dumps({"command": "vcf snp",
+                                                "provenance": provenance}))  # fmt: skip
+                wf.record_step_result(document)
         elif name == "vcf indel":
             write_vcf(outdir / "indels.vcf.gz", [(100, "i", "50", ".")])
         elif name == "vcf chain-annotate":
@@ -390,6 +398,34 @@ def test_changed_inputs_settings_or_outputs_redo_only_the_steps_they_affect(
     comprehensive("--input", bam, "--outdir", str(out),
                   "--confidence-depth", "5", "10")  # fmt: skip
     assert len(fake.calls) == 7
+
+
+@needs_bcftools
+def test_updated_reference_or_annotation_data_redo_the_steps_that_read_them(
+    fake: FakeSubcommands,
+    bam: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = tmp_path / "out"
+    fasta = fake.reference = tmp_path / "ref.fa"
+    fasta.write_text(">chr1\nACGT\n")
+    clinvar = tmp_path / "clinvar.vcf.gz"
+    clinvar.write_text("release 1")
+    monkeypatch.setattr(
+        chain, "dataset", lambda ann, lib: str(clinvar) if ann == "clinvar" else None
+    )
+    comprehensive("--input", bam, "--outdir", str(out))
+
+    clinvar.write_text("release 2")
+    fake.calls = []
+    comprehensive("--input", bam, "--outdir", str(out))
+    assert fake.names() == ["vcf chain-annotate", "vcf chain-annotate"]
+
+    fasta.write_text(">chr1\nACGA\n")
+    fake.calls = []
+    comprehensive("--input", bam, "--outdir", str(out))
+    assert fake.names() == ["vcf snp", "vcf chain-annotate"]
 
 
 @needs_bcftools
