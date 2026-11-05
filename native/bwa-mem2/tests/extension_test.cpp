@@ -192,7 +192,8 @@ int main(int argc, char **argv) {
     std::string reason;
     if (!wgse_metal_available(reason)) {
         fprintf(stderr, "Metal required for parity test: %s\n", reason.c_str());
-        return 77;
+        // Skip only without suitable hardware; a broken backend must fail.
+        return wgse_metal_hardware_supported() ? 1 : 77;
     }
     wgse_set_backend(Backend::metal);
     std::mt19937 random(364);

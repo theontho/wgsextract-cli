@@ -17,8 +17,9 @@ void help() {
         "  capabilities --json       report Metal availability\n"
         "  --version                 print executable and engine version\n"
         "Options precede the command. The default CPU backend uses BWA-MEM2's own extension code.\n"
-        "--metal (EXPERIMENTAL) offloads batched seed extension to the GPU and fails\n"
-        "if Metal is unavailable; --backend auto falls back to CPU instead.\n"
+        "--metal (EXPERIMENTAL) offloads batched seed extension to the GPU. It fails\n"
+        "if Metal is unavailable, and exits 1 after finishing on the CPU if a GPU batch\n"
+        "fails; --backend auto falls back to the CPU in both cases.\n"
         "SAM is written to stdout; diagnostics to stderr.\n"
         "Not qualified for clinical use.\n",
         name, version, name);
@@ -159,8 +160,10 @@ int main(int argc, char **argv) {
         printf("{\"schema_version\":1,\"version\":\"%s\","
             "\"engine\":\"bwa-mem2\",\"engine_version\":\"2.3\","
             "\"qualified\":false,\"metal_available\":%s,"
+            "\"metal_hardware_supported\":%s,"
             "\"cpu_available\":true,\"max_gpu_query_length\":256}\n",
-            version, available ? "true" : "false");
+            version, available ? "true" : "false",
+            wgse_metal_hardware_supported() ? "true" : "false");
         return 0;
     }
     if (command == "index")
@@ -183,9 +186,20 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; ++i) ksprintf(&pg, " %s", argv[i]);
     ksprintf(&pg, "\n");
     bwa_pg = pg.s;
+    tprof[MEM][0] = __rdtsc();
     int result = main_mem(argc - command_index, argv + command_index);
     free(bwa_pg);
     bwa_pg = nullptr;
+    if (fflush(stdout) != 0 || ferror(stdout)) {
+        fprintf(stderr, "[%s] failed to write SAM output\n", name);
+        result = 1;
+    }
     if (backend != Backend::cpu) wgse_print_backend_metrics();
+    std::string failure;
+    if (backend == Backend::metal && wgse_metal_execution_failed(failure)) {
+        fprintf(stderr, "[%s] Metal execution failed (alignments were completed on the CPU): %s\n",
+            name, failure.c_str());
+        if (result == 0) result = 1;
+    }
     return result;
 }

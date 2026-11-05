@@ -52,6 +52,19 @@ string(REGEX REPLACE
     "void __cpuid\\(unsigned int i, unsigned int cpuid\\[4\\]\\) \\{[^}]+\\}"
     "void __cpuid(unsigned int, unsigned int cpuid[4]) {\n    memset(cpuid, 0, 4 * sizeof(unsigned int));\n}"
     fastmap_source "${fastmap_source}")
+# Upstream ignores -o write/close errors and always returns 0.
+set(output_close "    if (is_o) {\n        fclose(aux.fp);\n    }\n")
+set(final_return "    display_stats(nt);\n\n    return 0;\n}")
+string(FIND "${fastmap_source}" "${output_close}" close_at)
+string(FIND "${fastmap_source}" "${final_return}" return_at)
+if(close_at EQUAL -1 OR return_at EQUAL -1)
+    message(FATAL_ERROR "Unexpected upstream BWA-MEM2 output handling")
+endif()
+string(REPLACE "${output_close}"
+    "    int wgse_output_status = 0;\n    if (is_o) {\n        int write_error = ferror(aux.fp);\n        if (fclose(aux.fp) != 0 || write_error) {\n            fprintf(stderr, \"[E::main_mem] failed to write output file\\n\");\n            wgse_output_status = 1;\n        }\n    }\n"
+    fastmap_source "${fastmap_source}")
+string(REPLACE "${final_return}" "    display_stats(nt);\n\n    return wgse_output_status;\n}"
+    fastmap_source "${fastmap_source}")
 file(WRITE "${mem2_src}/fastmap.cpp" "${fastmap_source}")
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/extension.metal" kernel_source)
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/extension_tiled.metal" tiled_source)

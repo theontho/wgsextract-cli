@@ -29,8 +29,9 @@ Options before the command select the BWA-MEM2 backend:
 
 - default (`--backend cpu`): BWA-MEM2's own SIMD code;
 - `--metal` (`--backend metal`): batches seed extension across worker threads
-  onto the GPU, keeping small batches on the CPU. Fails if Metal is unusable;
-- `--backend auto`: like `--metal`, but falls back to the CPU without Metal.
+  onto the GPU, keeping small batches on the CPU. Fails if Metal is unusable,
+  and exits 1 if a GPU batch fails (the CPU still completes the alignments);
+- `--backend auto`: like `--metal`, but falls back to the CPU in both cases.
 
 With `--metal` the backend prints GPU and CPU batch counts to stderr.
 

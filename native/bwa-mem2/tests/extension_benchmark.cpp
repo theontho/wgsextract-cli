@@ -202,7 +202,8 @@ int main(int argc, char **argv) {
     std::string reason;
     if (!wgse_metal_available(reason)) {
         fprintf(stderr, "%s\n", reason.c_str());
-        return 77;
+        // Skip only without suitable hardware; a broken backend must fail.
+        return wgse_metal_hardware_supported() ? 1 : 77;
     }
     if (argc >= 3 && std::string(argv[1]) == "--replay") {
         try { return replay(argc, argv); }

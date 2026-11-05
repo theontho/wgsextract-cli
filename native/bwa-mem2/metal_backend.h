@@ -10,6 +10,11 @@ enum class Backend { automatic, cpu, metal };
 enum class ExtensionKernel { row, striped, shared, tiled, adaptive };
 
 bool wgse_metal_available(std::string &reason);
+// False when the failure is missing or unsupported hardware rather than a
+// broken backend (shader compilation, pipeline or queue creation).
+bool wgse_metal_hardware_supported();
+// True after a GPU execution failure that was recovered on the CPU.
+bool wgse_metal_execution_failed(std::string &reason);
 void wgse_set_backend(Backend backend);
 void wgse_print_backend_metrics();
 uint64_t wgse_gpu_execution_ns();

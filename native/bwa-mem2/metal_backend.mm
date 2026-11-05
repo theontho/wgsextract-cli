@@ -26,6 +26,7 @@ constexpr size_t max_bytes = 64 * 1024 * 1024;
 constexpr int32_t max_pairs = 65536;
 constexpr int32_t max_query = 256;
 constexpr int32_t max_target = 8192;
+constexpr const char *tiled_memory_limit = "tiled extension exceeds memory bound";
 std::atomic<Backend> selected_backend{Backend::automatic};
 std::atomic<uint64_t> gpu_batches{0}, gpu_pairs{0}, cpu_batches{0}, cpu_pairs{0};
 std::atomic<uint64_t> cpu_call_ns{0}, gpu_call_ns{0}, pack_ns{0}, gpu_exec_ns{0};
@@ -109,6 +110,8 @@ uint64_t now_ns() {
     return clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
 }
 std::atomic<bool> warned{false};
+std::mutex execution_failure_mutex;
+std::string execution_failure;
 std::atomic<int32_t> automatic_inflight_limit{16}, automatic_minimum_pairs{128};
 std::atomic<uint64_t> busy_batches{0};
 
@@ -126,12 +129,14 @@ struct MetalState {
     id<MTLComputePipelineState> pipeline = nil, tiled_pipeline = nil, striped_pipeline = nil;
     id<MTLComputePipelineState> shared_pipeline = nil;
     std::string failure;
+    bool hardware_supported = true;
 
     MetalState() {
         @autoreleasepool {
             device = MTLCreateSystemDefaultDevice();
             if (!device || !device.hasUnifiedMemory) {
                 failure = "no unified-memory Metal device";
+                hardware_supported = false;
                 return;
             }
             NSError *error = nil;
@@ -175,6 +180,7 @@ struct MetalState {
                     : "Metal command queue allocation failed";
             } else if (pipeline.threadExecutionWidth != 32) {
                 failure = "extension kernel requires 32-lane SIMD groups";
+                hardware_supported = false;
             }
         }
     }
@@ -393,7 +399,7 @@ class Aggregator {
         }
         if ((reference_words + query_words + scratch_cells) * 4
             + size_t(count) * sizeof(Job) > max_bytes) {
-            slot.failure = "tiled extension exceeds memory bound";
+            slot.failure = tiled_memory_limit;
             return false;
         }
         if (!reserve(metal.device, work.packed_reference, reference_words * 4)
@@ -461,8 +467,10 @@ class Aggregator {
         [encoder setBuffer:slot.query offset:0 atIndex:2];
         [encoder setBytes:&slot.parameters length:sizeof(Parameters) atIndex:3];
         if (tiled) [encoder setBuffer:slot.work.scratch offset:0 atIndex:4];
-        [encoder dispatchThreads:MTLSizeMake(NSUInteger(slot.parameters.count)
-            * (tiled ? 1 : 32), 1, 1)
+        // Tiled pipelines promise whole 32-lane groups; their kernels skip
+        // the padding threads past the batch count.
+        NSUInteger count = NSUInteger(slot.parameters.count);
+        [encoder dispatchThreads:MTLSizeMake(tiled ? (count + 31) / 32 * 32 : count * 32, 1, 1)
             threadsPerThreadgroup:MTLSizeMake(tiled ? 32 : 128, 1, 1)];
         [encoder endEncoding];
         uint64_t submitted = now_ns();
@@ -672,7 +680,12 @@ public:
         uint64_t wait_start = now_ns();
         request.completed.wait(lock, [&request] { return request.done; });
         blocked_ns += now_ns() - wait_start;
-        return request.failure.empty() || fallback(request.failure, true);
+        if (request.failure.empty()) return true;
+        if (request.failure != tiled_memory_limit) {
+            std::lock_guard<std::mutex> failure_lock(execution_failure_mutex);
+            if (execution_failure.empty()) execution_failure = request.failure;
+        }
+        return fallback(request.failure, true);
     }
 };
 
@@ -691,6 +704,14 @@ void release_companion() {
 bool wgse_metal_available(std::string &reason) {
     reason = state().failure;
     return reason.empty();
+}
+
+bool wgse_metal_hardware_supported() { return state().hardware_supported; }
+
+bool wgse_metal_execution_failed(std::string &reason) {
+    std::lock_guard<std::mutex> lock(execution_failure_mutex);
+    reason = execution_failure;
+    return !reason.empty();
 }
 
 void wgse_set_backend(Backend backend) {
@@ -921,12 +942,13 @@ bool wgse_metal_extend(SeqPair *pairs, const uint8_t *reference,
         return fallback("unsupported extension parameters", true, CpuReason::semantics);
 
     bool simple_matrix = true;
-    int32_t max_substitution = 0;
+    int32_t max_substitution = 0, min_substitution = 0;
     for (int i = 0; i < 5; ++i) {
         for (int j = 0; j < 5; ++j) {
             simple_matrix &= matrix[i * 5 + j]
                 == (i == 4 || j == 4 ? matrix[24] : i == j ? matrix[0] : matrix[1]);
             max_substitution = std::max(max_substitution, int32_t(matrix[i * 5 + j]));
+            min_substitution = std::min(min_substitution, int32_t(matrix[i * 5 + j]));
         }
     }
     // Upstream SIMD uses wrapping narrow arithmetic and a unit-gap Z-drop,
@@ -934,8 +956,9 @@ bool wgse_metal_extend(SeqPair *pairs, const uint8_t *reference,
     int32_t score_limit = precision == 8 ? 127 : 32767;
     if (precision != 0 && (!simple_matrix || extend_deletion != 1
         || extend_insertion != 1 || zdrop <= 0 || zdrop > score_limit
-        || open_deletion + extend_deletion > score_limit
-        || open_insertion + extend_insertion > score_limit))
+        // H + substitution - (open + extend) must not wrap below the lane minimum.
+        || open_deletion + extend_deletion - min_substitution > score_limit
+        || open_insertion + extend_insertion - min_substitution > score_limit))
         return fallback("unsupported SIMD scoring semantics", false, CpuReason::semantics);
 
     size_t reference_bytes = 0, query_bytes = 0;

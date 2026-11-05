@@ -67,15 +67,30 @@ awk -F '\t' '
 
 if [ "$mode" = cpu ]; then
     echo "CPU alignment verified"
-elif "$binary" capabilities --json 2>/dev/null | grep -q '"metal_available":true'; then
-    # shellcheck disable=SC2086
-    "$binary" --metal $gpu_options mem -t 4 reference.fa reads_1.fq reads_2.fq \
-        > metal.sam 2> metal.log
-    grep -v '^@' cpu.sam > cpu.records
-    grep -v '^@' metal.sam > metal.records
-    cmp cpu.records metal.records
-    grep 'gpu_batches=' metal.log
-    echo "Metal alignments match CPU"
 else
-    echo "Metal unavailable; CPU alignment verified"
+    "$binary" capabilities --json > capabilities.json 2> capabilities.log
+    if grep -q '"metal_available":true' capabilities.json; then
+        # shellcheck disable=SC2086
+        "$binary" --metal $gpu_options mem -t 4 reference.fa reads_1.fq reads_2.fq \
+            > metal.sam 2> metal.log
+        grep -v '^@' cpu.sam > cpu.records
+        grep -v '^@' metal.sam > metal.records
+        cmp cpu.records metal.records
+        grep 'gpu_batches=' metal.log
+        if grep -q 'gpu_batches=0 ' metal.log; then
+            if [ "$mode" = force-gpu ]; then
+                echo "force-gpu run dispatched no GPU batches" >&2
+                exit 1
+            fi
+            echo "Routing kept every batch on the CPU; Metal output matches CPU"
+        else
+            echo "Metal alignments match CPU"
+        fi
+    elif grep -q '"metal_hardware_supported":true' capabilities.json; then
+        cat capabilities.log >&2
+        echo "Metal hardware is present but the backend failed to initialize" >&2
+        exit 1
+    else
+        echo "Metal unsupported on this machine; CPU alignment verified"
+    fi
 fi
