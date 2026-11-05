@@ -20,6 +20,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
       - name: Set up lint-only Pixi environment
         uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
         with:
@@ -33,6 +35,8 @@ jobs:
           pixi run -e lint -x actionlint
           pixi run -e lint -x python scripts/validate_github_actions.py
           pixi run -e lint -x mypy src/wgsextract_cli
+      - name: Advisory test-smell annotations (never fails)
+        run: pixi run -e lint -x python scripts/test_smells.py --base HEAD^1 --github
   test-ubuntu:
     runs-on: ubuntu-latest
     timeout-minutes: 90

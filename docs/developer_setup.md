@@ -53,6 +53,25 @@ When you add or rename a command:
 
 `tests/test_cli_help.py` fails until all three are done.
 
+## Write tests
+
+A good test fails when the behaviour a user relies on breaks, and survives a refactor that keeps that behaviour.
+
+- **Assert observable behaviour.** That means:
+  - output files and their content
+  - exit codes 0/1/2/3
+  - the result manifest
+  - structured warnings
+  - documented CLI and API behaviour
+- **Use real tools on tiny data.** Prefer the fake genomes and fixtures with real samtools and bcftools. The helpers live in `tests/htslib_helpers.py`, `tests/fake_tools.py` and `tests/smoke_utils.py`.
+- **Mock only true boundaries:** network, containers, GPU, very slow tools, the OS or platform, and the clock. Don't patch private helpers (`_name`) or the command runner to record what would have run.
+- **Assert argv only where the flags are the scientific contract.** For example, a caller's ploidy or a minimum mapping quality. Assert just those flags, with a `# contract: <why>` comment.
+- **Check message codes or key facts, not whole prose.** Help text is checked once, by the generated-help and doc tests.
+- **Name the bug in each regression test** (`#123` or a short description), and check the symptom the user saw.
+- **Don't restate constants, defaults or re-exports.**
+
+`pixi run test-smells` lists private-internal patches and whole-argv asserts in test lines you added since `origin/main`. CI shows the same list as warnings on the PR. It is advisory and never fails.
+
 ## Make a change with an AI agent
 
 The project is developed with AI coding agents. [AGENTS.md](../AGENTS.md) holds the rules they follow: test and run what they write, run ruff and mypy, keep outputs in `out/` or `tmp/`, keep defaults unchanged.
