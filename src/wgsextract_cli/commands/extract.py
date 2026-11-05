@@ -154,9 +154,15 @@ def _extract_regions(
         on_failure=[out_bam, out_bam + ".bai"],
         preserve_outputs=atomic_outputs_enabled(),
     ):
+        # Several regions are read one after another in the order given, so
+        # out-of-order ones write an unsorted BAM and overlapping ones repeat
+        # reads (#434). The multi-region iterator (-M) sorts and merges them.
+        # Not with -L: -M would take the union of the BED and the regions
+        # instead of the BED's reads within them.
+        multi = ["-M"] if len(regions) > 1 and not bed else []
         with safe_output(out_bam) as staged:
             run_command(
-                ["samtools", "view", "-bh", *base.cram_opt, "-@", base.threads]
+                ["samtools", "view", "-bh", *multi, *base.cram_opt, "-@", base.threads]
                 + (["-L", bed] if bed else [])
                 + ["-o", staged, input_path, *regions]
             )

@@ -176,6 +176,23 @@ def test_custom_extracts_comma_separated_regions(genome, tmp_path):
     assert _names(out) == {"chr1_201", "chr1_209", "chrM_281", "chrM_289"}
 
 
+def test_custom_regions_out_of_order_or_overlapping_give_a_sorted_bam(genome, tmp_path):
+    # Issue #434: chrM before chr1 wrote an unsorted BAM that failed to index,
+    # and overlapping regions repeated the reads they share.
+    _extract(
+        "custom",
+        genome["male"],
+        tmp_path,
+        "-r",
+        "chrM:380-388,chr1:201-210,chr1:205-215",
+    )
+    out = tmp_path / "male_chrM_380-388_chr1_201-210_chr1_205-215.bam"
+    assert (tmp_path / f"{out.name}.bai").is_file()
+    reads = run_command(["samtools", "view", str(out)], capture_output=True).stdout
+    names = [line.split("\t")[0] for line in reads.splitlines()]
+    assert names == ["chr1_201", "chr1_209", "chrM_281", "chrM_289"]
+
+
 def test_custom_extracts_bed_regions(genome, tmp_path):
     bed = tmp_path / "targets.bed"
     bed.write_text("chrX\t200\t260\n")

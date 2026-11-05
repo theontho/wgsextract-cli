@@ -309,6 +309,8 @@ Extract the reads of a region, BED file or gene (output role
 
 `CustomParams`: The reads in a region, a comma-separated list of regions, a BED file or a
 gene as `<input>_<region>.bam`. `region` or `gene` is required.
+Regions may come in any order and overlap: the BAM is coordinate-sorted
+and holds each read once.
 
 | Field | Type | Default | CLI | Description |
 | --- | --- | --- | --- | --- |
