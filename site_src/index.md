@@ -68,16 +68,14 @@ auto_hero: false
 
 Use the pages below as a map for installing the tool, understanding WGS file types, and running common genome workflows safely.
 
-The current release is [v0.6.5](https://github.com/theontho/wgsextract-cli/releases/tag/v0.6.5){.inline-link}. Recent v0.6.x work includes native Windows tools and GATK acceleration, more microarray and AADR exports, resource preflight, and one-command developer setup. See [GitHub Releases](https://github.com/theontho/wgsextract-cli/releases){.inline-link} for full notes.
-
-Native Linux ARM64, hs38d1c/hs38d1t reference recognition, MyHeritage Ultima read-name detection, and automatic DeepVariant CRAM 3.1 staging are merged on `main`, **after v0.6.5**. The install and workflow guides mark these unreleased changes.
+The current release is [v0.6.6](https://github.com/theontho/wgsextract-cli/releases/tag/v0.6.6){.inline-link}. It adds native Linux ARM64, Oxford Nanopore detection with Sniffles and optional Clair3 calling, CpG methylation pileups, Y-STR panels, queryable variant tables, result manifests (`--json`) and easier help. Earlier v0.6.x work added native Windows tools and GATK acceleration, more microarray and AADR exports, resource preflight, and one-command developer setup. See [GitHub Releases](https://github.com/theontho/wgsextract-cli/releases){.inline-link} for full notes.
 :::
 
 ::: grid three
 ::: card
 {{ kicker: Install }}
 ### Install the standalone app or use Pixi directly
-Use the standalone macOS/Linux installer, the native Windows installer, or one-command developer setup for a source checkout. Native Linux ARM64 currently requires `main`.
+Use the standalone macOS/Linux installer, the native Windows installer, or one-command developer setup for a source checkout. Linux ARM64 is supported natively.
 
 {{ link: Read the install guide|install.html|inline-link }}
 :::
