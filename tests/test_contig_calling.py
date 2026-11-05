@@ -196,10 +196,10 @@ def _deep_patches(
             for snp in snps:
                 if start <= snp < start + size and rng.random() < 0.5:
                     bases[snp - start] = "ACGT"[("ACGT".index(seq[snp - 1]) + 1) % 4]
-            if size == 100 and 11_910 < start < 11_990 and rng.random() < 0.5:
-                # Deletes the two bases after 12,000.
-                left = 12_000 - start + 1
-                bases = list(seq[start - 1 : 12_000] + seq[12_002 : start + 101])
+            if size == 100 and 210 < start < 290 and rng.random() < 0.5:
+                # Deletes the two bases after 300, before any SNP.
+                left = 300 - start + 1
+                bases = list(seq[start - 1 : 300] + seq[302 : start + 101])
                 cigar = f"{left}M2D{100 - left}M"
             quals = "".join(chr(33 + rng.randint(15, 40)) for _ in bases)
             lines.append(
@@ -259,7 +259,7 @@ def test_several_samples_are_called_in_one_stream(
     sample = _deep_patches(tmp_path, samples=2)
     serial, parallel = _bodies(sample, tmp_path, indels=indels)
     assert serial == parallel
-    assert ("chrA\t12000\t" if indels else "chrC\t15450\t") in serial
+    assert ("chrA\t299\t" if indels else "chrC\t15450\t") in serial
     assert "Calling serially: with several samples" in caplog.text
     assert "contigs with" not in caplog.text
 
@@ -269,9 +269,15 @@ def test_parallel_deep_indel_calls_match_one_stream(
     deep_patches_sample: tuple[str, str], tmp_path: Path
 ) -> None:
     # One sample's indel likelihoods never subsample, so no replay is needed.
+    # Each contig's deletion precedes its SNPs, where one stream used to carry
+    # the previous contig's INFO/BQBZ and INFO/MQSBZ into the record (#392).
     serial, parallel = _bodies(deep_patches_sample, tmp_path, indels=True)
     assert serial == parallel
-    assert {line.split("\t")[0] for line in serial.splitlines()} >= {"chrA", "chrC"}
+    assert [line.split("\t")[0] for line in serial.splitlines()] == [
+        "chrA",
+        "chrB",
+        "chrC",
+    ]
 
 
 @needs_htslib

@@ -22,8 +22,11 @@ replays the deep stretches of the genome in one process to match one stream:
 
 Indel calling never draws for one sample: bcftools computes indel likelihoods
 only below 250 reads (``--max-idepth``), and ``call -V snps`` drops the SNP
-sites that do draw. Its per-contig workers therefore already match one stream.
-Inputs with several samples (where both assumptions fail) are called serially.
+sites that do draw. Its per-contig workers therefore already match one stream,
+once INFO/BQBZ and INFO/MQSBZ are dropped: bcftools never computes them for an
+indel and prints the values of the last SNP site with an alternate base, which
+at the start of a contig belong to the previous contig. Inputs with several
+samples (where both assumptions fail) are called serially.
 """
 
 import bisect
@@ -131,6 +134,16 @@ def _pipeline(
     return [
         mpileup,
         [*call, "-Ou"],
+        # Stale copies from the last SNP site (bcftools 1.24 cannot suppress
+        # MQSBZ with mpileup -a), which also depend on the previous contig.
+        [
+            "bcftools",
+            "annotate",
+            "--no-version",
+            "-x",
+            "INFO/BQBZ,INFO/MQSBZ",
+            "-Ou",
+        ],  # fmt: skip
         # VCF requires IUPAC reference codes to resolve to a concrete base (R -> A).
         [
             "bcftools",
