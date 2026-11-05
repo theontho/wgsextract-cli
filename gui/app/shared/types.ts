@@ -244,6 +244,7 @@ export interface PageSection {
     controls?: ControlSpec[];
     actions?: ActionSpec[];
     dataSource?: LooseRecord;
+    visibleWhen?: ConditionSpec[];
     [key: string]: unknown;
 }
 

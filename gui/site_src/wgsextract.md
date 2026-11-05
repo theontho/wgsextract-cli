@@ -44,7 +44,7 @@ WGSExtract exercises data sources, state-dependent actions, persisted settings, 
 ::: wrap
 ## What v0.6.6 exposes
 
-The desktop app bundles **WGSExtract CLI v0.6.6**. This update adds no new app controls: v0.6.6 reaches you through the actions already in the app, with no settings to change.
+The desktop app bundles **WGSExtract CLI v0.6.6**. Nanopore reads work through the actions already in the app with no settings to change, and new opt-in controls cover the rest. They start blank or unchecked, so automatic detection and `config.toml` defaults keep applying.
 
 ### Oxford Nanopore in existing actions
 
@@ -61,9 +61,19 @@ Nanopore (ONT) reads are detected from `PL:ONT` read groups or UUID read names.
 - **BAM Info:** sex is inferred when chrX or chrY is missing, and depth binning is faster.
 - **Microarray:** coordinate projections and catalogues are cached for faster runs.
 
+### New opt-in controls
+
+- **DeepVariant:** a model dropdown that defaults to automatic. Its ONT_R104 choice supports R10.4.1 chemistry only and needs x86-64.
+- **SV Call:** a long-read mode (Nanopore or any long-read data) and an optional tandem-repeat BED. The caller stays automatic, and pbsv is not offered for Nanopore.
+- **Clair3:** an optional Nanopore caller with an optional model override, qualified on Linux x86-64 only. It is hidden on Windows, and you install it separately.
+- **Methylation Pileup:** a bedMethyl table and summary from MM/ML-tagged reads, with optional context, 5hmC and strand overrides. It is hidden on Windows, and you install modkit separately.
+- **Ancestry:** Y-STR repeat counts with FamilyTreeDNA, PowerPlex Y23 and Yfiler Plus panels.
+- **Annotate:** a variant table as TSV plus an SQLite database to query.
+- **Settings:** preview a redacted `report-issue` bug report. Nothing is uploaded, and the browser does not open.
+
 ### CLI only for now
 
-v0.6.6 also adds Clair3 calling, CpG methylation pileups, Y-STR panels, queryable variant tables (TSV/SQLite/Parquet), `report-issue`, vendor chip detection, and JSON result manifests. None of these has an app action yet, so run them from the CLI. Native Linux ARM64 DeepVariant is CLI only too, because Linux ARM64 desktop installers are not published.
+Parquet table output, vendor chip detection, JSON result manifests, and the alignment platform override are not in the app, so run them from the CLI. Native Linux ARM64 DeepVariant is CLI only too, because Linux ARM64 desktop installers are not published.
 
 ### Controls from earlier releases
 

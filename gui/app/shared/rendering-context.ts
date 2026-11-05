@@ -1,4 +1,5 @@
 import { allControls } from "./rendering-controls.js";
+import { currentSetupPlatform } from "./setup-platforms.js";
 import type { BundleManifest, CommandContext, Labels, LooseRecord, StateValue, StringMap, ValueMap } from "./types.js";
 
 type CheckedOptionsInput = Record<string, Set<string> | string[] | string | null | undefined>;
@@ -54,6 +55,9 @@ export function contextValue(context: CommandContext, placeholder: string): Stat
     }
     if (placeholder === "home") {
         return context.homePath;
+    }
+    if (placeholder === "hostPlatform") {
+        return currentSetupPlatform();
     }
     if (placeholder.startsWith("row.")) {
         return context.rowValues?.[placeholder.slice(4)];

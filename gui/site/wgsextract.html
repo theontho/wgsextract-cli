@@ -73,7 +73,7 @@
 <section>
 <div class="wrap">
 <h2>What v0.6.6 exposes</h2>
-<p>The desktop app bundles <strong>WGSExtract CLI v0.6.6</strong>. This update adds no new app controls: v0.6.6 reaches you through the actions already in the app, with no settings to change.</p>
+<p>The desktop app bundles <strong>WGSExtract CLI v0.6.6</strong>. Nanopore reads work through the actions already in the app with no settings to change, and new opt-in controls cover the rest. They start blank or unchecked, so automatic detection and <code>config.toml</code> defaults keep applying.</p>
 <h3>Oxford Nanopore in existing actions</h3>
 <p>Nanopore (ONT) reads are detected from <code>PL:ONT</code> read groups or UUID read names.</p>
 <ul>
@@ -88,8 +88,18 @@
 <li><strong>BAM Info:</strong> sex is inferred when chrX or chrY is missing, and depth binning is faster.</li>
 <li><strong>Microarray:</strong> coordinate projections and catalogues are cached for faster runs.</li>
 </ul>
+<h3>New opt-in controls</h3>
+<ul>
+<li><strong>DeepVariant:</strong> a model dropdown that defaults to automatic. Its ONT_R104 choice supports R10.4.1 chemistry only and needs x86-64.</li>
+<li><strong>SV Call:</strong> a long-read mode (Nanopore or any long-read data) and an optional tandem-repeat BED. The caller stays automatic, and pbsv is not offered for Nanopore.</li>
+<li><strong>Clair3:</strong> an optional Nanopore caller with an optional model override, qualified on Linux x86-64 only. It is hidden on Windows, and you install it separately.</li>
+<li><strong>Methylation Pileup:</strong> a bedMethyl table and summary from MM/ML-tagged reads, with optional context, 5hmC and strand overrides. It is hidden on Windows, and you install modkit separately.</li>
+<li><strong>Ancestry:</strong> Y-STR repeat counts with FamilyTreeDNA, PowerPlex Y23 and Yfiler Plus panels.</li>
+<li><strong>Annotate:</strong> a variant table as TSV plus an SQLite database to query.</li>
+<li><strong>Settings:</strong> preview a redacted <code>report-issue</code> bug report. Nothing is uploaded, and the browser does not open.</li>
+</ul>
 <h3>CLI only for now</h3>
-<p>v0.6.6 also adds Clair3 calling, CpG methylation pileups, Y-STR panels, queryable variant tables (TSV/SQLite/Parquet), <code>report-issue</code>, vendor chip detection, and JSON result manifests. None of these has an app action yet, so run them from the CLI. Native Linux ARM64 DeepVariant is CLI only too, because Linux ARM64 desktop installers are not published.</p>
+<p>Parquet table output, vendor chip detection, JSON result manifests, and the alignment platform override are not in the app, so run them from the CLI. Native Linux ARM64 DeepVariant is CLI only too, because Linux ARM64 desktop installers are not published.</p>
 <h3>Controls from earlier releases</h3>
 <p>These came with <a href="https://github.com/WGSExtract/gui-for-cli/pull/171">GUI #171</a>. They start unchecked or blank, inheriting CLI/config defaults rather than forcing them off.</p>
 <ul>

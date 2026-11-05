@@ -79,6 +79,7 @@ test("manifest validator checks actions", () => {
   rejects((manifest) => { manifest.pages[0].sections[0].actions[0].command.executable = ""; }, /Action 'run' must define a command executable/);
   rejects((manifest) => { manifest.pages[0].sections[0].actions[0].textIcon = "abc"; }, /must be 1 or 2 characters/);
   rejects((manifest) => { manifest.pages[0].sections[0].actions[0].visibleWhen = [{ placeholder: "sample" }]; }, /Required field is empty: .*visibleWhen\.0/);
+  rejects((manifest) => { manifest.pages[0].sections[0].visibleWhen = [{ placeholder: "sample" }]; }, /Required field is empty: .*visibleWhen\.0/);
   rejects(
     (manifest) => { manifest.pages[0].sections[0].actions[0].confirm = { title: "Sure?", confirmButtonTitle: "Yes" }; },
     /Required field is empty: .*confirm\.cancelButtonTitle/,

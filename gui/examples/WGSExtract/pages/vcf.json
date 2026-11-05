@@ -55,6 +55,68 @@
           "kind": "text",
           "placeholder": "controls.vcf.variant-calling.vcf_region.placeholder",
           "tooltip": "controls.vcf.variant-calling.vcf_region.tooltip"
+        },
+        {
+          "id": "deepvariant_model",
+          "label": "controls.vcf.v066.deepvariant-model.label",
+          "kind": "dropdown",
+          "tooltip": "controls.vcf.v066.deepvariant-model.tooltip",
+          "options": [
+            {
+              "id": "",
+              "title": "options.vcf.v066.auto.title"
+            },
+            {
+              "id": "ONT_R104",
+              "title": "options.vcf.v066.deepvariant-model.ont.title"
+            },
+            {
+              "id": "WGS",
+              "title": "options.vcf.v066.deepvariant-model.wgs.title"
+            },
+            {
+              "id": "WES",
+              "title": "options.vcf.v066.deepvariant-model.wes.title"
+            },
+            {
+              "id": "PACBIO",
+              "title": "options.vcf.v066.deepvariant-model.pacbio.title"
+            },
+            {
+              "id": "HYBRID_PACBIO_ILLUMINA",
+              "title": "options.vcf.v066.deepvariant-model.hybrid.title"
+            },
+            {
+              "id": "ULTIMA",
+              "title": "options.vcf.v066.deepvariant-model.ultima.title"
+            }
+          ]
+        },
+        {
+          "id": "sv_read_type",
+          "label": "controls.vcf.v066.sv-read-type.label",
+          "kind": "dropdown",
+          "tooltip": "controls.vcf.v066.sv-read-type.tooltip",
+          "options": [
+            {
+              "id": "",
+              "title": "options.vcf.v066.auto.title"
+            },
+            {
+              "id": "--ont",
+              "title": "options.vcf.v066.sv-read-type.ont.title"
+            },
+            {
+              "id": "--long-read",
+              "title": "options.vcf.v066.sv-read-type.long-read.title"
+            }
+          ]
+        },
+        {
+          "id": "sv_tandem_repeats",
+          "label": "controls.vcf.v066.sv-tandem-repeats.label",
+          "kind": "path",
+          "tooltip": "controls.vcf.v066.sv-tandem-repeats.tooltip"
         }
       ],
       "actions": [
@@ -127,6 +189,13 @@
               "{{bam_path}}"
             ],
             "optionalArguments": [
+              [
+                "{{sv_read_type}}"
+              ],
+              [
+                "--tandem-repeats",
+                "{{sv_tandem_repeats}}"
+              ],
               [
                 "--ref",
                 "{{ref_path}}"
@@ -242,6 +311,181 @@
               "{{bam_path}}"
             ],
             "optionalArguments": [
+              [
+                "--model-type",
+                "{{deepvariant_model}}"
+              ],
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ],
+              [
+                "--region",
+                "{{vcf_region}}"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "clair3",
+      "title": "sections.vcf.v066.clair3.title",
+      "subtitle": "sections.vcf.v066.clair3.subtitle",
+      "iconName": "variant-calling",
+      "textIcon": "🧬",
+      "visibleWhen": [
+        {
+          "placeholder": "hostPlatform",
+          "notEquals": "windows"
+        }
+      ],
+      "controls": [
+        {
+          "id": "clair3_model",
+          "label": "controls.vcf.v066.clair3-model.label",
+          "kind": "text",
+          "placeholder": "controls.vcf.v066.clair3-model.placeholder",
+          "tooltip": "controls.vcf.v066.clair3-model.tooltip"
+        }
+      ],
+      "actions": [
+        {
+          "id": "vcf-clair3",
+          "title": "actions.vcf.v066.clair3.title",
+          "tooltip": "actions.vcf.v066.clair3.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "vcf",
+              "clair3",
+              "--input",
+              "{{bam_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--model",
+                "{{clair3_model}}"
+              ],
+              [
+                "--ref",
+                "{{ref_path}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ],
+              [
+                "--region",
+                "{{vcf_region}}"
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "methylation",
+      "title": "sections.vcf.v066.methylation.title",
+      "subtitle": "sections.vcf.v066.methylation.subtitle",
+      "iconName": "variant-calling",
+      "textIcon": "🧪",
+      "visibleWhen": [
+        {
+          "placeholder": "hostPlatform",
+          "notEquals": "windows"
+        }
+      ],
+      "controls": [
+        {
+          "id": "methylation_context",
+          "label": "controls.vcf.v066.methylation-context.label",
+          "kind": "dropdown",
+          "tooltip": "controls.vcf.v066.methylation-context.tooltip",
+          "options": [
+            {
+              "id": "",
+              "title": "options.vcf.v066.config-default.title"
+            },
+            {
+              "id": "cpg",
+              "title": "options.vcf.v066.methylation-context.cpg.title"
+            },
+            {
+              "id": "all",
+              "title": "options.vcf.v066.methylation-context.all.title"
+            }
+          ]
+        },
+        {
+          "id": "methylation_5hmc",
+          "label": "controls.vcf.v066.methylation-5hmc.label",
+          "kind": "dropdown",
+          "tooltip": "controls.vcf.v066.methylation-5hmc.tooltip",
+          "options": [
+            {
+              "id": "",
+              "title": "options.vcf.v066.config-default.title"
+            },
+            {
+              "id": "--5hmc",
+              "title": "options.vcf.v066.methylation-5hmc.on.title"
+            },
+            {
+              "id": "--no-5hmc",
+              "title": "options.vcf.v066.methylation-5hmc.off.title"
+            }
+          ]
+        },
+        {
+          "id": "methylation_combine_strands",
+          "label": "controls.vcf.v066.methylation-combine.label",
+          "kind": "dropdown",
+          "tooltip": "controls.vcf.v066.methylation-combine.tooltip",
+          "options": [
+            {
+              "id": "",
+              "title": "options.vcf.v066.config-default.title"
+            },
+            {
+              "id": "--combine-strands",
+              "title": "options.vcf.v066.methylation-combine.on.title"
+            },
+            {
+              "id": "--no-combine-strands",
+              "title": "options.vcf.v066.methylation-combine.off.title"
+            }
+          ]
+        }
+      ],
+      "actions": [
+        {
+          "id": "methylation-pileup",
+          "title": "actions.vcf.v066.methylation.title",
+          "tooltip": "actions.vcf.v066.methylation.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "methylation",
+              "pileup",
+              "--input",
+              "{{bam_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--context",
+                "{{methylation_context}}"
+              ],
+              [
+                "{{methylation_5hmc}}"
+              ],
+              [
+                "{{methylation_combine_strands}}"
+              ],
               [
                 "--ref",
                 "{{ref_path}}"

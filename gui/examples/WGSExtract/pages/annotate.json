@@ -79,6 +79,36 @@
           "label": "controls.vcf.variant-calling.vcf_ann_vcf.label",
           "kind": "path",
           "tooltip": "controls.vcf.variant-calling.vcf_ann_vcf.tooltip"
+        },
+        {
+          "id": "vcf_table_sample",
+          "label": "controls.annotate.v066.table-sample.label",
+          "kind": "text",
+          "tooltip": "controls.annotate.v066.table-sample.tooltip"
+        },
+        {
+          "id": "vcf_table_all_alleles",
+          "label": "controls.annotate.v066.table-all-alleles.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--all-alleles",
+              "title": "controls.annotate.v066.table-all-alleles.label"
+            }
+          ],
+          "tooltip": "controls.annotate.v066.table-all-alleles.tooltip"
+        },
+        {
+          "id": "vcf_table_no_sqlite",
+          "label": "controls.annotate.v066.table-no-sqlite.label",
+          "kind": "checkboxGroup",
+          "options": [
+            {
+              "id": "--no-sqlite",
+              "title": "controls.annotate.v066.table-no-sqlite.label"
+            }
+          ],
+          "tooltip": "controls.annotate.v066.table-no-sqlite.tooltip"
         }
       ],
       "actions": [
@@ -332,6 +362,40 @@
               "{{vcf_path}}"
             ],
             "optionalArguments": [
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "vcf-table",
+          "title": "actions.annotate.v066.vcf-table.title",
+          "tooltip": "actions.annotate.v066.vcf-table.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "vcf",
+              "table",
+              "--vcf-input",
+              "{{vcf_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--sample",
+                "{{vcf_table_sample}}"
+              ],
+              [
+                "{{vcf_table_all_alleles}}"
+              ],
+              [
+                "{{vcf_table_no_sqlite}}"
+              ],
+              [
+                "--region",
+                "{{vcf_region}}"
+              ],
               [
                 "--outdir",
                 "{{out_dir}}"

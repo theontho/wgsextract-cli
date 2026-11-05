@@ -3,6 +3,7 @@ import type { BundleManifest, BundlePage, PageSection, SetupStep } from "../../.
 import {
     BundleValidationError,
     requireNonEmpty,
+    validateConditions,
     validateDataSource,
     validateRelativePath,
     validateTextIcon,
@@ -127,6 +128,7 @@ function validateSection(section: PageSection, pageID: string): void {
     const base = `pages.${pageID}.sections.${section.id}`;
     requireNonEmpty(section.id, `${base}.id`);
     validateTextIcon(section.textIcon, `${base}.textIcon`);
+    validateConditions(section.visibleWhen, `${base}.visibleWhen`);
     if (section.dataSource != null) {
         validateDataSource(section.dataSource, `${base}.dataSource`);
     }

@@ -46,6 +46,50 @@
           "label": "controls.ancestry.ancestry-inputs.haplogrep_path.label",
           "kind": "path",
           "tooltip": "controls.ancestry.ancestry-inputs.haplogrep_path.tooltip"
+        },
+        {
+          "id": "y_str_panel",
+          "label": "controls.ancestry.v066.y-str-panel.label",
+          "kind": "dropdown",
+          "tooltip": "controls.ancestry.v066.y-str-panel.tooltip",
+          "options": [
+            {
+              "id": "",
+              "title": "options.ancestry.v066.y-str-panel.default.title"
+            },
+            {
+              "id": "Y-12",
+              "title": "options.ancestry.v066.y-str-panel.y12.title"
+            },
+            {
+              "id": "Y-25",
+              "title": "options.ancestry.v066.y-str-panel.y25.title"
+            },
+            {
+              "id": "Y-37",
+              "title": "options.ancestry.v066.y-str-panel.y37.title"
+            },
+            {
+              "id": "Y-67",
+              "title": "options.ancestry.v066.y-str-panel.y67.title"
+            },
+            {
+              "id": "Y-111",
+              "title": "options.ancestry.v066.y-str-panel.y111.title"
+            },
+            {
+              "id": "PPY23",
+              "title": "options.ancestry.v066.y-str-panel.ppy23.title"
+            },
+            {
+              "id": "YfilerPlus",
+              "title": "options.ancestry.v066.y-str-panel.yfiler.title"
+            },
+            {
+              "id": "all",
+              "title": "options.ancestry.v066.y-str-panel.all.title"
+            }
+          ]
         }
       ],
       "actions": [
@@ -91,6 +135,34 @@
             "optionalArguments": [
               [
                 "{{lineage_tree_links}}"
+              ],
+              [
+                "--outdir",
+                "{{out_dir}}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "run-y-str",
+          "title": "actions.ancestry.v066.y-str.title",
+          "tooltip": "actions.ancestry.v066.y-str.tooltip",
+          "command": {
+            "executable": "{{bundleRoot}}/scripts/run-wgsextract.sh",
+            "arguments": [
+              "lineage",
+              "y-str",
+              "--input",
+              "{{bam_path}}"
+            ],
+            "optionalArguments": [
+              [
+                "--panel",
+                "{{y_str_panel}}"
+              ],
+              [
+                "--ref",
+                "{{ref_path}}"
               ],
               [
                 "--outdir",

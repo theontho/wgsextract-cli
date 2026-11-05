@@ -1,4 +1,4 @@
-import { applyDataSourcePayload, configValueKey, hydrateRows, rowContext, } from "../../../shared/rendering.js";
+import { applyDataSourcePayload, configValueKey, hydrateRows, isSectionVisible, rowContext, } from "../../../shared/rendering.js";
 import { escapeAttribute, escapeHTML } from "./dom.js";
 import { buildTagStyle, commandContext, configDataSourceContext, displayOption, localizedStatus, localizedTag, renderIcon, renderIconTitle, renderInlineError, renderLoadingBox, renderLoadingInline, renderTooltip, resolveText, tagStyle, } from "./model.js";
 import { ensureDataSource } from "./operations.js";
@@ -101,7 +101,7 @@ export function renderPage(page: BundlePage) {
       </header>
       ${page.id === "settings" ? `${renderSetupStatusSection()}${renderStandardOptionsAccessory()}` : ""}
       <div class="sections">
-        ${(page.sections ?? []).map((section) => renderSection(section, page)).join("")}
+        ${(page.sections ?? []).filter((section) => isSectionVisible(section, commandContext())).map((section) => renderSection(section, page)).join("")}
       </div>
     </article>
   `;

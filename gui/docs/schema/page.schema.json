@@ -40,6 +40,12 @@
         "iconName": { "type": "string" },
         "textIcon": { "$ref": "#/$defs/textIcon" },
         "dataSource": { "$ref": "#/$defs/dataSource" },
+        "visibleWhen": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/actionCondition" },
+          "default": [],
+          "description": "Hide the whole section unless every condition matches. The built-in placeholder hostPlatform is windows, macos, linux, or posix."
+        },
         "controls": {
           "type": "array",
           "items": { "$ref": "#/$defs/control" },
@@ -111,7 +117,7 @@
       "required": ["id", "title"],
       "additionalProperties": false,
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "description": "Option value; an empty id is a dropdown's unset choice." },
         "title": { "type": "string", "minLength": 1 },
         "selected": { "type": "boolean", "default": false }
       }
