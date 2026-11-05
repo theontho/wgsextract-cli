@@ -89,7 +89,12 @@ def call_variants(
     a comma-separated --region becomes one interval each, and a BED file in
     it an --interval-file (pbrun's -L takes only literal intervals)."""
     require_native_tool("parabricks")
-    regions = [r.strip() for r in (region or "").split(",") if r.strip()]
+    # A BED is mounted by its target, so a link to another folder still opens.
+    regions = [
+        str(Path(r).resolve()) if Path(r).is_file() else r
+        for r in (r.strip() for r in (region or "").split(","))
+        if r
+    ]
     beds = [r for r in regions if Path(r).is_file()]
     intervals = [
         arg

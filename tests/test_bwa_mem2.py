@@ -4,12 +4,13 @@ import logging
 import os
 import random
 import re
+import sys
 from argparse import Namespace
 from pathlib import Path
 
 import pytest
 
-from tests.fake_tools import python_tool, require_bare_name_fakes
+from tests.fake_tools import python_tool
 from tests.htslib_helpers import (
     needs_tools,
     run_wgsextract,
@@ -119,11 +120,12 @@ def _preflight_memory_warnings(caplog):
     return [
         r.getMessage()
         for r in caplog.records
-        if r.levelno >= logging.WARNING and r.getMessage().startswith("Preflight")
+        if r.levelno >= logging.WARNING
+        and r.getMessage().startswith("Preflight memory")
     ]
 
 
-@needs_tools("bwa-mem2", "samtools")
+@needs_tools("bwa", "bwa-mem2", "samtools")
 @pytest.mark.parametrize("requested", ["auto", "bwa-mem2"])
 def test_mem2_sorts_in_256m_per_thread_and_budgets_ram_for_that(
     tmp_path, ram, caplog, requested
@@ -146,7 +148,7 @@ def test_mem2_sorts_in_256m_per_thread_and_budgets_ram_for_that(
     assert not _preflight_memory_warnings(caplog)
 
 
-@needs_tools("bwa-mem2", "samtools")
+@needs_tools("bwa", "bwa-mem2", "samtools")
 def test_realign_budgets_mem2_ram_for_its_256m_sort(tmp_path, ram, caplog):
     ref, r1, r2 = _genome(tmp_path)
     run_wgsextract("ref", "index", "--ref", ref, "--aligner", "bwa-mem2")
@@ -477,16 +479,23 @@ for suffix in {suffixes!r}:
 def test_large_mem2_index_can_be_built_on_every_platform(
     tmp_path, monkeypatch, ram, bases, entry
 ):
-    require_bare_name_fakes()
     ref = _reference(tmp_path, bases=bases)
     ram(128 * GB)
     # Building a human index takes an hour: a stand-in writes its files.
-    python_tool(
+    fake = python_tool(
         tmp_path / "bin",
         "bwa-mem2",
         _FAKE_MEM2_INDEX.format(suffixes=list(bwa_mem2.INDEX_SUFFIXES)),
     )
     monkeypatch.setenv("PATH", f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}")
+    if sys.platform == "win32":
+        # Windows starts only .exe files by bare name: launch the same stand-in.
+        script = str(fake.with_suffix(".py"))
+        monkeypatch.setattr(
+            bwa_mem2,
+            "run_command",
+            lambda cmd, **kw: run_command([sys.executable, script, *cmd[1:]], **kw),
+        )
     bwa_mem2.check_index(ref)
     if entry == "ensure_index":
         bwa_mem2.ensure_index(ref, download=False)

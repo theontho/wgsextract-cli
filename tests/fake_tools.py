@@ -728,21 +728,26 @@ elif args[0] == "run":
         sys.exit("fake docker: would run as root and leave root-owned outputs")
     if opts.get("--entrypoint"):
         command = [opts["--entrypoint"], *command]
-    # The container sees only the folders mounted into it.
+    # The container sees only the folders mounted into it: a link there to a
+    # file outside them dangles.
+    def visible(path):
+        return any(os.path.commonpath([path, m]) == m for m in mounts) and (
+            not os.path.exists(path) or any(
+                os.path.commonpath([os.path.realpath(path), os.path.realpath(m)])
+                == os.path.realpath(m) for m in mounts))
     paths = [p for arg in command for p in re.findall(r"/[^\s\"']+", arg)]
     paths += [env.get("HOME"), env.get("TMPDIR"), opts.get("-w")]
     for path in paths:
         # The image's own folders, and its /tmp (HOME when none is given).
-        if path and path != "/tmp" and not path.startswith(("/opt/", "/bin/", "/usr/")) and not any(
-            os.path.commonpath([path, m]) == m for m in mounts
-        ):
+        if path and path != "/tmp" and not path.startswith(("/opt/", "/bin/", "/usr/")) and not visible(path):
             sys.exit(f"{path}: No such file or directory (not mounted in the container)")
     if command[0].startswith("/opt/deepvariant/bin/"):
         command[0] = os.path.join(DV_BIN, os.path.basename(command[0]))
     elif command[:2] == ["/bin/bash", "-c"]:
         command[2] = command[2].replace("/opt/deepvariant/bin/", DV_BIN + "/")
     container = {"PATH": f"{DV_BIN}:/usr/bin:/bin", **env, "FAKE_DV_IN_IMAGE": "1",
-                 "FAKE_CONTAINER": name, "FAKE_OOM_DIR": os.path.join(ROOT, "oom")}
+                 "FAKE_CONTAINER": name, "FAKE_OOM_DIR": os.path.join(ROOT, "oom"),
+                 "FAKE_GPUS": "1" if "--gpus" in opts else ""}
     record = os.path.join(running, name)
     process = subprocess.Popen(command, env=container, stdin=subprocess.DEVNULL, cwd=opts.get("-w"))
     with open(record, "w") as out:
@@ -826,6 +831,8 @@ import json, os, subprocess, sys
 tool, args = sys.argv[1], sys.argv[2:]
 with open(LOG, "a") as out:
     out.write(json.dumps({"tool": tool, "args": args}) + "\n")
+if not os.environ.get("FAKE_GPUS"):
+    sys.exit("pbrun: no CUDA-capable device is detected")
 
 
 def opt(name):

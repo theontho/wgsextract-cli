@@ -213,7 +213,9 @@ def test_unaligned_bam_read_groups_without_a_sample_get_one(tmp_path, gpu, genom
 def test_gpu_alignment_without_a_parabricks_equivalent_is_refused(
     tmp_path, linux, options, message
 ):
-    ref = write_fasta(tmp_path / "ref.fa", {"chr1": "ACGT" * 100})
+    # Refused before the reference is read: no index needed.
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\n" + "ACGT" * 100 + "\n")
     for name in ("r1.fq", "r2.fq"):
         (tmp_path / name).write_text("@r\nACGT\n+\nIIII\n")
     options = [str(tmp_path / "r2.fq") if o == "R2" else o for o in options]
@@ -263,14 +265,20 @@ def test_gpu_calling_runs_the_parabricks_caller_over_each_region(
 
 @posix_only
 @needs_tools("samtools", "bcftools", "tabix")
-def test_gpu_calling_reads_a_bed_region_from_its_own_folder(tmp_path, gpu):
+@pytest.mark.parametrize("linked", [False, True])
+def test_gpu_calling_reads_a_bed_region_from_its_own_folder(tmp_path, gpu, linked):
     """A BED --region is an interval file Parabricks can see, not an -L
-    interval, and its folder is mounted into the container."""
+    interval, and its folder (or a link's target) is mounted into the
+    container."""
     (tmp_path / "sample").mkdir()
     sample = snp_sample(tmp_path / "sample")
     bed = tmp_path / "targets" / "panel.bed"
     bed.parent.mkdir()
     bed.write_text("chr1\t1499\t1600\nchr1\t2199\t2300\n")
+    if linked:
+        (tmp_path / "links").mkdir()
+        (tmp_path / "links" / "panel.bed").symlink_to(bed)
+        bed = tmp_path / "links" / "panel.bed"
     out = tmp_path / "out"
 
     run_wgsextract(
