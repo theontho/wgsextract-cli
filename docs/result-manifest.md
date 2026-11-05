@@ -92,6 +92,7 @@ size goes unnoticed. Use `wgsextract sign` for full-file digests.
 | `vep_info_missing`, `chromosomes_missing` | `vep verify` | The VEP cache lacks its `info.txt` or chromosome directories (`chromosomes`). |
 | `dict_missing` | `ref verify` | The reference has no sequence dictionary. |
 | `step_failed` | `benchmark` | A benchmark step failed (`step`, `log`). |
+| `cache_path_too_long` | `microarray` on Windows | The reference library path (`path`, `length`) is too deep for its derived caches to fit the 260-character `MAX_PATH`, so the run is uncached; keep the library path at most `limit` characters. |
 | `unsigned` | `sign verify` | The checksum manifest has no signature; only hashes were checked. |
 | `ystr_unverified_convention` | `lineage y-str` | Markers use a repeat-count convention the panel has not verified. |
 

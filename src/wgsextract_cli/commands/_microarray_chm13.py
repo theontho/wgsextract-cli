@@ -25,6 +25,7 @@ from wgsextract_cli.core import microarray_chm13_cache
 from wgsextract_cli.core.alignment_metadata import get_bam_header
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.genotype_qc import warn_about_genotypes
+from wgsextract_cli.core.library_cache import microarray_cache_root
 from wgsextract_cli.core.microarray_aadr import (
     _chrom_name,
     aadr_markers,
@@ -258,8 +259,9 @@ def run_chm13(
             "--ref-vcf-tab and --ploidy-file overrides are not supported."
         )
     library = resolve_reference_library() if settings.get("reference_library") else None
+    cache_root = microarray_cache_root(library)
     catalogue = load_chm13_catalogue(
-        cache_dir=Path(library, "microarray", "chm13") if library else None
+        cache_dir=cache_root / "chm13" if cache_root else None
     )
     names = validate_chm13_reference(Path(ref_fasta), catalogue)
     regions = _regions(args.region)
@@ -272,7 +274,7 @@ def run_chm13(
             get_bam_header(args.input, ref_fasta), catalogue, names
         )
     roots = _template_search_roots(ref_fasta, lib)
-    cache = microarray_chm13_cache.cache_directory(library, catalogue, roots)
+    cache = microarray_chm13_cache.cache_directory(cache_root, catalogue, roots)
     markers = microarray_chm13_cache.marker_ids(
         cache, lambda: _marker_ids(catalogue, roots)
     )

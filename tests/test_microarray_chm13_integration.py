@@ -10,6 +10,7 @@ import pytest
 
 from scripts.build_microarray_chm13_map import write_site_map
 from wgsextract_cli.commands import _microarray_chm13 as command
+from wgsextract_cli.core import library_cache
 from wgsextract_cli.core import microarray_aadr as aadr
 from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.microarray_chm13 import CHM13Catalogue, ReferenceContig
@@ -197,16 +198,20 @@ def test_native_vcf_quality_and_unsupported_masks_survive_canonical_aadr_export(
         )
 
 
-def test_native_gvcf_reference_blocks_are_calls_and_gaps_are_no_calls(
-    tmp_path: Path,
-    tmp_path_factory: pytest.TempPathFactory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fasta = _native_library(tmp_path, monkeypatch)
-    # The marker cache nests two 64-hex names; a shallow library keeps the
-    # path under Windows' MAX_PATH, which htslib cannot exceed.
-    library = tmp_path_factory.mktemp("lib")
-    monkeypatch.setitem(settings, "reference_library", str(library))
+def _deep_library(tmp_path: Path, length: int) -> Path:
+    """A reference library whose absolute path is ``length`` characters."""
+    library = tmp_path
+    while (missing := length - len(str(library.absolute())) - 1) > 0:
+        # Never leave a single character, which needs a separator too.
+        library /= "d" * (missing if missing <= 40 else min(40, missing - 2))
+    library.mkdir(parents=True)
+    assert len(str(library.absolute())) == length
+    return library
+
+
+def _run_gvcf(
+    tmp_path: Path, fasta: Path, out: Path
+) -> tuple[list[str], CommandResult]:
     source = tmp_path / "sample.g.vcf"
     source.write_text(
         "##fileformat=VCFv4.2\n"
@@ -218,7 +223,6 @@ def test_native_gvcf_reference_blocks_are_calls_and_gaps_are_no_calls(
         "chr1\t22\t.\tA\tG,<*>\t.\tPASS\t.\tGT\t0/1\n"
         "chr1\t23\t.\tA\t<*>\t.\t.\tEND=23\tGT\t./.\n"
     )
-    out = tmp_path / "outputs"
     args = argparse.Namespace(
         input=str(source),
         region=None,
@@ -234,16 +238,31 @@ def test_native_gvcf_reference_blocks_are_calls_and_gaps_are_no_calls(
         resolve_rsids=False,
         parallel=False,
     )
-    command.run_chm13(
-        args,
-        SimpleNamespace(root=str(tmp_path)),
-        str(fasta),
-        str(out),
-        "1",
-        gvcf=True,
-    )
+    result = CommandResult(command="microarray")
+    with collecting(result):
+        command.run_chm13(
+            args,
+            SimpleNamespace(root=str(tmp_path)),
+            str(fasta),
+            str(out),
+            "1",
+            gvcf=True,
+        )
     combined = next(out.glob("CHM13_*/*_CombinedKit.txt"))
     calls = [line.split("\t")[3] for line in combined.read_text().splitlines()[1:]]
+    return calls, result
+
+
+def test_native_gvcf_reference_blocks_are_calls_and_gaps_are_no_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fasta = _native_library(tmp_path, monkeypatch)
+    # Issue #419: the deepest library Windows' 260-character MAX_PATH allows
+    # for its caches; htslib must open the cached native targets there.
+    library = _deep_library(tmp_path, 175)
+    monkeypatch.setitem(settings, "reference_library", str(library))
+    out = tmp_path / "outputs"
+    calls, _result = _run_gvcf(tmp_path, fasta, out)
     # rs10's source strand is complemented; native 0/0 A is a homozygous call.
     assert calls[0][0] == calls[0][1] != "-"
     assert calls[1:] == ["AA", "AG", "--", "--"]
@@ -258,8 +277,60 @@ def test_native_gvcf_reference_blocks_are_calls_and_gaps_are_no_calls(
     chm13 = library / "microarray" / "chm13"
     assert len(list(chm13.glob("sites-v1-*.bin"))) == 1
     assert len(list(chm13.rglob("markers.tsv"))) == 1
-    assert not list(tmp_path.rglob("sites-v1-*.bin"))
-    assert not list(tmp_path.rglob("markers.tsv"))
+    assert len(list(chm13.rglob("target-*.tab.gz.lock.guard"))) == 1
+    assert not list(tmp_path.glob("sites-v1-*.bin"))
+    assert not list(out.rglob("markers.tsv"))
+    assert max(len(str(path.absolute())) for path in library.rglob("*")) < 260
+
+
+def test_chm13_cache_is_reused_and_ignores_full_digest_caches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fasta = _native_library(tmp_path, monkeypatch)
+    library = tmp_path / "library"
+    monkeypatch.setitem(settings, "reference_library", str(library))
+    expected, _result = _run_gvcf(tmp_path, fasta, tmp_path / "uncached-check")
+    shutil.rmtree(library)
+    # Issue #419: caches named by whole SHA-256 digests (before the fix) are
+    # never served, even when they look valid. An older release may still be
+    # using them, so they are left alone.
+    digest = "ab" * 32
+    legacy = library / "microarray" / "chm13" / digest
+    legacy.mkdir(parents=True)
+    (legacy / "markers.tsv").write_text("chr1\t20\trsStale\n")
+    (legacy / "markers.tsv.json").write_text("{}")
+    stale_sites = library / "microarray" / "chm13" / f"sites-v1-little-{digest}.bin"
+    stale_sites.write_bytes(b"stale")
+    calls, _result = _run_gvcf(tmp_path, fasta, tmp_path / "first")
+    assert calls == expected
+    assert (legacy / "markers.tsv").read_text() == "chr1\t20\trsStale\n"
+    assert stale_sites.read_bytes() == b"stale"
+    cached = {
+        path: path.stat().st_mtime_ns for path in library.rglob("*") if path.is_file()
+    }
+    assert any(path.name.endswith(".tab.gz") for path in cached)
+    calls, _result = _run_gvcf(tmp_path, fasta, tmp_path / "second")
+    assert calls == expected
+    assert {
+        path: path.stat().st_mtime_ns for path in library.rglob("*") if path.is_file()
+    } == cached
+
+
+def test_windows_library_too_deep_for_caches_runs_uncached_with_a_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fasta = _native_library(tmp_path, monkeypatch)
+    library = _deep_library(tmp_path, 176)
+    monkeypatch.setitem(settings, "reference_library", str(library))
+    calls, _result = _run_gvcf(tmp_path, fasta, tmp_path / "expected")
+    shutil.rmtree(library / "microarray", ignore_errors=True)
+    # Only the cache layout believes it runs on Windows; the tools stay native.
+    monkeypatch.setattr(library_cache, "sys", SimpleNamespace(platform="win32"))
+    calls_on_windows, result = _run_gvcf(tmp_path, fasta, tmp_path / "outputs")
+    assert calls_on_windows == calls
+    warning = next(w for w in result.warnings if w.code == "cache_path_too_long")
+    assert warning.details["limit"] == 175
+    assert not (library / "microarray").exists()
 
 
 def test_templates_must_cover_every_pinned_site(
