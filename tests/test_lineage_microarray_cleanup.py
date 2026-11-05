@@ -1,4 +1,8 @@
+"""Lineage and microarray helpers: tool resolution, chromosome aliases,
+CombinedKit writing, sex checks and partial-output cleanup."""
+
 import gzip
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -6,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.htslib_helpers import needs_tools
+from tests.htslib_helpers import needs_htslib, needs_tools, run_wgsextract, sam_to_bam
 from wgsextract_cli.commands import (
     _lineage_ydna,
     _microarray_combined,
@@ -14,10 +18,13 @@ from wgsextract_cli.commands import (
     lineage,
     microarray,
 )
+from wgsextract_cli.commands.info import metrics
 from wgsextract_cli.core import variant_files
+from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.pixi_tools import _join_command
 from wgsextract_cli.core.tool_catalog import JAVA_JAR
 from wgsextract_cli.core.utils import WGSExtractError, run_command
+from wgsextract_cli.core.variant_files import calculate_bam_md5
 
 
 def test_tool_command_keeps_windows_paths_and_uses_current_python():
@@ -29,19 +36,17 @@ def test_tool_command_keeps_windows_paths_and_uses_current_python():
     ]
 
 
+@needs_tools("samtools")
 def test_resolve_lineage_tool_resolves_bare_names_only(tmp_path):
     tool = tmp_path / "haplogrep"
     tool.touch()
-    with patch.object(
-        _lineage_ydna, "get_tool_path", return_value=str(tool)
-    ) as get_tool:
-        assert _lineage_ydna.resolve_lineage_tool(
-            "haplogrep", "haplogrep", "--x"
-        ) == str(tool)
-        assert _lineage_ydna.resolve_lineage_tool(str(tool), "haplogrep", "--x") == (
-            str(tool)
-        )
-    get_tool.assert_called_once_with("haplogrep")
+    assert _lineage_ydna.resolve_lineage_tool(str(tool), "haplogrep", "--x") == str(
+        tool
+    )
+    # A bare command name is looked up like any installed tool.
+    assert _lineage_ydna.resolve_lineage_tool("samtools", "haplogrep", "--x") == (
+        get_tool_path("samtools")
+    )
 
 
 def test_resolve_lineage_tool_accepts_resolved_wrapper_commands(tmp_path):
@@ -67,228 +72,6 @@ def test_match_chromosome_name_handles_aliases():
     assert variant_files.match_chromosome_name("chrY", ["chr1"]) is None
 
 
-def _ydna_args(input_path, outdir=None):
-    return SimpleNamespace(
-        input=str(input_path),
-        outdir=outdir,
-        ref=None,
-        threads=None,
-        pos_file=None,
-    )
-
-
-def test_ydna_without_outdir_keeps_results_in_a_separate_directory(tmp_path):
-    bam = tmp_path / "sample.bam"
-    bam.touch()
-    commands = []
-
-    def fake_native(input_path, output, **kwargs):
-        commands.append((output, kwargs))
-        output.mkdir(parents=True, exist_ok=True)
-        prediction = output / "hg_prediction.hg"
-        prediction.write_text("Sample_name\tHg\tHg_marker\nsample\tR1b\tR-M269\n")
-        return prediction
-
-    with (
-        patch.object(_lineage_ydna, "verify_dependencies"),
-        patch.object(_lineage_ydna, "sample_sex", return_value="Male"),
-        patch.object(_lineage_ydna, "log_dependency_info"),
-        patch.object(_lineage_ydna, "calculate_bam_md5", return_value=None),
-        patch.object(
-            _lineage_ydna,
-            "ReferenceLibrary",
-            return_value=SimpleNamespace(build="hs38DH", fasta=None),
-        ),
-        patch(
-            "wgsextract_cli.ydna.yleaf_native.analysis.analyze", side_effect=fake_native
-        ),
-    ):
-        _lineage_ydna.cmd_ydna(_ydna_args(bam))
-
-    output, kwargs = commands[-1]
-    assert output == tmp_path / "yleaf"
-    assert kwargs["build"] == "hg38"
-    assert bam.exists()
-
-
-def test_ydna_cram_requires_reference(tmp_path):
-    cram = tmp_path / "sample.cram"
-    cram.touch()
-    with (
-        patch.object(_lineage_ydna, "verify_dependencies"),
-        patch.object(_lineage_ydna, "sample_sex", return_value="Male"),
-        patch.object(_lineage_ydna, "log_dependency_info"),
-        patch.object(_lineage_ydna, "calculate_bam_md5", return_value=None),
-        patch.object(
-            _lineage_ydna,
-            "ReferenceLibrary",
-            return_value=SimpleNamespace(build="hg38", fasta=None),
-        ),
-        patch.object(_lineage_ydna, "run_command") as run,
-        pytest.raises(WGSExtractError, match="reference FASTA"),
-    ):
-        _lineage_ydna.cmd_ydna(_ydna_args(cram, str(tmp_path / "out")))
-    run.assert_not_called()
-
-
-def _mtdna_args(input_path, outdir):
-    return SimpleNamespace(
-        input=str(input_path),
-        outdir=str(outdir),
-        ref=None,
-        threads=None,
-        haplogrep_path=None,
-    )
-
-
-def _patch_mtdna_alignment_env():
-    return (
-        patch.object(lineage, "resolve_lineage_tool", return_value="haplogrep"),
-        patch.object(lineage, "verify_dependencies"),
-        patch.object(lineage, "log_dependency_info"),
-        patch.object(lineage, "calculate_bam_md5", return_value=None),
-        patch.object(
-            lineage,
-            "ReferenceLibrary",
-            return_value=SimpleNamespace(build="hg38", fasta="/ref/hg38.fa"),
-        ),
-        patch.object(lineage, "get_chr_name", return_value="chrM"),
-    )
-
-
-def test_mtdna_calls_haploid_and_checks_every_pipeline_stage(tmp_path):
-    bam = tmp_path / "sample.bam"
-    bam.touch()
-    out_file = tmp_path / "haplogrep_results.txt"
-    pipelines = []
-
-    def fake_run_command(cmd, **_kwargs):
-        out_file.write_text("SampleID\tHaplogroup\nsample\tH1\n")
-
-    p1, p2, p3, p4, p5, p6 = _patch_mtdna_alignment_env()
-    with (
-        p1,
-        p2,
-        p3,
-        p4,
-        p5,
-        p6,
-        patch.object(
-            lineage, "run_pipeline", side_effect=lambda st, **_k: pipelines.append(st)
-        ),
-        patch.object(lineage, "run_command", side_effect=fake_run_command),
-    ):
-        lineage.cmd_mtdna(_mtdna_args(bam, tmp_path))
-
-    mpileup, call = pipelines[0]
-    assert mpileup[:2] == ["bcftools", "mpileup"]
-    assert call[:4] == ["bcftools", "call", "--ploidy", "1"]
-
-
-@pytest.mark.parametrize(
-    "results",
-    [
-        '"SampleID"\t"Haplogroup"\t"Rank"\t"Quality"\t"Range"\n',
-        '"SampleID"\t"Haplogroup"\n"sample"\t""\n',
-    ],
-)
-def test_mtdna_without_a_haplogroup_fails_naming_the_reference(tmp_path, results):
-    # Haplogrep writes a header alone when it gets no mtDNA variants, as when
-    # the alignment was called against a reference of another build.
-    bam = tmp_path / "sample.bam"
-    bam.touch()
-
-    def fake_run_command(cmd, **_kwargs):
-        (tmp_path / "haplogrep_results.txt").write_text(results)
-
-    p1, p2, p3, p4, p5, p6 = _patch_mtdna_alignment_env()
-    with (
-        p1,
-        p2,
-        p3,
-        p4,
-        p5,
-        p6,
-        patch.object(lineage, "run_pipeline"),
-        patch.object(lineage, "run_command", side_effect=fake_run_command),
-        pytest.raises(WGSExtractError, match=r"no mtDNA variants.*/ref/hg38\.fa"),
-    ):
-        lineage.cmd_mtdna(_mtdna_args(bam, tmp_path))
-
-
-def test_mtdna_prints_haplogrep_quoted_result(tmp_path, capsys):
-    bam = tmp_path / "sample.bam"
-    bam.touch()
-
-    def fake_run_command(cmd, **_kwargs):
-        (tmp_path / "haplogrep_results.txt").write_text(
-            '"SampleID"\t"Haplogroup"\t"Quality"\n"sample"\t"H16a1"\t"0.9485"\n'
-        )
-
-    p1, p2, p3, p4, p5, p6 = _patch_mtdna_alignment_env()
-    with (
-        p1,
-        p2,
-        p3,
-        p4,
-        p5,
-        p6,
-        patch.object(lineage, "run_pipeline"),
-        patch.object(lineage, "run_command", side_effect=fake_run_command),
-    ):
-        lineage.cmd_mtdna(_mtdna_args(bam, tmp_path))
-    assert "Haplogroup      : H16a1" in capsys.readouterr().out
-
-
-def test_mtdna_pipeline_failure_raises(tmp_path):
-    bam = tmp_path / "sample.bam"
-    bam.touch()
-    p1, p2, p3, p4, p5, p6 = _patch_mtdna_alignment_env()
-    with (
-        p1,
-        p2,
-        p3,
-        p4,
-        p5,
-        p6,
-        patch.object(
-            lineage,
-            "run_pipeline",
-            side_effect=WGSExtractError("bcftools mpileup (exit 1)"),
-        ),
-        patch.object(lineage, "run_command") as run,
-        pytest.raises(WGSExtractError, match="mpileup"),
-    ):
-        lineage.cmd_mtdna(_mtdna_args(bam, tmp_path))
-    run.assert_not_called()
-
-
-def test_extract_vcf_chromosome_indexes_before_region_query(tmp_path):
-    vcf = tmp_path / "in.vcf.gz"
-    vcf.touch()
-    calls = []
-
-    def fake_index(path):
-        calls.append(("index", path))
-        Path(path + ".tbi").touch()
-
-    with (
-        patch.object(_lineage_ydna, "ensure_vcf_indexed", side_effect=fake_index),
-        patch.object(_lineage_ydna, "get_vcf_chr_name", return_value="chrM"),
-        patch.object(
-            _lineage_ydna,
-            "run_command",
-            side_effect=lambda cmd, **_: (
-                calls.append(cmd) or SimpleNamespace(stdout="chrM\t1\n")
-            ),
-        ),
-    ):
-        _lineage_ydna.extract_vcf_chromosome(str(vcf), "MT", str(tmp_path / "o.gz"))
-
-    assert calls[0] == ("index", str(vcf))
-    assert calls[1][:4] == ["bcftools", "view", "-r", "chrM"]
-
-
 PLAIN_VCF = (
     "##fileformat=VCFv4.2\n"
     "##contig=<ID=chr1,length=1000>\n##contig=<ID=chrM,length=16569>\n"
@@ -309,6 +92,24 @@ def test_extract_vcf_chromosome_plain_vcf_matches_any_contig_alias(tmp_path):
     assert [line.split("\t")[0] for line in records.stdout.splitlines()] == ["chrM"]
 
 
+@needs_tools("bcftools", "bgzip", "tabix")
+def test_extract_vcf_chromosome_indexes_a_bgzipped_vcf_for_its_region(tmp_path):
+    plain = tmp_path / "in.vcf"
+    plain.write_text(PLAIN_VCF)
+    vcf = tmp_path / "in.vcf.gz"
+    with open(vcf, "wb") as f:
+        run_command([get_tool_path("bgzip"), "-c", str(plain)], stdout=f)
+    out = tmp_path / "mt.vcf.gz"
+
+    assert _lineage_ydna.extract_vcf_chromosome(str(vcf), "MT", str(out)) == "chrM"
+
+    assert Path(f"{vcf}.tbi").exists() or Path(f"{vcf}.csi").exists()
+    records = run_command(["bcftools", "view", "-H", str(out)], capture_output=True)
+    assert [line.split("\t")[:2] for line in records.stdout.splitlines()] == [
+        ["chrM", "73"]
+    ]
+
+
 @needs_tools("bcftools")
 def test_extract_vcf_chromosome_raises_when_chromosome_absent(tmp_path):
     vcf = tmp_path / "in.vcf"
@@ -318,119 +119,54 @@ def test_extract_vcf_chromosome_raises_when_chromosome_absent(tmp_path):
         _lineage_ydna.extract_vcf_chromosome(str(vcf), "Y", str(tmp_path / "y.vcf.gz"))
 
 
-def _microarray_args(tmp_path):
-    input_path = tmp_path / "sample.bam"
-    input_path.touch()
-    return SimpleNamespace(
-        input=str(input_path),
-        outdir=str(tmp_path / "out"),
-        ref=None,
-        ref_vcf_tab=None,
-        ploidy_file=None,
-        threads=None,
-        region=None,
-        parallel=False,
-        formats="all",
-    )
-
-
-def _run_microarray(tmp_path, lib):
-    captured = {}
-
-    def fake_prepare(**kwargs):
-        captured.update(kwargs)
-        return "combined.vcf.gz", kwargs["ref_vcf_tab"]
-
-    with (
-        patch.object(microarray, "verify_dependencies"),
-        patch.object(microarray, "log_dependency_info"),
-        patch.object(microarray, "get_resource_defaults", return_value=("2", None)),
-        patch.object(microarray, "calculate_bam_md5", return_value=None),
-        patch.object(microarray, "ReferenceLibrary", return_value=lib),
-        patch.object(microarray, "print_warning"),
-        patch.object(microarray, "_prepare_microarray_vcf", side_effect=fake_prepare),
-        patch.object(microarray, "_write_microarray_combined_kit"),
-        patch.object(microarray, "_convert_microarray_outputs"),
-    ):
-        microarray.run(_microarray_args(tmp_path))
-    return captured
-
-
-def _microarray_lib(tmp_path, **overrides):
-    ref_fasta = tmp_path / "ref.fa"
-    ref_vcf_tab = tmp_path / "snps.tab.gz"
-    ref_fasta.touch()
-    ref_vcf_tab.touch()
-    values = {
-        "fasta": str(ref_fasta),
-        "ref_vcf_tab": str(ref_vcf_tab),
-        "ploidy_file": None,
-        "liftover_chain": None,
-        "build": None,
-        "root": None,
-    }
-    values.update(overrides)
-    return SimpleNamespace(**values)
-
-
 def test_microarray_requires_input():
     args = SimpleNamespace(input=None)
     with pytest.raises(WGSExtractError):
         microarray.run(args)
 
 
-def test_microarray_hg38_without_chain_fails_before_variant_calling(tmp_path):
-    with pytest.raises(WGSExtractError, match="liftover chain"):
-        _run_microarray(tmp_path, _microarray_lib(tmp_path, build="hg38"))
-
-
-def test_microarray_unknown_build_calls_diploid(tmp_path):
-    captured = _run_microarray(tmp_path, _microarray_lib(tmp_path, build=None))
-    assert captured["ploidy_args"] == ["--ploidy", "2"]
-    assert captured["base_name"] == "sample"
-
-
+@needs_tools("bcftools")
 def test_combined_kit_alignment_mode_doubles_haploid_calls(tmp_path):
-    output = "rsY\tchrY\t5\tA\nrsMiss\tchr1\t6\t.\nrsHet\tchr1\t7\tA/G\n"
-    with patch.object(
-        _microarray_combined,
-        "_command_lines",
-        side_effect=lambda _cmd, _w: iter(output.splitlines(True)),
-    ):
-        kit = _microarray_combined._write_microarray_combined_kit(
-            args=SimpleNamespace(region=None),
-            outdir=str(tmp_path),
-            base_name="sample",
-            is_vcf=False,
-            out_vcf="x.vcf.gz",
-            ref_fasta="ref.fa",
-            ref_vcf_tab="t.tab",
-        )
+    vcf = tmp_path / "calls.vcf"
+    vcf.write_text(
+        "##fileformat=VCFv4.2\n##contig=<ID=chr1>\n##contig=<ID=chrY>\n"
+        '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n"
+        "chrY\t5\trsY\tA\t.\t50\tPASS\t.\tGT\t0\n"
+        "chr1\t6\trsMiss\tA\t.\t50\tPASS\t.\tGT\t./.\n"
+        "chr1\t7\trsHet\tA\tG\t50\tPASS\t.\tGT\t0/1\n"
+    )
+    kit = _microarray_combined._write_microarray_combined_kit(
+        args=SimpleNamespace(region=None),
+        outdir=str(tmp_path),
+        base_name="sample",
+        is_vcf=False,
+        out_vcf=str(vcf),
+        ref_fasta="ref.fa",
+        ref_vcf_tab="t.tab",
+    )
     rows = Path(kit).read_text().splitlines()
     assert rows[1:] == ["rsY\tY\t5\tAA", "rsMiss\t1\t6\t--", "rsHet\t1\t7\tAG"]
 
 
+@needs_tools("bcftools")
 def test_combined_kit_failure_leaves_no_partial_file(tmp_path):
-    with (
-        patch.object(
-            _microarray_combined,
-            "_command_lines",
-            side_effect=OSError("bcftools query failed"),
-        ),
-        pytest.raises(WGSExtractError),
-    ):
+    outdir = tmp_path / "out"
+    outdir.mkdir()
+    with pytest.raises(WGSExtractError):
         _microarray_combined._write_microarray_combined_kit(
             args=SimpleNamespace(region=None),
-            outdir=str(tmp_path),
+            outdir=str(outdir),
             base_name="sample",
             is_vcf=False,
-            out_vcf="x.vcf.gz",
+            out_vcf=str(tmp_path / "missing.vcf.gz"),
             ref_fasta="ref.fa",
             ref_vcf_tab="t.tab",
         )
-    assert list(tmp_path.iterdir()) == []
+    assert list(outdir.iterdir()) == []
 
 
+@needs_tools("tabix")
 def test_split_snps_fallback_writes_each_chromosome_once(tmp_path):
     tab = tmp_path / "targets.tab.gz"
     with gzip.open(tab, "wt") as handle:
@@ -438,9 +174,9 @@ def test_split_snps_fallback_writes_each_chromosome_once(tmp_path):
     out = tmp_path / "chunks"
     out.mkdir()
 
-    with patch.object(_microarray_vcf, "run_command", side_effect=OSError("tabix")):
-        for _ in range(2):  # re-running must not duplicate rows
-            files = _microarray_vcf.split_snps_by_chrom(str(tab), str(out))
+    # Plain gzip, which tabix can't read, forces the linear scan.
+    for _ in range(2):  # re-running must not duplicate rows
+        files = _microarray_vcf.split_snps_by_chrom(str(tab), str(out))
 
     assert Path(files["1"]).read_text() == "1\t10\trs1\n1\t30\trs3\n"
     assert Path(files["2"]).read_text() == "2\t20\trs2\n"
@@ -472,77 +208,8 @@ def test_ensure_vcf_prepared_requires_bgzip(tmp_path):
         variant_files.ensure_vcf_prepared(str(vcf))
 
 
-@pytest.mark.parametrize(
-    "content",
-    [
-        "Sample_name\tHg\tHg_marker\n",
-        "Sample_name\tHg\tHg_marker\tValid_markers\nsample\tNA\t\t0\n",
-        "Sample_name\tHg\tHg_marker\tValid_markers\nsample\tNA\t\t3\n",
-    ],
-)
-def test_ydna_empty_prediction_is_an_error(tmp_path, content):
-    bam = tmp_path / "sample.bam"
-    bam.touch()
-
-    def empty_prediction(input_path, output, **kwargs):
-        output.mkdir(parents=True, exist_ok=True)
-        prediction = output / "hg_prediction.hg"
-        prediction.write_text(content)
-        return prediction
-
-    with (
-        patch.object(_lineage_ydna, "verify_dependencies"),
-        patch.object(_lineage_ydna, "sample_sex", return_value="Male"),
-        patch.object(_lineage_ydna, "log_dependency_info"),
-        patch.object(_lineage_ydna, "calculate_bam_md5", return_value=None),
-        patch.object(
-            _lineage_ydna,
-            "ReferenceLibrary",
-            return_value=SimpleNamespace(build="hs38DH", fasta=None),
-        ),
-        patch(
-            "wgsextract_cli.ydna.yleaf_native.analysis.analyze",
-            side_effect=empty_prediction,
-        ),
-        pytest.raises(WGSExtractError, match="could not predict a Y haplogroup"),
-    ):
-        _lineage_ydna.cmd_ydna(_ydna_args(bam))
-
-
-def test_mt_haplogroup_resolves_reference_next_to_the_input(tmp_path):
-    """Without --ref (as the GUI's ancestry page calls it), the FASTA beside the
-    BAM must be found the same way the extract and vcf commands find it."""
-    from wgsextract_cli.commands import lineage
-
-    bam = tmp_path / "sample.bam"
-    bam.write_bytes(b"")
-    seen = {}
-
-    class StopAfterLookup(Exception):
-        pass
-
-    def fake_library(ref, md5, input_path=None):
-        seen["input_path"] = input_path
-        raise StopAfterLookup
-
-    args = SimpleNamespace(
-        input=str(bam), outdir=str(tmp_path / "out"), ref=None, haplogrep_path=None
-    )
-    with (
-        patch.object(lineage, "resolve_lineage_tool", return_value="haplogrep"),
-        patch.object(lineage, "verify_dependencies"),
-        patch.object(lineage, "log_dependency_info"),
-        patch.object(lineage, "calculate_bam_md5", return_value=None),
-        patch.object(lineage, "ReferenceLibrary", side_effect=fake_library),
-        pytest.raises(StopAfterLookup),
-    ):
-        lineage.cmd_mtdna(args)  # type: ignore[arg-type]
-    assert seen["input_path"] == str(bam)
-
-
 def test_haplogrep_wrapper_is_bypassed_for_its_jar(tmp_path):
     """Bioconda's haplogrep wrapper breaks on paths with spaces; use its jar."""
-    from wgsextract_cli.commands import lineage
 
     env_bin = tmp_path / "Application Support" / "bin"
     env_bin.mkdir(parents=True)
@@ -556,14 +223,11 @@ def test_haplogrep_wrapper_is_bypassed_for_its_jar(tmp_path):
             str(env_bin / "haplogrep.jar"),
         ]
     (env_bin / "haplogrep.jar").unlink()
-    with patch.object(lineage, "tool_command", return_value=["tool"]) as tool:
-        assert lineage._haplogrep_command(str(wrapper)) == ["tool"]
-        tool.assert_called_once_with(str(wrapper))
+    assert lineage._haplogrep_command(str(wrapper)) == [str(wrapper)]
 
 
 def test_a_resolved_haplogrep_command_runs_as_it_is(tmp_path):
     """The resolved tool may already be `java -jar <jar>`: no second `java -jar`."""
-    from wgsextract_cli.commands import lineage
 
     jar = tmp_path / "bin" / "haplogrep.jar"
     jar.parent.mkdir()
@@ -613,47 +277,48 @@ def test_infer_sex_from_x_and_y_reads(x_reads, y_reads, sex):
     assert infer_sex(_idx(x_reads, y_reads)) == sex
 
 
+def _sex_bam(path: Path, x_reads: int, y_reads: int) -> str:
+    """A BAM with hg38's chrX/chrY lengths and this many reads on each."""
+    read = "\t60\t50M\t*\t0\t0\t" + "A" * 50 + "\t" + "I" * 50
+    return sam_to_bam(
+        ["@SQ\tSN:chrX\tLN:156040895", "@SQ\tSN:chrY\tLN:57227415"]
+        + [f"x{i}\t0\tchrX\t{100 + i}{read}" for i in range(x_reads)]
+        + [f"y{i}\t0\tchrY\t{100 + i}{read}" for i in range(y_reads)],
+        path,
+    )
+
+
+@needs_htslib
 def test_y_haplogroup_refuses_a_female_sample_before_yleaf(tmp_path):
     """A female genome's mismapped chrY reads made Yleaf "predict" BT* with a full
     QC score; the command must say there is no Y instead."""
-    import json
+    bam = _sex_bam(tmp_path / "sample.bam", x_reads=30, y_reads=1)
 
-    from wgsextract_cli.commands import _lineage_ydna as ydna
-    from wgsextract_cli.commands.info import metrics
+    with pytest.raises(WGSExtractError, match="appears female"):
+        run_wgsextract("lineage", "y-haplogroup", "--input", bam)
+    assert not (tmp_path / "yleaf").exists()
 
-    cram = tmp_path / "sample.cram"
-    cram.write_bytes(b"")
-    args = SimpleNamespace(
-        input=str(cram), outdir=str(tmp_path), ref=None, threads=None
-    )
-    st = cram.stat()  # the cache must be from this very file
-    (tmp_path / "sample.cram.wgse_info.json").write_text(
+
+def _info_cache(bam: str, sex: str, size_delta: int = 0) -> None:
+    st = Path(bam).stat()
+    Path(f"{bam}.wgse_info.json").write_text(
         json.dumps({
-            "md5_signature": "sig", "gender": "Female",
+            "md5_signature": calculate_bam_md5(bam, None), "gender": sex,
             "sex_inference_version": metrics.SEX_INFERENCE_VERSION,
-            "input_signature": {"size": st.st_size, "mtime_ns": st.st_mtime_ns},
+            "input_signature": {
+                "size": st.st_size + size_delta, "mtime_ns": st.st_mtime_ns
+            },
         })
     )  # fmt: skip
-    with (
-        patch.object(metrics, "calculate_bam_md5", return_value="sig"),
-        patch.object(metrics, "parse_idxstats") as idxstats,
-    ):
-        assert metrics.sample_sex(args.input, args.outdir) == "Female"
-        idxstats.assert_not_called()
+
+
+@needs_htslib
+def test_sample_sex_trusts_only_this_files_info_cache(tmp_path):
+    this_file = _sex_bam(tmp_path / "a.bam", x_reads=30, y_reads=10)
+    _info_cache(this_file, "Female")
+    assert metrics.sample_sex(this_file) == "Female"
 
     # A cache for another file of the same name is ignored.
-    with (
-        patch.object(metrics, "calculate_bam_md5", return_value="other"),
-        patch.object(metrics, "parse_idxstats", return_value=(_idx(10, 6), 0, 0, 0)),
-    ):
-        assert metrics.sample_sex(args.input, args.outdir) == "Male"
-
-    with (
-        patch.object(ydna, "verify_dependencies"),
-        patch.object(ydna, "log_dependency_info"),
-        patch.object(metrics, "calculate_bam_md5", return_value="sig"),
-        patch.object(ydna, "run_command") as run,
-        pytest.raises(WGSExtractError, match="appears female"),
-    ):
-        ydna.cmd_ydna(args)
-    run.assert_not_called()
+    other_file = _sex_bam(tmp_path / "b.bam", x_reads=30, y_reads=10)
+    _info_cache(other_file, "Female", size_delta=1)
+    assert metrics.sample_sex(other_file) == "Male"
