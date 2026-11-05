@@ -532,6 +532,8 @@ vep_cache = "~/.vep"
 
 The short keys above are aliases; `wgsextract config` shows the canonical names (`input_path`, `output_directory`, `reference_fasta`, `reference_library`, `cpu_threads`, `memory_limit`, and so on). Either form works. Command-line options override config values for a single run. Other settings cover annotation data paths (`clinvar_vcf_path`, `gnomad_vcf_path`, `revel_tsv_path`, ...), default trio VCFs (`mother_vcf`, `father_vcf`), and the developer settings listed under [Development](#development).
 
+A `--ref` FASTA chooses the genome sequence. If it sits in a library's `genomes/` folder, that library supplies the other files. Otherwise the files in the FASTA's folder are used first, then the configured `reference_library`'s. Those files include liftover chains, ploidy files, chip templates and annotation data. An error about a missing library file names the folders searched.
+
 ### Keep-awake
 
 Add `--keep-awake` to long commands, or set `keep_awake = true` in `config.toml`, to request idle/sleep inhibition until the command exits. `--no-keep-awake` overrides the config, including delegated analyze, annotation-chain and benchmark commands; `keep_awake = false` disables it persistently (the default). macOS uses `caffeinate`, Linux uses `systemd-inhibit` if already present and permitted, and native Windows uses `SetThreadExecutionState`. Missing helpers, denied permissions and cleanup failures never fail the run. This prevents automatic sleep, not shutdown or a forced/manual suspend; display sleep remains allowed. Report-only `help`/`config`/`deps` never inhibit sleep.

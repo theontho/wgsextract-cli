@@ -174,8 +174,11 @@ def _liftover_chain_for(lib: ReferenceLibrary) -> str | None:
         return None
     if not lib.liftover_chain:
         raise WGSExtractError(
-            "hg38 input needs the hg38ToHg19 liftover chain for microarray "
-            "formats, but none was found in the reference library."
+            "hg38 input needs the hg38ToHg19 liftover chain "
+            "(hg38ToHg19.over.chain.gz) for microarray formats, "
+            f"but it isn't in {lib.searched_description()} (or their ref/ and "
+            "microarray/ subdirectories). Set reference_library in config.toml "
+            "to a library that has it."
         )
     return lib.liftover_chain
 
