@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Flag change-detector patterns in test lines added since a base revision.
 
+Untracked test files count as wholly added.
+
 Advisory only: always exits 0. See "Write tests" in docs/developer_setup.md.
 
   TS001  monkeypatching a private project internal (a ``_name``)
@@ -37,6 +39,13 @@ TOOLS = {
     "samtools",
     "tabix",
 }
+ARGV_ASSERTS = {
+    "assertEqual",
+    "assertListEqual",
+    "assert_any_call",
+    "assert_called_once_with",
+    "assert_called_with",
+}
 
 
 def _git(*args: str, cwd: Path) -> str:
@@ -45,20 +54,28 @@ def _git(*args: str, cwd: Path) -> str:
     ).stdout
 
 
-def added_lines(base: str, root: Path) -> dict[Path, set[int]]:
+def added_lines(base: str, root: Path) -> dict[Path, set[int] | None]:
+    """Map changed test files to their added lines; ``None`` means every line."""
     merge_base = _git("merge-base", base, "HEAD", cwd=root).strip()
     diff = _git(
-        "diff", "-U0", "--diff-filter=AMR", merge_base, "--", "tests/*.py", cwd=root
+        *("diff", "--no-color", "--no-ext-diff"),
+        *("--src-prefix=a/", "--dst-prefix=b/", "-U0", "--diff-filter=AMR"),
+        *(merge_base, "--", "tests/*.py"),
+        cwd=root,
     )
-    added: dict[Path, set[int]] = {}
+    added: dict[Path, set[int] | None] = {}
     current: set[int] = set()
     for line in diff.splitlines():
-        if line.startswith("+++ "):
-            name = line[4:].removeprefix("b/")
-            current = added.setdefault(root / name, set())
+        if line.startswith("+++ b/"):
+            current = set()
+            added[root / line[6:]] = current
         elif match := HUNK_RE.match(line):
             start, count = int(match[1]), int(match[2] or 1)
             current.update(range(start, start + count))
+    untracked = _git(
+        "ls-files", "--others", "--exclude-standard", "--", "tests/*.py", cwd=root
+    )
+    added.update((root / name, None) for name in untracked.splitlines())
     return added
 
 
@@ -88,9 +105,10 @@ def _string(node: ast.AST) -> str | None:
 
 def _patched_private(call: ast.Call, project: set[str]) -> str | None:
     func = call.func
-    if not isinstance(func, ast.Attribute) or not call.args:
+    name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+    if not call.args:
         return None
-    if func.attr == "setattr" or (func.attr == "object" and len(call.args) > 1):
+    if name == "setattr" or (name == "object" and len(call.args) > 1):
         target = _string(call.args[0])
         if target is not None:
             owner, _, attr = target.rpartition(".")
@@ -98,7 +116,7 @@ def _patched_private(call: ast.Call, project: set[str]) -> str | None:
             owner, attr = ast.unparse(call.args[0]), _string(call.args[1]) or ""
         else:
             return None
-    elif func.attr == "patch":
+    elif name == "patch":
         owner, _, attr = (_string(call.args[0]) or "").rpartition(".")
     else:
         return None
@@ -114,23 +132,51 @@ def _is_argv(node: ast.AST) -> bool:
     return first.rsplit("/", 1)[-1] in TOOLS
 
 
-def smells(path: Path, lines: set[int]) -> list[tuple[int, str, str]]:
+def _asserts_argv(stmt: ast.stmt) -> bool:
+    """True when an assert compares, or a mock/unittest assert checks, an argv."""
+    if isinstance(stmt, ast.Assert):
+        return any(
+            isinstance(node, ast.Compare)
+            and any(_is_argv(side) for side in (node.left, *node.comparators))
+            for node in ast.walk(stmt.test)
+        )
+    if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+        func = stmt.value.func
+        return (
+            isinstance(func, ast.Attribute)
+            and func.attr in ARGV_ASSERTS
+            and any(_is_argv(arg) for arg in stmt.value.args)
+        )
+    return False
+
+
+def _span(node: ast.stmt | ast.expr) -> range:
+    return range(node.lineno, (node.end_lineno or node.lineno) + 1)
+
+
+def smells(path: Path, lines: set[int] | None) -> list[tuple[int, str, str]]:
     source = path.read_text(encoding="utf-8")
     text = source.splitlines()
     tree = ast.parse(source)
     project = _project_aliases(tree)
+
+    def is_added(node: ast.stmt | ast.expr) -> bool:
+        return lines is None or any(n in lines for n in _span(node))
+
+    def has_contract(stmt: ast.stmt) -> bool:
+        own = text[stmt.lineno - 1 : stmt.end_lineno]
+        above = text[stmt.lineno - 2].strip() if stmt.lineno > 1 else ""
+        return above.startswith("# contract:") or any("# contract:" in s for s in own)
+
     found = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and node.lineno in lines:
+        if isinstance(node, ast.Call) and is_added(node):
             if target := _patched_private(node, project):
                 found.append(
                     (node.lineno, "TS001", f"patches private internal {target}")
                 )
-        elif isinstance(node, ast.Assert) and node.lineno in lines:
-            span = text[node.lineno - 2 : node.end_lineno or node.lineno]
-            if "# contract:" in "\n".join(span):
-                continue
-            if any(_is_argv(sub) for sub in ast.walk(node.test)):
+        elif isinstance(node, ast.stmt) and is_added(node) and _asserts_argv(node):
+            if not has_contract(node):
                 found.append((node.lineno, "TS002", "asserts a whole tool argv"))
     return sorted(found)
 
@@ -150,10 +196,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     total = 0
     for path, lines in sorted(changed.items()):
-        if not path.exists():
-            continue
         rel = path.relative_to(args.root).as_posix()
-        for line, code, message in smells(path, lines):
+        try:
+            found = smells(path, lines)
+        except (OSError, SyntaxError, UnicodeDecodeError) as exc:
+            print(f"test-smells: skipped {rel}: {exc}")
+            continue
+        for line, code, message in found:
             total += 1
             if args.github:
                 print(f"::warning file={rel},line={line},title={code}::{message}")
