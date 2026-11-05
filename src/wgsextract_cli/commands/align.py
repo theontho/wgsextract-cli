@@ -334,6 +334,18 @@ def short_read_sort_memory(aligner: str, memory: str, *, log: bool = True) -> st
     return memory
 
 
+def aligned_output_path(
+    outdir: str, r1: str, r2: str | None, fmt: str, aligner: str | None = None
+) -> str:
+    """Where alignment of r1 (and r2) writes: <stem>_aligned.bam or .cram
+    (pbmm2 always writes BAM)."""
+    stem = reads_stem(r1)
+    if r2:
+        stem = pair_stem(stem)
+    ext = ".cram" if fmt == "CRAM" and aligner != "pbmm2" else ".bam"
+    return str(absolute_path(Path(outdir, f"{stem}_aligned{ext}")))
+
+
 class _AlignSetup(NamedTuple):
     threads: str
     memory: str

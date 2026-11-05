@@ -2,6 +2,7 @@ import gzip
 import logging
 import platform
 import random
+import re
 from argparse import Namespace
 from pathlib import Path
 
@@ -106,9 +107,10 @@ def test_realign_bam_to_new_reference(tmp_path, genome_and_ref):
     dups = [r[0] for r in reads if int(r[1]) & 0x400]
     assert len(dups) == 2 and len(set(dups)) == 1 and dups[0] in {"p0", "dup"}
     # The extracted FASTQs are removed once the alignment is done.
-    assert sorted(p.name for p in outdir.iterdir()) == [
+    assert sorted(p.name for p in outdir.iterdir() if p.name[0] != ".") == [
         "x_aligned.bam",
         "x_aligned.bam.bai",
+        "x_aligned.bam.steps.json",
     ]
 
 
@@ -186,6 +188,29 @@ def test_existing_fastqs_need_both_mates_and_prefer_the_input_dir(tmp_path):
     )
 
 
+def _write_alignment(args):
+    """What a finished alignment leaves: the BAM and its index."""
+    outdir = args.outdir or str(Path(args.input).parent)
+    out = realign.align_cmd.aligned_output_path(outdir, args.r1, args.r2, args.format)
+    Path(out).write_text("aligned")
+    Path(out + ".bai").write_text("index")
+
+
+def _visible(directory):
+    """A directory's files, less the step journal and hidden lock files."""
+    return [
+        p
+        for p in Path(directory).iterdir()
+        if not p.name.startswith(".") and not p.name.endswith(".steps.json")
+    ]
+
+
+def _published(staged):
+    path = Path(staged)
+    match = re.fullmatch(r"\.(.+)\.[0-9a-f]{32}\.partial(.*)", path.name)
+    return str(path.with_name(match[1] + match[2])) if match else staged
+
+
 class _Fakes:
     """Stand-ins for extraction and alignment that record what realign asked."""
 
@@ -209,7 +234,8 @@ class _Fakes:
         monkeypatch.setattr(realign, "available_memory", lambda: 1024**4)
 
     def extract(self, _input, r1, r2, **_kwargs):
-        self.extracted.append((r1, r2))
+        # Extraction writes staged copies; record the FASTQs they become.
+        self.extracted.append(tuple(map(_published, (r1, r2))))
         for path in (r1, r2):
             Path(path).write_text("@r\nA\n+\nI\n")
 
@@ -217,6 +243,7 @@ class _Fakes:
         self.aligned.append((args.r1, args.r2))
         if self.align_error:
             raise self.align_error
+        _write_alignment(args)
 
     def stream(self, args, **kwargs):
         self.streamed.append(kwargs)
@@ -476,7 +503,7 @@ def test_single_end_reads_are_refused_before_extraction(
     outdir = tmp_path / "out"
     with pytest.raises(WGSExtractError, match=r"3 of 3 sampled .* \(e\.g\. se0\)"):
         realign.run(_args(source, ref=ref, outdir=str(outdir), keep_fastq=keep_fastq))
-    assert list(outdir.iterdir()) == []
+    assert _visible(outdir) == []
 
 
 @needs_tools("bwa", "samtools")
@@ -522,14 +549,19 @@ def test_native_stream_failure_removes_partial_output_and_collation(
     outdir = tmp_path / "failure"
     with pytest.raises(WGSExtractError, match="bwa alignment failed"):
         realign.run(_args(source, ref=ref, outdir=str(outdir), aligner="bwa"))
-    assert list(outdir.iterdir()) == []
+    assert _visible(outdir) == []
 
 
 def test_cleanup_problem_does_not_fail_a_finished_realign(
     tmp_path, monkeypatch, source, caplog
 ):
     fakes = _Fakes(monkeypatch)
-    monkeypatch.setattr(realign.align_cmd, "run", lambda args: Path(args.r1).unlink())
+
+    def align(args):
+        fakes.align(args)
+        Path(args.r1).unlink()
+
+    monkeypatch.setattr(realign.align_cmd, "run", align)
     with caplog.at_level(logging.WARNING):
         realign.run(_args(source, gpu=True))
     assert "Could not remove" in caplog.text
@@ -727,16 +759,13 @@ def test_realign_uses_actual_input_count_before_extraction_for_memory_and_disk(
         "_preflight_disk_space",
         lambda *_a, **kwargs: budgets.append(("disk", kwargs["reads"])),
     )
-    monkeypatch.setattr(
-        realign.align_cmd,
-        "run",
-        lambda args: budgets.append(("align", args._input_read_count)),
-    )
-    monkeypatch.setattr(
-        realign.align_cmd,
-        "align_bwa",
-        lambda args, **_kwargs: budgets.append(("align", args._input_read_count)),
-    )
+
+    def align(args, **_kwargs):
+        budgets.append(("align", args._input_read_count))
+        _write_alignment(args)
+
+    monkeypatch.setattr(realign.align_cmd, "run", align)
+    monkeypatch.setattr(realign.align_cmd, "align_bwa", align)
     overrides = {}
     if provided_fastqs:
         for mate in ("r1", "r2"):
@@ -768,11 +797,13 @@ def test_ultima_realign_counts_index_once_and_passes_through_unknown_counts(
         "_preflight_disk_space",
         lambda *_a, **k: calls.append(("disk", k["reads"])),
     )
-    monkeypatch.setattr(
-        realign.align_cmd,
-        "align_ultima",
-        lambda args, *_a: calls.append(("align", args._input_read_count)),
-    )
+
+    def align_ultima(args, *_a):
+        calls.append(("align", args._input_read_count))
+        Path(tmp_path, "x_aligned.bam").write_text("aligned")
+        Path(tmp_path, "x_aligned.bam.bai").write_text("index")
+
+    monkeypatch.setattr(realign.align_cmd, "align_ultima", align_ultima)
     realign.run(
         _args(source, platform="ultima", aligner="bwa", no_preflight=no_preflight)
     )
