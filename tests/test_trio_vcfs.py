@@ -172,6 +172,31 @@ def test_trio_proband_precedence_includes_explicit_input_and_configured_default(
     assert _ids(tmp_path / "out" / "trio_denovo.vcf.gz") == ["chosen"]
 
 
+def test_api_trio_reads_only_the_proband_it_is_given(tmp_path):
+    # PR #452 review: an explicit proband beside a stale `input` failed the
+    # API's input check on the unused file, and recorded it as an input.
+    from wgsextract_cli import api
+
+    child, mother, father = _trio(
+        tmp_path,
+        child=["100 denovo A G 0/1:99"],
+        mother=["100 . A . 0/0:99"],
+        father=["100 . A . 0/0:99"],
+    )
+    result = api.vcf.trio(
+        api.VcfTrioParams(
+            proband=Path(child),
+            input=tmp_path / "missing.bam",
+            mother=Path(mother),
+            father=Path(father),
+            outdir=tmp_path / "out",
+        )
+    )
+    assert result.status == "ok"
+    assert _ids(tmp_path / "out" / "trio_denovo.vcf.gz") == ["denovo"]
+    assert "missing.bam" not in {Path(i.path).name for i in result.inputs}
+
+
 def test_trio_region_limits_the_merge(tmp_path):
     files = _trio(
         tmp_path,

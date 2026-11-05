@@ -20,8 +20,10 @@ import logging
 import re
 import subprocess
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 
+from wgsextract_cli.api.vcf import VcfPharmcatParams
 from wgsextract_cli.core import variant_confidence
 from wgsextract_cli.core.builds import build_from_chr1_length, build_from_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
@@ -41,7 +43,7 @@ from wgsextract_cli.core.variant_files import (
     vcf_index_chromosomes,
 )
 
-from .basic import require_vcf_input
+from .basic import require_vcf_input, vcf_input_handler
 
 RELEASES_URL = "https://github.com/PharmGKB/PharmCAT/releases"
 PIPELINE_FILES = ("pharmcat_pipeline", "pharmcat.jar", "pharmcat_regions.bed")
@@ -49,7 +51,9 @@ PIPELINE_FILES = ("pharmcat_pipeline", "pharmcat.jar", "pharmcat_regions.bed")
 REFERENCE_FASTA = "reference.fna.bgz"
 
 
-def pharmcat_directory(args: argparse.Namespace, lib: ReferenceLibrary) -> str:
+def pharmcat_directory(
+    args: VcfPharmcatParams | argparse.Namespace, lib: ReferenceLibrary
+) -> str:
     """The extracted PharmCAT pipeline: --pharmcat-dir, pharmcat_directory, or
     <reference library>/pharmcat."""
     directory = args.pharmcat_dir or (
@@ -149,7 +153,7 @@ def prepare_input(input_vcf: str, directory: str, reference: str, work: str) -> 
 
 
 def label_pgx_calls(
-    input_vcf: str, work: str, args: argparse.Namespace
+    input_vcf: str, work: str, params: VcfPharmcatParams
 ) -> variant_confidence.ConfidenceSummary:
     """Confidence labels for the input's calls in PharmCAT's gene regions
     (written by prepare_input to work/regions.bed, in the input's names): a
@@ -165,13 +169,13 @@ def label_pgx_calls(
     return variant_confidence.label_vcf(
         input_vcf,
         None,
-        variant_confidence.thresholds_from(args),
+        variant_confidence.thresholds_from(params),
         regions_file=regions,
         region_names=named,
     )
 
 
-def merge_outside_calls(paths: list[str], merged: str) -> str:
+def merge_outside_calls(paths: Sequence[str | Path], merged: str) -> str:
     """One PharmCAT outside-call file from several (e.g. `typing cyp2d6` and
     `typing hla` output); each gene may be called by only one of them."""
     seen: dict[str, str] = {}
@@ -189,7 +193,7 @@ def merge_outside_calls(paths: list[str], merged: str) -> str:
                         f"{gene} is called in both {seen[gene]} and {path}; "
                         "give PharmCAT one call per gene."
                     )
-                seen[gene] = path
+                seen[gene] = str(path)
                 lines.append(line.rstrip("\r\n") + "\n")
     with open(merged, "w", encoding="utf-8", newline="\n") as f:
         f.writelines(lines)
@@ -229,18 +233,18 @@ def _vcf_build(vcf: str) -> str | None:
     return None
 
 
-def cmd_pharmcat(args: argparse.Namespace) -> None:
+def run_pharmcat(params: VcfPharmcatParams) -> None:
     verify_dependencies(["bcftools", "tabix"])
-    input_vcf = require_vcf_input(args)
-    outdir = str(absolute_path(args.outdir or str(Path(input_vcf).parent)))
+    input_vcf = require_vcf_input(params)
+    outdir = str(absolute_path(params.outdir or Path(input_vcf).parent))
     Path(outdir).mkdir(parents=True, exist_ok=True)
-    lib = ReferenceLibrary(getattr(args, "ref", None), None, input_path=input_vcf)
+    lib = ReferenceLibrary(params.ref, None, input_path=input_vcf)
     # The library knows the build only when there is one; the VCF's contigs
     # tell it either way.
     build = lib.build or _vcf_build(input_vcf)
     if build and "38" not in build:
         raise WGSExtractError(f"PharmCAT needs a GRCh38 VCF; {input_vcf} is {build}.")
-    directory = pharmcat_directory(args, lib)
+    directory = pharmcat_directory(params, lib)
     python = _python(directory)
     input_vcf = ensure_vcf_prepared(input_vcf)  # bgzipped and indexed
     reference = _ensure_reference(python, directory)
@@ -249,18 +253,18 @@ def cmd_pharmcat(args: argparse.Namespace) -> None:
     with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_pharmcat_") as work:
         logging.info("Preparing the VCF for PharmCAT (its gene regions only)...")
         prepared = prepare_input(input_vcf, directory, reference, work)
-        confidence = label_pgx_calls(input_vcf, work, args)
+        confidence = label_pgx_calls(input_vcf, work, params)
         command = [
             *python, str(Path(directory, "pharmcat_pipeline")), prepared,
             "-o", outdir, "-bf", stem, "-reporterHtml", "-reporterJson",
         ]  # fmt: skip
-        if args.absent_to_ref:
+        if params.absent_to_ref:
             command.append("--absent-to-ref")
         # The pipeline has no outside-call flag: it uses `<base name>.outside.tsv`
         # beside its preprocessed VCF, which it writes to the output directory.
         outside = str(Path(outdir, f"{stem}.outside.tsv"))
-        if args.outside_call:
-            merge_outside_calls(args.outside_call, outside)
+        if params.outside_call:
+            merge_outside_calls(params.outside_call, outside)
         elif Path(outside).exists():
             logging.warning(f"PharmCAT will also use the outside calls in {outside}.")
         used_outside_calls = Path(outside).exists()
@@ -297,3 +301,6 @@ def cmd_pharmcat(args: argparse.Namespace) -> None:
             "CYP2D6 and HLA-A/HLA-B need calls PharmCAT can't make from a VCF: "
             "pass them with --outside-call (from `typing cyp2d6` / `typing hla`)."
         )
+
+
+cmd_pharmcat = vcf_input_handler(VcfPharmcatParams, run_pharmcat)

@@ -106,7 +106,26 @@ from .qc import (
 from .report import ReportParams
 from .sample import SampleSetParams, SampleShowParams, SampleUnsetParams
 from .support import IssueReport, ReportIssueParams
-from .vcf import VcfIndelParams, VcfSnpParams
+from .vcf import (
+    VcfAlphamissenseParams,
+    VcfAnnotateParams,
+    VcfCaddParams,
+    VcfChainAnnotateParams,
+    VcfClinvarParams,
+    VcfFilterParams,
+    VcfGerpParams,
+    VcfGnomadParams,
+    VcfIndelParams,
+    VcfPharmcatParams,
+    VcfPharmgkbParams,
+    VcfPhylopParams,
+    VcfRevelParams,
+    VcfSnpParams,
+    VcfSpliceaiParams,
+    VcfTableParams,
+    VcfToFastaParams,
+    VcfTrioParams,
+)
 
 __all__ = [
     "AlignParams",
@@ -156,8 +175,24 @@ __all__ = [
     "SampleUnsetParams",
     "UnmappedParams",
     "UsageError",
+    "VcfAlphamissenseParams",
+    "VcfAnnotateParams",
+    "VcfCaddParams",
+    "VcfChainAnnotateParams",
+    "VcfClinvarParams",
+    "VcfFilterParams",
+    "VcfGerpParams",
+    "VcfGnomadParams",
     "VcfIndelParams",
+    "VcfPharmcatParams",
+    "VcfPharmgkbParams",
+    "VcfPhylopParams",
+    "VcfRevelParams",
     "VcfSnpParams",
+    "VcfSpliceaiParams",
+    "VcfTableParams",
+    "VcfToFastaParams",
+    "VcfTrioParams",
     "WGSExtractError",
     "YHaplogroupParams",
     "YMtExtractParams",

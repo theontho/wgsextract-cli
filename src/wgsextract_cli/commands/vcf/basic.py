@@ -1,17 +1,24 @@
 import argparse
 import gzip
 import logging
+import os
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeVar
 
 from wgsextract_cli.api._cli import cli_handler
-from wgsextract_cli.api.vcf import VcfIndelParams, VcfSnpParams
+from wgsextract_cli.api._params import Params
+from wgsextract_cli.api.vcf import (
+    VcfAnnotateParams,
+    VcfIndelParams,
+    VcfSnpParams,
+    _VcfFileParams,
+)
 from wgsextract_cli.core import ultima
 from wgsextract_cli.core.alignment_health import warn_about_alignment
 from wgsextract_cli.core.builds import is_hg37_build, is_hg38_build, ploidy_for_build
@@ -48,6 +55,8 @@ from wgsextract_cli.core.warnings import print_warning
 
 from .contig_calling import call_small_variants
 
+P = TypeVar("P", bound=Params)
+
 
 def _select_vcf_input(args: argparse.Namespace) -> str | None:
     """
@@ -69,11 +78,39 @@ def _select_vcf_input(args: argparse.Namespace) -> str | None:
     return str(selected) if selected else None
 
 
-def require_vcf_input(args: argparse.Namespace) -> str:
-    input_file = _select_vcf_input(args)
-    if not input_file:
+def require_vcf_input(params: _VcfFileParams) -> str:
+    """The VCF an operation reads: ``vcf_input``, else ``input``."""
+    chosen = params.vcf_input or params.input
+    if not chosen:
         raise UsageError(LOG_MESSAGES["input_required"])
-    return input_file
+    return os.fspath(chosen)
+
+
+def vcf_input_handler(
+    cls: type[P], impl: Callable[..., None], **render: str
+) -> Callable[[argparse.Namespace], None]:
+    """``cli_handler`` for an operation on a VCF: the CLI's choice between
+    --vcf-input (default: config default_input_vcf) and --input
+    (``_select_vcf_input``) becomes ``vcf_input``, or stays ``input`` when
+    that is the pick (dispatch has recorded it under that role)."""
+    handler = cli_handler(cls, impl, **render)
+
+    def cmd(args: argparse.Namespace) -> None:
+        explicit: set[str] = getattr(args, "_explicit_dests", set())
+        if getattr(args, "vcf_input", None) is None and "vcf_input" not in explicit:
+            args.vcf_input = settings.get("default_input_vcf")
+        selected = _select_vcf_input(args)
+        given = getattr(args, "input", None)
+        if selected is not None and given is not None and selected == str(given):
+            args.vcf_input = None
+        else:
+            args.vcf_input = selected
+        handler(args)
+
+    cmd.__module__ = impl.__module__
+    cmd.__name__ = cmd.__qualname__ = handler.__name__
+    cmd.__doc__ = handler.__doc__
+    return cmd
 
 
 @dataclass(frozen=True)
@@ -337,24 +374,24 @@ def _annotation_columns(ann_vcf: str) -> str:
     return "ID"
 
 
-def cmd_annotate(args: argparse.Namespace) -> None:
+def run_annotate(params: VcfAnnotateParams) -> None:
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
-    input_file = require_vcf_input(args)
+    input_file = require_vcf_input(params)
     logging.debug(f"Input file: {str(absolute_path(input_file))}")
 
-    outdir = args.outdir or str(absolute_path(input_file).parent)
+    outdir = params.outdir or absolute_path(input_file).parent
     logging.debug(f"Output directory: {str(absolute_path(outdir))}")
     out_vcf = str(Path(outdir, "annotated.vcf.gz"))
 
-    ann_vcf = args.ann_vcf
+    ann_vcf = os.fspath(params.ann_vcf) if params.ann_vcf else None
     if not ann_vcf:
         md5_sig = (
             calculate_bam_md5(input_file, None)
             if input_file.lower().endswith((".bam", ".cram"))
             else None
         )
-        lib = ReferenceLibrary(args.ref, md5_sig, input_path=input_file)
+        lib = ReferenceLibrary(params.ref, md5_sig, input_path=input_file)
         if not lib.ref_vcf_tab:
             raise WGSExtractError(
                 "--ann-vcf is required and could not be auto-resolved."
@@ -363,7 +400,7 @@ def cmd_annotate(args: argparse.Namespace) -> None:
         logging.info(f"Auto-resolved annotation file: {ann_vcf}")
 
     verify_paths_exist({"--input": input_file, "--ann-vcf": ann_vcf})
-    cols = args.cols or _annotation_columns(ann_vcf)
+    cols = params.cols or _annotation_columns(ann_vcf)
 
     input_vcf = ensure_vcf_prepared(input_file)
     ann_vcf = ensure_vcf_prepared(ann_vcf)
@@ -389,3 +426,6 @@ def cmd_annotate(args: argparse.Namespace) -> None:
         raise WGSExtractError(f"Annotation failed: {e}") from e
     current_result().add_input(ann_vcf, "annotation")
     record_variants(out_vcf, "annotated", vcf_record_count(out_vcf))
+
+
+cmd_annotate = vcf_input_handler(VcfAnnotateParams, run_annotate)

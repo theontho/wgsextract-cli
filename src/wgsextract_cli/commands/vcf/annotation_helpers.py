@@ -1,5 +1,5 @@
-import argparse
 import logging
+import os
 import subprocess
 import tempfile
 from collections.abc import Iterator, Sequence
@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 
+from wgsextract_cli.api.vcf import _VcfFileParams
 from wgsextract_cli.core.bgzf import is_bgzf
 from wgsextract_cli.core.dependencies import get_tool_path
 from wgsextract_cli.core.messages import LOG_MESSAGES
@@ -36,17 +37,24 @@ from .basic import record_variants, require_vcf_input
 VCF_SUFFIXES = (".vcf", ".vcf.gz", ".vcf.bgz")
 
 
-def annotation_context(args: argparse.Namespace) -> tuple[str, str, ReferenceLibrary]:
-    input_file = require_vcf_input(args)
-    outdir = getattr(args, "outdir", None) or str(absolute_path(input_file).parent)
+def annotation_context(
+    params: _VcfFileParams,
+) -> tuple[str, str, ReferenceLibrary]:
+    input_file = require_vcf_input(params)
+    outdir = os.fspath(params.outdir or absolute_path(input_file).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
     md5_sig = (
         calculate_bam_md5(input_file, None)
         if input_file.lower().endswith((".bam", ".cram"))
         else None
     )
-    lib = ReferenceLibrary(getattr(args, "ref", None), md5_sig, input_path=input_file)
+    lib = ReferenceLibrary(getattr(params, "ref", None), md5_sig, input_path=input_file)
     return input_file, outdir, lib
+
+
+def resource(given: Path | None, default: str | None) -> str | None:
+    """An annotation data file: the one given, else the library's."""
+    return os.fspath(given) if given else default
 
 
 def require_annotation_file(file_path: str | None, message_key: str, ann: str) -> str:

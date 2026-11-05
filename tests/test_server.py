@@ -11,6 +11,7 @@ import subprocess
 import sys
 import threading
 import time
+import typing
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
@@ -211,6 +212,21 @@ def test_a_job_writing_into_a_busy_folder_waits(
         )
         assert status == 202, second
         assert (first["status"], second["status"]) == ("running", "queued")
+
+
+def test_a_trio_saving_beside_its_proband_waits_for_that_folder(
+    tmp_path, work, fake_data, slow_coverage
+):
+    # PR #452 review: the scheduler ignored `proband`, so a trio saving beside
+    # its child ran alongside a job writing the same folder.
+    bam, ref = fake_data
+    with _serve(tmp_path, [work, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(work)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        family = {r: str(work / f"{r}.vcf.gz") for r in ("proband", "mother", "father")}
+        status, trio = client.request("POST", "/ops/vcf/trio", family)
+        assert status == 202, trio
+        assert (first["status"], trio["status"]) == ("running", "queued")
 
 
 def test_operations_and_openapi_follow_the_typed_api(client):
@@ -452,6 +468,64 @@ def test_path_guard_covers_every_alignment_path(op, field, value):
     with pytest.raises(RequestError) as refused:
         guard.check(params_from_json(find(op), {**allowed, field: value}))
     assert refused.value.code in ("usage", "path_not_allowed")
+
+
+_VCF_FILE_OPS = (
+    "annotate", "filter", "table", "to-fasta", "trio", "clinvar", "revel",
+    "phylop", "cadd", "gerp", "gnomad", "spliceai", "alphamissense", "pharmgkb",
+    "pharmcat", "chain-annotate",
+)  # fmt: skip
+_VCF_PATHS = [
+    (f"vcf/{name}", item)
+    for name in _VCF_FILE_OPS
+    for item in find(f"vcf/{name}").fields()
+    if item.spec.path and not item.spec.local_only
+]
+
+
+@pytest.mark.parametrize(
+    ("op", "field"),
+    [(op, item.name) for op, item in _VCF_PATHS],
+    ids=[f"{op}-{item.name}" for op, item in _VCF_PATHS],
+)
+@pytest.mark.parametrize(
+    "value", ["D:evil.vcf", r"D:\evil.vcf", r"\\host\share\evil.vcf", "evil.vcf"]
+)
+def test_path_guard_covers_every_vcf_path(op, field, value):
+    # #346: the VCF-file commands became server operations; each file they
+    # read or write must be inside an allowed folder, drive-relative included.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {"vcf_input": r"C:\data\in.vcf.gz", "outdir": r"C:\data"}
+    guard.check(params_from_json(find(op), allowed))
+    item = next(f for f in find(op).fields() if f.name == field)
+    bad = [value] if typing.get_origin(item.base_type) is tuple else value
+    with pytest.raises(RequestError) as refused:
+        guard.check(params_from_json(find(op), {**allowed, field: bad}))
+    assert refused.value.code in ("usage", "path_not_allowed")
+
+
+def test_vcf_paths_cover_every_resource():
+    # Every annotation data file, the trio's members and outside calls are
+    # guarded; PharmCAT's pipeline folder runs code, so requests can't set it.
+    guarded = {item.name for _, item in _VCF_PATHS}
+    assert {"clinvar_file", "cadd_indel_file", "am_file", "mother", "father",
+            "proband", "mask", "pharmcat_json", "outside_call",
+            "ann_vcf"} <= guarded  # fmt: skip
+    # PR #452 review: <ref>/pharmcat is the pipeline's default folder.
+    for field in ("pharmcat_dir", "ref"):
+        with pytest.raises(RequestError, match="can't be set by a server request"):
+            params_from_json(find("vcf/pharmcat"), {field: r"C:\data\pc"})
+
+
+def test_path_guard_refuses_file_operands_in_expressions():
+    # PR #452 review: bcftools reads `@FILE` in an expression, past the guard.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    allowed = {"vcf_input": r"C:\data\in.vcf.gz", "expr": "QUAL>30"}
+    guard.check(params_from_json(find("vcf/filter"), allowed))
+    for expr in ("ID=@/outside/ids.txt", r"ID!=@\\host\share\ids"):
+        with pytest.raises(RequestError, match="@FILE") as refused:
+            guard.check(params_from_json(find("vcf/filter"), {**allowed, "expr": expr}))
+        assert refused.value.code == "path_not_allowed"
 
 
 def test_read_only_mcp_info_saves_nothing(tmp_path, fake_data):

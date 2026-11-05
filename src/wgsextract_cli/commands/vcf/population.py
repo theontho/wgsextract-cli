@@ -1,9 +1,9 @@
-import argparse
 import logging
 import re
 import subprocess
 from pathlib import Path
 
+from wgsextract_cli.api.vcf import VcfGnomadParams, VcfPhylopParams
 from wgsextract_cli.core import variant_confidence
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
@@ -22,8 +22,10 @@ from .annotation_helpers import (
     prepare_tabix_annotation,
     record_annotated,
     require_annotation_file,
+    resource,
     run_min_score_filter,
 )
+from .basic import vcf_input_handler
 from .bigwig_scores import annotate_from_bigwig
 
 PHYLOP_ANNOTATED = "phylop_annotated.vcf.gz"
@@ -31,14 +33,14 @@ GNOMAD_ANNOTATED = "gnomad_annotated.vcf.gz"
 GNOMAD_COLUMNS = ("GNOMAD_AF",)
 
 
-def cmd_phylop(args: argparse.Namespace) -> None:
+def run_phylop(params: VcfPhylopParams) -> None:
     verify_dependencies(["bcftools", "tabix", "bgzip"])
     log_dependency_info(["bcftools", "tabix", "bgzip"])
-    input_file, outdir, lib = annotation_context(args)
+    input_file, outdir, lib = annotation_context(params)
     logging.info(LOG_MESSAGES["vcf_phylop_start"].format(input=input_file))
 
     phylop_file = require_annotation_file(
-        args.phylop_file or lib.phylop_file, "vcf_phylop_missing", "phylop"
+        resource(params.phylop_file, lib.phylop_file), "vcf_phylop_missing", "phylop"
     )
     logging.info(LOG_MESSAGES["vcf_phylop_resolve"].format(path=phylop_file))
 
@@ -53,18 +55,24 @@ def cmd_phylop(args: argparse.Namespace) -> None:
             "PhyloP 100-way vertebrate conservation score",
             ann_out,
             outdir,
-            threads=getattr(args, "threads", None),
+            threads=params.threads,
         )
     else:
-        _annotate_from_phylop_table(args, input_file, phylop_file, ann_out, outdir)
+        _annotate_from_phylop_table(params, input_file, phylop_file, ann_out, outdir)
 
     run_min_score_filter(
-        ann_out, outdir, args.min_score, "PHYLOP", "phylop", "PhyloP", "vcf_phylop_done"
+        ann_out,
+        outdir,
+        params.min_score,
+        "PHYLOP",
+        "phylop",
+        "PhyloP",
+        "vcf_phylop_done",
     )
 
 
 def _annotate_from_phylop_table(
-    args: argparse.Namespace,
+    params: VcfPhylopParams,
     input_file: str,
     phylop_file: str,
     ann_out: str,
@@ -80,7 +88,7 @@ def _annotate_from_phylop_table(
             ann_out,
             outdir,
             "PhyloP",
-            threads=getattr(args, "threads", None),
+            threads=params.threads,
         )
     else:
         # Annovar PhyloP TSV: #Chr, Start, End, Score
@@ -95,18 +103,18 @@ def _annotate_from_phylop_table(
                 "##INFO=<ID=PHYLOP,Number=1,Type=Float,"
                 'Description="PhyloP conservation score">'
             ],
-            threads=getattr(args, "threads", None),
+            threads=params.threads,
         )
 
 
-def cmd_gnomad(args: argparse.Namespace) -> None:
+def run_gnomad(params: VcfGnomadParams) -> None:
     verify_dependencies(["bcftools", "tabix"])
     log_dependency_info(["bcftools", "tabix"])
-    input_file, outdir, lib = annotation_context(args)
+    input_file, outdir, lib = annotation_context(params)
     logging.info(f"Annotating VCF with gnomAD data: {input_file}")
 
     gnomad_file = require_annotation_file(
-        args.gnomad_file or lib.gnomad_vcf, "vcf_gnomad_missing", "gnomad"
+        resource(params.gnomad_file, lib.gnomad_vcf), "vcf_gnomad_missing", "gnomad"
     )
     logging.info(f"Using gnomAD file: {gnomad_file}")
 
@@ -130,17 +138,17 @@ def cmd_gnomad(args: argparse.Namespace) -> None:
         outdir,
         "gnomAD",
         header,
-        threads=getattr(args, "threads", None),
+        threads=params.threads,
     )
 
     record_annotated(ann_out)
-    if args.max_af is None:
+    if params.max_af is None:
         logging.info(LOG_MESSAGES["vcf_gnomad_done"].format(output=ann_out))
         return
 
-    filter_out = str(Path(outdir, f"gnomad_af_lt_{args.max_af}.vcf.gz"))
+    filter_out = str(Path(outdir, f"gnomad_af_lt_{params.max_af}.vcf.gz"))
     logging.info(
-        f"Filtering for variants with gnomAD Allele Frequency < {args.max_af} "
+        f"Filtering for variants with gnomAD Allele Frequency < {params.max_af} "
         f"to {filter_out}"
     )
     # Rare-variant filtering keeps variants absent from gnomAD too.
@@ -148,21 +156,21 @@ def cmd_gnomad(args: argparse.Namespace) -> None:
         summary = variant_confidence.label_vcf(
             ann_out,
             filter_out,
-            variant_confidence.thresholds_from(args),
-            include=f"GNOMAD_AF < {args.max_af} || GNOMAD_AF='.'",
+            variant_confidence.thresholds_from(params),
+            include=f"GNOMAD_AF < {params.max_af} || GNOMAD_AF='.'",
             summary_columns=GNOMAD_COLUMNS,
         )
     except (OSError, subprocess.SubprocessError) as e:
         raise WGSExtractError(f"gnomAD filtering failed: {e}") from e
     table = re.sub(r"\.vcf\.gz$", ".confidence.tsv", filter_out)
     variant_confidence.write_table(
-        table, summary, GNOMAD_COLUMNS, f"Calls with gnomAD AF < {args.max_af}"
+        table, summary, GNOMAD_COLUMNS, f"Calls with gnomAD AF < {params.max_af}"
     )
     variant_confidence.record(
         summary,
         output=filter_out,
         role="rare_variants",
-        what=f"calls rarer than gnomAD AF {args.max_af}",
+        what=f"calls rarer than gnomAD AF {params.max_af}",
         table=table,
     )
     count = vcf_record_count(filter_out)
@@ -171,3 +179,7 @@ def cmd_gnomad(args: argparse.Namespace) -> None:
     )
     current_result().add_metrics(filtered_variants=count)
     logging.info(f"gnomAD filtering complete: {filter_out}")
+
+
+cmd_phylop = vcf_input_handler(VcfPhylopParams, run_phylop)
+cmd_gnomad = vcf_input_handler(VcfGnomadParams, run_gnomad)

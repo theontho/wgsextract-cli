@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import argparse
 import hashlib
 import logging
+import os
 import re
 import sqlite3
 import subprocess
@@ -14,6 +14,7 @@ from collections.abc import Iterable, Iterator
 from contextlib import ExitStack
 from pathlib import Path
 
+from wgsextract_cli.api.vcf import VcfTableParams
 from wgsextract_cli.core.atomic_output import atomic_output
 from wgsextract_cli.core.builds import build_from_chr1_length, build_from_path
 from wgsextract_cli.core.dependency_checks import verify_dependencies
@@ -45,7 +46,7 @@ from wgsextract_cli.core.variant_table import (
     variant_rows,
 )
 
-from .basic import require_vcf_input
+from .basic import require_vcf_input, vcf_input_handler
 from .pharmcat import summarize
 
 _VCF_SUFFIX = re.compile(r"\.(g?vcf(\.b?gz)?|bcf)$", re.IGNORECASE)
@@ -235,31 +236,33 @@ def _indexed_input(path: str) -> str:
     return path
 
 
-def cmd_table(args: argparse.Namespace) -> None:
+def run_table(params: VcfTableParams) -> None:
     verify_dependencies(["bcftools"])
-    check_format(args.table_format)
-    input_vcf = require_vcf_input(args)
+    check_format(params.table_format)
+    input_vcf = require_vcf_input(params)
     if not Path(input_vcf).is_file():
         raise UsageError(f"VCF not found: {input_vcf}")
-    if args.region:
+    if params.region:
         input_vcf = _indexed_input(input_vcf)  # -r needs an index
-    outdir = str(absolute_path(args.outdir or str(Path(input_vcf).parent)))
+    outdir = str(absolute_path(params.outdir or Path(input_vcf).parent))
     Path(outdir).mkdir(parents=True, exist_ok=True)
-    samples, sample = _select_sample(input_vcf, args.sample)
-    pharmcat = _pharmcat_calls(args.pharmcat_json)
+    samples, sample = _select_sample(input_vcf, params.sample)
+    pharmcat = _pharmcat_calls(
+        os.fspath(params.pharmcat_json) if params.pharmcat_json else None
+    )
     result = current_result()
-    if args.pharmcat_json:
-        result.add_input(args.pharmcat_json, "pharmcat_phenotype")
+    if params.pharmcat_json:
+        result.add_input(params.pharmcat_json, "pharmcat_phenotype")
 
     stem = str(Path(outdir, table_stem(input_vcf)))
-    out_table = table_path(stem, args.table_format)
-    sqlite_path = None if args.no_sqlite else stem + ".sqlite"
+    out_table = table_path(stem, params.table_format)
+    sqlite_path = None if params.no_sqlite else stem + ".sqlite"
 
     command = ["bcftools", "view", "--no-version"]
     if sample and len(samples) > 1:
         command += ["-s", sample, "-I"]  # -I: keep INFO as it is
-    if args.region:
-        command += ["-r", args.region]
+    if params.region:
+        command += ["-r", params.region]
     command.append(input_vcf)
 
     logging.info(f"Writing the variant table from {input_vcf}...")
@@ -269,16 +272,16 @@ def cmd_table(args: argparse.Namespace) -> None:
         build = _reference_build(header)
         annotations = ",".join(header.annotations)
         # A full pass over the VCF, so only when SQLite or Parquet keeps it.
-        keeps_metadata = sqlite_path is not None or args.table_format == "parquet"
+        keeps_metadata = sqlite_path is not None or params.table_format == "parquet"
         metadata = provenance(
             [input_vcf],
             reference_build=build or "",
             sorted_by="the VCF's record order (chrom, pos)",
             source_sha256=(_sha256(input_vcf) or "") if keeps_metadata else None,
             sample=sample or "",
-            region=args.region or "",
+            region=params.region or "",
             annotations=annotations,
-            carried_only=str(not args.all_alleles).lower(),
+            carried_only=str(not params.all_alleles).lower(),
         )
         rows = _write_tables(
             stream,
@@ -286,11 +289,11 @@ def cmd_table(args: argparse.Namespace) -> None:
                 stream.stdout,
                 header,
                 sample_index=0 if sample else None,
-                carried_only=not args.all_alleles,
+                carried_only=not params.all_alleles,
                 pharmcat=pharmcat,
             ),
             out_table,
-            args.table_format,
+            params.table_format,
             sqlite_path,
             metadata,
         )
@@ -319,3 +322,6 @@ def cmd_table(args: argparse.Namespace) -> None:
     human_output(f"{rows:,} variant rows{found}:")
     for path in filter(None, (out_table, sqlite_path)):
         human_output(f"  {path}")
+
+
+cmd_table = vcf_input_handler(VcfTableParams, run_table)

@@ -514,7 +514,8 @@ def write_private_json(path: Path, data: Mapping[str, Any]) -> None:
         json.dump(data, f, indent=1)
 
 
-_INPUT_NAMES = ("vcf_input", "input", "inputs", "r1")
+# In precedence order: a trio's proband overrides its other inputs.
+_INPUT_NAMES = ("proband", "vcf_input", "input", "inputs", "r1")
 
 
 def _folder_key(folder: str) -> str:

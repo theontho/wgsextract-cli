@@ -200,6 +200,11 @@ def _coerce(item: ParamField, value: object) -> object:
         return None
     base = item.base_type
     if typing.get_origin(base) is tuple:
+        element = typing.get_args(base)[0]
+        if element is float:
+            if not (isinstance(value, list) and all(_is_number(v) for v in value)):
+                raise _type_error(item, "an array of numbers")
+            return tuple(float(v) for v in value)
         if not (isinstance(value, list) and all(isinstance(v, str) for v in value)):
             raise _type_error(item, "an array of strings")
         return tuple(value)
@@ -220,6 +225,10 @@ def _coerce(item: ParamField, value: object) -> object:
             raise _type_error(item, "a number")
         return float(value)
     return value
+
+
+def _is_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def _type_error(item: ParamField, expected: str) -> RequestError:
@@ -301,6 +310,13 @@ class PathGuard:
                     self.check_path(item.name, path)
                 elif isinstance(path, str) and item.spec.may_name_file:
                     self._check_text(item.name, path)
+                elif isinstance(path, str) and item.spec.expression and "@" in path:
+                    raise RequestError(
+                        403,
+                        "path_not_allowed",
+                        f"{item.name!r}: a server request can't read a file "
+                        "with an @FILE operand.",
+                    )
 
     def _check_text(self, name: str, text: str) -> None:
         """A text value that names a file when one exists there (a BED file
