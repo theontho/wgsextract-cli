@@ -4,6 +4,7 @@ GATK faked at its process boundary."""
 import errno
 import json
 import os
+import platform
 import random
 import shutil
 import time
@@ -96,10 +97,10 @@ def ultima(tmp_path_factory) -> Namespace:
     run_command(["samtools", "faidx", str(ref)])
     run_command(["samtools", "dict", "-o", str(work / "ref.dict"), str(ref)])
     calls = []
-    for platform in ("ULTIMA\tFO:TGCA", "ILLUMINA"):
+    for read_group in ("ULTIMA\tFO:TGCA", "ILLUMINA"):
         lines = ["@HD\tVN:1.6\tSO:unsorted"]
         lines += [f"@SQ\tSN:{c}\tLN:3000" for c in seqs]
-        lines.append(f"@RG\tID:rg\tSM:S\tPL:{platform}")
+        lines.append(f"@RG\tID:rg\tSM:S\tPL:{read_group}")
         for contig, seq in seqs.items():
             alt = {"A": "C", "C": "G", "G": "T", "T": "A"}[seq[999]]
             sample = seq[:999] + alt + seq[1000:]
@@ -110,7 +111,7 @@ def ultima(tmp_path_factory) -> Namespace:
                     f"\t*\t0\t0\t{sample[start - 1 : start + 99]}\t{'I' * 100}"
                     f"\ttp:B:c{',0' * 100}\tt0:Z:{'I' * 100}\tRG:Z:rg"
                 )
-        name = "ultima" if platform != "ILLUMINA" else "illumina"
+        name = "ultima" if read_group != "ILLUMINA" else "illumina"
         sam_to_bam(lines, work / f"{name}.bam")
     return Namespace(
         ref=str(ref),
@@ -128,6 +129,8 @@ def gatk(tmp_path, monkeypatch) -> FakeGatk:
     bindir = tmp_path / "bin"
     fake = FakeGatk(bindir, bcftools)
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+    # The fake runs anywhere; real GATK is refused on Linux ARM64 (#236).
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
     clear_tool_caches()
     monkeypatch.setattr(gatk_scatter, "available_memory", lambda: 24 * 1024**3)
     return fake

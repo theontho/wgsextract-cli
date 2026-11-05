@@ -2,6 +2,7 @@
 
 import json
 import os
+import platform
 import random
 import shutil
 import sys
@@ -162,6 +163,8 @@ def gatk(tmp_path, monkeypatch) -> FakeGatk:
     (tmp_path / "systemp").mkdir()
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "systemp"))
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+    # The fake runs anywhere; real GATK is refused on Linux ARM64 (#236).
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
     clear_tool_caches()
     return fake
 
