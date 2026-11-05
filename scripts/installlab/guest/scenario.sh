@@ -125,7 +125,7 @@ fi
 install_release() {
     # What a user who installed that release ran then: its own installer.
     cd "$HOME" || return 1
-    curl -fsSL "https://raw.githubusercontent.com/theontho/wgsextract-cli/$LAB_UPDATE_FROM/install.sh" |
+    curl -fsSL "https://raw.githubusercontent.com/WGSExtract/wgsextract-cli/$LAB_UPDATE_FROM/install.sh" |
         WGSEXTRACT_RELEASE_TAG="$LAB_UPDATE_FROM" WGSEXTRACT_NO_OPEN=1 sh
 }
 

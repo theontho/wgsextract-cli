@@ -108,7 +108,7 @@ WGS Extract has no GPU alignment for AMD (ROCm), Intel (oneAPI) or Apple
 (Metal) GPUs: we know of no maintained aligner for them whose output matches
 BWA-MEM. Integrated GPUs give no meaningful benefit. A Metal-accelerated
 aligner for Apple Silicon is being researched in
-[#364](https://github.com/theontho/wgsextract-cli/issues/364).
+[#364](https://github.com/WGSExtract/wgsextract-cli/issues/364).
 
 ## When a GPU is worth it
 

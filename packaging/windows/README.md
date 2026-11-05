@@ -54,7 +54,7 @@ with the chr20 reference. Its `windows-tools-8` package (`2.3-wgse_2`) also
 passed the separate native Windows/Linux full-human index gate: all five
 files' sizes and SHA-256 hashes match for the 3,217,346,917-base GRCh38
 reference, including the 6,434,693,834-byte `.0123` file. See
-[#264](https://github.com/theontho/wgsextract-cli/issues/264) for the reference
+[#264](https://github.com/WGSExtract/wgsextract-cli/issues/264) for the reference
 and complete hash manifest. Tiny tests alone do not establish full-human parity.
 Complete verified Linux-built indexes remain usable.
 

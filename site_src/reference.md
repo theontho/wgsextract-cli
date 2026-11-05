@@ -146,7 +146,7 @@ Raw read QC reports, adapter trimming, filtering, and preprocessing. These are m
 ### GATK / DeepVariant
 GATK and DeepVariant are high-accuracy variant calling workflows with different runtime and model tradeoffs. They can be powerful, but they are also sensitive to references, resources, and platform assumptions.
 
-Native Windows x64 GATK now uses a pinned GKL sidecar for AVX/OpenMP PairHMM and AVX2 Smith-Waterman. This does not imply parity on every CPU or dataset; see [native Windows validation](https://github.com/theontho/wgsextract-cli/blob/main/docs/windows.md#gatk-on-native-windows){.inline-link}. DeepVariant needs an explicitly prepared local runner or Docker image, not a Pixi DeepVariant environment.
+Native Windows x64 GATK now uses a pinned GKL sidecar for AVX/OpenMP PairHMM and AVX2 Smith-Waterman. This does not imply parity on every CPU or dataset; see [native Windows validation](https://github.com/WGSExtract/wgsextract-cli/blob/main/docs/windows.md#gatk-on-native-windows){.inline-link}. DeepVariant needs an explicitly prepared local runner or Docker image, not a Pixi DeepVariant environment.
 :::
 
 ::: card

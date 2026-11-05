@@ -6,7 +6,7 @@
 
 An independent command-line recreation of [WGS Extract](https://github.com/WGSExtract/WGSExtract-Dev/). It wraps samtools, bcftools, bwa/minimap2, GATK, Haplogrep, VEP and other tools and includes native Yleaf-derived Y-DNA analysis, so you can inspect BAM/CRAM files, simulate consumer microarray files, extract Y/mtDNA data, call and annotate variants, and manage reference genomes from scripts or the terminal. [Pixi](https://pixi.sh) provides Python and the bioinformatics tools on macOS, Linux, and Windows.
 
-Documentation site: <https://theontho.github.io/wgsextract-cli/>. A separate graphical app is available from [gui-for-cli](https://github.com/theontho/gui-for-cli/releases).
+Documentation site: <https://wgsextract.github.io/wgsextract-cli/>. A separate graphical app is available from [gui-for-cli](https://github.com/WGSExtract/gui-for-cli/releases).
 
 Y-DNA prediction credits Yleaf's authors at Erasmus MC: Arwin Ralf, Diego
 Montiel Gonzalez, Kaiyin Zhong, Manfred Kayser and Bram van Wersch.
@@ -26,21 +26,21 @@ are not yet qualified. DeepVariant has an explicit
 Java or x86-emulation fallback. See [Linux ARM64](docs/linux-arm64.md).
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/WGSExtract/wgsextract-cli/main/install.sh | sh
 ```
 
 Native Linux ARM64 needs a release that includes ARM64 support; v0.6.5 and
 earlier do not. Until a supporting release is available, select `main` explicitly:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/theontho/wgsextract-cli/main/install.sh | WGSEXTRACT_REF=main sh
+curl -fsSL https://raw.githubusercontent.com/WGSExtract/wgsextract-cli/main/install.sh | WGSEXTRACT_REF=main sh
 ```
 
 The bootstrap script comes from `main`, but it installs the latest published GitHub release, not `main`. It creates `wgsextract-cli/` in the current directory (or next to a downloaded `install.sh`) containing the app (`app/`), Pixi files (`.pixi/`), the `wgsextract` launcher, and `uninstall.sh`. On macOS it checks for the Xcode Command Line Tools first.
 
 Windows: clone or download the repository and run `install_windows.bat` from PowerShell. It installs Pixi when missing, then the CLI and its native Windows tools (WGS Extract's own builds of samtools, bcftools, BWA, bwa-mem2, minimap2, fastp and samblaster) into the Pixi environment. No WSL or MSYS2 is needed. See [docs/windows.md](docs/windows.md).
 
-The [install guide](https://theontho.github.io/wgsextract-cli/install.html) covers platform notes, download verification, and the reference library in more detail.
+The [install guide](https://wgsextract.github.io/wgsextract-cli/install.html) covers platform notes, download verification, and the reference library in more detail.
 
 ### Installer options
 
@@ -594,7 +594,7 @@ Keep larger runs last and budget their CPU, memory and working space.
 
 ## Reporting a problem
 
-`wgsextract report-issue` builds a bug report about the last command you ran and opens it as a pre-filled [GitHub issue](https://github.com/theontho/wgsextract-cli/issues/new/choose):
+`wgsextract report-issue` builds a bug report about the last command you ran and opens it as a pre-filled [GitHub issue](https://github.com/WGSExtract/wgsextract-cli/issues/new/choose):
 
 ```bash
 wgsextract report-issue                 # the last run
@@ -609,7 +609,7 @@ Nothing is uploaded. The command prints the report and its link and saves the fu
 ## Development
 
 ```bash
-git clone https://github.com/theontho/wgsextract-cli.git
+git clone https://github.com/WGSExtract/wgsextract-cli.git
 cd wgsextract-cli
 ./scripts/dev_setup.sh   # Windows: powershell -ExecutionPolicy Bypass -File scripts\dev_setup.ps1
 # open a new terminal if the script installed Pixi or just
@@ -670,7 +670,7 @@ pixi run pytest tests/test_smoke_real_basics.py \
 
 Options include `--real-input`, `--real-ref`, `--real-vcf`, `--real-region`, `--real-targets`, `--real-fastq-r1`/`--real-fastq-r2`, `--fake-data`, and `--full-data` (see `tests/conftest.py`). Alternatively, set `real_genome_test_path` and `real_genome_tests_enabled = true` in `config.toml`. Setting `dev_download_cache = true` caches downloads under `$XDG_CACHE_HOME/wgsextract/downloads` (`~/.cache/wgsextract/downloads` by default) for reuse across test runs, pruned after `dev_download_cache_ttl_seconds` (default one week).
 
-`wgsextract qc fake-data` generates synthetic BAM/CRAM/VCF/FASTQ files for tests and bug reports; see the [workflows page](https://theontho.github.io/wgsextract-cli/workflows.html#testing).
+`wgsextract qc fake-data` generates synthetic BAM/CRAM/VCF/FASTQ files for tests and bug reports; see the [workflows page](https://wgsextract.github.io/wgsextract-cli/workflows.html#testing).
 
 To cut a release, and get it into the WGS Extract app, see [docs/releasing.md](docs/releasing.md).
 
