@@ -269,7 +269,7 @@ def test_heavy_suite_adds_processing_steps_on_the_aligned_bam_and_region(
     assert {"12a-ref-count-ns", "12b-ref-verify", "17a-analyze-batch-fixture",
             "17b-analyze-batch-gen", "18a-repair-fixtures", "18b-repair-ftdna-bam",
             "18c-repair-ftdna-vcf"} <= extra  # fmt: skip
-    step_numbers = [slug.split("-", 1)[0] for slug in heavy]
+    step_numbers = [r["slug"].split("-", 1)[0] for r in heavy_run.document["results"]]
     assert len(step_numbers) == len(set(step_numbers))
 
     # Heavy steps read the aligned BAM and SNP calls, over the chosen region.

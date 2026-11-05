@@ -11,7 +11,6 @@ import csv
 import json
 import os
 import re
-import shutil
 import sys
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -170,7 +169,7 @@ class FakeSteps:
         self.broken_info = False
         self.reference: Path | None = None
         self.outputs: dict[str, str] = {}
-        if shutil.which("bgzip") and get_tool_path("bcftools"):
+        if all(get_tool_path(t) for t in ("bgzip", "tabix", "bcftools")):
             self.outputs = {
                 "vcf snp": write_vcf(home / "snps.vcf.gz", [(100, "s", "50", ".")]),
                 "vcf indel": write_vcf(home / "indels.vcf.gz", [(100, "i", "50", ".")]),
@@ -258,6 +257,8 @@ def fake(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeSteps:
 
 
 def _bam(path: Path, sample: str = "S") -> str:
+    if not get_tool_path("samtools"):
+        pytest.skip("samtools missing")
     path.parent.mkdir(parents=True, exist_ok=True)
     return sam_to_bam(
         ["@HD\tVN:1.6\tSO:coordinate", "@SQ\tSN:chr1\tLN:10000",

@@ -59,7 +59,7 @@ def test_atomic_mode_still_cleans_partial_outputs_from_direct_writers(tmp_path):
     assert not output.exists() and not temporary.exists()
 
 
-@needs_tools("samtools", "bcftools")
+@needs_tools("samtools", "bcftools", "bgzip", "tabix")
 @pytest.mark.parametrize("command", ["to-ubam", "table"])
 def test_alternative_input_does_not_validate_unmounted_configured_bam(
     tmp_path, command
@@ -190,7 +190,8 @@ def test_atomic_singleton_extraction_failure_preserves_previous_fastqs(
         path.write_bytes(b"previous FASTQs")
     require_bare_name_fakes()
     real = shutil.which("samtools")
-    assert real
+    if not real:
+        pytest.skip("the forwarding fake needs samtools on PATH")
     python_tool(tmp_path / "bin", "samtools", _INTERRUPTED_FASTQ.format(real=real))
     monkeypatch.setenv("PATH", f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}")
     clear_tool_caches()

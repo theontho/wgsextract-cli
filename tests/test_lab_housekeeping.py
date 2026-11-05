@@ -40,6 +40,8 @@ def hk(tmp_path, monkeypatch):
     bindir = tmp_path / "bin"
     python_tool(bindir, "ps", f"print(open({str(bindir / 'ps.txt')!r}).read())")
     (bindir / "ps.txt").write_text("")
+    # Shadows the OrbStack fallback, so a developer's daemon is never reached.
+    python_tool(bindir, "docker", "import sys; sys.exit(1)")
     module.ps_lines = bindir / "ps.txt"
     monkeypatch.setenv("PATH", str(bindir))
     (tmp_path / "tmp").mkdir()
