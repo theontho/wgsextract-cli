@@ -89,9 +89,9 @@ COMMAND_HELP: dict[str, CommandHelp] = {
     ),
     # microarray / lineage
     "microarray": _h(
-        "<input stem>_<format>.txt (or the vendor's extension) per format, and "
-        "<input stem>_CombinedKit.txt; with --format also <input stem>"
-        "_genotypes.tsv or .parquet.",
+        "<input stem>_<format>.txt (or the vendor's extension) per format, "
+        "such as sample_23andMe_V5.txt, and <input stem>_CombinedKit.txt; with "
+        "--format also <input stem>_genotypes.tsv or .parquet.",
         "wgsextract microarray --input sample.cram --formats 23andme_v5",
         "wgsextract microarray --input sample.cram --formats 23andme_v5,ancestry_v2",
     ),

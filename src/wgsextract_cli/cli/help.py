@@ -252,7 +252,8 @@ def command_map(color: bool) -> str:
     lines += _wrap(
         "More: 'wgsextract help --all' lists every command; 'wgsextract help "
         "vcf snp' (or 'wgsextract vcf snp --help') explains one; 'wgsextract "
-        "help topics' lists concepts such as references and exit codes.",
+        "help topics' lists concepts such as references and exit codes. For "
+        "scripts and AI agents: 'wgsextract help --all --json'.",
         color,
         "More",
     )

@@ -4,6 +4,8 @@ import logging
 import sys
 from pathlib import Path
 
+from wgsextract_cli.commands._command_needs import COMMAND_NEEDS, HOURS, MINUTES
+from wgsextract_cli.core import live_status
 from wgsextract_cli.core.genome_library import apply_genome_selection
 from wgsextract_cli.core.keep_awake import keep_awake
 from wgsextract_cli.core.last_run import LogTail, record_last_run
@@ -42,7 +44,8 @@ def dispatch_command(args: argparse.Namespace, explicit_dests: set[str]) -> None
     Exit codes: 0 ok, 1 failure, 2 usage error, 3 missing dependency (and
     128+N when stopped by signal N). The command's result manifest is written
     next to its outputs; with --json it is also the only thing on stdout.
-    On a terminal, a successful run ends with 'Next:' hints on stderr.
+    On a terminal, a long run shows a progress line on stderr while it works
+    and a successful run ends with 'Next:' hints there.
     """
     if not hasattr(args, "func"):
         raise RuntimeError("No command function is registered for parsed arguments.")
@@ -60,7 +63,8 @@ def dispatch_command(args: argparse.Namespace, explicit_dests: set[str]) -> None
     root.addHandler(tail)
     with reserved as stdout, collecting(result, as_json=as_json):
         try:
-            _run(args, explicit_dests, result)
+            with _progress_line(args, result.command):
+                _run(args, explicit_dests, result)
         finally:
             root.removeHandler(tail)
         has_manifest = result.manifest_path() is not None
@@ -84,6 +88,21 @@ def dispatch_command(args: argparse.Namespace, explicit_dests: set[str]) -> None
     if result.exit_code:
         sys.exit(result.exit_code)
     print_next_steps(args, result)
+
+
+def _progress_line(
+    args: argparse.Namespace, command: str
+) -> contextlib.AbstractContextManager[object]:
+    """The terminal's progress line, for a command that takes minutes or more."""
+    needs = COMMAND_NEEDS.get(command)
+    if needs is None or needs.runtime not in (MINUTES, HOURS):
+        return contextlib.nullcontext()
+    stream = sys.stderr
+    as_json = bool(getattr(args, "json", False))
+    quiet = bool(getattr(args, "quiet", False))
+    if not live_status.wanted(stream, json=as_json, quiet=quiet):
+        return contextlib.nullcontext()
+    return live_status.LiveStatus(command, stream)
 
 
 def _index_output(

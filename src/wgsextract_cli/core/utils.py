@@ -1,7 +1,9 @@
 import codecs
 import contextlib
+import functools
 import logging
 import os
+import re
 import shlex
 import shutil
 import signal
@@ -10,11 +12,12 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from os import PathLike
 from pathlib import Path
-from typing import IO, Literal, TypeAlias, overload
+from typing import IO, Concatenate, Literal, ParamSpec, TypeAlias, TypeVar, overload
 
+from wgsextract_cli.core import live_status
 from wgsextract_cli.core.download_progress import CancelEvent, redact_urls
 from wgsextract_cli.core.paths import PathInput, command_is_path, expand_path
 from wgsextract_cli.core.process_registry import (
@@ -206,6 +209,45 @@ def _normalize_subprocess_cmd(cmd: PathInput | Sequence[object]) -> list[str]:
     return cmd_list
 
 
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+_SUBCOMMAND = re.compile(r"[a-z][a-z0-9_-]*")
+
+
+def _caller_args(cmd: PathInput | Sequence[object]) -> list[str]:
+    """cmd's words as the caller wrote them, before any wrapping."""
+    if isinstance(cmd, PathLike):
+        return [expand_path(cmd)]
+    if isinstance(cmd, str):
+        return shlex.split(cmd)
+    return [str(a) for a in cmd]
+
+
+def step_label(args: Sequence[str]) -> str:
+    """'samtools view' for a tool and its subcommand, else the tool's name."""
+    if not args:
+        return "?"
+    words = [Path(args[0]).stem]
+    if len(args) > 1 and _SUBCOMMAND.fullmatch(args[1]):
+        words.append(args[1])
+    return " ".join(words)
+
+
+def _shows_step(
+    func: Callable[Concatenate[PathInput | Sequence[object], _P], _R],
+) -> Callable[Concatenate[PathInput | Sequence[object], _P], _R]:
+    """Name the tool a function runs on the terminal's progress line."""
+
+    @functools.wraps(func)
+    def wrapper(
+        cmd: PathInput | Sequence[object], /, *args: _P.args, **kwargs: _P.kwargs
+    ) -> _R:
+        with live_status.step(step_label(_caller_args(cmd))):
+            return func(cmd, *args, **kwargs)
+
+    return wrapper
+
+
 def _tee_stderr(
     fd: int,
     tail: bytearray,
@@ -250,6 +292,7 @@ def _tee_stderr(
             target.write(decoder.decode(b"", final=True))
 
 
+@_shows_step
 def run_command(
     cmd: PathInput | Sequence[object],
     capture_output: bool = False,
@@ -485,6 +528,7 @@ def run_pipeline(
         raise ValueError("run_pipeline requires at least one stage")
 
     procs: list[subprocess.Popen[bytes]] = []
+    pipeline_step = contextlib.ExitStack()
     stderr_files: list[IO[bytes]] = []
     readers: list[tuple[IO[bytes], bool]] = []
     partials: list[bytes] = []
@@ -567,6 +611,11 @@ def run_pipeline(
             procs.append(proc)
             upstream = proc.stdout
 
+        pipeline_step.enter_context(
+            live_status.step(
+                " | ".join(step_label(_caller_args(stage)) for stage in stages)
+            )
+        )
         if heartbeat or active_run_log():
             monitor = Heartbeat(description, expected_reads, scan=scan, emit=heartbeat)
             monitor.__enter__()
@@ -588,12 +637,7 @@ def run_pipeline(
             zip(stages, returncodes, strict=True)
         ):
             # Label from the caller's argv, not the resolved (possibly wrapped) one.
-            if isinstance(stage, PathLike):
-                args = [expand_path(stage)]
-            elif isinstance(stage, str):
-                args = shlex.split(stage)
-            else:
-                args = [str(a) for a in stage]
+            args = _caller_args(stage)
             stage_name = " ".join([Path(args[0]).name, *args[1:2]]) if args else "?"
             tail = _stderr_tail(stderr_files[index])
             downstream_ok = all(code == 0 for code in returncodes[index + 1 :])
@@ -616,6 +660,7 @@ def run_pipeline(
                 proc.stdout.close()
         if monitor:
             monitor.__exit__()
+        pipeline_step.close()
         for reader, _ in readers:
             reader.close()
         for err_file in stderr_files:
