@@ -11,9 +11,11 @@ import pytest
 from scripts.build_microarray_chm13_map import write_site_map
 from wgsextract_cli.commands import _microarray_chm13 as command
 from wgsextract_cli.core import microarray_aadr as aadr
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.microarray_chm13 import CHM13Catalogue, ReferenceContig
 from wgsextract_cli.core.microarray_site_map import SiteProjection, load_site_map
 from wgsextract_cli.core.results import CommandResult, collecting
+from wgsextract_cli.core.utils import WGSExtractError
 
 pytestmark = pytest.mark.skipif(
     not all(shutil.which(tool) for tool in ("bcftools", "samtools", "tabix", "bgzip")),
@@ -26,57 +28,53 @@ def _native_library(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     fasta = tmp_path / "input.fa"
     fasta.write_text(">chr1\n" + "A" * 100 + "\n")
     subprocess.run(["samtools", "faidx", str(fasta)], check=True)
-    mapping = load_site_map(
-        write_site_map(
-            [
-                SiteProjection(
-                    "chr1",
-                    position,
-                    "chr1",
-                    position + 10,
-                    position == 10,
-                    "mapped",
-                    "ref_different" if position == 10 else "ref_equal",
-                )
-                for position in range(10, 15)
-            ],
-            {"chr1": 100},
-            {"chr1": 100},
-            tmp_path / "map",
-            {},
-        )
-    )
-    catalogue = CHM13Catalogue(
-        mapping,
-        {"chr1": ReferenceContig(100, hashlib.md5(b"A" * 100).hexdigest())},
+    manifest = write_site_map(
+        [
+            SiteProjection(
+                "chr1",
+                position,
+                "chr1",
+                position + 10,
+                position == 10,
+                "mapped",
+                "ref_different" if position == 10 else "ref_equal",
+            )
+            for position in range(10, 15)
+        ],
         {"chr1": 100},
-        (),
-        "",
-        "",
-        "",
+        {"chr1": 100},
+        tmp_path / "map",
+        {},
     )
-    ids = {("chr1", position): f"rs{position}" for position in range(10, 15)}
-    monkeypatch.setattr(command, "load_chm13_catalogue", lambda **_kwargs: catalogue)
+
+    def catalogue(*, cache_dir: Path | None) -> CHM13Catalogue:
+        return CHM13Catalogue(
+            load_site_map(manifest, cache_dir=cache_dir),
+            {"chr1": ReferenceContig(100, hashlib.md5(b"A" * 100).hexdigest())},
+            {"chr1": 100},
+            (),
+            "",
+            "",
+            "",
+            cache_key="toy",
+        )
+
+    # The pinned CHM13 site map, the installed vendor templates and the AADR
+    # panel are multi-GB downloads; stand in for them with this toy chr1.
+    monkeypatch.setattr(command, "load_chm13_catalogue", catalogue)
     monkeypatch.setattr(
         command, "validate_chm13_reference", lambda *_args: {"chr1": "chr1"}
     )
-    monkeypatch.setattr(command, "_marker_ids", lambda *_args: ids)
-    monkeypatch.setattr(
-        aadr,
-        "aadr_markers",
-        lambda _panel: iter(
-            aadr.AADRMarker(
-                f"rs{position}",
-                "1",
-                "0",
-                position,
-                "C" if position == 10 else "A",
-                "T" if position == 10 else "G",
-                True,
-            )
-            for position in range(10, 15)
-        ),
-    )
+    (tmp_path / "hg18ToHg19.over.chain.gz").touch()
+    monkeypatch.setattr(command, "collect_template_markers", lambda *_args: {})
+
+    def markers(_panel, _reflib_dir=None):
+        for position in range(10, 15):
+            ref, alt = ("C", "T") if position == 10 else ("A", "G")
+            yield aadr.AADRMarker(f"rs{position}", "1", "0", position, ref, alt, True)
+
+    monkeypatch.setattr(aadr, "aadr_markers", markers)
+    monkeypatch.setattr(command, "aadr_markers", markers)
     return fasta
 
 
@@ -144,6 +142,8 @@ def test_native_vcf_quality_and_unsupported_masks_survive_canonical_aadr_export(
         "--",
     ]
     assert (out / "sample_AADR_1240k.geno").read_text().splitlines() == list("19999")
+    # Without a configured library nothing is cached, least of all beside --ref.
+    assert not list(tmp_path.rglob("sites-v1-*.bin"))
     report = json.loads((out / "sample_CHM13_report.json").read_text())
     assert report["call_reasons"] == {
         "called": 1,
@@ -198,9 +198,15 @@ def test_native_vcf_quality_and_unsupported_masks_survive_canonical_aadr_export(
 
 
 def test_native_gvcf_reference_blocks_are_calls_and_gaps_are_no_calls(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fasta = _native_library(tmp_path, monkeypatch)
+    # The marker cache nests two 64-hex names; a shallow library keeps the
+    # path under Windows' MAX_PATH, which htslib cannot exceed.
+    library = tmp_path_factory.mktemp("lib")
+    monkeypatch.setitem(settings, "reference_library", str(library))
     source = tmp_path / "sample.g.vcf"
     source.write_text(
         "##fileformat=VCFv4.2\n"
@@ -247,3 +253,24 @@ def test_native_gvcf_reference_blocks_are_calls_and_gaps_are_no_calls(
         "missing_gt": 1,
         "absent_from_vcf": 1,
     }
+    # The decoded site map and the marker cache go in the configured library,
+    # not beside --ref.
+    chm13 = library / "microarray" / "chm13"
+    assert len(list(chm13.glob("sites-v1-*.bin"))) == 1
+    assert len(list(chm13.rglob("markers.tsv"))) == 1
+    assert not list(tmp_path.rglob("sites-v1-*.bin"))
+    assert not list(tmp_path.rglob("markers.tsv"))
+
+
+def test_templates_must_cover_every_pinned_site(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fasta = _native_library(tmp_path, monkeypatch)
+    covered = list(aadr.aadr_markers("1240k"))[:-1]
+    monkeypatch.setattr(command, "aadr_markers", lambda *_args: iter(covered))
+    args = argparse.Namespace(input=str(tmp_path / "s.vcf"), region=None)
+    args.ref_vcf_tab = args.ploidy_file = None
+    with pytest.raises(WGSExtractError, match="do not cover the pinned CHM13 map"):
+        command.run_chm13(
+            args, SimpleNamespace(root=str(tmp_path)), str(fasta), str(tmp_path), "1"
+        )

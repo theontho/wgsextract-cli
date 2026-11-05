@@ -9,7 +9,7 @@ import pytest
 from pyliftover import LiftOver
 
 from scripts.microarray_aadr_markers import build_markers
-from tests.htslib_helpers import needs_tools
+from tests.htslib_helpers import needs_tools, run_wgsextract
 from wgsextract_cli.commands import microarray
 from wgsextract_cli.core import aadr_resources
 from wgsextract_cli.core import microarray_aadr as aadr
@@ -162,60 +162,48 @@ def test_2m_grch38_requires_an_installed_chain_without_auto_fetch(
         aadr.aadr_lifter("hg38", str(tmp_path), allow_download=False)
 
 
+def _fasta(path: Path, chroms=("chr1",), length=600) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(f">{chrom}\n{'A' * length}\n" for chrom in chroms))
+    run_command(["samtools", "faidx", str(path)])
+    return path
+
+
+def _plain_vcf(path: Path) -> Path:
+    path.write_text(
+        "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=600>\n"
+        '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample\n"
+        "chr1\t100\trs1\tA\tG\t.\tPASS\t.\tGT\t1/1\n"
+    )
+    return path
+
+
+@needs_tools("bcftools", "bgzip", "tabix", "samtools")
 def test_mixed_2m_vendor_preflights_chain_before_consumer_target_build(
     tmp_path, installed_2m, monkeypatch
 ):
-    input_file = tmp_path / "input.vcf"
-    input_file.touch()
-    fasta = tmp_path / "hg38.fa"
-    fasta.touch()
-    monkeypatch.setattr(microarray, "calculate_bam_md5", lambda *_: "")
-    monkeypatch.setattr(microarray, "verify_dependencies", lambda *_: None)
-    monkeypatch.setattr(microarray, "log_dependency_info", lambda *_: None)
-    monkeypatch.setattr(
-        microarray,
-        "ReferenceLibrary",
-        lambda *a, **kw: SimpleNamespace(
-            root=str(installed_2m),
-            build="hg38",
-            fasta=str(fasta),
-            ref_vcf_tab=None,
-            ploidy_file=None,
-            liftover_chain="unused",
-        ),
-    )
-    monkeypatch.setattr(
-        microarray,
-        "build_genome_wide_target",
-        lambda *a: pytest.fail(
-            "consumer target preparation ran before chain preflight"
-        ),
-    )
+    fasta = _fasta(installed_2m / "genomes" / "hg38.fa")
+    vcf = _plain_vcf(tmp_path / "input.vcf")
     monkeypatch.setattr(
         aadr, "download_file", lambda *a, **kw: pytest.fail("runtime chain download")
     )
     output = tmp_path / "not_created"
     with pytest.raises(WGSExtractError, match="installed hg19ToHg38"):
-        microarray.run(
-            argparse.Namespace(
-                input=str(input_file),
-                ref=str(installed_2m),
-                formats="aadr_2m,23andme_v5",
-                threads="1",
-                outdir=str(output),
-                ref_vcf_tab=None,
-                ploidy_file=None,
-            )
-        )
+        run_wgsextract(
+            "microarray", "--input", str(vcf), "--ref", str(fasta),
+            "--formats", "aadr_2m,23andme_v5", "--outdir", str(output),
+        )  # fmt: skip
     assert not output.exists()
 
 
 @needs_tools("bcftools", "bgzip", "tabix", "samtools")
 @pytest.mark.parametrize("chroms", [("chr1", "chrX"), ("1", "X")])
 def test_sparse_vcf_2m_only_hit_does_not_reference_fill_legacy_panels(
-    tmp_path, installed_2m, monkeypatch, chroms
+    tmp_path, installed_2m, chroms
 ):
-    fasta = tmp_path / "hg19.fa"
+    fasta = installed_2m / "genomes" / "hg19.fa"
+    fasta.parent.mkdir()
     sequence = list("A" * 600)
     sequence[199], sequence[299], sequence[549] = "C", "G", "T"
     fasta.write_text("".join(f">{chrom}\n{''.join(sequence)}\n" for chrom in chroms))
@@ -233,15 +221,6 @@ def test_sparse_vcf_2m_only_hit_does_not_reference_fill_legacy_panels(
     with open(compressed, "wb") as stream:
         run_command(["bgzip", "-c", str(plain)], stdout=stream)
     run_command(["tabix", "-p", "vcf", compressed])
-    lib = SimpleNamespace(
-        root=str(installed_2m),
-        build="hg19",
-        fasta=str(fasta),
-        ref_vcf_tab=None,
-        ploidy_file=None,
-        liftover_chain=None,
-    )
-    monkeypatch.setattr(microarray, "ReferenceLibrary", lambda *a, **kw: lib)
     args = argparse.Namespace(
         input=compressed,
         ref=str(fasta),
@@ -281,43 +260,18 @@ def test_sparse_vcf_2m_only_hit_does_not_reference_fill_legacy_panels(
     assert projected["new_probe_x"] == "1"
 
 
-@pytest.mark.parametrize("build", ["t2t", "unknown"])
-def test_unsupported_2m_build_fails_before_data_fetch_or_calling(
-    tmp_path, monkeypatch, build
-):
-    input_file = tmp_path / "input.bam"
-    input_file.touch()
-    monkeypatch.setattr(microarray, "calculate_bam_md5", lambda *_: "")
-    monkeypatch.setattr(microarray, "verify_dependencies", lambda *_: None)
-    monkeypatch.setattr(microarray, "log_dependency_info", lambda *_: None)
-    monkeypatch.setattr(
-        microarray,
-        "ReferenceLibrary",
-        lambda *a, **kw: SimpleNamespace(
-            root=str(tmp_path),
-            build=build,
-            fasta="not_read",
-            ref_vcf_tab=None,
-            ploidy_file=None,
-            liftover_chain=None,
-        ),
-    )
-    monkeypatch.setattr(
-        microarray, "require_aadr_2m", lambda *_: pytest.fail("must reject build first")
-    )
+@needs_tools("bcftools", "bgzip", "tabix", "samtools")
+@pytest.mark.parametrize("genome", ["chm13v2.0.fa", "custom.fa"])
+def test_unsupported_2m_build_fails_before_data_fetch_or_calling(tmp_path, genome):
+    fasta = _fasta(tmp_path / "library" / "genomes" / genome)
+    vcf = _plain_vcf(tmp_path / "input.vcf")
     output = tmp_path / "not_created"
+    # 2M isn't installed either: the build must be rejected first.
     with pytest.raises(WGSExtractError, match="2M requires GRCh37 or GRCh38"):
-        microarray.run(
-            argparse.Namespace(
-                input=str(input_file),
-                ref=str(tmp_path),
-                formats="aadr_2m",
-                threads="1",
-                outdir=str(output),
-                ref_vcf_tab=None,
-                ploidy_file=None,
-            )
-        )
+        run_wgsextract(
+            "microarray", "--input", str(vcf), "--ref", str(fasta),
+            "--formats", "aadr_2m", "--outdir", str(output),
+        )  # fmt: skip
     assert not output.exists()
 
 
@@ -399,19 +353,19 @@ def test_grch38_forward_mapping_and_inversion_keep_grch37_output(tmp_path, marke
     )
 
 
-def test_ambiguous_or_alt_contig_liftover_is_not_used(markers):
-    marker = next(aadr.aadr_markers("1240k"))
-
-    class Ambiguous:
+@pytest.mark.parametrize(
+    "hits", [[("chr1", 99, "+"), ("chr2", 99, "+")], [("chr1_alt", 99, "+")]]
+)
+def test_ambiguous_or_alt_contig_liftover_is_not_used(tmp_path, markers, hits):
+    class Lifter:
         def convert_coordinate(self, *_):
-            return [("chr1", 99, "+"), ("chr2", 99, "+")]
+            return hits
 
-    class Alternate:
-        def convert_coordinate(self, *_):
-            return [("chr1_alt", 99, "+")]
-
-    assert aadr._marker_coordinate(marker, Ambiguous()) is None
-    assert aadr._marker_coordinate(marker, Alternate()) is None
+    calls = tmp_path / "kit.txt"
+    calls.write_text("rs1\t1\t100\tAA\nrs1\t1_alt\t100\tAA\n")
+    prefix = str(tmp_path / "lifted")
+    aadr.write_aadr_outputs("ho", str(calls), prefix, lifter=Lifter())
+    assert Path(prefix + ".geno").read_text() == "9\n9\n9\n"
 
 
 def test_installed_chain_is_reused_read_only_without_a_download(
@@ -428,8 +382,11 @@ def test_installed_chain_is_reused_read_only_without_a_download(
     )
     out = tmp_path / "not_created"
     lifter = aadr.aadr_lifter("hg38", str(out), str(library))
-    marker = next(aadr.aadr_markers("1240k"))
-    assert aadr._marker_coordinate(marker, lifter) == ("1", 200, False)
+    calls = tmp_path / "kit.txt"
+    calls.write_text("rs1\t1\t200\tAA\n")  # rs1 is GRCh37 chr1:100
+    prefix = str(tmp_path / "lifted")
+    aadr.write_aadr_outputs("ho", str(calls), prefix, lifter=lifter)
+    assert Path(prefix + ".geno").read_text() == "2\n9\n9\n"
     assert not out.exists()
 
 
@@ -481,20 +438,21 @@ def test_marker_builder_rejects_panel_conflicts_and_has_no_genotypes(tmp_path):
     assert out.read_bytes() == first
 
 
-def test_aadr_dispatch_uses_input_build_calls_without_reverse_chain(
-    tmp_path, markers, monkeypatch
-):
+def test_aadr_dispatch_uses_input_build_calls_without_reverse_chain(tmp_path, markers):
     calls = tmp_path / "input_CombinedKit.txt"
     calls.write_text("rs1\t1\t100\tAA\n")
-    monkeypatch.setattr(microarray, "aadr_lifter", lambda *_: None)
-    monkeypatch.setattr(microarray, "_template_search_roots", lambda *_: [])
+    library = tmp_path / "library"
+    library.mkdir()
+    (library / "hg19ToHg38.over.chain.gz").write_bytes(
+        gzip.compress(b"chain 1000 chr1 1000 + 0 1000 chr1 1000 + 0 1000 1\n1000\n\n")
+    )
     microarray._convert_microarray_outputs(
         args=argparse.Namespace(formats="AADR-HO,aadr_ho"),
         outdir=str(tmp_path),
         base_name="input",
-        lib=SimpleNamespace(build="hg38", liftover_chain=None),
+        lib=SimpleNamespace(build="hg38", liftover_chain=None, root=str(library)),
         combined_kit_txt=str(calls),
-        ref_fasta="unused",
+        ref_fasta=str(library / "hg38.fa"),
         start_total=time.time(),
     )
     assert (tmp_path / "input_AADR_ho.geno").read_text() == "2\n9\n9\n"
@@ -555,7 +513,7 @@ def test_a_bad_marker_table_leaves_no_partial_outputs(tmp_path, markers):
     ],
 )
 def test_cli_vcf_rejected_calls_cannot_be_reference_filled(
-    tmp_path, markers, monkeypatch, records, expected, policy
+    tmp_path, markers, records, expected, policy
 ):
     fasta = tmp_path / "hg19.fa"
     sequence = list("A" * 500)
@@ -575,19 +533,10 @@ def test_cli_vcf_rejected_calls_cannot_be_reference_filled(
     with open(compressed, "wb") as stream:
         run_command(["bgzip", "-c", str(plain)], stdout=stream)
     run_command(["tabix", "-p", "vcf", compressed])
-    lib = SimpleNamespace(
-        root=None,
-        build="hg19",
-        fasta=str(fasta),
-        ref_vcf_tab=None,
-        ploidy_file=None,
-        liftover_chain=None,
-    )
-    monkeypatch.setattr(microarray, "ReferenceLibrary", lambda *_, **__: lib)
     out = tmp_path / "output"
     args = argparse.Namespace(
         input=compressed,
-        ref="unused",
+        ref=str(fasta),
         outdir=str(out),
         threads="1",
         region="chr1:1-400",

@@ -1,8 +1,11 @@
 """scripts/test_smells.py flags change detectors only in newly added test lines."""
 
+import os
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "test_smells.py"
 
@@ -39,11 +42,12 @@ def _git(root: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
 
 
-def _smells(root: Path) -> subprocess.CompletedProcess[str]:
+def _smells(root: Path, encoding: str = "utf-8") -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, SCRIPT, "--base", "HEAD", "--root", root],
         capture_output=True,
-        text=True,
+        encoding=encoding,
+        env={**os.environ, "PYTHONIOENCODING": encoding},
     )
 
 
@@ -94,3 +98,36 @@ def test_new_untracked_files_are_checked_and_broken_ones_skipped(
     assert "tests/test_new.py:7: TS001" in result.stdout
     assert "tests/test_x.py" not in result.stdout
     assert "skipped tests/test_broken.py" in result.stdout
+
+
+def test_non_ascii_test_paths_keep_their_own_findings(tmp_path: Path) -> None:
+    tests = _repo(tmp_path)
+    (tests / "test_é.py").write_text(OLD)
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, *("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "é"))
+    (tests / "test_é.py").write_text(OLD + NEW)
+    (tests / "test_ü_new.py").write_text(OLD)
+
+    result = _smells(tmp_path)
+
+    assert "tests/test_é.py:15: TS001" in result.stdout
+    assert "tests/test_ü_new.py:7: TS001" in result.stdout
+    assert "tests/test_x.py" not in result.stdout
+
+    # A console that can't show the name still gets the finding.
+    result = _smells(tmp_path, encoding="ascii")
+    assert result.returncode == 0
+    assert "tests/test_\\xe9.py:15: TS001" in result.stdout
+
+
+@pytest.mark.skipif(
+    sys.platform != "linux", reason="needs a filesystem that allows non-UTF-8 names"
+)
+def test_a_non_utf8_test_path_is_still_checked(tmp_path: Path) -> None:
+    tests = _repo(tmp_path)
+    (tests / os.fsdecode(b"test_\xff.py")).write_text(OLD)
+
+    result = _smells(tmp_path)
+
+    assert result.returncode == 0
+    assert "tests/test_\\udcff.py:7: TS001" in result.stdout

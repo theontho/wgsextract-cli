@@ -1,6 +1,5 @@
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -71,8 +70,7 @@ def test_unwritable_cache_uses_uncached_builds(
     if unavailable == "lock":
         monkeypatch.setattr(cache, "build_lock", denied)
     else:
-        monkeypatch.setattr(cache, "_publish", denied)
-        monkeypatch.setattr(cache, "_publish_target", denied)
+        monkeypatch.setattr(cache.os, "replace", denied)
     directory = tmp_path / "cache"
     work = tmp_path / "outputs"
     work.mkdir()
@@ -135,49 +133,20 @@ def test_target_pair_is_not_current_after_interrupted_repair(
     assert builds == [1, 2, 3]
 
 
-@pytest.mark.parametrize("configured", [False, True])
-def test_explicit_fasta_does_not_choose_the_cache_library(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, configured: bool
-) -> None:
-    from wgsextract_cli.commands import _microarray_chm13 as command
-    from wgsextract_cli.core.config import settings
-
-    library = tmp_path / "configured-library"
-    monkeypatch.setitem(
-        settings, "reference_library", str(library) if configured else None
-    )
-    seen = []
-
-    def stop_loading(*, cache_dir):
-        seen.append(cache_dir)
-        raise ValueError("stop after choosing cache")
-
-    monkeypatch.setattr(command, "load_chm13_catalogue", stop_loading)
-    with pytest.raises(ValueError, match="choosing cache"):
-        command.run_chm13(
-            SimpleNamespace(ref_vcf_tab=None, ploidy_file=None),
-            SimpleNamespace(root=str(tmp_path / "explicit-fasta-directory")),
-            str(tmp_path / "explicit-fasta-directory" / "reference.fa"),
-            str(tmp_path / "outputs"),
-            "1",
-        )
-    assert seen == [library / "microarray" / "chm13" if configured else None]
-
-
 def test_cache_key_tracks_templates_chain_catalogue_and_library(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     from test_microarray_chm13 import _catalogue
 
     catalogue = load_chm13_catalogue(_catalogue(tmp_path / "assets"))
-    template = tmp_path / "template.tsv"
+    templates = tmp_path / "microarray" / "raw_file_templates"
+    (templates / "head").mkdir(parents=True)
+    (templates / "body").mkdir()
+    (templates / "head" / "23andMe_V3.txt").write_text("# rsid\n")
+    template = templates / "body" / "23andMe_V3.txt"
     template.write_text("rs1\t1\t10\n")
     chain = tmp_path / "hg18ToHg19.over.chain.gz"
     chain.write_bytes(b"chain")
-    monkeypatch.setattr(cache, "_resolve_templates_roots", lambda roots: roots)
-    monkeypatch.setattr(
-        cache, "_template_paths", lambda roots: [("test", False, [str(template)])]
-    )
     args = (str(tmp_path / "library"), catalogue, [str(tmp_path)])
     original = cache.cache_directory(*args)
     template.write_text("rs1\t1\t100\n")

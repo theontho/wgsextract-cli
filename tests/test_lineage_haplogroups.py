@@ -128,6 +128,33 @@ def test_y_haplogroup_from_vcf_uses_native_markers_only_on_chry(
     ) is tree_links
 
 
+@pytest.mark.parametrize(
+    "prediction",
+    [
+        "Sample_name\tHg\tHg_marker\n",
+        "Sample_name\tHg\tHg_marker\tValid_markers\nkit\tNA\t\t0\n",
+        "Sample_name\tHg\tHg_marker\tValid_markers\nkit\tNA\t\t3\n",
+    ],
+)
+def test_y_haplogroup_without_a_prediction_is_an_error(
+    tmp_path, monkeypatch, prediction
+):
+    from wgsextract_cli.ydna.yleaf_native import analysis
+
+    def no_call(_input, output, **_kwargs):
+        output.mkdir(parents=True, exist_ok=True)
+        (output / "hg_prediction.hg").write_text(prediction)
+        return output / "hg_prediction.hg"
+
+    # Yleaf's analysis is the boundary: what it writes when nothing matched.
+    monkeypatch.setattr(analysis, "analyze", no_call)
+    vcf = _vcf(tmp_path / "kit.vcf.gz", _HG38, _KIT_BODY)
+    with pytest.raises(WGSExtractError, match="could not predict a Y haplogroup"):
+        run_wgsextract(
+            "lineage", "y-haplogroup", "--input", vcf, "--no-ref-inference",
+        )  # fmt: skip
+
+
 def test_mitochondrial_tree_links_are_opt_in(tmp_path, capsys):
     from wgsextract_cli.commands.lineage import _print_haplogrep_result
 
@@ -313,6 +340,33 @@ def test_y_haplogroup_from_cram_decodes_with_the_reference(tmp_path, native_tabl
     assert (tmp_path / "yleaf/hg_prediction.hg").read_text() == bam_prediction
 
 
+def test_y_haplogroup_from_cram_without_a_reference_fails(
+    tmp_path, monkeypatch, native_tables
+):
+    genome = "".join(random.Random(7).choices("ACGT", k=400))
+    encoder = tmp_path / "encoder"
+    encoder.mkdir()
+    ref = write_fasta(encoder / "ref.fa", {"chrX": genome, "chrY": genome})
+    header = ["@SQ\tSN:chrX\tLN:400", "@SQ\tSN:chrY\tLN:400"]
+    bam = sam_to_bam(header + _reads("chrY", genome, 20, start=95), encoder / "k.bam")
+    cram = str(tmp_path / "kit.cram")
+
+    from wgsextract_cli.core.utils import run_command
+
+    run_command(["samtools", "view", "-C", "-T", str(ref), "-o", cram, bam])
+    run_command(["samtools", "index", cram])
+    # Nothing can find the encoding reference: not beside the CRAM, not in a
+    # library, and not from htslib's MD5 lookup (which defaults to the network).
+    for path in encoder.iterdir():
+        path.unlink()
+    monkeypatch.setenv("REF_PATH", str(tmp_path / "no-ref-cache"))
+    monkeypatch.delenv("REF_CACHE", raising=False)
+
+    with pytest.raises(WGSExtractError, match="reference FASTA.*CRAM"):
+        run_wgsextract("lineage", "y-haplogroup", "--input", cram)
+    assert not list(tmp_path.rglob("hg_prediction.hg"))
+
+
 def test_y_haplogroup_rejects_unsupported_input(tmp_path):
     sam = tmp_path / "kit.sam"
     sam.write_text("@SQ\tSN:chrY\tLN:10\n")
@@ -449,3 +503,42 @@ def test_mt_haplogroup_refuses_or_warns_on_yoruba_mtdna(tmp_path, caplog):
             assert "Yoruba" in str(e)
             return
     assert "Yoruba" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        _HAPLOGREP,
+        '"SampleID"\t"Haplogroup"\n"kit"\t""\n',
+    ],
+)
+def test_mt_haplogroup_without_a_haplogroup_names_the_reference(
+    tmp_path, monkeypatch, result
+):
+    # Haplogrep writes a header alone when it gets no mtDNA variants, as when
+    # the alignment was called against a reference of another build.
+    # Without --ref, as the GUI's ancestry page calls it with a library set up
+    # that doesn't hold this sample's reference: the FASTA beside the BAM is used.
+    from wgsextract_cli.core.config import settings
+
+    (tmp_path / "library").mkdir()
+    monkeypatch.setitem(settings, "reference_library", str(tmp_path / "library"))
+    bam, _ref = _mito_bam(tmp_path, 16_569)
+    with pytest.raises(WGSExtractError, match=r"no mtDNA variants.*ref\.fa"):
+        run_wgsextract(
+            "lineage", "mt-haplogroup", "--input", bam,
+            "--haplogrep-path", _haplogrep(tmp_path, result),
+        )  # fmt: skip
+    (call,) = _calls(tmp_path)
+    assert [r[:2] for r in call["records"]] == [["chrM", "150"]]
+
+
+def test_mt_haplogroup_calling_failure_stops_before_haplogrep(tmp_path):
+    bam, ref = _mito_bam(tmp_path, 16_569)
+    Path(f"{bam}.bai").unlink()  # mpileup -r needs the index
+    with pytest.raises(WGSExtractError, match="mpileup"):
+        run_wgsextract(
+            "lineage", "mt-haplogroup", "--input", bam, "--ref", str(ref),
+            "--haplogrep-path", _haplogrep(tmp_path),
+        )  # fmt: skip
+    assert not (tmp_path / "calls.jsonl").exists()

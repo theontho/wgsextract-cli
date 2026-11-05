@@ -1,7 +1,5 @@
 import os
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import Mock
 
 import pytest
 
@@ -107,11 +105,10 @@ def test_coordinate_cache_is_optional_when_read_only(
     def denied(*_args):
         raise PermissionError("read-only cache")
 
-    monkeypatch.setattr(
-        microarray_coordinates,
-        "build_lock" if unavailable == "lock" else "_write",
-        denied,
-    )
+    if unavailable == "lock":
+        monkeypatch.setattr(microarray_coordinates, "build_lock", denied)
+    else:
+        monkeypatch.setattr(microarray_coordinates.os, "replace", denied)
     assert (
         _lift(tmp_path, rows, chain, reflib_dir=str(tmp_path / "library")) == expected
     )
@@ -121,46 +118,13 @@ def test_coordinate_builder_errors_are_not_hidden(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     chain = _chain(tmp_path / "c.chain", *TWO_BLOCKS)
-    builder = Mock(side_effect=OSError("cannot read chain"))
-    monkeypatch.setattr(microarray_coordinates, "_project", builder)
+
+    def unreadable(_chain):
+        raise OSError("cannot read chain")
+
+    # The cache must not mistake pyliftover's error for an unwritable cache.
+    monkeypatch.setattr(microarray_coordinates, "LiftOver", unreadable)
     with pytest.raises(OSError, match="cannot read chain"):
         microarray_coordinates.project_coordinates(
             [("chr1", 500)], chain, str(tmp_path / "library")
         )
-    builder.assert_called_once()
-
-
-@pytest.mark.parametrize("configured", [False, True])
-def test_vendor_cache_uses_configured_library_not_fasta_parent(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, configured: bool
-) -> None:
-    from wgsextract_cli.commands import microarray as command
-    from wgsextract_cli.core import microarray_utils
-    from wgsextract_cli.core.config import settings
-
-    library = tmp_path / "library"
-    monkeypatch.setitem(
-        settings, "reference_library", str(library) if configured else None
-    )
-    monkeypatch.setattr(command, "_template_search_roots", lambda *_args: [])
-    monkeypatch.setattr(command, "_liftover_chain_for", lambda *_args: "chain")
-    seen = []
-
-    def stop_after_cache_selection(*_args, **kwargs):
-        seen.append(kwargs["reflib_dir"])
-        raise RuntimeError("cache root inspected")
-
-    monkeypatch.setattr(
-        microarray_utils, "liftover_hg38_to_hg19", stop_after_cache_selection
-    )
-    with pytest.raises(RuntimeError, match="cache root inspected"):
-        command._convert_microarray_outputs(
-            args=SimpleNamespace(formats="23andme_v5"),
-            outdir=str(tmp_path / "outputs"),
-            base_name="sample",
-            lib=SimpleNamespace(root=str(tmp_path / "fasta-parent")),
-            combined_kit_txt=str(tmp_path / "kit.txt"),
-            ref_fasta=str(tmp_path / "fasta-parent" / "reference.fa"),
-            start_total=0,
-        )
-    assert seen == [str(library) if configured else None]
