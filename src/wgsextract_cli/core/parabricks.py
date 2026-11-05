@@ -6,6 +6,7 @@ missing.
 """
 
 import logging
+import os
 import subprocess
 import sys
 import tempfile
@@ -77,6 +78,19 @@ def run_pbrun(tool: str, args: list[str], paths: Iterable[str | None]) -> None:
         raise WGSExtractError(f"Parabricks {tool} failed: {e}") from e
 
 
+def _link_chain(path: str) -> list[str]:
+    """``path`` and, if it is a symlink, each file it leads to. pbrun takes an
+    interval file's format from its name, so a link (``panel.bed`` to a store's
+    ``dataset_7.dat``) is passed as itself, and every folder on the way to its
+    target is mounted so the link still opens in the container."""
+    chain = [path]
+    while Path(chain[-1]).is_symlink() and len(chain) <= 40:
+        link = chain[-1]
+        chain.append(host_path(os.path.join(os.path.dirname(link), os.readlink(link))))
+    target = str(Path(path).resolve())
+    return chain if target in chain else [*chain, target]
+
+
 def call_variants(
     tool: str,
     input_path: str,
@@ -86,9 +100,20 @@ def call_variants(
     extra: list[str] | None = None,
 ) -> None:
     """GPU variant calling (pbrun deepvariant or haplotypecaller) into out_vcf;
-    a comma-separated --region becomes one interval each."""
+    a comma-separated --region becomes one interval each, and a BED file in
+    it an --interval-file (pbrun's -L takes only literal intervals)."""
     require_native_tool("parabricks")
-    intervals = [arg for r in (region or "").split(",") if r for arg in ("-L", r)]
+    regions = [
+        host_path(r) if Path(r).is_file() else r
+        for r in (r.strip() for r in (region or "").split(","))
+        if r
+    ]
+    beds = [r for r in regions if Path(r).is_file()]
+    intervals = [
+        arg
+        for r in regions
+        for arg in (("--interval-file", host_path(r)) if r in beds else ("-L", r))
+    ]
     with tempfile.TemporaryDirectory(
         dir=str(Path(out_vcf).parent), prefix=".wgse_pb_"
     ) as tmp:
@@ -98,5 +123,5 @@ def call_variants(
             + ["--out-variants", host_path(out_vcf), "--tmp-dir", host_path(tmp)]
             + intervals
             + (extra or []),
-            [ref, input_path, out_vcf, tmp],
+            [ref, input_path, out_vcf, tmp, *(p for b in beds for p in _link_chain(b))],
         )

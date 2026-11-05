@@ -1,6 +1,6 @@
 import os
 import signal
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -201,6 +201,25 @@ def fake_pixi(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakePixi:
     monkeypatch.setenv("PATH", str(pixi.host_bin))
     monkeypatch.delenv("PIXI_ENVIRONMENT_NAME", raising=False)
     return pixi
+
+
+@pytest.fixture
+def ram(monkeypatch: pytest.MonkeyPatch) -> Callable[..., None]:
+    """Set this computer's RAM: ``ram(total, available=total)`` in bytes, as
+    psutil reports it, with no Linux cgroup cap below it (the test runner's
+    own cgroup can be capped)."""
+    import psutil
+
+    from wgsextract_cli.core import alignment_memory
+
+    def set_ram(total: int, available: int | None = None) -> None:
+        memory = psutil.virtual_memory()._replace(
+            total=total, available=total if available is None else available
+        )
+        monkeypatch.setattr(psutil, "virtual_memory", lambda: memory)
+        monkeypatch.setattr(alignment_memory, "_cgroup_available_memory", lambda: None)
+
+    return set_ram
 
 
 @pytest.fixture

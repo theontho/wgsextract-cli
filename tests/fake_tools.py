@@ -669,7 +669,8 @@ if args[0] == "info":
     if st["info_error"]:
         sys.exit(st["info_error"])
     print({"{{json .ServerVersion}}": '"27.3.1"', "{{.Architecture}}": st["arch"],
-           "{{.MemTotal}}": str(st["mem_total"])}[flag(args, "--format")])
+           "{{.MemTotal}}": str(st["mem_total"]),
+           "{{json .Runtimes}}": st["runtimes"]}[flag(args, "--format")])
 elif args[:2] == ["image", "inspect"]:
     image = st["images"].get(args[-1])
     if image is None:
@@ -718,24 +719,35 @@ elif args[0] == "run":
          "env": env, "mounts": mounts, "command": command})
     if image not in st["images"]:
         sys.exit(f"docker: Error response from daemon: No such image: {image}")
-    if "--gpus" in opts:
+    if "--gpus" in opts and not st["gpus"]:
         sys.exit("docker: Error response from daemon: could not select device driver with capabilities: [[gpu]]")
+    # Images run as root unless given the caller's ids, leaving outputs in
+    # mounted folders the caller can't change (Docker Desktop on Windows maps
+    # ownership itself).
+    if mounts and hasattr(os, "getuid") and opts.get("-u") != f"{os.getuid()}:{os.getgid()}":
+        sys.exit("fake docker: would run as root and leave root-owned outputs")
     if opts.get("--entrypoint"):
         command = [opts["--entrypoint"], *command]
-    # The container sees only the folders mounted into it.
+    # The container sees only the folders mounted into it: a link there to a
+    # file outside them dangles.
+    def visible(path):
+        return any(os.path.commonpath([path, m]) == m for m in mounts) and (
+            not os.path.exists(path) or any(
+                os.path.commonpath([os.path.realpath(path), os.path.realpath(m)])
+                == os.path.realpath(m) for m in mounts))
     paths = [p for arg in command for p in re.findall(r"/[^\s\"']+", arg)]
     paths += [env.get("HOME"), env.get("TMPDIR"), opts.get("-w")]
     for path in paths:
-        if path and not path.startswith(("/opt/", "/bin/", "/usr/")) and not any(
-            os.path.commonpath([path, m]) == m for m in mounts
-        ):
+        # The image's own folders, and its /tmp (HOME when none is given).
+        if path and path != "/tmp" and not path.startswith(("/opt/", "/bin/", "/usr/")) and not visible(path):
             sys.exit(f"{path}: No such file or directory (not mounted in the container)")
     if command[0].startswith("/opt/deepvariant/bin/"):
         command[0] = os.path.join(DV_BIN, os.path.basename(command[0]))
     elif command[:2] == ["/bin/bash", "-c"]:
         command[2] = command[2].replace("/opt/deepvariant/bin/", DV_BIN + "/")
     container = {"PATH": f"{DV_BIN}:/usr/bin:/bin", **env, "FAKE_DV_IN_IMAGE": "1",
-                 "FAKE_CONTAINER": name, "FAKE_OOM_DIR": os.path.join(ROOT, "oom")}
+                 "FAKE_CONTAINER": name, "FAKE_OOM_DIR": os.path.join(ROOT, "oom"),
+                 "FAKE_GPUS": "1" if "--gpus" in opts else ""}
     record = os.path.join(running, name)
     process = subprocess.Popen(command, env=container, stdin=subprocess.DEVNULL, cwd=opts.get("-w"))
     with open(record, "w") as out:
@@ -755,9 +767,11 @@ class FakeDocker:
     ``dv_bin`` as /opt/deepvariant/bin.
 
     A container sees only the folders mounted into it (paths outside them
-    fail), its ``-e`` environment and no stdin; ``docker events`` reports an
+    fail), its ``-e`` environment and no stdin, and must run as the caller
+    (``-u``) on POSIX when it mounts folders; ``docker events`` reports an
     OOM kill a stage recorded. ``set`` changes the engine's answers: an
-    ``info_error``, its ``arch`` and ``mem_total``, or a ``ps_error``.
+    ``info_error``, its ``arch``, ``mem_total`` and ``runtimes``, a
+    ``ps_error``, or ``gpus`` (whether ``--gpus`` finds a GPU).
     ``runs`` are the commands it was given.
     """
 
@@ -767,7 +781,8 @@ class FakeDocker:
             (self.root / folder).mkdir(parents=True)
         self._state: dict = {
             "info_error": None, "arch": "x86_64", "mem_total": 0,
-            "ps_error": None, "images": {},
+            "ps_error": None, "images": {}, "runtimes": '{"runc":{}}',
+            "gpus": False,
         }  # fmt: skip
         self._save()
         header = f"ROOT = {str(self.root)!r}\nDV_BIN = {str(dv_bin)!r}\n"
@@ -808,3 +823,133 @@ class FakeDocker:
     def clear(self) -> None:
         """Forget the commands so far."""
         (self.root / "docker.jsonl").unlink(missing_ok=True)
+
+
+_FAKE_PBRUN = r"""
+import json, os, subprocess, sys
+
+tool, args = sys.argv[1], sys.argv[2:]
+with open(LOG, "a") as out:
+    out.write(json.dumps({"tool": tool, "args": args}) + "\n")
+if not os.environ.get("FAKE_GPUS"):
+    sys.exit("pbrun: no CUDA-capable device is detected")
+
+
+def opt(name):
+    return args[args.index(name) + 1] if name in args else None
+
+
+def every(name):
+    return [args[i + 1] for i, arg in enumerate(args) if arg == name]
+
+
+def pipe(stages, out):
+    # Each stage reads the one before it; samtools sort writes out.
+    procs = []
+    for stage in stages:
+        stdin = procs[-1].stdout if procs else subprocess.DEVNULL
+        procs.append(subprocess.Popen(stage, stdin=stdin, stdout=subprocess.PIPE))
+    cram = ["-O", "cram", "--reference", ref] if out.endswith(".cram") else []
+    sort = subprocess.run(
+        [TOOLS["samtools"], "sort", *cram, "-o", out, "-"], stdin=procs[-1].stdout
+    )
+    if any(p.wait() for p in procs) or sort.returncode:
+        sys.exit(f"pbrun {tool}: alignment failed")
+    subprocess.run([TOOLS["samtools"], "index", out], check=True)
+    with open(out.rsplit(".", 1)[0] + "_chrs.txt", "w") as chrs:
+        chrs.write("chr1\n")
+
+
+ref = opt("--ref")
+if not os.path.isdir(opt("--tmp-dir")):
+    sys.exit("pbrun: --tmp-dir isn't a directory")
+if tool == "fq2bam":
+    paired = "--in-fq" in args
+    at = args.index("--in-fq" if paired else "--in-se-fq") + 1
+    reads, rg = args[at : at + 1 + paired], args[at + 1 + paired]
+    if "\\tPU:" not in rg:
+        sys.exit("pbrun fq2bam: the read group needs a PU")
+    pipe([[TOOLS["bwa"], "mem", "-R", rg, ref, *reads]], opt("--out-bam"))
+elif tool == "minimap2":
+    preset = {"map-hifi": "map-hifi", "map-ont": "map-ont", "map-pbmm2": "map-hifi"}
+    mm2 = [TOOLS["minimap2"], "-a", "-y", "-x", preset[opt("--preset")]]
+    if "--in-bam" in args:
+        # Parabricks keeps an unaligned BAM's own read groups.
+        header = subprocess.run([TOOLS["samtools"], "view", "-H", opt("--in-bam")],
+                                capture_output=True, text=True, check=True).stdout
+        rg = next(l for l in header.splitlines() if l.startswith("@RG"))
+        pipe([[TOOLS["samtools"], "fastq", "-T", "RG", opt("--in-bam")],
+              [*mm2, "-R", rg.replace("\t", "\\t"), ref, "-"]], opt("--out-bam"))
+    else:
+        rg = (f"@RG\\tID:{opt('--read-group-id-prefix')}\\tSM:{opt('--read-group-sm')}"
+              f"\\tLB:{opt('--read-group-lb')}\\tPL:{opt('--read-group-pl')}")
+        pipe([[*mm2, "-R", rg, ref, opt("--in-fq")]], opt("--out-bam"))
+elif tool in ("deepvariant", "haplotypecaller"):
+    # A homozygous call at the start of each interval it was asked to call.
+    starts = []
+    for interval in every("-L"):
+        if os.path.isabs(interval) or interval.endswith(".bed"):
+            sys.exit(f"pbrun {tool}: invalid interval {interval}; "
+                     "pass interval files with --interval-file")
+        chrom, _, span = interval.partition(":")
+        starts.append((chrom, int(span.split("-")[0]) if span else 1))
+    for bed in every("--interval-file"):
+        # pbrun takes an interval file's format from its name.
+        kinds = (".bed",) if tool == "deepvariant" else (
+            ".bed", ".interval_list", ".list", ".intervals")
+        if not bed.endswith(kinds):
+            sys.exit(f"pbrun {tool}: unknown interval file format: {bed}")
+        with open(bed) as source:
+            for line in source:
+                chrom, start = line.split()[:2]
+                starts.append((chrom, int(start) + 1))
+    if not os.path.exists(opt("--in-bam")):
+        sys.exit(f"pbrun {tool}: no such input {opt('--in-bam')}")
+    with open(ref + ".fai") as fai:
+        contigs = [line.split("\t")[:2] for line in fai]
+    order = [name for name, _ in contigs]
+    lines = ["##fileformat=VCFv4.2"]
+    lines += [f"##contig=<ID={name},length={length}>" for name, length in contigs]
+    lines += ['##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
+              "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS"]
+    for chrom, pos in sorted(set(starts), key=lambda s: (order.index(s[0]), s[1])):
+        base = subprocess.run([TOOLS["samtools"], "faidx", ref, f"{chrom}:{pos}-{pos}"],
+                              capture_output=True, text=True, check=True).stdout
+        base = base.splitlines()[1].upper()
+        alt = "C" if base != "C" else "G"
+        lines.append(f"{chrom}\t{pos}\t.\t{base}\t{alt}\t50\tPASS\t.\tGT\t1/1")
+    subprocess.run([TOOLS["bcftools"], "view", "-Oz", "-o", opt("--out-variants")],
+                   input="\n".join(lines) + "\n", text=True, check=True)
+else:
+    sys.exit(f"fake pbrun: unknown tool {tool}")
+"""
+
+
+class FakeParabricks:
+    """A GPU host: ``bin`` holds an ``nvidia-smi`` and a FakeDocker with the
+    NVIDIA runtime and ``image``, whose ``pbrun`` aligns with the real bwa and
+    minimap2 (map-pbmm2 as map-hifi) and calls a homozygous variant at the
+    start of each interval it's given (-L literals, --interval-file BEDs).
+    ``runs`` are the pbrun commands, as (tool, args)."""
+
+    def __init__(self, root: Path, image: str) -> None:
+        import shutil
+
+        tools = {
+            tool: shutil.which(tool)
+            for tool in ("bwa", "minimap2", "samtools", "bcftools")
+        }
+        self.bin = root / "bin"
+        self.log = root / "pbrun.jsonl"
+        python_tool(self.bin, "nvidia-smi", "print('NVIDIA-SMI (fake)')")
+        header = f"LOG = {str(self.log)!r}\nTOOLS = {tools!r}\n"
+        python_tool(root / "image", "pbrun", header + _FAKE_PBRUN)
+        self.docker = FakeDocker(self.bin, root / "image")
+        self.docker.set(gpus=True, runtimes='{"nvidia":{},"runc":{}}')
+        self.docker.add_image(image)
+
+    def runs(self) -> list[tuple[str, list[str]]]:
+        if not self.log.exists():
+            return []
+        records = [json.loads(line) for line in self.log.read_text().splitlines()]
+        return [(r["tool"], r["args"]) for r in records]

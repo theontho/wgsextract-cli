@@ -1,266 +1,299 @@
-"""Parabricks (GPU) alignment and calling: setup checks and the commands built.
+"""Parabricks (GPU) alignment and calling: setup checks, and the runs.
 
-A real GPU run can't happen in CI; these check what the CLI asks Docker to do.
+A real GPU run can't happen in CI. FakeParabricks stands in for the GPU host:
+its Docker runs a pbrun that aligns with the real bwa and minimap2 and calls a
+variant at the start of each interval, in a container that sees only the
+folders mounted into it.
 """
 
-import subprocess
+import os
+import platform
+import random
 import sys
-from argparse import Namespace
-from pathlib import Path
 
 import pytest
 
-from tests.htslib_helpers import needs_tools, sam_to_bam
-from wgsextract_cli.commands import align
-from wgsextract_cli.commands.vcf import callers, deepvariant
-from wgsextract_cli.core import containers, native_support, parabricks
+from tests.fake_tools import FakeParabricks
+from tests.htslib_helpers import (
+    needs_tools,
+    run_wgsextract,
+    snp_sample,
+    vcf_calls,
+    write_fasta,
+    write_read_pairs,
+)
+from wgsextract_cli.core import parabricks
+from wgsextract_cli.core.config import settings
 from wgsextract_cli.core.utils import (
     MissingDependencyError,
+    UsageError,
     WGSExtractError,
     run_command,
 )
 
-
-def _completed(returncode: int = 0, stdout: str = "", stderr: str = ""):
-    return subprocess.CompletedProcess([], returncode, stdout, stderr)
+posix_only = pytest.mark.skipif(
+    sys.platform == "win32", reason="Parabricks runs on Linux; fakes run by shebang"
+)
 
 
 @pytest.fixture
 def linux(monkeypatch):
-    monkeypatch.setattr(parabricks.sys, "platform", "linux")
-    monkeypatch.setattr(native_support.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
 
 
-def _tools(monkeypatch, *present: str) -> None:
-    for module in (parabricks, containers):
-        monkeypatch.setattr(
-            module, "get_tool_path", lambda tool: tool if tool in present else None
-        )
+@pytest.fixture
+def gpu(tmp_path, monkeypatch, linux):
+    """A GPU host: its nvidia-smi and Docker come first on PATH."""
+    host = FakeParabricks(tmp_path / "gpu", parabricks.DEFAULT_IMAGE)
+    monkeypatch.setenv("PATH", f"{host.bin}{os.pathsep}{os.environ['PATH']}")
+    return host
 
 
-def _docker_answers(monkeypatch, info: subprocess.CompletedProcess, image_rc: int):
-    def fake(cmd, **_kwargs):
-        return info if cmd[1] == "info" else _completed(image_rc)
-
-    monkeypatch.setattr(containers, "run_command", fake)
-
-
+@posix_only
 @pytest.mark.parametrize(
-    ("tools", "info", "image_rc", "message"),
+    ("problem", "message"),
     [
-        ((), _completed(), 0, "Docker not found"),
-        (("docker",), _completed(), 0, "No NVIDIA GPU driver"),
-        (
-            ("docker", "nvidia-smi"),
-            _completed(1, stderr="permission denied"),
-            0,
-            "docker group",
-        ),
-        (("docker", "nvidia-smi"), _completed(0, '{"runc":{}}'), 0, "NVIDIA runtime"),
-        (("docker", "nvidia-smi"), _completed(0, '{"nvidia":{}}'), 1, "docker pull"),
+        ("no docker", "Docker not found"),
+        ("no driver", "No NVIDIA GPU driver"),
+        ("daemon refuses", "docker group"),
+        ("no nvidia runtime", "NVIDIA runtime"),
+        ("no image", "docker pull"),
     ],
 )
-def test_setup_problems_are_named(linux, monkeypatch, tools, info, image_rc, message):
-    _tools(monkeypatch, *tools)
-    _docker_answers(monkeypatch, info, image_rc)
+def test_setup_problems_are_named(gpu, monkeypatch, problem, message):
+    # Only the GPU host's own tools, not this machine's.
+    monkeypatch.setenv("PATH", str(gpu.bin))
+    if problem == "no docker":
+        (gpu.bin / "docker").unlink()
+    elif problem == "no driver":
+        (gpu.bin / "nvidia-smi").unlink()
+    elif problem == "daemon refuses":
+        gpu.docker.set(info_error="permission denied")
+    elif problem == "no nvidia runtime":
+        gpu.docker.set(runtimes='{"runc":{}}')
+    else:
+        monkeypatch.setitem(settings, "parabricks_image", "pb:not-pulled")
     # A missing setup piece is a missing dependency: exit 3.
     with pytest.raises(MissingDependencyError, match=message):
         parabricks.verify_parabricks()
 
 
-def test_a_complete_setup_passes(linux, monkeypatch):
-    _tools(monkeypatch, "docker", "nvidia-smi")
-    _docker_answers(monkeypatch, _completed(0, '{"nvidia":{},"runc":{}}'), 0)
+@posix_only
+def test_a_complete_setup_passes(gpu):
     parabricks.verify_parabricks()
 
 
 def test_parabricks_is_linux_only(monkeypatch):
-    monkeypatch.setattr(parabricks.sys, "platform", "darwin")
-    with pytest.raises(WGSExtractError, match="Linux only"):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(platform, "machine", lambda: "arm64")
+    with pytest.raises(UsageError, match="Linux only"):
         parabricks.verify_parabricks()
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="runs as the POSIX user")
-def test_the_container_sees_each_directory_at_its_own_path(
-    tmp_path, monkeypatch, linux
-):
-    _tools(monkeypatch, "docker")
-    monkeypatch.setattr(parabricks, "parabricks_image", lambda: "pb:test")
-    calls = []
-    monkeypatch.setattr(containers, "run_command", lambda cmd, **_: calls.append(cmd))
+def _view(path, ref, *args):
+    view = ["samtools", "view", "-T", str(ref), *args, str(path)]
+    return run_command(view, capture_output=True).stdout
+
+
+@pytest.fixture
+def genome(tmp_path):
+    """Reads, the reference and the output each in their own folder, so the
+    container must mount all three. The reference has an ALT contig."""
+    rng = random.Random(4)
+    seq = "".join(rng.choice("ACGT") for _ in range(6_000))
+    alt = "".join(rng.choice("ACGT") for _ in range(500))
     (tmp_path / "ref").mkdir()
-    (tmp_path / "out").mkdir()
-    ref = str(tmp_path / "ref" / "hs38DH.fa")
-    parabricks.run_pbrun("fq2bam", ["--ref", ref], [ref, str(tmp_path / "out")])
-
-    cmd = calls[0]
-    assert cmd[:5] == ["docker", "run", "--rm", "--gpus", "all"]
-    assert cmd[cmd.index("-u") + 1].count(":") == 1
-    mounts = [cmd[i + 1] for i, arg in enumerate(cmd) if arg == "-v"]
-    assert mounts == [f"{tmp_path / 'out'}:{tmp_path / 'out'}", f"{tmp_path / 'ref'}:{tmp_path / 'ref'}"]  # fmt: skip
-    assert cmd[cmd.index("pb:test") :] == ["pb:test", "pbrun", "fq2bam", "--ref", ref]
+    ref = write_fasta(tmp_path / "ref" / "ref.fa", {"chr1": seq, "chr1_KI1_alt": alt})
+    (tmp_path / "reads").mkdir()
+    return seq, ref
 
 
-def _align_args(tmp_path: Path, r2: bool = True) -> Namespace:
-    ref = tmp_path / "ref.fa"
-    ref.write_text(">chr1\nACGT\n")
-    (tmp_path / "ref.fa.fai").write_text(
-        "chr1\t4\t6\t4\t5\nchr1_KI1_alt\t4\t16\t4\t5\n"
-    )
-    for name in ("r1.fq.gz", "r2.fq.gz", "ref.fa.bwt"):
-        (tmp_path / name).write_text("x")
-    return Namespace(
-        r1=str(tmp_path / "r1.fq.gz"),
-        r2=str(tmp_path / "r2.fq.gz") if r2 else None,
-        ref=str(ref), input=None, outdir=str(tmp_path), format="CRAM",
-        threads="4", memory="1G", sample="ladan", platform="illumina",
-        aligner="auto", gpu=True, preset=None, long_read=False,
+@posix_only
+@needs_tools("bwa", "samtools")
+@pytest.mark.parametrize("paired", [True, False])
+def test_fq2bam_aligns_with_the_read_group_and_alt_file(tmp_path, gpu, genome, paired):
+    seq, ref = genome
+    r1, r2 = tmp_path / "reads" / "ladan_R1.fq", tmp_path / "reads" / "ladan_R2.fq"
+    write_read_pairs(seq, r1, r2, range(0, 5_000, 50))
+    out = tmp_path / "out"
+
+    run_wgsextract(
+        "align", "--gpu", "--r1", str(r1), *(["--r2", str(r2)] if paired else []),
+        "--ref", str(ref), "--outdir", str(out), "--format", "CRAM",
+        "--sample", "ladan",
     )  # fmt: skip
 
+    # Mates go into one output, named without the mate marker.
+    stem = "ladan" if paired else "ladan_R1"
+    cram = out / f"{stem}_aligned.cram"
+    header = _view(cram, ref, "-H").splitlines()
+    (rg,) = [line for line in header if line.startswith("@RG")]
+    # fq2bam needs a platform unit; the sample is the one asked for.
+    assert "\tSM:ladan" in rg and f"\tPU:{stem}" in rg
+    reads = _view(cram, ref, "-F", "4").splitlines()
+    assert len(reads) == 100 * (2 if paired else 1)
+    # BWA's ALT list sits beside the reference, as for align --aligner bwa.
+    assert (tmp_path / "ref" / "ref.fa.alt").read_text() == "chr1_KI1_alt\n"
+    # Parabricks' chromosome list isn't left beside the output.
+    assert sorted(p.name for p in out.iterdir() if not p.name.startswith(".")) == [
+        f"{stem}_aligned.cram",
+        f"{stem}_aligned.cram.crai",
+    ]
 
+
+def _hifi_fastq(seq, path):
+    with open(path, "w") as out:
+        for i, start in enumerate(range(0, 5_000, 250)):
+            read = seq[start : start + 1_000]
+            out.write(f"@m{i}\n{read}\n+\n{'I' * len(read)}\n")
+
+
+@posix_only
+@needs_tools("minimap2", "samtools")
 @pytest.mark.parametrize(
-    ("paired", "fq_arg"), [(True, "--in-fq"), (False, "--in-se-fq")]
+    ("aligner", "preset"), [("minimap2", "map-hifi"), ("pbmm2", "map-pbmm2")]
 )
-def test_fq2bam_gets_the_reads_read_group_and_alt_file(
-    tmp_path, monkeypatch, paired, fq_arg
-):
-    monkeypatch.setattr(align, "verify_dependencies", lambda *_a: None)
-    monkeypatch.setattr(align, "log_dependency_info", lambda *_a: None)
-    monkeypatch.setattr(parabricks, "verify_parabricks", lambda: None)
-    runs = []
-    monkeypatch.setattr(
-        parabricks, "run_pbrun", lambda tool, args, paths: runs.append((tool, args))
-    )
-    args = _align_args(tmp_path, r2=paired)
+def test_gpu_hifi_reads_use_parabricks_minimap2(tmp_path, gpu, genome, aligner, preset):
+    seq, ref = genome
+    reads = tmp_path / "reads" / "movie.fq"
+    _hifi_fastq(seq, reads)
+    out = tmp_path / "out"
 
-    align.run(args)
+    run_wgsextract(
+        "align", "--gpu", "--r1", str(reads), "--ref", str(ref),
+        "--outdir", str(out), "--platform", "hifi", "--aligner", aligner,
+        "--sample", "HG00733",
+    )  # fmt: skip
 
-    tool, pb_args = runs[0]
-    assert tool == "fq2bam"
-    reads = pb_args[pb_args.index(fq_arg) + 1 :]
-    assert reads[: 2 if paired else 1] == [args.r1] + ([args.r2] if paired else [])
-    read_group = reads[2 if paired else 1]
-    assert read_group.startswith("@RG\\tID:") and "\\tSM:ladan" in read_group
-    assert read_group.endswith("\\tPU:r1")
-    assert pb_args[pb_args.index("--out-bam") + 1].endswith("_aligned.cram")
-    # BWA's ALT list goes next to the reference, as for align --aligner bwa.
-    assert (tmp_path / "ref.fa.alt").read_text() == "chr1_KI1_alt\n"
+    bam = out / "movie_aligned.bam"
+    header = _view(bam, ref, "-H")
+    assert "\tSM:HG00733" in header and "\tPL:PACBIO" in header
+    assert len(_view(bam, ref, "-F", "4").splitlines()) == 20
+    ((tool, args),) = gpu.runs()
+    # contract: pbmm2 stands in as Parabricks' map-pbmm2 preset.
+    assert (tool, args[args.index("--preset") + 1]) == ("minimap2", preset)
 
 
+@posix_only
+@needs_tools("minimap2", "samtools")
+def test_unaligned_bam_read_groups_without_a_sample_get_one(tmp_path, gpu, genome):
+    """PacBio's unaligned BAMs carry read groups without SM, which Parabricks keeps."""
+    seq, ref = genome
+    lines = ["@HD\tVN:1.6\tSO:unknown", "@RG\tID:movie\tPL:PACBIO"]
+    for i, start in enumerate(range(0, 5_000, 250)):
+        read = seq[start : start + 1_000]
+        lines.append(f"m{i}\t4\t*\t0\t0\t*\t*\t0\t0\t{read}\t{'I' * len(read)}\tRG:Z:movie")  # fmt: skip
+    unaligned = tmp_path / "reads" / "movie.hifi_reads.bam"
+    sam = tmp_path / "reads" / "movie.sam"
+    sam.write_text("\n".join(lines) + "\n")
+    run_command(["samtools", "view", "-b", "-o", str(unaligned), str(sam)])
+    out = tmp_path / "out"
+
+    run_wgsextract(
+        "align", "--gpu", "--r1", str(unaligned), "--ref", str(ref),
+        "--outdir", str(out), "--platform", "hifi", "--sample", "HG00732",
+    )  # fmt: skip
+
+    (bam,) = out.glob("*_aligned.bam")
+    assert "@RG\tID:movie\tPL:PACBIO\tSM:HG00732" in _view(bam, ref, "-H")
+    assert len(_view(bam, ref, "-F", "4").splitlines()) == 20
+
+
+@posix_only
 @pytest.mark.parametrize(
-    ("overrides", "preset"),
+    ("options", "message"),
     [
-        ({"platform": "hifi", "aligner": "minimap2", "r2": None}, "map-hifi"),
-        ({"platform": "hifi", "aligner": "pbmm2", "r2": None}, "map-pbmm2"),
-    ],
-)
-def test_gpu_long_reads_use_parabricks_minimap2(
-    tmp_path, monkeypatch, overrides, preset
-):
-    monkeypatch.setattr(align, "_ensure_read_group_sample", lambda *_a: None)
-    monkeypatch.setattr(align, "verify_dependencies", lambda *_a: None)
-    monkeypatch.setattr(align, "log_dependency_info", lambda *_a: None)
-    monkeypatch.setattr(parabricks, "verify_parabricks", lambda: None)
-    runs = []
-    monkeypatch.setattr(
-        parabricks, "run_pbrun", lambda tool, args, paths: runs.append((tool, args))
-    )
-    args = _align_args(tmp_path)
-    for key, value in overrides.items():
-        setattr(args, key, value)
-
-    align.run(args)
-
-    tool, pb_args = runs[0]
-    assert tool == "minimap2"
-    assert pb_args[pb_args.index("--preset") + 1] == preset
-    assert pb_args[pb_args.index("--in-fq") + 1] == args.r1
-
-
-@pytest.mark.parametrize(
-    ("overrides", "message"),
-    [
-        (
-            {"platform": "clr", "aligner": "minimap2", "r2": None},
-            "no minimap2 preset for map-pb",
-        ),
-        ({"platform": "clr", "aligner": "pbmm2", "r2": None}, "not CLR"),
-        ({"aligner": "minimap2"}, "no minimap2 preset for sr"),
-        (
-            {"platform": "ont", "aligner": "minimap2", "r2": None},
-            "preserve MM/ML",
-        ),
-    ],
-)
-def test_gpu_alignment_without_a_parabricks_equivalent_is_refused(
-    tmp_path, overrides, message
-):
-    args = _align_args(tmp_path)
-    for key, value in overrides.items():
-        setattr(args, key, value)
-    with pytest.raises(WGSExtractError, match=message):
-        align.run(args)
-
-
-def _call_args(tmp_path: Path, **extra) -> Namespace:
-    values = {"input": str(tmp_path / "x.cram"), "region": "chr20,chr21:1-500",
-              "gpu": True, "checkpoint": None, "wes": False, "pacbio": False,
-              "model_type": None}  # fmt: skip
-    values.update(extra)
-    return Namespace(**values)
-
-
-@pytest.mark.parametrize(
-    ("module", "command", "tool", "extra", "expected_extra"),
-    [
-        (deepvariant, "cmd_deepvariant", "deepvariant", {}, []),
-        (deepvariant, "cmd_deepvariant", "deepvariant", {"wes": True}, ["--use-wes-model"]),
-        (deepvariant, "cmd_deepvariant", "deepvariant", {"pacbio": True}, ["--mode", "pacbio"]),
-        (deepvariant, "cmd_deepvariant", "deepvariant", {"ont": True}, ["--mode", "ont"]),
-        (deepvariant, "cmd_deepvariant", "deepvariant", {"model_type": "ONT_R104"}, ["--mode", "ont"]),
-        (deepvariant, "cmd_deepvariant", "deepvariant", {"input_platform": "ont"}, ["--mode", "ont"]),
-        (callers, "cmd_gatk", "haplotypecaller", {}, []),
+        (["--platform", "clr", "--aligner", "minimap2"], "no minimap2 preset for map-pb"),
+        (["--platform", "clr", "--aligner", "pbmm2"], "not CLR"),
+        (["--aligner", "minimap2", "--r2", "R2"], "no minimap2 preset for sr"),
+        (["--platform", "ont", "--aligner", "minimap2"], "preserve MM/ML"),
     ],
 )  # fmt: skip
-def test_gpu_calling_runs_the_parabricks_caller(
-    tmp_path, monkeypatch, linux, module, command, tool, extra, expected_extra
+def test_gpu_alignment_without_a_parabricks_equivalent_is_refused(
+    tmp_path, linux, options, message
 ):
-    monkeypatch.setattr(module, "verify_dependencies", lambda *_a: None)
-    monkeypatch.setattr(parabricks, "verify_parabricks", lambda: None)
-    monkeypatch.setattr(
-        module, "get_base_args", lambda _a: ("4", str(tmp_path), "ref.fa", None)
-    )
-    monkeypatch.setattr(module, "ensure_vcf_indexed", lambda _v: None)
-    monkeypatch.setattr(module, "warn_if_no_variants", lambda *_a: None)
-    if module is deepvariant:
-        monkeypatch.setattr(module, "get_bam_header", lambda *_a: "")
-    runs = []
-    monkeypatch.setattr(parabricks, "run_pbrun", lambda t, a, p: runs.append((t, a)))
+    # Refused before the reference is read: no index needed.
+    ref = tmp_path / "ref.fa"
+    ref.write_text(">chr1\n" + "ACGT" * 100 + "\n")
+    for name in ("r1.fq", "r2.fq"):
+        (tmp_path / name).write_text("@r\nACGT\n+\nIIII\n")
+    options = [str(tmp_path / "r2.fq") if o == "R2" else o for o in options]
+    out = tmp_path / "out"
+    with pytest.raises(WGSExtractError, match=message):
+        run_wgsextract(
+            "align", "--gpu", "--r1", str(tmp_path / "r1.fq"), "--ref", str(ref),
+            "--outdir", str(out), *options,
+        )  # fmt: skip
+    assert not out.exists() or not any(out.iterdir())
 
-    getattr(module, command)(_call_args(tmp_path, **extra))
 
-    ran, pb_args = runs[0]
-    assert ran == tool
-    assert pb_args[pb_args.index("-L") :] == ["-L", "chr20", "-L", "chr21:1-500", *expected_extra]  # fmt: skip
+@posix_only
+@needs_tools("samtools", "bcftools", "tabix")
+@pytest.mark.parametrize(
+    ("command", "options", "read_group", "mode"),
+    [
+        ("deepvariant", [], "@RG\tID:rg\tSM:S", []),
+        ("deepvariant", ["--wes"], "@RG\tID:rg\tSM:S", ["--use-wes-model"]),
+        ("deepvariant", ["--pacbio"], "@RG\tID:rg\tSM:S", ["--mode", "pacbio"]),
+        ("deepvariant", ["--ont"], "@RG\tID:rg\tSM:S", ["--mode", "ont"]),
+        ("deepvariant", ["--model-type", "ONT_R104"], "@RG\tID:rg\tSM:S", ["--mode", "ont"]),
+        ("deepvariant", [], "@RG\tID:rg\tSM:S\tPL:ONT", ["--mode", "ont"]),
+        ("gatk", [], "@RG\tID:rg\tSM:S", []),
+    ],
+)  # fmt: skip
+def test_gpu_calling_runs_the_parabricks_caller_over_each_region(
+    tmp_path, gpu, command, options, read_group, mode
+):
+    sample = snp_sample(tmp_path, read_group=read_group)
+    out = tmp_path / "out"
+
+    run_wgsextract(
+        "vcf", command, "--gpu", "--input", sample.bam, "--ref", sample.ref,
+        "--outdir", str(out), "-r", "chr1:1000-1100,chr1:2000-2100", *options,
+    )  # fmt: skip
+
+    vcf = out / ("deepvariant.vcf.gz" if command == "deepvariant" else "gatk.vcf.gz")
+    assert [(c[0], c[1]) for c in vcf_calls(vcf)] == [("chr1", "1000"), ("chr1", "2000")]  # fmt: skip
+    ((tool, args),) = gpu.runs()
+    assert tool == ("deepvariant" if command == "deepvariant" else "haplotypecaller")
+    # contract: the model Parabricks calls with.
+    assert [
+        a for a in ("--use-wes-model", "--mode", "pacbio", "ont") if a in args
+    ] == mode
+
+
+@posix_only
+@needs_tools("samtools", "bcftools", "tabix")
+@pytest.mark.parametrize("linked", [False, True])
+def test_gpu_calling_reads_a_bed_region_from_its_own_folder(tmp_path, gpu, linked):
+    """A BED --region is an interval file Parabricks can see, not an -L
+    interval, and its folder (and a link's target's) is mounted into the
+    container. A link is passed by its own name, since pbrun takes the format
+    from the name and a store's target (Galaxy's dataset_7.dat) has none."""
+    (tmp_path / "sample").mkdir()
+    sample = snp_sample(tmp_path / "sample")
+    bed = tmp_path / "targets" / ("dataset_7.dat" if linked else "panel.bed")
+    bed.parent.mkdir()
+    bed.write_text("chr1\t1499\t1600\nchr1\t2199\t2300\n")
+    if linked:
+        (tmp_path / "links").mkdir()
+        (tmp_path / "links" / "panel.bed").symlink_to(bed)
+        bed = tmp_path / "links" / "panel.bed"
+    out = tmp_path / "out"
+
+    run_wgsextract(
+        "vcf", "deepvariant", "--gpu", "--input", sample.bam, "--ref", sample.ref,
+        "--outdir", str(out), "-r", os.path.relpath(bed),
+    )  # fmt: skip
+
+    calls = vcf_calls(out / "deepvariant.vcf.gz")
+    assert [(c[0], c[1]) for c in calls] == [("chr1", "1500"), ("chr1", "2200")]
 
 
 def test_gpu_deepvariant_refuses_a_custom_checkpoint(tmp_path, linux):
-    with pytest.raises(WGSExtractError, match="checkpoint"):
-        deepvariant.cmd_deepvariant(_call_args(tmp_path, checkpoint="model.ckpt"))
-
-
-@needs_tools("samtools")
-def test_read_groups_without_a_sample_get_one(tmp_path):
-    """PacBio's unaligned BAMs carry read groups without SM, which Parabricks keeps."""
-    bam = sam_to_bam(
-        ["@SQ\tSN:chr1\tLN:1000", "@RG\tID:movie\tPL:PACBIO",
-         "r1\t0\tchr1\t1\t60\t4M\t*\t0\t0\tACGT\tIIII\tRG:Z:movie"],
-        tmp_path / "hifi.bam",
-    )  # fmt: skip
-    align._ensure_read_group_sample(bam, "HG00732", "unused.fa")
-    header = run_command(["samtools", "view", "-H", bam], capture_output=True).stdout
-    assert "@RG\tID:movie\tPL:PACBIO\tSM:HG00732" in header
-    assert (
-        run_command(["samtools", "view", "-c", bam], capture_output=True).stdout.strip()
-        == "1"
-    )
+    with pytest.raises(UsageError, match="checkpoint"):
+        run_wgsextract(
+            "vcf", "deepvariant", "--gpu", "--input", str(tmp_path / "x.bam"),
+            "--checkpoint", str(tmp_path / "model.ckpt"),
+        )  # fmt: skip
