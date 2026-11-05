@@ -38,16 +38,27 @@ With `--metal` the backend prints GPU and CPU batch counts to stderr.
 ## Memory
 
 BWA-MEM2 trades memory for speed. Building its human index needs roughly
-60–90 GB of RAM, and aligning needs the 15–20 GB index in memory. BWA indexes a
-human genome in about 5 GB and aligns in about 5 GB plus a few hundred MB per
-thread, which fits ordinary desktops. `--metal` adds under 100 MB of GPU
-buffers.
+60–90 GB of RAM, and aligning needs the 15–20 GB index in memory. BWA fits
+ordinary desktops. On hs38 with 150 bp HG002 pairs, `wgse-bwa` built the index
+with a 6.2 GB peak in 100 minutes, and aligning peaked at 5.3 GB with 1 thread
+and 5.9 GB with 9 threads (default `-K`), or about 75 MB per extra thread.
+`--metal` adds under 100 MB of GPU buffers.
 
 ## Performance
 
-Measured on an M1 Pro (8P+2E cores, 32 GB) with 10.6M read pairs and a small
-reference (chr20 fragment, Y, MT) whose whole index fits in cache. Full-genome
-numbers will differ; all runs produced identical alignments.
+Measured on an M1 Pro (8P+2E cores, 32 GB). All runs in each group produced
+identical alignments.
+
+Full genome (hs38, first 5M HG002 30x NovaSeq pairs, `-K 10000000`):
+
+| Aligner | Threads | Time | Peak RSS |
+| --- | --- | --- | --- |
+| Bioconda bwa 0.7.19 | 9 | 528.5 s | 5.4 GB |
+| `wgse-bwa` | 9 | 527.4 s | 5.4 GB |
+
+The BWA-MEM2 human index cannot be built on this machine, so BWA-MEM2 was
+measured with 10.6M read pairs against a small reference (chr20 fragment, Y,
+MT) whose whole index fits in cache. Full-genome gains will be smaller:
 
 | Aligner | Threads | Time | vs packaged build |
 | --- | --- | --- | --- |
@@ -56,6 +67,11 @@ numbers will differ; all runs produced identical alignments.
 | Bioconda bwa-mem2 2.3 | 8 | 45.7 s | — |
 | `wgse-bwa-mem2` | 9 | 35.0 s | −23.5% |
 | `wgse-bwa-mem2 --metal` | 9 | 31.0 s | −32.2% |
+
+`wgse-bwa` matches the packaged build at full-genome scale; its value is a
+self-contained, dependency-free macOS build. Profiling shows FM-index seeding
+takes about 70% of its time and extension about 5%, so GPU work for BWA must
+target seeding rather than extension.
 
 ## Building
 
