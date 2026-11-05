@@ -485,6 +485,8 @@ def test_chain_step_without_its_output_fails_and_keeps_intermediates(tmp_path):
         commands.append(cmd)
         return subprocess.CompletedProcess(cmd, 0, "", "wrote nothing\n")
 
+    # A native path: --ref is a path, so "/lib" would become "\\lib" on Windows.
+    lib = str(tmp_path.parent / "lib")
     with (
         patch.object(chain, "verify_dependencies"),
         patch.object(chain, "get_tool_path", return_value="bcftools"),
@@ -494,8 +496,8 @@ def test_chain_step_without_its_output_fails_and_keeps_intermediates(tmp_path):
         pytest.raises(WGSExtractError, match="'clinvar' did not produce"),
     ):
         run_wgsextract("vcf", "chain-annotate", "--input", str(input_vcf),
-                       "--ref", "/lib", "--annotations", "clinvar")  # fmt: skip
-    assert commands[0][-2:] == ["--ref", "/lib"]
+                       "--ref", lib, "--annotations", "clinvar")  # fmt: skip
+    assert commands[0][-2:] == ["--ref", lib]
     assert sorted(os.listdir(tmp_path)) == ["chain_step_1_clinvar", "in.vcf.gz"]
 
 
