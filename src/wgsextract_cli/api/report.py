@@ -48,8 +48,9 @@ class ReportParams(Params):
     COMMAND = "report"
 
     input: Path | None = optional_input_param(
-        "BAM, CRAM or VCF of the sample; its folder holds the results unless "
-        "workspace is given."
+        "BAM, CRAM or VCF of the sample: only its runs (and runs on files made "
+        "from it) are reported. Its folder holds the results unless workspace "
+        "is given."
     )
     workspace: Path | None = _workspace_param()
     outdir: Path | None = outdir_param("the sample folder")

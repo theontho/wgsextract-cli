@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import cache
 from importlib import resources
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 from urllib.parse import quote
 
@@ -44,6 +44,7 @@ from wgsextract_cli.core.reference_assets import input_stem
 from wgsextract_cli.core.reference_models import sequence_lengths
 from wgsextract_cli.core.sample_workspace import WORKSPACE_FILE, SampleWorkspace
 from wgsextract_cli.core.table_writer import Column, Value
+from wgsextract_cli.core.utils import UsageError
 
 COMMAND = "report"
 SCHEMA_ID = "wgsextract.report/1"
@@ -88,6 +89,8 @@ SECTIONS = {
 }
 _ALIGNMENT_SUFFIXES = (".bam", ".cram")
 _VCF_SUFFIXES = (".vcf.gz", ".vcf.bgz", ".vcf", ".bcf")
+# Manifest input roles naming the sample's own files
+SAMPLE_ROLES = ("input", "vcf_input")
 _OVERVIEW_FACTS = (
     ("sex", "Sex"),
     ("platform", "Platform"),
@@ -192,10 +195,9 @@ class Source:
 
     def locate(self, recorded: str) -> Path:
         """A path the manifest recorded; when the folder has been moved or
-        copied since, the same file relative to the manifest's new place."""
+        copied since, the same file relative to the manifest's new place
+        (if it is there), so a copy reports on its own files."""
         path = Path(recorded)
-        if path.exists():
-            return path
         original = self.document.get("manifest")
         if isinstance(original, str):
             try:
@@ -206,6 +208,20 @@ class Source:
             if moved.exists():
                 return moved
         return path
+
+    @property
+    def recorded_folder(self) -> str | None:
+        """The folder the manifest was written in, as it recorded it."""
+        original = self.document.get("manifest")
+        return str(Path(original).parent) if isinstance(original, str) else None
+
+    def sample_files(self) -> list[Path]:
+        """The sample files the run read (not references or resources)."""
+        return [
+            self.locate(str(r["path"]))
+            for r in self.records("inputs")
+            if r.get("role") in SAMPLE_ROLES and r.get("path")
+        ]
 
     def warnings(self) -> list[dict[str, str]]:
         return [
@@ -258,6 +274,81 @@ def collect_sources(folder: Path, extra: Iterable[Path] = ()) -> list[Source]:
     return sorted(found.values(), key=lambda s: (s.finished, str(s.manifest)))
 
 
+def _files(source: Source) -> set[str]:
+    return {_key(p) for p in [*source.sample_files(), *source.files("outputs")]}
+
+
+def sample_groups(sources: Sequence[Source]) -> list[list[Source]]:
+    """``sources`` grouped by sample: runs are linked when one read a file
+    another read or wrote."""
+    groups: list[tuple[set[str], list[Source]]] = []
+    for source in sources:
+        files = _files(source)
+        linked = [g for g in groups if g[0] & files]
+        merged: tuple[set[str], list[Source]] = (files, [source])
+        for group in linked:
+            groups.remove(group)
+            merged[0].update(group[0])
+            merged[1].extend(group[1])
+        groups.append(merged)
+    return [members for _, members in groups]
+
+
+def _roots(group: Sequence[Source]) -> list[Path]:
+    """The group's sample files no run in it produced: what it started from."""
+    produced = {_key(p) for s in group for p in s.files("outputs")}
+    roots = {_key(p): p for s in group for p in s.sample_files()}
+    return [p for key, p in roots.items() if key not in produced]
+
+
+def select_sample(
+    sources: Sequence[Source], input_file: Path | None, *, workspace: bool
+) -> list[Source]:
+    """The runs on this sample. Runs on ``input_file`` and on files made from
+    it (or that made it); in a sample workspace, which holds one person, also
+    runs on files made from no other alignment (a VCF from elsewhere). With
+    no ``input_file`` outside a workspace, every run unless they started from
+    different samples' files, which is an error."""
+    groups = sample_groups(sources)
+    if input_file is not None:
+        key = _key(input_file)
+        kept = [
+            g
+            for g in groups
+            if any(key in _files(s) for s in g)
+            or (
+                workspace
+                and not any(
+                    p.name.lower().endswith(_ALIGNMENT_SUFFIXES) for p in _roots(g)
+                )
+            )
+        ]
+        return sorted(
+            (s for g in kept for s in g), key=lambda s: (s.finished, str(s.manifest))
+        )
+    if not workspace:
+        stems = sorted({input_stem(p) for g in groups for p in _roots(g)})
+        if len(stems) > 1:
+            raise UsageError(
+                "The folder has results of several samples ("
+                + ", ".join(stems)
+                + "); choose one with --input."
+            )
+    return list(sources)
+
+
+def sample_sources(
+    folder: Path, input_file: Path | None = None, results: Iterable[Path] = ()
+) -> list[Source]:
+    """The runs of the sample in ``folder`` (see :func:`select_sample`)."""
+    workspace = SampleWorkspace(folder)
+    return select_sample(
+        collect_sources(folder, results),
+        input_file,
+        workspace=workspace.path.exists() or workspace.is_genome_folder,
+    )
+
+
 def latest(sources: Sequence[Source], match: Callable[[Source], bool]) -> Source | None:
     """The newest successful matching run, else the newest failed one."""
     hits = [s for s in sources if match(s)]
@@ -269,9 +360,12 @@ def _command(name: str) -> Callable[[Source], bool]:
     return lambda source: source.command == name
 
 
-def _role(*roles: str) -> Callable[[Source], bool]:
-    return lambda source: any(
-        record.get("role") in roles for record in source.records("outputs")
+def _command_or_role(command: str, *roles: str) -> Callable[[Source], bool]:
+    """Runs of ``command`` (failed ones may have no outputs), or any run that
+    wrote one of ``roles``."""
+    return lambda source: (
+        source.command == command
+        or any(record.get("role") in roles for record in source.records("outputs"))
     )
 
 
@@ -366,30 +460,35 @@ class _Context:
     vcf: str | None
 
     def rel(self, path: Path | str | None) -> str | None:
-        """``path`` relative to the sample folder ('/'-separated), or its
-        name alone when it is on another drive."""
+        """``path`` relative to the sample folder ('/'-separated), or absolute
+        when it is on another drive (Windows) and so has no relative path."""
         if path is None:
             return None
+        absolute = os.path.abspath(path)
         try:
-            relative = os.path.relpath(os.path.abspath(path), self.folder)
+            relative = os.path.relpath(absolute, self.folder)
         except ValueError:
-            return Path(path).name
+            return Path(absolute).as_posix()
         return Path(relative).as_posix()
 
     def fact(self, name: str) -> dict[str, Any] | None:
         effective = self.workspace.get("effective") or {}
         if name in effective:
             return dict(effective[name])
+        shared = (self.workspace.get("overrides") or {}).get(name)
+        if shared is not None:
+            return {"name": name, "value": shared, "source": "override"}
         for entry in (self.workspace.get("files") or {}).values():
             if entry.get("status") == "current" and name in entry.get("facts", {}):
                 return dict(entry["facts"][name])
         return None
 
     def build_of(self, file: Path | None) -> str | None:
+        """``file``'s build as the workspace recorded it, while still current."""
         key = self.rel(file) if file else None
-        entry = (self.workspace.get("files") or {}).get(key or "")
-        fact = (entry or {}).get("facts", {}).get("build") if entry else None
-        return str(fact["value"]) if fact else None
+        entry = (self.workspace.get("files") or {}).get(key or "") or {}
+        fact = entry.get("facts", {}).get("build")
+        return str(fact["value"]) if fact and entry.get("status") == "current" else None
 
     def command_for(self, command: str, input_file: str | None, what: str) -> str:
         target = input_file or f"YOUR.{what}"
@@ -657,7 +756,9 @@ def _worst(labels: Iterable[str]) -> str:
 
 
 def _pharmacogenomics(ctx: _Context) -> dict[str, Any]:
-    pharmcat = latest(ctx.sources, _role("pharmcat_phenotypes"))
+    pharmcat = latest(
+        ctx.sources, _command_or_role("vcf pharmcat", "pharmcat_phenotypes")
+    )
     cyrius = latest(ctx.sources, _command("typing cyp2d6"))
     section = _section("pharmacogenomics", [pharmcat, cyrius], ctx)
     if pharmcat is not None and pharmcat.status == "ok":
@@ -791,7 +892,7 @@ def _float(value: Any) -> float | None:
 
 
 def _clinvar(ctx: _Context) -> dict[str, Any]:
-    source = latest(ctx.sources, _role("clinvar_pathogenic"))
+    source = latest(ctx.sources, _command_or_role("vcf clinvar", "clinvar_pathogenic"))
     section = _section("clinvar", [source], ctx)
     section["gene_list"] = {**GENE_LIST, "genes": len(gene_list())}
     if source is None or source.status != "ok":
@@ -803,10 +904,17 @@ def _clinvar(ctx: _Context) -> dict[str, Any]:
         _missing(section, "ClinVar annotation (vcf clinvar)", command)
         return section
     vcf = source.output("clinvar_pathogenic")
-    inputs = source.files("inputs")
+    # The evidence VCF's own header, else the current facts of the VCF it read
+    vcf_inputs = [
+        source.locate(str(r["path"]))
+        for role in ("vcf_input", "input")
+        for r in source.records("inputs")
+        if r.get("role") == role
+        and str(r.get("path") or "").lower().endswith(_VCF_SUFFIXES)
+    ]
     build = _gene_build(
-        (ctx.build_of(inputs[0]) if inputs else None)
-        or (_vcf_build(vcf) if vcf else None)
+        (_vcf_build(vcf) if vcf else None)
+        or next(filter(None, map(ctx.build_of, vcf_inputs)), None)
     )
     calls = [
         c
@@ -937,8 +1045,9 @@ def _choose_inputs(
             for r in source.records("inputs")
             if r.get("role") in ("input", "vcf_input") and r.get("path")
         )
-    keys = (workspace.describe().get("files") or {}).keys()
-    candidates.extend(folder / key for key in keys)
+    if input_file is None:
+        keys = (workspace.describe().get("files") or {}).keys()
+        candidates.extend(folder / key for key in keys)
     for path in candidates:
         if not _inside(path, folder) or not path.is_file():
             continue
@@ -948,6 +1057,42 @@ def _choose_inputs(
         elif vcf is None and name.endswith(_VCF_SUFFIXES):
             vcf = Path(os.path.relpath(path, folder)).as_posix()
     return alignment, vcf
+
+
+_POSIX_PATH = re.compile(r"""(?<![\w.~:/-])/(?:[^\s/:'"<>|]+/)+([^\s/:'"<>|]*)""")
+_WINDOWS_PATH = re.compile(
+    r"""(?<![\w])[A-Za-z]:[\\/](?:[^\s\\/:'"<>|]+[\\/])*([^\s\\/:'"<>|]*)"""
+)
+
+
+def _path_scrubber(ctx: _Context) -> Callable[[str], str]:
+    """Rewrites messages from the runs for sharing: paths in the sample folder
+    (as it is now, or as a manifest recorded it before a move) relative to
+    it, and any other absolute path as its file name alone."""
+    prefixes: dict[str, str] = {}
+    for source in ctx.sources:
+        here = ctx.rel(source.manifest.parent) or "."
+        for folder in (source.recorded_folder, str(source.manifest.parent)):
+            if folder:
+                prefixes[folder] = here
+    prefixes[str(ctx.folder)] = "."
+    variants = {
+        spelling: rel
+        for folder, rel in prefixes.items()
+        for spelling in {folder, folder.replace("\\", "/")}
+        if Path(spelling).is_absolute() or PureWindowsPath(spelling).is_absolute()
+    }
+    ordered = sorted(variants.items(), key=lambda item: -len(item[0]))
+
+    def scrub(text: str) -> str:
+        for folder, rel in ordered:
+            lead = "" if rel == "." else f"{rel}/"
+            for sep in ("/", "\\"):
+                text = text.replace(folder + sep, lead)
+        text = _WINDOWS_PATH.sub(lambda m: m.group(1) or "…", text)
+        return _POSIX_PATH.sub(lambda m: m.group(1) or "…", text)
+
+    return scrub
 
 
 def build_report(
@@ -960,10 +1105,11 @@ def build_report(
     """The report document (``wgsextract.report/1``) of the sample in ``folder``."""
     folder = Path(os.path.abspath(folder))
     if sources is None:
-        sources = collect_sources(folder, results)
+        sources = sample_sources(folder, input_file, results)
     workspace = SampleWorkspace(folder)
     alignment, vcf = _choose_inputs(folder, input_file, sources, workspace)
-    described = workspace.describe(folder / alignment if alignment else None)
+    main_file = alignment or vcf
+    described = workspace.describe(folder / main_file if main_file else None)
     ctx = _Context(folder, sources, described, alignment, vcf)
     info = latest(sources, _command("info"))
     name = (
@@ -980,7 +1126,12 @@ def build_report(
         "clinvar": _clinvar(ctx),
         "microarray": _microarray(ctx),
     }
+    scrub = _path_scrubber(ctx)
     for section in sections.values():
+        for warning in section["warnings"]:
+            warning["message"] = scrub(warning["message"])
+        if section.get("error"):
+            section["error"] = scrub(section["error"])
         for finding in section["findings"]:
             for key in ("file", "manifest"):
                 file = finding["evidence"][key]
@@ -1074,6 +1225,9 @@ ul{margin:2px 0;padding-left:18px}
 def _href(file: str | None, base: str) -> str | None:
     if not file:
         return None
+    for flavour in (PurePosixPath, PureWindowsPath):
+        if flavour(file).is_absolute():  # evidence on another drive
+            return flavour(file).as_uri()
     if base.startswith("file:"):
         return f"{base.rstrip('/')}/{quote(file)}"
     return quote(Path(os.path.normpath(Path(base, file))).as_posix())

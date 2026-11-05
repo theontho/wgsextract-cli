@@ -336,7 +336,7 @@ plus a findings table, from the result manifests in its folder.
 
 | Field | Type | Default | CLI | Description |
 | --- | --- | --- | --- | --- |
-| `input` | `Path \| None` | `None` | `--input`, `-i` | BAM, CRAM or VCF of the sample; its folder holds the results unless workspace is given. |
+| `input` | `Path \| None` | `None` | `--input`, `-i` | BAM, CRAM or VCF of the sample: only its runs (and runs on files made from it) are reported. Its folder holds the results unless workspace is given. |
 | `workspace` | `Path \| None` | `None` | `--workspace` | Sample folder whose results are reported (default: the --genome folder, else the --input's folder). |
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the sample folder). |
 | `results` | `tuple[Path, ...]` | `[]` | `--results` | Also read result manifests from this folder (repeatable); only runs on this sample's files are used. The --outdir is always read. |

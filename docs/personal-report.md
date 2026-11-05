@@ -30,6 +30,15 @@ output folder doesn't mix samples. When a command ran more than once, the
 newest successful run is used. A section whose only runs failed is shown as
 **failed**, with the error.
 
+With `--input`, only that file's runs are reported: runs on it, on files made
+from it (its `vcf snp` VCF, say) and the runs that made it. In a sample
+workspace or genome folder, which holds one person, runs on files made from no
+other alignment (a VCF from a lab, say) are included too. Without `--input`, a
+plain folder holding results of several samples is an error (exit 2) naming
+them; choose one with `--input`. The report reads only manifests and the
+workspace, so it needs no samtools or other analysis tools, even for a BAM or
+CRAM `--input`.
+
 > **Technical result, not diagnosis.** The report describes what software
 > found in this sequencing run. It is not a diagnosis or medical advice.
 > Confirm any finding with an accredited clinical laboratory before acting on
@@ -93,11 +102,15 @@ ClinVar VCF, the haplogroup report, the PharmCAT report, the Cyrius calls),
 the region (`chrom:pos`, the chromosome, or `gene SYMBOL`), and the run's
 result manifest. In the HTML and Markdown these are links, relative to the
 report's folder, so the report keeps working when the sample folder is moved
-or copied as a whole. When the folder has been moved, the report also finds
-files that manifests recorded under the old path.
+or copied as a whole. When the folder has been moved or copied, the report
+uses the files in its own folder rather than the paths the manifests recorded.
+Evidence on another drive (`--results` on Windows) has no relative path, so it
+is named, and linked, by its absolute path.
 
 The documents name the sample folder but not its full path, so the report can
-be shared without the folder layout of your computer. They do contain the
+be shared without the folder layout of your computer. Paths in the runs'
+warnings and errors are made relative to the sample folder, or cut to the file
+name when outside it. They do contain the
 sample's findings: treat them as private genetic data.
 
 The HTML is self-contained: inline CSS, no scripts, fonts, images or other
