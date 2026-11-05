@@ -200,6 +200,7 @@ def test_unaligned_bam_read_groups_without_a_sample_get_one(tmp_path, gpu, genom
     assert len(_view(bam, ref, "-F", "4").splitlines()) == 20
 
 
+@posix_only
 @pytest.mark.parametrize(
     ("options", "message"),
     [

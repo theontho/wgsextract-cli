@@ -452,8 +452,9 @@ def test_missing_index_without_memory_to_build_says_what_to_do(
 
 
 @needs_tools("samtools", "bwa-mem2")
-def test_align_indexes_a_bare_fasta_for_mem2(tmp_path):
+def test_align_indexes_a_bare_fasta_for_mem2(tmp_path, ram):
     ref, r1, r2 = _genome(tmp_path)
+    ram(64 * GB)
     Path(ref + ".fai").unlink()
 
     bam = _align(ref, r1, r2, tmp_path / "out", "--aligner", "bwa-mem2")
@@ -582,8 +583,9 @@ def test_prebuilt_index_downloads_and_is_checked(tmp_path, monkeypatch):
 
 @needs_tools("bwa", "bwa-mem2", "samtools")
 @pytest.mark.parametrize("memory", ["100M", "512M"])
-def test_bwa_mem2_aligns_like_bwa(tmp_path, memory):
+def test_bwa_mem2_aligns_like_bwa(tmp_path, ram, memory):
     ref, r1, r2 = _genome(tmp_path)
+    ram(64 * GB)
     positions = {}
     for aligner in ("bwa", "bwa-mem2"):
         bam = _align(
