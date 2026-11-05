@@ -151,7 +151,9 @@ def runtime_section() -> Iterator[str]:
         "`error`, `inputs`, `outputs`, `metrics`, `warnings`, `details`, "
         "`manifest` and `provenance`; `to_dict()` and `to_json()` give the "
         "`wgsextract.result/1` document. `api.json_schema(cls)` gives a JSON "
-        "Schema of a Params class."
+        "Schema of a Params class; `wgsextract help --all --json` includes it "
+        "as each typed command's `input_schema`, with each property's flag "
+        "as `x-cli-flag`."
     )
     yield ""
     for obj in RUNTIME:

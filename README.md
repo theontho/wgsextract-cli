@@ -153,13 +153,25 @@ usually run them: `info` → `microarray` / `lineage` → `extract` → `realign
 format repair, benchmarks) are listed by name only.
 
 - `wgsextract help --all`: every command on one line, grouped by tier
-  (`help --all vcf` for one group; add `--json` for a machine-readable index).
+  (`help --all vcf` for one group).
 - `wgsextract help vcf snp` (or `wgsextract vcf snp --help`): one command's
-  options, examples and the files it writes.
+  options, examples and the files it writes. Options for tuning and unusual
+  data are left out; `wgsextract vcf snp --help-all` shows them too.
+- `wgsextract help topics`: concept pages such as `help references`,
+  `help genome-library`, `help exit-codes` and `help manifests`.
 - `wgsextract help`: the full command tree.
 
-A mistyped command or choice is a usage error (exit 2) with a "Did you mean"
-hint. Help is plain text when piped, and colour is off when `NO_COLOR` is set.
+`help --all --json` (or `help <command> --json`) is the machine-readable
+index (schema `wgsextract.help/1`): each command's options with their types,
+choices and defaults, its examples and outputs, and, for commands of the
+[typed API](docs/api.md), a JSON Schema of its parameters (`input_schema`).
+New fields may be added under the same schema version; a renamed or removed
+field gets a new one.
+
+A mistyped command, option or choice is a usage error (exit 2) with a "Did you
+mean" hint. On a terminal, some commands end with "Next:" suggestions for
+what to run next (on stderr; never with `--json`, `--quiet` or when piped).
+Help is plain text when piped, and colour is off when `NO_COLOR` is set.
 [docs/commands.md](docs/commands.md) is the generated command reference.
 
 `info` recognizes native Element AVITI read names from
