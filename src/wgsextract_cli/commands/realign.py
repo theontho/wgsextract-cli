@@ -430,7 +430,8 @@ def _align(
         aligning.metrics["aligner"] = current_result().metrics.get("aligner")
         journal.finish(aligning)
         # The aligner indexed its output itself; record that as the index step.
-        journal.finish(journal.start(journal.check(_index_step(out_path))))
+        index = journal.check(_index_step(out_path))
+        journal.finish(journal.start(index, keep_partial=True))
 
 
 def _resume_alignment(

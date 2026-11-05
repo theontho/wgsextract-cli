@@ -19,6 +19,11 @@ written. A run killed mid-step therefore never leaves a step that looks done.
 steps that use its outputs). ``--dry-run`` prints the plan without running
 anything. The journal is held under a lock for the whole run, so two runs
 can't write one output at once.
+
+Tools run in their own process groups, so killing only wgsextract leaves
+them running. Each running step therefore tags the processes it starts
+(``WGSEXTRACT_STEP_RUN`` in their environment, a marker and not a setting),
+and a rerun refuses to start while a killed run's tagged tools are alive.
 """
 
 from __future__ import annotations
@@ -43,6 +48,7 @@ from wgsextract_cli.core.utils import WGSExtractError
 
 SCHEMA = "wgsextract.steps/1"
 JOURNAL_SUFFIX = ".steps.json"
+RUN_TAG = "WGSEXTRACT_STEP_RUN"
 
 
 @dataclass(frozen=True)
@@ -189,6 +195,23 @@ def remove_partials(path: PathInput) -> None:
             stale.unlink()
 
 
+def tagged_processes(tags: set[str]) -> list[str]:
+    """Live processes started by a step run tagged with one of ``tags``."""
+    import psutil
+
+    found = []
+    for process in psutil.process_iter(["name"]):
+        if process.pid == os.getpid():
+            continue
+        try:
+            tag = process.environ().get(RUN_TAG)
+        except (psutil.Error, OSError):
+            continue
+        if tag in tags:
+            found.append(f"{process.info['name']} (pid {process.pid})")
+    return found
+
+
 class StepJournal:
     """The step records of one workflow output; see the module docstring.
 
@@ -208,6 +231,7 @@ class StepJournal:
         self._steps: dict[str, dict[str, Any]] = {}
         self._pending: dict[str, str] = {}  # output path -> step rerunning it
         self._lock = contextlib.ExitStack()
+        self._tag: str | None = None  # the environment's RUN_TAG before a step
 
     @classmethod
     def for_output(
@@ -244,7 +268,40 @@ class StepJournal:
                     "file if no such run exists."
                 ) from None
         self._steps = self._load()
+        if not self.dry_run:
+            try:
+                self._refuse_orphans()
+            except BaseException:
+                self._lock.close()
+                raise
         return self
+
+    def _refuse_orphans(self) -> None:
+        tags = {
+            str(record["token"])
+            for record in self._steps.values()
+            if record.get("status") == "running" and record.get("token")
+        }
+        if tags and (live := tagged_processes(tags)):
+            shown = ", ".join(live[:5]) + (", ..." if len(live) > 5 else "")
+            raise WGSExtractError(
+                f"A killed {self.workflow} run's tools are still writing "
+                f"{self.path.parent}: {shown}. Wait for them to exit or stop "
+                "them, then rerun."
+            )
+
+    def _tag_processes(self, token: str | None) -> None:
+        """Tag the processes started from now on as ``token``'s (None: untag)."""
+        if token is None:
+            if self._tag is not None:
+                os.environ[RUN_TAG] = self._tag
+            else:
+                os.environ.pop(RUN_TAG, None)
+            self._tag = None
+            return
+        if self._tag is None:
+            self._tag = os.environ.get(RUN_TAG, "")
+        os.environ[RUN_TAG] = token
 
     def __exit__(
         self,
@@ -253,6 +310,7 @@ class StepJournal:
         traceback: TracebackType | None,
     ) -> None:
         try:
+            self._tag_processes(None)
             self._summarise()
         finally:
             self._lock.close()
@@ -529,11 +587,23 @@ class StepJournal:
         if self.dry_run:
             raise WGSExtractError(f"Step {decision.step.name} can't run in --dry-run.")
         step = decision.step
+        interrupted = self._steps.get(step.name, {}).get("status") == "running"
         if not keep_partial:
+            inputs = {absolute_path(p) for p in step.inputs.values() if p is not None}
             for path in step.outputs:
                 remove_partials(path)
+                # A killed attempt's file is never accepted as this run's,
+                # even by a tool that skips outputs that already exist.
+                resolved = absolute_path(path)
+                if interrupted and resolved.is_file() and resolved not in inputs:
+                    logging.info(
+                        f"Removing {resolved.name}, left by an interrupted run."
+                    )
+                    resolved.unlink()
+        token = uuid.uuid4().hex
         self._steps[step.name] = {
             "status": "running",
+            "token": token,
             "key": decision.key,
             "params": _json_value(step.params),
             "started": _now(),
@@ -544,6 +614,7 @@ class StepJournal:
             ],
         }
         self._save()
+        self._tag_processes(token)
         return StepRun(decision, time.monotonic())
 
     def finish(self, handle: StepRun) -> None:
@@ -591,6 +662,7 @@ class StepJournal:
             "seconds": round(seconds, 1),
         }
         self._save()
+        self._tag_processes(None)
         logging.info(f"Step {step.name} complete in {seconds:.0f} s.")
 
     def retire(self, step: str, paths: Sequence[PathInput] | None = None) -> None:

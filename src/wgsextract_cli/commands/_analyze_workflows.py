@@ -320,7 +320,7 @@ def run_cli_subcommand(cmd_args: list[str], args: argparse.Namespace) -> None:
     if "--outdir" in cmd_args:
         outdir = Path(cmd_args[cmd_args.index("--outdir") + 1])
         outdir.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse-step-") as stage:
+    with _stage_dir(outdir) as stage:
         result_file = Path(stage, "result.json")
         cmd.extend(["--result-file", str(result_file)])
         try:
@@ -330,6 +330,25 @@ def run_cli_subcommand(cmd_args: list[str], args: argparse.Namespace) -> None:
             logging.warning(f"Subcommand failed: {' '.join(cmd)}. Error: {e}")
             raise WGSExtractError("Subcommand failed: " + " ".join(cmd)) from e
         record_step_result(result_file)
+
+
+@contextlib.contextmanager
+def _stage_dir(outdir: Path | None) -> Iterator[str]:
+    """A folder for a step's result document. Each step has its own, so the
+    one a killed run left is removed when that step reruns."""
+    running = _RUNNING.get()
+    if running is None or outdir is None:
+        with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse-step-") as temp:
+            yield temp
+        return
+    name = re.sub(r"[^A-Za-z0-9_.-]", "_", running.decision.step.name)
+    stage = outdir / f".wgse-step-{name}"
+    shutil.rmtree(stage, ignore_errors=True)
+    stage.mkdir()
+    try:
+        yield str(stage)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
 
 
 def _scalars(values: object) -> dict[str, Scalar]:

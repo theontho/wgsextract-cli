@@ -10,6 +10,9 @@ import csv
 import json
 import re
 import shutil
+import subprocess
+import sys
+import time
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -369,6 +372,59 @@ def test_a_killed_run_resumes_at_the_step_it_was_in(
     comprehensive("--input", bam, "--outdir", str(out))
     assert fake.calls == []
     assert _significant(out) == _significant(clean)
+
+
+@needs_bcftools
+def test_a_rerun_waits_for_a_killed_runs_tools_and_never_keeps_their_output(
+    fake: FakeSubcommands,
+    bam: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clean = tmp_path / "clean"
+    comprehensive("--input", bam, "--outdir", str(clean))
+    out = tmp_path / "out"
+    indels = out / "indels.vcf.gz"
+    tools: list[subprocess.Popen[bytes]] = []
+
+    def killed_in_indel(cmd: list[str], args: argparse.Namespace) -> None:
+        if fake.name(cmd) != "vcf indel":
+            return fake(cmd, args)
+        # The caller runs in its own session, so killing wgsextract leaves it
+        # writing; the kill test in test_realign covers the kill itself.
+        writer = (
+            "import sys, time; open(sys.argv[1], 'ab').write(b'\\x1f'); time.sleep(60)"
+        )
+        tools.append(subprocess.Popen([sys.executable, "-c", writer, str(indels)],
+                                      start_new_session=True))  # fmt: skip
+        while not indels.exists():
+            time.sleep(0.05)
+        raise KeyboardInterrupt
+
+    def skips_existing(cmd: list[str], args: argparse.Namespace) -> None:
+        # Like callers that keep an existing output unless --force.
+        if fake.name(cmd) != "vcf indel" or not indels.exists():
+            fake(cmd, args)
+
+    monkeypatch.setattr(wf, "run_cli_subcommand", killed_in_indel)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            comprehensive("--input", bam, "--outdir", str(out))
+        fake.calls = []
+        monkeypatch.setattr(wf, "run_cli_subcommand", skips_existing)
+        with pytest.raises(WGSExtractError, match=f"still writing.*pid {tools[0].pid}"):
+            comprehensive("--input", bam, "--outdir", str(out))
+        assert fake.calls == []
+    finally:
+        for tool in tools:
+            tool.kill()
+            tool.wait()
+
+    comprehensive("--input", bam, "--outdir", str(out))
+    assert fake.names() == ["vcf indel", "vcf chain-annotate", "vcf chain-annotate"]
+    assert ids(str(indels)) == ids(str(clean / "indels.vcf.gz"))
+    assert _significant(out) == _significant(clean)
+    assert not list(out.glob(".wgse-step-*"))
 
 
 @needs_bcftools

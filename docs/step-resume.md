@@ -53,7 +53,8 @@ A step is marked `running` in the journal before it starts. It is marked
 `complete` only after all of its outputs are written. Outputs are written
 under temporary names and renamed into place when they are complete. A run
 killed mid-step therefore never leaves a step, or a file, that looks done.
-The rerun removes the half-written temporary files and redoes the step.
+The rerun removes the half-written temporary files, and any output the
+killed step left, then redoes the step.
 
 DeepVariant is the exception that keeps partial work. Until the VCF is
 final, its stages work in `.deepvariant.work` in the output folder. A
@@ -94,6 +95,19 @@ A run holds a lock on its journal (`.<journal>.lock`) until it ends. A second
 run into the same output fails at once and names the lock, instead of both
 writing one file. The operating system releases the lock when a run dies, even
 from SIGKILL.
+
+Tools run in their own process groups, so a SIGKILL or OOM kill of
+`wgsextract` alone can leave them running, still writing the step's files.
+Each step tags the processes it starts (`WGSEXTRACT_STEP_RUN` in their
+environment, a marker, not a setting). A rerun lists the killed run's tools
+that are still alive, then stops before running anything:
+
+```console
+$ wgsextract analyze comprehensive --input sample.bam --outdir out
+A killed analyze comprehensive run's tools are still writing out: bcftools (pid 4242), ...
+```
+
+Wait for them to exit, or stop them with `kill PID`, then rerun.
 
 ## Limits
 
