@@ -65,7 +65,7 @@ DEFAULT_CONFIG = """# WGS Extract Configuration
 # father_vcf = "/path/to/father.vcf.gz"
 
 # --- Genotype QC warnings (see docs/genotype-qc.md) ---
-# qc_min_diploid_depth = 8.0  # autosomes; 0 disables
+# qc_min_diploid_depth = 15.0  # autosomes; 0 disables
 # qc_min_haploid_depth = 3.0  # chrY, mtDNA, a man's chrX; 0 disables
 # qc_min_autosomal_homozygosity = 0.6
 # qc_max_autosomal_homozygosity = 0.88

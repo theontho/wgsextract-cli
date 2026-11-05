@@ -40,7 +40,7 @@ def _setting(key: str, override: float | None = None) -> float:
 
 DEPTH_HELP = (
     "Warn below this mean depth for this run; 0 disables (default: config "
-    "qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA)"
+    "qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA)"
 )
 
 

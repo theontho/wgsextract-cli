@@ -193,6 +193,95 @@ excluded or waived. All 21 vendor chromosome checks passed.
 Every nonconcordant public row was retained locally for investigation; only
 aggregate results are published. No genotype-based eligibility changes were made.
 
+## Accuracy versus coverage
+
+How much depth does a genome need for trustworthy kits? The whole public
+HG00096 CRAM above (MD5 `d3354f61a055adfcfc988470bc507b2d`) was downsampled
+with `samtools view -s 42.FRACTION`, one seed for every level, so each smaller
+read set is contained in the larger ones. `wgsextract microarray` made all 21
+consumer layouts at each depth (two threads, default bcftools caller), and
+every kit was scored against the sample's own Omni 2.5 chip (MD5
+`620462f7d8ffc9b82e1fff90c3aecd37`, 708,762 rsID markers with a genotype) by
+the allele-exact identity scorer above. Eligibility never depends on what a kit
+called.
+
+Depth is the CLI's own measure, the one the low-coverage warning uses: mapped
+bases, duplicates included, over the autosomes' non-N length. The full CRAM
+measures 40.1x on it (about 34x without duplicates). Rows are 23andMe V5's
+157,843 autosomal markers on the chip; chrX and chrY are scored only where the
+chip calls this man homozygous, since its chrY "heterozygotes" are probe
+artefacts. The Omni release has no mtDNA.
+
+| Depth | Measured | Called concordance % | No-call % | Het correct % | Het called hom % | Hom-alt correct % | Hom-ref correct % | chrX / chrY concordance % | CombinedKit homozygosity % | Warnings |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| full | 40.1x | 99.93 | 0.08 | 99.79 | 0.14 | 99.80 | 99.92 | 99.98 / 98.91 | 77.9 | - |
+| 30x | 30.0x | 99.89 | 0.08 | 99.66 | 0.27 | 99.80 | 99.92 | 99.98 / 98.91 | 77.9 | - |
+| 20x | 20.0x | 99.53 | 0.08 | 98.60 | 1.32 | 99.79 | 99.92 | 99.98 / 98.91 | 78.2 | - |
+| 15x | 15.0x | 98.57 | 0.08 | 95.80 | 4.13 | 99.79 | 99.92 | 99.96 / 98.90 | 78.8 | - |
+| 10x | 10.0x | 95.71 | 0.11 | 87.37 | 12.53 | 99.73 | 99.90 | 99.86 / 98.99 | 80.7 | - |
+| 8x | 8.0x | 92.90 | 0.20 | 79.07 | 20.74 | 99.59 | 99.81 | 99.79 / 98.97 | 82.5 | low_coverage:autosomes |
+| 6x | 6.0x | 88.08 | 0.72 | 64.64 | 34.66 | 99.01 | 99.27 | 99.73 / 99.03 | 85.6 | low_coverage:autosomes |
+| 5x | 5.0x | 84.52 | 1.58 | 53.86 | 44.62 | 98.03 | 98.39 | 99.59 / 99.10 | 87.9 | low_coverage:autosomes |
+| 4x | 4.0x | 80.15 | 3.48 | 40.54 | 56.05 | 95.91 | 96.51 | 99.51 / 99.16 | 90.7 | high_homozygosity, low_coverage:autosomes |
+| 3x | 3.0x | 75.41 | 7.97 | 25.99 | 66.07 | 91.14 | 92.05 | 99.39 / 99.31 | 93.8 | high_homozygosity, low_coverage:autosomes |
+| 2x | 2.0x | 70.69 | 18.25 | 11.93 | 69.86 | 80.45 | 81.84 | 99.43 / 99.29 | 96.8 | high_homozygosity, high_no_call_rate, low_coverage:autosomes |
+| 1x | 1.0x | 67.09 | 42.56 | 2.38 | 54.87 | 56.18 | 57.59 | 99.11 / 98.82 | 99.1 | high_homozygosity, high_no_call_rate, low_coverage:autosomes |
+
+All 21 layouts track each other closely:
+
+| Depth | Kits | Called concordance % | No-call % on truth markers | Kit no-call % (all markers) |
+| --- | ---: | ---: | ---: | ---: |
+| full | 21 | 99.84–99.95 | 0.04–0.10 | 0.06–0.25 |
+| 30x | 21 | 99.79–99.91 | 0.04–0.10 | 0.06–0.25 |
+| 20x | 21 | 99.47–99.55 | 0.04–0.10 | 0.07–0.27 |
+| 15x | 21 | 98.53–98.72 | 0.04–0.11 | 0.07–0.28 |
+| 10x | 21 | 95.58–96.19 | 0.07–0.14 | 0.10–0.33 |
+| 8x | 21 | 92.73–93.76 | 0.17–0.24 | 0.21–0.44 |
+| 6x | 21 | 87.81–89.48 | 0.69–0.76 | 0.71–0.98 |
+| 5x | 21 | 84.15–86.36 | 1.54–1.60 | 1.55–1.84 |
+| 4x | 21 | 79.71–82.57 | 3.28–3.49 | 3.45–3.77 |
+| 3x | 21 | 74.80–78.35 | 7.86–8.12 | 7.87–8.33 |
+| 2x | 21 | 69.98–74.26 | 18.07–18.76 | 18.16–18.88 |
+| 1x | 21 | 66.25–71.07 | 42.40–43.25 | 42.47–43.34 |
+
+What this means:
+
+- **Below about 15x, heterozygous sites are what fail.** Homozygous sites stay
+  above 99% correct down to 6x, but heterozygous sites called homozygous rise
+  from 0.3% at 30x to 4% at 15x, 13% at 10x and 21% at 8x. Kits stay almost
+  fully called, so the errors are silent: an 8x genome gives 99.8% call rate
+  and 93% concordance.
+- **The depth warning therefore now starts below 15x** (`qc_min_diploid_depth`,
+  previously 8x), where at least 98.5% of called autosomal genotypes agree with
+  the chip. The haploid 3x threshold stands: chrX/chrY calls remain above 98%
+  concordant down to 1x, but at 3x autosomal depth (chrY 3x) 29% of chrY chip
+  markers are no-calls.
+- **The genotype-rate warnings are backstops, not depth gauges.** CombinedKit
+  homozygosity passes 88% only near 4-5x and the no-call rate passes 10% only
+  between 3x and 2x, so they catch low-pass and imputed inputs, which is their
+  purpose (#306), not the 5-15x range. Both are unchanged; this genome's own
+  homozygosity was 78% at full depth, and populations differ.
+- One European male, one caller and one chip: DeepVariant and other callers
+  degrade differently, and an effective depth without duplicates is about 0.84
+  of the CLI measure here.
+
+Reproduce, under a lease (about 25 minutes of two-thread `microarray` per
+depth; the download is 15.7 GB):
+
+```sh
+agent-coord run --cores 2 --mem 6G --disk /home:40G --label "coverage sweep" -- \
+  pixi run python scripts/benchmark_microarray_coverage.py \
+    --input out/public/HG00096.final.cram --ref out/reference/hs38DH.fa.gz \
+    --truth-vcf out/public/omni.vcf.gz --sample HG00096 \
+    --outdir out/coverage --threads 2
+```
+
+The truth is the GRCh37 Omni release listed at the top of this page, with
+its `.tbi`; markers are matched by rsID and chromosome, so its build does not
+matter. The script resumes from completed depths and deletes each
+downsampled CRAM after use unless `--keep-downsampled` is given. It writes
+`summary.json` and `summary.md` with aggregate counts only.
+
 ## Coverage boundaries
 
 The weekly cases exercise GRCh38 calling/projection and genuine native CHM13

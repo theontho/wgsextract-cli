@@ -1720,7 +1720,7 @@
       "default": null,
       "dest": "qc_min_depth",
       "exclusive_group": null,
-      "help": "Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA)",
+      "help": "Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA)",
       "metavar": "DEPTH",
       "nargs": null,
       "option_strings": [
@@ -2214,7 +2214,7 @@
       "default": null,
       "dest": "qc_min_depth",
       "exclusive_group": null,
-      "help": "Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA)",
+      "help": "Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA)",
       "metavar": "DEPTH",
       "nargs": null,
       "option_strings": [
@@ -3264,7 +3264,7 @@
       "default": null,
       "dest": "qc_min_depth",
       "exclusive_group": null,
-      "help": "Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA)",
+      "help": "Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA)",
       "metavar": "DEPTH",
       "nargs": null,
       "option_strings": [
@@ -3654,7 +3654,7 @@
       "default": null,
       "dest": "qc_min_depth",
       "exclusive_group": null,
-      "help": "Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA)",
+      "help": "Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA)",
       "metavar": "DEPTH",
       "nargs": null,
       "option_strings": [
@@ -4044,7 +4044,7 @@
       "default": null,
       "dest": "qc_min_depth",
       "exclusive_group": null,
-      "help": "Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 8, or qc_min_haploid_depth 3 for chrY/mtDNA)",
+      "help": "Warn below this mean depth for this run; 0 disables (default: config qc_min_diploid_depth 15, or qc_min_haploid_depth 3 for chrY/mtDNA)",
       "metavar": "DEPTH",
       "nargs": null,
       "option_strings": [
