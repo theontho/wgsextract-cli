@@ -35,10 +35,11 @@ import hashlib
 import logging
 import os
 import tempfile
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from functools import partial
+from itertools import groupby
 from pathlib import Path
 from threading import Event, Thread
 from typing import IO
@@ -305,6 +306,22 @@ def _pos(record: bytes) -> int:
     return int(record.split(b"\t", 2)[1])
 
 
+def _split_by_contig(calls: str, work: Path) -> dict[str, Path]:
+    """Stream the replay's records into one file per contig, so splicing never
+    holds a whole contig's calls in memory."""
+    files: dict[str, Path] = {}
+    with gzip.open(calls, "rb") as replay:
+        records = (line for line in replay if not line.startswith(b"#"))
+        for name, lines in groupby(records, lambda line: line.split(b"\t", 1)[0]):
+            contig = name.decode()
+            path = files.setdefault(contig, work / f"replay{len(files):06d}.gz")
+            # A contig the regions revisit appends a gzip member.
+            with gzip.open(path, "ab", compresslevel=1) as output:
+                output.writelines(lines)
+    Path(calls).unlink()
+    return files
+
+
 class _Splice:
     """Copy a worker's records, replacing those inside ``windows`` with the
     replay's, and note whether the records at columns that do not draw agree."""
@@ -312,7 +329,7 @@ class _Splice:
     def __init__(
         self,
         windows: list[Window],
-        replay: list[bytes],
+        replay: Path | None,
         draws: list[tuple[int, int]],
         verify: bool,
     ) -> None:
@@ -321,6 +338,7 @@ class _Splice:
         self.draws = draws
         self.verify = verify
         self.agrees = True
+        self.replayed: list[bytes] = []
 
     @staticmethod
     def _within(spans: list[tuple[int, int]], pos: int) -> bool:
@@ -330,9 +348,19 @@ class _Splice:
     def _undrawn(self, lines: list[bytes]) -> list[bytes]:
         return [line for line in lines if not self._within(self.draws, _pos(line))]
 
+    def _records(self) -> Iterator[bytes]:
+        """The replay's records, read lazily: a whole contig's may not fit."""
+        if self.replay is None:
+            return
+        with gzip.open(self.replay, "rb") as records:
+            for line in records:
+                if self.verify:
+                    self.replayed.append(line)
+                yield line
+
     def __call__(self, source: IO[bytes], outputs: list[IO[bytes]]) -> None:
         (output,) = outputs
-        replay = iter(self.replay)
+        replay = self._records()
         pending = next(replay, None)
         replaced = []
         for line in source:
@@ -352,7 +380,7 @@ class _Splice:
             output.write(pending)
             pending = next(replay, None)
         if self.verify:
-            self.agrees = self._undrawn(replaced) == self._undrawn(self.replay)
+            self.agrees = self._undrawn(replaced) == self._undrawn(self.replayed)
 
 
 @dataclass
@@ -471,13 +499,7 @@ class _ContigCaller:
         self.call(calls, ["-R", str(request)], "deep sites", "0", listing)
         if verify and _read_stretches(listing) != stretches:
             return None
-        records: dict[str, list[bytes]] = {}
-        with gzip.open(calls, "rb") as replay:
-            for line in replay:
-                if not line.startswith(b"#"):
-                    records.setdefault(line.split(b"\t", 1)[0].decode(), []).append(
-                        line
-                    )
+        records = _split_by_contig(calls, work)
         by_contig: dict[str, list[Window]] = {}
         for window in windows:
             by_contig.setdefault(window[0], []).append(window)
@@ -487,7 +509,7 @@ class _ContigCaller:
             if name in by_contig:
                 splices[index] = _Splice(
                     by_contig[name],
-                    records.get(name, []),
+                    records.get(name),
                     [
                         span
                         for item in stretches
