@@ -123,6 +123,8 @@ class JobManager:
         self._jobs: dict[str, Job] = {}
         self._queue: list[str] = []
         self._workers: dict[str, subprocess.Popen[str]] = {}
+        # Folders each queued or running job writes in, for _pump.
+        self._writes: dict[str, frozenset[str]] = {}
         self._cancelling: set[str] = set()
         self._stopping = False
         directory.mkdir(parents=True, exist_ok=True)
@@ -240,6 +242,7 @@ class JobManager:
             if self._stopping:
                 raise RequestError(503, "stopping", "The server is stopping.")
             self._jobs[job.id] = job
+            self._writes[job.id] = self._write_folders(op, job)
             self._event(job, "status", status="queued")
             self._save(job)
             if op.kind == "query":
@@ -302,17 +305,18 @@ class JobManager:
 
     def _pump(self) -> None:
         active = [self._jobs[i] for i in self._workers if self._jobs[i].kind != "query"]
-        busy = {self._output_folder(job) for job in active}
+        busy = set().union(*(self._writes.get(job.id, ()) for job in active))
         for job_id in list(self._queue):
             if len(active) >= self.max_jobs or self._stopping:
                 break
             job = self._jobs[job_id]
-            if self._output_folder(job) in busy:
+            folders = self._writes.get(job_id, frozenset())
+            if folders & busy:
                 continue
             self._queue.remove(job_id)
             if self._start(job):
                 active.append(job)
-                busy.add(self._output_folder(job))
+                busy |= folders
 
     def _output_folder(self, job: Job) -> str:
         """Where a job saves its files: its outdir, else the configured output
@@ -320,13 +324,26 @@ class JobManager:
         folder = job.params.get("outdir") or self.default_outdir
         if not folder:
             folder = os.path.dirname(_first_input(job.params))
-        if not folder:
-            return ""
-        folder = os.path.expanduser(folder)
-        # Requests were checked, but never open a network path (see PathGuard).
-        if not is_network_path(folder):
-            folder = os.path.realpath(folder)
-        return os.path.normcase(folder)
+        return _folder_key(folder) if folder else ""
+
+    def _write_folders(self, op: Operation, job: Job) -> frozenset[str]:
+        """Every folder a job may write in: its output folder, the folders of
+        output files it names by path, and a folder given as its input (a
+        report folder is written into, not beside)."""
+        folders = {self._output_folder(job)}
+        for item in op.fields():
+            value = job.params.get(item.name)
+            if not isinstance(value, str) or not value:
+                continue
+            if item.spec.may_name_file and os.path.dirname(value):
+                folders.add(_folder_key(os.path.dirname(value)))
+            elif (
+                item.name in _INPUT_NAMES
+                and not is_network_path(value)
+                and os.path.isdir(value)
+            ):
+                folders.add(_folder_key(value))
+        return frozenset(folders)
 
     def _start(self, job: Job) -> bool:
         """Start a job's worker; False if it could not start (job failed)."""
@@ -463,6 +480,7 @@ class JobManager:
                 "kind": "failure" if status == "failed" else "cancelled",
                 "message": error,
             }
+        self._writes.pop(job.id, None)
         self._event(job, "status", status=status)
         self._save(job)
 
@@ -497,6 +515,14 @@ def write_private_json(path: Path, data: Mapping[str, Any]) -> None:
 
 
 _INPUT_NAMES = ("vcf_input", "input", "inputs", "r1")
+
+
+def _folder_key(folder: str) -> str:
+    folder = os.path.expanduser(folder)
+    # Requests were checked, but never open a network path (see PathGuard).
+    if not is_network_path(folder):
+        folder = os.path.realpath(folder)
+    return os.path.normcase(folder)
 
 
 def _first_input(params: Mapping[str, Any]) -> str:

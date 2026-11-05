@@ -176,6 +176,38 @@ def test_jobs_writing_to_one_folder_run_one_at_a_time(
             JobManager(tmp_path / "state" / "jobs", config_path=None)
 
 
+@pytest.mark.parametrize(
+    ("op", "into_work"),
+    [
+        (
+            "bam/merge",
+            lambda work, bam: {
+                "inputs": [str(bam), str(bam)],
+                "output": str(work / "m.bam"),
+            },
+        ),
+        ("qc/multiqc", lambda work, bam: {"input": str(work)}),
+    ],
+    ids=["named-output", "folder-input"],
+)
+def test_a_job_writing_into_a_busy_folder_waits(
+    tmp_path, work, fake_data, slow_coverage, op, into_work
+):
+    # PR #445 review: only the outdir was serialised, so a job that writes into
+    # a busy folder by an output path or a folder input ran at the same time.
+    bam, ref = fake_data
+    other = tmp_path / "other"
+    other.mkdir()
+    with _serve(tmp_path, [work, other, FAKE_DIR], max_jobs=2) as client:
+        busy = {"input": str(bam), "ref": str(ref), "outdir": str(work)}
+        first = client.request("POST", "/ops/info/calculate-coverage", busy)[1]
+        status, second = client.request(
+            "POST", f"/ops/{op}", {**into_work(work, bam), "outdir": str(other)}
+        )
+        assert status == 202, second
+        assert (first["status"], second["status"]) == ("running", "queued")
+
+
 def test_operations_and_openapi_follow_the_typed_api(client):
     status, body = client.request("GET", "/ops")
     ops = {op["op"]: op["kind"] for op in body["ops"]}
