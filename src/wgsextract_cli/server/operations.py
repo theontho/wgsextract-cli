@@ -311,6 +311,7 @@ class PathGuard:
             "/" in text
             or "\\" in text
             or pathmod.isabs(pathmod.expanduser(text))
+            or pathmod.splitdrive(text)[0]  # D:evil.bam is D's working folder
             or is_network_path(text)
         ):
             self.check_path(name, text)

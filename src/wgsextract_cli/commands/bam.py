@@ -397,7 +397,15 @@ def run_to_bam(params: BamToBamParams) -> None:
 
 def _fastq_output_path(path: str, outdir: str) -> str:
     """A bare file name goes in --outdir; a path with a directory is used as given."""
-    return str(Path(outdir, path)) if Path(path).name == path else path
+    named = Path(path)
+    if named.name == path:
+        return str(Path(outdir, path))
+    if named.drive and not named.root:
+        # Windows D:name is relative to drive D's working folder, not outdir.
+        raise UsageError(
+            f"{path}: name the file alone (it goes in --outdir) or by its full path."
+        )
+    return path
 
 
 def run_unalign(params: BamUnalignParams) -> None:

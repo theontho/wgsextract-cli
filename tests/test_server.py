@@ -29,7 +29,12 @@ from wgsextract_cli.core.config import get_config_path
 from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.server.http_api import Server
 from wgsextract_cli.server.jobs import JobManager
-from wgsextract_cli.server.operations import PathGuard, RequestError
+from wgsextract_cli.server.operations import (
+    PathGuard,
+    RequestError,
+    find,
+    params_from_json,
+)
 
 CLI_ROOT = Path(__file__).resolve().parents[1]
 FAKE_DIR = CLI_ROOT / "out" / "fake_30x"
@@ -391,6 +396,35 @@ def test_path_guard_refuses_network_paths_without_opening_them(path):
     assert flavour.opened == [r"C:\data"]
     guard.check_path("input", "c:/DATA/sub/a.bam")
     assert flavour.opened[-1] == "c:/DATA/sub/a.bam"
+
+
+_IN = r"C:\data\a.bam"
+
+
+@pytest.mark.parametrize(
+    ("op", "body"),
+    [
+        ("bam/merge", {"inputs": [_IN, _IN], "output": "D:evil.bam"}),
+        ("bam/unalign", {"input": _IN, "r1": "D:evil.fq", "r2": "b.fq"}),
+        ("bam/unalign", {"input": _IN, "r1": "a.fq", "r2": "D:evil.fq"}),
+        ("bam/unalign", {"input": _IN, "r1": "a.fq", "r2": "b.fq", "se": "D:e.fq"}),
+    ],
+    ids=["merge-output", "unalign-r1", "unalign-r2", "unalign-se"],
+)
+def test_path_guard_refuses_drive_relative_output_names(op, body):
+    # Review of PR #442: on Windows `D:evil.bam` names a file in drive D's
+    # working folder, outside every allowed root, yet passed as a bare name.
+    guard = PathGuard([r"C:\data"], pathmod=_RecordingFlavour())
+    request = params_from_json(find(op), {**body, "outdir": r"C:\data"})
+    with pytest.raises(RequestError) as refused:
+        guard.check(request)
+    assert (refused.value.status, refused.value.code) == (400, "usage")
+    assert "absolute path" in str(refused.value)
+    # The same names without a drive are bare file names, saved in outdir.
+    bare = {
+        k: v.removeprefix("D:") if isinstance(v, str) else v for k, v in body.items()
+    }
+    guard.check(params_from_json(find(op), {**bare, "outdir": r"C:\data"}))
 
 
 def test_read_only_mcp_info_saves_nothing(tmp_path, fake_data):
