@@ -29,8 +29,9 @@ Outputs in `<outdir>/yleaf/`:
 
 * `hg_prediction.hg`: upstream-compatible TSV, including QC1/QC2/QC3/counts.
 * `<sample>/<sample>.out`, `.fmf`, `.info`: observed/inferred and filtered markers.
-* `run.json`: upstream code/data tag, commit, build, tree, ancient-panel/QC settings,
-  and the selected marker panel's identifier and SHA-256 (including custom panels).
+* `run.json`: upstream code/data tag, commit, build, the tree's id, name,
+  version, date, license and source, ancient-panel/QC settings, and the selected
+  marker panel's identifier and SHA-256 (including custom panels).
 
 Calls and QC values preserve v4.1.6 behavior, including recurrent-site and
 approximate-placement exclusions, 60% node consensus, deepest passing node,
@@ -38,6 +39,92 @@ FTDNA's missing-ancestor policy and v10's use of the v14 QC1 expectation tables.
 Marker names in the final display are sorted (upstream uses unordered sets);
 marker-row and filtered-row ordering/number formatting may differ. No user
 directory is recursively deleted. Only the current prediction file is replaced.
+
+## Trees
+
+`trees.json` records every `--tree`: name, version, release date, license and
+source. The CLI prints the tree's name and version with each result; JSON
+results carry them in `details["tree"]`.
+
+| `--tree` | Tree | Version | Markers from |
+|---|---|---|---|
+| `yfull` (default) | YFull YTree, CC-BY-4.0; YBrowse positions, CC-BY-SA | see `trees.json` | tree pack built by `scripts/build_yfull_tree.py` |
+| `yfull_v10` | YFull YTree | 10.01.0 (2022-02-25) | Yleaf v4.1.6 data |
+| `ftdna` | FamilyTreeDNA Y-DNA tree | 2026-03-26 | Yleaf v4.1.6 data |
+| `isogg` | ISOGG Y-DNA tree | 2020-07 SNP table, 2023-08 index | Yleaf v4.1.6 data |
+
+The `yfull` tree is a *tree pack*: Yleaf's `tree.json` plus hg19, hg38 and T2T
+marker tables (`new_positions.txt`, `new_positions_ancient.txt`), built
+reproducibly from a YFull [YTree](https://github.com/YFullTeam/YTree) release
+and a [YBrowse](https://ybrowse.org) SNP snapshot. It is pinned by SHA-256 in
+`trees.json`, hosted on the `yleaf-tree-yfull-v<version>` release and verified
+into `<reference_library>/yleaf/trees/yfull/<version>/` on first use. The other
+trees and Yleaf's QC1 backbone tables still come from the Yleaf data cache.
+
+Each SNP group on a branch (`/`-separated aliases) becomes one marker when its
+aliases name exactly one GRCh38 chrY single-base substitution in YBrowse.
+hg19 and T2T positions are lifted with Yleaf's UCSC chains (alleles are
+complemented on reverse-strand blocks) and kept only when the lift is unique
+and the target reference base is the ancestral or derived allele. The ancient
+tables drop C>T and G>A markers, as upstream does.
+
+`build_info.json` records the exact inputs: the YTree commit and ZIP read from
+it (an uncommitted ZIP is refused), the YBrowse snapshot's SHA-256 and its
+archived copy on the release, the chains, and each reference's chrY name,
+length, MD5 and SHA-256. The YBrowse-derived positions are attributed
+"CC-BY-SA Thomas Krahn YSEQ (2022)." and shared under the same terms
+(`NOTICE-YBrowse.md` in the pack). That grant names no CC-BY-SA version; the
+version question in the top-level README's yBrowse section still applies.
+
+### Refreshing the YFull tree
+
+1. Clone [YFullTeam/YTree](https://github.com/YFullTeam/YTree) and download
+   YBrowse's `snps_hg38.csv` into `scratch/`. Have indexed hg38, hg19 and T2T
+   (CHM13v2.0) FASTAs, Yleaf's liftover chains (in an upstream Yleaf checkout's
+   `yleaf/data`) and the Yleaf v4.1.6 data cache at hand.
+2. Build the pack and review `build_info.json`'s counts (capture under `out/`).
+   The tarball is byte-reproducible from the same inputs:
+
+   ```sh
+   pixi run python scripts/build_yfull_tree.py --ytree scratch/YTree \
+     --version 14.06.0 --ybrowse scratch/ybrowse/snps_hg38.csv --ybrowse-date 2026-11-05 \
+     --chain-hg19 scratch/Yleaf/yleaf/data/hg19/hg38ToHg19.over.chain.gz \
+     --chain-t2t scratch/Yleaf/yleaf/data/t2t/hg38ToHs1.over.chain.gz \
+     --ref-hg38 hs38DH.fa.gz --ref-hg19 hg19.fa.gz --ref-t2t chm13v2.0.fa.gz \
+     --major-tables <reference_library>/yleaf/v4.1.6/hg_prediction_tables/major_tables \
+     --output out/yleaf-tree/14.06.0
+   ```
+
+3. Benchmark the pack against the previous tree on male WGS with known
+   haplogroups (for example 1000 Genomes, Poznik et al. 2016).
+4. Create a draft, non-latest release `yleaf-tree-yfull-v<version>` with the
+   files listed in the output's `SHA256SUMS` (the tarball, `build_info.json`,
+   `LICENSE-YTree.md`, `NOTICE-YBrowse.md` and the YBrowse snapshot
+   `ybrowse-snps_hg38-<date>.csv.gz`) and `SHA256SUMS` itself, check the assets, then publish it with
+   `--draft=false --latest=false`.
+5. Rerun with `--write-manifest`, which updates `trees.json`, and commit.
+
+## Engine choice
+
+Native Yleaf is the only Y-haplogroup engine. In November 2026 (#359) it was
+benchmarked on 36 1000 Genomes males (30x and downsampled to about 6x, against
+Poznik et al. 2016) and on GIAB HG002/HG003, against
+[yallhap](https://pypi.org/project/yallhap/) 1.0.1 and
+[ybyra](https://github.com/tpinotti/ybyra) v0.6.0:
+
+- Yleaf with YFull 14.06.0 and ybyra placed all 72 runs consistently with the
+  published calls; yallhap misplaced one Q sample into R-M269 at both depths.
+- Call depth was similar. yallhap or ybyra went one level deeper on 2-3
+  samples, where Yleaf's 0.95 QC2 rule rejects a node whose YFull equivalents
+  include SNPs that YBrowse assigns to an unsplit subclade. Yleaf was deeper on
+  more samples than either.
+- Yleaf was about 8x faster than yallhap and 10-15x faster than ybyra, and used
+  0.5 GB against yallhap's 3.9 GB.
+- yallhap is PolyForm Noncommercial and cannot ship with this GPL code. ybyra
+  is a Snakemake workflow with an older bundled YFull 13 tree.
+
+Neither is a clear improvement, so no optional `--engine` was added. The full
+results are in the issue.
 
 ## Data cache
 

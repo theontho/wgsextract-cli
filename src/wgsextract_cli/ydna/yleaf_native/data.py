@@ -37,7 +37,7 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _verified(root: Path, files: dict[str, Any]) -> bool:
+def verified(root: Path, files: dict[str, Any]) -> bool:
     for name, metadata in files.items():
         path = root / name
         if (
@@ -50,7 +50,7 @@ def _verified(root: Path, files: dict[str, Any]) -> bool:
     return True
 
 
-def _extract(archive: Path, root: Path, files: dict[str, Any]) -> None:
+def extract_archive(archive: Path, root: Path, files: dict[str, Any]) -> None:
     """Extract only manifest-listed regular files; never follow archive paths."""
     with tarfile.open(archive, "r:gz") as stream:
         seen = set()
@@ -76,12 +76,13 @@ def _extract(archive: Path, root: Path, files: dict[str, Any]) -> None:
                 shutil.copyfileobj(source, dest)
         if seen != set(files):
             raise WGSExtractError("Incomplete Yleaf data archive.")
-    if not _verified(root, files):
+    if not verified(root, files):
         raise WGSExtractError("Yleaf data failed extracted-file SHA-256 verification.")
 
 
-def ensure_data(build: str, library: Path | None = None) -> Path:
-    if build not in ("hg19", "hg38", "t2t"):
+def ensure_data(build: str | None, library: Path | None = None) -> Path:
+    """Yleaf's prediction tables, plus ``build``'s marker tables unless None."""
+    if build not in (None, "hg19", "hg38", "t2t"):
         raise WGSExtractError(f"Unsupported Yleaf build: {build}")
     metadata = manifest()
     root: Path = (
@@ -91,9 +92,9 @@ def ensure_data(build: str, library: Path | None = None) -> Path:
     )
     root.mkdir(parents=True, exist_ok=True)
     with build_lock(str(root / "data.lock")):
-        for key in (build, "hg_prediction_tables"):
+        for key in (*([build] if build else []), "hg_prediction_tables"):
             asset = metadata["archives"][key]
-            if _verified(root, asset["files"]):
+            if verified(root, asset["files"]):
                 continue
             logging.info(
                 "Downloading Yleaf %s tables (%s)...", key, metadata["upstream"]["tag"]
@@ -112,7 +113,7 @@ def ensure_data(build: str, library: Path | None = None) -> Path:
                     )
                 with tempfile.TemporaryDirectory(prefix="unpack-", dir=root) as staging:
                     stage = Path(staging)
-                    _extract(archive, stage, asset["files"])
+                    extract_archive(archive, stage, asset["files"])
                     # Individual atomic replaces are protected by the library lock.
                     for name in asset["files"]:
                         target = root / name

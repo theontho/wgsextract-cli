@@ -3,6 +3,7 @@
 # Copyright Diego Montiel Gonzalez and Bram van Wersch, Erasmus MC.
 # Modified 2026-11-01 by WGS Extract contributors: native API, argv subprocesses only
 # for existing HTS tools; versioned result provenance. See provenance.json.
+# Modified 2026-11-05: versioned trees (trees.py) and their provenance.
 """Run native Yleaf analysis on a single-sample VCF or indexed BAM/CRAM."""
 
 import csv
@@ -16,24 +17,23 @@ from pathlib import Path
 from wgsextract_cli.core.utils import WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import vcf_index_chromosomes
 
-from .data import ensure_data, file_sha256, manifest
+from .data import file_sha256, manifest
 from .markers import (
     Call,
     ad_call,
     gt_call,
     match_markers,
     pileup_call,
-    position_file,
     read_markers,
     write_marker_tables,
 )
 from .predict import (
     PREDICTION_HEADER,
-    TREE_FILES,
     Predictor,
     link_markers,
     prediction_row,
 )
+from .trees import TREE_IDS, ensure_tree
 
 CREDIT = (
     "Native Yleaf (Erasmus MC; Ralf et al., Mol Biol Evol 2018, "
@@ -166,7 +166,7 @@ def analyze(
     no_ref_inference: bool = False,
 ) -> Path:
     """Write .out/.fmf/.info, hg_prediction.hg and run.json; never delete user data."""
-    if tree not in TREE_FILES:
+    if tree not in TREE_IDS:
         raise WGSExtractError(f"Unknown Yleaf tree: {tree}")
     if (
         min_reads < 1
@@ -194,11 +194,16 @@ def analyze(
     prediction.unlink(missing_ok=True)
     metadata = manifest()
     version = metadata["upstream"]["tag"]
-    logging.info("%s; tables %s; build %s; tree %s", CREDIT, version, build, tree)
-    data = ensure_data(build, library)
-    marker_file = pos_file or position_file(data, build, tree, ancient)
+    selected = ensure_tree(tree, build, library)
+    logging.info(
+        "%s; tables %s; build %s; tree %s", CREDIT, version, build, selected.label
+    )
+    marker_file = pos_file or selected.positions(build, ancient)
+    panel_source = (
+        "custom" if pos_file else "tree-pack" if selected.pack else "yleaf-data"
+    )
     markers = read_markers(marker_file)
-    predictor = Predictor(data / "hg_prediction_tables", tree)
+    predictor = Predictor(selected.tables, tree, selected.tree_file)
     sample = input_path.name
     for suffix in (".vcf.gz", ".vcf", ".bcf", ".bam", ".cram"):
         if sample.lower().endswith(suffix):
@@ -255,13 +260,15 @@ def analyze(
                     "upstream": metadata["upstream"],
                     "data_release": metadata["release_tag"],
                     "build": build,
-                    "tree": tree,
+                    "tree": selected.provenance(),
                     "ancient": ancient,
                     "marker_panel": {
-                        "source": "custom" if pos_file else "yleaf-data",
+                        "source": panel_source,
                         "identifier": marker_file.name
                         if pos_file
-                        else marker_file.relative_to(data).as_posix(),
+                        else marker_file.relative_to(
+                            selected.positions_root
+                        ).as_posix(),
                         "sha256": file_sha256(marker_file),
                     },
                     "citation": CREDIT,

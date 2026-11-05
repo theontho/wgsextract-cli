@@ -24,6 +24,7 @@ from tests.htslib_helpers import (
 from tests.yleaf_helpers import native_tables as native_tables
 from wgsextract_cli.commands._lineage_ydna import _yleaf_build
 from wgsextract_cli.core.utils import WGSExtractError
+from wgsextract_cli.ydna.yleaf_native.trees import MANIFEST
 
 # Haplogrep's trees are downloaded; serve a tiny one instead.
 pytestmark = [needs_htslib, pytest.mark.usefixtures("mini_tree")]
@@ -129,6 +130,12 @@ def test_y_haplogroup_from_vcf_uses_native_markers_only_on_chry(
     output = capsys.readouterr().out
     assert "R1b1\tM-leaf\tVCF\t6\t1.0\t1.0\t1.0\t1.0" in output
     assert "Ralf et al." in output
+    # Issue #359: the result names the tree release it was called against.
+    yfull = MANIFEST["trees"]["yfull"]
+    assert (
+        f"tree YFull YTree {yfull['version']} ({yfull['date']}, {yfull['license']})"
+        in output
+    )
     assert ("https://www.yfull.com/tree/M-leaf/" in output) is tree_links
     assert (
         "https://discover.familytreedna.com/y-dna/M-leaf/tree" in output

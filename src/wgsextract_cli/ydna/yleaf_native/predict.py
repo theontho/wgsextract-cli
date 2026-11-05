@@ -4,6 +4,7 @@
 # Copyright Bram van Wersch, Erasmus MC Department of Genetic Identification.
 # Modified 2026-11-01 by WGS Extract contributors: typed API, per-call state
 # instead of process globals, deterministic marker presentation.
+# Modified 2026-11-05: the tree file can come from a versioned tree pack.
 """Yleaf's deepest-passing-node prediction and QC1/QC2/QC3 scoring."""
 
 import csv
@@ -122,10 +123,12 @@ class Scores(NamedTuple):
 class Predictor:
     """Isolate upstream globals/caches so samples and trees cannot leak state."""
 
-    def __init__(self, folder: Path, active_tree: str = "yfull") -> None:
+    def __init__(
+        self, folder: Path, active_tree: str = "yfull", tree_file: Path | None = None
+    ) -> None:
         self.folder = folder
         self.active_tree = active_tree
-        self.tree = Tree(folder / TREE_FILES[active_tree])
+        self.tree = Tree(tree_file or folder / TREE_FILES[active_tree])
         self.backbone_groups: set[str] = set()
         self.main_haplo_groups: set[str] = set()
         self.qc1_score_cache: dict[str, float] = {}

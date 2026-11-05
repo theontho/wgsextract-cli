@@ -97,7 +97,7 @@ COMMAND_HELP: dict[str, CommandHelp] = {
     ),
     "lineage y-haplogroup": _h(
         "yleaf/: hg_prediction.hg, the per-sample .out/.fmf/.info reports and "
-        "run.json.",
+        "run.json; prints the haplogroup and the tree's name and version.",
         "wgsextract lineage y-haplogroup --input sample.cram",
     ),
     "lineage y-str": _h(
