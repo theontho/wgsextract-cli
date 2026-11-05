@@ -94,6 +94,11 @@ _OVERVIEW_FACTS = (
     ("target_depths", "Depth by target"),
     ("read_length", "Read length"),
 )
+_INFO_FACTS = (
+    ("sex", "sex"),
+    ("mean_coverage", "ard_mapped"),
+    ("read_length", "avg_read_len"),
+)
 _QC_METRICS = (
     ("sequencer", "Sequencer", ""),
     ("ard_mapped", "Mean depth (mapped)", "x"),
@@ -499,6 +504,26 @@ def _overview(ctx: _Context) -> dict[str, Any]:
                 "at": fact.get("at"),
             }
         )
+    if info is not None and info.status == "ok":
+        # Outside a sample workspace nothing is recorded; `info` still says.
+        known = {f["name"] for f in facts}
+        for name, key in _INFO_FACTS:
+            value = info.metrics.get(key)
+            if name in known or value in (None, "", "Unknown"):
+                continue
+            facts.append(
+                {
+                    "name": name,
+                    "label": dict(_OVERVIEW_FACTS)[name],
+                    "value": value,
+                    "text": _fact_text(name, value),
+                    "source": "info",
+                    "method": "info --detailed metrics (no sample workspace)",
+                    "confidence": None,
+                    "file": next(iter(map(ctx.rel, info.files("inputs"))), None),
+                    "at": info.finished or None,
+                }
+            )
     section["facts"] = facts
     qc = []
     if info is not None and info.status == "ok":
@@ -908,7 +933,7 @@ def _choose_inputs(
         candidates.extend(
             source.locate(str(r["path"]))
             for r in source.records("inputs")
-            if r.get("role") == "input" and r.get("path")
+            if r.get("role") in ("input", "vcf_input") and r.get("path")
         )
     keys = (workspace.describe().get("files") or {}).keys()
     candidates.extend(folder / key for key in keys)
@@ -1132,7 +1157,7 @@ def _html_section_body(name: str, section: Mapping[str, Any], base: str) -> list
                 method = "your override" if f["source"] == "override" else f["method"]
                 out.append(
                     f"<tr><td>{_h(f['label'])}</td><td>{_h(f['text'])}</td>"
-                    f"<td>{_h(method)}</td><td>{_h(f['confidence'])}</td>"
+                    f"<td>{_h(method)}</td><td>{_h(f['confidence'] or 'not recorded')}</td>"
                     f"<td>{_h(f['file'])}</td></tr>"
                 )
             out.append("</table>")
@@ -1242,7 +1267,7 @@ def render_markdown(report: Mapping[str, Any], base: str = ".") -> str:
                 method = "your override" if f["source"] == "override" else f["method"]
                 out.append(
                     f"| {_md(f['label'])} | {_md(f['text'])} | {_md(method)} | "
-                    f"{_md(f['confidence'])} | {_md(f['file'])} |"
+                    f"{_md(f['confidence'] or 'not recorded')} | {_md(f['file'])} |"
                 )
         if name == "overview" and section["qc"]:
             out += ["", "| QC metric | Value |", "|---|---|"]

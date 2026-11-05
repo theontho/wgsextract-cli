@@ -39,7 +39,7 @@ newest successful run is used. A section whose only runs failed is shown as
 
 | Section | Source runs | Findings |
 | --- | --- | --- |
-| Sample overview | workspace facts (sex, platform, build, coverage, depth by target, read length, each with its method and confidence); `info --detailed` (QC metrics) | none: facts and QC tables |
+| Sample overview | workspace facts (sex, platform, build, coverage, depth by target, read length, each with its method and confidence); `info --detailed` (QC metrics, plus sex, coverage and read length with confidence "not recorded" when the folder has no workspace) | none: facts and QC tables |
 | Lineage | `lineage y-haplogroup`, `lineage mt-haplogroup` | the Y and mtDNA haplogroups, with tree links (YFull, FTDNA). Y-DNA is not asked for when the recorded sex is Female. |
 | Pharmacogenomics | `vcf pharmcat`, `typing cyp2d6` (Cyrius) | one per PharmCAT gene (diplotype and phenotype); the CYP2D6 diplotype |
 | ClinVar | `vcf clinvar` | each carried ClinVar pathogenic or likely-pathogenic call in an ACMG SF v3.2 gene |

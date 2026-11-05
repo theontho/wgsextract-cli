@@ -445,3 +445,25 @@ def test_api_report_to_another_folder_links_back(sample, tmp_path):
 def test_report_needs_a_sample():
     with pytest.raises(api.UsageError):
         api.ReportParams()
+
+
+def test_outside_a_workspace_the_overview_falls_back_to_info(tmp_path):
+    folder = tmp_path / "plain"
+    folder.mkdir()
+    cram = _touch(folder / "s.cram")
+    _manifest(
+        folder,
+        "s.cram_chromosomes.tsv",
+        "info",
+        inputs=((cram, "input"),),
+        metrics={"sex": "Male", "ard_mapped": 39.03, "sequencer": "NovaSeq"},
+    )
+    report = pr.build_report(folder)
+    facts = {f["name"]: f for f in report["sections"]["overview"]["facts"]}
+    assert facts["sex"]["value"] == "Male"
+    assert facts["sex"]["source"] == "info" and facts["sex"]["confidence"] is None
+    assert facts["sex"]["file"] == "s.cram"
+    assert facts["mean_coverage"]["text"] == "39x"
+    assert "| Sex | Male |" in pr.render_markdown(report)
+    assert "not recorded" in pr.render_markdown(report)
+    jsonschema.validate(report, pr.load_schema())
