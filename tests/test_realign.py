@@ -911,7 +911,7 @@ def _records(bam):
 @needs_tools("bwa", "samtools")
 @pytest.mark.parametrize(
     "die, signal",
-    [("bwa mem", "9"), ("(samtools|sambamba) index", "9"),
+    [("bwa mem", "9"), ("bwa mem", "TERM"), ("(samtools|sambamba) index", "9"),
      ("(samtools|sambamba) index", "INT")],
 )  # fmt: skip
 def test_a_run_killed_mid_step_resumes_there_with_identical_output(
@@ -940,6 +940,11 @@ def test_a_run_killed_mid_step_resumes_there_with_identical_output(
     bam = out / "x_aligned.bam"
     journal = json.loads((out / "x_aligned.bam.steps.json").read_text())
     assert journal["steps"]["extract"]["status"] == "complete"
+    if signal != "9":
+        # A run stopped by a signal reports it in the workflow's manifest.
+        manifest = json.loads((out / "x_aligned.bam.manifest.json").read_text())
+        assert manifest["status"] == "cancelled"
+    assert not list(out.glob("*.steps.json.manifest.json"))
 
     resumed, calls = realign_to(out)
     assert resumed.returncode == 0, resumed.stderr

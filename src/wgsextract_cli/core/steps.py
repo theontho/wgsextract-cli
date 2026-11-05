@@ -301,6 +301,10 @@ class StepJournal:
             {**(result.details or {}), "steps": self.plan, "dry_run": self.dry_run}
         )
         if self.path.is_file() and not self.dry_run:
+            if result.manifest_path() is None:
+                # Interrupted before any output: name the manifest after the
+                # workflow's, not ``<output>.steps.json.manifest.json``.
+                result.set_manifest_stem(str(self.path).removesuffix(JOURNAL_SUFFIX))
             result.add_output(self.path, "step_journal", kind="json")
         if self.dry_run:
             width = max(len(item["step"]) for item in self.plan)
