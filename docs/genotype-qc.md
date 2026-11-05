@@ -37,6 +37,16 @@ The check reads nothing new when it can avoid it, using in order:
 3. a BAM's index (`samtools idxstats`), with the read length from a 20,000-read
    sample.
 
+Long reads (a mean read length above 410 bp) are measured instead: index and
+container counts include secondary and supplementary records, and an ONT
+supplementary record carries the whole read, so record counts times the read
+length overstated HG002 ONT chrY 185x for 24x
+([#427](https://github.com/WGSExtract/wgsextract-cli/issues/427)). The depth
+is then `samtools depth` over about 1,000 evenly spaced 1 kb windows of an
+indexed BAM or CRAM, a few seconds. Sampled windows show typical depth: they
+mostly miss short collapsed-repeat pileups, such as HG002's 1 Mb of chrY
+satellite at up to 8,000x, which holds half of chrY's aligned bases.
+
 Depth counts every mapped base, including duplicates, over the reference's
 non-N length, like `info`. When none of these sources is available (an
 unindexed BAM, or an unindexed CRAM with multi-reference containers), the

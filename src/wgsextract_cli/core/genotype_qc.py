@@ -117,11 +117,11 @@ def _cached_depths(alignment: str, outdir: str | None) -> dict[str, float] | Non
     from wgsextract_cli.commands.info.metrics import SEX_INFERENCE_VERSION, cached_info
 
     info = cached_info(alignment, outdir, "chrom_table_csv")
-    avg_len = float((info or {}).get("avg_read_len") or 0)
-    # The table hides chrY for a Female, so one from an older infer_sex is stale
+    # The table hides chrY for a Female, so one from an older infer_sex is
+    # stale, as is one from before long reads' depth was measured.
     if (
         not info
-        or not avg_len
+        or not isinstance(bases := info.get("contig_bases"), dict)
         or info.get("sex_inference_version") != SEX_INFERENCE_VERSION
     ):
         return None
@@ -132,7 +132,7 @@ def _cached_depths(alignment: str, outdir: str | None) -> dict[str, float] | Non
                 row["Seq Name"],
                 int(row["Model Len"]),
                 int(row["Model N Len"]),
-                int(row["# Segs Map"]) * avg_len,
+                float(bases[row["Seq Name"]]),
             )
             for row in table
         )
@@ -146,11 +146,13 @@ def _counted_depths(
     """Depths from CRAM container base totals or BAM index read counts, with
     `info`'s N adjustment."""
     from wgsextract_cli.commands.info.metrics import (
+        LONG_READ_MIN_LEN,
         IdxStat,
         generate_chrom_table,
         load_n_counts,
         parse_idxstats,
     )
+    from wgsextract_cli.commands.info.render import sampled_mapped_bases
     from wgsextract_cli.core.alignment_metadata import get_bam_header
     from wgsextract_cli.core.builds import build_from_chr1_length
     from wgsextract_cli.core.reference_models import sequence_lengths
@@ -172,7 +174,10 @@ def _counted_depths(
             )
             for i, (name, length) in enumerate(lengths.items())
         ]
+        # Bases stand in for reads, so each counts once.
         avg_len, source = 1.0, "CRAM container headers"
+        records = sum(n for n, _bases in totals.values())
+        read_len = sum(b for _n, b in totals.values()) / records if records else 0.0
         if offsets:
             # Only their slices, listed in the index, say which contigs a
             # multi-reference container's reads are on.
@@ -194,20 +199,46 @@ def _counted_depths(
     elif alignment.lower().endswith(".bam") and alignment_index(alignment):
         stats, *_ = parse_idxstats(alignment)
         lengths = {s["name"]: s["length"] for s in stats if s["name"] != "*"}
-        avg_len = read_length(alignment, outdir)
+        avg_len = read_len = read_length(alignment, outdir)
         source = "the BAM index"
     else:
         return None
     if not avg_len:
         return None
+    measured = None
+    if read_len > LONG_READ_MIN_LEN:
+        # Records x read length overstates long reads' depth (#427), so it is
+        # sampled instead: on the targets' contigs with reads, and on all of a
+        # target's contigs when multi-reference containers hide which hold them.
+        stats = [
+            IdxStat(
+                **{
+                    **s,
+                    "mapped": int(
+                        (target := contig_target(s["name"])) is not None
+                        and (s["mapped"] > 0 or target in unknown)
+                    ),
+                }
+            )
+            for s in stats
+        ]
+        try:
+            measured = sampled_mapped_bases(
+                alignment, ref, stats, configured_temp_directory() or outdir
+            )
+        except (OSError, WGSExtractError) as e:
+            logging.debug(f"Could not sample the depth of {alignment}: {e}")
+            return None
+        unknown, source = set(), "sampled read depth"
     table = generate_chrom_table(
         stats,
         avg_len,
         "Unknown",
         build_from_chr1_length(lengths) or "",
         n_counts=load_n_counts(ref),
+        mapped_bases=measured,
     )
-    rows = ((row[1], row[2], row[3], row[4] * avg_len) for row in table)
+    rows = ((row[1], row[2], row[3], row[8]) for row in table)
     return _aggregate(rows, unknown), source
 
 

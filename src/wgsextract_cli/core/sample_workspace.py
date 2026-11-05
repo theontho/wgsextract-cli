@@ -116,10 +116,13 @@ FACTS: dict[str, FactSpec] = {
         ),
         FactSpec("build", "Reference build the file is aligned to."),
         FactSpec("read_length", "Mean read length in bases."),
-        FactSpec("mean_coverage", "Mean mapped read depth over the genome."),
+        # Version 2: long reads' depth is sampled, not counted (#427).
+        FactSpec("mean_coverage", "Mean mapped read depth over the genome.", None, 2),
         FactSpec(
             "target_depths",
             "Mean mapped depth of the autosomes, chrX, chrY and mtDNA.",
+            None,
+            2,
         ),
     )
 }
