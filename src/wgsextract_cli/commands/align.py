@@ -3,7 +3,7 @@ import logging
 import os
 import subprocess
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import NamedTuple
 
@@ -334,6 +334,18 @@ def short_read_sort_memory(aligner: str, memory: str, *, log: bool = True) -> st
     return memory
 
 
+def aligned_output_path(
+    outdir: str, r1: str, r2: str | None, fmt: str, aligner: str | None = None
+) -> str:
+    """Where alignment of r1 (and r2) writes: <stem>_aligned.bam or .cram
+    (pbmm2 always writes BAM)."""
+    stem = reads_stem(r1)
+    if r2:
+        stem = pair_stem(stem)
+    ext = ".cram" if fmt == "CRAM" and aligner != "pbmm2" else ".bam"
+    return str(absolute_path(Path(outdir, f"{stem}_aligned{ext}")))
+
+
 class _AlignSetup(NamedTuple):
     threads: str
     memory: str
@@ -502,6 +514,13 @@ def _index_output(path: str, threads: str = "1") -> None:
         run_command(command)
 
 
+def _written_hook(args: argparse.Namespace, tool: str) -> Callable[[], None] | None:
+    """The caller's ``_on_written(tool)`` callback (realign's step journal),
+    told when the sorted output is complete and indexing starts."""
+    hook = getattr(args, "_on_written", None)
+    return (lambda: hook(tool)) if hook else None
+
+
 def run_streamed_alignment(
     align_cmd: Sequence[object],
     out_path: str,
@@ -513,10 +532,12 @@ def run_streamed_alignment(
     duplicates: str | None,
     upstream: list[Sequence[object]] | None = None,
     expected_reads: int | None = None,
+    on_written: Callable[[], None] | None = None,
 ) -> None:
     """Run the aligner (after any upstream stages feeding it), mark duplicates
     (with duplicate_marker's choice, or not at all for long reads: None), sort,
-    then index the output."""
+    then index the output. ``on_written`` is called once the sorted output is
+    complete, before indexing."""
     from wgsextract_cli.core.atomic_output import safe_output
 
     partial = [out_path, out_path + ".bai", out_path + ".crai"]
@@ -542,6 +563,11 @@ def run_streamed_alignment(
                 heartbeat=True,
                 expected_reads=expected_reads,
             )
+        if on_written:
+            on_written()
+    # A committed alignment survives a failed index, so a rerun only reindexes.
+    indexes = partial[1:] if on_written else partial
+    with cleanup_files(on_failure=indexes, preserve_outputs=atomic_outputs_enabled()):
         logging.info(LOG_MESSAGES["indexing_output"])
         _index_output(out_path, threads=threads)
 
@@ -713,6 +739,7 @@ def align_bwa(
             duplicates=duplicate_marker(paired=bool(args.r2)),
             upstream=list(upstream) if upstream else None,
             expected_reads=getattr(args, "_input_read_count", None),
+            on_written=_written_hook(args, tool),
         )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"{tool} alignment failed: {e}") from e
@@ -1119,6 +1146,7 @@ def align_minimap2(args: argparse.Namespace) -> None:
                 duplicate_marker(paired=bool(args.r2)) if preset == "sr" else None
             ),
             upstream=upstream or None,
+            on_written=_written_hook(args, "minimap2"),
         )
     except (OSError, subprocess.SubprocessError, WGSExtractError) as e:
         raise WGSExtractError(f"Minimap2 alignment failed: {e}") from e

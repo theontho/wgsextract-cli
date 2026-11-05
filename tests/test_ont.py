@@ -2,6 +2,7 @@ import gzip
 import random
 import subprocess
 from argparse import Namespace
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -202,7 +203,13 @@ def test_ont_realign_honors_disk_space_preflight(tmp_path, monkeypatch, skip_pre
     monkeypatch.setattr(realign, "indexed_read_count", lambda *_args: 2)
     monkeypatch.setattr(realign, "check_free_space", lambda *_args: False)
     runs = []
-    monkeypatch.setattr(align, "run", lambda args: runs.append(args))
+
+    def fake_align(args):
+        runs.append(args)
+        for name in ("ont_aligned.bam", "ont_aligned.bam.bai"):
+            Path(args.outdir, name).write_bytes(b"aligned")
+
+    monkeypatch.setattr(align, "run", fake_align)
     args = Namespace(
         input=str(bam),
         r1=None,

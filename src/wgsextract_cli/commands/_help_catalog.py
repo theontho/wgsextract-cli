@@ -151,8 +151,10 @@ COMMAND_HELP: dict[str, CommandHelp] = {
     # realign / align
     "realign": _h(
         "<input stem>_aligned.bam or .cram (+ index); with --keep-fastq, also "
-        "<input stem>_R1/_R2.fastq.gz.",
+        "<input stem>_R1/_R2.fastq.gz. Completed steps are recorded in "
+        "<output>.steps.json, so a rerun resumes after a crash.",
         "wgsextract realign --input sample_hg19.bam --ref hs38.fa",
+        "wgsextract realign --input sample_hg19.bam --ref hs38.fa --dry-run",
     ),
     "align": _h(
         "<reads stem>_aligned.bam or .cram (+ index).",
@@ -178,9 +180,12 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         "wgsextract vcf gatk --input sample.cram",
     ),
     "vcf deepvariant": _h(
-        "deepvariant.vcf.gz (+ .tbi).",
+        "deepvariant.vcf.gz (+ .tbi) and deepvariant.vcf.gz.steps.json; until "
+        "it finishes, the stages' work in .deepvariant.work, where a rerun "
+        "resumes.",
         "wgsextract vcf deepvariant --input sample.cram",
         "wgsextract vcf deepvariant --input hifi.bam --pacbio",
+        "wgsextract vcf deepvariant --input sample.cram --force-step call_variants",
     ),
     "vcf clair3": _h(
         "clair3.vcf.gz (+ .tbi).",
@@ -478,8 +483,10 @@ COMMAND_HELP: dict[str, CommandHelp] = {
     ),
     # advanced: analyze, typing, methylation, pet-align, sign, benchmark
     "analyze comprehensive": _h(
-        "The QC, lineage, variant and annotation outputs of each step, and a summary.",
+        "The QC, lineage, variant and annotation outputs of each step, and a "
+        "summary; analyze.steps.json records the completed steps.",
         "wgsextract analyze comprehensive --input sample.cram",
+        "wgsextract analyze comprehensive --input sample.cram --force-step annotate",
         "wgsextract analyze comprehensive --vcf-inputs snps.vcf.gz sv.vcf.gz",
     ),
     "analyze batch-gen": _h(

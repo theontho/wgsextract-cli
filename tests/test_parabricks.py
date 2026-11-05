@@ -87,7 +87,7 @@ def test_the_container_sees_each_directory_at_its_own_path(
     _tools(monkeypatch, "docker")
     monkeypatch.setattr(parabricks, "parabricks_image", lambda: "pb:test")
     calls = []
-    monkeypatch.setattr(containers, "run_command", calls.append)
+    monkeypatch.setattr(containers, "run_command", lambda cmd, **_: calls.append(cmd))
     (tmp_path / "ref").mkdir()
     (tmp_path / "out").mkdir()
     ref = str(tmp_path / "ref" / "hs38DH.fa")

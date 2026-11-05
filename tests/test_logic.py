@@ -1033,13 +1033,11 @@ class TestCLILogic(unittest.TestCase):
         )
         commands = []
 
+        from tests.test_deepvariant import _deepvariant
+
         def fake_run_command(cmd, *_args, **kwargs):
             commands.append(cmd)
-            output = (
-                cmd[cmd.index("--output_vcf") + 1] if "--output_vcf" in cmd else None
-            )
-            if output:
-                Path(output).write_text("##fileformat=VCFv4.2\n")
+            return _deepvariant(cmd)
 
         class DummyReferenceLibrary:
             fasta = ref_path

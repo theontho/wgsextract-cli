@@ -8,7 +8,11 @@ write; the discovery filter and batch handling run for real.
 import argparse
 import csv
 import json
+import re
 import shutil
+import subprocess
+import sys
+import time
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -76,6 +80,7 @@ class FakeSubcommands:
         self.calls: list[list[str]] = []
         self.gender = gender
         self.fail = set(fail)
+        self.reference: Path | None = None
 
     @staticmethod
     def name(cmd: list[str]) -> str:
@@ -93,6 +98,13 @@ class FakeSubcommands:
             cache.write_text(json.dumps({"gender": self.gender}))
         elif name == "vcf snp":
             write_vcf(outdir / "snps.vcf.gz", [(100, "s", "50", ".")])
+            if self.reference:
+                # Callers name the FASTA they used only in their provenance.
+                document = outdir / "snp.result.json"
+                provenance = {"reference": {"path": str(self.reference)}}
+                document.write_text(json.dumps({"command": "vcf snp",
+                                                "provenance": provenance}))  # fmt: skip
+                wf.record_step_result(document)
         elif name == "vcf indel":
             write_vcf(outdir / "indels.vcf.gz", [(100, "i", "50", ".")])
         elif name == "vcf chain-annotate":
@@ -118,7 +130,6 @@ class FakeSubcommands:
 def fake(monkeypatch: pytest.MonkeyPatch) -> FakeSubcommands:
     rec = FakeSubcommands()
     monkeypatch.setattr(wf, "run_cli_subcommand", rec)
-    monkeypatch.setattr(analyze, "run_cli_subcommand", rec)
     # Every annotation's data is "installed".
     monkeypatch.setattr(chain, "skip_reason", lambda ann, lib: None)
     return rec
@@ -246,7 +257,8 @@ def test_no_annotation_data_skips_discovery_instead_of_reporting_zero(
     out = tmp_path / "out"
     comprehensive("--vcf-inputs", vcf, "--outdir", str(out))
     assert fake.calls == []
-    assert sorted(p.name for p in out.iterdir()) == []
+    # Nothing but the step journal's hidden lock.
+    assert sorted(p.name for p in out.iterdir() if not p.name.startswith(".")) == []
     assert "TOTAL SIGNIFICANT VARIANTS FOUND: 0" in capsys.readouterr().out
 
 
@@ -310,6 +322,195 @@ def test_failing_step_stops_the_pipeline_and_names_the_command(
     with pytest.raises(WGSExtractError, match=f"Subcommand failed: {failing}"):
         comprehensive("--input", bam, "--outdir", str(tmp_path))
     assert fake.names()[-1] == failing
+
+
+# --- analyze comprehensive: resuming ---------------------------------------------
+
+
+def _significant(out: Path) -> dict[str, list[str]]:
+    return {p.name: ids(str(p)) for p in sorted(out.glob("significant_*.vcf.gz"))}
+
+
+@needs_bcftools
+def test_a_killed_run_resumes_at_the_step_it_was_in(
+    fake: FakeSubcommands,
+    bam: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    clean = tmp_path / "clean"
+    comprehensive("--input", bam, "--outdir", str(clean))
+    clean_report = capsys.readouterr().out.split("GENOMIC ANALYSIS SUMMARY")[1]
+
+    out = tmp_path / "out"
+    calls = fake.calls = []
+
+    def killed_in_indel(cmd: list[str], args: argparse.Namespace) -> None:
+        if fake.name(cmd) == "vcf indel":
+            calls.append(cmd)
+            (out / "indels.vcf.gz").write_bytes(b"\x1f\x8b half a file")
+            raise KeyboardInterrupt
+        fake(cmd, args)
+
+    monkeypatch.setattr(wf, "run_cli_subcommand", killed_in_indel)
+    with pytest.raises(KeyboardInterrupt):
+        comprehensive("--input", bam, "--outdir", str(out))
+    assert fake.names() == ["info", "lineage mt-haplogroup", "lineage y-haplogroup",
+                            "vcf snp", "vcf indel"]  # fmt: skip
+
+    monkeypatch.setattr(wf, "run_cli_subcommand", fake)
+    fake.calls = []
+    comprehensive("--input", bam, "--outdir", str(out))
+    # The finished steps are skipped; the half-written indels are redone.
+    assert fake.names() == ["vcf indel", "vcf chain-annotate", "vcf chain-annotate"]
+    assert _significant(out) == _significant(clean)
+    report = capsys.readouterr().out.split("GENOMIC ANALYSIS SUMMARY")[1]
+    assert report.replace(str(out), "") == clean_report.replace(str(clean), "")
+
+    fake.calls = []
+    comprehensive("--input", bam, "--outdir", str(out))
+    assert fake.calls == []
+    assert _significant(out) == _significant(clean)
+
+
+@needs_bcftools
+def test_a_rerun_waits_for_a_killed_runs_tools_and_never_keeps_their_output(
+    fake: FakeSubcommands,
+    bam: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clean = tmp_path / "clean"
+    comprehensive("--input", bam, "--outdir", str(clean))
+    out = tmp_path / "out"
+    indels = out / "indels.vcf.gz"
+    tools: list[subprocess.Popen[bytes]] = []
+
+    def killed_in_indel(cmd: list[str], args: argparse.Namespace) -> None:
+        if fake.name(cmd) != "vcf indel":
+            return fake(cmd, args)
+        # The caller runs in its own session, so killing wgsextract leaves it
+        # writing; the kill test in test_realign covers the kill itself.
+        writer = (
+            "import sys, time; open(sys.argv[1], 'ab').write(b'\\x1f'); time.sleep(60)"
+        )
+        tools.append(subprocess.Popen([sys.executable, "-c", writer, str(indels)],
+                                      start_new_session=True))  # fmt: skip
+        while not indels.exists():
+            time.sleep(0.05)
+        raise KeyboardInterrupt
+
+    def skips_existing(cmd: list[str], args: argparse.Namespace) -> None:
+        # Like callers that keep an existing output unless --force.
+        if fake.name(cmd) != "vcf indel" or not indels.exists():
+            fake(cmd, args)
+
+    monkeypatch.setattr(wf, "run_cli_subcommand", killed_in_indel)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            comprehensive("--input", bam, "--outdir", str(out))
+        fake.calls = []
+        monkeypatch.setattr(wf, "run_cli_subcommand", skips_existing)
+        with pytest.raises(WGSExtractError, match=f"still writing.*pid {tools[0].pid}"):
+            comprehensive("--input", bam, "--outdir", str(out))
+        assert fake.calls == []
+    finally:
+        for tool in tools:
+            tool.kill()
+            tool.wait()
+
+    comprehensive("--input", bam, "--outdir", str(out))
+    assert fake.names() == ["vcf indel", "vcf chain-annotate", "vcf chain-annotate"]
+    assert ids(str(indels)) == ids(str(clean / "indels.vcf.gz"))
+    assert _significant(out) == _significant(clean)
+    assert not list(out.glob(".wgse-step-*"))
+
+
+@needs_bcftools
+def test_changed_inputs_settings_or_outputs_redo_only_the_steps_they_affect(
+    fake: FakeSubcommands, bam: str, tmp_path: Path
+) -> None:
+    out = tmp_path / "out"
+    comprehensive("--input", bam, "--outdir", str(out))
+
+    # A truncated call set is redone, with what was made from it.
+    snps = out / "snps.vcf.gz"
+    snps.write_bytes(snps.read_bytes()[:20])
+    fake.calls = []
+    comprehensive("--input", bam, "--outdir", str(out))
+    assert fake.names() == ["vcf snp", "vcf chain-annotate"]
+    assert list(fake.annotated()) == [str(snps)]
+
+    # New thresholds only refilter.
+    fake.calls = []
+    comprehensive("--input", bam, "--outdir", str(out),
+                  "--confidence-depth", "5", "10")  # fmt: skip
+    assert fake.calls == []
+
+    # A different input file redoes everything that read it.
+    Path(bam).write_bytes(b"another sample")
+    fake.calls = []
+    comprehensive("--input", bam, "--outdir", str(out),
+                  "--confidence-depth", "5", "10")  # fmt: skip
+    assert len(fake.calls) == 7
+
+
+@needs_bcftools
+def test_updated_reference_or_annotation_data_redo_the_steps_that_read_them(
+    fake: FakeSubcommands,
+    bam: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = tmp_path / "out"
+    fasta = fake.reference = tmp_path / "ref.fa"
+    fasta.write_text(">chr1\nACGT\n")
+    clinvar = tmp_path / "clinvar.vcf.gz"
+    clinvar.write_text("release 1")
+    monkeypatch.setattr(
+        chain, "dataset", lambda ann, lib: str(clinvar) if ann == "clinvar" else None
+    )
+    comprehensive("--input", bam, "--outdir", str(out))
+
+    clinvar.write_text("release 2")
+    fake.calls = []
+    comprehensive("--input", bam, "--outdir", str(out))
+    assert fake.names() == ["vcf chain-annotate", "vcf chain-annotate"]
+
+    fasta.write_text(">chr1\nACGA\n")
+    fake.calls = []
+    comprehensive("--input", bam, "--outdir", str(out))
+    assert fake.names() == ["vcf snp", "vcf chain-annotate"]
+
+
+@needs_bcftools
+def test_dry_run_plans_and_forced_steps_rerun_with_what_uses_them(
+    fake: FakeSubcommands, bam: str, tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    out = tmp_path / "out"
+    comprehensive("--input", bam, "--outdir", str(out), "--dry-run")
+    assert fake.calls == [] and not (out / wf.JOURNAL).exists()
+    plan = capsys.readouterr().out
+    assert "info" in plan and "annotate:snp-indel_snps" in plan
+    assert "not run before" in plan
+
+    comprehensive("--input", bam, "--outdir", str(out))
+    fake.calls = []
+    comprehensive("--input", bam, "--outdir", str(out), "--force-step", "snp",
+                  "--dry-run")  # fmt: skip
+    plan = capsys.readouterr().out
+    assert fake.calls == []
+    assert re.search(
+        r"discovery:snp-indel_snps +run +step annotate:snp-indel_snps", plan
+    )
+    assert re.search(r"discovery:snp-indel_indels +skip +complete", plan)
+
+    comprehensive("--input", bam, "--outdir", str(out), "--force-step", "annotate")
+    assert fake.names() == ["vcf chain-annotate", "vcf chain-annotate"]
+    fake.calls = []
+    comprehensive("--input", bam, "--outdir", str(out), "--force")
+    assert len(fake.calls) == 7
 
 
 def test_missing_inputs_are_reported_before_anything_runs(

@@ -1,6 +1,7 @@
 import argparse
+import contextlib
+import glob
 import gzip
-import itertools
 import logging
 import os
 import platform
@@ -9,11 +10,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 import zlib
 from bisect import bisect_left
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from wgsextract_cli.core import alignment_memory, ultima
 from wgsextract_cli.core.alignment_metadata import get_bam_header
@@ -22,6 +23,7 @@ from wgsextract_cli.core.containers import (
     docker,
     docker_info,
     host_path,
+    image_identity,
     require_image,
     run_container,
 )
@@ -30,6 +32,7 @@ from wgsextract_cli.core.dependency_checks import verify_dependencies
 from wgsextract_cli.core.messages import LOG_MESSAGES
 from wgsextract_cli.core.native_support import is_linux_arm64, require_native_tool
 from wgsextract_cli.core.output_checks import warn_if_no_variants
+from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import read_fai_lengths
 from wgsextract_cli.core.region_selection import Intervals, selected_intervals
 from wgsextract_cli.core.resource_estimates import (
@@ -46,6 +49,7 @@ from wgsextract_cli.core.samtools_commands import (
     get_sam_view_cmd,
 )
 from wgsextract_cli.core.sequencing import input_platform
+from wgsextract_cli.core.steps import Decision, Step, StepJournal, resume_policy
 from wgsextract_cli.core.utils import UsageError, WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 from wgsextract_cli.core.warnings import GB, check_free_space, get_free_space_needed
@@ -475,52 +479,6 @@ _OOM_ERROR = (
 )
 
 
-def _complete_gzip(path: Path) -> bool:
-    # gzip reads an empty file (created, never written) as empty data.
-    if path.stat().st_size == 0:
-        return False
-    try:
-        with gzip.open(path, "rb") as source:
-            while source.read(1 << 20):
-                pass
-    except (OSError, EOFError, zlib.error):
-        return False
-    return True
-
-
-def _keep_call_variants_outputs(work: str, outdir: str) -> Path | None:
-    """Move complete call_variants outputs out of the deleted work directory.
-
-    Only some models write the small model's make_examples outputs.
-    """
-    kept_files: list[Path] = []
-    for prefix in ("call_variants_output", "make_examples_call_variant_outputs"):
-        files = sorted(Path(work).glob(f"{prefix}*.gz"))
-        counts = {
-            int(match.group(1)) if (match := re.search(r"-of-(\d+)", f.name)) else 0
-            for f in files
-        }
-        if files and counts != {len(files)}:
-            return None  # An incomplete shard set.
-        kept_files += files
-    if not any(f.name.startswith("call_variants_output") for f in kept_files):
-        return None
-    if not all(_complete_gzip(path) for path in kept_files):
-        return None
-    # One directory per failed run keeps earlier runs' shard sets apart.
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    for attempt in itertools.count(1):
-        kept = Path(outdir, "deepvariant_intermediates", f"{stamp}-{attempt}")
-        try:
-            kept.mkdir(parents=True)
-            break
-        except FileExistsError:
-            continue
-    for path in kept_files:
-        shutil.move(path, kept / path.name)
-    return kept
-
-
 # Parabricks DeepVariant: its --mode per model type (WGS and WES are short reads).
 _PARABRICKS_MODES = {
     "WGS": [],
@@ -567,6 +525,11 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
     if getattr(args, "gpu", False):
         if batch_size is not None:
             raise UsageError("DeepVariant --batch-size is a CPU-only option.")
+        if getattr(args, "dry_run", False) or getattr(args, "force_steps", None):
+            raise UsageError(
+                "--dry-run and --force-step apply to CPU DeepVariant's stages; "
+                "--gpu always runs Parabricks in one step."
+            )
         require_native_tool("parabricks")
         _deepvariant_gpu(args)
         return
@@ -603,83 +566,348 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
         model_type, ref, args.region, int(threads), available,
         lambda: _supports_num_partitions(image, run_deepvariant, setup),
     )  # fmt: skip
-    preflight_resources(
-        lambda: estimate_resources(
-            "deepvariant",
-            input_paths=[args.input],
-            output_dir=outdir,
-            reference=ref,
-            threads=threads,
-            region=args.region,
-            inference_batch_size=batch_size or 1024,
-            deepvariant_model=model_type,
-            postprocess_plan=postprocess,
-            available_ram=available,
-        )
-    )
     out_vcf = str(Path(outdir, "deepvariant.vcf.gz"))
-    logging.info(LOG_MESSAGES["vcf_calling_deepvariant"].format(output=out_vcf))
-    region_args = ["--regions", args.region] if args.region else []
+    # Absolute, like the journal's paths, so stage files match their records.
+    work = absolute_path(Path(outdir, WORK_DIRECTORY))
+    staged_reads = _needs_staging(args.input)
+    reads = str(work / "reads" / "reads.cram") if staged_reads else args.input
+    launcher = _Launcher(
+        run_deepvariant,
+        arm64_image or image,
+        bool(arm64_image),
+        [ref, args.input, out_vcf, str(work), args.checkpoint],
+        work,
+    )
+    region_files = [p for p in (args.region or "").split() if Path(p).is_file()]
+    inputs: dict[str, str | None] = {
+        "alignment": args.input,
+        "reference": ref,
+        "launcher": run_deepvariant if launcher.image is None else None,
+        **{f"regions:{i}": path for i, path in enumerate(region_files)},
+        **_checkpoint_files(args.checkpoint),
+    }
 
+    with StepJournal.for_output(out_vcf, "deepvariant", resume_policy(args)) as journal:
+        shards = _shard_count(journal, int(threads))
+        dv_args = [
+            "--model_type", model_type,
+            "--ref", host_path(ref),
+            "--reads", host_path(reads),
+            "--output_vcf", host_path(str(work / Path(out_vcf).name)),
+            "--num_shards", str(shards),
+            "--intermediate_results_dir", host_path(str(work)),
+            *(["--regions", args.region] if args.region else []),
+        ]  # fmt: skip
+        if args.checkpoint:
+            dv_args += ["--customized_model", host_path(args.checkpoint)]
+        if batch_size is not None:
+            dv_args += ["--call_variants_extra_args", f"batch_size={batch_size}"]
+        dv_args += _postprocess_args(postprocess, int(threads))
+        if not journal.dry_run and not any(journal.recorded(s) for s in STEPS):
+            preflight_resources(
+                lambda: estimate_resources(
+                    "deepvariant",
+                    input_paths=[args.input],
+                    output_dir=outdir,
+                    reference=ref,
+                    threads=threads,
+                    region=args.region,
+                    inference_batch_size=batch_size or 1024,
+                    deepvariant_model=model_type,
+                    postprocess_plan=postprocess,
+                    available_ram=available,
+                )
+            )
+        logging.info(LOG_MESSAGES["vcf_calling_deepvariant"].format(output=out_vcf))
+        try:
+            done = _run_stages(
+                journal, launcher, dv_args,
+                inputs=inputs,
+                params={
+                    "image": (
+                        image_identity(launcher.image)
+                        if launcher.image else run_deepvariant
+                    ),
+                    "model_type": model_type,
+                    "shards": shards,
+                },
+                region=args.region,
+                jobs=int(threads),
+                staging=(
+                    (lambda: _compatible_reads(
+                        args.input, ref, str(work / "reads"), threads, args.region
+                    )) if staged_reads else None
+                ),
+                out_vcf=out_vcf,
+            )  # fmt: skip
+        except (OSError, subprocess.SubprocessError) as e:
+            raise WGSExtractError(
+                f"DeepVariant failed: {e}. Its finished stages are kept in {work}; "
+                "rerun the same command to resume from them."
+            ) from e
+    if done:
+        record_variants(
+            out_vcf, "variants", warn_if_no_variants(out_vcf, ref, args.region)
+        )
+
+
+# The stages of a CPU DeepVariant run, and of its step journal.
+STEPS = ("stage_reads", "make_examples", "call_variants", "postprocess_variants")
+WORK_DIRECTORY = ".deepvariant.work"
+_COMMAND_MARK = "***** Running the command:*****"
+_STAGE_BINARY = re.compile(r"/(make_examples|call_variants|postprocess_variants)\s")
+# Settings that bound a stage's memory or CPU use but not what it writes.
+_RESOURCE_FLAGS = re.compile(r'\s--(?:cpus|num_partitions|batch_size)[= ]"?\d+"?')
+_JOBLOG = ".make_examples.joblog"
+_DV_BIN = "/opt/deepvariant/bin"
+
+
+def _shard_count(journal: StepJournal, threads: int) -> int:
+    """make_examples' shard count: an earlier run's, so a rerun with other
+    --threads keeps its finished shards and stages (--threads then sets only
+    how many run at once), unless steps are forced to rerun."""
+    shards = journal.recorded_params("make_examples").get("shards")
+    if not isinstance(shards, int) or any(journal.policy.forced(s) for s in STEPS):
+        return threads
+    if shards != threads:
+        logging.info(
+            f"Keeping the {shards} make_examples shards of the earlier run; "
+            f"{threads} run at once."
+        )
+    return shards
+
+
+def _checkpoint_files(checkpoint: str | None) -> dict[str, str]:
+    """The files of a --checkpoint (a model directory, or a checkpoint prefix
+    and the files beside it), by input role."""
+    if not checkpoint:
+        return {}
+    path = Path(checkpoint)
+    if path.is_dir():
+        files = [p for p in path.rglob("*") if p.is_file()]
+    else:
+        files = list(path.parent.glob(glob.escape(path.name) + "*"))
+        files.append(path.parent / "example_info.json")
+    return {
+        f"checkpoint:{p.relative_to(path if path.is_dir() else path.parent)}": str(p)
+        for p in sorted(set(files))
+        if p.is_file()
+    }
+
+
+def _needs_staging(alignment: str) -> bool:
+    version = _cram_version(alignment)
+    return version is not None and version >= (3, 1)
+
+
+class _Launcher:
+    """Runs DeepVariant's run_deepvariant, or one of the stage commands it
+    prints, on this machine or in its image."""
+
+    def __init__(
+        self,
+        local: str | None,
+        image: str | None,
+        arm64: bool,
+        paths: list[str | None],
+        work: Path,
+    ):
+        self.local = local
+        self.image = image
+        self.arm64 = arm64
+        self.paths = paths
+        self.work = work
+
+    def launcher(self) -> str:
+        return str(self.local) if not self.image else f"{_DV_BIN}/run_deepvariant"
+
+    def __call__(self, argv: list[str], *, capture: bool = False) -> str:
+        if not self.image:
+            # stdin closed: DeepVariant's GNU parallel would read it otherwise.
+            result = run_command(
+                argv, env=_dv_env(), stdin=subprocess.DEVNULL, capture_output=capture
+            )
+            return (result.stdout or "") if capture else ""
+        if not capture:
+            # Its temporary files stay out of the stage outputs beside them.
+            return self._in_image(argv, self.work / ".tmp", capture)
+        # Planning (also in --dry-run, which takes no lock) gets its own
+        # temporary folder, away from a running stage's.
+        self.work.mkdir(parents=True, exist_ok=True)
+        tmp = Path(tempfile.mkdtemp(prefix=".plan-", dir=self.work))
+        try:
+            return self._in_image(argv, tmp, capture)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def _in_image(self, argv: list[str], tmp: Path, capture: bool) -> str:
+        assert self.image is not None
+        tmp.mkdir(parents=True, exist_ok=True)
+        options: dict[str, Any] = {
+            "temporary_directory": str(tmp),
+            "oom_error": None if capture else _OOM_ERROR,
+            "capture_output": capture,
+        }
+        if self.arm64:
+            # Bypass community entrypoints that auto-select INT8/BF16.
+            result = run_container(
+                self.image, argv[1:], self.paths,
+                entrypoint=argv[0], local_only=True, **options,
+            )  # fmt: skip
+        else:
+            result = run_container(self.image, argv, self.paths, **options)
+        return (result.stdout or "") if capture else ""
+
+
+def _stage_commands(plan: str) -> dict[str, list[str]]:
+    """The shell commands run_deepvariant --dry_run=true printed, by stage.
+    Commands after postprocess_variants (reports) belong to it."""
+    stages: dict[str, list[str]] = {}
+    stage = None
+    for chunk in plan.split(_COMMAND_MARK)[1:]:
+        command = chunk.strip().split("\n\n", 1)[0].strip()
+        if match := _STAGE_BINARY.search(command):
+            stage = match.group(1)
+        if stage is None:
+            break
+        stages.setdefault(stage, []).append(command)
+    if list(stages) != list(STEPS[1:]):
+        raise WGSExtractError(
+            "Couldn't read DeepVariant's make_examples, call_variants and "
+            "postprocess_variants commands from run_deepvariant --dry_run=true "
+            f"(found: {', '.join(stages) or 'none'})."
+        )
+    return stages
+
+
+def _stage_files(work: Path, claimed: set[Path]) -> list[Path]:
+    """The stage outputs in ``work`` that no earlier stage wrote."""
+    if not work.is_dir():
+        return []
+    return sorted(
+        path
+        for path in work.iterdir()
+        if path.is_file() and not path.name.startswith(".") and path not in claimed
+    )
+
+
+def _run_stages(
+    journal: StepJournal,
+    run: _Launcher,
+    dv_args: list[str],
+    *,
+    inputs: dict[str, str | None],
+    params: dict[str, Any],
+    region: str | None,
+    jobs: int,
+    staging: Callable[[], str] | None,
+    out_vcf: str,
+) -> bool:
+    """Run DeepVariant stage by stage, skipping the ones an earlier run
+    finished. A killed make_examples keeps its finished shards, and runs
+    ``jobs`` of them at once. Returns whether the VCF was made or kept (not
+    in --dry-run)."""
+    work = run.work
+    work.mkdir(parents=True, exist_ok=True)
     try:
-        with tempfile.TemporaryDirectory(dir=outdir, prefix=".wgse_dv_") as work:
-            try:
-                reads = _compatible_reads(args.input, ref, work, threads, args.region)
-                dv_args = [
-                    "--model_type", model_type,
-                    "--ref", host_path(ref),
-                    "--reads", host_path(reads),
-                    "--output_vcf", host_path(out_vcf),
-                    "--num_shards", str(threads),
-                    "--intermediate_results_dir", host_path(work),
-                    *region_args,
-                ]  # fmt: skip
-                if args.checkpoint:
-                    dv_args += ["--customized_model", host_path(args.checkpoint)]
-                if batch_size is not None:
-                    dv_args += [
-                        "--call_variants_extra_args",
-                        f"batch_size={batch_size}",
-                    ]
-                dv_args += _postprocess_args(postprocess, int(threads))
-                if image:
-                    logging.info(f"Running DeepVariant from {image}...")
-                    paths = [ref, args.input, out_vcf, work, args.checkpoint]
-                    if arm64_image:
-                        # Bypass community entrypoints that auto-select INT8/BF16.
-                        run_container(
-                            image, dv_args, paths,
-                            entrypoint="/opt/deepvariant/bin/run_deepvariant",
-                            temporary_directory=work,
-                            local_only=True,
-                            oom_error=_OOM_ERROR,
-                        )  # fmt: skip
-                    else:
-                        run_container(
-                            image,
-                            ["/opt/deepvariant/bin/run_deepvariant", *dv_args],
-                            paths,
-                            temporary_directory=work,
-                            oom_error=_OOM_ERROR,
-                        )
-                else:
-                    # stdin closed: DeepVariant's GNU parallel would read it otherwise.
-                    run_command(
-                        [str(run_deepvariant), *dv_args],
-                        env=_dv_env(),
-                        stdin=subprocess.DEVNULL,
-                    )
-            except BaseException:
-                kept = _keep_call_variants_outputs(work, outdir)
-                if kept:
-                    logging.warning(
-                        f"Kept DeepVariant's complete call_variants outputs in {kept}."
-                    )
-                raise
-    except (OSError, subprocess.SubprocessError) as e:
-        raise WGSExtractError(f"DeepVariant failed: {e}") from e
+        plan = run([run.launcher(), *dv_args, "--dry_run=true"], capture=True)
+    finally:
+        if journal.dry_run:
+            with contextlib.suppress(OSError):
+                work.rmdir()
+    commands = _stage_commands(plan)
+    staged_vcf = work / Path(out_vcf).name
 
-    if not Path(out_vcf).exists():
-        raise WGSExtractError("DeepVariant failed to produce output VCF.")
-    ensure_vcf_indexed(out_vcf)
-    record_variants(out_vcf, "variants", warn_if_no_variants(out_vcf, ref, args.region))
+    def step(name: str) -> Step:
+        # A stage's key holds its own and every earlier stage's commands, so
+        # even the final VCF, kept after the others are deleted, is redone
+        # when an earlier stage's settings (such as the model) change.
+        upto = STEPS[1 : STEPS.index(name) + 1]
+        text = "\n".join(c for stage in upto for c in commands[stage])
+        return Step(
+            name,
+            inputs=inputs,
+            outputs=[out_vcf] if name == "postprocess_variants" else (),
+            params={**params, "commands": _RESOURCE_FLAGS.sub("", text)},
+        )
+
+    staging_step = Step(
+        "stage_reads",
+        inputs={
+            role: path
+            for role, path in inputs.items()
+            if role in ("alignment", "reference") or role.startswith("regions:")
+        },
+        outputs=[work / "reads" / "reads.cram", work / "reads" / "reads.cram.crai"],
+        params={"region": region},
+        tools=["samtools"],
+    )
+    final = step("postprocess_variants")
+    if not any(journal.policy.forced(s) for s in STEPS[:-1]):
+        if not journal.check(final).run:
+            journal.decide(final)
+            if not journal.dry_run:
+                ensure_vcf_indexed(out_vcf)
+            return not journal.dry_run
+
+    decisions: list[Decision] = []
+    claimed: set[Path] = set()
+    for name in STEPS:
+        if name == "stage_reads" and staging is None:
+            continue
+        current = staging_step if name == "stage_reads" else step(name)
+        decision = journal.decide(current, after=decisions)
+        decisions.append(decision)
+        if journal.dry_run:
+            continue
+        if not decision.run:
+            claimed |= {journal.resolve(item["path"]) for item in decision.outputs}
+            continue
+        # A make_examples killed with the same inputs and settings keeps the
+        # shards it finished (GNU parallel's job log); anything else restarts.
+        resume = name == "make_examples" and decision.partial
+        if not resume:
+            for stale in _stage_files(work, claimed):
+                stale.unlink()
+            with contextlib.suppress(FileNotFoundError):
+                (work / _JOBLOG).unlink()
+        with journal.running(decision, keep_partial=resume) as handle:
+            if name == "stage_reads":
+                assert staging is not None
+                (work / "reads").mkdir(exist_ok=True)
+                staging()
+                continue
+            for command in commands[name]:
+                if name == "make_examples":
+                    # GNU parallel logs each finished shard; --resume-failed
+                    # then runs only the shards a killed run didn't finish.
+                    joblog = (
+                        f'--jobs {jobs} --joblog "{host_path(str(work / _JOBLOG))}"'
+                    )
+                    if resume:
+                        logging.info(
+                            "Resuming make_examples: keeping the shards an "
+                            "interrupted run finished."
+                        )
+                        joblog += " --resume-failed"
+                    command = command.replace("parallel ", f"parallel {joblog} ", 1)
+                run(["/bin/bash", "-c", command])
+            if name == "postprocess_variants":
+                for suffix in ("", ".tbi"):
+                    source = Path(str(staged_vcf) + suffix)
+                    if source.exists():
+                        os.replace(source, out_vcf + suffix)
+                if not Path(out_vcf).exists():
+                    raise WGSExtractError("DeepVariant failed to produce output VCF.")
+                ensure_vcf_indexed(out_vcf)
+                continue
+            outputs = _stage_files(work, claimed)
+            for path in outputs:
+                handle.add_output(path)
+            claimed |= set(outputs)
+    if journal.dry_run:
+        return False
+    for name in STEPS[:-1]:
+        journal.retire(name)
+    shutil.rmtree(work, ignore_errors=True)
+    return True

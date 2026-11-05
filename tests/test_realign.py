@@ -1,7 +1,9 @@
 import gzip
+import json
 import logging
 import platform
 import random
+import re
 from argparse import Namespace
 from pathlib import Path
 
@@ -106,9 +108,10 @@ def test_realign_bam_to_new_reference(tmp_path, genome_and_ref):
     dups = [r[0] for r in reads if int(r[1]) & 0x400]
     assert len(dups) == 2 and len(set(dups)) == 1 and dups[0] in {"p0", "dup"}
     # The extracted FASTQs are removed once the alignment is done.
-    assert sorted(p.name for p in outdir.iterdir()) == [
+    assert sorted(p.name for p in outdir.iterdir() if p.name[0] != ".") == [
         "x_aligned.bam",
         "x_aligned.bam.bai",
+        "x_aligned.bam.steps.json",
     ]
 
 
@@ -186,6 +189,29 @@ def test_existing_fastqs_need_both_mates_and_prefer_the_input_dir(tmp_path):
     )
 
 
+def _write_alignment(args):
+    """What a finished alignment leaves: the BAM and its index."""
+    outdir = args.outdir or str(Path(args.input).parent)
+    out = realign.align_cmd.aligned_output_path(outdir, args.r1, args.r2, args.format)
+    Path(out).write_text("aligned")
+    Path(out + ".bai").write_text("index")
+
+
+def _visible(directory):
+    """A directory's files, less the step journal and hidden lock files."""
+    return [
+        p
+        for p in Path(directory).iterdir()
+        if not p.name.startswith(".") and not p.name.endswith(".steps.json")
+    ]
+
+
+def _published(staged):
+    path = Path(staged)
+    match = re.fullmatch(r"\.(.+)\.[0-9a-f]{32}\.partial(.*)", path.name)
+    return str(path.with_name(match[1] + match[2])) if match else staged
+
+
 class _Fakes:
     """Stand-ins for extraction and alignment that record what realign asked."""
 
@@ -209,7 +235,8 @@ class _Fakes:
         monkeypatch.setattr(realign, "available_memory", lambda: 1024**4)
 
     def extract(self, _input, r1, r2, **_kwargs):
-        self.extracted.append((r1, r2))
+        # Extraction writes staged copies; record the FASTQs they become.
+        self.extracted.append(tuple(map(_published, (r1, r2))))
         for path in (r1, r2):
             Path(path).write_text("@r\nA\n+\nI\n")
 
@@ -217,6 +244,7 @@ class _Fakes:
         self.aligned.append((args.r1, args.r2))
         if self.align_error:
             raise self.align_error
+        _write_alignment(args)
 
     def stream(self, args, **kwargs):
         self.streamed.append(kwargs)
@@ -476,7 +504,7 @@ def test_single_end_reads_are_refused_before_extraction(
     outdir = tmp_path / "out"
     with pytest.raises(WGSExtractError, match=r"3 of 3 sampled .* \(e\.g\. se0\)"):
         realign.run(_args(source, ref=ref, outdir=str(outdir), keep_fastq=keep_fastq))
-    assert list(outdir.iterdir()) == []
+    assert _visible(outdir) == []
 
 
 @needs_tools("bwa", "samtools")
@@ -522,14 +550,19 @@ def test_native_stream_failure_removes_partial_output_and_collation(
     outdir = tmp_path / "failure"
     with pytest.raises(WGSExtractError, match="bwa alignment failed"):
         realign.run(_args(source, ref=ref, outdir=str(outdir), aligner="bwa"))
-    assert list(outdir.iterdir()) == []
+    assert _visible(outdir) == []
 
 
 def test_cleanup_problem_does_not_fail_a_finished_realign(
     tmp_path, monkeypatch, source, caplog
 ):
     fakes = _Fakes(monkeypatch)
-    monkeypatch.setattr(realign.align_cmd, "run", lambda args: Path(args.r1).unlink())
+
+    def align(args):
+        fakes.align(args)
+        Path(args.r1).unlink()
+
+    monkeypatch.setattr(realign.align_cmd, "run", align)
     with caplog.at_level(logging.WARNING):
         realign.run(_args(source, gpu=True))
     assert "Could not remove" in caplog.text
@@ -727,16 +760,13 @@ def test_realign_uses_actual_input_count_before_extraction_for_memory_and_disk(
         "_preflight_disk_space",
         lambda *_a, **kwargs: budgets.append(("disk", kwargs["reads"])),
     )
-    monkeypatch.setattr(
-        realign.align_cmd,
-        "run",
-        lambda args: budgets.append(("align", args._input_read_count)),
-    )
-    monkeypatch.setattr(
-        realign.align_cmd,
-        "align_bwa",
-        lambda args, **_kwargs: budgets.append(("align", args._input_read_count)),
-    )
+
+    def align(args, **_kwargs):
+        budgets.append(("align", args._input_read_count))
+        _write_alignment(args)
+
+    monkeypatch.setattr(realign.align_cmd, "run", align)
+    monkeypatch.setattr(realign.align_cmd, "align_bwa", align)
     overrides = {}
     if provided_fastqs:
         for mate in ("r1", "r2"):
@@ -768,11 +798,13 @@ def test_ultima_realign_counts_index_once_and_passes_through_unknown_counts(
         "_preflight_disk_space",
         lambda *_a, **k: calls.append(("disk", k["reads"])),
     )
-    monkeypatch.setattr(
-        realign.align_cmd,
-        "align_ultima",
-        lambda args, *_a: calls.append(("align", args._input_read_count)),
-    )
+
+    def align_ultima(args, *_a):
+        calls.append(("align", args._input_read_count))
+        Path(tmp_path, "x_aligned.bam").write_text("aligned")
+        Path(tmp_path, "x_aligned.bam.bai").write_text("index")
+
+    monkeypatch.setattr(realign.align_cmd, "align_ultima", align_ultima)
     realign.run(
         _args(source, platform="ultima", aligner="bwa", no_preflight=no_preflight)
     )
@@ -781,3 +813,212 @@ def test_ultima_realign_counts_index_once_and_passes_through_unknown_counts(
         expected.append(("disk", reads))
     expected.append(("align", reads))
     assert calls == expected
+
+
+def test_force_step_index_reindexes_an_alignment_its_aligner_indexed(
+    tmp_path, monkeypatch, source
+):
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(realign, "indexed_read_count", lambda *_args: 2)
+    calls = []
+
+    def align_ultima(*_args):
+        calls.append("align")
+        Path(tmp_path, "x_aligned.bam").write_text("aligned")
+        Path(tmp_path, "x_aligned.bam.bai").write_text("index")
+
+    def index(path, **_kwargs):
+        calls.append("index")
+        Path(path + ".bai").write_text("reindexed")
+
+    monkeypatch.setattr(realign.align_cmd, "align_ultima", align_ultima)
+    monkeypatch.setattr(realign.align_cmd, "_index_output", index)
+    args = {"platform": "ultima", "aligner": "bwa", "force_steps": None}
+    realign.run(_args(source, **args))
+    realign.run(_args(source, **args))
+    assert calls == ["align"]
+
+    realign.run(_args(source, **{**args, "force_steps": ["index"]}))
+    assert calls == ["align", "index"]
+    assert Path(tmp_path, "x_aligned.bam.bai").read_text() == "reindexed"
+
+
+# --- resuming after a crash ---------------------------------------------------
+
+
+def _dying_tools(tmp_path, log):
+    """PATH shims for the aligner, samtools and sambamba that log each call's
+    subcommand and, when it matches the pattern in ``tmp_path/die``, SIGKILL
+    the wgsextract run's process group and their own mid-call, as an OOM kill
+    or power cut would (or send it ``tmp_path/signal``, such as INT for a
+    Ctrl-C)."""
+    import shutil
+    import stat
+
+    shims = tmp_path / "shims"
+    shims.mkdir()
+    for tool in ("bwa", "samtools", "sambamba"):
+        real = shutil.which(tool)
+        if real is None:
+            continue
+        script = shims / tool
+        script.write_text(
+            "#!/usr/bin/env bash\n"
+            f'echo "{tool} $1" >> "{log}"\n'
+            f'die="$(cat "{tmp_path}/die" 2>/dev/null)"\n'
+            f'if [ -n "$die" ] && [[ "{tool} $1" =~ ^($die)$ ]]; then\n'
+            f'  rm -f "{tmp_path}/die"\n'
+            # Half an output stream, then the crash.
+            f'  "{real}" "$@" | head -c 4096\n'
+            f'  sig="$(cat "{tmp_path}/signal" 2>/dev/null || echo 9)"\n'
+            f'  kill -"$sig" -- "-$(cat "{tmp_path}/run.pid")"\n'
+            "  kill -9 0\n"
+            "fi\n"
+            f'exec "{real}" "$@"\n'
+        )
+        script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    return shims
+
+
+def _realign_cli(argv, shims, die=None, signal="9"):
+    import os
+    import subprocess
+    import sys
+
+    if die:
+        (shims.parent / "die").write_text(die + "\n")
+        (shims.parent / "signal").write_text(signal + "\n")
+    env = {**os.environ, "PATH": f"{shims}{os.pathsep}{os.environ['PATH']}"}
+    with subprocess.Popen(
+        [sys.executable, "-m", "wgsextract_cli.main", "realign", *argv],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,  # its own process group, for the shim to kill
+    ) as run:
+        (shims.parent / "run.pid").write_text(str(run.pid))
+        stdout, stderr = run.communicate()
+    return subprocess.CompletedProcess(run.args, run.returncode, stdout, stderr)
+
+
+def _records(bam):
+    header = [h for h in _view("view", "-H", str(bam)).splitlines() if h[:3] != "@PG"]
+    return header, _view("view", str(bam))
+
+
+@pytest.mark.skipif(platform.system() == "Windows", reason="bash PATH shims")
+@needs_tools("bwa", "samtools")
+@pytest.mark.parametrize(
+    "die, signal",
+    [("bwa mem", "9"), ("bwa mem", "TERM"), ("(samtools|sambamba) index", "9"),
+     ("(samtools|sambamba) index", "INT")],
+)  # fmt: skip
+def test_a_run_killed_mid_step_resumes_there_with_identical_output(
+    tmp_path, genome_and_ref, die, signal
+):
+    genome, ref = genome_and_ref
+    source, _ = _old_alignment(tmp_path, genome)
+    log = tmp_path / "calls.log"
+    shims = _dying_tools(tmp_path, log)
+
+    def realign_to(outdir, die=None):
+        log.write_text("")
+        argv = ["--input", str(source), "--ref", ref, "--outdir", str(outdir),
+                "--threads", "2", "--keep-fastq", "--sample", "Ann"]  # fmt: skip
+        done = _realign_cli(argv, shims, die, signal)
+        calls = [c for c in log.read_text().splitlines() if c != "samtools --version"]
+        return done, calls
+
+    clean, _ = realign_to(tmp_path / "clean")
+    assert clean.returncode == 0, clean.stderr
+
+    out = tmp_path / "out"
+    killed, calls = realign_to(out, die=die)
+    assert killed.returncode != 0
+    assert any(re.fullmatch(die, call) for call in calls)
+    bam = out / "x_aligned.bam"
+    journal = json.loads((out / "x_aligned.bam.steps.json").read_text())
+    assert journal["steps"]["extract"]["status"] == "complete"
+    if signal != "9":
+        # A run stopped by a signal reports it in the workflow's manifest.
+        manifest = json.loads((out / "x_aligned.bam.manifest.json").read_text())
+        assert manifest["status"] == "cancelled"
+    assert not list(out.glob("*.steps.json.manifest.json"))
+
+    resumed, calls = realign_to(out)
+    assert resumed.returncode == 0, resumed.stderr
+    assert "Running step extract" not in resumed.stderr
+    # Nothing before the step it was killed in runs again.
+    assert not {"samtools collate", "samtools fastq"} & set(calls)
+    if die == "bwa mem":
+        assert "Skipping step extract: complete" in resumed.stderr
+        assert "Running step align: an earlier run was interrupted" in resumed.stderr
+    else:
+        assert "Skipping step align: complete" in resumed.stderr
+        assert "bwa mem" not in calls
+    assert any(re.fullmatch(die, call) for call in calls)
+    assert _records(bam) == _records(tmp_path / "clean" / "x_aligned.bam")
+    assert Path(str(bam) + ".bai").is_file()
+
+    again, calls = realign_to(out)
+    assert again.returncode == 0 and "bwa mem" not in calls
+    assert not any(call.endswith(" index") for call in calls)
+
+
+@pytest.mark.skipif(platform.system() == "Windows", reason="bash PATH shims")
+@needs_tools("bwa", "samtools")
+def test_truncated_outputs_and_changed_settings_redo_their_steps(
+    tmp_path, genome_and_ref
+):
+    genome, ref = genome_and_ref
+    source, _ = _old_alignment(tmp_path, genome)
+    log = tmp_path / "calls.log"
+    shims = _dying_tools(tmp_path, log)
+    out = tmp_path / "out"
+    bam = out / "x_aligned.bam"
+
+    def realign_again(*extra):
+        log.write_text("")
+        argv = ["--input", str(source), "--ref", ref, "--outdir", str(out),
+                "--threads", "2", "--keep-fastq", *extra]  # fmt: skip
+        done = _realign_cli(argv, shims)
+        assert done.returncode == 0, done.stderr
+        return done.stderr, log.read_text().splitlines()
+
+    realign_again()
+    first = _records(bam)
+
+    bam.write_bytes(bam.read_bytes()[:-100])
+    stderr, calls = realign_again()
+    assert "truncated or rewritten" in stderr
+    assert "bwa mem" in calls and "samtools collate" not in calls
+    assert _records(bam) == first
+
+    stderr, calls = realign_again("--sample", "Bea")
+    assert "settings changed: sample None -> 'Bea'" in stderr
+    assert "bwa mem" in calls and "samtools collate" not in calls
+
+    # A damaged FASTQ doesn't matter while the alignment made from it is
+    # sound, but it is extracted again before it is aligned again.
+    fastq = out / "x_R1.fastq.gz"
+    fastq.write_bytes(fastq.read_bytes()[:-10])
+    stderr, calls = realign_again("--sample", "Bea")
+    assert "bwa mem" not in calls
+    stderr, calls = realign_again("--sample", "Bea", "--force-step", "align")
+    assert "Running step extract: x_R1.fastq.gz changed size" in stderr
+    assert {"samtools collate", "bwa mem"} <= set(calls)
+
+
+@needs_tools("bwa", "samtools")
+def test_a_second_run_into_the_same_output_is_refused(tmp_path, genome_and_ref):
+    from wgsextract_cli.core.steps import ResumePolicy, StepJournal
+
+    genome, ref = genome_and_ref
+    source, _ = _old_alignment(tmp_path, genome)
+    out = tmp_path / "out"
+    journal = out / "x_aligned.bam.steps.json"
+    with StepJournal(journal, "realign", ResumePolicy()):
+        with pytest.raises(WGSExtractError, match="Another wgsextract run"):
+            realign.run(_args(source, ref=ref, outdir=str(out)))
+    assert not (out / "x_aligned.bam").exists()

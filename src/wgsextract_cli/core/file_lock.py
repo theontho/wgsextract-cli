@@ -15,10 +15,24 @@ import psutil
 
 from wgsextract_cli.core.utils import WGSExtractError
 
+# Chosen at import, so tests that patch sys.platform still lock natively.
 if sys.platform == "win32":
     import msvcrt
+
+    def _try_lock(fd: int) -> None:
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+
+    def _unlock(fd: int) -> None:
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+
 else:
     import fcntl
+
+    def _try_lock(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def _unlock(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
 
 
 @contextlib.contextmanager
@@ -28,10 +42,7 @@ def _reclaim_guard(path: Path, deadline: float) -> Iterator[None]:
     try:
         while True:
             try:
-                if sys.platform == "win32":
-                    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
-                else:
-                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                _try_lock(fd)
                 break
             except OSError as error:
                 if error.errno not in {errno.EAGAIN, errno.EACCES}:
@@ -44,10 +55,7 @@ def _reclaim_guard(path: Path, deadline: float) -> Iterator[None]:
         try:
             yield
         finally:
-            if sys.platform == "win32":
-                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(fd, fcntl.LOCK_UN)
+            _unlock(fd)
     finally:
         os.close(fd)
 

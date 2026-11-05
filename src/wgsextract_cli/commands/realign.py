@@ -14,16 +14,21 @@ Workflow:
      classic failure mode of running an alignment for hours only to crash at
      the sort stage because of disk pressure.
   3. Delegate to the existing align command.
+
+Extraction (when FASTQs are written to files) and alignment are steps (see
+core.steps): a rerun after a crash or kill skips an alignment or extraction
+that finished, and redoes the one that didn't.
 """
 
 import argparse
-import contextlib
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 from wgsextract_cli.core import bwa_mem2, ultima
 from wgsextract_cli.core.alignment_memory import available_memory, check_mapping_memory
 from wgsextract_cli.core.alignment_metadata import get_bam_header
+from wgsextract_cli.core.atomic_output import atomic_output
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -46,6 +51,13 @@ from wgsextract_cli.core.resource_estimates import (
     preflight_resources,
 )
 from wgsextract_cli.core.results import current_result
+from wgsextract_cli.core.steps import (
+    Decision,
+    Step,
+    StepJournal,
+    add_resume_arguments,
+    resume_policy,
+)
 from wgsextract_cli.core.temp_directory import configured_temp_directory
 from wgsextract_cli.core.utils import UsageError, WGSExtractError, get_resource_defaults
 from wgsextract_cli.core.variant_files import (
@@ -145,6 +157,7 @@ def register(
         action="store_true",
         help="Skip the up-front disk space check (not recommended).",
     )
+    add_resume_arguments(parser, ["extract", "align", "index"])
     parser.set_defaults(func=run)
 
 
@@ -305,6 +318,155 @@ def run(args: argparse.Namespace) -> None:
     outdir = args.outdir or str(absolute_path(args.input).parent)
     Path(outdir).mkdir(parents=True, exist_ok=True)
 
+    policy = resume_policy(args)
+    if args.r1:
+        logical_r1, logical_r2 = args.r1, args.r2
+    elif args.platform in {"ont", "nanopore", "ultima"}:
+        logical_r1, logical_r2 = args.input, None
+    else:
+        base = input_stem(args.input)
+        logical_r1 = f"{base}_R1.fastq.gz"
+        logical_r2 = f"{base}_R2.fastq.gz"
+    journal_output = align_cmd.aligned_output_path(
+        outdir, logical_r1, logical_r2, getattr(args, "format", "BAM"), selected_aligner
+    )
+    with StepJournal.for_output(journal_output, "realign", policy) as journal:
+        _run_steps(
+            args,
+            journal,
+            selected_aligner=selected_aligner,
+            target=target,
+            outdir=outdir,
+            threads=threads,
+            memory=memory,
+            input_cram_opt=input_cram_opt,
+        )
+
+
+def _align_tools(aligner: str, platform: str | None, gpu: bool) -> list[str]:
+    """The tools whose versions shape an alignment (bwa may become bwa-mem2)."""
+    if gpu:
+        return ["samtools", "pbrun"]
+    tools = {
+        "bwa": ["bwa", "bwa-mem2", "samblaster"],
+        "bwa-mem2": ["bwa-mem2", "samblaster"],
+        "minimap2": ["minimap2"],
+        "pbmm2": ["pbmm2"],
+    }.get(aligner, [aligner])
+    return ["samtools", *tools, *(["gatk"] if platform == "ultima" else [])]
+
+
+def _align_step(
+    args: argparse.Namespace,
+    aligner: str,
+    target: str | None,
+    out_path: str,
+    reads: dict[str, str | None],
+) -> Step:
+    """The alignment step: map, mark duplicates and sort into out_path.
+    Its reads are the input BAM/CRAM, also when they reach the aligner through
+    extracted FASTQs (_run_steps reruns it whenever extraction reruns)."""
+    reference = target if target and Path(target).is_file() else None
+    return Step(
+        "align",
+        inputs={
+            **reads,
+            "reference": reference,
+            "input_reference": getattr(args, "input_ref", None),
+        },
+        outputs=[out_path],
+        params={
+            "aligner": aligner,
+            "platform": args.platform,
+            "preset": args.preset,
+            "long_read": bool(args.long_read),
+            "format": getattr(args, "format", "BAM"),
+            "sample": getattr(args, "sample", None),
+            "gpu": bool(getattr(args, "gpu", False)),
+            "ref": None if reference else args.ref,
+        },
+        tools=_align_tools(aligner, args.platform, bool(getattr(args, "gpu", False))),
+    )
+
+
+def _index_path(out_path: str) -> str:
+    return out_path + (".crai" if out_path.endswith(".cram") else ".bai")
+
+
+def _index_step(out_path: str) -> Step:
+    return Step(
+        "index",
+        inputs={"alignment": out_path},
+        outputs=[_index_path(out_path)],
+        tools=["samtools"],
+    )
+
+
+def _align(
+    journal: StepJournal,
+    decision: Decision,
+    align_args: argparse.Namespace,
+    run: Callable[[], None],
+) -> None:
+    """Run the align step. Aligners that report when their sorted output is
+    complete (bwa, minimap2) index it as a separate step, so a run killed
+    while indexing resumes without realigning. The others index within it,
+    and that index is then recorded as the index step."""
+    out_path = str(decision.step.outputs[0])
+    aligning = journal.start(decision)
+    indexing = None
+
+    def written(tool: str) -> None:
+        nonlocal indexing
+        aligning.metrics["aligner"] = tool
+        journal.finish(aligning)
+        indexing = journal.start(journal.decide(_index_step(out_path)))
+
+    align_args._on_written = written
+    run()
+    if indexing is not None:
+        journal.finish(indexing)
+    else:
+        aligning.metrics["aligner"] = current_result().metrics.get("aligner")
+        journal.finish(aligning)
+        # The aligner indexed its output itself; record that as the index step.
+        index = journal.check(_index_step(out_path))
+        journal.finish(journal.start(index, keep_partial=True))
+
+
+def _resume_alignment(
+    journal: StepJournal,
+    decision: Decision,
+    out_path: str,
+    target: str | None,
+    threads: str,
+) -> None:
+    """Finish from a completed align step: index the output unless the index
+    step is complete, then report the alignment as this run's output."""
+    indexing = journal.decide(_index_step(out_path))
+    if journal.dry_run:
+        return
+    if indexing.run:
+        with journal.running(indexing):
+            logging.info("Indexing %s ...", out_path)
+            align_cmd._index_output(out_path, threads=threads)
+    aligner = str(decision.metrics.get("aligner") or "aligner")
+    align_cmd.record_alignment(out_path, aligner, target or "")
+
+
+def _run_steps(
+    args: argparse.Namespace,
+    journal: StepJournal,
+    *,
+    selected_aligner: str,
+    target: str | None,
+    outdir: str,
+    threads: str,
+    memory: str,
+    input_cram_opt: list[str] | None,
+) -> None:
+    """Realign as steps: extract FASTQs (when they're written to files), then
+    align. A completed alignment skips everything before it."""
     if args.platform in {"ont", "nanopore"} and not args.r1:
         if args.keep_fastq:
             raise UsageError(
@@ -312,6 +474,19 @@ def run(args: argparse.Namespace) -> None:
                 "MM/ML; --keep-fastq is not supported. Use samtools fastq "
                 "-T MM,ML,MN to retain tagged FASTQ separately."
             )
+        out_path = align_cmd.aligned_output_path(
+            outdir, args.input, None, getattr(args, "format", "BAM"), selected_aligner
+        )
+        step = _align_step(
+            args, selected_aligner, target, out_path, {"alignment": args.input}
+        )
+        decision = journal.decide(step)
+        if not decision.run:
+            _resume_alignment(journal, decision, out_path, target, threads)
+            return
+        if journal.dry_run:
+            journal.decide(_index_step(out_path))
+            return
         align_args = argparse.Namespace(**vars(args))
         align_args.r1 = args.input
         ont_cram_opt = input_cram_opt or _input_cram_reference(args)
@@ -325,10 +500,23 @@ def run(args: argparse.Namespace) -> None:
                 need_extract=False,
                 reads=indexed_read_count(args.input, threads),
             )
-        align_cmd.run(align_args)
+        _align(journal, decision, align_args, lambda: align_cmd.run(align_args))
         return
 
     if args.platform == "ultima" and not args.r1:
+        out_path = align_cmd.aligned_output_path(
+            outdir, args.input, None, getattr(args, "format", "BAM"), selected_aligner
+        )
+        step = _align_step(
+            args, selected_aligner, target, out_path, {"alignment": args.input}
+        )
+        decision = journal.decide(step)
+        if not decision.run:
+            _resume_alignment(journal, decision, out_path, target, threads)
+            return
+        if journal.dry_run:
+            journal.decide(_index_step(out_path))
+            return
         # Single-end reads with flow tags: streamed into the aligner, no FASTQs.
         reads = indexed_read_count(args.input, threads)
         _report_resource_estimates(
@@ -352,29 +540,92 @@ def run(args: argparse.Namespace) -> None:
         align_args = argparse.Namespace(**vars(args))
         align_args.r1 = args.input
         align_args._input_read_count = reads
-        align_cmd.align_ultima(align_args, args.input, _input_cram_reference(args))
+        cram_reference = _input_cram_reference(args)
+        _align(
+            journal,
+            decision,
+            align_args,
+            lambda: align_cmd.align_ultima(align_args, args.input, cram_reference),
+        )
         return
 
-    # 1. Resolve FASTQs.
+    # 1. Resolve FASTQs: the user's, an earlier run's extraction, a pair found
+    # beside the input, or a new extraction (or stream).
+    base = input_stem(args.input)
+    staging = outdir if args.keep_fastq else configured_temp_directory() or outdir
+    staged = (
+        str(absolute_path(Path(staging, f"{base}_R1.fastq.gz"))),
+        str(absolute_path(Path(staging, f"{base}_R2.fastq.gz"))),
+    )
+    extract_step = Step(
+        "extract",
+        inputs={
+            "alignment": args.input,
+            "input_reference": getattr(args, "input_ref", None),
+        },
+        outputs=staged,
+        tools=["samtools"],
+    )
+    reads_inputs: dict[str, str | None] = (
+        {"fastq_r1": args.r1, "fastq_r2": args.r2}
+        if args.r1
+        else {"alignment": args.input}
+    )
+    out_path = align_cmd.aligned_output_path(
+        outdir,
+        args.r1 or staged[0],
+        args.r2 if args.r1 else staged[1],
+        getattr(args, "format", "BAM"),
+        selected_aligner,
+    )
+    align_step = _align_step(args, selected_aligner, target, out_path, reads_inputs)
+    if (
+        not args.r1
+        and not args.force_extract
+        and not journal.policy.forced("extract")
+        and not journal.check(align_step).run
+    ):
+        # An earlier run finished: nothing before the alignment is needed.
+        _resume_alignment(
+            journal, journal.decide(align_step), out_path, target, threads
+        )
+        return
+
+    extract_decision: Decision | None = None
     if args.r1:
         verify_paths_exist({"--r1": args.r1})
         if args.r2:
             verify_paths_exist({"--r2": args.r2})
         r1_path, r2_path = args.r1, args.r2
         need_extract = False
-    elif not args.force_extract and (
-        existing := _find_existing_fastqs(args.input, outdir)
+    elif not args.force_extract and not journal.check(extract_step).run:
+        extract_decision = journal.decide(extract_step)
+        r1_path, r2_path = staged
+        need_extract = False
+    elif (
+        not args.force_extract
+        and not journal.policy.forced("extract")
+        and (existing := _find_existing_fastqs(args.input, outdir))
+        # This run's own extraction, when its record doesn't vouch for it.
+        and not (existing == staged and journal.recorded("extract"))
     ):
         r1_path, r2_path = existing
         need_extract = False
         logging.info("Reusing existing FASTQs:\n  R1: %s\n  R2: %s", r1_path, r2_path)
         current_result().add_input(r1_path, "fastq_r1")
         current_result().add_input(r2_path, "fastq_r2")
+        out_path = align_cmd.aligned_output_path(
+            outdir, r1_path, r2_path, getattr(args, "format", "BAM"), selected_aligner
+        )
+        align_step = _align_step(
+            args,
+            selected_aligner,
+            target,
+            out_path,
+            {"alignment": args.input, "fastq_r1": r1_path, "fastq_r2": r2_path},
+        )
     else:
-        base = input_stem(args.input)
-        staging = outdir if args.keep_fastq else configured_temp_directory() or outdir
-        r1_path = str(Path(staging, f"{base}_R1.fastq.gz"))
-        r2_path = str(Path(staging, f"{base}_R2.fastq.gz"))
+        r1_path, r2_path = staged
         need_extract = True
 
     refresh_cached_fastqs = (
@@ -389,6 +640,19 @@ def run(args: argparse.Namespace) -> None:
         and not getattr(args, "gpu", False)
         and not refresh_cached_fastqs
     )
+    align_decision: Decision | None = None
+    if journal.dry_run or not need_extract:
+        if need_extract and not streaming:
+            extract_decision = journal.decide(extract_step)
+        align_decision = journal.decide(
+            align_step, after=[extract_decision] if extract_decision else []
+        )
+        if not align_decision.run:
+            _resume_alignment(journal, align_decision, out_path, target, threads)
+            return
+        if journal.dry_run:
+            journal.decide(_index_step(out_path))
+            return
     statistics = None if need_extract else fastq_input_statistics(r1_path, r2_path)
     reads = (
         indexed_read_count(args.input, threads)
@@ -529,6 +793,7 @@ def run(args: argparse.Namespace) -> None:
         align_args.r1, align_args.r2 = r1_path, r2_path
         align_args._input_read_count = reads
         align_args._input_read_length = read_length
+        align_decision = journal.decide(align_step)
         try:
             with paired_fastq_stream(
                 args.input,
@@ -537,11 +802,16 @@ def run(args: argparse.Namespace) -> None:
                 temp_parent=outdir,
                 cram_opt=cram_opt,
             ) as stages:
-                align_cmd.align_bwa(
+                _align(
+                    journal,
+                    align_decision,
                     align_args,
-                    upstream=stages,
-                    read_paths=[args.input],
-                    additional_ram_bytes=additional_ram_bytes,
+                    lambda: align_cmd.align_bwa(
+                        align_args,
+                        upstream=stages,
+                        read_paths=[args.input],
+                        additional_ram_bytes=additional_ram_bytes,
+                    ),
                 )
         except align_cmd.StreamingMemoryUnavailable:
             logging.info(
@@ -571,16 +841,22 @@ def run(args: argparse.Namespace) -> None:
         else:
             return
 
-    # 3. Extract if needed.
+    # 3. Extract if needed, publishing each FASTQ only once it is complete.
     if need_extract:
         verify_dependencies(["samtools"])
         log_dependency_info(["samtools"])
+        extract_decision = journal.decide(extract_step)
         logging.info("Extracting FASTQs from %s ...", args.input)
-        try:
+        with (
+            journal.running(extract_decision) as extracting,
+            atomic_output(r1_path) as staged_r1,
+            atomic_output(r2_path) as staged_r2,
+        ):
+            extracting.metrics["temporary"] = not args.keep_fastq
             alignments_to_fastq(
                 args.input,
-                r1_path,
-                r2_path,
+                staged_r1,
+                staged_r2,
                 threads=threads,
                 memory=memory,
                 temp_parent=outdir,
@@ -588,12 +864,6 @@ def run(args: argparse.Namespace) -> None:
                 heartbeat=True,
                 expected_reads=reads,
             )
-        except BaseException:
-            # Never leave truncated FASTQs behind for a later run to "reuse".
-            for path in (r1_path, r2_path):
-                with contextlib.suppress(FileNotFoundError):
-                    Path(path).unlink()
-            raise
 
     # 4. Delegate to align.
     align_args = argparse.Namespace(**vars(args))
@@ -604,8 +874,12 @@ def run(args: argparse.Namespace) -> None:
         statistics = fastq_input_statistics(r1_path, r2_path)
         read_length = statistics.read_length if statistics is not None else None
     align_args._input_read_length = read_length
+    if align_decision is None:
+        align_decision = journal.decide(
+            align_step, after=[extract_decision] if extract_decision else []
+        )
     try:
-        align_cmd.run(align_args)
+        _align(journal, align_decision, align_args, lambda: align_cmd.run(align_args))
     except BaseException:
         if need_extract and not args.keep_fastq:
             from wgsextract_cli.core.temp_directory import retain_temporary_directory
@@ -622,17 +896,25 @@ def run(args: argparse.Namespace) -> None:
                 )
         raise
 
-    # 5. Remove the FASTQs this run extracted unless asked to keep them. They are
-    # kept when alignment fails so a rerun can reuse them.
-    if need_extract and not args.keep_fastq:
+    # 5. Remove the FASTQs this workflow extracted unless asked to keep them
+    # (now or by the run that extracted them). They are kept when alignment
+    # fails so a rerun can reuse them.
+    if extract_decision is None:
+        return
+    temporary = extract_decision.run or extract_decision.metrics.get("temporary")
+    if temporary and not args.keep_fastq:
         for path in (r1_path, r2_path):
             try:
                 Path(path).unlink()
             except OSError as exc:
                 logging.warning("Could not remove %s: %s", path, exc)
-    elif need_extract:
+        journal.retire("extract", [r1_path, r2_path])
+    elif args.keep_fastq:
         current_result().add_output(r1_path, "fastq_r1")
         current_result().add_output(r2_path, "fastq_r2")
+    else:  # kept by the --keep-fastq run that extracted them
+        current_result().add_input(r1_path, "fastq_r1")
+        current_result().add_input(r2_path, "fastq_r2")
 
 
 def _report_resource_estimates(

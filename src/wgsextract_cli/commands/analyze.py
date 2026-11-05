@@ -14,6 +14,12 @@ from wgsextract_cli.core.dependency_checks import (
 from wgsextract_cli.core.messages import CLI_HELP, LOG_MESSAGES
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.results import current_result
+from wgsextract_cli.core.steps import (
+    Step,
+    StepJournal,
+    add_resume_arguments,
+    resume_policy,
+)
 from wgsextract_cli.core.utils import UsageError, WGSExtractError
 from wgsextract_cli.core.variant_confidence import (
     add_confidence_arguments,
@@ -22,12 +28,17 @@ from wgsextract_cli.core.variant_confidence import (
 from wgsextract_cli.core.variant_files import verify_paths_exist
 
 from ._analyze_workflows import (
+    JOURNAL,
+    STEPS,
+    AnalyzeResult,
     _print,
+    _step_params,
     detect_vcf_type,
     generate_summary_report,
     run_bam_chain,
-    run_cli_subcommand,
+    run_step,
     run_vcf_workflow,
+    subcommand_action,
 )
 
 
@@ -87,40 +98,11 @@ def cmd_comprehensive(args: argparse.Namespace) -> None:
 
     _print("-" * 60)
 
-    # 1. BAM/CRAM Analysis (Info, QC, Lineage)
-    if input_file:
-        result.add_input(input_file)
-        sex = run_bam_chain(args, input_file, outdir)
-        if not batch_sample:
-            result.add_metrics(sex=sex)
-
-    # 2. VCF Processing (Independently per type)
-    results = []
-    if vcf_inputs:
-        _print(f"\nSTAGE: Processing Input VCFs ({len(vcf_inputs)} files)")
-        for vcf in vcf_inputs:
-            v_type = detect_vcf_type(vcf)
-            res = run_vcf_workflow(args, vcf, v_type, outdir)
-            if res:
-                results.append(res)
-    elif input_file and not args.skip_calling:
-        _print("\nSTAGE: Variant Calling (No input VCFs provided)")
-        # Call SNV and InDels if nothing else provided
-        snps_vcf = str(Path(outdir, "snps.vcf.gz"))
-        run_cli_subcommand(
-            ["vcf", "snp", "--input", input_file, "--outdir", outdir], args
-        )
-
-        indels_vcf = str(Path(outdir, "indels.vcf.gz"))
-        run_cli_subcommand(
-            ["vcf", "indel", "--input", input_file, "--outdir", outdir], args
-        )
-
-        for vcf, v_type in [(snps_vcf, "snp-indel"), (indels_vcf, "snp-indel")]:
-            if Path(vcf).exists():
-                res = run_vcf_workflow(args, vcf, v_type, outdir)
-                if res:
-                    results.append(res)
+    with StepJournal(Path(outdir, JOURNAL), "analyze comprehensive",
+                     resume_policy(args)) as journal:  # fmt: skip
+        results = _run_comprehensive(args, journal, input_file, vcf_inputs, outdir)
+    if journal.dry_run:
+        return
 
     # 3. Final Summary Report
     generate_summary_report(results, outdir)
@@ -129,6 +111,54 @@ def cmd_comprehensive(args: argparse.Namespace) -> None:
             vcfs_analyzed=len(results),
             significant_variants=sum(r["count"] for r in results),
         )
+
+
+def _run_comprehensive(
+    args: argparse.Namespace,
+    journal: StepJournal,
+    input_file: str | None,
+    vcf_inputs: list[str],
+    outdir: str,
+) -> list[AnalyzeResult]:
+    result = current_result()
+    # 1. BAM/CRAM Analysis (Info, QC, Lineage)
+    if input_file:
+        result.add_input(input_file)
+        sex = run_bam_chain(args, input_file, outdir, journal)
+        if not getattr(args, "batch_sample", False):
+            result.add_metrics(sex=sex)
+
+    # 2. VCF Processing (Independently per type)
+    results: list[AnalyzeResult] = []
+    if vcf_inputs:
+        _print(f"\nSTAGE: Processing Input VCFs ({len(vcf_inputs)} files)")
+        for vcf in vcf_inputs:
+            v_type = detect_vcf_type(vcf)
+            res = run_vcf_workflow(args, vcf, v_type, outdir, journal)
+            if res:
+                results.append(res)
+    elif input_file and not args.skip_calling:
+        _print("\nSTAGE: Variant Calling (No input VCFs provided)")
+        # Call SNV and InDels if nothing else provided
+        called = []
+        for name, file in (("snp", "snps.vcf.gz"), ("indel", "indels.vcf.gz")):
+            vcf = str(Path(outdir, file))
+            command = ["vcf", name, "--input", input_file, "--outdir", outdir]
+            decision, _ = run_step(
+                journal,
+                Step(name, inputs={"input": input_file}, outputs=[vcf],
+                     params=_step_params(args, command), tools=["bcftools"]),
+                subcommand_action(command, args),
+            )  # fmt: skip
+            called.append((vcf, decision))
+        for vcf, decision in called:
+            if journal.dry_run or Path(vcf).exists():
+                res = run_vcf_workflow(
+                    args, vcf, "snp-indel", outdir, journal, after=[decision]
+                )
+                if res:
+                    results.append(res)
+    return results
 
 
 def run_batch_comprehensive(args: argparse.Namespace, batch_file: str) -> None:
@@ -335,6 +365,7 @@ def register(
         help=CLI_HELP.get("arg_batch", "Batch file for multiple samples."),
     )
     add_confidence_arguments(comp_parser)
+    add_resume_arguments(comp_parser, STEPS)
     comp_parser.set_defaults(func=cmd_comprehensive)
 
     gen_batch_parser = analyze_subs.add_parser(

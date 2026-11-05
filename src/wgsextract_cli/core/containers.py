@@ -13,10 +13,11 @@ import sys
 import threading
 import uuid
 from collections.abc import Iterable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 from wgsextract_cli.core.dependencies import get_tool_path
+from wgsextract_cli.core.steps import RUN_TAG
 from wgsextract_cli.core.utils import (
     MissingDependencyError,
     WGSExtractError,
@@ -26,6 +27,8 @@ from wgsextract_cli.core.utils import (
 
 # Seconds a failed container's OOM event may trail its exit.
 OOM_EVENT_GRACE = 5.0
+# Labels each container with the step run (RUN_TAG) that started it.
+STEP_LABEL = "wgsextract.step"
 
 
 def docker(setup: str) -> str:
@@ -54,6 +57,21 @@ def require_image(image: str, missing: str) -> None:
         raise MissingDependencyError(missing)
 
 
+def image_identity(image: str) -> str:
+    """``image`` and the ID of the build it names, so results can tell when a
+    mutable tag such as 1.10.0 was replaced; just ``image`` when it's unknown."""
+    docker_path = get_tool_path("docker")
+    if not docker_path:
+        return image
+    inspected = run_command(
+        [docker_path, "image", "inspect", "--format", "{{.Id}}", image],
+        capture_output=True,
+        check=False,
+    )
+    identity = (inspected.stdout or "").strip() if inspected.returncode == 0 else ""
+    return f"{image}@{identity}" if identity else image
+
+
 def host_path(path: str) -> str:
     """The absolute path a file has both outside and inside the container."""
     return os.path.abspath(path)
@@ -69,14 +87,16 @@ def run_container(
     temporary_directory: str | None = None,
     local_only: bool = False,
     oom_error: str | None = None,
-) -> None:
+    capture_output: bool = False,
+) -> subprocess.CompletedProcess[str]:
     """Run ``command`` in ``image``. ``paths`` are the files and directories it
     reads or writes, and ``command`` names them by host_path; their directories
     are mounted at the same paths in the container.
 
     With ``oom_error``, an out-of-memory kill of any process in the container
     stops it and raises that message, for tools such as DeepVariant whose
-    worker pools wait forever on a killed worker."""
+    worker pools wait forever on a killed worker. ``capture_output`` returns
+    its output instead of showing it."""
     mounts = sorted(
         {host_path(p) if Path(p).is_dir() else str(Path(host_path(p)).parent)
          for p in paths if p}
@@ -96,17 +116,60 @@ def run_container(
         cmd += ["-e", f"TMPDIR={home}"]
     for mount in mounts:
         cmd += ["-v", f"{mount}:{mount}"]
-    if oom_error is None:
-        run_command([*cmd, "-w", mounts[0], image, *command])
-        return
     name = f"wgsextract-{uuid.uuid4().hex[:12]}"
-    with _oom_watch(cmd[0], name) as oom_killed:
+    cmd += ["--name", name]
+    if tag := os.environ.get(RUN_TAG):
+        # A rerun finds the container of a step whose wgsextract was killed.
+        cmd += ["--label", f"{STEP_LABEL}={tag}"]
+    cmd += ["-w", mounts[0], image, *command]
+    try:
+        if oom_error is None:
+            return run_command(cmd, capture_output=capture_output)
+        with _oom_watch(cmd[0], name) as oom_killed:
+            try:
+                return run_command(cmd, capture_output=capture_output)
+            except subprocess.CalledProcessError as error:
+                if oom_killed.wait(OOM_EVENT_GRACE):
+                    raise WGSExtractError(oom_error) from error
+                raise
+    except (KeyboardInterrupt, SystemExit):
+        # Stopping `docker run` leaves its container running, and a shell as
+        # the container's PID 1 ignores the signals it forwards. engine_call works
+        # after the cancelled process registry refuses new ones.
+        with suppress(OSError, subprocess.SubprocessError):
+            engine_call([cmd[0], "kill", name])
+        raise
+
+
+def engine_call(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """A quick container engine query or command, bounded in case the daemon
+    hangs. Unlike run_command, it works once the run has been cancelled."""
+    return subprocess.run(
+        cmd, capture_output=True, text=True, errors="replace", timeout=30, check=False
+    )
+
+
+def tagged_containers(tags: Iterable[str]) -> list[str]:
+    """Running containers that step runs tagged with one of ``tags`` started.
+    Empty when there is no container engine, or it doesn't answer."""
+    docker_path = get_tool_path("docker")
+    if not docker_path:
+        return []
+    found: list[str] = []
+    for tag in sorted(tags):
         try:
-            run_command([*cmd, "--name", name, "-w", mounts[0], image, *command])
-        except subprocess.CalledProcessError as error:
-            if oom_killed.wait(OOM_EVENT_GRACE):
-                raise WGSExtractError(oom_error) from error
-            raise
+            listed = engine_call(
+                [docker_path, "ps", "--filter", f"label={STEP_LABEL}={tag}",
+                 "--format", "{{.Names}}"]
+            )  # fmt: skip
+        except (OSError, subprocess.SubprocessError) as error:
+            logging.debug(f"Couldn't list containers: {error}")
+            return found
+        if listed.returncode != 0:
+            logging.debug(f"Couldn't list containers: {listed.stderr.strip()}")
+            return found
+        found += [f"container {name}" for name in listed.stdout.split()]
+    return found
 
 
 @contextmanager
@@ -133,9 +196,10 @@ def _oom_watch(docker_path: str, name: str) -> Iterator[threading.Event]:
         for _line in events.stdout:
             if killed.is_set():
                 continue
-            killed.set()
             logging.error(f"A process in container {name} ran out of memory.")
             run_command([docker_path, "kill", name], capture_output=True, check=False)
+            # Only now: the caller reports the OOM once this is set.
+            killed.set()
 
     watcher = threading.Thread(target=watch, daemon=True)
     watcher.start()
