@@ -1,6 +1,10 @@
 import pytest
 
-from scripts.benchmark_microarray_coverage import fraction_digits, score
+from scripts.benchmark_microarray_coverage import (
+    check_resume,
+    fraction_digits,
+    score,
+)
 from wgsextract_cli.commands.benchmark.chip import ChipCall
 
 
@@ -43,3 +47,11 @@ def test_fraction_is_written_as_samtools_seed_digits() -> None:
     for bad in (0.0, 1.0, 0.0000001):
         with pytest.raises(ValueError):
             fraction_digits(bad)
+
+
+def test_resume_refuses_an_outdir_from_other_inputs(tmp_path) -> None:
+    identity = {"input": ["a.cram", 1], "sample": "HG00096", "seed": 42}
+    check_resume(tmp_path, identity)
+    check_resume(tmp_path, identity)
+    with pytest.raises(SystemExit, match="different sample, seed"):
+        check_resume(tmp_path, {**identity, "sample": "HG00097", "seed": 7})

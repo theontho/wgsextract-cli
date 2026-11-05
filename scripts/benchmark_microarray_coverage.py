@@ -9,8 +9,9 @@ broken down by autosomes/X/Y/MT and by the truth genotype class, together with
 the depths, homozygosity, no-call rates and QC warnings the CLI reported.
 
 Outputs (raw kits, truth and logs) stay under --outdir; the summary JSON and
-Markdown contain aggregate counts only. Re-running resumes: completed depths
-are skipped. Run each step under an agent-coord lease.
+Markdown contain aggregate counts only. Re-running with the same inputs and
+options resumes (completed depths are skipped); other inputs need a new
+--outdir. Run each step under an agent-coord lease.
 """
 
 import argparse
@@ -30,6 +31,7 @@ from wgsextract_cli.commands.benchmark.chip import (
 )
 from wgsextract_cli.core.genotype_qc import AUTOSOMES, target_depths
 from wgsextract_cli.core.microarray_utils import get_template_format, is_autosome
+from wgsextract_cli.core.reference_assets import input_stem
 
 DEFAULT_DEPTHS = "30,20,15,10,8,6,5,4,3,2,1"
 GROUPS = ("autosomes", "X", "Y", "MT")
@@ -264,7 +266,7 @@ def run_depth(
     started = time.monotonic()
     run(command, workdir / "microarray.log")
     elapsed = time.monotonic() - started
-    stem = alignment.name.removesuffix(".cram").removesuffix(".bam")
+    stem = input_stem(alignment)
     names = ["CombinedKit", *args.formats]
     scores = {
         name: score(read_chip_export(path, name), truth, classes).as_dict()
@@ -323,8 +325,9 @@ def markdown(summary: dict[str, Any], kit_name: str) -> str:
         sex = " / ".join(pct(hom_concordance(kit, group)) for group in ("X", "Y"))
         depth = (row["measured_depth"] or {}).get(AUTOSOMES)
         no_call = rate(auto, "nocall")
+        measured = f"{depth:.1f}x" if depth else "n/a"
         lines.append(
-            f"| {row['label']} | {depth:.1f}x | {pct(auto.get('concordance'))} | "
+            f"| {row['label']} | {measured} | {pct(auto.get('concordance'))} | "
             f"{pct(no_call)} | {pct(het.get('accuracy'))} | "
             f"{pct(rate(het, 'het_called_hom'))} | "
             f"{pct(cls.get('hom_alt', {}).get('accuracy'))} | "
@@ -363,6 +366,38 @@ def kits_markdown(summary: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def run_identity(args: argparse.Namespace) -> dict[str, Any]:
+    """What cached truth, downsampled copies and scores depend on."""
+
+    def file(path: Path | None) -> list[Any] | None:
+        return None if path is None else [str(path.resolve()), path.stat().st_size]
+
+    return {
+        "input": file(args.input),
+        "ref": file(args.ref),
+        "truth_vcf": file(args.truth_vcf),
+        "config": file(args.config),
+        "sample": args.sample,
+        "seed": args.seed,
+        "formats": args.formats,
+    }
+
+
+def check_resume(outdir: Path, identity: dict[str, Any]) -> None:
+    """Refuse to mix results from different inputs or options in one --outdir."""
+    marker = outdir / "run.json"
+    if marker.exists():
+        previous = json.loads(marker.read_text("utf-8"))
+        if previous != identity:
+            changed = sorted(k for k in identity if previous.get(k) != identity[k])
+            raise SystemExit(
+                f"{outdir} holds results for different {', '.join(changed)}; "
+                "use a new --outdir."
+            )
+    else:
+        marker.write_text(json.dumps(identity, indent=2) + "\n", "utf-8")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True, help="Deep BAM/CRAM")
@@ -397,6 +432,7 @@ def main() -> None:
     if unknown:
         parser.error(f"Unknown formats: {', '.join(unknown)}")
     args.outdir.mkdir(parents=True, exist_ok=True)
+    check_resume(args.outdir, run_identity(args))
 
     measured = target_depths(str(args.input), ref=str(args.ref))
     if not measured or not measured[0].get(AUTOSOMES):
@@ -430,7 +466,7 @@ def main() -> None:
         result = run_depth(args, label, alignment, truth, classes)
         result["fraction"] = round(fraction, 6)
         rows.append(result)
-        print(markdown({"depths": [result]}, args.report_kit), flush=True)
+        print(f"{label}: scored", flush=True)
         if alignment.exists():
             if source != args.input and not args.keep_downsampled:
                 for path in (source, Path(f"{source}.crai")):
@@ -456,7 +492,7 @@ def main() -> None:
     )
     table = markdown(summary, args.report_kit) + "\n" + kits_markdown(summary)
     (args.outdir / "summary.md").write_text(table, "utf-8")
-    print(table)
+    print(f"Wrote {args.outdir / 'summary.md'}", flush=True)
 
 
 if __name__ == "__main__":
