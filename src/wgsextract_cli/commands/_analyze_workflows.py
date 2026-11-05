@@ -1,18 +1,23 @@
 import argparse
+import contextlib
+import dataclasses
 import json
 import logging
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextvars import ContextVar
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from wgsextract_cli.core import variant_confidence
 from wgsextract_cli.core.config import config_args
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
 from wgsextract_cli.core.results import Scalar, current_result, warn
+from wgsextract_cli.core.steps import Decision, Step, StepJournal, StepRun
 from wgsextract_cli.core.utils import (
     WGSExtractError,
     run_command,
@@ -42,6 +47,103 @@ class AnalyzeResult(TypedDict):
     input: str
     output: str
     count: int
+
+
+# Step names for --force-step. annotate and discovery run once per VCF, as
+# "annotate:<type>_<name>"; forcing the family forces each of them.
+STEPS = (
+    "info", "mt-haplogroup", "y-haplogroup", "snp", "indel", "annotate", "discovery",
+)  # fmt: skip
+JOURNAL = "analyze.steps.json"
+
+# The step running now: its subcommands' result documents add the files they
+# read (annotation data, the reference) to its inputs.
+_RUNNING: ContextVar[StepRun | None] = ContextVar("analyze_step", default=None)
+
+
+@contextlib.contextmanager
+def _captured(handle: StepRun) -> Iterator[None]:
+    """Record in ``handle`` the outputs and metrics the step adds to this run's
+    result, so a later run that skips the step can report them again."""
+    result = current_result()
+    before = {record.path for record in result.outputs}
+    metrics = dict(result.metrics)
+    token = _RUNNING.set(handle)
+    try:
+        yield
+    finally:
+        _RUNNING.reset(token)
+    for record in result.outputs:
+        if record.path not in before and Path(record.path).exists():
+            handle.add_output(
+                record.path,
+                role=record.role,
+                result_kind=record.kind,
+                result_metrics=record.metrics,
+            )
+    handle.metrics["result_metrics"] = {
+        name: value for name, value in result.metrics.items()
+        if metrics.get(name, object()) != value
+    }  # fmt: skip
+
+
+def _replay(journal: StepJournal, decision: Decision) -> None:
+    """Report a skipped step's outputs and metrics as its run did."""
+    result = current_result()
+    for item in decision.outputs:
+        if item.get("role"):
+            result.add_output(
+                journal.resolve(item["path"]),
+                item["role"],
+                kind=item.get("result_kind"),
+                metrics=_scalars(item.get("result_metrics")),
+            )
+    result.add_metrics(**_scalars(decision.metrics.get("result_metrics")))
+
+
+def run_step(
+    journal: StepJournal,
+    step: Step,
+    action: Callable[[StepRun], None],
+    *,
+    after: Sequence[Decision] = (),
+    clean: Sequence[Path] = (),
+) -> tuple[Decision, dict[str, Any]]:
+    """Run ``action`` as ``step`` unless an earlier run completed it; returns
+    the decision and the step's metrics (from this run or the recorded one).
+
+    ``clean``: work folders deleted before the step reruns, so a subcommand
+    can't reuse what an earlier attempt left there (kept when the same
+    attempt is resumed).
+    """
+    decision = journal.decide(step, after=after)
+    if not decision.run:
+        _replay(journal, decision)
+        return decision, decision.metrics
+    if journal.dry_run:
+        return decision, decision.metrics
+    if not decision.partial:
+        for folder in clean:
+            shutil.rmtree(folder, ignore_errors=True)
+    with journal.running(decision) as handle, _captured(handle):
+        action(handle)
+    return decision, handle.metrics
+
+
+def subcommand_action(
+    command: list[str], args: argparse.Namespace
+) -> Callable[[StepRun], None]:
+    """A step action that runs the wgsextract subcommand ``command``."""
+
+    def action(handle: StepRun) -> None:
+        run_cli_subcommand(command, args)
+
+    return action
+
+
+def _step_params(args: argparse.Namespace, command: Sequence[str]) -> dict[str, Any]:
+    """What shapes a subcommand step's output: its command line and --ref."""
+    return {"command": list(command), "ref": args.ref}
 
 
 _SV_NAME_TOKENS = {"sv", "svs", "pbsv", "sniffles"}
@@ -248,8 +350,17 @@ def record_step_result(document: Path) -> None:
         command = str(step["command"])
         outputs = list(step.get("outputs") or [])
         warnings = list(step.get("warnings") or [])
+        inputs = list(step.get("inputs") or [])
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return
+    if running := _RUNNING.get():
+        declared = {
+            str(Path(p).absolute()) for p in running.decision.step.inputs.values() if p
+        }
+        for item in inputs:
+            path = item.get("path") if isinstance(item, dict) else None
+            if path and str(Path(path).absolute()) not in declared:
+                running.add_input(f"{item.get('role') or 'input'}:{path}", path)
     result = current_result()
     if step.get("manifest"):
         result.add_output(step["manifest"], "step_manifest", kind="json")
@@ -269,9 +380,15 @@ def record_step_result(document: Path) -> None:
 
 
 def run_vcf_workflow(
-    args: argparse.Namespace, vcf_path: str, v_type: str, outdir: str
+    args: argparse.Namespace,
+    vcf_path: str,
+    v_type: str,
+    outdir: str,
+    journal: StepJournal,
+    after: Sequence[Decision] = (),
 ) -> AnalyzeResult | None:
-    """Annotates and filters a single VCF file based on its type."""
+    """Annotates and filters a single VCF file based on its type, as the
+    steps annotate and discovery. ``after``: the step that made the VCF."""
     # The name without its VCF suffix: NA12878.snp and NA12878.indel stay apart.
     base_name = re.sub(r"\.(vcf(\.b?gz)?|bcf)$", "", Path(vcf_path).name, flags=re.I)
     _print(f"\nSub-Stage: Processing {v_type.upper()} ({Path(vcf_path).name})")
@@ -307,25 +424,42 @@ def run_vcf_workflow(
         return None
     anns = ",".join(available)
 
-    work_dir = str(Path(outdir, f"work_{v_type}_{base_name}"))
-    Path(work_dir).mkdir(parents=True, exist_ok=True)
+    work_dir = Path(outdir, f"work_{v_type}_{base_name}")
+    actual_ann_vcf = str(work_dir / "chain_annotated.vcf.gz")
+    command = ["vcf", "chain-annotate", "--input", vcf_path,
+               "--outdir", str(work_dir), "--annotations", anns]  # fmt: skip
 
-    run_cli_subcommand(
-        [
-            "vcf",
-            "chain-annotate",
-            "--input",
-            vcf_path,
-            "--outdir",
-            work_dir,
-            "--annotations",
-            anns,
-        ],
-        args,
+    def annotate(handle: StepRun) -> None:
+        work_dir.mkdir(parents=True, exist_ok=True)
+        run_cli_subcommand(command, args)
+        if Path(actual_ann_vcf).exists():
+            handle.add_output(actual_ann_vcf)
+
+    tag = f"{v_type}_{base_name}"
+    annotate_step = Step(
+        f"annotate:{tag}",
+        inputs={"vcf": vcf_path},
+        params=_step_params(args, command),
+        tools=["bcftools"],
+    )
+    annotated, _ = run_step(
+        journal, annotate_step, annotate, after=after, clean=[work_dir]
     )
 
+    discovery_vcf = str(Path(outdir, f"significant_{v_type}_{base_name}.vcf.gz"))
+    thresholds = variant_confidence.thresholds_from(args)
+    discovery_step = Step(
+        f"discovery:{tag}",
+        inputs={"annotated": actual_ann_vcf},
+        outputs=[discovery_vcf],
+        params={"type": v_type, "thresholds": dataclasses.asdict(thresholds)},
+        tools=["bcftools"],
+    )
+    if journal.dry_run:
+        journal.decide(discovery_step, after=[annotated])
+        return None
+
     # Locate the final annotated file
-    actual_ann_vcf = str(Path(work_dir, "chain_annotated.vcf.gz"))
     if not Path(actual_ann_vcf).exists():
         warn(
             "annotation_failed",
@@ -334,15 +468,15 @@ def run_vcf_workflow(
         )
         return None
 
-    # Run Discovery Filter
-    discovery_vcf = str(Path(outdir, f"significant_{v_type}_{base_name}.vcf.gz"))
-    count = run_discovery_filter(
-        actual_ann_vcf,
-        v_type,
-        discovery_vcf,
-        variant_confidence.thresholds_from(args),
-    )
+    def discover(handle: StepRun) -> None:
+        count = run_discovery_filter(actual_ann_vcf, v_type, discovery_vcf, thresholds)
+        handle.metrics["variants"] = count
+        for index in (".tbi", ".csi"):
+            if Path(discovery_vcf + index).exists():
+                handle.add_output(discovery_vcf + index)
 
+    _, metrics = run_step(journal, discovery_step, discover, after=[annotated])
+    count = int(metrics.get("variants") or 0)
     return {"type": v_type, "input": vcf_path, "output": discovery_vcf, "count": count}
 
 
@@ -364,41 +498,58 @@ def generate_summary_report(results: Sequence[AnalyzeResult], outdir: str) -> No
     _print("=" * 60 + "\n")
 
 
-def run_bam_chain(args: argparse.Namespace, input_file: str, outdir: str) -> str:
-    """Runs info, qc, and lineage steps. Returns detected gender."""
+def _cached_gender(cache_file: str) -> str:
+    try:
+        with open(cache_file) as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return "Unknown"
+    except (OSError, json.JSONDecodeError) as e:
+        logging.debug("Failed to read cached info metrics from %s: %s", cache_file, e)
+        return "Unknown"
+    return str(data.get("gender", "Unknown")) if isinstance(data, dict) else "Unknown"
+
+
+def run_bam_chain(
+    args: argparse.Namespace, input_file: str, outdir: str, journal: StepJournal
+) -> str:
+    """Runs the info and lineage steps. Returns detected gender."""
     _print("\nSTAGE: BAM/CRAM Metrics & Lineage")
 
-    # 1. Info (Detailed run to show table and get gender)
-    # We call it even if cached to ensure the table is displayed. It's very fast when cached.
-    run_cli_subcommand(
-        ["info", "--detailed", "--input", input_file, "--outdir", outdir], args
-    )
+    def subcommand_step(name: str, command: list[str], **extra: Any) -> Step:
+        return Step(name, inputs={"input": input_file},
+                    params=_step_params(args, command), **extra)  # fmt: skip
 
-    # 2. Detect gender from the (newly updated) cache to drive subsequent logic
-    gender = "Unknown"
+    # 1. Info (detailed: shows the table and detects the sex)
+    info = ["info", "--detailed", "--input", input_file, "--outdir", outdir]
     cache_file = str(Path(outdir, f"{Path(input_file).name}.wgse_info.json"))
-    if Path(cache_file).exists():
-        try:
-            with open(cache_file) as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    gender = str(data.get("gender", "Unknown"))
-        except (OSError, json.JSONDecodeError) as e:
-            logging.debug(
-                "Failed to read cached info metrics from %s: %s", cache_file, e
-            )
+
+    def run_info(handle: StepRun) -> None:
+        run_cli_subcommand(info, args)
+        # 2. The detected sex drives the lineage steps.
+        handle.metrics["gender"] = _cached_gender(cache_file)
+
+    _, metrics = run_step(
+        journal,
+        subcommand_step("info", info, outputs=[cache_file], tools=["samtools"]),
+        run_info,
+    )
+    gender = str(metrics.get("gender") or "Unknown")
 
     # 3. mt-haplogroup (Haplogrep)
-    run_cli_subcommand(
-        ["lineage", "mt-haplogroup", "--input", input_file, "--outdir", outdir], args
-    )
-
-    # 4. Y-lineage only if it's NOT female
-    if gender != "Female":
-        run_cli_subcommand(
-            ["lineage", "y-haplogroup", "--input", input_file, "--outdir", outdir], args
+    for name, command in (
+        ("mt-haplogroup", ["lineage", "mt-haplogroup"]),
+        ("y-haplogroup", ["lineage", "y-haplogroup"]),
+    ):
+        # 4. Y-lineage only if it's NOT female
+        if name == "y-haplogroup" and gender == "Female":
+            logging.info("Skipping Y-lineage analysis for female genome.")
+            continue
+        command = [*command, "--input", input_file, "--outdir", outdir]
+        run_step(
+            journal,
+            subcommand_step(name, command, tools=["samtools", "bcftools"]),
+            subcommand_action(command, args),
         )
-    else:
-        logging.info("Skipping Y-lineage analysis for female genome.")
 
     return gender
