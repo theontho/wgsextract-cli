@@ -1,11 +1,15 @@
+from unittest.mock import patch
+
 import pytest
 
 from scripts.benchmark_microarray_coverage import (
     check_resume,
+    current_warnings,
     fraction_digits,
     score,
 )
 from wgsextract_cli.commands.benchmark.chip import ChipCall
+from wgsextract_cli.core import genotype_qc
 
 
 def test_score_splits_low_coverage_errors_by_truth_class() -> None:
@@ -55,3 +59,18 @@ def test_resume_refuses_an_outdir_from_other_inputs(tmp_path) -> None:
     check_resume(tmp_path, identity)
     with pytest.raises(SystemExit, match="different sample, seed"):
         check_resume(tmp_path, {**identity, "sample": "HG00097", "seed": 7})
+
+
+def test_cached_warnings_follow_the_current_depth_threshold() -> None:
+    result = {
+        "measured_depth": {"autosomes": 10.0, "chrX": 5.0, "chrY": 10.0},
+        "warnings": ["high_homozygosity"],  # reported when the threshold was 8
+    }
+    with patch.dict(genotype_qc.settings, {"qc_min_diploid_depth": 15.0}):
+        assert current_warnings(result) == [
+            "high_homozygosity",
+            "low_coverage:autosomes",
+        ]
+    result["warnings"].append("low_coverage:autosomes")
+    with patch.dict(genotype_qc.settings, {"qc_min_diploid_depth": 8.0}):
+        assert current_warnings(result) == ["high_homozygosity"]

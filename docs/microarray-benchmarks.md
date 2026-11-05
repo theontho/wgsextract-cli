@@ -210,15 +210,18 @@ bases, duplicates included, over the autosomes' non-N length. The full CRAM
 measures 40.1x on it (about 34x without duplicates). Rows are 23andMe V5's
 157,843 autosomal markers on the chip; chrX and chrY are scored only where the
 chip calls this man homozygous, since its chrY "heterozygotes" are probe
-artefacts. The Omni release has no mtDNA.
+artefacts. The Omni release has no mtDNA. Warnings are those the CLI gives
+with the default thresholds (`qc_min_diploid_depth = 15`): the script re-judges
+cached runs' depth warnings, and the 15x copy measures 14.998x, so it is just
+below the threshold.
 
 | Depth | Measured | Called concordance % | No-call % | Het correct % | Het called hom % | Hom-alt correct % | Hom-ref correct % | chrX / chrY concordance % | CombinedKit homozygosity % | Warnings |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | full | 40.1x | 99.93 | 0.08 | 99.79 | 0.14 | 99.80 | 99.92 | 99.98 / 98.91 | 77.9 | - |
 | 30x | 30.0x | 99.89 | 0.08 | 99.66 | 0.27 | 99.80 | 99.92 | 99.98 / 98.91 | 77.9 | - |
 | 20x | 20.0x | 99.53 | 0.08 | 98.60 | 1.32 | 99.79 | 99.92 | 99.98 / 98.91 | 78.2 | - |
-| 15x | 15.0x | 98.57 | 0.08 | 95.80 | 4.13 | 99.79 | 99.92 | 99.96 / 98.90 | 78.8 | - |
-| 10x | 10.0x | 95.71 | 0.11 | 87.37 | 12.53 | 99.73 | 99.90 | 99.86 / 98.99 | 80.7 | - |
+| 15x | 15.0x | 98.57 | 0.08 | 95.80 | 4.13 | 99.79 | 99.92 | 99.96 / 98.90 | 78.8 | low_coverage:autosomes |
+| 10x | 10.0x | 95.71 | 0.11 | 87.37 | 12.53 | 99.73 | 99.90 | 99.86 / 98.99 | 80.7 | low_coverage:autosomes |
 | 8x | 8.0x | 92.90 | 0.20 | 79.07 | 20.74 | 99.59 | 99.81 | 99.79 / 98.97 | 82.5 | low_coverage:autosomes |
 | 6x | 6.0x | 88.08 | 0.72 | 64.64 | 34.66 | 99.01 | 99.27 | 99.73 / 99.03 | 85.6 | low_coverage:autosomes |
 | 5x | 5.0x | 84.52 | 1.58 | 53.86 | 44.62 | 98.03 | 98.39 | 99.59 / 99.10 | 87.9 | low_coverage:autosomes |

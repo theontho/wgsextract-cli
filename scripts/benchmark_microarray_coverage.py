@@ -6,7 +6,9 @@ the read sets are nested) to each requested mean autosomal depth, runs
 independently measured chip VCF of the same sample, by marker identity
 (allele-exact, as scripts/benchmark_microarray_chip.py does). Results are
 broken down by autosomes/X/Y/MT and by the truth genotype class, together with
-the depths, homozygosity, no-call rates and QC warnings the CLI reported.
+the depths, homozygosity, no-call rates and QC warnings the CLI reported;
+low-coverage warnings are re-evaluated from the measured depths with the
+current thresholds, so cached results follow a changed qc_min_*_depth.
 
 Outputs (raw kits, truth and logs) stay under --outdir; the summary JSON and
 Markdown contain aggregate counts only. Re-running with the same inputs and
@@ -29,7 +31,13 @@ from wgsextract_cli.commands.benchmark.chip import (
     ChipCall,
     read_chip_export,
 )
-from wgsextract_cli.core.genotype_qc import AUTOSOMES, target_depths
+from wgsextract_cli.core.config import reload_settings, set_config_path
+from wgsextract_cli.core.genotype_qc import (
+    AUTOSOMES,
+    low_depth_targets,
+    region_targets,
+    target_depths,
+)
 from wgsextract_cli.core.microarray_utils import get_template_format, is_autosome
 from wgsextract_cli.core.reference_assets import input_stem
 
@@ -239,6 +247,14 @@ def warnings_of(outdir: Path) -> list[dict[str, Any]]:
     return found
 
 
+def current_warnings(result: dict[str, Any]) -> list[str]:
+    """The run's warnings, its low-coverage ones re-judged from its measured
+    depths against the thresholds the CLI uses now."""
+    kept = {w for w in result["warnings"] if not w.startswith("low_coverage")}
+    low = low_depth_targets(result["measured_depth"] or {}, region_targets(None))
+    return sorted(kept | {f"low_coverage:{target}" for target, *_ in low})
+
+
 def run_depth(
     args: argparse.Namespace,
     label: str,
@@ -431,6 +447,8 @@ def main() -> None:
         parser.error("--report-kit must be one of --formats")
     if unknown:
         parser.error(f"Unknown formats: {', '.join(unknown)}")
+    set_config_path(args.config)
+    reload_settings()
     args.outdir.mkdir(parents=True, exist_ok=True)
     check_resume(args.outdir, run_identity(args))
 
@@ -465,6 +483,7 @@ def main() -> None:
                 )
         result = run_depth(args, label, alignment, truth, classes)
         result["fraction"] = round(fraction, 6)
+        result["warnings"] = current_warnings(result)
         rows.append(result)
         print(f"{label}: scored", flush=True)
         if alignment.exists():
