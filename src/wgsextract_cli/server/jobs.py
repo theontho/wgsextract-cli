@@ -28,7 +28,7 @@ from typing import Any, Literal
 from wgsextract_cli.core.file_lock import exclusive_lock
 from wgsextract_cli.core.utils import WGSExtractError
 
-from .operations import Operation, RequestError
+from .operations import Operation, RequestError, is_network_path
 
 Status = Literal["queued", "running", "succeeded", "failed", "cancelled", "interrupted"]
 FINISHED = frozenset({"succeeded", "failed", "cancelled", "interrupted"})
@@ -306,11 +306,13 @@ class JobManager:
         folder = job.params.get("outdir") or self.default_outdir
         if not folder and isinstance(job.params.get("input"), str):
             folder = os.path.dirname(job.params["input"])
-        return (
-            os.path.normcase(os.path.realpath(os.path.expanduser(folder)))
-            if folder
-            else ""
-        )
+        if not folder:
+            return ""
+        folder = os.path.expanduser(folder)
+        # Requests were checked, but never open a network path (see PathGuard).
+        if not is_network_path(folder):
+            folder = os.path.realpath(folder)
+        return os.path.normcase(folder)
 
     def _start(self, job: Job) -> bool:
         """Start a job's worker; False if it could not start (job failed)."""

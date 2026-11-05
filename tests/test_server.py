@@ -3,6 +3,7 @@
 import contextlib
 import http.client
 import json
+import ntpath
 import os
 import shutil
 import signal
@@ -28,7 +29,7 @@ from wgsextract_cli.core.config import get_config_path
 from wgsextract_cli.core.utils import WGSExtractError
 from wgsextract_cli.server.http_api import Server
 from wgsextract_cli.server.jobs import JobManager
-from wgsextract_cli.server.operations import PathGuard
+from wgsextract_cli.server.operations import PathGuard, RequestError
 
 CLI_ROOT = Path(__file__).resolve().parents[1]
 FAKE_DIR = CLI_ROOT / "out" / "fake_30x"
@@ -254,6 +255,9 @@ def test_info_query_waits_and_reports_failures_as_failed_jobs(client, work, fake
         ("info", {"input": "{work}/../outside/a.bam"}, 403, "path_not_allowed"),
         ("info", {"input": "{work}/escape/a.bam"}, 403, "path_not_allowed"),
         ("info", {"input": "a.bam"}, 400, "usage"),
+        # Security review of PR #422: Windows opens UNC paths over SMB.
+        ("info", {"input": "//attacker/share/a.bam"}, 403, "path_not_allowed"),
+        ("info", {"input": "\\\\attacker\\share\\a.bam"}, 403, "path_not_allowed"),
         ("info", {"input": "{work}/a.bam", "bogus": 1}, 400, "usage"),
         ("vcf/snp", {"input": "{work}/a.bam", "threads": "four"}, 400, "usage"),
         (
@@ -293,6 +297,85 @@ def test_requests_are_validated_and_confined_to_allowed_folders(
     got, response = client.request("POST", f"/ops/{op}", body)
     assert (got, response["error"]["code"]) == (status, code)
     assert client.request("GET", "/jobs")[1]["jobs"] == []
+
+
+class _RecordingFlavour:
+    """Windows path rules on any OS, recording what would touch the disk."""
+
+    def __init__(self) -> None:
+        self.opened: list[str] = []
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(ntpath, name)
+
+    def abspath(self, path: str) -> str:
+        assert ntpath.isabs(path), path  # else it would read the working folder
+        return ntpath.normpath(path)
+
+    def realpath(self, path: str) -> str:
+        self.opened.append(path)
+        return ntpath.normpath(path)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        r"\\attacker\share\a.bam",
+        "//attacker/share/a.bam",
+        r"\/attacker/share/a.bam",
+        r"\\?\UNC\attacker\share\a.bam",
+        r"\\?\C:\data\a.bam",
+        r"\\.\pipe\a.bam",
+        r"\??\UNC\attacker\share\a.bam",
+        r"C:\data\..\other\a.bam",
+    ],
+)
+def test_path_guard_refuses_network_paths_without_opening_them(path):
+    # Security review of PR #422: on Windows, checking `\\attacker\share\a.bam`
+    # resolved it first, which connects to the host and sends the user's NTLM
+    # credentials, before the 403.
+    flavour = _RecordingFlavour()
+    guard = PathGuard([r"C:\data"], pathmod=flavour)
+    assert flavour.opened == [r"C:\data"]
+    with pytest.raises(RequestError) as refused:
+        guard.check_path("input", path)
+    assert (refused.value.status, refused.value.code) == (403, "path_not_allowed")
+    assert flavour.opened == [r"C:\data"]
+    guard.check_path("input", "c:/DATA/sub/a.bam")
+    assert flavour.opened[-1] == "c:/DATA/sub/a.bam"
+
+
+def test_read_only_mcp_info_saves_nothing(tmp_path, fake_data):
+    # Security review of PR #422: read-only `info` created the folders named
+    # by outdir, and saved its metrics cache next to the input.
+    data = tmp_path / "data"
+    data.mkdir()
+    for name in ("fake.bam", "fake.bam.bai"):
+        shutil.copy2(FAKE_DIR / name, data / name)
+    before = {p: p.read_bytes() if p.is_file() else None for p in data.rglob("*")}
+
+    mcp = Mcp("--allow", str(data))
+    schema = next(
+        t["inputSchema"]
+        for t in mcp.request("tools/list", {})["result"]["tools"]
+        if t["name"] == "info"
+    )
+    assert not {"outdir", "detailed", "cache"} & set(schema["properties"])
+    bam = str(data / "fake.bam")
+    result = mcp.call("info", input=bam)
+    assert result["structuredContent"]["result"]["metrics"]["sorted"] is True
+    assert mcp.call("info", input=bam, cache=False)["isError"] is False
+    for refused in (
+        {"outdir": str(data / "a" / "b")},
+        {"detailed": True},
+        {"cache": True},
+    ):
+        result = mcp.call("info", input=bam, **refused)
+        assert result["structuredContent"]["error"]["code"] == "read_only", refused
+    assert mcp.close() == 0
+
+    after = {p: p.read_bytes() if p.is_file() else None for p in data.rglob("*")}
+    assert after == before
 
 
 SLOW_SAMTOOLS = """
@@ -486,7 +569,7 @@ def test_mcp_offers_read_only_queries_by_default(work, fake_data):
     assert tools["info"]["annotations"]["readOnlyHint"] is True
     assert tools["info"]["inputSchema"]["required"] == ["input"]
 
-    result = mcp.call("info", input=str(bam), outdir=str(work))
+    result = mcp.call("info", input=str(bam))
     assert result["isError"] is False
     job = result["structuredContent"]
     assert job["status"] == "succeeded" and job["result"]["metrics"]["sorted"]
@@ -500,7 +583,7 @@ def test_mcp_offers_read_only_queries_by_default(work, fake_data):
     # PR #422 review: info's table_format saves files, yet read-only MCP
     # offered it; malformed params killed the call or the server.
     assert "table_format" not in tools["info"]["inputSchema"]["properties"]
-    result = mcp.call("info", input=str(bam), outdir=str(work), table_format="tsv")
+    result = mcp.call("info", input=str(bam), table_format="tsv")
     assert result["structuredContent"]["error"]["code"] == "read_only"
     assert not list(work.glob("*.tsv"))
     assert mcp.request("tools/call", [])["error"]["code"] == -32602

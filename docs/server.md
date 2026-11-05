@@ -37,8 +37,12 @@ you start yourself:
   and requests whose `Origin` is a different site, are refused. This stops a web page
   in your browser from reaching the server through DNS rebinding or
   cross-site requests.
-- **Paths are guarded.** Every path parameter must be absolute. After
-  symlinks and `..` are resolved, it must lie inside an allowed folder. The
+- **Paths are guarded.** Every path parameter must be absolute. Network and
+  device paths (`\\host\share`, `//host/share`, `\\?\…`, `\\.\…`) are
+  refused on every system before anything is opened, since Windows sends your
+  sign-in credentials to any host whose share it opens. A path must lie
+  inside an allowed folder as written (with `..` removed); only then are its
+  symlinks resolved, and the result must lie inside one too. The
   allowed folders are those given with `--allow`, the `server_allowed_paths`
   setting, and the `genome_library`, `reference_library` and
   `output_directory` settings. Of the settings, only the folders that exist
@@ -53,8 +57,11 @@ you start yourself:
 - Request bodies are limited to 1 MB and must be `application/json`. Unknown
   parameters are rejected rather than ignored.
 - Over MCP, only read-only queries are offered unless you pass
-  `--allow-jobs`, and without it their parameters that save files, such as
-  `table_format`, are refused.
+  `--allow-jobs`. Without it, they save nothing: parameters that would save
+  files (`outdir`, `table_format`, and `info`'s `detailed`, which saves the
+  coverage table) are left out of the tool schemas and refused with
+  `read_only`, and `info` runs with `cache: false`, so it reads an existing
+  `<input>.wgse_info.json` but doesn't write one.
 - Job records and logs (`<state>/server/jobs/`) are readable by you only.
 
 ## HTTP API

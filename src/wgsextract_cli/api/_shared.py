@@ -45,6 +45,7 @@ def outdir_param(default_text: str = "the input's folder") -> Any:
         path="directory",
         shared=True,
         config_key="output_directory",
+        writes=True,
     )
 
 

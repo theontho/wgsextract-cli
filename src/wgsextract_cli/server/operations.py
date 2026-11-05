@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import functools
 import inspect
+import ntpath
 import os
 import typing
 from collections.abc import Callable, Iterable, Mapping
@@ -15,7 +16,13 @@ from types import ModuleType
 from typing import Any, Literal
 
 from wgsextract_cli import api
-from wgsextract_cli.api._params import ParamField, Params, json_schema, param_fields
+from wgsextract_cli.api._params import (
+    UNSET,
+    ParamField,
+    Params,
+    json_schema,
+    param_fields,
+)
 from wgsextract_cli.core.results import CommandResult
 from wgsextract_cli.core.utils import UsageError
 
@@ -82,6 +89,14 @@ class Operation:
         }
         schema["required"] = [k for k in schema["required"] if k in allowed]
         return schema
+
+    def read_only_values(self) -> dict[str, Any]:
+        """What a read-only server sets, so the operation saves nothing."""
+        return {
+            f.name: f.safe_value
+            for f in param_fields(self.params)
+            if f.spec.safe_value is not UNSET
+        }
 
     def describe(self) -> dict[str, Any]:
         return {"op": self.name, "kind": self.kind, "summary": self.summary}
@@ -159,7 +174,12 @@ def params_from_json(op: Operation, data: object, *, read_only: bool = False) ->
                 f"{key!r} can't be set by a server request; set it in config.toml "
                 "or on the command line.",
             )
-        if read_only and item.spec.writes and value is not None:
+        if (
+            read_only
+            and item.spec.writes
+            and value is not None
+            and value != item.safe_value
+        ):
             raise RequestError(
                 403,
                 "read_only",
@@ -206,34 +226,72 @@ def _type_error(item: ParamField, expected: str) -> RequestError:
     return RequestError(400, "usage", f"{item.name!r} must be {expected}.")
 
 
-def _real(path: Path) -> Path:
-    return Path(os.path.realpath(path))
+def is_network_path(text: str) -> bool:
+    """Whether Windows would reach ``text`` over the network or as a device:
+    a UNC (``\\\\host\\share``), ``\\\\?\\`` or ``\\\\.\\`` path, with either slash.
+    Opening one sends this user's NTLM credentials to the host, so it is
+    refused on every OS before anything touches the filesystem."""
+    head = text[:4].replace("/", "\\")
+    return (
+        head.startswith("\\\\")
+        or head == "\\??\\"
+        or ntpath.splitdrive(text)[0].startswith("\\\\")
+    )
 
 
 class PathGuard:
-    """The folders requests may name. A path is allowed when, with symbolic
-    links resolved, it is one of them or inside one."""
+    """The folders requests may name. A path is allowed when it is one of them
+    or inside one, both as written and with symbolic links resolved.
 
-    def __init__(self, roots: Iterable[str | os.PathLike[str]]) -> None:
-        unique: dict[Path, None] = {}
+    ``pathmod`` is the path flavour (``os.path``); everything before the
+    final ``realpath`` is lexical, so a refused path is never opened.
+    """
+
+    def __init__(
+        self, roots: Iterable[str | os.PathLike[str]], *, pathmod: Any = os.path
+    ) -> None:
+        self.pathmod = pathmod
+        unique: dict[str, None] = {}
+        lexical: dict[str, None] = {}
         for root in roots:
-            unique[_real(Path(root).expanduser())] = None
-        self.roots = tuple(unique)
+            text = pathmod.expanduser(os.fspath(root))
+            unique[pathmod.realpath(text)] = None
+            lexical[self._lexical(text)] = None
+        self.roots = tuple(Path(r) for r in unique)
+        self._real_roots = tuple(unique)
+        # A root named through a symbolic link is allowed as written, too.
+        self._lexical_roots = tuple({**lexical, **unique})
 
-    def check_path(self, name: str, value: Path) -> None:
-        path = value.expanduser()
-        if not path.is_absolute():
+    def _lexical(self, text: str) -> str:
+        return str(self.pathmod.normpath(self.pathmod.abspath(text)))
+
+    def _inside(self, path: str, roots: tuple[str, ...]) -> bool:
+        case, sep = self.pathmod.normcase, self.pathmod.sep
+        path = case(path)
+        for root in map(case, roots):
+            if path == root or path.startswith(root.rstrip(sep) + sep):
+                return True
+        return False
+
+    def check_path(self, name: str, value: str | os.PathLike[str]) -> None:
+        text = os.fspath(value)
+        refused = RequestError(
+            403,
+            "path_not_allowed",
+            f"{name!r}: {text} is outside the folders this server may use "
+            "(serve --allow DIR, or config server_allowed_paths).",
+        )
+        text = self.pathmod.expanduser(text)
+        if is_network_path(os.fspath(value)) or is_network_path(text):
+            raise refused
+        if not self.pathmod.isabs(text):
             raise RequestError(
-                400, "usage", f"{name!r} must be an absolute path, not {str(value)!r}."
+                400, "usage", f"{name!r} must be an absolute path, not {text!r}."
             )
-        real = _real(path)
-        if not any(real == root or real.is_relative_to(root) for root in self.roots):
-            raise RequestError(
-                403,
-                "path_not_allowed",
-                f"{name!r}: {path} is outside the folders this server may use "
-                "(serve --allow DIR, or config server_allowed_paths).",
-            )
+        if not self._inside(self._lexical(text), self._lexical_roots):
+            raise refused
+        if not self._inside(self.pathmod.realpath(text), self._real_roots):
+            raise refused
 
     def check(self, params: Params) -> None:
         for item in param_fields(type(params)):

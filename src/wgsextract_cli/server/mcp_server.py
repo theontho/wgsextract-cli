@@ -323,6 +323,8 @@ class McpServer:
         if op is not None and self._offered(op):
             params = params_from_json(op, arguments, read_only=not self.allow_jobs)
             self.guard.check(params)
+            if not self.allow_jobs:
+                arguments = {**arguments, **op.read_only_values()}
             job = self.manager.submit(op, arguments)
             if op.kind != "query":
                 return job.view(), False

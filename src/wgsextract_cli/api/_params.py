@@ -20,6 +20,8 @@ PathKind = Literal["file", "directory", "file_or_directory"]
 Action = Literal["store", "store_true", "append", "boolean_optional"]
 
 _SPEC = "wgsextract_param"
+# ParamSpec.safe_value not given: the field's default saves nothing.
+UNSET: Any = object()
 
 P = TypeVar("P", bound="Params")
 
@@ -36,8 +38,9 @@ class ParamSpec:
     set only on the command line, in config.toml or by a Python caller, never
     by a server request: their value names a program to run, or a file the
     server's path checks can't see. ``writes`` fields make a command that
-    otherwise only reads save files when set, so a read-only server leaves
-    them out.
+    otherwise only reads save files, unless they hold their ``safe_value``
+    (default: the field's default); a read-only server leaves them out and
+    uses that value.
     """
 
     help: str | None = None
@@ -55,6 +58,7 @@ class ParamSpec:
     doc: str | None = None
     local_only: bool = False
     writes: bool = False
+    safe_value: Any = UNSET
 
     @property
     def description(self) -> str:
@@ -80,6 +84,7 @@ def param(
     doc: str | None = None,
     local_only: bool = False,
     writes: bool = False,
+    safe_value: Any = UNSET,
 ) -> Any:
     """Declare a Params field; omit ``default`` for a required one.
 
@@ -101,7 +106,8 @@ def param(
         required_message=required_message,
         doc=doc,
         local_only=local_only,
-        writes=writes,
+        writes=writes or safe_value is not UNSET,
+        safe_value=safe_value,
     )
     return dataclasses.field(default=default, metadata={_SPEC: spec})
 
@@ -119,6 +125,11 @@ class ParamField:
     @property
     def dest(self) -> str:
         return self.spec.dest or self.name
+
+    @property
+    def safe_value(self) -> Any:
+        """For a ``writes`` field, the value that saves nothing."""
+        return self.default if self.spec.safe_value is UNSET else self.spec.safe_value
 
     @property
     def flags(self) -> tuple[str, ...]:

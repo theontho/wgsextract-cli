@@ -38,8 +38,19 @@ class InfoParams(Params):
     input: Path = input_param(_ALIGNMENT, "--input required.")
     ref: Path | None = ref_param()
     outdir: Path | None = outdir_param()
-    detailed: bool = param(False, help=CLI_HELP["arg_detailed"], action="store_true")
+    # Detailed metrics save the samtools coverage table.
+    detailed: bool = param(
+        False, help=CLI_HELP["arg_detailed"], action="store_true", writes=True
+    )
     table_format: str | None = table_format_param(_TABLES)
+    cache: bool = param(
+        True,
+        help="Save the metrics as <input>.wgse_info.json for later runs (default: on)",
+        doc="Save the metrics as ``<input>.wgse_info.json`` for later runs; an "
+        "existing cache is read either way.",
+        action="boolean_optional",
+        safe_value=False,
+    )
 
 
 @dataclass(frozen=True, kw_only=True)

@@ -557,6 +557,8 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
         not isinstance(params, InfoParams) or params.detailed or bool(table_format)
     )
     bins = isinstance(params, CalculateCoverageParams) and params.bins
+    # Only `info` can be told not to save its cache (as a read-only server does).
+    cache = not isinstance(params, InfoParams) or params.cache
 
     # If it's a CRAM and we have a ref, resolve it early so samtools can read the header
     initial_ref = None
@@ -613,7 +615,7 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
         raise UsageError("--ref required for detailed mode with CRAM.")
 
     outdir = outdir_arg or str(absolute_path(input_file).parent)
-    if outdir_arg:
+    if outdir_arg and (cache or detailed):
         Path(outdir).mkdir(parents=True, exist_ok=True)
     logging.debug(f"Output directory: {str(absolute_path(outdir))}")
 
@@ -643,7 +645,8 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
             resolved_ref if resolved_ref and Path(resolved_ref).is_file() else None
         )
         data["alignment_health"] = alignment_health(input_file, cram_ref)
-        _save_cache(json_cache, data)
+        if cache:
+            _save_cache(json_cache, data)
 
     if info_cmd is None:
         if not detailed and data.get("avg_read_len"):
@@ -670,7 +673,8 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
 
     if not detailed:
         _print_fast(data, (input_file, header))
-        _save_cache(json_cache, data)
+        if cache:
+            _save_cache(json_cache, data)
         logging.debug(f"Total info time: {time.time() - start_time:.3f}s")
         return
 
@@ -697,7 +701,7 @@ def run_info(params: InfoLikeParams, *, as_csv: bool = False) -> None:
         _export_tables(data, table_stem, table_format, metadata)
     # A region-limited coverage table describes only part of the file, so it
     # must not replace the whole-file cache.
-    if not region and _save_cache(json_cache, data):
+    if cache and not region and _save_cache(json_cache, data):
         logging.info(LOG_MESSAGES["info_metrics_cached"].format(path=json_cache))
     logging.debug(f"Total info time: {time.time() - start_time:.3f}s")
 

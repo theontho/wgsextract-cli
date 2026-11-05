@@ -1,7 +1,7 @@
 {
  "commands": {
   "info": {
-   "help": "usage: wgsextract info [-h] [--detailed] [--format {tsv,parquet}] [--csv] <command> ...\n\npositional arguments:\n  <command>\n    calculate-coverage  Generate a full breadth-of-coverage report. Uses samtools coverage to\n                        calculate exactly how much of each chromosome was sequenced.\n    coverage-sample     Quickly estimate per-chromosome breadth of coverage by sampling ~1,000\n                        evenly spaced, length-weighted 1 kb windows. An estimate; use calculate-\n                        coverage for exact numbers.\n    chip                Identify the vendor, chip and revision of a consumer microarray raw-data\n                        file (23andMe, AncestryDNA, MyHeritage, FTDNA, ...) from its header and\n                        marker set, with a confidence score and the matching --formats template.\n\noptions:\n  -h, --help            show this help message and exit\n  --detailed            Perform full index and body sample analysis (detailed mode)\n  --format {tsv,parquet}\n                        Also save the per-chromosome table and the QC stats as <input>_chromosomes\n                        and <input>_qc .tsv or .parquet (needs pyarrow); implies --detailed\n  --csv                 Output the table as CSV instead of formatted text\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract info --input sample.cram\n  wgsextract info --input sample.cram --detailed\n  wgsextract info --input sample.cram --format parquet\n\noutputs (in the output directory unless noted):\n  Prints a summary and caches it as <input file name>.wgse_info.json; with\n  --format also <input file name>_chromosomes and _qc (QC stats) as .tsv or\n  .parquet.\n\nneeds:\n  samtools; depending on options and inputs, also: bcftools; seconds on a 30x\n  genome.\n",
+   "help": "usage: wgsextract info [-h] [--detailed] [--format {tsv,parquet}] [--cache | --no-cache] [--csv]\n                       <command> ...\n\npositional arguments:\n  <command>\n    calculate-coverage  Generate a full breadth-of-coverage report. Uses samtools coverage to\n                        calculate exactly how much of each chromosome was sequenced.\n    coverage-sample     Quickly estimate per-chromosome breadth of coverage by sampling ~1,000\n                        evenly spaced, length-weighted 1 kb windows. An estimate; use calculate-\n                        coverage for exact numbers.\n    chip                Identify the vendor, chip and revision of a consumer microarray raw-data\n                        file (23andMe, AncestryDNA, MyHeritage, FTDNA, ...) from its header and\n                        marker set, with a confidence score and the matching --formats template.\n\noptions:\n  -h, --help            show this help message and exit\n  --detailed            Perform full index and body sample analysis (detailed mode)\n  --format {tsv,parquet}\n                        Also save the per-chromosome table and the QC stats as <input>_chromosomes\n                        and <input>_qc .tsv or .parquet (needs pyarrow); implies --detailed\n  --cache, --no-cache   Save the metrics as <input>.wgse_info.json for later runs (default: on)\n  --csv                 Output the table as CSV instead of formatted text\n\nglobal options:\n  -i/--input, -o/--outdir, --genome, --ref, -t/--threads, -m/--memory, --json, --quiet, --debug,\n  --config and the other global options are accepted before or after the command; 'wgsextract\n  --help' lists them all.\n\nexamples:\n  wgsextract info --input sample.cram\n  wgsextract info --input sample.cram --detailed\n  wgsextract info --input sample.cram --format parquet\n\noutputs (in the output directory unless noted):\n  Prints a summary and caches it as <input file name>.wgse_info.json; with\n  --format also <input file name>_chromosomes and _qc (QC stats) as .tsv or\n  .parquet.\n\nneeds:\n  samtools; depending on options and inputs, also: bcftools; seconds on a 30x\n  genome.\n",
    "parser": {
     "actions": [
      {
@@ -317,6 +317,23 @@
       ],
       "required": false,
       "type": "table_format_type.<locals>.table_format"
+     },
+     {
+      "choices": null,
+      "class": "BooleanOptionalAction",
+      "const": null,
+      "default": true,
+      "dest": "cache",
+      "exclusive_group": null,
+      "help": "Save the metrics as <input>.wgse_info.json for later runs (default: on)",
+      "metavar": null,
+      "nargs": 0,
+      "option_strings": [
+       "--cache",
+       "--no-cache"
+      ],
+      "required": false,
+      "type": null
      },
      {
       "choices": null,
@@ -4483,6 +4500,7 @@
    ],
    "atomic_output": false,
    "bins": true,
+   "cache": true,
    "command": "info",
    "csv": false,
    "debug": false,
@@ -4512,6 +4530,7 @@
     "input"
    ],
    "atomic_output": false,
+   "cache": true,
    "command": "info",
    "csv": false,
    "debug": false,
@@ -4543,6 +4562,7 @@
     "ref"
    ],
    "atomic_output": false,
+   "cache": true,
    "command": "info",
    "csv": true,
    "debug": false,
@@ -4574,6 +4594,7 @@
     "outdir"
    ],
    "atomic_output": false,
+   "cache": true,
    "command": "info",
    "csv": false,
    "debug": true,
@@ -4603,6 +4624,7 @@
     "list"
    ],
    "atomic_output": false,
+   "cache": true,
    "command": "info",
    "csv": false,
    "debug": false,
@@ -4633,6 +4655,7 @@
     "region"
    ],
    "atomic_output": false,
+   "cache": true,
    "command": "info",
    "csv": false,
    "debug": false,

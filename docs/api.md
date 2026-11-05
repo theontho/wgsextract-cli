@@ -95,6 +95,7 @@ BAM/CRAM. Metrics are cached next to the outputs as
 | `outdir` | `Path \| None` | `None` (config `output_directory`) | `--outdir`, `-o` | Folder for the outputs (default: config output_directory, else the input's folder). |
 | `detailed` | `bool` | `False` | `--detailed` | Perform full index and body sample analysis (detailed mode) |
 | `table_format` | `str \| None` | `None` | `--format` | Also save the per-chromosome table and the QC stats as <input>_chromosomes and <input>_qc .tsv or .parquet (needs pyarrow); implies --detailed. None saves no table. One of: `tsv`, `parquet` |
+| `cache` | `bool` | `True` | `--cache` | Save the metrics as ``<input>.wgse_info.json`` for later runs; an existing cache is read either way. |
 
 ### `api.info.calculate_coverage(CalculateCoverageParams)`
 
