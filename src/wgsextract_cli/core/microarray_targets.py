@@ -164,10 +164,14 @@ def _lift_to_hg38(
 
 
 def build_genome_wide_target(
-    reflib_dir: str, build: str, template_roots: Sequence[str | None]
+    reflib_dir: str,
+    build: str,
+    template_roots: Sequence[str | None],
+    chain_roots: Sequence[str] = (),
 ) -> str:
     """Write and index microarray/All_SNPs_<build>_ref.tab.gz unless it's
-    current; return its path.
+    current; return its path. Liftover chains are looked for in chain_roots,
+    then in reflib_dir, where a missing one is downloaded.
 
     Runs that start together on one library take turns (a lock file), and a run
     that finds the target already built by another uses it."""
@@ -185,7 +189,9 @@ def build_genome_wide_target(
         if _is_current(out):
             return out
         chain36 = (
-            ncbi36_chain(reflib_dir) if needs_ncbi36_chain(template_roots) else None
+            ncbi36_chain(reflib_dir, chain_roots)
+            if needs_ncbi36_chain(template_roots)
+            else None
         )
         markers = collect_template_markers(template_roots, chain36)
         if not markers:
@@ -206,19 +212,30 @@ def build_genome_wide_target(
         if target_build == "hg38":
             markers = _lift_to_hg38(
                 markers,
-                _chain(reflib_dir, "hg19ToHg38.over.chain.gz", HG19_TO_HG38_CHAIN_URL),
+                _chain(
+                    reflib_dir,
+                    "hg19ToHg38.over.chain.gz",
+                    HG19_TO_HG38_CHAIN_URL,
+                    chain_roots,
+                ),
             )
         _write_target(markers, out)
     logging.info(f"Saved the {target_build} microarray target: {out}")
     return out
 
 
-def ncbi36_chain(reflib_dir: str) -> str:
-    """The library's hg18ToHg19 chain, downloaded when it's missing."""
-    return _chain(reflib_dir, "hg18ToHg19.over.chain.gz", HG18_TO_HG19_CHAIN_URL)
+def ncbi36_chain(reflib_dir: str, search: Sequence[str] = ()) -> str:
+    """The hg18ToHg19 chain from search or the library, downloaded into the
+    library when it's missing."""
+    return _chain(
+        reflib_dir, "hg18ToHg19.over.chain.gz", HG18_TO_HG19_CHAIN_URL, search
+    )
 
 
-def _chain(reflib_dir: str, name: str, url: str) -> str:
+def _chain(reflib_dir: str, name: str, url: str, search: Sequence[str] = ()) -> str:
+    found = next((c for d in search if Path(c := str(Path(d, name))).is_file()), None)
+    if found:
+        return found
     chain = str(Path(reflib_dir, name))
     if not Path(chain).is_file() and not download_file(url, chain):
         raise WGSExtractError(

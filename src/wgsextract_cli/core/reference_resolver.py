@@ -2,6 +2,7 @@ import functools
 import logging
 import os
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 from wgsextract_cli.core import sample_workspace
@@ -51,6 +52,10 @@ def _warn_missing_configured_library(path: str) -> None:
 class ReferenceLibrary:
     """Helper to manage and resolve reference genome paths."""
 
+    # The folder of an explicit FASTA kept outside any library: its resources
+    # are searched before the configured library's (#429).
+    beside_fasta: str | None = None
+
     def __init__(
         self,
         root_path: PathInput | None,
@@ -95,11 +100,20 @@ class ReferenceLibrary:
 
         if Path(self.root).is_file() and is_fasta_path(self.root):
             self.fasta = self.root
-            self.root = str(Path(self.root).parent)
+            fasta_dir = Path(self.root).parent
+            self.root = str(fasta_dir)
             # A FASTA in <library>/genomes/ belongs to that library, whose root
             # holds the ploidy files, liftover chains and annotation data.
-            if Path(self.root).name == "genomes":
-                self.root = str(Path(self.root).parent)
+            if fasta_dir.name == "genomes":
+                self.root = str(fasta_dir.parent)
+            else:
+                # A FASTA kept outside any library chooses only the sequence.
+                configured = settings.get("reference_library")
+                if isinstance(configured, str) and configured:
+                    library = expand_path(configured)
+                    if Path(library).is_dir() and library != self.root:
+                        self.beside_fasta = self.root
+                        self.root = library
 
         explicit_fasta = bool(self.fasta)
         signature_match = False
@@ -249,7 +263,7 @@ class ReferenceLibrary:
         assert self.root is not None
         return (
             build
-            or build_from_path(self.root)
+            or build_from_path(self.resource_roots[0])
             or (build_from_path(self.input_path) if self.input_path else None)
             or build_hint(self.input_path, root_path)
             or None
@@ -297,10 +311,8 @@ class ReferenceLibrary:
     def _resolve_build_support_files(self) -> None:
         if not self.build:
             return
-        assert self.root is not None
-        root = self.root
         self.ploidy_file = self._first_existing_file(
-            [root, str(Path(root, "ref")), str(Path(root, "microarray"))],
+            self._resource_dirs("", "ref", "microarray"),
             [f"ploidy_{self.build}.txt", "ploidy.txt"],
         )
 
@@ -312,6 +324,7 @@ class ReferenceLibrary:
         ):
             self.vep_cache = configured_vep_cache
             return
+        # `vep download` writes into the library, so only its cache is used.
         assert self.root is not None
         for search_dir in [self.root, str(Path(self.root, "vep"))]:
             if Path(search_dir).is_dir() and any(
@@ -331,13 +344,7 @@ class ReferenceLibrary:
         so every kit made from it was empty. Without a genome-wide target,
         microarray builds one from the chip templates.
         """
-        assert self.root is not None
-        root = self.root
-        search_dirs = [
-            str(Path(root, "microarray")),
-            root,
-            str(Path(root, "ref")),
-        ]
+        subdirs = ["microarray", "", "ref"]
         tab_names: list[str] = []
         if self.build:
             build = self.build.lower()
@@ -348,37 +355,37 @@ class ReferenceLibrary:
             tab_names = list(
                 dict.fromkeys(f"All_SNPs_{name}_ref.tab.gz" for name in spellings)
             )
-            search_dirs += [
-                str(Path(root, "microarray", self.build)),
-                str(Path(root, self.build)),
-                str(Path(root, "ref", self.build)),
+            subdirs += [
+                str(Path("microarray", self.build)),
+                self.build,
+                str(Path("ref", self.build)),
             ]
             if alt_build:
-                search_dirs += [
-                    str(Path(root, alt_build)),
-                    str(Path(root, "ref", alt_build)),
-                ]
+                subdirs += [alt_build, str(Path("ref", alt_build))]
         generic_names = ["All_SNPs.vcf.gz", "common_all.vcf.gz"]
-        walk_roots = [
-            str(Path(root, "microarray")),
-            str(Path(root, "ref")),
-            str(Path(root, "genomes", "microarray")),
-        ]
+        walk_subdirs = ["microarray", "ref", str(Path("genomes", "microarray"))]
 
-        self.ref_vcf_tab = (
-            self._first_existing_file(search_dirs, tab_names)
-            or self._walk_for_file(walk_roots, tab_names)
-            or resolve_input_target_tab(self.input_path)
-            or self._first_existing_file(search_dirs, generic_names)
-            or find_reference_target_tab(root, self.build or "")
-            or self._walk_for_file(walk_roots, generic_names)
+        def search(root: str) -> Iterator[str | None]:
+            dirs = [str(Path(root, d)) for d in subdirs]
+            walk = [str(Path(root, d)) for d in walk_subdirs]
+            yield self._first_existing_file(dirs, tab_names)
+            yield self._walk_for_file(walk, tab_names)
+            if root == self.resource_roots[0]:
+                yield resolve_input_target_tab(self.input_path)
+            yield self._first_existing_file(dirs, generic_names)
+            yield find_reference_target_tab(root, self.build or "")
+            yield self._walk_for_file(walk, generic_names)
+
+        # Every candidate in the FASTA's folder comes before the library's.
+        self.ref_vcf_tab = next(
+            (found for root in self.resource_roots for found in search(root) if found),
+            resolve_input_target_tab(self.input_path) or None,
         )
 
     def _resolve_annotation_files(self) -> None:
         from wgsextract_cli.core.config import settings
 
-        assert self.root is not None
-        dirs = [self.root, str(Path(self.root, "ref"))]
+        dirs = self._resource_dirs("", "ref")
         vcf_exts = [".vcf.gz", ".vcf.bgz"]
         tsv_exts = [".tsv.gz", ".vcf.gz"]
         self.clinvar_vcf = self._resolve_annotation_file(
@@ -434,9 +441,34 @@ class ReferenceLibrary:
 
         if self.build and is_hg38_build(self.build):
             self.liftover_chain = self._first_existing_file(
-                [*dirs, str(Path(self.root, "microarray"))],
+                self._resource_dirs("", "ref", "microarray"),
                 ["hg38ToHg19.over.chain.gz"],
             )
+
+    @property
+    def resource_roots(self) -> list[str]:
+        """Folders searched for library resources, in order."""
+        return [d for d in (self.beside_fasta, self.root) if d]
+
+    def resource_root(self, *relpaths: str) -> str | None:
+        """The first resource root holding one of relpaths, else the library
+        root, where missing resources are downloaded or built."""
+        return next(
+            (
+                root
+                for root in self.resource_roots
+                if any(Path(root, p).exists() for p in relpaths)
+            ),
+            self.root,
+        )
+
+    def _resource_dirs(self, *subdirs: str) -> list[str]:
+        """Each resource root's subdirectories, root by root."""
+        return [str(Path(root, d)) for root in self.resource_roots for d in subdirs]
+
+    def searched_description(self) -> str:
+        """The resource roots, for errors about a missing library file."""
+        return ", ".join(self.resource_roots) or "no reference library configured"
 
     @staticmethod
     def _first_existing_file(search_dirs: list[str], names: list[str]) -> str | None:

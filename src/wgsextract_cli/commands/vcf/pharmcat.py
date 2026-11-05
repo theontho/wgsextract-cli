@@ -53,7 +53,7 @@ def pharmcat_directory(args: argparse.Namespace, lib: ReferenceLibrary) -> str:
     """The extracted PharmCAT pipeline: --pharmcat-dir, pharmcat_directory, or
     <reference library>/pharmcat."""
     directory = args.pharmcat_dir or (
-        str(Path(lib.root, "pharmcat")) if lib.root else None
+        str(Path(root, "pharmcat")) if (root := lib.resource_root("pharmcat")) else None
     )
     missing = [
         name
