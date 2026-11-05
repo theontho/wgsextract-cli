@@ -97,4 +97,6 @@ never become the latest release:
 - **macOS aligners** (`macos-aligners-N`): Actions > macOS Aligners > Run
   workflow. It publishes the Apple Silicon `wgse-bwa` and `wgse-bwa-mem2`
   tarballs built from `native/` (see [native/README.md](../native/README.md)).
-  The CLI does not use them yet.
+  The CLI does not use them yet. Each package carries its own version, printed
+  by `--version`: bump `WGSE_BWA_VERSION` in `native/bwa/CMakeLists.txt` or the
+  project version in `native/CMakeLists.txt` (`wgse-bwa-mem2`) when it changes.
