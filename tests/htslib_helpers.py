@@ -1,5 +1,7 @@
 """Skip markers and tiny indexed files for tests that run samtools/bcftools/htslib."""
 
+import random
+from argparse import Namespace
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
@@ -44,6 +46,37 @@ def sam_to_bam(lines: Iterable[str], bam_path: Path) -> str:
     run_command([samtools, "sort", "-o", str(bam_path), str(sam)])
     run_command([samtools, "index", str(bam_path)])
     return str(bam_path)
+
+
+def snp_sample(
+    work: Path,
+    read_group: str = "@RG\tID:rg\tSM:S",
+    snps: Iterable[int] = (1000, 1550),
+    tags: str = "",
+) -> Namespace:
+    """A 3 kb chr1 and a sample homozygous for SNPs at 1-based ``snps``, as a
+    BAM and a CRAM with 20x single-end coverage over 500-2500 in the read group
+    ``read_group`` (ID rg), each read with the extra SAM ``tags``. ``calls``
+    are their (CHROM, POS, REF, ALT, GT)."""
+    rng = random.Random(7)
+    ref = "".join(rng.choice("ACGT") for _ in range(3000))
+    sample, calls = list(ref), []
+    for pos in snps:
+        sample[pos - 1] = {"A": "C", "C": "G", "G": "T", "T": "A"}[ref[pos - 1]]
+        calls.append(("chr1", str(pos), ref[pos - 1], sample[pos - 1], "1/1"))
+    fasta = write_fasta(work / "ref.fa", {"chr1": ref})
+    lines = ["@HD\tVN:1.6\tSO:unsorted", "@SQ\tSN:chr1\tLN:3000", read_group]
+    for i, start in enumerate(range(500, 2400, 5)):
+        lines.append(
+            f"r{i}\t{16 if i % 2 else 0}\tchr1\t{start}\t60\t100M\t*\t0\t0\t"
+            f"{''.join(sample[start - 1 : start + 99])}\t{'I' * 100}\tRG:Z:rg{tags}"
+        )
+    bam = sam_to_bam(lines, work / "s.bam")
+    cram = str(work / "s.cram")
+    samtools = get_tool_path("samtools")
+    run_command([samtools, "view", "-C", "-T", str(fasta), "-o", cram, bam])
+    run_command([samtools, "index", cram])
+    return Namespace(ref=str(fasta), bam=bam, cram=cram, calls=calls)
 
 
 def vcf_calls(vcf: str | Path, region: str | None = None) -> list[tuple[str, ...]]:

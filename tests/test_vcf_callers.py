@@ -1,9 +1,9 @@
 """`vcf freebayes` and `vcf gatk` (CPU HaplotypeCaller) on a tiny genome."""
 
+import ctypes
 import json
 import os
 import platform
-import random
 import shutil
 import sys
 import tempfile
@@ -17,7 +17,7 @@ from tests.htslib_helpers import (
     needs_tools,
     require_runnable,
     run_wgsextract,
-    sam_to_bam,
+    snp_sample,
     vcf_calls,
     write_fasta,
 )
@@ -33,34 +33,11 @@ SNP2 = 1550  # and of a second one, so two regions each hold a call
 
 @pytest.fixture(scope="module")
 def genome(tmp_path_factory) -> Namespace:
-    """A 3 kb chr1, and a sample homozygous for SNPs at SNP and SNP2, as a BAM
-    and a CRAM with 20x single-end coverage over 500-2500."""
+    """A sample homozygous for SNPs at SNP and SNP2, as a BAM and a CRAM."""
     require_runnable("samtools")
-    work = tmp_path_factory.mktemp("callers")
-    rng = random.Random(7)
-    ref = "".join(rng.choice("ACGT") for _ in range(3000))
-    sample, calls = list(ref), []
-    for pos in (SNP, SNP2):
-        sample[pos - 1] = {"A": "C", "C": "G", "G": "T", "T": "A"}[ref[pos - 1]]
-        calls.append(("chr1", str(pos), ref[pos - 1], sample[pos - 1], "1/1"))
-    fasta = write_fasta(work / "ref.fa", {"chr1": ref})
-    lines = ["@HD\tVN:1.6\tSO:unsorted", "@SQ\tSN:chr1\tLN:3000", "@RG\tID:rg\tSM:S"]
-    for i, start in enumerate(range(500, 2400, 5)):
-        lines.append(
-            f"r{i}\t{16 if i % 2 else 0}\tchr1\t{start}\t60\t100M\t*\t0\t0\t"
-            f"{''.join(sample[start - 1 : start + 99])}\t{'I' * 100}\tRG:Z:rg"
-        )
-    bam = sam_to_bam(lines, work / "s.bam")
-    cram = str(work / "s.cram")
-    run_command(["samtools", "view", "-C", "-T", str(fasta), "-o", cram, bam])
-    run_command(["samtools", "index", cram])
-    return Namespace(
-        ref=str(fasta),
-        bam=bam,
-        cram=cram,
-        call=calls[0],
-        calls=calls,
-    )
+    sample = snp_sample(tmp_path_factory.mktemp("callers"), snps=(SNP, SNP2))
+    sample.call = sample.calls[0]
+    return sample
 
 
 def _call(caller: str, genome: Namespace, input_path: str, outdir: Path, *extra: str):
@@ -226,6 +203,18 @@ def test_gatk_cuts_a_regional_cram_to_a_bam_it_can_read(genome, gatk, tmp_path, 
     assert list((tmp_path / "systemp").iterdir()) == []
 
 
+def test_gatk_reads_a_whole_cram_without_converting_it(genome, gatk, tmp_path, capsys):
+    """Without a region there's no cut to a BAM; a GATK that reads CRAM gets it."""
+    ref = _reference_copy(genome, tmp_path / "ref")
+    outdir = tmp_path / "out"
+    result, _ = _gatk(capsys, genome, genome.cram, ref, outdir, tmp_path / "scratch")
+
+    assert result["status"] == "ok", result["error"]
+    assert vcf_calls(outdir / "gatk.vcf.gz") == genome.calls
+    # contract: the whole CRAM is read in place, not copied to a BAM first.
+    assert [run[run.index("-I") + 1] for run in gatk.runs()] == [genome.cram]
+
+
 @pytest.mark.parametrize("stage", ["gatk", "conversion"])
 def test_gatk_failure_on_a_cram_hints_at_cram_versions_and_cleans_up(
     genome, gatk, tmp_path, capsys, stage
@@ -273,17 +262,34 @@ def test_gatk_on_windows_gets_native_paths_and_a_numeric_warning(
     genome, gatk, tmp_path, monkeypatch, capsys, platform
 ):
     """Windows GATK reads only native paths (a bare R:/x is a URI to Java), here
-    with spaces and a bgzipped reference; its native kernels can change numbers."""
+    with spaces and a bgzipped reference; its native kernels can change numbers.
+    GATK can't start from a temp dir with a space, which every Windows user with
+    a space in their name has, so it gets the dir's 8.3 short path there."""
     monkeypatch.setattr(paths, "sys", Namespace(platform=platform))
     monkeypatch.setattr(callers, "sys", Namespace(platform=platform))
     gatk.set(windows=platform == "win32")
+    scratch = tmp_path / "scratch"
+    if platform == "win32":
+        scratch = tmp_path / "Scratch space"
+        (tmp_path / "SCRATC~1").symlink_to(scratch, target_is_directory=True)
+
+        def short_path(path, buffer, size):
+            buffer.value = path.replace("Scratch space", "SCRATC~1")
+            return len(buffer.value)
+
+        kernel32 = Namespace(GetShortPathNameW=short_path)
+        monkeypatch.setattr(
+            ctypes, "windll", Namespace(kernel32=kernel32), raising=False
+        )
     ref = _reference_copy(genome, tmp_path / "Reference genome", gzip=True)
     # A missing .dict would be written by the host's samtools at a native path.
     run_command(["samtools", "dict", "-o", str(tmp_path / "Reference genome" / "ref.dict"), ref])  # fmt: skip
     outdir = tmp_path / "Output data"
-    result, log = _gatk(capsys, genome, genome.bam, ref, outdir, tmp_path / "scratch",
+    result, log = _gatk(capsys, genome, genome.bam, ref, outdir, scratch,
                    "-r", f"chr1:{SNP - 100}-{SNP + 100}")  # fmt: skip
 
     assert result["status"] == "ok", result["error"]
     assert vcf_calls(outdir / "gatk.vcf.gz") == [genome.call]
     assert ("compression remains Java-based" in log) == (platform == "win32")
+    assert "temp directory has a space" not in log
+    assert list(scratch.iterdir()) == []

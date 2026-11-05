@@ -1,3 +1,5 @@
+import os
+import signal
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -177,6 +179,17 @@ def _fresh_tool_caches(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     clear_tool_caches()
 
 
+@pytest.fixture(autouse=True)
+def _restore_signal_handlers() -> Iterator[None]:
+    """Tests that run the CLI's entry point install its SIGINT/SIGTERM
+    handlers (exit 128+N); put Python's back so a later test sees Ctrl-C as
+    KeyboardInterrupt whatever ran before it on the same worker."""
+    saved = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+    yield
+    for sig, handler in saved.items():
+        signal.signal(sig, handler)
+
+
 @pytest.fixture
 def fake_pixi(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakePixi:
     """The pixi running the CLI (as `pixi run` exports PIXI_EXE), outside any
@@ -188,3 +201,15 @@ def fake_pixi(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakePixi:
     monkeypatch.setenv("PATH", str(pixi.host_bin))
     monkeypatch.delenv("PIXI_ENVIRONMENT_NAME", raising=False)
     return pixi
+
+
+@pytest.fixture
+def open_stdin() -> Iterator[None]:
+    """Our stdin is an open pipe with nothing in it, like a terminal."""
+    read, write = os.pipe()
+    saved = os.dup(0)
+    os.dup2(read, 0)
+    yield
+    os.dup2(saved, 0)
+    for fd in (read, write, saved):
+        os.close(fd)
