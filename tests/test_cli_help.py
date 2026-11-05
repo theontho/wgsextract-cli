@@ -12,10 +12,14 @@ from pathlib import Path
 import pytest
 
 from wgsextract_cli.cli import help as cli_help
-from wgsextract_cli.cli import parser
+from wgsextract_cli.cli import hints, parser
+from wgsextract_cli.commands._advanced_options import ADVANCED_OPTIONS, COMMON_ADVANCED
 from wgsextract_cli.commands._examples_catalog import EXAMPLES
 from wgsextract_cli.commands._help_catalog import COMMAND_HELP
+from wgsextract_cli.commands._help_topics import HELP_TOPICS
+from wgsextract_cli.commands._next_steps import NEXT_STEPS
 from wgsextract_cli.commands.registry import COMMAND_TIERS, CORE
+from wgsextract_cli.core.results import CommandResult, FileRecord
 from wgsextract_cli.main import main
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -139,6 +143,20 @@ def test_help_for_a_command_shows_its_examples_and_outputs(capsys):
         (["vcf", "snpp"], "unknown 'vcf' subcommand 'snpp'. Did you mean 'snp'?"),
         (["help", "vcf", "snpp"], "Did you mean 'snp'? See 'wgsextract help vcf'."),
         (["vep", "run", "--assembly", "grch38"], "Did you mean 'GRCh38'?"),
+        (
+            ["info", "--inptu", "x.bam"],
+            "unrecognized option '--inptu'. Did you mean '--input'?",
+        ),
+        (["info", "--inptu"], "Did you mean '--input'? See 'wgsextract info --help'."),
+        (
+            ["vcf", "snp", "--inptu=x.bam"],
+            "unrecognized option '--inptu'. Did you mean '--input'?",
+        ),
+        (["microarray", "--formts", "all"], "Did you mean '--formats'"),
+        (
+            ["help", "refrences"],
+            "unknown command or topic 'refrences'. Did you mean 'references'?",
+        ),
     ],
 )
 def test_typos_are_usage_errors_with_a_suggestion(argv, hint, capsys):
@@ -193,6 +211,46 @@ def test_piped_help_has_no_colour():
     assert "Start here" in result.stdout and not ANSI.search(result.stdout)
 
 
+def test_help_index_has_no_settings_from_the_users_config(tmp_path):
+    private = "joes-private-dir"
+    paths = {
+        key: f"/home/{private}/{key}"
+        for key in (
+            "input_path",
+            "output_directory",
+            "temp_directory",
+            "reference_fasta",
+            "log_dir",
+            "vep_cache_directory",
+            "default_input_vcf",
+            "mother_vcf_path",
+            "clinvar_vcf_path",
+        )
+    }
+    config = tmp_path / "config.toml"
+    config.write_text(
+        "".join(f'{key} = "{value}"\n' for key, value in paths.items())
+        + "cpu_threads = 7\n",
+        encoding="utf-8",
+    )
+    base = [sys.executable, "-m", "wgsextract_cli.main", "--config", str(config)]
+    outputs = {}
+    for words in (
+        ["help", "--all"],
+        ["help", "--all", "--json"],
+        ["help", "vcf", "--json"],
+    ):
+        result = subprocess.run(
+            [*base, *words], capture_output=True, text=True, check=True
+        )
+        outputs[" ".join(words)] = result.stdout
+    for words, out in outputs.items():
+        assert private not in out, words
+    doc = json.loads(outputs["help --all --json"])
+    threads = next(o for o in doc["global_options"] if "--threads" in o["flags"])
+    assert "default" not in threads
+
+
 def test_first_sentence_keeps_abbreviations():
     text = "Download maps (e.g. GENCODE) for genes. More detail."
     assert cli_help.first_sentence(text) == "Download maps (e.g. GENCODE) for genes."
@@ -201,3 +259,208 @@ def test_first_sentence_keeps_abbreviations():
 def test_command_reference_doc_is_current(root):
     doc = (ROOT / "docs" / "commands.md").read_text(encoding="utf-8")
     assert doc == cli_help.render_markdown(root), "run 'pixi run gen-command-docs'"
+
+
+def _parse(words: list[str]):
+    return parser.parse_args(*parser.build_parser(), words)[0]
+
+
+def test_default_help_leaves_out_advanced_options_that_help_all_shows(capsys):
+    with pytest.raises(SystemExit):
+        main(["microarray", "--help"])
+    short = capsys.readouterr().out
+    with pytest.raises(SystemExit) as exit_info:
+        main(["microarray", "--help-all"])
+    assert exit_info.value.code == 0
+    full = capsys.readouterr().out
+    assert "--min-gq" not in short and "--help-all" in short and "--min-gq" in full
+    assert len(short.splitlines()) < len(full.splitlines())
+    assert _parse(["microarray", "--input", "x.cram", "--min-gq", "20"]).min_gq == 20
+
+
+def test_advanced_options_name_real_options(root):
+    found: set[str] = set()
+    for path, flags in ADVANCED_OPTIONS.items():
+        known = cli_help.resolve_command(root, path.split())._option_string_actions
+        assert set(flags) <= set(known), path
+    for entry in cli_help.command_index(root):
+        found.update(entry.parser._option_string_actions)
+    assert set(COMMON_ADVANCED) <= found
+
+
+def test_help_topics_are_listed_readable_and_their_examples_parse(capsys, root):
+    assert not (
+        {"topics", *HELP_TOPICS} & {n for n, _, _ in cli_help._subcommands(root)}
+    )
+    for name, topic in HELP_TOPICS.items():
+        assert all(len(line) <= 80 for line in topic.body.splitlines()), name
+        for line in topic.body.splitlines():
+            if line.startswith("  wgsextract "):
+                _parse(shlex.split(line)[1:])
+
+    main(["help", "topics"])
+    listing = capsys.readouterr().out
+    assert all(name in listing for name in HELP_TOPICS)
+    main(["help", "exit-codes"])
+    assert capsys.readouterr().out == HELP_TOPICS["exit-codes"].body
+    main(["help", "--json", "manifests"])
+    (topic,) = json.loads(capsys.readouterr().out)["topics"]
+    assert topic["name"] == "manifests" and topic["body"]
+
+
+def test_typed_commands_embed_their_input_schema(capsys, root):
+    main(["help", "--all", "--json"])
+    doc = json.loads(capsys.readouterr().out)
+    typed = {c["path"]: c for c in doc["commands"] if "input_schema" in c}
+    assert {"microarray", "vcf snp", "lineage y-haplogroup"} <= set(typed)
+    kinds = {"integer": "integer", "number": "number", "boolean": "flag"}
+    for path, command in typed.items():
+        known = cli_help.resolve_command(root, path.split())._option_string_actions
+        options = {flag: o for o in command["options"] for flag in o.get("flags", [])}
+        for prop in command["input_schema"]["properties"].values():
+            assert prop["x-cli-flag"] in known, path
+            kind = prop["type"][0] if isinstance(prop["type"], list) else prop["type"]
+            if prop["x-cli-flag"] in options and kind in ("string", *kinds):
+                # The CLI view and the schema agree, custom converters included.
+                expected = kinds.get(kind, "string")
+                assert options[prop["x-cli-flag"]]["type"] == expected, prop
+    qc_depth = next(
+        o for o in typed["microarray"]["options"] if o["dest"] == "qc_min_depth"
+    )
+    assert qc_depth["type"] == "number"
+
+
+def _value(option: dict) -> str:
+    if "choices" in option:
+        return option["choices"][0]
+    return {"integer": "1", "number": "1.5"}.get(option["type"], "sample.cram")
+
+
+def test_an_agent_can_go_from_help_json_to_valid_invocations(capsys):
+    """Using only 'help --all --json': find the command that makes a
+    23andMe-style file, then build an invocation of every command from its
+    required options and arguments, and check that each parses."""
+    main(["help", "--all", "--json"])
+    out = capsys.readouterr().out
+    doc = json.loads(out)
+    chip = [
+        c
+        for c in doc["commands"]
+        if c["tier"] == CORE and " " not in c["path"] and "23andMe" in c["summary"]
+    ]
+    assert [c["path"] for c in chip] == ["microarray"]
+    schema = chip[0]["input_schema"]
+    flag = schema["properties"]["input"]["x-cli-flag"]
+    formats = next(o for o in chip[0]["options"] if o["dest"] == "formats")
+    args = _parse(
+        ["microarray", flag, "sample.cram", formats["flags"][0], "23andme_v5"]
+    )
+    assert (args._command, args.input, args.formats) == (
+        "microarray",
+        "sample.cram",
+        "23andme_v5",
+    )
+
+    for command in doc["commands"]:
+        words = command["path"].split()
+        for option in command["options"]:
+            if option.get("positional") and option.get("nargs") not in ("*", "?"):
+                words.append(_value(option))
+            elif option.get("required"):
+                words.append(option["flags"][0])
+                if option["type"] != "flag":
+                    words.append(_value(option))
+        assert _parse(words)._command == command["path"], words
+
+
+def test_help_stays_token_efficient(capsys):
+    """Byte budgets, not exact text: the index must stay small enough to read
+    whole, and one command's JSON much smaller than the full document."""
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    assert len(capsys.readouterr().out) <= 6_000
+    main(["help", "--all"])
+    assert len(capsys.readouterr().out) <= 12_000
+    main(["help", "--all", "--json"])
+    assert len(capsys.readouterr().out) <= 150_000
+    main(["help", "microarray", "--json"])
+    assert len(capsys.readouterr().out) <= 15_000
+
+
+def test_next_step_hints_parse_to_commands():
+    values = {"source": "--input s.cram", "bam": "s.bam", "vcf": "s.vcf.gz"}
+    for path, templates in NEXT_STEPS.items():
+        assert path in COMMAND_HELP, path
+        for template in templates:
+            words = shlex.split(template.format(**values))
+            assert _parse(words[1:])._command != path, template
+
+
+def _finished(command: str, *outputs: tuple[str, str]) -> CommandResult:
+    result = CommandResult(command=command)
+    result.outputs = [FileRecord(path, kind, "output") for path, kind in outputs]
+    return result
+
+
+def test_next_step_hints_only_on_a_terminal_and_not_for_json_or_quiet(monkeypatch):
+    monkeypatch.setenv("TERM", "xterm")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setattr(cli_help, "_WINDOWS", False)
+    args = parser.argparse.Namespace(input="my genome.cram", genome=None)
+    result = _finished("vcf snp", ("/data/snps.vcf.gz", "vcf"))
+
+    tty = _Tty()
+    hints.print_next_steps(args, result, tty)
+    assert "vcf clinvar --vcf-input /data/snps.vcf.gz" in tty.getvalue()
+    assert ANSI.search(tty.getvalue())
+
+    for changes in ({"json": True}, {"quiet": True}):
+        tty = _Tty()
+        hints.print_next_steps(
+            parser.argparse.Namespace(**vars(args), **changes), result, tty
+        )
+        assert tty.getvalue() == "", changes
+    piped = io.StringIO()
+    hints.print_next_steps(args, result, piped)
+    assert piped.getvalue() == ""
+    result.exit_code = 1
+    hints.print_next_steps(args, result, tty := _Tty())
+    assert tty.getvalue() == ""
+
+    monkeypatch.setattr(cli_help, "_WINDOWS", True)
+    monkeypatch.setattr(cli_help, "_enable_windows_vt", lambda fd: False)
+    hints.print_next_steps(args, _finished("info"), tty := _Tty())
+    assert (
+        "--input 'my genome.cram'" in tty.getvalue()
+        or '"my genome.cram"' in tty.getvalue()
+    )
+    assert not ANSI.search(tty.getvalue())
+
+
+def test_next_step_hints_skip_what_the_run_cannot_fill():
+    args = parser.argparse.Namespace(input=None, genome="family/joe")
+    assert hints.next_steps("realign", args, []) == []
+    assert hints.next_steps("microarray", args, [])[0].endswith("--genome family/joe")
+
+
+def test_next_step_hints_keep_the_runs_input_reference_and_config():
+    args = _parse(
+        [
+            "--config",
+            "p.toml",
+            "info",
+            "--genome",
+            "joe",
+            "--input",
+            "b.cram",
+            "--ref",
+            "r",
+        ]
+    )
+    (hint, *_) = hints.next_steps("info", args, [])
+    assert _parse(shlex.split(hint)[1:]).genome == "joe"
+    for words in ("--genome joe --input b.cram", "--ref r", "--config p.toml"):
+        assert words in hint
+    # --genome alone fills in --input; the hint shouldn't repeat it.
+    args = parser.argparse.Namespace(genome="joe", input="/lib/joe/a.cram")
+    assert "--input" not in hints.next_steps("info", args, [])[0]
