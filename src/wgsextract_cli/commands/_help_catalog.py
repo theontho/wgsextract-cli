@@ -30,6 +30,7 @@ _PACBIO_TAG = "pacbio"
 
 _VCF_IN = "--vcf-input sample.vcf.gz"
 _ANNOTATED = "{name}_annotated.vcf.gz (+ .tbi)"
+_SCORED = _ANNOTATED + "; with --min-score N, also {name}_gt_N.vcf.gz."
 _LIBRARY = "Into the reference library (reflib)"
 
 COMMAND_HELP: dict[str, CommandHelp] = {
@@ -199,11 +200,13 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         f"wgsextract vcf clinvar {_VCF_IN}",
     ),
     "vcf gnomad": _h(
-        _ANNOTATED.format(name="gnomad"),
+        _ANNOTATED.format(name="gnomad")
+        + "; with --max-af AF, also gnomad_af_lt_AF.vcf.gz and its "
+        ".confidence.tsv table.",
         f"wgsextract vcf gnomad {_VCF_IN} --max-af 0.01",
     ),
     "vcf revel": _h(
-        _ANNOTATED.format(name="revel"),
+        _SCORED.format(name="revel"),
         f"wgsextract vcf revel {_VCF_IN}",
     ),
     "vcf pharmgkb": _h(
@@ -211,15 +214,15 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         f"wgsextract vcf pharmgkb {_VCF_IN}",
     ),
     "vcf phylop": _h(
-        _ANNOTATED.format(name="phylop"),
+        _SCORED.format(name="phylop"),
         f"wgsextract vcf phylop {_VCF_IN}",
     ),
     "vcf cadd": _h(
-        _ANNOTATED.format(name="cadd"),
+        _SCORED.format(name="cadd"),
         f"wgsextract vcf cadd {_VCF_IN} --min-score 20",
     ),
     "vcf gerp": _h(
-        _ANNOTATED.format(name="gerp"),
+        _SCORED.format(name="gerp"),
         f"wgsextract vcf gerp {_VCF_IN}",
     ),
     "vcf spliceai": _h(
@@ -227,7 +230,7 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         f"wgsextract vcf spliceai {_VCF_IN}",
     ),
     "vcf alphamissense": _h(
-        _ANNOTATED.format(name="alphamissense"),
+        _SCORED.format(name="alphamissense"),
         f"wgsextract vcf alphamissense {_VCF_IN}",
     ),
     "vcf chain-annotate": _h(
@@ -239,7 +242,9 @@ COMMAND_HELP: dict[str, CommandHelp] = {
         f"wgsextract vcf pharmcat {_VCF_IN}",
     ),
     "vcf trio": _h(
-        "trio_<mode>.vcf.gz (+ .tbi).",
+        "trio_<mode>.vcf.gz (+ .tbi); from alignments, also trio_joint.vcf.gz "
+        "(and trio_denovo_isolated.vcf.gz for --mode denovo). The manifest is "
+        "trio.manifest.json.",
         "wgsextract vcf trio --proband child.vcf.gz --mother mother.vcf.gz "
         "--father father.vcf.gz --mode denovo",
     ),

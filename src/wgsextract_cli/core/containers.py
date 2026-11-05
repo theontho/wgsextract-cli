@@ -17,7 +17,12 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from wgsextract_cli.core.dependencies import get_tool_path
-from wgsextract_cli.core.utils import WGSExtractError, popen, run_command
+from wgsextract_cli.core.utils import (
+    MissingDependencyError,
+    WGSExtractError,
+    popen,
+    run_command,
+)
 
 # Seconds a failed container's OOM event may trail its exit.
 OOM_EVENT_GRACE = 5.0
@@ -26,7 +31,7 @@ OOM_EVENT_GRACE = 5.0
 def docker(setup: str) -> str:
     path = get_tool_path("docker")
     if not path:
-        raise WGSExtractError(f"Docker not found. {setup}")
+        raise MissingDependencyError(f"Docker not found. {setup}")
     return path
 
 
@@ -36,7 +41,7 @@ def docker_info(setup: str, field: str = "{{json .ServerVersion}}") -> str:
         [docker(setup), "info", "--format", field], capture_output=True, check=False
     )
     if info.returncode != 0:
-        raise WGSExtractError(
+        raise MissingDependencyError(
             f"Docker isn't usable: {(info.stderr or '').strip()}. Start the Docker "
             "service, and add your user to the docker group (then log in again)."
         )
@@ -46,7 +51,7 @@ def docker_info(setup: str, field: str = "{{json .ServerVersion}}") -> str:
 def require_image(image: str, missing: str) -> None:
     inspect = [docker(missing), "image", "inspect", image]
     if run_command(inspect, capture_output=True, check=False).returncode != 0:
-        raise WGSExtractError(missing)
+        raise MissingDependencyError(missing)
 
 
 def host_path(path: str) -> str:

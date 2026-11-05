@@ -46,11 +46,11 @@ from wgsextract_cli.core.samtools_commands import (
     get_sam_view_cmd,
 )
 from wgsextract_cli.core.sequencing import input_platform
-from wgsextract_cli.core.utils import WGSExtractError, run_command
+from wgsextract_cli.core.utils import UsageError, WGSExtractError, run_command
 from wgsextract_cli.core.variant_files import ensure_vcf_indexed
 from wgsextract_cli.core.warnings import GB, check_free_space, get_free_space_needed
 
-from .basic import get_base_args
+from .basic import get_base_args, record_variants
 
 # Google's image; Bioconda's deepvariant has shipped no DeepVariant since 1.8.
 DEFAULT_IMAGE = "google/deepvariant:1.10.0"
@@ -126,7 +126,7 @@ def _model_type(args: argparse.Namespace, ref: str | None = None) -> str:
         or getattr(args, "wes", False)
         or (ont and model not in (None, "ONT_R104"))
     ):
-        raise WGSExtractError(
+        raise UsageError(
             "--ont/--model-type ONT_R104 cannot be combined with "
             "--pacbio, --wes or a different --model-type."
         )
@@ -533,18 +533,19 @@ _PARABRICKS_MODES = {
 def _deepvariant_gpu(args: argparse.Namespace) -> None:
     from wgsextract_cli.core.parabricks import call_variants, verify_parabricks
 
-    refusal = WGSExtractError(
+    refusal = (
         "--gpu (Parabricks) runs DeepVariant's WGS, WES, PACBIO and ONT_R104 models; "
         "use the CPU version for --checkpoint, ULTIMA or HYBRID_PACBIO_ILLUMINA."
     )
+    # The options chose an unsupported model (usage); below, the input did.
     if _model_type(args) not in _PARABRICKS_MODES or args.checkpoint:
-        raise refusal
+        raise UsageError(refusal)
     verify_dependencies(["samtools", "tabix"])
     verify_parabricks()
     _threads, outdir, ref, _lib = get_base_args(args)
     model_type = _model_type(args, ref)
     if model_type not in _PARABRICKS_MODES:
-        raise refusal
+        raise WGSExtractError(refusal)
     _require_ont_x86(model_type)
     if model_type == "ONT_R104":
         _warn_ont_chemistry(args.input, ref)
@@ -555,17 +556,17 @@ def _deepvariant_gpu(args: argparse.Namespace) -> None:
         _PARABRICKS_MODES[model_type],
     )  # fmt: skip
     ensure_vcf_indexed(out_vcf)
-    warn_if_no_variants(out_vcf, ref, args.region)
+    record_variants(out_vcf, "variants", warn_if_no_variants(out_vcf, ref, args.region))
 
 
 def cmd_deepvariant(args: argparse.Namespace) -> None:
     require_native_tool("run_deepvariant")
     batch_size = getattr(args, "batch_size", None)
     if batch_size is not None and batch_size < 1:
-        raise WGSExtractError("DeepVariant --batch-size must be positive.")
+        raise UsageError("DeepVariant --batch-size must be positive.")
     if getattr(args, "gpu", False):
         if batch_size is not None:
-            raise WGSExtractError("DeepVariant --batch-size is a CPU-only option.")
+            raise UsageError("DeepVariant --batch-size is a CPU-only option.")
         require_native_tool("parabricks")
         _deepvariant_gpu(args)
         return
@@ -681,4 +682,4 @@ def cmd_deepvariant(args: argparse.Namespace) -> None:
     if not Path(out_vcf).exists():
         raise WGSExtractError("DeepVariant failed to produce output VCF.")
     ensure_vcf_indexed(out_vcf)
-    warn_if_no_variants(out_vcf, ref, args.region)
+    record_variants(out_vcf, "variants", warn_if_no_variants(out_vcf, ref, args.region))

@@ -18,6 +18,7 @@ from .annotation_helpers import (
     annotate_vcf,
     annotation_context,
     prepare_tabix_annotation,
+    record_annotated,
     require_annotation_file,
     run_min_score_filter,
 )
@@ -46,6 +47,7 @@ def cmd_spliceai(args: argparse.Namespace) -> None:
         "SpliceAI",
         threads=getattr(args, "threads", None),
     )
+    record_annotated(ann_out)
     logging.info(LOG_MESSAGES["vcf_spliceai_done"].format(output=ann_out))
 
 
@@ -142,4 +144,5 @@ def cmd_pharmgkb(args: argparse.Namespace) -> None:
             [PHARMGKB_INFO_HEADER],
             threads=getattr(args, "threads", None),
         )
+    record_annotated(ann_out)
     logging.info(f"PharmGKB annotation complete: {ann_out}")

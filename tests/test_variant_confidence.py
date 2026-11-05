@@ -202,8 +202,10 @@ def test_rare_variant_output_is_labelled(tmp_path):
         ("100", "0.0001"),
         ("200", ""),
     ]
-    roles = {o["role"] for o in document["outputs"]}
-    assert {"rare_variants", "confidence_table"} <= roles
+    roles = {o["role"]: o for o in document["outputs"]}
+    assert {"rare_variants", "confidence_table"} <= set(roles)
+    assert roles["rare_variants"]["metrics"]["variants"] == 2
+    assert document["metrics"]["filtered_variants"] == 2
     codes = {w["code"] for w in document["warnings"]}
     assert "low_confidence_findings" in codes
     assert "unconfirmed_clinical_findings" not in codes

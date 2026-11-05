@@ -91,7 +91,7 @@ wgsextract ref bootstrap
 wgsextract ref library --list
 wgsextract ref library --install hs38
 
-# Check that the required tools are available (exits 1 if a mandatory tool is missing)
+# Check that the required tools are available (exits 3 if a mandatory tool is missing)
 wgsextract deps check
 
 # Inspect a BAM/CRAM: reference build, file integrity, read metrics
