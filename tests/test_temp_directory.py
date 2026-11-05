@@ -1,6 +1,7 @@
 import json
 import os
 import random
+import re
 import shutil
 import threading
 from argparse import Namespace
@@ -58,6 +59,14 @@ def _files_seen_under(*folders: Path) -> Iterator[dict[Path, set[str]]]:
     finally:
         done.set()
         watcher.join()
+
+
+# The temporary files samtools sort and collate, and sambamba sort, spill.
+_SPILL = re.compile(r"((\.tmp|^collate)\.\d+\.bam|^stdin\.\d+)$")
+
+
+def _spills(names: set[str]) -> set[str]:
+    return {name for name in names if _SPILL.search(Path(name).name)}
 
 
 @pytest.fixture
@@ -127,7 +136,8 @@ def test_bam_sort_budgets_spills_on_the_tmp_dir_volume_separately(
         assert result["status"] == "ok", result["error"]
         assert {Path(o["path"]).parent for o in result["outputs"]} == {output}
         # The sorter's or collate's spills went to --tmp-dir, not the output.
-        assert any(Path(name).parent.name for name in seen[scratch])
+        assert _spills(seen[scratch])
+        assert not _spills(seen[output])
         assert all(len(Path(name).parts) == 1 for name in seen[output])
     else:
         message = _failure(result)
@@ -178,7 +188,8 @@ def test_realign_budgets_output_and_staging_volumes_separately(
         assert result["status"] == "ok", result["error"]
         assert (output / "sample_aligned.bam").is_file()
         # Extraction spills, and staged FASTQs, went to --tmp-dir.
-        assert seen[scratch]
+        assert _spills(seen[scratch])
+        assert not _spills(seen[output])
         assert all(len(Path(name).parts) == 1 for name in seen[output])
     else:
         message = _failure(result)
@@ -216,7 +227,7 @@ def test_tmp_dir_overrides_the_configured_one_for_one_run(
     assert "gone" in _failure(_wgsextract(capsys, *argv))
     with _files_seen_under(chosen) as seen:
         result = _wgsextract(capsys, *argv, "--tmp-dir", str(chosen))
-    assert seen[chosen], "the sort did not spill to --tmp-dir"
+    assert _spills(seen[chosen]), "the sort did not spill to --tmp-dir"
     assert result["status"] == ("failed" if failure else "ok")
     assert (output / f"sample_sorted{suffix}").is_file() is not failure
     # The run's workspace is removed, also after a failure, and the override
