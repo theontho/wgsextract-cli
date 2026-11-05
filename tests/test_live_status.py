@@ -136,7 +136,6 @@ def test_tools_writing_to_the_terminal_do_not_overwrite_the_line():
     assert sorted(_screen(received.decode())) == ["err", "err", "out", "out"]
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="needs a pseudo-terminal")
 def _slow_relays(monkeypatch, seconds: float) -> None:
     """Relays that start late, as on a loaded machine."""
     relay = utils._tee_stderr
@@ -148,6 +147,7 @@ def _slow_relays(monkeypatch, seconds: float) -> None:
     monkeypatch.setattr(utils, "_tee_stderr", slow_relay)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a pseudo-terminal")
 @pytest.mark.parametrize("finish", [lambda p: p.wait(), wait_with_cancel])
 def test_a_started_tool_has_written_everything_once_it_has_finished(
     finish, monkeypatch
