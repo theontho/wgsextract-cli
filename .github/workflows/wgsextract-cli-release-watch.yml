@@ -26,7 +26,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          latest=$(gh release view -R theontho/wgsextract-cli --json tagName -q .tagName)
+          latest=$(gh release view -R WGSExtract/wgsextract-cli --json tagName -q .tagName)
           current=$(cat examples/WGSExtract/scripts/wgsextract-release-tag.txt)
           if [ "$latest" = "$current" ]; then
             echo "The bundle already uses wgsextract-cli $latest."
@@ -48,7 +48,7 @@ jobs:
             git commit -qam "WGSExtract: bundle CLI $latest"
             git push -q origin "$branch"
             sha=$(git rev-parse HEAD)
-            notes="https://github.com/theontho/wgsextract-cli/releases/tag/$latest"
+            notes="https://github.com/WGSExtract/wgsextract-cli/releases/tag/$latest"
             body="Points the WGSExtract bundle at [CLI $latest]($notes) (was $current), made by scripts/bump-wgsextract-cli.py.
 
           Before merging, replace the CHANGELOG entry's link with a line on what users get. After merging, tag the app release; wgsextract-cli's App release watch then runs its full Install Lab against it."

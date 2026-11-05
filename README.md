@@ -6,7 +6,7 @@ GUI for CLI turns a portable CLI-tool bundle into an installable desktop app for
 
 The first real app built with GUI for CLI is the WGSExtract interface in `examples/WGSExtract`. It exercises setup steps, long-running commands, dynamic data sources, localization, configuration, terminal output, file pickers, and release packaging against a realistic genomics workflow.
 
-Earlier work, including the SwiftUI macOS app, the Swift CLI, Electron and a dozen experimental renderers, and the benchmarks across them, is preserved on the [`old-experimental`](https://github.com/theontho/gui-for-cli/tree/old-experimental) branch.
+Earlier work, including the SwiftUI macOS app, the Swift CLI, Electron and a dozen experimental renderers, and the benchmarks across them, is preserved on the [`old-experimental`](https://github.com/WGSExtract/gui-for-cli/tree/old-experimental) branch.
 
 ## Layout
 

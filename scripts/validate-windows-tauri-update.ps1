@@ -1,5 +1,5 @@
 param(
-    [string]$Repo = "theontho/gui-for-cli",
+    [string]$Repo = "WGSExtract/gui-for-cli",
     [string]$LatestTag = "",
     [string]$OldVersion = "",
     [string]$UpdaterPublicKey = "",

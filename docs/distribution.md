@@ -138,7 +138,7 @@ link to open the PR by hand.
 When the app release is published, Distribution appends the bundled CLI
 release's notes (under `## WGSExtract CLI vX.Y.Z`) to the app release notes, so
 users see what changed in the CLI without leaving the app release page. Bare
-`#123` references in those notes are rewritten as `theontho/wgsextract-cli#123`
+`#123` references in those notes are rewritten as `WGSExtract/wgsextract-cli#123`
 so they keep pointing at the CLI repository.
 
 ## Self-updates
@@ -159,7 +159,7 @@ Configure release automation with:
 - `TAURI_UPDATER_PUBKEY` repository variable or secret containing the generated public key.
 - `TAURI_SIGNING_PRIVATE_KEY` secret containing the private key content or path.
 - optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret.
-- optional `TAURI_UPDATER_ENDPOINTS` / `.devconfig.toml` `[tauri.updater] endpoint = "..."`; the default endpoint is `https://github.com/theontho/gui-for-cli/releases/latest/download/latest.json`.
+- optional `TAURI_UPDATER_ENDPOINTS` / `.devconfig.toml` `[tauri.updater] endpoint = "..."`; the default endpoint is `https://github.com/WGSExtract/gui-for-cli/releases/latest/download/latest.json`.
 
 When updater signing is configured, Tauri emits `.sig` files next to the macOS
 `.app.tar.gz`, the Windows NSIS installer, and the Linux AppImage. Packaging

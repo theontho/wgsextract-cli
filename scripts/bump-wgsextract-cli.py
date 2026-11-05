@@ -23,7 +23,7 @@ PINNED = [
     "tools/packaging/tests/test_embedded_branding.py",
 ]
 CHANGELOG = ROOT / "docs/CHANGELOG.md"
-RELEASES = "https://github.com/theontho/wgsextract-cli/releases/tag"
+RELEASES = "https://github.com/WGSExtract/wgsextract-cli/releases/tag"
 
 
 def main(argv: list[str]) -> int:

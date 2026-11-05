@@ -46,7 +46,7 @@ Tauri wraps the Web UI in a native window, bundles the Node runtime, and adds na
 
 Tagged releases build on Windows, macOS, and Linux with a signed Tauri updater feed. macOS has separate signed, notarized Apple Silicon and Intel builds, not a universal DMG. Windows and Linux packages are x64; native ARM64 packaging for those platforms is still a follow-up.
 
-[Distribution details](https://github.com/theontho/gui-for-cli/blob/main/docs/distribution.md) cover packaging, signing, updates, and uninstall hooks. Earlier SwiftUI, Sparkle, and Electron implementations are not part of the current app.
+[Distribution details](https://github.com/WGSExtract/gui-for-cli/blob/main/docs/distribution.md) cover packaging, signing, updates, and uninstall hooks. Earlier SwiftUI, Sparkle, and Electron implementations are not part of the current app.
 :::
 :::
 
@@ -61,7 +61,7 @@ make tauri    # desktop app in dev mode
 make package  # installers for this host
 ```
 
-On Windows, use `powershell -ExecutionPolicy Bypass -File .\make.ps1 <target>` with the same target names. Setup never elevates or installs system packages; see [developer setup](https://github.com/theontho/gui-for-cli/blob/main/docs/developer_setup.md) for OS prerequisites.
+On Windows, use `powershell -ExecutionPolicy Bypass -File .\make.ps1 <target>` with the same target names. Setup never elevates or installs system packages; see [developer setup](https://github.com/WGSExtract/gui-for-cli/blob/main/docs/developer_setup.md) for OS prerequisites.
 :::
 :::
 
@@ -69,6 +69,6 @@ On Windows, use `powershell -ExecutionPolicy Bypass -File .\make.ps1 <target>` w
 ::: wrap
 ## Earlier experiments
 
-Before settling on one app, the project prototyped native SwiftUI and AppKit apps, a Swift CLI, Electron, and renderers in Rust, Go, C++, .NET, Dart, Kotlin, Python, and Mojo, with benchmarks across all of them. That work is preserved on the [`old-experimental`](https://github.com/theontho/gui-for-cli/tree/old-experimental) branch.
+Before settling on one app, the project prototyped native SwiftUI and AppKit apps, a Swift CLI, Electron, and renderers in Rust, Go, C++, .NET, Dart, Kotlin, Python, and Mojo, with benchmarks across all of them. That work is preserved on the [`old-experimental`](https://github.com/WGSExtract/gui-for-cli/tree/old-experimental) branch.
 :::
 :::

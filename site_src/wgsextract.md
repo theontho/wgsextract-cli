@@ -67,7 +67,7 @@ v0.6.6 also adds Clair3 calling, CpG methylation pileups, Y-STR panels, queryabl
 
 ### Controls from earlier releases
 
-These came with [GUI #171](https://github.com/theontho/gui-for-cli/pull/171). They start unchecked or blank, inheriting CLI/config defaults rather than forcing them off.
+These came with [GUI #171](https://github.com/WGSExtract/gui-for-cli/pull/171). They start unchecked or blank, inheriting CLI/config defaults rather than forcing them off.
 
 - **FASTQ:** aggregate existing FastQC reports into offline MultiQC HTML, with file and directory pickers and explicit report replacement. MultiQC must already be available; this action neither installs it nor runs FastQC.
 - **Extract and Library:** optional Poz Y-BAM regions (GRCh37/38), unmapped FASTQs, and allele-annotated yBrowse Y-SNP calling on matching indexed GRCh38. Install the pinned yBrowse resource explicitly from Library first.
@@ -80,7 +80,7 @@ AADR 2M is excluded from `all`: explicitly install its pinned metadata from Libr
 
 CLI setup is native on Windows, without WSL or MSYS2, and GUI settings save real TOML booleans and numbers, including `false`. Earlier CLI releases also fixed fresh Windows installation, added warnings for invalid configuration values, and improved alignment reproducibility, memory preflight, and native Windows full-genome validation. Tool and platform requirements still vary by workflow.
 
-[Download v0.6.6](index.html), read the [CLI v0.6.6 release notes](https://github.com/theontho/wgsextract-cli/releases/tag/v0.6.6) and [ONT limitations](https://github.com/theontho/wgsextract-cli/blob/v0.6.6/docs/ont.md), or see the [workflow details and prerequisites](https://github.com/theontho/gui-for-cli/blob/main/docs/wgsextract-post-v063.md).
+[Download v0.6.6](index.html), read the [CLI v0.6.6 release notes](https://github.com/WGSExtract/wgsextract-cli/releases/tag/v0.6.6) and [ONT limitations](https://github.com/WGSExtract/wgsextract-cli/blob/v0.6.6/docs/ont.md), or see the [workflow details and prerequisites](https://github.com/WGSExtract/gui-for-cli/blob/main/docs/wgsextract-post-v063.md).
 :::
 :::
 

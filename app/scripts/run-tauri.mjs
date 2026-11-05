@@ -180,7 +180,7 @@ function updaterEndpoints(env = process.env, devConfigOverride = {}) {
     || env.TAURI_UPDATER_ENDPOINT
     || devConfigOverride.tauri?.updater?.endpoints
     || devConfigOverride.tauri?.updater?.endpoint
-    || "https://github.com/theontho/gui-for-cli/releases/latest/download/latest.json";
+    || "https://github.com/WGSExtract/gui-for-cli/releases/latest/download/latest.json";
   return configured
     .split(/[\n,]/)
     .map((endpoint) => endpoint.trim())

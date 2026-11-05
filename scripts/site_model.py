@@ -7,8 +7,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_DIR = ROOT / "site_src"
 OUTPUT_DIR = ROOT / "site"
-BASE_URL = "https://theontho.github.io/gui-for-cli"
-GITHUB_URL = "https://github.com/theontho/gui-for-cli"
+BASE_URL = "https://wgsextract.github.io/gui-for-cli"
+GITHUB_URL = "https://github.com/WGSExtract/gui-for-cli"
 SOCIAL_IMAGE_URL = f"{BASE_URL}/assets/social-preview.webp"
 SOCIAL_IMAGE_ALT = "WGSExtract social preview showing the desktop app screenshot."
 SOCIAL_IMAGE_WIDTH = 1200

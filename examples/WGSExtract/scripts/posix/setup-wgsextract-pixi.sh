@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-REPO_URL="${WGSEXTRACT_REPO_URL:-https://github.com/theontho/wgsextract-cli}"
+REPO_URL="${WGSEXTRACT_REPO_URL:-https://github.com/WGSExtract/wgsextract-cli}"
 script_dir="$(CDPATH= cd "$(dirname "$0")" && pwd)"
 release_tag_file="${WGSEXTRACT_RELEASE_TAG_FILE:-$script_dir/../wgsextract-release-tag.txt}"
 DEFAULT_RELEASE_TAG="${WGSEXTRACT_DEFAULT_RELEASE_TAG:-}"

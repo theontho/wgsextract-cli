@@ -24,14 +24,14 @@ class GenerateUpdateFeedsTests(unittest.TestCase):
                 output_path,
                 generate_update_feeds.collect_artifacts(tmp_dir),
                 "0.1.4",
-                "https://github.com/theontho/gui-for-cli/releases/download/v0.1.4",
+                "https://github.com/WGSExtract/gui-for-cli/releases/download/v0.1.4",
             )
 
             self.assertTrue(wrote)
             payload = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertEqual(
                 payload["platforms"]["windows-x86_64"]["url"],
-                "https://github.com/theontho/gui-for-cli/releases/download/v0.1.4/WGSExtract_0.1.4_x64-setup.exe",
+                "https://github.com/WGSExtract/gui-for-cli/releases/download/v0.1.4/WGSExtract_0.1.4_x64-setup.exe",
             )
             self.assertEqual(payload["platforms"]["windows-x86_64"]["signature"], "signature")
 
@@ -51,7 +51,7 @@ class GenerateUpdateFeedsTests(unittest.TestCase):
                 output_path,
                 generate_update_feeds.collect_artifacts(tmp_dir),
                 "0.1.4",
-                "https://github.com/theontho/gui-for-cli/releases/download/v0.1.4",
+                "https://github.com/WGSExtract/gui-for-cli/releases/download/v0.1.4",
             )
 
             self.assertTrue(wrote)
@@ -60,7 +60,7 @@ class GenerateUpdateFeedsTests(unittest.TestCase):
                 payload["platforms"]["darwin-aarch64"],
                 {
                     "signature": "aarch64-signature",
-                    "url": "https://github.com/theontho/gui-for-cli/releases/download/v0.1.4/WGSExtract_aarch64.app.tar.gz",
+                    "url": "https://github.com/WGSExtract/gui-for-cli/releases/download/v0.1.4/WGSExtract_aarch64.app.tar.gz",
                 },
             )
             self.assertEqual(payload["platforms"]["darwin-x86_64"]["signature"], "x64-signature")
@@ -75,7 +75,7 @@ class GenerateUpdateFeedsTests(unittest.TestCase):
                 output_path,
                 generate_update_feeds.collect_artifacts(tmp_dir),
                 "0.1.4",
-                "https://github.com/theontho/gui-for-cli/releases/download/v0.1.4",
+                "https://github.com/WGSExtract/gui-for-cli/releases/download/v0.1.4",
             )
 
             self.assertFalse(wrote)

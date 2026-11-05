@@ -199,7 +199,7 @@ jobs:
             exit 0
           fi
           # Skip without writing the heading, so a re-run can still add the notes.
-          if ! raw="$(gh release view "$cli_tag" -R theontho/wgsextract-cli --json body -q .body)" ||
+          if ! raw="$(gh release view "$cli_tag" -R WGSExtract/wgsextract-cli --json body -q .body)" ||
             [ -z "${raw//[[:space:]]/}" ]; then
             echo "::warning::No release notes found for WGSExtract CLI $cli_tag; skipping."
             exit 0
@@ -207,7 +207,7 @@ jobs:
           # Drop the CLI notes' own "# title" line; the heading above replaces it.
           # Qualify bare "#123" references, which would otherwise link to this repository.
           cli_notes="$(sed -e '1{/^# /d;}' <<<"$raw" | sed -e '/./,$!d' |
-            sed -E 's@(^|[^[:alnum:]_/&#-])#([0-9]+)@\1theontho/wgsextract-cli#\2@g')"
-          printf '%s\n\n%s\n\n%s\n\nFull CLI release: https://github.com/theontho/wgsextract-cli/releases/tag/%s\n' \
+            sed -E 's@(^|[^[:alnum:]_/&#-])#([0-9]+)@\1WGSExtract/wgsextract-cli#\2@g')"
+          printf '%s\n\n%s\n\n%s\n\nFull CLI release: https://github.com/WGSExtract/wgsextract-cli/releases/tag/%s\n' \
             "$notes" "$heading" "$cli_notes" "$cli_tag" > release-notes.md
           gh release edit "$GITHUB_REF_NAME" --notes-file release-notes.md

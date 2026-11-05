@@ -23,7 +23,7 @@ def main() -> int:
     parser.add_argument("--version", required=True)
     parser.add_argument("--icon", type=Path)
     parser.add_argument("--pkgrel", default="1")
-    parser.add_argument("--url", default="https://github.com/theontho/gui-for-cli")
+    parser.add_argument("--url", default="https://github.com/WGSExtract/gui-for-cli")
     args = parser.parse_args()
 
     package_path = create_archlinux_package(

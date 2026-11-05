@@ -2,7 +2,7 @@ import { escapeAttribute, escapeHTML } from "../dom.js";
 import { state } from "../state.js";
 import type { BundleManifest, SetupStep as BundleSetupStep } from "../../../../shared/types.js";
 
-export const githubURL = "https://github.com/theontho/gui-for-cli";
+export const githubURL = "https://github.com/WGSExtract/gui-for-cli";
 
 type AboutSetupStep = BundleSetupStep & {
     toolName?: unknown;

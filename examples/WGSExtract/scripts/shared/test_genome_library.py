@@ -19,7 +19,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 DATASET_ID = "wgsextract-benchmark-hg19-mini"
 DATASET_TITLE = "WGS Extract hg19 mini benchmark genome"
 DATASET_URL = (
-    "https://github.com/theontho/wgsextract-cli/releases/download/v0.1.0/"
+    "https://github.com/WGSExtract/wgsextract-cli/releases/download/v0.1.0/"
     "wgsextract-benchmark-hg19-mini.zip"
 )
 DATASET_SHA256 = "ad0f8070dc5ca35c4a6de540493a81df082d160417f747ae68d9c098c110a9f6"

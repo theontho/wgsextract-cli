@@ -9,18 +9,18 @@
     <meta property="og:type" content="website" />
     <meta property="og:title" content="GUI for CLI documentation map" />
     <meta property="og:description" content="Documentation map for GUI for CLI: the app, bundles, distribution, and static site generation." />
-    <meta property="og:url" content="https://theontho.github.io/gui-for-cli/docs.html" />
-    <meta property="og:image" content="https://theontho.github.io/gui-for-cli/assets/social-preview.webp" />
-    <meta property="og:image:secure_url" content="https://theontho.github.io/gui-for-cli/assets/social-preview.webp" />
+    <meta property="og:url" content="https://wgsextract.github.io/gui-for-cli/docs.html" />
+    <meta property="og:image" content="https://wgsextract.github.io/gui-for-cli/assets/social-preview.webp" />
+    <meta property="og:image:secure_url" content="https://wgsextract.github.io/gui-for-cli/assets/social-preview.webp" />
     <meta property="og:image:type" content="image/webp" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="WGSExtract social preview showing the desktop app screenshot." />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="https://theontho.github.io/gui-for-cli/assets/social-preview.webp" />
+    <meta name="twitter:image" content="https://wgsextract.github.io/gui-for-cli/assets/social-preview.webp" />
     <meta name="twitter:image:alt" content="WGSExtract social preview showing the desktop app screenshot." />
-    <link rel="canonical" href="https://theontho.github.io/gui-for-cli/docs.html" />
-    <link rel="image_src" href="https://theontho.github.io/gui-for-cli/assets/social-preview.webp" />
+    <link rel="canonical" href="https://wgsextract.github.io/gui-for-cli/docs.html" />
+    <link rel="image_src" href="https://wgsextract.github.io/gui-for-cli/assets/social-preview.webp" />
     <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".82em" font-size="84">%E2%8C%98</text></svg>' />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" />
     <link rel="stylesheet" href="assets/site.css" />
@@ -28,12 +28,12 @@
   <body>
     <details class="ai-written-banner">
       <summary class="ai-written-banner-text">AI written</summary>
-      <div class="ai-written-tooltip" id="ai-written-tooltip">I'm tired and bad at writing things, help appreciated - <a href="https://github.com/theontho/gui-for-cli/issues/new" target="_blank" rel="noopener noreferrer">file an issue</a> or <a href="https://github.com/theontho/gui-for-cli/pulls" target="_blank" rel="noopener noreferrer">PR on GitHub</a>.</div>
+      <div class="ai-written-tooltip" id="ai-written-tooltip">I'm tired and bad at writing things, help appreciated - <a href="https://github.com/WGSExtract/gui-for-cli/issues/new" target="_blank" rel="noopener noreferrer">file an issue</a> or <a href="https://github.com/WGSExtract/gui-for-cli/pulls" target="_blank" rel="noopener noreferrer">PR on GitHub</a>.</div>
     </details>
     <nav class="nav" aria-label="Primary navigation">
       <div class="wrap nav-inner">
         <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true"></span><span>GUI for CLI</span></a>
-        <div class="nav-links"><a href="index.html">Home</a><a href="architecture.html">Architecture</a><a href="wgsextract.html">WGSExtract</a><a class="active" href="docs.html">Docs</a><a href="https://github.com/theontho/gui-for-cli" target="_blank" rel="noopener noreferrer">GitHub</a></div>
+        <div class="nav-links"><a href="index.html">Home</a><a href="architecture.html">Architecture</a><a href="wgsextract.html">WGSExtract</a><a class="active" href="docs.html">Docs</a><a href="https://github.com/WGSExtract/gui-for-cli" target="_blank" rel="noopener noreferrer">GitHub</a></div>
       </div>
     </nav>
     <main>
@@ -42,7 +42,7 @@
           <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Documentation</p>
           <h1>Where to go next.</h1>
           <p class="lede">Start with v0.6.6 downloads or one-command developer setup. Workflow details, distribution, and schemas live close to the code.</p>
-          <div class="actions"><a class="btn primary" href="https://github.com/theontho/gui-for-cli/blob/main/README.md">Open README</a><a class="btn" href="architecture.html">Architecture</a></div>
+          <div class="actions"><a class="btn primary" href="https://github.com/WGSExtract/gui-for-cli/blob/main/README.md">Open README</a><a class="btn" href="architecture.html">Architecture</a></div>
         </div>
       </header>
 <section>
@@ -52,46 +52,46 @@
 <div class="kicker">Product</div>
 <h3>README</h3>
 <p>The top-level README describes the app, setup, common commands, bundles, config, and distribution packaging.</p>
-<a class="inline-link" href="https://github.com/theontho/gui-for-cli/blob/main/README.md">Open README</a>
+<a class="inline-link" href="https://github.com/WGSExtract/gui-for-cli/blob/main/README.md">Open README</a>
 </article>
 <article class="card">
 <div class="kicker">Development</div>
 <h3>One-command setup</h3>
 <p>Clone the repo and run <code>make setup</code> on Linux/macOS, or <code>powershell -ExecutionPolicy Bypass -File .\make.ps1 setup</code> in Windows PowerShell 5.1. Without make on Linux/macOS, use <code>sh scripts/dev_setup.sh</code>.</p>
 <p>Setup prepares missing user-level uv, Node, and Rust tools, locked dependencies, hooks, and a real Web UI smoke check. It never elevates or installs system packages; the guide lists manual desktop prerequisites. No sibling WGSExtract CLI checkout or genome download is needed for UI development: start with <code>examples/GitHelper</code>.</p>
-<a class="inline-link" href="https://github.com/theontho/gui-for-cli/blob/main/docs/developer_setup.md">Open developer setup</a>
+<a class="inline-link" href="https://github.com/WGSExtract/gui-for-cli/blob/main/docs/developer_setup.md">Open developer setup</a>
 </article>
 <article class="card">
 <div class="kicker">Releases</div>
 <h3>Current app and CLI: v0.6.6</h3>
 <p>Download installers and read the complete GUI and bundled CLI release notes. The changelog tracks the move to one Tauri app, native Windows setup, macOS notarization, and bundle improvements.</p>
-<a class="inline-link" href="https://github.com/theontho/gui-for-cli/releases">Open releases</a>
-<a class="inline-link" href="https://github.com/theontho/gui-for-cli/blob/main/docs/CHANGELOG.md">Open changelog</a>
+<a class="inline-link" href="https://github.com/WGSExtract/gui-for-cli/releases">Open releases</a>
+<a class="inline-link" href="https://github.com/WGSExtract/gui-for-cli/blob/main/docs/CHANGELOG.md">Open changelog</a>
 </article>
 <article class="card">
 <div class="kicker">WGSExtract</div>
 <h3>Current workflows</h3>
 <p>Nanopore handling in existing actions, plus opt-in MultiQC, expanded microarray/AADR exports, targeted Y analysis, and resource requirements. See what is in the app and what is still CLI only.</p>
 <a class="inline-link" href="wgsextract.html">WGSExtract workflows</a>
-<a class="inline-link" href="https://github.com/theontho/gui-for-cli/blob/main/docs/wgsextract-post-v063.md">Post-v0.6.3 feature details</a>
+<a class="inline-link" href="https://github.com/WGSExtract/gui-for-cli/blob/main/docs/wgsextract-post-v063.md">Post-v0.6.3 feature details</a>
 </article>
 <article class="card">
 <div class="kicker">Schemas</div>
 <h3>Bundle schemas</h3>
 <p><code>manifest.json</code> and page files are described by JSON Schemas in <code>docs/schema/</code>.</p>
-<a class="inline-link" href="https://github.com/theontho/gui-for-cli/tree/main/docs/schema">Open schemas</a>
+<a class="inline-link" href="https://github.com/WGSExtract/gui-for-cli/tree/main/docs/schema">Open schemas</a>
 </article>
 <article class="card">
 <div class="kicker">Archive</div>
 <h3>Earlier experiments</h3>
 <p>The SwiftUI app, Swift CLI, prototype renderers, and benchmark reports live on the <code>old-experimental</code> branch.</p>
-<a class="inline-link" href="https://github.com/theontho/gui-for-cli/tree/old-experimental">Open the archive branch</a>
+<a class="inline-link" href="https://github.com/WGSExtract/gui-for-cli/tree/old-experimental">Open the archive branch</a>
 </article>
 <article class="card">
 <div class="kicker">Distribution</div>
 <h3>Packaging</h3>
 <p>Signing, notarization, Tauri packages for each OS, release artifacts, self-updates, and embedded bundle defaults.</p>
-<a class="inline-link" href="https://github.com/theontho/gui-for-cli/blob/main/docs/distribution.md">Open distribution doc</a>
+<a class="inline-link" href="https://github.com/WGSExtract/gui-for-cli/blob/main/docs/distribution.md">Open distribution doc</a>
 </article>
 </div>
 </div>
@@ -104,14 +104,14 @@
 python3 scripts/build_site.py
 open site/index.html</code></pre>
 <p>The dependency-free generator writes HTML to <code>site/</code> for GitHub Pages. Commit regenerated HTML alongside source changes; <code>make site</code> is also available.</p>
-<a class="inline-link" href="https://github.com/theontho/gui-for-cli/blob/main/docs/site_generation.md">Site generation guide</a>
+<a class="inline-link" href="https://github.com/WGSExtract/gui-for-cli/blob/main/docs/site_generation.md">Site generation guide</a>
 </div>
 </section>
     </main>
     <footer class="footer">
       <div class="wrap">
         <div><strong>Documentation map</strong><p>Product docs stay short; detailed engineering notes stay close to the code.</p></div>
-        <p><a href="https://github.com/theontho/gui-for-cli">Source on GitHub</a></p>
+        <p><a href="https://github.com/WGSExtract/gui-for-cli">Source on GitHub</a></p>
       </div>
     </footer>
   </body>
