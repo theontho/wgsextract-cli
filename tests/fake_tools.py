@@ -4,6 +4,17 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
+
+def require_bare_name_fakes() -> None:
+    """Skip on Windows, where a tool the CLI starts by bare name (`gatk`,
+    `bcftools`) can't be faked: CreateProcess finds only .exe files, not
+    python_tool's .cmd launcher, and killing a launcher leaves its Python
+    child running."""
+    if sys.platform == "win32":
+        pytest.skip("a .cmd fake can't stand in for a tool started by bare name")
+
 
 def python_tool(bindir: Path, name: str, source: str) -> Path:
     """An executable `name` in bindir that runs the Python ``source``.
@@ -183,3 +194,102 @@ class FakePixi:
 
     def installed(self, name: str) -> bool:
         return (self.root / "envs" / name / "conda-meta" / "pixi").is_file()
+
+
+_FAKE_GATK = """\
+import json, os, subprocess, sys, time
+
+state = json.load(open({state!r}))
+args = sys.argv[1:]
+if args[:1] == ["--version"]:
+    print("The Genome Analysis Toolkit (GATK) v4.6.2.0")
+    sys.exit(0)
+if args[:1] == ["--java-options"]:
+    args = args[2:]
+tool, rest = args[0], args[1:]
+opts = dict(zip(rest[::2], rest[1::2]))
+with open(state["log"], "a") as log:
+    log.write(json.dumps(sys.argv[1:]) + "\\n")
+
+
+def local(flag):
+    value = opts[flag]
+    if state["windows"] and "/" in value:
+        sys.exit(f"A USER ERROR has occurred: {{flag}} {{value}} is not a Windows path")
+    return value.replace("\\\\", "/") if os.sep == "/" else value
+
+
+ref, alignment, out, tmp = (local(f) for f in ("-R", "-I", "-O", "--tmp-dir"))
+stem = ref[: -len(".gz")] if ref.endswith(".gz") else ref
+if not os.path.isfile(stem.rsplit(".", 1)[0] + ".dict"):
+    sys.exit(f"A USER ERROR has occurred: Fasta dict file for {{ref}} does not exist")
+if not os.path.isdir(tmp):
+    sys.exit(f"A USER ERROR has occurred: --tmp-dir {{tmp}} does not exist")
+if alignment.endswith(".cram") and not state["reads_cram"]:
+    sys.exit("htsjdk.samtools.cram.CRAMException: CRAM version 3.1 is not supported")
+intervals = open(local("-L")).read().split() if "-L" in opts else []
+if state["fail"]:
+    sys.exit(f"A USER ERROR has occurred: {{state['fail']}}")
+for contig, action in state["on_contig"].items():
+    if not any(i.split(":")[0] == contig for i in intervals):
+        continue
+    if action == "fail":
+        # Fail only once a hanging peer is running, so it has something to stop.
+        while "hang" in state["on_contig"].values() and not os.path.exists(state["pids"]):
+            time.sleep(0.05)
+        sys.exit(f"{{contig}} failed")
+    if action == "slow":
+        time.sleep(1)
+    if action == "hang":
+        java = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        with open(state["pids"], "a") as pids:
+            pids.write(f"{{os.getpid()}} {{java.pid}}\\n")
+        time.sleep(60)
+regions = ["-r", ",".join(intervals)] if intervals else []
+mpileup = subprocess.Popen(
+    [{bcftools!r}, "mpileup", "-f", ref, *regions, "-Ou", alignment],
+    stdout=subprocess.PIPE,
+)
+call = subprocess.run(
+    [{bcftools!r}, "call", "-mv", "-Oz", "-o", out], stdin=mpileup.stdout
+)
+sys.exit(mpileup.wait() or call.returncode)
+"""
+
+
+class FakeGatk:
+    """A `gatk` (HaplotypeCaller) in ``bindir`` that calls with bcftools.
+
+    Like GATK it needs the reference's .dict, its --tmp-dir and, when
+    ``windows``, native paths; ``reads_cram=False`` is a GATK that can't read
+    CRAM 3.1. It calls the -L intervals (or the whole file). ``fail`` makes it
+    fail with that message, and ``on_contig`` maps contigs in its intervals to
+    "fail", "slow" (1 s) or "hang" (with a child "java" process; both PIDs go
+    to ``pids``). Each run's arguments are appended to ``log`` as JSON.
+    """
+
+    def __init__(self, bindir: Path, bcftools: str, **state: object) -> None:
+        self.log = bindir / "gatk-runs.jsonl"
+        self.pids = bindir / "gatk-pids.txt"
+        self._state = bindir / "gatk-state.json"
+        self._data: dict = {
+            "log": str(self.log),
+            "pids": str(self.pids),
+            "windows": False,
+            "reads_cram": True,
+            "fail": None,
+            "on_contig": {},
+        }
+        python_tool(bindir, "gatk", _FAKE_GATK.format(
+            state=str(self._state), bcftools=bcftools
+        ))  # fmt: skip
+        self.set(**state)
+
+    def set(self, **state: object) -> None:
+        self._data.update(state)
+        self._state.write_text(json.dumps(self._data))
+
+    def runs(self) -> list[list[str]]:
+        if not self.log.exists():
+            return []
+        return [json.loads(line) for line in self.log.read_text().splitlines()]

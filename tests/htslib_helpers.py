@@ -46,10 +46,12 @@ def sam_to_bam(lines: Iterable[str], bam_path: Path) -> str:
     return str(bam_path)
 
 
-def vcf_calls(vcf: str | Path) -> list[tuple[str, ...]]:
-    """(CHROM, POS, REF, ALT, GT) of each record of a single-sample VCF."""
+def vcf_calls(vcf: str | Path, region: str | None = None) -> list[tuple[str, ...]]:
+    """(CHROM, POS, REF, ALT, GT) of each record of a single-sample VCF, or of
+    those in ``region``, read through its index."""
     fmt = "%CHROM %POS %REF %ALT [%GT]\n"
-    query = [get_tool_path("bcftools"), "query", "-f", fmt, str(vcf)]
+    where = ["-r", region] if region else []
+    query = [get_tool_path("bcftools"), "query", "-f", fmt, *where, str(vcf)]
     out = run_command(query, capture_output=True).stdout
     return [tuple(line.split()) for line in out.splitlines()]
 
