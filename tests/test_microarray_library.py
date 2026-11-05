@@ -169,3 +169,43 @@ def test_a_missing_liftover_chain_names_the_directories_searched(
     assert "hg38ToHg19.over.chain.gz" in error
     assert str(tmp_path / "elsewhere") in error
     assert str(library) in error
+
+
+def test_files_beside_an_outside_fasta_come_before_the_library(
+    tmp_path: Path,
+) -> None:
+    """#429 review: a folder an older CLI used as the library (chip templates and
+    chains beside the FASTA) keeps working once a configured library, without
+    those chains, is the fallback; its target is built from its own templates,
+    beside it, rather than reused from the library."""
+    library = tmp_path / "reference"
+    _library(library)
+    elsewhere = tmp_path / "elsewhere"
+    _, seq = _library(elsewhere)
+    _identity_chain(elsewhere / "hg19ToHg38.over.chain.gz")
+    _identity_chain(elsewhere / "microarray" / "hg38ToHg19.over.chain.gz")
+    fasta = write_fasta(elsewhere / "hs38.fa", {"chr1": seq})
+    bam = _sample_bam(tmp_path, seq)
+    config = tmp_path / "config.toml"
+    config.write_text(
+        f'reference_library = "{library.as_posix()}"\n'
+        + state_directory_setting(tmp_path)
+    )
+    outdir = tmp_path / "out"
+
+    subprocess.run(
+        [sys.executable, "-m", "wgsextract_cli.main", "--config", str(config)]
+        + ["microarray", "--formats", "23andme_v3", "--input", bam]
+        + ["--ref", str(fasta), "--outdir", str(outdir)],
+        check=True,
+    )
+
+    kit = {
+        line.split("\t")[0]: line.split("\t")[3].strip()
+        for line in (outdir / "sample_23andMe_V3.txt").read_text().splitlines()
+        if not line.startswith("#")
+    }
+    assert kit == {rsid: genotype for rsid, _, genotype in MARKERS}
+    assert (elsewhere / "microarray" / "All_SNPs_hg38_ref.tab.gz").is_file()
+    assert not list(library.rglob("*.chain.gz"))
+    assert not (library / "microarray" / "All_SNPs_hg38_ref.tab.gz").exists()

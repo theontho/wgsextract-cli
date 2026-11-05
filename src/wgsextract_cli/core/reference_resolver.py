@@ -2,6 +2,7 @@ import functools
 import logging
 import os
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 from wgsextract_cli.core import sample_workspace
@@ -323,7 +324,9 @@ class ReferenceLibrary:
         ):
             self.vep_cache = configured_vep_cache
             return
-        for search_dir in self._resource_dirs("", "vep"):
+        # `vep download` writes into the library, so only its cache is used.
+        assert self.root is not None
+        for search_dir in [self.root, str(Path(self.root, "vep"))]:
             if Path(search_dir).is_dir() and any(
                 f.endswith(("_GRCh38", "_GRCh37")) for f in os.listdir(search_dir)
             ):
@@ -362,28 +365,21 @@ class ReferenceLibrary:
         generic_names = ["All_SNPs.vcf.gz", "common_all.vcf.gz"]
         walk_subdirs = ["microarray", "ref", str(Path("genomes", "microarray"))]
 
-        def search(root: str, names: list[str]) -> str | None:
-            return self._first_existing_file(
-                [str(Path(root, d)) for d in subdirs], names
-            ) or self._walk_for_file([str(Path(root, d)) for d in walk_subdirs], names)
+        def search(root: str) -> Iterator[str | None]:
+            dirs = [str(Path(root, d)) for d in subdirs]
+            walk = [str(Path(root, d)) for d in walk_subdirs]
+            yield self._first_existing_file(dirs, tab_names)
+            yield self._walk_for_file(walk, tab_names)
+            if root == self.resource_roots[0]:
+                yield resolve_input_target_tab(self.input_path)
+            yield self._first_existing_file(dirs, generic_names)
+            yield find_reference_target_tab(root, self.build or "")
+            yield self._walk_for_file(walk, generic_names)
 
-        def generic(root: str) -> str | None:
-            return (
-                self._first_existing_file(
-                    [str(Path(root, d)) for d in subdirs], generic_names
-                )
-                or find_reference_target_tab(root, self.build or "")
-                or self._walk_for_file(
-                    [str(Path(root, d)) for d in walk_subdirs], generic_names
-                )
-            )
-
-        self.ref_vcf_tab = (
-            next(
-                filter(None, (search(r, tab_names) for r in self.resource_roots)), None
-            )
-            or resolve_input_target_tab(self.input_path)
-            or next(filter(None, map(generic, self.resource_roots)), None)
+        # Every candidate in the FASTA's folder comes before the library's.
+        self.ref_vcf_tab = next(
+            (found for root in self.resource_roots for found in search(root) if found),
+            resolve_input_target_tab(self.input_path) or None,
         )
 
     def _resolve_annotation_files(self) -> None:
@@ -453,6 +449,18 @@ class ReferenceLibrary:
     def resource_roots(self) -> list[str]:
         """Folders searched for library resources, in order."""
         return [d for d in (self.beside_fasta, self.root) if d]
+
+    def resource_root(self, *relpaths: str) -> str | None:
+        """The first resource root holding one of relpaths, else the library
+        root, where missing resources are downloaded or built."""
+        return next(
+            (
+                root
+                for root in self.resource_roots
+                if any(Path(root, p).exists() for p in relpaths)
+            ),
+            self.root,
+        )
 
     def _resource_dirs(self, *subdirs: str) -> list[str]:
         """Each resource root's subdirectories, root by root."""

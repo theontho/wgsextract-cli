@@ -13,7 +13,7 @@ from pathlib import Path
 from wgsextract_cli.api._cli import add_arguments, cli_handler
 from wgsextract_cli.api._params import to_namespace
 from wgsextract_cli.api.microarray import MicroarrayParams
-from wgsextract_cli.core.aadr_resources import require_aadr_2m
+from wgsextract_cli.core.aadr_resources import AADR_2M_FILENAME, require_aadr_2m
 from wgsextract_cli.core.alignment_health import warn_about_alignment
 from wgsextract_cli.core.builds import (
     is_hg37_build,
@@ -57,7 +57,10 @@ from wgsextract_cli.core.microarray_targets import (
     is_genome_wide_target,
     ncbi36_chain,
 )
-from wgsextract_cli.core.microarray_utils import GenotypeTally
+from wgsextract_cli.core.microarray_utils import (
+    GenotypeTally,
+    _resolve_templates_roots,
+)
 from wgsextract_cli.core.paths import absolute_path
 from wgsextract_cli.core.reference_assets import input_stem, resolve_reference_library
 from wgsextract_cli.core.reference_resolver import ReferenceLibrary
@@ -142,6 +145,9 @@ def _resolve_microarray_format(format_key: str) -> str | None:
     return _MICROARRAY_TEMPLATE_MAP.get(normalized, normalized)
 
 
+_HG19_TO_HG38 = "hg19ToHg38.over.chain.gz"
+
+
 def _template_search_roots(ref_fasta: str, lib: ReferenceLibrary) -> list[str]:
     roots = []
     ref_dir = str(Path(ref_fasta).parent)
@@ -155,10 +161,25 @@ def _template_search_roots(ref_fasta: str, lib: ReferenceLibrary) -> list[str]:
     return roots
 
 
-def _ncbi36_chain(reflib_dir: str) -> str | None:
+def _target_root(lib: ReferenceLibrary) -> str | None:
+    """Where the genome-wide target is built: beside a FASTA kept outside the
+    library when chip templates are found from there (the target is built from
+    those), else in the library."""
+    if lib.beside_fasta and lib.root:
+        library = absolute_path(lib.root)
+        if any(
+            not absolute_path(t).is_relative_to(library)
+            for t in _resolve_templates_roots(lib.beside_fasta)
+        ):
+            return lib.beside_fasta
+    return lib.root
+
+
+def _ncbi36_chain(lib: ReferenceLibrary) -> str | None:
     """The hg18ToHg19 chain, or None to match NCBI36 markers by rsID."""
+    assert lib.root is not None
     try:
-        return ncbi36_chain(reflib_dir)
+        return ncbi36_chain(lib.root, lib.resource_roots)
     except WGSExtractError as e:
         logging.warning(str(e))
         return None
@@ -309,7 +330,7 @@ def _convert_microarray_outputs(
         output_file = str(Path(outdir, f"{base_name}_{real_fmt}{suffix}"))
         try:
             chain36 = (
-                _ncbi36_chain(lib.root)
+                _ncbi36_chain(lib)
                 if fmt_info and fmt_info.get("ncbi36") and lib.root
                 else None
             )
@@ -394,8 +415,13 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
                     "AADR 2M requires GRCh37 or GRCh38; its CHM13/T2T "
                     "projection is not supported."
                 )
-            require_aadr_2m(lib.root)
-            lifter = aadr_lifter(lib.build, outdir, lib.root, allow_download=False)
+            require_aadr_2m(lib.resource_root("aadr/" + AADR_2M_FILENAME))
+            lifter = aadr_lifter(
+                lib.build,
+                outdir,
+                lib.resource_root(_HG19_TO_HG38),
+                allow_download=False,
+            )
 
     logging.debug(f"Resolved Reference FASTA: {ref_fasta}")
     logging.debug(f"Resolved Target SNP Tab: {ref_vcf_tab}")
@@ -470,13 +496,23 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
         and (not aadr_panels or legacy_requested)
         and lib.root
         and lib.build
-        and (not ref_vcf_tab or is_genome_wide_target(ref_vcf_tab, lib.root, lib.build))
+        and (
+            not ref_vcf_tab
+            or any(
+                is_genome_wide_target(ref_vcf_tab, root, lib.build)
+                for root in lib.resource_roots
+            )
+        )
+        and (target_root := _target_root(lib))
     ):
         # A library set up with `ref bootstrap` has the chip templates but no
         # genome-wide target: build it from them, and rebuild one an older
         # version of the CLI built.
         ref_vcf_tab = build_genome_wide_target(
-            lib.root, lib.build, _template_search_roots(ref_fasta, lib)
+            target_root,
+            lib.build,
+            _template_search_roots(ref_fasta, lib),
+            lib.resource_roots,
         )
 
     legacy_target = None
@@ -486,7 +522,9 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
         calling_outdir = tempfile.mkdtemp(prefix="AADR_", dir=outdir)
         try:
             if "2m" not in aadr_panels:
-                lifter = aadr_lifter(lib.build, calling_outdir, lib.root)
+                lifter = aadr_lifter(
+                    lib.build, calling_outdir, lib.resource_root(_HG19_TO_HG38)
+                )
             legacy_panels = [panel for panel in aadr_panels if panel != "2m"]
             if "2m" in aadr_panels and is_vcf and (legacy_panels or legacy_requested):
                 legacy_workdir = str(Path(calling_outdir, "legacy"))
@@ -506,7 +544,7 @@ def _run(args: argparse.Namespace, cleanup: contextlib.ExitStack) -> None:
                 calling_outdir,
                 lifter,
                 ref_vcf_tab if args.ref_vcf_tab or legacy_requested else None,
-                reflib_dir=lib.root,
+                reflib_dir=lib.resource_root("aadr/" + AADR_2M_FILENAME),
             )
         except (OSError, ValueError) as e:
             raise WGSExtractError(f"Could not prepare AADR targets: {e}") from e

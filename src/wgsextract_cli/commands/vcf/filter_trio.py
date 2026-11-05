@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 
 from wgsextract_cli.core.alignment_health import warn_about_alignment
+from wgsextract_cli.core.builds import canonical_build
 from wgsextract_cli.core.dependency_checks import (
     log_dependency_info,
     verify_dependencies,
@@ -95,8 +96,12 @@ def cmd_filter(args: argparse.Namespace) -> None:
     if args.gene:
         from wgsextract_cli.core.gene_map import gene_coords
 
+        maps = [
+            str(Path(d, f"genes_{canonical_build(lib.build or 'hg38')}.tsv"))
+            for d in ("ref", "microarray")
+        ]
         resolved_region = gene_coords(
-            lib.root if lib.root else str(absolute_path(input_file).parent),
+            lib.resource_root(*maps) or str(absolute_path(input_file).parent),
             args.gene,
             lib.build or "hg38",
         )

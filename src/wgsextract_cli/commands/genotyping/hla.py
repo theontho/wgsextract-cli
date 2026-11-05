@@ -126,7 +126,8 @@ def hla_index(args: argparse.Namespace) -> str:
         if not Path(args.hla_index).is_file():
             raise WGSExtractError(f"HLA index not found: {args.hla_index}")
         return str(args.hla_index)
-    root = ReferenceLibrary(args.ref, skip_full_search=True).root
+    lib = ReferenceLibrary(args.ref, skip_full_search=True)
+    root = lib.resource_root(str(Path(INDEX_DIR, INDEX_FASTA)))
     if not root or not Path(root).is_dir():
         raise WGSExtractError(
             "No reference library to keep the T1K HLA index in: set "

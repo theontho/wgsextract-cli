@@ -370,6 +370,9 @@ def test_filter_unresolved_gene_fails(tmp_path):
         def __init__(self, *_a, **_k):
             pass
 
+        def resource_root(self, *_paths):
+            return self.root
+
     args = argparse.Namespace(
         input=str(vcf), vcf_input=None, outdir=str(tmp_path), ref=None,
         region=None, expr=None, gene="NOT_A_GENE", exclude_near_gaps=False,
